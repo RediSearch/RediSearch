@@ -279,7 +279,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
  * @param nrequests Number of requests in the array
  */
 void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests,
-                        size_t nrequests, RedisModuleString **argv, int argc) {
+                        size_t nrequests, RedisModuleString **argv, uint32_t argc) {
     hybridReq->requests = requests;
     hybridReq->nrequests = nrequests;
     hybridReq->sctx = sctx;
@@ -326,7 +326,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
 }
 
 HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests,
-                                 RedisModuleString **argv, int argc) {
+                                 RedisModuleString **argv, uint32_t argc) {
     // The wrappers hold the full command; each sub takes its own holds — a
     // sub's borrows can outlive the container.
     HybridRequest *hybridReq = rm_calloc(1, sizeof(*hybridReq));
@@ -337,13 +337,13 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
     return hybridReq;
 }
 
-void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, int argc) {
+void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, uint32_t argc) {
   // argc bounds the parse; the holds may cover a superset (debug flows).
-  RS_ASSERT((size_t)argc <= req->brc->argc);
+  RS_ASSERT(argc <= req->brc->argc);
   // The cursor covers the whole held command, pre-advanced past the command
   // and index names: recorded positions (sub queryOffsets, syntax-error
   // offsets) are relative to the full command.
-  ArgsCursor_InitRString(ac, req->brc->argv, argc);
+  ArgsCursor_InitRString(ac, req->brc->argv, (int)argc);
   AC_AdvanceBy(ac, argc > 2 ? 2 : argc);
 }
 
@@ -500,7 +500,7 @@ static RedisSearchCtx* createThreadSafeSearchContext(RedisModuleCtx *ctx, const 
   return NewSearchCtxC(detachedCtx, indexname, true);
 }
 
-HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx, RedisModuleString **argv, int argc) {
+HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx, RedisModuleString **argv, uint32_t argc) {
   extern size_t NumShards;  // Declared in module.c
   AREQ *search = AREQ_New();
   AREQ *vector = AREQ_New();

@@ -157,7 +157,7 @@ typedef struct blockedClientHybridCtx {
  * @param argc Number of strings in argv
 */
 HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests,
-                                 RedisModuleString **argv, int argc);
+                                 RedisModuleString **argv, uint32_t argc);
 
 /**
  * Initialize an already-allocated (zeroed) HybridRequest.
@@ -172,12 +172,12 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
  * @param argc Number of strings in argv
  */
 void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests,
-                        size_t nrequests, RedisModuleString **argv, int argc);
+                        size_t nrequests, RedisModuleString **argv, uint32_t argc);
 
 /* Wrap the request's held argv (taken at construction) in a parse cursor.
  * The caller's argc bounds the parse; the holds may cover a superset (the
  * coordinator debug flow strips trailing debug params). */
-void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor* ac, int argc);
+void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor* ac, uint32_t argc);
 
 /**
  * Build the depletion pipeline for hybrid search processing.
@@ -287,7 +287,7 @@ int HybridRequest_GetError(HybridRequest *req, QueryError *status);
 
 void HybridRequest_ClearErrors(HybridRequest *req);
 
-HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx, RedisModuleString **argv, int argc);
+HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx, RedisModuleString **argv, uint32_t argc);
 
 /**
  * Add information to validation error messages based on request type (VSIM/SEARCH subquery).

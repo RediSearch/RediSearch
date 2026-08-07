@@ -1182,13 +1182,13 @@ void BlockedRequestCtx_DecrRef(BlockedRequestCtx *brc) {
 /* Hold references to `argv` strings whose contents the wrapped request's
  * plan borrows (see BlockedRequestCtx.argv). Runs at construction, on
  * the main thread; released in BlockedRequestCtx_Free, also on main. */
-static void holdArgv(BlockedRequestCtx *brc, RedisModuleString **argv, size_t argc) {
+static void holdArgv(BlockedRequestCtx *brc, RedisModuleString **argv, uint32_t argc) {
   RS_ASSERT(argv != NULL);
   RS_ASSERT(brc->argv == NULL);
   brc->argv = rm_malloc(argc * sizeof(*brc->argv));
-  brc->argc = (uint32_t)argc;
-  brc->parseArgc = (uint32_t)argc;  // debug constructors lower it to exclude the debug tail
-  for (size_t ii = 0; ii < argc; ++ii) {
+  brc->argc = argc;
+  brc->parseArgc = argc;  // debug constructors lower it to exclude the debug tail
+  for (uint32_t ii = 0; ii < argc; ++ii) {
     brc->argv[ii] = RedisModule_HoldString(NULL, argv[ii]);
     // Redis auto-trims (reallocates) retained argv right after the command
     // callback returns — racing any thread already reading the string. Trim
@@ -1217,7 +1217,7 @@ static void releaseArgvOnMainThread(void *privdata) {
   rm_free(deferred);
 }
 
-BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq, RedisModuleString **argv, size_t argc) {
+BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq, RedisModuleString **argv, uint32_t argc) {
   // Wrapping an already-wrapped request would silently leak the first wrapper.
   RS_ASSERT(areq->brc == NULL);
   BlockedRequestCtx *brc = BlockedRequestCtx_NewCommon(REQUEST_KIND_AREQ);
@@ -1228,7 +1228,7 @@ BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq, RedisModuleString **arg
 }
 
 BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid,
-                                               RedisModuleString **argv, size_t argc) {
+                                               RedisModuleString **argv, uint32_t argc) {
   // Wrapping an already-wrapped request would silently leak the first wrapper.
   RS_ASSERT(hybrid->brc == NULL);
   BlockedRequestCtx *brc = BlockedRequestCtx_NewCommon(REQUEST_KIND_HYBRID);

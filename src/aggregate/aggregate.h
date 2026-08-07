@@ -480,9 +480,9 @@ static inline const char *AREQ_Query(const AREQ *req, size_t *len) {
 /* Allocate a heap BlockedRequestCtx owning the request (refcount=1), wire the
  * `brc` back-pointer, and take the argv holds (see `argv`). Main-thread
  * only; `argv` must not be NULL. */
-BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq, RedisModuleString **argv, size_t argc);
+BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq, RedisModuleString **argv, uint32_t argc);
 BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid,
-                                               RedisModuleString **argv, size_t argc);
+                                               RedisModuleString **argv, uint32_t argc);
 
 /* TRANSITIONAL(MOD-16691): increment / decrement the wrapper's reference
  * count. DecrRef triggers BlockedRequestCtx_Free when the count drops to
