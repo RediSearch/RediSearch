@@ -25,8 +25,6 @@ typedef struct timespec timespec;
 typedef struct AREQ AREQ;
 
 
-typedef struct RedisModuleCtx RedisModuleCtx;
-
 /**
  * Smart pointer handle for [`RLookupKey`] that can be
  * invalidated when the iterator that owns the key is freed.
@@ -108,6 +106,8 @@ typedef struct InvertedIndex InvertedIndex;
 typedef struct NumericRangeTree NumericRangeTree;
 
 typedef struct RLookupKey RLookupKey;
+
+typedef struct RedisModuleCtx RedisModuleCtx;
 
 /**
  * Results returned by a [`ProduceResultsFn`].

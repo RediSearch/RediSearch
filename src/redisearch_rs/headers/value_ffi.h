@@ -26,8 +26,6 @@ typedef enum RSValueType {
   RSValueType_Map = 8,
 } RSValueType;
 
-typedef struct RedisModuleString RedisModuleString;
-
 /**
  * Opaque map structure used during map construction.
  * Holds uninitialized entries that are populated via [`RSValue_MapBuilderSetEntry`]
@@ -39,6 +37,8 @@ typedef struct RSValueMapBuilder RSValueMapBuilder;
  * The C version of a [`SharedValue`](value::SharedValue)
  */
 typedef struct RSValue RSValue;
+
+typedef struct RedisModuleString RedisModuleString;
 
 typedef struct QueryError QueryError;
 
