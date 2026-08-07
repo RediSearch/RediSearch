@@ -301,20 +301,20 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     hybridReq->tailPipeline = rm_calloc(1, sizeof(Pipeline));
     AGPLN_Init(&hybridReq->tailPipeline->ap);
     hybridReq->tailPipelineError = QueryError_Default();
-  Pipeline_Initialize(hybridReq->tailPipeline, hybridReq->reqConfig.timeoutPolicy,
-                      &hybridReq->tailPipelineError);
+    Pipeline_Initialize(hybridReq->tailPipeline, hybridReq->reqConfig.timeoutPolicy,
+                        &hybridReq->tailPipelineError);
 
     // Initialize pipelines for each individual request
     for (size_t i = 0; i < nrequests; i++) {
         initializeAREQ(requests[i]);
-    // Each sub-AREQ gets its own wrapper, holding the whole command
-    // rather than its own slice: slice boundaries are only discovered
-    // while parsing, and sub pipelines borrow beyond their slice anyway
-    // (distributed tail steps like LOAD, PARAMS).
-    BlockedRequestCtx_NewAREQ(requests[i], argv, argc);
+        // Each sub-AREQ gets its own wrapper, holding the whole command
+        // rather than its own slice: slice boundaries are only discovered
+        // while parsing, and sub pipelines borrow beyond their slice anyway
+        // (distributed tail steps like LOAD, PARAMS).
+        BlockedRequestCtx_NewAREQ(requests[i], argv, argc);
         hybridReq->errors[i] = QueryError_Default();
-    Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy,
-                        &hybridReq->errors[i]);
+        Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy,
+                            &hybridReq->errors[i]);
     }
     hybridReq->profileClocks.initClock = now;
 
@@ -325,13 +325,13 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
 }
 
 HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests, RedisModuleString **argv, uint32_t argc) {
-  // The wrappers hold the full command; each sub takes its own holds — a
-  // sub's borrows can outlive the container.
+    // The wrappers hold the full command; each sub takes its own holds — a
+    // sub's borrows can outlive the container.
     HybridRequest *hybridReq = rm_calloc(1, sizeof(*hybridReq));
-  HybridRequest_Init(hybridReq, sctx, requests, nrequests, argv, argc);
+    HybridRequest_Init(hybridReq, sctx, requests, nrequests, argv, argc);
     // Wrap the top-level hybrid request in its single-owner sync context.
     // Sets hybridReq->brc; ownership is released via HybridRequest_DecrRef.
-  BlockedRequestCtx_NewHybrid(hybridReq, argv, argc);
+    BlockedRequestCtx_NewHybrid(hybridReq, argv, argc);
     return hybridReq;
 }
 
