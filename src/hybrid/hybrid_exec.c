@@ -281,14 +281,15 @@ bool HybridRequest_TimeoutPreemptSafeLoaderGIL(HybridRequest *hreq) {
 
 static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
   CommonPipelineCtx ctx = {
-    .timeoutPolicy = hreq->reqConfig.timeoutPolicy,
-    .timeout = &hreq->sctx->time.timeout,
-    .oomPolicy = hreq->reqConfig.oomPolicy,
-    .skipTimeoutChecks = !HybridRequest_ShouldCheckTimeout(hreq),
-    // Borrow a subquery AREQ as the tail's row-boundary timeout-flag proxy:
-    // HybridRequest_SetTimedOut propagates to every subquery's AREQ, so
-    // AggregateResults can bail between rows while draining buffered tail rows.
-    .areq = hreq->requests[SEARCH_INDEX],
+      .timeoutPolicy = hreq->reqConfig.timeoutPolicy,
+      .timeout = &hreq->sctx->time.timeout,
+      .oomPolicy = hreq->reqConfig.oomPolicy,
+      .skipTimeoutChecks = !HybridRequest_ShouldCheckTimeout(hreq),
+      .useReplyCallback = hreq->useReplyCallback,
+      // Borrow a subquery AREQ as the tail's row-boundary timeout-flag proxy:
+      // HybridRequest_SetTimedOut propagates to every subquery's AREQ, so
+      // AggregateResults can bail between rows while draining buffered tail rows.
+      .areq = hreq->requests[SEARCH_INDEX],
   };
 
 #ifdef ENABLE_ASSERT
@@ -536,7 +537,7 @@ static inline void debugPauseHybridStoreCursors(HybridRequest *hreq, bool before
 #endif
 
 /**
- * Store pipeline results for reply_callback path (FAIL policy with workers).
+ * Store pipeline results for the background reply_callback path.
  * Called after startPipelineHybrid when using reply_callback mode.
  * Stores results in hreq->brc->reply so serializeStoredResults_hybrid can be called
  * from the reply_callback on the main thread.
@@ -555,11 +556,9 @@ void HREQ_StoreResults(HybridRequest *hreq, SearchResult **results, int rc, cach
 }
 
 // Helper for error handling in coordinator HREQ execution.
-// FAIL / RETURN_STRICT (useReplyCallback=true): store the error for the
-//   reply_callback to handle.
-// RETURN (useReplyCallback=false): reply directly - an empty result set with a
-//   timeout warning when the error is a non-fail-policy timeout (no result set
-//   was produced here), otherwise the error itself.
+// Background execution (useReplyCallback=true) stores the error for the
+// reply_callback. Inline execution replies directly; a non-fail-policy timeout
+// becomes an empty result set with a warning when no result set was produced.
 void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status) {
   if (hreq->useReplyCallback) {
     // Deep copy since QueryError contains heap-allocated strings.
@@ -639,7 +638,7 @@ done_err:
 }
 
 /**
- * Serialize results from stored state (reply_callback path for FAIL policy).
+ * Serialize results from stored state on the main-thread reply_callback path.
  * Called by DistHybridReplyCallback on the main thread after background thread stored results.
  */
 void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply) {
@@ -1104,7 +1103,7 @@ static int HybridQueryCursorTimeoutReturnStrictCallback(RedisModuleCtx *ctx, Red
   return REDISMODULE_OK;
 }
 
-// Reply callback for HybridRequest execution in Run in Threads mode (FAIL policy).
+// Reply callback for HybridRequest execution in Run in Threads mode.
 // Called on the main thread when the background thread calls UnblockClient.
 // For internal hybrid requests (cursor reply)
 static int HybridQueryCursorReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -1135,7 +1134,7 @@ static int HybridQueryCursorReplyCallback(RedisModuleCtx *ctx, RedisModuleString
   return REDISMODULE_OK;
 }
 
-// Reply callback for HybridRequest execution in Run in Threads mode (FAIL policy).
+// Reply callback for HybridRequest execution in Run in Threads mode.
 // Called on the main thread when the background thread calls UnblockClient.
 // For non-internal hybrid requests (STANDALONE)
 static int HybridQueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -1200,14 +1199,17 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
     RedisModuleCmdFunc timeoutCallback = NULL;
     rs_wall_clock_ms_t timeoutMS = 0;
 
-    if (timeoutPolicy != TimeoutPolicy_Return) {
-      replyCallback = internal
-          ? HybridQueryCursorReplyCallback
-          : HybridQueryReplyCallback;
-
-      timeoutMS = hreq->reqConfig.queryTimeoutMS;
+    // Internal RETURN cursor setup still replies inline: its depletion timeout
+    // warning is local to HybridRequest_StartCursors and is not persisted in
+    // callback state. The user-facing hybrid tail uses the array-backed reply
+    // callback, as do all policies that arm a blocked-client timer.
+    const bool deferReply = !internal || timeoutPolicy != TimeoutPolicy_Return;
+    if (deferReply) {
+      replyCallback = internal ? HybridQueryCursorReplyCallback : HybridQueryReplyCallback;
       hreq->useReplyCallback = true;
-
+    }
+    if (timeoutPolicy != TimeoutPolicy_Return) {
+      timeoutMS = hreq->reqConfig.queryTimeoutMS;
       if (timeoutPolicy == TimeoutPolicy_Fail) {
         timeoutCallback = HybridQueryTimeoutFailCallback;
       } else {

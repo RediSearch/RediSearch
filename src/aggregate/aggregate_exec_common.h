@@ -36,6 +36,9 @@ typedef struct CommonPipelineCtx {
   struct timespec *timeout;
   RSOomPolicy oomPolicy;
   bool skipTimeoutChecks;
+  // A background reply callback needs an owned result array that survives
+  // until the main thread serializes it.
+  bool useReplyCallback;
 
   // AREQ for the request being executed; consulted by AggregateResults (and
   // its debug pause loop) to bail when the main-thread timeout callback flips

@@ -3877,13 +3877,13 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   RSTimeoutPolicy policy = r->reqConfig.timeoutPolicy;
   handlerCtx.bcCtx.brc = r->brc;
+  handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
+  r->useReplyCallback = true;
   if (policy == TimeoutPolicy_Fail || policy == TimeoutPolicy_ReturnStrict) {
-    handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
     handlerCtx.bcCtx.timeout_callback = (policy == TimeoutPolicy_Fail)
         ? DistAggregateTimeoutFailCallback
         : DistAggregateTimeoutReturnStrictCallback;
     handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
-    r->useReplyCallback = true;
     if (policy == TimeoutPolicy_ReturnStrict) {
       r->brc->requiresAggregateResultsSync = true;
     }
@@ -3980,14 +3980,13 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   handlerCtx.numShards = NumShards;  // Capture NumShards from main thread for thread-safe access
 
   handlerCtx.bcCtx.brc = hreq->brc;
-
+  handlerCtx.bcCtx.reply_callback = DistHybridReplyCallback;
+  hreq->useReplyCallback = true;
   if (policy != TimeoutPolicy_Return) {
-    handlerCtx.bcCtx.reply_callback = DistHybridReplyCallback;
     handlerCtx.bcCtx.timeout_callback = (policy == TimeoutPolicy_Fail)
         ? DistHybridTimeoutFailCallback
         : DistHybridTimeoutReturnStrictCallback;
     handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
-    hreq->useReplyCallback = true;
   }
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,

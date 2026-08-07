@@ -182,7 +182,7 @@ def test_debug_timeout_fail_tail():
 
 def test_debug_timeout_return_tail():
     """Test RETURN policy with tail timeout using debug parameters"""
-    env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN')
+    env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN WORKERS 1')
     setup_basic_index(env)
     response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector,
                        'TIMEOUT_AFTER_N_TAIL', '1', 'DEBUG_PARAMS_COUNT', '2')
@@ -220,7 +220,7 @@ def test_debug_timeout_return_both():
 @skip(cluster=True)
 def test_debug_timeout_return_with_results():
     """Test RETURN policy returns partial results when components timeout"""
-    env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN')
+    env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN WORKERS 1')
     setup_basic_index(env)
     # VSIM returns doc:2 and doc:4 (without timeout), SEARCH returns doc:3 (without timeout)
     response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'gear', 'VSIM', \

@@ -1322,7 +1322,7 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
   return REDISMODULE_OK;
 }
 
-// Reply callback for Coordinator HybridRequest execution (FAIL policy).
+// Reply callback for Coordinator HybridRequest execution.
 // Called on the main thread when the background thread calls UnblockClient.
 // The background thread stored results in hreq->brc->reply, which we use to build the reply.
 // Note: This callback is NOT called if timeout fired first (bc->client becomes NULL).

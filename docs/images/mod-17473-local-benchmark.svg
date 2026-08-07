@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+<rect width="100%" height="100%" fill="white"/>
+<rect x="697.5" y="150" width="45.0" height="725" fill="#e7f0fe"/>
+<line x1="420.0" y1="150" x2="420.0" y2="875" stroke="#d1d5db" stroke-width="1"/>
+<text x="420.0" y="913" text-anchor="middle" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">-40%</text>
+<line x1="570.0" y1="150" x2="570.0" y2="875" stroke="#d1d5db" stroke-width="1"/>
+<text x="570.0" y="913" text-anchor="middle" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">-20%</text>
+<line x1="720.0" y1="150" x2="720.0" y2="875" stroke="#374151" stroke-width="3"/>
+<text x="720.0" y="913" text-anchor="middle" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">+0%</text>
+<line x1="870.0" y1="150" x2="870.0" y2="875" stroke="#d1d5db" stroke-width="1"/>
+<text x="870.0" y="913" text-anchor="middle" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">+20%</text>
+<line x1="1020.0" y1="150" x2="1020.0" y2="875" stroke="#d1d5db" stroke-width="1"/>
+<text x="1020.0" y="913" text-anchor="middle" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">+40%</text>
+<text x="24" y="47" font-family="DejaVu Sans,sans-serif" font-size="27" font-weight="bold" fill="#111827">MOD-17473 — Full-result performance</text>
+<text x="24" y="83" font-family="DejaVu Sans,sans-serif" font-size="18" fill="#4b5563">Equal work: identical complete 10k-row replies · baseline 20ba4ed7c2 → PR d22ed77e59</text>
+<text x="24" y="113" font-family="DejaVu Sans,sans-serif" font-size="15" font-weight="bold" fill="#1f4f7a">Effect axis: positive = favorable · paired-bootstrap 95% CIs · N=5 SCREENING</text>
+<text x="24" y="210.8" font-family="DejaVu Sans,sans-serif" font-size="18" fill="#111827">RESP2 · workers=1</text>
+<text x="24" y="234.8" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">Throughput · requests/s</text>
+<line x1="530.2" y1="213.8" x2="698.0" y2="213.8" stroke="#9a6b16" stroke-width="4"/>
+<line x1="530.2" y1="206.8" x2="530.2" y2="220.8" stroke="#9a6b16" stroke-width="3"/>
+<line x1="698.0" y1="206.8" x2="698.0" y2="220.8" stroke="#9a6b16" stroke-width="3"/>
+<circle cx="621.8" cy="213.8" r="7" fill="#9a6b16"/>
+<text x="1040" y="211.8" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#111827">effect -13.1% · 95% CI [-25.3, -2.9]</text>
+<text x="1040" y="231.8" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">N=5 SCREENING · inconclusive</text>
+<text x="24" y="278.2" font-family="DejaVu Sans,sans-serif" font-size="18" fill="#111827">RESP2 · workers=1</text>
+<text x="24" y="302.2" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">Latency · p99</text>
+<line x1="490.8" y1="281.2" x2="717.0" y2="281.2" stroke="#9a6b16" stroke-width="4"/>
+<line x1="490.8" y1="274.2" x2="490.8" y2="288.2" stroke="#9a6b16" stroke-width="3"/>
+<line x1="717.0" y1="274.2" x2="717.0" y2="288.2" stroke="#9a6b16" stroke-width="3"/>
+<circle cx="623.2" cy="281.2" r="7" fill="#9a6b16"/>
+<text x="1040" y="279.2" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#111827">effect -12.9% · 95% CI [-30.6, -0.4]</text>
+<text x="1040" y="299.2" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">N=5 SCREENING · inconclusive</text>
+<text x="24" y="345.8" font-family="DejaVu Sans,sans-serif" font-size="18" fill="#111827">RESP3 · workers=0</text>
+<text x="24" y="369.8" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">Throughput · requests/s</text>
+<line x1="674.9" y1="348.8" x2="725.4" y2="348.8" stroke="#9a6b16" stroke-width="4"/>
+<line x1="674.9" y1="341.8" x2="674.9" y2="355.8" stroke="#9a6b16" stroke-width="3"/>
+<line x1="725.4" y1="341.8" x2="725.4" y2="355.8" stroke="#9a6b16" stroke-width="3"/>
+<circle cx="701.3" cy="348.8" r="7" fill="#9a6b16"/>
+<text x="1040" y="346.8" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#111827">effect -2.5% · 95% CI [-6.0, +0.7]</text>
+<text x="1040" y="366.8" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">N=5 SCREENING · inconclusive</text>
+<text x="24" y="413.2" font-family="DejaVu Sans,sans-serif" font-size="18" fill="#111827">RESP3 · workers=0</text>
+<text x="24" y="437.2" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">Latency · p99</text>
+<line x1="683.3" y1="416.2" x2="725.9" y2="416.2" stroke="#9a6b16" stroke-width="4"/>
+<line x1="683.3" y1="409.2" x2="683.3" y2="423.2" stroke="#9a6b16" stroke-width="3"/>
+<line x1="725.9" y1="409.2" x2="725.9" y2="423.2" stroke="#9a6b16" stroke-width="3"/>
+<circle cx="704.9" cy="416.2" r="7" fill="#9a6b16"/>
+<text x="1040" y="414.2" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#111827">effect -2.0% · 95% CI [-4.9, +0.8]</text>
+<text x="1040" y="434.2" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">N=5 SCREENING · inconclusive</text>
+<text x="24" y="480.8" font-family="DejaVu Sans,sans-serif" font-size="18" fill="#111827">RESP3 · workers=1</text>
+<text x="24" y="504.8" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">Throughput · requests/s</text>
+<line x1="612.2" y1="483.8" x2="776.1" y2="483.8" stroke="#9a6b16" stroke-width="4"/>
+<line x1="612.2" y1="476.8" x2="612.2" y2="490.8" stroke="#9a6b16" stroke-width="3"/>
+<line x1="776.1" y1="476.8" x2="776.1" y2="490.8" stroke="#9a6b16" stroke-width="3"/>
+<circle cx="690.0" cy="483.8" r="7" fill="#9a6b16"/>
+<text x="1040" y="481.8" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#111827">effect -4.0% · 95% CI [-14.4, +7.5]</text>
+<text x="1040" y="501.8" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">N=5 SCREENING · inconclusive</text>
+<text x="24" y="548.2" font-family="DejaVu Sans,sans-serif" font-size="18" fill="#111827">RESP3 · workers=1</text>
+<text x="24" y="572.2" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">Latency · p99</text>
+<line x1="549.4" y1="551.2" x2="800.4" y2="551.2" stroke="#9a6b16" stroke-width="4"/>
+<line x1="549.4" y1="544.2" x2="549.4" y2="558.2" stroke="#9a6b16" stroke-width="3"/>
+<line x1="800.4" y1="544.2" x2="800.4" y2="558.2" stroke="#9a6b16" stroke-width="3"/>
+<circle cx="681.7" cy="551.2" r="7" fill="#9a6b16"/>
+<text x="1040" y="549.2" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#111827">effect -5.1% · 95% CI [-22.7, +10.7]</text>
+<text x="1040" y="569.2" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">N=5 SCREENING · inconclusive</text>
+<text x="24" y="615.8" font-family="DejaVu Sans,sans-serif" font-size="18" fill="#111827">RESP3 · workers=16</text>
+<text x="24" y="639.8" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">Throughput · requests/s</text>
+<line x1="574.9" y1="618.8" x2="607.8" y2="618.8" stroke="#c2413b" stroke-width="4"/>
+<line x1="574.9" y1="611.8" x2="574.9" y2="625.8" stroke="#c2413b" stroke-width="3"/>
+<line x1="607.8" y1="611.8" x2="607.8" y2="625.8" stroke="#c2413b" stroke-width="3"/>
+<circle cx="591.0" cy="618.8" r="7" fill="#c2413b"/>
+<text x="1040" y="608.8" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#111827">effect -17.2% · 95% CI [-19.4, -15.0]</text>
+<text x="1040" y="628.8" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">N=5 SCREENING · regression</text>
+<text x="1040" y="648.8" font-family="DejaVu Sans,sans-serif" font-size="15" font-weight="bold" fill="#8a4b08">ORDER-CONFOUNDED (5/0 AB)</text>
+<text x="24" y="683.2" font-family="DejaVu Sans,sans-serif" font-size="18" fill="#111827">RESP3 · workers=16</text>
+<text x="24" y="707.2" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">Latency · p99</text>
+<line x1="565.7" y1="686.2" x2="628.2" y2="686.2" stroke="#c2413b" stroke-width="4"/>
+<line x1="565.7" y1="679.2" x2="565.7" y2="693.2" stroke="#c2413b" stroke-width="3"/>
+<line x1="628.2" y1="679.2" x2="628.2" y2="693.2" stroke="#c2413b" stroke-width="3"/>
+<circle cx="597.5" cy="686.2" r="7" fill="#c2413b"/>
+<text x="1040" y="676.2" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#111827">effect -16.3% · 95% CI [-20.6, -12.2]</text>
+<text x="1040" y="696.2" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">N=5 SCREENING · regression</text>
+<text x="1040" y="716.2" font-family="DejaVu Sans,sans-serif" font-size="15" font-weight="bold" fill="#8a4b08">ORDER-CONFOUNDED (5/0 AB)</text>
+<text x="24" y="750.8" font-family="DejaVu Sans,sans-serif" font-size="18" fill="#111827">RESP3 · no LIMIT · workers=1</text>
+<text x="24" y="774.8" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">Throughput · requests/s</text>
+<line x1="557.5" y1="753.8" x2="787.9" y2="753.8" stroke="#9a6b16" stroke-width="4"/>
+<line x1="557.5" y1="746.8" x2="557.5" y2="760.8" stroke="#9a6b16" stroke-width="3"/>
+<line x1="787.9" y1="746.8" x2="787.9" y2="760.8" stroke="#9a6b16" stroke-width="3"/>
+<circle cx="668.4" cy="753.8" r="7" fill="#9a6b16"/>
+<text x="1040" y="751.8" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#111827">effect -6.9% · 95% CI [-21.7, +9.1]</text>
+<text x="1040" y="771.8" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">N=5 SCREENING · inconclusive</text>
+<text x="24" y="818.2" font-family="DejaVu Sans,sans-serif" font-size="18" fill="#111827">RESP3 · no LIMIT · workers=1</text>
+<text x="24" y="842.2" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">Latency · p99</text>
+<line x1="444.9" y1="821.2" x2="744.9" y2="821.2" stroke="#9a6b16" stroke-width="4"/>
+<line x1="444.9" y1="814.2" x2="444.9" y2="828.2" stroke="#9a6b16" stroke-width="3"/>
+<line x1="744.9" y1="814.2" x2="744.9" y2="828.2" stroke="#9a6b16" stroke-width="3"/>
+<circle cx="621.5" cy="821.2" r="7" fill="#9a6b16"/>
+<text x="1040" y="819.2" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#111827">effect -13.1% · 95% CI [-36.7, +3.3]</text>
+<text x="1040" y="839.2" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">N=5 SCREENING · inconclusive</text>
+<text x="24" y="947" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">Blue band: ±3% equivalence threshold. Arrowheads: CIs clipped at ±40%; annotations are exact.</text>
+<text x="24" y="976" font-family="DejaVu Sans,sans-serif" font-size="15" font-weight="bold" fill="#8a4b08">ORDER NOTE: full workers=16 is screening-only: all 5 pairs were AB (baseline first; 5/0). Timeout workers=16 is order-skewed (4/1 AB/BA).</text>
+</svg>
