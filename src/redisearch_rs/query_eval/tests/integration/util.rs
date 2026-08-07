@@ -13,7 +13,7 @@
 /// borrows the pointer array (mirroring production, where the keys are a
 /// window into the request's held argv); this owner must outlive the
 /// evaluation and frees the strings on drop.
-pub struct MockKeys(Vec<*mut ffi::RedisModuleString>);
+pub struct MockKeys(Vec<*mut redis_module::raw::RedisModuleString>);
 
 impl MockKeys {
     pub fn new(names: &[&str]) -> Self {
@@ -25,7 +25,7 @@ impl MockKeys {
             names
                 .iter()
                 .map(|name| {
-                    redis_mock::string::create_string(name).cast::<ffi::RedisModuleString>()
+                    redis_mock::string::create_string(name).cast::<redis_module::raw::RedisModuleString>()
                 })
                 .collect(),
         )
@@ -37,7 +37,7 @@ impl MockKeys {
         Self(vec![std::ptr::null_mut(); n])
     }
 
-    pub fn as_ptr(&self) -> *mut *mut ffi::RedisModuleString {
+    pub fn as_ptr(&self) -> *mut *mut redis_module::raw::RedisModuleString {
         self.0.as_ptr().cast_mut()
     }
 

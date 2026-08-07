@@ -216,7 +216,7 @@ impl MockQueryNode {
     /// `keys` and `doc_ids` must outlive this `MockQueryNode`.
     pub fn set_ids(
         &mut self,
-        keys: *mut *mut ffi::RedisModuleString,
+        keys: *mut *mut redis_module::raw::RedisModuleString,
         doc_ids: *mut DocId,
         len: usize,
     ) {

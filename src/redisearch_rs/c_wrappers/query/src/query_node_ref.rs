@@ -100,7 +100,7 @@ pub enum QueryNode<'a> {
         /// The key names to match against: `RedisModuleString`s borrowed
         /// from storage owned by the request (its held argv). Opaque to
         /// Rust; resolved through `DocTable_GetIdR`.
-        keys: &'a [*mut ffi::RedisModuleString],
+        keys: &'a [*mut redis_module::raw::RedisModuleString],
         /// Pre-resolved document IDs (resolved on the main thread for
         /// search-on-disk).  `None` when not in disk mode.
         doc_ids: Option<&'a [DocId]>,

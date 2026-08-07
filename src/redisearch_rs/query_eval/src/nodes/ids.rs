@@ -28,7 +28,7 @@ use crate::{Evaluated, QueryEvalContext};
 ///   lookup.
 pub(crate) fn eval<'index>(
     ctx: &'index mut QueryEvalContext,
-    keys: &[*mut ffi::RedisModuleString],
+    keys: &[*mut redis_module::raw::RedisModuleString],
     doc_ids: Option<&[DocId]>,
 ) -> Evaluated<'index> {
     // Pre-resolved `doc_ids` are only produced on the search-on-disk path, so

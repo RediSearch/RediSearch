@@ -10,8 +10,6 @@
 #include "search_result_rs.h"
 #include "rlookup.h"
 
-typedef struct RedisModuleKey RedisModuleKey;
-
 /**
  * The C version of a [`SharedValue`](value::SharedValue)
  */
@@ -23,6 +21,8 @@ typedef struct RSValue RSValue;
  * and a list of fields loaded by the chain
  */
 typedef struct SearchResult SearchResult;
+
+typedef struct RedisModuleKey RedisModuleKey;
 
 typedef struct QueryError QueryError;
 

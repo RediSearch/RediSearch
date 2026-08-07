@@ -1766,6 +1766,7 @@ dependencies = [
  "query_error",
  "query_flags",
  "query_types",
+ "redis-module",
  "redis_mock",
  "redisearch_rs",
  "rlookup",
