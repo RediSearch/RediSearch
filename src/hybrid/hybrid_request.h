@@ -21,61 +21,61 @@ struct Cursor;
 #define HYBRID_IMPLICIT_KEY_FIELD "__key"
 
 typedef struct HybridRequest {
-  arrayof(AREQ *) requests;
-  size_t nrequests;
-  QueryError tailPipelineError;
-  QueryError *errors;
-  Pipeline *tailPipeline;
-  RequestConfig reqConfig;
-  CursorConfig cursorConfig;
-  RPStatus *subqueriesReturnCodes;  // Array to store return codes from each subquery
-  RedisSearchCtx *sctx;
-  QEFlags reqflags;
-  ProfileClocks profileClocks;
-  profiler_func profile;
-  ProfilePrinterCtx profileCtx;
+    arrayof(AREQ*) requests;
+    size_t nrequests;
+    QueryError tailPipelineError;
+    QueryError *errors;
+    Pipeline *tailPipeline;
+    RequestConfig reqConfig;
+    CursorConfig cursorConfig;
+    RPStatus *subqueriesReturnCodes;  // Array to store return codes from each subquery
+    RedisSearchCtx *sctx;
+    QEFlags reqflags;
+    ProfileClocks profileClocks;
+    profiler_func profile;
+    ProfilePrinterCtx profileCtx;
 
-  // Synchronization context for timeout/reply callbacks.
-  // Holds the per-request timeout flag and abort-wake channel.
-  RequestSyncState syncState;
+    // Synchronization context for timeout/reply callbacks.
+    // Holds the per-request timeout flag and abort-wake channel.
+    RequestSyncState syncState;
 
-  // Non-owning back-pointer to the heap wrapper that owns this request.
-  BlockedRequestCtx *brc;
+    // Non-owning back-pointer to the heap wrapper that owns this request.
+    BlockedRequestCtx *brc;
 
-  // Flag to indicate whether to skip timeout checks using clock checks
-  bool skipTimeoutChecks;
+    // Flag to indicate whether to skip timeout checks using clock checks
+    bool skipTimeoutChecks;
 
-  bool useReplyCallback;
+    bool useReplyCallback;
 
-  // State for reply_callback path (FAIL policy with workers in coordinator mode)
-  // Background thread stores results here, then calls UnblockClient.
-  // Mutex for synchronizing cursor creation with timeout callback.
-  // Protects cursor array access to ensure proper cleanup on timeout.
-  pthread_mutex_t cursorMutex;
+    // State for reply_callback path (FAIL policy with workers in coordinator mode)
+    // Background thread stores results here, then calls UnblockClient.
+    // Mutex for synchronizing cursor creation with timeout callback.
+    // Protects cursor array access to ensure proper cleanup on timeout.
+    pthread_mutex_t cursorMutex;
 
-  // Array of depleted cursors for reply_callback path (internal hybrid search).
-  // Non-NULL only after the initial cursor pipelines are safe to publish.
-  // Protected by cursorMutex to synchronize with timeout callback.
-  // Cleanup is handled by:
-  // - reply_callback: frees array after replying with cursor IDs
-  // - timeout_callback: acquires lock and consumes published cursors, if any
-  // - HybridRequest_StartCursors: checks timedOut flag before publishing, or frees on error
-  arrayof(struct Cursor *) cursors;
+    // Array of depleted cursors for reply_callback path (internal hybrid search).
+    // Non-NULL only after the initial cursor pipelines are safe to publish.
+    // Protected by cursorMutex to synchronize with timeout callback.
+    // Cleanup is handled by:
+    // - reply_callback: frees array after replying with cursor IDs
+    // - timeout_callback: acquires lock and consumes published cursors, if any
+    // - HybridRequest_StartCursors: checks timedOut flag before publishing, or frees on error
+    arrayof(struct Cursor*) cursors;
 
-  // Optional debug parameters for _FT.DEBUG FT.HYBRID.
-  // When non-NULL, debug timeouts are applied after pipeline building.
-  // Heap-allocated and owned by HybridRequest — freed in HybridRequest_Free.
-  HybridDebugParams *debugParams;
+    // Optional debug parameters for _FT.DEBUG FT.HYBRID.
+    // When non-NULL, debug timeouts are applied after pipeline building.
+    // Heap-allocated and owned by HybridRequest — freed in HybridRequest_Free.
+    HybridDebugParams *debugParams;
 
-  // Thread pool ID used for coordinator depletion and tail continuation jobs.
-  // Set once before pipeline construction; read by BuildDistributedDepletionPipeline
-  // and scheduleHybridTail.
-  int poolId;
-  // Index of the K value argument in the MRCommand for SHARD_K_RATIO
-  // optimization.
-  // Set during command building, used by command modifier callback. -1 if
-  // not applicable.
-  int kArgIndex;
+    // Thread pool ID used for coordinator depletion and tail continuation jobs.
+    // Set once before pipeline construction; read by BuildDistributedDepletionPipeline
+    // and scheduleHybridTail.
+    int poolId;
+    // Index of the K value argument in the MRCommand for SHARD_K_RATIO
+    // optimization.
+    // Set during command building, used by command modifier callback. -1 if
+    // not applicable.
+    int kArgIndex;
 } HybridRequest;
 
 // Timeout helper functions for HybridRequest (mirrors AREQ pattern)
@@ -148,16 +148,14 @@ typedef struct blockedClientHybridCtx {
  * Create a new HybridRequest that manages multiple search requests for hybrid search.
  * This function initializes the hybrid request structure and sets up the tail pipeline
  * that will be used to merge and process results from all individual search requests.
- * @param sctx The main search context for the hybrid request - the redisCtx inside can change if
- * moving to different thread
- * @param requests Array of AREQ pointers representing individual search requests, the hybrid
- * request will take ownership of the array
+ * @param sctx The main search context for the hybrid request - the redisCtx inside can change if moving to different thread
+ * @param requests Array of AREQ pointers representing individual search requests, the hybrid request will take ownership of the array
  * @param nrequests Number of requests in the array
  * @param argv The command argv, not NULL; the container's and each
  *   sub-request's wrapper take holds on the full command (main-thread only —
  *   see BlockedRequestCtx.argv)
  * @param argc Number of strings in argv
- */
+*/
 HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests, RedisModuleString **argv, uint32_t argc);
 
 /**
