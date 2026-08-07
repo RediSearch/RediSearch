@@ -1461,8 +1461,12 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskInd
   brc->queryOffset = offset;
 
   // Parse the query and basic keywords first..
+  // The cursor covers the whole held command, pre-advanced to the parse
+  // start: positions recorded off the cursor (syntax-error offsets,
+  // prefixesOffset) are relative to the full command, not the parsed tail.
   ArgsCursor ac = {0};
-  ArgsCursor_InitRString(&ac, brc->argv + offset, brc->parseArgc - offset);
+  ArgsCursor_InitRString(&ac, brc->argv, brc->parseArgc);
+  AC_AdvanceBy(&ac, offset);
 
   if (AC_IsAtEnd(&ac)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "No query string provided");
@@ -1642,7 +1646,9 @@ static bool IsIndexCoherent(AREQ *req) {
     return true;
   }
 
-  RedisModuleString **args = req->brc->argv + req->brc->queryOffset;
+  // prefixesOffset indexes the full held command (recorded off the compile
+  // cursor, which covers the whole command).
+  RedisModuleString **args = req->brc->argv;
   long long n_prefixes = 0;
   RedisModule_StringToLongLong(args[req->prefixesOffset + 1], &n_prefixes);
   // The first argument is at req->prefixesOffset + 2
