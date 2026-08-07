@@ -149,8 +149,10 @@ impl<'a> RLookup<'a> {
             // while respecting caller's control flags (F_OVERRIDE, F_FORCE_LOAD, etc.)
             let combined_flags = flags | src_key.flags & !TRANSIENT_FLAGS;
 
-            // NB: get_key_write returns none if the key already exists and `flags` don't contain `Override`.
-            // In this case, we just want to move on to the next key
+            // NB: get_key_write returns none if the key already exists and `flags` don't
+            // contain `Override`, or if the lookup is full. Either way we move on to the
+            // next key; `RLookupRow::copy_fields_from` treats a key that is missing from
+            // the destination like a field the document does not have.
             let _ = self.get_key_write(src_key.name().clone(), combined_flags);
         }
     }

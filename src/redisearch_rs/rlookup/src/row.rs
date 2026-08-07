@@ -363,7 +363,7 @@ impl<'a> RLookupRow<'a> {
                         // This can happen with LOAD * where keys are created dynamically.
                         dst_lookup.get_key_write(src_key.name().clone(), flags)
                     }
-                    _ => panic!("all source keys must exist in destination"),
+                    None => None,
                 };
 
                 // A field whose key is missing from the destination is left out, like

@@ -943,37 +943,42 @@ fn write_fields_multiple_sources_full_overlap() {
 }
 
 #[test]
-#[should_panic(expected = "all source keys must exist in destination")]
 #[cfg_attr(
     miri,
     ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
 )]
-fn write_fields_key_missing_in_dst_should_panic() {
-    // Tests basic field writing between lookup rows
+fn write_fields_key_missing_in_dst_is_skipped() {
     let mut src_lookup = RLookup::new();
     let mut dst_lookup = RLookup::new();
 
-    // Create source keys
     let src_key1_name = CString::new("field1").unwrap();
     let src_key2_name = CString::new("field2").unwrap();
 
     let mut src_row: RLookupRow = RLookupRow::new();
 
-    // Write values to source row
     let value1 = SharedValue::new_num(100.0);
     let value2 = SharedValue::new_num(200.0);
 
     src_row.write_key_by_name(&mut src_lookup, src_key1_name.to_owned(), value1.clone());
     src_row.write_key_by_name(&mut src_lookup, src_key2_name.to_owned(), value2.clone());
 
-    // Add source keys to destination lookup (simulating RLookup_AddKeysFrom)
-    // Don't add key2, to force expected panic.
+    // Add only key1 to the destination lookup; key2 stands in for a key the
+    // destination could not take, e.g. because it was full.
     dst_lookup.get_key_write(src_key1_name.to_owned(), RLookupKeyFlags::empty());
 
     let mut dst_row: RLookupRow = RLookupRow::new();
 
-    // Write fields from source to destination
     dst_row.copy_fields_from(&mut dst_lookup, &src_row, &src_lookup, false);
+
+    // key1 is copied; key2 is treated like a field the document does not have.
+    let dst_key1 = dst_lookup
+        .find_key_by_name(&src_key1_name)
+        .unwrap()
+        .into_current()
+        .unwrap();
+    assert_eq!(dst_row.get(dst_key1).unwrap().as_num(), Some(100.0));
+    assert_eq!(dst_row.num_dyn_values(), 1);
+    assert!(dst_lookup.find_key_by_name(&src_key2_name).is_none());
 }
 
 #[test]
