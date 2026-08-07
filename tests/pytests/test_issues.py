@@ -425,18 +425,14 @@ def test_MOD_1517(env):
 
 @skip(msan=True, no_json=True)
 def test_MOD1544(env):
-  # Test parsing failure
   conn = getConnectionByEnv(env)
   env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.name', 'AS', 'name', 'TEXT')
   conn.execute_command('JSON.SET', '1', '.', '{"name": "John Smith"}')
-  # res = [1, '1', ['name', '<b>John</b> Smith']]
-
-  # Highlight/summarize is not supported with JSON indexes
-  error_msg = "HIGHLIGHT/SUMMARIZE is not supported with JSON indexes"
+  res = [1, '1', ['name', '<b>John</b> Smith']]
   env.expect('FT.SEARCH', 'idx', '@name:(John)', 'RETURN', '1', 'name',
-             'HIGHLIGHT').error().contains(error_msg)
+             'HIGHLIGHT', 'DIALECT', '2').equal(res)
   env.expect('FT.SEARCH', 'idx', '@name:(John)', 'RETURN', '1', 'name',
-             'HIGHLIGHT', 'FIELDS', '1', 'name').error().contains(error_msg)
+             'HIGHLIGHT', 'FIELDS', '1', 'name', 'DIALECT', '2').equal(res)
 
 def test_MOD_1808(env):
   conn = getConnectionByEnv(env)
