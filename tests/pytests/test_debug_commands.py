@@ -250,6 +250,12 @@ class TestDebugCommands(object):
         self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').error().contains('GC is already running periodically')
         self.env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
         self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
+        # CONTINUE must leave the GC enabled, not merely reply OK.
+        self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').error().contains('GC is already running periodically')
+        # STOP is idempotent.
+        self.env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+        self.env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+        self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
 
     def testTTLcommands(self):
         num_indexes = len(self.env.cmd('FT._LIST'))
