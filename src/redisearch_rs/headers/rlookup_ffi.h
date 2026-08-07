@@ -253,7 +253,8 @@ const FieldSpec *RLookup_FindFieldInSpecCache(const struct RLookup *lookup, cons
  *
  * A key is returned only if it's already in the lookup table (available from the
  * pipeline upstream), it is part of the index schema and is sortable (and then it is created), or
- * if the lookup table accepts unresolved keys.
+ * if the lookup table accepts unresolved keys. `NULL` is also returned when a key would
+ * have to be created but the lookup is already at its key limit.
  *
  * # Safety
  *
@@ -304,7 +305,8 @@ void RLookupRow_WriteByName(struct RLookup *lookup, const char *name, size_t nam
  *
  * A key is returned only if it's already in the lookup table (available from the
  * pipeline upstream), it is part of the index schema and is sortable (and then it is created), or
- * if the lookup table accepts unresolved keys.
+ * if the lookup table accepts unresolved keys. `NULL` is also returned when a key would
+ * have to be created but the lookup is already at its key limit.
  *
  * # Safety
  *
@@ -355,7 +357,8 @@ void RLookupRow_WriteByNameOwned(struct RLookup *lookup, const char *name, size_
  * Get an RLookup key for a given name.
  *
  * A key is created and returned only if it's NOT in the lookup table, unless the
- * override flag is set.
+ * override flag is set. `NULL` is also returned when a key would have to be created
+ * but the lookup is already at its key limit.
  *
  * # Safety
  *
@@ -383,8 +386,10 @@ RLookupKey *RLookup_GetKey_Write(struct RLookup *lookup, const char *name, uint3
  *
  * If a source key has no value in the source row, it is skipped.
  *
- * If a source key is not found in the destination lookup the function will either create it or panic
- * depending on the value of `create_missing_keys`.
+ * If a source key is not found in the destination lookup, it is created when
+ * `create_missing_keys` is set and the destination lookup can still take a key;
+ * otherwise the field is left out of the destination row, like a field the
+ * document does not have.
  *
  * # Safety
  *
@@ -403,7 +408,8 @@ void RLookupRow_WriteFieldsFrom(const struct RLookupRow *src_row, const struct R
  * Get an RLookup key for a given name.
  *
  * A key is created and returned only if it's NOT in the lookup table, unless the
- * override flag is set.
+ * override flag is set. `NULL` is also returned when a key would have to be created
+ * but the lookup is already at its key limit.
  *
  * # Safety
  *
@@ -447,7 +453,8 @@ struct RSValue *RLookupRow_Get(const RLookupKey *key, const struct RLookupRow *r
  * A key is created and returned only if it's NOT in the lookup table (unless the
  * override flag is set), and it is not already loaded. It will override an existing key if it was
  * created for read out of a sortable field, and the field was normalized. A sortable un-normalized
- * field counts as loaded.
+ * field counts as loaded. `NULL` is also returned when a key would have to be created
+ * but the lookup is already at its key limit.
  *
  * # Safety
  *
@@ -500,7 +507,8 @@ void RLookupRow_SetSortingVector(struct RLookupRow *row, const RSSortingVector *
  * A key is created and returned only if it's NOT in the lookup table (unless the
  * override flag is set), and it is not already loaded. It will override an existing key if it was
  * created for read out of a sortable field, and the field was normalized. A sortable un-normalized
- * field counts as loaded.
+ * field counts as loaded. `NULL` is also returned when a key would have to be created
+ * but the lookup is already at its key limit.
  *
  * # Safety
  *

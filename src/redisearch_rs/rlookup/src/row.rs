@@ -327,15 +327,17 @@ impl<'a> RLookupRow<'a> {
     ///
     /// If a source key has no value in the source row, it is skipped.
     ///
-    /// If a source key is not found in the destination lookup the function will either create it or panic
-    /// depending on the value of `create_missing_keys`.
+    /// If a source key is not found in the destination lookup, it is created when
+    /// `create_missing_keys` is set and the destination lookup can still take a key;
+    /// otherwise the field is left out of this row, like a field the document does
+    /// not have.
     ///
     /// # Arguments
     ///
     /// - `dst_lookup`: The destination lookup containing the schema of this row, must be the associated lookup of `self`.
     /// - `src_row`: The source row from which to copy values.
     /// - `src_lookup`: The source lookup containing the schema of the source row, must be the associated lookup of `src_row`.
-    /// - `create_missing_keys`: Whether keys missing in `dst_lookup` should be created automatically, or force a panic.
+    /// - `create_missing_keys`: Whether keys missing in `dst_lookup` should be created automatically.
     pub fn copy_fields_from(
         &mut self,
         dst_lookup: &mut RLookup<'a>,
