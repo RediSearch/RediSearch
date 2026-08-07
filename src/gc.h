@@ -56,9 +56,12 @@ typedef struct GCContext {
   void* gcCtx;
   RedisModuleTimerID timerID;  // a live timer, or 0. Never a sentinel. Guarded by the GIL
   bool enabled;                // periodic collection wanted. Guarded by the GIL
-  // Shared with the GC thread, though every access today is also under the GIL -- correctness
-  // rests on that, not on the atomic. A bit set so a bit added later can be tested against
-  // RUN_PENDING in one read-modify-write; separate relaxed accesses would not be ordered.
+  // Captured by the pass that posted the re-arm; a queued GC_FORCEINVOKE can overwrite the
+  // GC's retryInterval before the one-shot drains, so it is not re-read there.
+  struct timespec pendingInterval;
+  // Main thread only in the real path; the atomic covers the RS_IsMock fallback, where the GC
+  // thread clears it. A bit set so a bit added later can be tested against RUN_PENDING in one
+  // read-modify-write; separate relaxed accesses would not be ordered.
   RS_Atomic(unsigned) schedFlags;
   GCCallbacks callbacks;
 } GCContext;

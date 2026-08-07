@@ -263,5 +263,10 @@ void DebugBgIterator_Clear(struct MRIterator *it);
 void IncrementLoadYieldCounter(void);
 void IncrementBgIndexYieldCounter(void);
 
+// GC timer arm counters. `FromOneShot` counts the arms that went through the main-thread
+// one-shot; a test asserts the two are equal to prove no arm happened on the GC thread.
+void IncrementGCTimerArm(void);
+void IncrementGCTimerArmFromOneShot(void);
+
 // Indexer sleep before yield functions
 unsigned int GetIndexerSleepBeforeYieldMicros(void);

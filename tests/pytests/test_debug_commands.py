@@ -71,6 +71,7 @@ class TestDebugCommands(object):
             "INFO",
             'GET_HIDE_USER_DATA_FROM_LOGS',
             'YIELDS_COUNTER',
+            'GC_TIMER_ARMS',
             'INDEXER_SLEEP_BEFORE_YIELD_MICROS',
             'QUERY_CONTROLLER',
             'DUMP_SCHEMA',

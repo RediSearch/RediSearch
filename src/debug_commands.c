@@ -2556,6 +2556,46 @@ void ResetYieldCounters(void) {
   g_yieldCallHandler.yieldOnBgIndexCounter = 0;
 }
 
+// Both are only ever bumped on the main thread.
+typedef struct {
+  size_t total;
+  size_t fromOneShot;
+} GCTimerArmCounters;
+
+static GCTimerArmCounters g_gcTimerArms = {0};
+
+void IncrementGCTimerArm(void) {
+  g_gcTimerArms.total++;
+}
+
+void IncrementGCTimerArmFromOneShot(void) {
+  g_gcTimerArms.fromOneShot++;
+}
+
+// FT.DEBUG GC_TIMER_ARMS TOTAL|FROM_ONESHOT|RESET
+DEBUG_COMMAND(GCTimerArms) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  size_t len;
+  const char *subCmd = RedisModule_StringPtrLen(argv[2], &len);
+  if (STR_EQCASE(subCmd, len, "RESET")) {
+    g_gcTimerArms = (GCTimerArmCounters){0};
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+  if (STR_EQCASE(subCmd, len, "TOTAL")) {
+    return RedisModule_ReplyWithLongLong(ctx, (long long)g_gcTimerArms.total);
+  }
+  if (STR_EQCASE(subCmd, len, "FROM_ONESHOT")) {
+    return RedisModule_ReplyWithLongLong(ctx, (long long)g_gcTimerArms.fromOneShot);
+  }
+  return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
+}
+
 // Get the current sleep time before yielding (in microseconds)
 unsigned int GetIndexerSleepBeforeYieldMicros(void) {
   return g_yieldCallHandler.indexerSleepBeforeYieldMicros;
@@ -3609,6 +3649,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"INFO", IndexObfuscatedInfo},
                                {"GET_HIDE_USER_DATA_FROM_LOGS", getHideUserDataFromLogs},
                                {"YIELDS_COUNTER", YieldCounter},
+                               {"GC_TIMER_ARMS", GCTimerArms},
                                {"INDEXER_SLEEP_BEFORE_YIELD_MICROS", IndexerSleepBeforeYieldMicros},
                                {"QUERY_CONTROLLER", queryController},
                                {"DUMP_SCHEMA", DumpSchema},

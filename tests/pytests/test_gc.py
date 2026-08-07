@@ -854,6 +854,34 @@ def testGCStopScheduleDuringRun():
                             f'{stopped_at} -> {after_stop}')
     env.expect('PING').equal(True)
 
+# Regression for MOD-17309: the re-arm moved off the GC thread onto a main-thread one-shot.
+@skip(cluster=True)
+def testGCKeepsReschedulingItself_MOD_17309():
+    """Every arm goes through the main-thread one-shot, and the chain sustains itself."""
+    env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 1')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+    def arms(which):
+        return int(env.cmd(debug_cmd(), 'GC_TIMER_ARMS', which))
+
+    # Reset so the one main-thread arm from GCContext_Start at index creation is not counted.
+    env.expect(debug_cmd(), 'GC_TIMER_ARMS', 'RESET').ok()
+
+    def total():
+        return arms('TOTAL')
+
+    wait_for_condition(lambda: (total() >= 3, {'arms': total()}),
+                       'GC stopped rescheduling itself', timeout=60)
+
+    # Freeze the chain first: the two counters are read in separate round trips, so an arm
+    # landing between them would fail this even though every arm went through the one-shot.
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+    env.cmd(debug_cmd(), 'GC_WAIT_FOR_JOBS')
+    total_arms, oneshot_arms = arms('TOTAL'), arms('FROM_ONESHOT')
+    env.assertEqual(total_arms, oneshot_arms,
+                    message=f'a timer arm bypassed the main-thread one-shot: '
+                            f'{total_arms} total vs {oneshot_arms} from one-shot')
+
 
 @skip(cluster=True)
 def testGCContinueScheduleDuringRun_MOD_17309():
@@ -911,3 +939,27 @@ def testGCTerminatesAfterDropWhileStopped(env):
     env.expect('FT.DROPINDEX', 'idx').ok()
     wait_for_condition(lambda: (logically_deleted() == 0, {'not_collected': logically_deleted()}),
                        'stopped GC never terminated after its index was dropped', timeout=30)
+
+
+@skip(cluster=True)
+def testGCTeardownAfterContinueAndDrop_MOD_17309():
+    """A run that finds the index dropped must tear down cleanly, leaving no armed timer."""
+    env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 1 FORK_GC_CLEAN_THRESHOLD 0')
+    skipIfNoEnableAssert(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.cmd('HSET', 'doc1', 't', 'hello')
+    env.expect('DEL', 'doc1').equal(1)
+
+    armParkedGCRun(env)
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_TASK_START)
+
+    con = env.getConnection()
+    p = con.pipeline(transaction=False)
+    p.execute_command(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx')
+    p.execute_command(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx')
+    p.execute_command('FT.DROPINDEX', 'idx')
+    p.execute(raise_on_error=False)
+
+    sleep(3)
+    env.expect('PING').equal(True)
+    env.expect('FT._LIST').equal([])
