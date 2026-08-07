@@ -415,7 +415,9 @@ prepare_cmake_arguments() {
     # 1. Use CC/CXX/LD if set by user
     # 2. Otherwise, try clang-$VERSION matching Rust's LLVM version
     # 3. Otherwise, fall back to clang/clang++/lld
-    RUSTC_LLVM_VERSION=$(rustc --version --verbose | grep "LLVM version" | awk '{print $3}' | cut -d. -f1)
+    RUSTC_VERBOSE_VERSION=$(rustc --version --verbose)
+    RUSTC_LLVM_VERSION=$(echo "$RUSTC_VERBOSE_VERSION" | sed -n 's/^LLVM version: \([0-9]*\).*/\1/p')
+    RUST_TARGET_TRIPLE=${CARGO_BUILD_TARGET:-$(echo "$RUSTC_VERBOSE_VERSION" | sed -n 's/^host: //p')}
     if [[ -z "$CC" ]]; then
       if command -v "clang-$RUSTC_LLVM_VERSION" &>/dev/null; then
         C_COMPILER="clang-$RUSTC_LLVM_VERSION"
@@ -466,11 +468,12 @@ prepare_cmake_arguments() {
     # Use 'sed -E' for compatibility with both GNU sed and BSD sed
     CLANG_LLVM_VERSION=$($C_COMPILER --version | head -n1 | sed -En 's/.*version ([0-9]+).*/\1/p' | head -n1)
 
-    if [[ -z "$RUSTC_LLVM_VERSION" || -z "$CLANG_LLVM_VERSION" ]]; then
+    if [[ -z "$RUSTC_LLVM_VERSION" || -z "$CLANG_LLVM_VERSION" || -z "$RUST_TARGET_TRIPLE" ]]; then
         echo "Error: Could not detect LLVM versions for rustc and clang."
         echo "Cross-language LTO requires matching LLVM major versions."
         echo "Rust LLVM version: $RUSTC_LLVM_VERSION"
         echo "Clang LLVM version: $CLANG_LLVM_VERSION"
+        echo "Rust target triple: $RUST_TARGET_TRIPLE"
         exit 1
     fi
 
@@ -560,8 +563,13 @@ prepare_cmake_arguments() {
     # branch always compiles with clang, which flags those as
     # -Wunknown-warning-option — a hard error in vendored targets that add
     # -Werror (e.g. VectorSimilarity spaces). Silence that diagnostic.
-    export CFLAGS="${CFLAGS:+${CFLAGS} }-Wno-unknown-warning-option ${GCC_COMMON_FLAGS}"
-    export CXXFLAGS="${CXXFLAGS:+${CXXFLAGS} }-Wno-unknown-warning-option ${GCC_COMMON_FLAGS}${GCC_CXX_FLAGS:+ ${GCC_CXX_FLAGS}}"
+    # LLVM warns once per imported module if the C/C++ and Rust bitcode use
+    # semantically equivalent but differently spelled target triples (for
+    # example, Clang's x86_64-pc-linux-gnu versus Rust's
+    # x86_64-unknown-linux-gnu). Use Rust's effective target for every Clang
+    # invocation, including those issued by Rust `cc` build scripts.
+    export CFLAGS="${CFLAGS:+${CFLAGS} }--target=${RUST_TARGET_TRIPLE} -Wno-unknown-warning-option ${GCC_COMMON_FLAGS}"
+    export CXXFLAGS="${CXXFLAGS:+${CXXFLAGS} }--target=${RUST_TARGET_TRIPLE} -Wno-unknown-warning-option ${GCC_COMMON_FLAGS}${GCC_CXX_FLAGS:+ ${GCC_CXX_FLAGS}}"
     # Export CC/CXX so that Rust's cc crate also uses clang, matching the
     # clang-specific flags in CFLAGS/CXXFLAGS (e.g. --gcc-install-dir).
     export CC="$C_COMPILER"
