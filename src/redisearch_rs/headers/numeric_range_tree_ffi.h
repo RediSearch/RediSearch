@@ -33,12 +33,12 @@ typedef enum ApplyGcEntryStatus {
   DeserializationError,
 } ApplyGcEntryStatus;
 
-typedef struct RedisModuleCtx RedisModuleCtx;
-
 /**
  * Filter details to apply to numeric values
  */
 typedef struct NumericFilter NumericFilter;
+
+typedef struct RedisModuleCtx RedisModuleCtx;
 
 /**
  * An opaque inverted index reader structure. The actual implementation is determined at runtime

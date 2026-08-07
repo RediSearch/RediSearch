@@ -14,9 +14,7 @@ use value::{SharedValue, Trio, Value};
 const CHAIN_DEPTH: usize = 256;
 
 fn ref_chain(depth: usize, terminal: Value) -> Value {
-    (0..depth).fold(terminal, |inner, _| {
-        Value::Ref(SharedValue::new(inner))
-    })
+    (0..depth).fold(terminal, |inner, _| Value::Ref(SharedValue::new(inner)))
 }
 
 fn trio_left_chain(depth: usize, terminal: Value) -> Value {
