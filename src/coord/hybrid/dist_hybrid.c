@@ -69,6 +69,15 @@ struct ConcurrentCmdCtx;
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
 #define HYBRID_RESP_PROTOCOL_VERSION 3
 
+// Scratch buffer for formatting one numeric argument before appending it to an
+// MRCommand. 25 is the exact minimum: the widest output below, plus its NUL.
+//   %.17g  -DBL_MAX   "-1.7976931348623157e+308"  24  RRF CONSTANT, LINEAR ALPHA/BETA
+//   %lld   INT64_MIN  "-9223372036854775808"      20  TIMEOUT
+//   %zu    SIZE_MAX   "18446744073709551615"      20  WINDOW
+//   %lu    ULONG_MAX  "18446744073709551615"      20  PARAMS count
+//   %d     (literal)  "8"                          1  COMBINE argument count
+#define HYBRID_NUM_BUF_SIZE 25
+
 /**
  * Appends all SEARCH-related arguments to MR command.
  * This includes SEARCH keyword, query, and optional SCORER and YIELD_SCORE_AS parameters
@@ -273,7 +282,7 @@ static void MRCommand_appendCombine(MRCommand *xcmd, const HybridCombineWirePara
   }
   const HybridScoringContext *sc = cp->scoringCtx;
   const bool hasAlias = cp->scoreAlias != NULL;
-  char numBuf[32];
+  char numBuf[HYBRID_NUM_BUF_SIZE];
   const size_t numBufSize = sizeof(numBuf);
   int n;
 
@@ -327,17 +336,17 @@ static void MRCommand_appendParams(MRCommand *xcmd, dict *params) {
   if (n == 0) {
     return;
   }
-  char numBuf[32];
+  char numBuf[HYBRID_NUM_BUF_SIZE];
   MRCommand_Append(xcmd, "PARAMS", strlen("PARAMS"));
   int len = snprintf(numBuf, sizeof(numBuf), "%lu", n * 2);
   MRCommand_Append(xcmd, numBuf, len);
 
   dictIterator *it = dictGetIterator(params);
-  dictEntry *entry;
+  const dictEntry *entry;
   while ((entry = dictNext(it))) {
     const char *name = dictGetKey(entry);
     MRCommand_Append(xcmd, name, strlen(name));
-    RedisModuleString *value = dictGetVal(entry);
+    const RedisModuleString *value = dictGetVal(entry);
     size_t valueLen;
     const char *valueData = RedisModule_StringPtrLen(value, &valueLen);
     MRCommand_Append(xcmd, valueData, valueLen);
@@ -402,7 +411,7 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
 
   // Forward the client's query timeout when TIMEOUT was set.
   if (forwardTimeout) {
-    char numBuf[32];
+    char numBuf[HYBRID_NUM_BUF_SIZE];
     MRCommand_Append(xcmd, "TIMEOUT", strlen("TIMEOUT"));
     int len = snprintf(numBuf, sizeof(numBuf), "%lld", timeoutMS);
     MRCommand_Append(xcmd, numBuf, len);

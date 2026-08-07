@@ -57,7 +57,7 @@ static PairSet collectParamsPairs(const std::vector<std::string> &toks, size_t s
   if (outCount) *outCount = count;
   PairSet pairs;
   for (long j = 0; j + 1 < count && start + 3 + (size_t)j < toks.size(); j += 2) {
-    pairs.insert({toks[start + 2 + j], toks[start + 3 + j]});
+    pairs.emplace(toks[start + 2 + j], toks[start + 3 + j]);
   }
   return pairs;
 }
@@ -103,8 +103,8 @@ static void expectParamsAndTimeout(const std::vector<std::string> &toks,
                                    bool forwardTimeout, long long timeoutMS) {
   expectParamsBlock(toks, expectedPairs);
   int timeoutInParams = 0;
-  for (const auto &kv : expectedPairs) {
-    if (strcasecmp(kv.second.c_str(), "TIMEOUT") == 0) timeoutInParams++;
+  for (const auto &[name, value] : expectedPairs) {
+    if (strcasecmp(value.c_str(), "TIMEOUT") == 0) timeoutInParams++;
   }
   EXPECT_EQ(countTok(toks, "TIMEOUT"), (forwardTimeout ? 1 : 0) + timeoutInParams);
   if (forwardTimeout && timeoutInParams == 0) {
@@ -115,12 +115,14 @@ static void expectParamsAndTimeout(const std::vector<std::string> &toks,
 // Build a parameter dict from a flat name,value,... list, recording the
 // expected pairs. Returns NULL for an empty list (the no-PARAMS case). The
 // returned dict is owned by the caller (free with Param_DictFree).
-dict *makeParamsDict(const std::vector<const char*>& paramsKV, ParamList &expectedPairs) {
+dict *makeParamsDict(const std::vector<std::string>& paramsKV, ParamList &expectedPairs) {
   dict *params = paramsKV.empty() ? nullptr : Param_DictCreate();
   QueryError status = QueryError_Default();
   for (size_t i = 0; i + 1 < paramsKV.size(); i += 2) {
-    Param_DictAdd(params, paramsKV[i], paramsKV[i + 1], strlen(paramsKV[i + 1]), &status);
-    expectedPairs.push_back({paramsKV[i], paramsKV[i + 1]});
+    const std::string &name = paramsKV[i];
+    const std::string &value = paramsKV[i + 1];
+    Param_DictAdd(params, name.c_str(), value.data(), value.size(), &status);
+    expectedPairs.emplace_back(name, value);
   }
   return params;
 }
@@ -185,14 +187,46 @@ static HybridCombineWireParams linearWireParams(HybridScoringContext *sc, double
   return HybridCombineWireParams{sc, alias};
 }
 
+// Advance `ii` past a client-supplied COMBINE clause - COMBINE + method + count
+// + N args, plus a trailing positional YIELD_SCORE_AS <alias>.
+// No-op when the client supplied no COMBINE.
+static void skipClientCombineClause(const std::vector<const char *> &inputArgs, size_t &ii) {
+  if (strcasecmp(inputArgs[ii], "COMBINE") != 0) {
+    return;
+  }
+  ii += 2;                             // COMBINE, method
+  const long n = atol(inputArgs[ii]);  // count
+  ii += 1 + (size_t)n;                 // count token + its args
+  if (ii < inputArgs.size() && strcasecmp(inputArgs[ii], "YIELD_SCORE_AS") == 0) {
+    ii += 2;                           // positional YIELD_SCORE_AS <alias>
+  }
+}
+
+// Assert the output PARAMS clause at `oi` carries exactly the pairs of the input
+// PARAMS clause at `ii`, then advance both indices past their clause.
+static void verifyParamsClause(const MRCommand *xcmd, const std::vector<const char *> &inputArgs,
+                               size_t &ii, int &oi) {
+  const std::vector<std::string> inToks(inputArgs.begin(), inputArgs.end());
+  long inCount = 0;
+  PairSet want = collectParamsPairs(inToks, ii, &inCount);
+  ii += 2 + (size_t)inCount;
+
+  EXPECT_LT(oi + 1, xcmd->num) << "output should carry a reconstructed PARAMS clause";
+  EXPECT_STREQ(xcmd->strs[oi], "PARAMS") << "PARAMS clause expected at output index " << oi;
+  long outCount = 0;
+  PairSet got = collectParamsPairs(toTokens(xcmd), oi, &outCount);
+  EXPECT_EQ(outCount, inCount) << "PARAMS count must equal 2 * number of parsed params";
+  EXPECT_EQ(got, want)
+      << "reconstructed PARAMS pairs must match the client's (order-independent)";
+  oi += 2 + (size_t)outCount;
+}
+
 // Assert every input arg is preserved by position in the output. The
 // coordinator always inserts one reconstructed COMBINE clause after the VSIM
 // block; the oracle spots it in the output (COMBINE followed by a scoring
 // method - a PARAMS-value COMBINE never is) and, if the client supplied its own
 // COMBINE clause, drops that clause from the input side since the reconstructed
-// form replaces it. The PARAMS clause is reconstructed from the parsed dict, so
-// it is compared as an order-independent {name, value} set rather than by
-// position. Returns the output index just past the matched prefix.
+// form replaces it.
 static int verifyArgsPreservedWithReconstructedCombine(
     const MRCommand *xcmd, const std::vector<const char *> &inputArgs,
     const HybridCombineWireParams *cp) {
@@ -212,50 +246,15 @@ static int verifyArgsPreservedWithReconstructedCombine(
         oi++;
       }
       reconstructedMatched = true;
-      // If the client supplied its own COMBINE clause at this position, drop it
-      // from the input stream: COMBINE + method + count + N args.
-      if (strcasecmp(inputArgs[ii], "COMBINE") == 0) {
-        ii += 2;                          // COMBINE, method
-        long n = atol(inputArgs[ii]);     // count
-        ii += 1 + (size_t)n;              // count token + its args
-        if (ii < inputArgs.size() && strcasecmp(inputArgs[ii], "YIELD_SCORE_AS") == 0) {
-          ii += 2;                        // positional YIELD_SCORE_AS <alias>
-        }
-      }
-      continue;
+      skipClientCombineClause(inputArgs, ii);
+    } else if (strcasecmp(inputArgs[ii], "PARAMS") == 0) {
+      verifyParamsClause(xcmd, inputArgs, ii, oi);
+    } else {
+      EXPECT_STREQ(xcmd->strs[oi], inputArgs[ii])
+          << "Argument at input index " << ii << " should be preserved";
+      oi++;
+      ii++;
     }
-    // PARAMS is reconstructed from the parsed dictionary, so the pair order on
-    // the wire need not match the client's input order. Slice each PARAMS clause
-    // into tokens and compare them as order-independent {name, value} sets via
-    // the shared collectParamsPairs (binary-safe on the length-delimited output).
-    if (strcasecmp(inputArgs[ii], "PARAMS") == 0) {
-      const long inCount = atol(inputArgs[ii + 1]);
-      std::vector<std::string> inToks;
-      for (long k = 0; k < 2 + inCount && ii + (size_t)k < inputArgs.size(); k++) {
-        inToks.emplace_back(inputArgs[ii + k]);
-      }
-      PairSet want = collectParamsPairs(inToks, 0, nullptr);
-      ii += 2 + (size_t)inCount;
-
-      EXPECT_LT(oi + 1, xcmd->num) << "output should carry a reconstructed PARAMS clause";
-      EXPECT_STREQ(xcmd->strs[oi], "PARAMS") << "PARAMS clause expected at output index " << oi;
-      const long outDeclared = (oi + 1 < xcmd->num) ? atol(xcmd->strs[oi + 1]) : 0;
-      std::vector<std::string> outToks;
-      for (int k = 0; k < 2 + (int)outDeclared && oi + k < xcmd->num; k++) {
-        outToks.emplace_back(xcmd->strs[oi + k], xcmd->lens[oi + k]);
-      }
-      long outCount = 0;
-      PairSet got = collectParamsPairs(outToks, 0, &outCount);
-      EXPECT_EQ(outCount, inCount) << "PARAMS count must equal 2 * number of parsed params";
-      EXPECT_EQ(got, want)
-          << "reconstructed PARAMS pairs must match the client's (order-independent)";
-      oi += 2 + (size_t)outCount;
-      continue;
-    }
-    EXPECT_STREQ(xcmd->strs[oi], inputArgs[ii])
-        << "Argument at input index " << ii << " should be preserved";
-    oi++;
-    ii++;
   }
   return oi;
 }
@@ -515,7 +514,7 @@ protected:
 
   void testCommandTransformationWithoutIndexSpecWithParams(
           const std::vector<const char*>& baseArgs,
-          const std::vector<const char*>& paramsKV,
+          const std::vector<std::string>& paramsKV,
           long long timeoutMS,
           const HybridCombineWireParams *combineParams = nullptr) {
       ASSERT_EQ(paramsKV.size() % 2, 0u) << "paramsKV must be name,value pairs";
@@ -557,7 +556,7 @@ protected:
 
   void testCommandTransformationWithIndexSpecAndParams(
           const std::vector<const char*>& baseArgs,
-          const std::vector<const char*>& paramsKV,
+          const std::vector<std::string>& paramsKV,
           long long timeoutMS,
           const HybridCombineWireParams *combineParams = nullptr) {
       ASSERT_EQ(paramsKV.size() % 2, 0u) << "paramsKV must be name,value pairs";
@@ -626,7 +625,7 @@ TEST_F(HybridBuildMRCommandTest, testBasicCommandTransformation) {
 TEST_F(HybridBuildMRCommandTest, testCommandWithParams) {
     const std::vector<const char*> baseArgs = {
         "FT.HYBRID", "test_idx", "SEARCH", "@title:($param1)", "VSIM", "@vector_field", "$BLOB"};
-    const std::vector<const char*> paramsKV = {"param1", "hello", "BLOB", TEST_BLOB_DATA};
+    const std::vector<std::string> paramsKV = {"param1", "hello", "BLOB", TEST_BLOB_DATA};
     testCommandTransformationWithoutIndexSpecWithParams(baseArgs, paramsKV, /*timeoutMS=*/-1);
     testCommandTransformationWithIndexSpecAndParams(baseArgs, paramsKV, /*timeoutMS=*/-1);
 }
@@ -718,7 +717,7 @@ TEST_F(HybridBuildMRCommandTest, testComplexCommandWithAllParams) {
         "FT.HYBRID", "test_idx", "SEARCH", "@title:($param1)",
         "VSIM", "@vector_field", "$BLOB",
         "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3"};
-    const std::vector<const char*> paramsKV = {"param1", "hello", "BLOB", TEST_BLOB_DATA};
+    const std::vector<std::string> paramsKV = {"param1", "hello", "BLOB", TEST_BLOB_DATA};
     testCommandTransformationWithoutIndexSpecWithParams(baseArgs, paramsKV, /*timeoutMS=*/3000, &cp);
     testCommandTransformationWithIndexSpecAndParams(baseArgs, paramsKV, /*timeoutMS=*/3000, &cp);
 }
@@ -728,7 +727,7 @@ TEST_F(HybridBuildMRCommandTest, testComplexCommandWithAllParams) {
 TEST_F(HybridBuildMRCommandTest, testCommandWithParamValueSpellingKeyword) {
     const std::vector<const char*> baseArgs = {
         "FT.HYBRID", "test_idx", "SEARCH", "@title:($p)", "VSIM", "@vector_field", "$BLOB"};
-    const std::vector<const char*> paramsKV = {"p", "TIMEOUT", "BLOB", TEST_BLOB_DATA};
+    const std::vector<std::string> paramsKV = {"p", "TIMEOUT", "BLOB", TEST_BLOB_DATA};
     testCommandTransformationWithoutIndexSpecWithParams(baseArgs, paramsKV, /*timeoutMS=*/-1);
     testCommandTransformationWithIndexSpecAndParams(baseArgs, paramsKV, /*timeoutMS=*/-1);
 }
