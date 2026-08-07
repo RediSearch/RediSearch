@@ -9,6 +9,7 @@
 #ifndef ARRAY_H
 #define ARRAY_H
 
+#include <stdbool.h>
 #include <stdlib.h>
 #include <stdint.h>
 
@@ -61,7 +62,7 @@ static inline char *Array_Steal(Array *array, size_t *len) {
  * Returns a pointer to the newly added item. The memory is allocated but uninitialized
  */
 void *Array_Add(Array *array, uint32_t elemSize);
-void Array_Write(Array *array, const void *data, size_t len);
+bool Array_Write(Array *array, const void *data, size_t len);
 int Array_Resize(Array *array, uint32_t newSize);
 
 /**
