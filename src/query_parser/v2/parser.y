@@ -863,6 +863,40 @@ expr(A) ::= modifier(B) EQUALS param_num(C) . {
   }
 }
 
+expr(A) ::= modifier(B) NOT_EQUAL TERM(C) . {
+  A = NULL;
+  if (ctx->sctx->spec) {
+    if (FIELD_IS(B.fs, INDEXFLD_T_TAG)) {
+      QueryNode *lxrng = NewLexRangeNode(C.s, C.len, true, C.s, C.len, true);
+      QueryNode *tagNode = NewTagNode(B.fs);
+      QueryNode_AddChild(tagNode, lxrng);
+      A = not_step(tagNode);
+    } else if (FIELD_IS(B.fs, INDEXFLD_T_FULLTEXT)) {
+      QueryNode *lxrng = NewLexRangeNode(C.s, C.len, true, C.s, C.len, true);
+      QueryNode_SetFieldMask(lxrng, FIELD_BIT(B.fs));
+      A = not_step(lxrng);
+    } else {
+      REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR " or " SPEC_TAG_STR " or " SPEC_TEXT_STR);
+    }
+  }
+}
+
+expr(A) ::= modifier(B) EQUALS TERM(C) . {
+  A = NULL;
+  if (ctx->sctx->spec) {
+    if (FIELD_IS(B.fs, INDEXFLD_T_TAG)) {
+      QueryNode *lxrng = NewLexRangeNode(C.s, C.len, true, C.s, C.len, true);
+      A = NewTagNode(B.fs);
+      QueryNode_AddChild(A, lxrng);
+    } else if (FIELD_IS(B.fs, INDEXFLD_T_FULLTEXT)) {
+      A = NewLexRangeNode(C.s, C.len, true, C.s, C.len, true);
+      QueryNode_SetFieldMask(A, FIELD_BIT(B.fs));
+    } else {
+      REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR " or " SPEC_TAG_STR " or " SPEC_TEXT_STR);
+    }
+  }
+}
+
 expr(A) ::= modifier(B) GT param_num(C) . {
   if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_NUMERIC)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR);
@@ -900,6 +934,74 @@ expr(A) ::= modifier(B) LE param_num(C) . {
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &C, 1, 1);
     A = NewNumericNode(qp, B.fs);
+  }
+}
+
+/////////////////////////////////////////////////////////////////
+// Lexicographic Range Queries (TAG/TEXT fields)
+/////////////////////////////////////////////////////////////////
+
+expr(A) ::= modifier(B) GT TERM(C) . {
+  A = NULL;
+  if (ctx->sctx->spec) {
+    if (FIELD_IS(B.fs, INDEXFLD_T_TAG)) {
+      QueryNode *lxrng = NewLexRangeNode(C.s, C.len, false, NULL, 0, false);
+      A = NewTagNode(B.fs);
+      QueryNode_AddChild(A, lxrng);
+    } else if (FIELD_IS(B.fs, INDEXFLD_T_FULLTEXT)) {
+      A = NewLexRangeNode(C.s, C.len, false, NULL, 0, false);
+      QueryNode_SetFieldMask(A, FIELD_BIT(B.fs));
+    } else {
+      REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR " or " SPEC_TAG_STR " or " SPEC_TEXT_STR);
+    }
+  }
+}
+
+expr(A) ::= modifier(B) GE TERM(C) . {
+  A = NULL;
+  if (ctx->sctx->spec) {
+    if (FIELD_IS(B.fs, INDEXFLD_T_TAG)) {
+      QueryNode *lxrng = NewLexRangeNode(C.s, C.len, true, NULL, 0, false);
+      A = NewTagNode(B.fs);
+      QueryNode_AddChild(A, lxrng);
+    } else if (FIELD_IS(B.fs, INDEXFLD_T_FULLTEXT)) {
+      A = NewLexRangeNode(C.s, C.len, true, NULL, 0, false);
+      QueryNode_SetFieldMask(A, FIELD_BIT(B.fs));
+    } else {
+      REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR " or " SPEC_TAG_STR " or " SPEC_TEXT_STR);
+    }
+  }
+}
+
+expr(A) ::= modifier(B) LT TERM(C) . {
+  A = NULL;
+  if (ctx->sctx->spec) {
+    if (FIELD_IS(B.fs, INDEXFLD_T_TAG)) {
+      QueryNode *lxrng = NewLexRangeNode(NULL, 0, false, C.s, C.len, false);
+      A = NewTagNode(B.fs);
+      QueryNode_AddChild(A, lxrng);
+    } else if (FIELD_IS(B.fs, INDEXFLD_T_FULLTEXT)) {
+      A = NewLexRangeNode(NULL, 0, false, C.s, C.len, false);
+      QueryNode_SetFieldMask(A, FIELD_BIT(B.fs));
+    } else {
+      REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR " or " SPEC_TAG_STR " or " SPEC_TEXT_STR);
+    }
+  }
+}
+
+expr(A) ::= modifier(B) LE TERM(C) . {
+  A = NULL;
+  if (ctx->sctx->spec) {
+    if (FIELD_IS(B.fs, INDEXFLD_T_TAG)) {
+      QueryNode *lxrng = NewLexRangeNode(NULL, 0, false, C.s, C.len, true);
+      A = NewTagNode(B.fs);
+      QueryNode_AddChild(A, lxrng);
+    } else if (FIELD_IS(B.fs, INDEXFLD_T_FULLTEXT)) {
+      A = NewLexRangeNode(NULL, 0, false, C.s, C.len, true);
+      QueryNode_SetFieldMask(A, FIELD_BIT(B.fs));
+    } else {
+      REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR " or " SPEC_TAG_STR " or " SPEC_TEXT_STR);
+    }
   }
 }
 

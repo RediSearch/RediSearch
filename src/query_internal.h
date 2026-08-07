@@ -78,6 +78,9 @@ QueryNode *NewTagNode(const FieldSpec *fs);
 QueryNode *NewWildcardNode_WithParams(QueryParseCtx *q, QueryToken *qt);
 QueryNode *NewMissingNode(const FieldSpec *fs);
 
+QueryNode *NewLexRangeNode(const char *begin, size_t beginLen, bool includeBegin,
+                           const char *end, size_t endLen, bool includeEnd);
+
 QueryNode *NewTokenNode_WithParams(QueryParseCtx *q, QueryToken *qt);
 void QueryNode_InitParams(QueryNode *n, size_t num);
 bool QueryNode_SetParam(QueryParseCtx *q, Param *target_param, void *target_value,
