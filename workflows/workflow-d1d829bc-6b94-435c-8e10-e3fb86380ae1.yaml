@@ -1,0 +1,272 @@
+id: d1d829bc-6b94-435c-8e10-e3fb86380ae1
+name: verify-gate
+description: >-
+  Phase 1 (local): validate the branch name, bounded verify+repair, push the
+  bookmark, open a DRAFT PR, and run the bounded adversarial review+repair. Ends
+  with a draft PR that is locally verified and AI-reviewed. Run pr-review-gate
+  afterwards for CI. Per-branch disposable instances so concurrent PRs don't
+  share locks.
+tags:
+  purpose: pr-review-gate
+inputs:
+  properties:
+    head:
+      type: string
+      description: jj bookmark / branch to verify, push, and open the PR from.
+    title:
+      type: string
+      description: PR title.
+    base:
+      type: string
+      default: master
+      description: Base branch for the PR and the review diff.
+    body:
+      type: string
+      default: ""
+      description: PR body.
+    guidance:
+      type: string
+      default: ""
+      description: >-
+        Optional human steer for the repair actors on restart. Injected into the
+        verify/review repair prompts.
+    extraClaudeArgs:
+      type: array
+      items:
+        type: string
+      default: []
+      description: Extra flags for the review/repair `claude -p` calls (perms, model, etc.).
+  required:
+    - head
+    - title
+jobs:
+  - name: verify
+    description: validate head -> verify+repair -> push -> draft PR -> review+repair.
+    steps:
+      # 0. Guard: reject unsafe branch names BEFORE `head` reaches any shell
+      #    command or per-branch instance name. Non-allowFailure, so a bad head
+      #    fails the run fast and nothing downstream (which interpolates head)
+      #    ever executes. Fixed instance name (not per-branch) so its own name
+      #    doesn't depend on the not-yet-validated head.
+      - name: validate-head
+        description: Reject unsafe branch names (metacharacters, slashes, leading . or -).
+        task:
+          type: model_method
+          modelType: command/shell
+          modelName: validate-head
+          methodName: execute
+          inputs:
+            env:
+              HEAD: ${{ inputs.head }}
+            run: |
+              set -eu
+              case "$HEAD" in
+                "") echo "empty head"; exit 1 ;;
+                [!A-Za-z0-9_]*) echo "unsafe head '$HEAD': must start with a letter, digit, or _"; exit 1 ;;
+                *[!A-Za-z0-9._-]*) echo "unsafe head '$HEAD': allowed chars are letters, digits, _ . - (no slashes/metacharacters/newlines)"; exit 1 ;;
+              esac
+              echo "head OK: $HEAD"
+        dependsOn: []
+
+      # 1. Bounded verify -> repair -> re-verify loop (full /verify each iteration).
+      - name: readiness
+        description: Verify+repair loop; escalate to a human only if it can't converge.
+        allowFailure: true
+        task:
+          type: model_method
+          modelType: "@lucapalmieri1993/verify-repair"
+          modelName: verify-repair-${{ inputs.head }}
+          methodName: run
+          inputs:
+            maxVerifyRuns: 3
+            maxActorCalls: 2
+            guidance: ${{ inputs.guidance }}
+            extraClaudeArgs: ${{ inputs.extraClaudeArgs }}
+            verifyCommand: |
+              set -euo pipefail
+              cd "$(git rev-parse --show-toplevel)"
+              echo "== 1/6 Rust format check =="
+              make fmt CHECK=1
+              echo "== 2/6 Lint (clippy + cargo doc) =="
+              make lint
+              echo "== 3/6 Build (C + Rust) =="
+              ./build.sh
+              echo "== 4/6 Rust tests =="
+              cargo nextest run --manifest-path src/redisearch_rs/Cargo.toml
+              echo "== 5/6 C/C++ unit tests =="
+              ./build.sh RUN_UNIT_TESTS ENABLE_ASSERT=1
+              echo "== 6/6 Python behavioral tests =="
+              source .venv/bin/activate
+              ./build.sh RUN_PYTEST ENABLE_ASSERT=1
+              echo "== verify: PASS =="
+        dependsOn:
+          - step: validate-head
+            condition:
+              type: succeeded
+
+      # 1a. Ping a human that verify couldn't be auto-repaired (stub).
+      - name: readiness-escalate-notify
+        description: Tell a human verify couldn't be auto-fixed (stub).
+        allowFailure: true
+        task:
+          type: model_method
+          modelType: command/shell
+          modelName: readiness-escalate-${{ inputs.head }}
+          methodName: execute
+          inputs:
+            env:
+              HEAD: ${{ inputs.head }}
+            run: |
+              set -eu
+              echo "[escalate] Local verification could not be auto-repaired for '$HEAD'."
+              echo "Details: swamp data get verify-repair-$HEAD result --json"
+              echo "Human triage: 'swamp workflow approvals' then approve/reject 'readiness-triage'."
+              echo "Retry with guidance: swamp workflow run verify-gate --input head=\"$HEAD\" --input title=... --input guidance=\"...\""
+              echo "TODO: replace this stub with a real notification transport (Slack, etc.)."
+        dependsOn:
+          - step: readiness
+            condition:
+              type: failed
+
+      # 1b. Human gate when verify couldn't be auto-fixed. Skipped on convergence.
+      - name: readiness-triage
+        description: Human approval gate for a verify that couldn't be auto-repaired.
+        task:
+          type: manual_approval
+          prompt: >-
+            The bounded verify+repair loop could not make local verification pass
+            within its budget. Inspect `swamp data get verify-repair-<branch> result
+            --json` and the run logs; partial repairs are in the local workspace.
+            Approve to proceed anyway (push -> draft PR -> review), or reject to stop
+            and fix locally (then re-run verify-gate, optionally with --input guidance).
+          timeout: 86400
+        dependsOn:
+          - step: readiness
+            condition:
+              type: failed
+
+      # 2. Push the jj bookmark so gh has a remote head branch.
+      - name: jj-push
+        description: Push the local bookmark to the remote.
+        task:
+          type: model_method
+          modelType: command/shell
+          modelName: jj-push-${{ inputs.head }}
+          methodName: execute
+          inputs:
+            env:
+              HEAD: ${{ inputs.head }}
+            run: |
+              set -eu
+              jj git push --bookmark="$HEAD"
+        dependsOn:
+          - step: readiness-triage
+            condition:
+              type: or
+              conditions:
+                - type: succeeded
+                - type: skipped
+
+      # 3. Open the PR as a DRAFT (idempotent — reuses an open PR for this head).
+      - name: open-pr
+        description: Open (or reuse) a draft PR for the pushed branch.
+        task:
+          type: model_method
+          modelType: "@lucapalmieri1993/gh-review-gate"
+          modelName: gh-review-gate-${{ inputs.head }}
+          methodName: open_pr
+          inputs:
+            head: ${{ inputs.head }}
+            title: ${{ inputs.title }}
+            base: ${{ inputs.base }}
+            body: ${{ inputs.body }}
+            draft: true
+        dependsOn:
+          - step: jj-push
+            condition:
+              type: succeeded
+
+      # 4. Bounded review -> repair -> re-review loop over the local diff.
+      - name: adversarial-review
+        description: Bounded auto review+repair loop; escalate only if it can't converge.
+        allowFailure: true
+        task:
+          type: model_method
+          modelType: "@lucapalmieri1993/adversarial-review"
+          modelName: ai-review-${{ inputs.head }}
+          methodName: run
+          inputs:
+            head: ${{ inputs.head }}
+            base: ${{ inputs.base }}
+            guidance: ${{ inputs.guidance }}
+            extraClaudeArgs: ${{ inputs.extraClaudeArgs }}
+        dependsOn:
+          - step: open-pr
+            condition:
+              type: succeeded
+
+      # 4a. Ping a human that the review needs triage (stub).
+      - name: review-escalate-notify
+        description: Tell a human the review needs triage (stub).
+        allowFailure: true
+        task:
+          type: model_method
+          modelType: command/shell
+          modelName: review-escalate-${{ inputs.head }}
+          methodName: execute
+          inputs:
+            env:
+              HEAD: ${{ inputs.head }}
+            run: |
+              set -eu
+              echo "[escalate] Adversarial review could not converge for '$HEAD'."
+              echo "Findings: swamp data get ai-review-$HEAD findings --json"
+              echo "Human triage: 'swamp workflow approvals' then approve/reject 'review-triage'."
+              echo "Retry with guidance: swamp workflow run verify-gate --input head=\"$HEAD\" --input title=... --input guidance=\"...\""
+              echo "TODO: replace this stub with a real notification transport (Slack, etc.)."
+        dependsOn:
+          - step: adversarial-review
+            condition:
+              type: failed
+
+      # 4b. Human gate for a review that couldn't converge. Skipped on convergence.
+      - name: review-triage
+        description: Human approval gate for a review that couldn't be auto-repaired.
+        task:
+          type: manual_approval
+          prompt: >-
+            The bounded review+repair loop could not resolve all blocking findings
+            within its budget. Inspect `swamp data get ai-review-<branch> findings
+            --json` and the run logs; partial repairs are in the local workspace.
+            Approve to accept the current state and continue, or reject to keep the
+            PR in draft and fix locally (then re-run verify-gate, optionally with
+            --input guidance).
+          timeout: 86400
+        dependsOn:
+          - step: adversarial-review
+            condition:
+              type: failed
+
+      # 5. Push the repaired branch so the draft PR reflects the review's fixes.
+      - name: push-fixes
+        description: Sync the repaired local branch to the draft PR.
+        task:
+          type: model_method
+          modelType: command/shell
+          modelName: push-fixes-${{ inputs.head }}
+          methodName: execute
+          inputs:
+            env:
+              HEAD: ${{ inputs.head }}
+            run: |
+              set -eu
+              jj git push --bookmark="$HEAD"
+        dependsOn:
+          - step: review-triage
+            condition:
+              type: or
+              conditions:
+                - type: succeeded
+                - type: skipped
+    dependsOn: []
+version: 1

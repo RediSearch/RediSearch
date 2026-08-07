@@ -1,0 +1,56 @@
+id: 84e16105-464e-4b1f-b612-1027e242bcde
+name: pr-review-iterate
+description: >-
+  Fast, cheap review-only pass over the LOCAL branch diff (no full verify, no
+  repair, no push). Run it while addressing findings to re-check your work; it
+  threads the previous round's findings in. Equivalent to running
+  `swamp model method run ai-review analyze --input head=<branch>` directly.
+tags:
+  purpose: pr-review-gate
+inputs:
+  properties:
+    head:
+      type: string
+      description: Branch/bookmark to review.
+  required:
+    - head
+jobs:
+  - name: iterate
+    description: validate head -> single local review pass.
+    steps:
+      # Guard: reject unsafe branch names before head reaches the instance name.
+      - name: validate-head
+        description: Reject unsafe branch names (metacharacters, slashes, leading . or -).
+        task:
+          type: model_method
+          modelType: command/shell
+          modelName: validate-head
+          methodName: execute
+          inputs:
+            env:
+              HEAD: ${{ inputs.head }}
+            run: |
+              set -eu
+              case "$HEAD" in
+                "") echo "empty head"; exit 1 ;;
+                [!A-Za-z0-9_]*) echo "unsafe head '$HEAD': must start with a letter, digit, or _"; exit 1 ;;
+                *[!A-Za-z0-9._-]*) echo "unsafe head '$HEAD': allowed chars are letters, digits, _ . - (no slashes/metacharacters/newlines)"; exit 1 ;;
+              esac
+              echo "head OK: $HEAD"
+        dependsOn: []
+
+      - name: adversarial-review
+        description: Review the local branch diff and emit typed findings.
+        task:
+          type: model_method
+          modelType: "@lucapalmieri1993/adversarial-review"
+          modelName: ai-review-${{ inputs.head }}
+          methodName: analyze
+          inputs:
+            head: ${{ inputs.head }}
+        dependsOn:
+          - step: validate-head
+            condition:
+              type: succeeded
+    dependsOn: []
+version: 1

@@ -1,0 +1,17 @@
+type: '@lucapalmieri1993/adversarial-review'
+typeVersion: 2026.07.22.5
+id: 7787dabf-fa8d-4999-bcac-da7db8bf5e51
+name: ai-review
+version: 1
+tags:
+  purpose: pr-review-gate
+globalArguments:
+  # No workingDir: reviewer/repair-actor run in the repo root swamp is invoked
+  # from. Portable, no hardcoded path.
+  base: master
+  # The repair actor edits files headlessly — it needs edit + Bash permissions.
+  # Add the appropriate `claude -p` flags here for your setup, e.g.
+  #   --permission-mode acceptEdits
+  # (kept empty by default so nothing runs with elevated permissions unasked).
+  extraClaudeArgs: []
+methods: {}
