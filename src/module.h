@@ -134,7 +134,8 @@ typedef struct {
 
 bool debugCommandsEnabled(RedisModuleCtx *ctx);
 
-specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleString **argv, int argc, uint dialectVersion,
+specialCaseCtx *prepareOptionalTopKCase(const char *query_string, size_t query_len,
+                                        RedisModuleString **argv, int argc, uint dialectVersion,
                              QueryError *status);
 
 void SpecialCaseCtx_Free(specialCaseCtx* ctx);
