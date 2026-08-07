@@ -2269,9 +2269,7 @@ void setKNNSpecialCase(searchRequestCtx *req, specialCaseCtx *knn_ctx) {
 // Prepare a TOPK special case, return a context with the required KNN fields if query is
 // valid and contains KNN section, NULL otherwise (and set proper error in *status* if error
 // was found).
-specialCaseCtx *prepareOptionalTopKCase(const char *query_string, size_t query_len,
-                                        RedisModuleString **argv, int argc, uint dialectVersion,
-                                        QueryError *status) {
+specialCaseCtx *prepareOptionalTopKCase(const char *query_string, size_t query_len, RedisModuleString **argv, int argc, uint dialectVersion, QueryError *status) {
 
   // First, parse the query params if exists, to set the params in the query parser ctx.
   dict *params = NULL;
@@ -2357,7 +2355,12 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   }
 
   int argvOffset = 2 + req->profileArgs;
-  req->queryString = rm_strdup(RedisModule_StringPtrLen(argv[argvOffset++], NULL));
+  size_t queryLen;
+  const char *queryPtr = RedisModule_StringPtrLen(argv[argvOffset++], &queryLen);
+  // Length-faithful copy: keeps any embedded NULs the client sent, matching
+  // the (buffer, length) parse downstream.
+  req->queryString = rm_strndup(queryPtr, queryLen);
+  req->queryStringLen = queryLen;
   req->limit = 10;
   req->offset = 0;
   req->specialCases = NULL;
@@ -2491,7 +2494,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   if (dialect >= 2) {
     // Note: currently there is only one single case. For extending those cases we should use a trie here.
     if (strcasestr(req->queryString, "KNN")) {
-      specialCaseCtx *knnCtx = prepareOptionalTopKCase(req->queryString, strlen(req->queryString),
+      specialCaseCtx *knnCtx = prepareOptionalTopKCase(req->queryString, req->queryStringLen,
                                                        argv, argc, dialect, status);
       if (QueryError_HasError(status)) {
         searchRequestCtx_Free(req);
