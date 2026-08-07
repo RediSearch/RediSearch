@@ -140,7 +140,7 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
   }
 
   // Create HybridRequest and allocate hybrid params
-  HybridRequest* hybridReq = MakeDefaultHybridRequest(test_sctx, args, args.size());
+  HybridRequest *hybridReq = MakeDefaultHybridRequest(test_sctx, args, args.size());
   if (!hybridReq) {
     return nullptr;
   }

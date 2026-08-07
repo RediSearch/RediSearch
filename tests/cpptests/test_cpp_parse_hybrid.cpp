@@ -132,7 +132,7 @@ class ParseHybridTest : public ::testing::Test {
 
   // (Re)construct the request from the command args. Construction snapshots
   // request-scoped config, so tests that mutate RSGlobalConfig call this after.
-  void recreateHybridRequest(RMCK::ArgvList& args) {
+  void recreateHybridRequest(RMCK::ArgvList &args) {
     if (hybridRequest) {
       HybridRequest_DecrRef(hybridRequest);
     }
@@ -273,7 +273,8 @@ TEST_F(ParseHybridTest, testConfigSnapshotUsedForParseDefaults) {
   unsigned int savedDialect = RSGlobalConfig.requestConfigParams.dialectVersion;
   RSGlobalConfig.requestConfigParams.queryTimeoutMS = 1234;
   RSGlobalConfig.requestConfigParams.dialectVersion = 4;
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector",
+                      "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
   recreateHybridRequest(args);
   // Simulate FT.CONFIG SET landing between dispatch and the background parse.
   RSGlobalConfig.requestConfigParams.queryTimeoutMS = 5678;

@@ -1261,9 +1261,8 @@ void BlockedRequestCtx_Free(BlockedRequestCtx *brc) {
     releaseArgv(brc->argv, brc->argc);
   } else {
     // String references may only be released on the main thread; bounce the
-    // release to the main event loop. The API exists on every supported
-    // server (Redis 7+) and only fails on a NULL callback.
-    DeferredArgvRelease *deferred = rm_malloc(sizeof(*deferred));
+    // release to the main event loop.
+    DeferredArgvRelease *deferred = rm_new(DeferredArgvRelease);
     *deferred = (DeferredArgvRelease){.argv = brc->argv, .argc = brc->argc};
     int rc = RedisModule_EventLoopAddOneShot(releaseArgvOnMainThread, deferred);
     RS_ASSERT(rc == REDISMODULE_OK);
@@ -1454,7 +1453,8 @@ static bool shouldCheckInPipelineTimeout(RedisModuleCtx* ctx, AREQ *req) {
 
 }
 
-int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskIndex, QueryError *status) {
+int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskIndex,
+                 QueryError *status) {
   BlockedRequestCtx *brc = req->brc;
   RS_ASSERT(brc != NULL);
   RS_ASSERT(offset <= brc->parseArgc && brc->parseArgc <= brc->argc);
@@ -1622,8 +1622,7 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
       filterOpts.docIds = rm_malloc(sizeof(t_docId) * opts->ninkeys);
       for (size_t ii = 0; ii < opts->ninkeys; ++ii) {
         uint64_t docId = 0;
-        if (DocIdMeta_Get(sctx->redisCtx, opts->inkeys[ii], sctx->spec->specId, &docId) ==
-            REDISMODULE_OK) {
+        if (DocIdMeta_Get(sctx->redisCtx, opts->inkeys[ii], sctx->spec->specId, &docId) == REDISMODULE_OK) {
           filterOpts.docIds[ii] = docId;
         } else {
           filterOpts.docIds[ii] = 0;  // Mark as not found

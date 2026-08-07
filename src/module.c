@@ -2287,14 +2287,13 @@ specialCaseCtx *prepareOptionalTopKCase(const char *query_string, size_t query_l
   RedisSearchCtx sctx = {0};
   RSSearchOptions opts = {0};
   opts.params = params;
-  QueryParseCtx qpCtx = {
-      .raw = query_string,
-      .len = query_len,
-      .sctx = &sctx,
-      .opts = &opts,
-      .status = status,
+  QueryParseCtx qpCtx = {.raw = query_string,
+                         .len = query_len,
+                         .sctx = &sctx,
+                         .opts = &opts,
+                         .status = status,
 #ifdef PARSER_DEBUG
-      .trace_log = NULL
+                         .trace_log = NULL
 #endif
   };
 
@@ -2493,7 +2492,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
     // Note: currently there is only one single case. For extending those cases we should use a trie here.
     if (strcasestr(req->queryString, "KNN")) {
       specialCaseCtx *knnCtx = prepareOptionalTopKCase(req->queryString, strlen(req->queryString),
-                                                        argv, argc, dialect, status);
+                                                       argv, argc, dialect, status);
       if (QueryError_HasError(status)) {
         searchRequestCtx_Free(req);
         return NULL;

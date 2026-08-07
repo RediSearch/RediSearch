@@ -1640,7 +1640,6 @@ bool IndexSpec_IsCoherent(IndexSpec *spec, RedisModuleString **prefixes, size_t 
   return true;
 }
 
-
 inline static bool isSpecOnDisk(const IndexSpec *sp) {
   return SearchDisk_IsEnabled();
 }

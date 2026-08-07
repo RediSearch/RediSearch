@@ -27,8 +27,7 @@ static double extractUnitFactor(GeoDistance unit);
  * DIALECT 1; dialect >= 2 rejects it via `hasEmptyFilterValue`. The strict
  * conversions no longer parse "" as a number, so the empty token is
  * recognized on conversion failure: returns true, coercing `*target` to 0. */
-static bool CoalesceEmptyFilterValue(ArgsCursor *ac, double *target,
-                                     bool *hasEmptyFilterValue) {
+static bool CoalesceEmptyFilterValue(ArgsCursor *ac, double *target, bool *hasEmptyFilterValue) {
   const char *val;
   size_t len;
 

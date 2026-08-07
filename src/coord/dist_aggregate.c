@@ -787,7 +787,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
     // a KNN section in the query. IN that case, we treat this as a SORTBY+LIMIT step.
     size_t queryLen;
     const char *query = AREQ_Query(r, &queryLen);
-    if(strcasestr(query, "KNN")) {
+    if (strcasestr(query, "KNN")) {
       // For distributed aggregation, command type detection is automatic
       knnCtx = prepareOptionalTopKCase(query, queryLen, argv, argc, dialect, status);
       *knnCtx_ptr = knnCtx;

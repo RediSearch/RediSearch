@@ -136,7 +136,7 @@ bool debugCommandsEnabled(RedisModuleCtx *ctx);
 
 specialCaseCtx *prepareOptionalTopKCase(const char *query_string, size_t query_len,
                                         RedisModuleString **argv, int argc, uint dialectVersion,
-                             QueryError *status);
+                                        QueryError *status);
 
 void SpecialCaseCtx_Free(specialCaseCtx* ctx);
 

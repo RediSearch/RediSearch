@@ -280,61 +280,61 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
  */
 void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests,
                         size_t nrequests, RedisModuleString **argv, uint32_t argc) {
-    hybridReq->requests = requests;
-    hybridReq->nrequests = nrequests;
-    hybridReq->sctx = sctx;
-    hybridReq->kArgIndex = -1;
-    // Snapshot the request's config; nothing may re-read RSGlobalConfig for
-    // the request's lifetime.
-    hybridReq->reqConfig = RSGlobalConfig.requestConfigParams;
+  hybridReq->requests = requests;
+  hybridReq->nrequests = nrequests;
+  hybridReq->sctx = sctx;
+  hybridReq->kArgIndex = -1;
+  // Snapshot the request's config; nothing may re-read RSGlobalConfig for
+  // the request's lifetime.
+  hybridReq->reqConfig = RSGlobalConfig.requestConfigParams;
 
-    rs_wall_clock now = {0};
-    rs_wall_clock_init(&now);
+  rs_wall_clock now = {0};
+  rs_wall_clock_init(&now);
 
-    // Initialize error tracking for each individual request
-    hybridReq->errors = array_newlen(QueryError, nrequests);
-    memset(hybridReq->errors, 0, nrequests * sizeof(QueryError));
+  // Initialize error tracking for each individual request
+  hybridReq->errors = array_newlen(QueryError, nrequests);
+  memset(hybridReq->errors, 0, nrequests * sizeof(QueryError));
 
-    // Initialize return codes array for tracking subqueries final states
-    hybridReq->subqueriesReturnCodes = rm_calloc(nrequests, sizeof(RPStatus));
+  // Initialize return codes array for tracking subqueries final states
+  hybridReq->subqueriesReturnCodes = rm_calloc(nrequests, sizeof(RPStatus));
 
-    // Initialize the tail pipeline that will merge results from all requests
-    hybridReq->tailPipeline = rm_calloc(1, sizeof(Pipeline));
-    AGPLN_Init(&hybridReq->tailPipeline->ap);
-    hybridReq->tailPipelineError = QueryError_Default();
-    Pipeline_Initialize(hybridReq->tailPipeline, hybridReq->reqConfig.timeoutPolicy, &hybridReq->tailPipelineError);
+  // Initialize the tail pipeline that will merge results from all requests
+  hybridReq->tailPipeline = rm_calloc(1, sizeof(Pipeline));
+  AGPLN_Init(&hybridReq->tailPipeline->ap);
+  hybridReq->tailPipelineError = QueryError_Default();
+  Pipeline_Initialize(hybridReq->tailPipeline, hybridReq->reqConfig.timeoutPolicy,
+                      &hybridReq->tailPipelineError);
 
-    // Initialize pipelines for each individual request
-    for (size_t i = 0; i < nrequests; i++) {
-        initializeAREQ(requests[i]);
-        // Each sub-AREQ gets its own wrapper, holding the whole command
-        // rather than its own slice: slice boundaries are only discovered
-        // while parsing, and sub pipelines borrow beyond their slice anyway
-        // (distributed tail steps like LOAD, PARAMS).
-        BlockedRequestCtx_NewAREQ(requests[i], argv, argc);
-        hybridReq->errors[i] = QueryError_Default();
-        Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &hybridReq->errors[i]);
-    }
-    hybridReq->profileClocks.initClock = now;
+  // Initialize pipelines for each individual request
+  for (size_t i = 0; i < nrequests; i++) {
+    initializeAREQ(requests[i]);
+    // Each sub-AREQ gets its own wrapper, holding the whole command
+    // rather than its own slice: slice boundaries are only discovered
+    // while parsing, and sub pipelines borrow beyond their slice anyway
+    // (distributed tail steps like LOAD, PARAMS).
+    BlockedRequestCtx_NewAREQ(requests[i], argv, argc);
+    hybridReq->errors[i] = QueryError_Default();
+    Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy,
+                        &hybridReq->errors[i]);
+  }
+  hybridReq->profileClocks.initClock = now;
 
-    // Initialize timeout coordination fields (embedded per-request slot only;
-    // the aggregate-coord fields live on the heap BlockedRequestCtx wrapper).
-    RequestSyncState_Init(&hybridReq->syncState);
-    pthread_mutex_init(&hybridReq->cursorMutex, NULL);
-
-
+  // Initialize timeout coordination fields (embedded per-request slot only;
+  // the aggregate-coord fields live on the heap BlockedRequestCtx wrapper).
+  RequestSyncState_Init(&hybridReq->syncState);
+  pthread_mutex_init(&hybridReq->cursorMutex, NULL);
 }
 
 HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests,
                                  RedisModuleString **argv, uint32_t argc) {
-    // The wrappers hold the full command; each sub takes its own holds — a
-    // sub's borrows can outlive the container.
-    HybridRequest *hybridReq = rm_calloc(1, sizeof(*hybridReq));
-    HybridRequest_Init(hybridReq, sctx, requests, nrequests, argv, argc);
-    // Wrap the top-level hybrid request in its single-owner sync context.
-    // Sets hybridReq->brc; ownership is released via HybridRequest_DecrRef.
-    BlockedRequestCtx_NewHybrid(hybridReq, argv, argc);
-    return hybridReq;
+  // The wrappers hold the full command; each sub takes its own holds — a
+  // sub's borrows can outlive the container.
+  HybridRequest *hybridReq = rm_calloc(1, sizeof(*hybridReq));
+  HybridRequest_Init(hybridReq, sctx, requests, nrequests, argv, argc);
+  // Wrap the top-level hybrid request in its single-owner sync context.
+  // Sets hybridReq->brc; ownership is released via HybridRequest_DecrRef.
+  BlockedRequestCtx_NewHybrid(hybridReq, argv, argc);
+  return hybridReq;
 }
 
 void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, uint32_t argc) {
@@ -500,7 +500,8 @@ static RedisSearchCtx* createThreadSafeSearchContext(RedisModuleCtx *ctx, const 
   return NewSearchCtxC(detachedCtx, indexname, true);
 }
 
-HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx, RedisModuleString **argv, uint32_t argc) {
+HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx, RedisModuleString **argv,
+                                        uint32_t argc) {
   extern size_t NumShards;  // Declared in module.c
   AREQ *search = AREQ_New();
   AREQ *vector = AREQ_New();
