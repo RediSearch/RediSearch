@@ -358,17 +358,20 @@ protected:
         // Borrow the resolved scoring context (as the coordinator does before
         // the merger takes ownership) so the reconstructed COMBINE clause is
         // forwarded to the shard.
-        HybridCombineWireParams combineParams{hybridParams.scoringCtx,
-                                              hybridParams.aggregationParams.common.scoreAlias};
+        HybridShardWireParams shardWireParams = {};
+        shardWireParams.combine = HybridCombineWireParams{
+            hybridParams.scoringCtx,
+            hybridParams.aggregationParams.common.scoreAlias
+        };
+        shardWireParams.params = cmd.search->searchopts.params;
+        shardWireParams.forwardTimeout = cmd.timeoutSpecified;
+        shardWireParams.timeoutMS = cmd.clientTimeoutMS;
 
         // Build MR command - now returns kArgIndex instead of calculating effectiveK
         MRCommand xcmd;
         int kArgIndex = -1;
-        HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
-                                     /*sendExplainScore=*/false, &combineParams,
-                                     cmd.search->searchopts.params,
-                                     cmd.timeoutSpecified, cmd.clientTimeoutMS,
-                                     &xcmd, nullptr, testIndexSpec, &kArgIndex);
+        HybridRequest_buildMRCommand(args, args.size(), &shardWireParams, &xcmd, nullptr,
+                                     testIndexSpec, &kArgIndex);
 
         // Verify the command was built correctly
         EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
@@ -444,16 +447,19 @@ protected:
             return out;
         }
 
-        HybridCombineWireParams cp{hybridParams.scoringCtx,
-                                   hybridParams.aggregationParams.common.scoreAlias};
+        HybridShardWireParams shardWireParams = {};
+        shardWireParams.combine = HybridCombineWireParams{
+            hybridParams.scoringCtx,
+            hybridParams.aggregationParams.common.scoreAlias
+        };
+        shardWireParams.params = cmd.search->searchopts.params;
+        shardWireParams.forwardTimeout = cmd.timeoutSpecified;
+        shardWireParams.timeoutMS = cmd.clientTimeoutMS;
 
         MRCommand xcmd;
         int kArgIndex = -1;
-        HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
-                                     /*sendExplainScore=*/false, &cp,
-                                     cmd.search->searchopts.params,
-                                     cmd.timeoutSpecified, cmd.clientTimeoutMS,
-                                     &xcmd, nullptr, testIndexSpec, &kArgIndex);
+        HybridRequest_buildMRCommand(args, args.size(), &shardWireParams, &xcmd, nullptr,
+                                     testIndexSpec, &kArgIndex);
 
         // Assert the parse-driven path also preserves every non-COMBINE arg by
         // position (this is what verifies the PARAMS block - including any
@@ -462,7 +468,7 @@ protected:
         // additionally pins the extracted clause against a literal vector, so the
         // two oracles stay independent.
         EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
-        verifyArgsPreservedWithReconstructedCombine(&xcmd, inputArgs, &cp);
+        verifyArgsPreservedWithReconstructedCombine(&xcmd, inputArgs, &shardWireParams.combine);
 
         for (int i = 0; i < xcmd.num; i++) {
             if (xcmd.lens[i] == strlen("COMBINE") &&
@@ -527,12 +533,16 @@ protected:
       argsWithNull.push_back(nullptr);
       RMCK::ArgvList args(ctx, argsWithNull.data(), baseArgs.size());
 
+      HybridShardWireParams shardWireParams = {};
+      if (combineParams) shardWireParams.combine = *combineParams;
+      shardWireParams.params = params;
+      shardWireParams.forwardTimeout = forwardTimeout;
+      shardWireParams.timeoutMS = forwardTimeout ? timeoutMS : 0;
+
       MRCommand xcmd;
       int kArgIndex = -1;
-      HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
-                                   /*sendExplainScore=*/false, combineParams,
-                                   params, forwardTimeout, forwardTimeout ? timeoutMS : 0,
-                                   &xcmd, nullptr, nullptr, &kArgIndex);
+      HybridRequest_buildMRCommand(args, args.size(), &shardWireParams, &xcmd, nullptr, nullptr,
+                                   &kArgIndex);
       if (params) Param_DictFree(params);
 
       // FT.HYBRID -> _FT.HYBRID, and the base args (no PARAMS/TIMEOUT) preserved
@@ -575,12 +585,16 @@ protected:
       ASSERT_NE(sp->rule->prefixes, nullptr) << "IndexSpec rule should have prefixes";
       ASSERT_EQ(array_len(sp->rule->prefixes), 2) << "IndexSpec rule should have 2 prefixes";
 
+      HybridShardWireParams shardWireParams = {};
+      if (combineParams) shardWireParams.combine = *combineParams;
+      shardWireParams.params = params;
+      shardWireParams.forwardTimeout = forwardTimeout;
+      shardWireParams.timeoutMS = forwardTimeout ? timeoutMS : 0;
+
       MRCommand xcmd;
       int kArgIndex = -1;
-      HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
-                                   /*sendExplainScore=*/false, combineParams,
-                                   params, forwardTimeout, forwardTimeout ? timeoutMS : 0,
-                                   &xcmd, nullptr, sp, &kArgIndex);
+      HybridRequest_buildMRCommand(args, args.size(), &shardWireParams, &xcmd, nullptr, sp,
+                                   &kArgIndex);
       if (params) Param_DictFree(params);
 
       // FT.HYBRID -> _FT.HYBRID, base args preserved, COMBINE reconstructed.
@@ -752,13 +766,11 @@ TEST_F(HybridBuildMRCommandTest, testExplainScoreNotForwardedFromArgvText) {
             "VSIM", "@vector_field", TEST_BLOB_DATA, nullptr};
         RMCK::ArgvList args(ctx, input.data(), input.size() - 1);
 
+        HybridShardWireParams shardWireParams = {};  // no COMBINE, no PARAMS, no TIMEOUT
         MRCommand xcmd;
         int kArgIndex = -1;
-        HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
-                                     /*sendExplainScore=*/false, /*combineParams=*/nullptr,
-                                     /*params=*/nullptr,
-                                     /*forwardTimeout=*/false, /*timeoutMS=*/0,
-                                     &xcmd, nullptr, nullptr, &kArgIndex);
+        HybridRequest_buildMRCommand(args, args.size(), &shardWireParams, &xcmd, nullptr, nullptr,
+                                     &kArgIndex);
 
         EXPECT_EQ(countTok(toTokens(&xcmd), "EXPLAINSCORE"), 1)
             << "EXPLAINSCORE in the search query must not be re-appended as a "
@@ -780,12 +792,13 @@ TEST_F(HybridBuildMRCommandTest, testExplainScoreNotForwardedFromArgvText) {
         dict *params = makeParamsDict({"param1", "EXPLAINSCORE", "BLOB", TEST_BLOB_DATA},
                                       expectedPairs);
 
+        HybridShardWireParams shardWireParams = {};
+        shardWireParams.params = params;
+
         MRCommand xcmd;
         int kArgIndex = -1;
-        HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
-                                     /*sendExplainScore=*/false, /*combineParams=*/nullptr,
-                                     params, /*forwardTimeout=*/false, /*timeoutMS=*/0,
-                                     &xcmd, nullptr, nullptr, &kArgIndex);
+        HybridRequest_buildMRCommand(args, args.size(), &shardWireParams, &xcmd, nullptr, nullptr,
+                                     &kArgIndex);
         Param_DictFree(params);
 
         EXPECT_EQ(countTok(toTokens(&xcmd), "EXPLAINSCORE"), 1)
@@ -800,12 +813,13 @@ TEST_F(HybridBuildMRCommandTest, testExplainScoreNotForwardedFromArgvText) {
             "VSIM", "@vector_field", TEST_BLOB_DATA, nullptr};
         RMCK::ArgvList args(ctx, input.data(), input.size() - 1);
 
+        HybridShardWireParams shardWireParams = {};
+        shardWireParams.sendExplainScore = true;
+
         MRCommand xcmd;
         int kArgIndex = -1;
-        HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
-                                     /*sendExplainScore=*/true, /*combineParams=*/nullptr,
-                                     /*params=*/nullptr, /*forwardTimeout=*/false, /*timeoutMS=*/0,
-                                     &xcmd, nullptr, nullptr, &kArgIndex);
+        HybridRequest_buildMRCommand(args, args.size(), &shardWireParams, &xcmd, nullptr, nullptr,
+                                     &kArgIndex);
 
         EXPECT_EQ(countTok(toTokens(&xcmd), "EXPLAINSCORE"), 1)
             << "EXPLAINSCORE should be appended exactly once when the parsed "

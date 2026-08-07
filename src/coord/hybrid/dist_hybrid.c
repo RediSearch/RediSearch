@@ -277,7 +277,7 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
 // present) counted inside the block, so shards of any version parse it and never
 // fall back on their own (possibly different) defaults.
 static void MRCommand_appendCombine(MRCommand *xcmd, const HybridCombineWireParams *cp) {
-  if (!cp || !cp->scoringCtx) {
+  if (!cp->scoringCtx) {
     return;
   }
   const HybridScoringContext *sc = cp->scoringCtx;
@@ -355,22 +355,20 @@ static void MRCommand_appendParams(MRCommand *xcmd, dict *params) {
 }
 
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
-                            ProfileOptions profileOptions,
-                            bool sendExplainScore,
-                            const HybridCombineWireParams *combineParams,
-                            dict *params, bool forwardTimeout, long long timeoutMS,
-                            MRCommand *xcmd, arrayof(char*) serialized,
-                            IndexSpec *sp, int *outKArgIndex) {
+                                  const HybridShardWireParams *shardWireParams,
+                                  MRCommand *xcmd,
+                                  arrayof(char *) serialized, IndexSpec *sp, int *outKArgIndex) {
+  RS_ASSERT(shardWireParams != NULL);
   RS_ASSERT(outKArgIndex != NULL);
   const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
 
   int cmdArgCount = 2;
   const char *cmdArgs[5] = {"_FT.HYBRID", index_name};
 
-  if (profileOptions != EXEC_NO_FLAGS) {
+  if (shardWireParams->profileOptions != EXEC_NO_FLAGS) {
     cmdArgs[0] = "_FT.PROFILE";
     cmdArgs[cmdArgCount++] = "HYBRID";
-    if (profileOptions & EXEC_WITH_PROFILE_LIMITED) {
+    if (shardWireParams->profileOptions & EXEC_WITH_PROFILE_LIMITED) {
       cmdArgs[cmdArgCount++] = "LIMITED";
     }
     cmdArgs[cmdArgCount++] = "QUERY";
@@ -397,7 +395,7 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   // each shard falling back on its own (possibly changed) defaults. This also
   // normalizes the positional YIELD_SCORE_AS form and a zero argument count
   // into the counted form that all shard versions accept.
-  MRCommand_appendCombine(xcmd, combineParams);
+  MRCommand_appendCombine(xcmd, &shardWireParams->combine);
 
   if (serialized) {
     for (size_t ii = 0; ii < array_len(serialized); ++ii) {
@@ -407,13 +405,13 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   }
 
   // Reconstruct the PARAMS clause from the resolved parameter dictionary.
-  MRCommand_appendParams(xcmd, params);
+  MRCommand_appendParams(xcmd, shardWireParams->params);
 
   // Forward the client's query timeout when TIMEOUT was set.
-  if (forwardTimeout) {
+  if (shardWireParams->forwardTimeout) {
     char numBuf[HYBRID_NUM_BUF_SIZE];
     MRCommand_Append(xcmd, "TIMEOUT", strlen("TIMEOUT"));
-    int len = snprintf(numBuf, sizeof(numBuf), "%lld", timeoutMS);
+    int len = snprintf(numBuf, sizeof(numBuf), "%lld", shardWireParams->timeoutMS);
     MRCommand_Append(xcmd, numBuf, len);
   }
 
@@ -422,7 +420,7 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
 
   // Forward EXPLAINSCORE so the shard's text scorer produces an RSScoreExplain
   // tree and the shard's merger wraps it.
-  if (sendExplainScore) {
+  if (shardWireParams->sendExplainScore) {
     MRCommand_Append(xcmd, "EXPLAINSCORE", strlen("EXPLAINSCORE"));
   }
 
@@ -757,14 +755,20 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     setupCoordinatorArrangeSteps(hreq->requests[SEARCH_INDEX], hreq->requests[VECTOR_INDEX], &hybridParams);
     RLookup *lookups[HYBRID_REQUEST_NUM_SUBQUERIES] = {0};
 
-    // Capture the resolved COMBINE parameters now, before BuildDistributedPipeline
-    // hands scoringCtx ownership to the merger and nulls the local pointer. The
-    // scoring context object itself is kept alive by the merger, so borrowing it
-    // here is safe. Used to reconstruct an old-shard-compatible COMBINE clause
-    // when building the per-shard command below.
-    HybridCombineWireParams combineParams = {
-        .scoringCtx = hybridParams.scoringCtx,
-        .scoreAlias = hybridParams.aggregationParams.common.scoreAlias,
+    // Capture the parsed state forwarded to the shards, used to build the
+    // per-shard command below. This must happen here, before
+    // BuildDistributedPipeline hands scoringCtx ownership to the merger and nulls
+    // the local pointer: `combine` reconstructs an old-shard-compatible COMBINE
+    // clause from it. The scoring context object itself is kept alive by the
+    // merger, so borrowing it here is safe.
+    HybridShardWireParams shardWireParams = {
+        .profileOptions = profileOptions,
+        .sendExplainScore = (hreq->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) != 0,
+        .combine = {.scoringCtx = hybridParams.scoringCtx,
+                    .scoreAlias = hybridParams.aggregationParams.common.scoreAlias},
+        .params = cmd.search->searchopts.params,
+        .forwardTimeout = cmd.timeoutSpecified,
+        .timeoutMS = cmd.clientTimeoutMS,
     };
 
     arrayof(char*) serialized = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, lookups, status);
@@ -775,12 +779,8 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
 
     // Construct the command string.
     MRCommand xcmd;
-    bool sendExplainScore = (hreq->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) != 0;
-    dict *params = cmd.search->searchopts.params;
-    HybridRequest_buildMRCommand(argv, argc, profileOptions, sendExplainScore,
-                                 &combineParams, params, cmd.timeoutSpecified,
-                                 cmd.clientTimeoutMS,
-                                 &xcmd, serialized, sp, &hreq->kArgIndex);
+    HybridRequest_buildMRCommand(argv, argc, &shardWireParams, &xcmd, serialized, sp,
+                                 &hreq->kArgIndex);
 
     xcmd.protocol = HYBRID_RESP_PROTOCOL_VERSION;
     xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
