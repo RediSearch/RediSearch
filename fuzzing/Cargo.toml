@@ -1,0 +1,23 @@
+[package]
+name = "redisearch-fuzz"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Track B: server-based, generative, stateful command-sequence fuzzer for RediSearch"
+
+[[bin]]
+name = "redisearch-fuzz"
+path = "src/main.rs"
+
+[dependencies]
+redis = "0.27"
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+arbitrary = { version = "1", features = ["derive"] }
+libafl = "0.15"
+libafl_bolts = "0.15"
+
+[profile.release]
+debug = true
