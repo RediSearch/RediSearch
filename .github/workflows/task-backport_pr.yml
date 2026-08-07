@@ -37,10 +37,18 @@ jobs:
         with:
           client-id: ${{ vars.GH_PR_APP_ID }}
           private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
-          owner: RediSearch
+          # Resolve the App installation from the repository that triggered the
+          # run, never a hard-coded org. A literal `owner: RediSearch` breaks
+          # this flow in any fork or mirror (e.g. redislabsdev/RediSearch): the
+          # action looks up `users/RediSearch/installation`, which 404s for an
+          # App not installed on that org, so the token is never minted and the
+          # whole backport job fails. `github.repository_owner` always matches
+          # the current repo's owner, so the workflow runs unchanged wherever it
+          # lives. Mirrors the agent flows (task-backport_pr-agent*.yml).
+          owner: ${{ github.repository_owner }}
           # Without this the token reaches every repository the app is installed
           # on across the org, not just this one.
-          repositories: RediSearch
+          repositories: ${{ github.event.repository.name }}
           # And without these it inherits the app installation's full permission
           # set. korthout/backport-action needs: contents to push the cherry-picked
           # branch, pull-requests to open the backport PR, request the author as
