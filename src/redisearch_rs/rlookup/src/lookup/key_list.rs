@@ -13,6 +13,12 @@ use std::{ffi::CStr, iter::FusedIterator, marker::PhantomData, pin::Pin, ptr::No
 #[cfg(any(debug_assertions, test))]
 use std::ptr;
 
+/// Above this many conceptual rows, [`KeyList::assert_valid`] skips the full per-node
+/// walk and checks only the O(1) invariants plus the head and tail nodes. Realistic
+/// lookups stay far below this, so they always get the exhaustive validation.
+#[cfg(any(debug_assertions, test))]
+const FULL_VALIDATION_THRESHOLD: u32 = 256;
+
 #[derive(Debug)]
 #[repr(C)]
 pub struct KeyList<'a> {
@@ -216,6 +222,13 @@ impl<'a> KeyList<'a> {
     ///
     /// We use this method to absolutely make sure the linked list is internally consistent
     /// before reading from it and after writing to it.
+    ///
+    /// The full per-node walk is capped at [`FULL_VALIDATION_THRESHOLD`] conceptual rows:
+    /// this method runs on every list operation, so an unconditional walk would make each
+    /// operation O(len) and a sequence of insertions O(len²) — unusable in debug builds for
+    /// lookups with tens of thousands of keys (e.g. `LOAD *` over a document with more
+    /// fields than the key limit). Beyond the cap, only the O(1) invariants plus the head
+    /// and tail nodes are checked.
     #[track_caller]
     #[cfg(any(debug_assertions, test))]
     pub(crate) fn assert_valid(&self, ctx: &str) {
@@ -259,6 +272,12 @@ impl<'a> KeyList<'a> {
                 None,
                 "{ctx} - if the linked list has only one node, it must not be linked"
             );
+            return;
+        }
+
+        if self.rowlen > FULL_VALIDATION_THRESHOLD {
+            head.assert_valid(tail, ctx);
+            tail.assert_valid(tail, ctx);
             return;
         }
 
