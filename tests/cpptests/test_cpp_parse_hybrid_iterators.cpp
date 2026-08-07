@@ -131,7 +131,7 @@ bool SetupHybridIteratorTest(RedisModuleCtx *ctx,
     };
 
     ArgsCursor ac = {0};
-    HybridRequest_InitArgsCursor(testCtx->hybridReq, &ac, args, args.size());
+    HybridRequest_InitArgsCursor(testCtx->hybridReq, &ac, args.size());
 
     int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, &testCtx->status, false, EXEC_NO_FLAGS);
     if (rc != REDISMODULE_OK) return false;

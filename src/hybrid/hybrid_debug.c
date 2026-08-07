@@ -188,7 +188,7 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
   // Holds the full argv; the debug tail is trimmed off hybrid_argc below
   HybridRequest *hreq = MakeDefaultHybridRequest(sctx, argv, argc);
   ArgsCursor ac = {0};
-  HybridRequest_InitArgsCursor(hreq, &ac, argv, hybrid_argc);
+  HybridRequest_InitArgsCursor(hreq, &ac, hybrid_argc);
 
   HybridPipelineParams hybridParams = {0};  // Stack allocation
   ParseHybridCommandCtx cmd = {0};

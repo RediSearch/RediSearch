@@ -692,7 +692,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     // Parse from the held argv — the parse borrows pointers into these
     // strings, which must outlive this job's own argv copies.
     ArgsCursor ac = {0};
-    HybridRequest_InitArgsCursor(hreq, &ac, argv, argc);
+    HybridRequest_InitArgsCursor(hreq, &ac, argc);
 
     if (profileOptions != EXEC_NO_FLAGS) {
         // Skip the tokens ParseProfile consumed beyond command + index.

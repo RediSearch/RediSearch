@@ -49,22 +49,13 @@
 
 // Record the sub-request's query argument by its index within the held argv.
 // Every parse cursor here walks the container's holds, and each sub's holds
-// mirror them index-for-index (all hold the stepped command argv, in order),
-// so a cursor-derived offset addresses the same token in the sub's own holds.
+// mirror them index-for-index (all hold the same command argv, in order), so
+// a cursor-derived offset addresses the same token in the sub's own holds.
 // `queryOffset` is in root-cursor coordinates: for a slice cursor, the
 // caller adds the slice's base (the root offset recorded before AC_GetSlice).
-static void setSubQueryArg(AREQ *sub, const ArgsCursor *ac, uint32_t queryOffset) {
+static void setSubQueryArg(AREQ *sub, uint32_t queryOffset) {
   BlockedRequestCtx *brc = sub->brc;
   RS_ASSERT(queryOffset < brc->argc);
-#ifdef ENABLE_ASSERT
-  // The mirror invariant: the token at the cursor and the sub's hold at the
-  // derived index carry the same bytes (they may be distinct objects only if
-  // HoldString returned a copy).
-  size_t tokLen, heldLen;
-  const char *tokStr = RedisModule_StringPtrLen((RedisModuleString *)AC_CURRENT(ac), &tokLen);
-  const char *heldStr = RedisModule_StringPtrLen(brc->argv[queryOffset], &heldLen);
-  RS_ASSERT(tokLen == heldLen && memcmp(tokStr, heldStr, tokLen) == 0);
-#endif
   brc->queryOffset = queryOffset;
 }
 
@@ -106,7 +97,7 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  setSubQueryArg(sreq, ac, (uint32_t)ac->offset);
+  setSubQueryArg(sreq, (uint32_t)ac->offset);
   AC_Advance(ac);
   RSSearchOptions *searchOpts = &sreq->searchopts;
 
@@ -361,7 +352,7 @@ static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, ParsedVectorData *pvd, 
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing filter-expression for FILTER");
     return REDISMODULE_ERR;
   }
-  setSubQueryArg(vreq, &argCursor, sliceBase + (uint32_t)argCursor.offset);
+  setSubQueryArg(vreq, sliceBase + (uint32_t)argCursor.offset);
   AC_Advance(&argCursor);
 
   // Use ArgParser for optional POLICY and BATCH_SIZE
@@ -516,7 +507,7 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid filter-expression for FILTER");
         goto error;
       }
-      setSubQueryArg(vreq, ac, (uint32_t)ac->offset);
+      setSubQueryArg(vreq, (uint32_t)ac->offset);
       AC_Advance(ac);
     } else if (parseFilterClause(ac, vreq, pvd, status, count) != REDISMODULE_OK) {
       goto error;

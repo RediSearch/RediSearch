@@ -1361,7 +1361,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   cmd.coordDispatchTime = &hybridRequest->profileClocks.coordDispatchTime;
 
   ArgsCursor ac = {0};
-  HybridRequest_InitArgsCursor(hybridRequest, &ac, argv, argc);
+  HybridRequest_InitArgsCursor(hybridRequest, &ac, argc);
 
   if (parseHybridCommand(ctx, &ac, sctx, &cmd, &status, internal, profileOptions) != REDISMODULE_OK) {
     return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status, internal);

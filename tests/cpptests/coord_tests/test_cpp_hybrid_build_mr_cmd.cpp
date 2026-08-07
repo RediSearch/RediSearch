@@ -208,7 +208,7 @@ protected:
         cmd.coordDispatchTime = &hreq->profileClocks.coordDispatchTime;
 
         ArgsCursor ac = {};
-        HybridRequest_InitArgsCursor(hreq, &ac, args, args.size());
+        HybridRequest_InitArgsCursor(hreq, &ac, args.size());
 
         QueryError status = QueryError_Default();
         if (int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, &status, false, EXEC_NO_FLAGS); rc != REDISMODULE_OK) {
@@ -300,7 +300,7 @@ protected:
         cmd.coordDispatchTime = &hreq->profileClocks.coordDispatchTime;
 
         ArgsCursor ac = {};
-        HybridRequest_InitArgsCursor(hreq, &ac, args, args.size());
+        HybridRequest_InitArgsCursor(hreq, &ac, args.size());
         QueryError status = QueryError_Default();
         int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, &status, false, EXEC_NO_FLAGS);
         EXPECT_EQ(rc, REDISMODULE_OK) << QueryError_GetDisplayableError(&status, false);

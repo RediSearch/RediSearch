@@ -167,7 +167,7 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
  * @param sctx The search context for the hybrid request
  * @param requests Array of AREQ pointers, the hybrid request takes ownership
  * @param nrequests Number of requests in the array
- * @param argv Already-stepped argv slice each sub-request's wrapper holds
+ * @param argv The full command argv each sub-request's wrapper holds
  *   (see HybridRequest_New); not NULL
  * @param argc Number of strings in argv
  */
@@ -177,7 +177,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
 /* Wrap the request's held argv (taken at construction) in a parse cursor.
  * The caller's argc bounds the parse; the holds may cover a superset (the
  * coordinator debug flow strips trailing debug params). */
-void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor* ac, RedisModuleString **argv, int argc);
+void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor* ac, int argc);
 
 /**
  * Build the depletion pipeline for hybrid search processing.
