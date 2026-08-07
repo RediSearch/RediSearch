@@ -40,11 +40,39 @@ pub struct RawWildcard<'query, Rf: Ref> {
 
     /// A reusable result object to avoid allocations on each `read` call.
     result: RawIndexResult<'query, Rf>,
+
+    /// Whether the iterator has run *past* `top_id`, i.e. a `read`/`skip_to`
+    /// found nothing.
+    ///
+    /// The state behind [`current`](RQEIterator::current) and
+    /// [`at_eof`](RQEIterator::at_eof).
+    ///
+    /// It cannot be folded into `result.doc_id`: that field *is*
+    /// [`last_doc_id`](RQEIterator::last_doc_id), which parents use to choose
+    /// skip targets, so pushing it past `top_id` would misreport the position.
+    past_end: bool,
 }
 
 /// Alias for an [`Active`] [`RawWildcard`] — the only instantiation with an
 /// [`RQEIterator`] impl today.
 pub type Wildcard<'index> = RawWildcard<'index, Active<'index>>;
+
+// Compile-time proof that the `Active` and `Suspended` instantiations are
+// layout-identical, which is what lets [`RawWildcard::suspend`] and its `resume`
+// reinterpret the owning `Box` in place. `result: RawIndexResult<Rf>` is the only
+// `Rf`-dependent field, and its own cross-`Rf` compatibility is proven in
+// `index_result`; these asserts pin down that neither it nor the flag beside it
+// shifts across modes. Mirrors the block in [`crate::optional`].
+const _: () = {
+    use std::mem::{align_of, offset_of, size_of};
+    type A = RawWildcard<'static, Active<'static>>;
+    type S = RawWildcard<'static, Suspended>;
+    assert!(offset_of!(A, top_id) == offset_of!(S, top_id));
+    assert!(offset_of!(A, result) == offset_of!(S, result));
+    assert!(offset_of!(A, past_end) == offset_of!(S, past_end));
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
 
 impl Wildcard<'_> {
     pub fn new(top_id: DocId, weight: f64) -> Self {
@@ -55,18 +83,33 @@ impl Wildcard<'_> {
                 .weight(weight)
                 .field_mask(RS_FIELDMASK_ALL)
                 .build(),
+            past_end: false,
         }
+    }
+
+    /// Whether there is another result to yield: `top_id` has not been reached
+    /// yet.
+    ///
+    /// Goes `false` one step before [`Self::past_end`] is set, while `top_id` is
+    /// still the current result.
+    #[inline(always)]
+    const fn has_next(&self) -> bool {
+        self.result.doc_id < self.top_id
     }
 }
 
 impl<'index> RQEIterator<'index> for Wildcard<'index> {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        if self.past_end {
+            return None;
+        }
         Some(&mut self.result)
     }
 
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        if self.at_eof() {
+        if !self.has_next() {
+            self.past_end = true;
             return Ok(None);
         }
 
@@ -78,7 +121,8 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
         &mut self,
         doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        if self.at_eof() {
+        if !self.has_next() {
+            self.past_end = true;
             return Ok(None);
         }
         debug_assert!(self.last_doc_id() < doc_id);
@@ -86,6 +130,7 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
         if doc_id > self.top_id {
             // skip beyond range - set to EOF
             self.result.doc_id = self.top_id;
+            self.past_end = true;
             return Ok(None);
         }
 
@@ -95,6 +140,7 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
 
     fn rewind(&mut self) {
         self.result.doc_id = 0;
+        self.past_end = false;
     }
 
     // This should always return total results from the iterator, even after some yields.
@@ -107,7 +153,7 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
     }
 
     fn at_eof(&self) -> bool {
-        self.result.doc_id >= self.top_id
+        self.past_end
     }
 
     fn revalidate(

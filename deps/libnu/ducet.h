@@ -6,7 +6,7 @@
 #include "config.h"
 #include "defines.h"
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 extern "C" {
 #endif
 
@@ -30,7 +30,7 @@ int32_t nu_ducet_weight(uint32_t codepoint, int32_t *weight, void *context);
 
 #endif /* NU_WITH_DUCET */
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 }
 #endif
 

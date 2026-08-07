@@ -12,20 +12,15 @@ use crate::{TrieMap, iter::Values};
 /// Prefix-filtered value iterator over a [`StrTrieMap`](crate::str_trie_map::StrTrieMap),
 /// in lexicographical key order.
 ///
-/// Empty `prefix` yields zero matches — differs from
-/// [`TrieMap::prefixed_values`] which yields every entry on `&[]`. The
-/// short-circuit is encoded by delegating to an empty inner iterator.
+/// Empty `prefix` yields every value, like [`TrieMap::prefixed_values`] on
+/// `&[]` — the empty string is a prefix of every key.
 ///
 /// See [`crate::iter::Values`] for the underlying traversal.
 pub struct PrefixedValues<'tm, Data: 'tm>(Values<'tm, Data>);
 
 impl<'tm, Data: 'tm> PrefixedValues<'tm, Data> {
     pub(crate) fn new(trie: &'tm TrieMap<Data>, prefix: &str) -> Self {
-        if prefix.is_empty() {
-            Self(Values::new(None))
-        } else {
-            Self(trie.prefixed_values(prefix.as_bytes()))
-        }
+        Self(trie.prefixed_values(prefix.as_bytes()))
     }
 }
 

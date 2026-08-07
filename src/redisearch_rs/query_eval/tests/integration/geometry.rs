@@ -20,10 +20,7 @@ use std::ffi::CString;
 
 use query::mock::MockQueryNode;
 use query_error::QueryErrorCode;
-use query_eval::{
-    QueryEvalContext, QueryNodeMut,
-    eval::{self, Config, EvalResult},
-};
+use query_eval::{Config, EvalResult, QueryEvalContext, QueryNodeMut, eval_node};
 use query_types::QueryNodeType;
 use rqe_iterators::RQEIterator;
 use rqe_iterators_test_utils::{GlobalGuard, TestContext};
@@ -110,7 +107,7 @@ impl GeometryFixture {
         // SAFETY: `GeometryApi_Get` always populates the `addGeomStr` callback.
         let add = unsafe { (*api).addGeomStr }.expect("geometry api `addGeomStr` must be set");
 
-        let mut err: *mut ffi::RedisModuleString = std::ptr::null_mut();
+        let mut err: *mut redis_module::RedisModuleString = std::ptr::null_mut();
         // SAFETY: `index` is valid, `wkt` points to `wkt.as_bytes().len()` bytes,
         // and `err` is a valid out-pointer.
         let rc = unsafe {
@@ -134,7 +131,7 @@ impl GeometryFixture {
     fn eval(&mut self) -> Option<EvalResult<'_>> {
         // SAFETY: `self.node` is a valid, live `RSQueryNode` for the call.
         let node_ref = unsafe { QueryNodeMut::new(self.node.as_non_null()) };
-        eval::eval_node(&mut self.ctx, node_ref, Config::default()).map(|e| e.into_boxed())
+        eval_node(&mut self.ctx, node_ref, Config::default()).map(|e| e.into_boxed())
     }
 }
 

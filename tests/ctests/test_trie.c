@@ -29,6 +29,22 @@
 size_t __trieNode_Sizeof(t_len numChildren, t_len slen);
 
 int count = 0;
+static size_t freedTriePayloads = 0;
+
+static void countTriePayloadFree(void *payload) {
+  (void)payload;
+  ++freedTriePayloads;
+}
+
+static size_t alignUp(size_t value, size_t alignment) {
+  size_t remainder = value % alignment;
+  return remainder ? value + alignment - remainder : value;
+}
+
+static size_t expectedTrieNodeSize(t_len numChildren, t_len slen) {
+  size_t childKeysEnd = sizeof(TrieNode) + ((size_t)slen + 1 + numChildren) * sizeof(rune);
+  return alignUp(childKeysEnd, _Alignof(TrieNode *)) + (size_t)numChildren * sizeof(TrieNode *);
+}
 
 static float trieExactScore(TrieNode *n, rune *str, t_len len) {
   TrieNode *res = TrieNode_Get(n, str, len, true, NULL);
@@ -1120,10 +1136,8 @@ int testTrieNodeSizeof() {
   size_t result = __trieNode_Sizeof(UINT16_MAX, UINT16_MAX);
   ASSERT(result > 0);
 
-  // Verify the size calculation matches expected formula
-  size_t expected = sizeof(TrieNode) +
-                    (size_t)UINT16_MAX * (sizeof(rune) + sizeof(TrieNode *)) +
-                    ((size_t)UINT16_MAX + 1) * sizeof(rune);
+  // Verify the size calculation matches the padded child-pointer layout.
+  size_t expected = expectedTrieNodeSize(UINT16_MAX, UINT16_MAX);
   ASSERT_EQUAL(result, expected);
 
   // Normal values
@@ -1132,9 +1146,39 @@ int testTrieNodeSizeof() {
 
   // Edge case: zero children and zero length
   result = __trieNode_Sizeof(0, 0);
-  // Should be sizeof(TrieNode) + sizeof(rune) for the null terminator
-  ASSERT_EQUAL(result, sizeof(TrieNode) + sizeof(rune));
+  ASSERT_EQUAL(result, expectedTrieNodeSize(0, 0));
 
+  return 0;
+}
+
+int testDeleteRunesDeepSuffixTrieUsesDynamicStack() {
+  freedTriePayloads = 0;
+  Trie *t = NewTrie(countTriePayloadFree, Trie_Sort_Lex);
+  ASSERT(t != NULL);
+
+  enum { keyLen = TRIE_INITIAL_STRING_LEN * 2 + 16 };
+  rune key[keyLen];
+  for (size_t i = 0; i < keyLen; ++i) {
+    key[i] = 'a';
+  }
+
+  RSPayload payload = {.data = "payload", .len = strlen("payload")};
+
+  // Match repeated addSuffixTrie() full-word inserts: Trie_InsertRuneNoSize()
+  // bypasses the normal length guard, and overlapping terms split the trie into
+  // a traversal path that exceeds the local stack and its first heap growth.
+  for (size_t len = 1; len <= keyLen; ++len) {
+    int rc = Trie_InsertRuneNoSize(t, key, len, 1, 0, &payload, 0);
+    ASSERT_EQUAL(TRIE_OK_NEW, rc);
+  }
+  ASSERT_EQUAL(0, freedTriePayloads);
+
+  ASSERT_EQUAL(1, Trie_DeleteRunes(t, key, keyLen));
+  ASSERT(Trie_GetNode(t, key, keyLen, true, NULL) == NULL);
+  ASSERT(Trie_GetNode(t, key, keyLen - 1, true, NULL) != NULL);
+  ASSERT_EQUAL(1, freedTriePayloads);
+
+  TrieType_Free(t);
   return 0;
 }
 
@@ -1151,4 +1195,5 @@ TEST_MAIN({
   TESTFUNC(testDecrementNumDocsComplex);
   TESTFUNC(testDecrementNumDocsNonTerminal);
   TESTFUNC(testTrieNodeSizeof);
+  TESTFUNC(testDeleteRunesDeepSuffixTrieUsesDynamicStack);
 });

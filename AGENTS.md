@@ -127,6 +127,7 @@ Rules:
 ## C Code Architecture
 
 ### Module Entry and Command Dispatch
+- `src/redismodule_api.c` — owns the `RedisModule_*` API function-pointer table (the only file defining `REDISMODULE_MAIN`)
 - `src/module-init/module-init.c` — `RedisModule_OnLoad`, calls `RediSearch_InitModuleInternal`
 - `src/module.c` — command registration and top-level handlers for `FT.CREATE`, `FT.SEARCH`, `FT.AGGREGATE`, `FT.INFO`, etc.
 

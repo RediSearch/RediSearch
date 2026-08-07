@@ -14,7 +14,7 @@ use std::{
 };
 use thin_vec::ThinVec;
 
-use super::unique_id::IndexUniqueId;
+use super::{ExpirationBits, unique_id::IndexUniqueId};
 use crate::{
     BlockCapacity, Encoder, IdDelta,
     controlled_cursor::ControlledCursor,
@@ -87,6 +87,10 @@ pub struct IndexBlock {
 
     /// The encoded entries in this block
     pub(crate) buffer: Vec<u8>,
+
+    /// The entries in this block that belong to a field with a field-level expiration, see
+    /// [`ExpirationBits`]. Empty — and unallocated — while no entry in the block does.
+    pub(crate) expiration_bits: ExpirationBits,
 }
 
 impl IndexBlock {
@@ -100,12 +104,30 @@ impl IndexBlock {
             last_doc_id: doc_id,
             num_entries: 0,
             buffer: Vec::new(),
+            expiration_bits: ExpirationBits::new(),
         }
     }
 
-    /// Get the memory usage of this block, including the stack size and the capacity of the bytes buffer.
-    pub const fn mem_usage(&self) -> usize {
-        Self::STACK_SIZE + self.buffer.capacity()
+    /// The number of bytes occupied by the field-expiration bitset, if any.
+    fn expiration_bits_len(&self) -> usize {
+        self.expiration_bits.mem_usage()
+    }
+
+    /// Get the memory usage of this block, including the stack size, the capacity of the bytes
+    /// buffer, and the field-expiration bitset.
+    pub fn mem_usage(&self) -> usize {
+        Self::STACK_SIZE + self.buffer.capacity() + self.expiration_bits_len()
+    }
+
+    /// Record that the entry at `ordinal` (its 0-based position within this block)
+    /// belongs to a document with at least one field-level expiration.
+    pub(crate) fn set_expiration_bit(&mut self, ordinal: u16) {
+        self.expiration_bits.insert(ordinal);
+    }
+
+    /// Whether the entry at `ordinal` belongs to a document with a field-level expiration.
+    pub(crate) fn expiration_bit(&self, ordinal: u16) -> bool {
+        self.expiration_bits.contains(ordinal)
     }
 
     /// Get the first document ID in this block. This is only needed for some C tests.
@@ -179,7 +201,11 @@ impl<E: Encoder> InvertedIndex<E> {
     /// The memory size of the index in bytes.
     pub fn memory_usage(&self) -> usize {
         let blocks_heap = self.blocks.mem_usage();
-        let blocks_buffers: usize = self.blocks.iter().map(|b| b.buffer.capacity()).sum();
+        let blocks_buffers: usize = self
+            .blocks
+            .iter()
+            .map(|b| b.buffer.capacity() + b.expiration_bits_len())
+            .sum();
         let stack = std::mem::size_of::<Self>();
 
         blocks_heap + blocks_buffers + stack
@@ -194,17 +220,24 @@ impl<E: Encoder> InvertedIndex<E> {
     /// It is expected that the document ID of the record is greater than or equal to the last
     /// document ID in the index.
     pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<AddRecordOutcome> {
-        self.add_entry(record.doc_id, |writer, delta| {
-            E::encode(writer, delta, record)
-        })
+        self.add_entry(
+            record.doc_id,
+            record.has_field_expiration,
+            |writer, delta| E::encode(writer, delta, record),
+        )
     }
 
     /// Add an entry for `doc_id`, letting `encode` write the payload.
     ///
     /// Everything an add does apart from writing the payload depends only on the
-    /// document ID, so callers holding something other than an [`RSIndexResult`] —
-    /// see [`Self::add_prepared_record`] — reuse all of it.
-    fn add_entry<F>(&mut self, doc_id: DocId, encode: F) -> std::io::Result<AddRecordOutcome>
+    /// document ID and field-expiration bit, so callers holding something other than
+    /// an [`RSIndexResult`] — see [`Self::add_prepared_record`] — reuse all of it.
+    fn add_entry<F>(
+        &mut self,
+        doc_id: DocId,
+        has_field_expiration: bool,
+        encode: F,
+    ) -> std::io::Result<AddRecordOutcome>
     where
         F: FnOnce(ControlledCursor<'_>, E::Delta) -> std::io::Result<usize>,
     {
@@ -260,6 +293,16 @@ impl<E: Encoder> InvertedIndex<E> {
         // Instead we took the capacity of the buffer before the write and now check by how much it
         // has increased (if any).
         let buf_growth = block.buffer.capacity() - buf_cap;
+
+        // Record the document-level field-expiration bit for this entry at its
+        // ordinal within the block — which is the current `num_entries`, before
+        // the bump below. The codec (the `buffer` above) is untouched; the bit
+        // lives in the block's side bitset.
+        let bits_len_before = block.expiration_bits_len();
+        if has_field_expiration {
+            block.set_expiration_bit(block.num_entries);
+        }
+        let buf_growth = buf_growth + (block.expiration_bits_len() - bits_len_before);
 
         debug_assert!(block.num_entries.saturating_add(1) < u16::MAX);
         block.num_entries += 1;
@@ -407,14 +450,16 @@ impl<E: NumericEncoder> InvertedIndex<E> {
     /// [`NumericEncoder::prepare`].
     ///
     /// Equivalent to [`Self::add_record`] with a numeric record holding the same
-    /// document ID and value — same bytes, same outcome — without classifying the
-    /// value a second time or building an [`RSIndexResult`] to carry it.
+    /// document ID, value, and field-expiration bit — same bytes, same outcome —
+    /// without classifying the value a second time or building an [`RSIndexResult`]
+    /// to carry it.
     pub fn add_prepared_record(
         &mut self,
         doc_id: DocId,
         prepared: PreparedValue,
+        has_field_expiration: bool,
     ) -> std::io::Result<AddRecordOutcome> {
-        self.add_entry(doc_id, |writer, delta| {
+        self.add_entry(doc_id, has_field_expiration, |writer, delta| {
             E::encode_prepared(writer, delta, prepared)
         })
     }

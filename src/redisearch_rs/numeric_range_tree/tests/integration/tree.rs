@@ -28,12 +28,12 @@ fn test_new_tree() {
 fn test_add_basic() {
     let mut tree = NumericRangeTree::new(false);
 
-    let result = tree.add(1, 5.0, false, 0);
+    let result = tree.add(1, 5.0, false, false, 0);
     assert_eq!(tree.num_entries(), 1);
     assert_eq!(tree.last_doc_id(), 1);
     assert!(result.size_delta > 0);
 
-    let result = tree.add(2, 10.0, false, 0);
+    let result = tree.add(2, 10.0, false, false, 0);
     assert_eq!(tree.num_entries(), 2);
     assert_eq!(tree.last_doc_id(), 2);
     assert!(result.size_delta > 0);
@@ -43,16 +43,16 @@ fn test_add_basic() {
 fn test_duplicate_doc_id_rejected() {
     let mut tree = NumericRangeTree::new(false);
 
-    tree.add(5, 10.0, false, 0);
+    tree.add(5, 10.0, false, false, 0);
     assert_eq!(tree.num_entries(), 1);
 
     // Duplicate should be rejected
-    let result = tree.add(5, 20.0, false, 0);
+    let result = tree.add(5, 20.0, false, false, 0);
     assert_eq!(result.size_delta, 0);
     assert_eq!(tree.num_entries(), 1);
 
     // Lower doc_id should also be rejected
-    let result = tree.add(3, 15.0, false, 0);
+    let result = tree.add(3, 15.0, false, false, 0);
     assert_eq!(result.size_delta, 0);
     assert_eq!(tree.num_entries(), 1);
 }
@@ -61,11 +61,11 @@ fn test_duplicate_doc_id_rejected() {
 fn test_duplicate_doc_id_allowed_with_multi() {
     let mut tree = NumericRangeTree::new(false);
 
-    tree.add(5, 10.0, true, 0);
+    tree.add(5, 10.0, false, true, 0);
     assert_eq!(tree.num_entries(), 1);
 
     // Duplicate allowed with is_multi=true
-    let result = tree.add(5, 20.0, true, 0);
+    let result = tree.add(5, 20.0, false, true, 0);
     assert!(result.size_delta > 0);
     assert_eq!(tree.num_entries(), 2);
 }
@@ -94,7 +94,7 @@ fn test_inverted_indexes_size() {
     let initial_size = tree.inverted_indexes_size();
 
     let mut tree2 = NumericRangeTree::new(false);
-    tree2.add(1, 5.0, false, 0);
+    tree2.add(1, 5.0, false, false, 0);
     let size_after_add = tree2.inverted_indexes_size();
     assert!(size_after_add > initial_size);
 }
@@ -130,9 +130,9 @@ fn test_mem_usage() {
     let mut tree = NumericRangeTree::new(false);
     let mem_before = tree.mem_usage();
 
-    tree.add(1, 5.0, false, 0);
-    tree.add(2, 10.0, false, 0);
-    tree.add(3, 15.0, false, 0);
+    tree.add(1, 5.0, false, false, 0);
+    tree.add(2, 10.0, false, false, 0);
+    tree.add(3, 15.0, false, false, 0);
 
     let mem_after = tree.mem_usage();
     assert!(mem_after > mem_before);
@@ -143,7 +143,7 @@ fn test_multiple_sequential_adds() {
     let mut tree = NumericRangeTree::new(false);
 
     for i in 1..=100 {
-        let result = tree.add(i as u64, i as f64, false, 0);
+        let result = tree.add(i as u64, i as f64, false, false, 0);
         assert!(result.size_delta >= 0);
     }
 
@@ -191,7 +191,7 @@ fn test_split_with_identical_values() {
     // so the size-overflow path (MAXIMUM_RANGE_SIZE) with card > 1 won't
     // trigger. The tree should remain a single leaf.
     for i in 1..=500u64 {
-        tree.add(i, 42.0, false, 0);
+        tree.add(i, 42.0, false, false, 0);
     }
 
     assert_eq!(tree.num_entries(), 500);
@@ -223,7 +223,7 @@ fn test_compression_collapse_does_not_inflate_cardinality() {
 
     // Well past the point where the old cardinality estimate would have split.
     for i in 1..=(SPLIT_TRIGGER + 8) {
-        tree.add(i, value_at(i), false, 0);
+        tree.add(i, value_at(i), false, false, 0);
     }
 
     assert!(
@@ -248,7 +248,7 @@ fn test_compression_collapse_does_not_inflate_cardinality() {
     // The add that used to hit the underflow. Nothing was ever stranded, so the
     // counter is not touched.
     let next = SPLIT_TRIGGER + 9;
-    tree.add(next, value_at(next), false, 0);
+    tree.add(next, value_at(next), false, false, 0);
     assert_eq!(tree.empty_leaves(), 0);
 }
 
@@ -276,10 +276,10 @@ fn test_split_after_gc_stale_min_counts_empty_leaf() {
     const MAJORITY: u64 = 40;
 
     // Doc 1 is the only document below 100.0, so it alone sets `min_val` to 0.0.
-    tree.add(1, 0.0, false, 0);
+    tree.add(1, 0.0, false, false, 0);
 
     for doc_id in 2..=(MAJORITY + 1) {
-        tree.add(doc_id, 100.0, false, 0);
+        tree.add(doc_id, 100.0, false, false, 0);
     }
     assert!(tree.root().is_leaf());
     assert_eq!(tree.empty_leaves(), 0, "the root leaf holds every document");
@@ -304,7 +304,7 @@ fn test_split_after_gc_stale_min_counts_empty_leaf() {
     let mut doc_id = MAJORITY + 2;
     let mut split_fired = false;
     for i in 1..=SPLIT_TRIGGER {
-        tree.add(doc_id, 100.0 + i as f64, false, 0);
+        tree.add(doc_id, 100.0 + i as f64, false, false, 0);
         doc_id += 1;
         if tree.num_leaves() == 2 {
             split_fired = true;
@@ -331,7 +331,7 @@ fn test_split_after_gc_stale_min_counts_empty_leaf() {
     // Any later value below the split point is routed to that empty leaf. Before
     // the fix this decremented `empty_leaves` from 0, underflowing the counter and
     // aborting the process across the non-unwinding FFI boundary.
-    tree.add(doc_id, 50.0, false, 0);
+    tree.add(doc_id, 50.0, false, false, 0);
     assert_eq!(
         tree.empty_leaves(),
         0,
@@ -349,7 +349,7 @@ fn test_deep_tree_balancing() {
     // The depth imbalance invariant in `check_tree_invariants` (which runs
     // after every `add`) enforces the real bound.
     for i in 1..=5000u64 {
-        tree.add(i, i as f64, false, 0);
+        tree.add(i, i as f64, false, false, 0);
     }
 }
 
@@ -364,7 +364,7 @@ fn test_deep_tree_balancing_descending() {
     // The depth imbalance invariant in `check_tree_invariants` (which runs
     // after every `add`) enforces the real bound.
     for i in (1..=5000u64).rev() {
-        tree.add(5001 - i, i as f64, true, 0);
+        tree.add(5001 - i, i as f64, false, true, 0);
     }
 }
 
@@ -382,13 +382,13 @@ fn test_deep_tree_balancing_mixed() {
         if batch % 2 == 0 {
             // Ascending batch
             for v in (batch * 500 + 1)..=(batch * 500 + 500) {
-                tree.add(doc_id, v as f64, true, 0);
+                tree.add(doc_id, v as f64, false, true, 0);
                 doc_id += 1;
             }
         } else {
             // Descending batch
             for v in ((batch * 500 + 1)..=(batch * 500 + 500)).rev() {
-                tree.add(doc_id, v as f64, true, 0);
+                tree.add(doc_id, v as f64, false, true, 0);
                 doc_id += 1;
             }
         }
@@ -479,7 +479,7 @@ fn test_compressed_signed_zero_collapse_does_not_split() {
     let n = NumericRangeTree::MAXIMUM_RANGE_SIZE as u64 + 1;
     for doc_id in 1..=n {
         let value = if doc_id % 2 == 0 { 5e-324 } else { -5e-324 };
-        tree.add(doc_id, value, false, 0);
+        tree.add(doc_id, value, false, false, 0);
     }
 
     if let Some((left, right)) = tree.root().child_indices() {

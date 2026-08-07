@@ -94,6 +94,16 @@ impl SearchEnterpriseIterators for MockEnterpriseIterators {
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>> {
         unimplemented!("MockEnterpriseIterators::new_numeric_on_disk not used in these tests")
     }
+
+    fn new_geo_on_disk<'index>(
+        &self,
+        _index: &'index mut ffi::RedisSearchDiskIndexSpec,
+        _gf: &'index mut ffi::GeoFilter,
+        _field_index: ffi::t_fieldIndex,
+        _snapshot: std::ptr::NonNull<ffi::RedisSearchDiskSnapshot>,
+    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>> {
+        unimplemented!("MockEnterpriseIterators::new_geo_on_disk not used in these tests")
+    }
 }
 
 /// Initialize [`SEARCH_ENTERPRISE_ITERATORS`] with [`MockEnterpriseIterators`]

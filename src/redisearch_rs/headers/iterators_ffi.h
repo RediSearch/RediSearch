@@ -25,6 +25,8 @@ typedef struct timespec timespec;
 typedef struct AREQ AREQ;
 
 
+typedef struct RedisModuleCtx RedisModuleCtx;
+
 /**
  * Smart pointer handle for [`RLookupKey`] that can be
  * invalidated when the iterator that owns the key is freed.
@@ -388,6 +390,21 @@ QueryIterator *NewMetricIteratorSortedByScore(t_docId *ids, double *metric_list,
 QueryIterator *NewIntersectionIterator(QueryIterator * *its, size_t num, int32_t max_slop, bool in_order, double weight);
 
 /**
+ * Frees the `numericFilters` array that [`NewGeoRangeIterator`] populated on a
+ * `GeoFilter`, together with the per-range `NumericFilter`s it owns.
+ *
+ * The array is allocated in Rust (`build_geo_numeric_filters` boxes it), so it
+ * must be released with the Rust allocator.
+ *
+ * # Safety
+ *
+ * `filters` must be NULL, or the array stored in `gf.numericFilters` by
+ * [`NewGeoRangeIterator`] (i.e. by `build_geo_numeric_filters`) and not yet
+ * freed.
+ */
+void GeoFilter_FreeNumericFilters(NumericFilter * *filters);
+
+/**
  * Opens the numeric/geo index and creates an iterator over all matching sub-ranges.
  *
  * # Returns
@@ -437,8 +454,9 @@ QueryIterator *NewUnionIterator(QueryIterator * *its, int32_t num, bool quick_ex
  *
  * There are three possible code paths:
  *
- * 1. **Disk index** — when [`spec.diskSpec`](ffi::IndexSpec::diskSpec) is non-null, delegates to the C
- *    function `SearchDisk_NewWildcardIterator`.
+ * 1. **Disk index** — when [`spec.diskSpec`](ffi::IndexSpec::diskSpec) is non-null, delegates to
+ *    the enterprise iterator API via
+ *    [`rqe_iterators::wildcard::new_wildcard_iterator_on_disk`].
  * 2. **[`index_all`](ffi::SchemaRule::index_all) optimized** — when [`SchemaRule`](ffi::SchemaRule)`.index_all` is set, delegates to
  *    [`rqe_iterators::wildcard::new_wildcard_iterator_optimized`].
  * 3. **Fallback** — creates a simple [`Wildcard`] iterator that yields all
@@ -592,7 +610,7 @@ void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
  * 2. `root` must be null or a valid pointer to a [`QueryIterator`] tree
  *    that has been profile-wrapped via `Profile_AddIters`.
  */
-void Profile_PrintIterators(RedisModuleCtx *ctx, const QueryIterator *root, bool limited, bool print_profile_clock);
+void Profile_PrintIterators(struct RedisModuleCtx *ctx, const QueryIterator *root, bool limited, bool print_profile_clock);
 
 /**
  * Creates a new wildcard inverted index iterator for querying all existing documents.

@@ -240,6 +240,17 @@ def testLeaked(env):
     res, cursor = env.cmd('FT.AGGREGATE idx * WITHCURSOR COUNT 1')
     env.assertNotEqual(cursor, 0, message=f"result = {res}")
 
+def testCursorDelFromLua(env):
+    # FT.CURSOR DEL never blocks (a cursor-list operation; a coordinator
+    # cursor's shard cleanup is posted to the IO runtime asynchronously), so it
+    # is served from script (deny-blocking) contexts on any topology.
+    loadDocs(env, count=10)
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1)
+    env.assertNotEqual(cursor, 0, message=f"result = {res}")
+    env.expect('EVAL', "return redis.call('FT.CURSOR', 'DEL', ARGV[1], ARGV[2])",
+               0, 'idx', cursor).ok()
+    env.expect('FT.CURSOR', 'READ', 'idx', cursor).error().contains('Cursor not found')
+
 def testNumericCursor(env):
     conn = getConnectionByEnv(env)
     idx = 'foo'

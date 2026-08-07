@@ -100,3 +100,18 @@ fn empty_frame_roundtrips() {
     let frame = Frame::decode(&mut Cursor::new(sink)).unwrap();
     assert!(matches!(frame, Frame::Empty));
 }
+
+#[test]
+fn decode_nul_terminated_data_frame_appends_single_nul() {
+    let mut sink: Vec<u8> = Vec::new();
+    Frame::data(b"field_name").encode(&mut sink).unwrap();
+    let Frame::Data(data) = Frame::decode_nul_terminated(&mut Cursor::new(sink)).unwrap() else {
+        panic!("expected Data frame");
+    };
+
+    let buf = data.into_inner();
+
+    assert_eq!(buf.len(), b"field_name".len());
+    assert_eq!(buf.as_bytes(), b"field_name");
+    assert_eq!(buf.as_bytes_with_nul(), b"field_name\0");
+}

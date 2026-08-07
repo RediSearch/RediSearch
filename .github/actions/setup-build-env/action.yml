@@ -176,7 +176,7 @@ runs:
     # Cache Rust packages
     - name: Cache Rust packages
       if: ${{ inputs.rust-cache == 'true' }}
-      uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
       with:
         prefix-key: ${{ inputs.rust-cache-prefix-key }}
         key: ${{ inputs.rust-cache-key }}

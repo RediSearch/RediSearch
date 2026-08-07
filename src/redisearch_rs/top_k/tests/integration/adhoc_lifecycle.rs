@@ -71,6 +71,16 @@ impl ScoreSource for CallCountingScoreSource {
         RSIndexResult::build_virt().doc_id(doc_id).build()
     }
 
+    fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+    where
+        Self: 'r,
+    {
+    }
+
+    fn yields_child_record(&self) -> bool {
+        true
+    }
+
     fn batch_strategy(&mut self, _: usize, _: usize) -> BatchStrategy {
         BatchStrategy::Continue
     }
@@ -146,7 +156,12 @@ impl<'index> ErrOnSecondRead<'index> {
 
 impl<'index> RQEIterator<'index> for ErrOnSecondRead<'index> {
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
-        None
+        // Later reads fail rather than report depletion, so this stub never
+        // advances past its single document once it has been read.
+        if self.n == 0 {
+            return None;
+        }
+        Some(&mut self.result)
     }
 
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {

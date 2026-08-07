@@ -21,9 +21,11 @@
 #include "trie/levenshtein.h"
 #include "redismodule.h"
 #include "rmalloc.h"
+#include "rmutil/rm_assert.h"
 #include "trie/rune_util.h"
 #include "trie/trie_node.h"
 #include "util/arr/arr.h"
+#include "util/likely.h"
 #include "wildcard/wildcard.h"
 
 struct timespec;
@@ -80,7 +82,37 @@ do {                                                      \
   }                                                       \
 } while(0)
 
-#define __trieNode_childKey(n, c) (rune *)((void *)n + sizeof(TrieNode) + (n->len + 1 + c) * sizeof(rune))
+static inline size_t __trieNode_ChildKeyOffset(const TrieNode *n, t_len c) {
+  return sizeof(TrieNode) + ((size_t)n->len + 1 + c) * sizeof(rune);
+}
+
+static inline size_t __trieNode_AlignUp(size_t value, size_t alignment) {
+  size_t remainder = value % alignment;
+  return remainder ? value + alignment - remainder : value;
+}
+
+static inline size_t __trieNode_ChildrenOffset(t_len numChildren, t_len slen) {
+  size_t childKeysEnd = sizeof(TrieNode) + ((size_t)slen + 1 + numChildren) * sizeof(rune);
+  return __trieNode_AlignUp(childKeysEnd, _Alignof(TrieNode *));
+}
+
+static inline const void *__trieNode_ChildKey(const TrieNode *n, t_len c) {
+  return (const char *)n + __trieNode_ChildKeyOffset(n, c);
+}
+
+static inline void *__trieNode_MutableChildKey(TrieNode *n, t_len c) {
+  return (char *)n + __trieNode_ChildKeyOffset(n, c);
+}
+
+static inline rune __trieNode_LoadChildKey(const TrieNode *n, t_len c) {
+  rune key;
+  memcpy(&key, __trieNode_ChildKey(n, c), sizeof(key));
+  return key;
+}
+
+static inline void __trieNode_StoreChildKey(TrieNode *n, t_len c, rune key) {
+  memcpy(__trieNode_MutableChildKey(n, c), &key, sizeof(key));
+}
 
 #define __trieNode_isDeleted(n) (n->flags & TRIENODE_DELETED)
 
@@ -88,8 +120,9 @@ do {                                                      \
  * children */
 size_t __trieNode_Sizeof(t_len numChildren, t_len slen) {
   // Calculate:
-  // sizeof(TrieNode) + numChildren * (sizeof(rune) + sizeof(TrieNode *))
-  // + sizeof(rune) * (slen + 1)
+  // sizeof(TrieNode) + sizeof(rune) * (slen + 1) + numChildren * sizeof(rune)
+  // + padding to align the child-pointer array
+  // + numChildren * sizeof(TrieNode *)
   //
   // Overflow analysis:
   // t_len is uint16_t (max 65535), and rune is uint16_t (2 bytes) by default.
@@ -97,8 +130,7 @@ size_t __trieNode_Sizeof(t_len numChildren, t_len slen) {
   // Maximum possible size on 32-bit: ~17 + 65535 * (2 + 4) + 65536 * 2 ≈ 524 KB
   // Both are far below SIZE_MAX, so overflow is not possible with current type
   // constraints.
-  return sizeof(TrieNode) + numChildren * (sizeof(rune) + sizeof(TrieNode *)) +
-         sizeof(rune) * (slen + 1);
+  return __trieNode_ChildrenOffset(numChildren, slen) + numChildren * sizeof(TrieNode *);
 }
 
 // Check if payload length + 1 (for null terminator) overflows uint32_t
@@ -142,8 +174,7 @@ size_t TrieNode_NumDocs(const TrieNode *n) {
 }
 
 TrieNode **TrieNode_Children(const TrieNode *n) {
-  return (TrieNode **)((char *)n + sizeof(TrieNode) +
-                       ((n->len + 1) + n->numChildren) * sizeof(rune));
+  return (TrieNode **)((char *)n + __trieNode_ChildrenOffset(n->numChildren, n->len));
 }
 
 TrieNode *TrieNode_ChildAt(const TrieNode *n, t_len i) {
@@ -176,29 +207,39 @@ TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *pa
   return n;
 }
 
-static TrieNode *__trieNode_resizeChildren(TrieNode *n, int offset) {
-  n = rm_realloc(n, __trieNode_Sizeof(n->numChildren + offset, n->len));
-  TrieNode **children = TrieNode_Children(n);
+static TrieNode *__trieNode_growChildren(TrieNode *n, t_len additionalChildren) {
+  RS_LOG_ASSERT(additionalChildren > 0, "Trie child storage growth must be positive");
 
-  // stretch or shrink the child key cache array
-  memmove(((rune *)children) + offset, (rune *)children, sizeof(TrieNode *) * n->numChildren);
-  n->numChildren += offset;
+  t_len oldNumChildren = n->numChildren;
+  RS_LOG_ASSERT(oldNumChildren <= UINT16_MAX - additionalChildren,
+                "Trie child storage growth exceeds t_len");
+
+  t_len newNumChildren = oldNumChildren + additionalChildren;
+  size_t oldChildrenOffset = __trieNode_ChildrenOffset(oldNumChildren, n->len);
+  n = rm_realloc(n, __trieNode_Sizeof(newNumChildren, n->len));
+  size_t newChildrenOffset = __trieNode_ChildrenOffset(newNumChildren, n->len);
+
+  // Grow the child key cache while keeping the child-pointer array aligned.
+  memmove((char *)n + newChildrenOffset, (char *)n + oldChildrenOffset,
+          sizeof(TrieNode *) * oldNumChildren);
+  n->numChildren = newNumChildren;
   return n;
 }
 
 static TrieNode *__trie_AddChildIdx(TrieNode *n, const rune *str, t_len offset, t_len len, RSPayload *payload,
                                     float score, int idx, size_t numDocs) {
-  n = __trieNode_resizeChildren(n, 1);
+  n = __trieNode_growChildren(n, 1);
 
   // a newly added child must be a terminal node
   TrieNode *child = __newTrieNode(str, offset, len, payload ? payload->data : NULL,
                                   payload ? payload->len : 0, 0, score, 1, n->sortMode, numDocs);
 
   if (n->numChildren > 1) {
-    memmove(__trieNode_childKey(n, idx + 1), __trieNode_childKey(n, idx), (n->numChildren - idx - 1) * sizeof(rune));
+    memmove(__trieNode_MutableChildKey(n, idx + 1), __trieNode_ChildKey(n, idx),
+            (n->numChildren - idx - 1) * sizeof(rune));
     memmove(TrieNode_Children(n) + idx + 1, TrieNode_Children(n) + idx, (n->numChildren - idx - 1) * sizeof(TrieNode *));
   }
-  *__trieNode_childKey(n, idx) = str[offset];
+  __trieNode_StoreChildKey(n, idx, str[offset]);
   TrieNode_Children(n)[idx] = child;
   return n;
 }
@@ -217,7 +258,8 @@ static TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
   TrieNode **children = TrieNode_Children(n);
   TrieNode **newChildren = TrieNode_Children(newChild);
   memcpy(newChildren, children, sizeof(TrieNode *) * n->numChildren);
-  memcpy(__trieNode_childKey(newChild, 0), __trieNode_childKey(n, 0), n->numChildren * sizeof(rune));
+  memcpy(__trieNode_MutableChildKey(newChild, 0), __trieNode_ChildKey(n, 0),
+         n->numChildren * sizeof(rune));
 
   // reduce the node to be just one child with no score and no documents
   n->numChildren = 1;
@@ -230,7 +272,7 @@ static TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
   updateScore(n, newChild->score);
   n = rm_realloc(n, __trieNode_Sizeof(n->numChildren, n->len));
   TrieNode_Children(n)[0] = newChild;
-  *__trieNode_childKey(n, 0) = newChild->str[0];
+  __trieNode_StoreChildKey(n, 0, newChild->str[0]);
 
   return n;
 }
@@ -259,7 +301,7 @@ static TrieNode *__trieNode_MergeWithSingleChild(TrieNode *n, TrieFreeCallback f
   TrieNode **children = TrieNode_Children(ch);
   TrieNode **newChildren = TrieNode_Children(merged);
   memcpy(newChildren, children, sizeof(TrieNode *) * merged->numChildren);
-  memcpy(__trieNode_childKey(merged, 0), __trieNode_childKey(ch, 0),
+  memcpy(__trieNode_MutableChildKey(merged, 0), __trieNode_ChildKey(ch, 0),
          merged->numChildren * sizeof(rune));
   if (n->payload != NULL) {
     triePayload_Free(n->payload, freecb);
@@ -289,21 +331,21 @@ static TrieAddChildResult __trieNode_addChild_lex(
     TrieAddOp op, TrieFreeCallback freecb, size_t numDocs) {
   int idx = 0;
   for (; idx < n->numChildren; idx++) {
-    const rune *childKey = __trieNode_childKey(n, idx);
+    rune childKey = __trieNode_LoadChildKey(n, idx);
     TrieNode *child = TrieNode_Children(n)[idx];
-    if (str[offset] == *childKey) {
+    if (str[offset] == childKey) {
       // Payload is validated at the entry point (TrieNode_Add), so
       // TRIE_ERR_PAYLOAD_OVERFLOW cannot occur here.
       int rc = __trieNode_Add(&child, str + offset, len - offset, payload, score, op, freecb,
                               numDocs);
-      *__trieNode_childKey(n, idx) = str[offset];
+      __trieNode_StoreChildKey(n, idx, str[offset]);
       TrieNode_Children(n)[idx] = child;
       // the recursion left child->subtreeMaxScore correct; fold it upward
       updateScore(n, child->subtreeMaxScore);
       return (TrieAddChildResult){.node = n, .rc = rc};
     }
     // break if new node has lex value higher than current child
-    if (str[offset] < *childKey) {
+    if (str[offset] < childKey) {
       break;
     }
   }
@@ -328,7 +370,7 @@ void __trieNode_rotateChildIntoPlace(TrieNode *n, int idx) {
     children[dst] = child;
     // the key cache mirrors child order; refresh the rotated range
     for (int i = dst; i <= idx; i++) {
-      *__trieNode_childKey(n, i) = children[i]->str[0];
+      __trieNode_StoreChildKey(n, i, children[i]->str[0]);
     }
   }
 }
@@ -343,14 +385,14 @@ static TrieAddChildResult __trieNode_addChild_score(
   int idx = 0;
   int scoreIdx = REDISEARCH_UNINITIALIZED;
   for (; idx < n->numChildren; idx++) {
-    const rune *childKey = __trieNode_childKey(n, idx);
+    rune childKey = __trieNode_LoadChildKey(n, idx);
     TrieNode *child = TrieNode_Children(n)[idx];
-    if (str[offset] == *childKey) {
+    if (str[offset] == childKey) {
       // Payload is validated at the entry point (TrieNode_Add), so
       // TRIE_ERR_PAYLOAD_OVERFLOW cannot occur here.
       int rc = __trieNode_Add(&child, str + offset, len - offset, payload, score, op, freecb,
                               numDocs);
-      *__trieNode_childKey(n, idx) = str[offset];
+      __trieNode_StoreChildKey(n, idx, str[offset]);
       TrieNode_Children(n)[idx] = child;
       // the recursion left child->subtreeMaxScore correct; fold it upward
       updateScore(n, child->subtreeMaxScore);
@@ -415,7 +457,7 @@ static int __trieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *
       updateScore(n, n->score);
     } else {
       // a node after a split has a single child, created with the full `score`
-      int idx = str[offset] > *__trieNode_childKey(n, 0) ? 1 : 0;
+      int idx = str[offset] > __trieNode_LoadChildKey(n, 0) ? 1 : 0;
       n = __trie_AddChildIdx(n, str, offset, len, payload, score, idx, numDocs);
       updateScore(n, score);
     }
@@ -488,12 +530,12 @@ int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, 
 // passes the key; score mode has to scan the whole list (children are sorted
 // by score, not by rune).
 static TrieNode *__trieNode_findChild_lex(TrieNode *n, rune key) {
-  rune *childKeys = __trieNode_childKey(n, 0);
   for (t_len i = 0; i < n->numChildren; i++) {
-    if (key == childKeys[i]) {
+    rune childKey = __trieNode_LoadChildKey(n, i);
+    if (key == childKey) {
       return TrieNode_Children(n)[i];
     }
-    if (key < childKeys[i]) {
+    if (key < childKey) {
       return NULL;
     }
   }
@@ -501,9 +543,8 @@ static TrieNode *__trieNode_findChild_lex(TrieNode *n, rune key) {
 }
 
 static TrieNode *__trieNode_findChild_score(TrieNode *n, rune key) {
-  rune *childKeys = __trieNode_childKey(n, 0);
   for (t_len i = 0; i < n->numChildren; i++) {
-    if (key == childKeys[i]) {
+    if (key == __trieNode_LoadChildKey(n, i)) {
       return TrieNode_Children(n)[i];
     }
   }
@@ -567,18 +608,21 @@ static int __trieNode_optimizeChildren(TrieNode *n, TrieFreeCallback freecb) {
       TrieNode_Free(nodes[i], freecb);
 
       nodes[i] = NULL;
-      rune *nk = __trieNode_childKey(n, i);
       // just "fill" the hole with the next node up
       while (i < n->numChildren - 1) {
         nodes[i] = nodes[i + 1];
-        *nk = *(nk + 1);
+        __trieNode_StoreChildKey(n, i, __trieNode_LoadChildKey(n, i + 1));
         updateScore(n, nodes[i]->subtreeMaxScore);
         i++;
-        nk++;
       }
-      // reduce child count
+      // reduce child count. Delete compacts the arrays in-place but does not shrink
+      // the node allocation because callers keep raw TrieNode pointers while unwinding.
+      size_t oldChildrenOffset = __trieNode_ChildrenOffset(n->numChildren, n->len);
       n->numChildren--;
-      memmove(((rune *)nodes) - 1, (rune *)nodes, sizeof(TrieNode *) * n->numChildren);
+      size_t newChildrenOffset = __trieNode_ChildrenOffset(n->numChildren, n->len);
+      memmove((char *)n + newChildrenOffset, (char *)n + oldChildrenOffset,
+              sizeof(TrieNode *) * n->numChildren);
+      nodes = TrieNode_Children(n);
       rc++;
     } else {
 
@@ -602,11 +646,25 @@ static int __trieNode_optimizeChildren(TrieNode *n, TrieFreeCallback freecb) {
 
 int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback freecb) {
   t_len offset = 0;
-  static TrieNode *stack[TRIE_INITIAL_STRING_LEN];
-  int stackPos = 0;
+  TrieNode *localStack[TRIE_INITIAL_STRING_LEN];
+  TrieNode **stack = localStack;
+  size_t stackCap = TRIE_INITIAL_STRING_LEN;
+  size_t stackPos = 0;
   int rc = 0;
 
   while (n && offset < len) {
+    if (unlikely(stackPos == stackCap)) {
+      size_t newStackCap = stackCap * 2;
+      TrieNode **newStack;
+      if (likely(stack == localStack)) {
+        newStack = rm_malloc(newStackCap * sizeof(*newStack));
+        memcpy(newStack, stack, stackPos * sizeof(*stack));
+      } else {
+        newStack = rm_realloc(stack, newStackCap * sizeof(*newStack));
+      }
+      stack = newStack;
+      stackCap = newStackCap;
+    }
     stack[stackPos++] = n;
     t_len localOffset = 0;
     for (; offset < len && localOffset < n->len; offset++, localOffset++) {
@@ -636,7 +694,7 @@ int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback fr
       t_len i = 0;
       TrieNode *nextChild = NULL;
       for (; i < n->numChildren; i++) {
-        rune ckey = *__trieNode_childKey(n, i);
+        rune ckey = __trieNode_LoadChildKey(n, i);
         if (str[offset] == ckey) {
           nextChild = TrieNode_Children(n)[i];;
           break;
@@ -653,8 +711,12 @@ int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback fr
 
 end:
 
-  while (stackPos--) {
+  while (stackPos) {
+    --stackPos;
     __trieNode_optimizeChildren(stack[stackPos], freecb);
+  }
+  if (stack != localStack) {
+    rm_free(stack);
   }
   return rc;
 }
@@ -725,7 +787,7 @@ static void __trieNode_sortChildren(TrieNode *n) {
     }
     // Sort the local rune array by the rune in child
     for (int i = 0; i < n->numChildren; ++i) {
-      *__trieNode_childKey(n, i) = TrieNode_Children(n)[i]->str[0];
+      __trieNode_StoreChildKey(n, i, TrieNode_Children(n)[i]->str[0]);
     }
   }
 }
@@ -1341,6 +1403,10 @@ static void wildcardIterate(const TrieNode *n, RangeCtx *r) {
 void TrieNode_IterateWildcard(const TrieNode *n, const rune *str, int nstr,
                               TrieRangeCallback callback, void *ctx, struct timespec *timeout,
                               bool skipTimeoutChecks) {
+  // An empty pattern matches no term, and the initializer below reads str[nstr - 1]
+  if (nstr <= 0) {
+    return;
+  }
   // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks
   RangeCtx r = {
       .callback = callback,

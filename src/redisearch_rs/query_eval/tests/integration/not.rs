@@ -9,7 +9,7 @@
 
 //! QN_NOT → Not / Wildcard / Empty (via the reducer shortcircuits)
 
-use query_eval::{QueryEvalContext, QueryNodeMut, eval, eval::Config};
+use query_eval::{Config, QueryEvalContext, QueryNodeMut, eval_node};
 use query_types::QueryNodeType;
 use rqe_iterators::{IteratorType, RQEIterator};
 
@@ -31,7 +31,7 @@ fn eval_not_empty_child_falls_back_to_wildcard() {
     not.set_children(&[null_child.as_ptr()]);
     let node = unsafe { QueryNodeMut::new(not.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, node, Config::default())
+    let mut it = eval_node(&mut ctx, node, Config::default())
         .expect("should not be None")
         .into_boxed();
 
@@ -59,7 +59,7 @@ fn eval_not_wildcard_child_reduces_to_empty() {
     not.set_children(&[wc_child.as_ptr()]);
     let node = unsafe { QueryNodeMut::new(not.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, node, Config::default())
+    let mut it = eval_node(&mut ctx, node, Config::default())
         .expect("should not be None")
         .into_boxed();
 
@@ -116,7 +116,7 @@ mod not {
         not.set_children(&[ids_child.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(not.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, node, Config::default())
+        let mut it = eval_node(&mut ctx, node, Config::default())
             .expect("should not be None")
             .into_boxed();
 
@@ -165,7 +165,7 @@ mod not {
         not.set_children(&[missing_child.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(not.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, node, Config::default())
+        let mut it = eval_node(&mut ctx, node, Config::default())
             .expect("a not node always yields an iterator")
             .into_boxed();
 
@@ -212,7 +212,7 @@ mod not {
         not.set_children(&[ids_child.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(not.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, node, Config::default())
+        let mut it = eval_node(&mut ctx, node, Config::default())
             .expect("should not be None")
             .into_boxed();
 

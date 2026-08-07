@@ -133,6 +133,20 @@ class ParseHybridTest : public ::testing::Test {
     return rc;
   }
 
+  // Request-scoped config is captured at request construction, not at parse.
+  // Tests that mutate RSGlobalConfig must reconstruct the request afterwards
+  // to observe the change.
+  void recreateHybridRequest() {
+    HybridRequest_DecrRef(hybridRequest);
+    hybridRequest = MakeDefaultHybridRequest(NewSearchCtxC(ctx, index_name.c_str(), true));
+    result.search = hybridRequest->requests[0];
+    result.vector = hybridRequest->requests[1];
+    result.tailPlan = &hybridRequest->tailPipeline->ap;
+    result.reqConfig = &hybridRequest->reqConfig;
+    result.cursorConfig = &hybridRequest->cursorConfig;
+    result.coordDispatchTime = &hybridRequest->profileClocks.coordDispatchTime;
+  }
+
   // Helper function to test error cases with less boilerplate
   void testErrorCode(RMCK::ArgvList& args, QueryErrorCode expected_code, const char* expected_detail);
 
@@ -218,6 +232,7 @@ TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
 TEST_F(ParseHybridTest, testConfigOOMFailPolicyPropagation) {
   // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
   RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Fail;
+  recreateHybridRequest();
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
@@ -229,6 +244,7 @@ TEST_F(ParseHybridTest, testConfigOOMFailPolicyPropagation) {
 TEST_F(ParseHybridTest, testConfigOOMReturnPolicyPropagation) {
   // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
   RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Return;
+  recreateHybridRequest();
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
@@ -241,11 +257,39 @@ TEST_F(ParseHybridTest, testConfigOOMIgnorePolicyPropagation) {
 
   // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
   RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Ignore;
+  recreateHybridRequest();
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
   parseCommand(args);
   ASSERT_EQ(result.reqConfig->oomPolicy, OomPolicy_Ignore);
   ASSERT_EQ(result.vector->reqConfig.oomPolicy, OomPolicy_Ignore);
   ASSERT_EQ(result.search->reqConfig.oomPolicy, OomPolicy_Ignore);
+}
+
+TEST_F(ParseHybridTest, testConfigSnapshotUsedForParseDefaults) {
+  // Absent TIMEOUT/DIALECT must default to the request's construction-time
+  // snapshot, not to RSGlobalConfig at parse time — parsing may run on a
+  // background thread after the request was dispatched with its snapshot.
+  long long savedTimeout = RSGlobalConfig.requestConfigParams.queryTimeoutMS;
+  unsigned int savedDialect = RSGlobalConfig.requestConfigParams.dialectVersion;
+  RSGlobalConfig.requestConfigParams.queryTimeoutMS = 1234;
+  RSGlobalConfig.requestConfigParams.dialectVersion = 4;
+  recreateHybridRequest();
+  // Simulate FT.CONFIG SET landing between dispatch and the background parse.
+  RSGlobalConfig.requestConfigParams.queryTimeoutMS = 5678;
+  RSGlobalConfig.requestConfigParams.dialectVersion = 2;
+
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  parseCommand(args);
+
+  ASSERT_EQ(result.reqConfig->queryTimeoutMS, 1234);
+  ASSERT_EQ(result.search->reqConfig.queryTimeoutMS, 1234);
+  ASSERT_EQ(result.vector->reqConfig.queryTimeoutMS, 1234);
+  ASSERT_EQ(result.reqConfig->dialectVersion, 4);
+  ASSERT_EQ(result.search->reqConfig.dialectVersion, 4);
+  ASSERT_EQ(result.vector->reqConfig.dialectVersion, 4);
+
+  RSGlobalConfig.requestConfigParams.queryTimeoutMS = savedTimeout;
+  RSGlobalConfig.requestConfigParams.dialectVersion = savedDialect;
 }
 
 TEST_F(ParseHybridTest, testWithCombineLinear) {
@@ -1539,6 +1583,13 @@ TEST_F(ParseHybridTest, testGroupByNoProperties) {
   // Test GROUPBY with no properties specified
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "GROUPBY");
   testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "GROUPBY: Failed to parse the argument count");
+}
+
+TEST_F(ParseHybridTest, testGroupByRejectsTooManyProperties) {
+  const std::string too_many_properties = std::to_string(MAX_GROUPBY_PROPERTIES + 1);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA,
+                      "GROUPBY", too_many_properties.c_str(), "@title");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "GROUPBY: Invalid argument count");
 }
 
 TEST_F(ParseHybridTest, testGroupByPropertyMissingAtPrefix) {
