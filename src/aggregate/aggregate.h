@@ -423,6 +423,11 @@ struct BlockedRequestCtx {
   // Destroyed at EndCycle (per cycle) and, idempotently, in
   // BlockedRequestCtx_Free as a safety net.
   ChunkReplyState reply;
+  /* The owned request's execution error, consumed together with `reply` when
+   * the cycle replies. The request's pipeline reports into this slot (cursor
+   * reads repoint the pipeline's error pointer per read). Cleared with the
+   * wrapper. */
+  QueryError err;
   /* Cursor disposition for this cycle. The point that decides the cursor's
    * fate (the BG worker at cycle end, or the reply path once finishSendChunk
    * set QEXEC_S_ITERDONE) records it here; OnFree — the single park-or-free

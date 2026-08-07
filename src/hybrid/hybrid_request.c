@@ -18,6 +18,7 @@
 #include "search_ctx.h"
 #include "query_eval_ffi.h"
 #include "spec.h"
+#include "cursor.h"
 #include "module.h"
 #include "profile/profile.h"
 #include "iterators_ffi.h"
@@ -59,13 +60,13 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
         // Aborts the hybrid pipeline if any subquery on a disk index can't take a
         // snapshot — falling back to live reads is unsafe because the parent unlock
         // is unconditional and subsequent depleter / cursor reads would race with GC.
-        if (SearchCtx_TakeDiskSnapshot(AREQ_SearchCtx(areq), &req->errors[i]) != REDISMODULE_OK) {
+        if (SearchCtx_TakeDiskSnapshot(AREQ_SearchCtx(areq), &areq->brc->err) != REDISMODULE_OK) {
             rc = REDISMODULE_ERR;
             break;
         }
 
         // Parse subquery: Convert AST to iterator tree
-        areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq), areq->reqflags, areq, &req->errors[i]);
+        areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq), areq->reqflags, areq, &areq->brc->err);
 
         rs_wall_clock parseClock;
         if (isProfile) {
@@ -79,7 +80,7 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
 
         // Build the complete pipeline for this individual search request
         // This includes indexing (search/scoring) and any request-specific aggregation
-        rc = AREQ_BuildPipeline(areq, &req->errors[i]);
+        rc = AREQ_BuildPipeline(areq, &areq->brc->err);
         if (isProfile) {
           areq->profileClocks.profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&parseClock);
         }
@@ -228,8 +229,9 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
     // Build the depletion pipeline for extracting results from individual search requests
     if (HybridRequest_BuildDepletionPipeline(req, params, depleteInBackground) != REDISMODULE_OK) {
       for (size_t i = 0; i < req->nrequests; i++) {
-        if (QueryError_HasError(&req->errors[i])) {
-          QueryError_CloneFrom(&req->errors[i], status);
+        QueryError *subErr = &req->requests[i]->brc->err;
+        if (QueryError_HasError(subErr)) {
+          QueryError_CloneFrom(subErr, status);
           break;
         }
       }
@@ -290,10 +292,6 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     rs_wall_clock now = {0};
     rs_wall_clock_init(&now);
 
-    // Initialize error tracking for each individual request
-    hybridReq->errors = array_newlen(QueryError, nrequests);
-    memset(hybridReq->errors, 0, nrequests * sizeof(QueryError));
-
     // Initialize return codes array for tracking subqueries final states
     hybridReq->subqueriesReturnCodes = rm_calloc(nrequests, sizeof(RPStatus));
 
@@ -311,8 +309,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
         // while parsing, and sub pipelines borrow beyond their slice anyway
         // (distributed tail steps like LOAD, PARAMS).
         BlockedRequestCtx_NewAREQ(requests[i], argv, argc);
-        hybridReq->errors[i] = QueryError_Default();
-        Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &hybridReq->errors[i]);
+        Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &requests[i]->brc->err);
     }
     hybridReq->profileClocks.initClock = now;
 
@@ -353,11 +350,20 @@ void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, uint32_t a
 void HybridRequest_Free(HybridRequest *req) {
     if (!req) return;
 
-    // Cursors should have been freed by the timeout callback or reply callback.
-    // If we reach here with cursors still set, it indicates a bug in the cleanup logic.
-    RS_ASSERT(req->cursors == NULL);
+    // Park the published sub-cursors: the container dies on the main thread
+    // at the end of the initial cursor cycle, after the IDs were replied, so
+    // this is the cycle-end disposition. Pause frees delete-marked cursors.
+    if (req->cursors) {
+      for (size_t i = 0; i < array_len(req->cursors); i++) {
+        Cursor_Pause(req->cursors[i]);
+      }
+      array_free(req->cursors);
+      req->cursors = NULL;
+    }
 
-    // Free all individual AREQ requests and their pipelines.
+    // Free all individual AREQ requests and their pipelines — unless the
+    // handoff transferred them to their cursors (each sub is then freed by
+    // its cursor, like any parked request).
     //
     // Order matters: AREQ_DecrRef → AREQ_Free → Pipeline_Clean must tear down
     // the subquery's iterators before SearchCtx_Free releases sctx->diskSnapshot,
@@ -365,7 +371,7 @@ void HybridRequest_Free(HybridRequest *req) {
     // construction time. Freeing sctx first would dangle those borrows during
     // iterator teardown. Detach areq->sctx so AREQ_Free leaves it alone, decref
     // to tear down iterators, then free sctx + thctx ourselves.
-    for (size_t i = 0; i < req->nrequests; i++) {
+    for (size_t i = 0; !req->cursorsOwnSubqueries && i < req->nrequests; i++) {
       AREQ *areq = req->requests[i];
       RedisModuleCtx *thctx = NULL;
       RedisSearchCtx *sctx = NULL;
@@ -397,8 +403,6 @@ void HybridRequest_Free(HybridRequest *req) {
       }
     }
     array_free(req->requests);
-
-    array_free_ex(req->errors, QueryError_ClearError((QueryError*)ptr));
 
     rm_free(req->subqueriesReturnCodes);
     req->subqueriesReturnCodes = NULL;
@@ -470,8 +474,9 @@ int HybridRequest_GetError(HybridRequest *hreq, QueryError *status) {
 
     // Priority 2: Individual AREQ errors (sub-query failures)
     for (size_t i = 0; i < hreq->nrequests; i++) {
-        if (QueryError_HasError(&hreq->errors[i])) {
-            QueryError_CloneFrom(&hreq->errors[i], status);
+        QueryError *subErr = &hreq->requests[i]->brc->err;
+        if (QueryError_HasError(subErr)) {
+            QueryError_CloneFrom(subErr, status);
             return REDISMODULE_ERR;
         }
     }
@@ -483,7 +488,7 @@ int HybridRequest_GetError(HybridRequest *hreq, QueryError *status) {
 void HybridRequest_ClearErrors(HybridRequest *req) {
   QueryError_ClearError(&req->tailPipelineError);
   for (size_t i = 0; i < req->nrequests; i++) {
-    QueryError_ClearError(&req->errors[i]);
+    QueryError_ClearError(&req->requests[i]->brc->err);
   }
 }
 

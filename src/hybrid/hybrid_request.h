@@ -24,7 +24,6 @@ typedef struct HybridRequest {
     arrayof(AREQ*) requests;
     size_t nrequests;
     QueryError tailPipelineError;
-    QueryError *errors;
     Pipeline *tailPipeline;
     RequestConfig reqConfig;
     CursorConfig cursorConfig;
@@ -61,6 +60,13 @@ typedef struct HybridRequest {
     // - timeout_callback: acquires lock and consumes published cursors, if any
     // - HybridRequest_StartCursors: checks timedOut flag before publishing, or frees on error
     arrayof(struct Cursor*) cursors;
+
+    // The handoff marker (shard-internal WITHCURSOR): set under cursorMutex
+    // when the sub-cursors are published, transferring ownership of each
+    // sub-AREQ from the container to its cursor. HybridRequest_Free then
+    // frees the container-only remainder and leaves the subs to their
+    // cursors.
+    bool cursorsOwnSubqueries;
 
     // Optional debug parameters for _FT.DEBUG FT.HYBRID.
     // When non-NULL, debug timeouts are applied after pipeline building.
@@ -134,8 +140,10 @@ void HybridRequest_WaitForAggregateResultsComplete(HybridRequest *req);
 
 // Blocked client context for HybridRequest background execution
 typedef struct blockedClientHybridCtx {
-  // We keep a strong ref mainly for the sake of cursors amd life time management
-  // On the caller side it needs to know when he can free the hybrid request - especially when an error occurred.
+  // The BG job's hold on the container, released in destroy (before
+  // UnblockClient; the cycle's wrapper reference carries the container to
+  // OnFree). TRANSITIONAL(MOD-16691): becomes a borrow once the wrapper is
+  // single-owner.
   StrongRef hybrid_ref;
   HybridPipelineParams *hybridParams;
   RedisModuleBlockedClient *blockedClient;

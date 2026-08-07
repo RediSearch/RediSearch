@@ -37,7 +37,7 @@ static void pushResultProcessor(QueryProcessingCtx *qctx, ResultProcessor *rp) {
   qctx->endProc = rp;
 }
 
-// should make sure the product of AREQ_BuildPipeline(areq, &req->errors[i]) would result in rpSorter only (can set up the aggplan to be a sorter only)
+// should make sure the product of AREQ_BuildPipeline would result in rpSorter only (can set up the aggplan to be a sorter only)
 int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params) {
   // Create synchronization context for coordinating depleter processors
   // We avoid taking the index lock since we are not directly accessing the index at all
@@ -50,7 +50,7 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
 
       AREQ_AddRequestFlags(areq, QEXEC_F_IS_COORDINATOR);
 
-      int rc = AREQ_BuildPipeline(areq, &req->errors[i]);
+      int rc = AREQ_BuildPipeline(areq, &areq->brc->err);
       if (rc != REDISMODULE_OK) {
           StrongRef_Release(sync_ref);
           return REDISMODULE_ERR;

@@ -1154,6 +1154,7 @@ static BlockedRequestCtx *BlockedRequestCtx_NewCommon(RequestKind kind) {
   BlockedRequestCtx *brc = rm_calloc(1, sizeof(BlockedRequestCtx));
   brc->kind = kind;
   brc->queryOffset = QUERY_OFFSET_NONE;  // "no query argument" until parsing finds one
+  brc->err = QueryError_Default();
   brc->refcount = 1;
   brc->requiresAggregateResultsSync = false;
   brc->aggregatingResults = false;
@@ -1241,6 +1242,12 @@ void BlockedRequestCtx_Free(BlockedRequestCtx *brc) {
   if (!brc) {
     return;
   }
+  // A wrapper's final release belongs on the main thread. The argv release
+  // below self-heals when called off-main, but an off-main final release is
+  // an ownership bug — fail loudly in debug builds.
+  if (!MainThread_Is()) {
+    RS_ABORT("BlockedRequestCtx_Free called off the main thread");
+  }
   pthread_mutex_destroy(&brc->aggregateResultsLock);
   pthread_cond_destroy(&brc->aggregateResultsCond);
   // Idempotent after EndCycle; kept as a safety net for wrappers freed
@@ -1253,6 +1260,7 @@ void BlockedRequestCtx_Free(BlockedRequestCtx *brc) {
   } else {
     HybridRequest_Free(brc->query.hybrid);
   }
+  QueryError_ClearError(&brc->err);
   // Every wrapper is born with its holds (construction invariant), released
   // after the request: its plan borrows from these strings.
   RS_ASSERT(brc->argv != NULL);
