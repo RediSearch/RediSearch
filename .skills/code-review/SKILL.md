@@ -7,6 +7,10 @@ description: Review C code changes for correctness, safety, and style. Use this 
 
 Review C code changes for memory safety, thread safety, Redis Module API correctness, and project conventions.
 
+First apply [`/review-changes`](../review-changes/SKILL.md) for review target
+handling, duplicate-comment checks, finding quality, nit policy, PR description
+checks, and output format. Then apply the C-specific checks below.
+
 ## Arguments
 
 The input specifies what to review. Exactly one of the following forms:
@@ -24,6 +28,10 @@ E.g. `concurrent_ctx` becomes `src/concurrent_ctx`.
 If a path points to a directory, review all `.c` and `.h` files in that directory (recursively).
 
 **No argument:** default to reviewing uncommitted working-tree changes (`git diff`).
+
+**Optional flags:**
+- `--include-nits`: include minor style, formatting, naming, and preference
+  comments as described by `/review-changes`.
 
 ## Instructions
 
@@ -54,11 +62,8 @@ file and review them in their entirety.
 
 ### 2. Review checklist
 
-Run every check below on the changed C code. For each violation found, record:
-- **File and line** (or line range)
-- **Rule** that is violated
-- **Explanation** of the issue
-- **Suggested fix**
+Run every check below on the changed C code. Record violations using the
+finding format from `/review-changes`.
 
 #### 2a. Memory safety
 
@@ -135,23 +140,10 @@ Only applies when changes touch `src/rdb.c` or serialization logic:
 - No commented-out code left in the diff.
 - No `TODO` or `FIXME` comments without a tracking issue reference.
 
-#### 2i. PR description
-
-Only applies when reviewing a PR (not files or commits directly):
-- Exactly one release notes checkbox is checked (`This PR requires release notes`
-  or `This PR does not require release notes`). CI will fail if neither or both
-  are checked.
-- If the PR has user-facing impact (new commands, changed behavior, bug fixes
-  affecting users), it should check "requires release notes."
-
 ### 3. Emit the report
 
-Present findings grouped by check (2a through 2i). For each group, list the
-violations or state "No issues found."
-
-At the end, provide a summary:
-- Total number of violations by severity (blocking vs. suggestion).
-- Whether the change is **ready to merge** or **needs revision**.
-
-Blocking violations: any issue in 2a, 2b, 2c, 2d, 2e, or 2f.
-Suggestions: issues in 2g (null safety), 2h (style), and 2i (PR description).
+Use the output format from `/review-changes`. Treat memory safety, thread safety,
+Redis Module API misuse, serialization compatibility, integer safety, null
+pointer safety, error handling, and user-visible behavior regressions as
+blocking unless the context proves otherwise. Treat C style findings as
+suggestions unless they violate an explicit project rule or block maintainability.

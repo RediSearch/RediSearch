@@ -7,6 +7,10 @@ description: Review Rust code changes for unsafe correctness, documentation qual
 
 Review Rust code changes for unsafe correctness, documentation quality, and (when applicable) C-to-Rust porting fidelity.
 
+First apply [`/review-changes`](../review-changes/SKILL.md) for review target
+handling, duplicate-comment checks, finding quality, nit policy, PR description
+checks, and output format. Then apply the Rust-specific checks below.
+
 ## Arguments
 
 The input specifies what to review. Exactly one of the following forms:
@@ -77,11 +81,8 @@ them with [`/read-unmodified-c-module`](../read-unmodified-c-module/SKILL.md).
 
 ### 3. Review checklist
 
-Run every check below on the changed Rust code. For each violation found, record:
-- **File and line** (or line range)
-- **Rule** that is violated
-- **Explanation** of the issue
-- **Suggested fix**
+Run every check below on the changed Rust code. Record violations using the
+finding format from `/review-changes`.
 
 #### 3a. Unsafe — method pre-conditions
 
@@ -155,12 +156,9 @@ Violations:
 
 ### 5. Emit the report
 
-Present findings grouped by check (3a, 3b, 3c, 4a, 4b). For each group, list the
-violations or state "No issues found."
-
-At the end, provide a summary:
-- Total number of violations by severity (blocking vs. suggestion).
-- Whether the change is **ready to merge** or **needs revision**.
+Use the output format from `/review-changes`. Group findings by Rust check
+(3a, 3b, 3c, 4a, 4b) when that makes the report easier to scan, but omit empty
+groups.
 
 Blocking violations: any issue in 3a, 3b, 4a, or 4b.
 Suggestions: issues in 3c (intra-doc links).

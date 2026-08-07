@@ -190,6 +190,15 @@ src/redisearch_rs/
     └── triemap_ffi/      # C-callable wrapper
 ```
 
+## Review guidelines
+
+When reviewing pull requests:
+
+- Invoke [/review-changes](.skills/review-changes/SKILL.md) for baseline review context, duplicate-comment handling, finding quality, nit policy, PR description checks, and output format.
+- Invoke [/code-review](.skills/code-review/SKILL.md) for C code changes.
+- Invoke [/rust-review](.skills/rust-review/SKILL.md) for Rust code changes.
+- Invoke [/review-enterprise-flow-tests](.skills/review-enterprise-flow-tests/SKILL.md) for Redis Enterprise `re-tests/` or Enterprise integration-test workflow changes.
+
 ## Common Workflows
 
 ### C Code
