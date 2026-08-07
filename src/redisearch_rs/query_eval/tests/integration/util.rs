@@ -25,7 +25,8 @@ impl MockKeys {
             names
                 .iter()
                 .map(|name| {
-                    redis_mock::string::create_string(name).cast::<redis_module::raw::RedisModuleString>()
+                    redis_mock::string::create_string(name)
+                        .cast::<redis_module::raw::RedisModuleString>()
                 })
                 .collect(),
         )
