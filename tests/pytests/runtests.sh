@@ -141,7 +141,7 @@ setup_rltest() {
 
 #----------------------------------------------------------------------------------------------
 
-setup_clang_sanitizer() {
+setup_sanitizer() {
 	local ignorelist=$ROOT/tests/memcheck/redis.san-ignorelist
 	if ! grep THPIsEnabled $ignorelist &> /dev/null; then
 		echo "fun:THPIsEnabled" >> $ignorelist
@@ -162,15 +162,32 @@ setup_clang_sanitizer() {
 		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp:print_suppressions=0:verbosity=0"
 		# :use_tls=0
 
-		# Preload libstdc++ so ASAN resolves __cxa_throw at process init.
-		# redis-server no longer links libstdc++ (upstream 670993a), so the
-		# interceptor captures NULL and the first C++ throw from a module
-		# aborts the process.
-		if [[ $OS != macos ]] && command -v g++ &> /dev/null; then
+		# RediSearch uses C++, but redis-server no longer links libstdc++.
+		# Preload it before Redis starts so ASAN can install its __cxa_throw
+		# interceptor. Non-ASAN runs load libstdc++ when Redis dlopens the module.
+		if [[ $OS != macos && $RLEC != 1 ]] && command -v g++ &> /dev/null; then
 			local libstdcxx
 			libstdcxx=$(g++ -print-file-name=libstdc++.so.6 2> /dev/null)
 			if [[ -n $libstdcxx && -e $libstdcxx ]]; then
 				export LD_PRELOAD="${libstdcxx}${LD_PRELOAD:+:$LD_PRELOAD}"
+
+				local redis_server_path libasan
+				redis_server_path=$(command -v "$REDIS_SERVER")
+
+				# GCC-built sanitizer servers load libasan dynamically. Since
+				# libstdc++ is already preloaded, prepend libasan so the ASAN
+				# runtime remains first. Clang-built servers link ASAN statically,
+				# so ldd finds no libasan entry to add.
+				if command -v ldd &> /dev/null; then
+					libasan=$(ldd "$redis_server_path" 2> /dev/null | awk '
+						$1 ~ /^libasan\.so/ && $2 == "=>" { print $3; exit }
+						$1 ~ /\/libasan\.so/ { print $1; exit }
+					')
+				fi
+
+				if [[ -n $libasan && -e $libasan ]]; then
+					export LD_PRELOAD="${libasan}${LD_PRELOAD:+:$LD_PRELOAD}"
+				fi
 			fi
 		fi
 	fi
@@ -517,12 +534,12 @@ fi
 
 setup_rltest
 
-if [[ -n $SAN ]]; then
-	setup_clang_sanitizer
-fi
-
 if [[ $RLEC != 1 ]]; then
 	setup_redis_server
+fi
+
+if [[ -n $SAN ]]; then
+	setup_sanitizer
 fi
 
 #------------------------------------------------------------------------------------- Env only
