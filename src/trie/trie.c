@@ -13,6 +13,7 @@
 #include "redisearch.h"
 #include "rmutil/rm_assert.h"
 #include "util/arr.h"
+#include "util/likely.h"
 #include "config.h"
 #include "util/timeout.h"
 #include "wildcard.h"
@@ -453,11 +454,25 @@ int __trieNode_optimizeChildren(TrieNode *n, TrieFreeCallback freecb) {
 
 int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback freecb) {
   t_len offset = 0;
-  static TrieNode *stack[TRIE_INITIAL_STRING_LEN];
-  int stackPos = 0;
+  TrieNode *localStack[TRIE_INITIAL_STRING_LEN];
+  TrieNode **stack = localStack;
+  size_t stackCap = TRIE_INITIAL_STRING_LEN;
+  size_t stackPos = 0;
   int rc = 0;
 
   while (n && offset < len) {
+    if (unlikely(stackPos == stackCap)) {
+      size_t newStackCap = stackCap * 2;
+      TrieNode **newStack;
+      if (likely(stack == localStack)) {
+        newStack = rm_malloc(newStackCap * sizeof(*newStack));
+        memcpy(newStack, stack, stackPos * sizeof(*stack));
+      } else {
+        newStack = rm_realloc(stack, newStackCap * sizeof(*newStack));
+      }
+      stack = newStack;
+      stackCap = newStackCap;
+    }
     stack[stackPos++] = n;
     t_len localOffset = 0;
     for (; offset < len && localOffset < n->len; offset++, localOffset++) {
@@ -503,8 +518,12 @@ int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback fr
 
 end:
 
-  while (stackPos--) {
+  while (stackPos) {
+    --stackPos;
     __trieNode_optimizeChildren(stack[stackPos], freecb);
+  }
+  if (stack != localStack) {
+    rm_free(stack);
   }
   return rc;
 }
