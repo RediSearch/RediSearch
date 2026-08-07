@@ -694,11 +694,13 @@ QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagInd
  *
  * `bc_timeout_areq` selects the timeout source. When non-null, the Blocked
  * Client Timeout path is used: every iterator timeout probe forwards to
- * `AREQ_CheckTimedOut` and `timeout` / `skipTimeoutChecks` are ignored.
- * When null, the Clock Based Timeout path is used: `timeout` is the
- * deadline and `skipTimeoutChecks` (read from `q.sctx.time`) disables the
- * check entirely. The C caller is expected to pre-filter the owning
- * request via `AREQ_TimeoutAreqOrNull` before passing it here.
+ * `AREQ_CheckTimedOut` and `q.sctx.time` is ignored.
+ * When null, the Clock Based Timeout path is used, driven entirely by `q.sctx.time`:
+ * `timeout` is the deadline, read back on every probe so that a re-armed deadline is
+ * honoured, and `skipTimeoutChecks` disables the check entirely. There is deliberately no
+ * deadline parameter — a caller wanting a different deadline sets `q.sctx.time.timeout`,
+ * which is the only value the iterator will ever consult. The C caller is expected to
+ * pre-filter the owning request via `AREQ_TimeoutAreqOrNull` before passing it here.
  *
  * # Safety
  *
@@ -707,7 +709,10 @@ QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagInd
  * 2. When non-null, `child` must not be aliased.
  * 3. `q` must be a valid non-null pointer to a [`QueryEvalCtx`](ffi::QueryEvalCtx).
  * 4. `q.sctx` must be a non-null pointer to a valid
- *    [`RedisSearchCtx`](ffi::RedisSearchCtx).
+ *    [`RedisSearchCtx`](ffi::RedisSearchCtx), which must stay valid and at a stable
+ *    address for the lifetime of the returned iterator: on the Clock Based Timeout path
+ *    the iterator reads `q.sctx.time.timeout` back on every probe. No write to that
+ *    deadline may overlap a probe.
  * 5. `q.sctx.spec` must be a non-null pointer to a valid
  *    [`IndexSpec`](ffi::IndexSpec).
  * 6. `q.sctx.spec.rule`, when non-null, must point to a valid
@@ -718,7 +723,7 @@ QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagInd
  *    [`TimeoutContextBlockedClient::new`] safety contract and remain
  *    valid for the lifetime of the returned iterator.
  */
-QueryIterator *NewNotIterator(QueryIterator *child, t_docId max_doc_id, double weight, timespec timeout, AREQ *bc_timeout_areq, QueryEvalCtx *q);
+QueryIterator *NewNotIterator(QueryIterator *child, t_docId max_doc_id, double weight, AREQ *bc_timeout_areq, QueryEvalCtx *q);
 
 #ifdef __cplusplus
 }  // extern "C"
