@@ -22,6 +22,12 @@
 #include <time.h>
 
 int count = 0;
+static size_t freedTriePayloads = 0;
+
+static void countTriePayloadFree(void *payload) {
+  (void)payload;
+  ++freedTriePayloads;
+}
 
 FilterCode stepFilter(unsigned char b, void *ctx, int *matched, void *matchCtx) {
   return F_CONTINUE;
@@ -359,6 +365,37 @@ int testTrieNodeSizeof() {
   return 0;
 }
 
+int testDeleteRunesDeepSuffixTrieUsesDynamicStack() {
+  freedTriePayloads = 0;
+  Trie *t = NewTrie(countTriePayloadFree, Trie_Sort_Lex);
+  ASSERT(t != NULL);
+
+  enum { keyLen = TRIE_INITIAL_STRING_LEN * 2 + 16 };
+  rune key[keyLen];
+  for (size_t i = 0; i < keyLen; ++i) {
+    key[i] = 'a';
+  }
+
+  RSPayload payload = {.data = "payload", .len = strlen("payload")};
+
+  // Match repeated addSuffixTrie() full-word inserts: Trie_InsertRuneNoSize()
+  // bypasses the normal length guard, and overlapping terms split the trie into
+  // a traversal path that exceeds the local stack and its first heap growth.
+  for (size_t len = 1; len <= keyLen; ++len) {
+    int rc = Trie_InsertRuneNoSize(t, key, len, 1, 0, &payload, 0);
+    ASSERT_EQUAL(TRIE_OK_NEW, rc);
+  }
+  ASSERT_EQUAL(0, freedTriePayloads);
+
+  ASSERT_EQUAL(1, Trie_DeleteRunes(t, key, keyLen));
+  ASSERT(Trie_GetNode(t, key, keyLen, true, NULL) == NULL);
+  ASSERT(Trie_GetNode(t, key, keyLen - 1, true, NULL) != NULL);
+  ASSERT_EQUAL(1, freedTriePayloads);
+
+  TrieType_Free(t);
+  return 0;
+}
+
 TEST_MAIN({
   RMUTil_InitAlloc();
   TESTFUNC(testRuneUtil);
@@ -367,4 +404,5 @@ TEST_MAIN({
   TESTFUNC(testPayload);
   TESTFUNC(testUnicode);
   TESTFUNC(testTrieNodeSizeof);
+  TESTFUNC(testDeleteRunesDeepSuffixTrieUsesDynamicStack);
 });
