@@ -1227,8 +1227,7 @@ BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq, RedisModuleString **arg
   return brc;
 }
 
-BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid,
-                                               RedisModuleString **argv, uint32_t argc) {
+BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid, RedisModuleString **argv, uint32_t argc) {
   // Wrapping an already-wrapped request would silently leak the first wrapper.
   RS_ASSERT(hybrid->brc == NULL);
   BlockedRequestCtx *brc = BlockedRequestCtx_NewCommon(REQUEST_KIND_HYBRID);
@@ -1453,8 +1452,7 @@ static bool shouldCheckInPipelineTimeout(RedisModuleCtx* ctx, AREQ *req) {
 
 }
 
-int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskIndex,
-                 QueryError *status) {
+int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskIndex, QueryError *status) {
   BlockedRequestCtx *brc = req->brc;
   RS_ASSERT(brc != NULL);
   RS_ASSERT(offset <= brc->parseArgc && brc->parseArgc <= brc->argc);

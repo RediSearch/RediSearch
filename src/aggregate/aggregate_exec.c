@@ -1600,8 +1600,7 @@ done:
   return rc;
 }
 
-static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, CommandType type,
-                          ProfileOptions profileOptions, QueryError *status) {
+static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, CommandType type, ProfileOptions profileOptions, QueryError *status) {
   AREQ *r = *r_ptr;
   // If we got here, we know the command name (the first held argument) is a
   // valid registered command. If it starts with an underscore, it is an

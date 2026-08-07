@@ -278,8 +278,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
  * @param requests Array of AREQ pointers, the hybrid request takes ownership
  * @param nrequests Number of requests in the array
  */
-void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests,
-                        size_t nrequests, RedisModuleString **argv, uint32_t argc) {
+void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests, size_t nrequests, RedisModuleString **argv, uint32_t argc) {
   hybridReq->requests = requests;
   hybridReq->nrequests = nrequests;
   hybridReq->sctx = sctx;
@@ -325,8 +324,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
   pthread_mutex_init(&hybridReq->cursorMutex, NULL);
 }
 
-HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests,
-                                 RedisModuleString **argv, uint32_t argc) {
+HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests, RedisModuleString **argv, uint32_t argc) {
   // The wrappers hold the full command; each sub takes its own holds — a
   // sub's borrows can outlive the container.
   HybridRequest *hybridReq = rm_calloc(1, sizeof(*hybridReq));
@@ -500,8 +498,7 @@ static RedisSearchCtx* createThreadSafeSearchContext(RedisModuleCtx *ctx, const 
   return NewSearchCtxC(detachedCtx, indexname, true);
 }
 
-HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx, RedisModuleString **argv,
-                                        uint32_t argc) {
+HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx, RedisModuleString **argv, uint32_t argc) {
   extern size_t NumShards;  // Declared in module.c
   AREQ *search = AREQ_New();
   AREQ *vector = AREQ_New();

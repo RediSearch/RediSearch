@@ -481,8 +481,7 @@ static inline const char *AREQ_Query(const AREQ *req, size_t *len) {
  * `brc` back-pointer, and take the argv holds (see `argv`). Main-thread
  * only; `argv` must not be NULL. */
 BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq, RedisModuleString **argv, uint32_t argc);
-BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid,
-                                               RedisModuleString **argv, uint32_t argc);
+BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid, RedisModuleString **argv, uint32_t argc);
 
 /* TRANSITIONAL(MOD-16691): increment / decrement the wrapper's reference
  * count. DecrRef triggers BlockedRequestCtx_Free when the count drops to
@@ -557,8 +556,7 @@ AREQ *AREQ_New(void);
  * Redis-specific states and may be unit-tested. This largely just
  * compiles the options and parses the commands..
  */
-int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskIndex,
-                 QueryError *status);
+int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskIndex, QueryError *status);
 
 /**
  * Parse aggregate plan arguments (GROUPBY, APPLY, LOAD, FILTER) from an ArgsCursor.
