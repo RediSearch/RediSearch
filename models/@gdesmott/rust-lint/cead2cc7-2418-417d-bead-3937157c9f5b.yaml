@@ -1,0 +1,10 @@
+type: '@gdesmott/rust-lint'
+typeVersion: 2026.08.05.1
+id: cead2cc7-2418-417d-bead-3937157c9f5b
+name: clippy
+version: 1
+tags: {}
+globalArguments:
+  tool: clippy
+  regenerateHeaders: true
+methods: {}

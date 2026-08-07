@@ -1,0 +1,387 @@
+id: efc97d64-d94b-4a07-879e-da79612706c2
+name: verify
+description: >-
+  Build once, then run every suite against that build: C and C++ unit tests,
+  Rust tests, clippy, rustdoc, the Python behavioural tests, and miri.
+
+  Miri is here because CI gates pull requests on it. A verification that passed
+  while the miri job went on to fail would be a promise this workflow did not
+  keep. It runs last because it is the slowest step and because there is nothing
+  to interpret if the same tests already failed natively.
+
+  The steps form a single linear chain because ./build.sh, make and cargo all
+  contend on the Cargo build-directory lock under src/redisearch_rs/target.
+  Running any two of them concurrently either blocks on the lock or fails
+  outright, so the chain is what makes this safe, not just tidy.
+
+  Only the first step builds. Every suite that can reuse those binaries passes
+  skipBuild, so the build cost is paid once. ENABLE_ASSERT=1 is therefore set on
+  the build step rather than on the suites: with skipBuild there is no CMake
+  reconfigure later, so the flag has to be baked in up front for debug
+  assertions to fire during the runs.
+
+  Suites are ordered fastest-feedback first, so a broken build or a failing unit
+  test surfaces long before the Python suite has finished.
+tags:
+  purpose: verification
+reports:
+  require:
+    # Every suite writes its failures in its own shape. This collects them into
+    # one list of what to fix, so reading a failed run does not mean opening each
+    # model's summary in turn.
+    - "@gdesmott/failure-digest"
+inputs:
+  type: object
+  properties:
+    debug:
+      type: boolean
+      default: true
+      description: >-
+        Build and test the debug variant. Slower to run but with assertions and
+        symbols, which is what you want before opening a pull request.
+    testTimeout:
+      type: integer
+      default: 300
+      description: >-
+        Per-test timeout for the Python suite, in seconds. 300 is build.sh's own
+        default and lets every test finish, so a clean run really means the
+        suite passes. Lower it to 20 for quick feedback while iterating, at the
+        cost of terminating slow tests.
+    pytestFilter:
+      type: string
+      default: ""
+      description: >-
+        Narrow the Python suite to a file (`test_crash`), a single test
+        (`test_crash:test_query_thread_crash`), or several files separated by
+        spaces. Empty runs the whole suite, which is what a verification gate
+        wants; narrow it when iterating on one area.
+    cTestFilter:
+      type: string
+      default: ""
+      description: >-
+        Narrow the C and C++ unit tests to one binary (`test_varint`) or one
+        gtest (`InvertedIndexTest.TestBasic`). Empty runs every block.
+    miriCrate:
+      type: string
+      default: ""
+      description: >-
+        Restrict the miri run to one workspace crate. Empty interprets the whole
+        workspace, which is what a gate should do and what CI does — sharded three
+        ways, because it is slow.
+
+        It scopes miri only, deliberately. The native Rust suite covers the whole
+        workspace in seconds, so there is nothing to buy by narrowing it and a
+        weakened gate to lose. Narrow miri when you know which crate you touched
+        and want the pre-pull-request run to finish sooner.
+    miriToolchain:
+      type: string
+      default: ""
+      description: >-
+        Toolchain to run miri with, without the leading `+`. Empty uses the
+        nightly pinned in .rust-nightly, which is what CI uses. Override it when
+        the pinned nightly lacks the miri component locally — the run fails with
+        the exact `rustup component add` command when it does.
+jobs:
+  - name: verify
+    description: Build the module, then run every suite against it
+    # Redundant with the linear dependsOn chain below, but it keeps the
+    # build-directory lock safe if a step is ever added without a dependency.
+    concurrency: 1
+    steps:
+      # First because it takes a second and needs no build: a misformatted
+      # tree should not cost a full build and test cycle to discover.
+      - name: fmt-check
+        description: Check the Rust code is formatted, without modifying it
+        task:
+          type: model_method
+          modelIdOrName: fmt
+          methodName: check
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+
+      # Second, and for the same reason: seconds to run, no build needed, and
+      # CI's lint job runs it for any pull request touching extensions/. A gate
+      # that passed here and then failed there would be the one outcome this
+      # workflow exists to rule out.
+      - name: swamp-tests
+        description: Run the tests for the swamp models themselves
+        task:
+          type: model_method
+          modelIdOrName: swamp-tests
+          methodName: run
+        dependsOn:
+          - step: fmt-check
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: build
+        description: Build the module and the test binaries
+        task:
+          type: model_method
+          modelIdOrName: build
+          methodName: build
+          inputs:
+            debug: ${{ inputs.debug }}
+            buildTests: true
+            # Bakes in debug assertions for every suite that runs with
+            # skipBuild, since none of them will reconfigure CMake.
+            extraArgs:
+              - ENABLE_ASSERT=1
+        dependsOn:
+          - step: swamp-tests
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: module-built
+        description: >-
+          This run produced a module, rather than leaving an earlier build's
+          module in place. A failed build does not remove the previous artifact,
+          so the path existing is not on its own evidence that anything was
+          built.
+        task:
+          type: assert
+          expr: >-
+            data.query('modelName == "build" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.modulePath != null
+            && !data.query('modelName == "build" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.moduleStale
+          message: >-
+            No module was produced by this run in
+            ${{ data.query('modelName == "build" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.binDir }} — the
+            artifact is missing or left over from an earlier build.
+          severity: high
+        dependsOn:
+          - step: build
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: c-unit-tests
+        description: Run the C and C++ unit tests against the built binaries
+        task:
+          type: model_method
+          modelIdOrName: c-unit-tests
+          methodName: run
+          inputs:
+            debug: ${{ inputs.debug }}
+            skipBuild: true
+            test: ${{ inputs.cTestFilter }}
+        dependsOn:
+          - step: module-built
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: c-unit-tests-complete
+        description: >-
+          Tests actually ran, and on an unfiltered run every block ran rather
+          than being silently skipped because its binaries were missing. A
+          filtered run legitimately skips the other blocks, so that clause only
+          applies when cTestFilter is empty.
+        task:
+          type: assert
+          expr: >-
+            data.query('modelName == "c-unit-tests" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.summaryParsed
+            && int(data.query('modelName == "c-unit-tests" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.testsRun) > 0
+            && (inputs.cTestFilter != ""
+                || data.query('modelName == "c-unit-tests" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.blocks.all(b, b.status != "skipped"))
+          message: >-
+            Unit test blocks were skipped or no tests ran — the test binaries
+            were probably not built. Ran
+            ${{ data.query('modelName == "c-unit-tests" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.testsRun }} tests.
+          severity: high
+        dependsOn:
+          - step: c-unit-tests
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: rust-tests
+        description: Run the Rust test suite with cargo nextest
+        task:
+          type: model_method
+          modelIdOrName: rust-tests
+          methodName: run
+          inputs:
+            # Point the crates that link against C at the build this run just
+            # produced. Without it they fall back to the conventional release
+            # layout, so a debug verify would test against a stale release
+            # archive, or fail outright where none was ever built.
+            binDir: ${{ data.query('modelName == "build" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.binDir }}
+            # Test the artifacts the build produced rather than nextest's own
+            # default profile. With debug=false the build selects
+            # optimised_test, and a default-profile run would rebuild the
+            # workspace and test something else — so a failure that only shows
+            # up under optimisation would be missed.
+            cargoProfile: ${{ data.query('modelName == "build" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.rustProfile }}
+        dependsOn:
+          - step: c-unit-tests-complete
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: rust-tests-ran
+        description: >-
+          The Rust suite actually executed tests, and its summary was read
+          rather than guessed at. This run passes no filter, so the failure it
+          guards is not an empty selection but a suite that exited successfully
+          having done nothing the model could account for — nextest changing its
+          summary wording, or a run that ended before testing began. Every other
+          suite here is gated the same way; without this one, `verify` can go
+          green on a Rust result nothing verified.
+        task:
+          type: assert
+          expr: >-
+            data.query('modelName == "rust-tests" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.summaryParsed
+            && int(data.query('modelName == "rust-tests" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.testsRun) > 0
+          message: >-
+            The Rust suite reported success without a trustworthy result: it ran
+            ${{ data.query('modelName == "rust-tests" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.testsRun }}
+            test(s) and its summary line was
+            ${{ data.query('modelName == "rust-tests" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.summaryParsed }}
+            parsed. See its log.
+          severity: high
+        dependsOn:
+          - step: rust-tests
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: clippy
+        description: Lint the Rust workspace with clippy
+        task:
+          type: model_method
+          modelIdOrName: clippy
+          methodName: run
+          inputs:
+            # Linting runs the build scripts, and the ones binding C symbols
+            # panic when the archive is missing. Point them at this run's build
+            # rather than the release layout they otherwise assume.
+            binDir: ${{ data.query('modelName == "build" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.binDir }}
+        dependsOn:
+          - step: rust-tests-ran
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: doc
+        description: Check the Rust documentation builds without warnings
+        task:
+          type: model_method
+          modelIdOrName: doc
+          methodName: run
+          inputs:
+            binDir: ${{ data.query('modelName == "build" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.binDir }}
+        dependsOn:
+          - step: clippy
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: pytest
+        description: Run the Python behavioural tests against the built module
+        task:
+          type: model_method
+          modelIdOrName: pytest
+          methodName: run
+          inputs:
+            debug: ${{ inputs.debug }}
+            skipBuild: true
+            testTimeout: ${{ inputs.testTimeout }}
+            test: ${{ inputs.pytestFilter }}
+        dependsOn:
+          - step: doc
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: pytest-ran
+        description: The Python suite actually executed tests
+        task:
+          type: assert
+          expr: >-
+            data.query('modelName == "pytest" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.summaryParsed
+            && int(data.query('modelName == "pytest" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.testsRun) > 0
+          message: >-
+            The Python suite reported success without running any test, which
+            usually means the filter matched nothing or the module failed to load.
+          severity: high
+        dependsOn:
+          - step: pytest
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: miri
+        description: >-
+          Interpret the Rust tests under miri to catch undefined behaviour the
+          native run cannot see.
+
+          Last, because it is the slowest step: everything else has already
+          reported by the time it starts. It is also pointless earlier — if a test
+          fails natively there is nothing to learn from interpreting it, so this
+          depends on the native suite having passed.
+
+          A hard step, not an advisory one: CI gates pull requests on miri, so
+          letting it fail quietly here would defeat the purpose of running it
+          before opening one. Miri needs a nightly carrying the miri component; if
+          the pinned one lacks it locally, the run fails with the exact
+          `rustup component add` command, and miriToolchain overrides it.
+
+          It runs as its own model instance rather than reusing rust-tests, for
+          the same reason clippy and doc are separate instances of the lint model:
+          sharing one would overwrite the native run's summary with the
+          interpreted one, and a reader — or the failure digest — could no longer
+          tell which run a failure came from.
+        task:
+          type: model_method
+          modelIdOrName: miri
+          methodName: run
+          inputs:
+            miri: true
+            crate: ${{ inputs.miriCrate }}
+            toolchain: ${{ inputs.miriToolchain }}
+            binDir: ${{ data.query('modelName == "build" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.binDir }}
+        dependsOn:
+          - step: pytest-ran
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: miri-ran
+        description: >-
+          Miri actually interpreted tests. Crates that call into C are excluded
+          with #[cfg(not(miri))], so a scope that consists only of those compiles,
+          reports success, and proves nothing.
+        task:
+          type: assert
+          expr: >-
+            data.query('modelName == "miri" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.miri
+            && data.query('modelName == "miri" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.summaryParsed
+            && int(data.query('modelName == "miri" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.testsRun) > 0
+          message: >-
+            Miri reported success without interpreting any test — the crate
+            ${{ inputs.miriCrate }} is probably excluded from miri in its entirety.
+          severity: high
+        dependsOn:
+          - step: miri
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+    dependsOn: []
+    weight: 0
+version: 1

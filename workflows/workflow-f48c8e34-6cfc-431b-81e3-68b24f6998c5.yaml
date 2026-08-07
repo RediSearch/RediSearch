@@ -1,0 +1,140 @@
+id: f48c8e34-6cfc-431b-81e3-68b24f6998c5
+name: verify-cluster
+description: >-
+  Run the Python suite against a coordinator cluster instead of a standalone
+  server. The companion to `verify` for changes under src/coord — the
+  coordinator, distributed hybrid, or the Map-Reduce layer — whose behaviour
+  only appears once the work is spread across shards.
+
+  Separate from `verify` rather than a step in it, for two reasons. It is a
+  second complete run of the suite, so folding it in would roughly double the
+  cost of the gate everyone runs. And swamp has no conditional steps: a workflow
+  cannot decide to skip the cluster run when no coordinator code changed, so the
+  choice has to be which workflow you invoke.
+
+  The shard count reaches runtests.sh through the environment. Passing `SHARDS=n`
+  to build.sh does nothing — it has no such argument, so it becomes a CMake
+  define and the count silently stays at the default of 3.
+tags:
+  purpose: verification
+reports:
+  require:
+    - "@gdesmott/failure-digest"
+inputs:
+  type: object
+  properties:
+    debug:
+      type: boolean
+      default: true
+      description: >-
+        Build and test the debug variant, with assertions and symbols.
+    shards:
+      type: integer
+      default: 3
+      description: >-
+        Number of coordinator shards to start. Three is what the verify skill
+        documents and what runtests.sh defaults to.
+    testTimeout:
+      type: integer
+      default: 300
+      description: >-
+        Per-test timeout in seconds. 300 is build.sh's own default.
+    pytestFilter:
+      type: string
+      default: ""
+      description: >-
+        Narrow the suite to a file or a single test. Empty runs everything,
+        which is what a gate wants; narrow it when iterating on one area.
+jobs:
+  - name: cluster
+    description: Build, then exercise the suite across shards
+    concurrency: 1
+    steps:
+      - name: build
+        description: >-
+          Build the module and the coordinator. Always runs: swamp has no
+          conditional steps, and an incremental build costs little when a verify
+          run has just built the same variant, which is the common case.
+        task:
+          type: model_method
+          modelIdOrName: build
+          methodName: build
+          inputs:
+            debug: ${{ inputs.debug }}
+            # The pytest step runs with skipBuild, so anything it needs has to
+            # exist by the end of this step. TESTS=1 is what compiles
+            # libexample_extension.so, which test_ext.py and the default-scorer
+            # coverage load; without it a clean checkout fails in pytest.
+            buildTests: true
+            extraArgs:
+              - ENABLE_ASSERT=1
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+
+      - name: module-built
+        description: >-
+          This run produced a module, rather than leaving an earlier build's in
+          place. A failed build does not remove the previous artifact, so the
+          path existing is not on its own evidence that anything was built.
+        task:
+          type: assert
+          expr: >-
+            data.query('modelName == "build" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.modulePath != null
+            && !data.query('modelName == "build" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.moduleStale
+          message: >-
+            No module was produced by this run in
+            ${{ data.query('modelName == "build" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.binDir }} — the
+            artifact is missing or left over from an earlier build.
+          severity: high
+        dependsOn:
+          - step: build
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: pytest
+        description: Run the Python suite against a cluster
+        task:
+          type: model_method
+          modelIdOrName: pytest
+          methodName: run
+          inputs:
+            debug: ${{ inputs.debug }}
+            skipBuild: true
+            deployment: cluster
+            shards: ${{ inputs.shards }}
+            testTimeout: ${{ inputs.testTimeout }}
+            test: ${{ inputs.pytestFilter }}
+        dependsOn:
+          - step: module-built
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: pytest-ran
+        description: >-
+          The suite actually executed tests against the cluster. A cluster that
+          fails to form leaves the run reporting success over nothing.
+        task:
+          type: assert
+          expr: >-
+            data.query('modelName == "pytest" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.summaryParsed
+            && int(data.query('modelName == "pytest" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.testsRun) > 0
+            && data.query('modelName == "pytest" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.deployment == "cluster"
+          message: >-
+            The Python suite reported success without running any test against a
+            cluster — the filter matched nothing, the module failed to load, or
+            the shards never came up.
+          severity: high
+        dependsOn:
+          - step: pytest
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+    dependsOn: []
+    weight: 0
+version: 1

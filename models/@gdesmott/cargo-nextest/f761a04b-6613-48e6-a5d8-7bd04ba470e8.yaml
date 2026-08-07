@@ -1,0 +1,8 @@
+type: '@gdesmott/cargo-nextest'
+typeVersion: 2026.08.06.1
+id: f761a04b-6613-48e6-a5d8-7bd04ba470e8
+name: miri
+version: 1
+tags: {}
+globalArguments: {}
+methods: {}

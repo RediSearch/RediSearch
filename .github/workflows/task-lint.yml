@@ -132,6 +132,19 @@ jobs:
         id: fmt
         continue-on-error: true
         run: make fmt CHECK=1
+      # The swamp extension models are TypeScript run by deno, so they need no
+      # Rust or C toolchain. Developers use the deno swamp bundles; CI installs
+      # its own, which `make swamp-tests` picks up off PATH.
+      - name: Setup deno
+        id: setup-deno
+        continue-on-error: true
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.x
+      - name: Swamp extension tests
+        id: swamp-tests
+        continue-on-error: true
+        run: make swamp-tests
       - name: Security advisories
         id: advisories
         continue-on-error: true
@@ -170,6 +183,8 @@ jobs:
           steps.git-diff.outcome == 'failure' ||
           steps.license-header.outcome == 'failure' ||
           steps.fmt.outcome == 'failure' ||
+          steps.setup-deno.outcome == 'failure' ||
+          steps.swamp-tests.outcome == 'failure' ||
           steps.advisories.outcome == 'failure' ||
           steps.dep-licenses.outcome == 'failure' ||
           steps.workspace_hack.outcome == 'failure'
@@ -178,6 +193,8 @@ jobs:
           echo "Generated files: ${{ steps.git-diff.outcome }}"
           echo "License header: ${{ steps.license-header.outcome }}"
           echo "Format check: ${{ steps.fmt.outcome }}"
+          echo "Setup deno: ${{ steps.setup-deno.outcome }}"
+          echo "Swamp extension tests: ${{ steps.swamp-tests.outcome }}"
           echo "Security advisories: ${{ steps.advisories.outcome }}"
           echo "Dependency licenses: ${{ steps.dep-licenses.outcome }}"
           echo "Workspace hack check: ${{ steps.workspace_hack.outcome }}"

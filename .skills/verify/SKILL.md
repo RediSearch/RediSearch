@@ -10,6 +10,38 @@ Run full verification before committing or creating a PR.
 ## Usage
 Use this skill to run comprehensive checks before finalizing changes.
 
+## Prefer the swamp workflows
+
+`verify` runs everything below except the two conditional branches, in one command,
+building once and reusing that build for every suite — plus miri, which CI gates on:
+
+```bash
+swamp workflow run verify
+swamp report get @gdesmott/failure-digest --workflow verify --markdown   # what to fix
+```
+
+The cluster branch is its own workflow, because it is a second full run of the suite and
+swamp cannot skip a step on a condition:
+
+```bash
+swamp workflow run verify-cluster   # changes under src/coord/
+```
+
+The AddressSanitizer branch is also a workflow, but it is not part of the gate. CI covers
+asan on every pull request, so run it only to reproduce a failure that job reported —
+narrowed to the case it named, since the sanitizer needs its own full build:
+
+```bash
+swamp workflow run verify-asan --input '{"cTestFilter":"<binary or gtest>"}'
+```
+
+For the quick paths at the bottom of this file, use `swamp workflow run rust-quick`
+(tests then clippy, debug profile only).
+
+Each workflow asserts that its suites actually ran, so a filter that matched nothing or a
+module that failed to load reads as a failure rather than a pass. Follow the steps below
+by hand only when swamp is unavailable.
+
 ## Instructions
 
 Determine which code was modified (C, Rust, or both) and run the appropriate checks.

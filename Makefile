@@ -198,6 +198,8 @@ Development:
   make lint          Run linters
   make fmt           Format source files
     CHECK=1            Check formatting without modifying files
+  make swamp-tests   Check formatting and run the swamp extension model tests
+    SWAMP_DENO=path    Use a specific deno binary
 
 Packaging:
   make pack          Create installation packages
@@ -380,6 +382,60 @@ license-check:
 	@echo "Checking license headers..."
 	@cd $(ROOT)/src/redisearch_rs && cargo license-check
 
+# Deno for the swamp extension tests. Prefer the copy swamp bundles, which is
+# not on PATH, and fall back to one the environment provides (CI installs it).
+SWAMP_DENO ?= $(shell if [ -x "$(HOME)/.swamp/deno/deno" ]; then \
+	echo "$(HOME)/.swamp/deno/deno"; else command -v deno; fi)
+
+# The deno half: everything that gates a pull request. Kept separate from the
+# definition check below so that it can be run from inside a swamp workflow,
+# where invoking `swamp` again would be a swamp run driving a swamp run.
+swamp-extension-tests:
+ifeq ($(strip $(SWAMP_DENO)),)
+	@echo "No deno found. Install swamp, or install deno and put it on PATH," >&2
+	@echo "or point at one explicitly: make swamp-tests SWAMP_DENO=/path/to/deno" >&2
+	@exit 1
+else
+	@echo "Checking swamp extension formatting..."
+	@cd $(ROOT)/extensions && $(SWAMP_DENO) fmt --check models/ reports/
+	@echo "Running swamp extension tests..."
+	@cd $(ROOT)/extensions && $(SWAMP_DENO) test --allow-all models/ reports/
+endif
+
+# The tests above cover the model sources. This covers the definitions that are
+# actually invoked: an instance or a workflow can be malformed, or reference an
+# argument or expression path that does not exist, while every TypeScript test
+# passes — and the first anyone would hear of it is a workflow refusing to run.
+#
+# Warnings are failures here. `swamp workflow validate` reports a step naming a
+# model that does not exist as a warning and still exits 0, which is exactly the
+# breakage this is meant to catch.
+#
+# Skipped rather than failed when swamp is absent: CI installs deno alone, and
+# the deno half is the part that has to gate every PR. (Version drift between an
+# instance and its type is checked in the deno tests for the same reason.)
+swamp-definitions-check:
+	@if command -v swamp >/dev/null 2>&1; then \
+		echo "Validating swamp model and workflow definitions..."; \
+		entries="$$(sed -n 's/^name: /model:/p' $(ROOT)/models/*/*/*.yaml; \
+		            sed -n 's/^name: /workflow:/p' $(ROOT)/workflows/*.yaml)"; \
+		for entry in $$entries; do \
+			kind="$${entry%%:*}"; name="$${entry#*:}"; \
+			out="$$(swamp $$kind validate "$$name" --repo-dir $(ROOT) 2>&1)" || \
+				{ echo "$$out" >&2; exit 1; }; \
+			case "$$out" in \
+				*warning*) \
+					echo "$$out" >&2; \
+					echo "$$kind $$name validated with warnings; treating as a failure." >&2; \
+					exit 1;; \
+			esac; \
+		done; \
+	else \
+		echo "swamp not on PATH; skipping model and workflow validation."; \
+	fi
+
+swamp-tests: swamp-extension-tests swamp-definitions-check
+
 pack: build
 	@echo "Creating installation packages..."
 	@if [ -z "$(MODULE_PATH)" ]; then \
@@ -492,6 +548,6 @@ test-linkcheck:
 	@python3 scripts/test_link_checker.py
 
 .PHONY: list dry-run bootstrap-modes help bootstrap fetch build clean test unit-tests rust-tests archive-rust-tests rust-tests-from-archive pytest
-.PHONY: run lint fmt license-check pack upload-artifacts
+.PHONY: run lint fmt swamp-tests swamp-extension-tests swamp-definitions-check license-check pack upload-artifacts
 .PHONY: benchmark micro-benchmarks vecsim-bench callgrind parsers verify-deps
 .PHONY: check-links check-links-verbose test-linkcheck

@@ -1,0 +1,8 @@
+type: '@gdesmott/redisearch-build'
+typeVersion: 2026.08.05.2
+id: f32464eb-f77b-43f2-9a14-ad2ba107254e
+name: build
+version: 1
+tags: {}
+globalArguments: {}
+methods: {}
