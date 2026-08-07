@@ -938,6 +938,24 @@ DEBUG_COMMAND(GCForceInvoke) {
   return REDISMODULE_OK;
 }
 
+// Resolves argv[2] to a spec that owns a GCContext, replying with the error and returning NULL
+// if it names no index or one without a GC (a TEMPORARY index, or any index under NOGC).
+static IndexSpec *debugSpecWithGC(RedisModuleCtx *ctx, RedisModuleString **argv) {
+  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
+    RedisModule_ReplyWithErrorFormat(ctx, "%s: %s",
+                                     QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
+    return NULL;
+  }
+  if (!sp->gc) {
+    RedisModule_ReplyWithError(ctx, "GC is not available for this index");
+    return NULL;
+  }
+  return sp;
+}
+
 DEBUG_COMMAND(GCForceBGInvoke) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
@@ -945,10 +963,9 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
-  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
-  IndexSpec *sp = StrongRef_Get(ref);
+  IndexSpec *sp = debugSpecWithGC(ctx, argv);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    return REDISMODULE_OK;
   }
   GCContext_ForceBGInvoke(sp->gc);
   RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -962,15 +979,11 @@ DEBUG_COMMAND(GCStopFutureRuns) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
-  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
-  IndexSpec *sp = StrongRef_Get(ref);
+  IndexSpec *sp = debugSpecWithGC(ctx, argv);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    return REDISMODULE_OK;
   }
-  // Make sure there is no pending timer
-  RedisModule_StopTimer(RSDummyContext, sp->gc->timerID, NULL);
-  // mark as stopped. This will prevent the GC from scheduling itself again if it was already running.
-  sp->gc->timerID = 0;
+  GCContext_StopFutureRuns(sp->gc);
   RedisModule_Log(ctx, "verbose", "Stopped GC %p periodic run for index %s", sp->gc, IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
@@ -982,12 +995,11 @@ DEBUG_COMMAND(GCContinueFutureRuns) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
-  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
-  IndexSpec *sp = StrongRef_Get(ref);
+  IndexSpec *sp = debugSpecWithGC(ctx, argv);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    return REDISMODULE_OK;
   }
-  if (sp->gc->timerID) {
+  if (GCContext_IsEnabled(sp->gc)) {
     return RedisModule_ReplyWithError(ctx, "GC is already running periodically");
   }
   GCContext_StartNow(sp->gc);

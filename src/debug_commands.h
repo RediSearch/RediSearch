@@ -72,6 +72,7 @@ bool QueryDebugCtx_HasDebugRP(void);
 #define SYNC_POINT_BEFORE_FIRST_READ           "BeforeFirstRead"
 #define SYNC_POINT_BEFORE_DIST_HYBRID_PROMOTE  "BeforeDistHybridPromote"
 #define SYNC_POINT_BEFORE_SPEC_LOCK            "BeforeSpecLock"
+#define SYNC_POINT_GC_TASK_START               "GCTaskStart"
 
 // SyncPoint API function declarations
 // Arm a sync point - subsequent calls to SyncPoint_Wait will block
