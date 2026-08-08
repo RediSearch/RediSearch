@@ -37,7 +37,7 @@ on:
     inputs:
       platform:
         type: string
-        description: 'Platform filter. Use "all" for all supported platforms, comma-separated values to add explicit platforms, or "!platform" to exclude.'
+        description: 'Platform filter. Use "all" for all supported platforms, comma-separated values to add explicit platforms, "!platform" to exclude a platform on every architecture, or "!platform~arch" to exclude a single platform/architecture combination (e.g., "all,!intel,!macos-26~x86_64").'
         default: all,ubuntu:latest
       architecture:
         type: choice
