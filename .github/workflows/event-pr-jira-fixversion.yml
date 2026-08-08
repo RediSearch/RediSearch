@@ -1,0 +1,42 @@
+name: Jira Fix-Version on PR
+
+# Event path (design §5.1). Uses pull_request_target for secrets + the trusted
+# base-branch workflow; PR head code is never checked out or run (only read via
+# the API). Covers RediSearch only — add the same workflow to RediSearchEnterprise.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, edited, reopened, closed]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: jfv-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  fixversion:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository  # base branch (trusted), not PR head code
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: pip install -r dev_automation/jira_fixversion/requirements.txt
+
+      - name: Apply fix version for this PR
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          SLACK_WEBHOOK_URL_FIX_VERSION: ${{ secrets.SLACK_WEBHOOK_URL_FIX_VERSION }}
+        # handle_event reads the payload from $GITHUB_EVENT_PATH.
+        run: python -m dev_automation.jira_fixversion.handle_event --log-level INFO
