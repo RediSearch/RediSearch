@@ -152,36 +152,57 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Creates a new empty iterator.
- */
-QueryIterator *NewEmptyIterator(void);
-
-/**
- * Creates a new non-optimized wildcard iterator over the `[0, max_id]` document id range.
- */
-QueryIterator *NewWildcardIterator_NonOptimized(t_docId max_id, double weight);
-
-/**
+ * Append a new child iterator to the intersection.
+ *
+ * Transfers ownership of `child` to the intersection. Updates the estimated result count
+ * if the new child has a lower estimate than the current minimum.
+ *
+ * # Note
+ *
+ * Unlike the constructor, this method does **not** re-sort the child list after insertion.
  *
  * # Safety
  *
- * 1. `spec` must be a valid non-null pointer to an [`ffi::IndexSpec`].
- * 2. `fs` must be a valid non-null pointer to a [`FieldSpec`] for a numeric or geo field.
+ * 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator()`].
+ * 2. `child` must be a valid non-null pointer to a `QueryIterator`, not aliased.
  */
-NumericRangeTree *openNumericOrGeoIndex(IndexSpec *spec, FieldSpec *fs, bool create_if_missing);
+void AddIntersectionIteratorChild(QueryIterator *header, QueryIterator *child);
 
 /**
- * Creates a new iterator over a list of sorted document IDs.
+ * Frees the `numericFilters` array that [`NewGeoRangeIterator`] populated on a
+ * `GeoFilter`, together with the per-range `NumericFilter`s it owns.
+ *
+ * The array is allocated in Rust (`build_geo_numeric_filters` boxes it), so it
+ * must be released with the Rust allocator.
  *
  * # Safety
  *
- * 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
- *    The array must be sorted in ascending order.
- * 2. The caller must ensure that `ids` is not null unless `num` is zero.
- * 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
- *    so the caller must ensure that the pointer was allocated in a compatible manner.
+ * `filters` must be NULL, or the array stored in `gf.numericFilters` by
+ * [`NewGeoRangeIterator`] (i.e. by `build_geo_numeric_filters`) and not yet
+ * freed.
  */
-QueryIterator *NewSortedIdListIterator(t_docId *ids, uint64_t num, double weight);
+void GeoFilter_FreeNumericFilters(NumericFilter * *filters);
+
+/**
+ * Get a mutable reference to the [`RLookupKey`] stored inside this metric iterator.
+ *
+ * # Safety
+ *
+ * 1. `header` is a valid non-null pointer to a [`QueryIterator`].
+ * 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
+ */
+RLookupKey * *GetMetricOwnKeyRef(QueryIterator *header);
+
+/**
+ * `PrintProfile` vtable entry for Hybrid (vector search) iterators.
+ *
+ * # Safety
+ *
+ * 1. `self_` must be a valid pointer to a Hybrid iterator.
+ * 2. `map` must be a valid pointer to a [`redis_reply::MapBuilder`].
+ * 3. `ctx` must be a valid pointer to a [`ProfilePrintCtx`].
+ */
+void Hybrid_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, struct ProfilePrintCtx *ctx);
 
 /**
  * Profile-wrap an iterator and its entire subtree.
@@ -199,18 +220,18 @@ QueryIterator *NewSortedIdListIterator(t_docId *ids, uint64_t num, double weight
 QueryIterator *IntoProfiled(QueryIterator *iter);
 
 /**
- * Creates a new metric iterator sorted by ID.
+ * Returns `true` if `it` is a wildcard iterator (either optimized or non-optimized).
  *
  * # Safety
  *
- * 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
- *    The array must be sorted in ascending order.
- * 2. `metric_list` must be a valid pointer to an array of `f64` with at least `num` elements.
- * 3. The caller must ensure that `ids` and `metric_list` are not null unless `num` is zero.
- * 4. The memory pointed to by `ids` and `metric_list` will be freed using `RedisModule_Free`,
- *    so the caller must ensure that these pointers were allocated in a compatible manner.
+ * `it`, when non-null, must point to a valid [`QueryIterator`].
  */
-QueryIterator *NewMetricIteratorSortedById(t_docId *ids, double *metric_list, size_t num, enum MetricType type_);
+bool IsWildcardIterator(const QueryIterator *it);
+
+/**
+ * Creates a new empty iterator.
+ */
+QueryIterator *NewEmptyIterator(void);
 
 /**
  * Creates an iterator over all geo-encoded index entries within the radius specified by `gf`.
@@ -232,269 +253,6 @@ QueryIterator *NewMetricIteratorSortedById(t_docId *ids, double *metric_list, si
  * 4. `config` must be a valid non-NULL pointer to an `IteratorsConfig`.
  */
 QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, GeoFilter *gf, const struct IteratorsConfig *config);
-
-/**
- * Create an optional iterator over `child`, applying shortcircuit reductions where possible.
- *
- * - If `child` is null or an empty iterator, a wildcard iterator is returned instead (all results will be virtual hits).
- * - If `child` is a wildcard iterator, it is returned as-is with `weight` applied.
- * - Otherwise, an [`Optional`](rqe_iterators::optional::Optional) or [`OptionalOptimized`](rqe_iterators::optional_optimized::OptionalOptimized)
- *   iterator is constructed based on whether `q.sctx.spec.rule.index_all` is set.
- *
- * # Safety
- *
- * 1. `child`, when non-null, must be a valid owning pointer to a C query iterator that is not aliased.
- * 2. `q` must be a valid non-null pointer to a [`QueryEvalCtx`] satisfying all preconditions of
- *    [`new_optional_iterator`].
- */
-QueryIterator *NewOptionalIterator(QueryIterator *child, QueryEvalCtx *q, t_docId max_doc_id, double weight);
-
-/**
- * Returns `true` if `it` is a wildcard iterator (either optimized or non-optimized).
- *
- * # Safety
- *
- * `it`, when non-null, must point to a valid [`QueryIterator`].
- */
-bool IsWildcardIterator(const QueryIterator *it);
-
-/**
- * `PrintProfile` vtable entry for Hybrid (vector search) iterators.
- *
- * # Safety
- *
- * 1. `self_` must be a valid pointer to a Hybrid iterator.
- * 2. `map` must be a valid pointer to a [`redis_reply::MapBuilder`].
- * 3. `ctx` must be a valid pointer to a [`ProfilePrintCtx`].
- */
-void Hybrid_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, struct ProfilePrintCtx *ctx);
-
-/**
- * Creates a new missing-field inverted index iterator.
- *
- * # Parameters
- *
- * * `idx` - Pointer to the missing-field inverted index (DocIdsOnly or RawDocIdsOnly encoded).
- * * `sctx` - Pointer to the Redis search context.
- * * `field_index` - The index of the field in `spec.fields` whose missing documents are tracked.
- *
- * # Returns
- *
- * A pointer to a `QueryIterator` that can be used from C code.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- *
- * 1. `idx` must be a valid pointer to an `InvertedIndex` and cannot be NULL.
- * 2. `idx` must remain valid between `revalidate()` calls, since the revalidation
- *    mechanism detects when the index has been replaced via `spec.missingFieldDict`
- *    lookup.
- * 3. `sctx` must be a valid pointer to a `RedisSearchCtx` and cannot be NULL.
- * 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
- * 5. `field_index` must be a valid index into `sctx.spec.fields`.
- * 6. `sctx.spec.missingFieldDict` must be a non-null, valid dict pointer.
- */
-QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex field_index);
-
-/**
- * Creates a new iterator over a list of unsorted document IDs.
- *
- * # Safety
- *
- * 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
- * 2. The caller must ensure that `ids` is not null unless `num` is zero.
- * 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
- *    so the caller must ensure that the pointer was allocated in a compatible manner.
- */
-QueryIterator *NewUnsortedIdListIterator(t_docId *ids, uint64_t num, double weight);
-
-/**
- * Creates a new term inverted index iterator for querying term fields.
- *
- * # Parameters
- *
- * * `idx` - Pointer to the inverted index to query.
- * * `sctx` - Pointer to the Redis search context.
- * * `field_mask_or_index` - Field mask or field index to filter on.
- * * `term` - Pointer to the query term. Ownership is transferred to the iterator.
- * * `weight` - Weight to apply to the term results.
- *
- * # Returns
- *
- * A pointer to a `QueryIterator` that can be used from C code.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- *
- * 1. `idx` must be a valid pointer to a term `InvertedIndex` and cannot be NULL.
- * 2. `idx` must remain valid between `revalidate()` calls, since the revalidation
- *    mechanism detects when the index has been replaced via `Redis_OpenInvertedIndex()`
- *    pointer comparison.
- * 3. `sctx` must be a valid pointer to a `RedisSearchCtx` and cannot be NULL.
- * 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
- * 5. `term` must be a valid pointer to a heap-allocated `RSQueryTerm` (e.g. created by
- *    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
- */
-QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, union FieldMaskOrIndex field_mask_or_index, struct RSQueryTerm *term, double weight);
-
-/**
- * Add profile iterators to all nodes in the iterator tree.
- *
- * Wraps the root as a [`CRQEIterator`], calls
- * [`CRQEIterator::into_profiled`](rqe_iterators::c2rust::CRQEIterator::into_profiled)
- * (which recursively profiles
- * all descendants), then writes the result back as a `QueryIterator*`.
- *
- * # Safety
- *
- * 1. `root` must be a valid non-null pointer to a `*mut QueryIterator`.
- * 2. `*root` must be null or a valid non-null, non-aliased pointer to a `QueryIterator`.
- */
-void Profile_AddIters(QueryIterator * *root);
-
-/**
- * Creates a new metric iterator sorted by score.
- *
- * # Safety
- *
- * 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
- * 2. `metric_list` must be a valid pointer to an array of `f64` with at least `num` elements.
- * 3. The caller must ensure that `ids` and `metric_list` are not null unless `num` is zero.
- * 4. The memory pointed to by `ids` and `metric_list` will be freed using `RedisModule_Free`,
- *    so the caller must ensure that these pointers were allocated in a compatible manner.
- */
-QueryIterator *NewMetricIteratorSortedByScore(t_docId *ids, double *metric_list, size_t num, enum MetricType type_);
-
-/**
- * Create a new intersection iterator.
- *
- * Takes ownership of both the `its` array and all child iterators it contains.
- * Applies reduction rules before
- * constructing the iterator:
- *
- * 0. No children → empty iterator.
- * 1. Strip wildcard children. All wildcards → return the last one.
- * 2. Any empty child → free all, return empty iterator.
- * 3. Exactly one real child → return it directly.
- * 4. Two or more real children → build a full intersection.
- *
- * # Safety
- *
- * 1. `its` must be a valid non-null pointer to an array of `num` `QueryIterator*` values,
- *    allocated with the Redis allocator (`rm_malloc`). Ownership is transferred to this function.
- * 2. Every non-null pointer in `its` must be a valid `QueryIterator` whose callbacks are set.
- * 3. Null entries in `its` are treated as empty iterators.
- */
-QueryIterator *NewIntersectionIterator(QueryIterator * *its, size_t num, int32_t max_slop, bool in_order, double weight);
-
-/**
- * Frees the `numericFilters` array that [`NewGeoRangeIterator`] populated on a
- * `GeoFilter`, together with the per-range `NumericFilter`s it owns.
- *
- * The array is allocated in Rust (`build_geo_numeric_filters` boxes it), so it
- * must be released with the Rust allocator.
- *
- * # Safety
- *
- * `filters` must be NULL, or the array stored in `gf.numericFilters` by
- * [`NewGeoRangeIterator`] (i.e. by `build_geo_numeric_filters`) and not yet
- * freed.
- */
-void GeoFilter_FreeNumericFilters(NumericFilter * *filters);
-
-/**
- * Opens the numeric/geo index and creates an iterator over all matching sub-ranges.
- *
- * # Returns
- *
- * - `NULL` if the index doesn't exist for this field (i.e., no documents have been indexed
- *   for it yet).
- * - `NULL` if no sub-ranges in the tree match the filter.
- * - A single iterator if exactly one sub-range matches.
- * - A union iterator over all matching sub-ranges otherwise.
- *
- * # Safety
- *
- * 1. `ctx` must be a valid non-NULL pointer to a [`ffi::RedisSearchCtx`], remaining valid
- *    for the lifetime of the returned iterator.
- * 2. `ctx.spec` must be a valid non-NULL pointer to an [`ffi::IndexSpec`].
- * 3. `flt` must be a valid non-NULL pointer to a [`NumericFilter`] whose `field_spec` field
- *    is a valid non-NULL pointer to a [`FieldSpec`], remaining valid for the lifetime of the
- *    returned iterator.
- * 4. `config` must be a valid non-NULL pointer to an [`IteratorsConfig`].
- * 5. `filter_ctx` must be a valid non-NULL pointer to a [`FieldFilterContext`] with a field
- *    index (not a field mask).
- */
-QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const struct NumericFilter *flt, FieldType _for_type, const struct IteratorsConfig *config, const struct FieldFilterContext *filter_ctx);
-
-/**
- * Creates a new union iterator, applying reduction rules and choosing between
- * flat and heap variants based on the number of children.
- *
- * Takes ownership of both the `its` array and all child iterators it contains.
- *
- * # Safety
- *
- * 1. `its` must be a valid non-null pointer to an array of `num`
- *    `QueryIterator*` values, allocated with the Redis allocator (`rm_malloc`).
- *    Ownership is transferred to this function.
- * 2. Every non-null pointer in `its` must be a valid `QueryIterator` whose
- *    callbacks are set.
- * 3. Null entries in `its` are treated as empty iterators.
- * 4. `config` must be a valid non-null pointer to an [`IteratorsConfig`].
- * 5. `q_str` must be null or a valid, NUL-terminated C string that outlives
- *    the returned iterator — the requirement of [`build_union`].
- */
-QueryIterator *NewUnionIterator(QueryIterator * *its, int32_t num, bool quick_exit, double weight, QueryNodeType type_, const char *q_str, const struct IteratorsConfig *config);
-
-/**
- * Creates a new wildcard iterator from a query evaluation context.
- *
- * There are three possible code paths:
- *
- * 1. **Disk index** — when [`spec.diskSpec`](ffi::IndexSpec::diskSpec) is non-null, delegates to
- *    the enterprise iterator API via
- *    [`rqe_iterators::wildcard::new_wildcard_iterator_on_disk`].
- * 2. **[`index_all`](ffi::SchemaRule::index_all) optimized** — when [`SchemaRule`](ffi::SchemaRule)`.index_all` is set, delegates to
- *    [`rqe_iterators::wildcard::new_wildcard_iterator_optimized`].
- * 3. **Fallback** — creates a simple [`Wildcard`] iterator that yields all
- *    document ids up to [`docTable.maxDocId`](ffi::DocTable::maxDocId).
- *
- * # Safety
- *
- * 1. `q` must be a non-null pointer to a valid [`QueryEvalCtx`](ffi::QueryEvalCtx)
- *    that remains valid for the lifetime of the returned iterator.
- * 2. `q.sctx` must be a non-null pointer to a valid
- *    [`RedisSearchCtx`](ffi::RedisSearchCtx) that remains valid for the lifetime
- *    of the returned iterator.
- * 3. `q.sctx.spec` must be a non-null pointer to a valid [`IndexSpec`](ffi::IndexSpec) that
- *    remains valid for the lifetime of the returned iterator.
- * 4. `q.sctx.spec.rule`, when non-null, must point to a valid [`SchemaRule`](ffi::SchemaRule).
- * 5. When [`SchemaRule`](ffi::SchemaRule)`.index_all` is true, the preconditions of
- *    [`rqe_iterators::wildcard::new_wildcard_iterator_optimized`] must also hold.
- * 6. `q.docTable` must be a non-null pointer to a valid [`DocTable`](ffi::DocTable).
- * 7. `q.sctx.spec.diskSpec`, when non-null, must point to a valid
- *    [`RedisSearchDiskIndexSpec`](ffi::RedisSearchDiskIndexSpec) that remains valid for the
- *    lifetime of the returned iterator, and the disk iterator backend must be initialized.
- * 8. When `q.sctx.spec.diskSpec` is non-null, `q.sctx.diskSnapshot` must be a **non-null**
- *    [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot) handle for `q.sctx.spec.diskSpec`
- *    that remains valid for the lifetime of the returned iterator. The disk path requires a
- *    point-in-time view: a null snapshot alongside a non-null `diskSpec` makes the call panic.
- */
-QueryIterator *NewWildcardIterator(const QueryEvalCtx *q, double weight);
-
-/**
- * `PrintProfile` vtable entry for Optimus (optimizer) iterators.
- *
- * # Safety
- *
- * 1. `self_` must be a valid pointer to an Optimus iterator.
- * 2. `map` must be a valid pointer to a [`redis_reply::MapBuilder`].
- * 3. `ctx` must be a valid pointer to a [`ProfilePrintCtx`].
- */
-void Optimus_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, struct ProfilePrintCtx *ctx);
 
 /**
  * Creates a new geometry-query iterator over a list of matching document IDs.
@@ -526,100 +284,35 @@ void Optimus_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, st
 QueryIterator *NewGeometryQueryIterator(const RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx, t_docId *ids, size_t num, size_t *allocated);
 
 /**
- * Sets the [`RLookupKeyHandle`] for this metric iterator.
+ * Create a new intersection iterator.
+ *
+ * Takes ownership of both the `its` array and all child iterators it contains.
+ * Applies reduction rules before
+ * constructing the iterator:
+ *
+ * 0. No children → empty iterator.
+ * 1. Strip wildcard children. All wildcards → return the last one.
+ * 2. Any empty child → free all, return empty iterator.
+ * 3. Exactly one real child → return it directly.
+ * 4. Two or more real children → build a full intersection.
  *
  * # Safety
  *
- * 1. `header` is a valid non-null pointer to a [`QueryIterator`].
- * 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
- * 3. `key_handle` is either a null pointer or a valid non-null pointer to a [`RLookupKeyHandle`] instance.
+ * 1. `its` must be a valid non-null pointer to an array of `num` `QueryIterator*` values,
+ *    allocated with the Redis allocator (`rm_malloc`). Ownership is transferred to this function.
+ * 2. Every non-null pointer in `its` must be a valid `QueryIterator` whose callbacks are set.
+ * 3. Null entries in `its` are treated as empty iterators.
  */
-void SetMetricRLookupHandle(QueryIterator *header, RLookupKeyHandle *key_handle);
+QueryIterator *NewIntersectionIterator(QueryIterator * *its, size_t num, int32_t max_slop, bool in_order, double weight);
 
 /**
- * Creates a lazily-evaluated vector range iterator.
- *
- * Unlike [`NewMetricIteratorSortedById`](crate::metric::NewMetricIteratorSortedById) and the
- * other ID-list/metric constructors, the matching documents are **not** computed here. Instead
- * the `produce` callback runs the underlying vector range query on the first `Read`/`SkipTo`,
- * after which the resulting iterator behaves exactly like an eagerly-built metric (when
- * `yields_metric`) or ID-list iterator. Deferring the query lets the caller release the spec
- * lock before it executes, so writes can proceed concurrently (see MOD-16437).
- *
- * `sorted_by_id` selects between the by-ID and by-score variants; `num_estimated` is the
- * upper-bound estimate reported until the query runs; `type_` is the metric type (only used
- * when `yields_metric`).
- *
- * # Safety
- *
- * 1. `produce` must run the query against `ctx` and return a valid [`VectorRangeResults`]
- *    (arrays allocated with the Redis allocator, or `timed_out`); it must not free `ctx`.
- * 2. `free_ctx` must free `ctx` and be safe to call exactly once.
- * 3. `ctx` must remain valid until the iterator is freed; ownership transfers to the iterator.
- */
-QueryIterator *NewLazyVectorRangeIterator(ProduceResultsFn produce, FreeProducerCtxFn free_ctx, void *ctx, bool yields_metric, bool sorted_by_id, size_t num_estimated, enum MetricType type_);
-
-/**
- * Append a new child iterator to the intersection.
- *
- * Transfers ownership of `child` to the intersection. Updates the estimated result count
- * if the new child has a lower estimate than the current minimum.
- *
- * # Note
- *
- * Unlike the constructor, this method does **not** re-sort the child list after insertion.
- *
- * # Safety
- *
- * 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator()`].
- * 2. `child` must be a valid non-null pointer to a `QueryIterator`, not aliased.
- */
-void AddIntersectionIteratorChild(QueryIterator *header, QueryIterator *child);
-
-/**
- * Trims a union iterator for the LIMIT optimizer, then switches to unsorted
- * sequential read mode.
- *
- * # Safety
- *
- * 1. `it` must be a valid non-null pointer to a non-reduced union iterator
- *    created via [`NewUnionIterator`].
- */
-void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
-
-/**
- * Print iterator profile tree as a Redis reply.
- *
- * This is the FFI entry point called from C `Profile_PrintCommon`.
+ * Creates a new missing-field inverted index iterator.
  *
  * # Parameters
  *
- * - `ctx`: The Redis module context used to emit reply protocol.
- * - `root`: The root of the profile-wrapped iterator tree to print.
- *   May be null, in which case the function returns immediately.
- * - `limited`: When `true`, non-`UNION` union iterators collapse their
- *   children into a summary count instead of printing each child
- *   individually. Corresponds to `FT.PROFILE ... LIMITED`.
- * - `print_profile_clock`: When `true`, include wall-clock timing
- *   (`"Time"`) in each profile entry. Corresponds to
- *   `PROFILE_VERBOSE` / `_FT.DEBUG PROFILE_VERBOSE`.
- *
- * # Safety
- *
- * 1. `ctx` must be a valid [`RedisModuleCtx`] pointer.
- * 2. `root` must be null or a valid pointer to a [`QueryIterator`] tree
- *    that has been profile-wrapped via `Profile_AddIters`.
- */
-void Profile_PrintIterators(struct RedisModuleCtx *ctx, const QueryIterator *root, bool limited, bool print_profile_clock);
-
-/**
- * Creates a new wildcard inverted index iterator for querying all existing documents.
- *
- * # Parameters
- *
- * * `idx` - Pointer to the existingDocs inverted index (DocIdsOnly or RawDocIdsOnly encoded).
+ * * `idx` - Pointer to the missing-field inverted index (DocIdsOnly or RawDocIdsOnly encoded).
  * * `sctx` - Pointer to the Redis search context.
- * * `weight` - Weight to apply to all results.
+ * * `field_index` - The index of the field in `spec.fields` whose missing documents are tracked.
  *
  * # Returns
  *
@@ -631,22 +324,14 @@ void Profile_PrintIterators(struct RedisModuleCtx *ctx, const QueryIterator *roo
  *
  * 1. `idx` must be a valid pointer to an `InvertedIndex` and cannot be NULL.
  * 2. `idx` must remain valid between `revalidate()` calls, since the revalidation
- *    mechanism detects when the index has been replaced via `spec.existingDocs` pointer
- *    comparison.
+ *    mechanism detects when the index has been replaced via `spec.missingFieldDict`
+ *    lookup.
  * 3. `sctx` must be a valid pointer to a `RedisSearchCtx` and cannot be NULL.
  * 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
+ * 5. `field_index` must be a valid index into `sctx.spec.fields`.
+ * 6. `sctx.spec.missingFieldDict` must be a non-null, valid dict pointer.
  */
-QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, double weight);
-
-/**
- * Get a mutable reference to the [`RLookupKey`] stored inside this metric iterator.
- *
- * # Safety
- *
- * 1. `header` is a valid non-null pointer to a [`QueryIterator`].
- * 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
- */
-RLookupKey * *GetMetricOwnKeyRef(QueryIterator *header);
+QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex field_index);
 
 /**
  * Creates a new tag inverted index iterator.
@@ -686,6 +371,112 @@ RLookupKey * *GetMetricOwnKeyRef(QueryIterator *header);
 QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagIndex *tag_idx, const RedisSearchCtx *sctx, union FieldMaskOrIndex field_mask_or_index, struct RSQueryTerm *term, double weight);
 
 /**
+ * Creates a new term inverted index iterator for querying term fields.
+ *
+ * # Parameters
+ *
+ * * `idx` - Pointer to the inverted index to query.
+ * * `sctx` - Pointer to the Redis search context.
+ * * `field_mask_or_index` - Field mask or field index to filter on.
+ * * `term` - Pointer to the query term. Ownership is transferred to the iterator.
+ * * `weight` - Weight to apply to the term results.
+ *
+ * # Returns
+ *
+ * A pointer to a `QueryIterator` that can be used from C code.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ *
+ * 1. `idx` must be a valid pointer to a term `InvertedIndex` and cannot be NULL.
+ * 2. `idx` must remain valid between `revalidate()` calls, since the revalidation
+ *    mechanism detects when the index has been replaced via `Redis_OpenInvertedIndex()`
+ *    pointer comparison.
+ * 3. `sctx` must be a valid pointer to a `RedisSearchCtx` and cannot be NULL.
+ * 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
+ * 5. `term` must be a valid pointer to a heap-allocated `RSQueryTerm` (e.g. created by
+ *    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
+ */
+QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, union FieldMaskOrIndex field_mask_or_index, struct RSQueryTerm *term, double weight);
+
+/**
+ * Creates a new wildcard inverted index iterator for querying all existing documents.
+ *
+ * # Parameters
+ *
+ * * `idx` - Pointer to the existingDocs inverted index (DocIdsOnly or RawDocIdsOnly encoded).
+ * * `sctx` - Pointer to the Redis search context.
+ * * `weight` - Weight to apply to all results.
+ *
+ * # Returns
+ *
+ * A pointer to a `QueryIterator` that can be used from C code.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ *
+ * 1. `idx` must be a valid pointer to an `InvertedIndex` and cannot be NULL.
+ * 2. `idx` must remain valid between `revalidate()` calls, since the revalidation
+ *    mechanism detects when the index has been replaced via `spec.existingDocs` pointer
+ *    comparison.
+ * 3. `sctx` must be a valid pointer to a `RedisSearchCtx` and cannot be NULL.
+ * 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
+ */
+QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, double weight);
+
+/**
+ * Creates a lazily-evaluated vector range iterator.
+ *
+ * Unlike [`NewMetricIteratorSortedById`](crate::metric::NewMetricIteratorSortedById) and the
+ * other ID-list/metric constructors, the matching documents are **not** computed here. Instead
+ * the `produce` callback runs the underlying vector range query on the first `Read`/`SkipTo`,
+ * after which the resulting iterator behaves exactly like an eagerly-built metric (when
+ * `yields_metric`) or ID-list iterator. Deferring the query lets the caller release the spec
+ * lock before it executes, so writes can proceed concurrently (see MOD-16437).
+ *
+ * `sorted_by_id` selects between the by-ID and by-score variants; `num_estimated` is the
+ * upper-bound estimate reported until the query runs; `type_` is the metric type (only used
+ * when `yields_metric`).
+ *
+ * # Safety
+ *
+ * 1. `produce` must run the query against `ctx` and return a valid [`VectorRangeResults`]
+ *    (arrays allocated with the Redis allocator, or `timed_out`); it must not free `ctx`.
+ * 2. `free_ctx` must free `ctx` and be safe to call exactly once.
+ * 3. `ctx` must remain valid until the iterator is freed; ownership transfers to the iterator.
+ */
+QueryIterator *NewLazyVectorRangeIterator(ProduceResultsFn produce, FreeProducerCtxFn free_ctx, void *ctx, bool yields_metric, bool sorted_by_id, size_t num_estimated, enum MetricType type_);
+
+/**
+ * Creates a new metric iterator sorted by ID.
+ *
+ * # Safety
+ *
+ * 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
+ *    The array must be sorted in ascending order.
+ * 2. `metric_list` must be a valid pointer to an array of `f64` with at least `num` elements.
+ * 3. The caller must ensure that `ids` and `metric_list` are not null unless `num` is zero.
+ * 4. The memory pointed to by `ids` and `metric_list` will be freed using `RedisModule_Free`,
+ *    so the caller must ensure that these pointers were allocated in a compatible manner.
+ */
+QueryIterator *NewMetricIteratorSortedById(t_docId *ids, double *metric_list, size_t num, enum MetricType type_);
+
+/**
+ * Creates a new metric iterator sorted by score.
+ *
+ * # Safety
+ *
+ * 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
+ * 2. `metric_list` must be a valid pointer to an array of `f64` with at least `num` elements.
+ * 3. The caller must ensure that `ids` and `metric_list` are not null unless `num` is zero.
+ * 4. The memory pointed to by `ids` and `metric_list` will be freed using `RedisModule_Free`,
+ *    so the caller must ensure that these pointers were allocated in a compatible manner.
+ */
+QueryIterator *NewMetricIteratorSortedByScore(t_docId *ids, double *metric_list, size_t num, enum MetricType type_);
+
+/**
  * Creates a NOT iterator, choosing between non-optimized and optimized based
  * on the query evaluation context.
  *
@@ -719,6 +510,215 @@ QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagInd
  *    valid for the lifetime of the returned iterator.
  */
 QueryIterator *NewNotIterator(QueryIterator *child, t_docId max_doc_id, double weight, timespec timeout, AREQ *bc_timeout_areq, QueryEvalCtx *q);
+
+/**
+ * Opens the numeric/geo index and creates an iterator over all matching sub-ranges.
+ *
+ * # Returns
+ *
+ * - `NULL` if the index doesn't exist for this field (i.e., no documents have been indexed
+ *   for it yet).
+ * - `NULL` if no sub-ranges in the tree match the filter.
+ * - A single iterator if exactly one sub-range matches.
+ * - A union iterator over all matching sub-ranges otherwise.
+ *
+ * # Safety
+ *
+ * 1. `ctx` must be a valid non-NULL pointer to a [`ffi::RedisSearchCtx`], remaining valid
+ *    for the lifetime of the returned iterator.
+ * 2. `ctx.spec` must be a valid non-NULL pointer to an [`ffi::IndexSpec`].
+ * 3. `flt` must be a valid non-NULL pointer to a [`NumericFilter`] whose `field_spec` field
+ *    is a valid non-NULL pointer to a [`FieldSpec`], remaining valid for the lifetime of the
+ *    returned iterator.
+ * 4. `config` must be a valid non-NULL pointer to an [`IteratorsConfig`].
+ * 5. `filter_ctx` must be a valid non-NULL pointer to a [`FieldFilterContext`] with a field
+ *    index (not a field mask).
+ */
+QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const struct NumericFilter *flt, FieldType _for_type, const struct IteratorsConfig *config, const struct FieldFilterContext *filter_ctx);
+
+/**
+ * Create an optional iterator over `child`, applying shortcircuit reductions where possible.
+ *
+ * - If `child` is null or an empty iterator, a wildcard iterator is returned instead (all results will be virtual hits).
+ * - If `child` is a wildcard iterator, it is returned as-is with `weight` applied.
+ * - Otherwise, an [`Optional`](rqe_iterators::optional::Optional) or [`OptionalOptimized`](rqe_iterators::optional_optimized::OptionalOptimized)
+ *   iterator is constructed based on whether `q.sctx.spec.rule.index_all` is set.
+ *
+ * # Safety
+ *
+ * 1. `child`, when non-null, must be a valid owning pointer to a C query iterator that is not aliased.
+ * 2. `q` must be a valid non-null pointer to a [`QueryEvalCtx`] satisfying all preconditions of
+ *    [`new_optional_iterator`].
+ */
+QueryIterator *NewOptionalIterator(QueryIterator *child, QueryEvalCtx *q, t_docId max_doc_id, double weight);
+
+/**
+ * Creates a new iterator over a list of sorted document IDs.
+ *
+ * # Safety
+ *
+ * 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
+ *    The array must be sorted in ascending order.
+ * 2. The caller must ensure that `ids` is not null unless `num` is zero.
+ * 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
+ *    so the caller must ensure that the pointer was allocated in a compatible manner.
+ */
+QueryIterator *NewSortedIdListIterator(t_docId *ids, uint64_t num, double weight);
+
+/**
+ * Creates a new union iterator, applying reduction rules and choosing between
+ * flat and heap variants based on the number of children.
+ *
+ * Takes ownership of both the `its` array and all child iterators it contains.
+ *
+ * # Safety
+ *
+ * 1. `its` must be a valid non-null pointer to an array of `num`
+ *    `QueryIterator*` values, allocated with the Redis allocator (`rm_malloc`).
+ *    Ownership is transferred to this function.
+ * 2. Every non-null pointer in `its` must be a valid `QueryIterator` whose
+ *    callbacks are set.
+ * 3. Null entries in `its` are treated as empty iterators.
+ * 4. `config` must be a valid non-null pointer to an [`IteratorsConfig`].
+ * 5. `q_str` must be null or a valid, NUL-terminated C string that outlives
+ *    the returned iterator — the requirement of [`build_union`].
+ */
+QueryIterator *NewUnionIterator(QueryIterator * *its, int32_t num, bool quick_exit, double weight, QueryNodeType type_, const char *q_str, const struct IteratorsConfig *config);
+
+/**
+ * Creates a new iterator over a list of unsorted document IDs.
+ *
+ * # Safety
+ *
+ * 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
+ * 2. The caller must ensure that `ids` is not null unless `num` is zero.
+ * 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
+ *    so the caller must ensure that the pointer was allocated in a compatible manner.
+ */
+QueryIterator *NewUnsortedIdListIterator(t_docId *ids, uint64_t num, double weight);
+
+/**
+ * Creates a new wildcard iterator from a query evaluation context.
+ *
+ * There are three possible code paths:
+ *
+ * 1. **Disk index** — when [`spec.diskSpec`](ffi::IndexSpec::diskSpec) is non-null, delegates to
+ *    the enterprise iterator API via
+ *    [`rqe_iterators::wildcard::new_wildcard_iterator_on_disk`].
+ * 2. **[`index_all`](ffi::SchemaRule::index_all) optimized** — when [`SchemaRule`](ffi::SchemaRule)`.index_all` is set, delegates to
+ *    [`rqe_iterators::wildcard::new_wildcard_iterator_optimized`].
+ * 3. **Fallback** — creates a simple [`Wildcard`] iterator that yields all
+ *    document ids up to [`docTable.maxDocId`](ffi::DocTable::maxDocId).
+ *
+ * # Safety
+ *
+ * 1. `q` must be a non-null pointer to a valid [`QueryEvalCtx`](ffi::QueryEvalCtx)
+ *    that remains valid for the lifetime of the returned iterator.
+ * 2. `q.sctx` must be a non-null pointer to a valid
+ *    [`RedisSearchCtx`](ffi::RedisSearchCtx) that remains valid for the lifetime
+ *    of the returned iterator.
+ * 3. `q.sctx.spec` must be a non-null pointer to a valid [`IndexSpec`](ffi::IndexSpec) that
+ *    remains valid for the lifetime of the returned iterator.
+ * 4. `q.sctx.spec.rule`, when non-null, must point to a valid [`SchemaRule`](ffi::SchemaRule).
+ * 5. When [`SchemaRule`](ffi::SchemaRule)`.index_all` is true, the preconditions of
+ *    [`rqe_iterators::wildcard::new_wildcard_iterator_optimized`] must also hold.
+ * 6. `q.docTable` must be a non-null pointer to a valid [`DocTable`](ffi::DocTable).
+ * 7. `q.sctx.spec.diskSpec`, when non-null, must point to a valid
+ *    [`RedisSearchDiskIndexSpec`](ffi::RedisSearchDiskIndexSpec) that remains valid for the
+ *    lifetime of the returned iterator, and the disk iterator backend must be initialized.
+ * 8. When `q.sctx.spec.diskSpec` is non-null, `q.sctx.diskSnapshot` must be a **non-null**
+ *    [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot) handle for `q.sctx.spec.diskSpec`
+ *    that remains valid for the lifetime of the returned iterator. The disk path requires a
+ *    point-in-time view: a null snapshot alongside a non-null `diskSpec` makes the call panic.
+ */
+QueryIterator *NewWildcardIterator(const QueryEvalCtx *q, double weight);
+
+/**
+ * Creates a new non-optimized wildcard iterator over the `[0, max_id]` document id range.
+ */
+QueryIterator *NewWildcardIterator_NonOptimized(t_docId max_id, double weight);
+
+/**
+ * `PrintProfile` vtable entry for Optimus (optimizer) iterators.
+ *
+ * # Safety
+ *
+ * 1. `self_` must be a valid pointer to an Optimus iterator.
+ * 2. `map` must be a valid pointer to a [`redis_reply::MapBuilder`].
+ * 3. `ctx` must be a valid pointer to a [`ProfilePrintCtx`].
+ */
+void Optimus_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, struct ProfilePrintCtx *ctx);
+
+/**
+ * Add profile iterators to all nodes in the iterator tree.
+ *
+ * Wraps the root as a [`CRQEIterator`], calls
+ * [`CRQEIterator::into_profiled`](rqe_iterators::c2rust::CRQEIterator::into_profiled)
+ * (which recursively profiles
+ * all descendants), then writes the result back as a `QueryIterator*`.
+ *
+ * # Safety
+ *
+ * 1. `root` must be a valid non-null pointer to a `*mut QueryIterator`.
+ * 2. `*root` must be null or a valid non-null, non-aliased pointer to a `QueryIterator`.
+ */
+void Profile_AddIters(QueryIterator * *root);
+
+/**
+ * Print iterator profile tree as a Redis reply.
+ *
+ * This is the FFI entry point called from C `Profile_PrintCommon`.
+ *
+ * # Parameters
+ *
+ * - `ctx`: The Redis module context used to emit reply protocol.
+ * - `root`: The root of the profile-wrapped iterator tree to print.
+ *   May be null, in which case the function returns immediately.
+ * - `limited`: When `true`, non-`UNION` union iterators collapse their
+ *   children into a summary count instead of printing each child
+ *   individually. Corresponds to `FT.PROFILE ... LIMITED`.
+ * - `print_profile_clock`: When `true`, include wall-clock timing
+ *   (`"Time"`) in each profile entry. Corresponds to
+ *   `PROFILE_VERBOSE` / `_FT.DEBUG PROFILE_VERBOSE`.
+ *
+ * # Safety
+ *
+ * 1. `ctx` must be a valid [`RedisModuleCtx`] pointer.
+ * 2. `root` must be null or a valid pointer to a [`QueryIterator`] tree
+ *    that has been profile-wrapped via `Profile_AddIters`.
+ */
+void Profile_PrintIterators(struct RedisModuleCtx *ctx, const QueryIterator *root, bool limited, bool print_profile_clock);
+
+/**
+ * Sets the [`RLookupKeyHandle`] for this metric iterator.
+ *
+ * # Safety
+ *
+ * 1. `header` is a valid non-null pointer to a [`QueryIterator`].
+ * 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
+ * 3. `key_handle` is either a null pointer or a valid non-null pointer to a [`RLookupKeyHandle`] instance.
+ */
+void SetMetricRLookupHandle(QueryIterator *header, RLookupKeyHandle *key_handle);
+
+/**
+ * Trims a union iterator for the LIMIT optimizer, then switches to unsorted
+ * sequential read mode.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-null pointer to a non-reduced union iterator
+ *    created via [`NewUnionIterator`].
+ */
+void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
+
+/**
+ *
+ * # Safety
+ *
+ * 1. `spec` must be a valid non-null pointer to an [`ffi::IndexSpec`].
+ * 2. `fs` must be a valid non-null pointer to a [`FieldSpec`] for a numeric or geo field.
+ */
+NumericRangeTree *openNumericOrGeoIndex(IndexSpec *spec, FieldSpec *fs, bool create_if_missing);
 
 #ifdef __cplusplus
 }  // extern "C"
