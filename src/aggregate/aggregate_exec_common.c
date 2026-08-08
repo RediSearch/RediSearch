@@ -121,7 +121,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
  void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
    const bool legacyAggregate =
        ctx->timeoutPolicy != TimeoutPolicy_Return || ctx->oomPolicy == OomPolicy_Fail;
-   if (ctx->useReplyCallback || legacyAggregate) {
+   if (ctx->storeResultsForReplyCallback || legacyAggregate) {
      // Aggregate all results before populating the response
      *results = AggregateResults(rp, ctx->areq, rc);
      // Preserve the post-aggregation deadline check on paths that already

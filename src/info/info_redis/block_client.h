@@ -56,6 +56,11 @@ void BlockedRequestCtx_EndCycle(struct BlockedRequestCtx *brc);
  * wrapper. */
 void BlockedRequestCtx_OnFree(RedisModuleCtx *ctx, void *privdata);
 
+/* Reply callback for worker-staged RETURN replies. Redis invokes it before
+ * attaching the blocked client's thread-safe reply buffer to the real client.
+ * It must emit no reply elements. */
+int StagedReplyCommitCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+
 /* Block `ctx` for one query cycle of `brc`. Registers the cycle in
  * BlockedQueries, calls RedisModule_BlockClient(reply_cb, timeout_cb,
  * BlockedRequestCtx_OnFree, timeout_ms) and BeginCycle. `reply_cb`/`timeout_cb`

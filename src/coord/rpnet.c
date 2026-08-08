@@ -380,7 +380,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   // Surface RETURN_STRICT timeouts on follow-up cursor reads where the channel
   // may already hold a buffered reply (the NULL-reply check below wouldn't fire
   // and we'd silently return rows). Skipped during the timer's own drain.
-  if (areq && areq->useReplyCallback && !nc->drainOnly && AREQ_TimedOut(nc->areq)) {
+  if (areq && areq->storeResultsForReplyCallback && !nc->drainOnly && AREQ_TimedOut(nc->areq)) {
     return RS_RESULT_TIMEDOUT;
   }
 
