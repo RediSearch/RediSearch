@@ -81,9 +81,15 @@ def _setup_return_strict_cursor_state(env, chunk_size=10, agg_steps=None):
     baseline_cursor_total = _coord_cursor_total(env)
     return prev_on_timeout_policy, cursor_id, baseline_cursor_total, before_info, base_warn_coord, res
 
-def _get_blocked_request_onfree_count(env):
+def _get_blocked_request_onfree_count(env, conn=None):
     """Read the coordinator BlockedRequestCtx_OnFree invocation counter (debug builds)."""
-    return int(env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_BLOCKED_REQUEST_ONFREE_COUNT'))
+    cmd = (debug_cmd(), 'QUERY_CONTROLLER', 'GET_BLOCKED_REQUEST_ONFREE_COUNT')
+    return int(conn.execute_command(*cmd) if conn is not None else env.cmd(*cmd))
+
+def _get_blocked_reply_callback_count(env, conn=None):
+    """Read the coordinator blocked-client reply callback counter (debug builds)."""
+    cmd = (debug_cmd(), 'QUERY_CONTROLLER', 'GET_BLOCKED_REPLY_CALLBACK_COUNT')
+    return int(conn.execute_command(*cmd) if conn is not None else env.cmd(*cmd))
 
 def _assert_return_strict_cursor_timeout_reply(env, res_pair, expected_cid,
                                                expected_results,
@@ -1223,6 +1229,62 @@ class TestCoordinatorTimeout:
                 'cluster happy FT.AGGREGATE WITHCURSOR')
         finally:
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
+
+    def test_return_staged_reply_callback_lifecycle_cluster(self):
+        """Every distributed RETURN cursor cycle commits one staged reply and frees its BC."""
+        env = self.env
+        skipIfNoEnableAssert(env)
+        conn = env.getConnection(1)
+        chunk_size = 7
+
+        prev_policy = conn.execute_command('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.assertEqual(conn.execute_command(
+            'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return'), 'OK')
+        try:
+            # Keep shard-side _FT.AGGREGATE / _FT.CURSOR execution inline so their
+            # blocked-client callbacks cannot contaminate the process-wide counters;
+            # the outer distributed request still runs on the coordinator pool.
+            set_workers(env, 0)
+            expected_callbacks = _get_blocked_reply_callback_count(env, conn)
+            expected_onfree = _get_blocked_request_onfree_count(env, conn)
+
+            result, cursor_id = conn.execute_command(
+                'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name',
+                'WITHCURSOR', 'COUNT', str(chunk_size))
+            env.assertEqual(conn.execute_command('PING'), True)
+
+            expected_callbacks += 1
+            expected_onfree += 1
+            env.assertEqual(_get_blocked_reply_callback_count(env, conn), expected_callbacks)
+            env.assertEqual(_get_blocked_request_onfree_count(env, conn), expected_onfree)
+            env.assertTrue(isinstance(result, dict), message=result)
+            env.assertContains('results', result, message=result)
+            env.assertEqual(result.get('warning', []), [], message=result)
+            env.assertEqual(len(result['results']), chunk_size, message=result)
+            env.assertNotEqual(cursor_id, 0, message=result)
+            received = len(result['results'])
+
+            while cursor_id:
+                result, cursor_id = conn.execute_command(
+                    'FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', str(chunk_size))
+                env.assertEqual(conn.execute_command('PING'), True)
+
+                expected_callbacks += 1
+                expected_onfree += 1
+                env.assertEqual(_get_blocked_reply_callback_count(env, conn), expected_callbacks)
+                env.assertEqual(_get_blocked_request_onfree_count(env, conn), expected_onfree)
+                env.assertTrue(isinstance(result, dict), message=result)
+                env.assertContains('results', result, message=result)
+                env.assertEqual(result.get('warning', []), [], message=result)
+                env.assertGreater(len(result['results']), 0, message=result)
+                env.assertLessEqual(len(result['results']), chunk_size, message=result)
+                received += len(result['results'])
+
+            env.assertEqual(received, self.n_docs)
+        finally:
+            set_workers(env, 1)
+            env.assertEqual(conn.execute_command(
+                'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy), 'OK')
 
     def _start_blocked_cursor_read(self, cursor_id):
         """Start FT.CURSOR READ in a thread and return ``(thread, blocked_client_id)``
