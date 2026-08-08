@@ -15,6 +15,7 @@ use crate::{RLookup, RLookupKey, RLookupKeyFlag, RLookupRow};
 use redis_module::RedisString;
 use redis_module::key::RedisKey;
 use redis_module::{KeyType, ScanKeyCursor};
+use std::cell::Cell;
 use std::ffi::CStr;
 use std::mem::ManuallyDrop;
 use std::ptr::{self, NonNull};
@@ -139,7 +140,15 @@ impl DocumentFormat for HashDocumentFormat {
 
         let scan_cursor = ScanKeyCursor::new(key);
 
-        scan_cursor.for_each(|_key, field, value| {
+        // Once the lookup saturates, no remaining field can be added, but every further
+        // callback would still walk the whole key list via `find_key_by_name`. Driving
+        // the scan manually lets us stop after the invocation that hit saturation
+        // instead of visiting every remaining field of an oversized document.
+        // `Cell` because the flag is read by the scan loop while the closure that
+        // sets it is still borrowed by `scan`.
+        let lookup_full = Cell::new(false);
+
+        let mut scan_step = |_key: &_, field: &RedisString, value: &RedisString| {
             let (field_ptr, field_len) = field.as_cstr_ptr_and_len();
 
             // Field names are treated as C strings here: a name with an interior NUL is
@@ -175,6 +184,7 @@ impl DocumentFormat for HashDocumentFormat {
 
                 let Some(key) = key else {
                     // The lookup is full: leave this field out of the row.
+                    lookup_full.set(true);
                     return;
                 };
                 key
@@ -188,7 +198,15 @@ impl DocumentFormat for HashDocumentFormat {
             let value = hval_to_value(value, coerce);
 
             dst_row.write_key(key, value);
-        });
+        };
+
+        // Each `scan` call covers one bucket of the hash's dict, invoking the callback
+        // once per field in it, and returns `false` once the scan is complete.
+        while scan_cursor.scan(&mut scan_step) {
+            if lookup_full.get() {
+                break;
+            }
+        }
 
         Ok(())
     }
