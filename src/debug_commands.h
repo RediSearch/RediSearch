@@ -243,6 +243,11 @@ void HybridStoreCursorsDebugCtx_SetPause(bool pause);
 void BlockedRequestOnFreeDebug_Increment(void);
 uint64_t BlockedRequestOnFreeDebug_GetCount(void);
 
+// Worker-staged reply callback counter. This is intentionally separate from
+// OnFree so tests can prove that RETURN still invokes its registered callback.
+void BlockedReplyCallbackDebug_Increment(void);
+uint64_t BlockedReplyCallbackDebug_GetCount(void);
+
 // Tracks the currently active coordinator MRIterator so tests can poll the
 // `pending` shard counter via FT.DEBUG BG_PENDING_REPLIES. Set after the
 // iterator is created in the RPNet start path; cleared before it is released

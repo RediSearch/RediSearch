@@ -37,7 +37,7 @@ void BlockedRequestCtx_BeginCycle(BlockedRequestCtx *brc, RedisModuleBlockedClie
   // cursor-ownership step makes the cycle the single owner.
   BlockedRequestCtx_IncrRef(brc);
   brc->bc = bc;
-  brc->deferred_reply = (reply_cb != NULL);
+  brc->has_reply_callback = (reply_cb != NULL);
   atomic_store_explicit(&brc->strictReadOwner, BRC_READ_OWNER_NONE, memory_order_relaxed);
   RedisModule_BlockClientSetPrivateData(bc, brc);
 }
@@ -69,7 +69,7 @@ void BlockedRequestCtx_EndCycle(BlockedRequestCtx *brc) {
   ChunkReplyState_Destroy(&brc->reply);
   brc->reply.hasStoredResults = false;
   brc->bc = NULL;
-  brc->deferred_reply = false;
+  brc->has_reply_callback = false;
   brc->cursor = NULL;
   brc->cursor_dispose_free = false;
 }
@@ -97,6 +97,18 @@ void BlockedRequestCtx_OnFree(RedisModuleCtx *ctx, void *privdata) {
     }
   }
   BlockedRequestCtx_DecrRef(brc);
+}
+
+int StagedReplyCommitCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  UNUSED(ctx);
+  UNUSED(argv);
+  UNUSED(argc);
+#ifdef ENABLE_ASSERT
+  BlockedReplyCallbackDebug_Increment();
+#endif
+  // Redis transfers the blocked client's thread-safe reply buffer immediately
+  // after this callback. Emitting anything here would prepend a second reply.
+  return REDISMODULE_OK;
 }
 
 RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, StrongRef spec_ref,

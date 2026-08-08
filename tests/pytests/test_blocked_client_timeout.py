@@ -1169,8 +1169,8 @@ class TestCoordinatorTimeout:
     def test_no_timeout_cursor(self):
         """
         Test that FAIL policy doesn't break cursor reads when there is no timeout.
-        This verifies that useReplyCallback is properly cleared for cursor reads,
-        since cursor reads use BlockCursorClientWithTimeout which has no reply_callback.
+        Cursor reads retain their reply callback and must complete normally when
+        the blocked-client timer does not fire.
         """
         env = self.env
 
@@ -6673,8 +6673,8 @@ class TestShardTimeout:
     def test_no_timeout_cursor(self):
         """
         Test that FAIL policy doesn't break cursor reads when there is no timeout.
-        This verifies that useReplyCallback is properly cleared for cursor reads,
-        since cursor reads use BlockCursorClientWithTimeout which has no reply_callback.
+        Cursor reads retain their reply callback and must complete normally when
+        the blocked-client timer does not fire.
         """
         env = self.env
 
