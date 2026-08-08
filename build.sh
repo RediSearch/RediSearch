@@ -208,6 +208,11 @@ setup_test_configuration() {
 # Configure the build environment variables
 #-----------------------------------------------------------------------------
 setup_build_environment() {
+  # Sanitizer configuration is consumed by downstream build and test scripts.
+  if [[ -n "$SAN" ]]; then
+    export SAN
+  fi
+
   # Determine Rust toolchain
   if [[ -n "$SAN" || "$COV" == "1" || "$RUN_MIRI" == "1" ]]; then
     # For coverage, we use the `nightly` compiler in order to include doc tests in the coverage computation.
