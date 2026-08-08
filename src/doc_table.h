@@ -213,10 +213,10 @@ t_docId DocTable_GetId(const DocTable *dt, const char *s, size_t n);
   size_t n;                     \
   const char *s = RedisModule_StringPtrLen(r, &n);
 
-static inline t_docId DocTable_GetIdR(const DocTable *dt, RedisModuleString *r) {
-  STRVARS_FROM_RSTRING(r);
-  return DocTable_GetId(dt, s, n);
-}
+/* DocTable_GetId from a RedisModuleString key. A real (exported) function so
+ * the Rust query evaluator can resolve id-filter keys without touching the
+ * module API. */
+t_docId DocTable_GetIdR(const DocTable *dt, const RedisModuleString *r);
 
 /* Free the table and all the keys of documents */
 void DocTable_Free(DocTable *t);

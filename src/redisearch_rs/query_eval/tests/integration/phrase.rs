@@ -55,15 +55,15 @@ fn eval_phrase_single_child_returns_child() {
 // plain set intersection, requiring no positional offsets.
 // ---------------------------------------------------------------------------
 
-// Disabled under Miri: `TestContext` and SDS creation call into the C library,
-// which Miri cannot execute.
+// Disabled under Miri: `TestContext` calls into the C library, which Miri
+// cannot execute.
 #[cfg(not(miri))]
 mod phrase {
     use ffi::IndexFlags_Index_StoreFreqs;
     use rqe_iterators_test_utils::{GlobalGuard, TestContext};
 
     use super::*;
-    use crate::util::new_sds;
+    use crate::util::MockKeys;
 
     #[test]
     fn eval_phrase_intersects_children() {
@@ -90,8 +90,8 @@ mod phrase {
 
         // child 1 matches {doc_a, doc_b}; child 2 matches {doc_b, doc_c}; the
         // intersection is {doc_b}.
-        let keys1: Vec<ffi::sds> = vec![new_sds("doc_a"), new_sds("doc_b")];
-        let keys2: Vec<ffi::sds> = vec![new_sds("doc_b"), new_sds("doc_c")];
+        let keys1 = MockKeys::new(&["doc_a", "doc_b"]);
+        let keys2 = MockKeys::new(&["doc_b", "doc_c"]);
         let mut c1 = MockQueryNode::new(QueryNodeType::Ids);
         c1.set_ids(keys1.as_ptr(), std::ptr::null_mut(), keys1.len());
         let mut c2 = MockQueryNode::new(QueryNodeType::Ids);
@@ -112,11 +112,6 @@ mod phrase {
         let r = it.read().unwrap().expect("should have a result");
         assert_eq!(r.doc_id, 2);
         assert!(matches!(it.read(), Ok(None)));
-
-        for key in keys1.into_iter().chain(keys2) {
-            // SAFETY: each `key` was allocated by `sdsnewlen` and is freed once.
-            unsafe { ffi::sdsfree(key) };
-        }
     }
 
     #[test]
@@ -149,8 +144,8 @@ mod phrase {
 
         // child 1 matches {doc_a, doc_b}; child 2 matches {doc_b, doc_c}; the
         // intersection is {doc_b}.
-        let keys1: Vec<ffi::sds> = vec![new_sds("doc_a"), new_sds("doc_b")];
-        let keys2: Vec<ffi::sds> = vec![new_sds("doc_b"), new_sds("doc_c")];
+        let keys1 = MockKeys::new(&["doc_a", "doc_b"]);
+        let keys2 = MockKeys::new(&["doc_b", "doc_c"]);
         let mut c1 = MockQueryNode::new(QueryNodeType::Ids);
         c1.set_ids(keys1.as_ptr(), std::ptr::null_mut(), keys1.len());
         let mut c2 = MockQueryNode::new(QueryNodeType::Ids);
@@ -172,11 +167,6 @@ mod phrase {
         let r = it.read().unwrap().expect("should have a result");
         assert_eq!(r.doc_id, 2);
         assert!(matches!(it.read(), Ok(None)));
-
-        for key in keys1.into_iter().chain(keys2) {
-            // SAFETY: each `key` was allocated by `sdsnewlen` and is freed once.
-            unsafe { ffi::sdsfree(key) };
-        }
     }
 
     #[test]
@@ -210,8 +200,8 @@ mod phrase {
 
         // child 1 matches {doc_a, doc_b}; child 2 matches {doc_b, doc_c}; the
         // intersection is {doc_b}.
-        let keys1: Vec<ffi::sds> = vec![new_sds("doc_a"), new_sds("doc_b")];
-        let keys2: Vec<ffi::sds> = vec![new_sds("doc_b"), new_sds("doc_c")];
+        let keys1 = MockKeys::new(&["doc_a", "doc_b"]);
+        let keys2 = MockKeys::new(&["doc_b", "doc_c"]);
         let mut c1 = MockQueryNode::new(QueryNodeType::Ids);
         c1.set_ids(keys1.as_ptr(), std::ptr::null_mut(), keys1.len());
         let mut c2 = MockQueryNode::new(QueryNodeType::Ids);
@@ -233,11 +223,6 @@ mod phrase {
         let r = it.read().unwrap().expect("should have a result");
         assert_eq!(r.doc_id, 2);
         assert!(matches!(it.read(), Ok(None)));
-
-        for key in keys1.into_iter().chain(keys2) {
-            // SAFETY: each `key` was allocated by `sdsnewlen` and is freed once.
-            unsafe { ffi::sdsfree(key) };
-        }
     }
 
     #[test]
@@ -270,7 +255,7 @@ mod phrase {
         let mut missing_child = MockQueryNode::new(QueryNodeType::Missing);
         missing_child.set_missing_field(context.field_spec());
         // child 2: QN_IDS resolving to a real document.
-        let keys: Vec<ffi::sds> = vec![new_sds("doc_a")];
+        let keys = MockKeys::new(&["doc_a"]);
         let mut ids_child = MockQueryNode::new(QueryNodeType::Ids);
         ids_child.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
 
@@ -287,11 +272,6 @@ mod phrase {
         assert_eq!(it.type_(), IteratorType::Empty);
         assert!(matches!(it.read(), Ok(None)));
         assert!(it.at_eof());
-
-        for key in keys {
-            // SAFETY: each `key` was allocated by `sdsnewlen` and is freed once.
-            unsafe { ffi::sdsfree(key) };
-        }
     }
 
     #[test]
@@ -322,8 +302,8 @@ mod phrase {
         let mut ctx = unsafe { QueryEvalContext::new(qctx) };
 
         // Both children resolve to the shared document `doc_b`.
-        let keys1: Vec<ffi::sds> = vec![new_sds("doc_b")];
-        let keys2: Vec<ffi::sds> = vec![new_sds("doc_b")];
+        let keys1 = MockKeys::new(&["doc_b"]);
+        let keys2 = MockKeys::new(&["doc_b"]);
         let mut c1 = MockQueryNode::new(QueryNodeType::Ids);
         c1.set_ids(keys1.as_ptr(), std::ptr::null_mut(), keys1.len());
         let mut c2 = MockQueryNode::new(QueryNodeType::Ids);
@@ -346,11 +326,6 @@ mod phrase {
         assert_eq!(r.doc_id, 2);
         assert!(matches!(it.read(), Ok(None)));
         assert!(it.at_eof());
-
-        for key in keys1.into_iter().chain(keys2) {
-            // SAFETY: each `key` was allocated by `sdsnewlen` and is freed once.
-            unsafe { ffi::sdsfree(key) };
-        }
     }
 }
 

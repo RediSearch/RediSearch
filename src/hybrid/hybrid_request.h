@@ -21,12 +21,6 @@ struct Cursor;
 #define HYBRID_IMPLICIT_KEY_FIELD "__key"
 
 typedef struct HybridRequest {
-    /* Arguments converted to sds. Received on input */
-    // We need to copy the arguments so rlookup keys can point to them
-    // in short lifetime of the strings
-    sds *args;
-    size_t nargs;
-
     arrayof(AREQ*) requests;
     size_t nrequests;
     QueryError tailPipelineError;
@@ -157,8 +151,12 @@ typedef struct blockedClientHybridCtx {
  * @param sctx The main search context for the hybrid request - the redisCtx inside can change if moving to different thread
  * @param requests Array of AREQ pointers representing individual search requests, the hybrid request will take ownership of the array
  * @param nrequests Number of requests in the array
+ * @param argv The command argv, not NULL; the container's and each
+ *   sub-request's wrapper take holds on the full command (main-thread only —
+ *   see BlockedRequestCtx.argv)
+ * @param argc Number of strings in argv
 */
-HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests);
+HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests, RedisModuleString **argv, uint32_t argc);
 
 /**
  * Initialize an already-allocated (zeroed) HybridRequest.
@@ -168,14 +166,16 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
  * @param sctx The search context for the hybrid request
  * @param requests Array of AREQ pointers, the hybrid request takes ownership
  * @param nrequests Number of requests in the array
+ * @param argv The full command argv each sub-request's wrapper holds
+ *   (see HybridRequest_New); not NULL
+ * @param argc Number of strings in argv
  */
-void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests, size_t nrequests);
+void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests, size_t nrequests, RedisModuleString **argv, uint32_t argc);
 
-/*
-* We need to clone the arguments so the objects that rely on them can use them throughout the lifetime of the hybrid request
-* For example lookup keys
-*/
-void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor* ac, RedisModuleString **argv, int argc);
+/* Wrap the request's held argv (taken at construction) in a parse cursor.
+ * The caller's argc bounds the parse; the holds may cover a superset (the
+ * coordinator debug flow strips trailing debug params). */
+void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, uint32_t argc);
 
 /**
  * Build the depletion pipeline for hybrid search processing.
@@ -285,7 +285,7 @@ int HybridRequest_GetError(HybridRequest *req, QueryError *status);
 
 void HybridRequest_ClearErrors(HybridRequest *req);
 
-HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx);
+HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx, RedisModuleString **argv, uint32_t argc);
 
 /**
  * Add information to validation error messages based on request type (VSIM/SEARCH subquery).
