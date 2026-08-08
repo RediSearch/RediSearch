@@ -43,6 +43,7 @@
 #include "aggregate/aggregate.h"
 #include "aggregate/aggregate_plan.h"
 #include "obfuscation/hidden_unicode.h"
+#include "param.h"
 #include "pipeline/pipeline.h"
 #include "query_error.h"
 #include "query_error_ffi.h"
@@ -67,6 +68,15 @@ struct ConcurrentCmdCtx;
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
 #define HYBRID_RESP_PROTOCOL_VERSION 3
+
+// Scratch buffer for formatting one numeric argument before appending it to an
+// MRCommand. 25 is the exact minimum: the widest output below, plus its NUL.
+//   %.17g  -DBL_MAX   "-1.7976931348623157e+308"  24  RRF CONSTANT, LINEAR ALPHA/BETA
+//   %lld   INT64_MIN  "-9223372036854775808"      20  TIMEOUT
+//   %zu    SIZE_MAX   "18446744073709551615"      20  WINDOW
+//   %lu    ULONG_MAX  "18446744073709551615"      20  PARAMS count
+//   %d     (literal)  "8"                          1  COMBINE argument count
+#define HYBRID_NUM_BUF_SIZE 25
 
 /**
  * Appends all SEARCH-related arguments to MR command.
@@ -267,12 +277,12 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
 // present) counted inside the block, so shards of any version parse it and never
 // fall back on their own (possibly different) defaults.
 static void MRCommand_appendCombine(MRCommand *xcmd, const HybridCombineWireParams *cp) {
-  if (!cp || !cp->scoringCtx) {
+  if (!cp->scoringCtx) {
     return;
   }
   const HybridScoringContext *sc = cp->scoringCtx;
   const bool hasAlias = cp->scoreAlias != NULL;
-  char numBuf[32];
+  char numBuf[HYBRID_NUM_BUF_SIZE];
   const size_t numBufSize = sizeof(numBuf);
   int n;
 
@@ -309,28 +319,56 @@ static void MRCommand_appendCombine(MRCommand *xcmd, const HybridCombineWirePara
   }
 }
 
-// The function transforms FT.HYBRID index SEARCH query VSIM field vector
-// into _FT.HYBRID index SEARCH query VSIM field vector WITHCURSOR
-// _NUM_SSTRING _INDEX_PREFIXES ...
-// stores the index of the K value argument in the MRCommand (for later
-// modification by the command modifier callback in SHARD_K_RATIO optimization).
+/**
+ * Reconstructs the PARAMS clause from the resolved parameter dictionary rather
+ * than re-scanning argv for the "PARAMS" keyword. The emitted order is the
+ * dict-iteration order, which is not necessarily the client's original argument
+ * order; this is safe because parameters are referenced by name.
+ *
+ * @param xcmd - destination MR command to append arguments to
+ * @param params - resolved parameter dictionary (key: name, value: RedisModuleString)
+ */
+static void MRCommand_appendParams(MRCommand *xcmd, dict *params) {
+  if (!params) {
+    return;
+  }
+  unsigned long n = dictSize(params);
+  if (n == 0) {
+    return;
+  }
+  char numBuf[HYBRID_NUM_BUF_SIZE];
+  MRCommand_Append(xcmd, "PARAMS", strlen("PARAMS"));
+  int len = snprintf(numBuf, sizeof(numBuf), "%lu", n * 2);
+  MRCommand_Append(xcmd, numBuf, len);
+
+  dictIterator *it = dictGetIterator(params);
+  const dictEntry *entry;
+  while ((entry = dictNext(it))) {
+    const char *name = dictGetKey(entry);
+    MRCommand_Append(xcmd, name, strlen(name));
+    const RedisModuleString *value = dictGetVal(entry);
+    size_t valueLen;
+    const char *valueData = RedisModule_StringPtrLen(value, &valueLen);
+    MRCommand_Append(xcmd, valueData, valueLen);
+  }
+  dictReleaseIterator(it);
+}
+
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
-                            ProfileOptions profileOptions,
-                            bool sendExplainScore,
-                            const HybridCombineWireParams *combineParams,
-                            MRCommand *xcmd, arrayof(char*) serialized,
-                            IndexSpec *sp, int *outKArgIndex) {
+                                  const HybridShardWireParams *shardWireParams,
+                                  MRCommand *xcmd,
+                                  arrayof(char *) serialized, IndexSpec *sp, int *outKArgIndex) {
+  RS_ASSERT(shardWireParams != NULL);
   RS_ASSERT(outKArgIndex != NULL);
-  int argOffset;
   const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
 
   int cmdArgCount = 2;
   const char *cmdArgs[5] = {"_FT.HYBRID", index_name};
 
-  if (profileOptions != EXEC_NO_FLAGS) {
+  if (shardWireParams->profileOptions != EXEC_NO_FLAGS) {
     cmdArgs[0] = "_FT.PROFILE";
     cmdArgs[cmdArgCount++] = "HYBRID";
-    if (profileOptions & EXEC_WITH_PROFILE_LIMITED) {
+    if (shardWireParams->profileOptions & EXEC_WITH_PROFILE_LIMITED) {
       cmdArgs[cmdArgCount++] = "LIMITED";
     }
     cmdArgs[cmdArgCount++] = "QUERY";
@@ -357,7 +395,7 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   // each shard falling back on its own (possibly changed) defaults. This also
   // normalizes the positional YIELD_SCORE_AS form and a zero argument count
   // into the counted form that all shard versions accept.
-  MRCommand_appendCombine(xcmd, combineParams);
+  MRCommand_appendCombine(xcmd, &shardWireParams->combine);
 
   if (serialized) {
     for (size_t ii = 0; ii < array_len(serialized); ++ii) {
@@ -366,49 +404,23 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
     }
   }
 
-  // Add PARAMS arguments if present
-  argOffset = RMUtil_ArgIndex("PARAMS", argv + vsimOffset, argc - vsimOffset);
-  argOffset = argOffset != -1 ? argOffset + vsimOffset : -1;
-  if (argOffset != -1) {
-    long long nargs;
-    int rc = RedisModule_StringToLongLong(argv[argOffset + 1], &nargs);
+  // Reconstruct the PARAMS clause from the resolved parameter dictionary.
+  MRCommand_appendParams(xcmd, shardWireParams->params);
 
-    // PARAMS keyword and count - treat as string
-    MRCommand_AppendRstr(xcmd, argv[argOffset]);
-    MRCommand_AppendRstr(xcmd, argv[argOffset + 1]);
-
-    // append params string including PARAMS keyword and nargs
-    for (int i = 2; i < nargs + 2; ++i) {
-      if (i % 2 == 0) {
-        // Parameter name - treat as string
-        MRCommand_AppendRstr(xcmd, argv[argOffset + i]);
-      } else {
-        // Parameter value - could be binary, treat as binary
-        size_t valueLen;
-        const char *valueData = RedisModule_StringPtrLen(argv[argOffset + i], &valueLen);
-        MRCommand_Append(xcmd, valueData, valueLen);
-      }
-    }
+  // Forward the client's query timeout when TIMEOUT was set.
+  if (shardWireParams->forwardTimeout) {
+    char numBuf[HYBRID_NUM_BUF_SIZE];
+    MRCommand_Append(xcmd, "TIMEOUT", strlen("TIMEOUT"));
+    int len = snprintf(numBuf, sizeof(numBuf), "%lld", shardWireParams->timeoutMS);
+    MRCommand_Append(xcmd, numBuf, len);
   }
 
-  // check for timeout argument and append it to the command.
-  // If TIMEOUT exists, it was already validated at AREQ_Compile.
-  argOffset = RMUtil_ArgIndex("TIMEOUT", argv, argc);
-  if (argOffset != -1) {
-    MRCommand_AppendRstr(xcmd, argv[argOffset]);
-    MRCommand_AppendRstr(xcmd, argv[argOffset + 1]);
-  }
-
-  // Add DIALECT arguments if present
-  argOffset = RMUtil_ArgIndex("DIALECT", argv, argc);
-  if (argOffset != -1) {
-    MRCommand_AppendRstr(xcmd, argv[argOffset]);
-    MRCommand_AppendRstr(xcmd, argv[argOffset + 1]);
-  }
+  // DIALECT is deliberately not forwarded: FT.HYBRID rejects it at parse time,
+  // so a valid command never carries one and there is nothing to relay.
 
   // Forward EXPLAINSCORE so the shard's text scorer produces an RSScoreExplain
   // tree and the shard's merger wraps it.
-  if (sendExplainScore) {
+  if (shardWireParams->sendExplainScore) {
     MRCommand_Append(xcmd, "EXPLAINSCORE", strlen("EXPLAINSCORE"));
   }
 
@@ -743,14 +755,20 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     setupCoordinatorArrangeSteps(hreq->requests[SEARCH_INDEX], hreq->requests[VECTOR_INDEX], &hybridParams);
     RLookup *lookups[HYBRID_REQUEST_NUM_SUBQUERIES] = {0};
 
-    // Capture the resolved COMBINE parameters now, before BuildDistributedPipeline
-    // hands scoringCtx ownership to the merger and nulls the local pointer. The
-    // scoring context object itself is kept alive by the merger, so borrowing it
-    // here is safe. Used to reconstruct an old-shard-compatible COMBINE clause
-    // when building the per-shard command below.
-    HybridCombineWireParams combineParams = {
-        .scoringCtx = hybridParams.scoringCtx,
-        .scoreAlias = hybridParams.aggregationParams.common.scoreAlias,
+    // Capture the parsed state forwarded to the shards, used to build the
+    // per-shard command below. This must happen here, before
+    // BuildDistributedPipeline hands scoringCtx ownership to the merger and nulls
+    // the local pointer: `combine` reconstructs an old-shard-compatible COMBINE
+    // clause from it. The scoring context object itself is kept alive by the
+    // merger, so borrowing it here is safe.
+    HybridShardWireParams shardWireParams = {
+        .profileOptions = profileOptions,
+        .sendExplainScore = (hreq->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) != 0,
+        .combine = {.scoringCtx = hybridParams.scoringCtx,
+                    .scoreAlias = hybridParams.aggregationParams.common.scoreAlias},
+        .params = cmd.search->searchopts.params,
+        .forwardTimeout = cmd.timeoutSpecified,
+        .timeoutMS = cmd.clientTimeoutMS,
     };
 
     arrayof(char*) serialized = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, lookups, status);
@@ -759,11 +777,10 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
       return REDISMODULE_ERR;
     }
 
-    // Construct the command string
+    // Construct the command string.
     MRCommand xcmd;
-    bool sendExplainScore = (hreq->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) != 0;
-    HybridRequest_buildMRCommand(argv, argc, profileOptions, sendExplainScore,
-                                 &combineParams, &xcmd, serialized, sp, &hreq->kArgIndex);
+    HybridRequest_buildMRCommand(argv, argc, &shardWireParams, &xcmd, serialized, sp,
+                                 &hreq->kArgIndex);
 
     xcmd.protocol = HYBRID_RESP_PROTOCOL_VERSION;
     xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;

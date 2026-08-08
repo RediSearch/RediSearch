@@ -250,7 +250,7 @@ def test_hybrid_combine_yield_score_as_both_forms():
     produce the same results."""
     env = Env()
     setup_basic_index(env)
-    query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+    query_vector = np.array([1.2, 0.3]).astype(np.float32).tobytes()
 
     # Counted form: count 4 covers CONSTANT 60 YIELD_SCORE_AS search_score
     counted, _ = get_results_from_hybrid_response(env.cmd(
@@ -271,6 +271,40 @@ def test_hybrid_combine_yield_score_as_both_forms():
             env.assertGreater(float(results[doc_key]['search_score']), 0)
     env.assertEqual(counted, positional,
                     message="Counted and positional YIELD_SCORE_AS must be equivalent")
+
+def test_hybrid_yield_score_as_keyword_alias():
+    """A YIELD_SCORE_AS alias that collides with a top-level keyword
+    (PARAMS/TIMEOUT/DIALECT) must not confuse the coordinator when it builds the
+    per-shard command."""
+    env = Env()
+    setup_basic_index(env)
+    query_vector = np.array([1.2, 0.3]).astype(np.float32).tobytes()
+
+    for alias in ('PARAMS', 'TIMEOUT', 'DIALECT', 'YIELD_SCORE_AS'):
+        # Counted form: count 4 covers CONSTANT 60 YIELD_SCORE_AS <alias>
+        counted, _ = get_results_from_hybrid_response(env.cmd(
+            'FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB',
+            # initQueryTimeout() detects the keyword TIMEOUT by arg scanning,
+            # so we need to place it before the COMBINE clause to avoid confusion.
+            # Remove this once MOD-17165 is implemented.
+            'TIMEOUT', '1000',
+            'COMBINE', 'RRF', '4', 'CONSTANT', '60', 'YIELD_SCORE_AS', alias,
+            'PARAMS', '2', 'BLOB', query_vector))
+
+        # Positional form: count 2 covers CONSTANT 60, YIELD_SCORE_AS follows
+        positional, _ = get_results_from_hybrid_response(env.cmd(
+            'FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB',
+            'TIMEOUT', '1000',
+            'COMBINE', 'RRF', '2', 'CONSTANT', '60', 'YIELD_SCORE_AS', alias,
+            'PARAMS', '2', 'BLOB', query_vector))
+
+        env.assertGreater(len(counted.keys()), 0, message=f"alias={alias}")
+        for results in (counted, positional):
+            for doc_key in results:
+                env.assertTrue(alias in results[doc_key], message=f"alias={alias}")
+                env.assertGreater(float(results[doc_key][alias]), 0, message=f"alias={alias}")
+        env.assertEqual(counted, positional,
+                        message=f"Counted and positional YIELD_SCORE_AS must be equivalent (alias={alias})")
 
 def test_hybrid_combine_duplicate_yield_score_as_error():
     """A duplicate YIELD_SCORE_AS after the COMBINE clause is rejected."""

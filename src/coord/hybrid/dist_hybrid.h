@@ -40,13 +40,38 @@ int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
 int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
-// For testing purposes
+struct dict;  // forward decl (see util/dict/dict.h): the resolved PARAMS dict
+
+// Coordinator-resolved state that HybridRequest_buildMRCommand forwards to the
+// shards.
+typedef struct {
+  ProfileOptions profileOptions;
+  bool sendExplainScore;
+  HybridCombineWireParams combine;
+  // Resolved parameter dictionary, or NULL when the client supplied no PARAMS.
+  struct dict *params;
+  // TIMEOUT forwarding: when forwardTimeout is true, TIMEOUT <timeoutMS> is
+  // appended.
+  bool forwardTimeout;
+  long long timeoutMS;
+} HybridShardWireParams;
+
+// Builds the per-shard MR command from the coordinator's parsed hybrid request.
+// The function transforms
+//   FT.HYBRID index SEARCH query VSIM field vector
+// into
+//   _FT.HYBRID index SEARCH query VSIM field vector WITHCURSOR _NUM_SSTRING
+//   _INDEX_PREFIXES ...
+// and stores the index of the K value argument in the MRCommand (via
+// outKArgIndex) for later modification by the command modifier callback in the
+// SHARD_K_RATIO optimization.
+//
+// argv/argc are the raw client command; `shardWireParams` (required, non-NULL) carries the
+// parsed state to forward. DIALECT is never forwarded (FT.HYBRID rejects it at
+// parse time).
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
-                            ProfileOptions profileOptions,
-                            bool sendExplainScore,
-                            const HybridCombineWireParams *combineParams,
-                            MRCommand *xcmd, arrayof(char*) serialized,
-                            IndexSpec *sp, int *outKArgIndex);
+                                  const HybridShardWireParams *shardWireParams, MRCommand *xcmd,
+                                  arrayof(char *) serialized, IndexSpec *sp, int *outKArgIndex);
 
 #ifdef __cplusplus
 }
