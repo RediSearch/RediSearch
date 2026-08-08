@@ -234,16 +234,6 @@ typedef struct CHEADERGEN_ALIGNED(8) RLookupRow {
   Size_24 m0;
 } RLookupRow;
 
-/**
- * An opaque lookup which can be passed by value to C.
- *
- * The size and alignment of this struct must match the Rust `RLookup`
- * structure exactly.
- */
-typedef struct CHEADERGEN_ALIGNED(8) RLookup {
-  Size_40 m0;
-} RLookup;
-
 #ifndef BITFLAGS_RLOOKUPKEYFLAG__U32_DEFINED
 #define BITFLAGS_RLOOKUPKEYFLAG__U32_DEFINED
 /**
@@ -404,3 +394,13 @@ typedef struct RLookupKey {
    */
   RLookupKey *next;
 } RLookupKey;
+
+/**
+ * An opaque lookup which can be passed by value to C.
+ *
+ * The size and alignment of this struct must match the Rust `RLookup`
+ * structure exactly.
+ */
+typedef struct CHEADERGEN_ALIGNED(8) RLookup {
+  Size_40 m0;
+} RLookup;

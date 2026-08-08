@@ -270,8 +270,10 @@ pub unsafe extern "C" fn RLookupRow_WriteByNameOwned<'a>(
 ///
 /// If a source key has no value in the source row, it is skipped.
 ///
-/// If a source key is not found in the destination lookup the function will either create it or panic
-/// depending on the value of `create_missing_keys`.
+/// If a source key is not found in the destination lookup, it is created when
+/// `create_missing_keys` is set and the destination lookup can still take a key;
+/// otherwise the field is left out of the destination row, like a field the
+/// document does not have.
 ///
 /// # Safety
 ///

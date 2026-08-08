@@ -13,6 +13,12 @@ use std::{ffi::CStr, iter::FusedIterator, marker::PhantomData, pin::Pin, ptr::No
 #[cfg(any(debug_assertions, test))]
 use std::ptr;
 
+/// Above this many conceptual rows, [`KeyList::assert_valid`] skips the full per-node
+/// walk and checks only the O(1) invariants plus the head and tail nodes. Realistic
+/// lookups stay far below this, so they always get the exhaustive validation.
+#[cfg(any(debug_assertions, test))]
+const FULL_VALIDATION_THRESHOLD: u32 = 256;
+
 #[derive(Debug)]
 #[repr(C)]
 pub struct KeyList<'a> {
@@ -72,16 +78,25 @@ impl<'a> KeyList<'a> {
     /// Insert a `RLookupKey` into this `KeyList` and return a mutable reference to it.
     ///
     /// The key will be owned by the list and freed when dropping the list.
+    ///
+    /// [`dstidx`](crate::lookup::key::RLookupKeyHeader::dstidx) addresses the key's slot
+    /// in every row built from this list, so the list can hold no more keys than that
+    /// index can address. Once it is full, this returns `None` and leaves the list
+    /// unchanged; the caller must then treat the key as unavailable, the same way it
+    /// treats a field that the document does not have.
     //
     // TODO remove the 'a and 'b lifetimes borrow-checker hack when we refactor this code. refer to Jira ticket MOD-13907.
-    pub(crate) fn push<'b>(&mut self, mut key: RLookupKey<'a>) -> Pin<&'b mut RLookupKey<'a>>
+    pub(crate) fn push<'b>(
+        &mut self,
+        mut key: RLookupKey<'a>,
+    ) -> Option<Pin<&'b mut RLookupKey<'a>>>
     where
         'a: 'b,
     {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::push (before)");
 
-        key.dstidx = u16::try_from(self.rowlen).expect("conversion from u32 RLookup::rowlen to u16 RLookupKey::dstidx overflowed. This is a bug!");
+        key.dstidx = u16::try_from(self.rowlen).ok()?;
 
         // Safety: RLookup never hands out mutable references to the key (except `Pin<&mut T>` which is fine)
         // and never copies, or memmoves the memory internally.
@@ -118,7 +133,7 @@ impl<'a> KeyList<'a> {
         let key = unsafe { ptr.as_mut() };
         // Safety: We treat the pointer as pinned internally and never hand out references that could be moved out of (in safe Rust)
         // publicly.
-        unsafe { Pin::new_unchecked(key) }
+        Some(unsafe { Pin::new_unchecked(key) })
     }
 
     /// Return a cursor over an [`crate::RLookup`]'s key list.
@@ -207,6 +222,13 @@ impl<'a> KeyList<'a> {
     ///
     /// We use this method to absolutely make sure the linked list is internally consistent
     /// before reading from it and after writing to it.
+    ///
+    /// The full per-node walk is capped at [`FULL_VALIDATION_THRESHOLD`] conceptual rows:
+    /// this method runs on every list operation, so an unconditional walk would make each
+    /// operation O(len) and a sequence of insertions O(len²) — unusable in debug builds for
+    /// lookups with tens of thousands of keys (e.g. `LOAD *` over a document with more
+    /// fields than the key limit). Beyond the cap, only the O(1) invariants plus the head
+    /// and tail nodes are checked.
     #[track_caller]
     #[cfg(any(debug_assertions, test))]
     pub(crate) fn assert_valid(&self, ctx: &str) {
@@ -250,6 +272,12 @@ impl<'a> KeyList<'a> {
                 None,
                 "{ctx} - if the linked list has only one node, it must not be linked"
             );
+            return;
+        }
+
+        if self.rowlen > FULL_VALIDATION_THRESHOLD {
+            head.assert_valid(tail, ctx);
+            tail.assert_valid(tail, ctx);
             return;
         }
 
@@ -480,10 +508,14 @@ mod tests {
     fn keylist_push_consistency() {
         let mut keylist = KeyList::new();
 
-        let foo = keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
+        let foo = keylist
+            .push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()))
+            .unwrap();
         let foo = unsafe { NonNull::from(Pin::into_inner_unchecked(foo)) };
 
-        let bar = keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
+        let bar = keylist
+            .push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()))
+            .unwrap();
         let bar = unsafe { NonNull::from(Pin::into_inner_unchecked(bar)) };
 
         keylist.assert_valid("tests::keylist_push_consistency after insertions");
@@ -554,10 +586,14 @@ mod tests {
     fn keylist_find() {
         let mut keylist = KeyList::new();
 
-        let foo = keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
+        let foo = keylist
+            .push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()))
+            .unwrap();
         let foo = unsafe { NonNull::from(Pin::into_inner_unchecked(foo)) };
 
-        let bar = keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
+        let bar = keylist
+            .push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()))
+            .unwrap();
         let bar = unsafe { NonNull::from(Pin::into_inner_unchecked(bar)) };
 
         keylist.assert_valid("tests::keylist_find after insertions");
@@ -575,10 +611,14 @@ mod tests {
     fn keylist_find_mut() {
         let mut keylist = KeyList::new();
 
-        let foo = keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
+        let foo = keylist
+            .push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()))
+            .unwrap();
         let foo = unsafe { NonNull::from(Pin::into_inner_unchecked(foo)) };
 
-        let bar = keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
+        let bar = keylist
+            .push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()))
+            .unwrap();
         let bar = unsafe { NonNull::from(Pin::into_inner_unchecked(bar)) };
 
         keylist.assert_valid("tests::keylist_find_mut after insertions");
@@ -805,10 +845,12 @@ mod tests {
             c"foo",
             make_bitflags!(RLookupKeyFlag::Unresolved),
         ));
-        let secoond = keylist.push(RLookupKey::new(
-            c"bar",
-            make_bitflags!(RLookupKeyFlag::Unresolved),
-        ));
+        let secoond = keylist
+            .push(RLookupKey::new(
+                c"bar",
+                make_bitflags!(RLookupKeyFlag::Unresolved),
+            ))
+            .unwrap();
         let second = unsafe { NonNull::from(Pin::into_inner_unchecked(secoond)) };
 
         // store first override key
