@@ -41,7 +41,9 @@ typedef struct InfoGCStats {
 
 typedef struct GCCallbacks {
   // Returns true if the GC should be rescheduled, false if the GC should be stopped.
-  bool (*periodicCallback)(void* gcCtx, bool force);
+  // `debugForced` is set only by FT.DEBUG GC_FORCEINVOKE/GC_FORCEBGINVOKE, which need the
+  // collection to really happen: it skips the clean threshold and waits for a fork slot.
+  bool (*periodicCallback)(void* gcCtx, bool debugForced);
   void (*renderStats)(RedisModule_Reply* reply, void* gc);
   void (*renderStatsForInfo)(RedisModuleInfoCtx* ctx, void* gc);
   void (*onDelete)(void* ctx);

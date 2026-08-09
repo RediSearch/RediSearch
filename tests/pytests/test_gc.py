@@ -911,3 +911,28 @@ def testGCTerminatesAfterDropWhileStopped(env):
     env.expect('FT.DROPINDEX', 'idx').ok()
     wait_for_condition(lambda: (logically_deleted() == 0, {'not_collected': logically_deleted()}),
                        'stopped GC never terminated after its index was dropped', timeout=30)
+
+@skip(cluster=True)
+def testForcedGCWaitsForForkSlot(env):
+    """A forced GC replying DONE must mean it collected, even with a bgsave holding the fork slot."""
+    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    waitForIndex(env, 'idx')
+    for i in range(100):
+        env.expect('HSET', f'doc{i}', 't', 'hello').equal(1)
+    # rdb-key-save-delay is charged per key saved, so the undeleted half is what keeps
+    # the child alive long enough to still hold the slot.
+    for i in range(50):
+        env.expect('DEL', f'doc{i}').equal(1)
+
+    waitForRdbSaveToFinish(env)
+    env.expect('CONFIG', 'SET', 'rdb-key-save-delay', '10000').ok()
+    try:
+        env.cmd('BGSAVE')
+        env.assertEqual(int(env.cmd('INFO', 'Persistence')['rdb_bgsave_in_progress']), 1)
+        # Not forceInvokeGC(): it waits the bgsave out, which is the contention under test.
+        env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx').equal('DONE')
+        env.assertGreater(int(to_dict(index_info(env)['gc_stats'])['bytes_collected']), 0)
+    finally:
+        env.cmd('CONFIG', 'SET', 'rdb-key-save-delay', '0')
+        waitForRdbSaveToFinish(env)

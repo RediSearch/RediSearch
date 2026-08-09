@@ -61,7 +61,7 @@ static void accumulateCycleStats(DiskGC *gc, const DiskGCRunStats *stats) {
   IndexsGlobalStats_DecreaseLogicallyDeleted(stats->num_cleaned_docs);
 }
 
-static bool periodicCb(void *privdata, bool force) {
+static bool periodicCb(void *privdata, bool debugForced) {
   DiskGC *gc = privdata;
   StrongRef spec_ref = IndexSpecRef_Promote(gc->index);
   IndexSpec *sp = StrongRef_Get(spec_ref);
@@ -83,7 +83,7 @@ static bool periodicCb(void *privdata, bool force) {
   size_t num_updates = atomic_load(&gc->updatesFromLastRun);
   size_t num_changes = num_writes + num_deletes + num_updates;
   if (!g_diskGcDisabled && sp->diskSpec &&
-      (force || num_changes >= RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold)) {
+      (debugForced || num_changes >= RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold)) {
     // Reset counters before running GC
     atomic_fetch_sub(&gc->writesFromLastRun, num_writes);
     atomic_fetch_sub(&gc->deletesFromLastRun, num_deletes);

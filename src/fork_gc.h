@@ -73,7 +73,7 @@ ForkGC *FGC_Create(StrongRef spec_ref, GCCallbacks *callbacks);
 
 // Run one full GC cycle. In production, called via the GCCallbacks with hooks=NULL.
 // Tests call this directly with hooks to inject mutations at specific lifecycle points.
-bool FGC_RunCycle(ForkGC *gc, bool force, const FGCHook *hook);
+bool FGC_RunCycle(ForkGC *gc, bool debugForced, const FGCHook *hook);
 
 #ifdef __cplusplus
 }
