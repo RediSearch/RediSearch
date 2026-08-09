@@ -187,10 +187,10 @@ impl TermSuffixIndex {
     /// Matching is [case-insensitive](crate#case-insensitivity). Empty
     /// `needle` yields nothing.
     pub fn iter_suffix(&self, needle: &str) -> impl Iterator<Item = &str> {
-        let lowered = unicode::tolower_cow(needle);
-        let data = if lowered.is_empty() {
+        let data = if needle.is_empty() {
             None
         } else {
+            let lowered = unicode::tolower_cow(needle);
             self.inner.get(&lowered)
         };
         data.into_iter()
