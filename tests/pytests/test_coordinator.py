@@ -208,6 +208,7 @@ def test_index_missing_on_one_shard(env):
         env.assertContains(error_msg, str(e))
 
     # Query via the cluster connection
+    env.expect('FT.INFO', index_name).error().contains(error_msg)
     env.expect('FT.SEARCH', index_name, '*').error().contains(error_msg)
     env.expect('FT.AGGREGATE', index_name, '*').error().contains(error_msg)
     env.expect('FT.HYBRID', index_name, 'SEARCH', '*',
