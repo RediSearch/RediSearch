@@ -742,6 +742,7 @@ def testForkGCEmptyTextSuffixTrie_emptyValue():
 # the only way to hold a GC worker, and so the only way to drive the scheduling guards against
 # a real in-flight run instead of racing one.
 SYNC_POINT_GC_TASK_START = 'GCTaskStart'  # src/debug_commands.h
+SYNC_POINT_GC_BEFORE_FORK = 'GCBeforeFork'  # src/debug_commands.h
 
 
 def gcCycles(env, idx):
@@ -913,26 +914,45 @@ def testGCTerminatesAfterDropWhileStopped(env):
                        'stopped GC never terminated after its index was dropped', timeout=30)
 
 @skip(cluster=True)
-def testForcedGCWaitsForForkSlot(env):
-    """A forced GC replying DONE must mean it collected, even with a bgsave holding the fork slot."""
-    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
+def testForcedGCWaitsForForkSlot():
+    """A forced GC replying DONE has to mean it collected. Parking the cycle before its fork lets
+    a bgsave take the only child slot first, so the EEXIST retry is exercised rather than raced."""
+    env = Env()
+    skipIfNoEnableAssert(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
-    waitForIndex(env, 'idx')
+    # Leaves the forced cycle below as the only one that can reach the sync point.
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
     for i in range(100):
         env.expect('HSET', f'doc{i}', 't', 'hello').equal(1)
-    # rdb-key-save-delay is charged per key saved, so the undeleted half is what keeps
-    # the child alive long enough to still hold the slot.
+    # rdb-key-save-delay is charged per key saved, so the undeleted half is what makes the
+    # child outlive the first fork attempt.
     for i in range(50):
         env.expect('DEL', f'doc{i}').equal(1)
 
     waitForRdbSaveToFinish(env)
-    env.expect('CONFIG', 'SET', 'rdb-key-save-delay', '10000').ok()
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', SYNC_POINT_GC_BEFORE_FORK, 10000).ok()
+
+    # GC_FORCEINVOKE blocks until the cycle ends, so it needs its own connection.
+    conn = env.getConnection()
+    forced = {}
+    thread = threading.Thread(target=lambda: forced.update(
+        reply=conn.execute_command(debug_cmd(), 'GC_FORCEINVOKE', 'idx')))
+    thread.start()
     try:
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING',
+                             SYNC_POINT_GC_BEFORE_FORK) == 1, {}),
+            'Timeout waiting for the forced GC to reach the pre-fork sync point')
+
+        env.expect('CONFIG', 'SET', 'rdb-key-save-delay', '10000').ok()
         env.cmd('BGSAVE')
         env.assertEqual(int(env.cmd('INFO', 'Persistence')['rdb_bgsave_in_progress']), 1)
-        # Not forceInvokeGC(): it waits the bgsave out, which is the contention under test.
-        env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx').equal('DONE')
-        env.assertGreater(int(to_dict(index_info(env)['gc_stats'])['bytes_collected']), 0)
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_BEFORE_FORK)
     finally:
+        thread.join(timeout=60)
         env.cmd('CONFIG', 'SET', 'rdb-key-save-delay', '0')
-        waitForRdbSaveToFinish(env)
+
+    env.assertFalse(thread.is_alive(), message='forced GC never returned')
+    env.assertEqual(forced.get('reply'), 'DONE')
+    env.assertGreater(int(to_dict(index_info(env)['gc_stats'])['bytes_collected']), 0)

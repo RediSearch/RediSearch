@@ -24,6 +24,7 @@
 #include "util/redis_mem_info.h"
 #include "util/timeout.h"
 #include "config.h"
+#include "debug_commands.h"
 #include "fork_gc.h"
 #include "fork_gc_ffi.h"
 #include "gc.h"
@@ -41,8 +42,9 @@
 // Number of attempts to wait for the child to exit gracefully before trying to terminate it
 #define GC_WAIT_ATTEMPTS 4
 // A debugForced cycle waits attempts x backoff for another child to free the fork slot.
-#define GC_FORK_SLOT_ATTEMPTS 100
-#define GC_FORK_SLOT_BACKOFF_NS 50000000
+// Coarse on purpose: Redis logs a warning for every failed RedisModule_Fork.
+#define GC_FORK_SLOT_ATTEMPTS 20
+#define GC_FORK_SLOT_BACKOFF_NS 250000000
 
 static void FGC_childScanIndexes(ForkGC *gc, IndexSpec *spec) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(gc->ctx, spec);
@@ -167,6 +169,11 @@ bool FGC_RunCycle(ForkGC *gc, bool debugForced, const FGCHook *hook) {
   // initialize the pollfd for the read pipe
   gc->pollfd_read[0].fd = gc->pipe_read_fd;
   gc->pollfd_read[0].events = POLLIN;
+
+  // Test hook (ENABLE_ASSERT): park before the GIL, so a test can take the fork slot first.
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait(SYNC_POINT_GC_BEFORE_FORK);
+#endif
 
   // We need to acquire the GIL to use the fork api
   RedisModule_ThreadSafeContextLock(ctx);
