@@ -469,8 +469,8 @@ prepare_cmake_arguments() {
     CLANG_LLVM_VERSION=$($C_COMPILER --version | head -n1 | sed -En 's/.*version ([0-9]+).*/\1/p' | head -n1)
 
     if [[ -z "$RUSTC_LLVM_VERSION" || -z "$CLANG_LLVM_VERSION" || -z "$RUST_TARGET_TRIPLE" ]]; then
-        echo "Error: Could not detect LLVM versions for rustc and clang."
-        echo "Cross-language LTO requires matching LLVM major versions."
+        echo "Error: Could not detect LLVM versions or the Rust target triple."
+        echo "Cross-language LTO requires matching LLVM major versions and a Rust target triple."
         echo "Rust LLVM version: $RUSTC_LLVM_VERSION"
         echo "Clang LLVM version: $CLANG_LLVM_VERSION"
         echo "Rust target triple: $RUST_TARGET_TRIPLE"
