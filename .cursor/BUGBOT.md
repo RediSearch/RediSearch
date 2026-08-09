@@ -17,7 +17,7 @@ Pushes to an open PR are usually the author addressing earlier feedback, so a re
 of the delta, not of the PR again:
 
 - Review only what changed since your previous review on this PR. Do not re-report findings on code you already reviewed and chose not to flag, and do not reopen resolved threads.
-- If your earlier finding was addressed and the fix draws a new finding in the same hunk, do not report a third variation of the same concern. Say once that the hunk needs a design decision, name the trade-off, and leave it to the human reviewer.
+- If your earlier finding was addressed and the fix draws a new finding in the same hunk, do not report a third variation of the same concern — say once that the hunk needs a design decision, name the trade-off, and leave it to the human reviewer. A concrete failure is the exception: report a crash, memory-safety bug, or data loss with its failure scenario however many rounds in, since nobody can weigh the trade-off without it.
 - A re-review that reports nothing is a good outcome.
 
 ## When to Skip Release Notes Comments
