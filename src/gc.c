@@ -145,6 +145,13 @@ static void taskCallback(void* data) {
       return;
     }
     gc->pendingInterval = gc->callbacks.getInterval(gc->gcCtx);
+
+    // Test hook (ENABLE_ASSERT): park with the pass over but the re-arm not yet posted -- the
+    // window a drop can overtake, where RUN_PENDING is held by a run that no longer exists.
+#ifdef ENABLE_ASSERT
+    SyncPoint_Wait(SYNC_POINT_GC_BEFORE_REARM_POST);
+#endif
+
     RedisModule_EventLoopAddOneShot(rearmOneShotCb, gc);
   } else {
     // The index was freed. RUN_PENDING is still set for this run, so no timer is armed and no
