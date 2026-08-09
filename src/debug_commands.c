@@ -1008,6 +1008,13 @@ static int GCForceInvokeReply(RedisModuleCtx *ctx, RedisModuleString **argv, int
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
+  // Replying DONE for a cycle that never started would be indistinguishable from one that
+  // ran and found nothing to collect.
+  const GCForcedRunOutcome *outcome = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (outcome && *outcome == GC_FORCED_RUN_NO_FORK) {
+    return RedisModule_ReplyWithError(
+        ctx, "GC DID NOT RUN: no child process could be created within TIMEOUT");
+  }
   return RedisModule_ReplyWithSimpleString(ctx, "DONE");
 }
 
@@ -1049,9 +1056,15 @@ DEBUG_COMMAND(GCForceInvoke) {
   // after a forced GC. The fallback below covers the only case where a disk
   // index has no GCContext (GC globally disabled or a temporary index).
   if (sp->gc) {
+    // The same TIMEOUT bounds the wait for a fork slot and the client's patience, so the
+    // cycle cannot still be waiting once nobody is listening for its answer.
+    GCForcedRun forced = {.forkWaitMs = timeout > GC_FORCED_RUN_REPLY_MARGIN_MS
+                                            ? timeout - GC_FORCED_RUN_REPLY_MARGIN_MS
+                                            : timeout,
+                          .retryIntervalMs = GC_FORCED_RUN_RETRY_INTERVAL_MS};
     RedisModuleBlockedClient *bc = RedisModule_BlockClient(
-        ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, NULL, timeout);
-    GCContext_ForceInvoke(sp->gc, bc);
+        ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, GCForcedRunOutcomeFree, timeout);
+    GCContext_ForceInvoke(sp->gc, bc, forced);
     return REDISMODULE_OK;
   } else if (sp->diskSpec) {
     // Fallback described above: with no GCContext there is no DiskGC stats
@@ -1118,7 +1131,10 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   if (!sp) {
     return REDISMODULE_OK;
   }
-  GCContext_ForceBGInvoke(sp->gc);
+  // Nobody is waiting on this one, so it gets the default budget rather than a TIMEOUT.
+  GCForcedRun forced = {.forkWaitMs = GC_FORCED_RUN_DEFAULT_WAIT_MS,
+                        .retryIntervalMs = GC_FORCED_RUN_RETRY_INTERVAL_MS};
+  GCContext_ForceBGInvoke(sp->gc, forced);
   RedisModule_ReplyWithSimpleString(ctx, "OK");
   return REDISMODULE_OK;
 }

@@ -39,11 +39,38 @@ typedef struct InfoGCStats {
   long long lastRunTimeMs;
 } InfoGCStats;
 
+// Retry granularity for a forced run that has to wait; the budget itself comes from the
+// caller, so this only decides how often it looks again.
+#define GC_FORCED_RUN_RETRY_INTERVAL_MS 250
+// Budget for a forced run whose caller has nobody waiting on it (GC_FORCEBGINVOKE).
+#define GC_FORCED_RUN_DEFAULT_WAIT_MS 30000
+// Held back from a caller's timeout so its reply beats the blocked-client timeout; spending the
+// whole timeout waiting would leave the two racing, and the generic timeout would often win.
+#define GC_FORCED_RUN_REPLY_MARGIN_MS 500
+
+typedef enum {
+  // The cycle ran, or declined for a reason of its own -- collecting nothing under memory
+  // pressure is GC policy, not a failure, so it reports OK.
+  GC_FORCED_RUN_OK = 0,
+  // No child process could be created, so nothing was collected.
+  GC_FORCED_RUN_NO_FORK,
+} GCForcedRunOutcome;
+
+// What a caller that demanded a collection asked for, and what it got. A cycle receives a
+// pointer to one, or NULL when the scheduler drove it -- so "was this forced" and "on what
+// budget" stop being separate questions. Only FT.DEBUG GC_FORCEINVOKE and GC_FORCEBGINVOKE
+// build one today; the budget is theirs to set, which is why it is not a constant here.
+typedef struct {
+  long long forkWaitMs;       // wait this long for the fork slot; 0 means no limit
+  long long retryIntervalMs;  // how often to retry while waiting
+  GCForcedRunOutcome outcome; // set by the cycle
+} GCForcedRun;
+
 typedef struct GCCallbacks {
   // Returns true if the GC should be rescheduled, false if the GC should be stopped.
-  // `debugForced` is set only by FT.DEBUG GC_FORCEINVOKE/GC_FORCEBGINVOKE, which need the
-  // collection to really happen: it skips the clean threshold and waits for a fork slot.
-  bool (*periodicCallback)(void* gcCtx, bool debugForced);
+  // `forced` is non-NULL only for a demanded collection, which must really happen: it skips
+  // the clean threshold and may wait on resources a scheduled cycle would skip over.
+  bool (*periodicCallback)(void* gcCtx, GCForcedRun* forced);
   void (*renderStats)(RedisModule_Reply* reply, void* gc);
   void (*renderStatsForInfo)(RedisModuleInfoCtx* ctx, void* gc);
   void (*onDelete)(void* ctx);
@@ -76,8 +103,13 @@ void GCContext_RenderStatsForInfo(GCContext* gc, RedisModuleInfoCtx* ctx);
 void GCContext_OnDelete(GCContext* gc);
 void GCContext_OnWrite(GCContext* gc);
 void GCContext_OnUpdate(GCContext* gc);
-void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc);
-void GCContext_ForceBGInvoke(GCContext* gc);
+// Queue a demanded collection. `forced` is copied, so the caller keeps no ownership. With a
+// blocked client, the outcome reaches its reply as unblock privdata, freed by
+// GCForcedRunOutcomeFree.
+void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc, GCForcedRun forced);
+void GCContext_ForceBGInvoke(GCContext* gc, GCForcedRun forced);
+// free_privdata for the blocked client above; matches RedisModule_BlockClient's signature.
+void GCForcedRunOutcomeFree(RedisModuleCtx* ctx, void* privdata);
 void GCContext_WaitForAllOperations(RedisModuleBlockedClient* bc);
 void GCContext_GetStats(GCContext* gc, InfoGCStats* out);
 // Stop periodic collection and disarm the timer. A run in flight completes without re-arming.

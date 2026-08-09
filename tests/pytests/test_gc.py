@@ -969,3 +969,47 @@ def testForcedGCWaitsForForkSlot():
     env.assertFalse(thread.is_alive(), message='forced GC never returned')
     env.assertEqual(forced.get('reply'), 'DONE')
     env.assertGreater(int(to_dict(index_info(env)['gc_stats'])['bytes_collected']), 0)
+
+
+@skip(cluster=True)
+def testForcedGCReportsWhenItCannotFork():
+    """A forced GC that never gets the slot has to say so. Replying DONE would be the original
+    bug at a longer timescale: a collection reported but never made."""
+    env = Env()
+    skipIfNoEnableAssert(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+    for i in range(100):
+        env.expect('HSET', f'doc{i}', 't', 'hello').equal(1)
+    for i in range(50):
+        env.expect('DEL', f'doc{i}').equal(1)
+
+    waitForRdbSaveToFinish(env)
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', SYNC_POINT_GC_BEFORE_FORK, 10000).ok()
+
+    conn = env.getConnection()
+    forced = {}
+
+    def run():
+        try:
+            forced['reply'] = conn.execute_command(debug_cmd(), 'GC_FORCEINVOKE', 'idx', 1000)
+        except Exception as e:
+            forced['error'] = str(e)
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    try:
+        waitForSyncPoint(env, SYNC_POINT_GC_BEFORE_FORK,
+                         'Timeout waiting for the forced GC to reach the pre-fork sync point')
+        # 50 keys still to save at 30ms each outlives the ~500ms this TIMEOUT leaves for waiting.
+        env.expect('CONFIG', 'SET', 'rdb-key-save-delay', '30000').ok()
+        env.cmd('BGSAVE')
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_BEFORE_FORK)
+    finally:
+        thread.join(timeout=60)
+        env.cmd('CONFIG', 'SET', 'rdb-key-save-delay', '0')
+        waitForRdbSaveToFinish(env)
+
+    env.assertContains('GC DID NOT RUN', forced.get('error', ''),
+                       message=f'expected an error, got {forced}')

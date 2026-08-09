@@ -41,10 +41,6 @@
 #define GC_READERFD 0
 // Number of attempts to wait for the child to exit gracefully before trying to terminate it
 #define GC_WAIT_ATTEMPTS 4
-// A debugForced cycle waits attempts x backoff for another child to free the fork slot.
-// Coarse on purpose: Redis logs a warning for every failed RedisModule_Fork.
-#define GC_FORK_SLOT_ATTEMPTS 20
-#define GC_FORK_SLOT_BACKOFF_NS 250000000
 
 static void FGC_childScanIndexes(ForkGC *gc, IndexSpec *spec) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(gc->ctx, spec);
@@ -128,18 +124,28 @@ static void reap_child_blocking(RedisModuleCtx *ctx, pid_t cpid, int timeout_sec
   }
 }
 
-// Takes the single child slot Redis allows. A debugForced cycle retries while a competing
-// BGSAVE, AOF rewrite or replication fork holds it (EEXIST); every other cycle gets one
-// attempt, since its next run is due anyway. Returns the child pid, or -1 having logged why.
+// Takes the single child slot Redis allows. A forced cycle retries while a competing BGSAVE,
+// AOF rewrite or replication fork holds it (EEXIST), within the budget its caller set; a
+// scheduled cycle gets one attempt, since its next run is due anyway. Returns the child pid,
+// or -1 having logged why and recorded it on `forced`.
 //
 // The GIL must be held on entry and is held on return; it is released only while waiting, both
 // because the child being waited on needs the main thread and because its exit is what makes an
 // earlier isOutOfMemory() answer stale -- hence the guard inside the loop.
-static pid_t forkGCChild(RedisModuleCtx *ctx, bool debugForced) {
-  const int max_attempts = debugForced ? GC_FORK_SLOT_ATTEMPTS : 1;
-  struct timespec backoff = {.tv_sec = 0, .tv_nsec = GC_FORK_SLOT_BACKOFF_NS};
+static pid_t forkGCChild(RedisModuleCtx *ctx, GCForcedRun *forced) {
+  const bool bounded = forced && forced->forkWaitMs > 0;
+  struct timespec deadline;
+  if (bounded) {
+    clock_gettime(CLOCK_MONOTONIC_RAW, &deadline);
+    deadline.tv_sec += forced->forkWaitMs / 1000;
+    deadline.tv_nsec += (forced->forkWaitMs % 1000) * 1000000;
+    if (deadline.tv_nsec >= 1000000000) {
+      deadline.tv_sec++;
+      deadline.tv_nsec -= 1000000000;
+    }
+  }
 
-  for (int attempt = 1; ; attempt++) {
+  while (true) {
     if (isOutOfMemory(ctx)) {
       RedisModule_Log(ctx, "warning", "Not enough memory for GC fork, skipping GC job");
       return -1;
@@ -149,8 +155,11 @@ static pid_t forkGCChild(RedisModuleCtx *ctx, bool debugForced) {
     if (cpid != -1) {
       return cpid;
     }
-    if (errno != EEXIST || attempt == max_attempts) {
+    if (!forced || errno != EEXIST || (bounded && TimedOut(&deadline))) {
       RedisModule_Log(ctx, "warning", "fork failed - got errno %d, aborting fork GC", errno);
+      if (forced) {
+        forced->outcome = GC_FORCED_RUN_NO_FORK;
+      }
       return -1;
     }
 
@@ -161,12 +170,14 @@ static pid_t forkGCChild(RedisModuleCtx *ctx, bool debugForced) {
     SyncPoint_Wait(SYNC_POINT_GC_FORK_SLOT_BUSY);
 #endif
 
-    nanosleep(&backoff, NULL);
+    struct timespec retry = {.tv_sec = forced->retryIntervalMs / 1000,
+                             .tv_nsec = (forced->retryIntervalMs % 1000) * 1000000};
+    nanosleep(&retry, NULL);
     RedisModule_ThreadSafeContextLock(ctx);
   }
 }
 
-bool FGC_RunCycle(ForkGC *gc, bool debugForced, const FGCHook *hook) {
+bool FGC_RunCycle(ForkGC *gc, GCForcedRun *forced, const FGCHook *hook) {
   RedisModuleCtx *ctx = gc->ctx;
 
   // This check must be done first, because some values (like `deletedDocsFromLastRun`) that are used for
@@ -185,7 +196,7 @@ bool FGC_RunCycle(ForkGC *gc, bool debugForced, const FGCHook *hook) {
     return false;
   }
 
-  if (!debugForced && gc->deletedOrUpdatedDocsFromLastRun < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
+  if (!forced && gc->deletedOrUpdatedDocsFromLastRun < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
     IndexSpecRef_Release(early_check);
     return true;
   }
@@ -199,6 +210,9 @@ bool FGC_RunCycle(ForkGC *gc, bool debugForced, const FGCHook *hook) {
   int rc = pipe(pipefd);  // create the pipe
   if (rc == -1) {
     RedisModule_Log(ctx, "warning", "Couldn't create pipe - got errno %d, aborting fork GC", errno);
+    if (forced) {
+      forced->outcome = GC_FORCED_RUN_NO_FORK;
+    }
     IndexSpecRef_Release(early_check);
     return true;
   }
@@ -216,7 +230,7 @@ bool FGC_RunCycle(ForkGC *gc, bool debugForced, const FGCHook *hook) {
   // We need to acquire the GIL to use the fork api
   RedisModule_ThreadSafeContextLock(ctx);
 
-  cpid = forkGCChild(ctx, debugForced);
+  cpid = forkGCChild(ctx, forced);
 
   if (cpid == -1) {
     gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRetryInterval;
@@ -295,8 +309,8 @@ bool FGC_RunCycle(ForkGC *gc, bool debugForced, const FGCHook *hook) {
   return gcrv;
 }
 
-static bool periodicCb(void *privdata, bool debugForced) {
-  return FGC_RunCycle(privdata, debugForced, NULL);
+static bool periodicCb(void *privdata, GCForcedRun *forced) {
+  return FGC_RunCycle(privdata, forced, NULL);
 }
 
 static void onTerminateCb(void *privdata) {
