@@ -14,12 +14,14 @@
 //!
 //! Terms are stored verbatim. [`SpellCheckDictionary::contains`] and
 //! [`SpellCheckDictionary::fuzzy_matches`] are case-insensitive — the query
-//! and each candidate are lowercased via [`unicode::tolower_cow`] before comparison
-//! — but [`SpellCheckDictionary::remove`] matches verbatim and is therefore
+//! and each candidate are lowercased per-codepoint before comparison — but
+//! [`SpellCheckDictionary::remove`] matches verbatim and is therefore
 //! case-sensitive.
 //!
-//! Because matching lowercases verbatim-stored keys, those two queries scan
-//! every stored term rather than exploiting the trie's prefix structure.
+//! Both queries run as streaming-automaton trie descents (see
+//! [`StrTrieMap::case_insensitive_iter`] and [`StrTrieMap::fuzzy_iter`]),
+//! folding stored codepoints during the walk and pruning subtrees that can
+//! no longer match.
 
 // Public methods link the private length constants rather than duplicate their
 // rationale in prose.
@@ -109,9 +111,7 @@ impl SpellCheckDictionary {
         let Some(needle) = unicode::tolower_capped(term, TRIE_MAX_PREFIX) else {
             return false;
         };
-        self.trie
-            .iter()
-            .any(|(key, _)| *unicode::tolower_cow(&key) == *needle)
+        self.trie.case_insensitive_iter(&needle).next().is_some()
     }
 
     /// Find stored terms within Levenshtein edit distance `max_dist`
@@ -121,12 +121,9 @@ impl SpellCheckDictionary {
     /// Returns an iterator over the matching terms, each in its stored case.
     pub fn fuzzy_matches(&self, term: &str, max_dist: u32) -> impl Iterator<Item = String> + '_ {
         let needle = unicode::tolower_capped(term, TRIE_MAX_PREFIX);
-        needle.into_iter().flat_map(move |needle| {
-            self.trie.iter().filter_map(move |(key, _)| {
-                let dist = strsim::levenshtein(&unicode::tolower_cow(&key), &needle) as u32;
-                (dist <= max_dist).then_some(key)
-            })
-        })
+        needle
+            .into_iter()
+            .flat_map(move |needle| self.trie.fuzzy_iter(&needle, max_dist).map(|(key, _)| key))
     }
 }
 
