@@ -162,6 +162,7 @@ search_disk = { path = "./c_wrappers/search_disk" }
 search_result = { path = "./search_result" }
 slots_tracker = { path = "./slots_tracker" }
 sorting_vector = { path = "./sorting_vector" }
+spellcheck_dictionary = { path = "./spellcheck_dictionary" }
 string_utils = { path = "./string_utils" }
 term_suffix_index = { path = "./term_suffix_index" }
 thin_vec = { path = "./thin_vec" }

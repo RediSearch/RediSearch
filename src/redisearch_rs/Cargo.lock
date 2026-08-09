@@ -2160,6 +2160,7 @@ dependencies = [
  "search_result_ffi",
  "slots_tracker_ffi",
  "sorting_vector_ffi",
+ "spellcheck_dictionary_ffi",
  "syn 2.0.118",
  "term_suffix_index_ffi",
  "toml",
@@ -2906,9 +2907,21 @@ dependencies = [
  "criterion",
  "ffi",
  "proptest",
+ "rdb_io",
  "rstest",
  "string_utils",
+ "trie_rdb",
  "trie_rs",
+ "workspace_hack",
+]
+
+[[package]]
+name = "spellcheck_dictionary_ffi"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "redis-module",
+ "spellcheck_dictionary",
  "workspace_hack",
 ]
 

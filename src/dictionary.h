@@ -5,18 +5,30 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
+ */
 #ifndef SRC_DICTIONARY_H_
 #define SRC_DICTIONARY_H_
 
-#include "trie/trie.h"
+#include <stdbool.h>
+#include <stddef.h>
 
-Trie* SpellCheck_OpenDict(RedisModuleCtx* ctx, const char* dictName, int mode);
+#include "redismodule.h"
+#include "libnu/libnu.h"
+#include "spellcheck_dictionary_ffi.h"
+
+SpellCheckDictionary* SpellCheck_OpenDict(RedisModuleCtx* ctx, const char* dictName, int mode);
+
+/* The Rust dictionary requires valid UTF-8 (invalid input aborts), while dict
+ * terms arrive as raw user bytes; every term must pass this gate before any
+ * SpellCheckDictionary_* call. Invalid terms are treated as absent: not
+ * added, never matching. (The legacy C trie instead decoded them lossily.) */
+static inline bool Dictionary_IsValidTerm(const char* term, size_t len) {
+  return nu_validate(term, len, nu_utf8_validread) == NULL;
+}
 
 int Dictionary_Add(RedisModuleCtx* ctx, const char* dictName, RedisModuleString** values, int len);
 
-int Dictionary_Del(RedisModuleCtx* ctx, const char* dictName,
-                   RedisModuleString** values, int len);
+int Dictionary_Del(RedisModuleCtx* ctx, const char* dictName, RedisModuleString** values, int len);
 
 void Dictionary_Clear();
 void Dictionary_Free();

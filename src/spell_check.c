@@ -169,6 +169,26 @@ static void SpellCheck_FindCandidates(SpellCheckCtx *scCtx, Trie *t, const char 
   TrieIterator_Free(it);
 }
 
+// Dict flavor of SpellCheck_FindCandidates: same accumulation contract, but
+// the candidates come from a SpellCheckDictionary fuzzy cursor. The cursor
+// lends each term only until the next advance; both consumers below
+// (SpellCheck_GetScore, SpellCheckCandidates_Add) copy what they keep.
+static void SpellCheck_FindCandidatesFromDict(SpellCheckCtx *scCtx, SpellCheckDictionary *d,
+                                              const char *term, size_t len, t_fieldMask fieldMask,
+                                              SpellCheckCandidates *s, int incr) {
+  SpellCheckDictionaryIterator *it =
+      SpellCheckDictionary_IterateFuzzy(d, term, len, (uint32_t)scCtx->distance);
+  const char *candidate;
+  size_t candidateLen;
+  while (SpellCheckDictionaryIterator_Next(it, &candidate, &candidateLen)) {
+    double score;
+    if ((score = SpellCheck_GetScore(scCtx, (char *)candidate, candidateLen, fieldMask)) != -1) {
+      SpellCheckCandidates_Add(s, (char *)candidate, candidateLen, score, incr);
+    }
+  }
+  SpellCheckDictionaryIterator_Free(it);
+}
+
 SpellCheckCandidate **SpellCheckCandidates_GetSorted(SpellCheckCandidates *s) {
   TrieIterator *iter = Trie_IterateAll(s->candidatesTrie);
   SpellCheckCandidate **ret = array_new(SpellCheckCandidate *, Trie_Size(s->candidatesTrie));
@@ -266,14 +286,20 @@ static bool SpellCheck_ReplyTermCandidates(SpellCheckCtx *scCtx, char *term, siz
     return true;
   }
 
+  // The Rust dictionaries only ever hold valid UTF-8, so an invalid term can
+  // neither be excluded by one nor gain candidates from one — and it must
+  // not reach the SpellCheckDictionary_* calls (see Dictionary_IsValidTerm).
+  bool termIsValidUtf8 = Dictionary_IsValidTerm(term, len);
+
   // searching the term on the exclude list, if its there we just return false
   // because there is no need to return candidates for it.
-  for (int i = 0; i < array_len(scCtx->excludeDict); ++i) {
-    Trie *t = SpellCheck_OpenDict(scCtx->sctx->redisCtx, scCtx->excludeDict[i], REDISMODULE_READ);
-    if (t == NULL) {
+  for (int i = 0; termIsValidUtf8 && i < array_len(scCtx->excludeDict); ++i) {
+    SpellCheckDictionary *d =
+        SpellCheck_OpenDict(scCtx->sctx->redisCtx, scCtx->excludeDict[i], REDISMODULE_READ);
+    if (d == NULL) {
       continue;
     }
-    if (SpellCheck_IsTermExistsInTrie(t, term, len, NULL)) {
+    if (SpellCheckDictionary_Contains(d, term, len)) {
       return false;
     }
   }
@@ -285,12 +311,13 @@ static bool SpellCheck_ReplyTermCandidates(SpellCheckCtx *scCtx, char *term, siz
   // sorting results by score
 
   // searching the term on the include list for more candidates.
-  for (int i = 0; i < array_len(scCtx->includeDict); ++i) {
-    Trie *t = SpellCheck_OpenDict(scCtx->sctx->redisCtx, scCtx->includeDict[i], REDISMODULE_READ);
-    if (t == NULL) {
+  for (int i = 0; termIsValidUtf8 && i < array_len(scCtx->includeDict); ++i) {
+    SpellCheckDictionary *d =
+        SpellCheck_OpenDict(scCtx->sctx->redisCtx, scCtx->includeDict[i], REDISMODULE_READ);
+    if (d == NULL) {
       continue;
     }
-    SpellCheck_FindCandidates(scCtx, t, term, len, fieldMask, s, 0);
+    SpellCheck_FindCandidatesFromDict(scCtx, d, term, len, fieldMask, s, 0);
   }
 
   SpellCheck_SendReplyOnTerm(reply, term, len, s,
@@ -303,8 +330,8 @@ static bool SpellCheck_ReplyTermCandidates(SpellCheckCtx *scCtx, char *term, siz
 
 static bool SpellCheck_CheckDictExistence(SpellCheckCtx *scCtx, const char *dict) {
 #define BUFF_SIZE 1000
-  Trie *t = SpellCheck_OpenDict(scCtx->sctx->redisCtx, dict, REDISMODULE_READ);
-  if (t == NULL) {
+  SpellCheckDictionary *d = SpellCheck_OpenDict(scCtx->sctx->redisCtx, dict, REDISMODULE_READ);
+  if (d == NULL) {
     char buff[BUFF_SIZE];
     snprintf(buff, BUFF_SIZE, "Dict does not exist: %s", dict);
     RedisModule_ReplyWithError(scCtx->sctx->redisCtx, buff);

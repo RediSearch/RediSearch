@@ -18,7 +18,9 @@ workspace = true
 
 [dependencies]
 ffi.workspace = true
+rdb_io.workspace = true
 string_utils.workspace = true
+trie_rdb.workspace = true
 trie_rs.workspace = true
 workspace_hack.workspace = true
 
