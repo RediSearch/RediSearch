@@ -1102,7 +1102,7 @@ def testForcedGCReportsWhenItCannotFork():
 
     def run():
         try:
-            forced['reply'] = conn.execute_command(debug_cmd(), 'GC_FORCEINVOKE', 'idx', 1000)
+            forced['reply'] = conn.execute_command(debug_cmd(), 'GC_FORCEINVOKE', 'idx', 100)
         except Exception as e:
             forced['error'] = str(e)
 
@@ -1111,7 +1111,9 @@ def testForcedGCReportsWhenItCannotFork():
     try:
         waitForSyncPoint(env, SYNC_POINT_GC_BEFORE_FORK,
                          'Timeout waiting for the forced GC to reach the pre-fork sync point')
-        # 50 keys still to save at 30ms each outlives the ~500ms this TIMEOUT leaves for waiting.
+        # A TIMEOUT this short is the interesting case: the retry interval is longer than the
+        # whole budget, so the wait has to be cut to what is left. Sleeping a full interval
+        # instead would let the block timeout answer first, with INVOCATION FAILED.
         env.expect('CONFIG', 'SET', 'rdb-key-save-delay', '30000').ok()
         env.cmd('BGSAVE')
         env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_BEFORE_FORK)

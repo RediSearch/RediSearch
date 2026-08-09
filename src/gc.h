@@ -61,9 +61,10 @@ typedef enum {
 // budget" stop being separate questions. Only FT.DEBUG GC_FORCEINVOKE and GC_FORCEBGINVOKE
 // build one today; the budget is theirs to set, which is why it is not a constant here.
 typedef struct {
-  long long forkWaitMs;       // wait this long for the fork slot; 0 means no limit
-  long long retryIntervalMs;  // how often to retry while waiting
-  GCForcedRunOutcome outcome; // set by the cycle
+  long long forkWaitMs;         // wait this long for the fork slot; 0 means no limit
+  long long retryIntervalMs;    // how often to retry while waiting, capped by what is left
+  struct timespec forkDeadline; // stamped when queued; meaningful only if forkWaitMs > 0
+  GCForcedRunOutcome outcome;   // set by the cycle
 } GCForcedRun;
 
 typedef struct GCCallbacks {

@@ -1056,11 +1056,12 @@ DEBUG_COMMAND(GCForceInvoke) {
   // after a forced GC. The fallback below covers the only case where a disk
   // index has no GCContext (GC globally disabled or a temporary index).
   if (sp->gc) {
-    // The same TIMEOUT bounds the wait for a fork slot and the client's patience, so the
-    // cycle cannot still be waiting once nobody is listening for its answer.
-    GCForcedRun forced = {.forkWaitMs = timeout > GC_FORCED_RUN_REPLY_MARGIN_MS
+    // TIMEOUT bounds the wait for a fork slot as well as the client's patience, less a margin
+    // so this reply wins the race against the block timeout. A short TIMEOUT gets half of it,
+    // since a fixed margin would leave nothing to wait with. 0 stays 0, meaning no limit.
+    GCForcedRun forced = {.forkWaitMs = timeout > 2 * GC_FORCED_RUN_REPLY_MARGIN_MS
                                             ? timeout - GC_FORCED_RUN_REPLY_MARGIN_MS
-                                            : timeout,
+                                            : timeout / 2,
                           .retryIntervalMs = GC_FORCED_RUN_RETRY_INTERVAL_MS};
     RedisModuleBlockedClient *bc = RedisModule_BlockClient(
         ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, GCForcedRunOutcomeFree, timeout);

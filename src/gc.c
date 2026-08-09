@@ -293,6 +293,17 @@ void GCContext_GetStats(GCContext* gc, InfoGCStats* out) {
 
 void GCContext_CommonForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc,
                                  GCForcedRun forced) {
+  // Stamped here, on the submitting thread, so the budget runs from the command rather than
+  // from whenever the single GC worker gets to this job -- the client's timeout started here.
+  if (forced.forkWaitMs > 0) {
+    clock_gettime(CLOCK_MONOTONIC_RAW, &forced.forkDeadline);
+    forced.forkDeadline.tv_sec += forced.forkWaitMs / 1000;
+    forced.forkDeadline.tv_nsec += (forced.forkWaitMs % 1000) * 1000000;
+    if (forced.forkDeadline.tv_nsec >= 1000000000) {
+      forced.forkDeadline.tv_sec++;
+      forced.forkDeadline.tv_nsec -= 1000000000;
+    }
+  }
   GCDebugTask *task = GCDebugTaskCreate(gc, bc, forced);
   redisearch_thpool_add_work(gcThreadpool_g, debugTaskCallback, task, THPOOL_PRIORITY_HIGH);
 }
