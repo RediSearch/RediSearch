@@ -104,7 +104,6 @@ typedef struct {
   MRReply *indexDef;
   MRReply *indexSchema;
   MRReply *indexOptions;
-  size_t *errorIndexes;
   InfoValue toplevelValues[NUM_FIELDS_SPEC];
   AggregatedFieldSpecInfo *fieldSpecInfo_arr;
   IndexError indexError;
@@ -309,7 +308,6 @@ static void cleanInfoReply(InfoFields *fields) {
     fields->fieldSpecInfo_arr = NULL;
   }
   IndexError_Clear(fields->indexError);
-  rm_free(fields->errorIndexes);
 }
 
 static void replyKvArray(RedisModule_Reply *reply, InfoFields *fields, InfoValue *values,
@@ -411,10 +409,6 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
   for (size_t ii = 0; ii < count; ++ii) {
     int type = MRReply_Type(replies[ii]);
     if (type == MR_REPLY_ERROR) {
-      if (!fields.errorIndexes) {
-        fields.errorIndexes = rm_calloc(count, sizeof(*fields.errorIndexes));
-      }
-      fields.errorIndexes[ii] = 1;
       numErrored++;
       if (!firstError) {
         firstError = replies[ii];
