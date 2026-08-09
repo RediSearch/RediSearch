@@ -183,6 +183,13 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 // thread. The only window where RUN_PENDING is held but no run remains to discover a drop, so a
 // test can land a stop and a drop in it deterministically.
 #define SYNC_POINT_GC_BEFORE_REARM_POST                 "GCBeforeRearmPost"
+// Fork-GC worker: parked before the GIL handshake that precedes the fork, so a test can take
+// the single child slot while a cycle waits here and make the EEXIST retry deterministic.
+#define SYNC_POINT_GC_BEFORE_FORK                       "GCBeforeFork"
+// Fork-GC worker: parked after a fork attempt failed because another child holds the slot, with
+// the GIL released. Reaching it is the only proof, independent of host scheduling, that a cycle
+// really did hit EEXIST rather than winning the slot outright.
+#define SYNC_POINT_GC_FORK_SLOT_BUSY                    "GCForkSlotBusy"
 
 // SyncPoint API function declarations
 // Arm a sync point - subsequent calls to SyncPoint_Wait will block

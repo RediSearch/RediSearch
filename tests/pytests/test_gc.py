@@ -743,6 +743,8 @@ def testForkGCEmptyTextSuffixTrie_emptyValue():
 # a real in-flight run instead of racing one.
 SYNC_POINT_GC_TASK_START = 'GCTaskStart'  # src/debug_commands.h
 SYNC_POINT_GC_BEFORE_REARM_POST = 'GCBeforeRearmPost'  # src/debug_commands.h
+SYNC_POINT_GC_BEFORE_FORK = 'GCBeforeFork'  # src/debug_commands.h
+SYNC_POINT_GC_FORK_SLOT_BUSY = 'GCForkSlotBusy'  # src/debug_commands.h
 
 
 def gcCycles(env, idx):
@@ -1021,3 +1023,106 @@ def testGCTeardownWhenDropOvertakesPendingRearm_MOD_17309():
         lambda: (logicallyDeletedDocs(env) == 0, {'not_collected': logicallyDeletedDocs(env)}),
         'a drop that overtook the pending re-arm never tore the context down', timeout=30)
     env.expect('FT._LIST').equal(['keep'])
+def waitForSyncPoint(env, name, message, timeout=30):
+    wait_for_condition(
+        lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', name) == 1, {}),
+        message, timeout=timeout)
+
+
+def indexWithCollectableDocs(env):
+    """An index with 50 deleted docs to collect and 50 live keys. The live half is what lets a
+    delayed bgsave keep holding the fork slot, and GC_STOP_SCHEDULE leaves a forced cycle as
+    the only one that can reach the sync points below."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+    for i in range(100):
+        env.expect('HSET', f'doc{i}', 't', 'hello').equal(1)
+    for i in range(50):
+        env.expect('DEL', f'doc{i}').equal(1)
+    waitForRdbSaveToFinish(env)
+
+
+def parkedForcedGC(env, timeout=None):
+    """Start GC_FORCEINVOKE, which blocks, on its own connection, and return once its cycle is
+    parked before the fork -- so the caller can take the slot out from under it. The returned
+    dict gains 'reply' or 'error' once the thread finishes."""
+    conn = env.getConnection()
+    result = {}
+    args = [debug_cmd(), 'GC_FORCEINVOKE', 'idx'] + ([timeout] if timeout is not None else [])
+
+    def run():
+        try:
+            result['reply'] = conn.execute_command(*args)
+        except Exception as e:
+            result['error'] = str(e)
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    waitForSyncPoint(env, SYNC_POINT_GC_BEFORE_FORK,
+                     'Timeout waiting for the forced GC to reach the pre-fork sync point')
+    return thread, result
+
+
+def holdForkSlot(env, key_delay_us):
+    """Take Redis's single child slot with a bgsave slowed to key_delay_us per key saved."""
+    env.expect('CONFIG', 'SET', 'rdb-key-save-delay', str(key_delay_us)).ok()
+    env.cmd('BGSAVE')
+    env.assertEqual(int(env.cmd('INFO', 'Persistence')['rdb_bgsave_in_progress']), 1)
+
+
+@skip(cluster=True)
+def testForcedGCWaitsForForkSlot():
+    """A forced GC replying DONE has to mean it collected. Parking the cycle before its fork lets
+    a bgsave take the only child slot first, and parking it again after the failed fork is what
+    proves the EEXIST retry ran rather than the cycle winning the slot on a lucky schedule."""
+    env = Env()
+    skipIfNoEnableAssert(env)
+    indexWithCollectableDocs(env)
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', SYNC_POINT_GC_BEFORE_FORK, 10000).ok()
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', SYNC_POINT_GC_FORK_SLOT_BUSY, 10000).ok()
+
+    thread, forced = parkedForcedGC(env)
+    try:
+        holdForkSlot(env, 20000)
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_BEFORE_FORK)
+
+        # The cycle only parks here after a fork failed with EEXIST, so arriving is the
+        # assertion that the retry path ran.
+        waitForSyncPoint(env, SYNC_POINT_GC_FORK_SLOT_BUSY,
+                         'forced GC never hit a busy fork slot')
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_FORK_SLOT_BUSY)
+    finally:
+        thread.join(timeout=60)
+        env.cmd('CONFIG', 'SET', 'rdb-key-save-delay', '0')
+
+    env.assertFalse(thread.is_alive(), message='forced GC never returned')
+    env.assertEqual(forced.get('reply'), 'DONE')
+    env.assertGreater(int(to_dict(index_info(env)['gc_stats'])['bytes_collected']), 0)
+
+
+@skip(cluster=True)
+def testForcedGCReportsWhenItCannotFork():
+    """A forced GC that never gets the slot has to say so. Replying DONE would be the original
+    bug at a longer timescale: a collection reported but never made."""
+    env = Env()
+    skipIfNoEnableAssert(env)
+    indexWithCollectableDocs(env)
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', SYNC_POINT_GC_BEFORE_FORK, 10000).ok()
+
+    # The budget is this TIMEOUT less a margin, and both clocks start at submission -- so the
+    # margin, not the timeout, is what this test's own setup races. TIMEOUT has to stay clear of
+    # how long that setup can take on a slow host; the budget then expires while the child below
+    # is still holding the slot.
+    thread, forced = parkedForcedGC(env, timeout=2000)
+    try:
+        holdForkSlot(env, 40000)
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_BEFORE_FORK)
+    finally:
+        thread.join(timeout=60)
+        env.cmd('CONFIG', 'SET', 'rdb-key-save-delay', '0')
+        waitForRdbSaveToFinish(env)
+
+    env.assertContains('GC DID NOT RUN', forced.get('error', ''),
+                       message=f'expected an error, got {forced}')
