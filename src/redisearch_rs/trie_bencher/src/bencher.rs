@@ -16,6 +16,7 @@ use rqe_wildcard::WildcardPattern;
 use std::{ffi::c_void, hint::black_box, ptr::NonNull, time::Duration};
 use trie_rs::iter::{ContainsLendingIter, WildcardLendingIter};
 use trie_rs::iter::{RangeFilter, RangeLendingIter};
+use trie_rs::str_trie_map::StrTrieMap;
 
 use crate::RustTrieMap;
 
@@ -180,6 +181,20 @@ impl OperationBencher {
         group.finish();
     }
 
+    /// Benchmark the codepoint-semantics wildcard iterator
+    /// ([`StrTrieMap::wildcard_iter`]) over a `StrTrieMap` built from the
+    /// same corpus.
+    pub fn codepoint_wildcard_group(&self, c: &mut Criterion, pattern: &str) {
+        let group_label = format!("CpWildcard [{pattern}]");
+        let mut group = self.benchmark_group_immutable(c, &group_label);
+        let mut map = StrTrieMap::new();
+        for key in &self.keys {
+            map.insert(key, ());
+        }
+        codepoint_wildcard_benchmark(&mut group, &map, pattern);
+        group.finish();
+    }
+
     /// Benchmark the range iterator.
     ///
     /// The benchmark group will be marked with the given label.
@@ -220,6 +235,20 @@ fn contains_rust_benchmark<M: Measurement>(
             let mut iter: ContainsLendingIter<_> =
                 map.contains_iter(black_box(target.as_bytes())).into();
             while let Some(entry) = LendingIterator::next(&mut iter) {
+                black_box(entry);
+            }
+        })
+    });
+}
+
+fn codepoint_wildcard_benchmark<M: Measurement>(
+    c: &mut BenchmarkGroup<'_, M>,
+    map: &StrTrieMap<()>,
+    pattern: &str,
+) {
+    c.bench_function("Rust", |b| {
+        b.iter(|| {
+            for entry in map.wildcard_iter(black_box(pattern)) {
                 black_box(entry);
             }
         })

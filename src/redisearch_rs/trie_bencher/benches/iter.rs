@@ -26,6 +26,13 @@ fn iter_benches_wiki1k(c: &mut Criterion) {
     // Fixed length.
     bencher.wildcard_group(c, "Apollo ??");
 
+    // Codepoint-semantics wildcard (StrTrieMap): prefix-jumped, fixed
+    // length, and a matchless full walk that isolates per-byte stepping
+    // cost.
+    bencher.codepoint_wildcard_group(c, "Ab*");
+    bencher.codepoint_wildcard_group(c, "Apollo ??");
+    bencher.codepoint_wildcard_group(c, "*zzzq");
+
     bencher.into_values_group(c, "IntoValues iterator");
 }
 
@@ -38,6 +45,10 @@ fn iter_benches_gutenberg(c: &mut Criterion) {
     bencher.find_prefixes_group(c, "everlastingly", "Find prefixes");
     // Requires backtracking to perform, de facto, suffix matching
     bencher.wildcard_group(c, "*ly");
+    // Codepoint counterparts: suffix shape with many matches, and a
+    // matchless full walk (pure stepping cost).
+    bencher.codepoint_wildcard_group(c, "*ly");
+    bencher.codepoint_wildcard_group(c, "*zqxj");
 
     // Patterns that exercise the two surviving NFA classes (`u64` ≤ 63
     // atoms, `u128` ≤ 127). Anything larger routes through

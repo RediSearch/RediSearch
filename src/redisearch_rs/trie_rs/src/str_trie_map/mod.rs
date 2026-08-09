@@ -82,6 +82,11 @@ impl<Data> StrTrieMap<Data> {
         self.inner.mem_usage()
     }
 
+    /// Borrow the underlying byte-keyed [`TrieMap`] that backs this UTF-8 view.
+    pub const fn byte_trie(&self) -> &TrieMap<Data> {
+        &self.inner
+    }
+
     /// Iterate over all entries in lexicographical key order. See [`TrieMap::iter`].
     ///
     /// Yields `(String, &Data)` — keys are decoded back into owned `String`s
