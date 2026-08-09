@@ -7,11 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::mem;
+
 use value::{SharedValue, Trio, Value};
 
-// Deep enough to catch shallow dereference regressions, but kept moderate because
-// dropping the nested SharedValue/Trio structure still walks the chain recursively.
-const CHAIN_DEPTH: usize = 256;
+// Large enough to overflow the old recursive dereference implementation. The tests call
+// `mem::forget` on the root so recursive destruction of the intentionally deep chain does not
+// become the limiting factor.
+const CHAIN_DEPTH: usize = 100_000;
 
 fn ref_chain(depth: usize, terminal: Value) -> Value {
     (0..depth).fold(terminal, |inner, _| Value::Ref(SharedValue::new(inner)))
@@ -27,32 +30,62 @@ fn trio_left_chain(depth: usize, terminal: Value) -> Value {
     })
 }
 
+fn intentional_leak_stress_disabled() -> bool {
+    // Sanitizer CI sets `SAN=address`. Do not deliberately leak the 100k-node chains under
+    // LeakSanitizer; normal and coverage runs still execute the stress path.
+    std::env::var("SAN").as_deref() == Ok("address")
+}
+
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "Intentionally leaks a deep chain and is too slow under Miri"
+)]
 fn fully_dereferenced_ref_follows_nested_refs() {
+    if intentional_leak_stress_disabled() {
+        return;
+    }
+
     let value = ref_chain(CHAIN_DEPTH, Value::Number(42.0));
 
-    assert!(matches!(
-        value.fully_dereferenced_ref(),
-        Value::Number(42.0)
-    ));
+    let dereferenced = matches!(value.fully_dereferenced_ref(), Value::Number(42.0));
+    mem::forget(value);
+
+    assert!(dereferenced);
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "Intentionally leaks a deep chain and is too slow under Miri"
+)]
 fn fully_dereferenced_ref_and_trio_follows_nested_refs() {
+    if intentional_leak_stress_disabled() {
+        return;
+    }
+
     let value = ref_chain(CHAIN_DEPTH, Value::Number(42.0));
 
-    assert!(matches!(
-        value.fully_dereferenced_ref_and_trio(),
-        Value::Number(42.0)
-    ));
+    let dereferenced = matches!(value.fully_dereferenced_ref_and_trio(), Value::Number(42.0));
+    mem::forget(value);
+
+    assert!(dereferenced);
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "Intentionally leaks a deep chain and is too slow under Miri"
+)]
 fn fully_dereferenced_ref_and_trio_follows_nested_trio_left_values() {
+    if intentional_leak_stress_disabled() {
+        return;
+    }
+
     let value = trio_left_chain(CHAIN_DEPTH, Value::Number(42.0));
 
-    assert!(matches!(
-        value.fully_dereferenced_ref_and_trio(),
-        Value::Number(42.0)
-    ));
+    let dereferenced = matches!(value.fully_dereferenced_ref_and_trio(), Value::Number(42.0));
+    mem::forget(value);
+
+    assert!(dereferenced);
 }
