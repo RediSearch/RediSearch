@@ -295,13 +295,16 @@ When reviewing pull requests:
 - Security-sensitive issues are in scope for automated review. Look for memory-safety bugs, unsafe/FFI soundness problems, malformed input handling gaps, data exposure, ACL/auth bypasses, concurrency races, and denial-of-service risks from unbounded allocation, loops, or recursion.
 - Do not comment on minor style, formatting, naming, or preference issues by default unless they violate an explicit project rule and would block maintainability.
 - If the review explicitly requests nits, style comments, or `--include-nits`, minor findings may be reported as non-blocking suggestions, but must still avoid duplicates and should be grouped by root cause.
-- State the failure for every finding: the input, state, or thread interleaving that produces the wrong result, and what the wrong result is. A finding you cannot ground that way is a preference — do not post it.
+- State the failure for every finding: the input, state, or thread interleaving that produces the wrong result, and what the wrong result is. A finding you cannot ground that way is a preference — do not post it in a default review. When nits are explicitly requested, the preceding bullet governs instead.
 - Automated review is advisory. A human maintainer's approval is the merge gate, so post findings as comments and do not request changes.
 
 ### Re-reviewing after a push
 
 Pushes to an open PR are usually the author addressing earlier feedback, so a re-review is a review
-of the delta, not of the PR again:
+of the delta, not of the PR again. This applies to a reviewer that knows what it reported last
+round — an app re-running on a push, or a re-invocation given the earlier findings. It does not
+apply to [/adversarial-review](.skills/adversarial-review/SKILL.md), whose follow-up rounds are
+deliberately blind to the earlier ones and so review the whole change by design.
 
 - Review only what changed since your previous review on this PR. Do not raise findings on code you already reviewed and chose not to flag, and do not reopen resolved threads.
 - If your earlier finding was addressed and the fix draws a new finding in the same hunk, do not post a third variation of the same concern. Say once that the hunk needs a design decision, name the trade-off, and leave it to the human reviewer.
@@ -312,10 +315,10 @@ of the delta, not of the PR again:
 Automated reviewers re-run on every push, so reacting comment-by-comment does not converge — each
 fix creates the next round's delta. Batch instead:
 
-- Wait until every automated reviewer has reported on the current head, then address the round in one commit and one push.
+- Wait until every automated reviewer has reported on the current head, then address the round in one commit and one push. Treat the round as settled once the reviewers you expect have reported, or once roughly 20 minutes have passed: an app that is disabled, rate-limited, or has failed never reports, and is not a reason to hold the fix.
 - Fix findings that name a concrete failure. For advisory findings whose fix would add risk or complexity, reply with the rationale and resolve the thread — that is a complete response, not a deferral.
 - If successive rounds keep landing on the same hunk, stop pushing fixes. The design is what is in question; raise it with the human reviewer.
-- Budget two automated rounds per PR: the initial review and one confirmation. Past that, resolve with rationale rather than pushing again.
+- Budget two automated rounds per PR: the initial review and one confirmation. Past that, resolve advisory findings with rationale rather than pushing again — but a finding that names a concrete failure is worth a fix however late it arrives, and a fix the confirmation round shows to be wrong is worth correcting.
 - Once a human has approved, do not restart the loop for advisory findings — a push dismisses the approval. Open a follow-up issue instead.
 
 ## Common Workflows

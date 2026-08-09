@@ -7,7 +7,7 @@ are the parts that matter most for Bugbot, restated so they apply without loadin
 
 - Report correctness, crashes, memory safety, undefined behavior, data loss, security, and clear test/CI failures. Those are what a review here is for.
 - State the failure for every finding: the input, state, or thread interleaving that produces the wrong result, and what the wrong result is. A finding you cannot ground that way is a preference — do not report it.
-- Skip style, formatting, naming, and preference comments unless they violate an explicit project rule.
+- Skip style, formatting, naming, and preference comments unless they violate an explicit project rule *and* the violation would block maintainability.
 - One comment per root cause. If the same pattern repeats, comment on the clearest instance and mention the pattern.
 - Review is advisory. A human maintainer's approval is the merge gate.
 
