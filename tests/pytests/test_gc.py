@@ -743,6 +743,7 @@ def testForkGCEmptyTextSuffixTrie_emptyValue():
 # a real in-flight run instead of racing one.
 SYNC_POINT_GC_TASK_START = 'GCTaskStart'  # src/debug_commands.h
 SYNC_POINT_GC_BEFORE_FORK = 'GCBeforeFork'  # src/debug_commands.h
+SYNC_POINT_GC_FORK_SLOT_BUSY = 'GCForkSlotBusy'  # src/debug_commands.h
 
 
 def gcCycles(env, idx):
@@ -913,25 +914,33 @@ def testGCTerminatesAfterDropWhileStopped(env):
     wait_for_condition(lambda: (logically_deleted() == 0, {'not_collected': logically_deleted()}),
                        'stopped GC never terminated after its index was dropped', timeout=30)
 
+def waitForSyncPoint(env, name, message, timeout=30):
+    wait_for_condition(
+        lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', name) == 1, {}),
+        message, timeout=timeout)
+
+
 @skip(cluster=True)
 def testForcedGCWaitsForForkSlot():
     """A forced GC replying DONE has to mean it collected. Parking the cycle before its fork lets
-    a bgsave take the only child slot first, so the EEXIST retry is exercised rather than raced."""
+    a bgsave take the only child slot first, and parking it again after the failed fork is what
+    proves the EEXIST retry ran rather than the cycle winning the slot on a lucky schedule."""
     env = Env()
     skipIfNoEnableAssert(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
-    # Leaves the forced cycle below as the only one that can reach the sync point.
+    # Leaves the forced cycle below as the only one that can reach the sync points.
     env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
     for i in range(100):
         env.expect('HSET', f'doc{i}', 't', 'hello').equal(1)
-    # rdb-key-save-delay is charged per key saved, so the undeleted half is what makes the
-    # child outlive the first fork attempt.
+    # rdb-key-save-delay is charged per key saved, so the undeleted half is what keeps the
+    # child holding the slot while the cycle wakes up and tries to fork.
     for i in range(50):
         env.expect('DEL', f'doc{i}').equal(1)
 
     waitForRdbSaveToFinish(env)
     env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
     env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', SYNC_POINT_GC_BEFORE_FORK, 10000).ok()
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', SYNC_POINT_GC_FORK_SLOT_BUSY, 10000).ok()
 
     # GC_FORCEINVOKE blocks until the cycle ends, so it needs its own connection.
     conn = env.getConnection()
@@ -940,15 +949,19 @@ def testForcedGCWaitsForForkSlot():
         reply=conn.execute_command(debug_cmd(), 'GC_FORCEINVOKE', 'idx')))
     thread.start()
     try:
-        wait_for_condition(
-            lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING',
-                             SYNC_POINT_GC_BEFORE_FORK) == 1, {}),
-            'Timeout waiting for the forced GC to reach the pre-fork sync point')
+        waitForSyncPoint(env, SYNC_POINT_GC_BEFORE_FORK,
+                         'Timeout waiting for the forced GC to reach the pre-fork sync point')
 
-        env.expect('CONFIG', 'SET', 'rdb-key-save-delay', '10000').ok()
+        env.expect('CONFIG', 'SET', 'rdb-key-save-delay', '20000').ok()
         env.cmd('BGSAVE')
         env.assertEqual(int(env.cmd('INFO', 'Persistence')['rdb_bgsave_in_progress']), 1)
         env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_BEFORE_FORK)
+
+        # The cycle only parks here after a fork failed with EEXIST, so arriving is the
+        # assertion that the retry path ran.
+        waitForSyncPoint(env, SYNC_POINT_GC_FORK_SLOT_BUSY,
+                         'forced GC never hit a busy fork slot')
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_FORK_SLOT_BUSY)
     finally:
         thread.join(timeout=60)
         env.cmd('CONFIG', 'SET', 'rdb-key-save-delay', '0')

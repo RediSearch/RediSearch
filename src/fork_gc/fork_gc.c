@@ -199,6 +199,12 @@ bool FGC_RunCycle(ForkGC *gc, bool debugForced, const FGCHook *hook) {
     }
     // Waiting without the GIL: the child we wait for needs the main thread to exit.
     RedisModule_ThreadSafeContextUnlock(ctx);
+
+    // Test hook (ENABLE_ASSERT): park after a failed fork, so a test can observe the EEXIST.
+#ifdef ENABLE_ASSERT
+    SyncPoint_Wait(SYNC_POINT_GC_FORK_SLOT_BUSY);
+#endif
+
     nanosleep(&fork_slot_backoff, NULL);
     RedisModule_ThreadSafeContextLock(ctx);
   }
