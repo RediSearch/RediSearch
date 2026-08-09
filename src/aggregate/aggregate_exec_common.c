@@ -95,6 +95,10 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
      // Decrement the result limit, now that we got a valid result.
      rp->parent->resultLimit--;
 
+     // The reply serializers do not consume the index result. Drop the borrow
+     // before advancing the iterator; row values that originate from it (such
+     // as matched_terms()) own their data by this point.
+     SearchResult_SetBorrowedIndexResult(&r, NULL);
      array_append(results, SearchResult_AllocateMove(&r));
 
      debugCheckAndPauseAfterAggregateResult(areq);
@@ -111,27 +115,26 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
      }
    }
 
-   if (*rc != RS_RESULT_OK) {
-     SearchResult_Destroy(&r);
-   }
+   SearchResult_Destroy(&r);
 
    return results;
  }
 
- void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
-   const bool legacyAggregate =
+ void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results,
+                          int *rc) {
+   // Every executed reply path owns an array of results. Background execution
+   // transfers it to the blocked-client reply callback; inline execution
+   // serializes the same array immediately on the main thread.
+   *results = AggregateResults(rp, ctx->areq, rc);
+
+   // Preserve the post-aggregation deadline check only on paths that already
+   // buffered results before RETURN became universally array-backed. RETURN
+   // keeps its existing in-pipeline deadline semantics.
+   const bool checkDeadlineAfterAggregation =
        ctx->timeoutPolicy != TimeoutPolicy_Return || ctx->oomPolicy == OomPolicy_Fail;
-   if (ctx->useReplyCallback || legacyAggregate) {
-     // Aggregate all results before populating the response
-     *results = AggregateResults(rp, ctx->areq, rc);
-     // Preserve the post-aggregation deadline check on paths that already
-     // buffered results before RETURN adopted the callback path.
-     if (legacyAggregate && !ctx->skipTimeoutChecks && TimedOut(ctx->timeout) == TIMED_OUT) {
-       *rc = RS_RESULT_TIMEDOUT;
-     }
-   } else {
-     // Send the results received from the pipeline as they come (no need to aggregate)
-     *rc = rp->Next(rp, r);
+   if (checkDeadlineAfterAggregation && !ctx->skipTimeoutChecks &&
+       TimedOut(ctx->timeout) == TIMED_OUT) {
+     *rc = RS_RESULT_TIMEDOUT;
    }
  }
 
@@ -227,6 +230,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
    SearchResult r = SearchResult_New();
    while (qctx->resultLimit && endProc->Next(endProc, &r) == RS_RESULT_OK) {
      qctx->resultLimit--;
+     SearchResult_SetBorrowedIndexResult(&r, NULL);
      array_append(stored->results, SearchResult_AllocateMove(&r));
      r = SearchResult_New();
    }

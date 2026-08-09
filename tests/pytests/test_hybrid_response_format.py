@@ -143,6 +143,37 @@ def test_simple_query():
     }
     _test_resp3_and_resp2(cmd, resp3_expected)
 
+
+@skip(cluster=True)
+def test_inline_query_uses_terminal_array():
+    """The WORKERS=0 hybrid tail accumulates every row before serialization."""
+    env = Env(protocol=3, enableDebugCommand=True, moduleArgs='WORKERS 0')
+    skipIfNoEnableAssert(env)
+    _setup_basic_index(env)
+    waitForIndex(env, 'idx')
+
+    setPauseAfterAggregateResult(env, 100)
+    try:
+        response = env.cmd(
+            'FT.HYBRID', 'idx',
+            'SEARCH', 'red',
+            'VSIM', '@embedding', '$BLOB',
+            'LOAD', '3', '@__key', '@__score', '@description',
+            'SORTBY', '2', '@description', 'ASC',
+            'PARAMS', '2', 'BLOB',
+            np.array([1.2, 0.2]).astype(np.float32).tobytes(),
+        )
+        env.assertEqual(
+            getAggregateResultsCount(env), 4,
+            message='Inline hybrid tail did not accumulate its terminal rows',
+        )
+    finally:
+        resetAggregateResultsDebug(env)
+
+    env.assertEqual(response['total_results'], 4)
+    env.assertEqual(len(response['results']), 4)
+
+
 def test_query_with_groupby():
     cmd = [
         'FT.HYBRID', 'idx',

@@ -59,6 +59,57 @@ def testCursorsBG():
     env = Env(moduleArgs='WORKERS 1 _PRINT_PROFILE_CLOCK FALSE')
     testCursors(env)
 
+
+@skip(cluster=True)
+def testInlineCursorChunksUseTerminalArray():
+    """Every WORKERS=0 cursor chunk is accumulated before it is serialized."""
+    env = Env(enableDebugCommand=True, moduleArgs='WORKERS 0')
+    skipIfNoEnableAssert(env)
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+    for i in range(5):
+        conn.execute_command('HSET', f'doc:{i}', 'n', i)
+    waitForIndex(env, 'idx')
+
+    def run_chunk(command, expected_rows):
+        # Re-arming resets the global counter, proving each chunk independently.
+        setPauseAfterAggregateResult(env, 100)
+        try:
+            reply = env.cmd(*command)
+            env.assertEqual(
+                getAggregateResultsCount(env), expected_rows,
+                message='Cursor chunk did not accumulate its terminal rows',
+            )
+            return reply
+        finally:
+            resetAggregateResultsDebug(env)
+
+    rows, cursor = run_chunk(
+        ['FT.AGGREGATE', 'idx', '*',
+         'SORTBY', '2', '@n', 'ASC',
+         'LOAD', '1', '@n',
+         'WITHCURSOR', 'COUNT', '2'],
+        expected_rows=2,
+    )
+    env.assertEqual([row[1] for row in rows[1:]], ['0', '1'])
+    env.assertNotEqual(cursor, 0)
+
+    rows, cursor = run_chunk(
+        ['FT.CURSOR', 'READ', 'idx', cursor, 'COUNT', '2'],
+        expected_rows=2,
+    )
+    env.assertEqual([row[1] for row in rows[1:]], ['2', '3'])
+    env.assertNotEqual(cursor, 0)
+
+    rows, cursor = run_chunk(
+        ['FT.CURSOR', 'READ', 'idx', cursor, 'COUNT', '2'],
+        expected_rows=1,
+    )
+    env.assertEqual([row[1] for row in rows[1:]], ['4'])
+    env.assertEqual(cursor, 0)
+
+
 @skip(cluster=True)
 def testCursorsBGEdgeCasesSanity():
     env = Env(moduleArgs='WORKERS 1')

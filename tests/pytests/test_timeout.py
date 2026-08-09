@@ -58,6 +58,48 @@ def _test_return_background_stores_partial_results(protocol):
         })
 
 
+def _test_return_inline_aggregates_partial_results(protocol):
+    """RETURN with WORKERS=0 accumulates partial rows through AggregateResults."""
+    env = Env(protocol=protocol, enableDebugCommand=True,
+              moduleArgs='WORKERS 0 ON_TIMEOUT RETURN')
+    skipIfNoEnableAssert(env)
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+    for i in range(5):
+        conn.execute_command('HSET', f'doc:{i}', 'n', i)
+    waitForIndex(env, 'idx')
+
+    # The counter is incremented only by AggregateResults. Set an unreachable
+    # pause point so it counts rows without blocking the main-thread query.
+    setPauseAfterAggregateResult(env, 100)
+    try:
+        result = runDebugQueryCommandTimeoutAfterN(
+            env,
+            ['FT.AGGREGATE', 'idx', '*',
+             'SORTBY', '2', '@n', 'ASC', 'LOAD', '1', '@n'],
+            2,
+        )
+        env.assertEqual(getAggregateResultsCount(env), 2,
+                        message='Inline RETURN did not aggregate its partial rows')
+    finally:
+        resetAggregateResultsDebug(env)
+
+    if protocol == 2:
+        env.assertEqual(result, [2, ['n', '0'], ['n', '1']])
+    else:
+        env.assertEqual(result, {
+            'attributes': [],
+            'warning': ['Timeout limit was reached'],
+            'total_results': 2,
+            'format': 'STRING',
+            'results': [
+                {'extra_attributes': {'n': '0'}, 'values': []},
+                {'extra_attributes': {'n': '1'}, 'values': []},
+            ],
+        })
+
+
 @skip(cluster=True)
 def test_return_background_stores_partial_results_resp2():
     """Exercise the array-backed RETURN timeout reply under RESP2."""
@@ -68,6 +110,18 @@ def test_return_background_stores_partial_results_resp2():
 def test_return_background_stores_partial_results_resp3():
     """Exercise the array-backed RETURN timeout reply under RESP3."""
     _test_return_background_stores_partial_results(3)
+
+
+@skip(cluster=True)
+def test_return_inline_aggregates_partial_results_resp2():
+    """Exercise the inline array-backed RETURN timeout reply under RESP2."""
+    _test_return_inline_aggregates_partial_results(2)
+
+
+@skip(cluster=True)
+def test_return_inline_aggregates_partial_results_resp3():
+    """Exercise the inline array-backed RETURN timeout reply under RESP3."""
+    _test_return_inline_aggregates_partial_results(3)
 
 # skip on cluster since there might not be enough documents in each shard to reach the RP_INDEX timeout limit counter.
 @skip(cluster=True)
