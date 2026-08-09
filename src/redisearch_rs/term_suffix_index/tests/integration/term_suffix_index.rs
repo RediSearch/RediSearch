@@ -30,8 +30,8 @@ fn add_promotes_existing_suffix_only_node_to_full_term() {
 #[test]
 #[cfg_attr(miri, ignore = "Takes too long with Miri, causing CI to timeout")]
 fn add_term_longer_than_u16_max_bytes_is_noop() {
-    // Trie node labels store their length as `u16`; an unrepresentable
-    // term must be skipped, not panic.
+    // Trie node labels store their length as `u16`; a term that could
+    // force an oversized label must be skipped, not panic.
     let mut sut = TermSuffixIndex::new();
 
     sut.add(&"a".repeat(u16::MAX as usize + 1));

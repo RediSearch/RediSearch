@@ -92,7 +92,9 @@ int TermSuffixIndexIterator_Next(struct TermSuffixIndexIterator *it, const char 
 /**
  * Add `term` (`len` UTF-8 bytes) to the index. Adding an existing or
  * empty term is a no-op, as is adding a term whose lowercased form
- * exceeds `u16::MAX` bytes — the trie cannot represent such a key.
+ * exceeds `u16::MAX` bytes: it is skipped rather than inserted, since
+ * a single trie node label holds at most that many bytes and insertion
+ * would otherwise risk a panic.
  *
  * Matching is case-insensitive: `term` is lowercased before insertion,
  * so subsequent lookups and removals are case-insensitive too.

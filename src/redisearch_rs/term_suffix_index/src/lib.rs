@@ -57,9 +57,12 @@ const _: () = assert!(
     "the poll window divides the candidate count"
 );
 
-/// Longest addable term, in bytes, after lowercasing. The underlying
-/// trie stores node labels with `u16` lengths, so a longer key cannot
-/// be represented and would panic on insert.
+/// Longest addable term, in bytes, after lowercasing. The bound is on
+/// the term, not on the trie: node labels carry a `u16` length and a
+/// label is always a substring of some inserted key, so a term within
+/// this bound can never force an oversized label. A longer term can,
+/// depending on which keys are already stored, and insertion would
+/// panic the moment one node had to hold more than `u16::MAX` bytes.
 const MAX_TERM_BYTE_LEN: usize = u16::MAX as usize;
 
 #[derive(Default)]
@@ -91,7 +94,9 @@ impl TermSuffixIndex {
     /// queryable suffix. [Lowercased on entry](crate#case-insensitivity);
     /// re-adding an existing term, or adding an empty one, is a no-op.
     /// So is adding a term whose lowercased form exceeds `u16::MAX`
-    /// bytes — the trie cannot represent such a key.
+    /// bytes: it is skipped rather than inserted, since a single trie
+    /// node label holds at most that many bytes and insertion would
+    /// otherwise risk a panic.
     pub fn add(&mut self, term: &str) {
         if term.is_empty() {
             return;
