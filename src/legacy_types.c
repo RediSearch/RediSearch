@@ -8,7 +8,6 @@
 */
 
 #include "legacy_types.h"
-#include "util/misc.h"
 #include "rmutil/rm_assert.h"
 #include <stdbool.h>
 
@@ -18,10 +17,17 @@
 // RDB load callback cannot return NULL, as it indicates an error
 void *dummyNonNull = (void*)0xDEADBEEF;
 
-// Save minimal valid payloads for legacy types so accidental persistence paths
-// (e.g. DUMP/SAVE/replication) remain stable for dummy legacy values.
+// A legacy key that survived the upgrade sweep holds only `dummyNonNull` - the real
+// index payload was consumed and discarded on load. These callbacks emit the smallest
+// payload each matching `*_RdbLoad_Consume` accepts, so such a key round-trips instead
+// of writing zero bytes and desyncing the RDB stream for every later reader.
+//
+// The assertions are `_ALWAYS`: writing an empty payload over a value that is *not* the
+// sentinel would silently discard real data, so a release build must crash rather than
+// corrupt. A disappearing debug-only assertion on this exact path is what produced the
+// zero-byte save in the first place.
 void InvertedIndex_RdbSave_Empty(RedisModuleIO *rdb, void *value) {
-  RS_ASSERT(value == dummyNonNull);
+  RS_ASSERT_ALWAYS(value == dummyNonNull);
   RedisModule_SaveUnsigned(rdb, 0); // flags
   RedisModule_SaveUnsigned(rdb, 0); // lastId
   RedisModule_SaveUnsigned(rdb, 0); // numDocs
@@ -29,13 +35,21 @@ void InvertedIndex_RdbSave_Empty(RedisModuleIO *rdb, void *value) {
 }
 
 void NumericIndexType_RdbSave_Empty(RedisModuleIO *rdb, void *value) {
-  RS_ASSERT(value == dummyNonNull);
+  RS_ASSERT_ALWAYS(value == dummyNonNull);
   RedisModule_SaveUnsigned(rdb, 0); // terminator for legacy v1 encoding
 }
 
 void TagIndex_RdbSave_Empty(RedisModuleIO *rdb, void *value) {
-  RS_ASSERT(value == dummyNonNull);
+  RS_ASSERT_ALWAYS(value == dummyNonNull);
   RedisModule_SaveUnsigned(rdb, 0); // n_tags
+}
+
+// The shared handler aborts the server, which turns "AOF is enabled on a database that
+// still holds legacy keys" into a crash on every rewrite. A legacy key carries no data,
+// so emitting no commands is both safe and the desired outcome: the husk does not come
+// back when the AOF is replayed.
+void LegacyType_AofRewrite_Skip(RedisModuleIO *aof, RedisModuleString *key, void *value) {
+  RS_ASSERT_ALWAYS(value == dummyNonNull);
 }
 
 void GenericType_DummyFree(void *value) {
@@ -101,7 +115,7 @@ int RegisterLegacyTypes(RedisModuleCtx *ctx) {
   RedisModuleTypeMethods tm = {
     .version = REDISMODULE_TYPE_METHOD_VERSION,
     .rdb_save = InvertedIndex_RdbSave_Empty,
-    .aof_rewrite = GenericAofRewrite_DisabledHandler,
+    .aof_rewrite = LegacyType_AofRewrite_Skip,
     .free = GenericType_DummyFree,
   };
 
