@@ -1006,7 +1006,7 @@ def testStartsWith(env):
     conn.execute_command('hset', 'doc3', 't', 'ab')
 
     res = env.cmd('ft.aggregate', 'idx', '*', 'load', 1, 't', 'apply', 'startswith(@t, "aa")', 'as', 'prefix')
-    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1, ['t', 'aa', 'prefix', '1'], \
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([3, ['t', 'aa', 'prefix', '1'], \
                                                                 ['t', 'aaa', 'prefix', '1'], \
                                                                 ['t', 'ab', 'prefix', '0']]))
 
@@ -1022,7 +1022,7 @@ def testContains(env):
 
     # check count of contains
     res = env.cmd('ft.aggregate', 'idx', '*', 'load', 1, 't', 'apply', 'contains(@t, "bb")', 'as', 'substring')
-    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1, ['t', 'aa', 'substring', '0'], \
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([6, ['t', 'aa', 'substring', '0'], \
                                                                 ['t', 'bba', 'substring', '1'], \
                                                                 ['t', 'aba', 'substring', '0'], \
                                                                 ['t', 'abb', 'substring', '1'], \
@@ -1038,7 +1038,7 @@ def testContains(env):
 
     # check count of contains with empty string. (returns length of string + 1)
     res = env.cmd('ft.aggregate', 'idx', '*', 'load', 1, 't', 'apply', 'contains(@t, "")', 'as', 'substring')
-    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1, ['t', 'aa', 'substring', '3'], \
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([6, ['t', 'aa', 'substring', '3'], \
                                                              ['t', 'bba', 'substring', '4'], \
                                                              ['t', 'aba', 'substring', '4'], \
                                                              ['t', 'abb', 'substring', '4'], \
@@ -1062,7 +1062,7 @@ def testStrLen(env):
     conn.execute_command('hset', 'doc3', 't', '')
 
     res = env.cmd('ft.aggregate', 'idx', '*', 'load', 1, 't', 'apply', 'strlen(@t)', 'as', 'length')
-    exp = [1, ['t', 'aa', 'length', '2'],
+    exp = [3, ['t', 'aa', 'length', '2'],
               ['t', 'aaa', 'length', '3'],
               ['t', '', 'length', '0']]
     env.assertEqual(toSortedFlatList(res), toSortedFlatList(exp))
@@ -1074,7 +1074,7 @@ def testLoadAll(env):
     conn.execute_command('HSET', 'doc2', 't', 'world', 'n', 3.141, 'notIndexed', 'bbb')
     conn.execute_command('HSET', 'doc3', 't', 'hello world', 'n', 17.8, 'notIndexed', 'aaa')
     # without LOAD
-    env.expect('FT.AGGREGATE', 'idx', '*').equal([1, [], [], []])
+    env.expect('FT.AGGREGATE', 'idx', '*').equal([3, [], [], []])
     # use LOAD with narg or ALL
     res = [3, ['__key', 'doc1', 't', 'hello', 'n', '42', 'notIndexed', 'ccc'],
               ['__key', 'doc2', 't', 'world', 'n', '3.141', 'notIndexed', 'bbb'],

@@ -450,9 +450,15 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
 static bool serializeAndReplyResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply,
                                             QueryProcessingCtx *qctx, int rc, cachedVars *cv,
                                             SearchResult ***results, QueryError *err) {
+  // Preserve RETURN's former streaming behavior: once at least one row was
+  // produced, a later pipeline error completes the partial reply and is
+  // rendered by the warning path instead of replacing the reply wholesale.
+  const bool buffered_error = hreq->reqConfig.timeoutPolicy == TimeoutPolicy_Return &&
+                              hreq->reqConfig.oomPolicy != OomPolicy_Fail &&
+                              rc == RS_RESULT_ERROR && *results != NULL && array_len(*results) > 0;
 
   // If an error occurred, or a timeout in strict mode - return a simple error
-  if (handleSendChunkError_hybrid(hreq, reply, err, rc)) {
+  if (!buffered_error && handleSendChunkError_hybrid(hreq, reply, err, rc)) {
     return false;
   }
 
@@ -546,12 +552,27 @@ void HREQ_StoreResults(HybridRequest *hreq, SearchResult **results, int rc, cach
 // becomes an empty result set with a warning when no result set was produced.
 void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status) {
   if (hreq->useReplyCallback) {
-    // Deep copy since QueryError contains heap-allocated strings.
-    // reply_callback will clear the stored error after replying.
-    QueryError_ClearError(&hreq->brc->reply.err);
-    QueryError_CloneFrom(status, &hreq->brc->reply.err);
+    const QueryErrorCode code = QueryError_GetCode(status);
+    if (!IsInternal(hreq) && code == QUERY_ERROR_CODE_TIMED_OUT &&
+        !ShouldReplyWithError(code, hreq->reqConfig.timeoutPolicy, IsProfile(hreq))) {
+      // Preserve the inline RETURN/Profile behavior on the deferred path: the
+      // callback serializes a normal empty result array with a timeout warning.
+      cachedVars cv = {0};
+      SearchResult **results = array_new(SearchResult *, 1);
+      QueryError_ClearError(&hreq->tailPipelineError);
+      QueryError_SetCode(&hreq->tailPipelineError, QUERY_ERROR_CODE_TIMED_OUT);
+      HREQ_StoreResults(hreq, results, RS_RESULT_EOF, cv);
+    } else {
+      // Deep copy since QueryError contains heap-allocated strings.
+      // reply_callback will clear the stored error after replying.
+      QueryError_ClearError(&hreq->brc->reply.err);
+      QueryError_CloneFrom(status, &hreq->brc->reply.err);
+    }
     // Clear the original to avoid leaking heap-allocated strings.
     QueryError_ClearError(status);
+    if (HybridRequest_RequiresThreadsSyncResults(hreq)) {
+      HybridRequest_SignalAggregateResultsComplete(hreq);
+    }
   } else if (!ShouldReplyWithError(QueryError_GetCode(status),
                                    hreq->reqConfig.timeoutPolicy, IsProfile(hreq))) {
     // Error is a timeout under a non-fail policy, which must not surface as an
@@ -630,15 +651,11 @@ void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
   QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
   ChunkReplyState *stored = &hreq->brc->reply;
 
-  // Get error directly from hreq (no need to copy in HREQ_StoreResults)
+  // Fatal errors are selected across the tail and subqueries. The tail's
+  // request-owned error remains qctx->err and also carries soft errors and
+  // warning-only flags used while rendering the reply.
   QueryError err = QueryError_Default();
   HybridRequest_GetError(hreq, &err);
-
-  // Point qctx->err to the local error so finishSendChunkReply_hybrid/replyWarningsWithSuffixes
-  // can access it. The original qctx->err pointed to a stack variable in RSExecDistHybrid
-  // which is now gone (background thread returned). This local `err` remains valid until
-  // we clear it at the end of this function.
-  qctx->err = &err;
 
   // Get stored results and rc
   SearchResult **results = stored->results;

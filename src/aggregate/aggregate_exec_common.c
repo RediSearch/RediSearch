@@ -91,6 +91,21 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
  SearchResult **AggregateResults(ResultProcessor *rp, AREQ *areq, int *rc) {
    SearchResult **results = array_new(SearchResult *, 8);
    SearchResult r = SearchResult_New();
+
+   // LIMIT 0 0 (and a zero MAX*RESULTS setting) installs a terminal counter and
+   // sets resultLimit to zero. The pipeline still has to be drained to populate
+   // totalResults, even though none of its intermediate OK results belong in the
+   // reply array.
+   if (!rp->parent->resultLimit) {
+     while ((*rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
+       SearchResult_Clear(&r);
+       if (areq && AREQ_TimedOut(areq)) {
+         *rc = RS_RESULT_TIMEDOUT;
+         break;
+       }
+     }
+   }
+
    while (rp->parent->resultLimit && (*rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
      // Decrement the result limit, now that we got a valid result.
      rp->parent->resultLimit--;

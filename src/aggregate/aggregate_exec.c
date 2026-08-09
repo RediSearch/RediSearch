@@ -586,6 +586,17 @@ static bool handleSendChunkError(AREQ *req, RedisModule_Reply *reply,
   return false;
 }
 
+// RETURN historically streamed rows as they were produced: an error before
+// the first row was a top-level error, while an error after at least one row
+// completed that partial reply (and RESP3 rendered the error as a warning).
+// Preserve that distinction now that both inline and deferred execution first
+// accumulate the rows into an array.
+static bool hasBufferedReturnError(const AREQ *req, int rc, SearchResult **results) {
+  return req->reqConfig.timeoutPolicy == TimeoutPolicy_Return &&
+         req->reqConfig.oomPolicy != OomPolicy_Fail && rc == RS_RESULT_ERROR && results != NULL &&
+         array_len(results) > 0;
+}
+
 static int replyForPreExecutionTimeout(RedisModuleCtx *ctx, RedisModuleString **argv,
                                        int argc, ProfileOptions profileOptions, QueryError *status) {
   const bool isInternal = RedisModule_StringPtrLen(argv[0], NULL)[0] == '_';
@@ -718,6 +729,37 @@ static bool shouldSetCursorDone(AREQ *req, int rc) {
   return true;
 }
 
+static void collectProfileDataForReply(AREQ *req, QueryProcessingCtx *qctx, int rc,
+                                       SearchResult **results) {
+  if (!req->profileCollect || !IsProfile(req)) {
+    return;
+  }
+
+  // A RETURN-STRICT timeout callback must first harvest the result replies
+  // that were already queued at the deadline. It collects the remaining
+  // profile envelopes itself after that nonblocking drain.
+  if (AREQ_TimedOut(req)) {
+    return;
+  }
+
+  // Error-only replies do not contain a profile section. A late RETURN error
+  // with buffered rows is a partial/profile reply, so it still needs the
+  // remaining shard profile envelopes.
+  if ((!hasBufferedReturnError(req, rc, results) &&
+       ShouldReplyWithError(QueryError_GetCode(qctx->err), req->reqConfig.timeoutPolicy,
+                            IsProfile(req))) ||
+      ShouldReplyWithTimeoutError(rc, req->reqConfig.timeoutPolicy, IsProfile(req))) {
+    return;
+  }
+
+  // Cursor replies contain profile data only when the cursor is exhausted.
+  if ((AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) && !shouldSetCursorDone(req, rc)) {
+    return;
+  }
+
+  req->profileCollect(req);
+}
+
 /**
  * Serializes results and handles the main reply logic for RESP2.
  * Returns the final rc value and updates state accordingly.
@@ -725,9 +767,10 @@ static bool shouldSetCursorDone(AREQ *req, int rc) {
 static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply,
                                           QueryProcessingCtx *qctx, int rc, size_t limit,
                                           cachedVars *cv, ChunkSerializeState *state) {
+  const bool buffered_error = hasBufferedReturnError(req, rc, state->results);
 
   // If an error occurred, or a timeout in strict mode - return a simple error
-  if (handleSendChunkError(req, reply, qctx, rc)) {
+  if (!buffered_error && handleSendChunkError(req, reply, qctx, rc)) {
     state->cursor_done = true;
     return rc;
   }
@@ -740,7 +783,7 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply,
   const bool buffered_timeout_2 = state->results != NULL && rc == RS_RESULT_TIMEDOUT &&
                                   req->reqConfig.timeoutPolicy != TimeoutPolicy_Fail;
   if (AREQ_RequestFlags(req) & QEXEC_F_NOROWS ||
-      (!buffered_timeout_2 && rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
+      (!buffered_timeout_2 && !buffered_error && rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
     goto done_2;
   }
 
@@ -777,11 +820,14 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit, c
 
   startPipeline(req, rp, &state.results, &rc);
 
-  if (req->useReplyCallback) {
-    if (req->brc->aggregateResultsClaimLost) {
-      return;
-    }
+  if (req->useReplyCallback && req->brc->aggregateResultsClaimLost) {
+    destroyResults(state.results);
+    return;
+  }
 
+  collectProfileDataForReply(req, qctx, rc, state.results);
+
+  if (req->useReplyCallback) {
     // Store results for reply_callback (includes cv and limit)
     debugPauseStoreResults(req, true);  // pause before
     AREQ_StoreResults(req, state.results, rc, cv, limit);
@@ -935,9 +981,10 @@ static void finishSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply,
 static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply,
                                           QueryProcessingCtx *qctx, int rc, cachedVars *cv,
                                           ChunkSerializeState *state) {
+  const bool buffered_error = hasBufferedReturnError(req, rc, state->results);
 
   // If an error occurred, or a timeout in strict mode - return a simple error
-  if (handleSendChunkError(req, reply, qctx, rc)) {
+  if (!buffered_error && handleSendChunkError(req, reply, qctx, rc)) {
     state->cursor_done = true;
     return rc;
   }
@@ -948,7 +995,7 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply,
   const bool buffered_timeout_3 = state->results != NULL && rc == RS_RESULT_TIMEDOUT &&
                                   req->reqConfig.timeoutPolicy != TimeoutPolicy_Fail;
   if (AREQ_RequestFlags(req) & QEXEC_F_NOROWS ||
-      (!buffered_timeout_3 && rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
+      (!buffered_timeout_3 && !buffered_error && rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
     goto done_3;
   }
 
@@ -981,11 +1028,14 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit, c
 
   startPipeline(req, rp, &state.results, &rc);
 
-  if (req->useReplyCallback) {
-    if (req->brc->aggregateResultsClaimLost) {
-      return;
-    }
+  if (req->useReplyCallback && req->brc->aggregateResultsClaimLost) {
+    destroyResults(state.results);
+    return;
+  }
 
+  collectProfileDataForReply(req, qctx, rc, state.results);
+
+  if (req->useReplyCallback) {
     // Store results for reply_callback (includes cv and limit)
     debugPauseStoreResults(req, true);  // pause before
     AREQ_StoreResults(req, state.results, rc, cv, limit);
