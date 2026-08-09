@@ -604,7 +604,8 @@ void MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
       "depleted(should be false): %d, Pending: (%d), inProcess: %d, itRefCount: %d, channel size: "
       "%zu, target_shard_idx: %hu, target_shard: %s",
       ctx->cmd.depleted, ctx->it->ctx.pending, ctx->it->ctx.inProcess, ctx->it->ctx.itRefCount,
-      MRChannel_Size(ctx->it->ctx.chan), ctx->cmd.targetShardIdx, ctx->cmd.targetShard);
+      MRChannel_Size(ctx->it->ctx.chan), ctx->cmd.targetShardIdx,
+      ctx->cmd.targetShard ? ctx->cmd.targetShard : "(none)");
   ctx->cmd.depleted = true;
   short pending = --ctx->it->ctx.pending; // Decrease `pending` before decreasing `inProcess`
   RS_ASSERT(pending >= 0);
@@ -712,10 +713,8 @@ void iterCursorMappingCb(void *p) {
   WeakRef_Release(data->privateDataRef);
   CursorMappings *vsimOrSearch = StrongRef_Get(mappingsRef);
   if (!vsimOrSearch) {
-    // Cursor mappings have been freed - cannot proceed with command dispatch.
-    // Release the iterator to decrement its reference count and trigger cleanup.
-    // This handles the case where we abort before sending commands to any shards.
-    MRIterator_Release(it);
+    // Complete the provisional callback now that no shard commands will be dispatched.
+    MRIteratorCallback_Done(&it->cbxs[0], 1);
     rm_free(data);
     return;
   }
