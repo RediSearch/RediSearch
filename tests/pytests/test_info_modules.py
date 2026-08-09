@@ -665,6 +665,12 @@ def test_indexes_logically_deleted_docs(env):
   # is > 8h (5 minutes is the hard limit for a test).
   env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
   env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', '30000').ok()
+
+  # Redis refuses a module fork while it still has an unreaped child, and a forced GC cycle that
+  # cannot fork collects nothing while GC_FORCEINVOKE still replies DONE. Disable the periodic save
+  # so no bgsave child can race the forced cycle at the end of this test.
+  env.expect('CONFIG', 'SET', 'save', '').ok()
+
   set_doc = lambda doc_id: env.expect('HSET', doc_id, 'text', 'some text', 'tag', 'tag1', 'num', 1)
   get_logically_deleted_docs = lambda: env.cmd('INFO', 'MODULES')['search_gc_total_docs_not_collected']
 
