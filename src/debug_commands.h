@@ -179,6 +179,10 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 // Fork-GC worker: parked at the very top of a periodic GC job, before the collection callback
 // runs. Lets a test rendezvous with a real run while RUN_PENDING is held, instead of sleeping.
 #define SYNC_POINT_GC_TASK_START                        "GCTaskStart"
+// Fork-GC worker: parked after the pass finished and before it posts its re-arm to the main
+// thread. The only window where RUN_PENDING is held but no run remains to discover a drop, so a
+// test can land a stop and a drop in it deterministically.
+#define SYNC_POINT_GC_BEFORE_REARM_POST                 "GCBeforeRearmPost"
 // Fork-GC worker: parked before the GIL handshake that precedes the fork, so a test can take
 // the single child slot while a cycle waits here and make the EEXIST retry deterministic.
 #define SYNC_POINT_GC_BEFORE_FORK                       "GCBeforeFork"
@@ -269,6 +273,11 @@ void DebugBgIterator_Clear(struct MRIterator *it);
 // Yield counter functions
 void IncrementLoadYieldCounter(void);
 void IncrementBgIndexYieldCounter(void);
+
+// GC timer arm counters. `FromOneShot` counts the arms that went through the main-thread
+// one-shot; a test asserts the two are equal to prove no arm happened on the GC thread.
+void IncrementGCTimerArm(void);
+void IncrementGCTimerArmFromOneShot(void);
 
 // Indexer sleep before yield functions
 unsigned int GetIndexerSleepBeforeYieldMicros(void);
