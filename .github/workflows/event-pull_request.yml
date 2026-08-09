@@ -12,12 +12,10 @@ concurrency:
 
 jobs:
   get-latest-redis-tag:
-    # TODO: Switch to the latest 8.8 release/pre-release line once it is ready.
-    runs-on: ubuntu-slim
-    outputs:
-      tag: 3cd464263b03b425ffae2e23db24df3dc9346871
-    steps:
-      - run: echo "Dummy step to set output"
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
+      prefix: '8.8'
 
   check-what-changed:
     uses: ./.github/workflows/task-check-changes.yml
