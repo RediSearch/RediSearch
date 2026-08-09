@@ -103,7 +103,7 @@ impl TermSuffixIndex {
         }
 
         let lowered = unicode::tolower_cow(term);
-        let term: &str = &lowered;
+        let term = &lowered;
 
         if term.len() > MAX_TERM_BYTE_LEN {
             return;
@@ -113,7 +113,7 @@ impl TermSuffixIndex {
             return;
         }
 
-        let owner = Arc::from(term);
+        let owner = Arc::from(term as &str);
         self.inner.insert_with(term, |existing| {
             TermRefs::upsert_full_term(existing, Arc::clone(&owner))
         });
