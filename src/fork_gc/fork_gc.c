@@ -128,6 +128,44 @@ static void reap_child_blocking(RedisModuleCtx *ctx, pid_t cpid, int timeout_sec
   }
 }
 
+// Takes the single child slot Redis allows. A debugForced cycle retries while a competing
+// BGSAVE, AOF rewrite or replication fork holds it (EEXIST); every other cycle gets one
+// attempt, since its next run is due anyway. Returns the child pid, or -1 having logged why.
+//
+// The GIL must be held on entry and is held on return; it is released only while waiting, both
+// because the child being waited on needs the main thread and because its exit is what makes an
+// earlier isOutOfMemory() answer stale -- hence the guard inside the loop.
+static pid_t forkGCChild(RedisModuleCtx *ctx, bool debugForced) {
+  const int max_attempts = debugForced ? GC_FORK_SLOT_ATTEMPTS : 1;
+  struct timespec backoff = {.tv_sec = 0, .tv_nsec = GC_FORK_SLOT_BACKOFF_NS};
+
+  for (int attempt = 1; ; attempt++) {
+    if (isOutOfMemory(ctx)) {
+      RedisModule_Log(ctx, "warning", "Not enough memory for GC fork, skipping GC job");
+      return -1;
+    }
+
+    pid_t cpid = RedisModule_Fork(NULL, NULL);  // duplicate the current process
+    if (cpid != -1) {
+      return cpid;
+    }
+    if (errno != EEXIST || attempt == max_attempts) {
+      RedisModule_Log(ctx, "warning", "fork failed - got errno %d, aborting fork GC", errno);
+      return -1;
+    }
+
+    RedisModule_ThreadSafeContextUnlock(ctx);
+
+    // Test hook (ENABLE_ASSERT): park after a failed fork, so a test can observe the EEXIST.
+#ifdef ENABLE_ASSERT
+    SyncPoint_Wait(SYNC_POINT_GC_FORK_SLOT_BUSY);
+#endif
+
+    nanosleep(&backoff, NULL);
+    RedisModule_ThreadSafeContextLock(ctx);
+  }
+}
+
 bool FGC_RunCycle(ForkGC *gc, bool debugForced, const FGCHook *hook) {
   RedisModuleCtx *ctx = gc->ctx;
 
@@ -178,39 +216,9 @@ bool FGC_RunCycle(ForkGC *gc, bool debugForced, const FGCHook *hook) {
   // We need to acquire the GIL to use the fork api
   RedisModule_ThreadSafeContextLock(ctx);
 
-  // Redis runs one child at a time, so a BGSAVE, AOF rewrite or replication fork makes
-  // the fork below fail with EEXIST. Only a debugForced cycle waits it out.
-  struct timespec fork_slot_backoff = {.tv_sec = 0, .tv_nsec = GC_FORK_SLOT_BACKOFF_NS};
-  for (int attempt = 0; ; attempt++) {
-    // Check if we are out of memory before even trying to fork
-    if (isOutOfMemory(ctx)) {
-      RedisModule_Log(ctx, "warning", "Not enough memory for GC fork, skipping GC job");
-      gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRetryInterval;
-      IndexSpecRef_Release(early_check);
-      RedisModule_ThreadSafeContextUnlock(ctx);
-      close(gc->pipe_read_fd);
-      close(gc->pipe_write_fd);
-      return true;
-    }
-
-    cpid = RedisModule_Fork(NULL, NULL);  // duplicate the current process
-    if (cpid != -1 || !debugForced || errno != EEXIST || attempt == GC_FORK_SLOT_ATTEMPTS) {
-      break;
-    }
-    // Waiting without the GIL: the child we wait for needs the main thread to exit.
-    RedisModule_ThreadSafeContextUnlock(ctx);
-
-    // Test hook (ENABLE_ASSERT): park after a failed fork, so a test can observe the EEXIST.
-#ifdef ENABLE_ASSERT
-    SyncPoint_Wait(SYNC_POINT_GC_FORK_SLOT_BUSY);
-#endif
-
-    nanosleep(&fork_slot_backoff, NULL);
-    RedisModule_ThreadSafeContextLock(ctx);
-  }
+  cpid = forkGCChild(ctx, debugForced);
 
   if (cpid == -1) {
-    RedisModule_Log(ctx, "warning", "fork failed - got errno %d, aborting fork GC", errno);
     gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRetryInterval;
     IndexSpecRef_Release(early_check);
 
