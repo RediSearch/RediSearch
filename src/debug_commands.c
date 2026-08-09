@@ -427,6 +427,7 @@ void HybridStoreCursorsDebugCtx_SetPause(bool pause) {
 }
 
 static atomic_uint_fast64_t g_blockedRequestOnFreeCount = 0;
+static atomic_uint_fast64_t g_blockedReplyCallbackCount = 0;
 
 void BlockedRequestOnFreeDebug_Increment(void) {
   atomic_fetch_add_explicit(&g_blockedRequestOnFreeCount, 1, memory_order_relaxed);
@@ -434,6 +435,14 @@ void BlockedRequestOnFreeDebug_Increment(void) {
 
 uint64_t BlockedRequestOnFreeDebug_GetCount(void) {
   return atomic_load_explicit(&g_blockedRequestOnFreeCount, memory_order_relaxed);
+}
+
+void BlockedReplyCallbackDebug_Increment(void) {
+  atomic_fetch_add_explicit(&g_blockedReplyCallbackCount, 1, memory_order_relaxed);
+}
+
+uint64_t BlockedReplyCallbackDebug_GetCount(void) {
+  return atomic_load_explicit(&g_blockedReplyCallbackCount, memory_order_relaxed);
 }
 #endif
 
@@ -2765,6 +2774,20 @@ DEBUG_COMMAND(getBlockedRequestOnFreeCount) {
 }
 
 /**
+ * FT.DEBUG QUERY_CONTROLLER GET_BLOCKED_REPLY_CALLBACK_COUNT
+ */
+DEBUG_COMMAND(getBlockedReplyCallbackCount) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  return RedisModule_ReplyWithLongLong(ctx, (long long)BlockedReplyCallbackDebug_GetCount());
+}
+
+/**
  * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_AFTER_AGGREGATE_RESULT <N>
  * AGGREGATE_RESULTS_NO_PAUSE (0): no pause
  * N>0: pause after the Nth result is extracted from the AggregateResults loop
@@ -3237,6 +3260,9 @@ DEBUG_COMMAND(queryController) {
   }
   if (!strcmp("GET_BLOCKED_REQUEST_ONFREE_COUNT", op)) {
     return getBlockedRequestOnFreeCount(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("GET_BLOCKED_REPLY_CALLBACK_COUNT", op)) {
+    return getBlockedReplyCallbackCount(ctx, argv + 1, argc - 1);
   }
   // AggregateResults loop pause commands
   if (!strcmp("SET_PAUSE_AFTER_AGGREGATE_RESULT", op)) {

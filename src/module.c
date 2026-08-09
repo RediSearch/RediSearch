@@ -69,6 +69,7 @@
 #include "aggregate/aggregate_debug.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/threads/main_thread.h"
+#include "info/info_redis/block_client.h"
 #include "legacy_types.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
@@ -3878,8 +3879,9 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   RSTimeoutPolicy policy = r->reqConfig.timeoutPolicy;
   handlerCtx.bcCtx.brc = r->brc;
-  handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
-  r->useReplyCallback = true;
+  handlerCtx.bcCtx.reply_callback =
+      policy == TimeoutPolicy_Return ? StagedReplyCommitCallback : DistAggregateReplyCallback;
+  r->storeResultsForReplyCallback = policy != TimeoutPolicy_Return;
   if (policy == TimeoutPolicy_Fail || policy == TimeoutPolicy_ReturnStrict) {
     handlerCtx.bcCtx.timeout_callback = (policy == TimeoutPolicy_Fail)
         ? DistAggregateTimeoutFailCallback

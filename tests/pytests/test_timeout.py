@@ -6,8 +6,18 @@ def verifyTimeoutResultsResp3(env, res, expected_results_count, message="", dept
     VerifyTimeoutWarningResp3(env, res, depth=depth+1, message=message + " unexpected results count")
 
 
-def _test_return_background_stores_partial_results(protocol):
-    """RETURN stores deterministic partial rows before the main-thread reply callback."""
+def _blocked_callback_count(env):
+    return int(env.cmd(debug_cmd(), 'QUERY_CONTROLLER',
+                       'GET_BLOCKED_REPLY_CALLBACK_COUNT'))
+
+
+def _blocked_onfree_count(env):
+    return int(env.cmd(debug_cmd(), 'QUERY_CONTROLLER',
+                       'GET_BLOCKED_REQUEST_ONFREE_COUNT'))
+
+
+def _test_return_background_stages_partial_results(protocol):
+    """RETURN stages partial RESP bytes while retaining the reply callback."""
     env = Env(protocol=protocol, enableDebugCommand=True,
               moduleArgs='WORKERS 1 ON_TIMEOUT RETURN')
     skipIfNoEnableAssert(env)
@@ -18,35 +28,27 @@ def _test_return_background_stores_partial_results(protocol):
         conn.execute_command('HSET', f'doc:{i}', 'n', i)
     waitForIndex(env, 'idx')
 
-    query_result = []
-    setPauseAfterStoreResults(env, True, internal=False)
-    query_thread = threading.Thread(
-        target=call_and_store,
-        args=(runDebugQueryCommandTimeoutAfterN,
-              [env, ['FT.AGGREGATE', 'idx', '*',
-                     'SORTBY', '2', '@n', 'ASC', 'LOAD', '1', '@n'], 2],
-              query_result),
-        daemon=True,
+    callbacks_before = _blocked_callback_count(env)
+    onfree_before = _blocked_onfree_count(env)
+    query_args = parseDebugQueryCommandArgs(
+        ['FT.AGGREGATE', 'idx', '*',
+         'SORTBY', '2', '@n', 'ASC', 'LOAD', '1', '@n'],
+        ['TIMEOUT_AFTER_N', 2],
     )
-    try:
-        query_thread.start()
-        wait_for_condition(
-            lambda: (getIsStoreResultsPaused(env) == 1,
-                     {'paused': getIsStoreResultsPaused(env)}),
-            'RETURN query did not pause after storing partial results',
-            timeout=10,
-        )
-    finally:
-        resetStoreResultsDebug(env)
+    query_result = conn.execute_command(debug_cmd(), *query_args)
 
-    query_thread.join(timeout=10)
-    env.assertFalse(query_thread.is_alive(), message='RETURN query thread did not finish')
-    env.assertEqual(len(query_result), 1, message='RETURN query did not produce a reply')
+    # A duplicate callback reply would be observed as a ghost response here.
+    env.assertEqual(conn.execute_command('PING'), True)
+
+    # The client receives the worker-staged bytes only after Redis invokes the
+    # registered reply callback and the cycle's free callback.
+    env.assertEqual(_blocked_callback_count(env), callbacks_before + 1)
+    env.assertEqual(_blocked_onfree_count(env), onfree_before + 1)
 
     if protocol == 2:
-        env.assertEqual(query_result[0], [2, ['n', '0'], ['n', '1']])
+        env.assertEqual(query_result, [2, ['n', '0'], ['n', '1']])
     else:
-        env.assertEqual(query_result[0], {
+        env.assertEqual(query_result, {
             'attributes': [],
             'warning': ['Timeout limit was reached'],
             'total_results': 2,
@@ -59,15 +61,80 @@ def _test_return_background_stores_partial_results(protocol):
 
 
 @skip(cluster=True)
-def test_return_background_stores_partial_results_resp2():
-    """Exercise the array-backed RETURN timeout reply under RESP2."""
-    _test_return_background_stores_partial_results(2)
+def test_return_background_stages_partial_results_resp2():
+    """Exercise callback-preserving worker staging under RESP2."""
+    _test_return_background_stages_partial_results(2)
 
 
 @skip(cluster=True)
-def test_return_background_stores_partial_results_resp3():
-    """Exercise the array-backed RETURN timeout reply under RESP3."""
-    _test_return_background_stores_partial_results(3)
+def test_return_background_stages_partial_results_resp3():
+    """Exercise callback-preserving worker staging under RESP3."""
+    _test_return_background_stages_partial_results(3)
+
+
+@skip(cluster=True)
+def test_return_background_stages_search_reply():
+    """FT.SEARCH RETURN stages its reply and still invokes the callback."""
+    env = Env(protocol=3, enableDebugCommand=True,
+              moduleArgs='WORKERS 1 ON_TIMEOUT RETURN')
+    skipIfNoEnableAssert(env)
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+    for i in range(5):
+        conn.execute_command('HSET', f'doc:{i}', 'n', i)
+    waitForIndex(env, 'idx')
+
+    callbacks = _blocked_callback_count(env)
+    onfree = _blocked_onfree_count(env)
+    result = conn.execute_command(
+        'FT.SEARCH', 'idx', '*', 'SORTBY', 'n', 'ASC',
+        'RETURN', 1, 'n', 'LIMIT', 0, 5,
+    )
+    env.assertEqual(result['total_results'], 5)
+    env.assertEqual(len(result['results']), 5)
+    env.assertEqual(conn.execute_command('PING'), True)
+    env.assertEqual(_blocked_callback_count(env), callbacks + 1)
+    env.assertEqual(_blocked_onfree_count(env), onfree + 1)
+
+
+@skip(cluster=True)
+def test_return_background_stages_cursor_cycles():
+    """Initial and follow-up cursor chunks each retain exactly one callback."""
+    env = Env(protocol=3, enableDebugCommand=True,
+              moduleArgs='WORKERS 1 ON_TIMEOUT RETURN')
+    skipIfNoEnableAssert(env)
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+    for i in range(5):
+        conn.execute_command('HSET', f'doc:{i}', 'n', i)
+    waitForIndex(env, 'idx')
+
+    callbacks = _blocked_callback_count(env)
+    onfree = _blocked_onfree_count(env)
+    result, cursor = conn.execute_command(
+        'FT.AGGREGATE', 'idx', '*', 'SORTBY', '2', '@n', 'ASC',
+        'LOAD', '1', '@n', 'WITHCURSOR', 'COUNT', 2,
+    )
+    env.assertEqual(len(result['results']), 2)
+    env.assertNotEqual(cursor, 0)
+    received = len(result['results'])
+    callbacks += 1
+    onfree += 1
+    env.assertEqual(_blocked_callback_count(env), callbacks)
+    env.assertEqual(_blocked_onfree_count(env), onfree)
+
+    while cursor:
+        result, cursor = conn.execute_command('FT.CURSOR', 'READ', 'idx', cursor, 'COUNT', 2)
+        received += len(result['results'])
+        callbacks += 1
+        onfree += 1
+        env.assertEqual(_blocked_callback_count(env), callbacks)
+        env.assertEqual(_blocked_onfree_count(env), onfree)
+
+    env.assertEqual(received, 5)
+    env.assertEqual(conn.execute_command('PING'), True)
 
 # skip on cluster since there might not be enough documents in each shard to reach the RP_INDEX timeout limit counter.
 @skip(cluster=True)
