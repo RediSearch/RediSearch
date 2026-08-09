@@ -18,9 +18,24 @@
 // RDB load callback cannot return NULL, as it indicates an error
 void *dummyNonNull = (void*)0xDEADBEEF;
 
-// Dummy no-op functions for type methods
-void GenericType_DummyRdbSave(RedisModuleIO *rdb, void *value) {
-  RS_ABORT("Attempted to save a legacy type to RDB");
+// Save minimal valid payloads for legacy types so accidental persistence paths
+// (e.g. DUMP/SAVE/replication) remain stable for dummy legacy values.
+void InvertedIndex_RdbSave_Empty(RedisModuleIO *rdb, void *value) {
+  RS_ASSERT(value == dummyNonNull);
+  RedisModule_SaveUnsigned(rdb, 0); // flags
+  RedisModule_SaveUnsigned(rdb, 0); // lastId
+  RedisModule_SaveUnsigned(rdb, 0); // numDocs
+  RedisModule_SaveUnsigned(rdb, 0); // n_blocks
+}
+
+void NumericIndexType_RdbSave_Empty(RedisModuleIO *rdb, void *value) {
+  RS_ASSERT(value == dummyNonNull);
+  RedisModule_SaveUnsigned(rdb, 0); // terminator for legacy v1 encoding
+}
+
+void TagIndex_RdbSave_Empty(RedisModuleIO *rdb, void *value) {
+  RS_ASSERT(value == dummyNonNull);
+  RedisModule_SaveUnsigned(rdb, 0); // n_tags
 }
 
 void GenericType_DummyFree(void *value) {
@@ -85,7 +100,7 @@ int RegisterLegacyTypes(RedisModuleCtx *ctx) {
 
   RedisModuleTypeMethods tm = {
     .version = REDISMODULE_TYPE_METHOD_VERSION,
-    .rdb_save = GenericType_DummyRdbSave,
+    .rdb_save = InvertedIndex_RdbSave_Empty,
     .aof_rewrite = GenericAofRewrite_DisabledHandler,
     .free = GenericType_DummyFree,
   };
@@ -98,12 +113,14 @@ int RegisterLegacyTypes(RedisModuleCtx *ctx) {
 
   // Register the numeric index type
   tm.rdb_load = NumericIndexType_RdbLoad_Consume;
+  tm.rdb_save = NumericIndexType_RdbSave_Empty;
   if (!RedisModule_CreateDataType(ctx, "numericdx", LEGACY_ENC_VER, &tm)) {
     return REDISMODULE_ERR;
   }
 
   // Register the tag index type
   tm.rdb_load = TagIndex_RdbLoad_Consume;
+  tm.rdb_save = TagIndex_RdbSave_Empty;
   if (!RedisModule_CreateDataType(ctx, "ft_tagidx", LEGACY_ENC_VER, &tm)) {
     return REDISMODULE_ERR;
   }
