@@ -67,6 +67,29 @@ typedef struct {
   GCForcedRunOutcome outcome;   // set by the cycle
 } GCForcedRun;
 
+// Builds a forced run with its deadline stamped from now, which is why callers use this rather
+// than filling the struct themselves: a forkWaitMs without a matching deadline reads as a budget
+// that expired before the first attempt. Call it on the thread asking for the collection, so the
+// budget runs from there rather than from whenever the GC worker picks the job up.
+static inline GCForcedRun GCForcedRun_New(long long forkWaitMs, long long retryIntervalMs) {
+  GCForcedRun forced;
+  forced.forkWaitMs = forkWaitMs;
+  forced.retryIntervalMs = retryIntervalMs;
+  forced.forkDeadline.tv_sec = 0;
+  forced.forkDeadline.tv_nsec = 0;
+  forced.outcome = GC_FORCED_RUN_OK;
+  if (forkWaitMs > 0) {
+    clock_gettime(CLOCK_MONOTONIC_RAW, &forced.forkDeadline);
+    forced.forkDeadline.tv_sec += forkWaitMs / 1000;
+    forced.forkDeadline.tv_nsec += (forkWaitMs % 1000) * 1000000;
+    if (forced.forkDeadline.tv_nsec >= 1000000000) {
+      forced.forkDeadline.tv_sec++;
+      forced.forkDeadline.tv_nsec -= 1000000000;
+    }
+  }
+  return forced;
+}
+
 typedef struct GCCallbacks {
   // Returns true if the GC should be rescheduled, false if the GC should be stopped.
   // `forced` is non-NULL only for a demanded collection, which must really happen: it skips
@@ -107,9 +130,9 @@ void GCContext_RenderStatsForInfo(GCContext* gc, RedisModuleInfoCtx* ctx);
 void GCContext_OnDelete(GCContext* gc);
 void GCContext_OnWrite(GCContext* gc);
 void GCContext_OnUpdate(GCContext* gc);
-// Queue a demanded collection. `forced` is copied, so the caller keeps no ownership. With a
-// blocked client, the outcome reaches its reply as unblock privdata, freed by
-// GCForcedRunOutcomeFree.
+// Queue a demanded collection, built with GCForcedRun_New. `forced` is copied, so the caller
+// keeps no ownership. With a blocked client, the outcome reaches its reply as unblock privdata,
+// freed by GCForcedRunOutcomeFree.
 void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc, GCForcedRun forced);
 void GCContext_ForceBGInvoke(GCContext* gc, GCForcedRun forced);
 // free_privdata for the blocked client above; matches RedisModule_BlockClient's signature.

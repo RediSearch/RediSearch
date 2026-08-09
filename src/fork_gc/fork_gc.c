@@ -124,39 +124,40 @@ static void reap_child_blocking(RedisModuleCtx *ctx, pid_t cpid, int timeout_sec
   }
 }
 
+// Milliseconds left of a forced run's budget, or -1 when its caller set none.
+static long long forkBudgetLeftMs(const GCForcedRun *forced) {
+  if (forced->forkWaitMs <= 0) {
+    return -1;
+  }
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC_RAW, &now);
+  long long left = (forced->forkDeadline.tv_sec - now.tv_sec) * 1000 +
+                   (forced->forkDeadline.tv_nsec - now.tv_nsec) / 1000000;
+  return left > 0 ? left : 0;
+}
+
 // Takes the single child slot Redis allows. A forced cycle retries while a competing BGSAVE,
 // AOF rewrite or replication fork holds it (EEXIST), within the budget its caller set; a
 // scheduled cycle gets one attempt, since its next run is due anyway. Returns the child pid,
 // or -1 having logged why and recorded it on `forced`.
 //
+// Every attempt is gated on the budget, not just the retries: a job can sit queued behind the
+// single GC worker until its deadline has passed, and re-taking the GIL after a wait can overrun
+// it too, so forking on the strength of an earlier check could start a cycle for a caller that
+// has already been answered.
+//
 // The GIL must be held on entry and is held on return; it is released only while waiting, both
 // because the child being waited on needs the main thread and because its exit is what makes an
 // earlier isOutOfMemory() answer stale -- hence the guard inside the loop.
-// How long to wait before the next fork attempt: the retry interval, or whatever is left of the
-// budget if that is shorter. False means nothing is left, so there must be no further attempt --
-// checked before sleeping, since a sleep that overruns the budget would have the cycle forking
-// for a caller that has already been answered.
-static bool forkRetryDelay(const GCForcedRun *forced, struct timespec *delay) {
-  long long ms = forced->retryIntervalMs;
-  if (forced->forkWaitMs > 0) {
-    struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC_RAW, &now);
-    long long left = (forced->forkDeadline.tv_sec - now.tv_sec) * 1000 +
-                     (forced->forkDeadline.tv_nsec - now.tv_nsec) / 1000000;
-    if (left <= 0) {
-      return false;
-    }
-    if (left < ms) {
-      ms = left;
-    }
-  }
-  delay->tv_sec = ms / 1000;
-  delay->tv_nsec = (ms % 1000) * 1000000;
-  return true;
-}
-
 static pid_t forkGCChild(RedisModuleCtx *ctx, GCForcedRun *forced) {
   while (true) {
+    long long budget_left = forced ? forkBudgetLeftMs(forced) : -1;
+    if (budget_left == 0) {
+      RedisModule_Log(ctx, "warning", "GC fork budget spent, aborting fork GC");
+      forced->outcome = GC_FORCED_RUN_NO_FORK;
+      return -1;
+    }
+
     if (isOutOfMemory(ctx)) {
       RedisModule_Log(ctx, "warning", "Not enough memory for GC fork, skipping GC job");
       return -1;
@@ -166,14 +167,20 @@ static pid_t forkGCChild(RedisModuleCtx *ctx, GCForcedRun *forced) {
     if (cpid != -1) {
       return cpid;
     }
-    struct timespec delay;
-    if (!forced || errno != EEXIST || !forkRetryDelay(forced, &delay)) {
+    if (!forced || errno != EEXIST) {
       RedisModule_Log(ctx, "warning", "fork failed - got errno %d, aborting fork GC", errno);
       if (forced) {
         forced->outcome = GC_FORCED_RUN_NO_FORK;
       }
       return -1;
     }
+
+    long long delay_ms = forced->retryIntervalMs;
+    if (budget_left > 0 && budget_left < delay_ms) {
+      delay_ms = budget_left;  // never sleep past the deadline
+    }
+    struct timespec delay = {.tv_sec = delay_ms / 1000,
+                             .tv_nsec = (delay_ms % 1000) * 1000000};
 
     RedisModule_ThreadSafeContextUnlock(ctx);
 

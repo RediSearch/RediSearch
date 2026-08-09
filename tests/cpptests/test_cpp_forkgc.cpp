@@ -87,9 +87,8 @@ class FGCTest : public ::testing::Test {
       [](void *p) { if (auto &f = *static_cast<std::function<void()>*>(p)) f(); },
       &beforeApply
     };
-    GCForcedRun forced{};
-    forced.forkWaitMs = GC_FORCED_RUN_DEFAULT_WAIT_MS;
-    forced.retryIntervalMs = GC_FORCED_RUN_RETRY_INTERVAL_MS;
+    GCForcedRun forced =
+        GCForcedRun_New(GC_FORCED_RUN_DEFAULT_WAIT_MS, GC_FORCED_RUN_RETRY_INTERVAL_MS);
     FGC_RunCycle(fgc, &forced, beforeApply ? &hook : nullptr);
   }
 };

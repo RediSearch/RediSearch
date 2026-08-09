@@ -1059,10 +1059,14 @@ DEBUG_COMMAND(GCForceInvoke) {
     // TIMEOUT bounds the wait for a fork slot as well as the client's patience, less a margin
     // so this reply wins the race against the block timeout. A short TIMEOUT gets half of it,
     // since a fixed margin would leave nothing to wait with. 0 stays 0, meaning no limit.
-    GCForcedRun forced = {.forkWaitMs = timeout > 2 * GC_FORCED_RUN_REPLY_MARGIN_MS
-                                            ? timeout - GC_FORCED_RUN_REPLY_MARGIN_MS
-                                            : timeout / 2,
-                          .retryIntervalMs = GC_FORCED_RUN_RETRY_INTERVAL_MS};
+    long long forkWaitMs = timeout;  // TIMEOUT 0 asks for no limit, and stays that way
+    if (timeout > 2 * GC_FORCED_RUN_REPLY_MARGIN_MS) {
+      forkWaitMs = timeout - GC_FORCED_RUN_REPLY_MARGIN_MS;
+    } else if (timeout > 0) {
+      // Halving rounds down, and 0 here would read as no limit -- the opposite of a 1ms budget.
+      forkWaitMs = timeout / 2 > 0 ? timeout / 2 : 1;
+    }
+    GCForcedRun forced = GCForcedRun_New(forkWaitMs, GC_FORCED_RUN_RETRY_INTERVAL_MS);
     RedisModuleBlockedClient *bc = RedisModule_BlockClient(
         ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, GCForcedRunOutcomeFree, timeout);
     GCContext_ForceInvoke(sp->gc, bc, forced);
@@ -1133,8 +1137,8 @@ DEBUG_COMMAND(GCForceBGInvoke) {
     return REDISMODULE_OK;
   }
   // Nobody is waiting on this one, so it gets the default budget rather than a TIMEOUT.
-  GCForcedRun forced = {.forkWaitMs = GC_FORCED_RUN_DEFAULT_WAIT_MS,
-                        .retryIntervalMs = GC_FORCED_RUN_RETRY_INTERVAL_MS};
+  GCForcedRun forced = GCForcedRun_New(GC_FORCED_RUN_DEFAULT_WAIT_MS,
+                                       GC_FORCED_RUN_RETRY_INTERVAL_MS);
   GCContext_ForceBGInvoke(sp->gc, forced);
   RedisModule_ReplyWithSimpleString(ctx, "OK");
   return REDISMODULE_OK;

@@ -1111,12 +1111,13 @@ def testForcedGCReportsWhenItCannotFork():
     env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
     env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', SYNC_POINT_GC_BEFORE_FORK, 10000).ok()
 
-    # A TIMEOUT this short is the interesting case: the retry interval is longer than the whole
-    # budget, so the wait has to be cut to what is left. Sleeping a full interval instead would
-    # let the block timeout answer first, with INVOCATION FAILED.
-    thread, forced = parkedForcedGC(env, timeout=100)
+    # The budget is this TIMEOUT less a margin, and both clocks start at submission -- so the
+    # margin, not the timeout, is what this test's own setup races. TIMEOUT has to stay clear of
+    # how long that setup can take on a slow host; the budget then expires while the child below
+    # is still holding the slot.
+    thread, forced = parkedForcedGC(env, timeout=2000)
     try:
-        holdForkSlot(env, 30000)
+        holdForkSlot(env, 40000)
         env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_BEFORE_FORK)
     finally:
         thread.join(timeout=60)
