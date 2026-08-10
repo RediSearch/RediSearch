@@ -355,8 +355,9 @@ The rules for opening one — title format, the CI-enforced release-notes checkb
 PR template — live in [/open-pr](.skills/open-pr/SKILL.md), which is also the procedure.
 [/pr-backport](.skills/pr-backport/SKILL.md) covers release-branch backports, and
 [/commit-guidelines](.skills/commit-guidelines/SKILL.md) covers when history on a branch
-with an open PR may still be rewritten. Load the relevant one rather than working from
-memory.
+with an open PR may still be rewritten. [/open-pr](.skills/open-pr/SKILL.md) also covers
+cleanup of mistaken or unwanted PRs before closing, deleting branches, or sanitizing PR
+metadata. Load the relevant one rather than working from memory.
 
 ## License Header (Required)
 ```
