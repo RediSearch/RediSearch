@@ -9,7 +9,7 @@
 
 //! Supporting types for [`Not`].
 
-use std::time::Duration;
+use std::{ptr::NonNull, time::Duration};
 
 use ffi::{RS_FIELDMASK_ALL, t_docId};
 use inverted_index::RSIndexResult;
@@ -68,6 +68,41 @@ where
                 None
             } else {
                 Some(TimeoutContext::new(timeout, 5_000, false))
+            },
+        }
+    }
+
+    /// Create a NOT iterator that probes a deadline owned by the query context, read back on every
+    /// probe, instead of one captured now.
+    ///
+    /// This is what lets a cursor read be measured against its own budget: the query re-arms the
+    /// deadline in place between reads, and the iterator sees the new value.
+    ///
+    /// # Safety
+    ///
+    /// `deadline` must satisfy [`TimeoutContext::from_deadline`]'s contract.
+    pub unsafe fn new_with_deadline(
+        child: I,
+        max_doc_id: t_docId,
+        weight: f64,
+        deadline: NonNull<ffi::timespec>,
+        skip_timeout_checks: bool,
+    ) -> Self {
+        Self {
+            child: MaybeEmpty::new(child),
+            max_doc_id,
+            forced_eof: false,
+            result: RSIndexResult::build_virt()
+                .weight(weight)
+                .field_mask(RS_FIELDMASK_ALL)
+                .build(),
+            // Skipping is represented by the absence of a context, exactly as in `new`, rather than
+            // by a context whose counter never reaches its limit.
+            timeout_ctx: if skip_timeout_checks {
+                None
+            } else {
+                // SAFETY: forwarded to the caller by this method's contract.
+                Some(unsafe { TimeoutContext::from_deadline(deadline, 5_000, false) })
             },
         }
     }
