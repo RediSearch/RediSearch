@@ -10,32 +10,42 @@
 mod key;
 mod key_list;
 
+use crate::HashDocumentFormat;
+use crate::JsonDocumentFormat;
+use crate::LoadFieldError;
 use crate::{
     IndexSpec, RLookupRow,
     bindings::{FieldSpec, FieldSpecOption, FieldSpecOptions, IndexSpecCache},
+    load_document,
 };
+use document::DocumentType;
 use enumflags2::{BitFlags, bitflags};
 use key_list::KeyList;
-use std::{borrow::Cow, ffi::CStr, pin::Pin, ptr};
+use redis_json_api::RedisJsonApi;
+use redis_module::RedisString;
+use std::{borrow::Cow, ffi::CStr, pin::Pin, ptr::NonNull};
 
 pub use key::{GET_KEY_FLAGS, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, TRANSIENT_FLAGS};
 pub use key_list::{Cursor, CursorMut, Iter, IterMut};
 
+#[cheadergen::config(export, rename = "RLookup_Opt")]
 #[bitflags]
 #[repr(u32)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum RLookupOption {
     /// If the key cannot be found, do not mark it as an error, but create it and
     /// mark it as F_UNRESOLVED
+    #[cheadergen(rename = "RLOOKUP_OPT_ALLOWUNRESOLVED")]
     AllowUnresolved = 0x01,
 
     /// If a loader was added to load the entire document, this flag will allow
     /// later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
+    #[cheadergen(rename = "RLOOKUP_OPT_ALLLOADED")]
     AllLoaded = 0x02,
 }
 
 /// Helper type to represent a set of [`RLookupOption`]s.
-/// cbindgen:ignore
+#[cheadergen::config(skip)]
 pub type RLookupOptions = BitFlags<RLookupOption>;
 
 /// An append-only list of [`RLookupKey`]s.
@@ -270,30 +280,24 @@ impl<'a> RLookup<'a> {
 
         let name = name.into();
 
-        if let Some(c) = self.keys.find_by_name_mut(&name) {
+        let key = if let Some(c) = self.keys.find_by_name_mut(&name) {
             // A. we found the key in the lookup table:
             if flags.contains(RLookupKeyFlag::Override) {
-                // We are in create mode, overwrite the key (remove schema related data, mark with new flags)
+                // We are in create mode, overwrite the key (remove schema related data, mark with new flags).
                 c.override_current(flags | RLookupKeyFlag::QuerySrc)
-                    .unwrap();
+                    .unwrap()
             } else {
                 // We are in exclusive mode, return None
                 return None;
             }
         } else {
             // B. we didn't find the key in the lookup table:
-            // create a new key with the name and flags
-            let key = RLookupKey::new(name.clone(), flags | RLookupKeyFlag::QuerySrc);
-            self.keys.push(key);
+            // create a new key with the name and flags.
+            self.keys
+                .push(RLookupKey::new(name, flags | RLookupKeyFlag::QuerySrc))
         };
 
-        // FIXME: Duplication because of borrow-checker false positive. Duplication means performance implications.
-        // See <https://github.com/rust-lang/rust/issues/54663>
-        let cursor = self
-            .keys
-            .find_by_name(&name)
-            .expect("key should have been created above");
-        Some(cursor.into_current().unwrap())
+        Some(key.into_ref().get_ref())
     }
 
     // ===== Load key from redis keyspace (include known information on the key, fail if already loaded) =====
@@ -316,55 +320,55 @@ impl<'a> RLookup<'a> {
         //    (no need to load it from the document).
 
         // Ensure the key is available, if it is check for flags and return None or override the key depending on flags, if key not available insert it.
-        if let Some(mut c) = self.keys.find_by_name_mut(&name) {
-            let key = c.current().unwrap();
-
-            if (key.flags.contains(RLookupKeyFlag::ValAvailable)
-                && !key.flags.contains(RLookupKeyFlag::IsLoaded))
-                && !key
-                    .flags
-                    .intersects(RLookupKeyFlag::Override | RLookupKeyFlag::ForceLoad)
-                || (key.flags.contains(RLookupKeyFlag::IsLoaded)
-                    && !flags.contains(RLookupKeyFlag::Override))
-                || (key.flags.contains(RLookupKeyFlag::QuerySrc)
-                    && !flags.contains(RLookupKeyFlag::Override))
+        let key = if let Some(mut c) = self.keys.find_by_name_mut(&name) {
+            // Scoped borrow: must end before `override_current` consumes the cursor.
             {
-                // We found a key with the same name. We return NULL if:
-                // 1. The key has the origin data available (from the sorting vector, UNF) and the caller didn't
-                //    request to override or forced loading.
-                // 2. The key is already loaded (from the document) and the caller didn't request to override.
-                // 3. The key was created by the query (upstream) and the caller didn't request to override.
+                let key = c.current().unwrap();
 
-                let key = key.project();
+                if (key.flags.contains(RLookupKeyFlag::ValAvailable)
+                    && !key.flags.contains(RLookupKeyFlag::IsLoaded))
+                    && !key
+                        .flags
+                        .intersects(RLookupKeyFlag::Override | RLookupKeyFlag::ForceLoad)
+                    || (key.flags.contains(RLookupKeyFlag::IsLoaded)
+                        && !flags.contains(RLookupKeyFlag::Override))
+                    || (key.flags.contains(RLookupKeyFlag::QuerySrc)
+                        && !flags.contains(RLookupKeyFlag::Override))
+                {
+                    // We found a key with the same name. We return NULL if:
+                    // 1. The key has the origin data available (from the sorting vector, UNF) and the caller didn't
+                    //    request to override or forced loading.
+                    // 2. The key is already loaded (from the document) and the caller didn't request to override.
+                    // 3. The key was created by the query (upstream) and the caller didn't request to override.
 
-                // If the caller wanted to mark this key as explicit return, mark it as such even if we don't return it.
-                key.header.flags |= flags & RLookupKeyFlag::ExplicitReturn;
+                    let key = key.project();
 
-                return None;
-            } else {
-                c.override_current(flags | RLookupKeyFlag::DocSrc | RLookupKeyFlag::IsLoaded)
-                    .unwrap();
+                    // If the caller wanted to mark this key as explicit return, mark it as such even if we don't return it.
+                    key.header.flags |= flags & RLookupKeyFlag::ExplicitReturn;
+
+                    return None;
+                }
             }
+
+            let key = c
+                .override_current(flags | RLookupKeyFlag::DocSrc | RLookupKeyFlag::IsLoaded)
+                .unwrap();
+            // Safety: We treat the pointer as pinned internally and never hand out references that could be moved out of (in safe Rust).
+            unsafe { Pin::into_inner_unchecked(key) }
         } else {
-            let key = RLookupKey::new(
+            let key = self.keys.push(RLookupKey::new(
                 name.clone(),
                 flags | RLookupKeyFlag::DocSrc | RLookupKeyFlag::IsLoaded,
-            );
-            self.keys.push(key);
+            ));
+            // Safety: We treat the pointer as pinned internally and never hand out references that could be moved out of (in safe Rust).
+            unsafe { Pin::into_inner_unchecked(key) }
         };
 
-        // FIXME: Duplication because of borrow-checker false positive. Duplication means performance implications.
-        // See <https://github.com/rust-lang/rust/issues/54663>
-        let mut cursor = self
-            .keys
-            .find_by_name_mut(&name)
-            .expect("key should have been created above");
-        let key = if let Some(fs) = self
+        if let Some(fs) = self
             .index_spec_cache
             .as_ref()
             .and_then(|spcache| spcache.find_field(field_name))
         {
-            let key = cursor.into_current().unwrap();
             key.update_from_field_spec(fs);
 
             if key.flags.contains(RLookupKeyFlag::ValAvailable)
@@ -374,11 +378,12 @@ impl<'a> RLookup<'a> {
                 // so we can use the sorting vector as the source, and we don't need to load it from the document.
                 return None;
             }
-            key
         } else {
             // Field not found in the schema.
-            let key = cursor.current().unwrap();
             let is_borrowed = matches!(key.name(), Cow::Borrowed(_));
+
+            // Safety: We treat the pointer as pinned internally and never move out of the key.
+            let key = unsafe { Pin::new_unchecked(&mut *key) };
 
             // We assume `field_name` is the path to load from in the document.
             if is_borrowed {
@@ -389,9 +394,7 @@ impl<'a> RLookup<'a> {
             } // else
             // If the caller requested to allocate the name, and the name is the same as the path,
             // it was already set to the same allocation for the name, so we don't need to do anything.
-
-            cursor.into_current().unwrap()
-        };
+        }
 
         Some(key)
     }
@@ -401,37 +404,91 @@ impl<'a> RLookup<'a> {
         self.keys.rowlen
     }
 
+    /// Returns the schema-source keys eligible for individual document loading.
+    ///
+    /// Mirrors the C `loadIndividualKeys` selection for the "load every loadable
+    /// key" case (`nkeys == 0`): only keys flagged [`RLookupKeyFlag::SchemaSrc`]
+    /// are considered, and when `cached_only` is set without `force_load` the set
+    /// is further restricted to keys backed by the sorting vector
+    /// ([`RLookupKeyFlag::SvSrc`]).
+    pub fn schema_src_keys(
+        &self,
+        cached_only: bool,
+        force_load: bool,
+    ) -> impl Iterator<Item = &RLookupKey<'a>> {
+        self.iter()
+            .filter(|k| k.flags.contains(RLookupKeyFlag::SchemaSrc))
+            .filter(move |k| !cached_only || force_load || k.flags.contains(RLookupKeyFlag::SvSrc))
+    }
+
+    /// `open_key`, when `Some`, is an already-open handle for `key_name` that the loader
+    /// reuses instead of opening the document by name; it is borrowed, not closed here.
     pub fn load_rule_fields(
         &mut self,
         search_ctx: &mut ffi::RedisSearchCtx,
         dst_row: &mut RLookupRow<'a>,
         index_spec: &'a IndexSpec,
-        key: &CStr,
-        status: &mut ffi::QueryError,
-    ) -> i32 {
-        let keys = create_keys_from_spec(index_spec);
-        let pushed_keys = keys.into_iter().map(|k| self.keys.push(k)).collect();
-        load_specific_keys(
-            self,
-            search_ctx,
-            dst_row,
-            index_spec,
-            key,
-            pushed_keys,
-            status,
-        )
+        key_name: &CStr,
+        open_key: Option<&redis_module::RedisModuleKey>,
+    ) -> Result<(), LoadFieldError> {
+        // NB: eagerly consume the entire iterator, so the **side-effect-full* `self.keys.push` happens
+        // for every key.
+        let keys_to_load: Vec<_> = create_keys_from_spec(index_spec)
+            .map(|k| self.keys.push(k))
+            .collect();
+
+        let key_name =
+            RedisString::create_from_slice(search_ctx.redisCtx.cast(), key_name.to_bytes());
+
+        match index_spec.rule().type_() {
+            DocumentType::Hash => {
+                let format =
+                    HashDocumentFormat::new(NonNull::new(search_ctx.redisCtx).unwrap(), false);
+
+                load_document::load_specific_keys(
+                    &format,
+                    dst_row,
+                    &key_name,
+                    keys_to_load,
+                    true,
+                    open_key,
+                    None,
+                )
+            }
+            DocumentType::Json => {
+                // Safety: this function will be called long after module initialization
+                let japi = unsafe { RedisJsonApi::get().ok_or(LoadFieldError::JsonUnsupported) }?;
+
+                let format = JsonDocumentFormat::new(
+                    NonNull::new(search_ctx.redisCtx).unwrap(),
+                    &japi,
+                    search_ctx.apiVersion,
+                );
+
+                load_document::load_specific_keys(
+                    &format,
+                    dst_row,
+                    &key_name,
+                    keys_to_load,
+                    true,
+                    open_key,
+                    None,
+                )
+            }
+            DocumentType::Unsupported => unimplemented!("unsupported document type"),
+        }
     }
 }
 
-fn create_keys_from_spec<'a>(index_spec: &'a IndexSpec) -> Vec<RLookupKey<'a>> {
-    // TODO: Consider returning `impl Iterator` in order to avoid the `collect()` allocation below, refer to Jira ticket MOD-13907.
+fn create_keys_from_spec<'a>(
+    index_spec: &'a IndexSpec,
+) -> impl ExactSizeIterator<Item = RLookupKey<'a>> {
     let rule = index_spec.rule();
     let field_specs = index_spec.field_specs();
     rule.filter_fields_index()
         .iter()
         .zip(rule.filter_fields())
         .map(|(&index, filter_field)| create_key_from_data(index, filter_field, field_specs))
-        .collect::<Vec<_>>()
 }
 
 fn create_key_from_data<'a>(
@@ -441,53 +498,15 @@ fn create_key_from_data<'a>(
 ) -> RLookupKey<'a> {
     const NO_MATCH: i32 = -1;
     if NO_MATCH == index {
-        RLookupKey::new(filter_field, RLookupKeyFlags::empty())
+        RLookupKey::new_with_path(filter_field, filter_field, RLookupKeyFlags::empty())
     } else {
         let index = usize::try_from(index).expect("index must be positive and fit into usize");
         let field_spec = &field_specs[index];
-        let field_name = field_spec.field_name().into_secret_value();
-        let path = field_spec.field_path().into_secret_value();
+        let field_name = field_spec.field_name().secret_value();
+        let path = field_spec.field_path().secret_value();
 
         RLookupKey::new_with_path(field_name, path, RLookupKeyFlags::empty())
     }
-}
-
-fn load_specific_keys<'a>(
-    lookup: &mut RLookup<'a>,
-    search_ctx: &mut ffi::RedisSearchCtx,
-    dst_row: &mut RLookupRow<'a>,
-    index_spec: &IndexSpec,
-    key: &CStr,
-    keys: Vec<Pin<&mut RLookupKey>>,
-    status: &mut ffi::QueryError,
-) -> i32 {
-    let lookup = lookup.as_opaque_mut_ptr().cast::<ffi::RLookup>();
-    let dst_row = ptr::from_mut(dst_row).cast::<ffi::RLookupRow>();
-
-    let mut keys = keys
-        .into_iter()
-        .map(|k| {
-            // Safety: `ffi::RLookupLoadOptions` requires a mutable pointer to the key array. We have full control over these keys as we handle them in the keylist. The following statements are not optimal, but will have to do for now.
-            let k = unsafe { Pin::into_inner_unchecked(k.into_ref()) };
-            ptr::from_ref(k).cast::<ffi::RLookupKey>()
-        })
-        .collect::<Vec<_>>();
-
-    let mut options = ffi::RLookupLoadOptions {
-        keys: keys.as_mut_ptr(),
-        nkeys: keys.len(),
-        sctx: ptr::from_mut(search_ctx),
-        keyPtr: key.as_ptr(),
-        type_: index_spec.rule().type_(),
-        status: ptr::from_mut(status),
-        forceLoad: true,
-        cachedOnly: false,
-        dmd: ptr::null(),
-        forceString: false,
-    };
-
-    // Safety: All pointers passed to this function are non-null and properly aligned since we created them above in this function.
-    unsafe { ffi::loadIndividualKeys(lookup, dst_row, &mut options) }
 }
 
 pub mod opaque {
@@ -497,6 +516,7 @@ pub mod opaque {
     ///
     /// The size and alignment of this struct must match the Rust `RLookup`
     /// structure exactly.
+    #[cheadergen::config(rename = "RLookup")]
     #[repr(C, align(8))]
     pub struct OpaqueRLookup(Size<40>);
 
@@ -1284,19 +1304,22 @@ mod tests {
         let index_spec = unsafe { IndexSpec::from_raw(&raw const index_spec) };
 
         // Act
-        let actual = super::create_keys_from_spec(index_spec);
+        let mut actual = super::create_keys_from_spec(index_spec);
 
         // Assert
         assert_eq!(actual.len(), 3);
 
-        assert_eq!(actual[0].name(), c"ff0");
-        assert_eq!(actual[0].path(), &None);
+        let key = actual.next().unwrap();
+        assert_eq!(key.name(), c"ff0");
+        assert_eq!(key.path(), &Some(c"ff0".into()));
 
-        assert_eq!(actual[1].name(), c"fn0");
-        assert_eq!(actual[1].path(), &Some(c"fp0".into()));
+        let key = actual.next().unwrap();
+        assert_eq!(key.name(), c"fn0");
+        assert_eq!(key.path(), &Some(c"fp0".into()));
 
-        assert_eq!(actual[2].name(), c"fn1");
-        assert_eq!(actual[2].path(), &Some(c"fp1".into()));
+        let key = actual.next().unwrap();
+        assert_eq!(key.name(), c"fn1");
+        assert_eq!(key.path(), &Some(c"fp1".into()));
 
         // Clean up
         unsafe { ffi::array_free(schema_rule.filter_fields.cast()) };
@@ -1334,5 +1357,80 @@ mod tests {
         res.fieldPath =
             unsafe { ffi::NewHiddenString(field_path.as_ptr(), field_path.count_bytes(), false) };
         res
+    }
+
+    /// Build an [`RLookup`] whose key list mirrors the selection cases exercised by
+    /// `schema_src_keys`: a non-schema key (must never be selected), a schema key
+    /// without a sorting-vector source, and a schema key with one.
+    fn rlookup_with_selection_keys<'a>() -> RLookup<'a> {
+        let mut rlookup = RLookup::new();
+        rlookup.keys.push(RLookupKey::new(
+            c"query_only",
+            make_bitflags!(RLookupKeyFlag::QuerySrc),
+        ));
+        rlookup.keys.push(RLookupKey::new(
+            c"schema_no_sv",
+            make_bitflags!(RLookupKeyFlag::SchemaSrc),
+        ));
+        rlookup.keys.push(RLookupKey::new(
+            c"schema_sv",
+            make_bitflags!(RLookupKeyFlag::{SchemaSrc | SvSrc}),
+        ));
+        rlookup
+    }
+
+    fn selected_names<'a>(
+        rlookup: &'a RLookup<'a>,
+        cached_only: bool,
+        force_load: bool,
+    ) -> Vec<CString> {
+        rlookup
+            .schema_src_keys(cached_only, force_load)
+            .map(|k| k.name().as_ref().to_owned())
+            .collect()
+    }
+
+    // Non-schema keys (e.g. QuerySrc) are never selected for individual loading.
+    #[test]
+    fn schema_src_keys_excludes_non_schema_keys() {
+        let rlookup = rlookup_with_selection_keys();
+        let names = selected_names(&rlookup, false, false);
+        assert_eq!(
+            names,
+            vec![c"schema_no_sv".to_owned(), c"schema_sv".to_owned()]
+        );
+    }
+
+    // `cached_only && !force_load` restricts the selection to sorting-vector-backed keys.
+    #[test]
+    fn schema_src_keys_cached_only_restricts_to_sv_src() {
+        let rlookup = rlookup_with_selection_keys();
+        let names = selected_names(&rlookup, true, false);
+        assert_eq!(names, vec![c"schema_sv".to_owned()]);
+    }
+
+    // `force_load` overrides `cached_only`: all schema keys are selected again.
+    #[test]
+    fn schema_src_keys_force_load_overrides_cached_only() {
+        let rlookup = rlookup_with_selection_keys();
+        let names = selected_names(&rlookup, true, true);
+        assert_eq!(
+            names,
+            vec![c"schema_no_sv".to_owned(), c"schema_sv".to_owned()]
+        );
+    }
+
+    // Without `cached_only`, the SvSrc flag has no effect on the selection.
+    #[test]
+    fn schema_src_keys_not_cached_only_ignores_sv_src() {
+        let rlookup = rlookup_with_selection_keys();
+        assert_eq!(
+            selected_names(&rlookup, false, true),
+            vec![c"schema_no_sv".to_owned(), c"schema_sv".to_owned()]
+        );
+        assert_eq!(
+            selected_names(&rlookup, false, false),
+            vec![c"schema_no_sv".to_owned(), c"schema_sv".to_owned()]
+        );
     }
 }

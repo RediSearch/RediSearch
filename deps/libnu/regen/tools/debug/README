@@ -1,0 +1,4 @@
+Files for debugging `contractions-toc` (contractions to C)
+
+test_codepoints   - weighted codepoints
+test_contractions - weighted contractions

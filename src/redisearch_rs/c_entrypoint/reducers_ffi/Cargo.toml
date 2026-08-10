@@ -14,14 +14,11 @@ bench = false
 [lints]
 workspace = true
 
-[build-dependencies]
-cbindgen.workspace = true
-build_utils = { path = "../../build_utils" }
-
 [dependencies]
 ffi.workspace = true
 query_error.workspace = true
 reducers.workspace = true
+rqe_core.workspace = true
 rlookup.workspace = true
 value.workspace = true
 workspace_hack.workspace = true

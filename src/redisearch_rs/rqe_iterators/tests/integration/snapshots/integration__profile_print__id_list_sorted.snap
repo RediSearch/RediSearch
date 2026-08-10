@@ -1,0 +1,6 @@
+---
+source: rqe_iterators/tests/integration/profile_print.rs
+assertion_line: 92
+expression: reply
+---
+{"Type": "ID-LIST-SORTED"}

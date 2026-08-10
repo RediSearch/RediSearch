@@ -41,15 +41,12 @@ typedef struct HybridRequest {
     profiler_func profile;
     ProfilePrinterCtx profileCtx;
 
-    // Synchronization context for timeout/reply callbacks
-    // In Shard level, HybridRequest has two reference counting mechanisms working together:
-    // 1. StrongRef (RefManager.strong_refcount) - for cursor lifetime and cross-thread sharing
-    // 2. syncCtx.refcount - for timeout callback coordination (BlockedQueryNode)
-    // Both are valid: StrongRef_Release calls HybridRequest_DecrRef (via FreeHybridRequest callback),
-    // so the syncCtx.refcount initial value of 1 is implicitly owned by the StrongRef system.
-    // Additional HybridRequest_IncrRef calls (e.g., from BlockHybridQueryClientWithTimeout) safely
-    // add to syncCtx.refcount, and all decrements will happen correctly during cleanup.
-    RequestSyncCtx syncCtx;
+    // Synchronization context for timeout/reply callbacks.
+    // Holds the per-request timeout flag and abort-wake channel.
+    RequestSyncState syncState;
+
+    // Non-owning back-pointer to the heap wrapper that owns this request.
+    BlockedRequestCtx *brc;
 
     // Flag to indicate whether to skip timeout checks using clock checks
     bool skipTimeoutChecks;
@@ -58,29 +55,50 @@ typedef struct HybridRequest {
 
     // State for reply_callback path (FAIL policy with workers in coordinator mode)
     // Background thread stores results here, then calls UnblockClient.
-    // The reply_callback reads from here to build the reply on the main thread.
-    ChunkReplyState storedReplyState;
-
     // Mutex for synchronizing cursor creation with timeout callback.
     // Protects cursor array access to ensure proper cleanup on timeout.
     pthread_mutex_t cursorMutex;
 
-    // Array of cursors for reply_callback path (internal hybrid search).
+    // Array of depleted cursors for reply_callback path (internal hybrid search).
+    // Non-NULL only after the initial cursor pipelines are safe to publish.
     // Protected by cursorMutex to synchronize with timeout callback.
     // Cleanup is handled by:
     // - reply_callback: frees array after replying with cursor IDs
-    // - timeout_callback: acquires lock and frees cursors if they were already created
-    // - HybridRequest_StartCursors: checks timedOut flag before creating, or frees on error
+    // - timeout_callback: acquires lock and consumes published cursors, if any
+    // - HybridRequest_StartCursors: checks timedOut flag before publishing, or frees on error
     arrayof(struct Cursor*) cursors;
 
     // Optional debug parameters for _FT.DEBUG FT.HYBRID.
     // When non-NULL, debug timeouts are applied after pipeline building.
     // Heap-allocated and owned by HybridRequest — freed in HybridRequest_Free.
     HybridDebugParams *debugParams;
+
+    // Thread pool ID used for coordinator depletion and tail continuation jobs.
+    // Set once before pipeline construction; read by BuildDistributedDepletionPipeline
+    // and scheduleHybridTail.
+    int poolId;
+    // Index of the K value argument in the MRCommand for SHARD_K_RATIO
+    // optimization.
+    // Set during command building, used by command modifier callback. -1 if
+    // not applicable.
+    int kArgIndex;
 } HybridRequest;
 
 // Timeout helper functions for HybridRequest (mirrors AREQ pattern)
-bool HybridRequest_TimedOut(HybridRequest *req);
+static inline bool HybridRequest_TimedOut(HybridRequest *req) {
+  return RequestSyncState_GetTimedOut(&req->syncState);
+}
+// The pipeline stage the hybrid request had reached, used to attribute a timeout.
+static inline QueryTimeoutStage HybridRequest_ExecutionStage(HybridRequest *req) {
+  return RequestSyncState_GetExecutionStage(&req->syncState);
+}
+// Advance the hybrid request's execution-phase marker (QUEUE -> PIPELINE -> REPLY).
+static inline void HybridRequest_SetExecutionStage(HybridRequest *req, QueryTimeoutStage stage) {
+  RequestSyncState_SetExecutionStage(&req->syncState, stage);
+}
+// Sets the hybrid request's timedOut flag and propagates it to every subquery
+// AREQ. Propagation flips each subquery's RPNet abort flag so a BG worker
+// blocked in MRChannel_PopWithTimeout exits as soon as the channel is woken.
 void HybridRequest_SetTimedOut(HybridRequest *req);
 
 // Cursor mutex wrappers for synchronizing cursor creation with timeout callback
@@ -110,6 +128,16 @@ static inline void HybridRequest_SetSkipTimeoutChecks(HybridRequest *req, bool s
   }
 }
 
+static inline bool HybridRequest_RequiresThreadsSyncResults(HybridRequest *req) {
+  return req->brc->requiresAggregateResultsSync;
+}
+
+bool HybridRequest_TryClaimAggregateResults(HybridRequest *req);
+
+void HybridRequest_SignalAggregateResultsComplete(HybridRequest *req);
+
+void HybridRequest_WaitForAggregateResultsComplete(HybridRequest *req);
+
 // Blocked client context for HybridRequest background execution
 typedef struct blockedClientHybridCtx {
   // We keep a strong ref mainly for the sake of cursors amd life time management
@@ -134,7 +162,7 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
 
 /**
  * Initialize an already-allocated (zeroed) HybridRequest.
- * Used when the HybridRequest is embedded in another struct (e.g., CoordRequestCtx).
+ * Used when the HybridRequest is reachable from another owner (e.g. the blocked-client cycle).
  *
  * @param hybridReq Pointer to zeroed HybridRequest to initialize
  * @param sctx The search context for the hybrid request
@@ -203,9 +231,21 @@ void HybridRequest_SynchronizeLookupKeys(HybridRequest *req);
  * @param req The HybridRequest containing the tail pipeline for merging
  * @param scoreKey The score key to use for writing the final score, could be null - won't write score in this case to the rlookup
  * @param params Pipeline parameters including aggregation settings and scoring context, this function takes ownership of the scoring context
+ * @param status Query error status to report any construction errors
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *scoreKey, HybridPipelineParams *params);
+int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *scoreKey, HybridPipelineParams *params, QueryError *status);
+
+/**
+ * Free the heap-owned members of a HybridPipelineParams (scoring and EXPLAINSCORE
+ * contexts) and NULL them out, without freeing the params struct itself.
+ *
+ * Safe to call repeatedly and after ownership has been transferred to the merger
+ * (the relevant pointers are NULLed on transfer, so this becomes a no-op). Use it
+ * to release a stack- or caller-owned HybridPipelineParams on an error path before
+ * the merge pipeline is built; freeHybridParams() calls it for heap-allocated params.
+ */
+void HybridPipelineParams_Cleanup(HybridPipelineParams *params);
 
 /**
  * Build the complete hybrid search pipeline.
@@ -214,20 +254,29 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
  * @param req The HybridRequest to build the pipeline for
  * @param params Pipeline parameters including aggregation settings and scoring context, this function takes ownership of the scoring context
  * @param depleteInBackground Whether the pipeline should be built for asynchronous depletion
+ * @param status Query error status to report any construction errors
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params, bool depleteInBackground);
+int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params, bool depleteInBackground, QueryError *status);
 
 /**
- * Increment the reference count of the HybridRequest.
+ * Free a HybridRequest and all its associated resources directly.
+ * Called by BlockedRequestCtx_Free when the wrapper's refcount reaches zero.
+ * Do not call directly; use HybridRequest_DecrRef instead.
+ */
+void HybridRequest_Free(HybridRequest *req);
+
+/**
+ * Increment the reference count of the owning BlockedRequestCtx wrapper.
  * @param req the request to increment
  * @return the request (for chaining)
  */
 HybridRequest *HybridRequest_IncrRef(HybridRequest *req);
 
 /**
- * Decrement the reference count of the HybridRequest.
- * If the reference count reaches 0, the request is freed.
+ * Decrement the reference count of the owning BlockedRequestCtx wrapper.
+ * If the reference count reaches 0, BlockedRequestCtx_Free is called which
+ * destroys the wrapper and the owned HybridRequest.
  * @param req the request to decrement
  */
 void HybridRequest_DecrRef(HybridRequest *req);

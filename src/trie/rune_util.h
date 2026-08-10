@@ -15,13 +15,10 @@
 extern "C" {
 #endif
 
-/* Internally, the trie works with 16/32 bit "Runes", i.e. fixed width unicode
- * characters. 16 bit should be fine for most use cases */
-#ifdef TRIE_32BIT_RUNES
-typedef uint32_t rune;
-#else  // default - 16 bit runes
+/* Internally, the trie works with 16-bit "Runes", i.e. fixed-width Unicode
+ * characters limited to the Basic Multilingual Plane (U+0000..U+FFFF).
+ * Codepoints above U+FFFF are truncated on conversion. */
 typedef uint16_t rune;
-#endif
 
 #define RUNE_STATIC_ALLOC_SIZE 127
 typedef struct {
@@ -33,7 +30,7 @@ typedef struct {
 } runeBuf;
 
 // The maximum size we allow converting to at once
-#define MAX_RUNESTR_LEN 1024
+#define MAX_RUNE_STR_LEN 1024
 
 // Threshold for Small String Optimization (SSO)
 #define SSO_MAX_LENGTH 128
@@ -60,10 +57,15 @@ char *runesToStr(const rune *in, size_t len, size_t *utflen);
  */
 rune *strToLowerRunes(const char *str, size_t utf8_len, size_t *unicode_len);
 
-/* Convert a string to runes, fold them and return the folded runes.
- * If a folded runes contains more than one codepoint, only the first
- * codepoint is taken, the rest are ignored. */
-rune *strToSingleCodepointFoldedRunes(const char *str, size_t *len);
+/* Convert a UTF-8 byte buffer to runes, fold them and return the folded
+ * runes. If a folded rune contains more than one codepoint, only the
+ * first codepoint is taken, the rest are ignored.
+ * Parameters:
+ * - str: The input UTF-8 encoded buffer (need not be NUL-terminated).
+ * - utf8_len: The length of the input buffer in bytes.
+ * - len: A pointer to a size_t where the rune-count is written.
+ *   May be NULL. */
+rune *strToSingleCodepointFoldedRunes(const char *str, size_t utf8_len, size_t *len);
 
 /* Convert a utf-8 string to constant width runes */
 rune *strToRunes(const char *str, size_t *len);

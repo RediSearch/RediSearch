@@ -9,66 +9,85 @@
 
 //! Supporting types for [`Not`].
 
-use std::time::Duration;
-
-use ffi::{RS_FIELDMASK_ALL, t_docId};
-use inverted_index::RSIndexResult;
+use index_result::{RSIndexResult, RawIndexResult};
+use ref_mode::{Active, Ref};
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    maybe_empty::MaybeEmpty, utils::TimeoutContext,
+    maybe_empty::MaybeEmpty,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
+    utils::TimeoutContext,
 };
 
+use index_spec::IndexSpecReadGuard;
+use rqe_core::{DocId, RS_FIELDMASK_ALL};
 /// An iterator that negates the results of its child iterator.
+///
+/// Parameterised over a [`Ref`] mode — see [`Not`] for the [`Active`]
+/// instantiation that implements [`RQEIterator`].
 ///
 /// Yields all document IDs from 1 to `max_doc_id` (inclusive) that are **not**
 /// present in the child iterator.
-pub struct Not<'index, I> {
+///
+/// # Type parameters
+///
+/// * `Rf` - The [`Ref`] mode.
+/// * `I` - The child iterator type whose results are negated.
+/// * `TC` - The [`TimeoutContext`] implementation. The variant is chosen at
+///   construction time and monomorphized into the hot path.
+#[repr(C)]
+pub struct RawNot<'query, Rf: Ref, I, TC> {
     /// The child iterator whose results are negated.
     child: MaybeEmpty<I>,
     /// The maximum document ID to iterate up to (inclusive).
-    max_doc_id: t_docId,
+    max_doc_id: DocId,
     /// Set to `true` in case the NOT Iterator
     /// detected using the [`TimeoutContext`] a timeout,
     /// and reset to `false` at [`RQEIterator::rewind`].
     forced_eof: bool,
     /// A reusable result object to avoid allocations on each [`read`](RQEIterator::read) call.
-    result: RSIndexResult<'index>,
-    /// Tracks the execution deadline for this iterator.
+    result: RawIndexResult<'query, Rf>,
+    /// Whether the iterator has run *past* its last result, i.e. a
+    /// `read`/`skip_to` found nothing.
     ///
-    /// Uses an amortized check to minimize overhead in hot paths. The timeout
-    /// is absolute for the iterator's lifetime and does not reset upon rewinding.
-    timeout_ctx: Option<TimeoutContext>,
+    /// The state behind [`current`](RQEIterator::current) and
+    /// [`at_eof`](RQEIterator::at_eof). It cannot be folded into `result.doc_id`:
+    /// that field *is* [`last_doc_id`](RQEIterator::last_doc_id).
+    past_end: bool,
+    /// Tracks the execution deadline for this iterator. Pass
+    /// [`NoTimeoutChecker`](timeout::NoTimeoutChecker) to opt out of timeout checks
+    /// entirely; monomorphization collapses the no-op context to dead code.
+    ///
+    /// The timeout is absolute for the iterator's lifetime and does not
+    /// reset upon rewinding.
+    timeout_ctx: TC,
 }
 
-impl<'index, I> Not<'index, I>
+/// Alias for an [`Active`] [`RawNot`] — the only instantiation with an
+/// [`RQEIterator`] impl today.
+pub type Not<'index, I, TC> = RawNot<'index, Active<'index>, I, TC>;
+
+impl<'index, I, TC> Not<'index, I, TC>
 where
     I: RQEIterator<'index>,
+    TC: TimeoutContext,
 {
-    pub fn new(
-        child: I,
-        max_doc_id: t_docId,
-        weight: f64,
-        timeout: Duration,
-        skip_timeout_checks: bool,
-    ) -> Self {
+    /// Build a new [`Not`] iterator.
+    ///
+    /// `timeout_ctx` is the [`TimeoutContext`] implementation to use. Pass
+    /// [`NoTimeoutChecker`](timeout::NoTimeoutChecker) to disable timeout checks
+    /// entirely on this iterator's hot path.
+    pub fn new(child: I, max_doc_id: DocId, weight: f64, timeout_ctx: TC) -> Self {
         Self {
             child: MaybeEmpty::new(child),
             max_doc_id,
             forced_eof: false,
+            past_end: false,
             result: RSIndexResult::build_virt()
                 .weight(weight)
                 .field_mask(RS_FIELDMASK_ALL)
                 .build(),
-            // The `limit` of 5_000 determines the granularity of the timeout check.
-            // Each time [`TimeoutContext::check_timeout`] is called (during `read` / `skip_to`),
-            // the internal counter goes up. When it reaches this `limit` of 5_000 it will
-            // reset that counter and do the actual (OS) expensive timeout check.
-            timeout_ctx: if skip_timeout_checks {
-                None
-            } else {
-                Some(TimeoutContext::new(timeout, 5_000, false))
-            },
+            timeout_ctx,
         }
     }
 
@@ -76,13 +95,9 @@ where
     /// we also mark this iterator as EOF.
     ///
     /// Returns error [`RQEIteratorError::TimedOut`] if the deadline has been reached or exceeded.
-    ///
-    /// In case no timeout is enforced it will just return `Ok(())`.
     #[inline(always)]
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
-        let Some(result) = self.timeout_ctx.as_mut().map(|ctx| ctx.check_timeout()) else {
-            return Ok(());
-        };
+        let result = self.timeout_ctx.check_timeout();
         if matches!(result, Err(RQEIteratorError::TimedOut)) {
             // NOTE: this is not done for optimized version of NOT iterator in C
             self.forced_eof = true;
@@ -91,13 +106,9 @@ where
     }
 
     /// Wrapper around [`TimeoutContext::reset_counter`] to reset the timeout counter.
-    ///
-    /// Does nothing when no timeout is enforced.
     #[inline(always)]
-    const fn reset_timeout(&mut self) {
-        if let Some(ctx) = self.timeout_ctx.as_mut() {
-            ctx.reset_counter();
-        }
+    fn reset_timeout(&mut self) {
+        self.timeout_ctx.reset_counter();
     }
 
     /// Get a shared reference to the _child_ iterator
@@ -105,21 +116,43 @@ where
     pub const fn child(&self) -> Option<&I> {
         self.child.as_ref()
     }
+
+    /// Whether there is another result to yield: the complement has not been
+    /// walked up to `max_doc_id`, and no timeout has forced the iterator to stop.
+    ///
+    /// Goes `false` one step before [`Self::past_end`] is set, while the final
+    /// result is still current.
+    #[inline(always)]
+    const fn has_next(&self) -> bool {
+        !self.forced_eof && self.result.doc_id < self.max_doc_id
+    }
 }
 
-impl<'index, I> RQEIterator<'index> for Not<'index, I>
+impl<'index, I, TC> RQEIterator<'index> for Not<'index, I, TC>
 where
     I: RQEIterator<'index>,
+    TC: TimeoutContext,
 {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        if self.past_end {
+            return None;
+        }
         Some(&mut self.result)
     }
 
     #[inline(always)]
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        // The finished state is this flag, not something derived from the
+        // position: `skip_to` puts the position back when it finds nothing, so
+        // `has_next()` on its own would let a finished iterator resume below a
+        // target its caller has already moved past.
+        if self.past_end {
+            return Ok(None);
+        }
+
         // skip all child docs, while not EOF and in sync with child
-        while !self.at_eof() {
+        while self.has_next() {
             self.result.doc_id += 1;
 
             // Sync child if we've moved past its last known position
@@ -144,34 +177,46 @@ where
             // Otherwise: doc_id == child.last_doc_id(), so we skip and loop again.
         }
 
-        debug_assert!(self.at_eof());
+        debug_assert!(!self.has_next());
+        self.past_end = true;
         Ok(None)
     }
 
     #[inline(always)]
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         debug_assert!(self.last_doc_id() < doc_id);
 
-        if self.at_eof() {
+        if self.past_end || !self.has_next() {
+            self.past_end = true;
             return Ok(None);
         }
 
-        // Do not skip beyond max_doc_id
+        // Do not skip beyond max_doc_id. The position is left where it was:
+        // returning `None` here means no result was produced, and
+        // [`skip_to`](RQEIterator::skip_to) owes its caller an untouched
+        // `last_doc_id()` in that case.
         if doc_id > self.max_doc_id {
-            self.result.doc_id = self.max_doc_id;
+            self.past_end = true;
             return Ok(None);
         }
 
         // Case 1: Child is ahead or at EOF - docId is not in child
         // When child is at EOF, only accept doc_id if it's past the child's last document
+        //
+        // `at_eof()` is the trailing state, so a child still sitting on its last
+        // result falls through to Case 2's probe, which returns the same
+        // `Found(doc_id)` after one extra call.
         if self.child.last_doc_id() > doc_id
             || (self.child.at_eof() && doc_id > self.child.last_doc_id())
         {
-            self.result.doc_id = doc_id;
+            // Checked before the position is published, not after: a timeout
+            // carries no result, and `skip_to` may not leave the probe target
+            // behind as the position in that case.
             self.check_timeout()?;
+            self.result.doc_id = doc_id;
 
             return Ok(Some(SkipToOutcome::Found(&mut self.result)));
         }
@@ -183,10 +228,10 @@ where
                     // Found value - do not return
                 }
                 None | Some(SkipToOutcome::NotFound(_)) => {
-                    // Not found or EOF - return
-                    self.result.doc_id = doc_id;
-
+                    // Not found or EOF - return. Timeout checked first, for the
+                    // reason given in Case 1.
                     self.check_timeout()?;
+                    self.result.doc_id = doc_id;
 
                     return Ok(Some(SkipToOutcome::Found(&mut self.result)));
                 }
@@ -197,16 +242,31 @@ where
 
         // If we are here, Child has DocID (either already lastDocID == docId or the SkipTo returned OK)
         // We need to return NOTFOUND and set the current result to the next valid docId
+        //
+        // The scan below has to start from `doc_id`, but the probe target only
+        // becomes this iterator's position once a result is in hand: the scan can
+        // run off the end or fail, and a `skip_to` that carries no result must
+        // leave `last_doc_id()` alone. Publishing it early is what let a parent
+        // read a position as a promise of a result at it.
+        let resume_from = self.result.doc_id;
         self.result.doc_id = doc_id;
-        match self.read()? {
-            Some(_) => Ok(Some(SkipToOutcome::NotFound(&mut self.result))),
-            None => Ok(None),
+        match self.read() {
+            Ok(Some(_)) => Ok(Some(SkipToOutcome::NotFound(&mut self.result))),
+            Ok(None) => {
+                self.result.doc_id = resume_from;
+                Ok(None)
+            }
+            Err(e) => {
+                self.result.doc_id = resume_from;
+                Err(e)
+            }
         }
     }
 
     #[inline(always)]
     fn rewind(&mut self) {
         self.forced_eof = false;
+        self.past_end = false;
         self.result.doc_id = 0;
         self.child.rewind();
     }
@@ -217,23 +277,22 @@ where
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.result.doc_id
     }
 
     #[inline(always)]
     fn at_eof(&self) -> bool {
-        self.forced_eof || self.result.doc_id >= self.max_doc_id
+        self.past_end
     }
 
     #[inline(always)]
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: std::ptr::NonNull<ffi::IndexSpec>,
+        spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // Get child status
-        // SAFETY: Delegating to child with the same `spec` passed by our caller.
-        match unsafe { self.child.revalidate(spec) }? {
+        match self.child.revalidate(spec)? {
             RQEValidateStatus::Aborted => {
                 self.child = MaybeEmpty::new_empty();
                 Ok(RQEValidateStatus::Ok)
@@ -266,30 +325,29 @@ where
     }
 }
 
-/// Trait for NOT iterators ([`Not`] and [`crate::not_optimized::NotOptimized`]).
-pub trait NotIterator<'index>: RQEIterator<'index> {
-    // Those methods are used by profile.c to wrap the child iterator.
-    // They can be removed once this code is ported to Rust.
-    /// Get a shared reference to the child iterator, or `None` if unset.
-    fn child(&self) -> Option<&dyn RQEIterator<'index>>;
-}
-
-impl<'index> NotIterator<'index> for Not<'index, Box<dyn RQEIterator<'index> + 'index>> {
-    fn child(&self) -> Option<&dyn RQEIterator<'index>> {
-        self.child
-            .as_ref()
-            .map(|c| &**c as &dyn RQEIterator<'index>)
-    }
-}
-
-impl<'index> crate::interop::ProfileChildren<'index> for Not<'index, crate::c2rust::CRQEIterator> {
+impl<'index, TC> crate::interop::ProfileChildren<'index>
+    for Not<'index, crate::c2rust::CRQEIterator, TC>
+where
+    TC: TimeoutContext + 'index,
+{
     fn profile_children(self) -> Self {
         Not {
             child: self.child.map(crate::c2rust::CRQEIterator::into_profiled),
             max_doc_id: self.max_doc_id,
             forced_eof: self.forced_eof,
             result: self.result,
+            past_end: self.past_end,
             timeout_ctx: self.timeout_ctx,
         }
+    }
+}
+
+impl<'index, I, TC> ProfilePrint for Not<'index, I, TC>
+where
+    I: RQEIterator<'index> + ProfilePrint,
+    TC: TimeoutContext,
+{
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        ctx.print_single_child(c"NOT", self.child(), map);
     }
 }

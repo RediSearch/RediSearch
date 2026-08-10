@@ -1,14 +1,14 @@
 """
-Tests for ShardResponseBarrier functionality in FT.AGGREGATE with WITHCOUNT.
+Tests for distributed FT.AGGREGATE WITHCOUNT first-reply collection.
 
 These tests verify that the coordinator properly waits for all shards' first responses
 before returning results when WITHCOUNT is specified, ensuring accurate total_results.
 
 Test Categories:
 1. Delayed shard responses - verify coordinator waits for all shards
-2. Concurrent queries - verify thread safety of atomic operations
+2. Concurrent queries - verify correctness under concurrent WITHCOUNT queries
 3. Error handling - verify behavior when shards return errors
-4. Timeout handling - verify barrier respects query timeout
+4. Timeout handling - verify WITHCOUNT respects query timeout
 """
 
 from common import *
@@ -269,8 +269,12 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
         shard_conn.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
 
         # ----------------------------------------------------------------------
-        # Case 3: Timeout - ON_TIMEOUT RETURN
+        # Case 3: Silent shard - ON_TIMEOUT RETURN
         # ----------------------------------------------------------------------
+        # RETURN policy has no blocked-client timeout, and the coordinator does
+        # not arm a silent-shard timer in Phase A. The request must therefore
+        # block indefinitely on the silent shard, matching the FT.SEARCH coord
+        # handler behavior, until the shard finally replies.
         shard_conn.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
 
         verify_command_OK_on_all_shards(env, 'CONFIG', 'SET', 'search-on-timeout', 'RETURN')
@@ -282,33 +286,30 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
             daemon=True
         )
         t_query.start()
-        # The coordinator should time out while shard 1 is blocked at the sync point
+
+        # Wait deterministically for shard 1 to reach the sync point.
+        wait_for_condition(
+            lambda: (shard_conn.execute_command(
+                debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+            'Timeout waiting for shard to reach sync point')
+
+        # Brief wait to confirm the request does NOT return on its own while the
+        # shard stays silent. Even with TIMEOUT=1 expired long ago, the RETURN
+        # policy has no mechanism to fire and the request must keep blocking.
+        t_query.join(timeout=2)
+        env.assertTrue(t_query.is_alive(),
+                       message="Query should still be blocked waiting for the silent shard")
+        env.assertEqual(len(query_result), 0,
+                        message="Query should not have returned while shard is blocked")
+
+        # Release shard 1; the query is expected to complete now.
+        shard_conn.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
         t_query.join(timeout=10)
 
-        # Verify the barrier timed out: total_results must be 0.
-        # Since RETURN policy has no blocked client timeout (unlike FAIL),
-        # the barrier is the sole timeout mechanism. Shards 0 and 2 (with docs)
-        # are NOT blocked and respond quickly, so total_results == 0 proves
-        # the barrier timed out before accumulating any shard totals.
-        expected = 0
         env.assertEqual(len(query_result), 1,
-                        message="Query should have completed")
+                        message="Query should have completed after shard was released")
         env.assertFalse(isinstance(query_result[0], Exception),
                         message=f"Query failed with: {query_result[0]}")
-        result = query_result[0]
-        total = _get_total_results(result)
-        env.assertEqual(
-            total, 0,
-            message=f"expected total_results:0, got {total}")
-        env.assertEqual(
-            len(_get_results(result)), expected,
-            message=f"Expected {expected} results, got {len(_get_results(result))}")
-        # Verify we got a timeout warning in the response.
-        # RETURN policy has no blocked client timeout, so the barrier is the sole
-        # timeout mechanism and the warning is always the standard message.
-        if isinstance(result, dict):
-            env.assertEqual(result.get('warning', []),
-                            ['Timeout limit was reached'])
     finally:
         shard_conn.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
 
@@ -391,8 +392,8 @@ def _test_barrier_concurrent_queries(protocol):
     """
     Test thread safety: multiple concurrent WITHCOUNT queries.
 
-    This tests the atomic operations in ShardResponseBarrier when
-    multiple queries are running simultaneously.
+    This tests the WITHCOUNT first-reply collection when multiple queries
+    are running simultaneously.
     """
     env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=protocol)
     num_docs = 100 * env.shardsCount
@@ -593,3 +594,131 @@ def test_barrier_shard_timeout_with_return_policy_resp2():
 @skip(cluster=False)
 def test_barrier_shard_timeout_with_return_policy_resp3():
     _test_barrier_shard_timeout_with_return_policy(3)
+
+
+#------------------------------------------------------------------------------
+# Error / drop paths during first-reply collection
+#------------------------------------------------------------------------------
+
+def _kill_coordinator_connections(shard_conn):
+    """Kill the coordinator's internal connections to this shard.
+
+    Internal connections carry the 'I' flag in CLIENT LIST (they authenticate
+    with the internal secret and show up as a superuser, so they are not
+    targetable by `CLIENT KILL USER`). Returns the number of connections killed.
+    """
+    listing = shard_conn.execute_command('CLIENT', 'LIST')
+    if isinstance(listing, bytes):
+        listing = listing.decode(errors='replace')
+    killed = 0
+    for line in listing.splitlines():
+        fields = dict(tok.split('=', 1) for tok in line.split() if '=' in tok)
+        if 'I' in fields.get('flags', '') and fields.get('id'):
+            killed += shard_conn.execute_command('CLIENT', 'KILL', 'ID', fields['id'])
+    return killed
+
+
+@skip(cluster=False)
+def test_withcount_shard_connection_drop():
+    """Exercises the WITHCOUNT no-reply error callback (withCountErrorCb).
+
+    One shard is parked before its first read so its _FT.AGGREGATE is in flight,
+    then the coordinator's internal connection to that shard is dropped. The NULL
+    reply drives mrIteratorCallback_Error -> withCountErrorCb: the lost shard is
+    counted and silently omitted (as in the non-WITHCOUNT path), and the request
+    completes with the remaining shards' results instead of hanging.
+    """
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1', shardsCount=3)
+    skipIfNoEnableAssert(env)
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
+    num_docs = 300
+    for i in range(num_docs):
+        conn.execute_command('HSET', f'doc:{i}', 't', f'hello world {i}')
+    waitForIndexFinishScan(env)
+
+    blocked = env.getConnection(3)  # a non-coordinator shard
+    sp = 'BeforeFirstRead'
+    try:
+        blocked.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        blocked.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', sp)
+
+        cmd = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 5]
+        res = []
+        t = threading.Thread(target=_run_query_store_result, args=(conn, cmd, res), daemon=True)
+        t.start()
+        wait_for_condition(
+            lambda: (blocked.execute_command(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sp) == 1, {}),
+            'blocked shard did not reach sync point')
+
+        # Drop the coordinator's connection(s) to this shard; the in-flight
+        # _FT.AGGREGATE then fails with a NULL reply -> withCountErrorCb.
+        killed = _kill_coordinator_connections(blocked)
+        env.assertGreater(killed, 0, message="expected to drop an internal connection")
+
+        # Release the parked worker (its reply, if any, lands on a dead conn).
+        blocked.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sp)
+
+        t.join(timeout=10)
+        env.assertEqual(len(res), 1, message="query should have completed (no hang)")
+        env.assertFalse(isinstance(res[0], Exception), message=f"unexpected error: {res[0]}")
+        total = _get_total_results(res[0])
+        env.assertGreater(total, 0, message="should return the responding shards' results")
+        env.assertLess(total, num_docs,
+                       message=f"lost shard should be omitted (total<{num_docs}), got {total}")
+    finally:
+        blocked.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+
+
+@skip(cluster=False)
+def test_withcount_index_dropped_during_collection():
+    """Exercises the spec-dropped branch of executeAggregateDeferred (Phase B).
+
+    A shard is parked before its first read so first-reply collection (Phase A)
+    is in flight and the dispatcher has already released its strong spec ref
+    (only a weak ref remains). FT.DROPINDEX then frees the coordinator spec.
+    When the shard is released, Phase B re-promotes the weak ref, gets NULL, and
+    replies SEARCH_INDEX_DROPPED_BG instead of hanging on the blocked client.
+    """
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1', shardsCount=3)
+    skipIfNoEnableAssert(env)
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
+    num_docs = 300
+    for i in range(num_docs):
+        conn.execute_command('HSET', f'doc:{i}', 't', f'hello world {i}')
+    waitForIndexFinishScan(env)
+
+    blocked = env.getConnection(3)
+    sp = 'BeforeFirstRead'
+    try:
+        blocked.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        blocked.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', sp)
+
+        cmd = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 5]
+        res = []
+        t = threading.Thread(target=_run_query_store_result, args=(conn, cmd, res), daemon=True)
+        t.start()
+        wait_for_condition(
+            lambda: (blocked.execute_command(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sp) == 1, {}),
+            'blocked shard did not reach sync point')
+
+        # Drop the index while Phase A is parked: only the weak ref is held, so
+        # this frees the coordinator spec and Phase B's re-promote will fail.
+        conn.execute_command('FT.DROPINDEX', 'idx')
+
+        # Release the parked shard so Phase B runs and re-promotes the dead ref.
+        blocked.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sp)
+
+        t.join(timeout=10)
+        env.assertEqual(len(res), 1, message="query should have completed (no hang)")
+        env.assertTrue(isinstance(res[0], redis.exceptions.ResponseError),
+                       message=f"expected DROPPED_BACKGROUND error, got: {res[0]}")
+        env.assertContains('dropped', str(res[0]).lower())
+    finally:
+        try:
+            blocked.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        except Exception:
+            pass

@@ -1,80 +1,58 @@
-from RLTest import Env
-
 from common import *
 from includes import *
+from RLTest import Env
+from RLTest.env import Defaults
+
+INIT_MESSAGE = "Tracing Subscriber Initialized!"
 
 
-# Assert that by default "init message" is hidden
-def test_default_level(env):
+def _log_has_init_message(env):
     logDir = env.cmd("config", "get", "dir")[1]
     logFileName = env.cmd("CONFIG", "GET", "logfile")[1]
     logFilePath = os.path.join(logDir, logFileName)
-    matchCount = _grep_file_count(logFilePath, "Tracing Subscriber Initialized!")
-    env.assertEqual(
-        matchCount, 0, message="tracing subscriber message present for default level"
-    )
-
-
-# Assert that we can set the `RUST_LOG` env var to enable the "init message"s level
-def test_trace_level():
-    with EnvContextManager(RUST_LOG="trace"):
-        env = Env()
-        logDir = env.cmd("config", "get", "dir")[1]
-        logFileName = env.cmd("CONFIG", "GET", "logfile")[1]
-        logFilePath = os.path.join(logDir, logFileName)
-        matchCount = _grep_file_count(logFilePath, "Tracing Subscriber Initialized!")
-        env.assertEqual(matchCount, 1, message="missing tracing subscriber message")
-
-
-# Assert that we can disable log message sources (in this case the subscriber itseflf)
-def test_ignore_crate():
-    with EnvContextManager(RUST_LOG="trace,tracing_redismodule=off"):
-        env = Env()
-        logDir = env.cmd("config", "get", "dir")[1]
-        logFileName = env.cmd("CONFIG", "GET", "logfile")[1]
-        logFilePath = os.path.join(logDir, logFileName)
-        matchCount = _grep_file_count(logFilePath, "Tracing Subscriber Initialized!")
-        env.assertEqual(
-            matchCount,
-            0,
-            message="tracing subscriber message even though source was disabled",
-        )
-
-
-class EnvContextManager:
-    def __init__(self, **kwargs):
-        self.env_vars = kwargs
-
-    def __enter__(self):
-        self.old_env = dict(os.environ)
-        os.environ.update(self.env_vars)
-
-    def __exit__(self, exc_type, exc_value, exc_traceback):
-        os.environ.clear()
-        os.environ.update(self.old_env)
-
-
-def _grep_file_count(filename, pattern):
-    """
-    Grep a file for a given pattern using python.
-
-    Args:
-        filename (str): The path to the file to grep.
-        pattern (str): The pattern to search for.
-
-    Returns:
-        int: The number of lines that match the pattern.
-    """
     try:
-        with open(filename, "r") as f:
-            count = 0
-            for line in f:
-                if pattern in line:
-                    count += 1
-            return count
+        with open(logFilePath) as f:
+            return any(INIT_MESSAGE in line for line in f)
     except FileNotFoundError:
-        print(f"Error: File not found: {filename}")
-        return 0
-    except Exception as e:
-        print(f"Error: {e}")
-        return 0
+        return False
+
+
+# creates an RLTest Env configured with the given loglevel.
+def _env_with_loglevel(level):
+    Defaults.loglevel = level
+    logDir = os.path.join(Defaults.logdir, f"test_tracing_loglevel_{level}")
+    # force a brand-new env bc RLTests default env comparison doesn't include the loglevel
+    # also force logs into prefixed logdirs so they don't trample on one another
+    return Env(freshEnv=True, logDir=logDir)
+
+
+# The redis `loglevel` is read at module load and drives the tracing filter.
+# The init message is a DEBUG-level log, so it should only show for "debug" or "verbose"
+@skip(cluster=True)
+def test_initial_level_filtering():
+    saved_loglevel = Defaults.loglevel
+    try:
+        env = _env_with_loglevel("debug")
+        env.assertTrue(_log_has_init_message(env), message="debug")
+        env.stop()
+
+        env = _env_with_loglevel("verbose")
+        env.assertTrue(_log_has_init_message(env), message="verbose")
+        env.stop()
+
+        env = _env_with_loglevel("notice")
+        env.assertFalse(_log_has_init_message(env), message="notice")
+        env.stop()
+
+        env = _env_with_loglevel("warning")
+        env.assertFalse(_log_has_init_message(env), message="warning")
+        env.stop()
+    finally:
+        Defaults.loglevel = saved_loglevel
+
+
+# Each accepted `loglevel` must reload the filter without crashing the module.
+def test_loglevel_reload(env):
+    for level in ("debug", "verbose", "notice", "warning"):
+        env.expect("CONFIG", "SET", "loglevel", level).ok()
+    env.assertTrue(env.cmd("PING"))

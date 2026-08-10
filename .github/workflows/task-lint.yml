@@ -16,6 +16,9 @@ on:
 
 jobs:
   build-image:
+    permissions: # task-build-cached-container.yml pushes the image to GHCR
+      contents: read
+      packages: write
     name: Build container for lint
     uses: ./.github/workflows/task-build-cached-container.yml
     with:
@@ -27,6 +30,11 @@ jobs:
     needs: build-image
     if: ${{ !cancelled() }}
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    permissions:
+      contents: read  # actions/checkout
+      id-token: write # OIDC role assumption for sccache S3
+      packages: read  # pull container image from GHCR
+      actions: write  # Swatinem/rust-cache read/write of GH cache
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
@@ -35,9 +43,12 @@ jobs:
         && fromJSON(format('{{"image":"{0}","options":"--user root"}}', needs.build-image.outputs.image))
       || null }}
 
+    env:
+      IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
       - name: Fix HOME Directory
@@ -65,13 +76,29 @@ jobs:
             echo "mode=sudo" >> "$GITHUB_OUTPUT"
           fi
       - name: Setup sccache
+        if: ${{ env.IS_FORK_PR != 'true' }}
         uses: ./.github/actions/setup-sccache
+        with:
+          aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
+          s3-bucket: ${{ vars.SCCACHE_S3_BUCKET }}
+          s3-region: ${{ vars.SCCACHE_S3_REGION }}
+          s3-key-prefix: ${{ vars.SCCACHE_S3_KEY_PREFIX }}
       - name: Setup
         if: needs.build-image.outputs.succeeded != 'true'
         working-directory: .install
         run: ./install_script.sh ${{ steps.mode.outputs.mode }}
+      - name: Setup Rust test dependencies
+        # Required so the cached-container fallback path also has the pinned
+        # nightly + `rust-docs-json` component + cheadergen binary that the
+        # `Stale headers check` step below needs. The cached container image
+        # already runs this script in its Dockerfile.
+        if: needs.build-image.outputs.succeeded != 'true'
+        uses: ./.github/actions/retry-command
+        with:
+          command: .install/test_deps/install_rust_deps.sh ${{ steps.mode.outputs.mode }}
+          github_token: ${{ github.token }}
       # Cache Rust packages and binaries
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           prefix-key: "v1-rust"
           # The cargo workspaces and target directory configuration.
@@ -94,7 +121,7 @@ jobs:
         continue-on-error: true
         run: |
           if ! git diff --exit-code; then
-            echo "Uncommitted changes found. This is likely because of automatically generated code which has not been committed."
+            echo "Uncommitted changes found. Likely causes: stale Rust → C FFI headers under src/redisearch_rs/headers/ (run 'make generate-rust-headers' and commit) or other auto-generated artifacts produced by 'make lint'."
             exit 1
           fi
       - name: License header
@@ -120,13 +147,10 @@ jobs:
           python3 scripts/cargo_deny_advisory_gate.py \
             --manifest-path "$MANIFEST_PATH" \
             "${ARGS[@]}"
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - name: Dependency licenses
         id: dep-licenses
         continue-on-error: true
-        with:
-          command: check licenses
-          arguments: --all-features
-          manifest-path: src/redisearch_rs/Cargo.toml
+        run: cargo-deny --manifest-path src/redisearch_rs/Cargo.toml --all-features check licenses
       - name: Workspace hack check
         id: workspace_hack
         working-directory: src/redisearch_rs
@@ -139,7 +163,7 @@ jobs:
             exit 1
           fi
       - name: Show sccache stats
-        run: ${SCCACHE_PATH:-sccache} --show-stats
+        run: ${SCCACHE_PATH:-sccache} --show-stats || true
       - name: Fail if any step failed
         if: |
           steps.lint.outcome == 'failure' ||
@@ -150,11 +174,11 @@ jobs:
           steps.dep-licenses.outcome == 'failure' ||
           steps.workspace_hack.outcome == 'failure'
         run: |
-          echo "Linting: ${{ steps.lint.outcome }}"
-          echo "License header: ${{ steps.license-header.outcome }}"
+          echo "Lint: ${{ steps.lint.outcome }}"
           echo "Generated files: ${{ steps.git-diff.outcome }}"
-          echo "Formatting: ${{ steps.fmt.outcome }}"
+          echo "License header: ${{ steps.license-header.outcome }}"
+          echo "Format check: ${{ steps.fmt.outcome }}"
           echo "Security advisories: ${{ steps.advisories.outcome }}"
           echo "Dependency licenses: ${{ steps.dep-licenses.outcome }}"
-          echo "Workspace hack: ${{ steps.workspace_hack.outcome }}"
+          echo "Workspace hack check: ${{ steps.workspace_hack.outcome }}"
           exit 1

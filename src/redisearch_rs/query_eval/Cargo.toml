@@ -1,0 +1,45 @@
+[package]
+name = "query_eval"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[features]
+# feature enabled when building tests so they can link the C code in build.rs
+# see https://github.com/rust-lang/cargo/issues/4789#issuecomment-2308131243
+unittest = []
+
+[build-dependencies]
+build_utils.workspace = true
+
+[dependencies]
+c_trie.workspace = true
+cheadergen.workspace = true
+ffi.workspace = true
+field.workspace = true
+index_result.workspace = true
+inverted_index.workspace = true
+query.workspace = true
+query_error.workspace = true
+query_term.workspace = true
+query_types.workspace = true
+redis-module.workspace = true
+rqe_core.workspace = true
+rqe_iterators.workspace = true
+rs_token.workspace = true
+search_disk.workspace = true
+thiserror.workspace = true
+workspace_hack.workspace = true
+
+[dev-dependencies]
+geo.workspace = true
+proptest = { workspace = true, features = ["std"] }
+query = { workspace = true, features = ["unittest"] }
+query_eval = { path = ".", features = ["unittest"] }
+redis_mock.workspace = true
+redisearch_rs = { workspace = true, features = ["mock_allocator"] }
+rqe_iterators_test_utils.workspace = true
+
+[lints]
+workspace = true

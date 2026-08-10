@@ -11,12 +11,15 @@
 
 #include "reply.h"
 #include "redismodule.h"
+#include "rmutil/args.h"
 
 #include <stdlib.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#define MAX_STOPWORDLIST_SIZE 1024
 
 static const char *DEFAULT_STOPWORDS[] = {
     "a",    "is",    "the",   "an",   "and",  "are", "as",  "at",   "be",   "but",  "by",   "for",
@@ -29,7 +32,7 @@ typedef struct StopWordList StopWordList;
 struct StopWordList;
 #endif
 
-/* Check if a stopword list contains a term. The term must be already lowercased */
+/* Check if a stopword list contains a term (case-insensitive lookup). */
 int StopWordList_Contains(const struct StopWordList *sl, const char *term, size_t len);
 
 struct StopWordList *DefaultStopWordList();
@@ -37,6 +40,11 @@ void StopWordList_FreeGlobals(void);
 
 /* Create a new stopword list from a list of NULL-terminated C strings */
 struct StopWordList *NewStopWordListCStr(const char **strs, size_t len);
+
+/* Create a new stopword list by consuming the remaining arguments of an
+ * ArgsCursor. Works with any ArgsCursor type (CString, RString, SDS) and
+ * avoids materializing an intermediate const char ** buffer. */
+struct StopWordList *NewStopWordListAC(ArgsCursor *ac);
 
 /* Free a stopword list's memory */
 void StopWordList_Unref(struct StopWordList *sl);
@@ -54,9 +62,6 @@ void StopWordList_Ref(struct StopWordList *sl);
 void ReplyWithStopWordsList(RedisModule_Reply *reply, struct StopWordList *sl);
 
 void AddStopWordsListToInfo(RedisModuleInfoCtx *ctx, struct StopWordList *sl);
-
-/* Returns a NULL terminated list of stopwords */
-char **GetStopWordsList(struct StopWordList *sl, size_t *size);
 
 #ifdef __cplusplus
 }

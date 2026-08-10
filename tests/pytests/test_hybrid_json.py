@@ -146,10 +146,10 @@ def test_knn_reduce():
         'PARAMS', '2', 'BLOB', vector_blob)
     env.assertEqual(response['total_results'], 2)
     env.assertEqual(len(response['results']), 2)
-    env.assertEqual(response['results'][0]['category'], "shoes")
-    env.assertEqual(response['results'][0]['count'], "3")
-    env.assertEqual(response['results'][1]['category'], "gear")
-    env.assertEqual(response['results'][1]['count'], "1")
+    # The order of the groups themselves is not guaranteed, so compare them by category
+    # regardless of order.
+    counts_by_category = {row['category']: row['count'] for row in response['results']}
+    env.assertEqual(counts_by_category, {"shoes": "3", "gear": "1"})
 
 def test_knn_load():
     env = Env(protocol=3)

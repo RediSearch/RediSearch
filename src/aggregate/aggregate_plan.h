@@ -8,7 +8,8 @@
 */
 #ifndef AGGREGATE_PLAN_H_
 #define AGGREGATE_PLAN_H_
-#include <value.h>
+#include <stdint.h>
+#include <value_ffi.h>
 #include <rlookup.h>
 #include <search_options.h>
 #include <aggregate/expr/expression.h>
@@ -101,6 +102,7 @@ typedef struct {
   uint64_t sortAscMap;            // Mapping of ascending/descending. Bitwise
   bool isLimited;                 // Flag if `LIMIT` keyword was used.
   bool runLocal;                  // Indicator that this step should run only local (not in shards)
+  const char *scoreTieBreakField; // If set, sort-by-score breaks ties by this field, not the doc id
   uint64_t offset;                // Seek results. If 0, then no paging is applied
   uint64_t limit;                 // Number of rows to output
 } PLN_ArrangeStep;

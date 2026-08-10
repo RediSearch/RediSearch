@@ -7,8 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#include "trie/trie_node.h"
+#include "trie/trie_node_internal.h"
 #include "trie/trie.h"
-#include "trie/trie_type.h"
 #include "trie/levenshtein.h"
 #include "trie/rune_util.h"
 #include "libnu/libnu.h"
@@ -17,13 +18,33 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdint.h>
 #include <assert.h>
 #include <unistd.h>
 #include <sys/time.h>
 #include <sys/param.h>
 #include <time.h>
 
+// Forward declaration of internal helper from trie.c, exposed here for testing only.
+size_t __trieNode_Sizeof(t_len numChildren, t_len slen);
+
 int count = 0;
+static size_t freedTriePayloads = 0;
+
+static void countTriePayloadFree(void *payload) {
+  (void)payload;
+  ++freedTriePayloads;
+}
+
+static size_t alignUp(size_t value, size_t alignment) {
+  size_t remainder = value % alignment;
+  return remainder ? value + alignment - remainder : value;
+}
+
+static size_t expectedTrieNodeSize(t_len numChildren, t_len slen) {
+  size_t childKeysEnd = sizeof(TrieNode) + ((size_t)slen + 1 + numChildren) * sizeof(rune);
+  return alignUp(childKeysEnd, _Alignof(TrieNode *)) + (size_t)numChildren * sizeof(TrieNode *);
+}
 
 static float trieExactScore(TrieNode *n, rune *str, t_len len) {
   TrieNode *res = TrieNode_Get(n, str, len, true, NULL);
@@ -101,7 +122,7 @@ int testRuneUtil() {
   free(backUnicodeStr);
 
   size_t foldedLen;
-  rune *foldedRunes = strToSingleCodepointFoldedRunes("yY", &foldedLen);
+  rune *foldedRunes = strToSingleCodepointFoldedRunes("yY", strlen("yY"), &foldedLen);
   ASSERT_EQUAL(foldedLen, 2);
   ASSERT_EQUAL(foldedRunes[0], 121);
   ASSERT_EQUAL(foldedRunes[1], 121);
@@ -109,7 +130,8 @@ int testRuneUtil() {
 
   // TESTING ∏ and Å because ∏ doesn't have a lowercase form, but Å does
   size_t foldedUnicodeLen;
-  rune *foldedUnicodeRunes = strToSingleCodepointFoldedRunes("Ø∏πåÅ", &foldedUnicodeLen);
+  rune *foldedUnicodeRunes =
+      strToSingleCodepointFoldedRunes("Ø∏πåÅ", strlen("Ø∏πåÅ"), &foldedUnicodeLen);
   ASSERT_EQUAL(runeFold(foldedUnicodeRunes[1]), foldedUnicodeRunes[1]);
   ASSERT_EQUAL(foldedUnicodeLen, 5);
   ASSERT_EQUAL(foldedUnicodeRunes[0], 248);
@@ -276,7 +298,7 @@ int testDFAFilter() {
   clock_gettime(CLOCK_REALTIME, &start_time);
 
   for (i = 0; terms[i] != NULL; i++) {
-    runes = strToSingleCodepointFoldedRunes(terms[i], &rlen);
+    runes = strToSingleCodepointFoldedRunes(terms[i], strlen(terms[i]), &rlen);
     DFAFilter *fc = NewDFAFilter(runes, rlen, 2, 0);
 
     TrieIterator *it = TrieNode_Iterate(root, FoldingFilterFunc, StackPop, fc);
@@ -471,6 +493,49 @@ int testNumDocs() {
   free(aRunes);
   free(abRunes);
   free(abcRunes);
+  TrieType_Free(t);
+  return 0;
+}
+
+// Regression: TrieNode_Delete is a soft delete (tombstone). It must zero both
+// numDocs and score so that re-inserting the same term doesn't accumulate the
+// pre-delete values via __trieNode_Add's `n->numDocs += numDocs` (always
+// accumulates) and `n->score += score` (accumulates in ADD_INCR mode). Use
+// ADD_INCR (incr=1) so the score half is also exercised — ADD_REPLACE would
+// mask a missing score reset.
+int testDeleteThenReinsertResetsState() {
+  Trie *t = NewTrie(NULL, Trie_Sort_Score);
+  ASSERT(t != NULL);
+
+  size_t helloLen;
+  rune *helloRunes = strToRunes("hello", &helloLen);
+
+  // Insert "hello" with score = 2.5 and numDocs = 7 in ADD_INCR mode.
+  int rc = Trie_InsertStringBuffer(t, "hello", 5, 2.5, 1, NULL, 7);
+  ASSERT_EQUAL(1, rc);
+  TrieNode *node = Trie_GetNode(t, helloRunes, helloLen, true, NULL);
+  ASSERT(node != NULL);
+  ASSERT(node->score == 2.5f);
+  ASSERT_EQUAL(7, node->numDocs);
+
+  // Soft-delete the term; tombstone must zero both fields.
+  int delRc = Trie_Delete(t, "hello", 5);
+  ASSERT_EQUAL(1, delRc);
+  // Trie_GetNode filters deleted nodes.
+  node = Trie_GetNode(t, helloRunes, helloLen, true, NULL);
+  ASSERT(node == NULL);
+
+  // Re-insert with score = 1.0 and numDocs = 3 in ADD_INCR mode.
+  // Without the reset, score would accumulate to 3.5 and numDocs to 10.
+  rc = Trie_InsertStringBuffer(t, "hello", 5, 1.0, 1, NULL, 3);
+  // Re-inserting a deleted node returns TRIE_OK_NEW (rc == 1), not UPDATED.
+  ASSERT_EQUAL(1, rc);
+  node = Trie_GetNode(t, helloRunes, helloLen, true, NULL);
+  ASSERT(node != NULL);
+  ASSERT(node->score == 1.0f);
+  ASSERT_EQUAL(3, node->numDocs);
+
+  free(helloRunes);
   TrieType_Free(t);
   return 0;
 }
@@ -918,7 +983,7 @@ int testDecrementNumDocsNonTerminal() {
   runes = strToRunes("helloworld", &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node != NULL);
-  ASSERT(__trieNode_isTerminal(node));
+  ASSERT(TrieNode_IsTerminal(node));
   ASSERT_EQUAL(100, node->numDocs);
   free(runes);
 
@@ -949,7 +1014,7 @@ int testDecrementNumDocsNonTerminal() {
   runes = strToRunes("hello", &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node != NULL);
-  ASSERT(__trieNode_isTerminal(node));
+  ASSERT(TrieNode_IsTerminal(node));
   ASSERT_EQUAL(50, node->numDocs);
   free(runes);
 
@@ -1061,6 +1126,62 @@ int testDecrementNumDocsNonTerminal() {
   return 0;
 }
 
+int testTrieNodeSizeof() {
+  // Test __trieNode_Sizeof size calculation
+  //
+  // Note: Overflow is not possible with t_len (uint16_t) inputs since
+  // max possible size is: 65535 * 12 + 65536 * 4 ≈ 1MB, far below SIZE_MAX.
+
+  // Maximum uint16_t values should work (no overflow possible)
+  size_t result = __trieNode_Sizeof(UINT16_MAX, UINT16_MAX);
+  ASSERT(result > 0);
+
+  // Verify the size calculation matches the padded child-pointer layout.
+  size_t expected = expectedTrieNodeSize(UINT16_MAX, UINT16_MAX);
+  ASSERT_EQUAL(result, expected);
+
+  // Normal values
+  result = __trieNode_Sizeof(10, 100);
+  ASSERT(result > 0);
+
+  // Edge case: zero children and zero length
+  result = __trieNode_Sizeof(0, 0);
+  ASSERT_EQUAL(result, expectedTrieNodeSize(0, 0));
+
+  return 0;
+}
+
+int testDeleteRunesDeepSuffixTrieUsesDynamicStack() {
+  freedTriePayloads = 0;
+  Trie *t = NewTrie(countTriePayloadFree, Trie_Sort_Lex);
+  ASSERT(t != NULL);
+
+  enum { keyLen = TRIE_INITIAL_STRING_LEN * 2 + 16 };
+  rune key[keyLen];
+  for (size_t i = 0; i < keyLen; ++i) {
+    key[i] = 'a';
+  }
+
+  RSPayload payload = {.data = "payload", .len = strlen("payload")};
+
+  // Match repeated addSuffixTrie() full-word inserts: Trie_InsertRuneNoSize()
+  // bypasses the normal length guard, and overlapping terms split the trie into
+  // a traversal path that exceeds the local stack and its first heap growth.
+  for (size_t len = 1; len <= keyLen; ++len) {
+    int rc = Trie_InsertRuneNoSize(t, key, len, 1, 0, &payload, 0);
+    ASSERT_EQUAL(TRIE_OK_NEW, rc);
+  }
+  ASSERT_EQUAL(0, freedTriePayloads);
+
+  ASSERT_EQUAL(1, Trie_DeleteRunes(t, key, keyLen));
+  ASSERT(Trie_GetNode(t, key, keyLen, true, NULL) == NULL);
+  ASSERT(Trie_GetNode(t, key, keyLen - 1, true, NULL) != NULL);
+  ASSERT_EQUAL(1, freedTriePayloads);
+
+  TrieType_Free(t);
+  return 0;
+}
+
 TEST_MAIN({
   RMUTil_InitAlloc();
   TESTFUNC(testRuneUtil);
@@ -1069,7 +1190,10 @@ TEST_MAIN({
   TESTFUNC(testPayload);
   TESTFUNC(testUnicode);
   TESTFUNC(testNumDocs);
+  TESTFUNC(testDeleteThenReinsertResetsState);
   TESTFUNC(testDecrementNumDocs);
   TESTFUNC(testDecrementNumDocsComplex);
   TESTFUNC(testDecrementNumDocsNonTerminal);
+  TESTFUNC(testTrieNodeSizeof);
+  TESTFUNC(testDeleteRunesDeepSuffixTrieUsesDynamicStack);
 });

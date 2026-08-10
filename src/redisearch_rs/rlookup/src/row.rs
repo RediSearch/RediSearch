@@ -11,7 +11,7 @@ use crate::{
     RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, SchemaRule, lookup::TRANSIENT_FLAGS,
 };
 use sorting_vector::{RSSortingVector, RSSortingVectorRef};
-use std::{borrow::Cow, ffi::CStr};
+use std::{borrow::Cow, ffi::CStr, fmt};
 use thin_vec::ThinVec;
 use value::SharedValue;
 
@@ -25,7 +25,13 @@ fn is_special_key(rule: &SchemaRule, key: &RLookupKey) -> bool {
 
 /// Row data for a lookup key. This abstracts the question of if the data comes from a borrowed sorting vector slice
 /// or from dynamic values stored in the row during processing.
-#[derive(Debug)]
+///
+/// The C-visible layout comes from the `OpaqueRLookupRow` wrapper (which is
+/// `#[repr(C, align(8))]` and `#[cheadergen::config(rename = "RLookupRow")]`).
+/// Force this internal type to opaque so cheadergen does not warn about it
+/// being reached by value through `SearchResult._row_data` — both names emit
+/// to the same C tag, and the wrapper provides the actual layout.
+#[cheadergen::config(export, opaque)]
 pub struct RLookupRow<'a> {
     /// A reference to the sorting vector.
     sorting_vector: RSSortingVectorRef<'a>,
@@ -36,6 +42,16 @@ pub struct RLookupRow<'a> {
     /// The number of values in [`RLookupRow::dyn_values`] that are `is_some()`. Note that this
     /// is not the length of [`RLookupRow::dyn_values`]
     num_dyn_values: u32,
+}
+
+impl fmt::Debug for RLookupRow<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // NB: we purposefully DO NOT include the sorting_vector and dyn_values fields here,
+        // so we don't accidentally leak user-data into log messages!
+        f.debug_struct("RLookupRow")
+            .field("num_dyn_values", &self.num_dyn_values)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<'a> Default for RLookupRow<'a> {
@@ -390,6 +406,7 @@ pub mod opaque {
     ///
     /// The size and alignment of this struct must match the Rust `RLookupRow`
     /// structure exactly.
+    #[cheadergen::config(rename = "RLookupRow")]
     #[repr(C, align(8))]
     pub struct OpaqueRLookupRow(Size<24>);
 
@@ -401,8 +418,8 @@ pub mod opaque {
 mod tests {
     use std::ptr;
 
+    use document::DocumentType;
     use enumflags2::make_bitflags;
-    use ffi::DocumentType;
 
     use super::*;
 
@@ -470,7 +487,7 @@ mod tests {
             Some(unsafe { SchemaRule::from_raw(ptr::from_ref(&tsrw)) }),
         );
         assert_eq!(len, 0);
-        assert_eq!(flags, vec![]);
+        assert!(flags.is_empty());
     }
 
     #[test]

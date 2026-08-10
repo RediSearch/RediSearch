@@ -21,6 +21,7 @@
 #include "profile/options.h"
 
 #include "util/stringify.h"
+#include "util/rs_atomic.h"
 
 // Module-level dummy context for certain dummy RM_XXX operations
 extern RedisModuleCtx *RSDummyContext;
@@ -37,6 +38,8 @@ extern "C" {
 // Thus, these commands are not exposed to the user. For more info, see redis
 // docs and code.
 #define CMD_INTERNAL "internal"
+
+int RediSearch_Init(RedisModuleCtx *ctx);
 
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx);
 
@@ -59,6 +62,9 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 // Indicates that RediSearch_Init was called
 extern int RS_Initialized;
 
+// Coordinator thread pool id; -1 until RediSearch_InitModuleInternal runs.
+extern int DIST_THREADPOOL;
+
 #define RS_AutoMemory(ctx)                      \
 do {                                            \
   RedisModule_Assert(ctx != RSDummyContext);    \
@@ -80,7 +86,18 @@ do {                                            \
     return REDISMODULE_ERR;                                            \
   }
 
-#define IS_SST_RDB_IN_PROCESS(ctx) (RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SST_RDB)
+static inline bool IS_SST_RDB_IN_PROCESS(RedisModuleCtx *ctx) {
+  return (RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SST_RDB) != 0;
+}
+
+static inline bool IS_SST_RDB_LOADING(RedisModuleCtx *ctx) {
+  // Fetch the context flags once and test both bits, instead of calling
+  // RedisModule_GetContextFlags() twice.
+  int flags = RedisModule_GetContextFlags(ctx);
+  return (flags & REDISMODULE_CTX_FLAGS_SST_RDB) &&
+         (flags & (REDISMODULE_CTX_FLAGS_LOADING | REDISMODULE_CTX_FLAGS_ASYNC_LOADING));
+}
+
 // Forward declaration of searchReducerCtx
 struct searchReducerCtx;
 
@@ -109,6 +126,8 @@ typedef struct {
   void *reducer;
   bool queryOOM;
   bool timedOut;
+  // QueryTimeoutStage marker for the FT.SEARCH MR coord path (no RequestSyncState).
+  RS_Atomic(int) execPhase;
 
   struct searchReducerCtx *rctx;
 } searchRequestCtx;

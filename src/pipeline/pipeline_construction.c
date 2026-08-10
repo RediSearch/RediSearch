@@ -1,11 +1,43 @@
 #include "pipeline/pipeline_construction.h"
-#include "ext/default.h"
+
+#include <string.h>
+#include <strings.h>
+#include <sys/param.h>
+
 #include "query_optimizer.h"
 #include "vector_normalization.h"
 #include "vector_index.h"
-#include "iterators/hybrid_reader.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
 #include "util/misc.h"
+#include "search_disk.h"
+#include "VecSim/vec_sim_common.h"
+#include "aggregate/aggregate.h"
+#include "aggregate/expr/expression.h"
+#include "config.h"
+#include "document.h"
+#include "extension.h"
+#include "field_spec.h"
+#include "profile/profile.h"
+#include "query.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "query_flags.h"
+#include "query_types.h"
+#include "redisearch.h"
+#include "redismodule.h"
+#include "result_processor.h"
+#include "result_processor_ffi.h"
+#include "rlookup.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "rmutil/args.h"
+#include "rmutil/rm_assert.h"
+#include "score_explain.h"
+#include "search_ctx.h"
+#include "search_options.h"
+#include "spec.h"
+#include "util/arr/arr.h"
+#include "util/dllist.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -13,6 +45,7 @@ extern "C" {
 
 static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
                                      const RLookupKey ***loadKeys, uint32_t reqflags,
+                                     GroupByLimits groupByLimits,
                                      QueryError *err) {
   arrayof(const char*) properties = PLNGroupStep_GetProperties(gstp);
   size_t nproperties = array_len(properties);
@@ -41,7 +74,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     }
   }
 
-  Grouper *grp = Grouper_New(srckeys, dstkeys, nproperties);
+  Grouper *grp = Grouper_New(srckeys, dstkeys, nproperties, groupByLimits);
 
   size_t nreducers = array_len(gstp->reducers);
   for (size_t ii = 0; ii < nreducers; ++ii) {
@@ -102,12 +135,37 @@ static ResultProcessor *pushRP(QueryProcessingCtx *ctx, ResultProcessor *rp, Res
   return rp;
 }
 
+/**
+ * Build the loader RP that fills lookup rows from the keyspace: the disk async
+ * loader for disk-backed (flex) specs (HASH and JSON), RPLoader otherwise.
+ * Construction is infallible for both (never returns NULL; allocation aborts
+ * on OOM). NULL-safe on sctx/spec: coordinator pipelines run with a spec-less
+ * search context and always get RPLoader. `forceLoad` only applies to RPLoader
+ * (a JSON-dialect concern; the async loader owns its JSON handling
+ * internally).
+ */
+static ResultProcessor *getLoaderRP(RedisSearchCtx *sctx, uint32_t reqflags, RLookup *lk,
+                                    const RLookupKey **keys, size_t nkeys, bool forceLoad,
+                                    uint32_t *outStateFlags) {
+  if (sctx && sctx->spec && sctx->spec->diskSpec) {
+    // The async loader sets QEXEC_S_HAS_LOAD in outStateFlags itself, like
+    // RPLoader_New.
+    ResultProcessor *rp =
+        SearchDisk_NewAsyncLoaderResultProcessor(sctx, reqflags, lk, keys, nkeys, outStateFlags);
+    RS_LOG_ASSERT(rp, "newAsyncLoaderResultProcessor failed");
+    return rp;
+  }
+  return RPLoader_New(sctx, reqflags, lk, keys, nkeys, forceLoad, outStateFlags);
+}
+
 static ResultProcessor *getGroupRP(Pipeline *pipeline, const AggregationPipelineParams *params, PLN_GroupStep *gstp, ResultProcessor *rpUpstream,
                                    QueryError *status, bool forceLoad, uint32_t *outStateFlags) {
   RLookup *lookup = AGPLN_GetLookup(&pipeline->ap, &gstp->base, AGPLN_GETLOOKUP_PREV);
   RLookup *firstLk = AGPLN_GetLookup(&pipeline->ap, &gstp->base, AGPLN_GETLOOKUP_FIRST); // first lookup can load fields from redis
   const RLookupKey **loadKeys = NULL;
-  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, (firstLk == lookup && RLookup_HasIndexSpecCache(firstLk)) ? &loadKeys : NULL, params->common.reqflags, status);
+  ResultProcessor *groupRP = buildGroupRP(
+      gstp, lookup, (firstLk == lookup && RLookup_HasIndexSpecCache(firstLk)) ? &loadKeys : NULL,
+      params->common.reqflags, params->groupByLimits, status);
 
   if (!groupRP) {
     array_free(loadKeys);
@@ -116,9 +174,10 @@ static ResultProcessor *getGroupRP(Pipeline *pipeline, const AggregationPipeline
 
   // See if we need a LOADER group here...?
   if (loadKeys) {
-    ResultProcessor *rpLoader = RPLoader_New(params->common.sctx, params->common.reqflags, firstLk, loadKeys, array_len(loadKeys), forceLoad, outStateFlags);
+    ResultProcessor *rpLoader =
+        getLoaderRP(params->common.sctx, params->common.reqflags, firstLk, loadKeys,
+                    array_len(loadKeys), forceLoad, outStateFlags);
     array_free(loadKeys);
-    RS_LOG_ASSERT(rpLoader, "RPLoader_New failed");
     rpUpstream = pushRP(&pipeline->qctx, rpLoader, rpUpstream);
   }
 
@@ -226,7 +285,9 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
       }
       if (loadKeys) {
         // If we have keys to load, add a loader step.
-        ResultProcessor *rpLoader = RPLoader_New(params->common.sctx, params->common.reqflags, lk, loadKeys, array_len(loadKeys), forceLoad, outStateFlags);
+        ResultProcessor *rpLoader =
+            getLoaderRP(params->common.sctx, params->common.reqflags, lk, loadKeys,
+                        array_len(loadKeys), forceLoad, outStateFlags);
         up = pushRP(&pipeline->qctx, rpLoader, up);
       }
       rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, astp->sortAscMap);
@@ -237,7 +298,13 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
               HasScorer(&params->common)) {
       // No sort? then it must be sort by score, which is the default.
       // In optimize mode, add sorter for queries with a scorer.
-      rp = RPSorter_NewByScore(maxResults);
+      // Resolve the score-tie-break field if one was requested.
+      const RLookupKey *scoreTieBreakKey = NULL;
+      if (astp->scoreTieBreakField) {
+        RLookup *lk = AGPLN_GetLookup(&pipeline->ap, stp, AGPLN_GETLOOKUP_PREV);
+        scoreTieBreakKey = RLookup_GetKey_Read(lk, astp->scoreTieBreakField, RLOOKUP_F_HIDDEN);
+      }
+      rp = RPSorter_NewByScore(maxResults, scoreTieBreakKey);
       up = pushRP(&pipeline->qctx, rp, up);
     }
   }
@@ -376,13 +443,14 @@ ResultProcessor *processLoadStep(PLN_LoadStep *loadStep, RLookup *lookup,
     return NULL;
   }
 
-  // Create RPLoader if we have keys to load or LOAD ALL flag is set
   if (loadStep->nkeys || loadStep->base.flags & PLN_F_LOAD_ALL) {
-    ResultProcessor *rp = RPLoader_New(sctx, reqflags, lookup, loadStep->keys, loadStep->nkeys, forceLoad, outStateFlags);
+    ResultProcessor *rp = getLoaderRP(sctx, reqflags, lookup, loadStep->keys, loadStep->nkeys,
+                                      forceLoad, outStateFlags);
 
-    // Handle JSON spec case
-    if (isSpecJson(sctx->spec)) {
-      // On JSON, load all gets the serialized value of the doc, and doesn't make the fields available.
+    if (isSpecJson(sctx->spec) && !sctx->spec->diskSpec) {
+      // On JSON (in-memory), load all gets the serialized value of the doc, and
+      // doesn't make the fields available. The disk async loader owns the
+      // RLOOKUP_OPT_ALLLOADED decision internally.
       RLookup_DisableOptions(lookup, RLOOKUP_OPT_ALLLOADED);
     }
 
@@ -401,12 +469,21 @@ ResultProcessor *processLoadStep(PLN_LoadStep *loadStep, RLookup *lookup,
  * This creates the initial pipeline components that find matching documents and calculate
  * their relevance scores, providing the foundation for subsequent aggregation and filtering stages.
  */
-void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params) {
+void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params, QueryError *status) {
   IndexSpecCache *cache = IndexSpec_GetSpecCache(params->common.sctx->spec);
   RS_LOG_ASSERT(cache, "IndexSpec_GetSpecCache failed")
   RLookup *first = AGPLN_GetLookup(&pipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
 
   RLookup_SetCache(first, cache);
+
+  // Initialize the buffering policy from request flags. Highlighting needs the
+  // index result downstream; score-returning requests stay on the conservative
+  // copy path to preserve existing rich-result behavior. matched_terms() is
+  // detected later while building APPLY/FILTER steps and may force copying even
+  // without scores. The query and output parts share this qctx, so setting it
+  // here covers the whole pipeline.
+  pipeline->qctx.skipIndexResultDeepCopy =
+      !QEFlags_RequireIndexResultsDownstream(params->common.reqflags);
 
   ResultProcessor *rp = RPQueryIterator_New(params->rootiter, params->querySlots, params->keySpaceVersion, params->common.sctx);
   params->rootiter = NULL; // Ownership of the root iterator is now with the pipeline.
@@ -418,7 +495,7 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params) {
   // Load results metrics according to their RLookup key.
   // We need this RP only if metricRequests is not empty.
   if (params->ast->metricRequests) {
-    rp = getAdditionalMetricsRP(params->common.sctx, params->ast, first, pipeline->qctx.err);
+    rp = getAdditionalMetricsRP(params->common.sctx, params->ast, first, status);
     if (!rp) {
       return;
     }
@@ -455,7 +532,7 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params) {
       if (params->common.scoreAlias) {
         scoreKey = RLookup_GetKey_Write(first, params->common.scoreAlias, RLOOKUP_F_NOFLAGS);
         if (!scoreKey) {
-          QueryError_SetWithUserDataFmt(pipeline->qctx.err, QUERY_ERROR_CODE_DUP_FIELD, "Could not create score alias, name already exists in query", "%s", params->common.scoreAlias);
+          QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_DUP_FIELD, "Could not create score alias, name already exists in query", "%s", params->common.scoreAlias);
           return;
         }
       } else {
@@ -499,9 +576,13 @@ int buildOutputPipeline(Pipeline *pipeline, const AggregationPipelineParams* par
   // If we have explicit return and some of the keys' values are missing,
   // or if we don't have explicit return, meaning we use LOAD ALL
   if (loadkeys || !params->outFields->explicitReturn) {
-    rp = RPLoader_New(params->common.sctx, params->common.reqflags, lookup, loadkeys, array_len(loadkeys), forceLoad, outStateFlags);
-    if (isSpecJson(params->common.sctx->spec)) {
-      // On JSON, load all gets the serialized value of the doc, and doesn't make the fields available.
+    RedisSearchCtx *sctx = params->common.sctx;
+    rp = getLoaderRP(sctx, params->common.reqflags, lookup, loadkeys, array_len(loadkeys),
+                     forceLoad, outStateFlags);
+    if (isSpecJson(sctx->spec) && !sctx->spec->diskSpec) {
+      // On JSON (in-memory), load all gets the serialized value of the doc, and
+      // doesn't make the fields available. The disk async loader owns the
+      // RLOOKUP_OPT_ALLLOADED decision internally.
       RLookup_DisableOptions(lookup, RLOOKUP_OPT_ALLLOADED);
     }
     array_free(loadkeys);
@@ -536,12 +617,41 @@ error:
   return REDISMODULE_ERR;
 }
 
-int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineParams *params, uint32_t *outStateFlags) {
+// Whether `expr` (or any sub-expression) calls a function that reads the
+// result's RSIndexResult. matched_terms() is currently the only such function;
+// an APPLY/FILTER using it after a buffering step needs the index result kept
+// alive, so the buffering RP must deep-copy rather than drop the borrow.
+static bool exprReadsIndexResult(const RSExpr *expr) {
+  if (!expr) return false;
+  switch (expr->t) {
+    case RSExpr_Function:
+      if (expr->func.name && !strcasecmp(expr->func.name, "matched_terms")) {
+        return true;
+      }
+      if (expr->func.args) {
+        for (size_t i = 0; i < expr->func.args->len; i++) {
+          if (exprReadsIndexResult(expr->func.args->args[i])) return true;
+        }
+      }
+      return false;
+    case RSExpr_Op:
+      return exprReadsIndexResult(expr->op.left) || exprReadsIndexResult(expr->op.right);
+    case RSExpr_Predicate:
+      return exprReadsIndexResult(expr->pred.left) || exprReadsIndexResult(expr->pred.right);
+    case RSExpr_Inverted:
+      return exprReadsIndexResult(expr->inverted.child);
+    case RSExpr_Literal:
+    case RSExpr_Property:
+      return false;
+  }
+  return false;
+}
+
+int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineParams *params, uint32_t *outStateFlags, QueryError *status) {
   AGGPlan *pln = &pipeline->ap;
   ResultProcessor *rp = NULL, *rpUpstream = pipeline->qctx.endProc;
   RedisSearchCtx *sctx = params->common.sctx;
   int requestFlags = params->common.reqflags;
-  QueryError *status = pipeline->qctx.err;
 
   // If we have a JSON spec, and an "old" API version (DIALECT < 3), we don't store all the data of a multi-value field
   // in the SV as we want to return it, so we need to load and override all requested return fields that are SV source.
@@ -581,6 +691,12 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
         mstp->parsedExpr = ExprAST_Parse(mstp->expr, status);
         if (!mstp->parsedExpr) {
           goto error;
+        }
+
+        // matched_terms() reads the result's index result; if any APPLY/FILTER
+        // needs it, buffering RPs must deep-copy it rather than drop the borrow.
+        if (exprReadsIndexResult(mstp->parsedExpr)) {
+          pipeline->qctx.skipIndexResultDeepCopy = false;
         }
 
         // Ensure the lookups can actually find what they need

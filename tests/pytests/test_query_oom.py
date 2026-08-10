@@ -14,9 +14,6 @@ def run_cmd_expect_oom(env, query_args):
 def run_cmd(env, query_args):
     return (env.cmd(*query_args))
 
-def pid_cmd(conn):
-    return conn.execute_command('info', 'server')['process_id']
-
 def get_all_shards_pid(env):
     for shardId in range(1, env.shardsCount + 1):
         conn = env.getConnection(shardId)
@@ -45,11 +42,12 @@ def _common_cluster_test_scenario(env):
 
     return n_docs
 
+@skip(cluster=True)
+@env_spec()
 class testOomStandaloneBehavior:
 
-    def __init__(self):
-        skipTest(cluster=True)
-        self.env = Env()
+    def __init__(self, env):
+        self.env = env
         _common_test_scenario(self.env)
         # Init all shards
         verify_shard_init(self.env.getConnection())
@@ -75,8 +73,8 @@ class testOomStandaloneBehavior:
         self.env.assertEqual(res, [0])
 
 @skip(cluster=True)
-def test_oom_verbosity_standalone():
-    env = Env(protocol=3)
+@env_spec(protocol=3)
+def test_oom_verbosity_standalone(env):
     _common_test_scenario(env)
 
     # Check commands return SHARD_OOM_WARNING when returning empty results
@@ -98,9 +96,8 @@ def test_oom_verbosity_standalone():
     env.assertContains('Profile', res)
 
 @skip(cluster=False)
-def test_oom_verbosity_cluster_hybrid_profile():
-    env = Env(shardsCount=3, protocol=3)
-
+@env_spec(shardsCount=3, protocol=3)
+def test_oom_verbosity_cluster_hybrid_profile(env):
     allShards_change_oom_policy(env, 'return')
     _common_hybrid_cluster_test_scenario(env)
     allShards_change_maxmemory_low(env)
@@ -113,10 +110,11 @@ def test_oom_verbosity_cluster_hybrid_profile():
     env.assertContains('Profile', res)
 
 
+@skip(cluster=False)
+@env_spec(shardsCount=3)
 class testOomClusterBehavior:
-    def __init__(self):
-        skipTest(cluster=False)
-        self.env = Env(shardsCount=3)
+    def __init__(self, env):
+        self.env = env
         self.n_docs = _common_cluster_test_scenario(self.env)
         allShards_change_maxmemory_low(self.env)
         # Init all shards
@@ -163,12 +161,11 @@ class testOomClusterBehavior:
         self.env.assertEqual(len(res), n_keys + 1)
 
 # Test OOM error returned from shards (only for fail), enforcing first reply from non-error shard
-# Test has specific environment requirements, so it's left out of the test class
+# Test has specific environment requirements, so it's left out of the test class.
+# Workers is necessary to make sure the query is not finished before we resume the shards.
 @skip(cluster=False, asan=True)
-def test_query_oom_cluster_shards_error_first_reply():
-    # Workers is necessary to make sure the query is not finished before we resume the shards
-    env  = Env(shardsCount=3, moduleArgs='WORKERS 1')
-
+@env_spec(shardsCount=3, moduleArgs='WORKERS 1')
+def test_query_oom_cluster_shards_error_first_reply(env):
     # Init all shards
     for i in range(env.shardsCount):
         verify_shard_init(env.getConnection(i))
@@ -261,11 +258,12 @@ def _common_hybrid_cluster_test_scenario(env):
 
     return n_docs
 
+@skip(cluster=True)
+@env_spec()
 class testOomHybridStandaloneBehavior:
 
-    def __init__(self):
-        skipTest(cluster=True)
-        self.env = Env()
+    def __init__(self, env):
+        self.env = env
         _common_hybrid_test_scenario(self.env)
         verify_shard_init(self.env.getConnection())
 
@@ -288,10 +286,11 @@ class testOomHybridStandaloneBehavior:
         res = self.env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector)
         self.env.assertEqual(res[1], 0)
 
+@skip(cluster=False)
+@env_spec(shardsCount=3)
 class testOomHybridClusterBehavior:
-    def __init__(self):
-        skipTest(cluster=False)
-        self.env = Env(shardsCount=3)
+    def __init__(self, env):
+        self.env = env
         self.n_docs = _common_hybrid_cluster_test_scenario(self.env)
         allShards_change_maxmemory_low(self.env)
         # Init all shards
@@ -339,9 +338,8 @@ class testOomHybridClusterBehavior:
         self.env.assertEqual(res[5][0], COORD_OOM_WARNING)
 
 @skip(cluster=False)
-def test_oom_verbosity_cluster_return():
-    env  = Env(shardsCount=3, protocol=3)
-
+@env_spec(shardsCount=3, protocol=3)
+def test_oom_verbosity_cluster_return(env):
     # Init all shards
     for i in range(env.shardsCount):
         verify_shard_init(env.getConnection(i))

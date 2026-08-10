@@ -7,28 +7,86 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use super::{IndexReader, IndexReaderCore, TermReader};
-use crate::{
-    DecodedBy, Decoder, HasInnerIndex, InvertedIndex, RSIndexResult, TermDecoder,
-    opaque::OpaqueEncoding,
+use super::{
+    IndexReader, IndexReaderCore, PointsToOpaqueIndex, RefreshOutcome, ResumableReader,
+    SuspendableReader, TermReader,
 };
-use ffi::{IndexFlags, t_docId, t_fieldMask};
+use crate::{
+    DecodedBy, Decoder, HasInnerIndex, InvertedIndex, TermDecoder, opaque::OpaqueEncoding,
+};
+use ffi::IndexFlags;
+use index_result::RSIndexResult;
+use rqe_core::{DocId, FieldMask};
 
 /// A reader that filters out records that do not match a given field mask. It is used to
 /// filter records in an index based on their field mask, allowing only those that match the
 /// specified mask to be returned.
+///
+/// # Invariants
+///
+/// 1. **Layout compatibility across modes.** When the inner reader `IR` is
+///    layout-compatible with its suspended form (invariant 1 on
+///    [`RawIndexReaderCore`](crate::RawIndexReaderCore)), so is
+///    `FilterMaskReader<IR>`: it is `#[repr(C)]` and `IR` is its only
+///    mode-dependent field. This is the layout compatibility the
+///    [`SuspendableReader`]/[`ResumableReader`] contract requires. Enforced by
+///    the `const _` proof below.
+#[repr(C)]
 pub struct FilterMaskReader<IR> {
     /// Mask which a record needs to match to be valid
-    mask: t_fieldMask,
+    mask: FieldMask,
 
     /// The inner reader that will be used to read the records from the index.
     inner: IR,
 }
 
+// Compile-time proof of invariant 1 on `FilterMaskReader`, for a representative
+// concrete inner reader. The inner reader's own layout compatibility is invariant
+// 1 on `RawIndexReaderCore`.
+const _: () = {
+    use crate::RawIndexReaderCore;
+    use crate::codec::doc_ids_only::DocIdsOnly;
+    use ref_mode::{Active, Suspended};
+    use std::mem::{align_of, offset_of, size_of};
+    type A = FilterMaskReader<RawIndexReaderCore<Active<'static>, DocIdsOnly>>;
+    type S = FilterMaskReader<RawIndexReaderCore<Suspended, DocIdsOnly>>;
+    assert!(offset_of!(A, mask) == offset_of!(S, mask));
+    assert!(offset_of!(A, inner) == offset_of!(S, inner));
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
+
 impl<'index, IR: IndexReader<'index>> FilterMaskReader<IR> {
     /// Create a new filter mask reader with the given mask and inner iterator
-    pub const fn new(mask: t_fieldMask, inner: IR) -> Self {
+    pub const fn new(mask: FieldMask, inner: IR) -> Self {
         Self { mask, inner }
+    }
+}
+
+/// `FilterMaskReader<IR>` suspends to `FilterMaskReader<IR::Suspended>`.
+///
+/// SAFETY: layout compatibility is invariant 1 on [`FilterMaskReader`] (const
+/// proof there), given `IR`'s own layout compatibility.
+unsafe impl<IR: SuspendableReader> SuspendableReader for FilterMaskReader<IR> {
+    type Suspended = FilterMaskReader<IR::Suspended>;
+}
+
+/// Inverse of the above: `FilterMaskReader<RS>` resumes to
+/// `FilterMaskReader<RS::Resumed<'a>>` for any `RS: ResumableReader`.
+///
+/// SAFETY: layout compatibility is invariant 1 on [`FilterMaskReader`] (const
+/// proof there).
+unsafe impl<RS: ResumableReader> ResumableReader for FilterMaskReader<RS>
+where
+    for<'a> Self: 'static,
+    for<'a> FilterMaskReader<RS::Resumed<'a>>: IndexReader<'a>,
+{
+    type Resumed<'a> = FilterMaskReader<RS::Resumed<'a>>;
+
+    unsafe fn refresh_pointers(&mut self) -> RefreshOutcome {
+        // SAFETY: our caller upholds `ResumableReader::refresh_pointers`'s
+        // read-lock obligation, which we forward unchanged to the inner reader.
+        unsafe { self.inner.refresh_pointers() }
     }
 }
 
@@ -51,7 +109,7 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterMaskReader<I
     #[inline(always)]
     fn seek_record(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<bool> {
         let success = self.inner.seek_record(doc_id, result)?;
@@ -67,7 +125,7 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterMaskReader<I
         }
     }
 
-    fn skip_to(&mut self, doc_id: t_docId) -> bool {
+    fn skip_to(&mut self, doc_id: DocId) -> bool {
         self.inner.skip_to(doc_id)
     }
 
@@ -120,13 +178,20 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> FilterMaskReader<IndexReader
     }
 }
 
+/// Forwards the opaque-index check to the inner reader. Covers both the
+/// [`Active`](ref_mode::Active) and [`Suspended`](ref_mode::Suspended) inner
+/// reader forms.
+impl<IR: PointsToOpaqueIndex> PointsToOpaqueIndex for FilterMaskReader<IR> {
+    fn points_to_the_same_opaque_index(&self, opaque: &crate::opaque::InvertedIndex) -> bool {
+        self.inner.points_to_the_same_opaque_index(opaque)
+    }
+}
+
 /// Automatically implemented if the IndexReaderCore uses a TermDecoder.
-impl<'index, E: DecodedBy<Decoder = D> + OpaqueEncoding, D: Decoder + TermDecoder>
+/// The [`PointsToOpaqueIndex`] supertrait is satisfied via the impl above.
+impl<'index, E: DecodedBy<Decoder = D> + OpaqueEncoding + 'index, D: Decoder + TermDecoder>
     TermReader<'index> for FilterMaskReader<IndexReaderCore<'index, E>>
 where
     E::Storage: HasInnerIndex<E>,
 {
-    fn points_to_the_same_opaque_index(&self, opaque: &crate::opaque::InvertedIndex) -> bool {
-        self.inner.points_to_the_same_opaque_index(opaque)
-    }
 }

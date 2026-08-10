@@ -10,31 +10,43 @@
 use std::{f64, ptr::NonNull};
 
 use crate::{
-    FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus,
-    SkipToOutcome,
+    FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
+    RQESuspendedIterator, RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    c2rust::CRQEIterator,
     expiration_checker::{ExpirationChecker, NoOpChecker},
+    profile_print::{ProfilePrint, ProfilePrintCtx, format_g},
 };
-use ffi::{FieldType_INDEXFLD_T_GEO, FieldType_INDEXFLD_T_NUMERIC, IndexFlags, t_docId};
+use ffi::{
+    FieldType_INDEXFLD_T_GEO, FieldType_INDEXFLD_T_NUMERIC, IndexFlags, QueryIterator,
+    RedisSearchCtx,
+};
+use index_result::RSIndexResult;
+use index_spec::IndexSpecReadGuard;
 use inverted_index::{
-    FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter, NumericReader, RSIndexResult,
+    FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter, NumericReader,
+    ResumableReader, SuspendableReader,
 };
 use numeric_range_tree::{NumericIndexReader, NumericRangeTree};
+use query_types::QueryNodeType;
+use ref_mode::{Active, Ref, Suspended};
+use rqe_core::DocId;
 
-use super::core::InvIndIterator;
+use super::core::{InvIndIterator, RawInvIndIterator, ResumeStatus};
 
-/// An iterator over numeric inverted index entries.
-///
-/// This iterator can be used to query a numeric inverted index.
+/// An iterator over numeric inverted index entries, parameterised over a
+/// [`Ref`] mode. See [`Numeric`] for the [`Active`] instantiation that
+/// implements [`RQEIterator`].
 ///
 /// The [`inverted_index::IndexReader`] API can be used to fully scan an inverted index.
 ///
 /// # Type Parameters
 ///
-/// * `'index` - The lifetime of the index being iterated over.
+/// * `Rf` - The [`Ref`] mode (see [`RawInvIndIterator`] for details).
 /// * `R` - The type of the numeric reader.
 /// * `E` - The expiration checker type used to check for expired documents.
-pub struct Numeric<'index, R, E = NoOpChecker> {
-    it: InvIndIterator<'index, R, E>,
+#[repr(C)]
+pub struct RawNumeric<'query, Rf: Ref, R, E = NoOpChecker, RA = R> {
+    it: RawInvIndIterator<'query, Rf, R, E, RA>,
     /// The numeric range tree and its revision ID, used to detect changes during revalidation.
     range_tree_info: Option<RangeTreeInfo>,
     /// Minimum numeric range, only used in debug print.
@@ -43,6 +55,10 @@ pub struct Numeric<'index, R, E = NoOpChecker> {
     range_max: f64,
 }
 
+/// Alias for an [`Active`] [`RawNumeric`] — the only instantiation with an
+/// [`RQEIterator`] impl today.
+pub type Numeric<'index, R, E = NoOpChecker> = RawNumeric<'index, Active<'index>, R, E, R>;
+
 /// Information about the numeric range tree backing a [`Numeric`] iterator.
 struct RangeTreeInfo {
     /// Pointer to the numeric range tree.
@@ -50,6 +66,53 @@ struct RangeTreeInfo {
     /// The revision ID at the time the iterator was created.
     /// Used to detect if the tree has been modified.
     revision_id: u32,
+}
+
+impl<'query, Rf: Ref, R, E, RA> RawNumeric<'query, Rf, R, E, RA> {
+    /// Cached minimum numeric range (only used in debug print / FT.PROFILE).
+    pub const fn range_min(&self) -> f64 {
+        self.range_min
+    }
+
+    /// Cached maximum numeric range (only used in debug print / FT.PROFILE).
+    pub const fn range_max(&self) -> f64 {
+        self.range_max
+    }
+
+    /// Cached [`IndexFlags`] of the underlying inverted index — see
+    /// [`RawInvIndIterator::flags`].
+    pub const fn flags(&self) -> ffi::IndexFlags {
+        self.it.flags()
+    }
+
+    /// Check if the iterator should abort revalidation.
+    ///
+    /// The numeric range tree's revision id changes when the tree is
+    /// modified by GC (a node split or removal). The iterator's cached
+    /// `revision_id` snapshot is compared against the current value; if
+    /// they differ, the cursor is invalidated and the iterator must
+    /// [abort](RQEValidateStatus::Aborted).
+    ///
+    /// Reads only the range tree's `NonNull` pointer and `revision_id` (owned by
+    /// the spec, stable under the read lock); it materializes no `&'a`
+    /// reader/buffer borrow, so it is sound to call on the suspended form during
+    /// [`RQESuspendedIterator::resume`].
+    pub(crate) const fn should_abort(&self) -> bool {
+        // If there's no range tree, we can't check for changes
+        let Some(ref info) = self.range_tree_info else {
+            return false;
+        };
+
+        let current_revision_id = {
+            // SAFETY: Condition 2 of `Self::new` guarantees the tree
+            // remains valid for the iterator's lifetime.
+            let tree = unsafe { info.tree.as_ref() };
+            tree.revision_id()
+        };
+        // If the revision id changed the numeric tree was either completely deleted or a node was split or removed.
+        // The cursor is invalidated so we cannot revalidate the iterator.
+        current_revision_id != info.revision_id
+    }
 }
 
 impl<'index, R, E> Numeric<'index, R, E>
@@ -104,31 +167,6 @@ where
         }
     }
 
-    const fn should_abort(&self) -> bool {
-        // If there's no range tree, we can't check for changes
-        let Some(ref info) = self.range_tree_info else {
-            return false;
-        };
-
-        let current_revision_id = {
-            // SAFETY: Condition 2 of `Self::new` guarantees the tree
-            // remains valid for the iterator's lifetime.
-            let tree = unsafe { info.tree.as_ref() };
-            tree.revision_id()
-        };
-        // If the revision id changed the numeric tree was either completely deleted or a node was split or removed.
-        // The cursor is invalidated so we cannot revalidate the iterator.
-        current_revision_id != info.revision_id
-    }
-
-    pub const fn range_min(&self) -> f64 {
-        self.range_min
-    }
-
-    pub const fn range_max(&self) -> f64 {
-        self.range_max
-    }
-
     /// Get a reference to the underlying reader.
     ///
     /// This is used by FFI code to access the reader.
@@ -137,6 +175,85 @@ where
     }
 }
 
+impl<'index, R, E> RQEIteratorBoxed<'index> for Numeric<'index, R, E>
+where
+    R: NumericReader<'index> + SuspendableReader + 'index,
+    R::Suspended: ResumableReader,
+    for<'a> <R::Suspended as ResumableReader>::Resumed<'a>: NumericReader<'a>,
+    E: ExpirationChecker + 'static,
+{
+    // Reader weakens `R -> R::Suspended`; the frozen `RA = R` slot keeps the
+    // inner iterator's dispatch pointers unchanged across the cast.
+    type Suspended = RawNumeric<'index, Suspended, R::Suspended, E, R>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawNumeric` is `#[repr(C)]` over the inner
+        // `RawInvIndIterator`, layout-identical across modes by invariant 1 on
+        // [`RawInvIndIterator`]: `reader` weakens `R -> R::Suspended` while the
+        // frozen `RA = R` slot keeps the dispatch pointers unchanged. The
+        // remaining fields (`range_tree_info`, `range_min`, `range_max`) carry no
+        // `Rf`, so they survive the cast unchanged. `Box::from_raw` reuses the
+        // same heap allocation.
+        unsafe { Box::from_raw(raw as *mut RawNumeric<'index, Suspended, R::Suspended, E, R>) }
+    }
+}
+
+impl<'query, RS, E, RA> RQESuspendedIterator<'query> for RawNumeric<'query, Suspended, RS, E, RA>
+where
+    RS: ResumableReader,
+    for<'a> RS::Resumed<'a>: NumericReader<'a>,
+    E: ExpirationChecker + 'static,
+{
+    type Resumed<'a>
+        = Numeric<'a, RS::Resumed<'a>, E>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        mut self: Box<Self>,
+        guard: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        // Step 1: identity check on the suspended form. On abort we drop the
+        // suspended iterator without promoting it to Active — nothing is
+        // materialized.
+        if self.should_abort() {
+            return Ok(ResumeOutcome::Aborted);
+        }
+
+        // Step 2: run the shared in-place resume transition on the inner core
+        // iterator (refresh pointers, reset stale offsets, promote the result,
+        // and re-seek if GC moved us). `guard` witnesses the read lock the
+        // refresh requires.
+        let status = self.it.resume_in_place(guard)?;
+
+        // Step 3: reinterpret the owning box's type. The heap address is
+        // preserved across the cast.
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawNumeric` is `#[repr(C)]` over the inner `RawInvIndIterator`
+        // (layout-identical across modes by invariant 1 on `RawInvIndIterator`)
+        // plus the `Rf`-free `range_tree_info`/`range_min`/`range_max` fields.
+        // `resume_in_place` left the inner iterator as a valid active iterator, so
+        // the whole `RawNumeric` is now a valid `Numeric<'a, RS::Resumed<'a>, E>`.
+        let active = unsafe { Box::from_raw(raw as *mut Numeric<'a, RS::Resumed<'a>, E>) };
+
+        Ok(match status {
+            ResumeStatus::Unchanged => ResumeOutcome::Ok(active),
+            ResumeStatus::Moved => ResumeOutcome::Moved(active),
+        })
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self.it.last_doc_id_field()
+    }
+
+    fn num_estimated(&self) -> usize {
+        self.it.num_estimated()
+    }
+}
 impl<'index, R, E> RQEIterator<'index> for Numeric<'index, R, E>
 where
     R: NumericReader<'index>,
@@ -155,7 +272,7 @@ where
     #[inline(always)]
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         self.it.skip_to(doc_id)
     }
@@ -171,7 +288,7 @@ where
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.it.last_doc_id()
     }
 
@@ -181,16 +298,15 @@ where
     }
 
     #[inline(always)]
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: NonNull<ffi::IndexSpec>,
+        spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         if self.should_abort() {
             return Ok(RQEValidateStatus::Aborted);
         }
 
-        // SAFETY: Delegating to inner iterator with the same `spec` passed by our caller.
-        unsafe { self.it.revalidate(spec) }
+        self.it.revalidate(spec)
     }
 
     #[inline(always)]
@@ -200,6 +316,25 @@ where
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+impl<'index, R, E> ProfilePrint for Numeric<'index, R, E>
+where
+    R: NumericReader<'index>,
+    E: ExpirationChecker,
+{
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        map.kv_simple_string(c"Type", c"NUMERIC");
+        let term_str = format!(
+            "{} - {}",
+            format_g(self.range_min),
+            format_g(self.range_max),
+        );
+        let term_cstr = std::ffi::CString::new(term_str).unwrap();
+        map.kv_simple_string(c"Term", &term_cstr);
+        ctx.print_optional_counters(map);
+        map.kv_long_long(c"Estimated number of matches", self.num_estimated() as i64);
     }
 }
 
@@ -262,20 +397,10 @@ pub enum NumericIteratorVariant<'index> {
     Unfiltered(Numeric<'index, NumericIndexReader<'index>, FieldExpirationChecker>),
     /// Numeric filter: skips entries outside the filter's value range.
     Filtered(
-        Numeric<
-            'index,
-            FilterNumericReader<'index, NumericIndexReader<'index>>,
-            FieldExpirationChecker,
-        >,
+        Numeric<'index, FilterNumericReader<NumericIndexReader<'index>>, FieldExpirationChecker>,
     ),
     /// Geo filter: skips entries that do not pass the geo predicate.
-    Geo(
-        Numeric<
-            'index,
-            FilterGeoReader<'index, NumericIndexReader<'index>>,
-            FieldExpirationChecker,
-        >,
-    ),
+    Geo(Numeric<'index, FilterGeoReader<NumericIndexReader<'index>>, FieldExpirationChecker>),
 }
 
 impl<'index> NumericIteratorVariant<'index> {
@@ -386,7 +511,7 @@ impl<'index> NumericIteratorVariant<'index> {
                 // SAFETY: `range_tree` lifetime is enforced by `'index`.
                 let iter = unsafe {
                     Numeric::new(
-                        FilterNumericReader::new(f, reader),
+                        FilterNumericReader::new(*f, reader),
                         expiration_checker,
                         range_tree,
                         Some(range_min),
@@ -399,7 +524,7 @@ impl<'index> NumericIteratorVariant<'index> {
                 // SAFETY: `range_tree` lifetime is enforced by `'index`.
                 let iter = unsafe {
                     Numeric::new(
-                        FilterGeoReader::new(f, reader),
+                        FilterGeoReader::new(*f, reader),
                         expiration_checker,
                         range_tree,
                         Some(range_min),
@@ -411,12 +536,12 @@ impl<'index> NumericIteratorVariant<'index> {
         }
     }
 
-    /// Returns the flags from the underlying index reader.
-    pub fn flags(&self) -> IndexFlags {
+    /// Returns the cached flags of the underlying index reader.
+    pub const fn flags(&self) -> IndexFlags {
         match self {
-            Self::Unfiltered(iter) => iter.reader().flags(),
-            Self::Filtered(iter) => iter.reader().flags(),
-            Self::Geo(iter) => iter.reader().flags(),
+            Self::Unfiltered(iter) => iter.flags(),
+            Self::Filtered(iter) => iter.flags(),
+            Self::Geo(iter) => iter.flags(),
         }
     }
 
@@ -461,7 +586,7 @@ impl<'index> RQEIterator<'index> for NumericIteratorVariant<'index> {
     #[inline(always)]
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         match self {
             Self::Unfiltered(iter) => iter.skip_to(doc_id),
@@ -489,7 +614,7 @@ impl<'index> RQEIterator<'index> for NumericIteratorVariant<'index> {
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         match self {
             Self::Unfiltered(iter) => iter.last_doc_id(),
             Self::Filtered(iter) => iter.last_doc_id(),
@@ -507,17 +632,14 @@ impl<'index> RQEIterator<'index> for NumericIteratorVariant<'index> {
     }
 
     #[inline(always)]
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: NonNull<ffi::IndexSpec>,
+        spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         match self {
-            // SAFETY: Delegating to variant with the same `spec` passed by our caller.
-            Self::Unfiltered(iter) => unsafe { iter.revalidate(spec) },
-            // SAFETY: Delegating to variant with the same `spec` passed by our caller.
-            Self::Filtered(iter) => unsafe { iter.revalidate(spec) },
-            // SAFETY: Delegating to variant with the same `spec` passed by our caller.
-            Self::Geo(iter) => unsafe { iter.revalidate(spec) },
+            Self::Unfiltered(iter) => iter.revalidate(spec),
+            Self::Filtered(iter) => iter.revalidate(spec),
+            Self::Geo(iter) => iter.revalidate(spec),
         }
     }
 
@@ -529,4 +651,102 @@ impl<'index> RQEIterator<'index> for NumericIteratorVariant<'index> {
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
     }
+}
+
+impl ProfilePrint for NumericIteratorVariant<'_> {
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        match self {
+            Self::Unfiltered(it) => it.print_profile(map, ctx),
+            Self::Filtered(it) => it.print_profile(map, ctx),
+            Self::Geo(it) => {
+                use crate::RQEIterator as _;
+
+                let se_hash = geo::hash::GeoHashBits {
+                    bits: it.range_min() as u64,
+                    step: geo::hash::GEO_STEP_MAX,
+                };
+                let nw_hash = geo::hash::GeoHashBits {
+                    bits: it.range_max() as u64,
+                    step: geo::hash::GEO_STEP_MAX,
+                };
+                let (se_lon, se_lat) = geo::hash::decode_to_lon_lat(se_hash);
+                let (nw_lon, nw_lat) = geo::hash::decode_to_lon_lat(nw_hash);
+                map.kv_simple_string(c"Type", c"GEO");
+                let se = [se_lon.into_inner(), se_lat.into_inner()];
+                let nw = [nw_lon.into_inner(), nw_lat.into_inner()];
+                let term_str = format!(
+                    "{},{} - {},{}",
+                    format_g(se[0]),
+                    format_g(se[1]),
+                    format_g(nw[0]),
+                    format_g(nw[1]),
+                );
+                let term_cstr = std::ffi::CString::new(term_str).unwrap();
+                map.kv_simple_string(c"Term", &term_cstr);
+                ctx.print_optional_counters(map);
+                map.kv_long_long(c"Estimated number of matches", it.num_estimated() as i64);
+            }
+        }
+    }
+}
+
+/// Build a numeric (or geo) filter iterator over all matching sub-ranges of the
+/// field's [`NumericRangeTree`].
+///
+/// Opens the field's range tree, collects one iterator per matching sub-range
+/// (a [`NumericIteratorVariant`] each), and combines them with
+/// [`build_union`](crate::union_opaque::build_union). The node type recorded on
+/// the union is [`Numeric`](QueryNodeType::Numeric) or [`Geo`](QueryNodeType::Geo)
+/// depending on the filter.
+///
+/// Returns [`None`] — an empty (matchless) result, not an error — when the index
+/// does not exist for the field (nothing indexed yet) or when no sub-range
+/// matches the filter.
+///
+/// # Safety
+///
+/// 1. `sctx.spec` must be a valid non-null [`IndexSpec`](ffi::IndexSpec); `sctx`
+///    and its spec must remain valid for the lifetime of the returned iterator.
+/// 2. `flt.field_spec` must be a valid non-null pointer to a [`FieldSpec`](ffi::FieldSpec)
+///    for a numeric or geo field, remaining valid for the lifetime of the
+///    returned iterator.
+/// 3. `field_ctx.field` must be a field index (not a field mask).
+pub unsafe fn build_numeric_filter_iterator(
+    sctx: &RedisSearchCtx,
+    flt: &NumericFilter,
+    min_union_iter_heap: usize,
+    field_ctx: &field::FieldFilterContext,
+    compress: bool,
+) -> Option<NonNull<QueryIterator>> {
+    let node_type = if flt.is_numeric_filter() {
+        QueryNodeType::Numeric
+    } else {
+        QueryNodeType::Geo
+    };
+
+    // SAFETY: precondition (1) — `sctx.spec` is valid and non-null.
+    let spec = unsafe { &mut *sctx.spec };
+    // SAFETY: precondition (2) — `flt.field_spec` is valid and non-null.
+    let fs = unsafe { &mut *(flt.field_spec as *mut ffi::FieldSpec) };
+    // SAFETY: `spec`/`fs` are valid (1, 2); the field is numeric/geo so the tree
+    // is the right type. We never create the tree here (`create_if_missing` is
+    // false), so the `fs.tree` ownership precondition is trivially upheld.
+    let tree = unsafe { open_numeric_or_geo_index(spec, fs, false, compress) }?;
+
+    // SAFETY: `sctx`/`sctx.spec` remain valid (1); `field_ctx.field` is a field
+    // index (3).
+    let variants =
+        unsafe { NumericIteratorVariant::from_tree(tree, NonNull::from(sctx), flt, field_ctx) };
+    if variants.is_empty() {
+        return None;
+    }
+
+    let children: Vec<CRQEIterator> = variants
+        .into_iter()
+        .map(CRQEIterator::from_rust_leaf)
+        .collect();
+
+    let iter =
+        crate::union_opaque::build_union(children, true, min_union_iter_heap, node_type, 1.0);
+    Some(iter)
 }

@@ -7,12 +7,15 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "concurrent_ctx.h"
+
 #include "thpool/thpool.h"
-#include <util/arr.h>
 #include "rmutil/rm_assert.h"
 #include "module.h"
 #include "util/logging.h"
 #include "coord/config.h"
+#include "info/info_redis/block_client.h"
+#include "rmalloc.h"
+#include "util/arr/arr.h"
 
 static arrayof(redisearch_thpool_t *) threadpools_g = NULL;
 
@@ -46,6 +49,7 @@ typedef struct ConcurrentCmdCtx {
   RedisModuleString **argv;
   int argc;
   int options;
+  int poolId;
   WeakRef spec_ref;
   rs_wall_clock_ns_t coordStartTime;  // Time when command was received on coordinator
   size_t numShards;                   // Number of shards in the cluster (captured from main thread)
@@ -55,6 +59,12 @@ typedef struct ConcurrentCmdCtx {
 void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type) {
   redisearch_thpool_t *p = threadpools_g[type];
   redisearch_thpool_add_work(p, func, arg, THPOOL_PRIORITY_HIGH);
+}
+
+redisearch_thpool_t *ConcurrentSearch_GetPool(int type) {
+  RS_ASSERT(threadpools_g);
+  RS_ASSERT(type < (int)array_len(threadpools_g));
+  return threadpools_g[type];
 }
 
 /* return number of currently working threads */
@@ -81,11 +91,12 @@ static void threadHandleCommand(void *p) {
     RedisModule_FreeThreadSafeContext(ctx->ctx);
   }
 
-  RedisModule_BlockedClientMeasureTimeEnd(ctx->bc);
+  if (!(ctx->options & CMDCTX_KEEP_BC)) {
+    RedisModule_BlockedClientMeasureTimeEnd(ctx->bc);
+    void *privdata = RedisModule_BlockClientGetPrivateData(ctx->bc);
+    RedisModule_UnblockClient(ctx->bc, privdata);
+  }
 
-  void *privdata = RedisModule_BlockClientGetPrivateData(ctx->bc);
-
-  RedisModule_UnblockClient(ctx->bc, privdata);
   rm_free(ctx->argv);
   rm_free(p);
 }
@@ -94,8 +105,18 @@ void ConcurrentCmdCtx_KeepRedisCtx(ConcurrentCmdCtx *cctx) {
   cctx->options |= CMDCTX_KEEP_RCTX;
 }
 
+void ConcurrentCmdCtx_KeepBlockedClient(ConcurrentCmdCtx *cctx) {
+  cctx->options |= CMDCTX_KEEP_BC;
+}
+
 WeakRef ConcurrentCmdCtx_GetWeakRef(ConcurrentCmdCtx *cctx) {
   return cctx->spec_ref;
+}
+
+WeakRef ConcurrentCmdCtx_TakeWeakRef(ConcurrentCmdCtx *cctx) {
+  WeakRef ref = cctx->spec_ref;
+  cctx->spec_ref = (WeakRef){0};
+  return ref;
 }
 
 rs_wall_clock_ns_t ConcurrentCmdCtx_GetCoordStartTime(ConcurrentCmdCtx *cctx) {
@@ -110,6 +131,10 @@ RedisModuleBlockedClient *ConcurrentCmdCtx_GetBlockedClient(ConcurrentCmdCtx *cc
   return cctx->bc;
 }
 
+int ConcurrentCmdCtx_GetPoolId(const ConcurrentCmdCtx *cctx) {
+  return cctx->poolId;
+}
+
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,
                                           RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                           ConcurrentSearchHandlerCtx *handlerCtx) {
@@ -119,10 +144,16 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler han
   RS_ASSERT(handlerCtx->bcCtx.timeoutMS == 0 ||
             (handlerCtx->bcCtx.timeout_callback != NULL && handlerCtx->bcCtx.reply_callback != NULL));
 
-  cmdCtx->bc = RedisModule_BlockClient(ctx, handlerCtx->bcCtx.reply_callback, handlerCtx->bcCtx.timeout_callback, handlerCtx->bcCtx.free_privdata, handlerCtx->bcCtx.timeoutMS);
+  cmdCtx->bc = RedisModule_BlockClient(ctx, handlerCtx->bcCtx.reply_callback,
+                                       handlerCtx->bcCtx.timeout_callback,
+                                       handlerCtx->bcCtx.brc ? BlockedRequestCtx_OnFree : NULL,
+                                       handlerCtx->bcCtx.timeoutMS);
 
-  if (handlerCtx->bcCtx.privdata) {
-    RedisModule_BlockClientSetPrivateData(cmdCtx->bc, handlerCtx->bcCtx.privdata);
+  if (handlerCtx->bcCtx.brc) {
+    // Safe against the just-armed timer: the timeout callback runs on this
+    // same thread.
+    BlockedRequestCtx_BeginCycle(handlerCtx->bcCtx.brc, cmdCtx->bc,
+                                 handlerCtx->bcCtx.reply_callback);
   }
 
   cmdCtx->argc = argc;
@@ -133,6 +164,7 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler han
   RS_AutoMemory(cmdCtx->ctx);
   cmdCtx->handler = handler;
   cmdCtx->options = 0;
+  cmdCtx->poolId = poolType;
   // Copy command arguments so they can be released by the calling thread
   cmdCtx->argv = rm_calloc(argc, sizeof(RedisModuleString *));
   for (int i = 0; i < argc; i++) {

@@ -11,7 +11,7 @@
 #include <time.h>
 #include "redisearch.h"
 #include "version.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 
 #ifdef __cplusplus
 extern "C" {

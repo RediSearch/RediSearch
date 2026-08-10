@@ -7,9 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use super::{IndexReader, IndexReaderCore, NumericFilter, NumericReader};
-use crate::{DecodedBy, Decoder, InvertedIndex, RSIndexResult};
-use ffi::{GeoFilter, IndexFlags, t_docId};
+use super::{
+    IndexReader, IndexReaderCore, NumericFilter, NumericReader, RefreshOutcome, ResumableReader,
+    SuspendableReader,
+};
+use crate::{DecodedBy, Decoder, InvertedIndex};
+use ffi::{GeoFilter, IndexFlags};
+use index_result::RSIndexResult;
+use rqe_core::DocId;
 
 // Manually define some C functions, because we'll create a circular dependency if we use the FFI
 // crate to make them automatically.
@@ -26,34 +31,72 @@ unsafe extern "C" {
 /// specified geo filter to be returned.
 ///
 /// This should only be wrapped around readers that return numeric records.
-pub struct FilterGeoReader<'filter, IR> {
+///
+/// # Invariants
+///
+/// 1. **Layout compatibility across modes.** When the inner reader `IR` is
+///    layout-compatible with its suspended form (invariant 1 on
+///    [`RawIndexReaderCore`](crate::RawIndexReaderCore)), so is
+///    `FilterGeoReader<IR>`: it is `#[repr(C)]` and `IR` is its only
+///    mode-dependent field (`filter`/`geo_filter` carry no `Rf`). This is the
+///    layout compatibility the [`SuspendableReader`]/[`ResumableReader`] contract
+///    requires. Enforced by the `const _` proof below.
+#[repr(C)]
+pub struct FilterGeoReader<IR> {
     /// Numeric filter with a geo filter set to which a record needs to match to be valid.
-    /// This is only needed because the reader needs to be able to return the original numeric
-    /// filter.
-    filter: &'filter NumericFilter,
+    /// `filter.geo_filter` is rebound at construction to point at our owned
+    /// [`geo_filter`](Self::geo_filter), so consumers of [`filter`](Self::filter)
+    /// never observe the caller's (potentially short-lived) `GeoFilter`.
+    filter: NumericFilter,
 
-    /// Geo filter which a record needs to match to be valid
-    geo_filter: &'filter GeoFilter,
+    /// Owned heap-allocated copy of the geo filter. Boxed so its address is
+    /// stable across moves of `Self`, which lets `filter.geo_filter` safely
+    /// alias it for the reader's lifetime.
+    geo_filter: Box<GeoFilter>,
 
     /// The inner reader that will be used to read the records from the index.
     inner: IR,
 }
 
-impl<'filter, 'index, IR: NumericReader<'index>> FilterGeoReader<'filter, IR> {
+// Compile-time proof of invariant 1 on `FilterGeoReader`, for a representative
+// concrete numeric-encoded inner reader. The inner reader's own layout
+// compatibility is invariant 1 on `RawIndexReaderCore`.
+const _: () = {
+    use crate::RawIndexReaderCore;
+    use crate::codec::numeric::Numeric;
+    use ref_mode::{Active, Suspended};
+    use std::mem::{align_of, offset_of, size_of};
+    type A = FilterGeoReader<RawIndexReaderCore<Active<'static>, Numeric>>;
+    type S = FilterGeoReader<RawIndexReaderCore<Suspended, Numeric>>;
+    assert!(offset_of!(A, filter) == offset_of!(S, filter));
+    assert!(offset_of!(A, geo_filter) == offset_of!(S, geo_filter));
+    assert!(offset_of!(A, inner) == offset_of!(S, inner));
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
+
+impl<'index, IR: NumericReader<'index>> FilterGeoReader<IR> {
     /// Create a new filter geo reader with the given numeric filter and inner iterator
     ///
     /// # Safety
     /// The caller should ensure the `geo_filter` pointer in the numeric filter is set and a valid
-    /// pointer to a `GeoFilter` struct for the lifetime of this reader.
-    pub fn new(filter: &'filter NumericFilter, inner: IR) -> Self {
+    /// pointer to a `GeoFilter` struct at the time of construction; the
+    /// reader copies the geo filter onto the heap, so the original need only
+    /// outlive this call.
+    pub fn new(mut filter: NumericFilter, inner: IR) -> Self {
         debug_assert!(
             !filter.geo_filter.is_null(),
             "FilterGeoReader needs the geo filter to be set on the numeric filter"
         );
 
         // SAFETY: we just asserted the filter is set and the caller is to ensure it is a valid
-        // `GeoFilter` instance
-        let geo_filter = unsafe { &*(filter.geo_filter as *const GeoFilter) };
+        // `GeoFilter` instance. We copy the geo filter onto the heap so we own it for the
+        // reader's lifetime.
+        let geo_filter = Box::new(unsafe { *(filter.geo_filter as *const GeoFilter) });
+
+        // Rebind `filter.geo_filter` to our owned heap copy. The box's address is stable across
+        // moves of `Self`, so this pointer stays valid for as long as the reader is alive.
+        filter.geo_filter = std::ptr::from_ref::<GeoFilter>(&geo_filter).cast();
 
         Self {
             filter,
@@ -63,14 +106,43 @@ impl<'filter, 'index, IR: NumericReader<'index>> FilterGeoReader<'filter, IR> {
     }
 }
 
-impl<'filter, 'index, E> FilterGeoReader<'filter, IndexReaderCore<'index, E>> {
-    /// Get the numeric filter used by this reader.
-    pub const fn filter(&self) -> &NumericFilter {
-        self.filter
+/// `FilterGeoReader<IR>` suspends to `FilterGeoReader<IR::Suspended>` —
+/// only the inner reader switches modes.
+///
+/// SAFETY: layout compatibility is invariant 1 on [`FilterGeoReader`] (const
+/// proof there), given `IR`'s own layout compatibility.
+unsafe impl<IR: SuspendableReader> SuspendableReader for FilterGeoReader<IR> {
+    type Suspended = FilterGeoReader<IR::Suspended>;
+}
+
+/// Inverse of the above: `FilterGeoReader<RS>` resumes to
+/// `FilterGeoReader<RS::Resumed<'a>>` for any `RS: ResumableReader`. The
+/// `IndexReader<'a>` bound requires `RS::Resumed<'a>: NumericReader<'a>`, which
+/// the resumed core reader provides.
+///
+/// SAFETY: layout compatibility is invariant 1 on [`FilterGeoReader`] (const
+/// proof there).
+unsafe impl<RS: ResumableReader> ResumableReader for FilterGeoReader<RS>
+where
+    for<'a> FilterGeoReader<RS::Resumed<'a>>: IndexReader<'a>,
+{
+    type Resumed<'a> = FilterGeoReader<RS::Resumed<'a>>;
+
+    unsafe fn refresh_pointers(&mut self) -> RefreshOutcome {
+        // SAFETY: our caller upholds `ResumableReader::refresh_pointers`'s
+        // read-lock obligation, which we forward unchanged to the inner reader.
+        unsafe { self.inner.refresh_pointers() }
     }
 }
 
-impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<'index, IR> {
+impl<'index, E> FilterGeoReader<IndexReaderCore<'index, E>> {
+    /// Get the numeric filter used by this reader.
+    pub const fn filter(&self) -> &NumericFilter {
+        &self.filter
+    }
+}
+
+impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<IR> {
     /// Get the next record from the inner reader that matches the geo filter.
     ///
     /// # Safety
@@ -89,7 +161,7 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<
             let value = unsafe { result.as_numeric_unchecked_mut() };
 
             // SAFETY: we know the filter is not a null pointer since we hold a reference to it
-            let in_radius = unsafe { isWithinRadius(self.geo_filter, *value, value) };
+            let in_radius = unsafe { isWithinRadius(&*self.geo_filter, *value, value) };
 
             if in_radius {
                 return Ok(true);
@@ -105,7 +177,7 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<
     #[inline(always)]
     fn seek_record(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<bool> {
         let success = self.inner.seek_record(doc_id, result)?;
@@ -118,7 +190,7 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<
         let value = unsafe { result.as_numeric_unchecked_mut() };
 
         // SAFETY: we know the filter is not a null pointer since we hold a reference to it
-        let in_radius = unsafe { isWithinRadius(self.geo_filter, *value, value) };
+        let in_radius = unsafe { isWithinRadius(&*self.geo_filter, *value, value) };
 
         if in_radius {
             Ok(true)
@@ -127,7 +199,7 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<
         }
     }
 
-    fn skip_to(&mut self, doc_id: t_docId) -> bool {
+    fn skip_to(&mut self, doc_id: DocId) -> bool {
         self.inner.skip_to(doc_id)
     }
 
@@ -156,9 +228,7 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<
     }
 }
 
-impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
-    FilterGeoReader<'filter, IndexReaderCore<'index, E>>
-{
+impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> FilterGeoReader<IndexReaderCore<'index, E>> {
     /// Check if the underlying index has been modified since the last time this reader read from it.
     /// If it has, then the reader should be reset before reading from it again.
     pub fn needs_revalidation(&self) -> bool {
@@ -183,4 +253,4 @@ impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
 }
 
 /// A [`FilterGeoReader`] wrapping a [`NumericReader`] is also a [`NumericReader`].
-impl<'index, IR: NumericReader<'index>> NumericReader<'index> for FilterGeoReader<'index, IR> {}
+impl<'index, IR: NumericReader<'index>> NumericReader<'index> for FilterGeoReader<IR> {}

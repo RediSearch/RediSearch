@@ -4,8 +4,12 @@ OS_TYPE=$(uname -s)
 processor=$(uname -m)
 MODE=$1 # whether to install using sudo or not
 
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
 # retrieve nightly version
-NIGHTLY_VERSION=$(cat "$(dirname "${BASH_SOURCE[0]}")/../../.rust-nightly")
+NIGHTLY_VERSION=$(cat "$REPO_ROOT/.rust-nightly")
+# retrieve pinned cheadergen version (shared with regen_headers.sh)
+CHEADERGEN_VERSION=$(cat "$REPO_ROOT/.cheadergen-version")
 # --allow-downgrade:
 #   Allow `rustup` to install an older `nightly` if the latest one
 #   is missing one of the components we need.
@@ -15,11 +19,15 @@ NIGHTLY_VERSION=$(cat "$(dirname "${BASH_SOURCE[0]}")/../../.rust-nightly")
 #   Required to run `cargo miri test` for UB detection
 # rust-src:
 #   Required to build RedisJSON with address sanitizer
+# rust-docs-json:
+#   Required by `cheadergen` to generate C headers
 rustup toolchain install $NIGHTLY_VERSION \
+    --profile=minimal \
     --allow-downgrade \
     --component llvm-tools-preview \
     --component miri \
-    --component rust-src
+    --component rust-src \
+    --component rust-docs-json
 
 # Install a pinned version of `cargo-binstall`,
 # to fetch prebuilt release artefacts for the tools we use
@@ -87,11 +95,14 @@ binstall cargo-llvm-cov@0.8.4
 # The musl prebuilt is chosen for glibc independence; a host-target
 # prebuilt would be glibc-linked and defeat the purpose, so on fallback
 # we go straight to a source build with the host toolchain.
-binstall --no-host-prebuilt cargo-nextest@0.9.130
+# Pin shared with .install/install_rust.sh (bootstrap) via .nextest-version.
+binstall --no-host-prebuilt cargo-nextest@"$(cat "$REPO_ROOT/.nextest-version")"
 # Tool to aggressively unify the feature sets of our dependencies,
 # thus improving the cacheability of our builds
 # See https://docs.rs/cargo-hakari/latest/cargo_hakari/about/
 binstall cargo-hakari@0.9.37
+# A CLI to generate C headers from Rust code.
+binstall cheadergen_cli@$CHEADERGEN_VERSION
 # Make sure `miri` is fully operational before running tests with it.
 # See https://github.com/rust-lang/miri/blob/master/README.md#running-miri-on-ci
 # for more details.

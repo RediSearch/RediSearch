@@ -3,11 +3,14 @@ import os
 from RLTest import Env
 from includes import *
 from common import *
-# Must match MAX_WORKER_THREADS in src/config.h
-MAX_WORKER_THREADS = 16
+# Must match MAX_WORKER_THREADS in src/config.h (enterprise builds override it to 8192)
+MAX_WORKER_THREADS = 8192 if RS_TEST_ENTERPRISE else 16
 
 not_modifiable = 'SEARCH_OPTION_BAD Not modifiable at runtime'
-default_module_list = [['name', 'vectorset', 'ver', 1, 'path', '', 'args', []]]
+# The OSS Redis 8 build registers a built-in 'vectorset' module that shows in
+# MODULE LIST; the enterprise rl_8.6 RoR redis-server does not, so its baseline
+# MODULE LIST (no user modules loaded) is empty.
+default_module_list = [] if RS_TEST_ENTERPRISE else [['name', 'vectorset', 'ver', 1, 'path', '', 'args', []]]
 
 def _test_config_str(arg_name, arg_value, ret_value=None):
     if ret_value == None:
@@ -49,6 +52,8 @@ def testConfigErrors(env):
         .contains('Minimum stem length cannot be lower than')
     env.expect(config_cmd(), 'set', 'WORKERS', 1_000_000).error()\
         .contains('Number of worker threads cannot exceed')
+    env.expect(config_cmd(), 'set', 'MAX_AGGREGATE_GROUPS', 0).error()\
+        .contains('SEARCH_PARSE_ARGS')
 
 @skip(cluster=True)
 def testGetConfigOptions(env):
@@ -73,6 +78,7 @@ def testGetConfigOptions(env):
     check_config('FRISOINI')
     check_config('MAXSEARCHRESULTS')
     check_config('MAXAGGREGATERESULTS')
+    check_config('MAX_AGGREGATE_GROUPS')
     check_config('ON_TIMEOUT')
     check_config('GCSCANSIZE')
     check_config('MIN_PHONETIC_TERM_LEN')
@@ -217,7 +223,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['ENABLE_UNSTABLE_FEATURES'][0], 'false')
     env.assertEqual(res_dict['_BG_INDEX_MEM_PCT_THR'][0], '100')
     env.assertEqual(res_dict['BM25STD_TANH_FACTOR'][0], '4')
-    env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '0')
+    env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '5' if RS_TEST_ENTERPRISE else '0')
     env.assertEqual(res_dict['INDEXER_YIELD_EVERY_OPS'][0], '1000')
     env.assertEqual(res_dict['ON_OOM'][0], 'return')
     env.assertEqual(res_dict['_MIN_TRIM_DELAY_MS'][0], '2000')
@@ -328,9 +334,9 @@ def testTrimDelayValidation(env):
     env.expect(config_cmd(), 'get', '_MIN_TRIM_DELAY_MS').equal([['_MIN_TRIM_DELAY_MS', '3000']])
     env.expect(config_cmd(), 'get', '_MAX_TRIM_DELAY_MS').equal([['_MAX_TRIM_DELAY_MS', '6000']])
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testImmutable(env):
-
+    # Enterprise: config_cmd() SET without value gives 'wrong number of args' not 'not modifiable'
     env.expect(config_cmd(), 'set', 'EXTLOAD').error().contains(not_modifiable)
     env.expect(config_cmd(), 'set', 'NOGC').error().contains(not_modifiable)
     env.expect(config_cmd(), 'set', 'MAXDOCTABLESIZE').error().contains(not_modifiable)
@@ -369,9 +375,14 @@ def testDeprecatedMTConfig_operations():
     # Check old config values
     env.expect(config_cmd(), 'get', 'WORKER_THREADS').equal([['WORKER_THREADS', workers]])
     env.expect(config_cmd(), 'get', 'MT_MODE').equal([['MT_MODE', 'MT_MODE_ONLY_ON_OPERATIONS']])
-    # Check new config values
-    env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
-    env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', workers]])
+    # Check new config values.
+    # Enterprise disables WORKERS by default; MIN_OPERATION_WORKERS follows WORKER_THREADS.
+    if RS_TEST_ENTERPRISE:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', '0']])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', workers]])
+    else:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', workers]])
 
 @skip(cluster=True)
 def testDeprecatedMTConfig_off():
@@ -388,20 +399,35 @@ def testDeprecatedMTConfig_off():
 def testDeprecatedMTConfig_full_with_0():
     env = Env(moduleArgs='MT_MODE MT_MODE_FULL WORKER_THREADS 0', noDefaultModuleArgs=True)
     env.assertTrue(env.isUp())
-    env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
-    env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
+    # Enterprise disables WORKERS when WORKER_THREADS=0 under MT_MODE_FULL.
+    if RS_TEST_ENTERPRISE:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', '0']])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
+    else:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
 @skip(cluster=True)
 def testDeprecatedMTConfig_operations_with_0():
     env = Env(moduleArgs='MT_MODE MT_MODE_ONLY_ON_OPERATIONS WORKER_THREADS 0', noDefaultModuleArgs=True)
     env.assertTrue(env.isUp())
-    env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
-    env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
+    # Enterprise disables WORKERS when WORKER_THREADS=0 under MT_MODE_ONLY_ON_OPERATIONS.
+    if RS_TEST_ENTERPRISE:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', '0']])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
+    else:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
 @skip(cluster=True)
 def testDeprecatedMTConfig_off_with_non_0():
     env = Env(moduleArgs='MT_MODE MT_MODE_OFF WORKER_THREADS 3', noDefaultModuleArgs=True)
     env.assertTrue(env.isUp())
-    env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
-    env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
+    # Enterprise disables WORKERS for MT_MODE_OFF regardless of WORKER_THREADS.
+    if RS_TEST_ENTERPRISE:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', '0']])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
+    else:
+        env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
+        env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
 
 @skip(cluster=True)
 def testExplicitWorkersOverridesDefault(env):
@@ -545,6 +571,8 @@ UINT64_MAX = (1 << 64) - 1
 UINT32_MAX = (1 << 32) - 1
 MAX_AGGREGATE_REQUEST_RESULTS = (1 << 31)
 DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS = MAX_AGGREGATE_REQUEST_RESULTS
+MAX_AGGREGATE_GROUPS = (1 << 26)
+DEFAULT_MAX_AGGREGATE_GROUPS = 1_000_000
 
 MAX_SEARCH_REQUEST_RESULTS = (1 << 31)
 DEFAULT_MAX_SEARCH_REQUEST_RESULTS = 1_000_000
@@ -562,24 +590,25 @@ numericConfigs = [
     ('search-fork-gc-sleep-before-exit', 'FORKGC_SLEEP_BEFORE_EXIT', 0, 0, LLONG_MAX, False, False),
     ('search-gc-scan-size', 'GCSCANSIZE', 100, 1, LLONG_MAX, True, False),
     ('search-index-cursor-limit', 'INDEX_CURSOR_LIMIT', 128, 0, LLONG_MAX, False, False),
+    ('search-max-aggregate-groups', 'MAX_AGGREGATE_GROUPS', DEFAULT_MAX_AGGREGATE_GROUPS, 1, MAX_AGGREGATE_GROUPS, False, False),
     ('search-max-aggregate-results', 'MAXAGGREGATERESULTS', DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS, 0, MAX_AGGREGATE_REQUEST_RESULTS, False, False),
     ('search-max-doctablesize', 'MAXDOCTABLESIZE', 1_000_000, 1, 100_000_000, True, False),
-    ('search-max-prefix-expansions', 'MAXPREFIXEXPANSIONS', 200, 1, LLONG_MAX, False, False),
+    ('search-max-prefix-expansions', 'MAXPREFIXEXPANSIONS', 200, 1, UINT32_MAX, False, False),
     ('search-max-search-results', 'MAXSEARCHRESULTS', DEFAULT_MAX_SEARCH_REQUEST_RESULTS, 0, MAX_SEARCH_REQUEST_RESULTS, False, False),
-    ('search-min-operation-workers', 'MIN_OPERATION_WORKERS', 4, 0, 16, False, False),
+    ('search-min-operation-workers', 'MIN_OPERATION_WORKERS', 4, 0, MAX_WORKER_THREADS, False, False),
     ('search-min-phonetic-term-len', 'MIN_PHONETIC_TERM_LEN', 3, 1, LLONG_MAX, False, False),
-    ('search-min-prefix', 'MINPREFIX', 2, 1, LLONG_MAX, False, False),
+    ('search-min-prefix', 'MINPREFIX', 2, 1, UINT32_MAX, False, False),
     ('search-min-stem-len', 'MINSTEMLEN', 4, 2, UINT32_MAX, False, False),
     ('search-multi-text-slop', 'MULTI_TEXT_SLOP', 100, 1, UINT32_MAX, True, False),
     ('search-tiered-hnsw-buffer-limit', 'TIERED_HNSW_BUFFER_LIMIT', 1024, 0, LLONG_MAX, True, False),
     ('search-timeout', 'TIMEOUT', 500, 1, LLONG_MAX, False, False),
-    ('search-union-iterator-heap', 'UNION_ITERATOR_HEAP', 20, 1, LLONG_MAX, False, False),
+    ('search-union-iterator-heap', 'UNION_ITERATOR_HEAP', 20, 1, UINT32_MAX, False, False),
     ('search-vss-max-resize', 'VSS_MAX_RESIZE', 0, 0, UINT32_MAX, False, False),
-    ('search-workers', 'WORKERS', min(MAX_WORKER_THREADS, os.cpu_count()), 0, 16, False, False),
+    ('search-workers', 'WORKERS', (0 if RS_TEST_ENTERPRISE else min(MAX_WORKER_THREADS, os.cpu_count())), 0, MAX_WORKER_THREADS, False, False),
     ('search-workers-priority-bias-threshold', 'WORKERS_PRIORITY_BIAS_THRESHOLD', 1, 0, LLONG_MAX, True, False),
     ('search-_bg-index-mem-pct-thr', '_BG_INDEX_MEM_PCT_THR', 100, 0, 100, False, False),
     ('search-bm25std-tanh-factor', 'BM25STD_TANH_FACTOR', 4, 1, 10000, False, False),
-    ('search-_bg-index-oom-pause-time','_BG_INDEX_OOM_PAUSE_TIME', 0, 0, UINT32_MAX, False, False),
+    ('search-_bg-index-oom-pause-time','_BG_INDEX_OOM_PAUSE_TIME', (5 if RS_TEST_ENTERPRISE else 0), 0, UINT32_MAX, False, False),
     ('search-indexer-yield-every-ops', 'INDEXER_YIELD_EVERY_OPS', 1000, 1, UINT32_MAX, False, False),
     ('search-bg-index-sleep-duration-us', 'BG_INDEX_SLEEP_DURATION_US', 1, 1, 999999, False, False),
     ('search-_trimming-state-check-delay-ms', '_TRIMMING_STATE_CHECK_DELAY_MS', 100, 1, UINT32_MAX, False, False),
@@ -591,9 +620,20 @@ numericConfigs = [
     ('search-connect-timeout', 'CONNECT_TIMEOUT', 10_000, 0, INT_MAX, False, True),
 ]
 
+# Configs whose backing type narrowed from long long to uint32_t. Values above
+# UINT32_MAX are accepted but clamped (for backwards compatibility with persisted settings).
+CLAMPED_CONFIGS = {
+    'search-max-prefix-expansions': UINT32_MAX,
+    'search-min-prefix': UINT32_MAX,
+    'search-union-iterator-heap': UINT32_MAX,
+}
+
 @skip(redis_less_than='7.9.227')
 def testConfigAPIRunTimeNumericParams():
     env = Env(noDefaultModuleArgs=True)
+    # Disable the per-query TIMEOUT cap so we can exercise the full numeric range
+    # of search-timeout / search-workers without tripping the cross-knob invariant.
+    env.expect('CONFIG', 'SET', 'search-_max-foreground-timeout-limit', 0).ok()
 
     def _testNumericConfig(env, configName, ftConfigName, default, min, max):
         # Check default value
@@ -632,8 +672,14 @@ def testConfigAPIRunTimeNumericParams():
             .contains('CONFIG SET failed')
         env.expect('CONFIG', 'SET', configName, str(min - 1)).error()\
             .contains('CONFIG SET failed')
-        env.expect('CONFIG', 'SET', configName, str(max + 1)).error()\
-            .contains('CONFIG SET failed')
+        if configName in CLAMPED_CONFIGS:
+            # Values above UINT32_MAX are accepted and clamped (backwards compat)
+            env.expect('CONFIG', 'SET', configName, str(max + 1)).equal('OK')
+            env.expect('CONFIG', 'GET', configName)\
+                .equal([configName, str(max)])
+        else:
+            env.expect('CONFIG', 'SET', configName, str(max + 1)).error()\
+                .contains('CONFIG SET failed')
 
         # test valid range limits
         env.expect('CONFIG', 'SET', configName, str(min)).equal('OK')
@@ -664,8 +710,14 @@ def testConfigAPIRunTimeNumericParams():
         else:
             _testNumericConfig(env, configName, ftConfigName, default, min, max)
 
-@skip(cluster=True, redis_less_than='7.9.227')
-def testModuleLoadexNumericParams():
+def _testModuleLoadexNumericParam(configName, argName, default, minValue, maxValue):
+    """Run the MODULE LOADEX scenarios for a single numeric config.
+
+    Split out of a single combined test so each per-config case fits well
+    within RLTest's 300s per-test timeout. The combined version did ~155
+    Redis start/stop cycles in one test and crossed the timeout on slow
+    macOS runners.
+    """
     env = Env(noDefaultModuleArgs=True)
 
     # stop the server and remove the rdb file
@@ -676,110 +728,246 @@ def testModuleLoadexNumericParams():
     redisearch_module_path = env.envRunner.modulePath[0]
     _removeModuleArgs(env)
 
-    for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
+    if minValue != default:
+        configValue = str(minValue)
+        argValue = str(minValue + 1)
+    else:
+        configValue = str(minValue + 1)
+        argValue = str(minValue + 2)
+
+    env.assertNotEqual(configValue, str(default))
+
+    # Load module using module arguments
+    env.start()
+    res = env.cmd('MODULE', 'LIST')
+    env.assertEqual(res, default_module_list)
+    res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                  'ARGS', argName, argValue
+    )
+    env.expect(config_cmd(), 'GET', argName).equal([[argName, argValue]])
+    env.expect('CONFIG', 'GET', configName).equal([configName, argValue])
+    env.stop()
+    os.unlink(rdbFilePath)
+
+    # Load module using CONFIG
+    env.start()
+    res = env.cmd('MODULE', 'LIST')
+    env.assertEqual(res, default_module_list)
+    res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                  'CONFIG', configName, configValue
+    )
+    env.expect(config_cmd(), 'GET', argName).equal([[argName, configValue]])
+    env.expect('CONFIG', 'GET', configName).equal([configName, configValue])
+    env.stop()
+    os.unlink(rdbFilePath)
+
+    # Load module using CONFIG and module ARGS, the CONFIG args should take
+    # precedence
+    env.start()
+    res = env.cmd('MODULE', 'LIST')
+    env.assertEqual(res, default_module_list)
+    res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                  'CONFIG', configName, configValue,
+                  'ARGS', argName, argValue
+    )
+    env.expect(config_cmd(), 'GET', argName).equal([[argName, configValue]])
+    env.expect('CONFIG', 'GET', configName).equal([configName, configValue])
+    env.stop()
+    os.unlink(rdbFilePath)
+
+    # Load module using CONFIG multiple times with the same parameter, the
+    # last value should take precedence
+    env.start()
+    res = env.cmd('MODULE', 'LIST')
+    env.assertEqual(res, default_module_list)
+    res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                  'CONFIG', configName, minValue,
+                  'CONFIG', configName, maxValue,
+                  'CONFIG', configName, configValue
+    )
+    env.expect(config_cmd(), 'GET', argName).equal([[argName, configValue]])
+    env.expect('CONFIG', 'GET', configName).equal([configName, configValue])
+    env.stop()
+    os.unlink(rdbFilePath)
+
+    # Load module using ARGS multiple times with the same parameter, the
+    # last value should take precedence
+    env.start()
+    res = env.cmd('MODULE', 'LIST')
+    env.assertEqual(res, default_module_list)
+    res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                  'ARGS', argName, minValue,
+                  argName, maxValue,
+                  argName, argValue
+    )
+    env.expect(config_cmd(), 'GET', argName).equal([[argName, argValue]])
+    env.expect('CONFIG', 'GET', configName).equal([configName, argValue])
+    env.stop()
+    os.unlink(rdbFilePath)
+
+
+def _registerModuleLoadexNumericParamTests():
+    # Emit one zero-arg test function per non-cluster numeric config so RLTest
+    # sees each config as its own test (and each fits within the per-test
+    # timeout). The original combined test was @skip(cluster=True), so
+    # cluster-only configs were never exercised here; we preserve that.
+    for cfg in numericConfigs:
+        configName, argName, default, minValue, maxValue, _immutable, clusterConfig = cfg
         if clusterConfig:
-            if not env.isCluster():
-                continue
+            continue
+        testName = f'testModuleLoadexNumericParams_{argName}'
 
-        if (minValue != default):
-            configValue = str(minValue)
-            argValue = str(minValue + 1)
-        else:
-            configValue = str(minValue + 1)
-            argValue = str(minValue + 2)
+        def _makeTest(configName, argName, default, minValue, maxValue, testName):
+            @skip(cluster=True, redis_less_than='7.9.227')
+            def _test():
+                _testModuleLoadexNumericParam(configName, argName, default, minValue, maxValue)
+            _test.__name__ = testName
+            _test.__qualname__ = testName
+            return _test
 
-        env.assertNotEqual(configValue, str(default))
+        globals()[testName] = _makeTest(configName, argName, default, minValue, maxValue, testName)
 
-        # Load module using module arguments
-        env.start()
-        res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, default_module_list)
-        res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
-                      'ARGS', argName, argValue
-        )
-        env.expect(config_cmd(), 'GET', argName).equal([[argName, argValue]])
-        env.expect('CONFIG', 'GET', configName).equal([configName, argValue])
-        env.stop()
-        os.unlink(rdbFilePath)
 
-        # Load module using CONFIG
-        env.start()
-        res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, default_module_list)
-        res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
-                      'CONFIG', configName, configValue
-        )
-        env.expect(config_cmd(), 'GET', argName).equal([[argName, configValue]])
-        env.expect('CONFIG', 'GET', configName).equal([configName, configValue])
-        env.stop()
-        os.unlink(rdbFilePath)
-
-        # Load module using CONFIG and module ARGS, the CONFIG args should take
-        # precedence
-        env.start()
-        res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, default_module_list)
-        res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
-                      'CONFIG', configName, configValue,
-                      'ARGS', argName, argValue
-        )
-        env.expect(config_cmd(), 'GET', argName).equal([[argName, configValue]])
-        env.expect('CONFIG', 'GET', configName).equal([configName, configValue])
-        env.stop()
-        os.unlink(rdbFilePath)
-
-        # Load module using CONFIG multiple times with the same parameter, the
-        # last value should take precedence
-        env.start()
-        res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, default_module_list)
-        res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
-                      'CONFIG', configName, minValue,
-                      'CONFIG', configName, maxValue,
-                      'CONFIG', configName, configValue
-        )
-        env.expect(config_cmd(), 'GET', argName).equal([[argName, configValue]])
-        env.expect('CONFIG', 'GET', configName).equal([configName, configValue])
-        env.stop()
-        os.unlink(rdbFilePath)
-
-        # Load module using ARGS multiple times with the same parameter, the
-        # last value should take precedence
-        env.start()
-        res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, default_module_list)
-        res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
-                      'ARGS', argName, minValue,
-                      argName, maxValue,
-                      argName, argValue
-        )
-        env.expect(config_cmd(), 'GET', argName).equal([[argName, argValue]])
-        env.expect('CONFIG', 'GET', configName).equal([configName, argValue])
-        env.stop()
-        os.unlink(rdbFilePath)
+_registerModuleLoadexNumericParamTests()
 
 # Skip on ASAN since RedisModule_Unload is not fully implemented (MOD-7161)
-@skip(redis_less_than='7.9.227', asan=True)
-def testConfigAPILoadTimeNumericParams():
+def _testConfigAPILoadTimeNumericParam(configName, maxValue):
+    """Verify MODULE LOADEX rejects values above maxValue for one numeric config."""
     env = Env(noDefaultModuleArgs=True, module='', moduleArgs='')
     redisearch_module_path = os.getenv('MODULE')
-    if (redisearch_module_path is None):
+    if redisearch_module_path is None:
         env.debugPrint('MODULE environment variable is not set. Skipping test')
         env.skip()
 
-    for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
+    env.start()
+    res = env.cmd('MODULE', 'LIST')
+    env.assertEqual(res, default_module_list)
+    env.expect('MODULE', 'LOADEX', redisearch_module_path,
+                'CONFIG', configName, str(maxValue + 1)).error()\
+                .contains('Error loading the extension')
+    env.assertTrue(env.isUp())
+    env.stop()
+
+
+def _registerConfigAPILoadTimeNumericParamTests():
+    # Emit one test per non-cluster numeric config (skipping CLAMPED_CONFIGS
+    # whose values are accepted and clamped for backwards compat).
+    for cfg in numericConfigs:
+        configName, argName, _default, _minValue, maxValue, _immutable, clusterConfig = cfg
         if clusterConfig:
             continue
+        if configName in CLAMPED_CONFIGS:
+            continue
+        testName = f'testConfigAPILoadTimeNumericParams_{argName}'
 
-        # Test that the limits are enforced using MODULE LOADEX
+        def _makeTest(configName, maxValue, testName):
+            @skip(cluster=True, redis_less_than='7.9.227', asan=True)
+            def _test():
+                _testConfigAPILoadTimeNumericParam(configName, maxValue)
+            _test.__name__ = testName
+            _test.__qualname__ = testName
+            return _test
+
+        globals()[testName] = _makeTest(configName, maxValue, testName)
+
+
+_registerConfigAPILoadTimeNumericParamTests()
+
+def _testClusterModuleLoadexNumericParam(configName, argName, default, minValue, maxValue):
+    """Cluster-mode MODULE LOADEX scenarios for a single numeric config.
+
+    Mirrors _testModuleLoadexNumericParam, but each scenario is applied to
+    every master shard individually because MODULE LOADEX is node-local.
+    The cluster is started without RediSearch (module='') so each scenario
+    can load it fresh via MODULE LOADEX, then the cluster is stopped and the
+    per-shard RDB files are unlinked before the next scenario."""
+    env = Env(noDefaultModuleArgs=True, module='', moduleArgs='')
+    redisearch_module_path = os.getenv('MODULE')
+    if redisearch_module_path is None:
+        env.debugPrint('MODULE environment variable is not set. Skipping test')
+        env.skip()
+
+    if minValue != default:
+        configValue = str(minValue)
+        argValue = str(minValue + 1)
+    else:
+        configValue = str(minValue + 1)
+        argValue = str(minValue + 2)
+    env.assertNotEqual(configValue, str(default))
+
+    # Capture per-shard RDB paths once, while the cluster is up, so we can
+    # unlink them between scenarios to start each scenario fresh.
+    env.start()
+    rdbFilePaths = []
+    for conn in env.getOSSMasterNodesConnectionList():
+        dbDir = conn.execute_command('config', 'get', 'dir')[1]
+        dbFile = conn.execute_command('config', 'get', 'dbfilename')[1]
+        rdbFilePaths.append(os.path.join(dbDir, dbFile))
+    env.stop()
+    for p in rdbFilePaths:
+        if os.path.isfile(p):
+            os.unlink(p)
+
+    def runScenario(loadexArgs, expectedConfigVal, expectedArgVal):
         env.start()
-        res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, default_module_list)
-        env.expect('MODULE', 'LOADEX', redisearch_module_path,
-                    'CONFIG', configName, str(maxValue + 1)).error()\
-                    .contains('Error loading the extension')
-        env.assertTrue(env.isUp())
+        for conn in env.getOSSMasterNodesConnectionList():
+            env.assertEqual(conn.execute_command('MODULE', 'LIST'), default_module_list)
+            conn.execute_command('MODULE', 'LOADEX', redisearch_module_path, *loadexArgs)
+            env.assertEqual(conn.execute_command('CONFIG', 'GET', configName),
+                            [configName, expectedConfigVal])
+            env.assertEqual(conn.execute_command(config_cmd(), 'GET', argName),
+                            [[argName, expectedArgVal]])
         env.stop()
+        for p in rdbFilePaths:
+            if os.path.isfile(p):
+                os.unlink(p)
+
+    # Load module using module arguments
+    runScenario(['ARGS', argName, argValue], argValue, argValue)
+    # Load module using CONFIG
+    runScenario(['CONFIG', configName, configValue], configValue, configValue)
+    # Load module using CONFIG and module ARGS; CONFIG takes precedence
+    runScenario(['CONFIG', configName, configValue,
+                 'ARGS', argName, argValue],
+                configValue, configValue)
+    # Load module using CONFIG multiple times with the same parameter; the
+    # last value should take precedence
+    runScenario(['CONFIG', configName, str(minValue),
+                 'CONFIG', configName, str(maxValue),
+                 'CONFIG', configName, configValue],
+                configValue, configValue)
+    # Load module using ARGS multiple times with the same parameter; the
+    # last value should take precedence
+    runScenario(['ARGS', argName, str(minValue),
+                 argName, str(maxValue),
+                 argName, argValue],
+                argValue, argValue)
+
+
+def _registerClusterModuleLoadexNumericParamTests():
+    # Emit one zero-arg test per cluster-only numeric config so each is
+    # exercised individually in cluster mode (mirrors the per-config
+    # registration done for non-cluster configs above).
+    for cfg in numericConfigs:
+        configName, argName, default, minValue, maxValue, _immutable, clusterConfig = cfg
+        if not clusterConfig:
+            continue
+        testName = f'testClusterModuleLoadexNumericParams_{argName}'
+
+        def _makeTest(configName, argName, default, minValue, maxValue, testName):
+            @skip(cluster=False, redis_less_than='7.9.227')
+            def _test():
+                _testClusterModuleLoadexNumericParam(
+                    configName, argName, default, minValue, maxValue)
+            _test.__name__ = testName
+            _test.__qualname__ = testName
+            return _test
+
+        globals()[testName] = _makeTest(
+            configName, argName, default, minValue, maxValue, testName)
+
+
+_registerClusterModuleLoadexNumericParamTests()
 
 @skip(cluster=True, redis_less_than='7.9.227')
 def testConfigFileNumericParams():
@@ -859,82 +1047,98 @@ def testConfigFileAndArgsNumericParams():
         res = env.cmd(config_cmd(), 'GET', argName)
         env.assertEqual(res, [[argName, str(minValue)]])
 
-@skip(cluster=True, redis_less_than='7.9.227')
-def testModuleLoadexNumericParamsLastWins():
+def _testModuleLoadexNumericParamLastWins(configName, argName, default, minValue, maxValue):
+    """Verify that, for one numeric config, the *last* CONFIG value wins
+    against module ARGS in MODULE LOADEX."""
     env = Env(noDefaultModuleArgs=True, module='', moduleArgs='')
     redisearch_module_path = os.getenv('MODULE')
-    if (redisearch_module_path is None):
+    if redisearch_module_path is None:
         env.debugPrint('MODULE environment variable is not set. Skipping test')
         env.skip()
 
-    for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
+    if argName in ['MAXSEARCHRESULTS', 'MAXAGGREGATERESULTS']:
+        # These configurations return 'unlimited' when the value is the maximum
+        ftMaxValue = 'unlimited'
+    else:
+        ftMaxValue = str(maxValue)
+
+    # Test that the CONFIG value wins using MODULE LOADEX
+    # Single CONFIG, multiple ARGS
+    env.start()
+    res = env.cmd('MODULE', 'LIST')
+    env.assertEqual(res, default_module_list)
+    env.expect('MODULE', 'LOADEX', redisearch_module_path,
+                'CONFIG', configName, str(minValue),
+                'ARGS', argName, str(default), argName, str(maxValue)).ok()
+    res = env.cmd('CONFIG', 'GET', configName)
+    env.assertEqual(res, [configName, str(minValue)])
+    res = env.cmd(config_cmd(), 'GET', argName)
+    env.assertEqual(res, [[argName, str(minValue)]])
+    env.assertTrue(env.isUp())
+    env.stop()
+
+    # Multiple CONFIG, single ARGS
+    env.start()
+    res = env.cmd('MODULE', 'LIST')
+    env.assertEqual(res, default_module_list)
+    env.expect('MODULE', 'LOADEX', redisearch_module_path,
+                'CONFIG', configName, str(maxValue),
+                'CONFIG', configName, str(maxValue),
+                'ARGS', argName, str(minValue)).ok()
+    res = env.cmd('CONFIG', 'GET', configName)
+    env.assertEqual(res, [configName, str(maxValue)])
+    res = env.cmd(config_cmd(), 'GET', argName)
+    env.assertEqual(res, [[argName, ftMaxValue]])
+    env.assertTrue(env.isUp())
+    env.stop()
+
+    # Multiple CONFIG
+    env.start()
+    res = env.cmd('MODULE', 'LIST')
+    env.assertEqual(res, default_module_list)
+    env.expect('MODULE', 'LOADEX', redisearch_module_path,
+               'CONFIG', configName, str(minValue),
+               'CONFIG', configName, str(maxValue)).ok()
+    res = env.cmd('CONFIG', 'GET', configName)
+    env.assertEqual(res, [configName, str(maxValue)])
+    res = env.cmd(config_cmd(), 'GET', argName)
+    env.assertEqual(res, [[argName, ftMaxValue]])
+    env.assertTrue(env.isUp())
+    env.stop()
+
+    # Multiple ARGS
+    env.start()
+    res = env.cmd('MODULE', 'LIST')
+    env.assertEqual(res, default_module_list)
+    env.expect('MODULE', 'LOADEX', redisearch_module_path,
+               'ARGS', argName, str(default), argName, str(maxValue)).ok()
+    res = env.cmd('CONFIG', 'GET', configName)
+    env.assertEqual(res, [configName, str(maxValue)])
+    res = env.cmd(config_cmd(), 'GET', argName)
+    env.assertEqual(res, [[argName, ftMaxValue]])
+    env.assertTrue(env.isUp())
+    env.stop()
+
+
+def _registerModuleLoadexNumericParamLastWinsTests():
+    for cfg in numericConfigs:
+        configName, argName, default, minValue, maxValue, _immutable, clusterConfig = cfg
         if clusterConfig:
             continue
+        testName = f'testModuleLoadexNumericParamsLastWins_{argName}'
 
-        if argName in ['MAXSEARCHRESULTS', 'MAXAGGREGATERESULTS']:
-            # These configurations returns 'unlimited' when the value is the
-            # maximum
-            ftMaxValue = 'unlimited'
-        else:
-            ftMaxValue = str(maxValue)
+        def _makeTest(configName, argName, default, minValue, maxValue, testName):
+            @skip(cluster=True, redis_less_than='7.9.227')
+            def _test():
+                _testModuleLoadexNumericParamLastWins(configName, argName, default, minValue, maxValue)
+            _test.__name__ = testName
+            _test.__qualname__ = testName
+            return _test
+
+        globals()[testName] = _makeTest(configName, argName, default, minValue, maxValue, testName)
 
 
-        # Test that the CONFIG value wins using MODULE LOADEX
-        # Single CONFIG, multiple ARGS
-        env.start()
-        res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, default_module_list)
-        env.expect('MODULE', 'LOADEX', redisearch_module_path,
-                    'CONFIG', configName, str(minValue),
-                    'ARGS', argName, str(default), argName, str(maxValue)).ok()
-        res = env.cmd('CONFIG', 'GET', configName)
-        env.assertEqual(res, [configName, str(minValue)])
-        res = env.cmd(config_cmd(), 'GET', argName)
-        env.assertEqual(res, [[argName, str(minValue)]])
-        env.assertTrue(env.isUp())
-        env.stop()
-
-        # Multiple CONFIG, single ARGS
-        env.start()
-        res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, default_module_list)
-        env.expect('MODULE', 'LOADEX', redisearch_module_path,
-                    'CONFIG', configName, str(maxValue),
-                    'CONFIG', configName, str(maxValue),
-                    'ARGS', argName, str(minValue)).ok()
-        res = env.cmd('CONFIG', 'GET', configName)
-        env.assertEqual(res, [configName, str(maxValue)])
-        res = env.cmd(config_cmd(), 'GET', argName)
-        env.assertEqual(res, [[argName, ftMaxValue]])
-        env.assertTrue(env.isUp())
-        env.stop()
-
-        # Multiple CONFIG
-        env.start()
-        res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, default_module_list)
-        env.expect('MODULE', 'LOADEX', redisearch_module_path,
-                   'CONFIG', configName, str(minValue),
-                   'CONFIG', configName, str(maxValue)).ok()
-        res = env.cmd('CONFIG', 'GET', configName)
-        env.assertEqual(res, [configName, str(maxValue)])
-        res = env.cmd(config_cmd(), 'GET', argName)
-        env.assertEqual(res, [[argName, ftMaxValue]])
-        env.assertTrue(env.isUp())
-        env.stop()
-
-        # Multiple ARGS
-        env.start()
-        res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, default_module_list)
-        env.expect('MODULE', 'LOADEX', redisearch_module_path,
-                   'ARGS', argName, str(default), argName, str(maxValue)).ok()
-        res = env.cmd('CONFIG', 'GET', configName)
-        env.assertEqual(res, [configName, str(maxValue)])
-        res = env.cmd(config_cmd(), 'GET', argName)
-        env.assertEqual(res, [[argName, ftMaxValue]])
-        env.assertTrue(env.isUp())
-        env.stop()
+_registerModuleLoadexNumericParamLastWinsTests()
 
 @skip(redis_less_than='7.9.227')
 def testNumericArgDeprecationMessage():
@@ -1200,65 +1404,85 @@ def testConfigAPIRunTimeStringParams():
         _testImmutableStringConfig(env, configName, ftConfigName, ftDefault,
                                    testValue)
 
-@skip(cluster=True, redis_less_than='7.9.227')
-def testModuleLoadexStringParams():
+def _testModuleLoadexStringParam(configName, argName, testValueRel):
+    """Run the MODULE LOADEX scenarios for a single string config."""
     env = Env(noDefaultModuleArgs=True)
 
     # stop the server and remove the rdb file
     rdbFilePath = _getRDBFilePath(env)
     env.stop()
-    if (os.path.exists(rdbFilePath)):
+    if os.path.exists(rdbFilePath):
         os.unlink(rdbFilePath)
 
     redisearch_module_path = env.envRunner.modulePath[0]
     basedir = os.path.dirname(redisearch_module_path)
     _removeModuleArgs(env)
 
-    for configName, argName, ftDefault, testValue in stringConfigs:
-        testValue = os.path.abspath(os.path.join(basedir, testValue))
+    testValue = os.path.abspath(os.path.join(basedir, testValueRel))
 
-        # Test setting the parameter using CONFIG
-        env.start()
-        res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, default_module_list)
-        res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
-                    'CONFIG', configName, testValue
-        )
-        env.expect(config_cmd(), 'GET', argName).equal([[argName, testValue]])
-        env.expect('CONFIG', 'GET', configName).equal([configName, testValue])
-        env.stop()
-        if (os.path.exists(rdbFilePath)):
-            os.unlink(rdbFilePath)
+    # Test setting the parameter using CONFIG
+    env.start()
+    res = env.cmd('MODULE', 'LIST')
+    env.assertEqual(res, default_module_list)
+    res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                'CONFIG', configName, testValue
+    )
+    env.expect(config_cmd(), 'GET', argName).equal([[argName, testValue]])
+    env.expect('CONFIG', 'GET', configName).equal([configName, testValue])
+    env.stop()
+    if os.path.exists(rdbFilePath):
+        os.unlink(rdbFilePath)
 
-        # Test setting the parameter using ARGS
-        env.start()
-        res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, default_module_list)
-        res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
-                    'ARGS', argName, testValue
-        )
-        env.expect(config_cmd(), 'GET', argName).equal([[argName, testValue]])
-        env.expect('CONFIG', 'GET', configName).equal([configName, testValue])
-        env.stop()
-        if (os.path.exists(rdbFilePath)):
-            os.unlink(rdbFilePath)
+    # Test setting the parameter using ARGS
+    env.start()
+    res = env.cmd('MODULE', 'LIST')
+    env.assertEqual(res, default_module_list)
+    res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                'ARGS', argName, testValue
+    )
+    env.expect(config_cmd(), 'GET', argName).equal([[argName, testValue]])
+    env.expect('CONFIG', 'GET', configName).equal([configName, testValue])
+    env.stop()
+    if os.path.exists(rdbFilePath):
+        os.unlink(rdbFilePath)
 
-        # Load module using CONFIG and module arguments, the CONFIG values should
-        # take precedence
-        env.start()
-        res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, default_module_list)
-        res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
-                    'CONFIG', configName, testValue,
-                    'ARGS', argName, 'invalid_value'
-        )
-        env.expect(config_cmd(), 'GET', argName).equal([[argName, testValue]])
-        env.expect('CONFIG', 'GET', configName).equal([configName, testValue])
-        env.stop()
-        if (os.path.exists(rdbFilePath)):
-            os.unlink(rdbFilePath)
+    # Load module using CONFIG and module arguments, the CONFIG values should
+    # take precedence
+    env.start()
+    res = env.cmd('MODULE', 'LIST')
+    env.assertEqual(res, default_module_list)
+    res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                'CONFIG', configName, testValue,
+                'ARGS', argName, 'invalid_value'
+    )
+    env.expect(config_cmd(), 'GET', argName).equal([[argName, testValue]])
+    env.expect('CONFIG', 'GET', configName).equal([configName, testValue])
+    env.stop()
+    if os.path.exists(rdbFilePath):
+        os.unlink(rdbFilePath)
 
-@skip(redis_less_than='7.9.227')
+
+def _registerModuleLoadexStringParamTests():
+    for cfg in stringConfigs:
+        configName, argName, _ftDefault, testValueRel = cfg
+        testName = f'testModuleLoadexStringParams_{argName}'
+
+        def _makeTest(configName, argName, testValueRel, testName):
+            # Enterprise rejects extension loading via MODULE LOADEX outright,
+            # so search-ext-load's LOADEX scenarios don't apply there.
+            @skip(cluster=True, redis_less_than='7.9.227', enterprise=True if configName == 'search-ext-load' else None)
+            def _test():
+                _testModuleLoadexStringParam(configName, argName, testValueRel)
+            _test.__name__ = testName
+            _test.__qualname__ = testName
+            return _test
+
+        globals()[testName] = _makeTest(configName, argName, testValueRel, testName)
+
+
+_registerModuleLoadexStringParamTests()
+
+@skip(redis_less_than='7.9.227', enterprise=True)
 def testConfigFileStringParams():
     # Test using only redis config file
     redisConfigFile = '/tmp/testConfigFileStringParams.conf'
@@ -1294,7 +1518,7 @@ def testConfigFileStringParams():
         res = env.cmd(config_cmd(), 'GET', argName)
         env.assertEqual(res, [[argName, testValue]])
 
-@skip(cluster=True, redis_less_than='7.9.227')
+@skip(cluster=True, redis_less_than='7.9.227', enterprise=True)
 def testConfigFileAndArgsStringParams():
     # Test using redis config file and module arguments
     redisConfigFile = '/tmp/testConfigFileAndArgsStringParams.conf'
@@ -1343,7 +1567,7 @@ def testConfigFileAndArgsStringParams():
         res = env.cmd(config_cmd(), 'GET', argName)
         env.assertEqual(res, [[argName, testValue]])
 
-@skip(cluster=True, redis_less_than='7.9.227')
+@skip(cluster=True, redis_less_than='7.9.227', enterprise=True)
 def testStringArgDeprecationMessage():
     '''Test deprecation message of module string arguments'''
 
@@ -1468,8 +1692,8 @@ def testConfigAPIConfigOnlyBooleanParams():
         env.expect('CONFIG', 'SET', configName, 'invalid_boolean').error()\
             .contains('CONFIG SET failed')
 
-@skip(cluster=True, redis_less_than='7.9.227')
-def testModuleLoadexBooleanParams():
+def _testModuleLoadexBooleanParam(configName, argName, defaultValue, isFlag):
+    """Run the MODULE LOADEX scenarios for a single boolean config."""
     env = Env(noDefaultModuleArgs=True)
 
     # stop the server and remove the rdb file
@@ -1480,73 +1704,90 @@ def testModuleLoadexBooleanParams():
     redisearch_module_path = env.envRunner.modulePath[0]
     _removeModuleArgs(env)
 
-    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
-        # `search-partial-indexed-docs` has its own test because
-        # `PARTIAL_INDEXED_DOCS` is set using a number but returns a boolean
+    # Load module using only CONFIG parameters
+    env.start()
+    res = env.cmd('MODULE', 'LIST')
+    env.assertEqual(res, default_module_list)
+    # use non-default value as config value
+    configValue = 'yes' if defaultValue == 'no' else 'yes'
+    expected = 'true' if configValue == 'yes' else 'false'
+    res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                'CONFIG', configName, configValue
+    )
+    env.expect(config_cmd(), 'GET', argName).equal([[argName, expected]])
+    env.expect('CONFIG', 'GET', configName).equal([configName, configValue])
+    env.stop()
+    os.unlink(rdbFilePath)
+
+    # Load module using module arguments
+    env.start()
+    res = env.cmd('MODULE', 'LIST')
+    env.assertEqual(res, default_module_list)
+    # use non-default value as argument value
+    argValue = 'true' if defaultValue == 'no' else 'false'
+    expected = 'yes' if argValue == 'true' else 'no'
+
+    if not isFlag:
+        res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                    'ARGS', argName, argValue
+        )
+    else:
+        res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                    'ARGS', argName
+        )
+    env.expect(config_cmd(), 'GET', argName).equal([[argName, argValue]])
+    env.expect('CONFIG', 'GET', configName).equal([configName, expected])
+    env.stop()
+    os.unlink(rdbFilePath)
+
+    # Load module using CONFIG and module arguments, the CONFIG takes
+    # precedence
+    env.start()
+    res = env.cmd('MODULE', 'LIST')
+    env.assertEqual(res, default_module_list)
+    # use default value as config value
+    configValue = 'yes' if defaultValue == 'yes' else 'no'
+    # use non-default value as argument value
+    argValue = 'false' if defaultValue == 'yes' else 'true'
+    # expected value should be equivalent to the configValue
+    expectedArgValue = 'true' if argValue == 'false' else 'false'
+    if not isFlag:
+        res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                    'CONFIG', configName, configValue,
+                    'ARGS', argName, argValue
+        )
+    else:
+        res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                    'CONFIG', configName, configValue,
+                    'ARGS', argName
+        )
+    env.expect(config_cmd(), 'GET', argName).equal([[argName, expectedArgValue]])
+    env.expect('CONFIG', 'GET', configName).equal([configName, configValue])
+    env.stop()
+    os.unlink(rdbFilePath)
+
+
+def _registerModuleLoadexBooleanParamTests():
+    # `search-partial-indexed-docs` is exercised by its own dedicated test
+    # because `PARTIAL_INDEXED_DOCS` is set using a number but returns a boolean.
+    for cfg in booleanConfigs:
+        configName, argName, defaultValue, _immutable, isFlag = cfg
         if configName == 'search-partial-indexed-docs':
             continue
+        testName = f'testModuleLoadexBooleanParams_{argName}'
 
-        # Load module using only CONFIG parameters
-        env.start()
-        res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, default_module_list)
-        # use non-default value as config value
-        configValue = 'yes' if defaultValue == 'no' else 'yes'
-        expected = 'true' if configValue == 'yes' else 'false'
-        res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
-                    'CONFIG', configName, configValue
-        )
-        env.expect(config_cmd(), 'GET', argName).equal([[argName, expected]])
-        env.expect('CONFIG', 'GET', configName).equal([configName, configValue])
-        env.stop()
-        os.unlink(rdbFilePath)
+        def _makeTest(configName, argName, defaultValue, isFlag, testName):
+            @skip(cluster=True, redis_less_than='7.9.227')
+            def _test():
+                _testModuleLoadexBooleanParam(configName, argName, defaultValue, isFlag)
+            _test.__name__ = testName
+            _test.__qualname__ = testName
+            return _test
 
-        # Load module using module arguments
-        env.start()
-        res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, default_module_list)
-        # use non-default value as argument value
-        argValue = 'true' if defaultValue == 'no' else 'false'
-        expected = 'yes' if argValue == 'true' else 'no'
+        globals()[testName] = _makeTest(configName, argName, defaultValue, isFlag, testName)
 
-        if not isFlag:
-            res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
-                        'ARGS', argName, argValue
-            )
-        else:
-            res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
-                        'ARGS', argName
-            )
-        env.expect(config_cmd(), 'GET', argName).equal([[argName, argValue]])
-        env.expect('CONFIG', 'GET', configName).equal([configName, expected])
-        env.stop()
-        os.unlink(rdbFilePath)
 
-        # Load module using CONFIG and module arguments, the CONFIG takes
-        # precedence
-        env.start()
-        res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, default_module_list)
-        # use default value as config value
-        configValue = 'yes' if defaultValue == 'yes' else 'no'
-        # use non-default value as argument value
-        argValue = 'false' if defaultValue == 'yes' else 'true'
-        # expected value should be equivalent to the configValue
-        expectedArgValue = 'true' if argValue == 'false' else 'false'
-        if not isFlag:
-            res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
-                        'CONFIG', configName, configValue,
-                        'ARGS', argName, argValue
-            )
-        else:
-            res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
-                        'CONFIG', configName, configValue,
-                        'ARGS', argName
-            )
-        env.expect(config_cmd(), 'GET', argName).equal([[argName, expectedArgValue]])
-        env.expect('CONFIG', 'GET', configName).equal([configName, configValue])
-        env.stop()
-        os.unlink(rdbFilePath)
+_registerModuleLoadexBooleanParamTests()
 
 @skip(cluster=True, redis_less_than='7.9.227')
 def testModuleLoadexSearchPartialIndexedDocs():
@@ -1864,8 +2105,21 @@ def testConfigIndependence_default():
         # Test max value. Skip for search-conn-per-shard because it may open too many connections
         checkConfigChange(env, configName, argName, maxValue, defaultConfigDict)
 
-        # Reset to default value
-        env.expect('CONFIG', 'SET', configName, default).ok()
+        # Reset to the captured baseline value. The numericConfigs `default`
+        # column encodes the OSS module's default, which can differ from the
+        # actual runtime default (e.g. enterprise defaults WORKERS to 0 while
+        # OSS defaults it to cpu_count). Resetting to the value captured at
+        # startup keeps this independence check self-consistent across builds;
+        # in OSS the captured value equals `default`, so behavior is unchanged.
+        resetValue = defaultConfigDict[argName][0]
+        if resetValue == 'unlimited':
+            # FT.CONFIG reports the result caps' "unlimited" default as the
+            # literal string; the raw CONFIG twin needs the numeric max, which
+            # GET then reports back as 'unlimited'.
+            resetValue = (MAX_AGGREGATE_REQUEST_RESULTS
+                          if argName == 'MAXAGGREGATERESULTS'
+                          else MAX_SEARCH_REQUEST_RESULTS)
+        env.expect('CONFIG', 'SET', configName, resetValue).ok()
         currentConfigDict = getConfigDict(env)
         env.assertEqual(currentConfigDict, defaultConfigDict)
 
@@ -1886,6 +2140,9 @@ def testConfigIndependence_default():
 def testConfigIndependence_min_values():
     """Test that changing one configuration value doesn't affect other configuration values"""
     env = Env(noDefaultModuleArgs=True)
+    # Disable the per-query TIMEOUT cap so we can iterate over search-timeout /
+    # search-workers values without tripping the cross-knob invariant.
+    env.expect('CONFIG', 'SET', 'search-_max-foreground-timeout-limit', 0).ok()
     # set all numeric configs to min value
     for configName, argName, _, minValue, _, immutable, clusterConfig in numericConfigs:
         if immutable:
@@ -1933,6 +2190,9 @@ def testConfigIndependence_min_values():
 def testConfigIndependence_max_values():
     """Test that changing one configuration value doesn't affect other configuration values"""
     env = Env(noDefaultModuleArgs=True)
+    # Disable the per-query TIMEOUT cap so we can iterate over search-timeout /
+    # search-workers values without tripping the cross-knob invariant.
+    env.expect('CONFIG', 'SET', 'search-_max-foreground-timeout-limit', 0).ok()
     # set all numeric configs to max value
     for configName, argName, _, _, maxValue, immutable, clusterConfig in numericConfigs:
         if immutable:

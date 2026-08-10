@@ -12,6 +12,7 @@
 #include "redismock/util.h"
 #include "doc_id_meta.h"
 #include "spec.h"
+#include "indexes.h"
 #include "common.h"
 #include "index_utils.h"
 
@@ -539,13 +540,13 @@ TEST_F(DocIdMetaTest, TestRdbLoadDuringPersistenceConsumesBytesAndSkips) {
   EXPECT_GT(bytesWritten, 0u);
 
   // Simulate persistence in progress during the load.
-  DocIdMeta_SetPersistenceInProgress(true);
+  DocIdMeta_SetForgetDocIdMetadata(true);
 
   rdbIO->read_pos = 0;
   uint64_t loadedMeta = 0xDEADBEEF; // sentinel; load must overwrite to 0
   int result = RMCK_KeyMetaRdbLoad(getDocIdMetaClassId(), rdbIO, &loadedMeta, 1);
 
-  DocIdMeta_SetPersistenceInProgress(false);
+  DocIdMeta_SetForgetDocIdMetadata(false);
 
   // Return value is SKIP (0): do not attach the meta to the key.
   EXPECT_EQ(result, 0);

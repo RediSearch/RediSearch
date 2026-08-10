@@ -13,7 +13,31 @@
 
 #include "sparse_vector.h"
 #include "rmutil/vector.h"
-#include "trie.h"
+#include "trie_node.h"
+
+/*
+ * This file contains two layers:
+ *
+ * 1. Sparse Levenshtein automaton (`SparseAutomaton`, `dfaNode`, `dfa_build`,
+ *    `SparseAutomaton_IsMatch`). A DFA over query Q and threshold k that
+ *    accepts string S iff Levenshtein(Q, S) <= k.
+ *
+ * 2. Trie-walk filter built on top of the automaton (`DFAFilter`, `FilterFunc`,
+ *    `StackPop`). The automaton is used as a building block to compute prefix
+ *    edit distance (PED) — the metric reported through `matchCtx`:
+ *        PED(Q, T) = min over k in [0..|T|] of Levenshtein(Q, T[0..k])
+ *    See `FilterFunc` docs for details and worked examples. PED is the
+ *    standard scoring metric for approximate autocomplete and the basis of
+ *    FT.SUGGET FUZZY ranking.
+ *
+ *    Admission criteria differ by mode (DFAFilter.mode):
+ *      - TRIE_MATCH_EDIT_DISTANCE: term T is admitted iff Lev(Q, T) <= maxDist.
+ *      - TRIE_MATCH_PREFIX:        term T is admitted iff PED(Q, T) <= maxDist (some prefix
+ *                    of T is within maxDist of Q; the tail is unconstrained).
+ *    *matchCtx reports PED in both modes; only in prefix mode does PED also
+ *    gate admission. This is why the prefix example in FilterFunc can yield
+ *    a term whose Lev(query, term) exceeds maxDist.
+ */
 
 /*
 * SparseAutomaton is a C implementation of a levenshtein automaton using
@@ -48,11 +72,11 @@ typedef struct dfaEdge {
 } dfaEdge;
 
 /* Get an edge for a dfa node given the next rune */
-dfaNode *__dfn_getEdge(dfaNode *n, rune r);
+dfaNode *dfaNode_getEdge(dfaNode *n, rune r);
 
 
 /* Create a new DFA node */
-dfaNode *__newDfaNode(int distance, sparseVector *state);
+dfaNode *dfaNode_new(int distance, sparseVector *state);
 
 /* Recursively build the DFA node and all its descendants */
 void dfa_build(dfaNode *parent, SparseAutomaton *a, Vector *cache);
@@ -73,26 +97,57 @@ int SparseAutomaton_IsMatch(SparseAutomaton *a, sparseVector *v);
 /* Can the current state lead to a possible match, or is this a dead end? */
 int SparseAutomaton_CanMatch(SparseAutomaton *a, sparseVector *v);
 
+/* How a DFAFilter admits terms: full edit distance vs. prefix edit distance. */
+typedef enum {
+    TRIE_MATCH_EDIT_DISTANCE = 0,  // admit T iff Lev(Q, T) <= maxDist
+    TRIE_MATCH_PREFIX        = 1,  // admit T iff PED(Q, T) <= maxDist (prefix mode)
+} TrieMatchMode;
+
 /* DFAFilter is a constructed DFA used to filter the traversal on the trie */
 typedef struct {
     // a cache of the DFA states, allowing us to reuse the same state whenever we need it
     Vector *cache;
     // A stack of the states leading up to the current state
     Vector *stack;
-    // A stack of the minimal distance for each state, used for prefix matching
+    // A stack tracking, per DFA state on `stack`, the running minimum of
+    // accept-state distances along the path leading to it. Used to report the
+    // cost of the best prefix match seen so far via matchCtx in FilterFunc.
     Vector *distStack;
-    // whether the filter works in prefix mode or not
-    int prefixMode;
+    // whether the filter matches full edit distance or prefix edit distance
+    TrieMatchMode mode;
 
     SparseAutomaton a;
 } DFAFilter;
 
 /* Create a new DFA filter  using a Levenshtein automaton, for the given string  and maximum
- * distance. If prefixMode is 1, we match prefixes within the given distance, and then continue
- * onwards to all suffixes. */
-DFAFilter *NewDFAFilter(rune *str, size_t len, int maxDist, int prefixMode);
+ * distance. If mode is TRIE_MATCH_PREFIX, we match prefixes within the given distance, and then
+ * continue onwards to all suffixes. */
+DFAFilter *NewDFAFilter(rune *str, size_t len, int maxDist, TrieMatchMode mode);
 
-/* A callback function for the DFA Filter, passed to the Trie iterator */
+/* A callback function for the DFA Filter, passed to the Trie iterator.
+ *
+ * Computes prefix edit distance (see file header) for the yielded term and
+ * writes it through `matchCtx` (typed `int *`). Mechanics:
+ *
+ *   - The DFAFilter keeps a `distStack` parallel to its DFA state stack,
+ *     each entry holding the running minimum of accept-state costs along
+ *     the current DFA path. Both stacks pop in sync on backtrack
+ *     (`StackPop`).
+ *   - On each rune step that reaches an accept state, *matchCtx is set to
+ *     `MIN(state->distance, running_min_so_far)`.
+ *   - In prefix mode, once a prefix has accepted, the filter pushes NULL
+ *     state-stack frames for the remaining runes; distStack carries the
+ *     running minimum forward unchanged, so *matchCtx at yield time
+ *     reflects the cost at the accept boundary.
+ *
+ * Examples (maxDist=2):
+ *   non-prefix: query "ab", term "abc" → *matchCtx=0 (exact accept at "ab"),
+ *               Levenshtein("ab","abc")=1.
+ *   prefix:     query "abc", term "abzzz" → *matchCtx=1 (cost at "ab" accept,
+ *               carried across NULL frames), Levenshtein("abc","abzzz")=4.
+ *
+ * FT.SUGGET FUZZY ranks results by `score *= exp(-2 * dist)` using this
+ * metric. */
 // FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx);
 FilterCode FoldingFilterFunc(rune b, void *ctx, int *matched, void *matchCtx);
 FilterCode LoweringFilterFunc(rune b, void *ctx, int *matched, void *matchCtx);

@@ -15,6 +15,9 @@ Since there are no known vulnerabilities (nor ways to remove it), it's safe to a
 # https://embarkstudios.github.io/cargo-deny/checks/licenses/cfg.html
 [licenses]
 # List of explicitly allowed licenses
+# Package-specific MPL-2.0 usage that must be reflected in release dependency
+# and SBOM inventories is documented in the repository-level
+# THIRD_PARTY_NOTICES.md.
 allow = [
     # OSI-approved licenses
     "MIT",

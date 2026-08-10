@@ -421,7 +421,10 @@ def test_redis_info():
   env.assertGreater(res['search_largest_memory_index_human'], 0)
   env.assertGreater(res['search_smallest_memory_index'], 0)
   env.assertGreater(res['search_smallest_memory_index_human'], 0)
-  env.assertEqual(res['search_used_memory_vector_index'], 0)
+  # search_used_memory_vector_index folds in the process-wide shared SVS thread
+  # pool memory, which has a small non-zero baseline once the pool singleton is
+  # initialized — even for indexes without vector fields.
+  env.assertGreaterEqual(res['search_used_memory_vector_index'], 0)
   # env.assertGreater(res['search_total_indexing_time'], 0)   # Introduces flakiness
 
   # ========== Cursors statistics ==========
@@ -617,9 +620,14 @@ def test_redis_info_modules_vecsim():
     set_doc(f'doc_svs:{i}')
   env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
 
+  # search_used_memory_vector_index aggregates per-index MEMORY across all vector
+  # fields plus VecSim_GetSharedMemory() (folded in once).
+  expected_vec_mem = lambda field_infos: (sum(int(fi['MEMORY']) for fi in field_infos) +
+                                          int(field_infos[0]['SHARED_MEMORY']))
+
   info = env.cmd('INFO', 'MODULES')
   field_infos = [to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', f'idx{i}', 'vec')) for i in range(1, 5)]
-  env.assertEqual(info['search_used_memory_vector_index'], sum(field_info['MEMORY'] for field_info in field_infos))
+  env.assertEqual(info['search_used_memory_vector_index'], expected_vec_mem(field_infos))
   # Validate that vector indexes are accounted in the total index memory
   env.assertGreater(info['search_used_memory_indexes'], info['search_used_memory_vector_index'])
   env.assertEqual(info['search_gc_marked_deleted_vectors'], 0)
@@ -629,7 +637,7 @@ def test_redis_info_modules_vecsim():
 
   info = env.cmd('INFO', 'MODULES')
   field_infos = [to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', f'idx{i}', 'vec')) for i in range(1, 5)]
-  env.assertEqual(info['search_used_memory_vector_index'], sum(field_info['MEMORY'] for field_info in field_infos))
+  env.assertEqual(info['search_used_memory_vector_index'], expected_vec_mem(field_infos))
   # 3 vectors were marked as deleted (1 for each hnsw index and 1 for svs)
   env.assertEqual(info['search_gc_marked_deleted_vectors'], 3)
   env.assertEqual(to_dict(field_infos[0]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 1)
@@ -642,7 +650,7 @@ def test_redis_info_modules_vecsim():
 
   info = env.cmd('INFO', 'MODULES')
   field_infos = [to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', f'idx{i}', 'vec')) for i in range(1, 5)]
-  env.assertEqual(info['search_used_memory_vector_index'], sum(field_info['MEMORY'] for field_info in field_infos))
+  env.assertEqual(info['search_used_memory_vector_index'], expected_vec_mem(field_infos))
   env.assertEqual(info['search_gc_marked_deleted_vectors'], 0)
   env.assertEqual(to_dict(field_infos[0]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
   env.assertEqual(to_dict(field_infos[1]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
@@ -729,7 +737,13 @@ SEARCH_SHARD_PREFIX = 'search_shard_'
 SYNTAX_ERROR_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_syntax"
 ARGS_ERROR_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_arguments"
 TIMEOUT_ERROR_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_timeout"
+TIMEOUT_ERROR_SHARD_QUEUE_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_timeout_while_queued"
+TIMEOUT_ERROR_SHARD_PIPELINE_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_timeout_while_executing"
+TIMEOUT_ERROR_SHARD_REPLY_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_timeout_while_replying"
 TIMEOUT_WARNING_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_warnings_timeout"
+TIMEOUT_WARNING_SHARD_QUEUE_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_warnings_timeout_while_queued"
+TIMEOUT_WARNING_SHARD_PIPELINE_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_warnings_timeout_while_executing"
+TIMEOUT_WARNING_SHARD_REPLY_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_warnings_timeout_while_replying"
 OOM_ERROR_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_oom"
 OOM_WARNING_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_warnings_oom"
 MAXPREFIXEXPANSIONS_WARNING_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_warnings_max_prefix_expansions"
@@ -740,17 +754,64 @@ SEARCH_COORD_PREFIX = 'search_coord_'
 SYNTAX_ERROR_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_syntax"
 ARGS_ERROR_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_arguments"
 TIMEOUT_ERROR_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_timeout"
+TIMEOUT_ERROR_COORD_QUEUE_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_timeout_while_queued"
+TIMEOUT_ERROR_COORD_PIPELINE_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_timeout_while_executing"
+TIMEOUT_ERROR_COORD_REPLY_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_timeout_while_replying"
 TIMEOUT_WARNING_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_warnings_timeout"
+TIMEOUT_WARNING_COORD_QUEUE_METRIC = f"{SEARCH_COORD_PREFIX}total_query_warnings_timeout_while_queued"
+TIMEOUT_WARNING_COORD_PIPELINE_METRIC = f"{SEARCH_COORD_PREFIX}total_query_warnings_timeout_while_executing"
+TIMEOUT_WARNING_COORD_REPLY_METRIC = f"{SEARCH_COORD_PREFIX}total_query_warnings_timeout_while_replying"
 OOM_ERROR_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_oom"
 OOM_WARNING_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_warnings_oom"
 MAXPREFIXEXPANSIONS_WARNING_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_warnings_max_prefix_expansions"
+
+# LIMIT arguments that must be rejected with the exact same message by the standalone parser
+# (`handleCommonArgs`, which reads them with AC_GetU64) and by the coordinator's FT.SEARCH parser
+# (`rscParseRequest`, which rejects negatives explicitly), so each case below must produce exactly
+# INVALID_LIMIT_ERROR in both modes.
+# `LIMIT 5` (a single argument) is deliberately absent: the coordinator captures LIMIT as a
+# fixed 2-argument slice, so AC_ParseArgSpec rejects it with a different message
+# ("Need an argument for LIMIT") - that case has no parity.
+INVALID_LIMIT_ERROR = 'SEARCH_PARSE_ARGS LIMIT needs two numeric arguments'
+INVALID_LIMIT_CASES = [
+  (['-1', '10'], 'negative offset'),
+  (['0', '-1'], 'negative num'),
+  (['-1', '-1'], 'negative offset and num'),
+]
+
+# Non-numeric LIMIT values have no standalone/coordinator parity, so they are kept out of
+# INVALID_LIMIT_CASES. The standalone parser rejects them, but the coordinator's FT.SEARCH parser
+# ignores the AC_GetLongLong failure, keeps the default LIMIT and fans the command out - so
+# cluster FT.SEARCH answers with results instead of an error, and no metric moves. Cluster
+# FT.AGGREGATE still parses on the coordinator via `handleCommonArgs`, so only FT.SEARCH diverges.
+NON_NUMERIC_LIMIT_CASES = [
+  (['AA', '10'], 'non-numeric offset'),
+  (['5', 'AA'], 'partially valid - numeric offset, non-numeric num'),
+]
+
+# `LIMIT <non-zero offset> 0` is deliberately not part of INVALID_LIMIT_CASES: both arguments
+# parse as valid numbers, so it is rejected by the combination check that follows with a
+# different error code (QUERY_ERROR_CODE_LIMIT). That code is not mapped to any counter in
+# `QueryErrorsGlobalStats_UpdateError`, so unlike INVALID_LIMIT_CASES this case must leave every
+# metric untouched. Asserted separately in both modes.
+# Both coordinator parsers reject it (`rscParseRequest` for FT.SEARCH, `handleCommonArgs` for
+# FT.AGGREGATE), so in cluster mode it is never fanned out to the shards.
+INVALID_LIMIT_OFFSET_ARGS = ['1', '0']
+INVALID_LIMIT_OFFSET_DESCRIPTION = 'offset must be 0 when num is 0'
+INVALID_LIMIT_OFFSET_ERROR = 'SEARCH_LIMIT_OVER The `offset` of the LIMIT must be 0 when `num` is 0'
+
+def _invalid_limit_case_message(cmd, limit_args, description):
+  return f"{cmd} LIMIT {' '.join(limit_args)} ({description})"
 
 # Expect env and conn so we can assert
 def _verify_metrics_not_changed(env, conn, prev_info_dict: dict, ignored_metrics : list):
   info_dict = info_modules_to_dict(conn)
   for section in [WARN_ERR_SECTION, COORD_WARN_ERR_SECTION]:
     for metric in info_dict[section]:
-      if metric in ignored_metrics:
+      # An ignored aggregate timeout metric (e.g. ..._timeout) also exempts its
+      # per-stage children (..._timeout_queue/pipeline/reply), which are
+      # definitionally coupled to it and move together.
+      if any(metric == ig or metric.startswith(ig + '_') for ig in ignored_metrics):
         continue
       env.assertEqual(info_dict[section][metric], prev_info_dict[section][metric], message = f"Metric {metric} changed")
 
@@ -766,7 +827,7 @@ def _common_warnings_errors_test_scenario(env):
   env.expect('HSET', 'vec:1', 'vector', np.array([1.0, 0.0]).astype(np.float32).tobytes(), 'text', 'hello world1').equal(2)
   env.expect('HSET', 'vec:2', 'vector', np.array([0.0, 1.0]).astype(np.float32).tobytes(), 'text', 'hello world2').equal(2)
 
-class testWarningsAndErrorsStandalone:
+class TestWarningsAndErrorsStandalone:
   """Test class for warnings and errors metrics in standalone mode"""
 
   def __init__(self):
@@ -830,10 +891,44 @@ class testWarningsAndErrorsStandalone:
     tested_in_this_test = [ARGS_ERROR_COORD_METRIC]
     _verify_metrics_not_changed(self.env, self.env, self.prev_info_dict, tested_in_this_test)
 
+  def test_invalid_limit_args_errors_SA(self):
+    # Standalone shards are considered as coordinator in the info metrics
+
+    args_error_count = int(self.prev_info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC])
+    # Non-numeric values have no parity in cluster mode, but in standalone mode both parsers reject
+    # them exactly like the negative ones, so both tables are asserted the same way here.
+    for limit_args, description in INVALID_LIMIT_CASES + NON_NUMERIC_LIMIT_CASES:
+      for cmd in ('FT.SEARCH', 'FT.AGGREGATE'):
+        msg = _invalid_limit_case_message(cmd, limit_args, description)
+        self.env.expect(cmd, 'idx', 'hello world', 'LIMIT', *limit_args).error().equal(INVALID_LIMIT_ERROR, message=msg)
+        # Test counter
+        args_error_count += 1
+        info_dict = info_modules_to_dict(self.env)
+        self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC],
+                             str(args_error_count), message=msg)
+
+    # `LIMIT 1 0` is rejected with its own error, and with an error code that is not counted
+    for cmd in ('FT.SEARCH', 'FT.AGGREGATE'):
+      msg = _invalid_limit_case_message(cmd, INVALID_LIMIT_OFFSET_ARGS, INVALID_LIMIT_OFFSET_DESCRIPTION)
+      self.env.expect(cmd, 'idx', 'hello world', 'LIMIT', *INVALID_LIMIT_OFFSET_ARGS) \
+              .error().equal(INVALID_LIMIT_OFFSET_ERROR, message=msg)
+      # Test counter (should not change)
+      info_dict = info_modules_to_dict(self.env)
+      self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC],
+                           str(args_error_count), message=msg)
+
+    # Test other metrics not changed
+    tested_in_this_test = [ARGS_ERROR_COORD_METRIC]
+    _verify_metrics_not_changed(self.env, self.env, self.prev_info_dict, tested_in_this_test)
+
   def test_timeout_SA(self):
     # Standalone shards are considered as coordinator in the info metrics
 
     # ---------- Timeout Errors ----------
+    # NOTE: the debug TIMEOUT_AFTER_N hook fires inside the pipeline (BG-detected),
+    # not through a blocked-client timeout callback, so it bumps only the aggregate
+    # `timeout` counter, not the per-stage `_timeout_while_*` breakdown. The per-stage
+    # breakdown is exercised by the blocked-client tests in test_blocked_client_timeout.
     self.env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'FAIL').ok()
     before_info_dict_err = info_modules_to_dict(self.env)
     base_err = int(before_info_dict_err[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
@@ -894,7 +989,8 @@ class testWarningsAndErrorsStandalone:
     #### FIX : when the issue is fixed, this should be equal to base_warn + 3
     self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC], str(base_warn + 2))
 
-    # Test other metrics not changed
+    # Test other metrics not changed. Ignoring the aggregate timeout metrics also
+    # exempts their per-stage children (see _verify_metrics_not_changed).
     tested_in_this_test = [TIMEOUT_WARNING_COORD_METRIC, TIMEOUT_ERROR_COORD_METRIC]
     _verify_metrics_not_changed(self.env, self.env, before_info_dict, tested_in_this_test)
 
@@ -1105,88 +1201,130 @@ class testWarningsAndErrorsCluster:
     self._verify_metrics_not_changes_all_shards(tested_in_this_test)
 
   def test_args_errors_cluster(self):
+    def check_coord(cnt: str):
+      info_dict = info_modules_to_dict(self.env)
+      coord_args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
+      self.env.assertEqual(coord_args_error_count, cnt)
+
+    def check_per_shard(cnt: str, err: str):
+      for sid in range(1, self.env.shardsCount + 1):
+        sconn = self.env.getConnection(sid)
+        idict = info_modules_to_dict(sconn)
+        args_error_cnt = idict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC]
+        self.env.assertEqual(args_error_cnt, cnt,
+                             message=f"Shard {sid} "+err)
 
     # Check args error metric before adding any errors on each shard
-    for shardId in range(1, self.env.shardsCount + 1):
-      shard_conn = self.env.getConnection(shardId)
-      info_dict = info_modules_to_dict(shard_conn)
-      args_error_count = info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC]
-      self.env.assertEqual(args_error_count, '0',
-                           message=f"Shard {shardId} has wrong initial args error count")
-      args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
-      self.env.assertEqual(args_error_count, '0',
-                           message=f"Shard {shardId} has wrong initial args error count")
+    check_per_shard('0', "Shard %s has wrong initial args error count")
+    check_coord('0')
 
     # Test args errors that are counted in the shards
     self.env.expect('FT.SEARCH', 'idx', 'hello world', 'LIMIT', 0, 10, 'MEOW').error().contains('Unknown argument')
-    # Test counter on each shard
-    for shardId in range(1, self.env.shardsCount + 1):
-      shard_conn = self.env.getConnection(shardId)
-      info_dict = info_modules_to_dict(shard_conn)
-      args_error_count = info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC]
-      self.env.assertEqual(args_error_count, '1',
-                           message=f"Shard {shardId} has wrong args error count")
+    check_per_shard('1', "has wrong args error count")
     # Check coord metric unchanged
-    info_dict = info_modules_to_dict(self.env)
-    coord_args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
-    self.env.assertEqual(coord_args_error_count, '0')
+    check_coord('0')
 
-    #### Should fail when a bug (MOD-12465) is fixed
-    #### When fixed, should decrease the shard arg count and increase the coord arg count
-    # Test args errors that are counted in the coord
+    # Test args errors that are counted in the coord.
+    # The reported error is the unknown argument one, not the LIMIT one: the coordinator ignores
+    # the AC_GetLongLong failure on the non-numeric offset and keeps the default LIMIT, so the
+    # command is fanned out and a shard is the one to reject it.
     self.env.expect('FT.SEARCH', 'idx', 'hello world', 'LIMIT', 'A', 0, 'MEOW').error().contains('Unknown argument')
-    # Test counter on each shard
-    for shardId in range(1, self.env.shardsCount + 1):
-      shard_conn = self.env.getConnection(shardId)
-      info_dict = info_modules_to_dict(shard_conn)
-      args_error_count = info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC]
-      self.env.assertEqual(args_error_count, '2',
-                           message=f"Shard {shardId} has wrong args error count")
-    # Check coord metric unchanged
-    info_dict = info_modules_to_dict(self.env)
-    coord_args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
-    self.env.assertEqual(coord_args_error_count, '0')
+    # shard should not change actually but this bug fix breaks current behaviour
+    check_per_shard("2", "has wrong args error count")
+    # coord actually should change and not fan out but this bug fix breaks current behavior so postponed to major ver
+    check_coord("0")
 
     # Test arg error that is updated only in coord
     self.env.expect('FT.SEARCH', 'idx', 'hello world', 'DIALECT').error().contains('Need an argument for DIALECT')
-    # Test counter on each shard (should not change)
-    for shardId in range(1, self.env.shardsCount + 1):
-      shard_conn = self.env.getConnection(shardId)
-      info_dict = info_modules_to_dict(shard_conn)
-      args_error_count = info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC]
-      self.env.assertEqual(args_error_count, '2',
-                           message=f"Shard {shardId} has wrong args error count")
-    # Check coord metric (should change)
-    info_dict = info_modules_to_dict(self.env)
-    coord_args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
-    self.env.assertEqual(coord_args_error_count, '1')
+    # unchanged
+    check_per_shard('2', 'has wrong args error count')
+    # changed
+    check_coord('1')
 
     # Test args errors in aggregate
     # All args errors in FT.AGGREGATE should be (de facto) counted on the coordinator
     self.env.expect('FT.AGGREGATE', 'idx', 'hello world', 'LIMIT', 0, 0, 'MEOW').error().contains('Unknown argument')
-    # Test counter on each shard
-    for shardId in range(1, self.env.shardsCount + 1):
-      shard_conn = self.env.getConnection(shardId)
-      wait_for_info_metric(shard_conn, [WARN_ERR_SECTION, ARGS_ERROR_SHARD_METRIC], '2', msg=f"Shard {shardId} has wrong args error count")
-    # Check coord metric
-    info_dict = info_modules_to_dict(self.env)
-    coord_args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
-    self.env.assertEqual(coord_args_error_count, '2')
+    check_per_shard('2', "has wrong args error count")
+    check_coord('2')
 
     # Test args errors in hybrid
     # All args errors in FT.HYBRID are counted on the coordinator
     self.env.expect('FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world', 'VSIM', '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', np.array([0.0, 0.0]).astype(np.float32).tobytes(), 'LIMIT', 0, 0, 'MEOW').error().contains('Unknown argument')
-    # Test counter on each shard
-    for shardId in range(1, self.env.shardsCount + 1):
-      shard_conn = self.env.getConnection(shardId)
-      info_dict = info_modules_to_dict(shard_conn)
-      args_error_count = info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC]
-      self.env.assertEqual(args_error_count, '2',
-                           message=f"Shard {shardId} has wrong args error count")
-    # Check coord metric
-    info_dict = info_modules_to_dict(self.env)
-    coord_args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
-    self.env.assertEqual(coord_args_error_count, '3')
+    check_per_shard('2', "has wrong args error count")
+    # changed
+    check_coord('3')
+
+    # Test other metrics not changed
+    tested_in_this_test = [ARGS_ERROR_SHARD_METRIC, ARGS_ERROR_COORD_METRIC]
+    self._verify_metrics_not_changes_all_shards(tested_in_this_test)
+
+  def test_invalid_limit_args_errors_cluster(self):
+    coord_args_error_count = int(self.coord_prev_info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC])
+    shard_args_error_counts = {shardId: self.shards_prev_info_dict[shardId][WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC]
+                               for shardId in range(1, self.env.shardsCount + 1)}
+    def check_counters(env: Env , err_cnt: int, mmsg: str):
+      inf_dict = info_modules_to_dict(env)
+      self.env.assertEqual(inf_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC],
+                           str(err_cnt), message=mmsg)
+      for shardId in range(1, env.shardsCount + 1):
+        s_conn = env.getConnection(shardId)
+        s_info_dict = info_modules_to_dict(s_conn)
+        self.env.assertEqual(s_info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC],
+                             shard_args_error_counts[shardId],
+                             message=f"Shard {shardId} has wrong args error count for {mmsg}")
+
+    for limit_args, description in INVALID_LIMIT_CASES:
+      for cmd in ('FT.SEARCH', 'FT.AGGREGATE'):
+        msg = _invalid_limit_case_message(cmd, limit_args, description)
+        self.env.expect(cmd, 'idx', 'hello world', 'LIMIT', *limit_args).error().equal(INVALID_LIMIT_ERROR, message=msg)
+        # Check coord metric (should change)
+        coord_args_error_count += 1
+        # Test counter on each shard (should not change - the command never reached them)
+        check_counters(self.env, coord_args_error_count, msg)
+
+    # Non-numeric values are rejected on the coordinator for FT.AGGREGATE, but FT.SEARCH keeps the
+    # default LIMIT and fans out, so it answers with results and counts nothing anywhere.
+    for limit_args, description in NON_NUMERIC_LIMIT_CASES:
+      self.env.expect('FT.SEARCH', 'idx', 'hello world', 'LIMIT', *limit_args).noError()
+
+      msg = _invalid_limit_case_message('FT.AGGREGATE', limit_args, description)
+      self.env.expect('FT.AGGREGATE', 'idx', 'hello world', 'LIMIT', *limit_args) \
+              .error().equal(INVALID_LIMIT_ERROR, message=msg)
+      # Check coord metric (should change for the FT.AGGREGATE rejection only)
+      coord_args_error_count += 1
+      # Test counter on each shard (should not change - the fanned out FT.SEARCH is well-formed)
+      check_counters(self.env, coord_args_error_count, msg)
+
+    # `LIMIT 1 0` is rejected with its own error, and with an error code that is not counted.
+    # The args error metric cannot tell a shard-side rejection apart from a command that never
+    # arrived (QUERY_ERROR_CODE_LIMIT is mapped to no counter), so the internal command counters
+    # are what prove the rejection happens on the coordinator, before any fan-out.
+    def internal_call_counts(shard_conn):
+      cmdstats = shard_conn.execute_command('INFO', 'COMMANDSTATS')
+      return {cmd: cmdstats.get(f'cmdstat__{cmd}', {}).get('calls', 0)
+              for cmd in ('FT.SEARCH', 'FT.AGGREGATE')}
+
+    prev_internal_calls = {shardId: internal_call_counts(self.env.getConnection(shardId))
+                           for shardId in range(1, self.env.shardsCount + 1)}
+
+    for cmd in ('FT.SEARCH', 'FT.AGGREGATE'):
+      msg = _invalid_limit_case_message(cmd, INVALID_LIMIT_OFFSET_ARGS, INVALID_LIMIT_OFFSET_DESCRIPTION)
+      self.env.expect(cmd, 'idx', 'hello world', 'LIMIT', *INVALID_LIMIT_OFFSET_ARGS) \
+              .error().equal(INVALID_LIMIT_OFFSET_ERROR, message=msg)
+      # Check coord metric (should not change)
+      info_dict = info_modules_to_dict(self.env)
+      self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC],
+                           str(coord_args_error_count), message=msg)
+      # Test counter on each shard (should not change - the command never reached them)
+      for shardId in range(1, self.env.shardsCount + 1):
+        shard_conn = self.env.getConnection(shardId)
+        shard_info_dict = info_modules_to_dict(shard_conn)
+        self.env.assertEqual(shard_info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC],
+                             shard_args_error_counts[shardId],
+                             message=f"Shard {shardId} has wrong args error count for {msg}")
+        # No internal command was issued to any shard - the coordinator rejected the request
+        self.env.assertEqual(internal_call_counts(shard_conn), prev_internal_calls[shardId],
+                             message=f"Shard {shardId} was sent an internal command for {msg}")
 
     # Test other metrics not changed
     tested_in_this_test = [ARGS_ERROR_SHARD_METRIC, ARGS_ERROR_COORD_METRIC]
@@ -1282,7 +1420,12 @@ class testWarningsAndErrorsCluster:
       wait_for_info_metric(shard_conn, [WARN_ERR_SECTION, TIMEOUT_WARNING_SHARD_METRIC], str(base_warn_shards[shardId] + 3),
                            msg=f"Shard {shardId} HYBRID VSIM timeout warning should be +3")
 
-    # Test other metrics not changed (on shards)
+    # NOTE: TIMEOUT_AFTER_N* is BG-detected (not a blocked-client timeout), so it
+    # bumps only the aggregate timeout counters, not the per-stage `_timeout_while_*`
+    # breakdown. Per-stage attribution is covered by test_blocked_client_timeout.
+
+    # Test other metrics not changed (on shards). Ignoring the aggregate timeout
+    # metrics also exempts their per-stage children (see _verify_metrics_not_changed).
     tested_in_this_test = [TIMEOUT_ERROR_SHARD_METRIC, TIMEOUT_WARNING_SHARD_METRIC, TIMEOUT_ERROR_COORD_METRIC, TIMEOUT_WARNING_COORD_METRIC]
     self._verify_metrics_not_changes_all_shards(tested_in_this_test)
 

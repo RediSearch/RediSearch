@@ -11,7 +11,7 @@
 
 use query_error::QueryError;
 use std::cmp::Ordering;
-use value::comparison::{CompareError, cmp_fields, compare};
+use value::comparison::{CompareError, cmp_fields, compare, compare_on_equality_only};
 use value::{Array, Map, SharedValue, String, Trio, Value};
 
 fn array(values: impl IntoIterator<Item = Value>) -> Value {
@@ -163,27 +163,45 @@ fn array_equal() {
 }
 
 #[test]
-fn array_differing_element() {
-    let a1 = array([Value::Number(1.0), Value::Number(2.0)]);
-    let a2 = array([Value::Number(1.0), Value::Number(1.0)]);
+fn array_differing_first_element() {
+    let a1 = array([Value::Number(2.0), Value::Number(1.0)]);
+    let a2 = array([Value::Number(1.0), Value::Number(99.0)]);
     let result = compare(&a1, &a2, false).unwrap();
     assert_eq!(result, Ordering::Greater);
 }
 
 #[test]
-fn array_shorter_is_less_when_prefix_matches() {
-    let a1 = array([Value::Number(1.0)]);
-    let a2 = array([Value::Number(1.0), Value::Number(2.0)]);
+fn array_only_first_element_is_compared() {
+    // Lengths and trailing elements differ, but the first elements match,
+    // so the arrays compare as equal.
+    let a1 = array([Value::Number(1.0), Value::Number(2.0)]);
+    let a2 = array([Value::Number(1.0)]);
+    let result = compare(&a1, &a2, false).unwrap();
+    assert_eq!(result, Ordering::Equal);
+}
+
+#[test]
+fn empty_array_is_less_than_non_empty_array() {
+    let a1 = Value::Array(Array::new(Box::new([])));
+    let a2 = array([Value::Number(1.0)]);
     let result = compare(&a1, &a2, false).unwrap();
     assert_eq!(result, Ordering::Less);
 }
 
 #[test]
-fn array_longer_is_greater_when_prefix_matches() {
-    let a1 = array([Value::Number(1.0), Value::Number(2.0)]);
-    let a2 = array([Value::Number(1.0)]);
+fn non_empty_array_is_greater_than_empty_array() {
+    let a1 = array([Value::Number(1.0)]);
+    let a2 = Value::Array(Array::new(Box::new([])));
     let result = compare(&a1, &a2, false).unwrap();
     assert_eq!(result, Ordering::Greater);
+}
+
+#[test]
+fn both_empty_arrays_are_equal() {
+    let a1 = Value::Array(Array::new(Box::new([])));
+    let a2 = Value::Array(Array::new(Box::new([])));
+    let result = compare(&a1, &a2, false).unwrap();
+    assert_eq!(result, Ordering::Equal);
 }
 
 #[test]
@@ -244,6 +262,148 @@ fn incompatible_types_returns_error() {
     let a = array([Value::Number(1.0)]);
     let result = compare(&t, &a, false);
     assert!(matches!(result, Err(CompareError::IncompatibleTypes)));
+}
+
+#[test]
+fn number_vs_array_with_fallback_is_greater() {
+    let n = Value::Number(1.0);
+    let a = array([Value::Number(1.0)]);
+    let result = compare(&n, &a, true).unwrap();
+    assert_eq!(result, Ordering::Greater);
+}
+
+#[test]
+fn array_vs_number_with_fallback_is_less() {
+    let a = array([Value::Number(1.0)]);
+    let n = Value::Number(1.0);
+    let result = compare(&a, &n, true).unwrap();
+    assert_eq!(result, Ordering::Less);
+}
+
+#[test]
+fn number_vs_array_without_fallback_returns_error() {
+    let n = Value::Number(1.0);
+    let a = array([Value::Number(1.0)]);
+    let result = compare(&n, &a, false);
+    assert!(matches!(
+        result,
+        Err(CompareError::NoNumberToStringFallback)
+    ));
+}
+
+#[test]
+fn number_vs_map_with_fallback_is_greater() {
+    let n = Value::Number(1.0);
+    let m = Value::Map(Map::new(Box::new([])));
+    let result = compare(&n, &m, true).unwrap();
+    assert_eq!(result, Ordering::Greater);
+}
+
+#[test]
+fn number_vs_undefined_with_fallback_is_greater() {
+    let n = Value::Number(1.0);
+    let result = compare(&n, &Value::Undefined, true).unwrap();
+    assert_eq!(result, Ordering::Greater);
+}
+
+#[test]
+fn undefined_vs_number_with_fallback_is_less() {
+    let n = Value::Number(1.0);
+    let result = compare(&Value::Undefined, &n, true).unwrap();
+    assert_eq!(result, Ordering::Less);
+}
+
+#[test]
+fn number_vs_array_equality_is_false() {
+    let n = Value::Number(1.0);
+    let a = array([Value::Number(1.0)]);
+    assert!(!compare_on_equality_only(&n, &a));
+    assert!(!compare_on_equality_only(&a, &n));
+}
+
+#[test]
+fn number_vs_map_equality_is_false() {
+    let n = Value::Number(1.0);
+    let m = Value::Map(Map::new(Box::new([])));
+    assert!(!compare_on_equality_only(&n, &m));
+}
+
+#[test]
+fn number_vs_undefined_equality_is_false() {
+    let n = Value::Number(1.0);
+    assert!(!compare_on_equality_only(&n, &Value::Undefined));
+}
+
+#[test]
+fn number_vs_trio_recurses_into_left_numeric() {
+    let n = Value::Number(2.0);
+    let t = trio(Value::Number(1.0), Value::Null, Value::Null);
+    let result = compare(&n, &t, false).unwrap();
+    assert_eq!(result, Ordering::Greater);
+}
+
+#[test]
+fn trio_vs_number_recurses_into_left_numeric() {
+    let n = Value::Number(2.0);
+    let t = trio(Value::Number(1.0), Value::Null, Value::Null);
+    let result = compare(&t, &n, false).unwrap();
+    assert_eq!(result, Ordering::Less);
+}
+
+#[test]
+fn number_vs_trio_with_non_numeric_left_uses_unconvertible_fallback() {
+    // Trio.left is an array, which cannot be converted to a number.
+    // The trio is therefore treated as an empty string: the number always wins
+    // in fallback mode.
+    let n = Value::Number(1.0);
+    let t = trio(array([Value::Number(1.0)]), Value::Null, Value::Null);
+    let result = compare(&n, &t, true).unwrap();
+    assert_eq!(result, Ordering::Greater);
+}
+
+#[test]
+fn number_vs_trio_with_non_numeric_string_left_is_greater_in_fallback() {
+    // Trio.left is a non-numeric string. C behaviour: conversion fails, then the
+    // trio is compared as an empty string against the number's "%f" form, so the
+    // number always wins. A direct recursion into String("abc") would incorrectly
+    // compare "1" against "abc", giving Less.
+    let n = Value::Number(1.0);
+    let t = trio(
+        Value::String(String::from_vec(b"abc".to_vec())),
+        Value::Null,
+        Value::Null,
+    );
+    let result = compare(&n, &t, true).unwrap();
+    assert_eq!(result, Ordering::Greater);
+}
+
+#[test]
+fn trio_with_non_numeric_string_left_vs_number_is_less_in_fallback() {
+    let n = Value::Number(1.0);
+    let t = trio(
+        Value::String(String::from_vec(b"abc".to_vec())),
+        Value::Null,
+        Value::Null,
+    );
+    let result = compare(&t, &n, true).unwrap();
+    assert_eq!(result, Ordering::Less);
+}
+
+#[test]
+fn number_vs_trio_with_non_numeric_string_left_returns_error_without_fallback() {
+    // Without fallback (qerr path), the same conversion failure must return
+    // NoNumberToStringFallback so the caller can record the error.
+    let n = Value::Number(1.0);
+    let t = trio(
+        Value::String(String::from_vec(b"abc".to_vec())),
+        Value::Null,
+        Value::Null,
+    );
+    let result = compare(&n, &t, false);
+    assert!(matches!(
+        result,
+        Err(CompareError::NoNumberToStringFallback)
+    ));
 }
 
 #[test]

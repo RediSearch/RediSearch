@@ -11,7 +11,8 @@
 
 use enumflags2::BitFlags;
 use enumflags2::bitflags;
-use hidden_string::HiddenStringRef;
+use hidden_string::HiddenString;
+use numeric_range_tree::NumericRangeTree;
 #[cfg(feature = "unittest")]
 use std::ffi::CStr;
 use std::fmt;
@@ -74,16 +75,30 @@ impl FieldSpec {
         std::ptr::from_ref(&self.0)
     }
 
-    /// Get the underlying field name as a `HiddenStringRef`.
-    pub const fn field_name(&self) -> HiddenStringRef<'_> {
+    /// Get the underlying field name as a `&HiddenString`.
+    pub const fn field_name(&self) -> &HiddenString {
         // Safety: (1.) due to creation with `FieldSpec::from_raw`
-        unsafe { HiddenStringRef::from_raw(self.0.fieldName) }
+        unsafe { HiddenString::from_raw(self.0.fieldName) }
     }
 
-    /// Get the underlying field path as a `HiddenStringRef`.
-    pub const fn field_path(&self) -> HiddenStringRef<'_> {
+    /// Get the underlying field path as a `&HiddenString`.
+    pub const fn field_path(&self) -> &HiddenString {
         // Safety: (1.) due to creation with `FieldSpec::from_raw`
-        unsafe { HiddenStringRef::from_raw(self.0.fieldPath) }
+        unsafe { HiddenString::from_raw(self.0.fieldPath) }
+    }
+
+    /// Return the field types as a typed [`FieldSpecTypes`] bitmask.
+    pub fn types(&self) -> FieldSpecTypes {
+        BitFlags::from_bits_truncate(self.0.types())
+    }
+
+    /// Return a reference to the numeric range tree, or `None` if not initialised.
+    pub fn tree(&self) -> Option<&NumericRangeTree> {
+        // SAFETY: when non-null, fs.tree is a valid NumericRangeTree allocated by
+        // open_numeric_or_geo_index and stored in the FieldSpec.
+        unsafe {
+            std::ptr::NonNull::new(self.0.tree.cast::<NumericRangeTree>()).map(|p| p.as_ref())
+        }
     }
 }
 
@@ -130,6 +145,12 @@ impl FieldSpecBuilder {
     #[cfg_attr(miri, allow(unused))]
     pub fn with_options(mut self, options: FieldSpecOptions) -> Self {
         self.result.set_options(options.bits());
+        self
+    }
+
+    #[cfg_attr(miri, allow(unused))]
+    pub fn with_types(mut self, types: FieldSpecTypes) -> Self {
+        self.result.set_types(types.bits());
         self
     }
 

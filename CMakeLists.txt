@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.15)
 
 include(CheckCCompilerFlag)
+include(CheckCXXCompilerFlag)
 
 get_filename_component(root ${CMAKE_CURRENT_LIST_DIR} ABSOLUTE)
 # The `binroot` path includes a platform+profile segment
@@ -50,6 +51,25 @@ function(setup_cc_options)
     set(_common_cxx_flags "${CMAKE_CXX_FLAGS} -fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare")
     set(CMAKE_CXX_STANDARD 20)
 
+    # musl compatibility headers emit #warning for non-portable include paths.
+    # Treat those diagnostics as build failures so Alpine catches them early.
+    execute_process(
+        COMMAND ${CMAKE_C_COMPILER} -dumpmachine
+        OUTPUT_VARIABLE C_COMPILER_TARGET
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if(C_COMPILER_TARGET MATCHES "musl" OR EXISTS "/etc/alpine-release")
+        check_c_compiler_flag("-Werror=cpp" HAS_C_WERROR_CPP)
+        check_cxx_compiler_flag("-Werror=cpp" HAS_CXX_WERROR_CPP)
+        if(HAS_C_WERROR_CPP)
+            set(_common_c_flags "${_common_c_flags} -Werror=cpp")
+        endif()
+        if(HAS_CXX_WERROR_CPP)
+            set(_common_cxx_flags "${_common_cxx_flags} -Werror=cpp")
+        endif()
+    endif()
+
     # MOD-14916: inline LSE atomics on Linux AArch64 -- avoid libgcc
     # __aarch64_* outline-atomics helpers on every atomic RMW.
     #   -march=armv8-a+lse   adds LSE without raising -march, so deps that
@@ -59,7 +79,7 @@ function(setup_cc_options)
     #                        silently ignored by GCC).
     # Apple excluded: Apple clang rejects -mno-outline-atomics and Apple
     # Silicon already emits inline LSE.
-    if(NOT APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+    if(NOT APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$" AND INLINE_LSE_ATOMICS)
         include(CheckCCompilerFlag)
         include(CheckCXXCompilerFlag)
         set(_aarch64_lse_flags "-march=armv8-a+lse -mtune=neoverse-n1 -mno-outline-atomics")
@@ -124,6 +144,23 @@ option(VERBOSE_UTESTS "Enable verbose unit tests" OFF)
 option(ENABLE_ASSERT "Enable assertions" OFF)
 set(MAX_WORKER_THREADS "" CACHE STRING "Override the maximum parallel worker threads allowed in thread-pool")
 option(BUILD_TESTING "Enable testing for cpu-features dep" OFF)
+# Inline LSE atomics on Linux AArch64 (Armv8.1-a+). Disable for pre-Armv8.1-a
+# cores (Cortex-A72, AWS Graviton1, Raspberry Pi 4) to avoid SIGILL on load.
+option(INLINE_LSE_ATOMICS "Inline LSE atomics on Linux AArch64 (Armv8.1-a+)" ON)
+
+# Regenerate Rust→C FFI headers via cheadergen during the build.
+# Default: ON when RediSearch is the top-level project, OFF when consumed as a
+# subdirectory. Downstream consumers pulling a master commit don't need to
+# regenerate — checked-in headers are guaranteed fresh by CI — and cheadergen
+# may not be installed in their environment.
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    set(_redisearch_generate_headers_default ON)
+else()
+    set(_redisearch_generate_headers_default OFF)
+endif()
+option(REDISEARCH_GENERATE_HEADERS
+    "Regenerate Rust→C FFI headers via cheadergen during the build"
+    ${_redisearch_generate_headers_default})
 
 
 #----------------------------------------------------------------------------------------------
@@ -161,6 +198,18 @@ if(SAN)
         message(STATUS "CMAKE_C_FLAGS: ${CMAKE_C_FLAGS}")
         message(STATUS "CMAKE_LINKER_FLAGS: ${CMAKE_LINKER_FLAGS}")
         message(STATUS "CMAKE_SHARED_LINKER_FLAGS: ${CMAKE_SHARED_LINKER_FLAGS}")
+    elseif(SAN STREQUAL "alignment")
+        set(_alignment_sanitizer_flags
+            "-fno-omit-frame-pointer -fsanitize=alignment -fno-sanitize-recover=alignment")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${_alignment_sanitizer_flags}")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${_alignment_sanitizer_flags}")
+        set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} -fsanitize=alignment")
+        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=alignment")
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=alignment")
+        message(STATUS "CMAKE_C_FLAGS: ${CMAKE_C_FLAGS}")
+        message(STATUS "CMAKE_CXX_FLAGS: ${CMAKE_CXX_FLAGS}")
+        message(STATUS "CMAKE_LINKER_FLAGS: ${CMAKE_LINKER_FLAGS}")
+        message(STATUS "CMAKE_SHARED_LINKER_FLAGS: ${CMAKE_SHARED_LINKER_FLAGS}")
     endif()
 endif()
 
@@ -195,8 +244,22 @@ execute_process(
 set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
 
 # Treat all format-string warnings as errors
-set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -Wformat")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wformat")
+set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -Werror=format")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror=format")
+
+# Detect available compiler flags for subsequent use. These flags are global and available
+# throughout the build. Some flags below form GCC/Clang equivalence pairs (only one will be
+# available on a given compiler), others stand alone.
+check_c_compiler_flag("-Werror=discarded-qualifiers" HAS_WERROR_DISCARDED_QUALIFIERS)
+check_c_compiler_flag("-Werror=implicit-function-declaration" HAS_WERROR_IMPLICIT_FUNCTION_DECLARATION)
+check_c_compiler_flag("-Werror=incompatible-pointer-types-discards-qualifiers" HAS_WERROR_INCOMPATIBLE_POINTER_TYPES_DISCARDS_QUALIFIERS)
+check_c_compiler_flag("-Werror=jump-misses-init" HAS_WERROR_JUMP_MISSES_INIT)
+check_c_compiler_flag("-Werror=sometimes-uninitialized" HAS_WERROR_SOMETIMES_UNINITIALIZED)
+
+# Homebrew silently removes '-Werror' flags which breaks the regular form of detection.
+# Instead we specifically check for the '-Wno-error' variants here separately.
+check_c_compiler_flag("-Wno-error=discarded-qualifiers" HAS_WNO_ERROR_DISCARDED_QUALIFIERS)
+check_c_compiler_flag("-Wno-error=incompatible-pointer-types-discards-qualifiers" HAS_WNO_ERROR_INCOMPATIBLE_POINTER_TYPES_DISCARDS_QUALIFIERS)
 
 # Promote specific warnings to errors. These use add_compile_options() which
 # propagates to ALL subdirectories, including deps (libuv, VectorSimilarity, etc.).
@@ -204,40 +267,33 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wformat")
 # (e.g. -Wno-error=X via target_compile_options), guard it with the same
 # compiler check or a $<C_COMPILER_ID:...> generator expression.
 
-# gcc
-check_c_compiler_flag("-Werror=discarded-qualifiers" HAS_DISCARDED_QUALIFIERS)
-if(HAS_DISCARDED_QUALIFIERS)
+# Promote dropped const/volatile qualifier warnings to errors
+if(HAS_WERROR_DISCARDED_QUALIFIERS)
     add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=discarded-qualifiers>)
 endif()
-
-# clang
-check_c_compiler_flag("-Werror=incompatible-pointer-types-discards-qualifiers" HAS_INCOMPATIBLE_POINTER_TYPES_DISCARDS_QUALIFIERS)
-if(HAS_INCOMPATIBLE_POINTER_TYPES_DISCARDS_QUALIFIERS)
+if(HAS_WERROR_INCOMPATIBLE_POINTER_TYPES_DISCARDS_QUALIFIERS)
     add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=incompatible-pointer-types-discards-qualifiers>)
 endif()
 
-# Warn when goto jumps over variable initialization
-# gcc: -Werror=jump-misses-init
-check_c_compiler_flag("-Werror=jump-misses-init" HAS_JUMP_MISSES_INIT)
-if(HAS_JUMP_MISSES_INIT)
+# Promote jumps/paths that skip a variable's initialization to errors
+if(HAS_WERROR_JUMP_MISSES_INIT)
     add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=jump-misses-init>)
 endif()
-
-# clang: -Werror=sometimes-uninitialized (equivalent protection)
-check_c_compiler_flag("-Werror=sometimes-uninitialized" HAS_SOMETIMES_UNINITIALIZED)
-if(HAS_SOMETIMES_UNINITIALIZED)
+if(HAS_WERROR_SOMETIMES_UNINITIALIZED)
     add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=sometimes-uninitialized>)
 endif()
 
-check_c_compiler_flag("-Werror=implicit-function-declaration" HAS_IMPLICIT_FUNCTION_DECLARATION)
-if(HAS_IMPLICIT_FUNCTION_DECLARATION)
+# Promote implicit function declarations to errors
+if(HAS_WERROR_IMPLICIT_FUNCTION_DECLARATION)
     add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=implicit-function-declaration>)
 endif()
 
+# NOTE: GIT_VERSPEC and GIT_SHA are intentionally NOT defined globally. They
+# change on every commit, so a global -D...  would be part of every C/C++
+# compile command and bust the sccache key for the whole tree on every push.
+# They are scoped to the only two TUs that read them in src/CMakeLists.txt.
 add_compile_definitions(
     "REDISEARCH_MODULE_NAME=\"${MODULE_NAME}\""
-    "GIT_VERSPEC=\"${GIT_VERSPEC}\""
-    "GIT_SHA=\"${GIT_SHA}\""
     REDISMODULE_SDK_RLEC
     _GNU_SOURCE)
 
@@ -255,7 +311,22 @@ endif()
 
 # Platform-specific settings
 if(APPLE)
-    # Find OpenSSL on macOS
+    # Find OpenSSL on macOS. Prefer explicit paths, then known Homebrew prefixes.
+    if(NOT OPENSSL_ROOT_DIR AND DEFINED LIBSSL_DIR)
+        set(OPENSSL_ROOT_DIR "${LIBSSL_DIR}")
+    endif()
+    if(NOT OPENSSL_ROOT_DIR)
+        foreach(_openssl_prefix
+            "/opt/homebrew/opt/openssl@3"
+            "/usr/local/opt/openssl@3"
+            "/opt/homebrew/opt/openssl"
+            "/usr/local/opt/openssl")
+            if(EXISTS "${_openssl_prefix}")
+                set(OPENSSL_ROOT_DIR "${_openssl_prefix}")
+                break()
+            endif()
+        endforeach()
+    endif()
     find_package(OpenSSL REQUIRED)
     include_directories(${OPENSSL_INCLUDE_DIR})
 
@@ -306,7 +377,6 @@ include_directories(
     ${root}/deps
     ${root}/deps/VectorSimilarity/src
     ${root}/deps/rmalloc
-    ${root}/src/ttl_table
     ${BOOST_DIR}
     ${root})
 
@@ -316,6 +386,17 @@ add_subdirectory(src)
 
 # Build the Rust code
 add_subdirectory(src/redisearch_rs)
+
+# C/C++ code includes headers generated by cheadergen from Rust FFI crates.
+# Ensure header generation completes before any C/C++ compilation begins.
+# Every target that transitively includes generated headers (via redisearch.h etc.)
+# must wait for cheadergen.
+add_dependencies(rscore cheadergen_generate)
+add_dependencies(redisearch-geometry cheadergen_generate)
+add_dependencies(iterators cheadergen_generate)
+add_dependencies(index_result cheadergen_generate)
+add_dependencies(coordinator-core cheadergen_generate)
+add_dependencies(rmr cheadergen_generate)
 
 #----------------------------------------------------------------------------------------------
 # Build the final shared library by merging C and Rust static libraries

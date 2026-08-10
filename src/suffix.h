@@ -12,11 +12,10 @@
 extern "C" {
 #endif
 
-#include "trie/trie_type.h"
-#include "triemap.h"
+#include "trie/trie.h"
 #include "util/arr.h"
 
-#define MIN_SUFFIX 2
+typedef struct TrieMap TrieMap;
 
 typedef enum {
     SUFFIX_TYPE_SUFFIX = 0,
@@ -31,8 +30,6 @@ typedef struct SuffixCtx {
     Trie *trie;
     rune *rune;
     size_t runelen;
-    const char *cstr;
-    size_t cstrlen;
     SuffixType type;
     TrieSuffixCallback *callback;
     void *cbCtx;
@@ -48,6 +45,11 @@ typedef struct suffixData {
 } suffixData;
 
 
+/* Add string to suffix trie. If string already exists, do nothing.
+ * An empty string is a caller-level mistake and triggers an assertion.
+ * In case of allocation overflow in TrieNode_Add, log error and return without
+ * adding the string.
+ */
 void addSuffixTrie(Trie *trie, const char *str, uint32_t len);
 void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len);
 
@@ -77,6 +79,11 @@ arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t l
  * If pattern does not match using suffix trie, return 0xBAAAAAAD */
 arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern, uint32_t len,
                                                struct timespec timeout, long long maxPrefixExpansions, bool skipTimeoutChecks);
+
+/* Score handicap for an anchor token followed by '*': matching it scans a whole
+ * subtree instead of a single exact entry, so it must out-length an exact token
+ * by this many characters to be chosen. */
+#define SUFFIX_STARRED_ANCHOR_PENALTY 5
 
 /* Breaks wildcard at '*'s and finds the best token to get iterate the suffix trie.
  * tokenIdx and tokenLen arrays should sufficient space for all tokens. Max (len / 2) + 1.

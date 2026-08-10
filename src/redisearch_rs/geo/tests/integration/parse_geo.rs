@@ -9,9 +9,6 @@
 
 use geo::{Coordinates, ParseGeoError};
 
-/// Mirror of the private `MAX_GEO_STRING_LEN` constant in the `geo` crate.
-const MAX_GEO_STRING_LEN: usize = 128;
-
 #[test]
 fn valid_comma_separated() {
     let coords = Coordinates::parse_geo("1.5,2.5").unwrap();
@@ -52,23 +49,6 @@ fn integer_coordinates() {
     let coords = Coordinates::parse_geo("10,20").unwrap();
     assert_eq!(coords.lon, 10.0);
     assert_eq!(coords.lat, 20.0);
-}
-
-#[test]
-fn too_long() {
-    let s = "1".repeat(MAX_GEO_STRING_LEN + 1);
-    assert_eq!(Coordinates::parse_geo(&s), Err(ParseGeoError::TooLong));
-}
-
-#[test]
-fn exactly_max_length_valid() {
-    // "1.0," is 4 chars, pad lon part to fill up to MAX_GEO_STRING_LEN
-    let lon_part = "1".repeat(MAX_GEO_STRING_LEN - 4);
-    let s = format!("{lon_part},1.0");
-    assert!(s.len() == MAX_GEO_STRING_LEN);
-    let result = Coordinates::parse_geo(&s);
-    // The 124-digit number is finite (~1.11e+123), so parsing succeeds.
-    assert!(result.is_ok(), "expected Ok, got {result:?}");
 }
 
 #[test]

@@ -9,8 +9,10 @@
 
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
-use ffi::{RS_FIELDMASK_ALL, t_docId};
-use inverted_index::{RSIndexResult, RSOffsetSlice};
+use index_result::{RSIndexResult, RSOffsetSlice};
+use rqe_core::{DocId, RS_FIELDMASK_ALL};
+
+use super::past_end_cursor;
 use rqe_iterators::{IteratorType, RQEIterator, WildcardIterator};
 
 /// Test iterator used in unit tests that expect an [`RQEIterator`]
@@ -47,15 +49,24 @@ use rqe_iterators::{IteratorType, RQEIterator, WildcardIterator};
 ///
 /// Taken from the C++tests in
 /// `tests/cpptests/iterator_util.h`.
+///
+/// `#[repr(C)]` so that `Mock<'index, N>` and [`MockSuspended<N>`] are
+/// layout-compatible: `suspend`/`resume` relabel the same heap allocation
+/// between the two via [`Box::from_raw`], which is only sound if both have a
+/// fixed, matching field layout (default repr may order distinct types
+/// differently even when their fields match).
+#[repr(C)]
 pub struct Mock<'index, const N: usize> {
     result: RSIndexResult<'index>,
-    doc_ids: [t_docId; N],
+    doc_ids: [DocId; N],
     /// One term position per document, or `None` for a virtual (non-term) result.
     ///
     /// Each value must be in the range `1..=127`: values in that range are their own
     /// single-byte LEB128 varint encoding, so the byte can be passed directly to
     /// [`RSOffsetSlice::from_slice`] without a separate encoding step.
     positions: Option<[u8; N]>,
+    /// Index of the next document to serve, [`past_end_cursor`] once a
+    /// `read`/`skip_to` ran past the last one.
     next_index: usize,
     data: MockData,
 }
@@ -126,9 +137,53 @@ impl MockData {
             validation_count: 0,
             read_count: 0,
             error_at_done: None,
+            resume_error: None,
             delays: Vec::new(),
             force_read_none: false,
+            resume_reseeks_past_end: false,
+            revalidate_reseeks_to: None,
         })))
+    }
+
+    /// Make `resume` reproduce an inverted-index re-seek that runs off the end.
+    ///
+    /// A plain [`MockRevalidateResult::Move`] models a resume that lands on a
+    /// later document. The real inverted-index iterators have a second, quite
+    /// different `Moved` shape that no mock could express: when GC invalidates
+    /// the cached block offset, `RawInvIndIterator::resume_in_place` *rewinds*
+    /// and then re-seeks to the last doc id. If that seek finds nothing, the
+    /// iterator ends up at EOF with `last_doc_id()` reset to `0` — its
+    /// pre-suspend position is gone rather than advanced.
+    ///
+    /// That matters because a composite cannot recognise this case by comparing
+    /// the child's pre- and post-resume `last_doc_id`: the cached id went
+    /// backwards, not forwards. Only [`RQEIterator::current`] returning `None`
+    /// identifies it.
+    ///
+    /// When set, `resume` ignores the configured [`MockRevalidateResult`] and
+    /// reports `Moved` with the iterator rewound and past its end.
+    pub fn set_resume_reseeks_past_end(&mut self, reseeks_past_end: bool) -> &mut Self {
+        self.0.borrow_mut().resume_reseeks_past_end = reseeks_past_end;
+        self
+    }
+
+    /// Make `revalidate` reproduce an inverted-index re-seek after a GC cycle.
+    ///
+    /// A plain [`MockRevalidateResult::Move`] models a revalidation that steps to
+    /// the next document. The inverted-index iterators do something else: when the
+    /// cached block offset may have been invalidated, `revalidate` *rewinds* and
+    /// then seeks back to the position it held. `rewind` clears the past-the-end
+    /// state, so this resurrects an *exhausted* iterator — it comes back live on
+    /// whatever the seek lands on. That landing is at or after the child's own old
+    /// position, but says nothing about where the parent composite moved to
+    /// meanwhile, which is what makes the state impossible to express with `Move`.
+    ///
+    /// `doc_id` is the document the seek lands on and must be one the mock holds.
+    /// Landing back on the pre-revalidation position reports `Ok` (the seek found
+    /// it); any other landing reports `Moved`.
+    pub fn set_revalidate_reseeks_to(&mut self, doc_id: Option<DocId>) -> &mut Self {
+        self.0.borrow_mut().revalidate_reseeks_to = doc_id;
+        self
     }
 
     /// Configure the result that [`Mock::revalidate`] will report.
@@ -154,10 +209,22 @@ impl MockData {
         self
     }
 
+    /// Configure an error that the suspended counterpart's
+    /// [`RQESuspendedIterator::resume`](rqe_iterators::RQESuspendedIterator::resume)
+    /// will return instead of resuming.
+    ///
+    /// This simulates a child whose revalidation-via-resume fails (rather than
+    /// aborts or moves), so tests can exercise the error-propagation branch of
+    /// iterators that wrap a child across the suspend/resume cycle.
+    pub fn set_error_on_resume(&mut self, maybe_err: Option<MockIteratorError>) -> &mut Self {
+        self.0.borrow_mut().resume_error = maybe_err;
+        self
+    }
+
     /// Configure a delay that should be introduced since the given index,
     /// either in a [`RQEIterator::read`] or [`RQEIterator::skip_to`] call
     /// for the [`Mock`] iterator.
-    pub fn add_delay_since_index(&mut self, index: t_docId, delay: Duration) -> &mut Self {
+    pub fn add_delay_since_index(&mut self, index: DocId, delay: Duration) -> &mut Self {
         {
             let mut data = self.0.borrow_mut();
             data.delays.push((index, delay));
@@ -179,10 +246,9 @@ impl MockData {
 
     /// Force the next call to `read()` to return `None` even if not at EOF.
     ///
-    /// This simulates an iterator that doesn't know it's at EOF until `read()` is called.
-    /// The Inverted Index iterator exhibits this behavior: `at_eof()` returns `false`
-    /// before a `read()` call, but `read()` discovers there are no more records and
-    /// returns `None` (then sets `at_eos = true`).
+    /// This simulates an iterator that reports `None` from `read()` while it still
+    /// holds documents. The `None` is fabricated rather than a genuine end, so the
+    /// mock's past-the-end bookkeeping is deliberately left untouched.
     ///
     /// The flag is automatically cleared after one use.
     pub fn set_force_read_none(&mut self, force: bool) -> &mut Self {
@@ -206,14 +272,23 @@ struct MockDataInternal {
     validation_count: usize,
     read_count: usize,
     error_at_done: Option<MockIteratorError>,
-    delays: Vec<(t_docId, Duration)>,
+    /// Error returned by the suspended counterpart's `resume` instead of
+    /// resuming. See [`MockData::set_error_on_resume`].
+    resume_error: Option<MockIteratorError>,
+    delays: Vec<(DocId, Duration)>,
     /// If true, the next call to `read()` will return `None` even if not at EOF.
     /// Simulates Inverted Index iterators that discover EOF only when `read()` is called.
     force_read_none: bool,
+    /// If true, `resume` rewinds and reports `Moved` past the end — see
+    /// [`MockData::set_resume_reseeks_past_end`].
+    resume_reseeks_past_end: bool,
+    /// Document `revalidate` rewinds and re-seeks onto — see
+    /// [`MockData::set_revalidate_reseeks_to`].
+    revalidate_reseeks_to: Option<DocId>,
 }
 
 impl MockDataInternal {
-    fn delay_if_index_limit_reached(&mut self, idx: t_docId) {
+    fn delay_if_index_limit_reached(&mut self, idx: DocId) {
         // assumes that these delays are sorted in ascending order,
         // as guaranteed by the [`MockData::add_delay_since_index`] method.
 
@@ -237,6 +312,26 @@ pub enum MockRevalidateResult {
     Ok,
     Abort,
     Move,
+    /// Revalidation ran out of time, e.g. while re-seeking the index after a GC cycle.
+    TimedOut,
+    /// Revalidation failed to read from the index.
+    IoError,
+}
+
+impl MockRevalidateResult {
+    /// The error this outcome stands for, or `None` if it is one of the successful ones.
+    ///
+    /// Both revalidation and resume report a failure the same way — as an `Err` that leaves the
+    /// iterator unusable — so both paths funnel their failing outcomes through here.
+    fn as_error(self) -> Option<rqe_iterators::RQEIteratorError> {
+        match self {
+            Self::TimedOut => Some(rqe_iterators::RQEIteratorError::TimedOut),
+            Self::IoError => Some(rqe_iterators::RQEIteratorError::IoError(
+                std::io::Error::other("mock revalidation failure"),
+            )),
+            Self::Ok | Self::Abort | Self::Move => None,
+        }
+    }
 }
 
 impl<'index, const N: usize> Mock<'index, N> {
@@ -250,7 +345,7 @@ impl<'index, const N: usize> Mock<'index, N> {
     /// with weight equal to `1.0` and field mask set to
     /// `RS_FIELDMASK_ALL`.  Each call to `read` or `skip_to` overwrites
     /// `doc_id` in that single result instance.
-    pub fn new(doc_ids: [t_docId; N]) -> Self {
+    pub fn new(doc_ids: [DocId; N]) -> Self {
         debug_assert!(doc_ids.is_sorted(), "Mock Iterator API assumes sorted list");
         Self {
             result: RSIndexResult::build_virt()
@@ -266,7 +361,7 @@ impl<'index, const N: usize> Mock<'index, N> {
 
     /// Like [`Mock::new`], but each document carries a term position (valid range `1..=127`).
     /// The result produced for each document will be a `Term` record instead of a virtual one,
-    pub fn new_with_positions(doc_ids: [t_docId; N], positions: [u8; N]) -> Self {
+    pub fn new_with_positions(doc_ids: [DocId; N], positions: [u8; N]) -> Self {
         debug_assert!(
             positions.iter().all(|&p| (1..=127).contains(&p)),
             "positions must be in 1..=127 (single-byte varint range)"
@@ -306,10 +401,28 @@ impl<'index, const N: usize> Mock<'index, N> {
             self.result.doc_id = doc_id;
         }
     }
+
+    /// Whether a `read`/`skip_to` has already run past the last document — the
+    /// state behind [`RQEIterator::current`] and [`RQEIterator::at_eof`].
+    fn past_end(&self) -> bool {
+        self.next_index == past_end_cursor(N)
+    }
+
+    /// Whether the next `read` would find nothing, which is what the internal
+    /// `read`/`skip_to` decisions turn on.
+    ///
+    /// Already true while the mock sits on its final document, hence separate
+    /// from [`Self::past_end`].
+    fn no_more_docs(&self) -> bool {
+        self.next_index >= N
+    }
 }
 
 impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        if self.past_end() {
+            return None;
+        }
         Some(&mut self.result)
     }
 
@@ -323,13 +436,16 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
             // Check if we should force return None (simulating misbehaving iterator)
             if data.force_read_none {
                 data.force_read_none = false; // Clear after one use
+                // Deliberately not recorded as past the end: only the `None` is
+                // fabricated, the mock still has documents to serve.
                 return Ok(None);
             }
 
-            if self.at_eof() {
+            if self.no_more_docs() {
                 return if let Some(err) = data.error_at_done {
                     Err(err.into_rqe_iterator_error())
                 } else {
+                    self.next_index = past_end_cursor(N);
                     Ok(None)
                 };
             }
@@ -348,22 +464,30 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
 
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<rqe_iterators::SkipToOutcome<'_, 'index>>, rqe_iterators::RQEIteratorError>
     {
         let mut data = self.data.0.borrow_mut();
 
         data.read_count += 1;
 
-        assert!(
-            self.result.doc_id < doc_id,
-            "skipTo: requested to skip backwards",
+        // `skip_to` must be called with a target strictly past the current
+        // position; re-skipping to (or below) `last_doc_id()` is a contract
+        // violation, mirroring the real iterator's
+        // `debug_assert!(self.last_doc_id() < doc_id)` (see
+        // `rqe_iterators::inverted_index::core`). Resume-driven re-skips
+        // `rewind()` first — exactly like the real `revalidate` path — so they
+        // never target the current position.
+        debug_assert!(
+            self.last_doc_id() < doc_id,
+            "skip_to called with a target at or below the current position"
         );
 
-        if self.at_eof() {
+        if self.no_more_docs() {
             return if let Some(err) = data.error_at_done {
                 Err(err.into_rqe_iterator_error())
             } else {
+                self.next_index = past_end_cursor(N);
                 Ok(None)
             };
         }
@@ -385,28 +509,63 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
         }))
     }
 
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        _spec: std::ptr::NonNull<ffi::IndexSpec>,
+        _spec: &index_spec::IndexSpecReadGuard,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        let revalidate_result = {
+        let (revalidate_result, reseeks_to) = {
             let mut data = self.data.0.borrow_mut();
             data.validation_count += 1;
-            data.revalidate_result
+            (data.revalidate_result, data.revalidate_reseeks_to)
         };
+
+        // A failing outcome ends the call before any of the repositioning below: it leaves the
+        // iterator indeterminate, which is exactly what the caller is told by the `Err`.
+        if let Some(err) = revalidate_result.as_error() {
+            return Err(err);
+        }
+
+        // Rewind-and-re-seek takes precedence: it describes the whole outcome,
+        // including where the mock ends up. See
+        // [`MockData::set_revalidate_reseeks_to`].
+        if let Some(target) = reseeks_to {
+            let index = self
+                .doc_ids
+                .iter()
+                .position(|&id| id == target)
+                .expect("the re-seek target must be one of the mock's documents");
+            let was_at = self.last_doc_id();
+            self.set_result(index);
+            self.next_index = index + 1;
+
+            return Ok(if target == was_at {
+                rqe_iterators::RQEValidateStatus::Ok
+            } else {
+                rqe_iterators::RQEValidateStatus::Moved {
+                    current: Some(&mut self.result),
+                }
+            });
+        }
 
         Ok(match revalidate_result {
             MockRevalidateResult::Ok => rqe_iterators::RQEValidateStatus::Ok,
             MockRevalidateResult::Abort => rqe_iterators::RQEValidateStatus::Aborted,
             MockRevalidateResult::Move => {
-                rqe_iterators::RQEValidateStatus::Moved {
-                    current: (self.next_index < N).then(|| {
-                        // Simulate a move by incrementing nextIndex
-                        self.set_result(self.next_index);
-                        self.next_index += 1;
-                        &mut self.result
-                    }),
+                if self.next_index < N {
+                    // Simulate a move by incrementing nextIndex
+                    self.set_result(self.next_index);
+                    self.next_index += 1;
+                    rqe_iterators::RQEValidateStatus::Moved {
+                        current: Some(&mut self.result),
+                    }
+                } else {
+                    // The move ran off the end, leaving the iterator unpositioned.
+                    self.next_index = past_end_cursor(N);
+                    rqe_iterators::RQEValidateStatus::Moved { current: None }
                 }
+            }
+            MockRevalidateResult::TimedOut | MockRevalidateResult::IoError => {
+                unreachable!("failing outcomes returned above")
             }
         })
     }
@@ -423,12 +582,12 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
         N
     }
 
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.result.doc_id
     }
 
     fn at_eof(&self) -> bool {
-        self.next_index >= N
+        self.past_end()
     }
 
     #[inline(always)]
@@ -443,12 +602,190 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
 
 impl<'index, const N: usize> WildcardIterator<'index> for Mock<'index, N> {}
 
+impl<const N: usize> rqe_iterators::profile_print::ProfilePrint for Mock<'_, N> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        _ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        map.kv_simple_string(c"Type", c"MOCK");
+    }
+}
+
+/// Suspended counterpart of [`Mock`].
+///
+/// Tests that drive the suspend/resume cycle need the inner iterator type to
+/// implement [`rqe_iterators::RQEIteratorBoxed`]. The Mock holds no real index
+/// borrows (its `result` is a freshly-built [`RSIndexResult`] over owned data),
+/// so the suspended counterpart is byte-identical to the active form at any
+/// lifetime.
+///
+/// `#[repr(C)]` so the layout matches [`Mock`] for the `suspend`/`resume`
+/// pointer relabel (see [`Mock`]).
+#[repr(C)]
+pub struct MockSuspended<const N: usize> {
+    result: RSIndexResult<'static>,
+    doc_ids: [DocId; N],
+    positions: Option<[u8; N]>,
+    next_index: usize,
+    data: MockData,
+}
+
+// Compile-time proof that the `Mock` and `MockSuspended` are layout-identical.
+const _: () = {
+    use std::mem::offset_of;
+
+    const SIZE: usize = 5;
+    type A<'a> = Mock<'a, SIZE>;
+    type S = MockSuspended<SIZE>;
+
+    // Every field starts at the same offset.
+    assert!(offset_of!(A, result) == offset_of!(S, result));
+    assert!(offset_of!(A, doc_ids) == offset_of!(S, doc_ids));
+    assert!(offset_of!(A, positions) == offset_of!(S, positions));
+    assert!(offset_of!(A, next_index) == offset_of!(S, next_index));
+    assert!(offset_of!(A, data) == offset_of!(S, data));
+
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
+
+impl<'index, const N: usize> rqe_iterators::RQEIteratorBoxed<'index> for Mock<'index, N> {
+    type Suspended = MockSuspended<N>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `Mock<'index, N>` and `MockSuspended<N>` have identical layout
+        // (lifetime parameter is phantom in this test helper). Box::from_raw
+        // reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut MockSuspended<N>) }
+    }
+}
+
+impl<'query, const N: usize> rqe_iterators::RQESuspendedIterator<'query> for MockSuspended<N> {
+    type Resumed<'a>
+        = Mock<'a, N>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        mut self: Box<Self>,
+        _guard: &index_spec::IndexSpecReadGuard<'a>,
+    ) -> Result<rqe_iterators::ResumeOutcome<Box<Mock<'a, N>>>, rqe_iterators::RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        // Honour the [`MockRevalidateResult`] configured on the mock's
+        // [`MockData`] — mirrors what `Mock::revalidate` does on the legacy
+        // path, so tests driving suspend/resume see the same per-mock
+        // outcomes as before.
+        let (revalidate_result, resume_error, reseeks_past_end) = {
+            let mut data = self.data.0.borrow_mut();
+            data.validation_count += 1;
+            (
+                data.revalidate_result,
+                data.resume_error,
+                data.resume_reseeks_past_end,
+            )
+        };
+        // Injected resume failure (see `MockData::set_error_on_resume`): drop the
+        // suspended mock and surface the error, mirroring a real child whose
+        // revalidation-via-resume fails.
+        if let Some(err) = resume_error {
+            return Err(err.into_rqe_iterator_error());
+        }
+        // A failing revalidation outcome means the same thing on this path: consume the suspended
+        // mock and report the error, materializing no active iterator.
+        if let Some(err) = revalidate_result.as_error() {
+            return Err(err);
+        }
+        if reseeks_past_end {
+            // Reproduce `RawInvIndIterator::resume_in_place` on a GC-invalidated
+            // offset whose re-seek finds nothing: rewind, then end up at EOF with
+            // the cached doc id reset to 0 rather than advanced. See
+            // `MockData::set_resume_reseeks_past_end`.
+            self.result.doc_id = 0;
+            self.next_index = past_end_cursor(N);
+            let raw = Box::into_raw(self);
+            // SAFETY: `MockSuspended<N>` and `Mock<'a, N>` are layout-identical,
+            // which the `const _: ()` block above [`Mock::suspend`] proves by
+            // asserting that every field offset, the size and the alignment agree
+            // (the lifetime is phantom in this helper, so it cannot affect layout).
+            // This `from_raw` re-takes ownership of the allocation the `into_raw`
+            // above just released, so the box is neither aliased nor leaked.
+            let active = unsafe { Box::from_raw(raw as *mut Mock<'a, N>) };
+            return Ok(rqe_iterators::ResumeOutcome::Moved(active));
+        }
+        let moved = match revalidate_result {
+            MockRevalidateResult::Ok => false,
+            MockRevalidateResult::Move => {
+                if self.next_index < N {
+                    // Rebuild the full result (doc_id + offsets for positioned
+                    // mocks), mirroring `Mock::set_result` on the legacy
+                    // `revalidate` path. Without this, positioned mocks would
+                    // carry stale offsets after a resume-driven move.
+                    let index = self.next_index;
+                    let doc_id = self.doc_ids[index];
+                    if let Some(positions) = self.positions {
+                        let pos_byte = [positions[index]];
+                        let offsets = RSOffsetSlice::from_slice(&pos_byte).to_owned();
+                        self.result = RSIndexResult::build_term()
+                            .doc_id(doc_id)
+                            .weight(1.)
+                            .field_mask(RS_FIELDMASK_ALL)
+                            .owned_record(None, offsets)
+                            .build();
+                    } else {
+                        self.result.doc_id = doc_id;
+                    }
+                    self.next_index += 1;
+                } else {
+                    // The move ran off the end, leaving the resumed iterator
+                    // unpositioned.
+                    self.next_index = past_end_cursor(N);
+                }
+                true
+            }
+            // Unrecoverable: drop the suspended mock, materialize no active iterator.
+            MockRevalidateResult::Abort => return Ok(rqe_iterators::ResumeOutcome::Aborted),
+            MockRevalidateResult::TimedOut | MockRevalidateResult::IoError => {
+                unreachable!("failing outcomes returned above")
+            }
+        };
+        let raw = Box::into_raw(self);
+        // SAFETY: layout-identical (see [`Mock::suspend`]).
+        let active = unsafe { Box::from_raw(raw as *mut Mock<'a, N>) };
+        Ok(if moved {
+            rqe_iterators::ResumeOutcome::Moved(active)
+        } else {
+            rqe_iterators::ResumeOutcome::Ok(active)
+        })
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        // Mirror the active `Mock::last_doc_id`, which returns `result.doc_id`.
+        // Suspend copies `result` into `_result`, so this matches exactly;
+        // composite resume compares children via this value.
+        self.result.doc_id
+    }
+
+    fn num_estimated(&self) -> usize {
+        self.doc_ids.len()
+    }
+}
+
 /// Dynamic-size variant of [`Mock`] that uses a [`Vec`] instead of a fixed array.
 ///
 /// This is useful when the document IDs are determined at runtime.
+///
+/// `#[repr(C)]` so that `MockVec<'index>` and [`MockVecSuspended`] are
+/// layout-compatible for the `suspend`/`resume` pointer relabel (see [`Mock`]).
+#[repr(C)]
 pub struct MockVec<'index> {
     result: RSIndexResult<'index>,
-    doc_ids: Vec<t_docId>,
+    doc_ids: Vec<DocId>,
+    /// Index of the next document to serve, [`past_end_cursor`] once a
+    /// `read`/`skip_to` ran past the last one.
     next_index: usize,
     data: MockData,
 }
@@ -457,7 +794,7 @@ impl<'index> MockVec<'index> {
     /// Create a new [`MockVec`] from a vector of document ids.
     ///
     /// The ids must be sorted in increasing order.
-    pub fn new(doc_ids: Vec<t_docId>) -> Self {
+    pub fn new(doc_ids: Vec<DocId>) -> Self {
         debug_assert!(doc_ids.is_sorted(), "MockVec API assumes sorted list");
         Self {
             result: RSIndexResult::build_virt()
@@ -471,13 +808,31 @@ impl<'index> MockVec<'index> {
     }
 
     /// Create a boxed [`MockVec`] as a trait object.
-    pub fn new_boxed(doc_ids: Vec<t_docId>) -> Box<dyn RQEIterator<'index> + 'index> {
+    pub fn new_boxed(doc_ids: Vec<DocId>) -> Box<dyn RQEIterator<'index> + 'index> {
         Box::new(Self::new(doc_ids))
+    }
+
+    /// Whether a `read`/`skip_to` has already run past the last document — the
+    /// state behind [`RQEIterator::current`] and [`RQEIterator::at_eof`].
+    fn past_end(&self) -> bool {
+        self.next_index == past_end_cursor(self.doc_ids.len())
+    }
+
+    /// Whether the next `read` would find nothing, which is what the internal
+    /// `read`/`skip_to` decisions turn on.
+    ///
+    /// Already true while the mock sits on its final document, hence separate
+    /// from [`Self::past_end`].
+    fn no_more_docs(&self) -> bool {
+        self.next_index >= self.doc_ids.len()
     }
 }
 
 impl<'index> RQEIterator<'index> for MockVec<'index> {
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        if self.past_end() {
+            return None;
+        }
         Some(&mut self.result)
     }
 
@@ -493,10 +848,11 @@ impl<'index> RQEIterator<'index> for MockVec<'index> {
                 return Ok(None);
             }
 
-            if self.at_eof() {
+            if self.no_more_docs() {
                 return if let Some(err) = data.error_at_done {
                     Err(err.into_rqe_iterator_error())
                 } else {
+                    self.next_index = past_end_cursor(self.doc_ids.len());
                     Ok(None)
                 };
             }
@@ -515,23 +871,27 @@ impl<'index> RQEIterator<'index> for MockVec<'index> {
 
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<rqe_iterators::SkipToOutcome<'_, 'index>>, rqe_iterators::RQEIteratorError>
     {
         let mut data = self.data.0.borrow_mut();
 
         data.read_count += 1;
 
-        assert!(
-            self.result.doc_id < doc_id,
-            "skipTo: requested to skip backwards",
+        // See `Mock::skip_to` — the target must be strictly past the current
+        // position, mirroring the real iterator's
+        // `debug_assert!(self.last_doc_id() < doc_id)`.
+        debug_assert!(
+            self.last_doc_id() < doc_id,
+            "skip_to called with a target at or below the current position"
         );
 
         let n = self.doc_ids.len();
-        if self.at_eof() {
+        if self.no_more_docs() {
             return if let Some(err) = data.error_at_done {
                 Err(err.into_rqe_iterator_error())
             } else {
+                self.next_index = past_end_cursor(n);
                 Ok(None)
             };
         }
@@ -553,9 +913,9 @@ impl<'index> RQEIterator<'index> for MockVec<'index> {
         }))
     }
 
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        _spec: std::ptr::NonNull<ffi::IndexSpec>,
+        _spec: &index_spec::IndexSpecReadGuard,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
         let revalidate_result = {
             let mut data = self.data.0.borrow_mut();
@@ -563,17 +923,32 @@ impl<'index> RQEIterator<'index> for MockVec<'index> {
             data.revalidate_result
         };
 
+        // See `Mock::revalidate`: a failing outcome ends the call, leaving the iterator
+        // indeterminate.
+        if let Some(err) = revalidate_result.as_error() {
+            return Err(err);
+        }
+
         let n = self.doc_ids.len();
         Ok(match revalidate_result {
             MockRevalidateResult::Ok => rqe_iterators::RQEValidateStatus::Ok,
             MockRevalidateResult::Abort => rqe_iterators::RQEValidateStatus::Aborted,
-            MockRevalidateResult::Move => rqe_iterators::RQEValidateStatus::Moved {
-                current: (self.next_index < n).then(|| {
+            MockRevalidateResult::Move => {
+                if self.next_index < n {
                     self.result.doc_id = self.doc_ids[self.next_index];
                     self.next_index += 1;
-                    &mut self.result
-                }),
-            },
+                    rqe_iterators::RQEValidateStatus::Moved {
+                        current: Some(&mut self.result),
+                    }
+                } else {
+                    // The move ran off the end, leaving the iterator unpositioned.
+                    self.next_index = past_end_cursor(n);
+                    rqe_iterators::RQEValidateStatus::Moved { current: None }
+                }
+            }
+            MockRevalidateResult::TimedOut | MockRevalidateResult::IoError => {
+                unreachable!("failing outcomes returned above")
+            }
         })
     }
 
@@ -589,12 +964,12 @@ impl<'index> RQEIterator<'index> for MockVec<'index> {
         self.doc_ids.len()
     }
 
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.result.doc_id
     }
 
     fn at_eof(&self) -> bool {
-        self.next_index >= self.doc_ids.len()
+        self.past_end()
     }
 
     #[inline(always)]
@@ -605,4 +980,141 @@ impl<'index> RQEIterator<'index> for MockVec<'index> {
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
     }
+}
+
+/// Suspended counterpart of [`MockVec`].
+///
+/// Layout-identical to [`MockVec`] (the lifetime parameter is purely phantom
+/// in this test helper: `result` is a freshly-built [`RSIndexResult`] over
+/// owned data).
+///
+/// `#[repr(C)]` so the layout matches [`MockVec`] for the `suspend`/`resume`
+/// pointer relabel (see [`Mock`]).
+#[repr(C)]
+pub struct MockVecSuspended {
+    result: RSIndexResult<'static>,
+    doc_ids: Vec<DocId>,
+    next_index: usize,
+    data: MockData,
+}
+
+// Compile-time proof that the `MockVec` and `MockVecSuspended` are layout-identical.
+const _: () = {
+    use std::mem::offset_of;
+
+    type A<'a> = MockVec<'a>;
+    type S = MockVecSuspended;
+
+    // Every field starts at the same offset.
+    assert!(offset_of!(A, result) == offset_of!(S, result));
+    assert!(offset_of!(A, doc_ids) == offset_of!(S, doc_ids));
+    assert!(offset_of!(A, next_index) == offset_of!(S, next_index));
+    assert!(offset_of!(A, data) == offset_of!(S, data));
+
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
+
+impl<'index> rqe_iterators::RQEIteratorBoxed<'index> for MockVec<'index> {
+    type Suspended = MockVecSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `MockVec<'index>` and `MockVecSuspended` have identical layout
+        // (lifetime parameter is phantom in this test helper).
+        unsafe { Box::from_raw(raw as *mut MockVecSuspended) }
+    }
+}
+
+impl<'query> rqe_iterators::RQESuspendedIterator<'query> for MockVecSuspended {
+    type Resumed<'a>
+        = MockVec<'a>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        mut self: Box<Self>,
+        _guard: &index_spec::IndexSpecReadGuard<'a>,
+    ) -> Result<rqe_iterators::ResumeOutcome<Box<MockVec<'a>>>, rqe_iterators::RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        // Honour the [`MockRevalidateResult`] configured on the mock's
+        // [`MockData`] — mirrors what `MockVec::revalidate` does on the legacy
+        // path, so tests driving suspend/resume see the same per-mock
+        // outcomes as before.
+        let (revalidate_result, resume_error) = {
+            let mut data = self.data.0.borrow_mut();
+            data.validation_count += 1;
+            (data.revalidate_result, data.resume_error)
+        };
+        // Injected resume failure (see `MockData::set_error_on_resume`): drop the
+        // suspended mock and surface the error, mirroring a real child whose
+        // revalidation-via-resume fails.
+        if let Some(err) = resume_error {
+            return Err(err.into_rqe_iterator_error());
+        }
+        // A failing revalidation outcome means the same thing on this path: consume the suspended
+        // mock and report the error, materializing no active iterator.
+        if let Some(err) = revalidate_result.as_error() {
+            return Err(err);
+        }
+        let moved = match revalidate_result {
+            MockRevalidateResult::Ok => false,
+            MockRevalidateResult::Move => {
+                if self.next_index < self.doc_ids.len() {
+                    // Mirror `MockVec::revalidate`'s Move path: advance to the
+                    // next doc id. `MockVec` results are always virtual (no
+                    // offsets), so setting `doc_id` alone is sufficient.
+                    self.result.doc_id = self.doc_ids[self.next_index];
+                    self.next_index += 1;
+                } else {
+                    // The move ran off the end, leaving the resumed iterator
+                    // unpositioned.
+                    self.next_index = past_end_cursor(self.doc_ids.len());
+                }
+                true
+            }
+            // Unrecoverable: drop the suspended mock, materialize no active iterator.
+            MockRevalidateResult::Abort => return Ok(rqe_iterators::ResumeOutcome::Aborted),
+            MockRevalidateResult::TimedOut | MockRevalidateResult::IoError => {
+                unreachable!("failing outcomes returned above")
+            }
+        };
+        let raw = Box::into_raw(self);
+        // SAFETY: layout-identical (see [`MockVec::suspend`]).
+        let active = unsafe { Box::from_raw(raw as *mut MockVec<'a>) };
+        Ok(if moved {
+            rqe_iterators::ResumeOutcome::Moved(active)
+        } else {
+            rqe_iterators::ResumeOutcome::Ok(active)
+        })
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        // Mirror the active `MockVec::last_doc_id`, which returns `result.doc_id`.
+        self.result.doc_id
+    }
+
+    fn num_estimated(&self) -> usize {
+        self.doc_ids.len()
+    }
+}
+
+const CONTRACT_DOCS: [DocId; 5] = [10, 20, 30, 50, 80];
+
+#[test]
+fn mock_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    let mut it = Mock::new(CONTRACT_DOCS);
+    assert_eq!(assert_current_contract(&mut it), CONTRACT_DOCS);
+    assert_current_contract_via_skip_to(&mut it, 81);
+}
+
+#[test]
+fn mock_vec_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    let mut it = MockVec::new(CONTRACT_DOCS.to_vec());
+    assert_eq!(assert_current_contract(&mut it), CONTRACT_DOCS);
+    assert_current_contract_via_skip_to(&mut it, 81);
 }

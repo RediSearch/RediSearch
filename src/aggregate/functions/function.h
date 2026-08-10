@@ -9,7 +9,7 @@
 #ifndef RS_FUNCTION_H_
 #define RS_FUNCTION_H_
 
-#include <value.h>
+#include <value_ffi.h>
 #include <util/block_alloc.h>
 #include <result_processor.h>
 #include <query_error.h>

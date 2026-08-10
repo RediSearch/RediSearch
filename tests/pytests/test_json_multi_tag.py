@@ -321,3 +321,21 @@ def testMultiTagReturnBWC(env):
     checkMultiTagReturn(env, [res1, res2, res3, res2], True, True, False)
     env.flush()
     checkMultiTagReturn(env, [res1, res2, res3, res2], True, True, True)
+
+@skip(no_json=True)
+def testMultiTagJsonCaseInsensitiveMultibyte(env):
+    """A JSON TAG field uses the default JSON separator, so the whole value is a
+    single token. Case-insensitive normalization of a multibyte value whose
+    lowercase form is LONGER in UTF-8 (Turkish İ, U+0130 -> 'i' + combining dot
+    above) exercises the realloc path of the JSON tokenizer branch."""
+    conn = getConnectionByEnv(env)
+    value = 'İSTANBUL'  # 9 UTF-8 bytes; lowercases to 10 bytes
+    conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps({'city': value}))
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.city', 'AS', 'city', 'TAG').ok()
+
+    for _ in env.reloadingIterator():
+        waitForIndex(env, 'idx')
+        # Both the original (uppercase) and lowercase forms normalize identically
+        # and match the indexed document.
+        env.expect('FT.SEARCH', 'idx', '@city:{%s}' % value.lower(), 'NOCONTENT').equal([1, 'doc:1'])
+        env.expect('FT.SEARCH', 'idx', '@city:{%s}' % value, 'NOCONTENT').equal([1, 'doc:1'])

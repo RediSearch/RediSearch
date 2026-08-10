@@ -17,13 +17,15 @@ extern "C" {
 #include "query_parser/tokenizer.h"
 #include "spec.h"
 #include "tokenize.h"
-#include "varint.h"
+#include "varint_ffi.h"
 #include "iterators/hybrid_reader.h"
-#include "iterators_rs.h"
-#include "redisearch_rs/headers/iterators_rs.h"
+#include "vector_index.h"
+#include "iterators_ffi.h"
+#include "metrics_ffi.h"
+#include "query_term_ffi.h"
 #include "util/arr.h"
 #include "util/references.h"
-#include "types_rs.h"
+#include "types_ffi.h"
 
 #include "rmutil/alloc.h"
 
@@ -37,6 +39,7 @@ extern "C" {
 #include <stdio.h>
 #include <time.h>
 #include <float.h>
+#include <iterator>  // std::size
 #include <vector>
 #include <cstdint>
 #include <random>
@@ -128,7 +131,7 @@ TEST_P(IndexFlagsTest, testRWFlags) {
     }
     VVW_Truncate(h.vw);
 
-    InvertedIndex_WriteForwardIndexEntry(idx, &h);
+    InvertedIndex_WriteForwardIndexEntry(idx, &h, false);
 
     // printf("doc %d, score %f offset %zd\n", h.docId, h.docScore, w->bw.buf->offset);
     VVW_Free(h.vw);
@@ -143,7 +146,7 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   ASSERT_EQ(200, InvertedIndex_LastId(idx));
 
   for (int xx = 0; xx < 1; xx++) {
-    IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
+    IndexDecoderCtx decoderCtx = {.fieldmask_tag = IndexDecoderCtx_FieldMask, .fieldmask = RS_FIELDMASK_ALL};
     IndexReader *reader = NewIndexReader(idx, decoderCtx);
     RSIndexResult *res = NewTokenRecord(NULL, 1);
     res->freq = 1;
@@ -291,7 +294,7 @@ TEST_F(IndexTest, testNot) {
   MockQueryEvalCtx mockQctx(16, 16);
   irs[0] = NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1);
   MockQueryEvalCtx mockQctx2(10, 10);
-  irs[1] = NewNotIterator(NewInvIndIterator_TermQuery(w2, &mockQctx2.sctx, f, makeTestQueryTerm(), 1), InvertedIndex_LastId(w2), 1, {0}, &ctx->qctx);
+  irs[1] = NewNotIterator(NewInvIndIterator_TermQuery(w2, &mockQctx2.sctx, f, makeTestQueryTerm(), 1), InvertedIndex_LastId(w2), 1, NULL, &ctx->qctx);
 
   QueryIterator *ui = NewIntersectionIterator(irs, 2, -1, 0, 1);
   int expected[] = {1, 2, 4, 5, 7, 8, 10, 11, 13, 14, 16};
@@ -313,7 +316,7 @@ TEST_F(IndexTest, testPureNot) {
   auto ctx = std::make_unique<MockQueryEvalCtx>();
   FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
   MockQueryEvalCtx mockQctx(10, 10);
-  QueryIterator *ir = NewNotIterator(NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1), InvertedIndex_LastId(w) + 5, 1, {0}, &ctx->qctx);
+  QueryIterator *ir = NewNotIterator(NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1), InvertedIndex_LastId(w) + 5, 1, NULL, &ctx->qctx);
 
   RSIndexResult *h = NULL;
   int expected[] = {1,  2,  4,  5,  7,  8,  10, 11, 13, 14, 16, 17, 19,
@@ -384,14 +387,14 @@ TEST_F(IndexTest, testNumericInverted) {
     expected_sz = target_cap - buff_cap;
     buff_cap = target_cap;
 
-    // The first write add an index block of 48 bytes
+    // The first write add an index block of 56 bytes
     // and the vector header
     if (i < 1) {
-      expected_sz += 48 + 8;
+      expected_sz += 56 + 8;
     }
 
     // Check if the write matches the simulation
-    sz = InvertedIndex_WriteNumericEntry(idx, i + 1, (double)(i + 1));
+    sz = InvertedIndex_WriteNumericEntry(idx, i + 1, (double)(i + 1)).mem_growth;
     ASSERT_EQ(sz, expected_sz) << " at i=" << i;
   }
   ASSERT_EQ(75, InvertedIndex_LastId(idx));
@@ -428,7 +431,7 @@ TEST_F(IndexTest, testNumericVaried) {
   static const size_t numCount = sizeof(nums) / sizeof(double);
 
   for (size_t i = 0; i < numCount; i++) {
-    size_t sz = InvertedIndex_WriteNumericEntry(idx, i + 1, nums[i]);
+    size_t sz = InvertedIndex_WriteNumericEntry(idx, i + 1, nums[i]).mem_growth;
     // printf("[%lu]: Stored %lf\n", i, nums[i]);
   }
 
@@ -489,10 +492,10 @@ void testNumericEncodingHelper(bool isMulti) {
 
   for (size_t ii = 0; ii < numInfos; ii++) {
     // printf("\n[%lu]: Expecting Val=%lf, Sz=%lu\n", ii, infos[ii].value, infos[ii].size);
-    size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
+    size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value).mem_growth;
 
     if (isMulti) {
-      size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
+      size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value).mem_growth;
     }
   }
 
@@ -821,22 +824,29 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   RangeVectorQuery range_query = {.vector = query, .vecLen = d, .radius = 0.2, .order = BY_ID};
   VecSimQueryParams queryParams = {0};
   queryParams.hnswRuntimeParams.efRuntime = n;
-  VecSimQueryReply *results =
-      VecSimIndex_RangeQuery(index, range_query.vector, range_query.radius, &queryParams, range_query.order);
 
-  // Run simple range query.
-  QueryIterator *vecIt = createMetricIteratorFromVectorQueryResults(results, true, true);
+  // Drive the production lazy range path: the VecSim range query is deferred to the iterator's
+  // first Read/SkipTo (see MOD-16437), so the iterator must hold the *raw* query vector (`query`
+  // outlives it). A far-future deadline disables the timeout for this test.
+  struct timespec never_timeout = {.tv_sec = INT64_MAX, .tv_nsec = 0};
+  QueryIterator *vecIt = NewLazyVectorRangeIteratorFromParams(
+      index, range_query.vector, range_query.radius, queryParams, range_query.order,
+      /*yields_metric=*/true, never_timeout);
   size_t count = 0;
   size_t lowest_id = 25;
   size_t n_expected_res = n - lowest_id + 1;
 
-  // Expect to get top 76 results that are within the range, with ids: 25, 26, ... , 100
-  VecSim_Normalize(query, d, t);
+  // Expect to get top 76 results that are within the range, with ids: 25, 26, ... , 100.
+  // VecSimIndex_GetDistanceFrom_Unsafe does not normalize its input, so compute expected distances
+  // against a normalized copy. The iterator keeps the raw `query` for its deferred range query.
+  float query_normalized[d];
+  memcpy(query_normalized, query, sizeof(query));
+  VecSim_Normalize(query_normalized, d, t);
   while (vecIt->Read(vecIt) != ITERATOR_EOF) {
     RSIndexResult *h = vecIt->current;
     ASSERT_EQ(h->data.tag, RSResultData_Metric);
     ASSERT_EQ(h->docId, lowest_id + count);
-    double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, h->docId, query);
+    double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, h->docId, query_normalized);
     ASSERT_EQ(IndexResult_NumValue(h), exp_dist);
     ASSERT_EQ(MetricsVec_AsSlice(&h->metrics).data[0].value, exp_dist);
     count++;
@@ -855,13 +865,13 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   // Test valid combinations of SkipTo
   ASSERT_EQ(vecIt->SkipTo(vecIt, lowest_id + 10), ITERATOR_OK);
   ASSERT_EQ(vecIt->lastDocId, lowest_id + 10);
-  double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, vecIt->lastDocId, query);
+  double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, vecIt->lastDocId, query_normalized);
   ASSERT_EQ(IndexResult_NumValue(vecIt->current), exp_dist);
   ASSERT_EQ(MetricsVec_AsSlice(&vecIt->current->metrics).data[0].value, exp_dist);
 
   ASSERT_EQ(vecIt->SkipTo(vecIt, n-1), ITERATOR_OK);
   ASSERT_EQ(vecIt->lastDocId, n-1);
-  exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, vecIt->lastDocId, query);
+  exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, vecIt->lastDocId, query_normalized);
   ASSERT_EQ(IndexResult_NumValue(vecIt->current), exp_dist);
   ASSERT_EQ(MetricsVec_AsSlice(&vecIt->current->metrics).data[0].value, exp_dist);
 
@@ -1052,7 +1062,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(f->sortIdx == -1);
   ASSERT_TRUE(s->numSortableFields == 2);
 
-  IndexSpec_RemoveFromGlobals(ref, false);
+  Indexes_RemoveSpecFromGlobals(ref, false);
 
   QueryError_ClearError(&err);
   const char *args2[] = {
@@ -1066,7 +1076,7 @@ TEST_F(IndexTest, testIndexSpec) {
 
   ASSERT_TRUE(!(s->flags & Index_StoreFieldFlags));
   ASSERT_TRUE(!(s->flags & Index_StoreTermOffsets));
-  IndexSpec_RemoveFromGlobals(ref, false);
+  Indexes_RemoveSpecFromGlobals(ref, false);
 
   const char *args_invalid[] = {
       "NOFIELDS", "MAXTEXTFIELDS", "SCHEMA", title, "TEXT",
@@ -1085,7 +1095,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   ASSERT_TRUE(s);
   ASSERT_TRUE(FieldSpec_IsNoStem(s->fields + 1));
-  IndexSpec_RemoveFromGlobals(ref, false);
+  Indexes_RemoveSpecFromGlobals(ref, false);
 }
 
 static void fillSchema(std::vector<char *> &args, size_t nfields) {
@@ -1133,7 +1143,7 @@ TEST_F(IndexTest, testHugeSpec) {
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   ASSERT_TRUE(s);
   ASSERT_TRUE(s->numFields == N);
-  IndexSpec_RemoveFromGlobals(ref, false);
+  Indexes_RemoveSpecFromGlobals(ref, false);
   freeSchemaArgs(args);
 
   // test too big a schema
@@ -1145,7 +1155,7 @@ TEST_F(IndexTest, testHugeSpec) {
   s = (IndexSpec *)StrongRef_Get(ref);
   ASSERT_TRUE(s == NULL);
   ASSERT_TRUE(QueryError_HasError(&err));
-#if (defined(__x86_64__) || defined(__aarch64__) || defined(__arm64__)) && !defined(RS_NO_U128)
+#if (defined(__x86_64__) || defined(__aarch64__) || defined(__arm64__))
   ASSERT_STREQ("SEARCH_LIMIT_OVER Schema is limited to 128 TEXT fields", QueryError_GetUserError(&err));
 #else
   ASSERT_STREQ("SEARCH_LIMIT_OVER Schema is limited to 64 TEXT fields", QueryError_GetUserError(&err));
@@ -1176,16 +1186,16 @@ TEST_F(IndexTest, testIndexFlags) {
   // storing fieldmask on idx             16
   ASSERT_EQ(40, index_memsize);
   ASSERT_TRUE(InvertedIndex_Flags(w) == flags);
-  size_t sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
-  ASSERT_EQ(73, sz);
+  size_t sz = InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth;
+  ASSERT_EQ(81, sz);
   InvertedIndex_Free(w);
 
   flags &= ~Index_StoreTermOffsets;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
   ASSERT_EQ(40, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
-  size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, &h);
-  ASSERT_EQ(sz2, 60);
+  size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth;
+  ASSERT_EQ(sz2, 68);
   InvertedIndex_Free(w);
 
   flags = INDEX_DEFAULT_FLAGS | Index_WideSchema;
@@ -1193,7 +1203,7 @@ TEST_F(IndexTest, testIndexFlags) {
   ASSERT_EQ(40, index_memsize);
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   h.fieldMask = 0xffffffffffff;
-  ASSERT_EQ(77, InvertedIndex_WriteForwardIndexEntry(w, &h));
+  ASSERT_EQ(85, InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth);
   InvertedIndex_Free(w);
 
   flags &= Index_StoreFreqs;
@@ -1205,8 +1215,8 @@ TEST_F(IndexTest, testIndexFlags) {
   ASSERT_EQ(24, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreFieldFlags));
-  sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
-  ASSERT_EQ(59, sz);
+  sz = InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth;
+  ASSERT_EQ(67, sz);
   InvertedIndex_Free(w);
 
   flags |= Index_StoreFieldFlags | Index_WideSchema;
@@ -1215,8 +1225,8 @@ TEST_F(IndexTest, testIndexFlags) {
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_StoreFieldFlags));
   h.fieldMask = 0xffffffffffff;
-  sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
-  ASSERT_EQ(67, sz);
+  sz = InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth;
+  ASSERT_EQ(75, sz);
   InvertedIndex_Free(w);
 
   VVW_Free(h.vw);
@@ -1323,21 +1333,21 @@ TEST_F(IndexTest, testDeltaSplits) {
   ent.docId = 1;
   ent.fieldMask = RS_FIELDMASK_ALL;
 
-  InvertedIndex_WriteForwardIndexEntry(idx, &ent);
+  InvertedIndex_WriteForwardIndexEntry(idx, &ent, false);
   ASSERT_EQ(InvertedIndex_NumBlocks(idx), 1);
 
   ent.docId = 200;
-  InvertedIndex_WriteForwardIndexEntry(idx, &ent);
+  InvertedIndex_WriteForwardIndexEntry(idx, &ent, false);
   ASSERT_EQ(InvertedIndex_NumBlocks(idx), 1);
 
   ent.docId = 1LLU << 48;
-  InvertedIndex_WriteForwardIndexEntry(idx, &ent);
+  InvertedIndex_WriteForwardIndexEntry(idx, &ent, false);
   ASSERT_EQ(InvertedIndex_NumBlocks(idx), 2);
   ent.docId++;
-  InvertedIndex_WriteForwardIndexEntry(idx, &ent);
+  InvertedIndex_WriteForwardIndexEntry(idx, &ent, false);
   ASSERT_EQ(InvertedIndex_NumBlocks(idx), 2);
 
-  IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
+  IndexDecoderCtx decoderCtx = {.fieldmask_tag = IndexDecoderCtx_FieldMask, .fieldmask = RS_FIELDMASK_ALL};
   IndexReader *reader = NewIndexReader(idx, decoderCtx);
   RSIndexResult *res = NewTokenRecord(NULL, 1);
   res->freq = 1;
@@ -1482,4 +1492,138 @@ TEST_F(IndexTest, testHybridIteratorReducerWithWildcardChild) {
   HybridIterator* hi = (HybridIterator *)hybridIt;
   ASSERT_EQ(hi->searchMode, VECSIM_STANDARD_KNN);
   hybridIt->Free(hybridIt);
+}
+
+// Forces disk-mode validation on (SearchDisk_IsEnabledForValidation() reads
+// RSGlobalConfig.simulateInFlex) and restores the previous value on scope exit,
+// even if an ASSERT_* aborts the test body. (MOD-15148)
+struct SimulateInFlexGuard {
+  bool prev;
+  SimulateInFlexGuard() : prev(RSGlobalConfig.simulateInFlex) {
+    RSGlobalConfig.simulateInFlex = true;
+  }
+  // Non-copyable/movable: a copy would restore the flag twice on scope exit.
+  SimulateInFlexGuard(const SimulateInFlexGuard &) = delete;
+  SimulateInFlexGuard &operator=(const SimulateInFlexGuard &) = delete;
+  ~SimulateInFlexGuard() {
+    RSGlobalConfig.simulateInFlex = prev;
+  }
+};
+
+// Consumes the parsed spec's StrongRef on scope exit (via
+// Indexes_RemoveSpecFromGlobals), so the spec/prefix globals are cleaned up even
+// if an ASSERT_* aborts the test body. The StrongRef_Get check skips removal
+// only when the parse failed (the ref carries no object). This guard must be the
+// sole owner of the ref: do NOT also call Indexes_RemoveSpecFromGlobals on the
+// same ref, since that consumes it and the StrongRef_Get here would then be a
+// use-after-free. (MOD-15148)
+struct SpecCleanupGuard {
+  StrongRef ref;
+  explicit SpecCleanupGuard(StrongRef r) : ref(r) {
+  }
+  // Non-copyable/movable: a copy would let two destructors each consume the same
+  // StrongRef, double-removing the spec (use-after-free).
+  SpecCleanupGuard(const SpecCleanupGuard &) = delete;
+  SpecCleanupGuard &operator=(const SpecCleanupGuard &) = delete;
+  ~SpecCleanupGuard() {
+    if (StrongRef_Get(ref)) {
+      Indexes_RemoveSpecFromGlobals(ref, false);
+    }
+  }
+};
+
+// MOD-15148: disk HNSW validation accepts FLOAT16 alongside FLOAT32, and keeps
+// rejecting every other element type. All schemas carry ON HASH SKIPINITIALSCAN
+// because Flex specs require the SkipInitialScan flag (src/spec.c).
+TEST_F(IndexTest, testDiskHnswAcceptsFloat16) {
+  SimulateInFlexGuard flexGuard;
+  const size_t dim = 4;
+
+  // Positive: FLOAT16 disk HNSW parses, and the stored params carry the FP16
+  // type and the matching 2-byte blob size.
+  {
+    QueryError err = QueryError_Default();
+    const char *args[] = {
+        "ON",
+        "HASH",
+        "SKIPINITIALSCAN",
+        "SCHEMA",
+        "v",
+        "VECTOR",
+        "HNSW",
+        "14",
+        "TYPE",
+        "FLOAT16",
+        "DIM",
+        "4",
+        "DISTANCE_METRIC",
+        "L2",
+        "M",
+        "16",
+        "EF_CONSTRUCTION",
+        "200",
+        "EF_RUNTIME",
+        "10",
+        "RERANK",
+        "TRUE",
+    };
+    StrongRef ref =
+        IndexSpec_ParseC(nullptr, "idx_fp16", args, std::size(args), &err);
+    // Cleans up on scope exit even if an assertion below aborts the test.
+    SpecCleanupGuard cleanup(ref);
+    auto *s = (IndexSpec *)StrongRef_Get(ref);
+    ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+    ASSERT_TRUE(s);
+
+    const FieldSpec *f = IndexSpec_GetFieldWithLength(s, "v", 1);
+    ASSERT_TRUE(f != nullptr);
+    ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_VECTOR));
+    // HNSW is stored as a TIERED wrapper; the HNSW params live under primaryIndexParams.
+    ASSERT_EQ(f->vectorOpts.vecSimParams.algo, VecSimAlgo_TIERED);
+    const VecSimParams *prim = f->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams;
+    ASSERT_TRUE(prim != nullptr);
+    ASSERT_EQ(prim->algo, VecSimAlgo_HNSWLIB);
+    ASSERT_EQ(prim->algoParams.hnswParams.type, VecSimType_FLOAT16);
+    ASSERT_EQ(f->vectorOpts.expBlobSize, (size_t)dim * 2);  // VecSimType_sizeof(FLOAT16) == 2
+  }
+
+  // Negative: every other element type is still rejected on disk.
+  const char *unsupportedTypes[] = {"FLOAT64", "BFLOAT16", "INT8", "UINT8"};
+  for (const char *vecType : unsupportedTypes) {
+    QueryError err = QueryError_Default();
+    const char *args[] = {
+        "ON",
+        "HASH",
+        "SKIPINITIALSCAN",
+        "SCHEMA",
+        "v",
+        "VECTOR",
+        "HNSW",
+        "14",
+        "TYPE",
+        vecType,
+        "DIM",
+        "4",
+        "DISTANCE_METRIC",
+        "L2",
+        "M",
+        "16",
+        "EF_CONSTRUCTION",
+        "200",
+        "EF_RUNTIME",
+        "10",
+        "RERANK",
+        "TRUE",
+    };
+    StrongRef ref =
+        IndexSpec_ParseC(nullptr, "idx_bad", args, std::size(args), &err);
+    // Cleans up if a regression ever lets an unsupported type parse, so a failing
+    // assertion below cannot leak the created spec into later tests.
+    SpecCleanupGuard cleanup(ref);
+    ASSERT_TRUE(QueryError_HasError(&err)) << "type " << vecType << " should be rejected";
+    ASSERT_EQ(nullptr, StrongRef_Get(ref));
+    ASSERT_NE(nullptr, strstr(QueryError_GetUserError(&err), "Disk index does not support"))
+        << "type " << vecType << " got: " << QueryError_GetUserError(&err);
+    QueryError_ClearError(&err);
+  }
 }

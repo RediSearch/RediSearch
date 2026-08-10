@@ -66,11 +66,32 @@ fn type_() {
 #[test]
 fn revalidate() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.spec();
     let mut it = Empty::default();
-    // SAFETY: test-only call with valid context
-    assert_eq!(
-        unsafe { it.revalidate(ctx) }.expect("revalidate failed"),
-        RQEValidateStatus::Ok
-    );
+    let status = it
+        .revalidate(&*mock_ctx.spec_read())
+        .expect("revalidate failed");
+    assert_eq!(status, RQEValidateStatus::Ok);
+}
+
+mod via_resume {
+    use super::*;
+    use rqe_iterators::TypeErasedRQEIterator;
+    use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
+
+    #[test]
+    fn revalidate() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let it: Box<Empty> = Box::new(Empty::default());
+        revalidate_via_resume(TypeErasedRQEIterator::new(it), &mock_ctx.spec_read())
+            .expect("resume should not fail")
+            .expect_ok();
+    }
+}
+
+#[test]
+fn empty_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    let mut it = Empty::default();
+    assert!(assert_current_contract(&mut it).is_empty());
+    assert_current_contract_via_skip_to(&mut it, 81);
 }

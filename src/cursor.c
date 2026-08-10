@@ -7,12 +7,18 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "cursor.h"
-#include "module.h"
-#include "resp3.h"
+
 #include <time.h>
-#include <assert.h>
+#include <stdlib.h>
+
+#include "module.h"
 #include "rmutil/rm_assert.h"
-#include <err.h>
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "redisearch.h"
+#include "reply.h"
+#include "rmalloc.h"
+#include "shard_window_ratio.h"
 
 #define Cursor_IsIdle(cur) ((cur)->pos != -1)
 
@@ -84,12 +90,14 @@ static void Cursor_FreeInternal(Cursor *cur) {
   RS_LOG_ASSERT(kh_get(cursors, cl->lookup, cur->id) == kh_end(cl->lookup),
                                                     "Failed to delete cursor");
   if (cur->hybrid_ref.rm) {
-    // The AREQ will be free by the hybrid request free function.
+    // TRANSITIONAL(MOD-16691): the sub-AREQ (and its wrapper) is freed by the
+    // hybrid container; the cursor's hold rides the StrongRef until the
+    // container-handoff step.
     StrongRef_Release(cur->hybrid_ref);
-    cur->execState = NULL;
-  } else if (cur->execState) {
-    AREQ_DecrRef(cur->execState);
-    cur->execState = NULL;
+    cur->query = NULL;
+  } else if (cur->query) {
+    BlockedRequestCtx_DecrRef(cur->query);
+    cur->query = NULL;
   }
   // if There's a spec associated with the cursor
   if(cur->spec_ref.rm) {
@@ -316,8 +324,9 @@ static uint64_t CursorList_GenerateId(CursorList *curlist) {
 }
 
 static void cursorMarkASMInaccuracyCb(CursorList *cl, Cursor *cur, void *arg) {
-  if (cur->execState) {
-    cur->execState->stateflags |= QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT;
+  AREQ *req = Cursor_AREQ(cur);
+  if (req) {
+    req->stateflags |= QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT;
   }
 }
 
@@ -430,23 +439,6 @@ Cursor *Cursors_TakeForExecution(CursorList *cl, uint64_t cid) {
 
   CursorList_Unlock(cl);
   return cur;
-}
-
-CursorTimeoutInfo Cursors_PeekTimeoutInfo(CursorList *cl, uint64_t cid) {
-  CursorTimeoutInfo info = {.queryTimeoutMS = 0, .queryTimeoutPolicy = TimeoutPolicy_Return};
-  CursorList_Lock(cl);
-  CursorList_IncrCounter(cl);
-  khiter_t iter = kh_get(cursors, cl->lookup, cid);
-  if (iter != kh_end(cl->lookup)) {
-    const Cursor *cur = kh_value(cl->lookup, iter);
-    info.queryTimeoutMS = cur->queryTimeoutMS;
-    info.queryTimeoutPolicy = cur->queryTimeoutPolicy;
-#ifdef ENABLE_ASSERT
-    info.isHybrid = (cur->hybrid_ref.rm != NULL);
-#endif
-  }
-  CursorList_Unlock(cl);
-  return info;
 }
 
 int Cursors_Purge(CursorList *cl, uint64_t cid) {

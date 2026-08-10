@@ -7,49 +7,25 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#include <stdint.h>
+#include <string.h>
+
 #include "pipe.h"
+#include "numeric_range_tree_ffi.h"
 #include "redis_index.h"
-#include "rmutil/rm_assert.h"
 #include "obfuscation/hidden.h"
-#include "iterators_rs.h"
-
-void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
-  arrayof(FieldSpec*) numericFields = getFieldsByType(sctx->spec, INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
-
-  for (int i = 0; i < array_len(numericFields); ++i) {
-    NumericRangeTree *rt = openNumericOrGeoIndex(sctx->spec, numericFields[i], DONT_CREATE_INDEX);
-
-    // No entries were added to the numeric field, hence the tree was not initialized
-    if (!rt) {
-      continue;
-    }
-
-    // Send the field header (field_name + unique_id).
-    const char *fieldName = HiddenString_GetUnsafe(numericFields[i]->fieldName, NULL);
-    FGC_sendBuffer(gc, fieldName, strlen(fieldName));
-    uint64_t uniqueId = NumericRangeTree_GetUniqueId(rt);
-    FGC_sendFixed(gc, &uniqueId, sizeof uniqueId);
-
-    // Stream one node at a time to avoid buffering all deltas in memory.
-    NumericGcScanner *scanner = NumericGcScanner_New(sctx, rt);
-    NumericGcNodeEntry entry;
-    while (NumericGcScanner_Next(scanner, &entry)) {
-      // Send: node_len + node_position + node_generation + entry_data.
-      size_t nodeLen = sizeof(entry.node_position) + sizeof(entry.node_generation) + entry.data_len;
-      FGC_SEND_VAR(gc, nodeLen);
-      FGC_SEND_VAR(gc, entry.node_position);
-      FGC_SEND_VAR(gc, entry.node_generation);
-      FGC_sendFixed(gc, entry.data, entry.data_len);
-    }
-    NumericGcScanner_Free(scanner);
-
-    FGC_sendTerminator(gc);
-  }
-
-  array_free(numericFields);
-  // we are done with numeric fields
-  FGC_sendTerminator(gc);
-}
+#include "iterators_ffi.h"
+#include "field_spec.h"
+#include "fork_gc.h"
+#include "fork_gc_ffi.h"
+#include "inverted_index.h"
+#include "numeric_range_tree.h"
+#include "redismodule.h"
+#include "rmalloc.h"
+#include "search_ctx.h"
+#include "spec.h"
+#include "util/arr/arr.h"
+#include "util/references.h"
 
 FGCError FGC_parentHandleNumeric(ForkGC *gc) {
   size_t fieldNameLen;
@@ -61,7 +37,7 @@ FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     return FGC_DONE;
   }
   if (status != FGC_COLLECTED) {
-    rm_free(fieldName);
+    FGC_freeBuffer(fieldName, fieldNameLen);
     return status;
   }
 
@@ -84,8 +60,7 @@ FGCError FGC_parentHandleNumeric(ForkGC *gc) {
       status = FGC_CHILD_ERROR;
       goto loop_cleanup;
     }
-    // Check if we received the sentinel terminator value
-    if (nodeLen == SIZE_MAX) {
+    if (nodeLen == NO_MORE_DATA) {
       break;
     }
 
@@ -141,6 +116,8 @@ FGCError FGC_parentHandleNumeric(ForkGC *gc) {
                         r.gc_result.index_gc_info.bytes_freed,
                         r.gc_result.index_gc_info.bytes_allocated,
                         r.gc_result.index_gc_info.ignored_last_block);
+        IndexStats_BlockCountAdd(&_sctx.spec->stats,
+                                 r.gc_result.index_gc_info.block_count_delta);
         break;
       case NodeNotFound:
         gc->stats.gcNumericNodesMissed++;
@@ -163,7 +140,7 @@ FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     StrongRef spec_ref = IndexSpecRef_Promote(gc->index);
     IndexSpec *sp = StrongRef_Get(spec_ref);
     if (!sp) {
-      rm_free(fieldName);
+      FGC_freeBuffer(fieldName, fieldNameLen);
       return FGC_SPEC_DELETED;
     }
     RedisSearchCtx sctx2 = SEARCH_CTX_STATIC(gc->ctx, sp);
@@ -172,10 +149,11 @@ FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     if (r.inverted_index_size_delta < 0) {
       FGC_updateStats(gc, &sctx2, 0, -r.inverted_index_size_delta, 0, 0);
     }
+    IndexStats_BlockCountAdd(&sctx2.spec->stats, r.block_count_delta);
     RedisSearchCtx_UnlockSpec(&sctx2);
     IndexSpecRef_Release(spec_ref);
   }
 
-  rm_free(fieldName);
+  FGC_freeBuffer(fieldName, fieldNameLen);
   return status;
 }

@@ -7,11 +7,21 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "cluster.h"
-#include "rmutil/rm_assert.h"
-#include "rmalloc.h"
 
 #include <stdlib.h>
-#include "rq.h"
+#include <stdint.h>
+
+#include "rmutil/rm_assert.h"
+#include "rmalloc.h"
+#include "hiredis/read.h"
+#include "rmr/cluster_topology.h"
+#include "rmr/command.h"
+#include "rmr/conn.h"
+#include "rmr/io_runtime_ctx.h"
+#ifdef ENABLE_ASSERT
+// Only needed for the test-only DebugSendError_Consume() fault injection below.
+#include "debug_commands.h"
+#endif
 
 /* Initialize the MapReduce engine with a node provider */
 MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_size, size_t num_io_threads) {
@@ -40,6 +50,12 @@ int MRCluster_SendCommand(IORuntimeCtx *ioRuntime,
                           MRCommand *cmd,
                           redisCallbackFn *fn,
                           void *privdata) {
+#ifdef ENABLE_ASSERT
+  // Test-only: simulate a no-reply dispatch failure.
+  if (DebugSendError_Consume()) {
+    return REDIS_ERR;
+  }
+#endif
   MRConn *conn = MRCluster_GetConn(ioRuntime, cmd);
   if (!conn) return REDIS_ERR;
   return MRConn_SendCommand(conn, cmd, fn, privdata);

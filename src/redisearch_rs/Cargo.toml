@@ -7,30 +7,42 @@ members = [
     "ffi",
     "field",
     "fnv",
+    "fork_gc",
     "generational_slab",
     "geo",
     "hyperloglog",
+    "index_result",
     "inverted_index",
     "inverted_index_bencher",
+    "nul_terminated_bytes",
     "numeric_range_tree",
     "thin_vec",
     "qint",
     "query_error",
+    "query_flags",
     "query_term",
+    "rdb_io",
     "redis_json_api",
     "redis_mock",
     "redis_reply",
     "result_processor",
     "rlookup",
-    "query_node_type",
+    "query_types",
     "reducers",
+    "ref_mode",
     "rqe_iterator_type",
+    "rqe_core",
     "rqe_iterators",
     "rqe_iterators_bencher",
     "rqe_iterators_test_utils",
     "search_result",
     "slots_tracker",
     "sorting_vector",
+    "spellcheck_dictionary",
+    "string_utils",
+    "tag_index",
+    "term_suffix_index",
+    "timeout",
     "tools/license_header_linter",
     "tools/ffi_geiger",
     "tools/safety_report",
@@ -38,13 +50,21 @@ members = [
     "tracing_redismodule",
     "trie_bencher",
     "top_k",
+    "top_k_bencher",
+    "vector_score_source",
+    "vector_score_source_bencher",
+    "numeric_score_source",
     "trie_rs",
+    "ttl_table",
+    "utf8parse",
+    "ttl_table_bencher",
     "value",
     "varint",
     "varint_bencher",
-    "wildcard",
+    "rqe_wildcard",
     "workspace_hack",
     "idf",
+    "query_eval",
 ]
 
 resolver = "3"
@@ -94,47 +114,66 @@ build_utils = { path = "./build_utils" }
 c_ffi_utils = { path = "./c_entrypoint/c_ffi_utils" }
 c_trie = { path = "./c_wrappers/c_trie" }
 document = { path = "./document" }
+dict = { path = "./c_wrappers/dict" }
 document_metadata = { path = "./c_wrappers/document_metadata" }
 ffi = { path = "./ffi", default-features = false }
 field = { path = "./field" }
 field_spec = { path = "./c_wrappers/field_spec" }
 fnv = { path = "./fnv" }
+fork_gc = { path = "./fork_gc" }
 generational_slab = { path = "./generational_slab" }
 geo = { path = "./geo" }
 hidden_string = { path = "./c_wrappers/hidden_string" }
 hyperloglog = { path = "./hyperloglog" }
 idf = { path = "./idf" }
 index_spec = { path = "./c_wrappers/index_spec" }
+index_result = { path = "./index_result" }
 index_spec_cache = { path = "./c_wrappers/index_spec_cache" }
 inverted_index = { path = "./inverted_index" }
+nul_terminated_bytes = { path = "./nul_terminated_bytes" }
 numeric_range_tree = { path = "./numeric_range_tree" }
+numeric_score_source = { path = "./numeric_score_source" }
 redis_reply = { path = "./redis_reply" }
 qint = { path = "./qint" }
+query = { path = "./c_wrappers/query" }
 query_error = { path = "./query_error" }
+query_eval = { path = "./query_eval" }
+query_flags = { path = "./query_flags" }
 query_term = { path = "./query_term" }
 redis_json_api = { path = "./redis_json_api" }
 redis_mock = { path = "./redis_mock" }
 redisearch_rs = { path = "./c_entrypoint/redisearch_rs" }
 reducers = { path = "./reducers" }
+ref_mode = { path = "./ref_mode" }
 result_processor = { path = "./result_processor" }
 rlookup = { path = "./rlookup" }
 rm_array = { path = "./c_wrappers/rm_array" }
-query_node_type = { path = "./query_node_type" }
+rs_token = { path = "./c_wrappers/rs_token" }
+query_types = { path = "./query_types" }
+rqe_core = { path = "./rqe_core" }
 rqe_iterator_type = { path = "./rqe_iterator_type" }
 rqe_iterators = { path = "./rqe_iterators" }
 rqe_iterators_test_utils = { path = "./rqe_iterators_test_utils" }
 schema_rule = { path = "./c_wrappers/schema_rule" }
+search_disk = { path = "./c_wrappers/search_disk" }
 search_result = { path = "./search_result" }
 slots_tracker = { path = "./slots_tracker" }
 sorting_vector = { path = "./sorting_vector" }
+string_utils = { path = "./string_utils" }
+term_suffix_index = { path = "./term_suffix_index" }
 thin_vec = { path = "./thin_vec" }
+timeout = { path = "timeout" }
 top_k = { path = "./top_k" }
 tracing_assert = { path = "./tracing_assert" }
+vecsim = { path = "./c_wrappers/vecsim" }
+vector_score_source = { path = "./vector_score_source" }
 tracing_redismodule = { path = "./tracing_redismodule" }
 trie_rs = { path = "./trie_rs" }
+rdb_io = { path = "./rdb_io" }
+ttl_table = { path = "./ttl_table" }
 value = { path = "./value" }
 varint = { path = "./varint" }
-wildcard = { path = "./wildcard" }
+rqe_wildcard = { path = "./rqe_wildcard" }
 workspace_hack = { path = "./workspace_hack" }
 
 ahash = "0.8"
@@ -145,8 +184,8 @@ approx = "0.6.0-rc2"
 bindgen = { version = "0.72", default-features = false }
 cargo_metadata = "0.19"
 bytecount = "0.6.9"
-cbindgen = "0.29"
 cc = "1.2.53"
+cheadergen = { version = "0.3.1" }
 crc32fast = "1.5.0"
 criterion = { version = "0.8.1", features = ["html_reports"] }
 csv = "1.4.0"
@@ -154,11 +193,12 @@ decorum = "0.4"
 enumflags2 = "0.7.12"
 fs-err = "3.2.2"
 hash32 = "1"
-icu_casemap = "2.1.1"
+icu_casemap = "2.2.0"
 insta = "1.46.1"
-itertools = "0.14.0"
+itertools = "0.15.0"
 lending-iterator = "0.1.7"
 libc = "0.2.180"
+nix = { version = "0.26", default-features = false, features = ["poll"] }
 memchr = "2.7.6"
 pin-project = "1.1.10"
 pretty_assertions = "1.4.1"
@@ -168,10 +208,11 @@ proptest-derive = { version = "0.7.0", default-features = false }
 rstest = { version = "0.26", default-features = false }
 rstest_reuse = "0.7"
 quote = "1"
-rand = "0.9.2"
+rand = "0.10.1"
 rmp-serde = "1.3.1"
 rustc-hash = "2.1.1"
 serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
 smallvec = "1.15.1"
 strum = { version = "0.27.2", features = ["derive"] }
 syn = "2"
@@ -181,6 +222,7 @@ thiserror = "2.0.18"
 triomphe = "0.1.2"
 toml = "0.9"
 tracing = "0.1.44"
+tracing_log_error = "0.1"
 tracing-core = "0.1"
 tracing-subscriber = { version = "0.3.22", default-features = false, features = [
     "std",
@@ -190,6 +232,7 @@ tracing-subscriber = { version = "0.3.22", default-features = false, features = 
 ] }
 unsafe-tools = "0.1.2"
 ureq = "3.1"
+utf8parse = { path = "./utf8parse" }
 walkdir = "2"
 wildcard_cloudflare = { package = "wildcard", version = "0.3.0" }
 wyhash = "0.5"
@@ -197,7 +240,13 @@ xxhash-rust = "0.8"
 
 [workspace.dependencies.redis-module]
 git = "https://github.com/RedisLabsModules/redismodule-rs.git"
-rev = "ce7e83074376494c20e2fbdb5059384db6c1ca26"
+rev = "7fb620f1ef42453dea4e22c9358d0d25d4224710"
+# `default-features = false` is load-bearing. Members declare a plain
+# `redis-module.workspace = true` and rely on it contributing no features, so that
+# c_entrypoint/redisearch_rs/Cargo.toml is the only hand-written place choosing
+# between `bindgen-static` and `bindgen-runtime`. Enabling the defaults here would
+# turn on `bindgen-runtime` for every member and break the Alpine (musl) build; see
+# the comment on that crate's `redis-module` target blocks.
 default-features = false
 
 [profile.release]
@@ -217,9 +266,9 @@ debug = true
 [profile.optimised_test]
 # Like `release`, but:
 inherits = "release"
-# - Less aggressive link-time optimization, to recover
-#   parallelism in the build.
-lto = "thin"
+# - Skip link-time optimization, to avoid a large compile-time
+#   penalty.
+lto = false
 codegen-units = 16
 # - Enable debug assertions
 debug-assertions = true

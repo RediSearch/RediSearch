@@ -9,14 +9,17 @@
 
 #pragma once
 
-#include "query_error.h"
-#include "triemap.h"
 #include "stemmer.h"
 #include "util/arr.h"
 #include "json.h"
 #include "redisearch.h"
 #include "util/references.h"
 #include "obfuscation/hidden_unicode.h"
+#include "rmutil/args.h"
+
+typedef struct TrieMap TrieMap;
+
+typedef struct QueryError QueryError;
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,6 +29,8 @@ extern "C" {
 
 #define RULE_TYPE_HASH "HASH"
 #define RULE_TYPE_JSON "JSON"
+
+#define MAX_SCHEMA_PREFIXES 1000000
 
 struct RSExpr;
 struct IndexSpec;
@@ -71,6 +76,12 @@ void SchemaRuleArgs_Free(SchemaRuleArgs *args);
 void LegacySchemaRulesArgs_Free(RedisModuleCtx *ctx);
 
 SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef spec_ref, QueryError *status);
+
+/* Same as SchemaRule_Create, but the prefixes are read from an ArgsCursor
+ * instead of `args->prefixes`/`args->nprefixes`. The cursor must contain at
+ * least one prefix. The cursor is consumed (advanced) by this function. */
+SchemaRule *SchemaRule_CreateWithPrefixesAC(SchemaRuleArgs *args, ArgsCursor *prefixes_ac,
+                                            StrongRef spec_ref, QueryError *status);
 void SchemaRule_FilterFields(struct IndexSpec *sp);
 void SchemaRule_Free(SchemaRule *);
 
@@ -88,7 +99,12 @@ RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule
 void SchemaRule_RdbSave(SchemaRule *rule, RedisModuleIO *rdb);
 int SchemaRule_RdbLoad(StrongRef spec_ref, RedisModuleIO *rdb, int encver, QueryError *status);
 
-bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, DocumentType type);
+// Decide whether `keyname` (of `type`) belongs to `sp`: matches its type, a prefix, and the
+// optional FILTER expression. `openKey`, when non-NULL, is an already-open pinned handle for
+// `keyname` (e.g. the value pinned for an AsyncScan callback) that the FILTER evaluation reuses
+// to load fields instead of reopening by name; pass NULL when no such handle is available.
+bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, DocumentType type,
+                            RedisModuleKey *openKey);
 
 struct EvalCtx;
 /**

@@ -10,12 +10,16 @@
 use std::{fmt::Debug, ptr::NonNull};
 
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
+use index_result::{RSIndexResult, RSQueryTerm};
 use inverted_index::{
-    IndexReader, RSIndexResult, RSQueryTerm, doc_ids_only::DocIdsOnly,
-    raw_doc_ids_only::RawDocIdsOnly, t_docId,
+    IndexReader, doc_ids_only::DocIdsOnly, opaque::OpaqueEncoding, raw_doc_ids_only::RawDocIdsOnly,
 };
+use rqe_core::DocId;
 use rqe_iterators::{
-    FieldExpirationChecker, IteratorType, interop::RQEIteratorWrapper, inverted_index::Tag,
+    FieldExpirationChecker, IteratorType,
+    interop::RQEIteratorWrapper,
+    inverted_index::{Tag, TagLookup},
+    profile_print,
 };
 
 /// Wrapper around different tag iterator encoding types to avoid generics in FFI code.
@@ -24,8 +28,8 @@ use rqe_iterators::{
 /// the standard variable-length encoding ([`DocIdsOnly`]) and the fixed 4-byte
 /// raw encoding ([`RawDocIdsOnly`]) are supported.
 pub(super) enum TagIterator<'index> {
-    Encoded(Tag<'index, DocIdsOnly, FieldExpirationChecker>),
-    Raw(Tag<'index, RawDocIdsOnly, FieldExpirationChecker>),
+    Encoded(Tag<'index, DocIdsOnly, CTagIndexLookup, FieldExpirationChecker>),
+    Raw(Tag<'index, RawDocIdsOnly, CTagIndexLookup, FieldExpirationChecker>),
 }
 
 impl Debug for TagIterator<'_> {
@@ -35,16 +39,6 @@ impl Debug for TagIterator<'_> {
             TagIterator::Raw(_) => "Raw",
         };
         write!(f, "TagIterator({variant})")
-    }
-}
-
-impl<'index> TagIterator<'index> {
-    /// Get the flags from the underlying reader.
-    pub(super) fn flags(&self) -> ffi::IndexFlags {
-        match self {
-            TagIterator::Encoded(t) => t.reader().flags(),
-            TagIterator::Raw(t) => t.reader().flags(),
-        }
     }
 }
 
@@ -74,7 +68,7 @@ impl<'index> rqe_iterators::RQEIterator<'index> for TagIterator<'index> {
     #[inline(always)]
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<rqe_iterators::SkipToOutcome<'_, 'index>>, rqe_iterators::RQEIteratorError>
     {
         tag_it_dispatch!(self, skip_to, doc_id)
@@ -91,7 +85,7 @@ impl<'index> rqe_iterators::RQEIterator<'index> for TagIterator<'index> {
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         tag_it_dispatch!(self, last_doc_id)
     }
 
@@ -101,12 +95,11 @@ impl<'index> rqe_iterators::RQEIterator<'index> for TagIterator<'index> {
     }
 
     #[inline(always)]
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: std::ptr::NonNull<ffi::IndexSpec>,
+        spec: &index_spec::IndexSpecReadGuard,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        // SAFETY: Delegating to variant with the same `spec` passed by our caller.
-        unsafe { tag_it_dispatch!(self, revalidate, spec) }
+        tag_it_dispatch!(self, revalidate, spec)
     }
 
     #[inline(always)]
@@ -116,6 +109,49 @@ impl<'index> rqe_iterators::RQEIterator<'index> for TagIterator<'index> {
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+/// [`TagLookup`] over the C TagIndex's opaque `TrieMap` (`tag_index.values`).
+pub struct CTagIndexLookup(NonNull<ffi::TagIndex>);
+
+impl CTagIndexLookup {
+    /// Create a lookup over the given C TagIndex.
+    ///
+    /// # Safety
+    ///
+    /// 1. `tag_index` must point to a valid TagIndex and remain valid for
+    ///    the lifetime of this lookup (and of any iterator holding it).
+    /// 2. `tag_index.values`, when non-null, must be a valid
+    ///    [`TrieMapOpaque`](trie_rs::TrieMapOpaque) pointer.
+    /// 3. The entries in `tag_index.values` must point to opaque
+    ///    [`InvertedIndex`](inverted_index::opaque::InvertedIndex)es whose
+    ///    encoding variant matches the `E` this lookup is used with.
+    pub const unsafe fn new(tag_index: NonNull<ffi::TagIndex>) -> Self {
+        Self(tag_index)
+    }
+}
+
+impl<E> TagLookup<E> for CTagIndexLookup
+where
+    E: OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>,
+{
+    fn find(&self, tag: &[u8]) -> Option<&inverted_index::InvertedIndex<E>> {
+        // SAFETY: 1. in `Self::new` guarantees `tag_index` is valid.
+        let tag_idx = unsafe { self.0.as_ref() };
+        if tag_idx.values.is_null() {
+            // No values trie means no postings for any tag.
+            return None;
+        }
+        // SAFETY: 2. in `Self::new` guarantees `values` is a valid `TrieMapOpaque`.
+        let trie = unsafe { &*tag_idx.values.cast::<trie_rs::TrieMapOpaque>() };
+        let idx = trie.find(tag)?;
+        // SAFETY: 3. in `Self::new` guarantees the trie entry points to a valid
+        // opaque `InvertedIndex`.
+        let opaque = idx.cast::<inverted_index::opaque::InvertedIndex>().as_ptr();
+        // SAFETY: 3. `from_opaque` panics when the encoding
+        // variant doesn't match `E`.
+        Some(E::from_opaque(unsafe { &*opaque }))
     }
 }
 
@@ -173,6 +209,10 @@ pub unsafe extern "C" fn NewInvIndIterator_TagQuery(
 
     // SAFETY: 3. guarantees tag_idx is valid and non-null
     let tag_idx_nn = unsafe { NonNull::new_unchecked(tag_idx as *mut _) };
+    // SAFETY: 3., 4. guarantee tag_idx and its TrieMap stay valid for the
+    // lifetime of the iterator; the encoding match is enforced by the
+    // DocIdsOnly/RawDocIdsOnly dispatch below.
+    let lookup = unsafe { CTagIndexLookup::new(tag_idx_nn) };
 
     // SAFETY: 5. guarantees sctx is valid and non-null
     let sctx_nn = unsafe { NonNull::new_unchecked(sctx as *mut _) };
@@ -199,7 +239,7 @@ pub unsafe extern "C" fn NewInvIndIterator_TagQuery(
             // 7. guarantees term ownership transfer.
             // The DocIdsOnly match arm ensures the encoding variant matches.
             TagIterator::Encoded(unsafe {
-                Tag::new(reader, sctx_nn, tag_idx_nn, term, weight, checker)
+                Tag::new(reader, sctx_nn, lookup, term, weight, checker)
             })
         }
         inverted_index_ffi::InvertedIndex::RawDocIdsOnly(ii) => {
@@ -212,9 +252,7 @@ pub unsafe extern "C" fn NewInvIndIterator_TagQuery(
             // 5., 6. guarantee context/spec validity.
             // 7. guarantees term ownership transfer.
             // The RawDocIdsOnly match arm ensures the encoding variant matches.
-            TagIterator::Raw(unsafe {
-                Tag::new(reader, sctx_nn, tag_idx_nn, term, weight, checker)
-            })
+            TagIterator::Raw(unsafe { Tag::new(reader, sctx_nn, lookup, term, weight, checker) })
         }
         _ => panic!(
             "Tag iterator requires a DocIdsOnly or RawDocIdsOnly inverted index, got: {:?}",
@@ -223,4 +261,14 @@ pub unsafe extern "C" fn NewInvIndIterator_TagQuery(
     };
 
     RQEIteratorWrapper::boxed_new(iterator)
+}
+
+impl profile_print::ProfilePrint for TagIterator<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut profile_print::ProfilePrintCtx<'_>,
+    ) {
+        tag_it_dispatch!(self, print_profile, map, ctx);
+    }
 }

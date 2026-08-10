@@ -14,16 +14,23 @@
 //! `spec.existingDocs` to visit only real document IDs, yielding real or virtual
 //! results accordingly.
 
-use ffi::{RS_FIELDMASK_ALL, t_docId};
-use inverted_index::RSIndexResult;
+use index_result::{RSIndexResult, RawIndexResult};
+use ref_mode::{Active, Ref};
 
 use crate::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, maybe_empty::MaybeEmpty,
-    optional::OptionalIterator, wildcard::WildcardIterator,
+    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    maybe_empty::MaybeEmpty,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
+    wildcard::WildcardIterator,
 };
 
+use index_spec::IndexSpecReadGuard;
+use rqe_core::{DocId, RS_FIELDMASK_ALL};
 /// An iterator that emits results for all document IDs present in the index,
 /// driven by a [wildcard iterator](crate::wildcard) over the existing-documents inverted index.
+///
+/// Parameterised over a [`Ref`] mode — see [`OptionalOptimized`] for the
+/// [`Active`] instantiation that implements [`RQEIterator`].
 ///
 /// For each doc ID that `wcii` yields:
 /// - If the query child also has a hit at that doc ID, a **real** result is
@@ -33,7 +40,8 @@ use crate::{
 /// This avoids scanning doc IDs 1..=maxDocId sequentially. When the index is
 /// sparse (few documents relative to `maxDocId`), the optimized variant is
 /// significantly faster.
-pub struct OptionalOptimized<'index, W, I> {
+#[repr(C)]
+pub struct RawOptionalOptimized<'query, Rf: Ref, W, I> {
     /// Wildcard iterator over `spec.existingDocs` — the authoritative source of doc IDs.
     wcii: W,
     /// Query child — provides real hits at positions where it has a match.
@@ -41,19 +49,28 @@ pub struct OptionalOptimized<'index, W, I> {
     /// when it is aborted during [`RQEIterator::revalidate`].
     child: MaybeEmpty<I>,
     /// Virtual result returned when `wcii` has a doc but `child` does not.
-    virt: RSIndexResult<'index>,
+    virt: RawIndexResult<'query, Rf>,
     /// Inclusive upper bound (matches C `maxDocId`).
-    max_doc_id: t_docId,
+    max_doc_id: DocId,
     /// Weight applied to real results from `child`.
     weight: f64,
     /// Tracks the doc ID of the last result yielded.
     ///
     /// `0` in the initial state and after [`rewind`](RQEIterator::rewind),
     /// which is treated as virtual. Doc IDs start from 1, so 0 is a safe sentinel.
-    last_doc_id: t_docId,
-    /// Whether the iterator has reached EOF.
-    at_eof: bool,
+    last_doc_id: DocId,
+    /// Whether the iterator has run *past* its last result, i.e. a
+    /// `read`/`skip_to` found nothing, or a revalidation landed past the end.
+    ///
+    /// The state behind [`current`](RQEIterator::current) and
+    /// [`at_eof`](RQEIterator::at_eof). Only [`rewind`](RQEIterator::rewind)
+    /// clears it.
+    past_end: bool,
 }
+
+/// Alias for an [`Active`] [`RawOptionalOptimized`] — the only instantiation
+/// with an [`RQEIterator`] impl today.
+pub type OptionalOptimized<'index, W, I> = RawOptionalOptimized<'index, Active<'index>, W, I>;
 
 impl<'index, W, I> OptionalOptimized<'index, W, I>
 where
@@ -63,11 +80,6 @@ where
     /// Returns a reference to the child iterator, if any.
     pub const fn child(&self) -> Option<&I> {
         self.child.as_ref()
-    }
-
-    /// Takes the child iterator out, replacing it with an [`Empty`](crate::Empty) iterator.
-    pub fn take_child(&mut self) -> Option<I> {
-        self.child.take_iterator()
     }
 
     /// Sets the child iterator.
@@ -82,7 +94,7 @@ where
     /// * `child` — query child iterator that provides real hits.
     /// * `max_doc_id` — inclusive upper bound on doc IDs.
     /// * `weight` — applied to results produced by `child`.
-    pub fn new(wcii: W, child: I, max_doc_id: t_docId, weight: f64) -> Self {
+    pub fn new(wcii: W, child: I, max_doc_id: DocId, weight: f64) -> Self {
         Self {
             wcii,
             child: MaybeEmpty::new(child),
@@ -93,30 +105,18 @@ where
             max_doc_id,
             weight,
             last_doc_id: 0,
-            at_eof: false,
+            past_end: false,
         }
     }
-}
 
-impl<'index, W> OptionalIterator<'index>
-    for OptionalOptimized<'index, W, Box<dyn RQEIterator<'index> + 'index>>
-where
-    W: WildcardIterator<'index>,
-{
-    fn child(&self) -> Option<&(dyn RQEIterator<'index> + 'index)> {
-        OptionalOptimized::child(self).map(|c| c.as_ref())
-    }
-
-    fn take_child(&mut self) -> Option<Box<dyn RQEIterator<'index> + 'index>> {
-        self.child.take_iterator()
-    }
-
-    fn set_child(&mut self, child: Box<dyn RQEIterator<'index> + 'index>) {
-        self.child = MaybeEmpty::new(child);
-    }
-
-    fn unset_child(&mut self) {
-        panic!("`unset_child` is not supported for this optional iterator variant");
+    /// Whether there is another result to yield: `max_doc_id` has not been
+    /// yielded yet.
+    ///
+    /// Goes `false` one step before [`Self::past_end`] is set, while
+    /// `max_doc_id` is still the current result.
+    #[inline(always)]
+    const fn has_next(&self) -> bool {
+        self.last_doc_id < self.max_doc_id
     }
 }
 
@@ -127,9 +127,15 @@ where
 {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        if self.past_end {
+            return None;
+        }
+
+        // The initial/rewound position is always virtual, so a child sitting on
+        // doc 0 must not be mistaken for a hit.
         if self.last_doc_id != 0
-            && self.child.last_doc_id() == self.last_doc_id
             && let Some(result) = self.child.current()
+            && result.doc_id == self.last_doc_id
         {
             return Some(result);
         }
@@ -138,14 +144,16 @@ where
     }
 
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        if self.at_eof {
+        // Having yielded `max_doc_id`, this is the read that runs past the end.
+        if self.past_end || !self.has_next() {
+            self.past_end = true;
             return Ok(None);
         }
 
         // Advance wcii to the next existing document.
         let wcii_doc_id = match self.wcii.read()? {
             None => {
-                self.at_eof = true;
+                self.past_end = true;
                 return Ok(None);
             }
             Some(r) => r.doc_id,
@@ -153,7 +161,7 @@ where
 
         // wcii may jump past max_doc_id in a single step (e.g. sparse index).
         if wcii_doc_id > self.max_doc_id {
-            self.at_eof = true;
+            self.past_end = true;
             return Ok(None);
         }
 
@@ -163,20 +171,16 @@ where
         }
 
         self.last_doc_id = wcii_doc_id;
-        // Keep at_eof consistent so callers see true immediately after the last result.
-        self.at_eof = wcii_doc_id >= self.max_doc_id;
 
         let weight = self.weight;
-        if self.child.last_doc_id() == wcii_doc_id {
-            // Real hit: child has a result at this position.
-            let result = self
-                .child
-                .current()
-                .expect("child has a result at wcii_doc_id");
+        if let Some(result) = self.child.current()
+            && result.doc_id == wcii_doc_id
+        {
+            // Real hit: the child has a result at this position.
             result.weight = weight;
             Ok(Some(result))
         } else {
-            // Virtual hit: wcii has a doc ID but child does not.
+            // Virtual hit: wcii has a doc ID but the child does not.
             self.virt.doc_id = wcii_doc_id;
             Ok(Some(&mut self.virt))
         }
@@ -184,12 +188,14 @@ where
 
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         debug_assert!(doc_id > self.last_doc_id);
 
-        if doc_id > self.max_doc_id || self.at_eof {
-            self.at_eof = true;
+        // `doc_id > self.last_doc_id` is asserted above, so a target beyond
+        // `max_doc_id` also covers the exhausted-`has_next` case.
+        if doc_id > self.max_doc_id || self.past_end {
+            self.past_end = true;
             return Ok(None);
         }
 
@@ -197,7 +203,7 @@ where
         // present in the existing-documents index.
         let (found, effective_id) = match self.wcii.skip_to(doc_id)? {
             None => {
-                self.at_eof = true;
+                self.past_end = true;
                 return Ok(None);
             }
             Some(SkipToOutcome::Found(r)) => (true, r.doc_id),
@@ -206,7 +212,7 @@ where
 
         // wcii may jump past max_doc_id in a single step (e.g. sparse index).
         if effective_id > self.max_doc_id {
-            self.at_eof = true;
+            self.past_end = true;
             return Ok(None);
         }
 
@@ -216,16 +222,12 @@ where
         }
 
         self.last_doc_id = effective_id;
-        // Keep at_eof consistent so callers see true immediately after the last result.
-        self.at_eof = effective_id >= self.max_doc_id;
 
         let weight = self.weight;
-        if self.child.last_doc_id() == effective_id {
+        if let Some(result) = self.child.current()
+            && result.doc_id == effective_id
+        {
             // Real hit — outcome (Found/NotFound) mirrors wcii.
-            let result = self
-                .child
-                .current()
-                .expect("child has a result at effective_id");
             result.weight = weight;
             if found {
                 Ok(Some(SkipToOutcome::Found(result)))
@@ -243,9 +245,9 @@ where
         }
     }
 
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: std::ptr::NonNull<ffi::IndexSpec>,
+        spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // Simple enum to avoid holding a borrow through the match.
         enum ValidateOutcome {
@@ -254,17 +256,20 @@ where
         }
 
         // Step 1: Revalidate wcii. If it aborts or is at EOF, we can return immediately.
-        // SAFETY: Delegating to children with the same `spec` passed by our caller.
-        let wcii_outcome = match unsafe { self.wcii.revalidate(spec) }? {
+        let wcii_outcome = match self.wcii.revalidate(spec)? {
             RQEValidateStatus::Ok => ValidateOutcome::Ok,
             RQEValidateStatus::Moved { current: Some(_) } => ValidateOutcome::Moved,
             RQEValidateStatus::Moved { current: None } => {
-                self.at_eof = true;
+                self.past_end = true;
                 return Ok(RQEValidateStatus::Moved { current: None });
             }
             RQEValidateStatus::Aborted => return Ok(RQEValidateStatus::Aborted),
         };
-        self.at_eof = self.wcii.at_eof();
+        // A wildcard that has run past its end means we have too. Monotonic on
+        // purpose: an iterator that already returned `None` must not be revived by
+        // a wildcard that still has documents beyond `max_doc_id` — `rewind` is
+        // the way to restart one.
+        self.past_end |= self.wcii.at_eof();
 
         // `last_doc_id` is `None` in the initial/rewound state, which is always
         // virtual.
@@ -273,8 +278,7 @@ where
 
         // Step 2: Revalidate child. If it aborts, replace with an empty iterator.
         // Abort is treated as Moved: child's state changed, so we must re-evaluate.
-        // SAFETY: Delegating to child with the same `spec` passed by our caller.
-        let child_outcome = match unsafe { self.child.revalidate(spec) }? {
+        let child_outcome = match self.child.revalidate(spec)? {
             RQEValidateStatus::Ok => ValidateOutcome::Ok,
             RQEValidateStatus::Moved { .. } => ValidateOutcome::Moved,
             RQEValidateStatus::Aborted => {
@@ -296,12 +300,20 @@ where
                 Ok(RQEValidateStatus::Moved { current })
             }
             ValidateOutcome::Moved => {
+                // A wildcard that moved onto a live document does not revive an
+                // iterator that has already run past its own end — `rewind` is the
+                // way to restart one. Report that, so the status agrees with what
+                // `current()` and `at_eof()` say.
+                if self.past_end {
+                    return Ok(RQEValidateStatus::Moved { current: None });
+                }
+
                 // wcii moved to a new valid position; update child accordingly.
                 let wcii_doc_id = self.wcii.last_doc_id();
 
                 // wcii may have moved past max_doc_id.
                 if wcii_doc_id > self.max_doc_id {
-                    self.at_eof = true;
+                    self.past_end = true;
                     return Ok(RQEValidateStatus::Moved { current: None });
                 }
 
@@ -309,17 +321,15 @@ where
                     let _ = self.child.skip_to(wcii_doc_id)?;
                 }
 
+                // Landing *on* `max_doc_id` is a live position handed back below as
+                // `Moved { current: Some }`, so nothing is recorded here.
                 self.last_doc_id = wcii_doc_id;
-                // Keep at_eof consistent so callers see true immediately after the last result.
-                self.at_eof |= wcii_doc_id >= self.max_doc_id;
 
                 let weight = self.weight;
-                if self.child.last_doc_id() == wcii_doc_id {
+                if let Some(result) = self.child.current()
+                    && result.doc_id == wcii_doc_id
+                {
                     // Real hit at the new wcii position.
-                    let result = self
-                        .child
-                        .current()
-                        .expect("child has a result at wcii_doc_id");
                     result.weight = weight;
                     Ok(RQEValidateStatus::Moved {
                         current: Some(result),
@@ -338,7 +348,7 @@ where
     #[inline(always)]
     fn rewind(&mut self) {
         self.last_doc_id = 0;
-        self.at_eof = false;
+        self.past_end = false;
         self.virt.doc_id = 0;
         self.wcii.rewind();
         self.child.rewind();
@@ -350,17 +360,17 @@ where
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.last_doc_id
     }
 
     #[inline(always)]
     fn at_eof(&self) -> bool {
-        self.at_eof
+        self.past_end
     }
 
-    fn type_(&self) -> ffi::IteratorType {
-        ffi::IteratorType::OptionalOptimized
+    fn type_(&self) -> crate::IteratorType {
+        crate::IteratorType::OptionalOptimized
     }
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
@@ -379,7 +389,17 @@ impl<'index, W: WildcardIterator<'index> + 'index> crate::interop::ProfileChildr
             wcii: self.wcii,
             virt: self.virt,
             last_doc_id: self.last_doc_id,
-            at_eof: self.at_eof,
+            past_end: self.past_end,
         }
+    }
+}
+
+impl<'index, W, I> ProfilePrint for OptionalOptimized<'index, W, I>
+where
+    W: crate::WildcardIterator<'index>,
+    I: RQEIterator<'index> + ProfilePrint,
+{
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        ctx.print_single_child(c"OPTIONAL", self.child(), map);
     }
 }

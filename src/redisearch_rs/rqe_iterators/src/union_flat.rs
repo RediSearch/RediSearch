@@ -9,15 +9,24 @@
 
 //! Flat array variant of the union iterator with O(n) min-finding.
 
-use ffi::t_docId;
-use inverted_index::RSIndexResult;
+use index_result::{RSIndexResult, RawIndexResult};
+use ref_mode::{Active, Ref};
+use rqe_core::DocId;
 
 use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use index_spec::IndexSpecReadGuard;
 
 /// A child iterator paired with its original insertion index.
 ///
 /// Tracks where the child was in the original `children` vector so that
 /// we can restore the original order.
+///
+/// `#[repr(C)]` so that the `Vec<IndexedChild<I>>` elements stay
+/// layout-compatible across the `I` → `I::Suspended` swap: a default-repr
+/// struct is free to reorder its fields differently per instantiation, which
+/// would corrupt elements when the union is transmuted between Active and
+/// Suspended modes.
+#[repr(C)]
 pub(crate) struct IndexedChild<I> {
     /// Position of this child in the original `children` vector passed to
     /// [`UnionFlat::new`].
@@ -43,6 +52,9 @@ impl<I> std::ops::DerefMut for IndexedChild<I> {
 
 /// Yields documents appearing in ANY child iterator using a flat array scan.
 ///
+/// Parameterised over a [`Ref`] mode — see [`UnionFlat`] for the [`Active`]
+/// instantiation that implements [`RQEIterator`].
+///
 /// Unlike [`crate::Intersection`] which requires documents to appear in ALL children,
 /// [`UnionFlat`] yields documents that appear in at least one child. When multiple children
 /// have the same document, their results are aggregated (unless `QUICK_EXIT` is `true`).
@@ -54,11 +66,12 @@ impl<I> std::ops::DerefMut for IndexedChild<I> {
 ///
 /// # Type Parameters
 ///
-/// - `'index`: Lifetime of the index data.
+/// - `Rf`: The [`Ref`] mode.
 /// - `I`: The child iterator type, must implement [`RQEIterator`].
 /// - `QUICK_EXIT`: If `true`, returns immediately after finding any matching child.
 ///   If `false`, aggregates results from all children with the minimum doc_id.
-pub struct UnionFlat<'index, I, const QUICK_EXIT: bool> {
+#[repr(C)]
+pub struct RawUnionFlat<'query, Rf: Ref, I, const QUICK_EXIT: bool> {
     /// Child iterators. Active children are in `children[..num_active]`,
     /// exhausted children are moved to the end and not removed so we can rewind the iterator.
     children: Vec<IndexedChild<I>>,
@@ -69,9 +82,15 @@ pub struct UnionFlat<'index, I, const QUICK_EXIT: bool> {
     /// Whether the iterator has reached EOF (all children exhausted).
     is_eof: bool,
     /// Aggregate result combining children's results, reused to avoid allocations.
-    result: RSIndexResult<'index>,
+    result: RawIndexResult<'query, Rf>,
 }
 
+/// Alias for an [`Active`] [`RawUnionFlat`] — the only instantiation with an
+/// [`RQEIterator`] impl today.
+pub type UnionFlat<'index, I, const QUICK_EXIT: bool> =
+    RawUnionFlat<'index, Active<'index>, I, QUICK_EXIT>;
+
+// Methods used in both modes.
 impl<'index, I, const QUICK_EXIT: bool> UnionFlat<'index, I, QUICK_EXIT>
 where
     I: RQEIterator<'index>,
@@ -149,16 +168,69 @@ where
         let children: Vec<I> = self.children.into_iter().map(|c| c.inner).collect();
         (children.len() >= 3).then(|| super::UnionTrimmed::new(children, limit, asc))
     }
-    /// Advances all active children whose `last_doc_id` equals `current_id` and finds the
-    /// minimum doc_id in a single pass.
+
+    /// Swap-removes an exhausted child at `idx` by swapping it with the last active child.
+    #[inline]
+    fn swap_remove_child(&mut self, idx: usize) {
+        debug_assert!(idx < self.num_active);
+        self.num_active -= 1;
+        if idx < self.num_active {
+            self.children.swap(idx, self.num_active);
+        }
+    }
+
+    /// Adds a single child's current result to the aggregate.
+    /// Assumes the aggregate has already been reset if needed.
+    fn add_child_to_result(&mut self, child_idx: usize) {
+        let child = &mut self.children[child_idx];
+        if let Some(child_result) = child.current() {
+            let drained_metrics = std::mem::take(&mut child_result.metrics);
+            let child_ptr: *const RSIndexResult<'index> = child_result;
+            // SAFETY: We need a raw pointer to decouple the borrow of the child's
+            // result from `&mut self.result`. This is sound because:
+            // 1. `self.children[i]` and `self.result` are disjoint fields — no aliasing.
+            // 2. The child is owned by `self`, so the 'index data remains valid.
+            let child_ref = unsafe { &*child_ptr };
+            self.result.push_borrowed(child_ref, drained_metrics);
+        }
+    }
+}
+
+// Methods reachable only when `QUICK_EXIT` is `false`, grouped so that the full-mode
+// read path reads together. Each guards its mode at entry rather than being typed on
+// `UnionFlat<'index, I, false>`: the caller is the generic `RQEIterator` impl, which
+// cannot reach a method that exists for only one value of a const generic (E0599),
+// and splitting that impl in two would strand its `ProfileChildren` dependent.
+impl<'index, I, const QUICK_EXIT: bool> UnionFlat<'index, I, QUICK_EXIT>
+where
+    I: RQEIterator<'index>,
+{
+    /// Advances all active children sitting on `current_id` and finds the minimum
+    /// doc_id in a single pass.
     ///
-    /// Returns the minimum doc_id among active children, or `t_docId::MAX` if all are exhausted.
-    fn advance_and_find_min(&mut self, current_id: t_docId) -> Result<t_docId, RQEIteratorError> {
-        let mut min_id: t_docId = t_docId::MAX;
+    /// Returns the minimum doc_id among active children, or `DocId::MAX` if all are exhausted.
+    ///
+    /// Only [`Self::read_full`] calls this, so no child can be *behind* `current_id`:
+    /// full-mode `read`/`skip_to` advance every active child, and `revalidate`
+    /// re-seeks any child a child revalidation resurrected behind the union. A child
+    /// behind would become the minimum and hand back a document already delivered,
+    /// so the invariant is asserted rather than handled.
+    fn advance_and_find_min(&mut self, current_id: DocId) -> Result<DocId, RQEIteratorError> {
+        if QUICK_EXIT {
+            panic!("a quick union reads through skip_to instead");
+        }
+
+        let mut min_id: DocId = DocId::MAX;
         let mut i = 0;
 
         while i < self.num_active {
             let child = &mut self.children[i];
+
+            debug_assert!(
+                child.last_doc_id() >= current_id,
+                "a full union's child cannot fall behind it: {} < {current_id}",
+                child.last_doc_id(),
+            );
 
             // Advance children that match the current doc_id
             if child.last_doc_id() == current_id {
@@ -169,8 +241,8 @@ where
                     // Don't increment i - we need to check the swapped-in child
                     continue;
                 }
-                // Otherwise, child.last_doc_id() was updated by read()
-                // Even if at_eof() is now true, last_doc_id() is valid for this round
+                // Otherwise, child.last_doc_id() was updated by read(); the child
+                // is still positioned on that document, so it stays active.
             }
 
             // Track minimum doc_id (fused with advance loop)
@@ -185,43 +257,15 @@ where
         Ok(min_id)
     }
 
-    /// Swap-removes an exhausted child at `idx` by swapping it with the last active child.
-    #[inline]
-    fn swap_remove_child(&mut self, idx: usize) {
-        debug_assert!(idx < self.num_active);
-        self.num_active -= 1;
-        if idx < self.num_active {
-            self.children.swap(idx, self.num_active);
-        }
-    }
-
-    /// Builds the result from active children whose `last_doc_id` equals `min_id`.
-    /// Only used in Full mode - aggregates ALL matching children.
-    fn build_aggregate_result(&mut self, min_id: t_docId) {
-        self.result.reset_aggregate();
-        self.result.doc_id = min_id;
-
-        for child in &mut self.children[..self.num_active] {
-            if child.last_doc_id() == min_id
-                && let Some(child_result) = child.current()
-            {
-                let drained_metrics = std::mem::take(&mut child_result.metrics);
-                let child_ptr: *const RSIndexResult<'index> = child_result;
-                // SAFETY: We need a raw pointer to decouple the borrow of the child's
-                // result from `&mut self.result`. This is sound because:
-                // 1. `self.children[i]` and `self.result` are disjoint fields — no aliasing.
-                // 2. The child is owned by `self`, so the 'index data remains valid.
-                let child_ref = unsafe { &*child_ptr };
-                self.result.push_borrowed(child_ref, drained_metrics);
-            }
-        }
-    }
-
     /// Performs initial read on all children to position them at their first document.
     /// Removes any children that are immediately exhausted (empty iterators).
-    /// Returns the minimum doc_id among active children, or `t_docId::MAX` if all are exhausted.
-    fn initialize_children(&mut self) -> Result<t_docId, RQEIteratorError> {
-        let mut min_id: t_docId = t_docId::MAX;
+    /// Returns the minimum doc_id among active children, or `DocId::MAX` if all are exhausted.
+    fn initialize_children(&mut self) -> Result<DocId, RQEIteratorError> {
+        if QUICK_EXIT {
+            panic!("a quick union positions its children through skip_to instead");
+        }
+
+        let mut min_id: DocId = DocId::MAX;
         let mut i = 0;
         while i < self.num_active {
             let child = &mut self.children[i];
@@ -250,30 +294,57 @@ where
         Ok(min_id)
     }
 
+    /// Builds the result from active children whose `last_doc_id` equals `min_id`.
+    /// Only used in Full mode - aggregates ALL matching children.
+    fn build_aggregate_result(&mut self, min_id: DocId) {
+        if QUICK_EXIT {
+            panic!("a quick union never aggregates; it reports a single child");
+        }
+
+        self.result.reset_aggregate();
+        self.result.doc_id = min_id;
+
+        for child in &mut self.children[..self.num_active] {
+            if child.last_doc_id() == min_id
+                && let Some(child_result) = child.current()
+            {
+                let drained_metrics = std::mem::take(&mut child_result.metrics);
+                let child_ptr: *const RSIndexResult<'index> = child_result;
+                // SAFETY: We need a raw pointer to decouple the borrow of the child's
+                // result from `&mut self.result`. This is sound because:
+                // 1. `self.children[i]` and `self.result` are disjoint fields — no aliasing.
+                // 2. The child is owned by `self`, so the 'index data remains valid.
+                let child_ref = unsafe { &*child_ptr };
+                self.result.push_borrowed(child_ref, drained_metrics);
+            }
+        }
+    }
+
     /// Full mode read - advances matching children and finds minimum in a single fused pass.
     fn read_full(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        let min_id = if self.last_doc_id() == 0 {
+        if QUICK_EXIT {
+            panic!("a quick union reads through read_quick");
+        }
+
+        let previous_id = self.last_doc_id();
+        let min_id = if previous_id == 0 {
             self.initialize_children()?
         } else {
-            self.advance_and_find_min(self.last_doc_id())?
+            self.advance_and_find_min(previous_id)?
         };
 
-        if min_id == t_docId::MAX {
+        if min_id == DocId::MAX {
             self.is_eof = true;
             return Ok(None);
         }
 
+        debug_assert!(
+            min_id > previous_id,
+            "a read must move forward: {previous_id} -> {min_id}",
+        );
+
         self.build_aggregate_result(min_id);
         Ok(Some(&mut self.result))
-    }
-
-    /// Quick mode read - delegates to `skip_to(last_doc_id + 1)`.
-    fn read_quick(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        let next_id = self.last_doc_id().saturating_add(1);
-        match self.skip_to(next_id)? {
-            Some(SkipToOutcome::Found(r)) | Some(SkipToOutcome::NotFound(r)) => Ok(Some(r)),
-            None => Ok(None),
-        }
     }
 
     /// Full mode skip_to - scans all active children and aggregates all matches.
@@ -284,9 +355,13 @@ where
     /// This avoids a second pass when the target is found (matching C's `UI_Skip_Full_Flat`).
     fn skip_to_full(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        let mut min_id: t_docId = t_docId::MAX;
+        if QUICK_EXIT {
+            panic!("a quick union skips through skip_to_quick");
+        }
+
+        let mut min_id: DocId = DocId::MAX;
         let mut i = 0;
 
         // Reset aggregate before potentially adding children during the loop
@@ -333,7 +408,7 @@ where
             i += 1;
         }
 
-        if min_id == t_docId::MAX {
+        if min_id == DocId::MAX {
             self.is_eof = true;
             return Ok(None);
         }
@@ -347,15 +422,38 @@ where
             Ok(Some(SkipToOutcome::NotFound(&mut self.result)))
         }
     }
+}
+
+// Methods reachable only when `QUICK_EXIT` is `true`. See the note above.
+impl<'index, I, const QUICK_EXIT: bool> UnionFlat<'index, I, QUICK_EXIT>
+where
+    I: RQEIterator<'index>,
+{
+    /// Quick mode read - delegates to `skip_to(last_doc_id + 1)`.
+    fn read_quick(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        if !QUICK_EXIT {
+            panic!("a full union reads through read_full");
+        }
+
+        let next_id = self.last_doc_id().saturating_add(1);
+        match self.skip_to(next_id)? {
+            Some(SkipToOutcome::Found(r)) | Some(SkipToOutcome::NotFound(r)) => Ok(Some(r)),
+            None => Ok(None),
+        }
+    }
 
     /// Quick mode skip_to - returns immediately on first exact match.
     /// Tracks minimum doc_id among non-matches for NotFound case.
     fn skip_to_quick(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        if !QUICK_EXIT {
+            panic!("a full union skips through skip_to_full");
+        }
+
         // Use MAX as sentinel like C uses DOCID_MAX - avoids Option overhead
-        let mut min_id: t_docId = t_docId::MAX;
+        let mut min_id: DocId = DocId::MAX;
         let mut min_child_idx: usize = 0;
         let mut i = 0;
 
@@ -401,7 +499,7 @@ where
         }
 
         // No exact match found - use minimum if available
-        if min_id != t_docId::MAX {
+        if min_id != DocId::MAX {
             self.quick_set_from_child(min_child_idx);
             Ok(Some(SkipToOutcome::NotFound(&mut self.result)))
         } else {
@@ -413,28 +511,16 @@ where
     /// Sets the union result from a single child: resets aggregate, sets doc_id, adds child.
     /// Used in Quick mode where we only need one matching child.
     fn quick_set_from_child(&mut self, child_idx: usize) {
+        if !QUICK_EXIT {
+            panic!("a full union aggregates every matching child instead");
+        }
+
         let child = &mut self.children[child_idx];
 
         self.result.reset_aggregate();
         self.result.doc_id = child.last_doc_id();
 
         self.add_child_to_result(child_idx);
-    }
-
-    /// Adds a single child's current result to the aggregate.
-    /// Assumes the aggregate has already been reset if needed.
-    fn add_child_to_result(&mut self, child_idx: usize) {
-        let child = &mut self.children[child_idx];
-        if let Some(child_result) = child.current() {
-            let drained_metrics = std::mem::take(&mut child_result.metrics);
-            let child_ptr: *const RSIndexResult<'index> = child_result;
-            // SAFETY: We need a raw pointer to decouple the borrow of the child's
-            // result from `&mut self.result`. This is sound because:
-            // 1. `self.children[i]` and `self.result` are disjoint fields — no aliasing.
-            // 2. The child is owned by `self`, so the 'index data remains valid.
-            let child_ref = unsafe { &*child_ptr };
-            self.result.push_borrowed(child_ref, drained_metrics);
-        }
     }
 }
 
@@ -465,7 +551,7 @@ where
 
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         if self.is_eof {
             return Ok(None);
@@ -496,7 +582,7 @@ where
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.result.doc_id
     }
 
@@ -505,9 +591,9 @@ where
         self.is_eof
     }
 
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: std::ptr::NonNull<ffi::IndexSpec>,
+        spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // Already at EOF - nothing to do
         if self.is_eof {
@@ -522,8 +608,7 @@ where
         // We use index-based iteration because we need to remove elements while iterating.
         let mut i = 0;
         while i < self.children.len() {
-            // SAFETY: Delegating to child with the same `spec` passed by our caller.
-            match unsafe { self.children[i].revalidate(spec) }? {
+            match self.children[i].revalidate(spec)? {
                 RQEValidateStatus::Aborted => {
                     // Remove aborted child using swap_remove for O(1) removal.
                     // Order doesn't matter for union iteration.
@@ -555,7 +640,12 @@ where
         // Sync num_active and find minimum doc_id.
         // Use swap_remove_child to move EOF children out of the active region.
         self.num_active = self.children.len();
-        let mut min_doc_id: t_docId = t_docId::MAX;
+
+        // Only a child that has run past its last result is dropped: one that has
+        // merely returned its final document still owes it, and dropping it would
+        // lose that document — or report EOF for the whole union, if it was the
+        // last active child.
+        let mut min_doc_id: DocId = DocId::MAX;
         let mut min_child_idx: usize = 0;
         let mut i = 0;
         while i < self.num_active {
@@ -579,6 +669,115 @@ where
             return Ok(RQEValidateStatus::Moved { current: None });
         }
 
+        // A minimum *behind* the union is not a position to move to — adopting it
+        // would replay documents, because `VALIDATE_MOVED` has the caller emit
+        // `current` in place of a read and the read after that resumes from there.
+        // `iterator_api.h` says `VALIDATE_MOVED` means the position moved *forward*,
+        // and `Not::revalidate` asserts that of its child — which is where a
+        // `QUICK_EXIT` union usually sits.
+        //
+        // Both modes can see one. With `QUICK_EXIT` it is the mode's own early
+        // return: `skip_to_quick` stops on the first exact match, so a later sibling
+        // keeps an earlier round's id, or answers 0 having never been read at all.
+        // Without it there is exactly one way: a child that ran out and was dropped
+        // can *resurrect* during the revalidation above — an inverted-index leaf
+        // rewinds and re-seeks the position it held, and rewinding clears the
+        // past-the-end state — so it re-enters the active set far behind a union
+        // that carried on without it.
+        if min_doc_id < original_last_doc_id {
+            // A child still sitting on the union's document backs the position as it
+            // stands: republish from it (the result holds raw pointers into children
+            // that may have moved or been dropped) and report `Ok`, with no reads
+            // spent. `min_child_idx` cannot serve — that is the lagging child just
+            // rejected. Quick mode only: its laggers are ordinary state for the next
+            // `read`/`skip_to` to seek past, while a full union must catch them up
+            // below either way — `advance_and_find_min` relies on no active child
+            // sitting behind the union.
+            if QUICK_EXIT
+                && let Some(idx) = self.children[..self.num_active]
+                    .iter()
+                    .position(|c| c.last_doc_id() == original_last_doc_id)
+            {
+                self.quick_set_from_child(idx);
+
+                debug_assert_eq!(
+                    self.last_doc_id(),
+                    original_last_doc_id,
+                    "staying put must leave the position untouched",
+                );
+
+                return Ok(RQEValidateStatus::Ok);
+            }
+
+            // Nothing already sits on the union's document, but a lagging child may
+            // still *hold* it: `skip_to_quick`'s early return strands a sibling
+            // without consuming its position. The union may not step over the
+            // document before asking — under a `NOT`, its position is not a
+            // delivered result but the next id the `NOT` has yet to exclude, and
+            // stepping over it would let that document into the result set. So every
+            // lagger is seeked to the abandoned position itself, not past it.
+            //
+            // These reads cannot be avoided. An `Err` here reaches the caller as
+            // `VALIDATE_ABORTED`, freeing the iterator and substituting an empty one
+            // — blunt, but better than handing out a position no child backs.
+            let mut i = 0;
+            while i < self.num_active {
+                if self.children[i].last_doc_id() >= original_last_doc_id {
+                    i += 1;
+                    continue;
+                }
+                match self.children[i].skip_to(original_last_doc_id)? {
+                    Some(SkipToOutcome::Found(_)) => {
+                        if QUICK_EXIT {
+                            // Still matched after all: the union stays on it, backed
+                            // by this child; remaining laggers wait for the next call.
+                            self.quick_set_from_child(i);
+
+                            debug_assert_eq!(
+                                self.last_doc_id(),
+                                original_last_doc_id,
+                                "staying put must leave the position untouched",
+                            );
+
+                            return Ok(RQEValidateStatus::Ok);
+                        }
+                        i += 1;
+                    }
+                    Some(SkipToOutcome::NotFound(_)) => {
+                        i += 1;
+                    }
+                    None => {
+                        // The seek exhausted the child. Don't increment i — the
+                        // swapped-in element needs to be checked.
+                        self.swap_remove_child(i);
+                    }
+                }
+            }
+
+            // Seeking the laggers forward can run the union out of documents.
+            if self.num_active == 0 {
+                self.is_eof = true;
+                return Ok(RQEValidateStatus::Moved { current: None });
+            }
+
+            // Every active child now sits at or past the abandoned position, so the
+            // minimum is a position again: equal to it when children still match the
+            // document (full mode only — quick mode returned above), later otherwise.
+            min_doc_id = DocId::MAX;
+            for (i, child) in self.children[..self.num_active].iter().enumerate() {
+                let child_doc_id = child.last_doc_id();
+                if child_doc_id < min_doc_id {
+                    min_doc_id = child_doc_id;
+                    min_child_idx = i;
+                }
+            }
+
+            debug_assert!(
+                min_doc_id >= original_last_doc_id,
+                "every lagging child was just seeked to the union's position",
+            );
+        }
+
         // Rebuild result at the new minimum doc_id
         if QUICK_EXIT {
             self.quick_set_from_child(min_child_idx);
@@ -587,13 +786,18 @@ where
         }
 
         // Return MOVED only if lastDocId changed
-        if self.last_doc_id() != original_last_doc_id {
-            Ok(RQEValidateStatus::Moved {
-                current: Some(&mut self.result),
-            })
-        } else {
-            Ok(RQEValidateStatus::Ok)
+        if self.last_doc_id() == original_last_doc_id {
+            return Ok(RQEValidateStatus::Ok);
         }
+
+        debug_assert!(
+            self.last_doc_id() > original_last_doc_id,
+            "a reported move must be forward",
+        );
+
+        Ok(RQEValidateStatus::Moved {
+            current: Some(&mut self.result),
+        })
     }
 
     #[inline(always)]

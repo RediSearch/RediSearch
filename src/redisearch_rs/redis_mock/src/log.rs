@@ -17,7 +17,7 @@ use std::ffi::{CStr, c_char};
 /// 2. fmt must be a valid C string.
 #[expect(non_snake_case)]
 pub unsafe extern "C" fn RedisModule_Log(
-    _ctx: *mut ffi::RedisModuleCtx,
+    _ctx: *mut redis_module::RedisModuleCtx,
     level: *const c_char,
     fmt: *const c_char,
 ) {

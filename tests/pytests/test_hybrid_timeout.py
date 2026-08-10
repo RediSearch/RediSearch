@@ -1,6 +1,8 @@
 from RLTest import Env
 from includes import *
 from common import *
+from test_info_modules import info_modules_to_dict
+import psutil
 
 # Test data with deterministic vectors
 test_data = {
@@ -172,18 +174,14 @@ def test_debug_timeout_fail_both():
     setup_basic_index(env)
     env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_SEARCH', '1','TIMEOUT_AFTER_N_VSIM', '2', 'DEBUG_PARAMS_COUNT', '4').error().contains('SEARCH_TIMEOUT Timeout limit was reached')
 
-# Tail pipeline runs on the coordinator; debug timeout params aren't applied there in cluster.
-@skip(cluster=True)
 def test_debug_timeout_fail_tail():
     """Test FAIL policy with tail timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT FAIL')
     setup_basic_index(env)
     env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_TAIL', '1', 'DEBUG_PARAMS_COUNT', '2').error().contains('SEARCH_TIMEOUT Timeout limit was reached')
 
-# Tail pipeline runs on the coordinator; debug timeout params aren't applied there in cluster.
-@skip(cluster=True)
 def test_debug_timeout_return_tail():
-    """Test FAIL policy with tail timeout using debug parameters"""
+    """Test RETURN policy with tail timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN')
     setup_basic_index(env)
     response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector,
@@ -362,6 +360,10 @@ def test_maxprefixexpansions_warning_both_components():
     conn = env.getClusterConnectionIfNeeded()
     add_run_prefix_docs(conn)
     run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+    coord_section = 'search_coordinator_warnings_and_errors'
+    metric = 'search_coord_total_query_warnings_max_prefix_expansions'
+    before_info = info_modules_to_dict(env)
+    base_warning_count = int(before_info[coord_section][metric])
 
     # Both SEARCH and VSIM return results
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'run*', 'VSIM', \
@@ -369,6 +371,9 @@ def test_maxprefixexpansions_warning_both_components():
     warning = get_warnings(response)
     env.assertTrue('Max prefix expansions limit was reached (SEARCH)' in warning)
     env.assertTrue('Max prefix expansions limit was reached (VSIM)' in warning)
+    after_info = info_modules_to_dict(env)
+    env.assertEqual(after_info[coord_section][metric], str(base_warning_count + 1),
+                    message="Coordinator max-prefix warning should be +1 per query")
 
 @skip(cluster=True)
 def test_tail_property_not_loaded_error_standalone():
@@ -430,3 +435,69 @@ def test_debug_timeout_return_strict_rejected():
         'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector,
         'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2'
     ).error().contains('not supported with ON_TIMEOUT RETURN-STRICT')
+
+
+@skip(cluster=False)
+def test_return_timeout_setup_phase_hybrid():
+    """RETURN setup-phase timeout, one shard suspended: the in-band deadline fires; reply is empty + warning.
+
+    Lives here (not test_blocked_client_timeout.py): RETURN uses the in-band
+    deadline, not the blocked-client CLIENT UNBLOCK mechanism.
+    """
+    # WORKERS 1 dispatches the query to a BG thread so the cursor-setup wait is
+    # reachable; cluster mode gives us a non-coordinator shard to suspend.
+    env = Env(moduleArgs='WORKERS 1', protocol=3)
+    for i in range(1, env.shardsCount + 1):
+        verify_shard_init(env.getConnection(i))
+    conn = getConnectionByEnv(env)
+
+    env.expect(
+        'FT.CREATE', 'hybrid_idx', 'PREFIX', '1', 'hybrid_doc', 'SCHEMA',
+        'name', 'TEXT',
+        'embedding', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2'
+    ).ok()
+    for i in range(100):
+        vec = np.array([float(i), float(i)], dtype=np.float32).tobytes()
+        conn.execute_command('HSET', f'hybrid_doc{i}', 'name', f'hello{i}', 'embedding', vec)
+    query_vec = np.array([0.0, 0.0], dtype=np.float32).tobytes()
+    env.expect(
+        'FT.HYBRID', 'hybrid_idx', 'SEARCH', '*', 'VSIM', '@embedding', '$BLOB',
+        'PARAMS', '2', 'BLOB', query_vec
+    ).noError()
+
+    prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+    env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
+
+    _, _, paused_pid, _ = split_shards_pick_one_paused(env)
+    shard_to_pause_p = psutil.Process(paused_pid)
+
+    # Per-query TIMEOUT arms the coordinator's cursor-setup deadline under
+    # RETURN policy (in-band timeout checking).
+    query_args = [
+        'FT.HYBRID', 'hybrid_idx',
+        'SEARCH', '*',
+        'VSIM', '@embedding', '$BLOB',
+        'PARAMS', '2', 'BLOB', query_vec,
+        'TIMEOUT', '200',
+    ]
+
+    shard_to_pause_p.suspend()
+    try:
+        wait_for_condition(
+            lambda: (shard_to_pause_p.status() == psutil.STATUS_STOPPED,
+                     {'status': shard_to_pause_p.status()}),
+            'Timeout while waiting for shard to pause'
+        )
+
+        # The deadline fires in the setup wait; RETURN policy yields an empty
+        # result set with a timeout warning rather than an error (a hang would
+        # trip the harness test timeout).
+        result = env.cmd(*query_args)
+        env.assertEqual(result['total_results'], 0,
+                        message=f"Expected 0 results, got {result}")
+        assert_timeout_warning(env, result, message="RETURN-policy setup-phase timeout")
+    finally:
+        # Resume so the shard drains the queued _FT.HYBRID / CURSOR DEL and frees
+        # its cursors before later tests run.
+        shard_to_pause_p.resume()
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)

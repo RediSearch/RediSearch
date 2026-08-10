@@ -7,11 +7,28 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <math.h>
+#include <string.h>
+#include <sys/param.h>
+
 #include "hybrid_reader.h"
 #include "VecSim/vec_sim.h"
 #include "VecSim/query_results.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
+#include "metrics_ffi.h"
+#include "rqe_iterator_type.h"
+#include "types_ffi.h"
 #include "query.h"
+#include "doc_table.h"
+#include "field.h"
+#include "index_result_rs.h"
+#include "iterator_api.h"
+#include "redisearch.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "rqe_core.h"
+#include "search_result_rs.h"
+
+struct IndexSpec;
 
 #define VECTOR_SCORE(p) (p->data.tag == RSResultData_Metric ? IndexResult_NumValue(p) : IndexResult_NumValue(AggregateResult_GetUnchecked(IndexResult_AggregateRefUnchecked(p), 0)))
 
@@ -93,7 +110,7 @@ static void insertResultToHeap_Aggregate(HybridIterator *hr, RSIndexResult *chil
   RSIndexResult *res = NewHybridResult();
   AggregateResult_AddChild(res, IndexResult_DeepCopy(vec_res));
   AggregateResult_AddChild(res, IndexResult_DeepCopy(child_res));
-  res->data.hybrid_metric.tag = RSAggregateResult_Owned; // Mark as copy, so when we free it, it will also free its children.
+  res->data.hybridmetric.tag = RSAggregateResult_Owned; // Mark as copy, so when we free it, it will also free its children.
   ResultMetrics_Add(res, hr->ownKey, IndexResult_NumValue(vec_res));
 
   if (hr->topResults->count < hr->query.k) {
@@ -154,6 +171,12 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryReply_Iterator *ve
 // Global timeout callback for VecSim searches.
 // Need the redirection so tests can pass a mock function to test timeout behavior.
 int (*vecsimTimeoutCallback)(TimeoutCtx *ctx) = TimedOut_WithCtx;
+
+// Non-inline wrapper called from Rust's VectorScoreSource::adhoc_strategy so the
+// test-mockable vecsimTimeoutCallback indirection is honored on the adhoc-BF path.
+int RS_VecSimCheckTimeout(TimeoutCtx *ctx) {
+  return vecsimTimeoutCallback(ctx);
+}
 
 // Updates both locations where scores are stored:
 // 1. IndexResult numeric value (used by VECTOR_SCORE macro for heap ordering)
@@ -271,8 +294,13 @@ static VecSimQueryReply_Code computeDistances_RAM(HybridIterator *hr) {
 
   // Normalize query vector for cosine metric (RAM path only - disk handles this internally).
   if (hr->indexMetric == VecSimMetric_Cosine) {
-    qvector = rm_malloc(hr->dimension * VecSimType_sizeof(hr->vecType));
-    memcpy(qvector, hr->query.vector, hr->dimension * VecSimType_sizeof(hr->vecType));
+    size_t vec_size = hr->dimension * VecSimType_sizeof(hr->vecType);
+    // For some cases blob_size may be larger than vec_size.
+    // For example, for INT8/UINT8, VecSim_Normalize appends the norm (a float) at the
+    // end of the blob.
+    size_t blob_size = VecSimParams_GetQueryBlobSize(hr->vecType, hr->dimension, hr->indexMetric);
+    qvector = rm_malloc(blob_size);
+    memcpy(qvector, hr->query.vector, vec_size);
     VecSim_Normalize(qvector, hr->dimension, hr->vecType);
   }
 
@@ -570,12 +598,16 @@ static QueryIterator* HybridIteratorReducer(HybridIteratorParams *hParams) {
 
 // Revalidate the hybrid iterator.
 // If we already have the results prepared, we are OK, and if not, we didn't execute the query yet so we are also OK.
-// Only if we have a child iterator, and it aborted, we need to abort the hybrid iterator.
+// Only if we have a child iterator, and it aborted or timed out, we need to give up on the hybrid
+// iterator - propagating the child's status, since the two are handled differently upstream.
 // If the child iterator is OK or MOVED, we are OK whether we have results prepared or not.
 static ValidateStatus HR_Revalidate(QueryIterator *ctx, struct IndexSpec *spec) {
   HybridIterator *hr = (HybridIterator *)ctx;
-  if (hr->child && hr->child->Revalidate(hr->child, spec) == VALIDATE_ABORTED) {
-    return VALIDATE_ABORTED;
+  if (hr->child) {
+    ValidateStatus childStatus = hr->child->Revalidate(hr->child, spec);
+    if (childStatus == VALIDATE_ABORTED || childStatus == VALIDATE_TIMEOUT) {
+      return childStatus;
+    }
   }
   hr->checkFieldExpiration = hr->sctx && hr->filterCtx.field.index != RS_INVALID_FIELD_INDEX &&
                              hr->sctx->spec->docs.ttl;
@@ -668,6 +700,7 @@ QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   ri->Rewind = HR_Rewind;
   ri->Revalidate = HR_Revalidate;
   ri->ProfileChildren = HR_ProfileChildren;
+  ri->PrintProfile = Hybrid_PrintProfile;
   ri->SkipTo = NULL; // As long as this iterator is always at the root, this is not needed.
   if (hi->searchMode == VECSIM_STANDARD_KNN) {
     ri->Read = HR_ReadKnnUnsorted;

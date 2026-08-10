@@ -2,6 +2,10 @@ name: Run RediSearch Benchmarks
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
+# Floor, not a grant: every job below declares what it needs, so this only
+# stops a job added later from silently inheriting the repository default.
+permissions: {}
+
 on:
   workflow_dispatch:
     inputs:
@@ -21,6 +25,15 @@ on:
         type: string
         default: master
         description: "branch to use for rejson"
+      base_branch:
+        type: string
+        default: ""
+        description: "Branch to use as the comparison baseline. Empty falls back to the PR base branch."
+      redis_ref:
+        type: string
+        # Keep benchmarks independent of the Redis version preinstalled on the DB hosts.
+        default: "8.10.0"
+        description: "redis/redis git ref (sha/branch/tag) to build and run the benchmarks against, instead of the redis preinstalled on the DB hosts. Empty uses the preinstalled default."
   workflow_call:
     inputs:
       extended:
@@ -37,23 +50,42 @@ on:
         type: boolean
         default: false
         description: "if true, will notify failure on slack"
+      base_branch:
+        type: string
+        default: ""
+        description: "Branch to use as the comparison baseline. Empty falls back to the PR base branch."
+      redis_ref:
+        type: string
+        # Keep benchmarks independent of the Redis version preinstalled on the DB hosts.
+        default: "8.10.0"
+        description: "redis/redis git ref (sha/branch/tag) to build and run the benchmarks against, instead of the redis preinstalled on the DB hosts. Empty uses the preinstalled default."
 
 jobs:
   # Build RediSearch ONCE per-arch. Every benchmark job below downloads the
   # resulting redisearch.so as an artifact instead of rebuilding it.
   build-redisearch:
+    permissions:
+      contents: read
+      id-token: write # OIDC role assumption for sccache S3 (used inside flow-build-benchmark-binary.yml)
     uses: ./.github/workflows/flow-build-benchmark-binary.yml
     with:
       arch: x86_64
       artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
 
   build-redisearch-aarch64:
+    permissions:
+      contents: read
+      id-token: write # OIDC role assumption for sccache S3 (used inside flow-build-benchmark-binary.yml)
     uses: ./.github/workflows/flow-build-benchmark-binary.yml
     with:
       arch: aarch64
       artifact_name: redisearch-bin-aarch64-${{ github.run_id }}-${{ github.run_attempt }}
 
   benchmark-search-oss-standalone:
+    permissions: # benchmark-flow.yml: build redis, download the module artifact, sccache OIDC
+      contents: read
+      actions: read
+      id-token: write
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
     needs: build-redisearch
     strategy:
@@ -71,11 +103,17 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      base_branch: ${{ inputs.base_branch }}
+      redis_ref: ${{ inputs.redis_ref }}
 
   # aarch64 sibling of benchmark-search-oss-standalone. Targets the
   # oss-standalone-redisearch-m7-aarch64 terraform dir (m7g.8xlarge DB +
   # m7g.4xlarge client, matched AMI/installer scripts to the x86 m7 pair).
   benchmark-search-oss-standalone-aarch64:
+    permissions: # benchmark-flow.yml: build redis, download the module artifact, sccache OIDC
+      contents: read
+      actions: read
+      id-token: write
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
     needs: build-redisearch-aarch64
     strategy:
@@ -95,8 +133,14 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-aarch64-${{ github.run_id }}-${{ github.run_attempt }}
+      base_branch: ${{ inputs.base_branch }}
+      redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-search-oss-standalone-threads-6:
+    permissions: # benchmark-flow.yml: build redis, download the module artifact, sccache OIDC
+      contents: read
+      actions: read
+      id-token: write
     # TODO: Temporarily disabled - Redis becomes unavailable after ~3 hours of data loading.
     if: false # ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone-threads-6' }}
     needs: build-redisearch
@@ -114,8 +158,14 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      base_branch: ${{ inputs.base_branch }}
+      redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-vecsim-oss-standalone:
+    permissions: # benchmark-flow.yml: build redis, download the module artifact, sccache OIDC
+      contents: read
+      actions: read
+      id-token: write
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
     needs: build-redisearch
     strategy:
@@ -132,8 +182,14 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      base_branch: ${{ inputs.base_branch }}
+      redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-vecsim-oss-standalone-threads-6:
+    permissions: # benchmark-flow.yml: build redis, download the module artifact, sccache OIDC
+      contents: read
+      actions: read
+      id-token: write
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone-threads-6' }}
     needs: build-redisearch
     strategy:
@@ -150,8 +206,14 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      base_branch: ${{ inputs.base_branch }}
+      redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-search-oss-cluster-02-primaries:
+    permissions: # benchmark-flow.yml: build redis, download the module artifact, sccache OIDC
+      contents: read
+      actions: read
+      id-token: write
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-02-primaries' }}
     needs: build-redisearch
     strategy:
@@ -168,8 +230,14 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      base_branch: ${{ inputs.base_branch }}
+      redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-search-oss-cluster-04-primaries:
+    permissions: # benchmark-flow.yml: build redis, download the module artifact, sccache OIDC
+      contents: read
+      actions: read
+      id-token: write
     if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-04-primaries') }}
     needs: build-redisearch
     strategy:
@@ -186,8 +254,14 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      base_branch: ${{ inputs.base_branch }}
+      redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-search-oss-cluster-04-primaries-threads-6:
+    permissions: # benchmark-flow.yml: build redis, download the module artifact, sccache OIDC
+      contents: read
+      actions: read
+      id-token: write
     # TODO: Temporarily disabled - Redis becomes unavailable after ~3 hours of data loading.
     if: false # if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-04-primaries-threads-6' }}
     needs: build-redisearch
@@ -205,8 +279,14 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      base_branch: ${{ inputs.base_branch }}
+      redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-search-oss-cluster-08-primaries:
+    permissions: # benchmark-flow.yml: build redis, download the module artifact, sccache OIDC
+      contents: read
+      actions: read
+      id-token: write
     if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-08-primaries') }}
     needs: build-redisearch
     strategy:
@@ -223,8 +303,14 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      base_branch: ${{ inputs.base_branch }}
+      redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8:
+    permissions: # benchmark-flow.yml: build redis, download the module artifact, sccache OIDC
+      contents: read
+      actions: read
+      id-token: write
     if: ${{ inputs.allowed_setup == 'oss-cluster-08-primaries-250gb-threads-8' }}
     needs: build-redisearch
     uses: ./.github/workflows/benchmark-flow.yml
@@ -235,14 +321,20 @@ jobs:
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-08-primaries-250gb-threads-8
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      base_branch: ${{ inputs.base_branch }}
+      redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-search-oss-cluster-16-primaries:
+    permissions: # benchmark-flow.yml: build redis, download the module artifact, sccache OIDC
+      contents: read
+      actions: read
+      id-token: write
     if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-16-primaries') }}
     needs: build-redisearch
     strategy:
       fail-fast: false
       matrix:
-        member_id: [1, 2, 3]
+        member_id: [1, 2, 3, 4]
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
@@ -253,8 +345,14 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      base_branch: ${{ inputs.base_branch }}
+      redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-search-oss-cluster-20-primaries:
+    permissions: # benchmark-flow.yml: build redis, download the module artifact, sccache OIDC
+      contents: read
+      actions: read
+      id-token: write
     if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-20-primaries') }}
     needs: build-redisearch
     strategy:
@@ -271,8 +369,14 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      base_branch: ${{ inputs.base_branch }}
+      redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-search-oss-cluster-24-primaries:
+    permissions: # benchmark-flow.yml: build redis, download the module artifact, sccache OIDC
+      contents: read
+      actions: read
+      id-token: write
     if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-24-primaries') }}
     needs: build-redisearch
     strategy:
@@ -289,8 +393,14 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      base_branch: ${{ inputs.base_branch }}
+      redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-hybrid-oss-standalone:
+    permissions: # benchmark-flow.yml: build redis, download the module artifact, sccache OIDC
+      contents: read
+      actions: read
+      id-token: write
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
     needs: build-redisearch
     strategy:
@@ -307,8 +417,10 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      base_branch: ${{ inputs.base_branch }}
+      redis_ref: ${{ inputs.redis_ref }}
 
-  notify-failure:
+  triage-benchmark-failures:
     needs:
       - benchmark-search-oss-standalone
       - benchmark-search-oss-standalone-aarch64
@@ -325,31 +437,96 @@ jobs:
       - benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8
       - benchmark-hybrid-oss-standalone
     if: ${{ always() && contains(needs.*.result, 'failure') && inputs.notify_failure }}
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      triage-exists: ${{ steps.triage.outputs.triage-exists }}
+      triage-content-json: ${{ steps.triage.outputs.triage-content-json }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: ./.github/actions/fetch-failed-run-logs
+        with:
+          github-token: ${{ github.token }}
+          # Benchmarks run sequentially and the runner keeps going after one
+          # fails, so a failing benchmark's root cause lands far above the
+          # tail-capped window (the final per-test summary table only reports a
+          # status, not the cause). Extract the decisive lines from the full log
+          # so they survive truncation. redisbench_admin / ftsb / memtier and
+          # crash markers:
+          highlight-patterns: |
+            CRITICAL:root:Exception during remote work
+            Failing test\.\.\.\.
+            ERROR:root:The benchmark returned an error exit status
+            RedisTimeSeries connection error while pushing metrics
+            The benchmark ran successfully but the post-benchmark metrics export failed
+            The benchmark itself completed successfully
+            Traceback \(most recent call last\)
+            ^Exception:
+            \|(server|client)\|(exception|error)\|
+            (Segmentation fault|signal SIG|core dumped|panicked at|AddressSanitizer|terminate called|Sanitizer)
+            Connection reset by peer
+            Connection refused
+            (Total Errors|Total Timeouts): [1-9]
+            ##\[error\]
+      - name: Run Codex triage
+        id: triage
+        uses: redislabsdev/redisearch-ci-common/.github/actions/codex-ci-triage@v1
+        with:
+          openai-api-key: ${{ secrets.CI_TRIAGE_OPENAI_API_KEY }}
+          prompt-file: .github/codex/prompts/benchmark-triage.md
+
+  notify-failure:
+    permissions: {} # Slack webhook only
+    needs:
+      - benchmark-search-oss-standalone
+      - benchmark-search-oss-standalone-aarch64
+      - benchmark-search-oss-standalone-threads-6
+      - benchmark-vecsim-oss-standalone
+      - benchmark-vecsim-oss-standalone-threads-6
+      - benchmark-search-oss-cluster-02-primaries
+      - benchmark-search-oss-cluster-04-primaries
+      - benchmark-search-oss-cluster-04-primaries-threads-6
+      - benchmark-search-oss-cluster-08-primaries
+      - benchmark-search-oss-cluster-16-primaries
+      - benchmark-search-oss-cluster-20-primaries
+      - benchmark-search-oss-cluster-24-primaries
+      - benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8
+      - benchmark-hybrid-oss-standalone
+      - triage-benchmark-failures
+    if: ${{ always() && contains(needs.*.result, 'failure') && inputs.notify_failure }}
+    runs-on: ubuntu-slim
     steps:
       - name: Notify Failure
-        uses: slackapi/slack-github-action@v1
+        uses: slackapi/slack-github-action@0d95c9a7becc1e6e297d76df9bc735c44f4cbcbc # v3.0.5
         with:
-          payload: |
-            {
-              "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}"
-            }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_BENCHMARK_FAILED }}
-
-  notify-msmarco-failure:
-    needs:
-      - benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8
-    if: ${{ always() && needs.benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8.result == 'failure' && inputs.notify_failure }}
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
-    steps:
-      - name: Notify MSMARCO Benchmark Failure
-        uses: slackapi/slack-github-action@v1
-        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL_BENCHMARK_FAILED }}
+          webhook-type: webhook-trigger
+          errors: true  # fail step on Slack delivery errors; v3 default silently retries
           payload: |
             {
               "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}",
-              "repository": "${{ github.repository }}"
+              "ai_triage": ${{ needs.triage-benchmark-failures.outputs.triage-exists == 'true' && needs.triage-benchmark-failures.outputs.triage-content-json || '""' }}
             }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_MSMARCO_BENCHMARK_FAILED }}
+
+  notify-msmarco-failure:
+    permissions: {} # Slack webhook only
+    needs:
+      - benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8
+      - triage-benchmark-failures
+    if: ${{ always() && needs.benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8.result == 'failure' && inputs.notify_failure }}
+    runs-on: ubuntu-slim
+    steps:
+      - name: Notify MSMARCO Benchmark Failure
+        uses: slackapi/slack-github-action@0d95c9a7becc1e6e297d76df9bc735c44f4cbcbc # v3.0.5
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL_MSMARCO_BENCHMARK_FAILED }}
+          webhook-type: webhook-trigger
+          errors: true  # fail step on Slack delivery errors; v3 default silently retries
+          payload: |
+            {
+              "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}",
+              "repository": "${{ github.repository }}",
+              "ai_triage": ${{ needs.triage-benchmark-failures.outputs.triage-exists == 'true' && needs.triage-benchmark-failures.outputs.triage-content-json || '""' }}
+            }

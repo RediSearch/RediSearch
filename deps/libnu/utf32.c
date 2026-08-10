@@ -10,8 +10,7 @@ const char* nu_utf32_read_bom(const char *encoded, nu_utf32_bom_t *bom) {
 	unsigned char bom2 = *(unsigned char *)(encoded + 2);
 	unsigned char bom3 = *(unsigned char *)(encoded + 3);
 
-	if (bom0 == 0xFF && bom1 == 0xFE
-	&& bom2 == 0 && bom3 == 0) {
+	if (bom0 == 0xFF && bom1 == 0xFE && bom2 == 0 && bom3 == 0) {
 		if (bom != 0) {
 #ifdef NU_WITH_UTF32_WRITER
 			bom->write_bom = nu_utf32le_write_bom;
@@ -25,8 +24,7 @@ const char* nu_utf32_read_bom(const char *encoded, nu_utf32_bom_t *bom) {
 			bom->validread = nu_utf32le_validread;
 #endif
 		}
-	}
-	else {
+	} else {
 		if (bom != 0) {
 #ifdef NU_WITH_UTF32_WRITER
 			bom->write_bom = nu_utf32be_write_bom;
@@ -41,11 +39,9 @@ const char* nu_utf32_read_bom(const char *encoded, nu_utf32_bom_t *bom) {
 #endif
 		}
 
-		if (bom0 == 0 && bom1 == 0
-			&& bom2 == 0xFE && bom3 == 0xFF) {
+		if (bom0 == 0 && bom1 == 0 && bom2 == 0xFE && bom3 == 0xFF) {
 			return encoded + 4;
-		}
-		else {
+		} else {
 			return encoded;
 		}
 	}
@@ -60,7 +56,7 @@ const char* nu_utf32_read_bom(const char *encoded, nu_utf32_bom_t *bom) {
 char* nu_utf32le_write_bom(char *encoded) {
 	unsigned char *p = (unsigned char *)(encoded);
 
-	*(p)     = 0xFF;
+	*(p) = 0xFF;
 	*(p + 1) = 0xFE;
 	*(p + 2) = 0;
 	*(p + 3) = 0;
@@ -71,7 +67,7 @@ char* nu_utf32le_write_bom(char *encoded) {
 char* nu_utf32be_write_bom(char *encoded) {
 	unsigned char *p = (unsigned char *)(encoded);
 
-	*(p)     = 0;
+	*(p) = 0;
 	*(p + 1) = 0;
 	*(p + 2) = 0xFE;
 	*(p + 3) = 0xFF;

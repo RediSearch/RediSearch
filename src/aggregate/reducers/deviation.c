@@ -8,6 +8,14 @@
 */
 #include <aggregate/reducer.h>
 #include <math.h>
+#include <stdint.h>
+#include <string.h>
+
+#include "value_ffi.h"
+#include "rlookup.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "util/block_alloc.h"
 
 typedef struct {
   size_t n;

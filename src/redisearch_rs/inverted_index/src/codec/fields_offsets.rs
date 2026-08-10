@@ -9,14 +9,15 @@
 
 use std::io::{Cursor, Seek, SeekFrom, Write};
 
-use ffi::{t_docId, t_fieldMask};
 use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
 use crate::{
-    Decoder, Encoder, RSIndexResult, TermDecoder,
+    Decoder, Encoder, TermDecoder,
     full::{decode_term_record_offsets, offsets},
 };
+use index_result::RSIndexResult;
+use rqe_core::{DocId, FieldMask};
 
 /// Encode and decode the delta, field mask and offsets of a term record.
 ///
@@ -61,7 +62,7 @@ impl Decoder for FieldsOffsets {
     #[inline(always)]
     fn decode<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        base: t_docId,
+        base: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<()> {
         let (decoded_values, _bytes_consumed) = qint_decode::<3, _>(cursor)?;
@@ -71,7 +72,7 @@ impl Decoder for FieldsOffsets {
             cursor,
             base,
             delta,
-            field_mask as t_fieldMask,
+            field_mask as FieldMask,
             1,
             offsets_sz,
             result,
@@ -82,26 +83,29 @@ impl Decoder for FieldsOffsets {
         RSIndexResult::build_term().build()
     }
 
+    #[inline(always)]
     fn seek<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        mut base: t_docId,
-        target: t_docId,
+        mut base: DocId,
+        target: DocId,
         result: &mut RSIndexResult<'index>,
-    ) -> std::io::Result<bool> {
+    ) -> std::io::Result<Option<u16>> {
+        let mut skipped: u16 = 0;
         let (field_mask, offsets_sz) = loop {
             let [delta, field_mask, offsets_sz] = match qint_decode::<3, _>(cursor) {
                 Ok((decoded_values, _bytes_consumed)) => decoded_values,
                 Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
-                    return Ok(false);
+                    return Ok(None);
                 }
                 Err(error) => return Err(error),
             };
 
-            base += delta as t_docId;
+            base += delta as DocId;
 
             if base >= target {
                 break (field_mask, offsets_sz);
             }
+            skipped += 1;
 
             // Skip the offsets
             cursor.seek(SeekFrom::Current(offsets_sz as i64))?;
@@ -111,12 +115,12 @@ impl Decoder for FieldsOffsets {
             cursor,
             base,
             0,
-            field_mask as t_fieldMask,
+            field_mask as FieldMask,
             1,
             offsets_sz,
             result,
         )?;
-        Ok(true)
+        Ok(Some(skipped))
     }
 }
 
@@ -158,18 +162,18 @@ impl Decoder for FieldsOffsetsWide {
     #[inline(always)]
     fn decode<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        base: t_docId,
+        base: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<()> {
         let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(cursor)?;
         let [delta, offsets_sz] = decoded_values;
-        let field_mask = t_fieldMask::read_as_varint(cursor)?;
+        let field_mask = FieldMask::read_as_varint(cursor)?;
 
         decode_term_record_offsets(
             cursor,
             base,
             delta,
-            field_mask as t_fieldMask,
+            field_mask as FieldMask,
             1,
             offsets_sz,
             result,
@@ -180,27 +184,30 @@ impl Decoder for FieldsOffsetsWide {
         RSIndexResult::build_term().build()
     }
 
+    #[inline(always)]
     fn seek<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        mut base: t_docId,
-        target: t_docId,
+        mut base: DocId,
+        target: DocId,
         result: &mut RSIndexResult<'index>,
-    ) -> std::io::Result<bool> {
+    ) -> std::io::Result<Option<u16>> {
+        let mut skipped: u16 = 0;
         let (field_mask, offsets_sz) = loop {
             let [delta, offsets_sz] = match qint_decode::<2, _>(cursor) {
                 Ok((decoded_values, _bytes_consumed)) => decoded_values,
                 Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
-                    return Ok(false);
+                    return Ok(None);
                 }
                 Err(error) => return Err(error),
             };
-            let field_mask = t_fieldMask::read_as_varint(cursor)?;
+            let field_mask = FieldMask::read_as_varint(cursor)?;
 
-            base += delta as t_docId;
+            base += delta as DocId;
 
             if base >= target {
                 break (field_mask, offsets_sz);
             }
+            skipped += 1;
 
             // Skip the offsets
             cursor.seek(SeekFrom::Current(offsets_sz as i64))?;
@@ -210,12 +217,12 @@ impl Decoder for FieldsOffsetsWide {
             cursor,
             base,
             0,
-            field_mask as t_fieldMask,
+            field_mask as FieldMask,
             1,
             offsets_sz,
             result,
         )?;
-        Ok(true)
+        Ok(Some(skipped))
     }
 }
 

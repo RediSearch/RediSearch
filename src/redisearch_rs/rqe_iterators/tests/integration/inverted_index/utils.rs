@@ -10,14 +10,13 @@
 use ffi::{
     IndexFlags, IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
     IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets, IndexFlags_Index_WideSchema,
-    t_docId,
 };
 use field::FieldMaskOrIndex;
-use inverted_index::{
-    DecodedBy, Encoder, InvertedIndex, RSIndexResult, RSResultKind, test_utils::TermRecordCompare,
-};
+use index_result::{RSIndexResult, RSResultKind};
+use inverted_index::{DecodedBy, Encoder, InvertedIndex, test_utils::TermRecordCompare};
 use numeric_range_tree::NumericIndex;
-use rqe_iterators::{ExpirationChecker, RQEIterator, RQEValidateStatus, SkipToOutcome};
+use rqe_core::{DocId, FieldMask};
+use rqe_iterators::{RQEIterator, RQEValidateStatus, SkipToOutcome};
 use rqe_iterators_test_utils::MockContext;
 use std::collections::HashSet;
 
@@ -26,9 +25,9 @@ pub use rqe_iterators_test_utils::{GlobalGuard, TestContext};
 
 /// Test basic read and skip_to functionality for a given iterator.
 pub(super) struct BaseTest<E> {
-    doc_ids: Vec<t_docId>,
+    doc_ids: Vec<DocId>,
     pub(super) ii: InvertedIndex<E>,
-    expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
+    expected_record: Box<dyn Fn(DocId) -> RSIndexResult<'static>>,
     pub(super) mock_ctx: MockContext,
 }
 
@@ -45,13 +44,13 @@ pub fn check_record(record: &RSIndexResult, expected: &RSIndexResult) {
 impl<E: Encoder> BaseTest<E> {
     pub(super) fn new(
         ii_flags: IndexFlags,
-        expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
+        expected_record: Box<dyn Fn(DocId) -> RSIndexResult<'static>>,
         n_docs: u64,
     ) -> Self {
         let create_record = &*expected_record;
         // Generate a set of odd document IDs for testing, starting from 1.
         let doc_ids = (0..=n_docs)
-            .map(|i| (2 * i + 1) as t_docId)
+            .map(|i| (2 * i + 1) as DocId)
             .collect::<Vec<_>>();
 
         let mut ii = InvertedIndex::<E>::new(ii_flags);
@@ -151,10 +150,19 @@ impl<E: Encoder> BaseTest<E> {
             i += 1;
         }
 
-        // Test reading after skipping to the last id
+        // The last result is still current here; EOF arrives with the read that
+        // runs past it.
+        let last_id = *self.doc_ids.last().unwrap();
+        assert_eq!(it.current().unwrap().doc_id, last_id);
+        assert!(!it.at_eof());
+
         assert!(matches!(it.read(), Ok(None)));
+        assert!(it.current().is_none());
+        assert!(it.at_eof());
+
         let last_doc_id = it.last_doc_id();
         assert!(matches!(it.skip_to(last_doc_id + 1), Ok(None)));
+        assert!(it.current().is_none());
         assert!(it.at_eof());
 
         it.rewind();
@@ -180,44 +188,16 @@ impl<E: Encoder> BaseTest<E> {
         assert!(!it.at_eof());
         let res = it.skip_to(self.doc_ids.last().unwrap() + 1);
         assert!(matches!(res, Ok(None)));
-        // we just rewound
+        // The skip found no record, so the iterator is left unpositioned and
+        // `last_doc_id` keeps the value `rewind` gave it.
         assert_eq!(it.last_doc_id(), 0);
-        assert_eq!(it.current().unwrap().doc_id, 0);
+        assert!(it.current().is_none());
         assert!(it.at_eof());
     }
 }
 
 /// ---------- Expiration Tests ----------
-
-/// A mock expiration checker for testing.
-///
-/// This allows testing expiration logic without requiring TTL tables.
-/// The `ExpirationTest` will mark documents as expired in this mock checker
-/// instead of in the TTL tables.
-#[derive(Debug, Clone)]
-pub struct MockExpirationChecker {
-    expired_docs: HashSet<t_docId>,
-}
-
-impl MockExpirationChecker {
-    pub fn new(expired_docs: HashSet<t_docId>) -> Self {
-        Self { expired_docs }
-    }
-
-    pub fn mark_expired(&mut self, doc_id: t_docId) {
-        self.expired_docs.insert(doc_id);
-    }
-}
-
-impl ExpirationChecker for MockExpirationChecker {
-    fn has_expiration(&self) -> bool {
-        !self.expired_docs.is_empty()
-    }
-
-    fn is_expired(&self, result: &RSIndexResult) -> bool {
-        self.expired_docs.contains(&result.doc_id)
-    }
-}
+pub use rqe_iterators_test_utils::MockExpirationChecker;
 
 /// The type of index used in the expiration test.
 enum ExpirationIndexType {
@@ -230,8 +210,8 @@ enum ExpirationIndexType {
 /// Supports both numeric and term index types.
 /// Uses a `MockExpirationChecker` instead of TTL tables for expiration tracking.
 pub struct ExpirationTest {
-    pub(crate) doc_ids: Vec<t_docId>,
-    expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
+    pub(crate) doc_ids: Vec<DocId>,
+    expected_record: Box<dyn Fn(DocId) -> RSIndexResult<'static>>,
     pub(crate) context: TestContext,
     index_type: ExpirationIndexType,
     mock_checker: MockExpirationChecker,
@@ -241,13 +221,13 @@ pub struct ExpirationTest {
 impl ExpirationTest {
     /// Create a new numeric expiration test.
     pub(crate) fn numeric(
-        expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
+        expected_record: Box<dyn Fn(DocId) -> RSIndexResult<'static>>,
         n_docs: u64,
         multi: bool,
     ) -> Self {
         let create_record = &*expected_record;
         // Generate a set of document IDs for testing.
-        let doc_ids = (1..=n_docs).map(|i| i as t_docId).collect::<Vec<_>>();
+        let doc_ids = (1..=n_docs).map(|i| i as DocId).collect::<Vec<_>>();
 
         // Create a TestContext which creates the inverted index via NumericRangeTree
         let context = TestContext::numeric(doc_ids.iter().map(|id| create_record(*id)), multi);
@@ -265,13 +245,13 @@ impl ExpirationTest {
     /// Create a new term expiration test.
     pub(crate) fn term(
         ii_flags: IndexFlags,
-        expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
+        expected_record: Box<dyn Fn(DocId) -> RSIndexResult<'static>>,
         n_docs: u64,
         multi: bool,
     ) -> Self {
         let create_record = &*expected_record;
         // Generate a set of document IDs for testing.
-        let doc_ids = (1..=n_docs).map(|i| i as t_docId).collect::<Vec<_>>();
+        let doc_ids = (1..=n_docs).map(|i| i as DocId).collect::<Vec<_>>();
 
         // Create a TestContext which creates the inverted index
         let context =
@@ -316,7 +296,7 @@ impl ExpirationTest {
     }
 
     /// Get the text field bit from the TestContext.
-    pub(crate) fn text_field_bit(&self) -> ffi::t_fieldMask {
+    pub(crate) fn text_field_bit(&self) -> FieldMask {
         self.context.text_field_bit()
     }
 
@@ -337,7 +317,7 @@ impl ExpirationTest {
 
     /// Mark the index as expired for the given document IDs.
     /// This updates the mock expiration checker instead of the TTL tables.
-    pub(crate) fn mark_index_expired(&mut self, ids: Vec<t_docId>, _field: FieldMaskOrIndex) {
+    pub(crate) fn mark_index_expired(&mut self, ids: Vec<DocId>, _field: FieldMaskOrIndex) {
         for id in ids {
             self.mock_checker.mark_expired(id);
         }
@@ -451,8 +431,7 @@ pub enum RevalidateIndexType {
 
 /// Test the revalidation of the iterator.
 pub struct RevalidateTest {
-    #[allow(dead_code)]
-    doc_ids: Vec<t_docId>,
+    pub doc_ids: Vec<DocId>,
     pub context: TestContext,
     _guard: GlobalGuard,
 }
@@ -460,12 +439,12 @@ pub struct RevalidateTest {
 impl RevalidateTest {
     pub fn new(
         index_type: RevalidateIndexType,
-        expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
+        expected_record: Box<dyn Fn(DocId) -> RSIndexResult<'static>>,
         n_docs: u64,
     ) -> Self {
         // Generate a set of odd document IDs for testing, starting from 1.
         let doc_ids = (0..=n_docs)
-            .map(|i| (2 * i + 1) as t_docId)
+            .map(|i| (2 * i + 1) as DocId)
             .collect::<Vec<_>>();
 
         let context = match index_type {
@@ -496,17 +475,15 @@ impl RevalidateTest {
     where
         I: for<'iterator> RQEIterator<'index>,
     {
-        // SAFETY: test-only call with valid context
-        assert_eq!(
-            unsafe { it.revalidate(self.context.spec) }.expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = it
+            .revalidate(&*self.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Ok);
         assert!(matches!(it.read(), Ok(Some(_))));
-        // SAFETY: test-only call with valid context
-        assert_eq!(
-            unsafe { it.revalidate(self.context.spec) }.expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = it
+            .revalidate(&*self.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Ok);
     }
 
     /// test revalidation functionality when iterator is at EOF
@@ -517,23 +494,22 @@ impl RevalidateTest {
         // Read all documents to reach EOF
         while let Some(_record) = it.read().expect("failed to read") {}
         assert!(it.at_eof());
-        // SAFETY: test-only call with valid context
-        assert_eq!(
-            unsafe { it.revalidate(self.context.spec) }.expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = it
+            .revalidate(&*self.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Ok);
     }
 
     /// Remove the document with the given id from the inverted index.
     pub fn remove_document<E: Encoder + DecodedBy>(
         &self,
         ii: &mut InvertedIndex<E>,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) {
         let scan_delta = ii
             .scan_gc(
                 |d| d != doc_id,
-                None::<fn(&RSIndexResult, &inverted_index::IndexBlock)>,
+                None::<fn(&RSIndexResult, &inverted_index::RepairContext<'_>)>,
             )
             .expect("scan GC failed")
             .expect("no GC scan delta");
@@ -542,7 +518,7 @@ impl RevalidateTest {
     }
 
     /// Remove the document with the given id from a numeric inverted index.
-    pub fn remove_document_numeric(&self, ii: &mut NumericIndex, doc_id: t_docId) {
+    pub fn remove_document_numeric(&self, ii: &mut NumericIndex, doc_id: DocId) {
         match ii {
             NumericIndex::Uncompressed(ii) => self.remove_document(ii.inner_mut(), doc_id),
             NumericIndex::Compressed(ii) => self.remove_document(ii.inner_mut(), doc_id),
@@ -575,11 +551,10 @@ impl RevalidateTest {
     ) where
         I: for<'iterator> RQEIterator<'index>,
     {
-        // SAFETY: test-only call with valid context
-        assert_eq!(
-            unsafe { it.revalidate(self.context.spec) }.expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = it
+            .revalidate(&*self.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Ok);
 
         // First, read a few documents to establish a position
         let doc = it
@@ -604,37 +579,35 @@ impl RevalidateTest {
         assert_eq!(it.current().unwrap().doc_id, self.doc_ids[2]);
 
         // Nothing changed in the index so revalidate does nothing
-        // SAFETY: test-only call with valid context
-        assert_eq!(
-            unsafe { it.revalidate(self.context.spec) }.expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = it
+            .revalidate(&*self.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Ok);
 
         // Remove an element before the current iteration position.
         self.remove_document(ii, self.doc_ids[0]);
-        // SAFETY: test-only call with valid context
-        assert_eq!(
-            unsafe { it.revalidate(self.context.spec) }.expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = it
+            .revalidate(&*self.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Ok);
         assert_eq!(it.last_doc_id(), self.doc_ids[2]);
         assert_eq!(it.current().unwrap().doc_id, self.doc_ids[2]);
 
         // Remove an element after the current iteration position.
         self.remove_document(ii, self.doc_ids[4]);
-        // SAFETY: test-only call with valid context
-        assert_eq!(
-            unsafe { it.revalidate(self.context.spec) }.expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = it
+            .revalidate(&*self.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Ok);
         assert_eq!(it.last_doc_id(), self.doc_ids[2]);
         assert_eq!(it.current().unwrap().doc_id, self.doc_ids[2]);
 
         // Remove the element at the current position of the iterator.
         // When validating we won't be able to skip to this element, so we should get RQEValidateStatus::Moved.
         self.remove_document(ii, self.doc_ids[2]);
-        // SAFETY: test-only call with valid context
-        let res = unsafe { it.revalidate(self.context.spec) }.expect("revalidate failed");
+        let res = it
+            .revalidate(&*self.context.spec_read())
+            .expect("revalidate failed");
         let current_doc = match res {
             RQEValidateStatus::Moved {
                 current: Some(current),
@@ -668,9 +641,179 @@ impl RevalidateTest {
 
         self.remove_document(ii, last_doc_id);
         // revalidate should return Moved without current doc and be at EOF.
-        // SAFETY: test-only call with valid context
-        let res = unsafe { it.revalidate(self.context.spec) }.expect("revalidate failed");
+        let res = it
+            .revalidate(&*self.context.spec_read())
+            .expect("revalidate failed");
         assert!(matches!(res, RQEValidateStatus::Moved { current: None }));
         assert!(it.at_eof());
+    }
+}
+
+/// Resume-flavored counterpart of [`RevalidateTest`]. Each method mirrors
+/// the corresponding [`RevalidateTest`] method by name and semantics, but
+/// drives the new `suspend`/`resume` path via
+/// [`revalidate_via_resume`](rqe_iterators_test_utils::revalidate_via_resume)
+/// instead of the legacy [`RQEIterator::revalidate`] call.
+///
+/// When revalidation starts going through the new suspend/resume code path,
+/// we will delete [`RevalidateTest`] and replace
+/// it by hoisting this module's contents up to the file level. Tests
+/// can then drop the `mod via_resume` wrapper.
+#[allow(
+    dead_code,
+    reason = "callers land in per-iterator resume/suspend commits that follow this one"
+)]
+pub mod via_resume {
+    use super::{DecodedBy, Encoder, InvertedIndex, NumericIndex, RevalidateTest, SkipToOutcome};
+    use rqe_iterators::{RQEIterator, RQEIteratorBoxed, TypeErasedRQEIterator};
+    use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
+
+    /// test basic revalidation functionality - should return `VALIDATE_OK` when index is valid
+    pub fn revalidate_basic<'a, I>(test: &'a RevalidateTest, it: Box<I>)
+    where
+        I: RQEIteratorBoxed<'a> + 'a,
+    {
+        let guard = test.context.spec_read();
+        let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
+            .expect("resume should not fail in this test")
+            .expect_ok();
+        assert!(matches!(it.read(), Ok(Some(_))));
+        revalidate_via_resume(it, &guard)
+            .expect("resume should not fail in this test")
+            .expect_ok();
+    }
+
+    /// test revalidation functionality when iterator is at EOF
+    pub fn revalidate_at_eof<'a, I>(test: &'a RevalidateTest, mut it: Box<I>)
+    where
+        I: RQEIteratorBoxed<'a> + 'a,
+    {
+        // Read all documents to reach EOF
+        while let Some(_record) = it.read().expect("failed to read") {}
+        assert!(it.at_eof());
+        let guard = test.context.spec_read();
+        let it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
+            .expect("resume should not fail in this test")
+            .expect_ok();
+        assert!(it.at_eof());
+    }
+
+    /// test revalidate returns `Moved` when the document at the iterator position is deleted from the index.
+    pub fn revalidate_numeric_after_document_deleted<'a, I>(
+        test: &'a RevalidateTest,
+        it: Box<I>,
+        ii: &mut NumericIndex,
+    ) where
+        I: RQEIteratorBoxed<'a> + 'a,
+    {
+        match ii {
+            NumericIndex::Uncompressed(ii) => {
+                revalidate_after_document_deleted(test, it, ii.inner_mut())
+            }
+            NumericIndex::Compressed(ii) => {
+                revalidate_after_document_deleted(test, it, ii.inner_mut())
+            }
+        }
+    }
+
+    /// test revalidate returns `Moved` when the document at the iterator position is deleted from the index.
+    pub fn revalidate_after_document_deleted<'a, I, E: Encoder + DecodedBy>(
+        test: &'a RevalidateTest,
+        it: Box<I>,
+        ii: &mut InvertedIndex<E>,
+    ) where
+        I: RQEIteratorBoxed<'a> + 'a,
+    {
+        let guard = test.context.spec_read();
+        let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
+            .expect("resume should not fail in this test")
+            .expect_ok();
+
+        // First, read a few documents to establish a position
+        let doc = it
+            .read()
+            .expect("failed to read")
+            .expect("should not be at EOF");
+        assert_eq!(doc.doc_id, test.doc_ids[0]);
+
+        let doc = it
+            .read()
+            .expect("failed to read")
+            .expect("should not be at EOF");
+        assert_eq!(doc.doc_id, test.doc_ids[1]);
+
+        let doc = it
+            .read()
+            .expect("failed to read")
+            .expect("should not be at EOF");
+        assert_eq!(doc.doc_id, test.doc_ids[2]);
+
+        assert_eq!(it.last_doc_id(), test.doc_ids[2]);
+        assert_eq!(it.current().unwrap().doc_id, test.doc_ids[2]);
+
+        // Nothing changed in the index so revalidate does nothing
+        let it = revalidate_via_resume(it, &guard)
+            .expect("resume should not fail in this test")
+            .expect_ok();
+
+        // Remove an element before the current iteration position.
+        test.remove_document(ii, test.doc_ids[0]);
+        let mut it = revalidate_via_resume(it, &guard)
+            .expect("resume should not fail in this test")
+            .expect_ok();
+        assert_eq!(it.last_doc_id(), test.doc_ids[2]);
+        assert_eq!(it.current().unwrap().doc_id, test.doc_ids[2]);
+
+        // Remove an element after the current iteration position.
+        test.remove_document(ii, test.doc_ids[4]);
+        let mut it = revalidate_via_resume(it, &guard)
+            .expect("resume should not fail in this test")
+            .expect_ok();
+        assert_eq!(it.last_doc_id(), test.doc_ids[2]);
+        assert_eq!(it.current().unwrap().doc_id, test.doc_ids[2]);
+
+        // Remove the element at the current position of the iterator.
+        // When validating we won't be able to skip to this element, so we should get MOVED.
+        test.remove_document(ii, test.doc_ids[2]);
+        let mut it = revalidate_via_resume(it, &guard)
+            .expect("resume should not fail in this test")
+            .expect_moved();
+        let current_doc = it
+            .current()
+            .expect("iterator should be positioned after resume");
+        assert_eq!(current_doc.doc_id, test.doc_ids[3]);
+        // iterator advanced to the next element
+        assert_eq!(it.last_doc_id(), test.doc_ids[3]);
+        assert_eq!(it.current().unwrap().doc_id, test.doc_ids[3]);
+
+        // read the next element, docs_ids[4] has been removed so iterator should return the one after.
+        let doc = it
+            .read()
+            .expect("failed to read")
+            .expect("should not be at EOF");
+        assert_eq!(doc.doc_id, test.doc_ids[5]);
+        assert_eq!(it.last_doc_id(), test.doc_ids[5]);
+        assert_eq!(it.current().unwrap().doc_id, test.doc_ids[5]);
+
+        // edge case: iterator is at the last document which is then removed.
+        assert!(!it.at_eof());
+        let last_doc_id = *test.doc_ids.last().unwrap();
+        let doc = match it.skip_to(last_doc_id) {
+            Ok(Some(SkipToOutcome::Found(doc))) => doc,
+            _ => panic!("skip_to {last_doc_id} should succeed"),
+        };
+        assert_eq!(doc.doc_id, last_doc_id);
+        assert_eq!(it.last_doc_id(), last_doc_id);
+        assert_eq!(it.current().unwrap().doc_id, last_doc_id);
+
+        test.remove_document(ii, last_doc_id);
+        // The move runs off the end, which `current()` reports on its own — no
+        // `at_eof()` pre-check needed to interpret it.
+        let mut it = revalidate_via_resume(it, &guard)
+            .expect("resume should not fail in this test")
+            .expect_moved();
+        assert!(it.current().is_none());
+        assert!(it.at_eof());
+        assert!(it.read().expect("read should not fail").is_none());
     }
 }

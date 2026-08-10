@@ -6,6 +6,7 @@ license-file.workspace = true
 publish.workspace = true
 
 [dependencies]
+cheadergen.workspace = true
 strum.workspace = true
 thiserror.workspace = true
 workspace_hack.workspace = true

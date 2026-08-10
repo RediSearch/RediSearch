@@ -7,32 +7,41 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "redismodule.h"
-
-#include "module.h"
-#include "config.h"
-#include "redisearch_api.h"
-#include <assert.h>
 #include <dlfcn.h>
-#include "concurrent_ctx.h"
+// __USE_GNU; glibc-only header
+#if __has_include(<features.h>)
+#include <features.h>  // IWYU pragma: keep
+#endif
+#include <stdbool.h>
+#include <string.h>
+
+#include "redismodule.h"
+#include "module.h"
+#include "indexes.h"
+#include "config.h"
 #include "cursor.h"
 #include "extension.h"
 #include "alias.h"
 #include "notifications.h"
-#include "aggregate/aggregate.h"
 #include "ext/default.h"
-#include "rwlock.h"
 #include "json.h"
 #include "VecSim/vec_sim.h"
 #include "util/workers.h"
-#include "util/array.h"
-#include "cursor.h"
-#include "fork_gc.h"
-#include "info/info_command.h"
-#include "profile/profile.h"
 #include "info/info_redis/info_redis.h"
 #include "util/logging.h"
 #include "asm_state_machine.h"
+#include "VecSim/vec_sim_common.h"
+#include "aggregate/functions/function.h"
+#include "gc.h"
+#include "hiredis/sds.h"
+#include "redisearch.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "spec.h"
+#include "thpool/thpool.h"
+#include "util/timeout.h"
+#include "vector_index.h"
+#include "version.h"
 
 #define DEPLETER_POOL_SIZE 4
 
@@ -63,26 +72,12 @@ static int validateAofSettings(RedisModuleCtx *ctx) {
 }
 
 static int initAsModule(RedisModuleCtx *ctx) {
-  if (RediSearch_ExportCapi(ctx) != REDISMODULE_OK) {
-    RedisModule_Log(ctx, "warning", "Could not initialize low level api");
-  } else {
-    RedisModule_Log(ctx, "notice", "Low level api version %d initialized successfully",
-                    REDISEARCH_CAPI_VERSION);
-  }
-
   if (!validateAofSettings(ctx)) {
     return REDISMODULE_ERR;
   }
 
   GetJSONAPIs(ctx, 1);
 
-  return REDISMODULE_OK;
-}
-
-static int initAsLibrary(RedisModuleCtx *ctx) {
-  RSGlobalConfig.iteratorsConfigParams.minTermPrefix = 0;
-  RSGlobalConfig.iteratorsConfigParams.maxPrefixExpansions = LONG_MAX;
-  RSGlobalConfig.iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH;
   return REDISMODULE_OK;
 }
 
@@ -97,17 +92,13 @@ static inline const char* RS_GetExtraVersion() {
 int RS_Initialized = 0;
 RedisModuleCtx *RSDummyContext = NULL;
 
-int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
-#define DO_LOG(...)                                 \
-  do {                                              \
-    if (ctx && (mode != REDISEARCH_INIT_LIBRARY)) { \
-      RedisModule_Log(ctx, ##__VA_ARGS__);          \
-    }                                               \
+int RediSearch_Init(RedisModuleCtx *ctx) {
+#define DO_LOG(...)                        \
+  do {                                     \
+    if (ctx) {                             \
+      RedisModule_Log(ctx, ##__VA_ARGS__); \
+    }                                      \
   } while (false)
-
-  if (RediSearch_LockInit(ctx) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
 
   // Print version string!
   DO_LOG("notice", "RediSearch version %d.%d.%d (Git=%s)", REDISEARCH_VERSION_MAJOR,
@@ -124,9 +115,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     RSDummyContext = RedisModule_GetDetachedThreadSafeContext(ctx);
   }
 
-  if (mode == REDISEARCH_INIT_MODULE && initAsModule(ctx) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  } else if (mode == REDISEARCH_INIT_LIBRARY && initAsLibrary(ctx) != REDISMODULE_OK) {
+  if (initAsModule(ctx) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 

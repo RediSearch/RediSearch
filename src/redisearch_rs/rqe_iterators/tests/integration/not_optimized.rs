@@ -9,9 +9,16 @@
 
 use std::time::Duration;
 
-use ffi::t_docId;
-use inverted_index::RSIndexResult;
-use rqe_iterators::{RQEIterator, RQEIteratorError, SkipToOutcome, not_optimized::NotOptimized};
+use index_result::RSIndexResult;
+use rqe_core::DocId;
+use rqe_iterators::{
+    RQEIterator, RQEIteratorError, SkipToOutcome,
+    not_optimized::NotOptimized,
+    utils::{DeadlineTimeoutChecker, NoTimeoutChecker},
+};
+
+/// Granularity used by the production reducer; tests reuse it for parity.
+const CLOCK_CHECK_GRANULARITY: u32 = 5_000;
 
 use crate::utils::{Mock, MockIteratorError, MockVec, WildcardHelper};
 
@@ -19,7 +26,7 @@ use crate::utils::{Mock, MockIteratorError, MockVec, WildcardHelper};
 ///
 /// Returns all doc IDs in `wc_ids` that are NOT in `child_ids` and are at
 /// most `max_doc_id` (inclusive).
-fn compute_result_set(wc_ids: &[t_docId], child_ids: &[t_docId], max_doc_id: t_docId) -> Vec<u64> {
+fn compute_result_set(wc_ids: &[DocId], child_ids: &[DocId], max_doc_id: DocId) -> Vec<u64> {
     wc_ids
         .iter()
         .copied()
@@ -33,22 +40,22 @@ fn compute_result_set(wc_ids: &[t_docId], child_ids: &[t_docId], max_doc_id: t_d
 
 /// Read all results from the NOT-optimized iterator and compare against
 /// expected complement.
-fn read_test(wc_ids: Vec<t_docId>, child_ids: Vec<t_docId>, max_doc_id: t_docId) {
+fn read_test(wc_ids: Vec<DocId>, child_ids: Vec<DocId>, max_doc_id: DocId) {
     let expected = compute_result_set(&wc_ids, &child_ids, max_doc_id);
     let wc_helper = WildcardHelper::new(&wc_ids);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(child_ids);
-    let mut it = NotOptimized::new(wcii, child, max_doc_id, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, max_doc_id, 1.0, NoTimeoutChecker);
 
     let mut actual = Vec::new();
     while let Ok(Some(doc)) = it.read() {
         let doc_id = doc.doc_id;
         actual.push(doc_id);
         assert_eq!(it.last_doc_id(), doc_id);
-        // at_eof() is computed as `result.doc_id >= max_doc_id`, so it
-        // becomes true immediately after yielding a doc at max_doc_id even
-        // though the read itself succeeded.
-        assert!(doc_id == max_doc_id || !it.at_eof());
+        // Including when `doc_id` is `max_doc_id`: the iterator still owes that
+        // result to its caller, so the read that runs off the end is the one
+        // that reports EOF.
+        assert!(!it.at_eof());
     }
     assert!(it.at_eof());
     // Reading after EOF should return None.
@@ -80,7 +87,7 @@ fn read_continuous_child_empty_wc() {
     let wc_helper = WildcardHelper::new(&[]);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(vec![1, 2, 3]);
-    let mut it = NotOptimized::new(wcii, child, 10, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, 10, 1.0, NoTimeoutChecker);
     assert!(it.read().unwrap().is_none());
     assert!(it.at_eof());
 }
@@ -131,6 +138,45 @@ fn read_wc_at_max_doc_id() {
     read_test(vec![1, 5, 10], vec![5], 10);
 }
 
+/// A wildcard document beyond `max_doc_id` is out of this iterator's range, so
+/// reaching one ends the iteration — the answer `skip_to` already gives for a
+/// target past the bound.
+///
+/// The bound is only ever tested against the *current* position, so without this
+/// the wildcard jumping over it in one step would yield an out-of-range document.
+#[test]
+fn read_stops_when_wc_jumps_past_max_doc_id() {
+    read_test(vec![5, 150], vec![7], 100);
+}
+
+/// The same, checking what the iterator reports once it stops: the out-of-range
+/// id must not be left behind as the position, since it was never yielded.
+#[test]
+fn read_past_max_doc_id_leaves_the_last_yielded_position() {
+    let wc_helper = WildcardHelper::new(&[5, 150]);
+    let wcii = wc_helper.create_wildcard();
+    let child = MockVec::new(vec![7]);
+    let mut it = NotOptimized::new(wcii, child, 100, 1.0, NoTimeoutChecker);
+
+    let doc = it
+        .read()
+        .expect("read must not fail")
+        .expect("doc 5 is in range");
+    assert_eq!(doc.doc_id, 5);
+
+    assert!(
+        it.read().expect("read must not fail").is_none(),
+        "150 is past max_doc_id, so nothing the wildcard has left is in range",
+    );
+    assert!(it.at_eof());
+    assert!(it.current().is_none());
+    assert_eq!(
+        it.last_doc_id(),
+        5,
+        "the out-of-range id was never yielded, so it must not become the position",
+    );
+}
+
 // ---------------------------------------------------------------------------
 // SkipTo tests
 // ---------------------------------------------------------------------------
@@ -141,7 +187,7 @@ fn skip_to_beyond_max_returns_eof() {
     let wc_helper = WildcardHelper::new(&[1, 2, 3, 4, 5]);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(vec![2, 4]);
-    let mut it = NotOptimized::new(wcii, child, 10, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, 10, 1.0, NoTimeoutChecker);
 
     assert!(it.skip_to(11).unwrap().is_none());
     assert!(it.at_eof());
@@ -155,7 +201,7 @@ fn skip_to_found_in_wc_not_in_child() {
     let wc_helper = WildcardHelper::new(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(vec![2, 4, 6, 8, 10]);
-    let mut it = NotOptimized::new(wcii, child, 15, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, 15, 1.0, NoTimeoutChecker);
 
     let outcome = it.skip_to(3).unwrap();
     match outcome {
@@ -173,7 +219,7 @@ fn skip_to_in_child_returns_not_found() {
     let wc_helper = WildcardHelper::new(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(vec![2, 4, 6, 8, 10]);
-    let mut it = NotOptimized::new(wcii, child, 15, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, 15, 1.0, NoTimeoutChecker);
 
     let outcome = it.skip_to(2).unwrap();
     match outcome {
@@ -191,7 +237,7 @@ fn skip_to_not_in_wc_returns_not_found() {
     let wc_helper = WildcardHelper::new(&[5, 10, 15, 20]);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(vec![10]);
-    let mut it = NotOptimized::new(wcii, child, 25, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, 25, 1.0, NoTimeoutChecker);
 
     // Skip to 7: not in wcii, wcii advances to 10. 10 is in child, so advance
     // further to 15 which is valid.
@@ -206,14 +252,14 @@ fn skip_to_not_in_wc_returns_not_found() {
 }
 
 /// SkipTo all doc IDs from 1 to max, checking Found/NotFound/EOF.
-fn skip_to_all_test(wc_ids: Vec<t_docId>, child_ids: Vec<t_docId>, max_doc_id: t_docId) {
+fn skip_to_all_test(wc_ids: Vec<DocId>, child_ids: Vec<DocId>, max_doc_id: DocId) {
     let expected = compute_result_set(&wc_ids, &child_ids, max_doc_id);
 
     for id in 1..max_doc_id {
         let wc_helper = WildcardHelper::new(&wc_ids);
         let wcii = wc_helper.create_wildcard();
         let child = MockVec::new(child_ids.clone());
-        let mut it = NotOptimized::new(wcii, child, max_doc_id, 1.0, None);
+        let mut it = NotOptimized::new(wcii, child, max_doc_id, 1.0, NoTimeoutChecker);
 
         let expected_id = expected.iter().find(|&&eid| eid >= id);
         let is_exact = expected.contains(&id);
@@ -269,7 +315,7 @@ fn skip_to_sequential() {
     let wc_helper = WildcardHelper::new(&wc_ids);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(child_ids);
-    let mut it = NotOptimized::new(wcii, child, 15, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, 15, 1.0, NoTimeoutChecker);
 
     // Skip to each expected result sequentially.
     for &eid in &expected {
@@ -291,7 +337,7 @@ fn num_estimated_returns_wcii_estimate() {
     let wc_helper = WildcardHelper::new(&[1, 2, 3, 4, 5]);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(vec![2, 4]);
-    let it = NotOptimized::new(wcii, child, 10, 1.0, None);
+    let it = NotOptimized::new(wcii, child, 10, 1.0, NoTimeoutChecker);
     assert_eq!(it.num_estimated(), 5);
 }
 
@@ -304,7 +350,7 @@ fn rewind_resets_state() {
     let wc_helper = WildcardHelper::new(&wc_ids);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(child_ids);
-    let mut it = NotOptimized::new(wcii, child, 15, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, 15, 1.0, NoTimeoutChecker);
 
     for pass in 0..5 {
         for j in 0..=pass.min(expected.len() - 1) {
@@ -322,28 +368,40 @@ fn initial_state() {
     let wc_helper = WildcardHelper::new(&[1, 2, 3, 4, 5]);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(vec![2, 4]);
-    let it = NotOptimized::new(wcii, child, 10, 1.0, None);
+    let it = NotOptimized::new(wcii, child, 10, 1.0, NoTimeoutChecker);
 
     assert_eq!(it.last_doc_id(), 0);
     assert!(!it.at_eof());
     assert_eq!(it.num_estimated(), 5);
 }
 
+/// `current()` is a has-current oracle: it tracks reads and reports `None` once
+/// the iterator has run past its last result.
+///
+/// This test previously asserted the opposite — that `current()` is always
+/// `Some` — which is what let a resuming parent mistake "moved off the end" for
+/// "moved to a new document".
 #[test]
-fn current_always_returns_some() {
+fn current_is_a_has_current_oracle() {
     let wc_helper = WildcardHelper::new(&[1, 2, 3]);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(vec![2]);
-    let mut it = NotOptimized::new(wcii, child, 10, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, 10, 1.0, NoTimeoutChecker);
 
-    // Before any read.
+    // Before any read: the reset sentinel, not yet meaningful but present.
     assert!(it.current().is_some());
-    // After a read.
+    // Positioned on a result.
     it.read().unwrap();
     assert!(it.current().is_some());
-    // After EOF.
+    // Run past the last result.
     while it.read().unwrap().is_some() {}
     assert!(it.at_eof());
+    assert!(
+        it.current().is_none(),
+        "no current result once the iterator has run past the end",
+    );
+    // Rewind clears it.
+    it.rewind();
     assert!(it.current().is_some());
 }
 
@@ -355,7 +413,7 @@ fn skip_to_case2_eof() {
     let wc_helper = WildcardHelper::new(&[1, 2, 3]);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(vec![1, 2, 3]);
-    let mut it = NotOptimized::new(wcii, child, 10, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, 10, 1.0, NoTimeoutChecker);
 
     let outcome = it.skip_to(1).unwrap();
     assert!(outcome.is_none());
@@ -372,7 +430,7 @@ fn skip_to_case2_not_found() {
     let wc_helper = WildcardHelper::new(&[1, 3, 5, 7]);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(vec![3, 5]);
-    let mut it = NotOptimized::new(wcii, child, 10, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, 10, 1.0, NoTimeoutChecker);
 
     let doc = it.read().unwrap().unwrap();
     assert_eq!(doc.doc_id, 1);
@@ -396,7 +454,7 @@ fn skip_to_case2_exhausted() {
     let wc_helper = WildcardHelper::new(&[1, 3, 5]);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(vec![3, 5]);
-    let mut it = NotOptimized::new(wcii, child, 10, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, 10, 1.0, NoTimeoutChecker);
 
     let doc = it.read().unwrap().unwrap();
     assert_eq!(doc.doc_id, 1);
@@ -416,7 +474,7 @@ fn skip_to_case1_child_exhausted() {
     let wc_helper = WildcardHelper::new(&[1, 3, 5]);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(vec![2, 4]);
-    let mut it = NotOptimized::new(wcii, child, 10, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, 10, 1.0, NoTimeoutChecker);
 
     // Consume docs to exhaust the child iterator.
     let doc = it.read().unwrap().unwrap();
@@ -451,7 +509,7 @@ fn child_timeout_on_first_read() {
     let mut child_data = child.data();
     child_data.set_error_at_done(Some(MockIteratorError::TimeoutError(None)));
 
-    let mut it = NotOptimized::new(wcii, child, 10, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, 10, 1.0, NoTimeoutChecker);
     let rc = it.read();
     assert!(
         matches!(rc, Err(RQEIteratorError::TimedOut)),
@@ -467,7 +525,7 @@ fn child_timeout_on_subsequent_read() {
     let wcii = wc_helper.create_wildcard();
     let child = Mock::new([2, 4, 6]);
     let mut child_data = child.data();
-    let mut it = NotOptimized::new(wcii, child, 10, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, 10, 1.0, NoTimeoutChecker);
 
     // Read first result: 1 (not in child).
     let doc = it.read().unwrap().unwrap();
@@ -499,7 +557,7 @@ fn child_timeout_on_skip_to() {
     let mut child_data = child.data();
     child_data.set_error_at_done(Some(MockIteratorError::TimeoutError(None)));
 
-    let mut it = NotOptimized::new(wcii, child, 15, 1.0, None);
+    let mut it = NotOptimized::new(wcii, child, 15, 1.0, NoTimeoutChecker);
 
     let rc = it.skip_to(1);
     assert!(
@@ -513,16 +571,22 @@ fn child_timeout_on_skip_to() {
 fn read_timeout_via_timeout_ctx() {
     // Create child and wildcard with the same IDs so the loop runs many times
     // (every doc in wc matches child, so read_inner loops without returning).
-    let ids: Vec<t_docId> = (1..=5500).collect();
+    let ids: Vec<DocId> = (1..=5500).collect();
     let wc_helper = WildcardHelper::new(&ids);
     let wcii = wc_helper.create_wildcard();
 
-    let child_ids: [t_docId; 5500] = std::array::from_fn(|i| (i + 1) as t_docId);
+    let child_ids: [DocId; 5500] = std::array::from_fn(|i| (i + 1) as DocId);
     let child = Mock::new(child_ids);
     let mut child_data = child.data();
     child_data.add_delay_since_index(1, Duration::from_micros(100));
 
-    let mut it = NotOptimized::new(wcii, child, 10_000, 1.0, Some(Duration::from_micros(50)));
+    let mut it = NotOptimized::new(
+        wcii,
+        child,
+        10_000,
+        1.0,
+        DeadlineTimeoutChecker::new(Duration::from_micros(50), CLOCK_CHECK_GRANULARITY),
+    );
 
     let result = it.read();
     assert!(
@@ -541,12 +605,12 @@ mod revalidate {
     use rqe_iterators_test_utils::{GlobalGuard, TestContext};
 
     /// Wildcard doc IDs used by the revalidate tests.
-    const WC_IDS: [t_docId; 20] = [
+    const WC_IDS: [DocId; 20] = [
         1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95,
     ];
 
     /// Child doc IDs used by the revalidate tests.
-    const CHILD_IDS: [t_docId; 4] = [10, 30, 50, 70];
+    const CHILD_IDS: [DocId; 4] = [10, 30, 50, 70];
 
     /// Create the context and guard for revalidate tests.
     fn make_revalidate_context() -> (GlobalGuard, TestContext) {
@@ -565,6 +629,7 @@ mod revalidate {
             '_,
             rqe_iterators::inverted_index::Wildcard<'_, DocIdsOnly>,
             Mock<'_, { CHILD_IDS.len() }>,
+            NoTimeoutChecker,
         >,
         crate::utils::MockData,
     ) {
@@ -572,17 +637,17 @@ mod revalidate {
         let wcii = rqe_iterators::inverted_index::Wildcard::new(ii.reader(), 1.0);
         let child = Mock::new(CHILD_IDS);
         let child_data = child.data();
-        let it = NotOptimized::new(wcii, child, 100, 1.0, None);
+        let it = NotOptimized::new(wcii, child, 100, 1.0, NoTimeoutChecker);
         (it, child_data)
     }
 
     /// Helper: GC `doc_id` from the wildcard inverted index.
-    fn gc_document(context: &TestContext, doc_id: t_docId) {
+    fn gc_document(context: &TestContext, doc_id: DocId) {
         let ii = DocIdsOnly::from_mut_opaque(context.wildcard_inverted_index());
         let scan_delta = ii
             .scan_gc(
                 |d| d != doc_id,
-                None::<fn(&RSIndexResult, &inverted_index::IndexBlock)>,
+                None::<fn(&RSIndexResult, &inverted_index::RepairContext<'_>)>,
             )
             .expect("scan GC failed")
             .expect("no GC scan delta");
@@ -600,8 +665,7 @@ mod revalidate {
         it.read().unwrap().unwrap();
         let original = it.last_doc_id();
 
-        // SAFETY: test-only call with valid context
-        let status = unsafe { it.revalidate(context.spec) }.unwrap();
+        let status = it.revalidate(&*context.spec_read()).unwrap();
         assert_eq!(status, RQEValidateStatus::Ok);
         assert_eq!(child_data.revalidate_count(), 1);
         assert_eq!(it.last_doc_id(), original);
@@ -618,8 +682,7 @@ mod revalidate {
         it.read().unwrap().unwrap();
         let original = it.last_doc_id();
 
-        // SAFETY: test-only call with valid context
-        let status = unsafe { it.revalidate(context.spec) }.unwrap();
+        let status = it.revalidate(&*context.spec_read()).unwrap();
         assert_eq!(status, RQEValidateStatus::Ok);
         assert_eq!(it.last_doc_id(), original);
         it.read().unwrap().unwrap();
@@ -635,8 +698,7 @@ mod revalidate {
         it.read().unwrap().unwrap();
         let original = it.last_doc_id();
 
-        // SAFETY: test-only call with valid context
-        let status = unsafe { it.revalidate(context.spec) }.unwrap();
+        let status = it.revalidate(&*context.spec_read()).unwrap();
         assert_eq!(status, RQEValidateStatus::Ok);
         assert_eq!(child_data.revalidate_count(), 1);
         assert_eq!(it.last_doc_id(), original);
@@ -656,24 +718,21 @@ mod revalidate {
         let new_ii = Box::into_raw(Box::new(inverted_index::opaque::InvertedIndex::DocIdsOnly(
             InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly),
         )));
-        let old_existing_docs;
-        // SAFETY: `context.spec` is a valid, test-owned `IndexSpec` pointer.
         // We temporarily swap `existingDocs` to trigger a wildcard abort.
-        unsafe {
-            let spec = context.spec.as_ptr();
-            old_existing_docs = (*spec).existingDocs;
-            (*spec).existingDocs = new_ii.cast();
-        }
+        let old_existing_docs = context.spec_read().existing_docs_ptr();
 
-        // SAFETY: test-only call with valid context
-        let status = unsafe { it.revalidate(context.spec) }.unwrap();
+        context.spec_write().set_existing_docs_ptr(new_ii.cast());
+
+        let status = it.revalidate(&*context.spec_read()).unwrap();
         assert_eq!(status, RQEValidateStatus::Aborted);
 
-        // SAFETY: Restoring the original `existingDocs` pointer and dropping
+        // Restoring the original `existingDocs` pointer and dropping
         // `new_ii` which was created via `Box::into_raw` above.
+        context
+            .spec_write()
+            .set_existing_docs_ptr(old_existing_docs);
+        // SAFETY: Dropping Box from raw pointer.
         unsafe {
-            let spec = context.spec.as_ptr();
-            (*spec).existingDocs = old_existing_docs;
             drop(Box::from_raw(new_ii));
         }
     }
@@ -693,8 +752,7 @@ mod revalidate {
         // GC doc_id=1 from the wildcard inverted index to trigger Moved.
         gc_document(&context, 1);
 
-        // SAFETY: test-only call with valid context
-        let status = unsafe { it.revalidate(context.spec) }.unwrap();
+        let status = it.revalidate(&*context.spec_read()).unwrap();
         assert!(matches!(status, RQEValidateStatus::Moved { .. }));
         // Wildcard moved past 1 → iterator advanced.
         assert!(it.last_doc_id() > original);
@@ -713,8 +771,7 @@ mod revalidate {
 
         gc_document(&context, 1);
 
-        // SAFETY: test-only call with valid context
-        let status = unsafe { it.revalidate(context.spec) }.unwrap();
+        let status = it.revalidate(&*context.spec_read()).unwrap();
         assert!(matches!(status, RQEValidateStatus::Moved { .. }));
         assert!(it.last_doc_id() > original);
     }
@@ -732,8 +789,7 @@ mod revalidate {
 
         gc_document(&context, 1);
 
-        // SAFETY: test-only call with valid context
-        let status = unsafe { it.revalidate(context.spec) }.unwrap();
+        let status = it.revalidate(&*context.spec_read()).unwrap();
         assert!(matches!(status, RQEValidateStatus::Moved { .. }));
         assert!(it.last_doc_id() > original);
         it.read().unwrap().unwrap();
@@ -755,13 +811,52 @@ mod revalidate {
         // Since child is also at 10, read_inner should advance past it.
         gc_document(&context, 5);
 
-        // SAFETY: test-only call with valid context
-        let status = unsafe { it.revalidate(context.spec) }.unwrap();
+        let status = it.revalidate(&*context.spec_read()).unwrap();
         assert!(matches!(status, RQEValidateStatus::Moved { .. }));
         assert!(!it.at_eof());
         // Wildcard moved to 10 which matches child → read_inner → 15.
         assert_eq!(it.last_doc_id(), 15);
         it.read().unwrap().unwrap();
+    }
+
+    /// A wildcard that revalidates onto a document past `max_doc_id` is out of this
+    /// iterator's range, so there is no valid position to report — the same answer
+    /// the read loop and `skip_to` give when the wildcard steps over the bound.
+    ///
+    /// Without the check the branch reports `Moved { current: Some(_) }` carrying
+    /// that out-of-range id, which a native parent would take as a live result.
+    #[test]
+    fn revalidate_wc_moved_past_max_doc_id_reports_no_position() {
+        // The wildcard holds 1 and 50; `max_doc_id` is 10, so 50 is out of range.
+        let (_guard, context) = (
+            GlobalGuard::default(),
+            TestContext::wildcard([1, 50].iter().copied()),
+        );
+        let ii = DocIdsOnly::from_opaque(context.wildcard_inverted_index());
+        let wcii = rqe_iterators::inverted_index::Wildcard::new(ii.reader(), 1.0);
+        let child = Mock::<1>::new([100]); // never matches
+        let mut child_data = child.data();
+        child_data.set_revalidate_result(MockRevalidateResult::Ok);
+        let mut it = NotOptimized::new(wcii, child, 10, 1.0, NoTimeoutChecker);
+
+        let doc = it
+            .read()
+            .expect("read must not fail")
+            .expect("1 is in range");
+        assert_eq!(doc.doc_id, 1);
+
+        // GC doc 1, so the wildcard's only remaining document is the out-of-range 50.
+        gc_document(&context, 1);
+
+        let status = it
+            .revalidate(&*context.spec_read())
+            .expect("revalidate must not fail");
+        assert!(
+            matches!(status, RQEValidateStatus::Moved { current: None }),
+            "50 is past max_doc_id, so there is no position to report, got {status:?}",
+        );
+        assert!(it.at_eof());
+        assert!(it.current().is_none());
     }
 
     /// Wildcard moves to EOF after GC removes all remaining documents.
@@ -777,7 +872,7 @@ mod revalidate {
         let child = Mock::<1>::new([100]); // child won't match
         let mut child_data = child.data();
         child_data.set_revalidate_result(MockRevalidateResult::Ok);
-        let mut it = NotOptimized::new(wcii, child, 200, 1.0, None);
+        let mut it = NotOptimized::new(wcii, child, 200, 1.0, NoTimeoutChecker);
 
         // Read the single document.
         let doc = it.read().unwrap().unwrap();
@@ -786,12 +881,140 @@ mod revalidate {
         // GC the only document so wildcard becomes empty on revalidation.
         gc_document(&context, 1);
 
-        // SAFETY: test-only call with valid context
-        let status = unsafe { it.revalidate(context.spec) }.unwrap();
+        let status = it.revalidate(&*context.spec_read()).unwrap();
         assert!(
             matches!(status, RQEValidateStatus::Moved { current: None }),
             "Expected Moved {{ current: None }}, got {status:?}"
         );
         assert!(it.at_eof());
     }
+
+    /// A revalidation whose scan fails has no position to report, but it also
+    /// clears `forced_eof` so a later read can retry. The EOF it reports in the
+    /// meantime must not outlive that retry succeeding.
+    #[test]
+    fn revalidate_scan_error_does_not_latch_eof() {
+        let (_guard, context) = make_revalidate_context();
+        let ii = DocIdsOnly::from_opaque(context.wildcard_inverted_index());
+        let wcii = rqe_iterators::inverted_index::Wildcard::new(ii.reader(), 1.0);
+        // A single child document, at the id the wildcard moves onto below — so
+        // the scan that move triggers reads the child past its end, which is
+        // where the failure is injected.
+        let child = Mock::<1>::new([10]);
+        let mut child_data = child.data();
+        child_data.set_revalidate_result(MockRevalidateResult::Ok);
+        let mut it = NotOptimized::new(wcii, child, 100, 1.0, NoTimeoutChecker);
+
+        it.read().unwrap().unwrap(); // doc 1
+        it.read().unwrap().unwrap(); // doc 5, pulling the child forward to 10
+        assert_eq!(it.last_doc_id(), 5);
+
+        child_data.set_error_at_done(Some(MockIteratorError::TimeoutError(None)));
+
+        // GC doc 5, so the wildcard moves onto 10 — which the child holds, so
+        // the iterator scans for the next valid result and the scan fails.
+        gc_document(&context, 5);
+        let status = it.revalidate(&*context.spec_read()).unwrap();
+        assert!(
+            matches!(status, RQEValidateStatus::Moved { current: None }),
+            "expected Moved {{ current: None }}, got {status:?}"
+        );
+        assert!(it.at_eof(), "nothing to report yet, so at EOF for now");
+
+        // The failure was transient, and the wildcard still holds documents past
+        // 10, so the retry finds one.
+        child_data.set_error_at_done(None);
+        let doc_id = it
+            .read()
+            .expect("read must be able to retry after a failed revalidation scan")
+            .expect("the wildcard has documents beyond 10")
+            .doc_id;
+
+        assert!(
+            !it.at_eof(),
+            "at_eof() must be false while positioned on doc {doc_id}",
+        );
+        assert!(
+            it.current().is_some(),
+            "current() must return the result read() just yielded (doc {doc_id})",
+        );
+    }
+}
+
+/// `skip_to` bounds its *target* against `max_doc_id`, but the wildcard can land
+/// on a document well past it — an in-range target over a sparse stretch. That
+/// landing is out of this iterator's range, so it ends the iteration, exactly as
+/// the read path does.
+#[test]
+fn skip_to_landing_past_max_doc_id_returns_eof() {
+    let wc_helper = WildcardHelper::new(&[5, 150]);
+    let wcii = wc_helper.create_wildcard();
+    let child = MockVec::new(vec![7]);
+    let mut it = NotOptimized::new(wcii, child, 100, 1.0, NoTimeoutChecker);
+
+    let doc = it
+        .read()
+        .expect("read must not fail")
+        .expect("5 is in range");
+    assert_eq!(doc.doc_id, 5);
+
+    // 10 is a legal target (<= max_doc_id), but the wildcard's next document is
+    // 150, which is not.
+    let rc = it.skip_to(10).expect("skip_to must not fail");
+    assert!(
+        rc.is_none(),
+        "the wildcard landed past max_doc_id, so nothing in range is left: {rc:?}",
+    );
+    assert!(it.at_eof());
+    assert!(it.current().is_none());
+    assert_eq!(
+        it.last_doc_id(),
+        5,
+        "the out-of-range landing was never yielded, so it is not the position",
+    );
+}
+
+/// The same landing, but with the child sitting on the out-of-range document, so
+/// control reaches the scan for the next valid result rather than the direct
+/// assignment.
+///
+/// This route was already bounded, because the scan applies the check itself; the
+/// test is here so the two routes are pinned to the same answer rather than one
+/// of them relying on the other's guard.
+#[test]
+fn skip_to_landing_past_max_doc_id_with_child_there_returns_eof() {
+    let wc_helper = WildcardHelper::new(&[5, 150]);
+    let wcii = wc_helper.create_wildcard();
+    // The child holds 150 too, so `skip_to` would take the "document is in the
+    // child, scan onwards" path.
+    let child = MockVec::new(vec![150]);
+    let mut it = NotOptimized::new(wcii, child, 100, 1.0, NoTimeoutChecker);
+
+    let doc = it
+        .read()
+        .expect("read must not fail")
+        .expect("5 is in range");
+    assert_eq!(doc.doc_id, 5);
+
+    let rc = it.skip_to(10).expect("skip_to must not fail");
+    assert!(
+        rc.is_none(),
+        "the wildcard landed past max_doc_id, so nothing in range is left: {rc:?}",
+    );
+    assert!(it.at_eof());
+    assert_eq!(it.last_doc_id(), 5);
+}
+
+#[test]
+fn not_optimized_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    let mut it = rqe_iterators::not_optimized::NotOptimized::new(
+        crate::utils::Mock::new([1u64, 2, 3, 4, 5]),
+        crate::utils::Mock::new([2u64, 4]),
+        5,
+        1.0,
+        timeout::NoTimeoutChecker,
+    );
+    assert_eq!(assert_current_contract(&mut it), [1, 3, 5]);
+    assert_current_contract_via_skip_to(&mut it, 6);
 }

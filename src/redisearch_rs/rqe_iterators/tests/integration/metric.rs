@@ -64,7 +64,7 @@ fn score_variant_cannot_skip() {
 
 mod metrics_tests {
     use crate::id_cases;
-    use inverted_index::RSResultKind;
+    use index_result::RSResultKind;
     use rqe_iterators::{RQEIterator, SkipToOutcome, metric::MetricSortedById};
     use rstest_reuse::apply;
 
@@ -90,7 +90,8 @@ mod metrics_tests {
             assert_eq!(it.last_doc_id(), expected_id);
         }
 
-        assert!(it.at_eof());
+        // Sitting on the last id is not EOF; the read that runs past it is.
+        assert!(!it.at_eof());
         assert!(matches!(it.read(), Ok(None)));
         assert!(it.at_eof());
 
@@ -117,7 +118,8 @@ mod metrics_tests {
         assert_eq!(entry.value(), metric_data[0]);
         assert_eq!(it.last_doc_id(), first_id);
         assert_eq!(it.current().unwrap().doc_id, first_id);
-        assert_eq!(it.at_eof(), Some(&first_id) == case.last());
+        // Positioned on an id, so not past the end, even when it is the last one.
+        assert!(!it.at_eof(), "still positioned on {first_id}");
 
         // Skip to higher than last doc id: expect EOF, last_doc_id unchanged
         let last = *case.last().unwrap();
@@ -149,7 +151,7 @@ mod metrics_tests {
                 assert!(entry.key().is_none());
                 assert_eq!(entry.value(), metric_data[j]);
                 // Should land on next existing id
-                assert_eq!(it.at_eof(), Some(&id) == case.last());
+                assert!(!it.at_eof(), "still positioned on {id}");
                 assert_eq!(it.last_doc_id(), id);
                 assert_eq!(it.current().unwrap().doc_id, id);
                 probe += 1;
@@ -167,7 +169,7 @@ mod metrics_tests {
             let entry = metrics.get(0).expect("should have one entry");
             assert!(entry.key().is_none());
             assert_eq!(entry.value(), metric_data[j]);
-            assert_eq!(it.at_eof(), Some(&id) == case.last());
+            assert!(!it.at_eof(), "still positioned on {id}");
             assert_eq!(it.last_doc_id(), id);
             assert_eq!(it.current().unwrap().doc_id, id);
             probe += 1;
@@ -186,7 +188,7 @@ mod metrics_tests {
             assert_eq!(res.doc_id, id);
             assert_eq!(it.last_doc_id(), id);
             assert_eq!(it.current().unwrap().doc_id, id);
-            assert_eq!(it.at_eof(), Some(&id) == case.last());
+            assert!(!it.at_eof(), "still positioned on {id}");
         }
     }
 
@@ -226,7 +228,7 @@ mod metrics_tests {
                 assert_eq!(doc_to.doc_id, to_id);
                 assert_eq!(it.last_doc_id(), to_id);
                 assert_eq!(it.current().unwrap().doc_id, to_id);
-                assert_eq!(it.at_eof(), Some(&to_id) == case.last());
+                assert!(!it.at_eof(), "still positioned on {to_id}");
             }
         }
     }
@@ -282,14 +284,39 @@ mod metrics_tests {
 #[test]
 fn revalidate() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.spec();
     let metric_data = vec![0.1, 0.2, 0.3];
     let mut it = MetricSortedById::new(vec![1, 2, 3], metric_data);
-    // SAFETY: test-only call with valid context
-    assert_eq!(
-        unsafe { it.revalidate(ctx) }.unwrap(),
-        RQEValidateStatus::Ok
-    );
+    let status = it.revalidate(&*mock_ctx.spec_read()).unwrap();
+    assert_eq!(status, RQEValidateStatus::Ok);
+}
+
+mod via_resume {
+    use super::*;
+    use ffi::RLookupKeyHandle;
+    use rqe_iterators::TypeErasedRQEIterator;
+    use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
+
+    #[test]
+    fn revalidate() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let metric_data = vec![0.1, 0.2, 0.3];
+        let mut handle = RLookupKeyHandle {
+            key_ptr: std::ptr::null_mut(),
+            is_valid: true,
+        };
+        let mut it = MetricSortedById::new(vec![1, 2, 3], metric_data);
+        // SAFETY: handle_ptr points to a valid, stack-allocated RLookupKeyHandle.
+        unsafe { it.set_handle(&raw mut handle) };
+
+        let _it = revalidate_via_resume(
+            TypeErasedRQEIterator::new(Box::new(it)),
+            &mock_ctx.spec_read(),
+        )
+        .expect("resume should not fail")
+        .expect_ok();
+
+        assert!(handle.is_valid);
+    }
 }
 
 #[test]
@@ -326,4 +353,14 @@ fn set_handle_non_null_invalidates_on_drop() {
 
     // After drop, the handle should be invalidated
     assert!(!handle.is_valid);
+}
+
+/// [`Metric`](rqe_iterators::Metric) delegates `current()` to an inner
+/// [`IdList`](rqe_iterators::IdList), as do `MetricLazy` and `IdListLazy`.
+#[test]
+fn metric_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    let mut it = MetricSortedById::new(vec![1u64, 3, 5], vec![0.1, 0.3, 0.5]);
+    assert_eq!(assert_current_contract(&mut it), [1, 3, 5]);
+    assert_current_contract_via_skip_to(&mut it, 6);
 }

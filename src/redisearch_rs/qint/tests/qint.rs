@@ -246,7 +246,7 @@ mod property_based {
         prop_compose, prop_oneof,
         strategy::Strategy,
     };
-    use rand::{Rng as _, SeedableRng as _};
+    use rand::{RngExt as _, SeedableRng as _};
 
     #[derive(Debug, Clone)]
     pub enum PropEncoding {
@@ -264,7 +264,7 @@ mod property_based {
             }
         }
 
-        pub fn leading_byte(&self) -> u8 {
+        pub const fn leading_byte(&self) -> u8 {
             let mut leading_byte = 0b00000000u8;
             match &self {
                 PropEncoding::QInt2((_, expected_size)) => {

@@ -13,12 +13,22 @@
 //! - `max_slop`: Maximum allowed slop between term positions (`None` = no constraint)
 //! - `in_order`: Require terms to appear in order
 
-use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
+};
 
-use ffi::t_docId;
-use inverted_index::RSIndexResult;
+use index_result::{RSIndexResult, RawIndexResult};
+use index_spec::IndexSpecReadGuard;
+use ref_mode::{Active, Ref};
+use rqe_core::DocId;
 
 /// Yields documents appearing in ALL child iterators using a merge (AND) algorithm.
+///
+/// Parameterised over a [`Ref`] mode — see [`Intersection`] for the
+/// [`Active`] instantiation that implements [`RQEIterator`]. `Vec<I>`'s
+/// representation is independent of `Rf`, so this struct is transmute-
+/// compatible across `Active`/`Suspended` instantiations provided `I` is.
 ///
 /// Children are sorted by estimated result count (smallest first) to minimize iterations,
 /// unless `in_order` is set (which preserves the original child order for positional checks).
@@ -28,11 +38,12 @@ use inverted_index::RSIndexResult;
 /// - `max_slop`: Maximum allowed slop (distance) between term positions. `None` disables proximity
 ///   validation entirely.
 /// - `in_order`: When `true`, terms must appear in the same order as the child iterators.
-pub struct Intersection<'index, I> {
+#[repr(C)]
+pub struct RawIntersection<'query, Rf: Ref, I> {
     /// Child iterators, sorted by estimated count (smallest first) unless `in_order` is set.
     children: Vec<I>,
     /// Last doc_id successfully found in ALL children (returned by [`last_doc_id()`](Self::last_doc_id)).
-    last_doc_id: t_docId,
+    last_doc_id: DocId,
     num_expected: usize,
     is_eof: bool,
     /// Maximum allowed slop (distance) between term positions. `None` disables proximity
@@ -41,15 +52,19 @@ pub struct Intersection<'index, I> {
     /// When `true`, terms must appear in the same order as the child iterators.
     in_order: bool,
     /// Aggregate result combining children's results, reused to avoid allocations.
-    result: RSIndexResult<'index>,
+    result: RawIndexResult<'query, Rf>,
 }
+
+/// Alias for an [`Active`] [`RawIntersection`] — the only instantiation
+/// with an [`RQEIterator`] impl today.
+pub type Intersection<'index, I> = RawIntersection<'index, Active<'index>, I>;
 
 /// Result of attempting to get all children to agree on a target document ID.
 enum AgreeResult {
     /// All children have the target doc_id as their current position.
     Agreed,
     /// A child skipped past the target to a higher doc_id; consensus must restart from this new ID.
-    Ahead(t_docId),
+    Ahead(DocId),
     /// A child reached EOF; no more documents can match.
     Eof,
 }
@@ -205,8 +220,8 @@ where
     /// child and retries until a relevant result is found or EOF is reached.
     fn find_consensus_with_relevancy_check(
         &mut self,
-        mut target: t_docId,
-    ) -> Result<Option<t_docId>, RQEIteratorError> {
+        mut target: DocId,
+    ) -> Result<Option<DocId>, RQEIteratorError> {
         loop {
             match self.find_consensus(target)? {
                 Some(doc_id) => {
@@ -227,7 +242,7 @@ where
     }
 
     /// Reads from the first child. Returns the doc_id or None if EOF.
-    fn read_from_first_child(&mut self) -> Result<Option<t_docId>, RQEIteratorError> {
+    fn read_from_first_child(&mut self) -> Result<Option<DocId>, RQEIteratorError> {
         match self.children[0].read()? {
             Some(r) => Ok(Some(r.doc_id)),
             None => {
@@ -238,7 +253,7 @@ where
     }
 
     /// Tries to get all children to agree on the target doc_id.
-    fn agree_on_doc_id(&mut self, target: t_docId) -> Result<AgreeResult, RQEIteratorError> {
+    fn agree_on_doc_id(&mut self, target: DocId) -> Result<AgreeResult, RQEIteratorError> {
         for child in &mut self.children {
             // Use child's cached last_doc_id instead of maintaining a parallel array
             if child.last_doc_id() == target {
@@ -262,7 +277,7 @@ where
     }
 
     /// Loops until all children agree on a doc_id, or EOF is reached.
-    fn find_consensus(&mut self, mut target: t_docId) -> Result<Option<t_docId>, RQEIteratorError> {
+    fn find_consensus(&mut self, mut target: DocId) -> Result<Option<DocId>, RQEIteratorError> {
         loop {
             match self.agree_on_doc_id(target)? {
                 AgreeResult::Agreed => return Ok(Some(target)),
@@ -293,9 +308,9 @@ where
     /// Explore removing the unsafe code by using one of the following alternatives (as suggested in the PR):
     ///
     /// - Store owned copies instead of borrowed references (memory/perf tradeoff)
-    /// - Restructure [`RSAggregateResult`](inverted_index::RSAggregateResult) to not require `'index` on stored references
+    /// - Restructure [`RSAggregateResult`](index_result::RSAggregateResult) to not require `'index` on stored references
     /// - Use a different aggregate pattern that doesn't store child references
-    fn build_aggregate_result(&mut self, doc_id: t_docId) {
+    fn build_aggregate_result(&mut self, doc_id: DocId) {
         // Reset all per-document accumulating fields before building the new aggregate.
         self.result.freq = 0;
         self.result.field_mask = 0;
@@ -438,7 +453,7 @@ where
 
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         if self.is_eof {
             return Ok(None);
@@ -506,7 +521,7 @@ where
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.last_doc_id
     }
 
@@ -515,17 +530,16 @@ where
         self.is_eof
     }
 
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: std::ptr::NonNull<ffi::IndexSpec>,
+        spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         let mut any_child_moved = false;
-        let mut max_child_doc_id: t_docId = 0;
+        let mut max_child_doc_id: DocId = 0;
         let mut moved_to_eof = false;
 
         for child in &mut self.children {
-            // SAFETY: Delegating to child with the same `spec` passed by our caller.
-            match unsafe { child.revalidate(spec) }? {
+            match child.revalidate(spec)? {
                 RQEValidateStatus::Aborted => return Ok(RQEValidateStatus::Aborted),
                 RQEValidateStatus::Moved { current } => {
                     any_child_moved = true;
@@ -584,6 +598,25 @@ impl<'index> crate::interop::ProfileChildren<'index>
             max_slop: self.max_slop,
             in_order: self.in_order,
             result: self.result,
+        }
+    }
+}
+
+impl<'index, I> ProfilePrint for Intersection<'index, I>
+where
+    I: RQEIterator<'index> + ProfilePrint,
+{
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        map.kv_simple_string(c"Type", c"INTERSECT");
+        ctx.print_optional_counters(map);
+
+        let num_children = self.num_children();
+        let mut arr = map.kv_array(c"Child iterators");
+        for i in 0..num_children {
+            let mut child_map = arr.map();
+            let mut child_ctx = ctx.child_ctx();
+            self.child_at(i)
+                .print_profile(&mut child_map, &mut child_ctx);
         }
     }
 }

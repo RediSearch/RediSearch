@@ -21,6 +21,7 @@ use super::VarintEncode;
 /// under the assumption that values are of a similar magnitude.
 ///
 /// The delta is encoded using **variable-length integer encoding** (VarInt).
+#[cheadergen::config(rename = "VarintVectorWriter")]
 pub struct VectorWriter {
     buffer: Vec<u8>,
     /// Track the number of encoded values.

@@ -6,14 +6,25 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <stdint.h>
+#include <string.h>
+
 #include "aggregate/reducer.h"
+#include "value_ffi.h"
 #include "util/block_alloc.h"
 #include "util/khash.h"
-#include "util/fnv.h"
 #include "hll/hll.h"
+#include "result_processor.h"
+#include "rlookup.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
 
 #define HLL_PRECISION_BITS 8
 #define INSTANCE_BLOCK_NUM 1024
+
+// Also used as the FNV seed in hll.c and the hyperloglog Rust crate.
+// (the choice of this specific seed is lost in time)
+#define STABLE_SEED 0x5f61767a
 
 static const int khid = 35;
 KHASH_SET_INIT_INT64(khid);
@@ -98,7 +109,10 @@ static int distinctishAdd(Reducer *parent, void *instance, const RLookupRow *src
     return 1;
   }
 
-  uint64_t hval = RSValue_Hash(val, 0x5f61767a);
+  // Use the stable (non-randomized) hash here: COUNT_DISTINCTISH's per-shard HLL
+  // registers are merged across shards by HLL_SUM, which requires every shard to
+  // map the same value to the same register/rank pair.
+  uint64_t hval = RSValue_HashStable(val, STABLE_SEED);
   uint32_t val32 = (uint32_t)hval ^ (uint32_t)(hval >> 32);
   hll_add_hash(&ctr->hll, val32);
   return 1;

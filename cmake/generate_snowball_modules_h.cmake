@@ -11,14 +11,20 @@ if(NOT DEFINED MODULES_TXT OR NOT DEFINED OUTPUT OR NOT DEFINED C_SRC_DIR)
     message(FATAL_ERROR "MODULES_TXT, OUTPUT, and C_SRC_DIR must be defined")
 endif()
 
-# ── Parse modules.txt ────────────────────────────────────────────────────────
+# ── Parse modules.txt (and optional EXTRA_MODULES_TXT) ───────────────────────
 
+set(_all_lines "")
 file(STRINGS "${MODULES_TXT}" _lines)
+list(APPEND _all_lines ${_lines})
+if(DEFINED EXTRA_MODULES_TXT AND EXISTS "${EXTRA_MODULES_TXT}")
+    file(STRINGS "${EXTRA_MODULES_TXT}" _extra_lines)
+    list(APPEND _all_lines ${_extra_lines})
+endif()
 
 set(_algorithms "")
 set(_aliases "")
 
-foreach(_line IN LISTS _lines)
+foreach(_line IN LISTS _all_lines)
     string(STRIP "${_line}" _line)
     if(_line STREQUAL "" OR _line MATCHES "^#")
         continue()

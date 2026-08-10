@@ -9,7 +9,8 @@
 #ifndef RS_AGGREGATE_H__
 #define RS_AGGREGATE_H__
 
-#include "value.h"
+#include "query_flags.h"
+#include "value_ffi.h"
 #include "query.h"
 #include "reducer.h"
 #include "result_processor.h"
@@ -23,16 +24,13 @@
 #include "slot_ranges.h"
 #include "profile/profile.h"
 #include "rs_wall_clock.h"
+#include "info/global_stats.h" // QueryTimeoutStage (execution-phase marker + timeout breakdown)
 
 #include "rmutil/rm_assert.h"
+#include "util/rs_atomic.h"
 
 #ifdef __cplusplus
-#include <atomic>
-#define RS_Atomic(T) std::atomic<T>
 extern "C" {
-#else
-#define RS_Atomic(T) _Atomic(T)
-#include <stdatomic.h>
 #endif
 
 #define DEFAULT_LIMIT 10
@@ -57,8 +55,8 @@ typedef struct {
  * ## Cursor ↔ AREQ Ownership
  *
  * **Cursor owns AREQ** (not vice versa):
- * - cursor->execState points to the AREQ
- * - Cursor_FreeInternal calls AREQ_DecrRef(cur->execState)
+ * - cursor->query points to the AREQ's wrapper
+ * - Cursor_FreeInternal releases the wrapper reference
  *
  * **AREQ does NOT own Cursor**:
  * - The `cursor` field below is a NON-OWNING handle.
@@ -95,97 +93,6 @@ struct QOptimizer;
  * A query can be of one type. So QEXEC_F_IS_AGGREGATE, QEXEC_F_IS_SEARCH, QEXEC_F_IS_HYBRID_TAIL,
  * QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY, QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY are mutually exclusive (Only one can be set).
  */
-typedef enum {
-  QEXEC_F_IS_AGGREGATE = 0x01,    // Is an aggregate command
-  QEXEC_F_SEND_SCORES = 0x02,     // Output: Send scores with each result
-  QEXEC_F_SEND_SORTKEYS = 0x04,   // Sent the key used for sorting, for each result
-  QEXEC_F_SEND_NOFIELDS = 0x08,   // Don't send the contents of the fields
-  QEXEC_F_SEND_PAYLOADS = 0x10,   // Sent the payload set with ADD
-  QEXEC_F_IS_CURSOR = 0x20,       // Is a cursor-type query
-  QEXEC_F_REQUIRED_FIELDS = 0x40, // Send multiple required fields
-
-  /**
-   * Do not create the root result processor. Only process those components
-   * which process fully-formed, fully-scored results. This also means
-   * that a scorer is not created. It will also not initialize the
-   * first step or the initial lookup table
-   */
-  QEXEC_F_BUILDPIPELINE_NO_ROOT = 0x80,
-
-  /**
-   * Add the ability to run the query in a multi threaded environment
-   */
-  QEXEC_F_RUN_IN_BACKGROUND = 0x100,
-
-  /* The query is a search command */
-  QEXEC_F_IS_SEARCH = 0x200,
-
-  /* Highlight/summarize options are active */
-  QEXEC_F_SEND_HIGHLIGHT = 0x400,
-
-  /* Do not emit any rows, only the number of query results */
-  QEXEC_F_NOROWS = 0x800,
-
-  /* Do not stringify result values. Send them in their proper types */
-  QEXEC_F_TYPED = 0x1000,
-
-  /* Send raw document IDs alongside key names. Used for debugging */
-  QEXEC_F_SENDRAWIDS = 0x2000,
-
-  /* Flag for scorer function to create explanation strings */
-  QEXEC_F_SEND_SCOREEXPLAIN = 0x4000,
-
-  /* Profile command */
-  QEXEC_F_PROFILE = 0x8000,
-  QEXEC_F_PROFILE_LIMITED = 0x10000,
-
-  /* FT.AGGREGATE load all fields */
-  QEXEC_AGG_LOAD_ALL = 0x20000,
-
-  /* Optimize query */
-  QEXEC_OPTIMIZE = 0x40000,
-
-  // Compound values are expanded (RESP3 w/JSON)
-  QEXEC_FORMAT_EXPAND = 0x80000,
-
-  // Compound values are returned serialized (RESP2 or HASH) or expanded (RESP3 w/JSON)
-  QEXEC_FORMAT_DEFAULT = 0x100000,
-
-  // Set the score of the doc to an RLookupKey in the result
-  QEXEC_F_SEND_SCORES_AS_FIELD = 0x200000,
-
-  // The query is internal (responding to a command from the coordinator)
-  QEXEC_F_INTERNAL = 0x400000,
-
-  // The query is a Hybrid Request
-  QEXEC_F_IS_HYBRID_TAIL = 0x800000,
-
-  // The query is a Search Subquery of a Hybrid Request
-  QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY = 0x1000000,
-
-  // The query is a Vector Subquery of a Hybrid Request (aggregate equivalent)
-  QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY = 0x2000000,
-
-  // The query has an explicit SORT BY 0 step - no sorting at all
-  // Currently only used in when QEXEC_F_IS_HYBRID_TAIL is set - i.e this is the tail part
-  QEXEC_F_NO_SORT = 0x4000000,
-
-  // The query has an explicit SORTBY x - sort by a field
-  QEXEC_F_HAS_SORTBY = 0x8000000,
-
-  // The query should use a depleter in the pipeline (for FT.AGGREGATE)
-  QEXEC_F_HAS_DEPLETER = 0x10000000,
-
-  // The query has an explicit WITHCOUNT (for FT.AGGREGATE)
-  QEXEC_F_HAS_WITHCOUNT = 0x20000000,
-
-  // The query has an explicit GROUPBY (for FT.AGGREGATE)
-  QEXEC_F_HAS_GROUPBY = 0x40000000,
-
-  // The query is for debugging. Note that this is the last bit of uint32_t
-  QEXEC_F_DEBUG = 0x80000000,
-
-} QEFlags;
 
 // Configuration parameters for cursor behavior
 typedef struct {
@@ -230,6 +137,7 @@ typedef struct {
 #define HasSortBy(r) ((r)->reqflags & QEXEC_F_HAS_SORTBY)
 #define HasGroupBy(r) ((r)->reqflags & QEXEC_F_HAS_GROUPBY)
 #define IsInternal(r) ((r)->reqflags & QEXEC_F_INTERNAL)
+#define IsCoordinator(r) ((r)->reqflags & QEXEC_F_IS_COORDINATOR)
 #define IsDebug(r) ((r)->reqflags & QEXEC_F_DEBUG)
 
 // Indicates whether a query should run in the background.
@@ -245,59 +153,103 @@ typedef enum {
   QEXEC_S_ITERDONE = 0x02,
   /* ASM trimming delay timeout */
   QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT = 0x04,
+  /* A shard reply carried a TIMEDOUT warning. Set by the coord-side RPNet
+   * when it observes a shard's TIMEDOUT warning meta entry; the coord pipeline
+   * keeps draining other shards (the coord has its own deadline check) and the
+   * reply emitters surface the TIMEOUT warning to the user via this flag. */
+  QEXEC_S_SHARD_TIMED_OUT_WARNING = 0x08,
+  /* The per-query TIMEOUT (or the global default) exceeded
+   * search-_max-foreground-timeout-limit while search-workers is 0, so it
+   * was capped to the limit. Surfaced as a RESP3 warning by the reply
+   * emitters. */
+  QEXEC_S_MAX_TIMEOUT_CAPPED = 0x10,
 } QEStateFlags;
 
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN, COMMAND_HYBRID } CommandType;
 
 /**
- * Common synchronization context for request types (AREQ, HybridRequest).
- * This context is used for timeout handling and synchronization between the main thread and the background thread.
+ * Identifies which concrete request type a heap BlockedRequestCtx wrapper owns.
  */
-typedef struct RequestSyncCtx {
-  // Timeout signaling flag set by timeout callback on main thread
-  RS_Atomic(bool) timedOut;
-  // Reference count for shared ownership between timeout callback (main thread) and background thread
-  uint8_t refcount;
+typedef enum {
+  REQUEST_KIND_AREQ,
+  REQUEST_KIND_HYBRID,
+} RequestKind;
 
-  /* Partial-timeout coordination. The CAS claim grants exclusive ownership of
-   * the result-production phase: the BG-thread winner runs AggregateResults
-   * and stores results, while the timeout-callback winner preempts BG (BG
-   * bails at its post-claim check) and replies empty without running the
-   * pipeline. The loser waits for the winner's completion signal.
-   * Gated by `requiresAggregateResultsSync`. */
-  bool requiresAggregateResultsSync;     // Enable CAS/Signal/Wait around AggregateResults
-  RS_Atomic(bool) aggregatingResults;    // CAS claim: BG winner runs the pipeline; timeout-callback winner skips it and replies empty
-  bool aggregateResultsDone;             // Set at completion; guarded by aggregateResultsLock
-  pthread_mutex_t aggregateResultsLock;
-  pthread_cond_t aggregateResultsCond;
+/* TRANSITIONAL(MOD-16691): values of BlockedRequestCtx.strictReadOwner (see
+ * the field's doc; deleted by the RETURN_STRICT flip). */
+typedef enum {
+  BRC_READ_OWNER_NONE = 0,
+  BRC_READ_OWNER_BG,
+  BRC_READ_OWNER_TIMEOUT,
+} BrcStrictReadOwner;
+
+/* Heap-allocated owning wrapper around a top-level request. Defined below the
+ * AREQ struct (it references AREQ/HybridRequest only by pointer). */
+typedef struct BlockedRequestCtx BlockedRequestCtx;
+
+/**
+ * Per-request synchronization slot embedded in every AREQ and HybridRequest.
+ * Holds only the state the timeout callback shares with the background reader
+ * draining that specific (sub-)request: the timeout flag and the single-slot
+ * abort-wake channel used to unblock a parked MR reader.
+ *
+ * Top-level result-production coordination lives on the owning BlockedRequestCtx
+ * wrapper, not here (sub-AREQs never run that handshake).
+ */
+typedef struct RequestSyncState {
+  // Timeout signaling flag set by the timeout callback on the main thread.
+  RS_Atomic(bool) timedOut;
+
+  // Execution-phase marker (QueryTimeoutStage values), advanced monotonically by
+  // the executing thread (QUEUE -> PIPELINE -> REPLY) and frozen once `timedOut` is
+  // set. The main-thread timeout callbacks only read it to attribute a timeout to
+  // the pipeline stage it occurred in.
+  RS_Atomic(int) execPhase;
 
   /* Abort-wake registration (single-slot). BG reader registers its blocking MR
    * channel; timeout callback broadcasts on it after flipping `timedOut`.
    * `abortWakeLock` serializes register/unregister/wake. */
   struct MRChannel *abortWakeChannel;
   pthread_mutex_t abortWakeLock;
-} RequestSyncCtx;
+} RequestSyncState;
 
-// Initialize a RequestSyncCtx with default values
-static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx) {
-  ctx->timedOut = false;
-  ctx->refcount = 1;
-  ctx->requiresAggregateResultsSync = false;
-  ctx->aggregatingResults = false;
-  ctx->aggregateResultsDone = false;
-  pthread_mutex_init(&ctx->aggregateResultsLock, NULL);
-  pthread_cond_init(&ctx->aggregateResultsCond, NULL);
-  ctx->abortWakeChannel = NULL;
-  pthread_mutex_init(&ctx->abortWakeLock, NULL);
+// Initialize a RequestSyncState with default values
+static inline void RequestSyncState_Init(RequestSyncState *st) {
+  st->timedOut = false;
+  st->execPhase = QUERY_TIMEOUT_STAGE_QUEUE;
+  st->abortWakeChannel = NULL;
+  pthread_mutex_init(&st->abortWakeLock, NULL);
 }
 
-// Release resources owned by a RequestSyncCtx. Must be called exactly once
+static inline bool RequestSyncState_GetTimedOut(RequestSyncState *st) {
+  return RS_AtomicBoolLoadRelaxed(&st->timedOut);
+}
+static inline void RequestSyncState_SetTimedOut(RequestSyncState *st) {
+  RS_AtomicBoolStoreRelaxed(&st->timedOut, true);
+}
+static inline void RequestSyncState_ClearTimedOut(RequestSyncState *st) {
+  RS_AtomicBoolStoreRelaxed(&st->timedOut, false);
+}
+
+// Read the current execution phase as a QueryTimeoutStage. Used to attribute a
+// timeout to the stage the request had reached when the deadline fired.
+static inline QueryTimeoutStage RequestSyncState_GetExecutionStage(RequestSyncState *st) {
+  return (QueryTimeoutStage)RS_AtomicIntLoadRelaxed(&st->execPhase);
+}
+// Advance the execution phase (executing thread). Frozen once a timeout is signalled,
+// so the stage a main-thread callback reads cannot change underneath it.
+static inline void RequestSyncState_SetExecutionStage(RequestSyncState *st, QueryTimeoutStage stage) {
+  if (RequestSyncState_GetTimedOut(st)) {
+    return;
+  }
+  RS_AtomicIntStoreRelaxed(&st->execPhase, (int)stage);
+}
+
+// Release resources owned by a RequestSyncState. Must be called exactly once
 // per successful Init, from the request's free path.
-static inline void RequestSyncCtx_Destroy(RequestSyncCtx *ctx) {
-  pthread_mutex_destroy(&ctx->aggregateResultsLock);
-  pthread_cond_destroy(&ctx->aggregateResultsCond);
-  pthread_mutex_destroy(&ctx->abortWakeLock);
+static inline void RequestSyncState_Destroy(RequestSyncState *st) {
+  pthread_mutex_destroy(&st->abortWakeLock);
 }
 
 typedef struct AREQ {
@@ -383,19 +335,162 @@ typedef struct AREQ {
 
   ProfilePrinterCtx profileCtx;
 
-  // Synchronization context for timeout/reply callbacks
-  RequestSyncCtx syncCtx;
+  // Per-request synchronization slot (timeout flag + abort-wake channel).
+  RequestSyncState syncState;
+
+  // Non-owning back-pointer to the heap wrapper that owns this request.
+  // Set for the top-level request; NULL for hybrid sub-AREQs.
+  BlockedRequestCtx *brc;
 
   // Flag to indicate whether to skip timeout checks using clock checks
   bool skipTimeoutChecks;
 
   bool useReplyCallback;
 
-  // State for reply_callback path (FAIL policy with workers)
-  // Background thread stores results here, then calls UnblockClient.
-  // The reply_callback reads from here to build the reply on the main thread.
-  ChunkReplyState storedReplyState;
 } AREQ;
+
+/* Forward declaration; full type lives in hybrid_request.h. */
+struct HybridRequest;
+
+/**
+ * Heap-allocated owning wrapper around a top-level request (AREQ or
+ * HybridRequest). It is the single owner of the query and holds the
+ * top-level-only result-production coordination state (the TryClaim/Signal/Wait
+ * handshake between the background reader and the timeout callback).
+ */
+struct BlockedRequestCtx {
+  RequestKind kind;
+  union {
+    AREQ *areq;
+    struct HybridRequest *hybrid;
+  } query;
+
+  /* Partial-timeout coordination. The CAS claim grants exclusive ownership of
+   * the result-production phase: the BG-thread winner runs AggregateResults
+   * and stores results, while the timeout-callback winner preempts BG (BG
+   * bails at its post-claim check) and replies empty without running the
+   * pipeline. The loser waits for the winner's completion signal.
+   * Gated by `requiresAggregateResultsSync`.
+   * NOTE: a planned follow-up flips this mechanism so the timeout callback
+   * never waits on BG state (mark flag → serialize → drain a thread-safe
+   * results store), replacing the whole claim/latch/wait block. */
+  bool requiresAggregateResultsSync;     // Enable CAS/Signal/Wait around AggregateResults
+  RS_Atomic(bool) aggregatingResults;    // CAS claim: BG winner runs the pipeline; timeout-callback winner skips it and replies empty
+  bool aggregateResultsClaimLost;        // BG lost the CAS claim to the timeout callback
+  bool aggregateResultsDone;             // Set at completion; guarded by aggregateResultsLock
+  /* RP_SAFE_LOADER deadlock-avoidance handshake. Incremented by a BG worker just
+   * before it takes the GIL, decremented after it releases it; guarded by
+   * aggregateResultsLock. The timeout callback reads it (same lock) to detect a
+   * worker parked at the GIL gate and preempt it instead of deadlocking in Wait
+   * while holding the GIL. A count rather than a bool: a hybrid request's tail
+   * and subquery pipelines all share this wrapper, so several safe loaders can
+   * be inside the Enter/Exit window concurrently. */
+  int safeLoadersHoldingGIL;
+  pthread_mutex_t aggregateResultsLock;
+  pthread_cond_t aggregateResultsCond;
+
+  /* ===== Per-cycle fields =====
+   * A "cycle" is one blocked-client round trip: the initial query execution or
+   * a single cursor read. Bound on the main thread by
+   * BlockedRequestCtx_BeginCycle (after RedisModule_BlockClient returned `bc`,
+   * before dispatching BG work) and cleared by BlockedRequestCtx_EndCycle
+   * (called from BlockedRequestCtx_OnFree, the free_privdata callback).
+   * Between cycles these are NULL/zeroed and must not be read. */
+  RedisModuleBlockedClient *bc; // Redis-owned; valid for the cycle
+  bool deferred_reply; // false => BG replies inline via a thread-safe ctx;
+                       // true => BG stores results and the reply callback
+                       // registered with RedisModule_BlockClient serializes
+                       // them on main after UnblockClient
+  // Stored-reply slot for deferred (deferred_reply) cycles: the BG thread
+  // stores results/error here before UnblockClient; the reply or timeout
+  // callback reads it on main. One slot serves AREQ and hybrid cycles.
+  // Destroyed at EndCycle (per cycle) and, idempotently, in
+  // BlockedRequestCtx_Free as a safety net.
+  ChunkReplyState reply;
+  /* Cursor disposition for this cycle. The point that decides the cursor's
+   * fate (the BG worker at cycle end, or the reply path once finishSendChunk
+   * set QEXEC_S_ITERDONE) records it here; OnFree — the single park-or-free
+   * point — executes it, so a cycle's cursor stays unreachable to other
+   * clients until the cycle fully ended. NULL when the cycle has no cursor;
+   * inline execution (brc->bc == NULL) disposes directly. */
+  struct Cursor *cursor;
+  bool cursor_dispose_free;
+
+  /* ===== TRANSITIONAL(MOD-16691) — refactor scaffolding =====
+   * Every field below is temporary bloat: each one bridges a gap that a later
+   * step of the refactor (or the RETURN_STRICT flip follow-up) closes, and is
+   * deleted with it. The struct shrinks back accordingly. Grep for
+   * TRANSITIONAL(MOD-16691) to find all scaffolding. */
+
+  /* TRANSITIONAL(MOD-16691): reference count, until the cursor-ownership step
+   * makes the wrapper single-owner (cycle owns it via BeginCycle/OnFree, a
+   * parked cursor owns it between cycles). Starts at 1 (set by New);
+   * incremented by IncrRef, decremented by DecrRef; reaches 0 exactly once,
+   * triggering Free. ACQ_REL on decrement so the free path sees prior writes. */
+  RS_Atomic(int) refcount;
+
+  /* TRANSITIONAL(MOD-16691): "has the BG worker dequeued this cursor read?"
+   * latch for coord RETURN_STRICT cursor reads; per-cycle, reset by
+   * BeginCycle. The BG handler CASes NONE→BG at its entry; the RETURN_STRICT
+   * timeout callback CASes NONE→TIMEOUT after flipping the timeout flag. A
+   * timer that wins replies with a depleted empty cursor and never waits (the
+   * BG job may be queued behind a paused/saturated pool); a BG that loses
+   * frees the taken cursor and stores nothing. A timer that loses may wait: a
+   * started RETURN_STRICT read always stores a reply and signals completion.
+   * Deleted by the RETURN_STRICT flip (a never-waiting timeout callback does
+   * not care whether BG started). */
+  RS_Atomic(int) strictReadOwner;
+
+  /* TRANSITIONAL(MOD-16691): per-cycle registry bridge, until Step 3 links
+   * the wrapper itself into BlockedQueries. The node created for this cycle,
+   * unlinked and freed in EndCycle. Kind-tagged because query and cursor
+   * nodes live in different lists. */
+  void *registry_node;
+  bool registry_node_is_cursor;
+};
+
+/* Allocate a heap BlockedRequestCtx that takes ownership of the request,
+ * initializes the result-production coordination state (refcount=1), and
+ * wires the non-owning back-pointer (`brc`) on the owned request. */
+BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq);
+BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid);
+
+/* TRANSITIONAL(MOD-16691): increment / decrement the wrapper's reference
+ * count. DecrRef triggers BlockedRequestCtx_Free when the count drops to
+ * zero. Deleted together with `refcount` once the cursor-ownership step makes
+ * the wrapper single-owner. */
+BlockedRequestCtx *BlockedRequestCtx_IncrRef(BlockedRequestCtx *brc);
+void BlockedRequestCtx_DecrRef(BlockedRequestCtx *brc);
+
+/* Free a heap BlockedRequestCtx: destroys the coordination state, frees the owned
+ * request (AREQ_Free / HybridRequest_Free), then frees the wrapper itself. */
+void BlockedRequestCtx_Free(BlockedRequestCtx *brc);
+
+/* Kind-checked accessors for the owned request. Callers that know which kind
+ * of request their cycle carries (e.g. per-kind reply/timeout callbacks) use
+ * these instead of reaching into the union, so a mismatched callback fails
+ * loudly in debug builds. */
+static inline AREQ *BlockedRequestCtx_GetAREQ(BlockedRequestCtx *brc) {
+  RS_ASSERT(brc->kind == REQUEST_KIND_AREQ);
+  RS_ASSERT(brc->query.areq != NULL);
+  return brc->query.areq;
+}
+static inline struct HybridRequest *BlockedRequestCtx_GetHybrid(BlockedRequestCtx *brc) {
+  RS_ASSERT(brc->kind == REQUEST_KIND_HYBRID);
+  RS_ASSERT(brc->query.hybrid != NULL);
+  return brc->query.hybrid;
+}
+
+/* Lifecycle helpers for AREQ objects. AREQ_Free destroys the AREQ directly
+ * (no wrapper involved).
+ * TRANSITIONAL(MOD-16691): AREQ_IncrRef / AREQ_DecrRef delegate to the owning
+ * BlockedRequestCtx's refcount when one is present (req->brc != NULL);
+ * otherwise they call AREQ_Free directly (for unwrapped transient /
+ * sub-AREQs). Deleted with the wrapper refcount once the cursor-ownership
+ * step makes the wrapper single-owner. */
+void AREQ_Free(AREQ *req);
+AREQ *AREQ_IncrRef(AREQ *req);
+void AREQ_DecrRef(AREQ *req);
 
 /**
  * Create a new aggregate request. The request's lifecycle consists of several
@@ -458,11 +553,26 @@ void initializeAREQ(AREQ *req);
  */
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
 
+/** Creates the aggregation pipeline parameters derived from the request. */
+AggregationPipelineParams AREQ_MakeAggregationPipelineParams(AREQ *req,
+                                                             GroupByLimits groupByLimits);
+
 /**
  * Constructs the pipeline objects needed to actually start processing
  * the requests. This does not yet start iterating over the objects
  */
+int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
+                                            const AggregationPipelineParams *aggregationParams,
+                                            QueryError *status);
 int AREQ_BuildPipeline(AREQ *req, QueryError *status);
+
+/**
+ * Classify the request's (already-built) pipeline as yielding a valid partial
+ * answer on RETURN-STRICT timeout and store the result on the request's
+ * QueryProcessingCtx. Writes `false` if the pipeline has no end/root processor
+ * yet (e.g. called before the pipeline is built).
+ */
+void AREQ_SetCanYieldPartialResults(AREQ *req);
 
 static inline QEFlags AREQ_RequestFlags(const AREQ *req) {
   return (QEFlags)req->reqflags;
@@ -539,7 +649,8 @@ static inline AGGPlan *AREQ_AGGPlan(AREQ *req) {
  * ResultProcessors (and a grouper is a ResultProcessor) before the grouper
  * should write their data using `lksrc` as a reference point.
  */
-Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t n);
+Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, size_t n,
+                     GroupByLimits groupByLimits);
 
 void Grouper_Free(Grouper *g);
 
@@ -559,26 +670,13 @@ void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
 void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit);
 void sendChunk_ReplyOnly_EmptyResults(RedisModuleCtx *ctx, AREQ *req);
 
-/**
- * Increment the reference count of the AREQ.
- * @param req the request to increment
- * @return the request (for chaining)
- */
-AREQ *AREQ_IncrRef(AREQ *req);
 
 /**
- * Decrement the reference count of the AREQ.
- * If the reference count reaches 0, the request is freed.
- * @param req the request to decrement
- */
-void AREQ_DecrRef(AREQ *req);
-
-/**
- * Free a cursor parked in `req->storedReplyState.cursor`, if any.
+ * Free a cursor parked in `req->brc->reply.cursor`, if any.
  * Used by cleanup paths to release a cursor left behind when the
  * blocked-client timeout fires before the reply callback runs and
  * drains it via `AREQ_ReplyWithStoredResults`.
- * No-op when `storedReplyState.cursor` is NULL.
+ * No-op when `brc->reply.cursor` is NULL.
  */
 void AREQ_CleanUpStoredCursor(AREQ *req);
 
@@ -623,36 +721,95 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 // Allows calling parseProfileArgs from reply_empty.c
 int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 
-bool AREQ_TimedOut(AREQ *req);
-void AREQ_SetTimedOut(AREQ *req);
+static inline bool AREQ_TimedOut(AREQ *req) {
+  return RequestSyncState_GetTimedOut(&req->syncState);
+}
+static inline void AREQ_SetTimedOut(AREQ *req) {
+  RequestSyncState_SetTimedOut(&req->syncState);
+}
+// The pipeline stage the request had reached, used to attribute a timeout.
+static inline QueryTimeoutStage AREQ_ExecutionStage(AREQ *req) {
+  return RequestSyncState_GetExecutionStage(&req->syncState);
+}
+// Advance the request's execution-phase marker (QUEUE -> PIPELINE -> REPLY).
+static inline void AREQ_SetExecutionStage(AREQ *req, QueryTimeoutStage stage) {
+  RequestSyncState_SetExecutionStage(&req->syncState, stage);
+}
 #ifdef ENABLE_ASSERT
 // SyncPointStopFn predicate adapter for AREQ_TimedOut. Pass the AREQ as `arg`
 // to SyncPoint_WaitUntil to release the wait when the request is timed out.
 bool areq_timed_out(void *arg);
 #endif
 
+/* Non-inline named bridge over AREQ_TimedOut, invoked by Rust query
+ * iterators on the Blocked Client Timeout path. The named extern is a
+ * stable symbol that LTO can inline through. */
+bool AREQ_CheckTimedOut(AREQ *areq);
+
 /* True when this AREQ uses the BG-thread / timeout-callback claim handshake
- * around AggregateResults (TryClaim/Signal/Wait). Currently set only on the
- * coordinator AREQ under RETURN-STRICT; all other paths skip the protocol. */
-bool AREQ_RequiresThreadsSyncResults(const AREQ *req);
+ * around AggregateResults (TryClaim/Signal/Wait). Set on coordinator AREQs
+ * under RETURN_STRICT, and on shard/standalone AREQs for RETURN_STRICT
+ * cursor reads; all other paths skip the protocol. */
+static inline bool AREQ_RequiresThreadsSyncResults(const AREQ *req) {
+  // Invariant: every AREQ reaching the strict-sync protocol is wrapped (the
+  // blocked client's privdata is the wrapper). Unwrapped sub-/transient AREQs
+  // never run it.
+  RS_ASSERT(req->brc != NULL);
+  return req->brc->requiresAggregateResultsSync;
+}
 
 /* TryClaim: atomic CAS on `aggregatingResults`; winner runs AggregateResults.
  * Signal: called by winner at completion. Wait: called by loser, blocks until Signal.
  * Exactly one of {BG thread, timeout callback} wins. */
 bool AREQ_TryClaimAggregateResults(AREQ *req);
+
+/* TRANSITIONAL(MOD-16691): CAS BlockedRequestCtx.strictReadOwner NONE ->
+ * `owner`. Returns true if this caller won the latch (see the field's doc for
+ * the protocol; deleted by the RETURN_STRICT flip). */
+bool BlockedRequestCtx_TryOwnStrictRead(BlockedRequestCtx *brc, BrcStrictReadOwner owner);
 void AREQ_SignalAggregateResultsComplete(AREQ *req);
 void AREQ_WaitForAggregateResultsComplete(AREQ *req);
-/* Reset claim+done back to initial state between cursor chunks so the next
- * startPipeline can re-claim. Caller must ensure no other thread is currently
- * calling TryClaim/Signal/Wait on this AREQ (true between paused cursor chunks). */
-void AREQ_ResetAggregateResultsClaim(AREQ *req);
+
+/* RP_SAFE_LOADER GIL handshake (deadlock avoidance for RETURN_STRICT). Reached
+ * only on the sync path: the loader links its brc only when
+ * requiresAggregateResultsSync is set, and the Preempt callers are the
+ * RETURN_STRICT timeout callbacks, so no in-helper policy gate is needed.
+ *
+ * EnterGIL (BG worker, before taking the GIL): if the timeout already fired,
+ *   returns false without marking holding so the worker bails instead of blocking
+ *   on the GIL the main thread holds; otherwise increments safeLoadersHoldingGIL.
+ * ExitGIL (BG worker, while still holding the GIL, before releasing it): decrements
+ *   the count. The timeout callback only runs on the main thread while it holds
+ *   the GIL, so it cannot observe the flag while the worker holds it; clearing
+ *   before the release prevents a timeout in the release->clear gap from seeing
+ *   a stale holding == true and preempting away already-loaded results.
+ * TimeoutPreemptSafeLoaderGIL (main-thread timeout callback, before Wait): returns
+ *   true if the worker is parked at the GIL gate, so the callback replies empty
+ *   instead of deadlocking. The shared aggregateResultsLock makes EnterGIL and
+ *   this check a race-free Dekker handshake. */
+bool BlockedRequestCtx_SafeLoaderEnterGIL(BlockedRequestCtx *sync);
+void BlockedRequestCtx_SafeLoaderExitGIL(BlockedRequestCtx *sync);
+bool BlockedRequestCtx_TimeoutPreemptSafeLoaderGIL(BlockedRequestCtx *sync);
+
+/* Reset the per-cursor-read sync state on a coordinator RETURN_STRICT cursor
+ * read so the next chunk starts from a clean slate. Resets:
+ *   - brc->aggregatingResults (CAS claim)
+ *   - brc->aggregateResultsDone (signal latch)
+ *   - brc->safeLoadersHoldingGIL (GIL-handshake latch)
+ *   - syncState.timedOut (timer latch from the previous chunk's timer)
+ *   - RPNet::drainOnly on the root proc when it is RP_NETWORK (so the next
+ *     read does not short-circuit to EOF on the first empty-channel observation).
+ * Caller MUST hold the per-request setRequestLock so the timer cannot publish a
+ * fresh TimedOut between the reset and SetRequest. Does NOT reset
+ * RPSorter::base.Next: the Yield latch is load-bearing across reads. */
+void AREQ_ResetForCursorReadReturnStrict(AREQ *req);
 
 /* Abort-wake registration (single-slot). BG reader registers its blocking channel
  * before reading; timeout callback flips `timedOut` then broadcasts to wake it.
- * Operates on RequestSyncCtx so AREQ and HybridRequest can share. */
-void RequestSyncCtx_RegisterAbortWakeChannel(RequestSyncCtx *ctx, struct MRChannel *chan);
-void RequestSyncCtx_UnregisterAbortWakeChannel(RequestSyncCtx *ctx);
-void RequestSyncCtx_WakeAbortChannel(RequestSyncCtx *ctx);
+ * Operates on the embedded RequestSyncState so AREQ and HybridRequest can share. */
+void RequestSyncState_RegisterAbortWakeChannel(RequestSyncState *st, struct MRChannel *chan);
+void RequestSyncState_UnregisterAbortWakeChannel(RequestSyncState *st);
+void RequestSyncState_WakeAbortChannel(RequestSyncState *st);
 
 static inline bool AREQ_ShouldCheckTimeout(AREQ *req) {
   return !req->skipTimeoutChecks;
@@ -664,6 +821,14 @@ static inline void AREQ_SetSkipTimeoutChecks(AREQ *req, bool skipTimeoutChecks) 
   if (req->sctx) {
     req->sctx->time.skipTimeoutChecks = skipTimeoutChecks;
   }
+}
+
+// Returns the AREQ that iterator constructors should use to wire the
+// Blocked Client Timeout, or NULL if iterators should fall back to the
+// in-pipeline clock-based timeout. `skipTimeoutChecks` is set by
+// `AREQ_ApplyContext` exactly when the BC callback is the active source.
+static inline AREQ *AREQ_TimeoutAreqOrNull(AREQ *req) {
+  return (req && req->skipTimeoutChecks) ? req : NULL;
 }
 
 static inline bool RequestConfig_ApplyCoordinatorElapsedTime(RequestConfig *reqConfig,
@@ -693,8 +858,6 @@ void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status);
 void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req);
 
 #define AREQ_RP(req) AREQ_QueryProcessingCtx(req)->endProc
-
-#undef RS_Atomic
 
 #ifdef __cplusplus
 }

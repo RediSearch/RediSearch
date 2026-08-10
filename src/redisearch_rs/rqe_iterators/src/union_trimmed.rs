@@ -45,12 +45,17 @@
 //! via [`UnionTrimmed::child_at`], so trimmed-away children must remain
 //! accessible even though they are inactive.
 
-use ffi::t_docId;
-use inverted_index::RSIndexResult;
+use index_result::{RSIndexResult, RawIndexResult};
+use ref_mode::{Active, Ref};
+use rqe_core::DocId;
 
 use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use index_spec::IndexSpecReadGuard;
 
 /// Union iterator that drains children sequentially in reverse order.
+///
+/// Parameterised over a [`Ref`] mode — see [`UnionTrimmed`] for the
+/// [`Active`] instantiation that implements [`RQEIterator`].
 ///
 /// Created by the query optimizer when a numeric-range union can be trimmed
 /// to satisfy a `LIMIT` clause. See the [module documentation](self) for
@@ -70,9 +75,10 @@ use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, Skip
 ///
 /// # Type Parameters
 ///
-/// - `'index`: Lifetime of the index data.
+/// - `Rf`: The [`Ref`] mode.
 /// - `I`: The child iterator type, must implement [`RQEIterator`].
-pub struct UnionTrimmed<'index, I> {
+#[repr(C)]
+pub struct RawUnionTrimmed<'query, Rf: Ref, I> {
     /// All child iterators. The cursor only visits children in the trimmed
     /// window `[trim_start..trim_end)`. Children outside the window are kept
     /// alive (not dropped) so that profile display can query them by index.
@@ -91,8 +97,12 @@ pub struct UnionTrimmed<'index, I> {
     /// Whether all children in the active window have been exhausted.
     is_eof: bool,
     /// Aggregate result combining children's results, reused to avoid allocations.
-    result: RSIndexResult<'index>,
+    result: RawIndexResult<'query, Rf>,
 }
+
+/// Alias for an [`Active`] [`RawUnionTrimmed`] — the only instantiation
+/// with an [`RQEIterator`] impl today.
+pub type UnionTrimmed<'index, I> = RawUnionTrimmed<'index, Active<'index>, I>;
 
 impl<'index, I> UnionTrimmed<'index, I>
 where
@@ -253,24 +263,34 @@ where
     #[inline(always)]
     fn skip_to(
         &mut self,
-        _doc_id: t_docId,
+        _doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         // UnionTrimmed drains children sequentially, not in doc-id order,
         // so skip_to has no meaningful semantics. Panic to surface misuse
         // immediately rather than silently returning wrong results.
-        panic!(
+        unreachable!(
             "skip_to is not supported on UnionTrimmed — documents are not yielded in doc-id order"
         );
     }
 
     #[inline(always)]
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        _spec: std::ptr::NonNull<ffi::IndexSpec>,
+        _spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // Trimmed unions run in a single, short-lived read path that does not
-        // interleave with GC cycles, so revalidation should never be called.
-        panic!(
+        // Revalidation is unreachable for trimmed unions in practice:
+        //
+        // `TrimUnionIterator` is only called for `Q_OPT_PARTIAL_RANGE`, which
+        // requires SORTBY on a numeric field. SORTBY always inserts an
+        // `RPSorter` into the result-processor pipeline, and `RPSorter` is an
+        // accumulator — it drains *all* upstream results (via `rpQueryItNext`)
+        // before emitting any rows. That drain happens entirely within the
+        // first `sendChunk` call while the spec read-lock is held
+        // (`sctx->lock_state != SPEC_LOCK_UNSET`), so `handleSpecLockAndRevalidate`
+        // short-circuits and never calls `Revalidate`. Subsequent cursor reads
+        // only pull from the sorter's buffer; `rpQueryItNext` is not called
+        // again.
+        unreachable!(
             "revalidate is not supported on UnionTrimmed — trimmed unions are not subject to GC"
         );
     }
@@ -291,7 +311,7 @@ where
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.result.doc_id
     }
 

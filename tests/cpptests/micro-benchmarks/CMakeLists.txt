@@ -33,9 +33,21 @@ target_compile_options(benchmark PRIVATE
 target_compile_options(benchmark_main PRIVATE
   $<$<CXX_COMPILER_ID:Clang>:-Wno-unknown-warning-option -Wno-c2y-extensions>)
 
+# Our RelWithDebInfo flags drop CMake's default -DNDEBUG. Restore it in non-Debug configs so
+# gbench's NDEBUG-based debug-build detection reflects the actual build type.
+target_compile_definitions(benchmark PRIVATE $<$<NOT:$<CONFIG:Debug>>:NDEBUG>)
+target_compile_definitions(benchmark_main PRIVATE $<$<NOT:$<CONFIG:Debug>>:NDEBUG>)
+
 file(GLOB BENCHMARK_ITER_SOURCES "benchmark_*_iterator.cpp")
 foreach(benchmark_file ${BENCHMARK_ITER_SOURCES})
   get_filename_component(benchmark_name ${benchmark_file} NAME_WE)
-  add_executable(${benchmark_name} ${benchmark_file} ../index_utils.cpp ../iterator_util.cpp)
+  add_executable(${benchmark_name} ${benchmark_file} ../index_utils.cpp ../llapi_test_helpers.cpp ../iterator_util.cpp)
   target_link_libraries(${benchmark_name} redisearch redismock benchmark::benchmark)
 endforeach()
+
+# Standalone micro-benchmarks (no iterator/index_utils dependency).
+add_executable(benchmark_unicode_tolower benchmark_unicode_tolower.cpp)
+target_link_libraries(benchmark_unicode_tolower redisearch redismock benchmark::benchmark)
+
+add_executable(benchmark_trie benchmark_trie.cpp)
+target_link_libraries(benchmark_trie redisearch redismock benchmark::benchmark)

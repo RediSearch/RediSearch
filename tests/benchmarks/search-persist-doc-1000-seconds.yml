@@ -1,0 +1,43 @@
+version: 0.2
+name: "search-persist-doc-1000-seconds"
+description: |
+  TTL table benchmark exercising the PERSIST keyspace-notification path on
+  indexed hash documents. Each PERSIST clears the key's absolute expiration;
+  in the in-memory flow this is routed through the doc-expiration fast path
+  (Indexes_UpdateMatchingDocExpiration) instead of a full reindex.
+
+  Keeps both the SET-TTL (EXPIRE) and CLEAR-TTL (PERSIST) branches busy with
+  symmetric ratios (5%/5%) on top of a search-dominant load. Active expiration
+  is disabled and TTL=1000s so the dataset never evicts during the 180s test;
+  every notification is a pure metadata update on the matching DMD, which is
+  the property we want to keep stable across re-triggers.
+
+  Search side uses a deterministic catch-all (`FT.SEARCH idx10 * NOCONTENT
+  LIMIT 0 1`) to keep query latency tight (low variance) and push throughput
+  well above 1000 QPS.
+
+metadata:
+  component: "search"
+  group: "expire-persist"
+  use_case: "PERSIST keyspace-notification fast path on indexed hashes in-memory flow"
+setups:
+  - oss-standalone
+
+dbconfig:
+  - dataset_name: "5200K-docs-union-iterators.idx10-persist-doc-1000s"
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/5200K-docs-union-iterators/5200K-docs-union-iterators.idx10.commands.SETUP.csv"
+  - init_commands:
+      - '"DEBUG" "SET-ACTIVE-EXPIRE" "0"'
+      - '"FT.CREATE" "idx10" "PREFIX" "1" "idx10:" "SCHEMA" "field1" "NUMERIC" "field2" "TEXT" "field3" "TEXT" "field4" "NUMERIC" "field5" "NUMERIC" "field6" "NUMERIC" "field7" "NUMERIC" "field8" "NUMERIC" "field9" "NUMERIC"'
+  - dataset_load_timeout_secs: 180
+  - check:
+      keyspacelen: 5204050
+
+clientconfig:
+  benchmark_type: "mixed"
+  tool: memtier_benchmark
+  arguments: "--test-time 180 -c 16 -t 4 --hide-histogram --key-prefix 'idx10:' --key-minimum 1 --key-maximum 100000 --command 'FT.SEARCH idx10 * NOCONTENT LIMIT 0 1' --command-ratio 90 --command 'EXPIRE __key__ 1000' --command-ratio 5 --command 'PERSIST __key__' --command-ratio 5"

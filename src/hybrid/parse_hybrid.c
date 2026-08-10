@@ -8,35 +8,44 @@
 */
 
 #include "parse_hybrid.h"
-#include "query_optimizer.h"
 
 #include <string.h>
 #include <strings.h>
-#include <ctype.h>
+#include <stdint.h>
 
 #include "aggregate/aggregate.h"
 #include "vector_query_utils.h"
 #include "vector_index.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "spec.h"
 #include "param.h"
 #include "rmalloc.h"
 #include "config.h"
 #include "shard_window_ratio.h"
-
 #include "rmutil/args.h"
 #include "rmutil/rm_assert.h"
-#include "util/references.h"
-#include "util/workers.h"
-#include "info/info_redis/threads/current_thread.h"
-#include "cursor.h"
-#include "info/info_redis/block_client.h"
 #include "hybrid/hybrid_request.h"
+#include "hybrid/hybrid_search_result.h"
 #include "hybrid/parse/hybrid_optional_args.h"
 #include "asm_state_machine.h"
 #include "hybrid/parse/hybrid_callbacks.h"
 #include "util/arg_parser.h"
-#include "rs_wall_clock.h"
+#include "VecSim/query_results.h"
+#include "VecSim/vec_sim_common.h"
+#include "document.h"
+#include "hiredis/sds.h"
+#include "hybrid/hybrid_scoring.h"
+#include "query.h"
+#include "query_error.h"
+#include "query_flags.h"
+#include "query_node.h"
+#include "query_types.h"
+#include "result_processor.h"
+#include "result_processor_ffi.h"
+#include "search_options.h"
+#include "slot_ranges.h"
+#include "slots_tracker_ffi.h"
+#include "util/arr/arr.h"
 
 // Helper function to set error message with proper plural vs singular form
 static void setExpectedArgumentsError(QueryError *status, unsigned int expected, int provided) {
@@ -536,6 +545,24 @@ final:
   // Set default scoreField using vector field name (can be done during parsing)
   VectorQuery_SetDefaultScoreField(vq, pvd->fieldName, strlen(pvd->fieldName));
 
+  // Snapshot the fields used by EXPLAINSCORE wrapper rendering. applyVectorQuery
+  // (called later by AREQ_ApplyContext) transfers `vq` ownership into the AST and
+  // nulls pvd->query, so the explain plumbing reads from these copies instead.
+  pvd->explainQueryType = vq->type;
+  if (vq->type == VECSIM_QT_RANGE) {
+    pvd->explainRangeRadius = vq->range.radius;
+  }
+  for (size_t i = 0; i < array_len(vq->params.params); i++) {
+    const VecSimRawParam *p = &vq->params.params[i];
+    if (p->name && p->nameLen == strlen(VECSIM_EPSILON) &&
+        !strncasecmp(p->name, VECSIM_EPSILON, p->nameLen)) {
+      pvd->explainRangeEpsilon = rm_malloc(p->valLen + 1);
+      memcpy(pvd->explainRangeEpsilon, p->value, p->valLen);
+      pvd->explainRangeEpsilon[p->valLen] = '\0';
+      break;
+    }
+  }
+
   // Store the completed ParsedVectorData in AREQ
   vreq->parsedVectorData = pvd;
 
@@ -583,6 +610,14 @@ static void copyHybridConfigToSubquery(AREQ *subqueryRequest,
   // Copy score sending flags if enabled
   if (mergeReqflags & QEXEC_F_SEND_SCORES) {
     subqueryRequest->reqflags |= QEXEC_F_SEND_SCORES;
+  }
+
+  // EXPLAINSCORE only makes sense on the text branch: the search scorer is
+  // what allocates the per-result RSScoreExplain that the hybrid merger
+  // wraps. The vector branch has no equivalent producer.
+  if ((mergeReqflags & QEXEC_F_SEND_SCOREEXPLAIN) &&
+      (subqueryRequest->reqflags & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY)) {
+    subqueryRequest->reqflags |= QEXEC_F_SEND_SCOREEXPLAIN;
   }
 
   // Copy request configuration using the helper function
@@ -750,6 +785,7 @@ static bool parseSubqueriesCount(ArgsCursor *ac, QueryError *status) {
 int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
                        RedisSearchCtx *sctx, ParseHybridCommandCtx *parsedCmdCtx,
                        QueryError *status, bool internal, ProfileOptions profileOptions) {
+  REDISMODULE_NOT_USED(ctx);
   HybridPipelineParams *hybridParams = parsedCmdCtx->hybridParams;
   hybridParams->scoringCtx = HybridScoringContext_NewDefault();
 
@@ -759,7 +795,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // Don't expect any flag to be on yet
   RS_ASSERT(*mergeReqflags == 0);
   ApplyProfileFlags(mergeReqflags, profileOptions);
-  *parsedCmdCtx->reqConfig = RSGlobalConfig.requestConfigParams;
 
   // Use default dialect if > 1, otherwise use dialect 2
   if (parsedCmdCtx->reqConfig->dialectVersion < MIN_HYBRID_DIALECT) {
@@ -833,9 +868,22 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
     goto error;
   }
 
+  // Cap the effective query timeout to search-_max-foreground-timeout-limit
+  // when the limit is active. The hybrid request shares a single reqConfig
+  // that is later copied into both subqueries through copyHybridConfigToSubquery.
+  // finishSendChunkReply_hybrid reads the cap flag from the search subquery
+  // only, so the flag is set on searchRequest alone.
+  if (RSConfig_CapQueryTimeoutToForegroundLimit(&parsedCmdCtx->reqConfig->queryTimeoutMS)) {
+    searchRequest->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
+  }
+
   // Set slots info in both subqueries
   if (internal) {
-    RS_ASSERT(requestSlotRanges != NULL);
+    if (!requestSlotRanges) {
+      // Coordinators older than 8.4 do not send a slots specification. Fall back to the
+      // current local slots so rolling upgrades across the 8.4 boundary keep working.
+      requestSlotRanges = ASM_FallbackToLocalSlots(ctx, &keySpaceVersion);
+    }
     vectorRequest->querySlots = SlotRangeArray_Clone(requestSlotRanges);
     vectorRequest->keySpaceVersion = keySpaceVersion;
     if (vectorRequest->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
@@ -928,6 +976,14 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
     goto error;
   }
 
+  // Build here, after AREQ_ApplyContext on both sub-queries: it has resolved the
+  // search scorer name, and the vector ParsedVectorData snapshot is still intact
+  // (the live VectorQuery is moved into the AST by the same call, so reading it
+  // any later would be too late).
+  if (*mergeReqflags & QEXEC_F_SEND_SCOREEXPLAIN) {
+    hybridParams->explainCtx = HybridExplainContext_Build(searchRequest, vectorRequest);
+  }
+
   // thread safe context
   params = (AggregationPipelineParams){
       .common =
@@ -939,6 +995,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
           },
       .outFields = NULL,
       .maxResultsLimit = maxHybridResults,
+      .groupByLimits = GroupByLimits_Default(RSGlobalConfig.maxAggregateGroups),
       .language = searchRequest->searchopts.language,
   };
 
@@ -955,9 +1012,6 @@ error:
   if (mergeSearchopts.params) {
     Param_DictFree(mergeSearchopts.params);
   }
-  if (hybridParams->scoringCtx) {
-    HybridScoringContext_Free(hybridParams->scoringCtx);
-    hybridParams->scoringCtx = NULL;
-  }
+  HybridPipelineParams_Cleanup(hybridParams);
   return REDISMODULE_ERR;
 }

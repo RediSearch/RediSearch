@@ -12,13 +12,14 @@
 #include "redismodule.h"
 #include "doc_table.h"
 #include "document.h"
-#include "value.h"
 #include "geo_index.h"
 #include "vector_index.h"
 #include "indexer.h"
 #include "search_disk_api.h"
 
 struct InvertedIndex;
+typedef struct TrieMapIterator TrieMapIterator;
+typedef void (*TrieMapRangeCallback)(const char *, size_t, void *, void *);
 
 #ifdef __cplusplus
 extern "C" {
@@ -117,12 +118,69 @@ typedef struct TagIndex {
 /* Create a new tag index
  * @param diskSpec NULL for memory mode, non-NULL for disk mode
  * @param fieldIndex Field index for disk API calls
+ * @param withSuffix Let TagIndex support suffix searches
  */
-TagIndex *NewTagIndex(RedisSearchDiskIndexSpec *diskSpec, t_fieldIndex fieldIndex);
+TagIndex *NewTagIndex(RedisSearchDiskIndexSpec *diskSpec, t_fieldIndex fieldIndex, bool withSuffix);
 
 void TagIndex_Free(TagIndex *index);
 
 char *TagIndex_SepString(char sep, char **s, size_t *toklen, bool indexEmpty);
+
+/* Return the unique id generated in `NewTagIndex` */
+uint32_t TagIndex_GetId(const TagIndex *idx);
+
+/* Return 1 if TagIndex supports suffix searches */
+bool TagIndex_HasSuffix(const TagIndex *idx);
+
+/* Return 1 if TagIndex supports disk searches */
+bool TagIndex_HasDiskSpec(const TagIndex *idx);
+
+/* Return an iterator over the TagIndex values */
+TrieMapIterator *TagIndex_IterateValues(const TagIndex *idx);
+
+/* Return the number of unique values that the given `TagIndex` is holding */
+size_t TagIndex_NUniqueValues(const TagIndex *idx);
+
+/**
+ * Mark the tag value node as deleted.
+ * See [`TrieMap_Delete`] for more details.
+ */
+int TagIndex_DeleteTagValue(TagIndex *idx, const char *tagVal, size_t tagValLen);
+
+/**
+ * Remove the given suffix.
+ */
+void TagIndex_DeleteTagSuffix(TagIndex *idx, const char *tagVal, size_t tagValLen);
+
+// must match `tm_iter_mode` defined in triemap_ffi.h
+typedef enum tag_iter_mode {
+  TAG_PREFIX_MODE = 0,
+  TAG_CONTAINS_MODE = 1,
+  TAG_SUFFIX_MODE = 2,
+  TAG_WILDCARD_MODE = 3,
+} tag_iter_mode;
+
+/**
+ * Iterate over the values that match the given predicate.
+ *
+ * See [`TrieMap_IterateWithFilter`] for more details.
+ */
+TrieMapIterator *TagIndex_IterateValuesWithFilter(TagIndex *idx, const char *tagVal,
+                                                 size_t tagValLen, tag_iter_mode mode);
+
+/* Return an iterator over the TagIndex suffix or null */
+TrieMapIterator *TagIndex_IterateSuffix(const TagIndex *idx);
+
+/* Return a list of list of terms which match the suffix or contains term or NULL */
+arrayof(char **)
+    TagIndex_GetSuffixMatches(const TagIndex *idx, const char *str, uint32_t len, bool prefix,
+                           struct timespec timeout, bool skipTimeoutChecks);
+
+/* Return a list of terms which match the wildcard pattern or NULL
+ * If pattern does not match using suffix trie, return 0xBAAAAAAD */
+arrayof(char *)
+    TagIndex_GetSuffixWildcardMatches(const TagIndex *idx, const char *pattern, uint32_t len,
+                                      struct timespec timeout, long long maxPrefixExpansions, bool skipTimeoutChecks);
 
 /* Preprocess a document tag field, split the content in data into fdata `tags` array
    Return 0 if there's no content to index in the field (its value is NULL), 1 otherwise
@@ -134,23 +192,48 @@ static inline void TagIndex_FreePreprocessedData(char **s) {
   array_free(s);
 }
 
+typedef struct {
+  SearchDiskWriteBatchHandle *batch;
+  const char **values;
+  size_t n;
+  t_docId docId;
+  bool hasFieldExpiration;
+  IndexStats *stats;
+} TagIndexIndexCtx;
+
 /* Index a vector of pre-processed tags for a docId.
- * Updates stats->invertedSize (memory mode) and stats->numRecords on success.
- * Returns true on success, false on failure (disk mode only).
- * @param ctx RedisModuleCtx pointer */
-bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, const char **values, size_t n, t_docId docId, IndexStats *stats);
+ *
+ * In disk mode the writes are staged onto `batch` (phase 1); the matching
+ * in-memory updates run in `TagIndex_Commit` after the batch commits.
+ * Returns false if disk staging rejected the input.
+ *
+ * In memory mode `batch` is ignored and all writes happen inline. Always
+ * returns true.
+ *
+ * @param ctx   RedisModuleCtx pointer (required by BigModule APIs in disk mode)
+ * @param batch Open per-document write batch (disk mode only; pass NULL for memory mode) */
+bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, const TagIndexIndexCtx *indexCtx);
+
+/* Apply the in-memory tag-trie updates for a vector of tag tokens. Infallible.
+ *
+ * Disk mode: runs after a successful `TagIndex_Index` staging + batch commit;
+ * inserts NULL sentinels into `idx->values` (postings live on disk).
+ *
+ * Memory mode: called from `TagIndex_Index` after the per-tag inverted-index
+ * postings have already been written, so the trie insert is skipped (existing
+ * `InvertedIndex*` values are preserved).
+ *
+ * Record accounting follows the posting write: memory mode accounts accepted
+ * postings in `TagIndex_Index`, and disk mode accounts after the batch commit
+ * in `TagIndex_Commit`. */
+void TagIndex_Commit(TagIndex *idx, const char **values, size_t n, IndexStats *stats);
 
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
- * Returns NULL if there is no such tag in the index */
+ * Returns NULL if there is no such tag in the index. On a disk-index creation failure, returns
+ * NULL and populates `status` (when non-null) with the cause. */
 QueryIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, const char *value, size_t len,
-                                   double weight, t_fieldIndex fieldIndex);
+                                   double weight, t_fieldIndex fieldIndex, QueryError *status);
 
-/* Get iterator from TrieMap iterator value
- * In disk mode: ptr is ignored, calls disk API with tag string
- * In memory mode: ptr is InvertedIndex*, uses it directly */
-QueryIterator *TagIndex_GetIteratorFromTrieMapValue(TagIndex *idx, const RedisSearchCtx *sctx,
-                                                    const char *tag, size_t len, void *ptr,
-                                                    double weight, t_fieldIndex fieldIndex);
 
 /* Open the tag index, returning NULL if it doesn't exist.
  * @param spec Field spec for the tag field
@@ -160,14 +243,15 @@ TagIndex *TagIndex_Open(const FieldSpec *spec);
 /* Open the tag index, creating it if it doesn't exist.
  * @param spec Field spec for the tag field
  * @param diskSpec NULL for memory mode, non-NULL for disk mode
+ * @param withSuffix Let TagIndex support suffix searches
  */
-TagIndex *TagIndex_Ensure(FieldSpec *spec, RedisSearchDiskIndexSpec *diskSpec);
+TagIndex *TagIndex_Ensure(FieldSpec *spec, RedisSearchDiskIndexSpec *diskSpec, bool withSuffix);
 
 /* Find and index containing value, if the index is not found and create == 1,
  * a new index is created.
  * If a new index was created, the size of the new index is returned in *sz,
  * otherwise *sz is set to 0
-*/
+ */
 struct InvertedIndex *TagIndex_OpenIndex(const TagIndex *idx, const char *value,
                                          size_t len, int create_if_missing, size_t *sz);
 

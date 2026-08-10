@@ -9,20 +9,24 @@
 
 //! Tests for the tag inverted index iterator.
 
-use ffi::{IndexFlags_Index_DocIdsOnly, RS_FIELDMASK_ALL, t_docId};
-use inverted_index::{RSIndexResult, doc_ids_only::DocIdsOnly};
+use ffi::IndexFlags_Index_DocIdsOnly;
+use index_result::RSIndexResult;
+use inverted_index::doc_ids_only::DocIdsOnly;
 use query_term::RSQueryTerm;
+use rqe_core::{DocId, RS_FIELDMASK_ALL};
 use rqe_iterators::{IteratorType, NoOpChecker, RQEIterator, inverted_index::Tag};
 use rqe_iterators_test_utils::MockContext;
 
 use crate::inverted_index::utils::BaseTest;
+
+use iterators_ffi::inverted_index::CTagIndexLookup;
 
 struct TagBaseTest {
     test: BaseTest<DocIdsOnly>,
 }
 
 impl TagBaseTest {
-    fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
+    fn expected_record(doc_id: DocId) -> RSIndexResult<'static> {
         RSIndexResult::build_term()
             .doc_id(doc_id)
             .field_mask(RS_FIELDMASK_ALL)
@@ -43,7 +47,7 @@ impl TagBaseTest {
         RSQueryTerm::new("test_tag", 0, 0)
     }
 
-    fn create_iterator(&self) -> Tag<'_, DocIdsOnly, NoOpChecker> {
+    fn create_iterator(&self) -> Tag<'_, DocIdsOnly, CTagIndexLookup, NoOpChecker> {
         let reader = self.test.ii.reader();
         let term = Self::create_term();
         // SAFETY: `mock_ctx` provides a valid `RedisSearchCtx` with a valid `spec`
@@ -54,7 +58,7 @@ impl TagBaseTest {
             Tag::new(
                 reader,
                 self.test.mock_ctx.sctx(),
-                self.test.mock_ctx.tag_index(),
+                CTagIndexLookup::new(self.test.mock_ctx.tag_index()),
                 term,
                 0.0,
                 NoOpChecker,
@@ -97,7 +101,7 @@ fn tag_empty_index() {
         Tag::new(
             reader,
             mock_ctx.sctx(),
-            mock_ctx.tag_index(),
+            CTagIndexLookup::new(mock_ctx.tag_index()),
             term,
             0.0,
             NoOpChecker,
@@ -123,7 +127,7 @@ mod not_miri {
     }
 
     impl TagRevalidateTest {
-        fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
+        fn expected_record(doc_id: DocId) -> RSIndexResult<'static> {
             RSIndexResult::build_term()
                 .doc_id(doc_id)
                 .field_mask(RS_FIELDMASK_ALL)
@@ -140,7 +144,7 @@ mod not_miri {
             }
         }
 
-        fn create_iterator(&self) -> Tag<'_, DocIdsOnly, NoOpChecker> {
+        fn create_iterator(&self) -> Tag<'_, DocIdsOnly, CTagIndexLookup, NoOpChecker> {
             let ii = DocIdsOnly::from_opaque(self.test.context.tag_inverted_index());
             let tag_index = self.test.context.tag_index();
             let term = RSQueryTerm::new("test_tag", 0, 0);
@@ -150,7 +154,7 @@ mod not_miri {
                 Tag::new(
                     ii.reader(),
                     self.test.context.sctx,
-                    tag_index,
+                    CTagIndexLookup::new(tag_index),
                     term,
                     0.0,
                     NoOpChecker,
@@ -177,20 +181,17 @@ mod not_miri {
     fn tag_revalidate_after_index_disappears() {
         let test = TagRevalidateTest::new(10);
         let mut it = test.create_iterator();
-        let sctx = test.test.context.spec;
 
         // Verify the iterator works normally and read at least one document
-        // SAFETY: test-only call with valid context
-        assert_eq!(
-            unsafe { it.revalidate(sctx) }.expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Ok);
         assert!(it.read().expect("failed to read").is_some());
-        // SAFETY: test-only call with valid context
-        assert_eq!(
-            unsafe { it.revalidate(sctx) }.expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Ok);
 
         // Simulate the tag's inverted index being garbage collected and
         // recreated by replacing the TrieMap entry with a new inverted index.
@@ -211,7 +212,7 @@ mod not_miri {
         // `points_to_ii` (`std::ptr::eq`) without dereferencing it.
         // SAFETY: `tag_index` is valid (created by `TagIndex_Ensure`), `values`
         // is a valid TrieMap.
-        let trie = unsafe { &mut *tag_index.as_ref().values.cast::<trie_rs::opaque::TrieMap>() };
+        let trie = unsafe { &mut *tag_index.as_ref().values.cast::<trie_rs::TrieMapOpaque>() };
         let old_val = trie.remove(b"test_tag");
         assert!(old_val.is_some(), "test_tag should exist in the TrieMap");
         let prev = trie.insert(b"test_tag", new_ii as *mut c_void);
@@ -219,11 +220,10 @@ mod not_miri {
 
         // Revalidate should return Aborted because the tag II no longer
         // points to the same index the reader was created from.
-        // SAFETY: test-only call with valid context
-        assert_eq!(
-            unsafe { it.revalidate(sctx) }.expect("revalidate failed"),
-            RQEValidateStatus::Aborted
-        );
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Aborted);
 
         // SAFETY: `old_ii` was allocated by `NewInvertedIndex_Ex` (via `Box::new`)
         // and has not been freed. We are the sole owner after removing it from the TrieMap.
@@ -250,12 +250,10 @@ mod not_miri {
 
         // Read at least one document so the iterator has a position.
         assert!(it.read().expect("failed to read").is_some());
-        let sctx = test.test.context.spec;
-        // SAFETY: test-only call with valid context
-        assert_eq!(
-            unsafe { it.revalidate(sctx) }.expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Ok);
 
         // Save the old II pointer so we can free it after the test.
         let old_ii: *mut inverted_index::opaque::InvertedIndex =
@@ -267,16 +265,15 @@ mod not_miri {
         let tag_index = test.test.context.tag_index();
         // SAFETY: `tag_index` is valid (created by `TagIndex_Ensure`), `values`
         // is a valid TrieMap.
-        let trie = unsafe { &mut *tag_index.as_ref().values.cast::<trie_rs::opaque::TrieMap>() };
+        let trie = unsafe { &mut *tag_index.as_ref().values.cast::<trie_rs::TrieMapOpaque>() };
         let old_val = trie.remove(b"test_tag");
         assert!(old_val.is_some(), "test_tag should exist in the TrieMap");
 
         // `should_abort` sees the tag value is missing and returns true.
-        // SAFETY: test-only call with valid context
-        assert_eq!(
-            unsafe { it.revalidate(sctx) }.expect("revalidate failed"),
-            RQEValidateStatus::Aborted
-        );
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Aborted);
 
         // SAFETY: `old_ii` was allocated by `NewInvertedIndex_Ex` (via `Box::new`)
         // and has not been freed. We are the sole owner after removing it from the TrieMap.
@@ -292,5 +289,127 @@ mod not_miri {
         let reader = it.reader();
         let ii = DocIdsOnly::from_opaque(test.test.context.tag_inverted_index());
         assert!(reader.points_to_ii(ii));
+    }
+
+    mod via_resume {
+        use super::*;
+        use crate::inverted_index::utils::via_resume::{
+            revalidate_after_document_deleted, revalidate_at_eof, revalidate_basic,
+        };
+        use rqe_iterators::{ResumeOutcome, TypeErasedRQEIterator};
+        use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
+
+        #[test]
+        fn tag_revalidate_basic() {
+            let test = TagRevalidateTest::new(10);
+            let it = test.create_iterator();
+            revalidate_basic(&test.test, Box::new(it));
+        }
+
+        #[test]
+        fn tag_revalidate_at_eof() {
+            let test = TagRevalidateTest::new(10);
+            let it = test.create_iterator();
+            revalidate_at_eof(&test.test, Box::new(it));
+        }
+
+        #[test]
+        fn tag_revalidate_after_index_disappears() {
+            let test = TagRevalidateTest::new(10);
+            let it = Box::new(test.create_iterator());
+
+            // Verify the iterator works normally and read at least one document
+            let guard = test.test.context.spec_read();
+            let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
+                .expect("resume should not fail in this test")
+                .expect_ok();
+            assert!(it.read().expect("failed to read").is_some());
+            let it = revalidate_via_resume(it, &guard)
+                .expect("resume should not fail in this test")
+                .expect_ok();
+
+            // Simulate the tag's inverted index being garbage collected and
+            // recreated by replacing the TrieMap entry with a new inverted index.
+            let new_ii =
+                Box::into_raw(Box::new(inverted_index::opaque::InvertedIndex::DocIdsOnly(
+                    inverted_index::InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly),
+                )));
+
+            // Save the old II pointer so we can free it after the test.
+            let old_ii: *mut inverted_index::opaque::InvertedIndex =
+                (test.test.context.tag_inverted_index()
+                    as *mut inverted_index::opaque::InvertedIndex)
+                    .cast();
+
+            let tag_index = test.test.context.tag_index();
+
+            // Delete the old entry then add the new one.
+            // SAFETY: `tag_index` is valid (created by `TagIndex_Ensure`), `values`
+            // is a valid TrieMap.
+            let trie = unsafe { &mut *tag_index.as_ref().values.cast::<trie_rs::TrieMapOpaque>() };
+            let old_val = trie.remove(b"test_tag");
+            assert!(old_val.is_some(), "test_tag should exist in the TrieMap");
+            let prev = trie.insert(b"test_tag", new_ii as *mut c_void);
+            assert!(prev.is_none(), "insert should return None for new entry");
+
+            // Revalidate should return Aborted because the tag II no longer
+            // points to the same index the reader was created from.
+            let outcome =
+                revalidate_via_resume(it, &guard).expect("resume should not fail in this test");
+            assert!(matches!(outcome, ResumeOutcome::Aborted));
+
+            // SAFETY: `old_ii` was allocated by `NewInvertedIndex_Ex` (via `Box::new`)
+            // and has not been freed. We are the sole owner after removing it from the TrieMap.
+            unsafe { drop(Box::from_raw(old_ii)) };
+        }
+
+        #[test]
+        fn tag_revalidate_after_document_deleted() {
+            let test = TagRevalidateTest::new(10);
+            let it = test.create_iterator();
+            let ii = DocIdsOnly::from_mut_opaque(test.test.context.tag_inverted_index());
+
+            revalidate_after_document_deleted(&test.test, Box::new(it), ii);
+        }
+
+        /// Test that revalidation returns `Aborted` when the tag value is removed
+        /// from the TagIndex's TrieMap, simulating the garbage collector removing
+        /// all documents for this tag.
+        #[test]
+        fn tag_revalidate_after_triemap_entry_removed() {
+            let test = TagRevalidateTest::new(10);
+            let mut it = Box::new(test.create_iterator());
+
+            // Read at least one document so the iterator has a position.
+            assert!(it.read().expect("failed to read").is_some());
+            let guard = test.test.context.spec_read();
+            let it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
+                .expect("resume should not fail in this test")
+                .expect_ok();
+
+            // Save the old II pointer so we can free it after the test.
+            let old_ii: *mut inverted_index::opaque::InvertedIndex =
+                (test.test.context.tag_inverted_index()
+                    as *mut inverted_index::opaque::InvertedIndex)
+                    .cast();
+
+            // Simulate the garbage collector removing the tag's inverted index
+            // by deleting the TrieMap entry.
+            let tag_index = test.test.context.tag_index();
+            // SAFETY: `tag_index` is valid (created by `TagIndex_Ensure`), `values`
+            // is a valid TrieMap.
+            let trie = unsafe { &mut *tag_index.as_ref().values.cast::<trie_rs::TrieMapOpaque>() };
+            let old_val = trie.remove(b"test_tag");
+            assert!(old_val.is_some(), "test_tag should exist in the TrieMap");
+
+            // `should_abort` sees the tag value is missing and returns true.
+            let outcome =
+                revalidate_via_resume(it, &guard).expect("resume should not fail in this test");
+            assert!(matches!(outcome, ResumeOutcome::Aborted));
+
+            // SAFETY: `old_ii` was allocated by `NewInvertedIndex_Ex` (via `Box::new`)
+            // and has not been freed. We are the sole owner after removing it from the TrieMap.
+            unsafe { drop(Box::from_raw(old_ii)) };
+        }
     }
 }

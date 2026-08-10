@@ -17,6 +17,41 @@ def test_1304(env):
   env.expect('FT.EXPLAIN idx -\\20*').equal('NOT{\n  PREFIX{20*}\n}\n')
 
 @skip(cluster=True)
+def test_10140_phonetic_after_non_text_field(env):
+  env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'phonetic:',
+             'SCHEMA', 'filingDate', 'TAG', 'chunkText', 'TEXT', 'PHONETIC', 'dm:en').ok()
+  env.cmd('HSET', 'phonetic:1', 'chunkText', 'cash', 'filingDate', '2026-06-15')
+
+  env.expect('FT.SEARCH', 'idx', '@chunkText:kash', 'NOCONTENT').equal([1, 'phonetic:1'])
+
+@skip(cluster=True)
+def test_10140_phonetic_after_noindex_text_field(env):
+  env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'phonetic:',
+             'SCHEMA', 'ignored', 'TEXT', 'NOINDEX',
+             'chunkText', 'TEXT', 'PHONETIC', 'dm:en').ok()
+  env.cmd('HSET', 'phonetic:1', 'ignored', 'skip me', 'chunkText', 'cash')
+
+  env.expect('FT.SEARCH', 'idx', '@chunkText:kash', 'NOCONTENT').equal([1, 'phonetic:1'])
+  env.expect('FT.SEARCH', 'idx', '@chunkText:(kash)=>{$phonetic:true}', 'NOCONTENT') \
+     .equal([1, 'phonetic:1'])
+
+@skip(cluster=True)
+def test_10140_empty_query_after_noindex_text_field(env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'ignored', 'TEXT', 'NOINDEX', 'text', 'TEXT').ok()
+
+  env.expect('FT.SEARCH', 'idx', '@text:("")') \
+     .error().contains('Use `INDEXEMPTY` in field creation')
+
+@skip(cluster=True, no_json=True)
+def test_10140_slop_after_noindex_text_field(env):
+  env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+             '$.ignored', 'AS', 'ignored', 'TEXT', 'NOINDEX',
+             '$.text[*]', 'AS', 'text', 'TEXT').ok()
+
+  env.expect('FT.SEARCH', 'idx', '@text:(hello world)=>{$slop:1}') \
+     .error().contains('with undefined ordering')
+
+@skip(cluster=True)
 def test_1414(env):
   env.expect('FT.CREATE idx SCHEMA txt1 TEXT').equal('OK')
   env.cmd('hset', 'doc', 'foo', 'hello', 'bar', 'world')
@@ -142,6 +177,18 @@ def test_MOD_865(env):
   for i in range(2):
     args_list.extend(['txt', 'TEXT'])
   env.expect(*args_list).error().contains('Duplicate field in schema - txt')
+  env.expect('FT.DROPINDEX', 'idx')
+
+def test_MOD_6411(env):
+  # FT.CREATE used to crash on a stack overflow when the argument list was
+  # large enough (the parser allocated a VLA of `const char *` on the stack).
+  # The parser now consumes RedisModuleString ** directly through ArgsCursor,
+  # so an oversized field list is rejected with the standard schema-limit
+  # error instead of crashing the server.
+  args_list = ['FT.CREATE', 'idx', 'SCHEMA']
+  for i in range(100000):
+    args_list.extend([f'field{i}', 'NUMERIC', 'SORTABLE'])
+  env.expect(*args_list).error().contains('Schema is limited to 1024 fields')
   env.expect('FT.DROPINDEX', 'idx')
 
 def test_issue1826(env):
@@ -366,11 +413,15 @@ def test_MOD_1517(env):
              ['field1', None, 'field2', 'val2', 'amount1Sum', '1', 'amount2Sum', '1'],
              ['field1', 'val1', 'field2', None, 'amount1Sum', '1', 'amount2Sum', '1']]
 
-  env.expect('FT.AGGREGATE', 'idx', '*',
+  actual = conn.execute_command('FT.AGGREGATE', 'idx', '*',
              'LOAD', '2', '@amount1', '@amount2',
              'GROUPBY', '2', '@field1', '@field2',
              'REDUCE', 'SUM', '1', '@amount1', 'AS', 'amount1Sum',
-             'REDUCE', 'SUM', '1', '@amount2', 'as', 'amount2Sum').equal(res)
+             'REDUCE', 'SUM', '1', '@amount2', 'as', 'amount2Sum')
+
+  # The order of the groups themselves is not guaranteed, so compare the group rows regardless of order.
+  env.assertEqual(actual[0], res[0])
+  env.assertEqual(sorted(actual[1:], key=str), sorted(res[1:], key=str))
 
 @skip(msan=True, no_json=True)
 def test_MOD1544(env):

@@ -121,7 +121,11 @@ impl Chain {
     /// # Safety
     ///
     /// The caller has to ensure that the given pointer dereferences to a valid result processor.
-    pub unsafe fn push_raw(&mut self, mut result_processor: NonNull<crate::Header>) {
+    // Only this crate's own tests inject a raw (C-style) result processor; downstream `test-utils`
+    // consumers build chains through `append`, so this is `cfg(test)`-only to avoid a dead-code
+    // warning in the feature-only build.
+    #[cfg(test)]
+    pub(crate) unsafe fn push_raw(&mut self, mut result_processor: NonNull<crate::Header>) {
         if let Some(upstream) = self.result_processors.last() {
             unsafe {
                 result_processor.as_mut().upstream = upstream.as_ptr();
@@ -143,10 +147,25 @@ impl Chain {
     /// # Safety
     ///
     /// 1. The caller must treat the returned pointer as pinned
-    pub unsafe fn last_raw(&mut self) -> &mut NonNull<crate::Header> {
+    pub(crate) unsafe fn last_raw(&mut self) -> &mut NonNull<crate::Header> {
         self.result_processors
             .last_mut()
             .expect("empty result processor chain")
+    }
+
+    /// The pipeline's current `totalResults` count (from [`ffi::QueryProcessingCtx`]).
+    ///
+    /// Used in tests to verify that a skipped slot caused `subtract_total_results(1)`.
+    pub fn total_results(&self) -> u32 {
+        self.query_processing_context.totalResults
+    }
+
+    /// Set the pipeline's `totalResults` count directly (test-only).
+    pub fn set_total_results(&mut self, n: u32) {
+        self.query_processing_context
+            .as_mut()
+            .get_mut()
+            .totalResults = n;
     }
 
     /// Return a [`Context`] and mutable reference to the inner [`ResultProcessor`] implementation

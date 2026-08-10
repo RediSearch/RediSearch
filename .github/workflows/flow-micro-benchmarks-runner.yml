@@ -32,17 +32,26 @@ jobs:
       ec2_instance_id: ${{ steps.start-ec2-runner.outputs.ec2-instance-id }}
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
           aws-access-key-id: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
           aws-region: ${{ secrets.PERFORMANCE_EC2_AWS_REGION }}
+      - name: Generate GitHub App token
+        id: generate-app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.GH_PR_APP_ID }}
+          private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-administration: write
       - name: Start EC2 runner
         id: start-ec2-runner
-        uses: machulav/ec2-github-runner@v2.4.2
+        uses: machulav/ec2-github-runner@343a1b2ae682e681c3cec9a235d882da17ff04ef # v2.6.1
         with:
           mode: start
-          github-token: ${{ secrets.CI_GH_P_TOKEN }}
+          github-token: ${{ steps.generate-app-token.outputs.token }}
           ec2-image-id: ${{ inputs.ami-id }}
           ec2-instance-type: ${{ inputs.instance-type }}
           subnet-id: ${{ secrets.AWS_EC2_SUBNET_ID_BENCHMARK }}
@@ -53,11 +62,16 @@ jobs:
     name: Run micro-benchmarks on runner
     needs: start-runner
     runs-on: ${{ needs.start-runner.outputs.runner_label }}
+    permissions:
+      contents: read  # actions/checkout
+      id-token: write # OIDC role assumption for sccache S3
+    env:
+      IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
     steps:
       - name: Pre checkout deps
         run:  sudo apt-get update && sudo apt-get -y --no-install-recommends install git
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
       - name: Print runner info
@@ -68,11 +82,17 @@ jobs:
           printf "Runner uname:\n$(uname -a)\n"
           printf "Runner arch:\n$(arch)\n"
       - name: Install python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: 3.11
       - name: Setup sccache
+        if: ${{ env.IS_FORK_PR != 'true' }}
         uses: ./.github/actions/setup-sccache
+        with:
+          aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
+          s3-bucket: ${{ vars.SCCACHE_S3_BUCKET }}
+          s3-region: ${{ vars.SCCACHE_S3_REGION }}
+          s3-key-prefix: ${{ vars.SCCACHE_S3_KEY_PREFIX }}
       - name: Install benchmark dependencies
         run: |
           export HOME=/home/ubuntu
@@ -83,20 +103,36 @@ jobs:
           pip3 install --upgrade pip PyYAML setuptools redisbench-admin==0.12.14
         env:
           DEBIAN_FRONTEND: noninteractive
+          # Use committed Rust C headers; cheadergen is not installed on the
+          # benchmark EC2 runner (see redis/redis#15220 for the same pattern).
+          REDISEARCH_GENERATE_HEADERS: "0"
       - name: Run Micro Benchmark
         env:
           ARCH: ${{ inputs.architecture }}
           LTO: 1
+          # Use committed Rust C headers; cheadergen is not installed on the
+          # benchmark EC2 runner (see redis/redis#15220 for the same pattern).
+          REDISEARCH_GENERATE_HEADERS: "0"
         timeout-minutes: 300
         run: |
           export HOME=/home/ubuntu
           export PATH="$HOME/.cargo/bin:$PATH"
           make micro-benchmarks
       - name: Show sccache stats
-        run: ${SCCACHE_PATH:-sccache} --show-stats
+        run: ${SCCACHE_PATH:-sccache} --show-stats || true
       - name: Collect results
+        # Everything dynamic goes through env rather than being expanded into the
+        # script: a PR author controls their own branch name, so interpolating it
+        # into a shell command lets them inject arbitrary code.
         env:
           INPUT_ARCHITECTURE: ${{ inputs.architecture }}
+          PERFORMANCE_RTS_HOST: ${{ secrets.PERFORMANCE_RTS_HOST }}
+          PERFORMANCE_RTS_PORT: ${{ secrets.PERFORMANCE_RTS_PORT }}
+          PERFORMANCE_RTS_AUTH: ${{ secrets.PERFORMANCE_RTS_AUTH }}
+          GITHUB_REPO_NAME: ${{ github.event.repository.name }}
+          GITHUB_ORG_NAME: ${{ github.repository_owner }}
+          GITHUB_BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+          GITHUB_ACTOR_NAME: ${{ github.triggering_actor }}
         run: |
           # Determine OS name
           OS_NAME=$(uname | tr '[:upper:]' '[:lower:]')
@@ -144,14 +180,14 @@ jobs:
           for file in $JSON_FILES; do
             echo "Processing $file..."
             redisbench-admin export \
-              --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }} \
-              --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }} \
+              --redistimeseries_host "$PERFORMANCE_RTS_HOST" \
+              --redistimeseries_port "$PERFORMANCE_RTS_PORT" \
               --redistimeseries_user default \
-              --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}' \
-              --github_repo ${{ github.event.repository.name }} \
-              --github_org ${{ github.repository_owner }} \
-              --github_branch ${{ github.head_ref || github.ref_name }} \
-              --github_actor ${{ github.triggering_actor }} \
+              --redistimeseries_pass "$PERFORMANCE_RTS_AUTH" \
+              --github_repo "$GITHUB_REPO_NAME" \
+              --github_org "$GITHUB_ORG_NAME" \
+              --github_branch "$GITHUB_BRANCH_NAME" \
+              --github_actor "$GITHUB_ACTOR_NAME" \
               --results-format google.benchmark \
               --benchmark-result-file "$file" \
               --triggering_env redisearch-micro-benchmarks \
@@ -167,15 +203,24 @@ jobs:
     if: ${{ always() }} # required to stop the runner even if the error happened in the previous jobs
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
           aws-access-key-id: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
           aws-region: ${{ secrets.PERFORMANCE_EC2_AWS_REGION }}
+      - name: Generate GitHub App token
+        id: generate-app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.GH_PR_APP_ID }}
+          private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-administration: write
       - name: Stop EC2 runner
-        uses: machulav/ec2-github-runner@v2.4.2
+        uses: machulav/ec2-github-runner@343a1b2ae682e681c3cec9a235d882da17ff04ef # v2.6.1
         with:
           mode: stop
-          github-token: ${{ secrets.CI_GH_P_TOKEN }}
+          github-token: ${{ steps.generate-app-token.outputs.token }}
           label: ${{ needs.start-runner.outputs.runner_label }}
           ec2-instance-id: ${{ needs.start-runner.outputs.ec2_instance_id }}

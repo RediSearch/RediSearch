@@ -12,6 +12,8 @@
 #include <sched.h>
 
 #include "redismodule.h"
+#include "rmutil/rm_assert.h"
+#include "search_disk_api.h"
 #include "spec.h"
 #include <time.h>
 
@@ -26,19 +28,30 @@ extern "C" {
 #define APIVERSION_RETURN_MULTI_CMP_FIRST 3
 
 typedef enum {
-  RS_CTX_UNSET,
-  RS_CTX_READONLY,
-  RS_CTX_READWRITE
-} RSContextFlags;
+  SPEC_LOCK_UNSET,
+  SPEC_LOCK_READ,
+  SPEC_LOCK_WRITE
+} SpecLockState;
 
-typedef struct {
+typedef struct SearchTime {
   // current execution start time - real clock
   struct timespec current;
   // when the query should timeout - monotonic raw clock, unrelated to real clock
   struct timespec timeout;
   // Flag to skip timeout checks (used in background thread mode with FAIL policy)
   bool skipTimeoutChecks;
+  // Borrowed RS_Atomic(bool) timed-out flag, wired in AREQ_ApplyContext.
+  // Read via SearchTime_IsTimedOut. NULL on contexts without an owning AREQ.
+  // TODO: move to QueryProcessingCtx.
+  const void *timedOutFlag;
 } SearchTime;
+
+// Returns true iff the SearchTime (passed as `void *` so the function doubles
+// as a SyncPoint stop predicate) has a wired timed-out flag and that flag has
+// been set by the main-thread timeout callback. NULL arg or unwired flag both
+// return false. Reads with memory_order_relaxed: callers only need to observe
+// the flag — there is no surrounding state that requires synchronization.
+bool SearchTime_IsTimedOut(void *arg);
 
 /** Context passed to all redis related search handling functions. */
 typedef struct RedisSearchCtx {
@@ -48,7 +61,12 @@ typedef struct RedisSearchCtx {
   SearchTime time;
   unsigned int apiVersion; // API Version to allow for backward compatibility / alternative functionality
   unsigned int expanded; // Reply format
-  RSContextFlags flags;
+  SpecLockState lock_state;
+  // Per-query disk snapshot (optional, NULL when no snapshot has been taken or when the
+  // backing index has no disk component). Used by the disk-iterator construction paths
+  // so all iterators created during one query observe a consistent on-disk view.
+  // Owned by the query setup that took the snapshot; iterators borrow it.
+  RedisSearchDiskSnapshot *diskSnapshot;
 } RedisSearchCtx;
 
 #define SEARCH_CTX_SORTABLES(ctx) ((ctx && ctx->spec) ? ctx->spec->sortables : NULL)
@@ -64,12 +82,29 @@ static inline RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *s
                           .redisCtx = ctx,
                           .key_ = NULL,
                           .spec = sp,
-                          .time = {.current = { 0, 0 }, .timeout = { 0, 0 }, .skipTimeoutChecks = false},
-                          .flags = RS_CTX_UNSET,};
+                          .time = {.current = { 0, 0 }, .timeout = { 0, 0 }, .skipTimeoutChecks = false, .timedOutFlag = NULL},
+                          .lock_state = SPEC_LOCK_UNSET,
+                          .diskSnapshot = NULL,};
   return sctx;
 }
 
 void SearchCtx_UpdateTime(RedisSearchCtx *sctx, int32_t durationNS);
+
+typedef struct QueryError QueryError;
+
+// Open a disk snapshot on `sctx` for the duration of one query, so every iterator
+// built from `sctx` (and any snapshot-aware disk read on the same sctx) observes the
+// same point-in-time view. Must be called exactly once per sctx, while holding the
+// spec read lock so the in-memory trie/stats consulted by query planning are coherent
+// with the snapshot. Calling this on an sctx that already has a snapshot asserts.
+//
+// Returns REDISMODULE_OK in two cases:
+//   - the index has no disk component (no snapshot needed), or
+//   - the disk snapshot was successfully created.
+// Returns REDISMODULE_ERR and sets `status` if the index is disk-backed but
+// the underlying `SearchDisk_CreateSnapshot` returned NULL. Callers must abort
+// the query in that case rather than fall back to live disk reads.
+int SearchCtx_TakeDiskSnapshot(RedisSearchCtx *sctx, QueryError *status);
 
 void SearchCtx_CleanUp(RedisSearchCtx * sctx);
 
@@ -82,6 +117,14 @@ int RedisSearchCtx_TryLockSpecRead(RedisSearchCtx *sctx);
 void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *sctx);
 
 void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx);
+
+/* Debug-only (ENABLE_ASSERT) check that the spec lock is not held. Used at
+ * background request-cycle boundaries: the lock must be taken and released
+ * within a single cycle, on the same worker thread — a later release (request
+ * free / client unblock on the main thread) would unlock the pthread_rwlock
+ * from a thread that does not own it, which is undefined behavior. */
+#define RedisSearchCtx_AssertLockNotHeld(sctx) \
+  RS_LOG_ASSERT(!(sctx) || (sctx)->lock_state == SPEC_LOCK_UNSET, "spec lock must not be held")
 
 #ifdef __cplusplus
 }

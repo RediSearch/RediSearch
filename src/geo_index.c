@@ -8,12 +8,18 @@
 */
 
 #include "geo_index.h"
+
+#include <string.h>
+#include <strings.h>
+
 #include "numeric_filter.h"
-#include "rmutil/util.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
-#include "query_param.h"
-#include "iterators_rs.h"
+#include "geo_ffi.h"
+#include "query.h"
+#include "query_error_ffi.h"
+#include "redismodule.h"
+#include "iterators_ffi.h"
 
 static double extractUnitFactor(GeoDistance unit);
 
@@ -83,12 +89,11 @@ int GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFil
 }
 
 void GeoFilter_Free(GeoFilter *gf) {
+  // `numericFilters` is allocated in Rust (`build_geo_numeric_filters`), so it
+  // must be freed in Rust with the matching allocator; `GeoFilter_FreeNumericFilters`
+  // releases both the array and each per-range `NumericFilter` it owns.
   if (gf->numericFilters) {
-    for (int i = 0; i < GEO_RANGE_COUNT; ++i) {
-      if (gf->numericFilters[i])
-        NumericFilter_Free(gf->numericFilters[i]);
-    }
-    rm_free(gf->numericFilters);
+    GeoFilter_FreeNumericFilters(gf->numericFilters);
   }
   rm_free(gf);
 }
@@ -170,17 +175,6 @@ int GeoFilter_Validate(const GeoFilter *gf, QueryError *status) {
   return 1;
 }
 
-/**
- * Generates a geo hash from a given latitude and longtitude
- */
-double calcGeoHash(double lon, double lat) {
-  double res;
-  int rv = encodeGeo(lon, lat, &res);
-  if (rv == 0) {
-    return INVALID_GEOHASH;
-  }
-  return res;
-}
 
 /**
  * Convert different units to meters

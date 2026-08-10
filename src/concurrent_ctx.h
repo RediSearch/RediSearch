@@ -14,6 +14,7 @@
 #include "thpool/thpool.h"
 #include "util/references.h"
 #include "rs_wall_clock.h"
+#include "config.h"
 #include <string.h>
 
 #ifdef __cplusplus
@@ -34,6 +35,9 @@ int ConcurrentSearch_CreatePool(int numThreads);
 /* Run a function on the concurrent thread pool */
 void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type);
 
+/* Return the underlying thread pool for direct submission. */
+redisearch_thpool_t *ConcurrentSearch_GetPool(int type);
+
 /* return number of currently working threads */
 size_t ConcurrentSearchPool_WorkingThreadCount();
 
@@ -46,15 +50,19 @@ typedef void (*ConcurrentCmdHandler)(RedisModuleCtx *, RedisModuleString **, int
 
 // Context for concurrent search handler
 // Contains additional parameters passed to ConcurrentSearch_HandleRedisCommandEx
-struct CoordRequestCtx;  // Forward declaration
+struct BlockedRequestCtx;  // Forward declaration
+struct Cursor;             // Forward declaration
 
 // Context for blocking client
 typedef struct ConcurrentSearchBlockClientCtx {
   RedisModuleCmdFunc reply_callback;      // Callback when UnblockClient is called (FAIL policy)
   RedisModuleCmdFunc timeout_callback;    // Callback when timeout fires (FAIL policy)
   rs_wall_clock_ms_t timeoutMS;           // Timeout value in milliseconds (0 if no timeout)
-  void *privdata;                         // Private data for the blocked client
-  void (*free_privdata)(RedisModuleCtx*, void*);           // Callback to free private data
+  // Wrapper owning the request executed by this command. Allocated on the main
+  // thread before blocking; becomes the blocked client's privdata (freed via
+  // BlockedRequestCtx_OnFree). ConcurrentSearch_HandleRedisCommandEx runs
+  // BlockedRequestCtx_BeginCycle on it right after blocking the client.
+  struct BlockedRequestCtx *brc;
 } ConcurrentSearchBlockClientCtx;
 
 typedef struct ConcurrentSearchHandlerCtx {
@@ -72,6 +80,7 @@ static inline void ConcurrentSearchHandlerCtx_Init(ConcurrentSearchHandlerCtx *c
 }
 
 #define CMDCTX_KEEP_RCTX 0x01
+#define CMDCTX_KEEP_BC   0x02
 
 /**
  * Take ownership of the underlying Redis command context. Once ownership is
@@ -86,8 +95,19 @@ static inline void ConcurrentSearchHandlerCtx_Init(ConcurrentSearchHandlerCtx *c
  */
 void ConcurrentCmdCtx_KeepRedisCtx(struct ConcurrentCmdCtx *ctx);
 
+/**
+ * Take ownership of the BlockedClient. After calling this, the handler is
+ * responsible for calling RedisModule_BlockedClientMeasureTimeEnd and
+ * RedisModule_UnblockClient itself (typically from a continuation). The
+ * default behavior (without this call) is for threadHandleCommand to unblock
+ * the client immediately after the handler returns.
+ */
+void ConcurrentCmdCtx_KeepBlockedClient(struct ConcurrentCmdCtx *ctx);
+
 // Returns the WeakRef held in the context.
 WeakRef ConcurrentCmdCtx_GetWeakRef(struct ConcurrentCmdCtx *cctx);
+
+WeakRef ConcurrentCmdCtx_TakeWeakRef(struct ConcurrentCmdCtx *cctx);
 
 // Returns the coordinator start time held in the context.
 rs_wall_clock_ns_t ConcurrentCmdCtx_GetCoordStartTime(struct ConcurrentCmdCtx *cctx);
@@ -97,6 +117,9 @@ size_t ConcurrentCmdCtx_GetNumShards(const struct ConcurrentCmdCtx *cctx);
 
 // Returns the blocked client held in the context.
 RedisModuleBlockedClient *ConcurrentCmdCtx_GetBlockedClient(struct ConcurrentCmdCtx *cctx);
+
+// Returns the thread pool ID the command was dispatched on.
+int ConcurrentCmdCtx_GetPoolId(const struct ConcurrentCmdCtx *cctx);
 
 /* Same as handleRedis command, but set flags for the concurrent context */
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,

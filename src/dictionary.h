@@ -9,7 +9,7 @@
 #ifndef SRC_DICTIONARY_H_
 #define SRC_DICTIONARY_H_
 
-#include "trie/trie_type.h"
+#include "trie/trie.h"
 
 Trie* SpellCheck_OpenDict(RedisModuleCtx* ctx, const char* dictName, int mode);
 

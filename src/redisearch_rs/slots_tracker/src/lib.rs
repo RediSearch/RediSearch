@@ -22,6 +22,7 @@ pub use slots_tracker::{SlotsTracker, Version};
 /// C-compatible slot range array structure.
 ///
 /// This is a variable-length structure with a flexible array member.
+#[cheadergen::config(rename = "RedisModuleSlotRangeArray")]
 #[repr(C)]
 pub struct SlotRangeArray {
     pub num_ranges: i32,
@@ -29,6 +30,7 @@ pub struct SlotRangeArray {
 }
 
 /// Represents a contiguous range of slots.
+#[cheadergen::config(rename = "RedisModuleSlotRange")]
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct SlotRange {

@@ -8,18 +8,17 @@
 */
 #include <string.h>
 #include <inttypes.h>
+#include <stdbool.h>
 
+#include "value_ffi.h"
 #include "document.h"
-#include "rlookup_load_document.h"
+#include "rlookup_ffi.h"
 #include "forward_index.h"
-#include "numeric_filter.h"
-#include "redisearch_rs/headers/numeric_range_tree.h"
-#include "rmutil/strings.h"
-#include "rmutil/util.h"
-#include "util/mempool.h"
+#include "numeric_range_tree.h"
+#include "numeric_range_tree_ffi.h"
+#include "sorting_vector_ffi.h"
 #include "spec.h"
 #include "tokenize.h"
-#include "util/logging.h"
 #include "rmalloc.h"
 #include "indexer.h"
 #include "tag_index.h"
@@ -28,12 +27,27 @@
 #include "rmutil/rm_assert.h"
 #include "redis_index.h"
 #include "fast_float/fast_float_strtod.h"
-#include "obfuscation/obfuscation_api.h"
 #include "search_disk.h"
 #include "info/global_stats.h"
-#include "sorting_vector.h"
-#include "doc_id_meta.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
+#include "VecSim/vec_sim.h"
+#include "config.h"
+#include "doc_table.h"
+#include "geo_ffi.h"
+#include "geo_index.h"
+#include "geometry/geometry_types.h"
+#include "geometry_index.h"
+#include "info/index_error.h"
+#include "query.h"
+#include "query_error_ffi.h"
+#include "rlookup.h"
+#include "rlookup_ffi.h"
+#include "rules.h"
+#include "search_result_rs.h"
+#include "synonym_map.h"
+#include "util/mempool/mempool.h"
+#include "varint_ffi.h"
+#include "vector_index.h"
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
@@ -43,6 +57,7 @@ static void *allocDocumentContext(void) {
   // See if there's one in the pool?
   RSAddDocumentCtx *aCtx = rm_calloc(1, sizeof(*aCtx));
   aCtx->sv = RSSortingVector_Empty();
+  aCtx->disk.openKey = NULL;
   return aCtx;
 }
 
@@ -192,6 +207,10 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   aCtx->next = NULL;
   aCtx->specFlags = sp->flags;
   aCtx->spec = sp;
+  aCtx->disk.batch = NULL;
+  aCtx->disk.oldDocId = 0;
+  aCtx->disk.oldDocLen = 0;
+  aCtx->disk.openKey = NULL;
   if (aCtx->specFlags & Index_Async) {
     HiddenString_Clone(sp->specName, &aCtx->specName);
   }
@@ -257,6 +276,7 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
    * that a new document ID needs to be assigned, and as a consequence, all
    * fields must be reindexed.
    */
+  RS_ASSERT(!SearchDisk_IsEnabled());
   int rv = REDISMODULE_ERR;
   QueryError status = QueryError_Default();
   Document_Clear(aCtx->doc);
@@ -265,9 +285,9 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
 
   DocumentType ruleType = sctx->spec->rule->type;
   if (ruleType == DocumentType_Hash) {
-    rv = Document_LoadSchemaFieldHash(aCtx->doc, sctx, &status);
+    rv = Document_LoadSchemaFieldHash(aCtx->doc, sctx, NULL, &status);
   } else if (ruleType == DocumentType_Json) {
-    rv = Document_LoadSchemaFieldJson(aCtx->doc, sctx, &status);
+    rv = Document_LoadSchemaFieldJson(aCtx->doc, sctx, NULL, &status);
   }
   if (rv != REDISMODULE_OK) {
     // Add error to the spec global stats
@@ -348,6 +368,14 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
   ByteOffsetWriter_Cleanup(&aCtx->offsetsWriter);
   QueryError_ClearError(&aCtx->status);
 
+  // Disk-mode: the batch handle stays alive across commit/abort and is owned
+  // by `aCtx`. Free it unconditionally here so we don't leak on any teardown
+  // path — including ones that bail out before `commitDocument` ran.
+  // `SearchDisk_FreeWriteBatch` is null-safe, so memory-mode contexts (where
+  // the batch was never created) are a no-op.
+  SearchDisk_FreeWriteBatch(aCtx->disk.batch);
+  aCtx->disk.batch = NULL;
+
   mempool_release(actxPool_g, aCtx);
 }
 
@@ -367,6 +395,17 @@ static void writeByteOffsets(ForwardIndexTokenizerCtx *tokCtx, const Token *tokI
 #define FIELD_BULK_INDEXER(name)                                                            \
   static int name(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, const DocumentField *field,  \
                   const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status)
+
+/* Apply hook for a single field of a given type. Mirrors `FIELD_BULK_INDEXER`.
+ * Appliers run inline from `bulkIndexFields` (memory mode) or from
+ * `bulkApplyFields` (disk mode, after a successful batch commit). They are
+ * infallible — they only perform RAM bookkeeping (trie inserts, stats
+ * counters, global-stats bumps) that pairs with the durable writes from the
+ * indexer. The spec is reachable via `aCtx->spec`; Redis API access via
+ * `aCtx->sctx->redisCtx`. */
+#define FIELD_BULK_APPLIER(name)                                              \
+  static void name(RSAddDocumentCtx *aCtx, const DocumentField *field,        \
+                   const FieldSpec *fs, FieldIndexerData *fdata)
 
 #define FIELD_BULK_CTOR(name) \
   static void name(IndexBulkData *bulk, const FieldSpec *fs, RedisSearchCtx *ctx)
@@ -401,7 +440,9 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
       if (is_normalized) {
           RSSortingVector_PutStr(&aCtx->sv, fs->sortIdx, c);
       } else {
-          RSSortingVector_PutStrNormalize(&aCtx->sv, fs->sortIdx, c);
+          if (!RSSortingVector_PutStrNormalize(&aCtx->sv, fs->sortIdx, c, status)) {
+              return -1;
+          }
       }
     } else if (field->multisv) {
       RSSortingVector_PutRSVal(&aCtx->sv, fs->sortIdx, field->multisv);
@@ -558,6 +599,9 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(geometryIndexer) {
+  RS_LOG_ASSERT_ALWAYS(!SearchDisk_IsEnabled(),
+                       "geometryIndexer is not commit-batched; disk-mode geometry is not supported");
+
   GeometryIndex *rt = OpenGeometryIndex(&ctx->spec->fields[fs->index], CREATE_INDEX);
   if (!rt) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open geoshape index for indexing");
@@ -582,10 +626,31 @@ FIELD_BULK_INDEXER(geometryIndexer) {
 }
 
 // Passes RSGlobalConfig.numericTreeMaxDepthRange automatically
-#define NumericRangeTree_Add(t, docId, value, isMulti) \
-  _NumericRangeTree_Add((t), (docId), (value), (isMulti), RSGlobalConfig.numericTreeMaxDepthRange)
+#define NumericRangeTree_Add(t, docId, value, hasFieldExpiration, isMulti)              \
+  _NumericRangeTree_Add((t), (docId), (value), (hasFieldExpiration), (isMulti),         \
+                        RSGlobalConfig.numericTreeMaxDepthRange)
+
+static int indexNumericOnDiskBatch(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
+                                   const FieldSpec *fs, const FieldIndexerData *fdata,
+                                   QueryError *status) {
+  const double *values = fdata->isMulti ? fdata->arrNumeric : &fdata->numeric;
+  const uint32_t count = fdata->isMulti ? array_len(fdata->arrNumeric) : 1;
+  for (uint32_t i = 0; i < count; ++i) {
+    if (!SearchDisk_IndexNumeric(ctx->redisCtx, ctx->spec->diskSpec, aCtx->disk.batch,
+                                 aCtx->doc->docId, values[i], fs->index)) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Numeric indexing failed");
+      return -1;
+    }
+  }
+  return 0;
+}
 
 FIELD_BULK_INDEXER(numericIndexer) {
+  if (aCtx->disk.batch) {
+    // The dispatcher in `IndexerBulkAdd` routes both IXFLDPOS_NUMERIC and
+    // IXFLDPOS_GEO through this indexer.
+    return indexNumericOnDiskBatch(aCtx, ctx, fs, fdata, status);
+  }
 
   NumericRangeTree *rt = openNumericOrGeoIndex(ctx->spec, &ctx->spec->fields[fs->index], CREATE_INDEX);
   if (!rt) {
@@ -593,16 +658,24 @@ FIELD_BULK_INDEXER(numericIndexer) {
     return -1;
   }
 
+  // This numeric/geo index belongs to a single field, so the inline expiration
+  // bit is set iff that field has a field-level expiration for this document.
+  const bool fieldHasExpiration =
+      DocTable_FieldHasExpiration(&ctx->spec->docs, aCtx->doc->docId, fs->index);
   if (!fdata->isMulti) {
-    AddResult rv = NumericRangeTree_Add(rt, aCtx->doc->docId, fdata->numeric, false);
+    AddResult rv =
+        NumericRangeTree_Add(rt, aCtx->doc->docId, fdata->numeric, fieldHasExpiration, false);
     ctx->spec->stats.invertedSize += rv.size_delta;
     ctx->spec->stats.numRecords += rv.num_records_delta;
+    IndexStats_BlockCountAdd(&ctx->spec->stats, rv.block_count_delta);
   } else {
     for (uint32_t i = 0; i < array_len(fdata->arrNumeric); ++i) {
       double numval = fdata->arrNumeric[i];
-      AddResult rv = NumericRangeTree_Add(rt, aCtx->doc->docId, numval, true);
+      AddResult rv =
+          NumericRangeTree_Add(rt, aCtx->doc->docId, numval, fieldHasExpiration, true);
       ctx->spec->stats.invertedSize += rv.size_delta;
       ctx->spec->stats.numRecords += rv.num_records_delta;
+      IndexStats_BlockCountAdd(&ctx->spec->stats, rv.block_count_delta);
     }
   }
 
@@ -648,7 +721,6 @@ FIELD_BULK_INDEXER(vectorIndexer) {
     VecSimIndex_AddVector(vecsim, curr_vec, aCtx->doc->docId);
     curr_vec += fdata->vecLen;
   }
-  sp->stats.numRecords += fdata->numVec;
   return 0;
 }
 
@@ -661,7 +733,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
   switch (field->unionType) {
     case FLD_VAR_T_GEO:
       fdata->isMulti = 0;
-      geohash = calcGeoHash(field->lon, field->lat);
+      geohash = encodeGeo(field->lon, field->lat);
       if (geohash == INVALID_GEOHASH) {
         QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_GEO_COORDINATES_INVALID, "Invalid geo coordinates", ": %f, %f",
                                field->lon, field->lat);
@@ -692,10 +764,10 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
   fdata->isMulti = 0;
   if (str_count == 1) {
     str = DocumentField_GetValueCStr(field, &len);
-    if (parseGeo(str, len, &lon, &lat, status) != REDISMODULE_OK) {
+    if (parseGeo((const uint8_t *)str, len, &lon, &lat, status) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
-    geohash = calcGeoHash(lon, lat);
+    geohash = encodeGeo(lon, lat);
     if (geohash == INVALID_GEOHASH) {
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_GEO_COORDINATES_INVALID, "Invalid geo coordinates", ": %f, %f",
                         lon, lat);
@@ -707,12 +779,12 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
     arrayof(double) arr = array_new(double, str_count);
     for (size_t i = 0; i < str_count; ++i) {
       const char *cur_str = DocumentField_GetArrayValueCStr(field, &len, i);
-      if (parseGeo(cur_str, len, &lon, &lat, status) != REDISMODULE_OK) {
+      if (parseGeo((const uint8_t *)cur_str, len, &lon, &lat, status) != REDISMODULE_OK) {
         array_free(arr);
         fdata->arrNumeric = NULL;
         return REDISMODULE_ERR;
       }
-      geohash = calcGeoHash(lon, lat);
+      geohash = encodeGeo(lon, lat);
       if (geohash == INVALID_GEOHASH) {
         QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_GEO_COORDINATES_INVALID, "Invalid geo coordinates", ": %f, %f",
                         lon, lat);
@@ -732,7 +804,9 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       if (is_normalized) {
           RSSortingVector_PutStr(&aCtx->sv, fs->sortIdx, str);
       } else {
-          RSSortingVector_PutStrNormalize(&aCtx->sv, fs->sortIdx, str);
+          if (!RSSortingVector_PutStrNormalize(&aCtx->sv, fs->sortIdx, str, status)) {
+              return -1;
+          }
       }
     } else if (field->multisv) {
       RSSortingVector_PutRSVal(&aCtx->sv, fs->sortIdx, field->multisv);
@@ -752,7 +826,9 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
         if (is_normalized) {
             RSSortingVector_PutStr(&aCtx->sv, fs->sortIdx, str);
         } else {
-            RSSortingVector_PutStrNormalize(&aCtx->sv, fs->sortIdx, str);
+            if (!RSSortingVector_PutStrNormalize(&aCtx->sv, fs->sortIdx, str, status)) {
+                return -1;
+            }
         }
       } else if (field->multisv) {
         RSSortingVector_PutRSVal(&aCtx->sv, fs->sortIdx, field->multisv);
@@ -764,22 +840,76 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(tagIndexer) {
-  TagIndex *tidx = TagIndex_Ensure(&ctx->spec->fields[fs->index], ctx->spec->diskSpec);
+  bool withSuffix = FieldSpec_HasSuffixTrie(fs);
+  TagIndex *tidx = TagIndex_Ensure(&ctx->spec->fields[fs->index], ctx->spec->diskSpec, withSuffix);
   if (!tidx) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open tag index for indexing");
     return -1;
   }
 
-  if (FieldSpec_HasSuffixTrie(fs) && !tidx->suffix) {
-    tidx->suffix = NewTrieMap();
-  }
-
-  // TagIndex_Index handles both disk and memory modes internally
-  if (!TagIndex_Index(ctx->redisCtx, tidx, (const char **)fdata->tags, array_len(fdata->tags), aCtx->doc->docId, &ctx->spec->stats)) {
+  // This tag index belongs to a single field, so the inline expiration bit is
+  // set iff that field has a field-level expiration for this document.
+  const bool fieldHasExpiration =
+      DocTable_FieldHasExpiration(&ctx->spec->docs, aCtx->doc->docId, fs->index);
+  TagIndexIndexCtx indexCtx = {
+      .batch = aCtx->disk.batch,
+      .values = (const char **)fdata->tags,
+      .n = array_len(fdata->tags),
+      .docId = aCtx->doc->docId,
+      .hasFieldExpiration = fieldHasExpiration,
+      .stats = &ctx->spec->stats,
+  };
+  if (!TagIndex_Index(ctx->redisCtx, tidx, &indexCtx)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Tag indexing failed");
     return -1;
   }
   return 0;
+}
+
+/* Apply hooks. Each runs once per (doc, indexed field) pair from
+ * `IndexerBulkApply`. See `FIELD_BULK_APPLIER` for the contract. */
+
+FIELD_BULK_APPLIER(tagApplier) {
+  // `aCtx->fspecs` is a shallow copy taken in `AddDocumentCtx_SetDocument`.
+  // The TagIndex is lazily allocated by `tagIndexer` via `TagIndex_Ensure` on
+  // the live spec field, so the copy's `tagOpts.tagIndex` may still be NULL
+  // here. Look up the live spec field directly.
+  TagIndex *tidx = TagIndex_Open(&aCtx->spec->fields[fs->index]);
+  if (!tidx) return;
+  TagIndex_Commit(tidx, (const char **)fdata->tags, array_len(fdata->tags),
+                  &aCtx->spec->stats);
+  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_TAG, 1);
+}
+
+FIELD_BULK_APPLIER(vectorApplier) {
+  // The VecSim insert itself runs in `applyVectorInserts` for disk mode
+  // (after the batch commits) and inline in `vectorIndexer` for memory mode.
+  // The applier only handles the global-stats bump, which is mode-independent.
+  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_VECTOR, 1);
+}
+
+FIELD_BULK_APPLIER(numericApplier) {
+  // Per-spec numeric stats are bumped by `numericIndexer` in both modes.
+  // The applier only handles the global field-docs counter.
+  (void)aCtx; (void)field; (void)fs; (void)fdata;
+  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_NUMERIC, 1);
+}
+
+FIELD_BULK_APPLIER(geoApplier) {
+  // Per-spec geo stats are bumped by `numericIndexer` in both modes (geo
+  // values are stored as geohash `f64`s in the numeric index, so the same
+  // code path applies). The applier only handles the global field-docs
+  // counter.
+  (void)aCtx; (void)field; (void)fs; (void)fdata;
+  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_GEO, 1);
+}
+
+FIELD_BULK_APPLIER(geometryApplier) {
+  // TODO: when geometry lands on the per-document disk write batch, move the
+  // R-tree mutation here. Today `geometryIndexer` does the insert inline and
+  // asserts disk-mode is disabled.
+  (void)aCtx; (void)field; (void)fs; (void)fdata;
+  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_GEOMETRY, 1);
 }
 
 static PreprocessorFunc preprocessorMap[] = {
@@ -808,6 +938,13 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
           rc = numericIndexer(cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_VECTOR:
+          // Disk mode: defer the actual `VecSimIndex_AddVector` to
+          // `applyVectorInserts` (called after the batch commits) so a
+          // failed commit never leaves the vector index referencing a
+          // doc-id that was not persisted. The vector blob in
+          // `fdata->vector` is borrowed (not copied) and lives until
+          // `AddDocumentCtx_Free`, so it is safe to read post-commit.
+          if (cur->disk.batch) break;
           rc = vectorIndexer(cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_GEOMETRY:
@@ -822,11 +959,22 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
       }
     }
   }
-  // If the indexing was successful, update the global statistics.
-  if (rc == 0) {
-    FieldsGlobalStats_UpdateFieldDocsIndexed(fs->types, 1);
-  }
   return rc;
+}
+
+void IndexerBulkApply(RSAddDocumentCtx *aCtx, const DocumentField *field,
+                      const FieldSpec *fs, FieldIndexerData *fdata) {
+  for (size_t ii = 0; ii < INDEXFLD_NUM_TYPES; ++ii) {
+    if (!(field->indexAs & INDEXTYPE_FROM_POS(ii))) continue;
+    switch (ii) {
+      case IXFLDPOS_TAG:      tagApplier(aCtx, field, fs, fdata);      break;
+      case IXFLDPOS_NUMERIC:  numericApplier(aCtx, field, fs, fdata);  break;
+      case IXFLDPOS_GEO:      geoApplier(aCtx, field, fs, fdata);      break;
+      case IXFLDPOS_VECTOR:   vectorApplier(aCtx, field, fs, fdata);   break;
+      case IXFLDPOS_GEOMETRY: geometryApplier(aCtx, field, fs, fdata); break;
+      case IXFLDPOS_FULLTEXT: break;
+    }
+  }
 }
 
 int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
@@ -866,8 +1014,10 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 cleanup:
   if (ourRv != REDISMODULE_OK) {
     // if a document did not load properly, it is deleted
-    // to prevent mismatch of index and hash
-    IndexSpec_DeleteDoc_Unsafe(aCtx->spec, RSDummyContext, doc->docKey);
+    // to prevent mismatch of index and hash. Reuse the caller's pinned handle
+    // (set by the async scan path) so cleanup does not reopen the key by name —
+    // inside the async scan the key is not addressable by name.
+    IndexSpec_DeleteDoc_Unsafe(aCtx->spec, RSDummyContext, doc->docKey, aCtx->disk.openKey);
 
     QueryError_SetCode(&aCtx->status, QUERY_ERROR_CODE_GENERIC);
     AddDocumentCtx_Finish(aCtx);
@@ -892,8 +1042,8 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   RLookupRow row = RLookupRow_New();;
   RSValue *rv = NULL;
   IndexSpecCache *spcache = NULL;
-  RLookupLoadOptions loadopts = {0};
   ExprEval evaluator = {0};
+  LoadIndividualKeysOptions opts = {0};
 
   RedisSearchCtx_LockSpecRead(sctx);
   dmd = DocTable_BorrowByKeyR(&sctx->spec->docs, key);
@@ -914,8 +1064,15 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
     goto done;
   }
 
-  loadopts = (RLookupLoadOptions){.sctx = sctx, .dmd = dmd, .status = status};
-  if (RLookup_LoadDocumentIndividual(&lookup_s, &row, &loadopts) != REDISMODULE_OK) {
+  opts = (LoadIndividualKeysOptions){
+      .sctx = sctx,
+      .dmd = dmd,
+      .force_string = false,
+      .force_load = false,
+      .cached_only = false,
+      .status = status,
+  };
+  if (RLookup_LoadDocumentIndividual(&lookup_s, &row, &opts) != REDISMODULE_OK) {
      goto done;
   }
 
@@ -1000,7 +1157,9 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
           if (is_normalized) {
               RSSortingVector_PutStr(&md->sortVector, idx, str);
           } else {
-              RSSortingVector_PutStrNormalize(&md->sortVector, idx, str);
+              if (!RSSortingVector_PutStrNormalize(&md->sortVector, idx, str, &aCtx->status)) {
+                BAIL("Invalid UTF8");
+              }
           }
 
           break;

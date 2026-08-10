@@ -11,12 +11,10 @@
 
 #include "redisearch.h"
 #include "sortable.h"
-#include "value.h"
 #include "concurrent_ctx.h"
 #include "search_ctx.h"
 #include "iterators/iterator_api.h"
 #include "search_options.h"
-#include "rlookup.h"
 #include "extension.h"
 #include "score_explain.h"
 #include "rs_wall_clock.h"
@@ -24,9 +22,13 @@
 #include "hybrid/hybrid_scoring.h"
 #include "hybrid/hybrid_lookup_context.h"
 #include "vector_normalization.h"
-#include "result_processor_rs.h"
+#include "result_processor_ffi.h"
 #include "search_result.h"
 #include "slot_ranges.h"
+#include "rmutil/rm_assert.h"
+
+typedef struct RLookupKey RLookupKey;
+typedef struct RedisModule_Reply RedisModule_Reply;
 
 #ifdef __cplusplus
 extern "C" {
@@ -72,6 +74,7 @@ typedef enum {
   RP_HYBRID_MERGER,
   RP_SAFE_DEPLETER,
   RP_DEPLETER,
+  RP_DISK_ASYNC_LOADER,
   RP_MAX, // Marks the last non-debug RP type
   // Debug only result processors
   RP_TIMEOUT,
@@ -90,6 +93,17 @@ struct RLookup;
 QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it);
 void QITR_PushRP(QueryProcessingCtx *it, struct ResultProcessor *rp);
 void QITR_FreeChain(QueryProcessingCtx *qitr);
+
+// Result count to report to the client: matches minus the rows a loader dropped
+// (deleted/re-indexed/expired mid-load). Invariant: skippedResults <= totalResults
+// — drops are a subset of counted matches, and any stage that transforms or replaces
+// totalResults (grouper, hybrid merge, optimizer offset/limit) folds in and clears
+// skippedResults first. The assert enforces the invariant at every reply site.
+static inline uint32_t QITR_ReportedTotal(const QueryProcessingCtx *qctx) {
+  RS_LOG_ASSERT(qctx->skippedResults <= qctx->totalResults,
+                "skippedResults must not exceed totalResults");
+  return qctx->totalResults - qctx->skippedResults;
+}
 
 /* Result processor return codes */
 
@@ -169,7 +183,11 @@ ResultProcessor *RPMetricsLoader_New();
  */
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys, uint64_t ascendingMap);
 
-ResultProcessor *RPSorter_NewByScore(size_t maxresults);
+/**
+ * Creates a sorter result processor that sorts by score.
+ * @param scoreTieBreakKey if non-NULL, score ties break by this key's value, not the doc id.
+ */
+ResultProcessor *RPSorter_NewByScore(size_t maxresults, const RLookupKey *scoreTieBreakKey);
 
 ResultProcessor *RPPager_New(size_t offset, size_t limit);
 
@@ -188,10 +206,17 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit);
  *
  *******************************************************************************************************************/
 struct AREQ;
+struct BlockedRequestCtx;
 ResultProcessor *RPLoader_New(RedisSearchCtx *sctx, uint32_t reqflags, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad, uint32_t *outStateflags);
+void RPLoader_ReplyProfileFields(RedisModule_Reply *reply, const ResultProcessor *base);
 
 void SetLoadersForBG(QueryProcessingCtx *qctx);
 void SetLoadersForMainThread(QueryProcessingCtx *qctx);
+
+/* Link the request sync context into every RP_SAFE_LOADER and RP_DISK_ASYNC_LOADER in the
+ * pipeline so they can perform the RETURN_STRICT GIL deadlock-avoidance handshake (see
+ * aggregate.h). No-op for pipelines without safe/disk loaders. */
+void RPSafeLoader_SetSyncCtx(QueryProcessingCtx *qctx, struct BlockedRequestCtx *sync);
 
 /** Creates a new Highlight processor */
 ResultProcessor *RPHighlighter_New(RSLanguage language, const FieldList *fields,
@@ -247,8 +272,24 @@ ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLook
 * @param sync_ref Reference to shared synchronization object for coordinating multiple safe depleters
 * @param depletingThreadCtx Search context for the upstream processor being wrapped
 * @param nextThreadCtx Search context for the downstream processor that will receive results
+* @param pool Thread pool used to run the depletion job (must be non-NULL)
 */
-ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx, RedisSearchCtx *nextThreadCtx);
+ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx, RedisSearchCtx *nextThreadCtx, redisearch_thpool_t *pool);
+
+/**
+* Pre-submit a safe depleter to its thread pool. After this call the depleter's
+* lazy-start branch is skipped and Next() proceeds directly to wait-for-completion.
+* Used to enqueue depleters ahead of a tail continuation on the same pool.
+*/
+void RPSafeDepleter_StartDepletion(ResultProcessor *base);
+
+/**
+* Block until this depleter's background depletion job (if any) has completed.
+* Idempotent on never-started or already-completed depleters. Does not advance
+* the depleter's state. Used to ensure no background depletion is still in
+* flight before tearing down resources the depleter may be touching.
+*/
+void RPSafeDepleter_WaitForCompletion(ResultProcessor *base);
 
 /**
 * Get the depletion time for RPSafeDepleter.
@@ -312,9 +353,14 @@ StrongRef DepleterSync_New(unsigned int num_depleters, bool take_index_lock);
  * Merges results from multiple upstream processors using a hybrid scoring function.
  * Takes results from all upstreams and applies the provided function to combine their scores.
  *******************************************************************************************************************/
+// Forward declaration; full type is in hybrid/hybrid_search_result.h
+typedef struct HybridExplainContext HybridExplainContext;
+
 /*
  * Creates a new Hybrid Merger processor.
  * Note: RPHybridMerger takes ownership of hybridScoringCtx and is responsible for freeing it.
+ * `explainCtx` is optional: pass NULL to disable EXPLAINSCORE wrapping. When
+ * non-NULL, RPHybridMerger takes ownership of the struct (frees it on Free).
  * @param scoreKey Optional key for writing scores as fields when no LOAD step is provided
  */
 ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
@@ -324,7 +370,8 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
                                     const RLookupKey *docKey,
                                     const RLookupKey *scoreKey,
                                     RPStatus *subqueriesReturnCodes,
-                                    HybridLookupContext *lookupCtx);
+                                    HybridLookupContext *lookupCtx,
+                                    HybridExplainContext *explainCtx);
 
 /*
  * Returns NULL if the processor is not a HybridMerger or if scoreKey is NULL.

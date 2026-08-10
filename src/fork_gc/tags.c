@@ -7,12 +7,25 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#include <stdint.h>
+#include <string.h>
+
 #include "pipe.h"
+#include "triemap_ffi.h"
+#include "inverted_index_ffi.h"
 #include "redis_index.h"
 #include "tag_index.h"
-#include "suffix.h"
 #include "rmutil/rm_assert.h"
 #include "obfuscation/hidden.h"
+#include "field_spec.h"
+#include "fork_gc.h"
+#include "fork_gc_ffi.h"
+#include "inverted_index.h"
+#include "redismodule.h"
+#include "search_ctx.h"
+#include "spec.h"
+#include "util/arr/arr.h"
+#include "util/references.h"
 
 typedef struct {
   const char *field;
@@ -47,9 +60,9 @@ void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
       }
 
       tagHeader header = {.field = HiddenString_GetUnsafe(tagFields[i]->fieldName, NULL),
-                          .uniqueId = tagIdx->uniqueId};
+                          .uniqueId = TagIndex_GetId(tagIdx)};
 
-      TrieMapIterator *iter = TrieMap_Iterate(tagIdx->values);
+      TrieMapIterator *iter = TagIndex_IterateValues(tagIdx);
       char *ptr;
       tm_len_t len;
       InvertedIndex *value;
@@ -65,10 +78,7 @@ void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
 
         II_GCWriter wr = { .ctx = gc, .write = pipe_write_cb };
 
-        InvertedIndex_GcDelta_Scan(
-            &wr, sctx, value,
-            &cb, NULL
-        );
+        InvertedIndex_GcDelta_Scan(&wr, sctx, value, &cb);
       }
 
       // we are done with the current field
@@ -146,7 +156,7 @@ FGCError FGC_parentHandleTags(ForkGC *gc) {
     tagIdx = TagIndex_Open(fs);
     RS_LOG_ASSERT_FMT(tagIdx, "tag field '%.*s' was not opened", (int)fieldNameLen, fieldName);
 
-    if (tagIdx->uniqueId != tagUniqueId) {
+    if (TagIndex_GetId(tagIdx) != tagUniqueId) {
       status = FGC_CHILD_ERROR;
       goto loop_cleanup;
     }
@@ -157,17 +167,21 @@ FGCError FGC_parentHandleTags(ForkGC *gc) {
       goto loop_cleanup;
     }
 
-    InvertedIndex_ApplyGcDelta(idx, delta, &info);
+    InvertedIndex_ApplyGCDelta(idx, delta, &info);
     delta = NULL;
+    IndexStats_BlockCountAdd(&sctx->spec->stats, info.block_count_delta);
 
     // if tag value is empty, let's remove it.
     if (InvertedIndex_NumDocs(idx) == 0) {
-      // get memory before deleting the inverted index
+      // Sample memory and block count before the TrieMap destructor callback frees the
+      // index without spec context.
       info.bytes_freed += InvertedIndex_MemUsage(idx);
-      TrieMap_Delete(tagIdx->values, tagVal, tagValLen, (void (*)(void *))InvertedIndex_Free);
+      IndexStats_BlockCountAdd(&sctx->spec->stats, -(int64_t)InvertedIndex_NumBlocks(idx));
+      TagIndex_DeleteTagValue(tagIdx, tagVal, tagValLen);
 
-      if (tagIdx->suffix) {
-        deleteSuffixTrieMap(tagIdx->suffix, tagVal, tagValLen);
+      // Empty values (INDEXEMPTY) are never inserted into the suffix triemap, so skip the delete.
+      if (TagIndex_HasSuffix(tagIdx) && tagValLen) {
+        TagIndex_DeleteTagSuffix(tagIdx, tagVal, tagValLen);
       }
     }
 
@@ -179,10 +193,10 @@ FGCError FGC_parentHandleTags(ForkGC *gc) {
     InvertedIndex_GcDelta_Free(delta);
 
     if (tagVal) {
-      rm_free(tagVal);
+      FGC_freeBuffer(tagVal, tagValLen);
     }
   }
 
-  rm_free(fieldName);
+  FGC_freeBuffer(fieldName, fieldNameLen);
   return status;
 }

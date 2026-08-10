@@ -6,32 +6,76 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "aggregate.h"
-#include "reducer.h"
-
 #include <cursor.h>
 #include <query.h>
-#include <extension.h>
 #include <result_processor.h>
-#include <util/arr.h>
-#include <rmutil/util.h>
-#include "ext/default.h"
+#include <pthread.h>
+#include <stdatomic.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
+#include <sys/param.h>
+
+#include "aggregate.h"
+#include "aggregate_debug.h"
+#include "hybrid/hybrid_request.h"
+#include "search_result_ffi.h"
 #include "extension.h"
 #include "profile/profile.h"
 #include "config.h"
-#include "util/timeout.h"
 #include "query_optimizer.h"
-#include "resp3.h"
 #include "obfuscation/hidden.h"
 #include "hybrid/vector_query_utils.h"
 #include "vector_index.h"
-#include "slots_tracker.h"
+#include "slots_tracker_ffi.h"
 #include "asm_state_machine.h"
 #include "coord/rmr/command.h"
 #include "coord/rmr/chan.h"
+#include "coord/rpnet.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
 #include "doc_id_meta.h"
+#include "aggregate/aggregate_plan.h"
+#include "aggregate/expr/expression.h"
+#include "field_spec.h"
+#include "geo_index.h"
+#include "hiredis/sds.h"
+#include "hybrid/hybrid_cursor_mappings.h"
+#include "language.h"
+#include "numeric_filter.h"
+#include "param.h"
+#include "pipeline/pipeline.h"
+#include "pipeline/pipeline_construction.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "query_flags.h"
+#include "query_internal.h"
+#include "query_node.h"
+#include "query_param.h"
+#include "query_parser/tokenizer.h"
+#include "query_types.h"
+#include "redisearch.h"
+#include "redismodule.h"
+#include "rlookup.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "rmutil/args.h"
+#include "rmutil/rm_assert.h"
+#include "rqe_core.h"
+#include "rules.h"
+#include "search_ctx.h"
+#include "search_disk_api.h"
+#include "search_options.h"
+#include "slot_ranges.h"
+#include "spec.h"
+#include "stopwords.h"
+#include "util/arr/arr.h"
+#include "util/references.h"
+#include "util/rs_atomic.h"
+
+struct MRChannel;
 
 extern RSConfig RSGlobalConfig;
 
@@ -349,10 +393,6 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "WITHCURSOR")) {
-    if (((*papCtx->reqflags) & QEXEC_F_IS_AGGREGATE) && ((*papCtx->reqflags) & QEXEC_F_HAS_WITHCOUNT)) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "FT.AGGREGATE does not support using WITHCOUNT and WITHCURSOR together");
-      return ARG_ERROR;
-    }
     if (parseCursorSettings(papCtx->reqflags, papCtx->cursorConfig, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
@@ -661,13 +701,14 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
       if (IsAggregate(req)) {
         AREQ_AddRequestFlags(req, QEXEC_F_HAS_WITHCOUNT);
-        if (IsCursor(req) && !IsInternal(req)) {
-          QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "FT.AGGREGATE does not support using WITHCOUNT and WITHCURSOR together");
-          return REDISMODULE_ERR;
-        }
       }
       optimization_specified = true;
     } else if (AC_AdvanceIfMatch(ac, "WITHOUTCOUNT")) {
+      // WITHOUTCOUNT enables the query optimizer (QEXEC_OPTIMIZE), which is unsupported
+      // on disk indexes (it relies on RAM-only structures). Reject rather than silently degrade.
+      if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("WITHOUTCOUNT", status)) {
+        return REDISMODULE_ERR;
+      }
       AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
       if (IsAggregate(req)) {
         AREQ_RemoveRequestFlags(req, QEXEC_F_HAS_WITHCOUNT);
@@ -719,7 +760,9 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   }
 
   if (!optimization_specified && req->reqConfig.dialectVersion >= 4) {
-    // If optimize was not enabled/disabled explicitly, enable it by default starting with dialect 4
+    // If optimize was not enabled/disabled explicitly, enable it by default starting with dialect 4.
+    // Disk specs reject dialect 4 after parseAggPlan (once the dialect is final), so the optimizer
+    // is never actually run for them.
     AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
   }
 
@@ -774,13 +817,6 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       f->explicitReturn = 1;
     }
     FieldList_RestrictReturn(&req->outFields);
-  }
-
-  // Currently we don't support loading fields from disk indexes
-  // We require the NOCONTENT flag to be set or a RETURN 0 clause to be specified
-  if (isDiskIndex && !(req->reqflags & QEXEC_F_SEND_NOFIELDS)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_NOCONTENT_OR_RETURN0_REQUIRED, NULL);
-    return REDISMODULE_ERR;
   }
 
   return REDISMODULE_OK;
@@ -913,18 +949,24 @@ static int parseGroupby(AGGPlan *plan, ArgsCursor *ac, QueryError *status) {
   const char *s;
   AC_GetString(ac, &s, NULL, AC_F_NOADVANCE);
 
-  long long nproperties;
-  int rv = AC_GetLongLong(ac, &nproperties, 0);
+  ArgsCursor propertiesAC = {0};
+  int rv = AC_GetVarArgs(ac, &propertiesAC);
   if (rv != AC_OK) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for GROUPBY: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
 
-  const char **properties = array_newlen(const char *, nproperties);
-  for (size_t i = 0; i < nproperties; ++i) {
+  uint32_t propertyCount = (uint32_t)AC_NumArgs(&propertiesAC);
+  if (propertyCount > MAX_GROUPBY_PROPERTIES) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for GROUPBY: %s", AC_Strerror(AC_ERR_ELIMIT));
+    return REDISMODULE_ERR;
+  }
+
+  const char **properties = array_newlen(const char *, propertyCount);
+  for (uint32_t i = 0; i < propertyCount; ++i) {
     const char *property;
     size_t propertyLen;
-    rv = AC_GetString(ac, &property, &propertyLen, 0);
+    rv = AC_GetString(&propertiesAC, &property, &propertyLen, 0);
     if (rv != AC_OK) {
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for GROUPBY: %s", AC_Strerror(rv));
       array_free(properties);
@@ -1016,12 +1058,8 @@ error:
   return REDISMODULE_ERR;
 }
 
-static int handleLoad(AGGPlan *plan, uint32_t *reqflags, ArgsCursor *ac, bool isDiskIndex, QueryError *status) {
+static int handleLoad(AGGPlan *plan, uint32_t *reqflags, ArgsCursor *ac, QueryError *status) {
   ArgsCursor loadfields = {0};
-  if (isDiskIndex) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_LOAD_UNSUPPORTED, NULL);
-    return REDISMODULE_ERR;
-  }
   int rc = AC_GetVarArgs(ac, &loadfields);
   if (rc == AC_ERR_PARSE) {
     // Didn't get a number, but we might have gotten a '*'
@@ -1097,68 +1135,186 @@ AREQ *AREQ_New(void) {
   req->prefixesOffset = 0;
   req->keySpaceVersion = INVALID_KEYSPACE_VERSION;
   req->querySlots = NULL;
-  RequestSyncCtx_Init(&req->syncCtx);
-  req->storedReplyState.err = QueryError_Default();
+  RequestSyncState_Init(&req->syncState);
+  req->brc = NULL;
   return req;
 }
 
-bool AREQ_TimedOut(AREQ *req) {
-  return atomic_load_explicit(&req->syncCtx.timedOut, memory_order_acquire);
+bool SearchTime_IsTimedOut(void *arg) {
+  const SearchTime *time = arg;
+  if (!time || !time->timedOutFlag) return false;
+  return atomic_load_explicit((const _Atomic(bool) *)time->timedOutFlag,
+                              memory_order_relaxed);
 }
 
-void AREQ_SetTimedOut(AREQ *req) {
-  atomic_store_explicit(&req->syncCtx.timedOut, true, memory_order_release);
+static BlockedRequestCtx *BlockedRequestCtx_NewCommon(RequestKind kind) {
+  BlockedRequestCtx *brc = rm_calloc(1, sizeof(BlockedRequestCtx));
+  brc->kind = kind;
+  brc->refcount = 1;
+  brc->requiresAggregateResultsSync = false;
+  brc->aggregatingResults = false;
+  brc->aggregateResultsClaimLost = false;
+  brc->aggregateResultsDone = false;
+  brc->safeLoadersHoldingGIL = 0;
+  pthread_mutex_init(&brc->aggregateResultsLock, NULL);
+  pthread_cond_init(&brc->aggregateResultsCond, NULL);
+  brc->reply.err = QueryError_Default();
+  return brc;
 }
 
-bool AREQ_RequiresThreadsSyncResults(const AREQ *req) {
-  return req->syncCtx.requiresAggregateResultsSync;
+BlockedRequestCtx *BlockedRequestCtx_IncrRef(BlockedRequestCtx *brc) {
+  atomic_fetch_add_explicit(&brc->refcount, 1, memory_order_relaxed);
+  return brc;
+}
+
+void BlockedRequestCtx_DecrRef(BlockedRequestCtx *brc) {
+  // ACQ_REL: release ensures our writes are visible before decrement;
+  // acquire ensures we see all prior writes when refcount reaches 0.
+  if (brc && atomic_fetch_sub_explicit(&brc->refcount, 1, memory_order_acq_rel) == 1) {
+    BlockedRequestCtx_Free(brc);
+  }
+}
+
+BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq) {
+  // Wrapping an already-wrapped request would silently leak the first wrapper.
+  RS_ASSERT(areq->brc == NULL);
+  BlockedRequestCtx *brc = BlockedRequestCtx_NewCommon(REQUEST_KIND_AREQ);
+  brc->query.areq = areq;
+  areq->brc = brc;
+  return brc;
+}
+
+BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid) {
+  // Wrapping an already-wrapped request would silently leak the first wrapper.
+  RS_ASSERT(hybrid->brc == NULL);
+  BlockedRequestCtx *brc = BlockedRequestCtx_NewCommon(REQUEST_KIND_HYBRID);
+  brc->query.hybrid = hybrid;
+  hybrid->brc = brc;
+  return brc;
+}
+
+void BlockedRequestCtx_Free(BlockedRequestCtx *brc) {
+  if (!brc) {
+    return;
+  }
+  pthread_mutex_destroy(&brc->aggregateResultsLock);
+  pthread_cond_destroy(&brc->aggregateResultsCond);
+  // Idempotent after EndCycle; kept as a safety net for wrappers freed
+  // outside a cycle. Must run while the owned request is alive: disposing a
+  // stashed cursor clears its wrapper handle.
+  ChunkReplyState_Destroy(&brc->reply);
+
+  if (brc->kind == REQUEST_KIND_AREQ) {
+    AREQ_Free(brc->query.areq);
+  } else {
+    HybridRequest_Free(brc->query.hybrid);
+  }
+  rm_free(brc);
 }
 
 bool AREQ_TryClaimAggregateResults(AREQ *req) {
   bool expected = false;
-  return atomic_compare_exchange_strong(&req->syncCtx.aggregatingResults, &expected, true);
+  return atomic_compare_exchange_strong_explicit(&req->brc->aggregatingResults, &expected, true,
+                                                 memory_order_relaxed, memory_order_relaxed);
+}
+
+bool BlockedRequestCtx_TryOwnStrictRead(BlockedRequestCtx *brc, BrcStrictReadOwner owner) {
+  int expected = BRC_READ_OWNER_NONE;
+  // acq_rel: the winner's subsequent actions (BG running the read / the timer
+  // replying depleted) must be ordered against the loser's observation.
+  return atomic_compare_exchange_strong_explicit(&brc->strictReadOwner, &expected, (int)owner,
+                                                 memory_order_acq_rel, memory_order_acquire);
 }
 
 void AREQ_SignalAggregateResultsComplete(AREQ *req) {
-  pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
-  req->syncCtx.aggregateResultsDone = true;
-  pthread_cond_broadcast(&req->syncCtx.aggregateResultsCond);
-  pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
+  pthread_mutex_lock(&req->brc->aggregateResultsLock);
+  req->brc->aggregateResultsDone = true;
+  pthread_cond_broadcast(&req->brc->aggregateResultsCond);
+  pthread_mutex_unlock(&req->brc->aggregateResultsLock);
 }
 
 void AREQ_WaitForAggregateResultsComplete(AREQ *req) {
-  pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
-  while (!req->syncCtx.aggregateResultsDone) {
-    pthread_cond_wait(&req->syncCtx.aggregateResultsCond, &req->syncCtx.aggregateResultsLock);
+  pthread_mutex_lock(&req->brc->aggregateResultsLock);
+  while (!req->brc->aggregateResultsDone) {
+    pthread_cond_wait(&req->brc->aggregateResultsCond, &req->brc->aggregateResultsLock);
   }
-  pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
+  pthread_mutex_unlock(&req->brc->aggregateResultsLock);
 }
 
-void AREQ_ResetAggregateResultsClaim(AREQ *req) {
-  atomic_store_explicit(&req->syncCtx.aggregatingResults, false, memory_order_release);
-  pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
-  req->syncCtx.aggregateResultsDone = false;
-  pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
-}
-
-void RequestSyncCtx_RegisterAbortWakeChannel(RequestSyncCtx *ctx, struct MRChannel *chan) {
-  pthread_mutex_lock(&ctx->abortWakeLock);
-  ctx->abortWakeChannel = chan;
-  pthread_mutex_unlock(&ctx->abortWakeLock);
-}
-
-void RequestSyncCtx_UnregisterAbortWakeChannel(RequestSyncCtx *ctx) {
-  pthread_mutex_lock(&ctx->abortWakeLock);
-  ctx->abortWakeChannel = NULL;
-  pthread_mutex_unlock(&ctx->abortWakeLock);
-}
-
-void RequestSyncCtx_WakeAbortChannel(RequestSyncCtx *ctx) {
-  pthread_mutex_lock(&ctx->abortWakeLock);
-  if (ctx->abortWakeChannel) {
-    MRChannel_WakeAbort(ctx->abortWakeChannel);
+/* Read the owned request's timeout flag through the wrapper. The flag lives on
+ * the request's embedded RequestSyncState, not on the wrapper itself. */
+static bool BlockedRequestCtx_OwnedRequestTimedOut(BlockedRequestCtx *brc) {
+  if (brc->kind == REQUEST_KIND_AREQ) {
+    return RequestSyncState_GetTimedOut(&brc->query.areq->syncState);
   }
-  pthread_mutex_unlock(&ctx->abortWakeLock);
+  return RequestSyncState_GetTimedOut(&brc->query.hybrid->syncState);
+}
+
+/* See aggregate.h for the full handshake contract. The aggregateResultsLock
+ * serializes the worker's "set holding, then check timedOut" against the main
+ * thread's "set timedOut, then check holding", making the two race-free. */
+bool BlockedRequestCtx_SafeLoaderEnterGIL(BlockedRequestCtx *sync) {
+  bool proceed;
+  pthread_mutex_lock(&sync->aggregateResultsLock);
+  if (BlockedRequestCtx_OwnedRequestTimedOut(sync)) {
+    // Timeout already fired: do not mark holding, bail instead of blocking on the
+    // GIL the main thread holds while it waits.
+    proceed = false;
+  } else {
+    sync->safeLoadersHoldingGIL++;
+    proceed = true;
+  }
+  pthread_mutex_unlock(&sync->aggregateResultsLock);
+  return proceed;
+}
+
+void BlockedRequestCtx_SafeLoaderExitGIL(BlockedRequestCtx *sync) {
+  pthread_mutex_lock(&sync->aggregateResultsLock);
+  RS_LOG_ASSERT(sync->safeLoadersHoldingGIL > 0, "SafeLoaderExitGIL without matching EnterGIL");
+  sync->safeLoadersHoldingGIL--;
+  pthread_mutex_unlock(&sync->aggregateResultsLock);
+}
+
+bool BlockedRequestCtx_TimeoutPreemptSafeLoaderGIL(BlockedRequestCtx *sync) {
+  bool holding;
+  pthread_mutex_lock(&sync->aggregateResultsLock);
+  holding = sync->safeLoadersHoldingGIL > 0;
+  pthread_mutex_unlock(&sync->aggregateResultsLock);
+  return holding;
+}
+
+void AREQ_ResetForCursorReadReturnStrict(AREQ *req) {
+  RS_AtomicBoolStoreRelaxed(&req->brc->aggregatingResults, false);
+  req->brc->aggregateResultsClaimLost = false;
+  pthread_mutex_lock(&req->brc->aggregateResultsLock);
+  req->brc->aggregateResultsDone = false;
+  req->brc->safeLoadersHoldingGIL = 0;
+  pthread_mutex_unlock(&req->brc->aggregateResultsLock);
+  RequestSyncState_ClearTimedOut(&req->syncState);
+  ResultProcessor *root = AREQ_QueryProcessingCtx(req)->rootProc;
+  if (root && root->type == RP_NETWORK) {
+    ((RPNet *)root)->drainOnly = false;
+  }
+}
+
+void RequestSyncState_RegisterAbortWakeChannel(RequestSyncState *st, struct MRChannel *chan) {
+  pthread_mutex_lock(&st->abortWakeLock);
+  st->abortWakeChannel = chan;
+  pthread_mutex_unlock(&st->abortWakeLock);
+}
+
+void RequestSyncState_UnregisterAbortWakeChannel(RequestSyncState *st) {
+  pthread_mutex_lock(&st->abortWakeLock);
+  st->abortWakeChannel = NULL;
+  pthread_mutex_unlock(&st->abortWakeLock);
+}
+
+void RequestSyncState_WakeAbortChannel(RequestSyncState *st) {
+  pthread_mutex_lock(&st->abortWakeLock);
+  if (st->abortWakeChannel) {
+    MRChannel_WakeAbort(st->abortWakeChannel);
+  }
+  pthread_mutex_unlock(&st->abortWakeLock);
 }
 
 
@@ -1185,7 +1341,7 @@ int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, bool isDiskIndex, 
         return REDISMODULE_ERR;
       }
     } else if (AC_AdvanceIfMatch(ac, "LOAD")) {
-      if (handleLoad(papCtx->plan, papCtx->reqflags, ac, isDiskIndex, status) != REDISMODULE_OK) {
+      if (handleLoad(papCtx->plan, papCtx->reqflags, ac, status) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
     } else if (AC_AdvanceIfMatch(ac, "FILTER")) {
@@ -1212,7 +1368,20 @@ int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, bool isDiskIndex, 
 }
 
 static bool IsNeededDepleter(AREQ *req) {
-  return !HasSortBy(req) && !HasGroupBy(req) && !IsCount(req);
+  // For cursored requests we only want a depleter when this AREQ owns its
+  // local data source and totalResults is computed by counting rows through
+  // the pipeline (RPIndexIterator increments it per row). That covers both a
+  // standalone request (no cluster) and a shard-side internal cursor in a
+  // cluster — i.e. any non-coordinator AREQ. In both cases, draining the
+  // upstream into a buffer up front lets the first FT.CURSOR READ report the
+  // full total before paginating.
+  //
+  // The cluster coordinator AREQ does not own a local data source: it reads
+  // from RPNet and totalResults is set once at Phase B start from accumulated
+  // shard metadata, so a coordinator-side cursor depleter would buffer the
+  // whole cluster stream before the first cursor chunk for no benefit.
+  return !HasSortBy(req) && !HasGroupBy(req) && !IsCount(req) &&
+         (!IsCursor(req) || !IsCoordinator(req));
 }
 
 // This function should only be called from the main thread (calling RunInThread() is not thread safe)
@@ -1272,6 +1441,20 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int a
     goto error;
   }
 
+  // DIALECT 4 enables the query optimizer (QEXEC_OPTIMIZE), which is unsupported
+  // on disk.
+  if (isDiskIndex && req->reqConfig.dialectVersion >= 4) {
+    if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("DIALECT 4", status)) {
+      goto error;
+    }
+  }
+
+  // Cap the per-query timeout to _MAX_FOREGROUND_TIMEOUT_LIMIT when workers
+  // are disabled; the state flag drives the RESP3 MaxTimeoutCapped warning.
+  if (RSConfig_CapQueryTimeoutToForegroundLimit(&req->reqConfig.queryTimeoutMS)) {
+    req->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
+  }
+
   if (IsInternal(req) &&
       RequestConfig_ApplyCoordinatorElapsedTime(&req->reqConfig, req->profileClocks.coordDispatchTime)) {
     QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
@@ -1280,8 +1463,12 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   // Verify we got slots requested if needed
   if (IsInternal(req) && !req->querySlots) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_MISSING, "Internal query missing slots specification");
-    goto error;
+    // Coordinators older than 8.4 do not send a slots specification. Fall back to the
+    // current local slots so rolling upgrades across the 8.4 boundary keep working.
+    req->querySlots = ASM_FallbackToLocalSlots(ctx, &req->keySpaceVersion);
+    if (req->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+      ASM_KeySpaceVersionTracker_IncreaseQueryCount(req->keySpaceVersion);
+    }
   }
 
   // Define if we need a depleter in the pipeline to get accurate total results
@@ -1481,6 +1668,10 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   IndexSpec *index = sctx->spec;
   RSSearchOptions *opts = &req->searchopts;
   req->sctx = sctx;
+  // Borrow the request's timed-out flag onto the sctx so pipeline RPs can
+  // observe a RETURN-STRICT main-thread timeout without holding an AREQ
+  // back-pointer (read via SearchTime_IsTimedOut).
+  sctx->time.timedOutFlag = &req->syncState.timedOut;
 
   if (!IsIndexCoherent(req)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_MISMATCH, NULL);
@@ -1614,9 +1805,10 @@ void ChunkReplyState_Destroy(ChunkReplyState *state) {
 
   // Timeout edge case: cursor wasn't handled by reply_callback.
   // See ChunkReplyState ownership model in aggregate.h for full explanation.
-  // We must clear execState before Cursor_Free to prevent the AREQ_DecrRef loop.
+  // We must clear the cursor's wrapper handle before Cursor_Free to prevent
+  // the wrapper-release loop (this destroy runs from the wrapper's own free).
   if (state->cursor) {
-    state->cursor->execState = NULL;
+    state->cursor->query = NULL;
     Cursor_Free(state->cursor);
     state->cursor = NULL;
   }
@@ -1625,8 +1817,28 @@ void ChunkReplyState_Destroy(ChunkReplyState *state) {
   QueryError_ClearError(&state->err);
 }
 
-static void AREQ_Free(AREQ *req) {
-  ChunkReplyState_Destroy(&req->storedReplyState);
+AREQ *AREQ_IncrRef(AREQ *req) {
+  RS_LOG_ASSERT(req->brc != NULL, "AREQ_IncrRef called on unwrapped (sub-)AREQ");
+  BlockedRequestCtx_IncrRef(req->brc);
+  return req;
+}
+
+void AREQ_DecrRef(AREQ *req) {
+  if (!req) return;
+  if (req->brc) {
+    // Top-level wrapped AREQ: delegate to the wrapper's refcount.
+    BlockedRequestCtx_DecrRef(req->brc);
+  } else {
+    // Unwrapped transient / sub-AREQ (e.g. hybrid sub-query): free directly.
+    AREQ_Free(req);
+  }
+}
+
+void AREQ_Free(AREQ *req) {
+  if (IsDebug(req)) {
+    // Debug requests are allocated as AREQ_Debug (AREQ is the first member).
+    AREQ_Debug_FreeParams((AREQ_Debug *)req);
+  }
 
   // Check if rootiter exists but pipeline was never built (no result processors)
   // In this case, we need to free the rootiter manually since no RPQueryIterator
@@ -1706,33 +1918,41 @@ static void AREQ_Free(AREQ *req) {
 
   rm_free(req->args);
 
-  RequestSyncCtx_Destroy(&req->syncCtx);
+  RequestSyncState_Destroy(&req->syncState);
 
   rm_free(req);
 }
 
-AREQ *AREQ_IncrRef(AREQ *req) {
-  __atomic_fetch_add(&req->syncCtx.refcount, 1, __ATOMIC_RELAXED);
-  return req;
-}
-
-void AREQ_DecrRef(AREQ *req) {
-  if (req && !__atomic_sub_fetch(&req->syncCtx.refcount, 1, __ATOMIC_ACQ_REL)) {
-    AREQ_Free(req);
-  }
-}
-
 void AREQ_CleanUpStoredCursor(AREQ *req) {
-  if (req->storedReplyState.cursor) {
-    Cursor *cursor = req->storedReplyState.cursor;
-    req->storedReplyState.cursor = NULL;
+  if (req->brc->reply.cursor) {
+    Cursor *cursor = req->brc->reply.cursor;
+    req->brc->reply.cursor = NULL;
     Cursor_Free(cursor);
   }
 }
 
-int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
+AggregationPipelineParams AREQ_MakeAggregationPipelineParams(AREQ *req,
+                                                             GroupByLimits groupByLimits) {
+  return (AggregationPipelineParams){
+    .common = {
+      .sctx = req->sctx,
+      .reqflags = req->reqflags,
+      .optimizer = req->optimizer,
+      // Score alias is not supposed to be used in the aggregation pipeline
+      .scoreAlias = NULL,
+    },
+    .outFields = &req->outFields,
+    .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,
+    .groupByLimits = groupByLimits,
+    .language = req->searchopts.language,
+  };
+}
+
+int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
+                                            const AggregationPipelineParams *aggregationParams,
+                                            QueryError *status) {
   Pipeline_Initialize(&req->pipeline, req->reqConfig.timeoutPolicy, status);
-  if (!(AREQ_RequestFlags(req) & QEXEC_F_BUILDPIPELINE_NO_ROOT)) {
+  if (!IsCoordinator(req)) {
     QueryPipelineParams params = {
       .common = {
         .sctx = req->sctx,
@@ -1749,22 +1969,21 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
     };
     req->rootiter = NULL; // Ownership of the root iterator is now with the params.
     req->querySlots = NULL; // Ownership of the slot ranges is now with the params.
-    Pipeline_BuildQueryPart(&req->pipeline, &params);
+    Pipeline_BuildQueryPart(&req->pipeline, &params, status);
     if (QueryError_HasError(status)) {
       return REDISMODULE_ERR;
     }
   }
-  AggregationPipelineParams params = {
-    .common = {
-      .sctx = req->sctx,
-      .reqflags = req->reqflags,
-      .optimizer = req->optimizer,
-      // Right now score alias is not supposed to be used in the aggregation pipeline
-      .scoreAlias = NULL,
-    },
-    .outFields = &req->outFields,
-    .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,
-    .language = req->searchopts.language,
-  };
-  return Pipeline_BuildAggregationPart(&req->pipeline, &params, &req->stateflags);
+  int rc = Pipeline_BuildAggregationPart(&req->pipeline, aggregationParams, &req->stateflags, status);
+  if (rc == REDISMODULE_OK) {
+    AREQ_SetCanYieldPartialResults(req);
+  }
+  return rc;
+}
+
+int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
+  AggregationPipelineParams aggregationParams =
+      AREQ_MakeAggregationPipelineParams(
+          req, GroupByLimits_Default(RSGlobalConfig.maxAggregateGroups));
+  return AREQ_BuildPipelineWithAggregationParams(req, &aggregationParams, status);
 }

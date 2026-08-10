@@ -8,12 +8,12 @@
 */
 #define RQ_C__
 
-#include <stdlib.h>
 #include <uv.h>
+
 #include "rq.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
-#include "rq.h"
+#include "redismodule.h"
 
 void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata) {
   queueItem *item = rm_new(struct queueItem);
@@ -80,6 +80,15 @@ void RQ_Done(MRWorkQueue *q) {
   --q->pending;
   uv_mutex_unlock(&q->lock);
 }
+
+#ifdef ENABLE_ASSERT
+int RQ_Debug_GetPending(MRWorkQueue *q) {
+  uv_mutex_lock(&q->lock);
+  int pending = q->pending + (int)q->sz;
+  uv_mutex_unlock(&q->lock);
+  return pending;
+}
+#endif
 
 MRWorkQueue *RQ_New(int maxPending, size_t id) {
   MRWorkQueue *q = rm_calloc(1, sizeof(*q));

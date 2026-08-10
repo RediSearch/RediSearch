@@ -7,14 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::time::Duration;
-
 use rqe_iterators::{
     Intersection, RQEIterator, Wildcard,
     not::Not,
     optional::Optional,
     profile::Profile,
     union::{Union, UnionQuickFlat},
+    utils::NoTimeoutChecker,
 };
 
 use crate::utils::Mock;
@@ -43,7 +42,7 @@ fn leaf_wraps_self() {
 #[test]
 fn not_wraps_child_and_self() {
     let child = Mock::new([2, 4]);
-    let not = Not::new(child, 5, 1.0, Duration::ZERO, true);
+    let not = Not::new(child, 5, 1.0, NoTimeoutChecker);
     let mut profiled = Profile::new(not);
 
     assert_eq!(profiled.counters().read, 0);
@@ -70,7 +69,7 @@ fn not_wraps_child_and_self() {
 #[test]
 fn not_empty_child() {
     let child = Mock::new([]);
-    let not = Not::new(child, 3, 1.0, Duration::ZERO, true);
+    let not = Not::new(child, 3, 1.0, NoTimeoutChecker);
     let mut profiled = Profile::new(not);
 
     for expected in 1..=3 {
@@ -246,7 +245,7 @@ fn leaf_skip_to() {
 #[test]
 fn not_skip_to() {
     let child = Mock::new([3, 7]);
-    let not = Not::new(child, 10, 1.0, Duration::ZERO, true);
+    let not = Not::new(child, 10, 1.0, NoTimeoutChecker);
     let mut profiled = Profile::new(not);
 
     // skip_to(5): doc 5 is not in child {3,7}, so NOT yields it.
@@ -259,7 +258,7 @@ fn not_skip_to() {
 #[test]
 fn not_rewind() {
     let child = Mock::new([2]);
-    let not = Not::new(child, 5, 1.0, Duration::ZERO, true);
+    let not = Not::new(child, 5, 1.0, NoTimeoutChecker);
     let mut profiled = Profile::new(not);
 
     let _ = profiled.read().unwrap(); // doc 1
@@ -279,14 +278,11 @@ fn not_rewind() {
 #[test]
 #[should_panic(expected = "double-profile")]
 fn double_profiling_panics() {
-    use rqe_iterators::{c2rust::CRQEIterator, interop::RQEIteratorWrapper};
-    use std::ptr::NonNull;
+    use rqe_iterators::c2rust::CRQEIterator;
 
     let child = Mock::new([1, 2, 3]);
     let profile = Profile::new(child);
-    let ptr = RQEIteratorWrapper::boxed_new(profile);
-    // SAFETY: `boxed_new` returns a valid, owning, non-aliased pointer with all callbacks set.
-    let iter = unsafe { CRQEIterator::new(NonNull::new(ptr).unwrap()) };
+    let iter = CRQEIterator::from_rust_leaf(profile);
     // First profiling succeeds (it's a Profile leaf, so profile_children is a no-op,
     // but into_profiled wraps it in another Profile — which is the double-profiling).
     let _double = iter.into_profiled();

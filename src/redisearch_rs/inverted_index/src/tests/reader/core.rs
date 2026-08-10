@@ -10,13 +10,13 @@
 use std::io::{Cursor, Read};
 use std::sync::atomic;
 
-use crate::{
-    Decoder, Encoder, IndexBlock, IndexReader, InvertedIndex, NumericReader, RSIndexResult,
-};
+use crate::{Decoder, Encoder, IndexBlock, IndexReader, InvertedIndex, NumericReader};
 use ffi::{
     IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreTermOffsets, IndexFlags_Index_WideSchema,
 };
+use index_result::RSIndexResult;
 use pretty_assertions::assert_eq;
+use rqe_core::DocId;
 use thin_vec::medium_thin_vec;
 
 use super::super::Dummy;
@@ -30,12 +30,14 @@ fn seeking_records() {
             num_entries: 3,
             first_doc_id: 10,
             last_doc_id: 12,
+            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 5],
             num_entries: 4,
             first_doc_id: 100,
             last_doc_id: 108,
+            expiration_bits: Default::default(),
         },
     ];
 
@@ -86,36 +88,42 @@ fn index_reader_skip_to() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 15,
+            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
             num_entries: 2,
             first_doc_id: 16,
             last_doc_id: 17,
+            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: vec![0, 0, 0, 0, 0, 0, 0, 4],
             num_entries: 2,
             first_doc_id: 20,
             last_doc_id: 24,
+            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: vec![0, 0, 0, 0],
             num_entries: 1,
             first_doc_id: 30,
             last_doc_id: 30,
+            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: vec![0, 0, 0, 0],
             num_entries: 1,
             first_doc_id: 40,
             last_doc_id: 40,
+            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: vec![0, 0, 0, 0],
             num_entries: 1,
             first_doc_id: 50,
             last_doc_id: 50,
+            expiration_bits: Default::default(),
         },
     ];
     let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
@@ -169,12 +177,14 @@ fn reader_reset() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
+            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: vec![0, 0, 0, 0],
             num_entries: 1,
             first_doc_id: 100,
             last_doc_id: 100,
+            expiration_bits: Default::default(),
         },
     ];
     let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
@@ -229,12 +239,14 @@ fn reader_unique_docs() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
+            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: vec![0, 0, 0, 0],
             num_entries: 1,
             first_doc_id: 100,
             last_doc_id: 100,
+            expiration_bits: Default::default(),
         },
     ];
     let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
@@ -268,7 +280,7 @@ fn reader_has_duplicates() {
     impl Decoder for AllowDupsDummy {
         fn decode<'index>(
             _cursor: &mut Cursor<&'index [u8]>,
-            _base: ffi::t_docId,
+            _base: DocId,
             _result: &mut RSIndexResult<'index>,
         ) -> std::io::Result<()> {
             panic!("This test won't decode anything")
@@ -331,12 +343,14 @@ fn reading_records() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
+            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: vec![0, 0, 0, 0],
             num_entries: 0,
             first_doc_id: 100,
             last_doc_id: 100,
+            expiration_bits: Default::default(),
         },
     ];
     let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
@@ -377,12 +391,14 @@ fn reading_over_empty_blocks() {
             num_entries: 1,
             first_doc_id: 10,
             last_doc_id: 10,
+            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: vec![0, 0, 0, 0],
             num_entries: 1,
             first_doc_id: 30,
             last_doc_id: 30,
+            expiration_bits: Default::default(),
         },
     ];
     let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
@@ -445,7 +461,7 @@ fn read_using_the_first_block_id_as_the_base() {
             RSIndexResult::build_virt().build()
         }
 
-        fn base_id(block: &IndexBlock, _last_doc_id: ffi::t_docId) -> ffi::t_docId {
+        fn base_id(block: &IndexBlock, _last_doc_id: DocId) -> DocId {
             block.first_doc_id
         }
     }
@@ -456,6 +472,7 @@ fn read_using_the_first_block_id_as_the_base() {
         num_entries: 3,
         first_doc_id: 10,
         last_doc_id: 12,
+        expiration_bits: Default::default(),
     }];
     let ii = InvertedIndex::<FirstBlockIdDummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
     let mut ir = ii.reader();
@@ -493,13 +510,13 @@ impl<'index, I: Iterator<Item = RSIndexResult<'index>>> IndexReader<'index> for 
 
     fn seek_record(
         &mut self,
-        _doc_id: ffi::t_docId,
+        _doc_id: DocId,
         _result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<bool> {
         unimplemented!("This tests won't seek anything")
     }
 
-    fn skip_to(&mut self, _doc_id: ffi::t_docId) -> bool {
+    fn skip_to(&mut self, _doc_id: DocId) -> bool {
         unimplemented!("This test won't skip to anything")
     }
 

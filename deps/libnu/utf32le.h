@@ -8,7 +8,7 @@
 #include "defines.h"
 #include "utf32_internal.h"
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 extern "C" {
 #endif
 
@@ -69,7 +69,7 @@ char* nu_utf32le_write(uint32_t unicode, char *utf32);
 
 #endif /* NU_WITH_UTF32LE_WRITER */
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 }
 #endif
 

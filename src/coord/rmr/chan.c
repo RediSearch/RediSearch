@@ -29,8 +29,9 @@ struct MRChannel {
 #include "chan.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
-#include "search_ctx.h"
 #include "util/timeout.h"
+
+struct timespec;
 
 // Note: pthread_condattr_setclock only supports CLOCK_MONOTONIC (not CLOCK_MONOTONIC_RAW)
 // The timeout parameter (abstimeMono) is in CLOCK_MONOTONIC_RAW, so we convert it
@@ -168,7 +169,7 @@ void *MRChannel_PopWithTimeout(MRChannel *chan, const struct timespec *abstimeMo
   pthread_mutex_lock(&chan->lock);
   while (!chan->size) {
     // Sticky abort flipped by another thread (e.g. timeout callback + MRChannel_WakeAbort).
-    if (abortFlag && atomic_load_explicit(abortFlag, memory_order_acquire)) goto aborted;
+    if (abortFlag && atomic_load_explicit(abortFlag, memory_order_relaxed)) goto aborted;
     // One-shot unblock via MRChannel_Unblock; reset for the next pop.
     if (!chan->wait) { chan->wait = true; goto aborted; }
     // Park until pushed/broadcast/deadline. Re-checks all conditions on wake.

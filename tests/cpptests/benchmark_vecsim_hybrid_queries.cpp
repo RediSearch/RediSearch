@@ -20,9 +20,10 @@
 #include "query_parser/tokenizer.h"
 #include "spec.h"
 #include "tokenize.h"
-#include "varint.h"
+#include "varint_ffi.h"
 #include "iterators/hybrid_reader.h"
-#include "redisearch_rs/headers/iterators_rs.h"
+#include "iterators_ffi.h"
+#include "query_term_ffi.h"
 
 #include "rmutil/alloc.h"
 #include "index_utils.h"

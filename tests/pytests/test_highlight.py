@@ -182,3 +182,141 @@ def test_highlight_empty_string_not_index_empty():
     })
 
     env.expect('FT.SEARCH', 't_idx', '@t:("")', 'HIGHLIGHT', 'FIELDS', '1', 't').error().contains("Use `INDEXEMPTY` in field creation in order to index and query for empty strings")
+
+
+# Contract test: the highlight processor needs the RSIndexResult that carries
+# term records and offsets. Buffering pipeline stages (RPSorter, RPDepleter,
+# RPSafeDepleter) hold SearchResults across iterator advances, so they must
+# take ownership of the RSIndexResult — a borrow into the iterator's
+# `it->current` slot would dangle once the iterator is read again.
+#
+# These tests pin highlighted/summarized output to ground truth and run the
+# same logical query through several pipeline shapes (default score sort,
+# explicit numeric SORTBY, KNN-rooted query). All shapes go through a sorter
+# stage; if any of them drops or truncates the RSIndexResult, the highlighted
+# fragment will differ from ground truth — catching regressions that the
+# pre-existing crash-only repros (e.g. test_mod_8695) miss when a stage
+# silently NULLs the field instead of crashing.
+
+def _docs(res):
+    """Return {doc_id: {field: value}} from an FT.SEARCH reply (RESP2)."""
+    out = {}
+    for i in range(1, len(res), 2):
+        fields = res[i + 1]
+        out[res[i]] = dict(zip(fields[0::2], fields[1::2]))
+    return out
+
+
+def test_highlight_contract_across_sorter_modes(env):
+    """Highlighted fragments must match across pipelines that route through
+    different RPSorter modes. Verifies the deep-copied RSIndexResult preserves
+    term records and offsets — not just doc-id and score."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+               'body', 'TEXT',
+               'rank', 'NUMERIC', 'SORTABLE').ok()
+
+    conn.hset('doc:1', mapping={'body': 'the quick brown fox jumps over the lazy dog', 'rank': 3})
+    conn.hset('doc:2', mapping={'body': 'a brown dog ran past the brown fence',        'rank': 1})
+    conn.hset('doc:3', mapping={'body': 'no match here',                                'rank': 2})
+
+    waitForIndex(env, 'idx')
+
+    expected = {
+        'doc:1': 'the quick <b>brown</b> fox jumps over the lazy <b>dog</b>',
+        'doc:2': 'a <b>brown</b> <b>dog</b> ran past the <b>brown</b> fence',
+    }
+
+    # Default: score sort → RPSorter_NewByScore.
+    res_score = env.cmd('FT.SEARCH', 'idx', 'brown|dog', 'HIGHLIGHT', 'FIELDS', '1', 'body')
+    env.assertEqual(res_score[0], 2)
+    docs_score = _docs(res_score)
+    for doc_id, want in expected.items():
+        env.assertEqual(docs_score[doc_id]['body'], want)
+
+    # Explicit SORTBY on a numeric field → RPSorter_NewByFields. Different
+    # sorter mode, same buffering invariant; highlighted output must match.
+    res_sortby = env.cmd('FT.SEARCH', 'idx', 'brown|dog', 'SORTBY', 'rank', 'ASC',
+                         'HIGHLIGHT', 'FIELDS', '1', 'body')
+    env.assertEqual(res_sortby[0], 2)
+    docs_sortby = _docs(res_sortby)
+    for doc_id, want in expected.items():
+        env.assertEqual(docs_sortby[doc_id]['body'], want)
+
+
+def test_highlight_contract_multi_field(env):
+    """Highlighting touches every TEXT field in the matched document. Verifies
+    the deep-copied IR carries per-field term records, not just one."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+               'title', 'TEXT',
+               'body', 'TEXT').ok()
+
+    conn.hset('doc:1', mapping={
+        'title': 'a brown report on dogs',
+        'body':  'the brown dog walked',
+    })
+    waitForIndex(env, 'idx')
+
+    res = env.cmd('FT.SEARCH', 'idx', 'brown dog',
+                  'HIGHLIGHT', 'FIELDS', '2', 'title', 'body')
+    env.assertEqual(res[0], 1)
+    docs = _docs(res)
+    env.assertEqual(docs['doc:1']['title'], 'a <b>brown</b> report on <b>dogs</b>')
+    env.assertEqual(docs['doc:1']['body'],  'the <b>brown</b> <b>dog</b> walked')
+
+
+def test_summarize_contract_after_sorter(env):
+    """Fragment-mode highlighting after the sorter. SUMMARIZE selects the
+    fragment window from the deep-copied RSIndexResult's byte offsets;
+    HIGHLIGHT wraps the matched term within that window using the same
+    offsets. Both stages read from the RSIndexResult that RPSorter buffers
+    across iterator advances — if the deep copy drops or truncates term
+    offsets, either the window will not contain the term or the term will
+    not be wrapped. SUMMARIZE alone does not apply tags (that is HIGHLIGHT's
+    job), so we pass both clauses to exercise the full offset-consuming path
+    end-to-end."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'body', 'TEXT').ok()
+
+    body = ('lorem ipsum dolor sit amet ' * 4 +
+            'and then a brown fox appeared ' +
+            'lorem ipsum dolor sit amet ' * 4)
+    conn.hset('doc:1', mapping={'body': body})
+    waitForIndex(env, 'idx')
+
+    res = env.cmd('FT.SEARCH', 'idx', 'brown',
+                  'SUMMARIZE', 'FIELDS', '1', 'body', 'FRAGS', '1', 'LEN', '5',
+                  'HIGHLIGHT', 'FIELDS', '1', 'body')
+    env.assertEqual(res[0], 1)
+    fragment = _docs(res)['doc:1']['body']
+    # The exact window boundaries depend on the tokenizer; we only assert
+    # that the matched term is wrapped, not the full fragment shape.
+    env.assertContains('<b>brown</b>', fragment)
+
+
+def test_highlight_contract_knn_matches_plain(env):
+    """Mirror of test_mod_8695, broadened to multi-term queries. The KNN
+    pipeline routes through HybridIterator + RPSorter; the plain pipeline
+    routes through an inverted-index root + RPSorter. Both must produce
+    identical highlighted output for the same matched documents."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               't', 'TEXT',
+               'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+
+    conn.execute_command('HSET', 'doc1', 't', 'quick brown fox',  'v', '????????')
+    conn.execute_command('HSET', 'doc2', 't', 'lazy brown dog',   'v', '????????')
+    conn.execute_command('HSET', 'doc3', 't', 'a swift red fox',  'v', '????????')
+    waitForIndex(env, 'idx')
+
+    # Multi-term query — exercises offset preservation for two distinct terms.
+    # DIALECT 2 is required for the KNN attribute syntax.
+    plain = env.cmd('FT.SEARCH', 'idx', 'brown fox',
+                    'HIGHLIGHT', 'FIELDS', 1, 't', 'RETURN', 1, 't',
+                    'DIALECT', 2)
+    knn = env.cmd('FT.SEARCH', 'idx', '(brown fox)=>[KNN 10 @v $BLOB]',
+                  'PARAMS', 2, 'BLOB', '????????',
+                  'HIGHLIGHT', 'FIELDS', 1, 't', 'RETURN', 1, 't',
+                  'DIALECT', 2)
+    env.assertEqual(_docs(plain), _docs(knn))

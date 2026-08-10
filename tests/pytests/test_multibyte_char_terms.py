@@ -744,6 +744,52 @@ def testLongTerms(env):
         res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx2')
         env.assertEqual(res, [f'+{long_term_lower[:148]}', long_term_lower])
 
+@skip(cluster=True)
+def testLongTermWildcardQuery(env):
+    '''Test that a wildcard (contains) query with >128 runes exercises the heap
+    allocation path in strToLowerRunes.'''
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
+               'SCHEMA', 't', 'TEXT', 'NOSTEM', 'WITHSUFFIXTRIE').ok()
+    conn = getConnectionByEnv(env)
+
+    # 'б' is a single Cyrillic rune; 130 repetitions > SSO_MAX_LENGTH (128)
+    long_term = 'б' * 130
+    conn.execute_command('HSET', 'doc:1', 't', long_term)
+
+    # Contains query (*term*) calls strToLowerRunes at query time
+    res = env.cmd('FT.SEARCH', 'idx', f'@t:*{long_term}*', 'NOCONTENT', 'DIALECT', 2)
+    env.assertEqual(res, [1, 'doc:1'])
+
+    # Uppercase query — verifies case folding on the heap path
+    res = env.cmd('FT.SEARCH', 'idx', f'@t:*{long_term.upper()}*', 'NOCONTENT', 'DIALECT', 2)
+    env.assertEqual(res, [1, 'doc:1'])
+
+@skip(cluster=True)
+def testSingleRuneMultibyteSuffixTrie(env):
+    '''Test that a single multi-byte rune (rlen=1, len=3) is correctly
+    inserted and deleted from the suffix trie without leaking memory.
+    addSuffixTrie inserts the full-word entry unconditionally, so
+    deleteSuffixTrie must handle it even when rlen < MIN_SUFFIX.'''
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
+               'SCHEMA', 't', 'TEXT', 'NOSTEM', 'WITHSUFFIXTRIE').ok()
+    conn = getConnectionByEnv(env)
+
+    # '中' is a single CJK rune (3 bytes UTF-8, 1 rune)
+    conn.execute_command('HSET', 'doc:1', 't', '中')
+
+    res = env.cmd('FT.SEARCH', 'idx', '中', 'NOCONTENT', 'DIALECT', 2)
+    env.assertEqual(res, [1, 'doc:1'])
+
+    # Delete the document; the suffix trie entry must be cleaned up
+    conn.execute_command('DEL', 'doc:1')
+
+    # Trigger GC to exercise deleteSuffixTrie on the single-rune term
+    forceInvokeGC(env, 'idx')
+
+    res = env.cmd('FT.SEARCH', 'idx', '中', 'NOCONTENT', 'DIALECT', 2)
+    env.assertEqual(res, [0])
+
+
 def testMultibyteTag(env):
     '''Test that multibyte characters are correctly converted to lowercase and
     that queries are case-insensitive using TAG fields'''
@@ -1594,33 +1640,53 @@ def test_utf8_lowercase_longer_than_uppercase_texts(env):
             'FT.SEARCH', 'idx', f'@t:({t1_lower})', 'NOCONTENT', 'DIALECT', dialect)
         env.assertEqual(res, expected_2, message=f'Dialect: {dialect}')
 
-# The following code points are not supported by Unicode 9.0.0
-# Reference https://www.unicode.org/Public/9.0.0/ucd/UnicodeData.txt
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS = set(range(0x1C90, 0x1D00))
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.add(0x1C89)  # Cyrillic Capital Letter TJE (post-9.0)
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.add(0x2C2F)
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0xA7B8, 0xA7F7))
+# Codepoints where libnu's casemap tables (regenerated against
+# Unicode 17.0) return no folding, for any of the following reasons:
+#   - structurally invalid: surrogates (U+D800..U+DFFF) and noncharacters
+#     (U+FDD0..U+FDEF, U+xFFFE, U+xFFFF in every plane)
+#   - unassigned in Unicode 17.0
+#   - assigned but caseless: scripts without case distinction
+# This set is the test's allow-list of "no-fold expected"; every other
+# codepoint must round-trip through nu_tofold/nu_tolower.
+# Reference https://www.unicode.org/Public/17.0.0/ucd/UnicodeData.txt
+LIBNU_FOLD_GAPS = {0x1CBB, 0x1CBC}  # Mtavruli gaps (unassigned)
+LIBNU_FOLD_GAPS.add(0x1C89)  # Cyrillic Capital Letter TJE (post-9.0)
+LIBNU_FOLD_GAPS.update(range(0xA7B9, 0xA7F7))
+# Latin Extended-D pairs that libnu folds (and so must be removed
+# from the gap set). After the Unicode 17.0 refresh, the cased letters
+# in this block whose lowercase pair lives outside it are:
+#   A7BA-A7BF (Glottal A/I/U pairs, Unicode 12.0)
+#   A7C0 (Old Polish O, Unicode 14.0)
+#   A7C2-A7C7 (Anglicana W + related, Unicode 12.0-13.0)
+#   A7C9 (Old Polish O variant, Unicode 13.0)
+#   A7D0, A7D6, A7D8 (Middle Scots S/TZ/Th, Unicode 14.0)
+#   A7F5 (Reversed Gh, Unicode 13.0)
+LIBNU_FOLD_GAPS.difference_update(
+    {0xA7BA, 0xA7BB, 0xA7BC, 0xA7BD, 0xA7BE, 0xA7BF,
+     0xA7C0, 0xA7C2, 0xA7C3, 0xA7C4, 0xA7C5, 0xA7C6,
+     0xA7C7, 0xA7C9, 0xA7D0, 0xA7D6, 0xA7D8, 0xA7F5})
 # Surrogate pairs (always invalid in Unicode)
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0xD800, 0xE000))
+LIBNU_FOLD_GAPS.update(range(0xD800, 0xE000))
 
 # Noncharacters in BMP
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0xFDD0, 0xFDF0))
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.add(0xFFFE)
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.add(0xFFFF)
+LIBNU_FOLD_GAPS.update(range(0xFDD0, 0xFDF0))
+LIBNU_FOLD_GAPS.add(0xFFFE)
+LIBNU_FOLD_GAPS.add(0xFFFF)
 
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0x10570, 0x10600))
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0x10D40, 0x10D90))  # Garay script (Unicode 16.0)
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0x16B90, 0x16F00))
+LIBNU_FOLD_GAPS.update(range(0x10D40, 0x10D90))  # Garay script (Unicode 16.0)
+# Tangut Components, Khitan Small, etc. minus Medefaidrin upper (0x16E40..0x16E5F, Unicode 11.0)
+LIBNU_FOLD_GAPS.update(range(0x16B90, 0x16E40))
+LIBNU_FOLD_GAPS.update(range(0x16E60, 0x16F00))
 
 # Noncharacters in each plane
 for plane in range(0x10000, 0x110000, 0x10000):
-    UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.add(plane + 0xFFFE)
-    UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.add(plane + 0xFFFF)
+    LIBNU_FOLD_GAPS.add(plane + 0xFFFE)
+    LIBNU_FOLD_GAPS.add(plane + 0xFFFF)
 
-# Unassigned supplementary planes (as of Unicode 9.0.0)
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0x2FA1E, 0xE0000))
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0xE0080, 0xE0100))
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0xE01F0, 0x10FFFE))
+# Unassigned supplementary planes (as of Unicode 13.0)
+LIBNU_FOLD_GAPS.update(range(0x2FA1E, 0xE0000))
+LIBNU_FOLD_GAPS.update(range(0xE0080, 0xE0100))
+LIBNU_FOLD_GAPS.update(range(0xE01F0, 0x10FFFE))
 
 
 @skip(cluster=True)
@@ -1662,7 +1728,7 @@ def testToLowerConversionExactMatch(env):
                 query_u = f'@t:{{{upper_term}}}'
                 query_l = f'@t:{{{lower_term}}}'
 
-            if codepoint in UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS:
+            if codepoint in LIBNU_FOLD_GAPS:
                 # For unsupported codepoints, different terms are created
                 # for upper and lower case, so the search will return
                 # a single result for each case.
@@ -1684,7 +1750,7 @@ def testToLowerConversionExactMatch(env):
 def testTagToLowerConversionSimilarMatch(env):
     '''Test that tolower conversion works correctly for all unicode characters
     when using TAG fields and running a query with a prefix, infix or suffix.
-    This test skips characters not supported by Unicode 9.0.0.
+    This test skips characters that libnu does not fold (see LIBNU_FOLD_GAPS).
     It also skips lowercase characters, because the tolower conversion
     is not expected to change them.
     The test creates a document with a term that contains a single unicode
@@ -1698,7 +1764,7 @@ def testTagToLowerConversionSimilarMatch(env):
     idx = 'idx_tag'
     error = False
     for codepoint in range(0x110000):  # Unicode range from U+0000 to U+10FFFF
-        if codepoint in UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS:
+        if codepoint in LIBNU_FOLD_GAPS:
             # Skip unsupported codepoints:
             continue
 
@@ -1739,7 +1805,7 @@ def testTagToLowerConversionSimilarMatch(env):
 def testTextToLowerConversionSimilarMatch(env):
     '''Test that tolower conversion works correctly for all unicode characters
     when using TEXT fields and running a query with a prefix, infix or suffix.
-    This test skips characters not supported by Unicode 9.0.0..
+    This test skips characters that libnu does not fold (see LIBNU_FOLD_GAPS).
     It also skips lowercase characters, because the tolower conversion
     is not expected to change them.
     The test creates a document with a term that contains a single unicode
@@ -1752,7 +1818,7 @@ def testTextToLowerConversionSimilarMatch(env):
     idx = 'idx_txt'
     for codepoint in range(0x110000):  # Unicode range from U+0000 to U+10FFFF
         # Skip unsupported codepoints:
-        if codepoint in UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS:
+        if codepoint in LIBNU_FOLD_GAPS:
             continue
 
         char = chr(codepoint)

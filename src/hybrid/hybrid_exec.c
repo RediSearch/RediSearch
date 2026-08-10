@@ -8,35 +8,73 @@
  */
 
 #include "hybrid_exec.h"
+
+#include <time.h>
+#include <stdio.h>
+#include <string.h>
+
+#ifdef ENABLE_ASSERT
+#include "debug_commands.h" // IWYU pragma: keep
+#endif
+
+#include "search_result_ffi.h"
 #include "parse_hybrid.h"
 #include "hybrid_request.h"
 #include "aggregate/aggregate_exec_common.h"
-#include "debug_commands.h"
-
 #include "redismodule.h"
-#include "redisearch.h"
 #include "search_ctx.h"
 #include "aggregate/aggregate.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "spec.h"
 #include "rmalloc.h"
 #include "cursor.h"
 #include "score_explain.h"
-#include "util/timeout.h"
 #include "util/workers.h"
 #include "info/global_stats.h"
 #include "info/info_redis/block_client.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/types/blocked_queries.h"
 #include "pipeline/pipeline.h"
-#include "util/units.h"
-#include "value.h"
+#include "result_processor.h"
+#include "value_ffi.h"
 #include "module.h"
 #include "aggregate/reply_empty.h"
 #include "profile/profile.h"
 #include "search_disk_utils.h"
+#include "VecSim/vec_sim_common.h"
+#include "aggregate/aggregate_plan.h"
+#include "config.h"
+#include "query_flags.h"
+#include "reply.h"
+#include "result_processor_ffi.h"
+#include "rlookup.h"
+#include "rmutil/args.h"
+#include "rmutil/rm_assert.h"
+#include "rs_wall_clock.h"
+#include "rules.h"
+#include "search_result.h"
+#include "search_result_rs.h"
+#include "thpool/thpool.h"
+#include "util/references.h"
 
-#include <time.h>
+typedef uint8_t HybridWarningMask;
+
+enum {
+  HYBRID_WARNING_NONE = 0,
+  HYBRID_WARNING_TIMEOUT = 1U << 0,
+  HYBRID_WARNING_MAX_PREFIX_EXPANSIONS = 1U << 1,
+  // Mask used for possible sub-queries and postprocessing
+};
+
+static void updateHybridWarningMetrics(HybridWarningMask warnings) {
+  if (warnings & HYBRID_WARNING_TIMEOUT) {
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+  }
+  if (warnings & HYBRID_WARNING_MAX_PREFIX_EXPANSIONS) {
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1,
+                                           COORD_ERR_WARN);
+  }
+}
 
 // Send a warning message to the client, optionally appending a suffix to identify the source
 static inline void ReplyWarning(RedisModule_Reply *reply, const char *message, const char *suffix) {
@@ -54,24 +92,43 @@ static inline void ReplyWarning(RedisModule_Reply *reply, const char *message, c
 // Handles query errors and sends warnings to client.
 // ignoreTimeout: ignore timeout in tail if there's a timeout in subquery
 // suffix: identifies where the error occurred ("SEARCH"/"VSIM"/"POST PROCESSING")
-// Returns true if a timeout occurred and was processed as a warning
-static inline bool handleAndReplyWarning(RedisModule_Reply *reply, QueryError *err, int returnCode, const char *suffix, bool ignoreTimeout) {
-  bool timeoutOccurred = false;
+// Returns the category of warning emitted, if any.
+static inline HybridWarningMask handleAndReplyWarning(RedisModule_Reply *reply, QueryError *err,
+                                                      int returnCode, const char *suffix,
+                                                      bool ignoreTimeout) {
   if (returnCode == RS_RESULT_TIMEDOUT && !ignoreTimeout) {
-    // Track warnings in global statistics
-    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
     ReplyWarning(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT), suffix);
-    timeoutOccurred = true;
+    return HYBRID_WARNING_TIMEOUT;
   } else if (returnCode == RS_RESULT_ERROR) {
     // Non-fatal error — convert to warning
+    RS_LOG_ASSERT(!QueryError_IsOk(err),
+                  "RS_RESULT_ERROR reached the warning path without a QueryError set");
     ReplyWarning(reply, QueryError_GetUserError(err), suffix);
     QueryError_ClearError(err);  // Free allocated message strings
   } else if (QueryError_HasReachedMaxPrefixExpansionsWarning(err)) {
-    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, COORD_ERR_WARN);
     ReplyWarning(reply, QUERY_WMAXPREFIXEXPANSIONS, suffix);
+    return HYBRID_WARNING_MAX_PREFIX_EXPANSIONS;
   }
 
-  return timeoutOccurred;
+  return HYBRID_WARNING_NONE;
+}
+
+static bool HybridRequest_HasShardTimedOutWarning(const HybridRequest *hreq) {
+  for (size_t i = 0; i < hreq->nrequests; ++i) {
+    if (hreq->requests[i]->stateflags & QEXEC_S_SHARD_TIMED_OUT_WARNING) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool HybridRequest_HasTimedOutSubquery(const HybridRequest *hreq) {
+  for (size_t i = 0; i < hreq->nrequests; ++i) {
+    if (hreq->subqueriesReturnCodes[i] == RS_RESULT_TIMEDOUT) {
+      return true;
+    }
+  }
+  return false;
 }
 
 static int replyForHybridPreExecutionTimeout(RedisModuleCtx *ctx, bool internal,
@@ -89,21 +146,26 @@ static int replyForHybridPreExecutionTimeout(RedisModuleCtx *ctx, bool internal,
   return common_hybrid_query_reply_empty(ctx, QUERY_ERROR_CODE_TIMED_OUT, internal, isProfile);
 }
 
-// Reply with warnings, adding suffixes to indicate the originating context (search/vsim/post-processing)
-static void replyWarningsWithSuffixes(RedisModule_Reply *reply, HybridRequest *hreq,
-                                       QueryProcessingCtx *qctx, int postProcessingRC) {
-  bool timeoutInSubquery = false;
+// Reply with warnings, adding suffixes to indicate the originating context
+// (search/vsim/post-processing)
+static HybridWarningMask replyWarningsWithSuffixes(RedisModule_Reply *reply, HybridRequest *hreq,
+                                                   QueryProcessingCtx *qctx, int postProcessingRC) {
+  HybridWarningMask warnings = HYBRID_WARNING_NONE;
 
   // Handle warnings from each subquery, adding appropriate suffix
   for (size_t i = 0; i < hreq->nrequests; ++i) {
     QueryError* err = &hreq->errors[i];
     const char* suffix = i == 0 ? SEARCH_SUFFIX : VSIM_SUFFIX;
     const int subQueryReturnCode = hreq->subqueriesReturnCodes[i];
-    timeoutInSubquery = handleAndReplyWarning(reply, err, subQueryReturnCode, suffix, false) || timeoutInSubquery;
+    warnings |= handleAndReplyWarning(reply, err, subQueryReturnCode, suffix, false);
   }
 
   // Handle warnings from post-processing stage
-  handleAndReplyWarning(reply, qctx->err, postProcessingRC, POST_PROCESSING_SUFFIX, timeoutInSubquery);
+  const bool timeoutInSubquery = warnings & HYBRID_WARNING_TIMEOUT;
+  warnings |= handleAndReplyWarning(reply, qctx->err, postProcessingRC, POST_PROCESSING_SUFFIX,
+                                    timeoutInSubquery);
+
+  return warnings;
 }
 
 static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx);
@@ -187,14 +249,72 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
   RedisModule_Reply_MapEnd(reply); // >result
 }
 
+#ifdef ENABLE_ASSERT
+// SyncPoint stop predicate: break out of a sync-point wait when the request
+// has timed out (so BG can release as soon as the main-thread timeout callback
+// fires) or when a writer is parked on a spec rwlock (mirrors the AGG-side
+// predicate at aggregate_exec.c:areq_timeout_or_pending_spec_writers).
+static bool hreq_timeout_or_pending_spec_writers(void *arg) {
+  return HybridRequest_TimedOut((HybridRequest *)arg) || PendingSpecWriters_Get() > 0;
+}
+#endif
+
+void HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(HybridRequest *hreq) {
+  // The tail and every subquery pipeline link the top-level wrapper: sub-AREQs
+  // have no wrapper of their own, and the GIL-handshake state (a counter, so
+  // concurrent loaders keep it accurate) lives on the hybrid's BlockedRequestCtx.
+  RPSafeLoader_SetSyncCtx(&hreq->tailPipeline->qctx, hreq->brc);
+
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    AREQ *subquery = hreq->requests[i];
+    if (subquery) {
+      RPSafeLoader_SetSyncCtx(AREQ_QueryProcessingCtx(subquery), hreq->brc);
+    }
+  }
+}
+
+bool HybridRequest_TimeoutPreemptSafeLoaderGIL(HybridRequest *hreq) {
+  // The tail and all subquery safe loaders share the top-level wrapper, so a
+  // single check covers every pipeline.
+  return BlockedRequestCtx_TimeoutPreemptSafeLoaderGIL(hreq->brc);
+}
+
 static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
   CommonPipelineCtx ctx = {
     .timeoutPolicy = hreq->reqConfig.timeoutPolicy,
     .timeout = &hreq->sctx->time.timeout,
     .oomPolicy = hreq->reqConfig.oomPolicy,
     .skipTimeoutChecks = !HybridRequest_ShouldCheckTimeout(hreq),
+    // Borrow a subquery AREQ as the tail's row-boundary timeout-flag proxy:
+    // HybridRequest_SetTimedOut propagates to every subquery's AREQ, so
+    // AggregateResults can bail between rows while draining buffered tail rows.
+    .areq = hreq->requests[SEARCH_INDEX],
   };
+
+#ifdef ENABLE_ASSERT
+  // Sync point (debug): pause before the TryClaim race
+  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_HYBRID_RESULTS_CLAIM, hreq_timeout_or_pending_spec_writers, hreq);
+#endif
+
+  // Bail if the RETURN-STRICT timeout callback already owns the reply.
+  // The timeout check MUST come first so it short-circuits the CAS.
+  if (HybridRequest_RequiresThreadsSyncResults(hreq) &&
+      (HybridRequest_TimedOut(hreq) || !HybridRequest_TryClaimAggregateResults(hreq))) {
+    *rc = RS_RESULT_TIMEDOUT;
+    return;
+  }
+
+  if (HybridRequest_RequiresThreadsSyncResults(hreq)) {
+    HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(hreq);
+  }
+
   startPipelineCommon(&ctx, rp, results, r, rc);
+
+  // Pipeline done without timing out; the caller now enters the reply phase
+  // (marker only; never forces a timeout).
+  if (*rc != RS_RESULT_TIMEDOUT) {
+    HybridRequest_SetExecutionStage(hreq, QUERY_TIMEOUT_STAGE_REPLY);
+  }
 }
 
 static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, SearchResult *r, rs_wall_clock_ns_t duration, QueryError *err) {
@@ -212,6 +332,7 @@ static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, Se
   // Reset the total results length
   QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
   qctx->totalResults = 0;
+  qctx->skippedResults = 0;
   QueryError_ClearError(err);
 }
 
@@ -232,6 +353,14 @@ static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
  * Handles error/timeout checking and sends error reply if needed.
  * Returns true if an error was sent (caller should skip to cleanup).
  */
+/* Record this hybrid request's blocked-client timeout into the per-stage
+ * breakdown, at the stage its execution-phase marker had reached when the deadline
+ * fired. Must be called exactly once per blocked-client timeout callback, right
+ * after HybridRequest_SetTimedOut (which freezes the marker). */
+static inline void recordHREQTimeoutStage(HybridRequest *hreq, bool isError, bool coord) {
+  QueryTimeoutStageStats_Record(HybridRequest_ExecutionStage(hreq), isError, coord);
+}
+
 static bool handleSendChunkError_hybrid(HybridRequest *hreq, RedisModule_Reply *reply,
   QueryError *err, int rc) {
   if (ShouldReplyWithError(QueryError_GetCode(err), hreq->reqConfig.timeoutPolicy, IsProfile(hreq))) {
@@ -254,8 +383,8 @@ static void prepareSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply 
   QueryProcessingCtx *qctx) {
   RedisModule_Reply_Map(reply);
 
-  // <total_results>
-  RedisModule_ReplyKV_LongLong(reply, "total_results", qctx->totalResults);
+  // <total_results> - matches minus rows the loader dropped (deleted/re-indexed mid-load).
+  RedisModule_ReplyKV_LongLong(reply, "total_results", QITR_ReportedTotal(qctx));
 
   RedisModule_ReplyKV_Array(reply, "results"); // >results
 }
@@ -269,6 +398,7 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
   RedisModule_Reply_ArrayEnd(reply); // >results
 
   // warnings
+  HybridWarningMask warnings = HYBRID_WARNING_NONE;
   RedisModule_ReplyKV_Array(reply, "warnings"); // >warnings
   RedisSearchCtx *sctx = HREQ_SearchCtx(hreq);
   if (sctx->spec && sctx->spec->scan_failed_OOM) {
@@ -280,12 +410,25 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
     // because this warning is not related to subqueries or post-processing terminology
     RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
   }
-  if (QueryError_GetCode(qctx->err) == QUERY_ERROR_CODE_TIMED_OUT) {
-    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+  const bool timeoutWarningReplied = QueryError_GetCode(qctx->err) == QUERY_ERROR_CODE_TIMED_OUT;
+  if (timeoutWarningReplied) {
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
+    warnings |= HYBRID_WARNING_TIMEOUT;
+  }
+  if (!timeoutWarningReplied && HybridRequest_HasShardTimedOutWarning(hreq) &&
+      !HybridRequest_HasTimedOutSubquery(hreq)) {
+    RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
+    warnings |= HYBRID_WARNING_TIMEOUT;
+  }
+  // The cap flag is mirrored on both subqueries by parseHybridCommand; checking
+  // the search subquery is sufficient.
+  const AREQ *searchReq = hreq->requests[SEARCH_INDEX];
+  if (searchReq->stateflags & QEXEC_S_MAX_TIMEOUT_CAPPED) {
+    RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_MAX_TIMEOUT_CAPPED));
   }
 
-  replyWarningsWithSuffixes(reply, hreq, qctx, rc);
+  warnings |= replyWarningsWithSuffixes(reply, hreq, qctx, rc);
+  updateHybridWarningMetrics(warnings);
 
   RedisModule_Reply_ArrayEnd(reply); // >warnings
 
@@ -339,7 +482,10 @@ static bool serializeAndReplyResults_hybrid(HybridRequest *hreq, RedisModule_Rep
 }
 
 #ifdef ENABLE_ASSERT
-// Helper function to pause before/after store results for hybrid (for testing timeout during store)
+// Helper function to pause before/after store results for hybrid (for testing timeout during store).
+// The pause is gated by the global StoreResultsDebugCtx scope: INTERNAL_ONLY skips
+// non-internal (user-facing) HybridRequests, NON_INTERNAL_ONLY skips internal
+// (coordinator-dispatched) HybridRequests, and the default (BOTH) applies to all.
 static inline void debugPauseStoreResultsHybrid(HybridRequest *hreq, bool before) {
   // Only pause if we are using reply callback (otherwise we don't store results)
   if (!hreq->useReplyCallback) {
@@ -347,16 +493,19 @@ static inline void debugPauseStoreResultsHybrid(HybridRequest *hreq, bool before
   }
   bool enabled = before ? StoreResultsDebugCtx_IsPauseBeforeEnabled()
                         : StoreResultsDebugCtx_IsPauseAfterEnabled();
-  if (enabled) {
-    StoreResultsDebugCtx_SetPause(true);
-    while (StoreResultsDebugCtx_IsPaused()) {
-      // Check if timed out - break to avoid deadlock with timeout callback
-      if (HybridRequest_TimedOut(hreq)) {
-        StoreResultsDebugCtx_SetPause(false);
-        break;
-      }
-      usleep(1000);  // Spin-wait with 1ms sleep
+  if (!enabled) return;
+  StoreResultsScope scope = StoreResultsDebugCtx_GetScope();
+  bool is_internal = IsInternal(hreq);
+  if (scope == STORE_RESULTS_SCOPE_INTERNAL_ONLY     && !is_internal) return;
+  if (scope == STORE_RESULTS_SCOPE_NON_INTERNAL_ONLY &&  is_internal) return;
+  StoreResultsDebugCtx_SetPause(true);
+  while (StoreResultsDebugCtx_IsPaused()) {
+    // Check if timed out - break to avoid deadlock with timeout callback
+    if (HybridRequest_TimedOut(hreq)) {
+      StoreResultsDebugCtx_SetPause(false);
+      break;
     }
+    usleep(1000);  // Spin-wait with 1ms sleep
   }
 }
 
@@ -389,32 +538,42 @@ static inline void debugPauseHybridStoreCursors(HybridRequest *hreq, bool before
 /**
  * Store pipeline results for reply_callback path (FAIL policy with workers).
  * Called after startPipelineHybrid when using reply_callback mode.
- * Stores results in hreq->storedReplyState so serializeStoredResults_hybrid can be called
+ * Stores results in hreq->brc->reply so serializeStoredResults_hybrid can be called
  * from the reply_callback on the main thread.
  *
  * @param hreq The hybrid request
- * @param results Pipeline results (ownership transferred to storedReplyState)
+ * @param results Pipeline results (ownership transferred to brc->reply)
  * @param rc Pipeline return code
  * @param cv Cached variables for result serialization
  */
 void HREQ_StoreResults(HybridRequest *hreq, SearchResult **results, int rc, cachedVars cv) {
   // Store results in hreq for reply_callback to use
-  hreq->storedReplyState.results = results;
-  hreq->storedReplyState.rc = rc;
-  hreq->storedReplyState.cv = cv;
-  hreq->storedReplyState.hasStoredResults = true;
+  hreq->brc->reply.results = results;
+  hreq->brc->reply.rc = rc;
+  hreq->brc->reply.cv = cv;
+  hreq->brc->reply.hasStoredResults = true;
 }
 
 // Helper for error handling in coordinator HREQ execution.
-// For FAIL policy (useReplyCallback=true): stores error for reply_callback to handle.
-// For RETURN policy: replies with error directly.
+// FAIL / RETURN_STRICT (useReplyCallback=true): store the error for the
+//   reply_callback to handle.
+// RETURN (useReplyCallback=false): reply directly - an empty result set with a
+//   timeout warning when the error is a non-fail-policy timeout (no result set
+//   was produced here), otherwise the error itself.
 void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status) {
   if (hreq->useReplyCallback) {
     // Deep copy since QueryError contains heap-allocated strings.
     // reply_callback will clear the stored error after replying.
-    QueryError_ClearError(&hreq->storedReplyState.err);
-    QueryError_CloneFrom(status, &hreq->storedReplyState.err);
+    QueryError_ClearError(&hreq->brc->reply.err);
+    QueryError_CloneFrom(status, &hreq->brc->reply.err);
     // Clear the original to avoid leaking heap-allocated strings.
+    QueryError_ClearError(status);
+  } else if (!ShouldReplyWithError(QueryError_GetCode(status),
+                                   hreq->reqConfig.timeoutPolicy, IsProfile(hreq))) {
+    // Error is a timeout under a non-fail policy, which must not surface as an
+    // error: reply an empty result set with the timeout warning instead.
+    common_hybrid_query_reply_empty(ctx, QueryError_GetCode(status),
+                                    IsInternal(hreq), IsProfile(hreq));
     QueryError_ClearError(status);
   } else {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, !IsInternal(hreq));
@@ -456,17 +615,17 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
 
     startPipelineHybrid(hreq, rp, &results, &r, &rc);
 
-    // Check if timed out during pipeline execution
-    if (HybridRequest_TimedOut(hreq)) {
-      // Timeout callback already replied - skip to cleanup without replying
-      goto done_err;
-    }
-
     if (hreq->useReplyCallback) {
       // Store results for reply_callback (includes cv)
       debugPauseStoreResultsHybrid(hreq, true);  // pause before
       HREQ_StoreResults(hreq, results, rc, cv);
       debugPauseStoreResultsHybrid(hreq, false); // pause after
+
+      // Signal completion for main-thread timeout
+      if (HybridRequest_RequiresThreadsSyncResults(hreq)) {
+        HybridRequest_SignalAggregateResultsComplete(hreq);
+      }
+
       return;
     }
 
@@ -486,7 +645,7 @@ done_err:
 void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply) {
     QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
     ResultProcessor *rp = qctx->endProc;
-    ChunkReplyState *stored = &hreq->storedReplyState;
+    ChunkReplyState *stored = &hreq->brc->reply;
 
     // Create a stack-allocated SearchResult for finishSendChunk_HREQ cleanup
     SearchResult r = SearchResult_New();
@@ -555,10 +714,7 @@ static inline void freeHybridParams(HybridPipelineParams *hybridParams) {
   if (hybridParams == NULL) {
     return;
   }
-  if (hybridParams->scoringCtx) {
-    HybridScoringContext_Free(hybridParams->scoringCtx);
-    hybridParams->scoringCtx = NULL;
-  }
+  HybridPipelineParams_Cleanup(hybridParams);
   rm_free(hybridParams);
 }
 
@@ -606,8 +762,7 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) c
     RedisModule_Reply_Map(reply);
     for (size_t i = 0; i < array_len(cursors); i++) {
       Cursor *cursor = cursors[i];
-      Cursor_Pause(cursor);
-      AREQ *areq = cursor->execState;
+      AREQ *areq = Cursor_AREQ(cursor);
       if (IsHybridSearchSubquery(areq)) {
         RedisModule_ReplyKV_LongLong(reply, "SEARCH", cursor->id);
       } else if (IsHybridVectorSubquery(areq)) {
@@ -615,6 +770,7 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) c
       } else {
         RS_ABORT_ALWAYS("Unknown subquery type");
       }
+      Cursor_Pause(cursor);
     }
     RedisModule_ReplyKV_Array(reply, "warnings"); // >warnings
     if (timedOut) {
@@ -643,28 +799,22 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       QueryError_SetError(&req->tailPipelineError, QUERY_ERROR_CODE_GENERIC, "No subqueries in hybrid request");
       return REDISMODULE_ERR;
     }
-    // helper array to collect depleters so we can deplete them all at once
-    // before returning the cursors
+    // Helper arrays to collect cursors and depleters. The cursor array remains
+    // local until depletion completes; hreq->cursors means "safe to publish".
+    arrayof(Cursor*) cursors = NULL;
     arrayof(ResultProcessor*) depleters = array_new(ResultProcessor *, req->nrequests);
 
     // Pause before store cursors (hybrid cursors only)
     debugPauseHybridStoreCursors(req, true);
 
-    // Lock cursor creation to synchronize with timeout callback.
-    // This ensures that if timeout fires:
-    // 1. Before we create cursors: we'll see timedOut flag and skip creation
-    // 2. After we create cursors: timeout callback will free them properly
-    HybridRequest_LockCursors(req);
-
     // Check if we timed out before creating cursors
     if (HybridRequest_TimedOut(req)) {
-      HybridRequest_UnlockCursors(req);
       array_free(depleters);
       QueryError_SetError(status, QUERY_ERROR_CODE_TIMED_OUT, NULL);
       return REDISMODULE_ERR;
     }
 
-    req->cursors = array_new(Cursor*, req->nrequests);
+    cursors = array_new(Cursor*, req->nrequests);
     ResultProcessorType expectedDepleterType = backgroundDepletion ? RP_SAFE_DEPLETER : RP_DEPLETER;
     for (size_t i = 0; i < req->nrequests; i++) {
       AREQ *areq = req->requests[i];
@@ -683,17 +833,25 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       if (!cursor) {
         break;
       }
+      // A cursor-backing sub-AREQ needs its own heap BlockedRequestCtx: RETURN_STRICT
+      // FT.CURSOR READ cycles run the claim/done-latch handshake against the read
+      // AREQ's wrapper (req->brc), at per-sub-AREQ granularity. Ownership is
+      // unchanged — the hybrid request still owns the sub-AREQ, and the wrapper is
+      // freed with it (HybridRequest_Free -> AREQ_DecrRef -> BlockedRequestCtx_Free).
+      // TRANSITIONAL(MOD-16691): the cursor's own hold rides hybrid_ref until
+      // the container-handoff step.
+      BlockedRequestCtx_NewAREQ(areq);
       // The cursor lifetime will determine the hybrid request lifetime
-      cursor->execState = areq;
+      cursor->query = areq->brc;
       cursor->hybrid_ref = StrongRef_Clone(hybrid_ref);
+      cursor->queryTimeoutMS = (size_t)areq->reqConfig.queryTimeoutMS;
+      cursor->queryTimeoutPolicy = areq->reqConfig.timeoutPolicy;
       areq->cursor_id = cursor->id;
-      array_ensure_append_1(req->cursors, cursor);
+      array_ensure_append_1(cursors, cursor);
     }
 
-    if (array_len(req->cursors) != req->nrequests) {
-      array_free_ex(req->cursors, Cursor_Free(*(Cursor**)ptr));
-      req->cursors = NULL;
-      HybridRequest_UnlockCursors(req);
+    if (array_len(cursors) != req->nrequests) {
+      array_free_ex(cursors, Cursor_Free(*(Cursor**)ptr));
       array_free(depleters);
       // verify error exists
       RS_ASSERT(QueryError_HasError(status));
@@ -713,14 +871,12 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
 
     bool depletionTimedOut = false;
     if (rc != RS_RESULT_OK) {
-      if (rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy != TimeoutPolicy_Fail) {
+      if (rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return) {
         // RETURN policy: keep cursors with partial results, emit warning in reply
         depletionTimedOut = true;
       } else {
         // Fatal error or FAIL policy — free everything
-        array_free_ex(req->cursors, Cursor_Free(*(Cursor**)ptr));
-        req->cursors = NULL;
-        HybridRequest_UnlockCursors(req);
+        array_free_ex(cursors, Cursor_Free(*(Cursor**)ptr));
         if (!QueryError_HasError(status)) {
           if (rc == RS_RESULT_TIMEDOUT) {
             QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_TIMED_OUT, "Depleting timed out");
@@ -732,6 +888,20 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       }
     }
 
+    // Only publish cursors after depletion has completed.
+    HybridRequest_LockCursors(req);
+    if (HybridRequest_TimedOut(req)) {
+      HybridRequest_UnlockCursors(req);
+      array_free_ex(cursors, Cursor_Free(*(Cursor**)ptr));
+      QueryError_SetError(status, QUERY_ERROR_CODE_TIMED_OUT, NULL);
+      return REDISMODULE_ERR;
+    }
+    req->cursors = cursors;
+    cursors = NULL;
+    // Cursors are published: the remaining work is handing off the mapping reply,
+    // so a timeout from here on is attributed to the REPLY stage (no-op if the
+    // timeout already fired, via the SetExecutionStage freeze).
+    HybridRequest_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_REPLY);
     HybridRequest_UnlockCursors(req);
 
     // Pause after store cursors (hybrid cursors only)
@@ -764,7 +934,6 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
                                    bool internal, bool depleteInBackground) {
   // Build the pipeline and execute
   HybridRequest *hreq = StrongRef_Get(hybrid_ref);
-  hreq->reqflags = hybridParams->aggregationParams.common.reqflags;
   bool isCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
 
   // Start measuring pipeline build time if profiling is enabled
@@ -781,7 +950,7 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
     if (HybridRequest_BuildDepletionPipeline(hreq, hybridParams, depleteInBackground) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
-  } else if (HybridRequest_BuildPipeline(hreq, hybridParams, depleteInBackground) != REDISMODULE_OK) {
+  } else if (HybridRequest_BuildPipeline(hreq, hybridParams, depleteInBackground, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
@@ -815,24 +984,22 @@ static int HybridQueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString
   UNUSED(argv);
   UNUSED(argc);
 
-  BlockedQueryNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!node || !node->privdata) {
-    // Shouldn't happen, but handle gracefully
-    RedisModule_Log(ctx, "warning", "HybridQueryTimeoutFailCallback: no node or privdata");
-    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
-    RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
-    return REDISMODULE_OK;
-  }
+  BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
+  // Installed by BeginCycle on the main thread before the command returned,
+  // so no callback can observe missing privdata.
+  RS_ASSERT(brc != NULL);
 
-  HybridRequest *hreq = (HybridRequest *)node->privdata;
+  HybridRequest *hreq = BlockedRequestCtx_GetHybrid(brc);
+
+  // Signal timeout to background thread
+  HybridRequest_SetTimedOut(hreq);
+  recordHREQTimeoutStage(hreq, /*isError=*/true, !IsInternal(hreq->requests[0]));
 
   // Lock to synchronize with cursor creation in HybridRequest_StartCursors.
   // After setting timedOut, any subsequent cursor creation attempt will be skipped.
   // If cursors were already created, we free them here.
   HybridRequest_LockCursors(hreq);
 
-  // Signal timeout to background thread
-  HybridRequest_SetTimedOut(hreq);
 
   // Free cursors if they were already created
   if (hreq->cursors) {
@@ -849,59 +1016,145 @@ static int HybridQueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString
   return REDISMODULE_OK;
 }
 
-// Reply callback for AREQ execution in Run in Threads mode (FAIL policy).
+// Timeout callback for standalone FT.HYBRID execution in Run in Threads mode.
+// Called on the main thread when the blocking client times out (RETURN-STRICT
+// policy only). Hybrid's merger/depleter pipeline is not safely drainable from
+// the timeout callback; reply only with either an empty timeout warning or the
+// results already stored by the worker.
+static int HybridQueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
+                                                  int argc) {
+  UNUSED(argv);
+  UNUSED(argc);
+
+  BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
+  // Installed by BeginCycle on the main thread before the command returned,
+  // so no callback can observe missing privdata.
+  RS_ASSERT(brc != NULL);
+
+  HybridRequest *hreq = BlockedRequestCtx_GetHybrid(brc);
+
+  // Signal timeout to the worker and to all subquery depleters.
+  HybridRequest_SetTimedOut(hreq);
+  recordHREQTimeoutStage(hreq, /*isError=*/false, !IsInternal(hreq->requests[0]));
+
+  if (HybridRequest_TryClaimAggregateResults(hreq)) {
+    // The worker has not reached the tail aggregation phase yet.
+    return common_hybrid_query_reply_empty(ctx, QUERY_ERROR_CODE_TIMED_OUT, false,
+                                           IsProfile(hreq));
+  }
+
+  // Deadlock avoidance: if the worker is parked at the safe-loader GIL gate,
+  // waiting here would hold the GIL it needs. Preempt and reply empty; the
+  // worker will finish after this callback returns.
+  if (HybridRequest_TimeoutPreemptSafeLoaderGIL(hreq)) {
+    return common_hybrid_query_reply_empty(ctx, QUERY_ERROR_CODE_TIMED_OUT, false,
+                                           IsProfile(hreq));
+  }
+
+  HybridRequest_WaitForAggregateResultsComplete(hreq);
+
+  RS_ASSERT(hreq->brc->reply.hasStoredResults);
+
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  serializeStoredResults_hybrid(hreq, reply);
+  RedisModule_EndReply(reply);
+
+  return REDISMODULE_OK;
+}
+
+// Timeout callback for HybridRequest execution in Run in Threads mode.
+// Called on the main thread when the blocking client times out (RETURN-STRICT policy only).
+// Acquires cursorMutex only to take ownership of publishable cursors:
+// - If cursors were depleted and published, detach them from hreq and reply after unlocking
+// - If cursors are not publishable yet, reply with an empty timeout mapping
+static int HybridQueryCursorTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  UNUSED(argv);
+  UNUSED(argc);
+
+  BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
+  // Installed by BeginCycle on the main thread before the command returned,
+  // so no callback can observe missing privdata.
+  RS_ASSERT(brc != NULL);
+
+  HybridRequest *hreq = BlockedRequestCtx_GetHybrid(brc);
+
+  // Signal timeout to background thread
+  HybridRequest_SetTimedOut(hreq);
+  // Record at the stage the deadline caught the request (REPLY once the cursors
+  // were published, QUEUE/PIPELINE before that).
+  recordHREQTimeoutStage(hreq, /*isError=*/false, !IsInternal(hreq->requests[0]));
+
+  // Lock only long enough to synchronize with cursor publication in HybridRequest_StartCursors.
+  // Replying pauses cursors and can touch other locks, so it must happen after unlocking.
+  HybridRequest_LockCursors(hreq);
+
+  arrayof(Cursor*) cursors = hreq->cursors;
+  hreq->cursors = NULL;
+  HybridRequest_UnlockCursors(hreq);
+
+  if (cursors) {
+    // If cursors were published - reply with them
+    replyWithCursors(ctx, cursors, hreq, true);
+    array_free(cursors);
+  } else {
+    // Cursors were not published - reply with empty cursors reply
+    common_hybrid_query_reply_empty(ctx, QUERY_ERROR_CODE_TIMED_OUT, true, IsProfile(hreq));
+  }
+
+  return REDISMODULE_OK;
+}
+
+// Reply callback for HybridRequest execution in Run in Threads mode (FAIL policy).
 // Called on the main thread when the background thread calls UnblockClient.
 // For internal hybrid requests (cursor reply)
 static int HybridQueryCursorReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);
 
-  BlockedQueryNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!node || !node->privdata) {
-    // Shouldn't happen, but handle gracefully
-    RedisModule_Log(ctx, "warning", "HybridQueryReplyCallback: no node or privdata");
-    RedisModule_ReplyWithError(ctx, "Internal error: no request context");
+  BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
+  // Installed by BeginCycle on the main thread before the command returned,
+  // so no callback can observe missing privdata.
+  RS_ASSERT(brc != NULL);
+
+  HybridRequest *req = BlockedRequestCtx_GetHybrid(brc);
+
+  if (QueryError_HasError(&req->brc->reply.err)) {
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->brc->reply.err), 1, SHARD_ERR_WARN);
+    QueryError_ReplyAndClear(ctx, &req->brc->reply.err);
     return REDISMODULE_OK;
   }
 
-  HybridRequest *req = (HybridRequest *)node->privdata;
-
-  if (QueryError_HasError(&req->storedReplyState.err)) {
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1, SHARD_ERR_WARN);
-    QueryError_ReplyAndClear(ctx, &req->storedReplyState.err);
+  if (!req->cursors) {
+    RedisModule_ReplyWithError(ctx, "ERR Internal error: no cursors stored");
     return REDISMODULE_OK;
   }
 
-  // FAIL policy path — timeout would have been handled by HybridQueryTimeoutFailCallback
   replyWithCursors(ctx, req->cursors, req, false);
   array_free(req->cursors);
   req->cursors = NULL;
   return REDISMODULE_OK;
 }
 
-// Reply callback for AREQ execution in Run in Threads mode (FAIL policy).
+// Reply callback for HybridRequest execution in Run in Threads mode (FAIL policy).
 // Called on the main thread when the background thread calls UnblockClient.
 // For non-internal hybrid requests (STANDALONE)
 static int HybridQueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);
 
-  BlockedQueryNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!node || !node->privdata) {
-    // Shouldn't happen, but handle gracefully
-    RedisModule_Log(ctx, "warning", "HybridQueryReplyCallback: no node or privdata");
-    RedisModule_ReplyWithError(ctx, "Internal error: no request context");
-    return REDISMODULE_OK;
-  }
+  BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
+  // Installed by BeginCycle on the main thread before the command returned,
+  // so no callback can observe missing privdata.
+  RS_ASSERT(brc != NULL);
 
-  HybridRequest *req = (HybridRequest *)node->privdata;
+  HybridRequest *req = BlockedRequestCtx_GetHybrid(brc);
 
   // Check if results were stored (background thread completed successfully)
-  if (!req->storedReplyState.hasStoredResults) {
+  if (!req->brc->reply.hasStoredResults) {
     // Background thread didn't store results - some early error occurred.
-    if (QueryError_HasError(&req->storedReplyState.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1, COORD_ERR_WARN);
-      QueryError_ReplyAndClear(ctx, &req->storedReplyState.err);
+    if (QueryError_HasError(&req->brc->reply.err)) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->brc->reply.err), 1, COORD_ERR_WARN);
+      QueryError_ReplyAndClear(ctx, &req->brc->reply.err);
     } else {
       RedisModule_ReplyWithError(ctx, "Internal error: no results stored");
     }
@@ -915,11 +1168,6 @@ static int HybridQueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **arg
 
   return REDISMODULE_OK;
 
-}
-
-// Wrapper for HybridRequest_DecrRef to match BlockedClientFreePrivDataCB signature
-static void HybridRequest_DecrRefWrapper(void *privdata) {
-  HybridRequest_DecrRef((HybridRequest *)privdata);
 }
 
 // Background execution functions implementation
@@ -942,25 +1190,37 @@ static blockedClientHybridCtx *blockedClientHybridCtx_New(StrongRef hybrid_ref,
 static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *hybridParams, RedisModuleCtx *ctx,
                     RedisSearchCtx *sctx, QueryError* status, bool internal) {
   HybridRequest *hreq = StrongRef_Get(hybrid_ref);
+  hreq->reqflags = hybridParams->aggregationParams.common.reqflags;
   if (RunInThread(ctx)) {
     // Multi-threaded execution path
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 
-    BlockClientCtx blockClientCtx = {0};
+    RSTimeoutPolicy timeoutPolicy = hreq->reqConfig.timeoutPolicy;
+    RedisModuleCmdFunc replyCallback = NULL;
+    RedisModuleCmdFunc timeoutCallback = NULL;
+    rs_wall_clock_ms_t timeoutMS = 0;
 
-    blockClientCtx.ast = &hreq->requests[0]->ast;
-    blockClientCtx.privdata = hreq;
-    HybridRequest_IncrRef(hreq);
-    blockClientCtx.freePrivData = HybridRequest_DecrRefWrapper;
+    if (timeoutPolicy != TimeoutPolicy_Return) {
+      replyCallback = internal
+          ? HybridQueryCursorReplyCallback
+          : HybridQueryReplyCallback;
 
-    if (hreq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
-      blockClientCtx.timeoutCallback = HybridQueryTimeoutFailCallback;
-      blockClientCtx.replyCallback = internal ? HybridQueryCursorReplyCallback : HybridQueryReplyCallback;
-      blockClientCtx.timeoutMS = hreq->reqConfig.queryTimeoutMS;
+      timeoutMS = hreq->reqConfig.queryTimeoutMS;
       hreq->useReplyCallback = true;
+
+      if (timeoutPolicy == TimeoutPolicy_Fail) {
+        timeoutCallback = HybridQueryTimeoutFailCallback;
+      } else {
+        RS_ASSERT(timeoutPolicy == TimeoutPolicy_ReturnStrict);
+        timeoutCallback = internal
+            ? HybridQueryCursorTimeoutReturnStrictCallback
+            : HybridQueryTimeoutReturnStrictCallback;
+        hreq->brc->requiresAggregateResultsSync = true;
+      }
     }
 
-    RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(ctx, spec_ref, &blockClientCtx);
+    RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(
+        ctx, spec_ref, hreq->brc, replyCallback, timeoutCallback, timeoutMS);
 
     blockedClientHybridCtx *BCHCtx = blockedClientHybridCtx_New(StrongRef_Clone(hybrid_ref), hybridParams, blockedClient, spec_ref, internal);
 
@@ -1181,7 +1441,12 @@ static void blockedClientHybridCtx_destroy(blockedClientHybridCtx *BCHCtx) {
 static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   StrongRef hybrid_ref = BCHCtx->hybrid_ref;
   HybridRequest *hreq = StrongRef_Get(hybrid_ref);
+  // Picked up from the job queue: a timeout from here on is attributed to PIPELINE
+  // (no-op if already timed out while queued, via the SetExecutionStage freeze).
+  HybridRequest_SetExecutionStage(hreq, QUERY_TIMEOUT_STAGE_PIPELINE);
   HybridPipelineParams *hybridParams = BCHCtx->hybridParams;
+  // The lock state must be clean before the pipeline may take the spec lock.
+  RedisSearchCtx_AssertLockNotHeld(HREQ_SearchCtx(hreq));
   RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCHCtx->blockedClient);
   QueryError status = QueryError_Default();
 
@@ -1213,7 +1478,7 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     // buildPipelineAndExecute failed - release the lock if still held.
     // Note: If failure occurred after RPSafeDepleter_DepleteAll started, the lock
     // was already released in WaitForDepletionToStart. RedisSearchCtx_UnlockSpec
-    // safely handles this case by checking sctx->flags before unlocking.
+    // safely handles this case by checking sctx->lock_state before unlocking.
     RedisSearchCtx_UnlockSpec(sctx);
     if (!QueryError_HasError(&status)) {
       // There was an error but it was not set in status, get it from hreq
@@ -1225,5 +1490,8 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
 
   RedisModule_FreeThreadSafeContext(outctx);
   IndexSpecRef_Release(execution_ref);
+  // The hybrid request is still alive here (destroy releases the StrongRef),
+  // and unblocking the client below may free it.
+  RedisSearchCtx_AssertLockNotHeld(HREQ_SearchCtx(hreq));
   blockedClientHybridCtx_destroy(BCHCtx);
 }

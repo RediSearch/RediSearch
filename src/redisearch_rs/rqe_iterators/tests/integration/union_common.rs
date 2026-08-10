@@ -45,7 +45,7 @@ macro_rules! union_common_tests {
         #[case::c10_small(10, &[1u64, 2, 3, 40, 50])]
         #[case::c10_medium(10, &[5u64, 6, 7, 24, 25, 46, 47, 48, 49, 50, 51, 234, 2345])]
         #[case::c10_large(10, &[9u64, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130])]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn read(#[case] num_children: usize, #[case] base_result_set: &[u64]) {
             let (children, expected) = create_union_children(num_children, base_result_set);
 
@@ -99,7 +99,7 @@ macro_rules! union_common_tests {
         #[case::c10_small(10, &[1u64, 2, 3, 40, 50])]
         #[case::c10_medium(10, &[5u64, 6, 7, 24, 25, 46, 47, 48, 49, 50, 51, 234, 2345])]
         #[case::c10_large(10, &[9u64, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130])]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn skip_to(#[case] num_children: usize, #[case] base_result_set: &[u64]) {
             let (children, expected) = create_union_children(num_children, base_result_set);
             let mut union_iter = Union::new(children);
@@ -147,7 +147,7 @@ macro_rules! union_common_tests {
         #[case::c10_small(10, &[1u64, 2, 3, 40, 50])]
         #[case::c10_medium(10, &[5u64, 6, 7, 24, 25, 46, 47, 48, 49, 50, 51, 234, 2345])]
         #[case::c10_large(10, &[9u64, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130])]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn rewind(#[case] num_children: usize, #[case] base_result_set: &[u64]) {
             let (children, expected) = create_union_children(num_children, base_result_set);
             let mut union_iter = Union::new(children);
@@ -179,7 +179,7 @@ macro_rules! union_common_tests {
         }
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn rewind_restores_original_order_after_exhaustion() {
             // Child 0: [1]         — exhausts first
             // Child 1: [1, 5]      — exhausts second
@@ -226,7 +226,7 @@ macro_rules! union_common_tests {
         }
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn edge_case_single_child() {
             let (child, child_data) = create_mock_1([10, 20, 30, 40, 50]);
             let mut union_iter = Union::new(vec![child]);
@@ -244,7 +244,7 @@ macro_rules! union_common_tests {
         }
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn edge_case_disjoint_children() {
             let (children, data) = create_mock_3([1, 2, 3], [10, 20, 30], [100, 200, 300]);
 
@@ -265,7 +265,7 @@ macro_rules! union_common_tests {
             assert_eq!(data[2].read_count(), 4);
         }
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn edge_case_overlapping_children() {
             let (children, data) = create_mock_3(
                 [1, 2, 5, 10, 15, 20],
@@ -289,7 +289,7 @@ macro_rules! union_common_tests {
         }
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn edge_case_skip_to_exact_match() {
             let (children, _) = create_mock_2([10, 20, 30, 40, 50], [15, 25, 35, 45, 55]);
             let mut union_iter = Union::new(children);
@@ -305,7 +305,7 @@ macro_rules! union_common_tests {
         }
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn edge_case_skip_to_not_found() {
             let (children, _) = create_mock_2([10, 20, 30, 40, 50], [15, 25, 35, 45, 55]);
             let mut union_iter = Union::new(children);
@@ -321,7 +321,7 @@ macro_rules! union_common_tests {
         }
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn edge_case_skip_to_past_eof() {
             let (children, _) = create_mock_2([10, 20, 30], [15, 25, 35]);
             let mut union_iter = Union::new(children);
@@ -337,7 +337,7 @@ macro_rules! union_common_tests {
         }
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn edge_case_interleaved_read_and_skip_to() {
             let (children, _) = create_mock_2(
                 [10, 20, 30, 40, 50, 60, 70, 80],
@@ -373,7 +373,7 @@ macro_rules! union_common_tests {
         }
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn edge_case_empty_children_mixed_with_non_empty() {
             let empty_child: Mock<'static, 0> = Mock::new([]);
             let child1: Mock<'static, 3> = Mock::new([10, 20, 30]);
@@ -394,7 +394,7 @@ macro_rules! union_common_tests {
         }
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn edge_case_all_children_empty() {
             let empty1: Mock<'static, 0> = Mock::new([]);
             let empty2: Mock<'static, 0> = Mock::new([]);
@@ -408,7 +408,7 @@ macro_rules! union_common_tests {
             assert_eq!(union_iter.num_estimated(), 0);
         }
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn edge_case_skip_to_child_already_past_target() {
             let (children, _data) = create_mock_2([10, 50, 100], [20, 60, 110]);
             let mut union_iter = Union::new(children);
@@ -422,7 +422,7 @@ macro_rules! union_common_tests {
         }
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn edge_case_skip_to_exhausts_some_children() {
             let (children, _data) = create_mock_2([10, 20, 30], [15, 25, 100]);
             let mut union_iter = Union::new(children);
@@ -436,7 +436,7 @@ macro_rules! union_common_tests {
         }
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn edge_case_skip_to_exhausts_all_children() {
             let (children, _data) = create_mock_2([10, 20, 30], [15, 25, 35]);
             let mut union_iter = Union::new(children);
@@ -447,7 +447,7 @@ macro_rules! union_common_tests {
         }
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn edge_case_initialize_with_empty_children() {
             let empty1: Mock<'static, 0> = Mock::new([]);
             let child1: Mock<'static, 2> = Mock::new([10, 20]);
@@ -475,7 +475,7 @@ macro_rules! union_common_tests {
         }
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn edge_case_misbehaving_child_returns_none_during_init() {
             let mock1: Mock<'static, 3> = Mock::new([10, 30, 50]);
             let mock2: Mock<'static, 3> = Mock::new([20, 40, 60]);
@@ -505,7 +505,7 @@ macro_rules! union_common_tests {
         // =============================================================================
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn revalidate_ok() {
             let child0: Mock<'static, 5> = Mock::new([10, 20, 30, 40, 50]);
             let child1: Mock<'static, 5> = Mock::new([15, 25, 35, 45, 55]);
@@ -528,9 +528,7 @@ macro_rules! union_common_tests {
             assert_eq!(result.doc_id, 15);
 
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let ctx = mock_ctx.spec();
-            // SAFETY: test-only call with valid context
-            let status = unsafe { union_iter.revalidate(ctx) }.expect("revalidate failed");
+            let status = union_iter.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
             assert!(matches!(status, RQEValidateStatus::Ok));
 
             let result = union_iter.read().expect("read failed").unwrap();
@@ -538,7 +536,7 @@ macro_rules! union_common_tests {
         }
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn revalidate_moved() {
             let child0: Mock<'static, 5> = Mock::new([10, 20, 30, 40, 50]);
             let child1: Mock<'static, 5> = Mock::new([15, 25, 35, 45, 55]);
@@ -559,9 +557,7 @@ macro_rules! union_common_tests {
             assert_eq!(result.doc_id, 10);
 
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let ctx = mock_ctx.spec();
-            // SAFETY: test-only call with valid context
-            let status = unsafe { union_iter.revalidate(ctx) }.expect("revalidate failed");
+            let status = union_iter.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
             assert!(
                 matches!(status, RQEValidateStatus::Moved { current: Some(_) }),
                 "Expected Moved with current, got {:?}",
@@ -570,7 +566,7 @@ macro_rules! union_common_tests {
         }
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn revalidate_after_eof() {
             let child0: Mock<'static, 2> = Mock::new([10, 20]);
             let child1: Mock<'static, 2> = Mock::new([15, 25]);
@@ -591,15 +587,13 @@ macro_rules! union_common_tests {
             assert!(union_iter.at_eof());
 
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let ctx = mock_ctx.spec();
-            // SAFETY: test-only call with valid context
-            let status = unsafe { union_iter.revalidate(ctx) }.expect("revalidate failed");
+            let status = union_iter.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
             assert!(matches!(status, RQEValidateStatus::Ok));
             assert!(union_iter.at_eof());
         }
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn revalidate_single_child_aborts() {
             let child0: Mock<'static, 5> = Mock::new([10, 20, 30, 40, 50]);
             let child1: Mock<'static, 5> = Mock::new([15, 25, 35, 45, 55]);
@@ -624,9 +618,7 @@ macro_rules! union_common_tests {
             assert_eq!(result.doc_id, 10);
 
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let ctx = mock_ctx.spec();
-            // SAFETY: test-only call with valid context
-            let status = unsafe { union_iter.revalidate(ctx) }.expect("revalidate failed");
+            let status = union_iter.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
             assert!(
                 !matches!(status, RQEValidateStatus::Aborted),
                 "Union should not abort when only one child aborts"
@@ -634,7 +626,7 @@ macro_rules! union_common_tests {
             assert!(!union_iter.at_eof());
         }
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn revalidate_all_children_abort() {
             let child0: Mock<'static, 5> = Mock::new([10, 20, 30, 40, 50]);
             let child1: Mock<'static, 5> = Mock::new([15, 25, 35, 45, 55]);
@@ -655,9 +647,7 @@ macro_rules! union_common_tests {
             assert_eq!(result.doc_id, 10);
 
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let ctx = mock_ctx.spec();
-            // SAFETY: test-only call with valid context
-            let status = unsafe { union_iter.revalidate(ctx) }.expect("revalidate failed");
+            let status = union_iter.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
             assert!(
                 matches!(status, RQEValidateStatus::Aborted),
                 "Union should abort when all children abort"
@@ -669,7 +659,7 @@ macro_rules! union_common_tests {
         }
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn revalidate_child_moves_to_eof() {
             let child0: Mock<'static, 2> = Mock::new([10, 20]);
             let child1: Mock<'static, 5> = Mock::new([15, 25, 35, 45, 55]);
@@ -694,9 +684,7 @@ macro_rules! union_common_tests {
             assert_eq!(result.doc_id, 20);
 
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let ctx = mock_ctx.spec();
-            // SAFETY: test-only call with valid context
-            let status = unsafe { union_iter.revalidate(ctx) }.expect("revalidate failed");
+            let status = union_iter.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
             assert!(matches!(status, RQEValidateStatus::Ok));
 
             assert!(!union_iter.at_eof());
@@ -705,7 +693,7 @@ macro_rules! union_common_tests {
         }
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn revalidate_mixed_ok_moved_abort() {
             let child0: Mock<'static, 5> = Mock::new([10, 20, 30, 40, 50]);
             let child1: Mock<'static, 5> = Mock::new([15, 25, 35, 45, 55]);
@@ -730,9 +718,7 @@ macro_rules! union_common_tests {
             assert_eq!(result.doc_id, 10);
 
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let ctx = mock_ctx.spec();
-            // SAFETY: test-only call with valid context
-            let status = unsafe { union_iter.revalidate(ctx) }.expect("revalidate failed");
+            let status = union_iter.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
             assert!(
                 !matches!(status, RQEValidateStatus::Aborted),
                 "Union should not abort when some children are still Ok"
@@ -741,7 +727,7 @@ macro_rules! union_common_tests {
         }
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn revalidate_all_children_move_to_eof() {
             let child0: Mock<'static, 2> = Mock::new([10, 20]);
             let child1: Mock<'static, 2> = Mock::new([15, 25]);
@@ -762,13 +748,11 @@ macro_rules! union_common_tests {
             assert!(union_iter.at_eof());
 
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let ctx = mock_ctx.spec();
-            // SAFETY: test-only call with valid context
-            let status = unsafe { union_iter.revalidate(ctx) }.expect("revalidate failed");
+            let status = union_iter.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
             assert!(matches!(status, RQEValidateStatus::Ok));
         }
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn revalidate_updates_to_new_minimum() {
             let child0: Mock<'static, 5> = Mock::new([10, 20, 30, 40, 50]);
             let child1: Mock<'static, 5> = Mock::new([5, 25, 35, 45, 55]);
@@ -798,7 +782,7 @@ macro_rules! union_common_tests {
         }
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn revalidate_when_already_at_eof() {
             let mock1: Mock<'static, 2> = Mock::new([10, 20]);
             let mock2: Mock<'static, 2> = Mock::new([10, 30]);
@@ -818,14 +802,12 @@ macro_rules! union_common_tests {
             assert_eq!(read_docs, vec![10, 20, 30]);
             assert!(quick_iter.at_eof());
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let ctx = mock_ctx.spec();
-            // SAFETY: test-only call with valid context
-            let status = unsafe { quick_iter.revalidate(ctx) }.expect("revalidate failed");
+            let status = quick_iter.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
             assert!(matches!(status, RQEValidateStatus::Ok));
         }
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn revalidate_with_children_at_eof() {
             // Test 1: Child moves to EOF during revalidate
             {
@@ -848,19 +830,19 @@ macro_rules! union_common_tests {
                 data1.set_revalidate_result(MockRevalidateResult::Move);
 
                 let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-                let ctx = mock_ctx.spec();
-                // SAFETY: test-only call with valid context
-            let status = unsafe { union_iter.revalidate(ctx) }.expect("revalidate failed");
+                let status = union_iter.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
                 assert!(matches!(
                     status,
                     RQEValidateStatus::Moved { current: Some(_) }
                 ));
             }
 
-            // Test 2: ALL children move to EOF during revalidate
+            // Test 2: ALL children move *past* their last result during revalidate.
+            // Two ids each, both consumed by the reads below, so the moves run off
+            // the end and the children are left unpositioned.
             {
-                let mock1: Mock<'static, 3> = Mock::new([10, 20, 30]);
-                let mock2: Mock<'static, 3> = Mock::new([10, 25, 35]);
+                let mock1: Mock<'static, 2> = Mock::new([10, 20]);
+                let mock2: Mock<'static, 2> = Mock::new([10, 25]);
 
                 let mut data1 = mock1.data();
                 let mut data2 = mock2.data();
@@ -877,16 +859,58 @@ macro_rules! union_common_tests {
                 data2.set_revalidate_result(MockRevalidateResult::Move);
 
                 let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-                let ctx = mock_ctx.spec();
-                // SAFETY: test-only call with valid context
-            let status = unsafe { union_iter.revalidate(ctx) }.expect("revalidate failed");
+                let status = union_iter.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
                 assert!(matches!(status, RQEValidateStatus::Moved { current: None }));
                 assert!(union_iter.at_eof());
             }
+
+            // Test 3: children merely *sitting on* their last result are kept.
+            //
+            // A child that has just returned its final document still owes it. The
+            // post-revalidate rebuild partitions children by `at_eof()`, so
+            // dropping them here would lose 30 and 35 and report EOF for the whole
+            // union.
+            {
+                let mock1: Mock<'static, 3> = Mock::new([10, 20, 30]);
+                let mock2: Mock<'static, 3> = Mock::new([10, 25, 35]);
+
+                let mut data1 = mock1.data();
+                let mut data2 = mock2.data();
+
+                let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
+                    vec![Box::new(mock1), Box::new(mock2)];
+
+                let mut union_iter = Union::new(children);
+
+                union_iter.read().expect("read failed").unwrap();
+                union_iter.read().expect("read failed").unwrap();
+
+                // Each child moves onto its final id: 30 and 35.
+                data1.set_revalidate_result(MockRevalidateResult::Move);
+                data2.set_revalidate_result(MockRevalidateResult::Move);
+
+                let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+                let status = union_iter.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
+                assert!(matches!(
+                    status,
+                    RQEValidateStatus::Moved { current: Some(_) }
+                ));
+                assert!(!union_iter.at_eof());
+                assert_eq!(union_iter.last_doc_id(), 30);
+
+                // Both survivors are still reachable.
+                let result = union_iter.read().expect("read failed").unwrap();
+                assert_eq!(result.doc_id, 35);
+            }
         }
 
+        /// A quick union whose children are all positioned reports a `Moved` normally:
+        /// the minimum lies ahead, so the stay-put clamp is not involved. No sibling
+        /// lags here — asserted below, since assuming one makes this test look like it
+        /// contradicts the clamp. [`revalidate_child_behind_union_position_is_kept`]
+        /// is the case that does strand a sibling: an exact match on the probe.
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn revalidate_quick_triggers_quick_exit() {
             let mock1: Mock<'static, 3> = Mock::new([10, 30, 50]);
             let mock2: Mock<'static, 3> = Mock::new([20, 40, 60]);
@@ -905,22 +929,45 @@ macro_rules! union_common_tests {
             let result = quick_iter.read().expect("read failed").unwrap();
             assert_eq!(result.doc_id, 10);
 
+            // The read probed doc 1, an exact match for neither child, so the early
+            // return could not fire and both children were seeked — no lagging sibling.
+            assert_eq!(
+                quick_iter
+                    .child_at(0)
+                    .expect("child0 is still there")
+                    .last_doc_id(),
+                10,
+                "child0 supplied the union's current document",
+            );
+            assert_eq!(
+                quick_iter
+                    .child_at(1)
+                    .expect("child1 is still there")
+                    .last_doc_id(),
+                20,
+                "child1 was seeked too — the probe matched neither child exactly",
+            );
+
             data1.set_revalidate_result(MockRevalidateResult::Move);
             data2.set_revalidate_result(MockRevalidateResult::Ok);
 
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let ctx = mock_ctx.spec();
-            // SAFETY: test-only call with valid context
-            let status = unsafe { quick_iter.revalidate(ctx) }.expect("revalidate failed");
-            assert!(matches!(
-                status,
-                RQEValidateStatus::Moved { current: Some(_) }
-            ));
-            assert_eq!(quick_iter.last_doc_id(), 20);
+            let status = quick_iter.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
+
+            // child0 moved 10 -> 30 and child1 stayed at 20: the minimum is ahead.
+            assert!(
+                matches!(status, RQEValidateStatus::Moved { current: Some(_) }),
+                "the minimum lies ahead, so it is adopted, got {status:?}",
+            );
+            assert_eq!(quick_iter.last_doc_id(), 20, "a reported move must be forward");
+
+            // And the union carries on from there, without re-delivering doc 20.
+            let r = quick_iter.read().expect("read failed").unwrap();
+            assert_eq!(r.doc_id, 30, "child0's moved-to document comes next");
         }
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn revalidate_keeps_children_at_current_position() {
             let child0: Mock<'static, 3> = Mock::new([10, 20, 30]);
             let child1: Mock<'static, 3> = Mock::new([10, 25, 35]);
@@ -941,9 +988,7 @@ macro_rules! union_common_tests {
             data0.set_revalidate_result(MockRevalidateResult::Move);
 
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let ctx = mock_ctx.spec();
-            // SAFETY: test-only call with valid context
-            let _status = unsafe { union.revalidate(ctx) }.expect("revalidate failed");
+            let _status = union.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
 
             let mut remaining = Vec::new();
             while let Some(result) = union.read().expect("read failed") {
@@ -963,7 +1008,7 @@ macro_rules! union_common_tests {
         /// After `read()` returns doc_id 10, revalidate all children with `Ok`.
         /// Because the minimum hasn't moved, the union should return `Ok`.
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn revalidate_minimum_unchanged_returns_ok() {
             let child0: Mock<'static, 3> = Mock::new([10, 30, 50]);
             let child1: Mock<'static, 3> = Mock::new([10, 40, 60]);
@@ -986,9 +1031,7 @@ macro_rules! union_common_tests {
 
             // Revalidate — nothing moved, nothing aborted.
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let ctx = mock_ctx.spec();
-            // SAFETY: test-only call with valid context
-            let status = unsafe { union.revalidate(ctx) }.expect("revalidate failed");
+            let status = union.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
             assert!(
                 matches!(status, RQEValidateStatus::Ok),
                 "Expected Ok when minimum doc_id is unchanged, got {:?}",
@@ -1004,8 +1047,12 @@ macro_rules! union_common_tests {
             );
         }
 
+        /// Only the `QUICK_EXIT` variants are instantiated: a lagging *live* sibling
+        /// is quick mode's own doing (the early return on an exact match). A full
+        /// union's children only get behind it by resurrecting from EOF, covered by
+        /// [`revalidate_resurrected_child_does_not_drag_a_full_union_backwards`].
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn revalidate_child_behind_union_position_is_kept() {
             let child0: Mock<'static, 3> = Mock::new([5, 100, 300]);
             let child1: Mock<'static, 3> = Mock::new([10, 50, 200]);
@@ -1020,30 +1067,63 @@ macro_rules! union_common_tests {
             let r = union.read().expect("read failed").unwrap();
             assert_eq!(r.doc_id, 5);
 
-            // skip_to(100): in heap quick mode, advance_lagging_children finds
-            // child0 at the root (doc 5 < 100), skips child0 to 100 → Found.
-            // QUICK_EXIT returns immediately — child1 stays at doc 10.
+            // skip_to(100) is an exact match on child0, so the quick path returns
+            // without ever reaching child1 — stranding it behind the union.
             let outcome = union.skip_to(100).expect("skip_to failed");
             assert!(matches!(outcome, Some(SkipToOutcome::Found(_))));
             assert_eq!(union.last_doc_id(), 100);
 
-            // State: union at 100.  child0 at 100.  child1 at 10 (never advanced).
-            // Trigger Move on child1: mock advances to doc_ids[next_index] = 50.
-            //   child1.last_doc_id() = 50  <  100 = union.last_doc_id()
+            // The premise, asserted rather than assumed:
+            assert_eq!(
+                union
+                    .child_at(0)
+                    .expect("child0 is still there")
+                    .last_doc_id(),
+                100,
+                "child0 holds the probed document",
+            );
+            let lagging = union
+                .child_at(1)
+                .expect("child1 is still there")
+                .last_doc_id();
+            assert_eq!(lagging, 10, "the early return never advanced child1");
+            assert!(
+                lagging < union.last_doc_id(),
+                "child1 must be behind the union for this test to exercise anything",
+            );
+
+            // child1's revalidate moves it forward to 50 — still behind the union's 100.
             data1.set_revalidate_result(MockRevalidateResult::Move);
 
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let ctx = mock_ctx.spec();
-            // SAFETY: test-only call with valid context
-            let status = unsafe { union.revalidate(ctx) }.expect("revalidate failed");
-            assert!(
-                matches!(status, RQEValidateStatus::Moved { current: Some(_) }),
-                "Expected Moved with a current result, got {status:?}",
-            );
-            assert_eq!(union.last_doc_id(), 50, "union should move to child1 (50)");
+            let status = union.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
 
-            let r = union.read().expect("read failed").unwrap();
-            assert_eq!(r.doc_id, 100);
+            // 50 is behind the already-delivered 100, so it is not a position to move
+            // to: the union stays put, backed by child0.
+            assert!(
+                matches!(status, RQEValidateStatus::Ok),
+                "Expected Ok — the only candidate minimum is behind us, got {status:?}",
+            );
+            assert_eq!(union.last_doc_id(), 100, "the union must not move backwards");
+
+            // Staying put still rebuilds the aggregate (it held raw pointers into
+            // children that have since moved) — and not via the heap descent, whose
+            // prune stops at the root (50) before ever reaching child0 on 100.
+            let current = union
+                .current()
+                .expect("staying put leaves the union on its current document");
+            assert_eq!(current.doc_id, 100);
+            assert_eq!(
+                current
+                    .as_aggregate()
+                    .expect("a union result is an aggregate")
+                    .len(),
+                1,
+                "child0 is still on doc 100 and must be in the rebuilt aggregate",
+            );
+
+            // Nothing already delivered comes back, and the lagging child's remaining
+            // documents are still yielded.
             let r = union.read().expect("read failed").unwrap();
             assert_eq!(r.doc_id, 200, "child1's doc 200 must not be lost");
             let r = union.read().expect("read failed").unwrap();
@@ -1052,13 +1132,195 @@ macro_rules! union_common_tests {
             assert!(union.at_eof());
         }
 
+        /// The sibling case to [`revalidate_child_behind_union_position_is_kept`]: here
+        /// the child that supplied the union's document has moved off it, so staying
+        /// put would publish a result no child holds while reporting `Ok`. The lagging
+        /// sibling does not hold the abandoned document either — contrast
+        /// [`revalidate_advance_keeps_a_document_a_lagging_child_still_matches`] —
+        /// so the union advances to its next document and reports the move.
+        #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+        fn revalidate_advances_when_nothing_backs_the_current_position() {
+            let child0: Mock<'static, 3> = Mock::new([10, 20, 40]);
+            let child1: Mock<'static, 2> = Mock::new([15, 25]);
+
+            let mut data0 = child0.data();
+
+            let children: Vec<Box<dyn RQEIterator<'static>>> =
+                vec![Box::new(child0), Box::new(child1)];
+            let mut union = $UnionQuick::new(children);
+
+            // Positions both children: child0 on 10, child1 on 15.
+            let r = union.read().expect("read failed").unwrap();
+            assert_eq!(r.doc_id, 10);
+
+            // Probing a document child0 holds exactly strands child1 behind the union.
+            let outcome = union.skip_to(20).expect("skip_to failed");
+            assert!(matches!(outcome, Some(SkipToOutcome::Found(_))));
+            assert_eq!(union.last_doc_id(), 20);
+            assert_eq!(
+                union.child_at(1).expect("child1 is still there").last_doc_id(),
+                15,
+                "the early return left child1 behind the union",
+            );
+
+            // child0 supplied doc 20 and now moves off it, so nothing is left on 20.
+            data0.set_revalidate_result(MockRevalidateResult::Move);
+
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            let status = union.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
+
+            // child1's 25 is the next document: child0 has gone to 40, and child1 is
+            // seeked past the abandoned position on the way.
+            let current = match &status {
+                RQEValidateStatus::Moved { current: Some(r) } => r,
+                other => panic!("expected a forward Moved, got {other:?}"),
+            };
+            assert_eq!(current.doc_id, 25, "the union's new position");
+            assert_eq!(
+                current
+                    .as_aggregate()
+                    .expect("a union result is an aggregate")
+                    .len(),
+                1,
+                "the reported result must be backed by the child that holds it",
+            );
+            assert_eq!(union.last_doc_id(), 25);
+
+            // And it carries on from there, with nothing re-delivered.
+            let r = union.read().expect("read failed").unwrap();
+            assert_eq!(r.doc_id, 40, "child0's moved-to document");
+            assert!(union.read().expect("read failed").is_none());
+            assert!(union.at_eof());
+        }
+
+        /// Advancing past the abandoned position is only free if nothing else
+        /// matches it. A `QUICK_EXIT` union is where a `NOT` puts its child, and a
+        /// `NOT` does not consume its child's position — it treats it as a lookahead
+        /// boundary it has not reached yet. So a document the union walks past is one
+        /// the `NOT` has still to exclude.
+        ///
+        /// Here doc 20 is held by both children. The union delivers it from child0
+        /// while child1 is left behind on 15, then child0 moves off 20. Nothing backs
+        /// 20 any more, but child1 still matches it, so the union may not step over it
+        /// without first asking child1.
+        #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+        fn revalidate_advance_keeps_a_document_a_lagging_child_still_matches() {
+            use rqe_iterators::{not::Not, utils::NoTimeoutChecker};
+
+            let child0: Mock<'static, 3> = Mock::new([10, 20, 40]);
+            // Unlike [`revalidate_advances_when_nothing_backs_the_current_position`],
+            // the lagging sibling holds the abandoned document itself.
+            let child1: Mock<'static, 3> = Mock::new([15, 20, 25]);
+
+            let mut data0 = child0.data();
+
+            let children: Vec<Box<dyn RQEIterator<'static>>> =
+                vec![Box::new(child0), Box::new(child1)];
+            let mut union = $UnionQuick::new(children);
+
+            // Positions both children: child0 on 10, child1 on 15.
+            let r = union.read().expect("read failed").unwrap();
+            assert_eq!(r.doc_id, 10);
+
+            // Probing a document child0 holds exactly strands child1 behind the union,
+            // still holding 20 itself.
+            let outcome = union.skip_to(20).expect("skip_to failed");
+            assert!(matches!(outcome, Some(SkipToOutcome::Found(_))));
+            assert_eq!(union.last_doc_id(), 20);
+            assert_eq!(
+                union.child_at(1).expect("child1 is still there").last_doc_id(),
+                15,
+                "the early return left child1 behind the union, short of its own 20",
+            );
+
+            // The union is where a NOT keeps its child: ahead of the NOT's own
+            // position, marking the next id the NOT must exclude.
+            let mut not = Not::new(union, 50, 1.0, NoTimeoutChecker);
+            let outcome = not.skip_to(12).expect("skip_to failed");
+            assert!(matches!(outcome, Some(SkipToOutcome::Found(_))));
+            assert_eq!(not.last_doc_id(), 12);
+            assert_eq!(
+                not.child().expect("the union is still there").last_doc_id(),
+                20,
+                "the NOT has not reached its child's position, so doc 20 is still owed",
+            );
+
+            // GC drops doc 20 from child0's postings: it moves on to 40, and nothing
+            // is left on the union's position — except child1, which has not been
+            // asked yet.
+            data0.set_revalidate_result(MockRevalidateResult::Move);
+
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            let status = not.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
+            assert!(matches!(status, RQEValidateStatus::Ok));
+
+            let remaining = drain_doc_ids(&mut not);
+            assert!(
+                !remaining.contains(&20),
+                "doc 20 is still matched by child1, so the NOT must exclude it. Got: {remaining:?}",
+            );
+        }
+
+        /// A full union may not adopt a minimum behind its own position, and the
+        /// child that can put one there is an *exhausted* one coming back to life.
+        ///
+        /// A leaf's revalidation rewinds before re-seeking to the position it held,
+        /// and rewinding clears the past-the-end state. So a child dropped from the
+        /// active set at doc 30, while the union carried on to 100 without it, is
+        /// re-admitted at 30 — forward of nothing it owns, but far behind the union.
+        #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+        fn revalidate_resurrected_child_does_not_drag_a_full_union_backwards() {
+            let child0: Mock<'static, 2> = Mock::new([10, 30]);
+            let child1: Mock<'static, 3> = Mock::new([20, 100, 200]);
+
+            let mut data0 = child0.data();
+            let mut data1 = child1.data();
+
+            let children: Vec<Box<dyn RQEIterator<'static>>> =
+                vec![Box::new(child0), Box::new(child1)];
+            let mut union = $UnionFull::new(children);
+
+            for expected in [10, 20, 30, 100] {
+                let r = union.read().expect("read failed").unwrap();
+                assert_eq!(r.doc_id, expected);
+            }
+
+            // Reading past 30 exhausted child0, so the union dropped it and reached
+            // 100 on child1 alone.
+            let exhausted = union.child_at(0).expect("child0 is still there");
+            assert!(exhausted.at_eof(), "child0 ran past its last document");
+            assert_eq!(exhausted.last_doc_id(), 30);
+
+            // GC forces a revalidation. child0 rewinds, re-seeks to 30 and finds it
+            // still there — so it comes back live on 30, well behind the union's 100.
+            data0.set_revalidate_reseeks_to(Some(30));
+            // Some other child has to move, or revalidation returns before ever
+            // looking at the resurrected one.
+            data1.set_revalidate_result(MockRevalidateResult::Move);
+
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            let status = format!(
+                "{:?}",
+                union.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed"),
+            );
+
+            assert!(
+                union.last_doc_id() >= 100,
+                "the union must not fall back onto a document it already delivered, \
+                 got {} (status {status})",
+                union.last_doc_id(),
+            );
+        }
 
         // =============================================================================
         // skip_to edge cases (behavioral only, no read_count assertions)
         // =============================================================================
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn skip_to_edge_cases() {
             // Quick mode - child already at target doc_id
             {
@@ -1121,7 +1383,7 @@ macro_rules! union_common_tests {
         /// document, so `read()` returns `None` (EOF) during that advancement.
         /// The union should still continue with the remaining child.
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn child_hits_eof_during_advance_matching_children() {
             // child0 has only doc 10, child1 has doc 10 then more.
             let child0: Mock<'static, 1> = Mock::new([10]);
@@ -1151,7 +1413,7 @@ macro_rules! union_common_tests {
         /// Same as above but in Quick mode — only one matching child is consumed,
         /// so the EOF child should be silently dropped.
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn child_hits_eof_during_advance_matching_children_quick() {
             let child0: Mock<'static, 1> = Mock::new([10]);
             let child1: Mock<'static, 3> = Mock::new([10, 20, 30]);
@@ -1175,7 +1437,7 @@ macro_rules! union_common_tests {
         }
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn quick_exit_early_match_in_skip_to() {
             let (children, _data) = create_mock_3([1, 30, 200, 1000], [2, 10, 300, 1000], [3, 20, 100, 1000]);
             let mut union = $UnionQuick::new(children);
@@ -1222,7 +1484,7 @@ macro_rules! union_common_tests {
         // =============================================================================
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn current_after_operations() {
             let (children, _) = create_mock_2([10, 20, 30, 40, 50], [15, 25, 35, 45, 55]);
             let mut union_iter = Union::new(children);
@@ -1253,7 +1515,7 @@ macro_rules! union_common_tests {
         // =============================================================================
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn mode_quick_variant_produces_same_doc_ids() {
             let (full_children, _) = create_mock_2([10, 20, 30, 40, 50], [15, 25, 35, 45, 55]);
             let mut full_iter = $UnionFull::new(full_children);
@@ -1273,7 +1535,7 @@ macro_rules! union_common_tests {
         }
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn mode_full_aggregates_all_matching_children() {
             let (children, _) = create_mock_3([10, 20, 30], [10, 25, 35], [10, 28, 38]);
             let mut full_iter = $UnionFull::new(children);
@@ -1290,7 +1552,7 @@ macro_rules! union_common_tests {
         }
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn mode_quick_takes_first_matching_child_only() {
             let (children, _) = create_mock_3([10, 20, 30], [10, 25, 35], [10, 28, 38]);
             let mut quick_iter = $UnionQuick::new(children);
@@ -1307,7 +1569,7 @@ macro_rules! union_common_tests {
         }
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn mode_full_aggregates_correct_number_of_children() {
             let (children, _) = create_mock_3([10, 20, 30], [10, 25], [10, 30]);
             let mut full_iter = $UnionFull::new(children);
@@ -1346,7 +1608,7 @@ macro_rules! union_common_tests {
         }
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn mode_quick_always_has_one_child() {
             let (children, _) = create_mock_3([10, 20, 30], [10, 25], [10, 30]);
             let mut quick_iter = $UnionQuick::new(children);
@@ -1361,7 +1623,7 @@ macro_rules! union_common_tests {
         }
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn mode_quick_vs_full_with_skip_to() {
             let (full_children, _) = create_mock_3([10, 30, 50], [20, 40, 50], [25, 45, 50]);
             let mut full_iter = $UnionFull::new(full_children);
@@ -1394,7 +1656,7 @@ macro_rules! union_common_tests {
         // =============================================================================
 
         #[test]
-        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn reuse_results_optimization_full_mode() {
             let (children, data) = create_mock_3([1, 3, 5], [2, 3, 6], [3, 4, 7]);
             let mut union = $UnionFull::new(children);

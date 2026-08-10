@@ -135,11 +135,11 @@ pub unsafe extern "C" fn NumericRange_NewIndexReader<'a>(
 
                 if filter.is_numeric_filter() {
                     IndexReader::NumericFilteredFloatCompression(FilterNumericReader::new(
-                        filter, reader,
+                        *filter, reader,
                     ))
                 } else {
                     IndexReader::NumericGeoFilteredFloatCompression(FilterGeoReader::new(
-                        filter, reader,
+                        *filter, reader,
                     ))
                 }
             }
@@ -154,9 +154,9 @@ pub unsafe extern "C" fn NumericRange_NewIndexReader<'a>(
                 let filter = unsafe { &*filter };
 
                 if filter.is_numeric_filter() {
-                    IndexReader::NumericFiltered(FilterNumericReader::new(filter, reader))
+                    IndexReader::NumericFiltered(FilterNumericReader::new(*filter, reader))
                 } else {
-                    IndexReader::NumericGeoFiltered(FilterGeoReader::new(filter, reader))
+                    IndexReader::NumericGeoFiltered(FilterGeoReader::new(*filter, reader))
                 }
             }
         }

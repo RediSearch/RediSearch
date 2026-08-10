@@ -1,0 +1,28 @@
+[package]
+name = "rs_token"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[features]
+# feature enabled when building tests so they can link the C code in build.rs
+# see https://github.com/rust-lang/cargo/issues/4789#issuecomment-2308131243
+unittest = []
+
+[lints]
+workspace = true
+
+[build-dependencies]
+build_utils.workspace = true
+
+[dependencies]
+ffi.workspace = true
+query_term.workspace = true
+redis-module.workspace = true
+workspace_hack.workspace = true
+
+[dev-dependencies]
+redis_mock.workspace = true
+redisearch_rs = { workspace = true, features = ["mock_allocator"] }
+rs_token = { path = ".", features = ["unittest"] }

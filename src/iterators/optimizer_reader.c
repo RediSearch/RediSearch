@@ -7,7 +7,26 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "iterators/optimizer_reader.h"
-#include "iterators_rs.h"
+
+#include <math.h>
+#include <stdbool.h>
+#include <string.h>
+#include <sys/param.h>
+
+#include "iterators_ffi.h"
+#include "rqe_iterator_type.h"
+#include "types_ffi.h"
+#include "doc_table.h"
+#include "field.h"
+#include "field_spec.h"
+#include "index_result_rs.h"
+#include "inverted_index.h"
+#include "iterator_api.h"
+#include "numeric_filter.h"
+#include "redismodule.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "spec.h"
 
 int cmpAsc(const void *v1, const void *v2, const void *udata) {
   RSIndexResult *res1 = (RSIndexResult *)v1;
@@ -42,10 +61,20 @@ static size_t OPT_NumEstimated(const QueryIterator *self) {
 // TODO: handle MOVED better
 static ValidateStatus OPT_Validate(QueryIterator *self, struct IndexSpec *spec) {
   OptimizerIterator *opt = (OptimizerIterator *)self;
-  if (opt->child->Revalidate(opt->child, spec) != VALIDATE_OK) {
+  ValidateStatus childStatus = opt->child->Revalidate(opt->child, spec);
+  // A timeout is passed up as such: unlike an abort, it says the query ran out of time and its
+  // results are partial, which only the caller can report.
+  if (childStatus == VALIDATE_TIMEOUT) {
+    return VALIDATE_TIMEOUT;
+  }
+  if (childStatus != VALIDATE_OK) {
     return VALIDATE_ABORTED;
   }
-  if (opt->numericIter->Revalidate(opt->numericIter, spec) != VALIDATE_OK) {
+  ValidateStatus numericStatus = opt->numericIter->Revalidate(opt->numericIter, spec);
+  if (numericStatus == VALIDATE_TIMEOUT) {
+    return VALIDATE_TIMEOUT;
+  }
+  if (numericStatus != VALIDATE_OK) {
     return VALIDATE_ABORTED;
   }
   return VALIDATE_OK;
@@ -82,13 +111,17 @@ static void OPT_Rewind(QueryIterator *self) {
   if (successRatio < 0.01 || optIt->numIterations == 3) {
     nf->limit = optIt->numDocs;
   } else {
+    // Size the next window to hold the missing results at the rate the drained
+    // window actually hit at. observedEstimate restates that rate as the
+    // document count the estimator divides by. successRatio is at least 0.01 here.
     int resultsMissing = heap_size(heap) - heap_count(heap);
-    size_t limitEstimate = QOptimizer_EstimateLimit(optIt->numDocs, optIt->childEstimate, resultsMissing);
-    optIt->lastLimitEstimate = nf->limit = limitEstimate * successRatio;
+    size_t observedEstimate = successRatio * optIt->numDocs;
+    optIt->lastLimitEstimate = nf->limit =
+      QOptimizer_EstimateLimit(optIt->numDocs, observedEstimate, resultsMissing);
   }
 
-  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = optIt->numericFieldIndex}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   // create new numeric filter
+  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = optIt->numericFieldIndex}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   optIt->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, INDEXFLD_T_NUMERIC, optIt->config, &filterCtx);
 
   optIt->heapOldSize = heap_count(heap);
@@ -212,7 +245,7 @@ IteratorStatus OPT_Read(QueryIterator *self) {
         }
       } else {
         RedisModule_Log(RSDummyContext, "verbose", "Not enough results collected, but success ratio is %f", getSuccessRatio(it));
-        RedisModule_Log(RSDummyContext, "debug", "Heap size: %d, heap count: %d, offset: %ld, childEstimate: %ld",
+        RedisModule_Log(RSDummyContext, "debug", "Heap size: %d, heap count: %d, offset: %zu, childEstimate: %zu",
                                         heap_size(it->heap), heap_count(it->heap), it->offset, it->childEstimate);
       }
     }
@@ -223,12 +256,32 @@ IteratorStatus OPT_Read(QueryIterator *self) {
 }
 
 QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, IteratorsConfig *config) {
+  // Check for overflow in result array allocation: (limit + 1) * sizeof(RSIndexResult)
+  size_t resArr_alloc_size;
+  if (__builtin_add_overflow(qOpt->limit, 1, &resArr_alloc_size)) {
+    return NULL;
+  }
+  if (__builtin_mul_overflow(resArr_alloc_size, sizeof(RSIndexResult), &resArr_alloc_size)) {
+    return NULL;
+  }
+
+  // Check for overflow in heap allocation: (limit * sizeof(void*)) + sizeof(heap_t)
+  // Note: We only check the multiplication overflow.
+  // The test for overflow due to the addition of sizeof(heap_t) is not needed
+  // because sizeof(RSIndexResult) > sizeof(void*), so any limit that would
+  // cause the heap addition to overflow would have already triggered the resArr
+  // multiplication overflow check above.
+  size_t heap_array_size;
+  if (__builtin_mul_overflow((size_t)qOpt->limit, sizeof(void *), &heap_array_size)) {
+    return NULL;
+  }
+
   OptimizerIterator *oi = rm_calloc(1, sizeof(*oi));
   oi->child = root;
   oi->optim = qOpt;
 
   oi->cmp = qOpt->asc ? cmpAsc : cmpDesc;
-  oi->resArr = rm_malloc((qOpt->limit + 1) * sizeof(RSIndexResult));
+  oi->resArr = rm_malloc(resArr_alloc_size);
   oi->pooledResult = oi->resArr;
   oi->heap = rm_malloc(heap_sizeof(qOpt->limit));
   heap_init(oi->heap, oi->cmp, NULL, qOpt->limit);
@@ -247,6 +300,9 @@ QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, Itera
 
   FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = field->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   oi->numericFieldIndex = field->index;
+  // Disk specs are filtered out in QOptimizer_Iterators — OPT_Read and
+  // numDocs both consult spec->docs, which is empty on disk.
+  RS_ASSERT(!qOpt->sctx->spec->diskSpec);
   oi->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, INDEXFLD_T_NUMERIC, config, &filterCtx);
   if (!oi->numericIter) {
     OptimizerIterator_Free(&oi->base);
@@ -267,6 +323,7 @@ QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, Itera
   ri->SkipTo = NULL;            // The iterator is always on top and and Read() is called
   ri->Read = OPT_Read;
   ri->ProfileChildren = OPT_ProfileChildren;
+  ri->PrintProfile = Optimus_PrintProfile;
   ri->current = NULL;
 
   return &oi->base;

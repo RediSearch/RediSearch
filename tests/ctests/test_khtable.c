@@ -9,7 +9,7 @@
 
 #include "test_util.h"
 #include "util/khtable.h"
-#include "util/fnv.h"
+#include "fnv_ffi.h"
 
 #include <string.h>
 #include <assert.h>

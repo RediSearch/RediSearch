@@ -9,12 +9,14 @@
 
 //! This module contains pure Rust types that we want to expose to C code.
 
+use ref_mode::{SharedPtr, Suspended};
+
 use std::{ffi::c_char, mem, ptr};
 
-use inverted_index::{
-    NumericFilter, RSAggregateResult, RSIndexResult, RSOffsetSlice, RSOffsetVector, RSQueryTerm,
-    RSTermRecord, t_fieldMask,
+use index_result::{
+    RSAggregateResult, RSIndexResult, RSOffsetSlice, RSOffsetVector, RSQueryTerm, RSTermRecord,
 };
+use inverted_index::{FieldMask, NumericFilter};
 
 pub use inverted_index::{
     ReadFilter,
@@ -62,7 +64,7 @@ pub extern "C" fn NewUnionResult<'result>(cap: usize, weight: f64) -> *mut RSInd
 #[unsafe(no_mangle)]
 pub extern "C" fn NewVirtualResult<'result>(
     weight: f64,
-    field_mask: t_fieldMask,
+    field_mask: FieldMask,
 ) -> *mut RSIndexResult<'result> {
     let result = RSIndexResult::build_virt()
         .field_mask(field_mask)
@@ -81,7 +83,7 @@ pub extern "C" fn NewNumericResult<'result>() -> *mut RSIndexResult<'result> {
 /// Allocate a new metric result. This result should be freed using [`IndexResult_Free`].
 #[unsafe(no_mangle)]
 pub extern "C" fn NewMetricResult<'result>() -> *mut RSIndexResult<'result> {
-    let result = RSIndexResult::build_metric().build();
+    let result = RSIndexResult::build_metric(0.0).build();
     Box::into_raw(Box::new(result))
 }
 
@@ -599,7 +601,7 @@ pub struct AggregateRecordsSlice {
 /// - `len` cannot be NULL and must point to an allocated memory big enough to hold an u32.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSOffsetVector_GetData(
-    offsets: *const RSOffsetSlice<'_>,
+    offsets: *const RSOffsetSlice,
     len: *mut u32,
 ) -> *const c_char {
     debug_assert!(!offsets.is_null(), "offsets must not be null");
@@ -610,7 +612,10 @@ pub unsafe extern "C" fn RSOffsetVector_GetData(
 
     // SAFETY: Caller is to ensure `len` is non-null and point to a valid u32 memory.
     unsafe { len.write(offsets.len) };
-    offsets.data.cast::<c_char>()
+    offsets
+        .data
+        .map_or(ptr::null(), |p| p.as_raw())
+        .cast::<c_char>()
 }
 
 /// Set the offsets array on an offset vector.
@@ -627,7 +632,7 @@ pub unsafe extern "C" fn RSOffsetVector_GetData(
 /// - if `data` is NULL then `len` should be 0.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSOffsetVector_SetData(
-    offsets: *mut RSOffsetSlice<'_>,
+    offsets: *mut RSOffsetSlice,
     data: *const c_char,
     len: u32,
 ) {
@@ -640,7 +645,13 @@ pub unsafe extern "C" fn RSOffsetVector_SetData(
     // SAFETY: Caller is to ensure `offsets` is non-null and point to a valid offset vector.
     let offsets = unsafe { &mut *offsets };
 
-    offsets.data = data.cast::<u8>();
+    // SAFETY: Caller guarantees `data` points to a valid array of `len` bytes
+    // for the lifetime of the offset slice (or `data` is null and `len == 0`).
+    offsets.data = std::ptr::NonNull::new(data.cast::<u8>() as *mut u8).map(|nn| {
+        // SAFETY: caller guarantees the buffer is alive and unaliased
+        // for reads for the lifetime of `offsets`.
+        unsafe { SharedPtr::<Suspended, _>::from_non_null(nn).into_active() }
+    });
     offsets.len = len;
 }
 
@@ -679,7 +690,7 @@ pub unsafe extern "C" fn RSOffsetVector_FreeData(offsets: *mut RSOffsetVector) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSOffsetVector_CopyData(
     dest: *mut RSOffsetVector,
-    src: *const RSOffsetSlice<'_>,
+    src: *const RSOffsetSlice,
 ) {
     debug_assert!(!dest.is_null(), "offsets must not be null");
     debug_assert!(!src.is_null(), "offsets must not be null");
@@ -701,7 +712,7 @@ pub unsafe extern "C" fn RSOffsetVector_CopyData(
 /// - `offsets` must point to a valid offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
 ///   and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSOffsetVector_Len(offsets: *const RSOffsetSlice<'_>) -> u32 {
+pub unsafe extern "C" fn RSOffsetVector_Len(offsets: *const RSOffsetSlice) -> u32 {
     debug_assert!(!offsets.is_null(), "offsets must not be null");
 
     // SAFETY: Caller is to ensure `offsets` is non-null and point to a valid offset vector.

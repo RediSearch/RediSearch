@@ -7,24 +7,50 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <math.h>
+#include <limits.h>
+#include <stdbool.h>
+#include <string.h>
+#include <strings.h>
 
+#include "triemap_ffi.h"
 #include "spec.h"
-#include "inverted_index.h"
+#include "indexes.h"
+#include "indexes_scanner.h"
 #include "vector_index.h"
 #include "cursor.h"
-#include "resp3.h"
 #include "geometry/geometry_api.h"
 #include "geometry_index.h"
 #include "redismodule.h"
 #include "module.h"
 #include "reply_macros.h"
 #include "info/global_stats.h"
-#include "util/units.h"
 #include "field_spec_info.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "obfuscation/obfuscation_api.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "search_disk.h"
+#include "VecSim/vec_sim.h"
+#include "VecSim/vec_sim_common.h"
+#include "field_spec.h"
+#include "gc.h"
+#include "geometry/geometry_types.h"
+#include "info/index_error.h"
+#include "language.h"
+#include "obfuscation/hidden.h"
+#include "obfuscation/hidden_unicode.h"
+#include "query_error.h"
+#include "redis_index.h"
+#include "reply.h"
+#include "result_processor.h"
+#include "rmalloc.h"
+#include "rqe_core.h"
+#include "rs_wall_clock.h"
+#include "rules.h"
+#include "search_ctx.h"
+#include "stopwords.h"
+#include "util/arr/arr.h"
+#include "util/dict/dict.h"
+#include "util/references.h"
 
 static void renderIndexOptions(RedisModule_Reply *reply, const IndexSpec *sp) {
 
@@ -194,6 +220,10 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
           REPLY_KVSTR("distance_metric", VecSimMetric_ToString(hnsw_params.metric));
           REPLY_KVINT("M", hnsw_params.M);
           REPLY_KVINT("ef_construction", hnsw_params.efConstruction);
+          REPLY_KVINT("ef_runtime", hnsw_params.efRuntime);
+          if (fs->vectorOpts.diskCtx.indexName) {
+            REPLY_KVSTR("rerank", fs->vectorOpts.diskCtx.rerank ? "true" : "false");
+          }
         } else if (primary_params->algo == VecSimAlgo_SVS) {
           REPLY_KVSTR("algorithm", VecSimAlgorithm_ToString(primary_params->algo));
           SVSParams svs_params = primary_params->algoParams.svsParams;
@@ -260,11 +290,17 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVINT("num_terms", sp->stats.scoring.numTerms);
 
   const bool isDisk = sp->diskSpec != NULL;
-  size_t num_records = isDisk ? 0 : sp->stats.numRecords;
+  size_t num_records = isDisk ? SearchDisk_GetNumRecords(sp->diskSpec) : sp->stats.numRecords;
   // Vector indexes (e.g. HNSW) remain in memory even when the rest of the
   // index is stored on disk, so their memory must always be reported.
-  size_t vector_indexes_size = IndexSpec_VectorIndexesSize(specForOpeningIndexes);
-  size_t total_ii_blocks = isDisk ? 0 : TotalIIBlocks();
+  // VecSim_GetSharedMemory() returns process-wide vector-related allocations not
+  // tied to any single index (e.g. the shared SVS thread pool singleton).
+  size_t vector_indexes_size = IndexSpec_VectorIndexesSize(specForOpeningIndexes) +
+                               VecSim_GetSharedMemory();
+  // FT.INFO reports the per-spec block count. `INFO modules` aggregates the same per-spec
+  // counter across all specs in `IndexesInfo_TotalInfo`.
+  size_t total_ii_blocks = isDisk ? SearchDisk_GetInvertedIndexTotalBlocks(sp->diskSpec)
+      : __atomic_load_n(&sp->stats.totalInvertedIndexBlocks, __ATOMIC_RELAXED);
   size_t offset_vecs_size = isDisk ? 0 : sp->stats.offsetVecsSize;
   size_t sortables_size = isDisk ? 0 : sp->docs.sortablesSize;
   size_t dt_tm_size = isDisk ? 0 : TrieMap_MemUsage(sp->docs.dim.tm);
@@ -293,16 +329,18 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVNUM("geoshapes_sz_mb", geoshapes_size / (float)0x100000);
   REPLY_KVNUM("records_per_doc_avg",
               (float)num_records / (float)sp->stats.scoring.numDocuments);
-  // Disk metrics expose inverted size but not posting record count yet; keep NaN
-  // when denominator is unavailable to avoid returning +/-inf.
   double bytes_per_record_avg = num_records ?
     (float)inverted_size / (float)num_records : NAN;
   REPLY_KVNUM("bytes_per_record_avg",
               bytes_per_record_avg);
-  REPLY_KVNUM("offsets_per_term_avg",
-              (float)offset_vec_records / (float)num_records);
-  REPLY_KVNUM("offset_bits_per_record_avg",
-              8.0F * (float)offset_vecs_size / (float)offset_vec_records);
+  // Disk indexes don't track offset record counts; report NaN rather than 0
+  // (which would falsely imply the metric is meaningful).
+  double offsets_per_term_avg = (isDisk || !num_records) ? NAN :
+    (float)offset_vec_records / (float)num_records;
+  REPLY_KVNUM("offsets_per_term_avg", offsets_per_term_avg);
+  double offset_bits_per_record_avg = (isDisk || !offset_vec_records) ? NAN :
+    (float)CHAR_BIT * (float)offset_vecs_size / (float)offset_vec_records;
+  REPLY_KVNUM("offset_bits_per_record_avg", offset_bits_per_record_avg);
   // TODO: remove this once "hash_indexing_failures" is deprecated
   // Legacy for not breaking changes
   REPLY_KVINT("hash_indexing_failures", sp->stats.indexError.error_count);
@@ -348,7 +386,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVARRAY("field statistics"); // Field statistics
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = &sp->fields[i];
-    FieldSpecInfo info = FieldSpec_GetInfo(fs, obfuscate);
+    FieldSpecInfo info = FieldSpec_GetInfo(sp, fs, obfuscate);
     FieldSpecInfo_Reply(&info, reply, withTimes, obfuscate);
     FieldSpecInfo_Clear(&info);
   }
@@ -363,7 +401,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 2) return RedisModule_WrongArity(ctx);
 
-  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[1], NULL);

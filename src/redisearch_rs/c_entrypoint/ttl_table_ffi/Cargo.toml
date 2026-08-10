@@ -1,0 +1,26 @@
+[package]
+name = "ttl_table_ffi"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+cheadergen.workspace = true
+ffi.workspace = true
+field.workspace = true
+libc.workspace = true
+rqe_core.workspace = true
+thin_vec.workspace = true
+ttl_table.workspace = true
+workspace_hack.workspace = true
+
+[dev-dependencies]
+redis_mock.workspace = true
+ttl_table = { workspace = true , features = ["test-utils"] }
+
+[target.'cfg(miri)'.dependencies]
+redis_mock.workspace = true

@@ -15,13 +15,20 @@
 
 use std::time::{Duration, Instant};
 
-use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
-use ffi::t_docId;
-use inverted_index::RSIndexResult;
+use crate::{
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    boxed::{ResumeSlotOutcome, resume_child_slot_in_place, suspend_child_slot_in_place},
+};
+use index_result::RSIndexResult;
+use index_spec::IndexSpecReadGuard;
+use ref_mode::{Active, Ref, Suspended};
+use rqe_core::DocId;
 
 /// Profile counters collected during query execution.
 ///
 /// This struct is `#[repr(C)]` so that C code can access its fields directly.
+#[cheadergen::config(export)]
 #[derive(Debug, Default, Clone)]
 #[repr(C)]
 pub struct ProfileCounters {
@@ -33,7 +40,21 @@ pub struct ProfileCounters {
     pub eof: bool,
 }
 
+impl ProfileCounters {
+    /// Returns the number of reading operations for profile display.
+    ///
+    /// This is the sum of `read` and `skip_to` counts, minus one if EOF was
+    /// reached (to exclude the final unsuccessful read). The result is
+    /// clamped to zero.
+    pub fn num_reading_operations(&self) -> usize {
+        (self.read + self.skip_to).saturating_sub(usize::from(self.eof))
+    }
+}
+
 /// A wrapper iterator that collects profiling metrics from a child iterator.
+///
+/// Parameterised over a [`Ref`] mode — see [`Profile`] for the [`Active`]
+/// instantiation that implements [`RQEIterator`].
 ///
 /// This iterator delegates all operations to its inner child iterator while:
 /// - Tracking the number of [`read()`](RQEIterator::read) and [`skip_to()`](RQEIterator::skip_to) calls
@@ -42,13 +63,52 @@ pub struct ProfileCounters {
 ///
 /// The collected metrics can be accessed via [`Profile::counters()`] and
 /// [`Profile::wall_time_ns()`].
-pub struct Profile<'index, I: RQEIterator<'index>> {
+///
+/// # Invariants
+///
+/// 1. **Layout compatibility across modes.** `RawProfile` is `#[repr(C)]` and
+///    carries no `Rf`-dependent field other than the zero-sized
+///    `_marker: PhantomData<Rf>`, so its `Active` and `Suspended`
+///    instantiations are layout-identical given that the child `I` and its
+///    `I::Suspended` are. That child-level compatibility is enforced at
+///    monomorphization by [`suspend_child_slot_in_place`]; the wrapper's own
+///    mode-independence is proven by the `const` block below. Together they let
+///    [`suspend`](RQEIteratorBoxed::suspend) reinterpret the owning `Box` in
+///    place.
+#[repr(C)]
+pub struct RawProfile<Rf: Ref, I> {
     child: I,
     counters: ProfileCounters,
     /// Time spent in child iterator operations.
     wall_time: Duration,
-    _marker: std::marker::PhantomData<&'index ()>,
+    _marker: std::marker::PhantomData<Rf>,
 }
+
+/// Alias for an [`Active`] [`RawProfile`] — the only instantiation with an
+/// [`RQEIterator`] impl today.
+pub type Profile<'index, I> = RawProfile<Active<'index>, I>;
+
+// Compile-time proof of invariant 1 on `RawProfile`: for a representative
+// concrete child, the `Active` and `Suspended` instantiations are
+// layout-identical. The child slot's own layout compatibility is the child's
+// invariant 1 (enforced generically for every implementer by
+// `suspend_child_slot_in_place`); the wrapper adds only `Rf`-free fields
+// (`counters`, `wall_time`) plus the zero-sized `PhantomData<Rf>`, so the two
+// modes cannot diverge here. `Wildcard` is a representative child whose own
+// `Active`/`Suspended` forms differ but stay layout-compatible.
+const _: () = {
+    use crate::Wildcard;
+    use std::mem::{align_of, offset_of, size_of};
+    type AChild = Wildcard<'static>;
+    type SChild = <Wildcard<'static> as RQEIteratorBoxed<'static>>::Suspended;
+    type A = RawProfile<Active<'static>, AChild>;
+    type S = RawProfile<Suspended, SChild>;
+    assert!(offset_of!(A, child) == offset_of!(S, child));
+    assert!(offset_of!(A, counters) == offset_of!(S, counters));
+    assert!(offset_of!(A, wall_time) == offset_of!(S, wall_time));
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
 
 impl<'index, I: RQEIterator<'index>> Profile<'index, I> {
     /// Creates a new Profile iterator wrapping the given child iterator.
@@ -103,7 +163,7 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
 
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         let start = Instant::now();
         let result = self.child.skip_to(doc_id);
@@ -124,7 +184,7 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
         self.child.num_estimated()
     }
 
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.child.last_doc_id()
     }
 
@@ -132,12 +192,11 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
         self.child.at_eof()
     }
 
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: std::ptr::NonNull<ffi::IndexSpec>,
+        spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // SAFETY: Delegating to child with the same `spec` passed by our caller.
-        unsafe { self.child.revalidate(spec) }
+        self.child.revalidate(spec)
     }
 
     #[inline(always)]
@@ -148,5 +207,160 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
         self.child
             .intersection_sort_weight(prioritize_union_children)
+    }
+}
+
+use crate::profile_print::{ProfilePrint, ProfilePrintCtx};
+
+impl<'index, I> ProfilePrint for Profile<'index, I>
+where
+    I: RQEIterator<'index> + ProfilePrint,
+{
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        let counters = self.counters();
+        let mut child_ctx = ctx.with_counters(counters, self.wall_time_ns());
+        self.child().print_profile(map, &mut child_ctx);
+    }
+}
+
+impl<'index, I> RQEIteratorBoxed<'index> for Profile<'index, I>
+where
+    I: RQEIteratorBoxed<'index>,
+{
+    type Suspended = RawProfile<Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        // Suspend the child in place and reuse this box's allocation, mirroring
+        // `resume`. A whole-box cast alone is *not* enough: for a type-erased
+        // child (`TypeErasedRQEIterator`) the active and suspended forms carry
+        // different `dyn` vtables, so the transition must be dispatched through
+        // the child's own `suspend` — reinterpreting the bytes would leave the
+        // active vtable in place and make the later `resume` dispatch through the
+        // wrong vtable (UB). `suspend_child_slot_in_place` performs that dispatch
+        // (a no-op whole-box cast for concrete children, a vtable swap for erased
+        // ones). Reusing the allocation also keeps the box (and child-slot)
+        // address stable, which Profile relies on because it delegates
+        // `current()` — and hence the FFI wrapper's cached `header.current`
+        // pointer — into the child's storage.
+        let raw = Box::into_raw(self);
+        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned,
+        // initialised, exclusively owned). `&raw mut` forms a field pointer to
+        // the `child` slot without creating a reference.
+        let child_slot = unsafe { &raw mut (*raw).child };
+        // SAFETY: `child_slot` points at the valid, exclusively-owned active
+        // child. `suspend_child_slot_in_place` drives the child's own `suspend`
+        // and reinitialises the slot as a valid `I::Suspended` in place.
+        unsafe { suspend_child_slot_in_place(child_slot) };
+        // SAFETY: the child slot now holds a valid `I::Suspended`, so the
+        // allocation is a valid `RawProfile<Suspended, I::Suspended>`: the
+        // `Active` and `Suspended` forms are layout-identical by invariant 1 on
+        // `RawProfile` (const proof above) — `counters`/`wall_time` carry no `Rf`
+        // and `_marker` is a ZST, while the child slot's `I`/`I::Suspended`
+        // size/alignment match is statically enforced by
+        // `suspend_child_slot_in_place`. `Box::from_raw` reuses the same
+        // allocation, so the box address is preserved.
+        unsafe { Box::from_raw(raw as *mut RawProfile<Suspended, I::Suspended>) }
+    }
+}
+
+/// Free a [`RawProfile`] allocation whose `child` slot has already been consumed
+/// (moved-from) by an aborted/failed child resume, without running the child's
+/// drop glue.
+///
+/// # Safety
+///
+/// * `raw` came from `Box::into_raw` and is still exclusively owned by the caller.
+/// * `(*raw).child` is moved-from (uninitialised) and must NOT be dropped.
+/// * No other reference to the allocation exists.
+unsafe fn dealloc_after_child_gone<S>(raw: *mut RawProfile<Suspended, S>) {
+    // SAFETY: `raw` is valid; `&raw mut` forms a field pointer without a reference.
+    let counters = unsafe { &raw mut (*raw).counters };
+    // SAFETY: `counters` is still a valid, owned value; drop it in place.
+    unsafe { std::ptr::drop_in_place(counters) };
+    // SAFETY: `raw` is valid; `&raw mut` forms a field pointer without a reference.
+    let wall_time = unsafe { &raw mut (*raw).wall_time };
+    // SAFETY: `wall_time` is still a valid, owned value; drop it in place.
+    unsafe { std::ptr::drop_in_place(wall_time) };
+    // `_marker` is a ZST with no drop glue.
+    // SAFETY: `raw` was allocated by `Box` with exactly this layout; the `child`
+    // slot is moved-from so it is not dropped. Frees the allocation.
+    unsafe {
+        std::alloc::dealloc(
+            raw.cast::<u8>(),
+            std::alloc::Layout::new::<RawProfile<Suspended, S>>(),
+        )
+    };
+}
+
+impl<'query, S> RQESuspendedIterator<'query> for RawProfile<Suspended, S>
+where
+    S: RQESuspendedIterator<'query>,
+{
+    type Resumed<'a>
+        = Profile<'a, S::Resumed<'a>>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        // Resume the child in place and reuse this box's allocation, mirroring
+        // `RawInvIndIterator::resume`. Profile delegates `current()` — and hence
+        // the FFI wrapper's cached `header.current` pointer — into the child's
+        // storage, so the box (and the child slot inside it) must keep its
+        // address across the cycle; rebuilding via `Box::new` would dangle that
+        // pointer. Profile owns no aggregate result and simply mirrors the
+        // child's `Ok`/`Moved`/`Aborted` outcome.
+        let raw = Box::into_raw(self);
+        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned,
+        // initialised, exclusively owned). `&raw mut` forms a field pointer to
+        // the `child` slot without creating a reference.
+        let child_slot = unsafe { &raw mut (*raw).child };
+        // SAFETY: `child_slot` points at the valid, exclusively-owned suspended
+        // child. On `Unchanged`/`Moved` the helper reinitialises the slot as
+        // `S::Resumed<'a>`; on `Aborted`/`Err` the child is consumed and the slot
+        // is left uninitialised (handled by the teardown arms below).
+        match unsafe { resume_child_slot_in_place(child_slot, guard) } {
+            Ok(outcome @ (ResumeSlotOutcome::Unchanged | ResumeSlotOutcome::Moved)) => {
+                // SAFETY: the child slot now holds a valid `S::Resumed<'a>`, so
+                // the allocation is a valid `Profile<'a, S::Resumed<'a>>`: the
+                // `Suspended` and `Active` forms are layout-identical by
+                // invariant 1 on `RawProfile` (const proof above) — the non-child
+                // fields carry no `Rf`, while the child slot's `S`/`S::Resumed`
+                // size/alignment match is statically enforced by
+                // `resume_child_slot_in_place`. `Box::from_raw` reuses the same
+                // allocation, preserving the box and child-slot addresses.
+                let active = unsafe { Box::from_raw(raw.cast::<Profile<'a, S::Resumed<'a>>>()) };
+                Ok(if matches!(outcome, ResumeSlotOutcome::Moved) {
+                    ResumeOutcome::Moved(active)
+                } else {
+                    ResumeOutcome::Ok(active)
+                })
+            }
+            Ok(ResumeSlotOutcome::Aborted) => {
+                // SAFETY: the child was consumed by its `resume` (slot
+                // uninitialised); free the reused allocation without dropping the
+                // moved-from child.
+                unsafe { dealloc_after_child_gone(raw) };
+                Ok(ResumeOutcome::Aborted)
+            }
+            Err(e) => {
+                // SAFETY: as the `Aborted` arm — the child is gone, tear the rest down.
+                unsafe { dealloc_after_child_gone(raw) };
+                Err(e)
+            }
+        }
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        S::last_doc_id(&self.child)
+    }
+
+    fn num_estimated(&self) -> usize {
+        S::num_estimated(&self.child)
     }
 }

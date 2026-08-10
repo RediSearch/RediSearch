@@ -13,9 +13,10 @@
 
 use std::ptr::NonNull;
 
-use ffi::{IndexFlags_Index_WideSchema, RS_INVALID_FIELD_INDEX, RedisSearchCtx};
-use field::{FieldFilterContext, FieldMaskOrIndex};
-use inverted_index::RSIndexResult;
+use ffi::{IndexFlags_Index_WideSchema, RedisSearchCtx};
+use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
+use index_result::RSIndexResult;
+use rqe_core::RS_INVALID_FIELD_INDEX;
 
 /// Trait for checking if a document has expired.
 ///
@@ -30,6 +31,17 @@ pub trait ExpirationChecker {
 
     /// Returns `true` if the document in the result is expired.
     fn is_expired(&self, result: &RSIndexResult) -> bool;
+
+    /// As [`is_expired`](Self::is_expired), for callers whose `result` carries an authoritative
+    /// [`has_field_expiration`](RSIndexResult::has_field_expiration): the bit must have been
+    /// decoded from the same posting that this checker's field filter describes.
+    ///
+    /// Only the inverted-index reader can promise that. Every other producer builds results
+    /// without the bit, or has its results checked against a different field than the one they
+    /// were read from, so the default implementation ignores the bit and runs the full check.
+    fn is_expired_trusting_inline_bit(&self, result: &RSIndexResult) -> bool {
+        self.is_expired(result)
+    }
 }
 
 /// A no-op expiration checker that never considers documents expired.
@@ -53,6 +65,7 @@ impl ExpirationChecker for NoOpChecker {
 /// Field-level expiration checker using TTL table.
 ///
 /// This checker uses the in-memory TTL table to determine if a document's field has expired.
+#[derive(Clone, Copy)]
 pub struct FieldExpirationChecker {
     /// The search context used to check for expiration.
     sctx: NonNull<RedisSearchCtx>,
@@ -91,7 +104,7 @@ impl ExpirationChecker for FieldExpirationChecker {
         // SAFETY: Guaranteed by the safety contract of `new`.
         let sctx = unsafe { self.sctx.as_ref() };
         // SAFETY: Guaranteed by the safety contract of `new`.
-        let spec = unsafe { *(sctx.spec) };
+        let spec = unsafe { &(*sctx.spec) };
 
         // The TTL table holds field-level (HEXPIRE) entries only and is
         // destroyed once the last one leaves the index, so a NULL `ttl`
@@ -114,7 +127,7 @@ impl ExpirationChecker for FieldExpirationChecker {
         // SAFETY: Guaranteed by the safety contract of `new`.
         let sctx = unsafe { self.sctx.as_ref() };
         // SAFETY: Guaranteed by the safety contract of `new`.
-        let spec = unsafe { *(sctx.spec) };
+        let spec = unsafe { &(*sctx.spec) };
 
         // The TTL table may transition from non-NULL to NULL mid-query when the
         // last HFE doc is removed via `DocTable_Pop` (with the spec lock briefly
@@ -128,53 +141,97 @@ impl ExpirationChecker for FieldExpirationChecker {
             return false;
         }
 
-        let current_time = &sctx.time.current as *const _;
+        let current_time = &sctx.time.current;
         let doc_id = result.doc_id;
 
+        let ttl = spec.docs.ttl as *const ttl_table::TimeToLiveTable;
+        // SAFETY:
+        // - The safety contract of `new` guarantees that the ttl pointer is valid.
+        // - We just allocated `current_time` on the stack so its pointer is valid.
+        let ttl = unsafe { &*ttl };
+
         match self.filter_ctx.field {
-            // SAFETY:
-            // - The safety contract of `new` guarantees that the ttl pointer is valid.
-            // - We just allocated `current_time` on the stack so its pointer is valid.
-            FieldMaskOrIndex::Index(index) => unsafe {
-                !ffi::TimeToLiveTable_VerifyDocAndField(
-                    spec.docs.ttl,
-                    doc_id,
-                    index,
-                    self.filter_ctx.predicate.as_u32(),
-                    current_time,
-                )
-            },
-            FieldMaskOrIndex::Mask(mask) if !self.is_wide_schema => {
-                // SAFETY:
-                // - The safety contract of `new` guarantees that the ttl pointer is valid.
-                // - We just allocated `current_time` on the stack so its pointer is valid.
-                unsafe {
-                    !ffi::TimeToLiveTable_VerifyDocAndFieldMask(
-                        spec.docs.ttl,
-                        doc_id,
-                        (result.field_mask & mask) as u32,
-                        self.filter_ctx.predicate.as_u32(),
-                        current_time,
-                        spec.fieldIdToIndex,
-                    )
-                }
-            }
+            FieldMaskOrIndex::Index(index) => !ttl.field_satisfies_predicate(
+                doc_id,
+                index,
+                self.filter_ctx.predicate,
+                current_time,
+            ),
             FieldMaskOrIndex::Mask(mask) => {
-                // wide mask
+                let field_mask = result.field_mask & mask;
+
+                let ft_id_to_field_index = spec.fieldIdToIndex;
+                // SAFETY: `fieldIdToIndex` is always initialized with `array_new()` at spec creation
+                let len = unsafe { ffi::array_len_func(ft_id_to_field_index as ffi::array_t) };
+
                 // SAFETY:
-                // - The safety contract of `new` guarantees that the ttl pointer is valid.
-                // - We just allocated `current_time` on the stack so its pointer is valid.
-                unsafe {
-                    !ffi::TimeToLiveTable_VerifyDocAndWideFieldMask(
-                        spec.docs.ttl,
-                        doc_id,
-                        result.field_mask & mask,
-                        self.filter_ctx.predicate.as_u32(),
-                        current_time,
-                        spec.fieldIdToIndex,
-                    )
-                }
+                // - `ft_id_to_field_index` is a valid, heap-allocated pointer to `len` contiguous `u16`
+                //   elements;
+                // - The pointer is properly aligned for `u16`.
+                // - The field schema is not modified during query execution.
+                // - The slice does not outlive.
+                let ft_id_to_field_index =
+                    unsafe { std::slice::from_raw_parts(ft_id_to_field_index, len as usize) };
+
+                !ttl.field_mask_satisfies_predicate(
+                    doc_id,
+                    field_mask,
+                    self.filter_ctx.predicate,
+                    current_time,
+                    ft_id_to_field_index,
+                    self.is_wide_schema,
+                )
             }
         }
+    }
+
+    fn is_expired_trusting_inline_bit(&self, result: &RSIndexResult) -> bool {
+        // A clear bit means none of the posting's fields hold a TTL for this document, and a
+        // query's matched fields are a subset of the posting's, so the full check would report
+        // the document as valid anyway.
+        //
+        // Restricted to the `Default` predicate. `Missing` (`ismissing`) reads a per-field
+        // missing-docs index whose postings do not carry the bit, and its semantics differ for
+        // documents that *do* have a TTL entry, so a clear bit would not imply "valid" there.
+        if self.filter_ctx.predicate == FieldExpirationPredicate::Default
+            && !result.has_field_expiration
+        {
+            return false;
+        }
+
+        self.is_expired(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A checker that expires everything and does not override the inline-bit variant,
+    /// standing in for any producer other than the inverted-index reader.
+    struct ExpiresEverything;
+
+    impl ExpirationChecker for ExpiresEverything {
+        fn has_expiration(&self) -> bool {
+            true
+        }
+
+        fn is_expired(&self, _result: &RSIndexResult) -> bool {
+            true
+        }
+    }
+
+    /// The inline bit is only meaningful to the reader that decoded it. Producers that build
+    /// results themselves leave it clear, so the default must ignore it and run the full check
+    /// rather than reading "clear" as "nothing can be expired".
+    #[test]
+    fn default_inline_bit_variant_ignores_a_clear_bit() {
+        let result = RSIndexResult::build_virt().build();
+        assert!(
+            !result.has_field_expiration,
+            "a freshly built result should have no inline bit"
+        );
+
+        assert!(ExpiresEverything.is_expired_trusting_inline_bit(&result));
     }
 }

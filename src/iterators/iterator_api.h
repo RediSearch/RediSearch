@@ -13,9 +13,12 @@
 #include <stdint.h>
 #include "redisearch.h"
 #include "index_result.h" // IWYU pragma: keep
-#include "iterator_type.h"
+#include "rqe_iterator_type.h"
 
 struct RLookupKey; // Forward declaration
+struct IndexSpec;
+typedef struct MapBuilder RsMapBuilder; // Opaque Rust type (redis_reply::MapBuilder)
+typedef struct ProfilePrintCtx RsProfilePrintCtx; // Opaque Rust type (rqe_iterators::profile_print::ProfilePrintCtx)
 
 typedef enum IteratorStatus {
   ITERATOR_OK,
@@ -30,6 +33,11 @@ typedef enum ValidateStatus {
   VALIDATE_MOVED,   // The iterator is still valid but lastDocID changed, and `current` is a new valid result or
                     // at EOF. If not at EOF, the `current` result should be used before the next read, or it will be overwritten.
   VALIDATE_ABORTED, // The iterator is no longer valid, and should not be used or rewound. Should be freed.
+                    // The result set is still reported as complete: the query ends normally.
+  VALIDATE_TIMEOUT, // The deadline expired while revalidating. The iterator is no longer valid and
+                    // should be freed, exactly as for `VALIDATE_ABORTED`. The two differ only in
+                    // what the caller reports: a timeout leaves the result set INCOMPLETE, so the
+                    // caller must surface it (`RS_RESULT_TIMEDOUT`) rather than end-of-results.
 } ValidateStatus;
 
 /* An abstract interface used by readers / intersectors / uniones etc.
@@ -38,8 +46,17 @@ recursively */
 typedef struct QueryIterator {
   enum IteratorType type;
 
-  // Can the iterator yield more results? The Iterator must ensure that `atEOF` is set correctly when it is sure that the Next Read returns `ITERATOR_EOF`.
-  // For instance, NotIterator needs to know if the ChildIterator finishes, otherwise it may not skip the last result correctly.
+  // Has the iterator run *past* its last result? Set once a `Read`/`SkipTo` has returned
+  // `ITERATOR_EOF`, or a `Revalidate` moved past the end — never while the iterator is still
+  // positioned on its last result, which it still owes to its caller.
+  //
+  // Consumers that pick the live members out of a set rely on that boundary: a composite
+  // rebuilding its active children after a revalidation keeps every child that still owes a
+  // result, and drops only those with nothing left. Setting this a step early costs that
+  // child's last document.
+  //
+  // Iterators that need to know in advance whether the next `Read` will produce anything keep
+  // that as their own private state; it answers a different question and flips a step earlier.
   bool atEOF;
 
   // the last docId read. Initially should be 0.
@@ -79,6 +96,9 @@ typedef struct QueryIterator {
    * @return VALIDATE_OK if the iterator is still valid
    * @return VALIDATE_MOVED if the iterator is still valid, but the lastDocId has changed (moved forward)
    * @return VALIDATE_ABORTED if the iterator is no longer valid
+   * @return VALIDATE_TIMEOUT if the deadline expired mid-revalidation. Composite iterators must
+   *         propagate it to their caller rather than folding it into VALIDATE_ABORTED: freeing is
+   *         a single act at the root for both, but only a timeout says the results are partial.
    */
   ValidateStatus (*Revalidate)(struct QueryIterator *self, struct IndexSpec *spec);
 
@@ -91,7 +111,12 @@ typedef struct QueryIterator {
   /* Recursively wrap every child iterator with a Profile layer.
    * Composite iterators call IntoProfiled() on each child and return `self`.
    * Leaf iterators leave this as NULL (no children to profile). */
-  QueryIterator* (*ProfileChildren)(struct QueryIterator *self);
+  struct QueryIterator* (*ProfileChildren)(struct QueryIterator *self);
+
+  /* Print this iterator's profile as a Redis reply.
+   * Set by Rust iterators at construction time. C iterators set this to a
+   * Rust-exported function. */
+  void (*PrintProfile)(const struct QueryIterator *self, RsMapBuilder *map, RsProfilePrintCtx *ctx);
 } QueryIterator;
 
 static inline ValidateStatus Default_Revalidate(struct QueryIterator *base, struct IndexSpec *spec) {

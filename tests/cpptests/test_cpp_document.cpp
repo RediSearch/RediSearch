@@ -11,6 +11,8 @@
 #include "redismock/redismock.h"
 #include "redismock/util.h"
 #include "document.h"
+#include "indexes.h"
+#include "llapi_test_helpers.h"
 
 class DocumentTest : public ::testing::Test {
  protected:
@@ -81,7 +83,7 @@ TEST_F(DocumentTest, testLoadSchema) {
   // Create a database
   QueryError status = QueryError_Default();
   RMCK::ArgvList args(ctx, "FT.CREATE", "idx", "ON", "HASH", "SCHEMA", "t1", "TEXT", "t2", "TEXT");
-  auto spec = IndexSpec_CreateNew(ctx, args, args.size(), &status);
+  auto spec = Indexes_CreateNewSpec(ctx, args, args.size(), &status);
   ASSERT_FALSE(spec == NULL);
 
   Document d = {0};
@@ -97,7 +99,7 @@ TEST_F(DocumentTest, testLoadSchema) {
   RMCK::hset(ctx, "doc1", "t2", "foobar");
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
-  rv = Document_LoadSchemaFieldHash(&d, &sctx, &status);
+  rv = Document_LoadSchemaFieldHash(&d, &sctx, NULL, &status);
   ASSERT_EQ(REDISMODULE_OK, rv);
   ASSERT_EQ(2, d.numFields);  // Only a single field
   ASSERT_EQ(NULL, Document_GetField(&d, "somefield"));

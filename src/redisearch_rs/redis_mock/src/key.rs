@@ -10,7 +10,7 @@
 use crate::string::UserString;
 use core::panic;
 use redis_module::KeyType;
-use std::{ffi::c_char, ptr::NonNull};
+use std::{ffi::c_char, mem::ManuallyDrop, ptr::NonNull, sync::Arc};
 
 /// Mock implementation of RedisModuleKey from redismodule.h for testing purposes.
 #[repr(C)]
@@ -40,7 +40,8 @@ pub unsafe extern "C" fn RedisModule_OpenKey(
     _mode: ::std::ffi::c_int,
 ) -> *mut redis_module::raw::RedisModuleKey {
     // Safety: Caller has to ensure 2
-    let keyname_user_string = unsafe { &*(keyname.cast::<UserString>()) };
+    let keyname_user_string =
+        ManuallyDrop::new(unsafe { Arc::from_raw(keyname.cast::<UserString>()) });
 
     let ctx = if ctx.is_null() {
         panic!("ctx cannot be NULL, caller didn't ensure safety requirement 1");
@@ -71,7 +72,7 @@ pub unsafe extern "C" fn RedisModule_OpenKey(
     let key = Box::new(UserKey {
         ctx,
         ty: cloned_value,
-        name: keyname_user_string.user,
+        name: keyname_user_string.user(),
     });
     Box::into_raw(key).cast()
 }

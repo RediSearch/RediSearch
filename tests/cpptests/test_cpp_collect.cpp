@@ -14,7 +14,8 @@
 #include "gtest/gtest.h"
 
 #include "aggregate/reducer.h"
-#include "reducers_rs.h"
+#include "aggregate/reducers/collect_parse.h"
+#include "reducers_ffi.h"
 #include "spec.h"
 #include "config.h"
 #include "result_processor.h"
@@ -33,14 +34,12 @@ protected:
   const RLookupKey *plannerInputKey = nullptr;
 
   void SetUp() override {
-    RSGlobalConfig.enableUnstableFeatures = true;
     lk = RLookup_New();
     plannerInputKey = RLookup_GetKey_Write(&lk, "__collect_planner_input__", RLOOKUP_F_NOFLAGS);
   }
 
   void TearDown() override {
     RLookup_Cleanup(&lk);
-    RSGlobalConfig.enableUnstableFeatures = false;
   }
 
   void registerKeys(std::initializer_list<const char *> names) {
@@ -116,12 +115,7 @@ protected:
 
 // ====== Happy path tests ======
 
-// TODO: Re-enable (drop the `DISABLED_` prefix) and remove the companion
-// `FieldsLoadAllRejected` test below once `*` in FIELDS is supported by the
-// COLLECT parser. Today the parser unconditionally rejects `*` in FIELDS in
-// both modes (see `src/aggregate/reducers/collect.c`, the
-// `if (data.load_all)` branch).
-TEST_F(CollectParserTest, DISABLED_FieldsLoadAll) {
+TEST_F(CollectParserTest, FieldsLoadAll) {
   parseOkRemote({"FIELDS", "*"}, [](Reducer *r) {
     EXPECT_TRUE(CollectReducer_IsLoadAll(r));
     EXPECT_EQ(CollectReducer_GetFieldKeysLen(r), 0u);
@@ -138,9 +132,7 @@ TEST_F(CollectParserTest, FieldsWithCount) {
   r->Free(r);
 }
 
-// TODO: Re-enable (drop the `DISABLED_` prefix) once `*` in FIELDS is supported
-// by the COLLECT parser.
-TEST_F(CollectParserTest, DISABLED_FieldsLoadAllWithSortBy) {
+TEST_F(CollectParserTest, FieldsLoadAllWithSortBy) {
   registerKeys({"price"});
   Reducer *r = parseCollectOk({
       "FIELDS", "*",
@@ -149,6 +141,21 @@ TEST_F(CollectParserTest, DISABLED_FieldsLoadAllWithSortBy) {
   ASSERT_NE(r, nullptr);
   EXPECT_TRUE(CollectReducer_IsLoadAll(r));
   EXPECT_EQ(CollectReducer_GetSortKeysLen(r), 1u);
+  r->Free(r);
+}
+
+TEST_F(CollectParserTest, LocalLoadAllAccepted) {
+  const RLookupKey *inputKey = RLookup_GetKey_Write(&lk, "remote_collect", RLOOKUP_F_NOFLAGS);
+  std::vector<const char *> args = {"FIELDS", "*"};
+  QueryError status = QueryError_Default();
+
+  Reducer *r = parseCollect(args, &status, true, inputKey);
+
+  ASSERT_NE(r, nullptr) << QueryError_GetUserError(&status);
+  // Use the local-side accessor; the remote `CollectReducer_IsLoadAll` would
+  // read the wrong struct offset for a local reducer.
+  EXPECT_TRUE(CollectReducer_IsLocalLoadAll(r));
+  QueryError_ClearError(&status);
   r->Free(r);
 }
 
@@ -175,21 +182,6 @@ TEST_F(CollectParserTest, LocalFieldsUsePlannerInputKey) {
 
   ASSERT_NE(r, nullptr) << QueryError_GetUserError(&status);
   r->Free(r);
-  QueryError_ClearError(&status);
-}
-
-TEST_F(CollectParserTest, LocalCollectRequiresPlannerInputKey) {
-  std::vector<const char *> args = {"FIELDS", "1", "@price"};
-  QueryError status = QueryError_Default();
-
-  Reducer *r = parseCollect(args, &status, true, NULL);
-
-  ASSERT_EQ(r, nullptr);
-  const char *user_error = QueryError_GetUserError(&status);
-  ASSERT_NE(user_error, nullptr);
-  EXPECT_TRUE(std::string(user_error).find("COLLECT input key was not provided") !=
-              std::string::npos)
-      << user_error;
   QueryError_ClearError(&status);
 }
 
@@ -408,6 +400,27 @@ TEST_F(CollectParserTest, LocalFieldWithoutAtPrefix) {
       "Missing prefix: name requires '@' prefix");
 }
 
+TEST_F(CollectParserTest, FieldWithoutAtPrefixRejectedAtParseEvenWhenCallerNotStrict) {
+  std::vector<const char *> args = {"FIELDS", "1", "price"};
+  ArgsCursor ac;
+  ArgsCursor_InitCString(&ac, args.data(), args.size());
+  QueryError status = QueryError_Default();
+  ReducerOptions opts = REDUCEROPTS_INIT("COLLECT", &ac, &lk, nullptr, &status,
+                                         false,  // caller says non-strict
+                                         false, nullptr, 0);
+
+  CollectArgs parsed = {};
+  EXPECT_FALSE(CollectArgs_Parse(&opts, &parsed))
+      << "Expected parse failure but got success";
+  const char *user_error = QueryError_GetUserError(&status);
+  ASSERT_NE(user_error, nullptr);
+  EXPECT_TRUE(std::string(user_error).find("Missing prefix") != std::string::npos)
+      << "Expected error containing 'Missing prefix', got: " << user_error;
+
+  CollectArgs_Free(&parsed);
+  QueryError_ClearError(&status);
+}
+
 TEST_F(CollectParserTest, FieldEmptyAfterAt) {
   expectErrorRemote({"FIELDS", "1", "@"}, "Property not loaded nor in pipeline");
 }
@@ -584,4 +597,3 @@ TEST_F(CollectParserTest, LimitOffsetExceedsAggregateMax) {
   expectError({"FIELDS", "1", "@x", "LIMIT", "9999999999", "10"},
       "LIMIT offset exceeds maximum of");
 }
-

@@ -20,15 +20,19 @@ extern "C" {
 #endif
 #include "common.h"
 #include "query_test_utils.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
+#include "query_eval_ffi.h"
+#include "rmalloc.h"
 
 #include "gtest/gtest.h"
 
 #include <array>
+#include <cstring>
 #include <stdio.h>
 
 extern "C" int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
-                                   DocumentType type);
+                                   DocumentType type, RedisModuleKey *openKey);
+
 
 #define QUERY_PARSE_CTX(ctx, qt, opts) NewQueryParseCtx(&ctx, qt, strlen(qt), &opts);
 
@@ -106,7 +110,7 @@ TEST_F(QueryTest, testParser_delta) {
   assertValidQuery_v(1,"hello world&good");
   assertValidQuery_v(2,"hello world&good");
 
-  IndexSpec_RemoveFromGlobals(ref, false);
+  Indexes_RemoveSpecFromGlobals(ref, false);
 }
 
 TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
@@ -122,7 +126,7 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
 
   ASSERT_TRUE(RMCK::hset(redisCtx, "doc:1", "title", "hello"));
   ASSERT_TRUE(RMCK::hset(redisCtx, "doc:1", "vec_field", "abcdefghijklmnop", false));
-  ASSERT_EQ(IndexSpec_UpdateDoc(ctx.spec, redisCtx, RMCK::RString("doc:1"), DocumentType_Hash), REDISMODULE_OK);
+  ASSERT_EQ(IndexSpec_UpdateDoc(ctx.spec, redisCtx, RMCK::RString("doc:1"), DocumentType_Hash, NULL), REDISMODULE_OK);
 
   ASSERT_NE(openVectorIndex(redisCtx, &ctx.spec->fields[1], DONT_CREATE_INDEX), nullptr);
 
@@ -136,14 +140,11 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
       "@title:hello=>[KNN 2 @vec_field $BLOB]=>{$HYBRID_POLICY:BATCHES;}";
 
   {
-    // Disk-backed specs reject VECTOR_RANGE during parsing.
+    // Disk-backed specs accept VECTOR_RANGE during parsing.
     QASTCXX ast;
     ast.setContext(&ctx);
-    ASSERT_FALSE(ast.parse(range_query, version));
-    ASSERT_NE(ast.getError(), nullptr);
-    ASSERT_NE(strstr(ast.getError(), "vector range queries are currently not supported in Redis Flex"),
-              nullptr)
-        << ast.getError();
+    ASSERT_TRUE(ast.parse(range_query, version))
+        << (ast.getError() ? ast.getError() : "");
   }
 
   SearchOptionsCXX opts;
@@ -166,7 +167,7 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   ASSERT_FALSE(QueryError_HasError(&iterErr)) << QueryError_GetUserError(&iterErr);
 
   // Disk-backed pre-filtered KNN requires explicit HYBRID_POLICY during iteration setup.
-  QueryIterator *it = QAST_Iterate(&ast, &opts, &ctx, 0, &iterErr);
+  QueryIterator *it = QAST_Iterate(&ast, &opts, &ctx, 0, NULL, &iterErr);
   ASSERT_NE(it, nullptr);
   ASSERT_TRUE(QueryError_HasError(&iterErr));
   ASSERT_NE(strstr(QueryError_GetUserError(&iterErr), "require explicit HYBRID_POLICY"), nullptr)
@@ -206,7 +207,7 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
 
   // Query attributes syntax without HYBRID_POLICY still raises the same error.
   QueryIterator *it_missing_attrs =
-      QAST_Iterate(&ast_missing_attrs, &opts_missing_attrs, &ctx, 0, &iterErrMissingAttrs);
+      QAST_Iterate(&ast_missing_attrs, &opts_missing_attrs, &ctx, 0, NULL, &iterErrMissingAttrs);
   ASSERT_NE(it_missing_attrs, nullptr);
   ASSERT_TRUE(QueryError_HasError(&iterErrMissingAttrs));
   ASSERT_NE(strstr(QueryError_GetUserError(&iterErrMissingAttrs), "require explicit HYBRID_POLICY"), nullptr)
@@ -239,7 +240,7 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   ASSERT_FALSE(QueryError_HasError(&iterErrAttrs)) << QueryError_GetUserError(&iterErrAttrs);
 
   // Query attributes syntax also satisfies the explicit HYBRID_POLICY requirement.
-  QueryIterator *it_attrs = QAST_Iterate(&ast_attrs, &opts_attrs, &ctx, 0, &iterErrAttrs);
+  QueryIterator *it_attrs = QAST_Iterate(&ast_attrs, &opts_attrs, &ctx, 0, NULL, &iterErrAttrs);
   ASSERT_NE(it_attrs, nullptr);
   ASSERT_FALSE(QueryError_HasError(&iterErrAttrs)) << QueryError_GetUserError(&iterErrAttrs);
 
@@ -248,7 +249,7 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   Param_DictFree(opts_attrs.params);
   QueryError_ClearError(&iterErrAttrs);
 
-  IndexSpec_RemoveFromGlobals(ref, false);
+  Indexes_RemoveSpecFromGlobals(ref, false);
   RSGlobalConfig.simulateInFlex = prevSimulateInFlex;
   RedisModule_FreeThreadSafeContext(redisCtx);
 }
@@ -442,7 +443,7 @@ TEST_F(QueryTest, testParser_v1) {
   ASSERT_EQ(_n->children[1]->type, QN_PREFIX);
   ASSERT_STREQ("boo", _n->children[1]->pfx.tok.str);
   QAST_Destroy(&ast);
-  IndexSpec_RemoveFromGlobals(ref, false);
+  Indexes_RemoveSpecFromGlobals(ref, false);
 }
 
 TEST_F(QueryTest, testParser_v2) {
@@ -749,7 +750,7 @@ TEST_F(QueryTest, testParser_v2) {
   ASSERT_EQ(_n->children[1]->type, QN_PREFIX);
   ASSERT_STREQ("boo", _n->children[1]->pfx.tok.str);
   QAST_Destroy(&ast);
-  IndexSpec_RemoveFromGlobals(ref, false);
+  Indexes_RemoveSpecFromGlobals(ref, false);
 }
 
 TEST_F(QueryTest, testVectorHybridQuery) {
@@ -787,7 +788,7 @@ TEST_F(QueryTest, testVectorHybridQuery) {
   ASSERT_EQ(ast.root->children[0]->type, QN_TOKEN);
   ASSERT_EQ(ast.root->children[0]->opts.fieldMask, 0x01);
 
-  IndexSpec_RemoveFromGlobals(ref, false);
+  Indexes_RemoveSpecFromGlobals(ref, false);
 }
 
 TEST_F(QueryTest, testPureNegative) {
@@ -806,7 +807,7 @@ TEST_F(QueryTest, testPureNegative) {
     ASSERT_EQ(n->type, QN_NOT);
     ASSERT_TRUE(QueryNode_GetChild(n, 0) != NULL);
   }
-  IndexSpec_RemoveFromGlobals(ref, false);
+  Indexes_RemoveSpecFromGlobals(ref, false);
 }
 
 TEST_F(QueryTest, testDoubleNegationOptimization) {
@@ -854,7 +855,7 @@ TEST_F(QueryTest, testDoubleNegationOptimization) {
     ASSERT_STREQ("hello", QueryNode_GetChild(n, 0)->tn.str);
   }
 
-  IndexSpec_RemoveFromGlobals(ref, false);
+  Indexes_RemoveSpecFromGlobals(ref, false);
 }
 
 TEST_F(QueryTest, testGeoQuery_v1) {
@@ -878,7 +879,7 @@ TEST_F(QueryTest, testGeoQuery_v1) {
   ASSERT_EQ(gn->gn.gf->lon, 31.52);
   ASSERT_EQ(gn->gn.gf->lat, 32.1342);
   ASSERT_EQ(gn->gn.gf->radius, 10.01);
-  IndexSpec_RemoveFromGlobals(ref, false);
+  Indexes_RemoveSpecFromGlobals(ref, false);
 }
 
 TEST_F(QueryTest, testGeoQuery_v2) {
@@ -904,7 +905,7 @@ TEST_F(QueryTest, testGeoQuery_v2) {
   ASSERT_EQ(gn->gn.gf->lon, 31.52);
   ASSERT_EQ(gn->gn.gf->lat, 32.1342);
   ASSERT_EQ(gn->gn.gf->radius, 10.01);
-  IndexSpec_RemoveFromGlobals(ref, false);
+  Indexes_RemoveSpecFromGlobals(ref, false);
 }
 
 TEST_F(QueryTest, testFieldSpec_v1) {
@@ -959,7 +960,7 @@ TEST_F(QueryTest, testFieldSpec_v1) {
   ASSERT_EQ(n->nn.nf->max, 500.0);
   ASSERT_EQ(n->nn.nf->minInclusive, true);
   ASSERT_EQ(n->nn.nf->maxInclusive, false);
-  IndexSpec_RemoveFromGlobals(ref, false);
+  Indexes_RemoveSpecFromGlobals(ref, false);
 }
 
 TEST_F(QueryTest, testFieldSpec_v2) {
@@ -1018,7 +1019,7 @@ TEST_F(QueryTest, testFieldSpec_v2) {
   ASSERT_EQ(n->nn.nf->max, 500.0);
   ASSERT_EQ(n->nn.nf->minInclusive, true);
   ASSERT_EQ(n->nn.nf->maxInclusive, false);
-  IndexSpec_RemoveFromGlobals(ref, false);
+  Indexes_RemoveSpecFromGlobals(ref, false);
 }
 
 TEST_F(QueryTest, testAttributes) {
@@ -1041,7 +1042,7 @@ TEST_F(QueryTest, testAttributes) {
   ASSERT_EQ(QueryNode_NumChildren(n), 2);
   ASSERT_EQ(0.5, n->children[0]->opts.weight);
   ASSERT_EQ(0.2, n->children[1]->opts.weight);
-  IndexSpec_RemoveFromGlobals(ref, false);
+  Indexes_RemoveSpecFromGlobals(ref, false);
 }
 
 TEST_F(QueryTest, testTags) {
@@ -1069,7 +1070,7 @@ TEST_F(QueryTest, testTags) {
 
   ASSERT_EQ(QN_TOKEN, n->children[3]->type);
   ASSERT_STREQ("lorem\\ ipsum", n->children[3]->tn.str);
-  IndexSpec_RemoveFromGlobals(ref, false);
+  Indexes_RemoveSpecFromGlobals(ref, false);
 }
 
 TEST_F(QueryTest, testWildcard) {
@@ -1093,5 +1094,50 @@ TEST_F(QueryTest, testWildcard) {
   ASSERT_EQ(5, n->verb.tok.len);
   ASSERT_STREQ("?*?*?", n->verb.tok.str);
 
-  IndexSpec_RemoveFromGlobals(ref, false);
+  Indexes_RemoveSpecFromGlobals(ref, false);
+}
+
+// A PARAM_TERM_CASE value is binary-safe and may contain interior NULs. It must
+// be duplicated in full, NUL-terminated, with the reported length matching the
+// allocation. A previous implementation used rm_strdup, which truncated the copy
+// at the first interior NUL while still reporting the full length, so reading the
+// reported target_len bytes ran past the end of the allocation. The value below
+// has a long tail after the interior NUL, so reading all target_len bytes runs
+// far past the truncated allocation — a heap-buffer-overflow under
+// AddressSanitizer — while also asserting the value is preserved intact.
+TEST_F(QueryTest, testParamTermCaseBinaryValue) {
+  QueryError err = QueryError_Default();
+  dict *params = Param_DictCreate();
+
+  // 'a', interior NUL, then a long tail. rm_strdup would stop at the NUL and
+  // allocate only 2 bytes while still reporting the full length.
+  char value[64];
+  value[0] = 'a';
+  value[1] = '\0';
+  memset(value + 2, 'b', sizeof(value) - 2);
+  ASSERT_EQ(0, Param_DictAdd(params, "p", value, sizeof(value), &err));
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+
+  char *resolved = NULL;
+  size_t resolved_len = 0;
+  Param param = {};
+  param.name = "p";
+  param.len = 1;
+  param.type = PARAM_TERM_CASE;
+  param.target = &resolved;
+  param.target_len = &resolved_len;
+
+  int rc = QueryParam_Resolve(&param, params, 2, &err);
+  ASSERT_EQ(1, rc);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+
+  // The whole binary value is preserved, not truncated at the interior NUL.
+  // Reading all resolved_len bytes here is where a truncated allocation faults.
+  ASSERT_EQ(sizeof(value), resolved_len);
+  ASSERT_EQ(0, memcmp(resolved, value, resolved_len));
+  // A trailing terminator sits at index len, so the allocation spans len + 1.
+  ASSERT_EQ('\0', resolved[resolved_len]);
+
+  rm_free(resolved);
+  Param_DictFree(params);
 }

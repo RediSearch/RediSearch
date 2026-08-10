@@ -7,12 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::RS_FIELDMASK_ALL;
-use inverted_index::{
+use index_result::{
     MetricsVec, RSAggregateResult, RSIndexResult, RSOffsetSlice, RSOffsetVector, RSResultKind,
     RSResultKindMask,
 };
 use query_term::RSQueryTerm;
+use rqe_core::RS_FIELDMASK_ALL;
 
 #[test]
 fn pushing_to_aggregate_result() {

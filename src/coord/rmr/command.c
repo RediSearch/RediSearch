@@ -7,20 +7,17 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "common.h"
+#include <string.h>
+#include <stdarg.h>
+#include <stdio.h>
+
 #include "command.h"
 #include "rmalloc.h"
 #include "resp3.h"
 #include "slot_ranges.h"
 #include "rs_wall_clock.h"
 #include "info/global_stats.h"
-
-#include "version.h"
-
-#include <stdlib.h>
-#include <string.h>
-#include <stdarg.h>
-#include <stdio.h>
+#include "rmutil/rm_assert.h"
 
 #define shift_right(arr, len, start, by) \
   memmove((arr) + (start) + (by), (arr) + (start), ((len) - (start)) * sizeof(*(arr)));

@@ -12,7 +12,9 @@
 #include "redismock/redismock.h"
 #include "redismock/util.h"
 #include "spec.h"
+#include "indexes.h"
 #include "document.h"
+#include "llapi_test_helpers.h"
 
 #ifdef __cplusplus
 #include <chrono>
@@ -30,14 +32,6 @@
 
 #define get_spec(x) ((IndexSpec*)__RefManager_Get_Object(x))
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-#include "rwlock.h"
-#ifdef __cplusplus
-}
-#endif
-
 namespace RS {
 
 static void donecb(RSAddDocumentCtx *aCtx, RedisModuleCtx *, void *) {
@@ -46,7 +40,6 @@ static void donecb(RSAddDocumentCtx *aCtx, RedisModuleCtx *, void *) {
 
 template <typename... Ts>
 bool addDocument(RedisModuleCtx *ctx, RSIndex *index, const char *docid, Ts... args) {
-  RWLOCK_ACQUIRE_WRITE();
   RMCK::ArgvList argv(ctx, args...);
   AddDocumentOptions options = {0};
   options.numFieldElems = argv.size();
@@ -60,7 +53,6 @@ bool addDocument(RedisModuleCtx *ctx, RSIndex *index, const char *docid, Ts... a
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(index));
   int rv = RS_AddDocument(&sctx, RMCK::RString(docid), &options, &status);
   RedisModule_FreeString(ctx, options.keyStr);
-  RWLOCK_RELEASE();
   return rv == REDISMODULE_OK;
 }
 
@@ -70,7 +62,7 @@ template <typename... Ts>
 IndexSpec *createIndex(RedisModuleCtx *ctx, const char *name, Ts... args) {
   RMCK::ArgvList argv("FT.CREATE", name, args...);
   QueryError err{QueryErrorCode(0)};
-  IndexSpec *sp = IndexSpec_CreateNew(ctx, argv, argv.size(), &err);
+  IndexSpec *sp = Indexes_CreateNewSpec(ctx, argv, argv.size(), &err);
   if (!sp) {
     abort();
   }

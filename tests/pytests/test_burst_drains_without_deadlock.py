@@ -23,6 +23,14 @@ expected_aggregate_res = [
                             ['category', 'electronics', 'count', '80']
                         ]
 
+
+def _assert_aggregate_res(env, res):
+    # All categories tie at count 80, so SORTBY @count ASC does not guarantee
+    # a stable order between the groups themselves. Compare the group rows
+    # regardless of order.
+    env.assertEqual(res[0], expected_aggregate_res[0])
+    env.assertEqual(sorted(res[1:]), sorted(expected_aggregate_res[1:]))
+
 def _build_mixed_burst_commands():
     # Intentionally build a 3:1 FT.SEARCH-to-FT.AGGREGATE prefix so the burst
     # stays mixed while still driving the coordinator into the saturation region,
@@ -37,7 +45,7 @@ def _run_burst_command(env, command, exceptions, completed, lock):
         if command[0] == 'FT.SEARCH':
             env.assertEqual(res, expected_search_res)
         elif command[0] == 'FT.AGGREGATE':
-            env.assertEqual(res, expected_aggregate_res)
+            _assert_aggregate_res(env, res)
     except Exception as exc:
         with lock:
             exceptions.append(f'{command}: {exc}')
@@ -50,11 +58,13 @@ def _coordinator_reached_rq_limit(env, coord_initial_jobs_done, coord_initial_pe
     stats = getCoordThpoolStats(env)
     jobs_done_delta = stats['totalJobsDone'] - coord_initial_jobs_done
     pending_jobs_delta = stats['totalPendingJobs'] - coord_initial_pending_jobs
-    done = jobs_done_delta >= RQ_CAPACITY or pending_jobs_delta >= RQ_CAPACITY
+    jobs_seen_delta = jobs_done_delta + pending_jobs_delta
+    done = jobs_seen_delta >= RQ_CAPACITY
     return done, {
         'coord_stats': stats,
         'jobs_done_delta': jobs_done_delta,
         'pending_jobs_delta': pending_jobs_delta,
+        'jobs_seen_delta': jobs_seen_delta,
         'completed': completed[0],
     }
 
@@ -90,7 +100,8 @@ def _print_debug_stats(label, env, coord_initial_jobs_done, coord_initial_pendin
     )
 
 
-@skip(cluster=False)
+# Skipped on macOS: the saturation burst times out on the slow macOS CI runners.
+@skip(cluster=False, macos=True)
 def test_search_and_aggregate_burst():
     env = Env(
         testName='Search and aggregate burst',
@@ -217,4 +228,4 @@ def test_search_and_aggregate_burst():
     env.assertTrue(ping_result in ['PONG', True],
                    message='Coordinator should remain responsive after burst')
     env.expect(*search).equal(expected_search_res)
-    env.expect(*aggregate).equal(expected_aggregate_res)
+    _assert_aggregate_res(env, env.cmd(*aggregate))

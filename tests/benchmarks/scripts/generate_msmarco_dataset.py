@@ -2,19 +2,29 @@
 """
 MS MARCO Dataset Generator for RediSearch Benchmarks.
 
-Generates CSV files with Redis HSET commands for data ingestion
+Generates CSV files with Redis HSET or JSON.SET commands for data ingestion
 and FT.SEARCH commands for query benchmarks.
 
 Features:
 - Processes extracted tar shards directly
+- HASH (HSET) or JSON (JSON.SET) document format via --doc-format
 - Adds 64 tags with varying cardinality (HIGH/MEDIUM/LOW)
-- Deterministic tag assignment via CRC32 hash
+- Adds 4 NUMERIC fields (n_uniform, n_uniform_small, n_cat, doc_len)
+- Deterministic tag/numeric assignment via CRC32 hash
 - Buffered I/O for fast disk writes
 
 Usage:
+    # HASH dataset (default)
     python3 generate_msmarco_dataset.py \\
         --shards-dir ./extracted/msmarco_v2_doc \\
         --sample-pct 50 \\
+        --output-dir ./output
+
+    # JSON dataset (emits JSON.SET; tags stay a scalar comma-separated string)
+    python3 generate_msmarco_dataset.py \\
+        --shards-dir ./extracted/msmarco_v2_doc \\
+        --sample-pct 50 \\
+        --doc-format json \\
         --output-dir ./output
 """
 
@@ -35,10 +45,16 @@ try:
     import orjson
     def json_loads(s):
         return orjson.loads(s)
+    def json_dumps(obj):
+        # orjson.dumps returns bytes; decode to str for the CSV writer.
+        return orjson.dumps(obj).decode("utf-8")
 except ImportError:
     import json
     def json_loads(s):
         return json.loads(s)
+    def json_dumps(obj):
+        # Compact separators keep the serialized document small (6M docs).
+        return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
 
 try:
     from tqdm import tqdm
@@ -111,11 +127,69 @@ def generate_tags_for_doc(doc_id: str) -> str:
     return ",".join(tags)
 
 
+# =============================================================================
+# NUMERIC FIELD GENERATION (deterministic, like tags)
+# =============================================================================
+
+# Suffix-hashed like the tags so the synthetic fields stay statistically
+# decoupled — reusing base_hash % k directly for several fields would couple
+# them arithmetically (e.g. n_cat would be a function of n_uniform).
+N_UNIFORM_HI_SUFFIX = b":n_uniform_hi"
+N_UNIFORM_LO_SUFFIX = b":n_uniform"
+N_UNIFORM_SMALL_SUFFIX = b":n_uniform_small"
+N_CAT_SUFFIX = b":n_cat"
+
+# n_uniform spans [-100_000_000, 100_000_000] inclusive.
+N_UNIFORM_SPAN = 200_000_001
+N_UNIFORM_OFFSET = 100_000_000
+
+
+def generate_numeric_fields_for_doc(doc_id: str, body: str) -> Tuple[int, int, int, int]:
+    """
+    Deterministic NUMERIC field values for a document.
+
+    Returns (n_uniform, n_uniform_small, n_cat, doc_len):
+    - n_uniform: uniform in [-100000000, 100000000] — large scale, mostly
+      unique values (~2e8 possible values vs ~6M docs); exact selectivities
+      for range queries.
+    - n_uniform_small: uniform in [0, 100000) — same uniformity at lower
+      cardinality (~60 docs share each value at 6M docs), isolating the
+      duplicates-per-value axis at matched selectivities.
+    - n_cat: uniform in [0, 10) — extreme duplication, ~10% of docs per value
+    - doc_len: raw body length — natural skewed distribution. Computed from
+      the raw body (before HASH escaping / JSON normalization) so the value is
+      identical across both document formats.
+    """
+    base_hash = zlib.crc32(doc_id.encode('utf-8'))
+    # Two independent CRC32s combined into 64 bits: a single 32-bit hash
+    # taken modulo ~2e8 would carry a ~2.5% modulo bias, breaking the exact
+    # selectivity guarantee.
+    hi = zlib.crc32(N_UNIFORM_HI_SUFFIX, base_hash)
+    lo = zlib.crc32(N_UNIFORM_LO_SUFFIX, base_hash)
+    n_uniform = ((hi << 32) | lo) % N_UNIFORM_SPAN - N_UNIFORM_OFFSET
+    n_uniform_small = zlib.crc32(N_UNIFORM_SMALL_SUFFIX, base_hash) % 100_000
+    n_cat = zlib.crc32(N_CAT_SUFFIX, base_hash) % 10
+    return n_uniform, n_uniform_small, n_cat, len(body)
+
+
 def escape_redis_string(s: str) -> str:
-    """Escape special characters for Redis protocol."""
+    """Escape special characters for Redis protocol (HSET field values)."""
     if s is None:
         return ""
     return s.replace('\\', '\\\\').replace('"', '\\"').replace('\n', ' ').replace('\r', '')
+
+
+def normalize_text(s: str) -> str:
+    """
+    Normalize whitespace for a field value used in a JSON document.
+
+    Mirrors the newline/CR handling of escape_redis_string so the indexed text
+    is identical between the HASH and JSON datasets, but leaves quote/backslash
+    escaping to the JSON serializer (json_dumps), which handles it correctly.
+    """
+    if s is None:
+        return ""
+    return s.replace('\n', ' ').replace('\r', '')
 
 
 def should_sample_doc(doc_id: str, sample_pct: int) -> bool:
@@ -179,10 +253,11 @@ def generate_setup_commands_from_shards(
     output_file: Path,
     doc_limit: int,
     sample_pct: int = 100,
-    key_prefix: str = "doc:"
+    key_prefix: str = "doc:",
+    doc_format: str = "hash"
 ) -> Tuple[int, dict]:
     """
-    Generate SETUP.csv file with HSET commands from tar shards.
+    Generate SETUP.csv file with HSET or JSON.SET commands from tar shards.
     Includes 64 tags with varying cardinality.
 
     Args:
@@ -192,11 +267,15 @@ def generate_setup_commands_from_shards(
         doc_limit: Maximum number of documents to generate
         sample_pct: Percentage of documents to sample (1-100)
         key_prefix: Redis key prefix (default: "doc:")
+        doc_format: "hash" emits HSET commands, "json" emits JSON.SET commands.
+            In "json" mode the same fields are stored under a single JSON
+            document; ``tags`` stays a single comma-separated scalar string
+            (never a JSON array) to honor the no-multivalue constraint.
 
     Returns:
         Tuple of (doc_count, tag_stats dict)
     """
-    print(f"Generating SETUP commands with 64 tags...")
+    print(f"Generating SETUP commands ({doc_format.upper()}) with 64 tags...")
     print(f"  Sample percentage: {sample_pct}%")
     print(f"  Document limit: {doc_limit:,}")
 
@@ -235,8 +314,10 @@ def generate_setup_commands_from_shards(
             if doc_count >= doc_limit:
                 break
 
-            # Generate tags for this document
+            # Generate tags and numeric fields for this document
             tags = generate_tags_for_doc(doc_id)
+            n_uniform, n_uniform_small, n_cat, doc_len = generate_numeric_fields_for_doc(
+                doc_id, doc.get("body") or "")
 
             # Track tag distribution
             for tag in tags.split(","):
@@ -246,22 +327,50 @@ def generate_setup_commands_from_shards(
             # Build Redis key
             doc_key = f"{key_prefix}{doc_id}"
 
-            # Extract fields
-            url = escape_redis_string(doc.get("url", ""))
-            title = escape_redis_string(doc.get("title", ""))
-            headings = escape_redis_string(doc.get("headings", ""))
-            body = escape_redis_string(doc.get("body", ""))
+            if doc_format == "json":
+                # Build a single JSON document. tags stays a scalar
+                # comma-separated string (no JSON array) so that indexing it as
+                # TAG with an explicit SEPARATOR "," splits it identically to the
+                # HASH dataset (JSON TAG fields otherwise default to no separator).
+                # json_dumps handles escaping; normalize_text only strips
+                # newlines/CR so the indexed text matches the HASH dataset.
+                json_doc = json_dumps({
+                    "doc_id": doc_id,
+                    "url": normalize_text(doc.get("url", "")),
+                    "title": normalize_text(doc.get("title", "")),
+                    "headings": normalize_text(doc.get("headings", "")),
+                    "body": normalize_text(doc.get("body", "")),
+                    "tags": tags,
+                    # JSON numbers (not strings) so NUMERIC indexing works.
+                    "n_uniform": n_uniform,
+                    "n_uniform_small": n_uniform_small,
+                    "n_cat": n_cat,
+                    "doc_len": doc_len,
+                })
+                writer.writerow([
+                    "WRITE", "W1", "1", "JSON.SET", doc_key, "$", json_doc
+                ])
+            else:
+                # Extract fields
+                url = escape_redis_string(doc.get("url", ""))
+                title = escape_redis_string(doc.get("title", ""))
+                headings = escape_redis_string(doc.get("headings", ""))
+                body = escape_redis_string(doc.get("body", ""))
 
-            # Write HSET command row
-            writer.writerow([
-                "WRITE", "W1", "1", "HSET", doc_key,
-                "doc_id", doc_id,
-                "url", url,
-                "title", title,
-                "headings", headings,
-                "body", body,
-                "tags", tags
-            ])
+                # Write HSET command row
+                writer.writerow([
+                    "WRITE", "W1", "1", "HSET", doc_key,
+                    "doc_id", doc_id,
+                    "url", url,
+                    "title", title,
+                    "headings", headings,
+                    "body", body,
+                    "tags", tags,
+                    "n_uniform", n_uniform,
+                    "n_uniform_small", n_uniform_small,
+                    "n_cat", n_cat,
+                    "doc_len", doc_len
+                ])
 
             doc_count += 1
 
@@ -308,6 +417,47 @@ BENCHMARK_QUERIES = {
     ],
 }
 
+# NUMERIC benchmark queries, grouped so each group runs as its own benchmark:
+# fewer queries per benchmark means more samples per query and a dedicated
+# regression series per axis. Selectivities on the synthetic fields are exact
+# by construction (n_uniform is uniform over the 2e8+1 values in [-1e8, 1e8],
+# n_uniform_small over [0, 100000), n_cat over [0, 10)); doc_len
+# selectivities are approximate (natural distribution). Numeric ranges are
+# valid under the default dialect — no DIALECT argument needed.
+NUMERIC_QUERY_GROUPS = {
+    # Result-set size scaling: same operator shape, growing range
+    # (n_uniform is ~unique-valued; n_uniform_small ~60 docs/value at 6M).
+    "numeric-selectivity": [
+        "@n_uniform:[0 1999]",                       # needle range, 0.001%
+        "@n_uniform:[0 199999]",                     # 0.1%
+        "@n_uniform:[0 1999999]",                    # 1%
+        "@n_uniform:[0 19999999]",                   # 10%
+        "@n_uniform:[0 99999999]",                   # 50%
+        "@n_uniform_small:[500 500]",                # point w/ duplicates, 0.001%
+    ],
+    # Operator/iterator shape at fixed selectivity.
+    "numeric-operators": [
+        "@n_uniform:[-999999 999999]",               # crosses zero, ~1%
+        "@n_uniform:[-inf -80000001]",               # open lower, 10%
+        "@n_uniform:[80000001 +inf]",                # open upper, 10%
+        "@n_uniform:[(0 (2000000]",                  # exclusive bounds, ~1%
+        "-@n_uniform:[-100000000 79999999]",         # NOT, 10%
+        "(@n_uniform:[0 1999999] | @n_uniform:[50000000 51999999])",  # OR, 2%
+    ],
+    # Value-distribution effects at matched selectivities + cross-field.
+    "numeric-distributions": [
+        "@n_uniform_small:[0 999]",                  # 1%, vs the ladder's 1%
+        "@n_cat:[3 3]",                              # single value, 10%
+        "@n_cat:[3 7]",                              # 5 of 10 values, 50%
+        "@doc_len:[0 1000]",                         # short docs (approx. selectivity)
+        "@doc_len:[50000 +inf]",                     # long-tail docs (approx. selectivity)
+        "(@n_uniform:[0 19999999] @n_cat:[3 3])",    # AND, 1%
+    ],
+}
+BENCHMARK_QUERIES.update(NUMERIC_QUERY_GROUPS)
+# Combined pool (ad-hoc runs; CI uses the per-group workloads above).
+BENCHMARK_QUERIES["numeric"] = [q for qs in NUMERIC_QUERY_GROUPS.values() for q in qs]
+
 
 def generate_query_commands(
     output_file: Path,
@@ -333,7 +483,10 @@ def generate_query_commands(
     # Get queries for this category
     if query_category == "all":
         queries = []
-        for cat_queries in BENCHMARK_QUERIES.values():
+        for cat, cat_queries in BENCHMARK_QUERIES.items():
+            # "numeric" duplicates the numeric-* groups — skip it.
+            if cat == "numeric":
+                continue
             queries.extend(cat_queries)
     elif query_category in BENCHMARK_QUERIES:
         queries = BENCHMARK_QUERIES[query_category]
@@ -457,6 +610,14 @@ def main():
         help="Redis key prefix (default: 'doc:')"
     )
     parser.add_argument(
+        "--doc-format",
+        type=str,
+        default="hash",
+        choices=["hash", "json"],
+        help="Document storage format: 'hash' emits HSET commands, "
+             "'json' emits JSON.SET commands (default: hash)"
+    )
+    parser.add_argument(
         "--num-queries",
         type=int,
         default=100000,
@@ -470,10 +631,13 @@ def main():
 
     args = parser.parse_args()
 
-    # Auto-generate dataset name if not provided
+    # Auto-generate dataset name if not provided. The JSON dataset gets its own
+    # prefix (…-msmarco-json-documents) so it lives under a separate S3 path and
+    # does not collide with the HASH dataset.
     if args.dataset_name is None:
         doc_suffix = f"{args.doc_limit // 1000000}M" if args.doc_limit >= 1000000 else f"{args.doc_limit // 1000}K"
-        args.dataset_name = f"{doc_suffix}-msmarco-documents"
+        format_infix = "json-" if args.doc_format == "json" else ""
+        args.dataset_name = f"{doc_suffix}-msmarco-{format_infix}documents"
 
     # Create output directory
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -487,6 +651,7 @@ def main():
     print(f"  Output directory: {args.output_dir}")
     print(f"  Output name prefix: {args.dataset_name}")
     print(f"  Key prefix: {args.key_prefix}")
+    print(f"  Document format: {args.doc_format.upper()}")
     print(f"{'='*70}\n")
 
     # Generate SETUP commands with tags
@@ -497,7 +662,8 @@ def main():
         output_file=setup_file,
         doc_limit=args.doc_limit,
         sample_pct=args.sample_pct,
-        key_prefix=args.key_prefix
+        key_prefix=args.key_prefix,
+        doc_format=args.doc_format
     )
 
     # Print tag statistics
@@ -506,7 +672,11 @@ def main():
     # Generate query commands
     if not args.skip_queries:
         print("\n")
-        query_categories = ["baseline", "phrase", "and", "or", "not", "tag", "all"]
+        # Both HASH and JSON index tags (tags TAG SEPARATOR ","), so every query
+        # category — including tag predicates — is valid for both formats.
+        query_categories = ["baseline", "phrase", "and", "or", "not", "tag",
+                            "numeric", "numeric-selectivity", "numeric-operators",
+                            "numeric-distributions", "all"]
         for category in query_categories:
             query_file = args.output_dir / f"{args.dataset_name}.redisearch.commands.BENCH.QUERY_{category}.csv"
             generate_query_commands(query_file, category, args.index_name, args.num_queries)
@@ -522,12 +692,32 @@ def main():
         print(f"  - {file.name} ({size_mb:.1f} MB)")
 
     print(f"\nSchema for FT.CREATE:")
-    print(f"  FT.CREATE {args.index_name} ON HASH PREFIX 1 {args.key_prefix} SCHEMA \\")
-    print(f"    url TEXT \\")
-    print(f"    title TEXT \\")
-    print(f"    headings TEXT \\")
-    print(f"    body TEXT \\")
-    print(f'    tags TAG SEPARATOR ","')
+    if args.doc_format == "json":
+        print(f"  FT.CREATE {args.index_name} ON JSON PREFIX 1 {args.key_prefix} SCHEMA \\")
+        print(f"    $.url       AS url       TEXT \\")
+        print(f"    $.title     AS title     TEXT \\")
+        print(f"    $.headings  AS headings  TEXT \\")
+        print(f"    $.body      AS body      TEXT \\")
+        print(f'    $.tags            AS tags            TAG SEPARATOR "," \\')
+        print(f"    $.n_uniform       AS n_uniform       NUMERIC \\")
+        print(f"    $.n_uniform_small AS n_uniform_small NUMERIC \\")
+        print(f"    $.n_cat           AS n_cat           NUMERIC \\")
+        print(f"    $.doc_len         AS doc_len         NUMERIC")
+    else:
+        print(f"  FT.CREATE {args.index_name} ON HASH PREFIX 1 {args.key_prefix} SCHEMA \\")
+        print(f"    url TEXT \\")
+        print(f"    title TEXT \\")
+        print(f"    headings TEXT \\")
+        print(f"    body TEXT \\")
+        print(f'    tags TAG SEPARATOR "," \\')
+        print(f"    n_uniform NUMERIC \\")
+        print(f"    n_uniform_small NUMERIC \\")
+        print(f"    n_cat NUMERIC \\")
+        print(f"    doc_len NUMERIC")
+    # tags is stored as a comma-separated scalar string in both HASH and JSON and
+    # indexed as TAG. JSON TAG fields default to no separator, so the explicit
+    # SEPARATOR "," is required for JSON to split the scalar identically to HASH.
+    print(f'  # tags: comma-separated scalar string; indexed as TAG (explicit SEPARATOR "," for JSON).')
 
     print(f"\nNext steps:")
     print(f"  1. Review generated files")

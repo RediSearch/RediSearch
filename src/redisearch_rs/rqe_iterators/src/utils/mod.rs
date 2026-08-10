@@ -12,8 +12,13 @@
 mod min_heap;
 mod owned_slice;
 mod timeout;
+mod timespec;
 
 #[doc(inline)]
 pub use self::owned_slice::OwnedSlice;
 pub use min_heap::{DocIdMinHeap, HeapEntry};
-pub use timeout::TimeoutContext;
+pub use timeout::{
+    AnyTimeoutContext, DeadlineTimeoutChecker, NoTimeoutChecker, TimeoutCheckResult,
+    TimeoutChecker, TimeoutContext, TimeoutContextBlockedClient, TimeoutContextDeadline,
+};
+pub use timespec::{deadline_passed, duration_from_redis_timespec};

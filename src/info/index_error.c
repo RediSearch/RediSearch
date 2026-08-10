@@ -7,13 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "index_error.h"
+
+#include <string.h>
+
 #include "rmalloc.h"
 #include "reply_macros.h"
 #include "util/timeout.h"
 #include "util/strconv.h"
 #include "rmutil/rm_assert.h"
 #include "obfuscation/obfuscation_api.h"
-#include "query_error.h"
+#include "rmr/reply.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -66,7 +69,10 @@ void IndexError_AddError(IndexError *error, ConstErrorMessage withoutUserData, C
     RedisModule_FreeString(RSDummyContext, error->key);
     error->last_error_without_user_data = withoutUserData ? rm_strdup(withoutUserData) : NA; // Don't strdup NULL.
     error->last_error_with_user_data = withUserData ? rm_strdup(withUserData) : NA; // Don't strdup NULL.
-    error->key = RedisModule_HoldString(RSDummyContext, key);
+    // A NULL key means no single document is to blame (e.g. background indexing
+    // cancelled for global memory pressure). Fall back to the NA sentinel so the
+    // stored key is always a valid, displayable string.
+    error->key = RedisModule_HoldString(RSDummyContext, key ? key : NA_rstr);
     RedisModule_TrimStringAllocation(error->key);
     // Atomically increment the error_count by 1, since this might be called when spec is unlocked.
     __atomic_add_fetch(&error->error_count, 1, __ATOMIC_RELAXED);
@@ -76,6 +82,11 @@ void IndexError_AddError(IndexError *error, ConstErrorMessage withoutUserData, C
 void IndexError_RaiseBackgroundIndexFailureFlag(IndexError *error) {
     // Change the background_indexing_OOM_failure flag to true.
     error->background_indexing_OOM_failure = true;
+}
+
+void IndexError_ClearBackgroundIndexFailureFlag(IndexError *error) {
+    // Change the background_indexing_OOM_failure flag to false.
+    error->background_indexing_OOM_failure = false;
 }
 
 void IndexError_Clear(IndexError error) {

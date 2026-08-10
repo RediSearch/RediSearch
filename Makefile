@@ -14,6 +14,8 @@ MAKEFLAGS += --no-print-directory
 ROOT := $(shell pwd)
 BUILD_SCRIPT := $(ROOT)/build.sh
 
+export PATH := $(HOME)/.cargo/bin:$(HOME)/.local/bin:$(PATH)
+
 # Default target
 .DEFAULT_GOAL := build
 
@@ -79,6 +81,10 @@ endif
 
 ifeq ($(RUST_DYN_CRT),1)
 	BUILD_ARGS += RUST_DYN_CRT=1
+	# Export so the `generate-rust-headers` recipe (which invokes
+	# regen_headers.sh directly, bypassing build.sh) can apply
+	# `-C target-feature=-crt-static` to its cargo invocations.
+	export RUST_DYN_CRT
 endif
 
 ifeq ($(RUN_MIRI),1)
@@ -114,6 +120,10 @@ ifeq ($(LTO),1)
 	BUILD_ARGS += LTO
 endif
 
+ifneq ($(INLINE_LSE_ATOMICS),)
+	BUILD_ARGS += INLINE_LSE_ATOMICS=$(INLINE_LSE_ATOMICS)
+endif
+
 # Package variables (used by pack target)
 MODULE_NAME := search
 PACKAGE_NAME ?=
@@ -139,6 +149,9 @@ define HELPTEXT
 RediSearch Build System
 
 Setup:
+  make bootstrap     Install build- and test-time system dependencies.
+                     Auto-prefixes `sudo` when not root.
+    SUDO=cmd           Override the privilege-escalation command (default: auto)
   make fetch         Download and prepare dependent modules
 
 Build:
@@ -154,6 +167,10 @@ Build:
     RUST_DYN_CRT=1     Use dynamic C runtime linking (for Alpine Linux)
     VERBOSE=1          Verbose build output
     LTO=1              Enable Rust/C LTO
+    INLINE_LSE_ATOMICS=0|1
+                       Inline LSE atomics on Linux AArch64 (default: 1).
+                       Set to 0 on pre-Armv8.1-a cores (Cortex-A72,
+                       Graviton1, Raspberry Pi 4) to avoid SIGILL on load.
 
   make clean         Remove build artifacts
     ALL=1              Remove entire artifacts directory
@@ -202,6 +219,29 @@ help:
 	$(info $(HELPTEXT))
 	@:
 
+# Auto-detect: empty when running as root (containers/CI), "sudo" otherwise.
+# Override with SUDO= for environments that need a different prefix (e.g. doas)
+# or to force no prefix.
+SUDO ?= $(shell [ "$$(id -u)" -eq 0 ] || echo sudo)
+
+# `list` / `dry-run` route through the REAL installer (install_script.sh),
+# same as the other modules: CHECK_DEPS=1 records present/missing deps and
+# installs nothing; DRY_RUN=1 prints the exact commands bootstrap would run for
+# missing deps and installs nothing.
+bootstrap:
+ifeq ($(filter list,$(MAKECMDGOALS)),list)
+	@cd $(ROOT)/.install && CHECK_DEPS=1 ./install_script.sh $(SUDO)
+else ifeq ($(filter dry-run,$(MAKECMDGOALS)),dry-run)
+	@cd $(ROOT)/.install && DRY_RUN=1 ./install_script.sh $(SUDO)
+else
+	@echo "Installing build dependencies..."
+	@cd $(ROOT)/.install && ./install_script.sh $(SUDO)
+endif
+
+list: ; @:
+dry-run: ; @:
+bootstrap-modes: ; @echo "list dry-run"
+
 fetch:
 	@echo "Fetching dependencies..."
 	@git submodule update --init --recursive
@@ -243,6 +283,14 @@ unit-tests: $(BUILD_SCRIPT)
 rust-tests: $(BUILD_SCRIPT)
 	@echo "Running Rust tests..."
 	@$(BUILD_SCRIPT) $(BUILD_ARGS) RUN_RUST_TESTS
+
+archive-rust-tests: $(BUILD_SCRIPT)
+	@echo "Archiving Rust tests into a nextest archive at $$RUST_TEST_ARCHIVE_PATH..."
+	@$(BUILD_SCRIPT) $(BUILD_ARGS) ARCHIVE_RUST_TESTS
+
+rust-tests-from-archive: $(BUILD_SCRIPT)
+	@echo "Running Rust tests from nextest archive at $$RUST_TEST_ARCHIVE_PATH..."
+	@$(BUILD_SCRIPT) $(BUILD_ARGS) RUN_ARCHIVED_RUST_TESTS
 
 pytest: $(BUILD_SCRIPT)
 	@echo "Running Python tests..."
@@ -301,7 +349,17 @@ define get_rust_exclude_crates
 $(shell grep "EXCLUDE_RUST_BENCHING_CRATES_LINKING_C=" build.sh | cut -d'=' -f2 | tr -d '"' | head -n1)
 endef
 
-lint:
+# Regenerate the Rust → C FFI headers under src/redisearch_rs/headers/.
+#
+# The recipe (cheadergen CLI args + env scrub) lives in
+# src/redisearch_rs/regen_headers.sh; the CMake `cheadergen_generate`
+# custom target calls the same script. See the script for the rationale
+# on the env scrub.
+generate-rust-headers:
+	@echo "Regenerating Rust → C FFI headers via cheadergen..."
+	@$(ROOT)/src/redisearch_rs/regen_headers.sh
+
+lint: generate-rust-headers
 	@echo "Running linters for debug..."
 	@cd $(ROOT)/src/redisearch_rs && cargo clippy --workspace $(call get_rust_exclude_crates) -- -D warnings
 	@cd $(ROOT)/src/redisearch_rs && RUSTDOCFLAGS="-Dwarnings" cargo doc --workspace $(call get_rust_exclude_crates) --no-deps --document-private-items
@@ -433,7 +491,7 @@ test-linkcheck:
 	fi
 	@python3 scripts/test_link_checker.py
 
-.PHONY: help build clean test unit-tests rust-tests pytest
+.PHONY: list dry-run bootstrap-modes help bootstrap fetch build clean test unit-tests rust-tests archive-rust-tests rust-tests-from-archive pytest
 .PHONY: run lint fmt license-check pack upload-artifacts
 .PHONY: benchmark micro-benchmarks vecsim-bench callgrind parsers verify-deps
 .PHONY: check-links check-links-verbose test-linkcheck

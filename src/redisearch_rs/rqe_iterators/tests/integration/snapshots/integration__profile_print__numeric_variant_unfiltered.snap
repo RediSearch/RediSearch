@@ -1,0 +1,10 @@
+---
+source: rqe_iterators/tests/integration/profile_print.rs
+assertion_line: 508
+expression: reply
+---
+{
+  "Type": "NUMERIC",
+  "Term": "1 - 10",
+  "Estimated number of matches": 1
+}

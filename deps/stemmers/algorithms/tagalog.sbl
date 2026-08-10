@@ -1,0 +1,320 @@
+// Tagalog stemmer derived from https://github.com/andrianllmm/tagalog-stemmer
+
+strings ( dup )
+integers ( start )
+booleans (
+    removed_prefix
+    removed_infix
+    removed_duplication
+    removed_suffix
+    likely_foreign
+)
+
+routines (
+    special_cases
+    exception1
+    scan_foreign
+    has_minimum_remainder
+    has_replacement_remainder
+    has_minimum_infix_remainder
+    remove_partial_duplication
+    remove_prefix_9
+    remove_prefix_8
+    remove_prefix_7
+    remove_prefix_6
+    remove_prefix_5
+    remove_prefix_4
+    remove_prefix_3
+    remove_prefix_2
+    remove_prefix_once
+    remove_infix
+    has_minimum_suffix_stem
+    remove_suffix
+    normalize_suffix
+    normalize_initial
+)
+
+externals ( stem )
+
+groupings ( vowel )
+
+stringescapes {}
+
+define vowel 'aeiou'
+
+define special_cases as (
+    [substring] atlimit among (
+        'araw-araw' (<- 'araw')
+        'kanyang' (<- 'kanya')
+    )
+)
+
+define exception1 as (
+    [substring] atlimit among (
+        'alipin'
+        'alitan'
+        'asian'
+        'baitang'
+        'bakasyon'
+        'baybayin'
+        'birheng'
+        'buhangin'
+        'bulwagan'
+        'dinamita'
+        'dinastiya'
+        'kalakal'
+        'kamara'
+        'kampanya'
+        'kapangyarihan'
+        'kapilya'
+        'kapital'
+        'karapatan'
+        'karera'
+        'kailangan'
+    )
+)
+
+define scan_foreign as (
+    do (
+        goto ('c' or 'f' or 'j' or 'q' or 'v' or 'x' or 'z')
+        set likely_foreign
+    )
+)
+
+define has_minimum_remainder as (
+    $(limit - cursor >= 3)
+    test (gopast vowel gopast vowel)
+)
+
+define has_replacement_remainder as (
+    $(limit - cursor >= 1)
+    test gopast vowel
+)
+
+define has_minimum_infix_remainder as (
+    $(limit - cursor >= 2)
+    test (gopast vowel gopast vowel)
+)
+
+define remove_partial_duplication as (
+    (
+        $(limit >= 5)
+        [vowel] -> dup
+        test dup
+        delete
+        set removed_duplication
+    ) or (
+        $(limit >= 6)
+        [hop 2] -> dup
+        test dup
+        delete
+        set removed_duplication
+    ) or (
+        $(limit >= 9)
+        [hop 3] -> dup
+        test dup
+        delete
+        set removed_duplication
+    )
+)
+
+define remove_prefix_9 as (
+    [substring] among (
+        'nakikipag' 'pakikipag'
+            (has_minimum_remainder delete set removed_prefix)
+    )
+)
+
+define remove_prefix_8 as (
+    [substring] among (
+        'pinakama'
+            (has_minimum_remainder delete set removed_prefix)
+
+        'panganga'
+            (has_replacement_remainder <- 'ka' set removed_prefix)
+    )
+)
+
+define remove_prefix_7 as (
+    [substring] among (
+        'makapag' 'nakapag' 'tagapag' 'makipag' 'nakipag'
+            (has_minimum_remainder delete set removed_prefix)
+        'pagpapa' 'pinagka'
+            (has_minimum_remainder delete set removed_prefix)
+    )
+)
+
+define remove_prefix_6 as (
+    [substring] among (
+        'pakiki' 'napaka' 'pinaka' 'ipinag'
+            (has_minimum_remainder delete set removed_prefix)
+    )
+)
+
+define remove_prefix_5 as (
+    [substring] among (
+        'magpa' 'pagka' 'pinag' 'mapag'
+            (has_minimum_remainder delete set removed_prefix)
+    )
+)
+
+define remove_prefix_4 as (
+    [substring] among (
+        'mapa' 'taga' 'ipag' 'tiga' 'pala' 'pina' 'pang'
+            (has_minimum_remainder delete set removed_prefix)
+        'naka' 'nang' 'mang' 'sing'
+            (has_minimum_remainder delete set removed_prefix)
+    )
+)
+
+define remove_prefix_3 as (
+    [substring] among (
+        'ipa' 'pam' 'pan' 'pag' 'tag'
+            (has_minimum_remainder delete set removed_prefix)
+        'mai' 'mag' 'nam' 'nag' 'man' 'may'
+            (has_minimum_remainder delete set removed_prefix)
+    )
+)
+
+define remove_prefix_2 as (
+    [substring] among (
+        'ma' 'na' 'ni' 'pa'
+            (has_minimum_remainder delete set removed_prefix)
+        'ka'
+            (not 'ny' has_minimum_remainder delete set removed_prefix)
+    )
+)
+
+define remove_prefix_once as (
+    remove_prefix_9 or remove_prefix_8 or remove_prefix_7 or remove_prefix_6 or
+    remove_prefix_5 or remove_prefix_4 or remove_prefix_3 or remove_prefix_2
+)
+
+define remove_infix as (
+    $(limit >= 5)
+    non-vowel
+    [substring] among (
+        'um'
+            (test vowel has_minimum_infix_remainder delete set removed_infix)
+        'in'
+            (
+                test vowel
+                has_minimum_infix_remainder
+                not (
+                    atlimit 'd'
+                    goto ('i' 'y' 'a' or 'i' 't' 'a')
+                    atlimit
+                )
+                delete
+                set removed_infix
+            )
+    )
+)
+
+backwardmode (
+
+    define has_minimum_suffix_stem as (
+        $(cursor >= 3)
+        test (gopast vowel gopast vowel)
+    )
+
+    define remove_suffix as (
+        (
+            ['g']
+            test ('n' 'o' ('y' or 'i' or 't'))
+            has_minimum_suffix_stem
+            delete
+            set removed_suffix
+        ) or (
+            $(len >= 7)
+            ['g' 'n']
+            test vowel
+            has_minimum_suffix_stem
+            delete
+            set removed_suffix
+        ) or (
+            [substring] among (
+                'han'
+                    (has_minimum_suffix_stem delete set removed_suffix)
+                'hin'
+                    (has_minimum_suffix_stem delete set removed_suffix)
+                'in'
+                    (
+                        (removed_prefix or removed_infix or removed_duplication)
+                        has_minimum_suffix_stem
+                        delete
+                        set removed_suffix
+                    )
+                'an'
+                    (
+                        not likely_foreign
+                        has_minimum_suffix_stem
+                        (
+                            (removed_prefix or removed_infix or removed_duplication)
+                            or
+                            ($(cursor >= 5) test non-vowel)
+                        )
+                        $(cursor >= 3)
+                        delete
+                        set removed_suffix
+                    )
+            )
+        )
+    )
+
+    define normalize_suffix as (
+        (removed_prefix or removed_infix or removed_duplication or removed_suffix)
+        do (
+            ['u']
+            $(cursor >= 3)
+            <- 'o'
+        )
+        do (
+            ['r']
+            $(cursor >= 3)
+            <- 'd'
+        )
+        do (
+            ['h']
+            $(cursor >= 3)
+            test vowel
+            delete
+        )
+    )
+)
+
+define normalize_initial as (
+    (removed_prefix or removed_infix or removed_duplication or removed_suffix)
+    $(limit >= 4)
+    [hop 1] -> dup
+    test dup
+    delete
+)
+
+define stem as (
+    setmark start
+    unset removed_prefix
+    unset removed_infix
+    unset removed_duplication
+    unset removed_suffix
+    unset likely_foreign
+    do scan_foreign
+    tomark start
+    special_cases or exception1 or (
+        do remove_prefix_once
+        tomark start
+        do remove_prefix_once
+        tomark start
+        do remove_partial_duplication
+        tomark start
+        do remove_infix
+        tomark start
+        do remove_partial_duplication
+        backwards (
+            do remove_suffix
+            do normalize_suffix
+        )
+        tomark start
+        do normalize_initial
+    )
+)

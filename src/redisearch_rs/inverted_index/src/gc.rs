@@ -10,10 +10,28 @@
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 
-use crate::{BlockCapacity, DecodedBy, Decoder, Encoder, IndexBlock, InvertedIndex, RSIndexResult};
-use ffi::{IndexFlags_Index_DocIdsOnly, t_docId};
+use crate::{BlockCapacity, DecodedBy, Decoder, Encoder, IndexBlock, InvertedIndex};
+use ffi::IndexFlags_Index_DocIdsOnly;
+use index_result::RSIndexResult;
+use rqe_core::DocId;
 use smallvec::SmallVec;
 use thin_vec::{Header, ThinVec};
+
+/// Context handed to the GC repair callback for each surviving record.
+///
+/// Carries the block the record was decoded from plus the block's logical index
+/// within the inverted index. Packaged as a struct so future fields (e.g. a
+/// last-block flag, a GC marker) can ride along without changing the callback
+/// signature.
+#[non_exhaustive]
+pub struct RepairContext<'a> {
+    /// The block the surviving record was decoded from.
+    pub block: &'a IndexBlock,
+    /// The block's logical index within the inverted index. Use this instead of
+    /// pointer-equality on `block` — pointer identity isn't reliable if blocks are
+    /// ever decoded into temporary buffers rather than read in place.
+    pub block_idx: usize,
+}
 
 /// The type of repair needed for a block after a garbage collection scan.
 #[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -35,6 +53,7 @@ pub(crate) enum RepairType {
 }
 
 /// Result of scanning the index for garbage collection
+#[cheadergen::config(rename = "InvertedIndexGcDelta")]
 #[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct GcScanDelta {
     /// The index of the last block in the index at the time of the scan. This is used to ensure
@@ -59,6 +78,19 @@ impl GcScanDelta {
     }
 }
 
+#[cfg(feature = "test_utils")]
+impl GcScanDelta {
+    /// Returns a no-op delta with no block repairs, for use in tests that need
+    /// to encode/decode the wire protocol without exercising GC logic.
+    pub const fn empty_for_testing() -> Self {
+        Self {
+            last_block_idx: 0,
+            last_block_num_entries: 0,
+            deltas: vec![],
+        }
+    }
+}
+
 /// Result of scanning a block for garbage collection
 #[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub(crate) struct BlockGcScanResult {
@@ -70,6 +102,7 @@ pub(crate) struct BlockGcScanResult {
 }
 
 /// Information about the result of applying a garbage collection scan to the index
+#[cheadergen::config(rename = "II_GCScanStats")]
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Default)]
 #[repr(C)]
 pub struct GcApplyInfo {
@@ -82,6 +115,11 @@ pub struct GcApplyInfo {
     /// The number of entries that were removed from the index including duplicates
     pub entries_removed: usize,
 
+    /// Net change in the index's block count for this apply. Positive when blocks were added
+    /// (e.g. a `Replace` repair adding more blocks than it removed), negative when removed.
+    /// Callers maintaining per-spec totals should add this signed value to their counter.
+    pub block_count_delta: i64,
+
     /// Whether or not we ignored the last block in the index, since it changed
     /// compared to the time we performed the scan
     pub ignored_last_block: bool,
@@ -91,29 +129,46 @@ impl IndexBlock {
     /// Repair a block by removing records which no longer exists according to `doc_exists`. If a
     /// record does exist, then `repair` is called with it.
     ///
+    /// The `repair` callback receives the surviving record and a [`RepairContext`]
+    /// carrying the block and its logical index within the inverted index. Comparing
+    /// `ctx.block_idx` against `index.number_of_blocks() - 1` answers "is this the last
+    /// block?" without relying on pointer identity — pointer equality won't be stable
+    /// if blocks are ever decoded into temporary buffers rather than read in place.
+    ///
     /// `None` is returned when there is nothing to repair in this block.
-    pub(crate) fn repair<'index, E: Encoder + DecodedBy<Decoder = D>, D: Decoder>(
-        &'index self,
-        doc_exist: impl Fn(t_docId) -> bool,
-        mut repair: Option<impl FnMut(&RSIndexResult<'index>, &IndexBlock)>,
+    pub(crate) fn repair<'block, E: Encoder + DecodedBy<Decoder = D>, D: Decoder>(
+        &'block self,
+        block_idx: usize,
+        doc_exist: impl Fn(DocId) -> bool,
+        mut repair: Option<impl FnMut(&RSIndexResult<'block>, &RepairContext<'block>)>,
         _encoder: PhantomData<E>,
     ) -> std::io::Result<Option<RepairType>> {
-        let mut cursor: std::io::Cursor<&'index [u8]> = std::io::Cursor::new(&self.buffer);
+        let mut cursor: std::io::Cursor<&'block [u8]> = std::io::Cursor::new(&self.buffer);
         let mut last_read_doc_id = None;
         let mut result = D::base_result();
         let mut unique_read = 0;
         let mut unique_write = 0;
         let mut block_changed = false;
+        // Ordinal of the entry being read, used to carry its field-expiration bit
+        // (kept in this block's side bitset, not the encoded buffer) onto the
+        // re-encoded survivor so `add_record` re-propagates it into the new block.
+        let mut ordinal: u16 = 0;
 
         let mut tmp_inverted_index = InvertedIndex::<E>::new(IndexFlags_Index_DocIdsOnly);
 
         while self.buffer.len() as u64 > cursor.position() {
             let base = D::base_id(self, last_read_doc_id.unwrap_or(self.first_doc_id));
             D::decode(&mut cursor, base, &mut result)?;
+            result.has_field_expiration = self.expiration_bit(ordinal);
+            ordinal += 1;
 
             if doc_exist(result.doc_id) {
                 if let Some(repair) = repair.as_mut() {
-                    repair(&result, self);
+                    let ctx = RepairContext {
+                        block: self,
+                        block_idx,
+                    };
+                    repair(&result, &ctx);
                 }
 
                 tmp_inverted_index.add_record(&result)?;
@@ -155,16 +210,22 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     ///
     /// If a doc does exist, then `repair` is called with it to run any repair calculations needed.
     ///
+    /// The higher-ranked bound (`for<'call> FnMut(&RSIndexResult<'call>, ..)`) scopes the
+    /// record and context borrows to a single callback invocation: `repair` must accept any
+    /// lifetime, so it cannot stash a borrow and use it after the call returns. This keeps the
+    /// callback sound regardless of whether records are read in place or decoded into a
+    /// short-lived buffer for the duration of the call.
+    ///
     /// This function returns a delta if GC is needed, or `None` if no GC is needed.
-    pub fn scan_gc<'index>(
-        &'index self,
-        doc_exist: impl Fn(t_docId) -> bool,
-        mut repair: Option<impl FnMut(&RSIndexResult<'index>, &IndexBlock)>,
+    pub fn scan_gc(
+        &self,
+        doc_exist: impl Fn(DocId) -> bool,
+        mut repair: Option<impl for<'call> FnMut(&RSIndexResult<'call>, &RepairContext<'call>)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
         let mut results = Vec::new();
 
         for (i, block) in self.blocks.iter().enumerate() {
-            let repair = block.repair(&doc_exist, repair.as_mut(), PhantomData::<E>)?;
+            let repair = block.repair(i, &doc_exist, repair.as_mut(), PhantomData::<E>)?;
 
             if let Some(repair) = repair {
                 results.push(BlockGcScanResult { index: i, repair });
@@ -195,8 +256,11 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             bytes_freed: 0,
             bytes_allocated: 0,
             entries_removed: 0,
+            block_count_delta: 0,
             ignored_last_block: false,
         };
+
+        let blocks_before = self.blocks.len();
 
         // Check if the last block has changed since the scan was performed
         let last_block_changed = self
@@ -278,6 +342,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             }
         }
 
+        info.block_count_delta = self.blocks.len() as i64 - blocks_before as i64;
         self.gc_marker_inc();
 
         info

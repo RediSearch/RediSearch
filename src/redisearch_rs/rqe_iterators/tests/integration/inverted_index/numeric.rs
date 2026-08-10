@@ -9,10 +9,12 @@
 
 use std::ptr::{self, NonNull};
 
-use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter, IndexFlags_Index_StoreNumeric, t_docId};
+use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter, IndexFlags_Index_StoreNumeric};
+use index_result::RSIndexResult;
 use inverted_index::{
-    FilterNumericReader, IndexReader, InvertedIndex, NumericFilter, NumericReader, RSIndexResult,
+    FilterNumericReader, IndexReader, InvertedIndex, NumericFilter, NumericReader,
 };
+use rqe_core::DocId;
 use rqe_iterators::{
     IteratorType, NoOpChecker, RQEIterator, RQEValidateStatus, SkipToOutcome,
     inverted_index::Numeric,
@@ -117,7 +119,7 @@ struct NumericBaseTest {
 }
 
 impl NumericBaseTest {
-    fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
+    fn expected_record(doc_id: DocId) -> RSIndexResult<'static> {
         // The numeric record has a value of `doc_id * 2.0`.
         RSIndexResult::build_numeric(doc_id as f64 * 2.0)
             .doc_id(doc_id)
@@ -167,7 +169,7 @@ fn numeric_read() {
     let test = NumericBaseTest::new(100);
     let filter = NumericFilter::default();
     let reader = test.test.ii.reader();
-    let reader = FilterNumericReader::new(&filter, reader);
+    let reader = FilterNumericReader::new(filter, reader);
     let mut it = NumericBuilder::new(reader)
         .range_tree(test.test.mock_ctx.numeric_range_tree())
         .build();
@@ -191,7 +193,7 @@ fn numeric_filter() {
         max: 75.0,
         ..Default::default()
     };
-    let reader = FilterNumericReader::new(&filter, test.test.ii.reader());
+    let reader = FilterNumericReader::new(filter, test.test.ii.reader());
     let mut it = NumericBuilder::new(reader)
         .range_tree(test.test.mock_ctx.numeric_range_tree())
         .build();
@@ -276,7 +278,7 @@ fn get_correct_value() {
         max: 3.0,
         ..Default::default()
     };
-    let reader = FilterNumericReader::new(&filter, ii.reader());
+    let reader = FilterNumericReader::new(filter, ii.reader());
 
     let context = MockContext::new(0, 0);
     let mut it = NumericBuilder::new(reader)
@@ -314,7 +316,7 @@ fn eof_after_filtering() {
         max: 2.0,
         ..Default::default()
     };
-    let reader = FilterNumericReader::new(&filter, ii.reader());
+    let reader = FilterNumericReader::new(filter, ii.reader());
     let context = MockContext::new(0, 0);
     let mut it = NumericBuilder::new(reader)
         .range_tree(context.numeric_range_tree())
@@ -407,11 +409,42 @@ fn numeric_no_range_tree_revalidate() {
     assert_eq!(record.doc_id, 1);
 
     // Revalidate should succeed (not abort) even though there is no range tree.
-    // SAFETY: test-only call with valid context
-    assert_eq!(
-        unsafe { it.revalidate(mock_ctx.spec()) }.expect("revalidate failed"),
-        RQEValidateStatus::Ok
-    );
+    let status = it
+        .revalidate(&*mock_ctx.spec_read())
+        .expect("revalidate failed");
+    assert_eq!(status, RQEValidateStatus::Ok);
+}
+
+/// Resume sibling of [`numeric_no_range_tree_revalidate`]: with no range tree,
+/// `should_abort` returns false, so a suspend/resume cycle promotes the iterator
+/// back to `Active` (`Ok`) and the position is preserved.
+#[test]
+fn numeric_no_range_tree_resume() {
+    use rqe_iterators::TypeErasedRQEIterator;
+    use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
+
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let mut ii =
+        InvertedIndex::<inverted_index::numeric::Numeric>::new(IndexFlags_Index_StoreNumeric);
+    let _ = ii.add_record(&RSIndexResult::build_numeric(1.0).doc_id(1).build());
+    let _ = ii.add_record(&RSIndexResult::build_numeric(2.0).doc_id(3).build());
+
+    // Build without a range tree — should_abort will return false.
+    let it = NumericBuilder::new(ii.reader()).build();
+
+    let guard = mock_ctx.spec_read();
+    let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(it)), &guard)
+        .expect("resume should not fail in this test")
+        .expect_ok();
+
+    // The first doc is still available after resume (no range tree ⇒ no abort).
+    let record = it.read().expect("read failed").expect("expected a result");
+    assert_eq!(record.doc_id, 1);
+
+    // A second resume also succeeds.
+    revalidate_via_resume(it, &guard)
+        .expect("resume should not fail in this test")
+        .expect_ok();
 }
 
 /// A [`GeoFilter`] with a non-null address so `is_numeric_filter()` returns `false`.
@@ -429,10 +462,10 @@ pub fn geo_filter_stub() -> GeoFilter {
 }
 
 mod from_tree {
-    use ffi::t_docId;
     use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
     use inverted_index::NumericFilter;
     use numeric_range_tree::NumericRangeTree;
+    use rqe_core::DocId;
     use rqe_iterators::{NumericIteratorVariant, RQEIterator, RQEValidateStatus};
     use rqe_iterators_test_utils::MockContext;
 
@@ -453,10 +486,10 @@ mod from_tree {
         }
     }
 
-    fn build_tree(entries: &[(t_docId, f64)]) -> NumericRangeTree {
+    fn build_tree(entries: &[(DocId, f64)]) -> NumericRangeTree {
         let mut tree = NumericRangeTree::new(false);
         for (doc_id, value) in entries {
-            tree.add(*doc_id, *value, false, 0);
+            tree.add(*doc_id, *value, false, false, 0);
         }
         tree
     }
@@ -648,11 +681,10 @@ mod from_tree {
         // write does not violate aliasing rules.
         unsafe { (*tree_ptr).increment_revision() };
 
-        // SAFETY: test-only call with valid context
-        assert_eq!(
-            unsafe { iters[0].revalidate(ctx.spec()) }.expect("revalidate failed"),
-            RQEValidateStatus::Aborted,
-        );
+        let status = iters[0]
+            .revalidate(&*ctx.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Aborted);
         // SAFETY: `tree_ptr` was created by `Box::into_raw` above; `iters` is dropped
         // before this point and holds only a `NonNull` (not ownership), so no double-free.
         unsafe { drop(Box::from_raw(tree_ptr)) };
@@ -684,11 +716,10 @@ mod from_tree {
         // write does not violate aliasing rules.
         unsafe { (*tree_ptr).increment_revision() };
 
-        // SAFETY: test-only call with valid context
-        assert_eq!(
-            unsafe { iters[0].revalidate(ctx.spec()) }.expect("revalidate failed"),
-            RQEValidateStatus::Ok,
-        );
+        let status = iters[0]
+            .revalidate(&*ctx.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Ok);
 
         // SAFETY: `tree_ptr` was created by `Box::into_raw` above; `iters` is dropped
         // before this point and holds only a `NonNull` (not ownership), so no double-free.
@@ -706,7 +737,8 @@ mod from_tree {
 mod variant {
     use ffi::IndexFlags_Index_StoreNumeric;
     use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
-    use inverted_index::{NumericFilter, RSIndexResult};
+    use index_result::RSIndexResult;
+    use inverted_index::NumericFilter;
     use numeric_range_tree::NumericIndex;
     use rqe_iterators::{FieldExpirationChecker, NumericIteratorVariant};
     use rqe_iterators_test_utils::MockContext;
@@ -828,7 +860,7 @@ mod not_miri {
     }
 
     impl NumericExpirationTest {
-        fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
+        fn expected_record(doc_id: DocId) -> RSIndexResult<'static> {
             // The numeric record has a value of `doc_id * 2.0`.
             RSIndexResult::build_numeric(doc_id as f64 * 2.0)
                 .doc_id(doc_id)
@@ -1002,11 +1034,10 @@ mod not_miri {
 
         // Revalidate before any reads. last_doc_id is 0, so even though
         // needs_revalidation is true, we should get Ok.
-        // SAFETY: test-only call with valid context
-        assert_eq!(
-            unsafe { it.revalidate(test.test.context.spec) }.expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Ok);
 
         // The iterator should still work — doc 1 was removed, so first doc is 3.
         let record = it.read().expect("read failed").expect("expected a result");
@@ -1018,7 +1049,7 @@ mod not_miri {
     }
 
     impl NumericRevalidateTest {
-        fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
+        fn expected_record(doc_id: DocId) -> RSIndexResult<'static> {
             // The numeric record has a value of `doc_id * 2.0`.
             RSIndexResult::build_numeric(doc_id as f64 * 2.0)
                 .doc_id(doc_id)
@@ -1063,20 +1094,17 @@ mod not_miri {
     fn numeric_revalidate_after_index_disappears() {
         let test = NumericRevalidateTest::new(10);
         let mut it = test.create_iterator();
-        let sctx = test.test.context.spec;
 
         // First, verify the iterator works normally and read at least one document
-        // SAFETY: test-only call with valid context
-        assert_eq!(
-            unsafe { it.revalidate(sctx) }.expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Ok);
         assert!(it.read().expect("failed to read").is_some());
-        // SAFETY: test-only call with valid context
-        assert_eq!(
-            unsafe { it.revalidate(sctx) }.expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Ok);
 
         // For numeric iterators, we can simulate index disappearance by
         // manipulating the revision ID. check_abort() compares the stored
@@ -1091,11 +1119,10 @@ mod not_miri {
         }
 
         // Now Revalidate should return Aborted because the revision IDs don't match
-        // SAFETY: test-only call with valid context
-        assert_eq!(
-            unsafe { it.revalidate(sctx) }.expect("revalidate failed"),
-            RQEValidateStatus::Aborted
-        );
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Aborted);
     }
 
     #[test]
@@ -1106,5 +1133,69 @@ mod not_miri {
 
         test.test
             .revalidate_numeric_after_document_deleted(&mut it, ii);
+    }
+
+    /// Resume-flavored siblings of the `revalidate` tests above: the same
+    /// scenarios driven through a suspend/resume cycle
+    /// ([`revalidate_via_resume`]) rather than in-place [`RQEIterator::revalidate`].
+    mod via_resume {
+        use super::*;
+        use crate::inverted_index::utils::via_resume::{
+            revalidate_at_eof, revalidate_basic, revalidate_numeric_after_document_deleted,
+        };
+        use rqe_iterators::{ResumeOutcome, TypeErasedRQEIterator};
+        use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
+
+        #[test]
+        fn numeric_revalidate_basic() {
+            let test = NumericRevalidateTest::new(10);
+            let it = test.create_iterator();
+            revalidate_basic(&test.test, Box::new(it));
+        }
+
+        #[test]
+        fn numeric_revalidate_at_eof() {
+            let test = NumericRevalidateTest::new(10);
+            let it = test.create_iterator();
+            revalidate_at_eof(&test.test, Box::new(it));
+        }
+
+        #[test]
+        fn numeric_revalidate_after_document_deleted() {
+            let test = NumericRevalidateTest::new(10);
+            let it = test.create_iterator();
+            let ii = test.test.context.numeric_inverted_index();
+            revalidate_numeric_after_document_deleted(&test.test, Box::new(it), ii);
+        }
+
+        /// Resume sibling of [`numeric_revalidate_after_index_disappears`]: a
+        /// range-tree revision bump while suspended (simulating a GC node
+        /// split/removal) must abort the resume, since the cached revision id no
+        /// longer matches.
+        #[test]
+        fn numeric_revalidate_after_range_tree_modified() {
+            let test = NumericRevalidateTest::new(10);
+            let it = Box::new(test.create_iterator());
+            let guard = test.test.context.spec_read();
+
+            // A clean resume cycle works before any modification; read one doc so
+            // the iterator holds a non-trivial position.
+            let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
+                .expect("resume should not fail in this test")
+                .expect_ok();
+            assert!(it.read().expect("failed to read").is_some());
+
+            // Bump the range tree's revision id (interior mutability via raw
+            // pointer, so it does not conflict with the read guard).
+            {
+                let rt = test.test.context.numeric_range_tree_mut();
+                rt.increment_revision();
+            }
+
+            // The cached revision no longer matches, so resume must abort.
+            let outcome =
+                revalidate_via_resume(it, &guard).expect("resume should not fail in this test");
+            assert!(matches!(outcome, ResumeOutcome::Aborted));
+        }
     }
 }

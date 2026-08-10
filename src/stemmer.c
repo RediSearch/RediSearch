@@ -7,9 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "stemmer.h"
+
 #include <string.h>
 #include <stdio.h>
-#include <sys/param.h>
+#include <strings.h>
+
 #include "snowball/include/libstemmer.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
@@ -65,7 +67,7 @@ static int sbstemmer_Reset(Stemmer *stemmer, StemmerType type, RSLanguage langua
 }
 
 Stemmer *__newSnowballStemmer(RSLanguage language) {
-  struct sb_stemmer *sb = sb_stemmer_new(RSLanguage_ToString(language), NULL);
+  struct sb_stemmer *sb = sb_stemmer_new(RSLanguage_ToSnowballStemmer(language), NULL);
   // No stemmer available for this language
   if (!sb) {
     return NULL;
