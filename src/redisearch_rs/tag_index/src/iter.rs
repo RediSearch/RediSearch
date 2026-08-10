@@ -142,10 +142,15 @@ impl<'ti> ValueIterator<'ti> {
         }
     }
 
-    /// Set the timeout deadline used while iterating (affix queries). It is
-    /// checked in [`advance`](Self::advance), which stops once it is reached.
-    /// A zero timeout (`0/0`) clears it, as does the Redis "no timeout"
-    /// sentinel (handled by [`expansion_timeout`]).
+    /// Set the deadline honored while iterating (affix queries). It is checked in
+    /// [`advance`](Self::advance), which stops once it is reached.
+    ///
+    /// An all-zero `timeout` clears the deadline rather than setting one far in
+    /// the past. C reaches the same outcome by not calling
+    /// `TrieMapIterator_SetTimeout` at all when no timeout is configured, but here
+    /// the value always arrives, and C's `TimedOut` fires whenever `now >=`
+    /// deadline — so a zeroed one would abort the iteration immediately. The
+    /// Redis "no timeout" sentinel is handled by [`expansion_timeout`].
     pub fn set_timeout(&mut self, timeout: timespec) {
         self.timeout = if timeout.tv_sec == 0 && timeout.tv_nsec == 0 {
             AnyTimeoutChecker::NoTimeout(NoTimeoutChecker)

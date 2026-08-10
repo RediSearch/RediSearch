@@ -815,15 +815,17 @@ impl TagIndex {
     /// Each yielded slice is the matched term including its trailing NUL, so its
     /// pointer is directly usable as a C `char*`. Terms are yielded lazily; the
     /// two branches produce different iterator types, so the result is boxed.
+    ///
+    /// # Panics
+    /// Panics if this index was created without `WITHSUFFIXTRIE`. C's
+    /// `TagIndex_GetSuffixMatches` checks that before calling in.
     pub fn suffix_trie_map<'a>(
         &'a self,
         tag: &[u8],
         prefix: bool,
         timeout: Option<timespec>,
     ) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
-        let Some(suffix) = &self.suffix else {
-            panic!();
-        };
+        let suffix = self.suffix.as_ref().expect("suffix trie must exist");
 
         // Captures nothing, so it is `Copy` and can be moved into either branch's
         // `flat_map` closure.

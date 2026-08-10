@@ -273,24 +273,30 @@ impl TagSuffixIndex {
             "empty string is likely a caller-level mistake"
         );
 
-        let mut owned_term = None;
+        // Taken from the `tag` entry on the first iteration and dropped when this
+        // call returns, once no suffix entry points at it any more.
+        let mut deleted_term = None;
 
         for j in 0..tag.len() {
             let data = self.entries.find_mut(&tag[j..]);
             debug_assert!(data.is_some(), "all suffixes must exist");
-
-            let data = data.expect("all suffixes must exist");
+            // C asserts the same invariant but carries on harmlessly when the
+            // entry is missing; do that rather than panicking inside the GC.
+            let Some(data) = data else { continue };
 
             if j == 0 {
-                owned_term = data.full_term.take();
+                deleted_term = data.full_term.take();
             }
 
             // Drop the references pointing at the term being deleted, keeping
             // every reference that belongs to a different term (C's
             // `removeSuffix`, which deletes the single array entry equal to the
-            // deleted term).
-            data.refs
-                .retain(|b| !b.belong_to(owned_term.as_ref().unwrap()));
+            // deleted term). With no term to delete there is nothing to match:
+            // C compares by content, and every `refs` entry reachable here
+            // belongs to a strictly longer term.
+            if let Some(deleted) = &deleted_term {
+                data.refs.retain(|b| !b.belong_to(deleted));
+            }
 
             if data.full_term.is_none() && data.refs.is_empty() {
                 self.entries.remove(&tag[j..]);
@@ -377,6 +383,24 @@ mod tests {
 
         assert!(idx.find(b"").is_none());
         assert!(idx.find(b"\0").is_none());
+    }
+
+    /// Deleting a tag that is merely a *suffix* of an indexed term must not
+    /// panic. The entry exists but owns no term, so there is nothing to unlink —
+    /// C's `deleteSuffixTrieMap` copes with a NULL `oldTerm` the same way.
+    #[test]
+    fn delete_of_a_suffix_only_entry_changes_nothing() {
+        let mut idx = TagSuffixIndex::new();
+        idx.add(b"cat");
+
+        idx.delete(b"at");
+
+        assert!(idx.find(b"cat").is_some(), "`cat` is untouched");
+        assert_eq!(
+            idx.find(b"at").expect("kept for `cat`").members().count(),
+            1,
+            "`at` still references `cat`"
+        );
     }
 
     /// Deleting a term drops only the references pointing at that term, keeping
