@@ -26,7 +26,7 @@ pub unsafe extern "C" fn NewNotIteratorNonOptimized(
     child: *mut QueryIterator,
     max_doc_id: t_docId,
     weight: f64,
-    timeout: timespec,
+    timeout: *const timespec,
     skip_timeout_checks: bool,
 ) -> *mut QueryIterator {
     let child = NonNull::new(child)
@@ -34,17 +34,12 @@ pub unsafe extern "C" fn NewNotIteratorNonOptimized(
     // SAFETY: thanks to 1 + 2
     let child = unsafe { CRQEIterator::new(child) };
 
-    let (rust_timeout, skip_timeout_checks) = if skip_timeout_checks {
-        (std::time::Duration::ZERO, true)
-    } else {
-        match crate::timespec::duration_from_redis_timespec(timeout) {
-            Some(d) => (d, false),
-            // Redis sentinel (no timeout) => skip timeout checks
-            None => (std::time::Duration::ZERO, true),
-        }
+    let deadline = NonNull::new(timeout.cast_mut()).expect("timeout must be non-null");
+    // SAFETY: the C query context owns the deadline for the lifetime of the returned iterator and
+    // updates it only between cursor reads, never concurrently with a probe.
+    let rust_iterator = unsafe {
+        Not::new_with_deadline(child, max_doc_id, weight, deadline, skip_timeout_checks)
     };
-
-    let rust_iterator = Not::new(child, max_doc_id, weight, rust_timeout, skip_timeout_checks);
 
     RQEIteratorWrapper::boxed_new(IteratorType_NOT_ITERATOR, rust_iterator)
 }

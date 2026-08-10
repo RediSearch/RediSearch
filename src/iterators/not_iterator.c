@@ -17,6 +17,7 @@ typedef struct {
   QueryIterator *child;       // child index iterator
   t_docId maxDocId;
   TimeoutCtx timeoutCtx;
+  const struct timespec *timeout;
 } NotIteratorOptimized;
 
 static void NI_Rewind(QueryIterator *base) {
@@ -86,7 +87,7 @@ static IteratorStatus NI_Read_Optimized(QueryIterator *base) {
         if (rc == ITERATOR_TIMEOUT) return rc;
       }
     }
-    if (TimedOut_WithCtx_Gran(&ni->timeoutCtx, 5000)) {
+    if (TimedOut_WithCounter_Gran(ni->timeout, &ni->timeoutCtx.counter, 5000)) {
       return ITERATOR_TIMEOUT;
     }
   }
@@ -246,6 +247,7 @@ QueryIterator *NewNotIterator(QueryIterator *it, t_docId maxDocId, double weight
 
     // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks
     ni->timeoutCtx = (TimeoutCtx){ .timeout = timeout, .counter = skipTimeoutChecks ? REDISEARCH_UNINITIALIZED : 0 };
+    ni->timeout = &q->sctx->time.timeout;
 
     ret->current = NewVirtualResult(weight, RS_FIELDMASK_ALL);
     ret->current->docId = 0;
@@ -259,7 +261,7 @@ QueryIterator *NewNotIterator(QueryIterator *it, t_docId maxDocId, double weight
     ret->Rewind = NI_Rewind;
     ret->Revalidate = NI_Revalidate_Optimized;
   } else {
-    ret = NewNotIteratorNonOptimized(it, maxDocId, weight, timeout, skipTimeoutChecks);
+    ret = NewNotIteratorNonOptimized(it, maxDocId, weight, &q->sctx->time.timeout, skipTimeoutChecks);
   }
 
   return ret;
@@ -273,6 +275,7 @@ QueryIterator *_New_NotIterator_With_WildCardIterator(QueryIterator *child, Quer
   ni->wcii = wcii;
   ni->maxDocId = maxDocId;          // Valid for the optimized case as well, since this is the maxDocId of the embedded wildcard iterator
   ni->timeoutCtx = (TimeoutCtx){ .timeout = timeout, .counter = timeoutCounter };
+  ni->timeout = &ni->timeoutCtx.timeout;
 
   ret->current = NewVirtualResult(weight, RS_FIELDMASK_ALL);
   ret->current->docId = 0;

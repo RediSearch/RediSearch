@@ -52,3 +52,34 @@ def TestLimitWithCursor():
         total_res += len(res["results"])
     # before the bug fix we got total_res = limit - cursor_reads
     env.assertEqual(total_res, num_docs, message="unexpected results count")
+
+
+@skip(cluster=True)
+def testCursorDeadlineIsNotStaleOnResume():
+    """A cursor read is measured against its own deadline, not an earlier read's."""
+    env = Env(protocol=3, moduleArgs='ON_TIMEOUT RETURN')
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()
+
+    skipped = 6000
+    with conn.pipeline(transaction=False) as p:
+        p.execute_command('HSET', 'doc:0', 'text', 'rare')
+        for i in range(1, skipped + 1):
+            p.execute_command('HSET', f'doc:{i}', 'text', 'common')
+        p.execute_command('HSET', f'doc:{skipped + 1}', 'text', 'rare')
+        p.execute_command('HSET', f'doc:{skipped + 2}', 'text', 'rare')
+        p.execute()
+
+    query_timeout_ms = 2000
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '-common', 'LOAD', '1', '@__key',
+                          'WITHCURSOR', 'COUNT', '1', 'TIMEOUT', query_timeout_ms)
+    env.assertEqual([d['extra_attributes']['__key'] for d in res['results']], ['doc:0'])
+    env.assertNotEqual(cursor, 0)
+    time.sleep(query_timeout_ms / 1000 * 1.5)
+
+    remaining = []
+    while cursor != 0:
+        res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+        env.assertEqual(res.get('warning', []), [])
+        remaining.extend(d['extra_attributes']['__key'] for d in res['results'])
+    env.assertEqual(remaining, [f'doc:{skipped + 1}', f'doc:{skipped + 2}'])

@@ -9,7 +9,7 @@
 
 //! Supporting types for [`Not`].
 
-use std::time::Duration;
+use std::{ptr::NonNull, time::Duration};
 
 use ffi::{RS_FIELDMASK_ALL, t_docId};
 use inverted_index::RSIndexResult;
@@ -69,6 +69,30 @@ where
             } else {
                 Some(TimeoutContext::new(timeout, 5_000, false))
             },
+        }
+    }
+
+    /// Create a NOT iterator that reads a live deadline owned by the query context.
+    ///
+    /// # Safety
+    ///
+    /// `deadline` must satisfy [`TimeoutContext::from_deadline`]'s contract.
+    pub unsafe fn new_with_deadline(
+        child: I,
+        max_doc_id: t_docId,
+        weight: f64,
+        deadline: NonNull<ffi::timespec>,
+        skip_timeout_checks: bool,
+    ) -> Self {
+        Self {
+            child: MaybeEmpty::new(child),
+            max_doc_id,
+            forced_eof: false,
+            result: RSIndexResult::virt()
+                .weight(weight)
+                .field_mask(RS_FIELDMASK_ALL),
+            // SAFETY: forwarded to the caller by this method's contract.
+            timeout_ctx: unsafe { TimeoutContext::from_deadline(deadline, 5_000, skip_timeout_checks) },
         }
     }
 
