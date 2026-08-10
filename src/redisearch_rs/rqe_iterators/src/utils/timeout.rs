@@ -82,10 +82,6 @@ impl TimeoutContextClock {
     /// To skip timeout checks entirely, use [`NoTimeout`] instead of
     /// constructing this context.
     #[inline(always)]
-    /// # Safety
-    ///
-    /// `deadline` must remain valid and at a stable address for this context's lifetime, and no
-    /// write to it may overlap a timeout probe.
     pub fn new(duration: Duration, limit: u32) -> Self {
         Self {
             deadline: ClockDeadline::Captured(Instant::now() + duration),
