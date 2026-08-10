@@ -307,7 +307,7 @@ apply to [/adversarial-review](.skills/adversarial-review/SKILL.md), whose follo
 deliberately blind to the earlier ones and so review the whole change by design.
 
 - Review only what changed since your previous review on this PR. Do not raise findings on code you already reviewed and chose not to flag, and do not reopen resolved threads.
-- If your earlier finding was addressed and the fix draws a new finding in the same hunk, do not post a third variation of the same concern — say once that the hunk needs a design decision, name the trade-off, and leave it to the human reviewer. A concrete failure is the exception: report a crash, memory-safety bug, or data loss with its failure scenario however many rounds in, since nobody can weigh the trade-off without it.
+- If your earlier finding was addressed and the fix draws a new finding in the same hunk, do not post a third variation of the same concern — say once that the hunk needs a design decision, name the trade-off, and leave it to the human reviewer. A concrete failure is the exception: report it with its failure scenario however many rounds in, since nobody can weigh the trade-off without it.
 - Prefer confirming that earlier findings are resolved over finding new material. A re-review that reports nothing is a good outcome.
 
 ### Responding to automated review
