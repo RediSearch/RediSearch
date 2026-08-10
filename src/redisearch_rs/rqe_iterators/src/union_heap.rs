@@ -567,15 +567,19 @@ where
         // and `Not::revalidate` asserts that of its child — which is where a
         // `QUICK_EXIT` union usually sits.
         //
-        // Both modes can see one. With `QUICK_EXIT` it is the mode's own early
-        // return: `rebuild_heap` keys on `last_doc_id()`, which answers 0 for a child
-        // that has never been read and an earlier round's id for one that
-        // `advance_lagging_children` left in the heap when it returned on an exact
-        // match. Without it there is exactly one way: a child that ran out and was
-        // dropped can *resurrect* during the revalidation above — an inverted-index
-        // leaf rewinds and re-seeks the position it held, and rewinding clears the
-        // past-the-end state — so `rebuild_heap` re-admits it far behind a union that
-        // carried on without it.
+        // With `QUICK_EXIT` this is the mode's own early return, and routine:
+        // `rebuild_heap` keys on `last_doc_id()`, which answers 0 for a child that has
+        // never been read and an earlier round's id for one that
+        // `advance_lagging_children` left in the heap when it returned on an exact match.
+        //
+        // A full union reaches this only if a child broke the contract, since
+        // `advance_matching_children` leaves no active child behind the union and
+        // exhaustion is terminal across a revalidation (see [`RQEIterator::at_eof`]), so
+        // a child dropped on EOF cannot be re-admitted by `rebuild_heap` behind us.
+        // Children include `CRQEIterator` wrapping a C implementation and the enterprise
+        // disk iterators, neither of which this crate can vouch for, so the recovery
+        // below stays rather than becoming an assertion — it is covered by
+        // `revalidate_resurrected_child_does_not_drag_a_full_union_backwards`.
         if min.doc_id < original_last_doc_id {
             // A child still sitting on the union's document backs the position as it
             // stands: republish from it (the result holds raw pointers into children

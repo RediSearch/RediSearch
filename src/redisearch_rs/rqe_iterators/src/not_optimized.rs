@@ -357,9 +357,12 @@ where
 
         // 3. If the wildcard moved, sync state.
         if matches!(wcii_status, RQEValidateStatus::Moved { .. }) {
-            // Sync the EOF flag with the wildcard iterator. This clears a
-            // previously-set forced_eof so the iterator can recover.
-            self.forced_eof = self.wcii.at_eof();
+            // Sync the EOF flag with the wildcard iterator. Latched, never assigned: a
+            // wildcard that has run out means we have too, and clearing the flag would
+            // let a wildcard that recovered documents revive an iterator this one had
+            // already reported as exhausted. `OptionalOptimized` latches the same way,
+            // for the same reason — `rewind` is what restarts an iterator.
+            self.forced_eof |= self.wcii.at_eof();
             // Track whether we land on a valid NOT result. Starts true
             // when wcii is not at EOF (we have a candidate position).
             //
@@ -369,7 +372,15 @@ where
             // loop and `skip_to`, because each publishes a wildcard position of
             // its own. Without it, a concurrent index change could hand a native
             // parent `Moved { current: Some(_) }` with an out-of-range id.
-            let mut have_valid_pos = !self.forced_eof && self.wcii.last_doc_id() <= self.max_doc_id;
+            //
+            // `past_end` joins the guard because exhaustion is terminal until `rewind`
+            // (see [`RQEIterator::at_eof`]): an iterator that entered revalidation past
+            // its end must not leave it holding a position again. `forced_eof` alone is
+            // not enough — [`read`](RQEIterator::read) recomputes `past_end` from
+            // `read_inner`, so a `past_end` set without it would be dropped on the next
+            // read.
+            let mut have_valid_pos =
+                !self.past_end && !self.forced_eof && self.wcii.last_doc_id() <= self.max_doc_id;
             if have_valid_pos {
                 self.result.doc_id = self.wcii.last_doc_id();
 
@@ -407,8 +418,8 @@ where
             // Keep the has-current state in step with what we are about to
             // report: a `Moved { current: None }` must leave `current()` — and
             // `at_eof()`, its negation — agreeing with it, rather than handing
-            // back the stale pre-revalidation result. Landing on a valid position
-            // clears the flag, mirroring the `forced_eof` recovery above.
+            // back the stale pre-revalidation result. This only ever sets the flag:
+            // `have_valid_pos` is false whenever it was already set, per the guard above.
             self.past_end = !have_valid_pos;
 
             Ok(RQEValidateStatus::Moved {

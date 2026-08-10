@@ -457,22 +457,83 @@ where
         // If there has been a GC cycle on this key while we were suspended, the offset might not be valid
         // anymore. This means that we need to seek the last docId we were at
         let last_doc_id = self.last_doc_id();
+        let was_at_eos = self.at_eos;
+        let result_doc_id = self.result.doc_id;
         // Reset the state of the reader
         self.rewind();
+
+        if was_at_eos {
+            // Exhaustion is terminal until `rewind` — see [`RQEIterator::at_eof`]. The re-seek
+            // below would re-find `last_doc_id`, the document we already yielded, and hand this
+            // iterator back to its parent as live; a composite that had dropped it on EOF would
+            // then re-admit it far behind the position it has moved on to.
+            //
+            // The `rewind` above still has to happen: it is the only thing that refreshes the
+            // reader's `gc_marker` and repoints it at a valid block, and
+            // [`ResumableReader::refresh_pointers`] deliberately leaves the buffer pointer stale
+            // on the GC path precisely because a rewind is coming. So we rewind and then restore
+            // the past-the-end position on top of it.
+            self.at_eos = true;
+            self.last_doc_id = last_doc_id;
+            // Skipping the re-seek also skips the re-decode that would have rebuilt the result's
+            // borrowed offsets against the live buffer, so drop them here instead. We only get
+            // this far when `needs_revalidation` fired, i.e. GC ran, and
+            // [`RefreshOutcome::NeedsReseek`] spells out that an `RSOffsetSlice` borrowed from
+            // the old buffer does not survive that. Nothing reads them through the trait —
+            // `current()` answers `None` while `at_eos` — but they sit behind an [`Active`]
+            // `SharedPtr` whose invariant says the referent is live, and a dangling pointer is
+            // not something to leave behind an invariant that denies it. The resume path clears
+            // them for the same reason, just before its own cast.
+            //
+            // Only `Borrowed` points into the index; the other variants own their offsets.
+            if let Some(RawTermRecord::Borrowed { offsets, .. }) = self.result.as_term_mut() {
+                *offsets = RawOffsetSlice::empty();
+            }
+            // Composites cache raw pointers into a child's result, so leave the id the last yield
+            // put there rather than the zero `rewind` wrote.
+            self.result.doc_id = result_doc_id;
+            return Ok(RQEValidateStatus::Ok);
+        }
 
         if last_doc_id == 0 {
             // No need to skip if we're starting from the very beginning.
             return Ok(RQEValidateStatus::Ok);
         }
 
+        /// Which of the three re-seek outcomes we landed on, as a plain tag: the borrow
+        /// [`skip_to`](RQEIterator::skip_to) hands back has to end before `self` can be
+        /// touched again.
+        enum Reseek {
+            /// Landed back on the document we held.
+            Found,
+            /// Landed on a later document.
+            Moved,
+            /// Nothing left at or after the document we held.
+            Exhausted,
+        }
+
         // Try jumping to the last docId
-        let res = match self.skip_to(last_doc_id)? {
-            Some(SkipToOutcome::Found(_)) => RQEValidateStatus::Ok,
-            Some(SkipToOutcome::NotFound(doc)) => RQEValidateStatus::Moved { current: Some(doc) },
-            None => RQEValidateStatus::Moved { current: None },
+        let reseek = match self.skip_to(last_doc_id)? {
+            Some(SkipToOutcome::Found(_)) => Reseek::Found,
+            Some(SkipToOutcome::NotFound(_)) => Reseek::Moved,
+            None => Reseek::Exhausted,
         };
 
-        Ok(res)
+        match reseek {
+            Reseek::Found => Ok(RQEValidateStatus::Ok),
+            Reseek::Moved => Ok(RQEValidateStatus::Moved {
+                current: self.current(),
+            }),
+            Reseek::Exhausted => {
+                // The document we were sitting on is gone and there is nothing after it, so we
+                // are now past the end. An exhausted iterator still reports the position its
+                // last yield left it at (see [`RQEIterator::last_doc_id`]) — the `rewind` above
+                // zeroed it, and `skip_to` leaves it alone when it carries no result, so restore
+                // it rather than claiming we never read anything.
+                self.last_doc_id = last_doc_id;
+                Ok(RQEValidateStatus::Moved { current: None })
+            }
+        }
     }
 
     #[inline(always)]
@@ -565,6 +626,11 @@ where
         // while a freshly-created iterator is suspended, resume would reseek to that first
         // doc and report Ok, causing the next read() to skip the first result.
         let last_doc_id = self.last_doc_id;
+        // Read before the `Suspended → Active` cast below: both are mode-independent, and the
+        // re-seek in step 3 has to know whether it is restoring a live position or a
+        // past-the-end one.
+        let was_at_eos = self.at_eos;
+        let result_doc_id = self.result.doc_id;
 
         // Step 1: refresh reader pointers *on the suspended form*. This never
         // materializes a `&'a` borrow of any potentially-dangling field — the
@@ -619,6 +685,20 @@ where
             RefreshOutcome::NeedsReseek => {
                 active.rewind();
 
+                if was_at_eos {
+                    // Exhaustion is terminal until `rewind` — the same restore
+                    // [`RQEIterator::revalidate`] performs, and for the same reason: the re-seek
+                    // below would re-find the document we already yielded and report this
+                    // iterator as live to a composite that had written it off. The `rewind` above
+                    // still has to run — it is what repoints the reader at a valid block and
+                    // refreshes its `gc_marker` after `refresh_pointers` deliberately left the
+                    // buffer pointer stale.
+                    active.at_eos = true;
+                    active.last_doc_id = last_doc_id;
+                    active.result.doc_id = result_doc_id;
+                    return Ok(ResumeStatus::Unchanged);
+                }
+
                 if last_doc_id == 0 {
                     // We hadn't returned anything yet, so there's nothing to
                     // re-seek; a fresh `read()` will produce the right next doc.
@@ -627,7 +707,14 @@ where
 
                 Ok(match active.skip_to(last_doc_id)? {
                     Some(SkipToOutcome::Found(_)) => ResumeStatus::Unchanged,
-                    Some(SkipToOutcome::NotFound(_)) | None => ResumeStatus::Moved,
+                    Some(SkipToOutcome::NotFound(_)) => ResumeStatus::Moved,
+                    None => {
+                        // Past the end now. Restore the position the last yield left, which the
+                        // `rewind` above zeroed — see the matching arm in
+                        // [`RQEIterator::revalidate`].
+                        active.last_doc_id = last_doc_id;
+                        ResumeStatus::Moved
+                    }
                 })
             }
         }

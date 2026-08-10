@@ -131,7 +131,10 @@ enum RevalidateSummary<'index> {
 /// The checker verifies the [`RQEIterator`] surface only. It does not
 /// implement the suspend/resume machinery
 /// ([`RQEIteratorBoxed`](rqe_iterators::RQEIteratorBoxed)), so tests
-/// exercising that path still drive the unwrapped iterator.
+/// exercising that path still drive the unwrapped iterator. The cross-cycle
+/// guarantees are asserted by
+/// [`revalidate_via_resume`](crate::revalidate_via_resume) instead, which every
+/// resume test funnels through.
 #[expect(rustdoc::private_intra_doc_links)]
 pub struct ContractChecker<I> {
     inner: I,

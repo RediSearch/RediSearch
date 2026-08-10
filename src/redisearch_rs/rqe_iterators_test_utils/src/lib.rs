@@ -205,10 +205,32 @@ fn assert_eof_agrees_with_current<'index, I: RQEIterator<'index>>(
 /// migration away from `RQEIterator::revalidate`.
 ///
 /// See [`ResumeOutcomeExt`] for `expect_ok` / `expect_moved`.
+///
+/// # Contract checks
+///
+/// [`ContractChecker`] verifies the [`RQEIterator`] surface but not the
+/// suspend/resume machinery, so the cross-cycle guarantees are asserted here
+/// instead — this is the single funnel every resume test goes through. On any
+/// outcome that hands an iterator back, it checks that
+///
+/// - exhaustion survived the cycle: an iterator that was at
+///   [`at_eof`](RQEIterator::at_eof) is still at it afterwards. A composite drops
+///   children that report EOF, so one that comes back live re-enters a parent
+///   that has already moved on without it;
+/// - the position did not move backwards, which would replay documents; and
+/// - [`ResumeOutcome::Ok`] means exactly that — same position, same EOF answer —
+///   matching the promise its [`RQEValidateStatus::Ok`] counterpart makes on the
+///   `revalidate` side.
+///
+/// [`ContractChecker`]: crate::contract_checker::ContractChecker
+/// [`RQEValidateStatus::Ok`]: rqe_iterators::RQEValidateStatus::Ok
 pub fn revalidate_via_resume<'borrow, 'index>(
     it: TypeErasedRQEIterator<'index>,
     spec: &'borrow IndexSpecReadGuard<'index>,
 ) -> Result<ResumeOutcome<TypeErasedRQEIterator<'index>>, rqe_iterators::RQEIteratorError> {
+    let was_at_eof = it.at_eof();
+    let previous_last_doc_id = it.last_doc_id();
+
     let suspended =
         <TypeErasedRQEIterator<'index> as rqe_iterators::RQEIteratorBoxed<'index>>::suspend(
             Box::new(it),
@@ -219,7 +241,38 @@ pub fn revalidate_via_resume<'borrow, 'index>(
     // restore position and can fail with an `RQEIteratorError` (e.g. timeout);
     // propagate it like the production path.
     let TypeErasedRQESuspendedIterator(inner) = *suspended;
-    inner.resume(spec)
+    let outcome = inner.resume(spec)?;
+
+    // `Aborted` yields no iterator to inspect; every other outcome does.
+    if let ResumeOutcome::Ok(it) | ResumeOutcome::Moved(it) = &outcome {
+        if was_at_eof {
+            assert!(
+                it.at_eof(),
+                "resume: an iterator that had run past its last result cannot come back \
+                 without a rewind",
+            );
+        }
+        assert!(
+            it.last_doc_id() >= previous_last_doc_id,
+            "resume: must not move the position backwards, but doc {} comes before doc {}",
+            it.last_doc_id(),
+            previous_last_doc_id,
+        );
+        if matches!(outcome, ResumeOutcome::Ok(_)) {
+            assert_eq!(
+                it.last_doc_id(),
+                previous_last_doc_id,
+                "resume: Ok promises the same position, but last_doc_id() changed",
+            );
+            assert_eq!(
+                it.at_eof(),
+                was_at_eof,
+                "resume: Ok promises the same position, but at_eof() changed",
+            );
+        }
+    }
+
+    Ok(outcome)
 }
 
 /// Test-only ergonomic accessors on [`ResumeOutcome`].

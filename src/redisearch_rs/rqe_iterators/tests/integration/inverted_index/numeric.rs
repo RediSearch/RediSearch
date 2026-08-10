@@ -1107,6 +1107,15 @@ mod not_miri {
     }
 
     #[test]
+    fn numeric_revalidate_at_eof_after_gc() {
+        let test = NumericRevalidateTest::new(10);
+        let mut it = ContractChecker::new(test.create_iterator());
+        let ii = test.test.context.numeric_inverted_index();
+
+        test.test.revalidate_numeric_at_eof_after_gc(&mut it, ii);
+    }
+
+    #[test]
     fn numeric_revalidate_after_index_disappears() {
         let test = NumericRevalidateTest::new(10);
         let mut it = ContractChecker::new(test.create_iterator());
@@ -1158,6 +1167,7 @@ mod not_miri {
         use super::*;
         use crate::inverted_index::utils::via_resume::{
             revalidate_at_eof, revalidate_basic, revalidate_numeric_after_document_deleted,
+            revalidate_numeric_at_eof_after_gc,
         };
         use rqe_iterators::{ResumeOutcome, TypeErasedRQEIterator};
         use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
@@ -1174,6 +1184,15 @@ mod not_miri {
             let test = NumericRevalidateTest::new(10);
             let it = test.create_iterator();
             revalidate_at_eof(&test.test, Box::new(it));
+        }
+
+        #[test]
+        fn numeric_revalidate_at_eof_after_gc() {
+            let test = NumericRevalidateTest::new(10);
+            let it = test.create_iterator();
+            let ii = test.test.context.numeric_inverted_index();
+
+            revalidate_numeric_at_eof_after_gc(&test.test, Box::new(it), ii);
         }
 
         #[test]

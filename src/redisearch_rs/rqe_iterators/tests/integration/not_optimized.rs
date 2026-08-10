@@ -811,6 +811,44 @@ mod revalidate {
         it.read().unwrap().unwrap();
     }
 
+    /// A wildcard that resurrects itself must not resurrect the `NOT` above it.
+    ///
+    /// The mock deliberately breaks the contract here — it reports `Moved` back onto a
+    /// document *behind* the position it held while past its end, which no conforming
+    /// iterator does. That is the point: `W` is a type parameter, and among the things
+    /// it can be is a [`CRQEIterator`](rqe_iterators::c2rust::CRQEIterator) wrapping a C
+    /// implementation this crate cannot vouch for. Exhaustion has to be terminal because
+    /// this iterator latches it, not because every possible wildcard is well-behaved.
+    #[test]
+    fn revalidate_stays_exhausted_when_wildcard_resurrects() {
+        let (_guard, context) = make_revalidate_context();
+
+        let wcii = Mock::new([1, 5, 10]);
+        let mut wc_data = wcii.data();
+        // Out of range of the wildcard, so every wildcard document is a NOT result.
+        let child = Mock::new([1000]);
+        let mut it =
+            ContractChecker::new(NotOptimized::new(wcii, child, 100, 1.0, NoTimeoutChecker));
+
+        // Drain: the wildcard running out is what exhausts this iterator.
+        while it.read().unwrap().is_some() {}
+        assert!(it.at_eof());
+
+        // The wildcard comes back live on a document it had already yielded.
+        wc_data.set_revalidate_reseeks_to(Some(5));
+
+        let status = it.revalidate(&*context.spec_read()).unwrap();
+        assert!(matches!(status, RQEValidateStatus::Moved { current: None }));
+        assert!(
+            it.at_eof(),
+            "a resurrected wildcard must not revive the NOT above it",
+        );
+
+        // And it stays exhausted: nothing the wildcard recovered leaks out on a read.
+        assert!(it.read().unwrap().is_none());
+        assert!(it.at_eof());
+    }
+
     /// Wildcard moves to the same position as child after revalidation.
     #[test]
     fn revalidate_wc_moves_to_same_id_as_child() {

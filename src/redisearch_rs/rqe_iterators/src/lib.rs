@@ -219,6 +219,22 @@ pub trait RQEIterator<'index> {
     /// The iterator should check if it is still valid by comparing its stored state
     /// against the current index state.
     ///
+    /// # Exhaustion is terminal
+    ///
+    /// An implementation that was at [`at_eof`](Self::at_eof) on entry must still be
+    /// at it on return — only [`rewind`](Self::rewind) restarts an iterator, and
+    /// [`Moved`](RQEValidateStatus::Moved)`{ current: Some(_) }` out of the exhausted
+    /// state is forbidden outright. Callers act on exhaustion irreversibly: a
+    /// composite drops the children that report it, so one that comes back alive
+    /// re-enters a parent that has already moved on without it, replaying documents
+    /// from behind the position that parent now holds.
+    ///
+    /// The trap is restoring a position by re-seeking: [`rewind`](Self::rewind) clears
+    /// the past-the-end state, and a re-seek to the last yielded document *finds* it,
+    /// so an exhausted iterator silently becomes a live one sitting on a result it has
+    /// already handed out. Restore the exhausted position instead of seeking back to
+    /// it. The same requirement applies to [`RQESuspendedIterator::resume`].
+    ///
     /// # Errors
     ///
     /// Revalidation re-reads and seeks the index to restore the position, so it can fail with an

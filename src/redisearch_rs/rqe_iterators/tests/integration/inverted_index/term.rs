@@ -352,6 +352,18 @@ mod not_miri {
         test.test.revalidate_at_eof(&mut it);
     }
 
+    #[test]
+    fn term_revalidate_at_eof_after_gc() {
+        let test = TermRevalidateTest::new(10);
+        let mut it = ContractChecker::new(test.create_iterator());
+        let ii = {
+            use inverted_index::{full::Full, opaque::OpaqueEncoding};
+            Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut()
+        };
+
+        test.test.revalidate_at_eof_after_gc(&mut it, ii);
+    }
+
     /// Driven bare, deliberately: this test reaches for `swap_index`, which
     /// swaps the index out from under the iterator by `&mut self`. The checker
     /// deliberately hands out no mutable access to what it wraps — a mutation it
@@ -450,7 +462,8 @@ mod not_miri {
     mod via_resume {
         use super::*;
         use crate::inverted_index::utils::via_resume::{
-            revalidate_after_document_deleted, revalidate_at_eof, revalidate_basic,
+            revalidate_after_document_deleted, revalidate_at_eof, revalidate_at_eof_after_gc,
+            revalidate_basic,
         };
         use rqe_iterators::{ResumeOutcome, TypeErasedRQEIterator};
         use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
@@ -467,6 +480,18 @@ mod not_miri {
             let test = TermRevalidateTest::new(10);
             let it = test.create_iterator();
             revalidate_at_eof(&test.test, Box::new(it));
+        }
+
+        #[test]
+        fn term_revalidate_at_eof_after_gc() {
+            let test = TermRevalidateTest::new(10);
+            let it = test.create_iterator();
+            let ii = {
+                use inverted_index::{full::Full, opaque::OpaqueEncoding};
+                Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut()
+            };
+
+            revalidate_at_eof_after_gc(&test.test, Box::new(it), ii);
         }
 
         #[test]
