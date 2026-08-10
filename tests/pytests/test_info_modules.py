@@ -1,5 +1,3 @@
-from typing import Any
-
 from common import *
 from RLTest import Env
 import redis
@@ -1267,7 +1265,7 @@ class testWarningsAndErrorsCluster:
     def check_counters(env: Env , err_cnt: int, mmsg: str):
       inf_dict = info_modules_to_dict(env)
       self.env.assertEqual(inf_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC],
-                           str(err_cnt), message=msg)
+                           str(err_cnt), message=mmsg)
       for shardId in range(1, env.shardsCount + 1):
         s_conn = env.getConnection(shardId)
         s_info_dict = info_modules_to_dict(s_conn)
