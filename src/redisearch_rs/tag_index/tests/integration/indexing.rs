@@ -68,6 +68,35 @@ fn index_and_commit_agree_on_the_key() {
     );
 }
 
+/// `TagValueReader` walks a tag's postings in ascending document order and
+/// reports the end of the list, staying there once reached.
+#[test]
+fn tag_value_reader_reads_every_posting_in_order() {
+    // A `DocIdsOnly` block holds up to 1000 entries, so index past that to make
+    // the reader cross a block boundary.
+    const N: u64 = 1500;
+
+    let mut tag_index = TagIndex::new(1, None, false);
+    for doc_id in 1..=N {
+        index_mem(&mut tag_index, &[b"team"], doc_id);
+    }
+
+    let ii = tag_index.find_value(b"team").expect("tag was indexed");
+    let mut reader = TagValueReader::new(ii);
+    let mut record = RSIndexResult::build_virt().doc_id(0).build();
+
+    let mut doc_ids = Vec::new();
+    while reader.next(&mut record) {
+        doc_ids.push(record.doc_id);
+    }
+
+    assert_eq!(doc_ids, (1..=N).collect::<Vec<_>>());
+    assert!(
+        !reader.next(&mut record),
+        "a reader at the end of the postings stays there"
+    );
+}
+
 /// The per-posting expiration bit round-trips: `index` records
 /// `has_field_expiration` for each document and the reader hands it back.
 ///

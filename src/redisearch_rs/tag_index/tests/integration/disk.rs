@@ -122,6 +122,14 @@ fn disk_contains_iteration_yields_matching_keys() {
     assert_eq!(keys, [b"foo".to_vec(), b"oof".to_vec(), b"xooy".to_vec()]);
 }
 
+/// Disk-mode suffix iteration yields only the tag keys ending with the pattern.
+#[test]
+fn disk_suffix_iteration_yields_matching_keys() {
+    let idx = disk_index_with_tags(&[b"bar", b"foo", b"oof", b"xoo"], false);
+    let keys = value_iter_keys(idx.value_iter_filtered(b"oo", IterMode::Suffix));
+    assert_eq!(keys, [b"foo".to_vec(), b"xoo".to_vec()]);
+}
+
 /// Disk-mode wildcard iteration supports the `*` and `?` metacharacters.
 #[test]
 fn disk_wildcard_iteration_matches_metacharacters() {
