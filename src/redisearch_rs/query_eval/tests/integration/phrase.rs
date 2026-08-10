@@ -12,6 +12,7 @@
 use query_eval::{Config, QueryEvalContext, QueryNodeMut, eval_node};
 use query_types::QueryNodeType;
 use rqe_iterators::{IteratorType, RQEIterator};
+use rqe_iterators_test_utils::ContractChecker;
 
 use query::mock::{MockQueryEvalCtx, MockQueryNode};
 
@@ -34,9 +35,11 @@ fn eval_phrase_single_child_returns_child() {
     phrase.set_children(&[wc_child.as_ptr()]);
     let node = unsafe { QueryNodeMut::new(phrase.as_non_null()) };
 
-    let mut it = eval_node(&mut ctx, node, Config::default())
-        .expect("should not be None")
-        .into_boxed();
+    let mut it = ContractChecker::new(
+        eval_node(&mut ctx, node, Config::default())
+            .expect("should not be None")
+            .into_boxed(),
+    );
 
     // The single child is returned directly, not wrapped in an intersection.
     assert_eq!(it.type_(), IteratorType::Wildcard);
@@ -104,9 +107,11 @@ mod phrase {
         phrase.set_children(&[c1.as_ptr(), c2.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(phrase.as_non_null()) };
 
-        let mut it = eval_node(&mut ctx, node, Config::default())
-            .expect("should not be None")
-            .into_boxed();
+        let mut it = ContractChecker::new(
+            eval_node(&mut ctx, node, Config::default())
+                .expect("should not be None")
+                .into_boxed(),
+        );
 
         assert_eq!(it.type_(), IteratorType::Intersect);
         let r = it.read().unwrap().expect("should have a result");
@@ -164,9 +169,11 @@ mod phrase {
         phrase.set_children(&[c1.as_ptr(), c2.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(phrase.as_non_null()) };
 
-        let mut it = eval_node(&mut ctx, node, Config::default())
-            .expect("should not be None")
-            .into_boxed();
+        let mut it = ContractChecker::new(
+            eval_node(&mut ctx, node, Config::default())
+                .expect("should not be None")
+                .into_boxed(),
+        );
 
         assert_eq!(it.type_(), IteratorType::Intersect);
         let r = it.read().unwrap().expect("should have a result");
@@ -225,9 +232,11 @@ mod phrase {
         phrase.set_children(&[c1.as_ptr(), c2.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(phrase.as_non_null()) };
 
-        let mut it = eval_node(&mut ctx, node, Config::default())
-            .expect("should not be None")
-            .into_boxed();
+        let mut it = ContractChecker::new(
+            eval_node(&mut ctx, node, Config::default())
+                .expect("should not be None")
+                .into_boxed(),
+        );
 
         assert_eq!(it.type_(), IteratorType::Intersect);
         let r = it.read().unwrap().expect("should have a result");
@@ -280,9 +289,11 @@ mod phrase {
         phrase.set_children(&[missing_child.as_ptr(), ids_child.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(phrase.as_non_null()) };
 
-        let mut it = eval_node(&mut ctx, node, Config::default())
-            .expect("a multi-child phrase always yields an iterator")
-            .into_boxed();
+        let mut it = ContractChecker::new(
+            eval_node(&mut ctx, node, Config::default())
+                .expect("a multi-child phrase always yields an iterator")
+                .into_boxed(),
+        );
 
         assert_eq!(it.type_(), IteratorType::Empty);
         assert!(matches!(it.read(), Ok(None)));
@@ -336,9 +347,11 @@ mod phrase {
         phrase.set_children(&[c1.as_ptr(), c2.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(phrase.as_non_null()) };
 
-        let mut it = eval_node(&mut ctx, node, Config::default())
-            .expect("should not be None")
-            .into_boxed();
+        let mut it = ContractChecker::new(
+            eval_node(&mut ctx, node, Config::default())
+                .expect("should not be None")
+                .into_boxed(),
+        );
 
         // The exact params flowed into a real intersection (not a reduced leaf).
         assert_eq!(it.type_(), IteratorType::Intersect);
@@ -384,9 +397,11 @@ mod phrase_reducer {
         phrase.set_children(&[c1.as_ptr(), c2.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(phrase.as_non_null()) };
 
-        let mut it = eval_node(&mut ctx, node, Config::default())
-            .expect("a multi-child phrase always yields an iterator")
-            .into_boxed();
+        let mut it = ContractChecker::new(
+            eval_node(&mut ctx, node, Config::default())
+                .expect("a multi-child phrase always yields an iterator")
+                .into_boxed(),
+        );
 
         assert_eq!(it.type_(), IteratorType::Empty);
         assert!(matches!(it.read(), Ok(None)));
@@ -415,9 +430,11 @@ mod phrase_reducer {
         phrase.set_children(&[c1.as_ptr(), c2.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(phrase.as_non_null()) };
 
-        let mut it = eval_node(&mut ctx, node, Config::default())
-            .expect("a multi-child phrase always yields an iterator")
-            .into_boxed();
+        let mut it = ContractChecker::new(
+            eval_node(&mut ctx, node, Config::default())
+                .expect("a multi-child phrase always yields an iterator")
+                .into_boxed(),
+        );
 
         // All children were wildcards, so the reducer returns the single
         // remaining wildcard directly.

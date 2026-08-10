@@ -21,6 +21,7 @@ use query::mock::MockQueryNode;
 use query_eval::{Config, EvalResult, QueryEvalContext, QueryNodeMut, eval_node};
 use query_types::QueryNodeType;
 use rqe_iterators::{IteratorType, IteratorsConfig, RQEIterator};
+use rqe_iterators_test_utils::ContractChecker;
 use rqe_iterators_test_utils::{GlobalGuard, TestContext};
 
 /// Owns everything a `QN_NUMERIC` evaluation borrows — the FFI `TestContext`, the
@@ -104,7 +105,7 @@ impl NumericFixture {
 fn eval_numeric_filters_range() {
     // Filter 2.0 <= x <= 3.0 → documents 2 and 3.
     let mut fixture = NumericFixture::new(2.0, 3.0);
-    let mut it = fixture.eval().expect("should not be None");
+    let mut it = ContractChecker::new(fixture.eval().expect("should not be None"));
     // A single sub-range covers all three docs, so `build_union` collapses to the
     // numeric leaf iterator rather than wrapping it in a union.
     assert_eq!(it.type_(), IteratorType::InvIdxNumeric);
@@ -122,7 +123,7 @@ fn eval_numeric_gap_yields_no_results() {
     // has such a value), so the sub-range iterator is still built but filters
     // every record out. The single sub-range collapses to the numeric leaf.
     let mut fixture = NumericFixture::new(1.4, 1.6);
-    let mut it = fixture.eval().expect("should not be None");
+    let mut it = ContractChecker::new(fixture.eval().expect("should not be None"));
     assert_eq!(it.type_(), IteratorType::InvIdxNumeric);
     assert!(
         matches!(it.read(), Ok(None)),

@@ -10,6 +10,7 @@
 use query_eval::{Config, QueryEvalContext, QueryNodeMut, qast_iterate};
 use query_types::QueryNodeType;
 use rqe_iterators::{IteratorType, RQEIterator};
+use rqe_iterators_test_utils::ContractChecker;
 
 use query::mock::{MockQueryEvalCtx, MockQueryNode};
 
@@ -20,7 +21,7 @@ fn qast_iterate_evaluates_root_node() {
     let mock_node = MockQueryNode::new(QueryNodeType::Null);
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let mut it = qast_iterate(&mut ctx, node, Config::default()).into_boxed();
+    let mut it = ContractChecker::new(qast_iterate(&mut ctx, node, Config::default()).into_boxed());
 
     assert_eq!(it.type_(), IteratorType::Empty);
     assert!(it.at_eof());

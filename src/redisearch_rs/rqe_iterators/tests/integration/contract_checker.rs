@@ -62,6 +62,35 @@ fn catches_out_of_order_ids() {
 }
 
 #[test]
+#[should_panic(expected = "doc ids must strictly ascend")]
+fn catches_repeated_ids_unless_they_are_opted_into() {
+    // A repeat is out of contract for the iterators that promise strict ascent,
+    // which is all of them bar the ones wrapped with `new_with_duplicates`.
+    let mut it = ContractChecker::new(Misbehaving::new(vec![1, 1, 2], Fault::MovedOnRevalidate));
+    while it.read().expect("read must not fail").is_some() {}
+}
+
+#[test]
+fn duplicates_checker_accepts_repeated_ids() {
+    let mut it = ContractChecker::new_with_duplicates(Misbehaving::new(
+        vec![1, 1, 2],
+        Fault::MovedOnRevalidate,
+    ));
+    assert_eq!(assert_current_contract(&mut it), [1, 1, 2]);
+}
+
+#[test]
+#[should_panic(expected = "must not descend")]
+fn catches_descending_ids_even_when_duplicates_are_allowed() {
+    // Allowing a repeat does not allow going backwards.
+    let mut it = ContractChecker::new_with_duplicates(Misbehaving::new(
+        vec![2, 1],
+        Fault::MovedOnRevalidate,
+    ));
+    while it.read().expect("read must not fail").is_some() {}
+}
+
+#[test]
 #[should_panic(expected = "broke the precondition")]
 fn catches_caller_skipping_backwards() {
     let mut it = ContractChecker::new(IdListSorted::new(vec![10, 20, 30]));
