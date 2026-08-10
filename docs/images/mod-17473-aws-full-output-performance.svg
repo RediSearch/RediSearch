@@ -1,0 +1,452 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1320" viewBox="0 0 1800 1320" role="img" aria-labelledby="plot-title plot-description">
+<title id="plot-title">MOD-17473 — AWS full-output performance</title>
+<desc id="plot-description">Equal-work performance comparison of baseline and array-backed replies. Every row shows ten paired candidate-versus-baseline effects, five AB and five BA, plus a paired-bootstrap confidence interval.</desc>
+<rect width="1800" height="1320" fill="#FFFFFF"/>
+<text x="40.00" y="25.00" fill="#172033" font-family="DejaVu Sans" font-size="38" font-weight="700" text-anchor="start" dominant-baseline="hanging">MOD-17473 — AWS full-output performance</text>
+<text x="40.00" y="78.00" fill="#505B70" font-family="DejaVu Sans" font-size="21" font-weight="400" text-anchor="start" dominant-baseline="hanging">Equal complete replies · baseline 20ba4ed7c2 → candidate 3ff80fa72 · AWS Ubuntu / AMD EPYC 7R32</text>
+<text x="40.00" y="115.00" fill="#172033" font-family="DejaVu Sans" font-size="20" font-weight="700" text-anchor="start" dominant-baseline="hanging">Every case: 10 paired runs = 10 baseline + 10 candidate measurements (20 fresh Redis processes); balanced 5 AB / 5 BA</text>
+<rect x="738.75" y="255.00" width="232.50" height="840.00" fill="#E8F2FF"/>
+<line x1="390.00" y1="255.00" x2="390.00" y2="1095.00" stroke="#D8DEE9" stroke-width="1" stroke-linecap="round"/>
+<text x="390.00" y="1107.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">-12%</text>
+<line x1="506.25" y1="255.00" x2="506.25" y2="1095.00" stroke="#D8DEE9" stroke-width="1" stroke-linecap="round"/>
+<text x="506.25" y="1107.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">-9%</text>
+<line x1="622.50" y1="255.00" x2="622.50" y2="1095.00" stroke="#D8DEE9" stroke-width="1" stroke-linecap="round"/>
+<text x="622.50" y="1107.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">-6%</text>
+<line x1="738.75" y1="255.00" x2="738.75" y2="1095.00" stroke="#D8DEE9" stroke-width="1" stroke-linecap="round"/>
+<text x="738.75" y="1107.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">-3%</text>
+<line x1="855.00" y1="255.00" x2="855.00" y2="1095.00" stroke="#D8DEE9" stroke-width="1" stroke-linecap="round"/>
+<text x="855.00" y="1107.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">+0%</text>
+<line x1="971.25" y1="255.00" x2="971.25" y2="1095.00" stroke="#D8DEE9" stroke-width="1" stroke-linecap="round"/>
+<text x="971.25" y="1107.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">+3%</text>
+<line x1="855.00" y1="255.00" x2="855.00" y2="1095.00" stroke="#2D3A4F" stroke-width="3" stroke-linecap="round"/>
+<text x="700.00" y="179.00" fill="#172033" font-family="DejaVu Sans" font-size="23" font-weight="700" text-anchor="middle" dominant-baseline="hanging">Throughput effect</text>
+<text x="700.00" y="211.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">candidate − baseline · positive = faster</text>
+<rect x="1146.43" y="255.00" width="92.86" height="840.00" fill="#E8F2FF"/>
+<line x1="1100.00" y1="255.00" x2="1100.00" y2="1095.00" stroke="#D8DEE9" stroke-width="1" stroke-linecap="round"/>
+<text x="1100.00" y="1107.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">-6%</text>
+<line x1="1192.86" y1="255.00" x2="1192.86" y2="1095.00" stroke="#D8DEE9" stroke-width="1" stroke-linecap="round"/>
+<text x="1192.86" y="1107.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">+0%</text>
+<line x1="1285.71" y1="255.00" x2="1285.71" y2="1095.00" stroke="#D8DEE9" stroke-width="1" stroke-linecap="round"/>
+<text x="1285.71" y="1107.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">+6%</text>
+<line x1="1378.57" y1="255.00" x2="1378.57" y2="1095.00" stroke="#D8DEE9" stroke-width="1" stroke-linecap="round"/>
+<text x="1378.57" y="1107.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">+12%</text>
+<line x1="1471.43" y1="255.00" x2="1471.43" y2="1095.00" stroke="#D8DEE9" stroke-width="1" stroke-linecap="round"/>
+<text x="1471.43" y="1107.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">+18%</text>
+<line x1="1564.29" y1="255.00" x2="1564.29" y2="1095.00" stroke="#D8DEE9" stroke-width="1" stroke-linecap="round"/>
+<text x="1564.29" y="1107.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">+24%</text>
+<line x1="1657.14" y1="255.00" x2="1657.14" y2="1095.00" stroke="#D8DEE9" stroke-width="1" stroke-linecap="round"/>
+<text x="1657.14" y="1107.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">+30%</text>
+<line x1="1750.00" y1="255.00" x2="1750.00" y2="1095.00" stroke="#D8DEE9" stroke-width="1" stroke-linecap="round"/>
+<text x="1750.00" y="1107.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">+36%</text>
+<line x1="1192.86" y1="255.00" x2="1192.86" y2="1095.00" stroke="#2D3A4F" stroke-width="3" stroke-linecap="round"/>
+<text x="1425.00" y="179.00" fill="#172033" font-family="DejaVu Sans" font-size="23" font-weight="700" text-anchor="middle" dominant-baseline="hanging">p95 latency effect</text>
+<text x="1425.00" y="211.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">candidate − baseline · positive = slower</text>
+<text x="40.00" y="265.00" fill="#172033" font-family="DejaVu Sans" font-size="20" font-weight="700" text-anchor="start" dominant-baseline="hanging">Narrow 1k · workers=1 · RESP2</text>
+<text x="40.00" y="294.00" fill="#505B70" font-family="DejaVu Sans" font-size="15" font-weight="400" text-anchor="start" dominant-baseline="hanging">10 pairs · 5 AB / 5 BA · 20 process runs</text>
+<line x1="30.00" y1="325.00" x2="1760.00" y2="325.00" stroke="#EEF1F5" stroke-width="1" stroke-linecap="round"/>
+<circle cx="807.40" cy="276.50" r="6.00" fill="#9FC5E5"/>
+<rect x="864.80" y="273.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="777.46" cy="282.50" r="6.00" fill="#9FC5E5"/>
+<rect x="782.58" y="279.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="918.95" cy="288.50" r="6.00" fill="#9FC5E5"/>
+<rect x="759.26" y="285.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="862.66" cy="294.50" r="6.00" fill="#9FC5E5"/>
+<rect x="774.92" y="291.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="860.30" cy="300.50" r="6.00" fill="#9FC5E5"/>
+<rect x="808.26" y="297.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<line x1="796.61" y1="290.00" x2="855.27" y2="290.00" stroke="#256FAF" stroke-width="3" stroke-linecap="round"/>
+<line x1="796.61" y1="284.00" x2="796.61" y2="296.00" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<line x1="855.27" y1="284.00" x2="855.27" y2="296.00" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<polygon points="824.36,282.00 832.36,290.00 824.36,298.00 816.36,290.00" fill="#256FAF"/>
+<text x="1006.00" y="261.00" fill="#256FAF" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">-0.8%  [-1.5%, 0.0%]</text>
+<circle cx="1731.19" cy="276.50" r="6.00" fill="#9FC5E5"/>
+<rect x="1584.85" y="273.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1669.85" cy="282.50" r="6.00" fill="#9FC5E5"/>
+<rect x="1472.09" y="279.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1533.63" cy="288.50" r="6.00" fill="#9FC5E5"/>
+<rect x="1623.95" y="285.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1514.93" cy="294.50" r="6.00" fill="#9FC5E5"/>
+<rect x="1383.13" y="291.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1571.58" cy="300.50" r="6.00" fill="#9FC5E5"/>
+<rect x="1472.09" y="297.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<line x1="1498.26" y1="290.00" x2="1616.18" y2="290.00" stroke="#256FAF" stroke-width="3" stroke-linecap="round"/>
+<line x1="1498.26" y1="284.00" x2="1498.26" y2="296.00" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<line x1="1616.18" y1="284.00" x2="1616.18" y2="296.00" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<polygon points="1556.31,282.00 1564.31,290.00 1556.31,298.00 1548.31,290.00" fill="#256FAF"/>
+<text x="1746.00" y="261.00" fill="#256FAF" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">+23.5%  [+19.7%, +27.4%]</text>
+<text x="40.00" y="335.00" fill="#172033" font-family="DejaVu Sans" font-size="20" font-weight="700" text-anchor="start" dominant-baseline="hanging">Narrow 1k · workers=1 · RESP3</text>
+<text x="40.00" y="364.00" fill="#505B70" font-family="DejaVu Sans" font-size="15" font-weight="400" text-anchor="start" dominant-baseline="hanging">10 pairs · 5 AB / 5 BA · 20 process runs</text>
+<line x1="30.00" y1="395.00" x2="1760.00" y2="395.00" stroke="#EEF1F5" stroke-width="1" stroke-linecap="round"/>
+<rect x="790.51" y="340.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="831.37" cy="349.50" r="6.00" fill="#C5ADF2"/>
+<rect x="838.18" y="346.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="862.47" cy="355.50" r="6.00" fill="#C5ADF2"/>
+<rect x="882.54" y="352.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="861.75" cy="361.50" r="6.00" fill="#C5ADF2"/>
+<rect x="837.50" y="358.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="866.72" cy="367.50" r="6.00" fill="#C5ADF2"/>
+<rect x="850.86" y="364.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="830.16" cy="373.50" r="6.00" fill="#C5ADF2"/>
+<line x1="832.85" y1="360.00" x2="862.28" y2="360.00" stroke="#7C3AED" stroke-width="3" stroke-linecap="round"/>
+<line x1="832.85" y1="354.00" x2="832.85" y2="366.00" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<line x1="862.28" y1="354.00" x2="862.28" y2="366.00" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<polygon points="848.13,352.00 856.13,360.00 848.13,368.00 840.13,360.00" fill="#7C3AED"/>
+<text x="1006.00" y="331.00" fill="#7C3AED" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">-0.2%  [-0.6%, +0.2%]</text>
+<rect x="1383.13" y="340.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1406.57" cy="349.50" r="6.00" fill="#C5ADF2"/>
+<rect x="1418.19" y="346.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1406.57" cy="355.50" r="6.00" fill="#C5ADF2"/>
+<rect x="1400.57" y="352.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1337.85" cy="361.50" r="6.00" fill="#C5ADF2"/>
+<rect x="1400.57" y="358.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1389.13" cy="367.50" r="6.00" fill="#C5ADF2"/>
+<rect x="1418.19" y="364.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1406.57" cy="373.50" r="6.00" fill="#C5ADF2"/>
+<line x1="1383.94" y1="360.00" x2="1411.84" y2="360.00" stroke="#7C3AED" stroke-width="3" stroke-linecap="round"/>
+<line x1="1383.94" y1="354.00" x2="1383.94" y2="366.00" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<line x1="1411.84" y1="354.00" x2="1411.84" y2="366.00" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<polygon points="1399.58,352.00 1407.58,360.00 1399.58,368.00 1391.58,360.00" fill="#7C3AED"/>
+<text x="1746.00" y="331.00" fill="#7C3AED" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">+13.4%  [+12.3%, +14.1%]</text>
+<text x="40.00" y="405.00" fill="#172033" font-family="DejaVu Sans" font-size="20" font-weight="700" text-anchor="start" dominant-baseline="hanging">Wide 1k · workers=1 · RESP2</text>
+<text x="40.00" y="434.00" fill="#505B70" font-family="DejaVu Sans" font-size="15" font-weight="400" text-anchor="start" dominant-baseline="hanging">10 pairs · 5 AB / 5 BA · 20 process runs</text>
+<line x1="30.00" y1="465.00" x2="1760.00" y2="465.00" stroke="#EEF1F5" stroke-width="1" stroke-linecap="round"/>
+<circle cx="815.81" cy="416.50" r="6.00" fill="#9FC5E5"/>
+<rect x="827.84" y="413.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="899.19" cy="422.50" r="6.00" fill="#9FC5E5"/>
+<rect x="925.04" y="419.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="905.83" cy="428.50" r="6.00" fill="#9FC5E5"/>
+<rect x="810.91" y="425.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="845.67" cy="434.50" r="6.00" fill="#9FC5E5"/>
+<rect x="851.38" y="431.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="952.91" cy="440.50" r="6.00" fill="#9FC5E5"/>
+<rect x="876.80" y="437.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<line x1="847.05" y1="430.00" x2="902.21" y2="430.00" stroke="#256FAF" stroke-width="3" stroke-linecap="round"/>
+<line x1="847.05" y1="424.00" x2="847.05" y2="436.00" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<line x1="902.21" y1="424.00" x2="902.21" y2="436.00" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<polygon points="873.87,422.00 881.87,430.00 873.87,438.00 865.87,430.00" fill="#256FAF"/>
+<text x="1006.00" y="401.00" fill="#256FAF" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">+0.5%  [-0.2%, +1.2%]</text>
+<circle cx="1208.33" cy="416.50" r="6.00" fill="#9FC5E5"/>
+<rect x="1202.33" y="413.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1177.53" cy="422.50" r="6.00" fill="#9FC5E5"/>
+<rect x="1156.36" y="419.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1162.36" cy="428.50" r="6.00" fill="#9FC5E5"/>
+<rect x="1202.33" y="425.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1208.33" cy="434.50" r="6.00" fill="#9FC5E5"/>
+<rect x="1186.86" y="431.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1147.34" cy="440.50" r="6.00" fill="#9FC5E5"/>
+<rect x="1186.86" y="437.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<line x1="1172.97" y1="430.00" x2="1200.58" y2="430.00" stroke="#256FAF" stroke-width="3" stroke-linecap="round"/>
+<line x1="1172.97" y1="424.00" x2="1172.97" y2="436.00" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<line x1="1200.58" y1="424.00" x2="1200.58" y2="436.00" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<polygon points="1186.71,422.00 1194.71,430.00 1186.71,438.00 1178.71,430.00" fill="#256FAF"/>
+<text x="1746.00" y="401.00" fill="#256FAF" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">-0.4%  [-1.3%, +0.5%]</text>
+<text x="40.00" y="475.00" fill="#172033" font-family="DejaVu Sans" font-size="20" font-weight="700" text-anchor="start" dominant-baseline="hanging">Wide 1k · workers=1 · RESP3</text>
+<text x="40.00" y="504.00" fill="#505B70" font-family="DejaVu Sans" font-size="15" font-weight="400" text-anchor="start" dominant-baseline="hanging">10 pairs · 5 AB / 5 BA · 20 process runs</text>
+<line x1="30.00" y1="535.00" x2="1760.00" y2="535.00" stroke="#EEF1F5" stroke-width="1" stroke-linecap="round"/>
+<rect x="830.86" y="480.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="874.54" cy="489.50" r="6.00" fill="#C5ADF2"/>
+<rect x="922.24" y="486.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="900.59" cy="495.50" r="6.00" fill="#C5ADF2"/>
+<rect x="961.22" y="492.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="843.05" cy="501.50" r="6.00" fill="#C5ADF2"/>
+<rect x="950.33" y="498.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="813.82" cy="507.50" r="6.00" fill="#C5ADF2"/>
+<rect x="777.14" y="504.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="826.60" cy="513.50" r="6.00" fill="#C5ADF2"/>
+<line x1="837.27" y1="500.00" x2="909.30" y2="500.00" stroke="#7C3AED" stroke-width="3" stroke-linecap="round"/>
+<line x1="837.27" y1="494.00" x2="837.27" y2="506.00" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<line x1="909.30" y1="494.00" x2="909.30" y2="506.00" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<polygon points="872.58,492.00 880.58,500.00 872.58,508.00 864.58,500.00" fill="#7C3AED"/>
+<text x="1006.00" y="471.00" fill="#7C3AED" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">+0.5%  [-0.5%, +1.4%]</text>
+<rect x="1202.33" y="480.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1177.53" cy="489.50" r="6.00" fill="#C5ADF2"/>
+<rect x="1156.36" y="486.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1177.53" cy="495.50" r="6.00" fill="#C5ADF2"/>
+<rect x="1126.47" y="492.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1192.86" cy="501.50" r="6.00" fill="#C5ADF2"/>
+<rect x="1141.34" y="498.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1208.33" cy="507.50" r="6.00" fill="#C5ADF2"/>
+<rect x="1217.96" y="504.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1192.86" cy="513.50" r="6.00" fill="#C5ADF2"/>
+<line x1="1165.39" y1="500.00" x2="1199.03" y2="500.00" stroke="#7C3AED" stroke-width="3" stroke-linecap="round"/>
+<line x1="1165.39" y1="494.00" x2="1165.39" y2="506.00" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<line x1="1199.03" y1="494.00" x2="1199.03" y2="506.00" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<polygon points="1182.12,492.00 1190.12,500.00 1182.12,508.00 1174.12,500.00" fill="#7C3AED"/>
+<text x="1746.00" y="471.00" fill="#7C3AED" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">-0.7%  [-1.8%, +0.4%]</text>
+<text x="40.00" y="545.00" fill="#172033" font-family="DejaVu Sans" font-size="20" font-weight="700" text-anchor="start" dominant-baseline="hanging">Wide 10k · workers=0 · RESP2</text>
+<text x="40.00" y="574.00" fill="#505B70" font-family="DejaVu Sans" font-size="15" font-weight="400" text-anchor="start" dominant-baseline="hanging">10 pairs · 5 AB / 5 BA · 20 process runs</text>
+<line x1="30.00" y1="605.00" x2="1760.00" y2="605.00" stroke="#EEF1F5" stroke-width="1" stroke-linecap="round"/>
+<circle cx="561.22" cy="556.50" r="6.00" fill="#9FC5E5"/>
+<rect x="576.34" y="553.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="559.28" cy="562.50" r="6.00" fill="#9FC5E5"/>
+<rect x="594.02" y="559.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="563.08" cy="568.50" r="6.00" fill="#9FC5E5"/>
+<rect x="546.64" y="565.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="609.58" cy="574.50" r="6.00" fill="#9FC5E5"/>
+<rect x="601.00" y="571.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="568.69" cy="580.50" r="6.00" fill="#9FC5E5"/>
+<rect x="617.21" y="577.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<line x1="568.38" y1="570.00" x2="597.78" y2="570.00" stroke="#256FAF" stroke-width="3" stroke-linecap="round"/>
+<line x1="568.38" y1="564.00" x2="568.38" y2="576.00" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<line x1="597.78" y1="564.00" x2="597.78" y2="576.00" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<polygon points="582.63,562.00 590.63,570.00 582.63,578.00 574.63,570.00" fill="#256FAF"/>
+<text x="1006.00" y="541.00" fill="#256FAF" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">-7.0%  [-7.4%, -6.6%]</text>
+<circle cx="1321.09" cy="556.50" r="6.00" fill="#9FC5E5"/>
+<rect x="1298.50" y="553.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1321.09" cy="562.50" r="6.00" fill="#9FC5E5"/>
+<rect x="1315.09" y="559.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1337.85" cy="568.50" r="6.00" fill="#9FC5E5"/>
+<rect x="1331.85" y="565.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1304.50" cy="574.50" r="6.00" fill="#9FC5E5"/>
+<rect x="1315.09" y="571.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1337.85" cy="580.50" r="6.00" fill="#9FC5E5"/>
+<rect x="1315.09" y="577.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<line x1="1316.09" y1="570.00" x2="1329.45" y2="570.00" stroke="#256FAF" stroke-width="3" stroke-linecap="round"/>
+<line x1="1316.09" y1="564.00" x2="1316.09" y2="576.00" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<line x1="1329.45" y1="564.00" x2="1329.45" y2="576.00" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<polygon points="1322.76,562.00 1330.76,570.00 1322.76,578.00 1314.76,570.00" fill="#256FAF"/>
+<text x="1746.00" y="541.00" fill="#256FAF" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">+8.4%  [+8.0%, +8.8%]</text>
+<text x="40.00" y="615.00" fill="#172033" font-family="DejaVu Sans" font-size="20" font-weight="700" text-anchor="start" dominant-baseline="hanging">Wide 10k · workers=0 · RESP3</text>
+<text x="40.00" y="644.00" fill="#505B70" font-family="DejaVu Sans" font-size="15" font-weight="400" text-anchor="start" dominant-baseline="hanging">10 pairs · 5 AB / 5 BA · 20 process runs</text>
+<line x1="30.00" y1="675.00" x2="1760.00" y2="675.00" stroke="#EEF1F5" stroke-width="1" stroke-linecap="round"/>
+<rect x="719.75" y="620.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="715.53" cy="629.50" r="6.00" fill="#C5ADF2"/>
+<rect x="742.75" y="626.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="724.88" cy="635.50" r="6.00" fill="#C5ADF2"/>
+<rect x="729.88" y="632.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="695.96" cy="641.50" r="6.00" fill="#C5ADF2"/>
+<rect x="724.15" y="638.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="713.69" cy="647.50" r="6.00" fill="#C5ADF2"/>
+<rect x="705.67" y="644.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="755.98" cy="653.50" r="6.00" fill="#C5ADF2"/>
+<line x1="715.44" y1="640.00" x2="736.50" y2="640.00" stroke="#7C3AED" stroke-width="3" stroke-linecap="round"/>
+<line x1="715.44" y1="634.00" x2="715.44" y2="646.00" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<line x1="736.50" y1="634.00" x2="736.50" y2="646.00" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<polygon points="725.79,632.00 733.79,640.00 725.79,648.00 717.79,640.00" fill="#7C3AED"/>
+<text x="1006.00" y="611.00" fill="#7C3AED" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">-3.3%  [-3.6%, -3.1%]</text>
+<rect x="1282.07" y="620.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1255.70" cy="629.50" r="6.00" fill="#C5ADF2"/>
+<rect x="1249.70" y="626.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1271.80" cy="635.50" r="6.00" fill="#C5ADF2"/>
+<rect x="1249.70" y="632.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1255.70" cy="641.50" r="6.00" fill="#C5ADF2"/>
+<rect x="1265.80" y="638.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1271.80" cy="647.50" r="6.00" fill="#C5ADF2"/>
+<rect x="1249.70" y="644.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1255.70" cy="653.50" r="6.00" fill="#C5ADF2"/>
+<line x1="1257.30" y1="640.00" x2="1270.18" y2="640.00" stroke="#7C3AED" stroke-width="3" stroke-linecap="round"/>
+<line x1="1257.30" y1="634.00" x2="1257.30" y2="646.00" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<line x1="1270.18" y1="634.00" x2="1270.18" y2="646.00" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<polygon points="1263.73,632.00 1271.73,640.00 1263.73,648.00 1255.73,640.00" fill="#7C3AED"/>
+<text x="1746.00" y="611.00" fill="#7C3AED" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">+4.6%  [+4.2%, +5.0%]</text>
+<text x="40.00" y="685.00" fill="#172033" font-family="DejaVu Sans" font-size="20" font-weight="700" text-anchor="start" dominant-baseline="hanging">Wide 10k · workers=1 · RESP2</text>
+<text x="40.00" y="714.00" fill="#505B70" font-family="DejaVu Sans" font-size="15" font-weight="400" text-anchor="start" dominant-baseline="hanging">10 pairs · 5 AB / 5 BA · 20 process runs</text>
+<line x1="30.00" y1="745.00" x2="1760.00" y2="745.00" stroke="#EEF1F5" stroke-width="1" stroke-linecap="round"/>
+<rect x="836.73" y="690.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="889.07" cy="699.50" r="6.00" fill="#9FC5E5"/>
+<rect x="898.84" y="696.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="846.80" cy="705.50" r="6.00" fill="#9FC5E5"/>
+<rect x="744.53" y="702.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="860.85" cy="711.50" r="6.00" fill="#9FC5E5"/>
+<rect x="920.72" y="708.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="794.00" cy="717.50" r="6.00" fill="#9FC5E5"/>
+<rect x="932.58" y="714.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="894.04" cy="723.50" r="6.00" fill="#9FC5E5"/>
+<line x1="827.71" y1="710.00" x2="897.39" y2="710.00" stroke="#256FAF" stroke-width="3" stroke-linecap="round"/>
+<line x1="827.71" y1="704.00" x2="827.71" y2="716.00" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<line x1="897.39" y1="704.00" x2="897.39" y2="716.00" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<polygon points="864.41,702.00 872.41,710.00 864.41,718.00 856.41,710.00" fill="#256FAF"/>
+<text x="1006.00" y="681.00" fill="#256FAF" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">+0.2%  [-0.7%, +1.1%]</text>
+<rect x="1249.70" y="690.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1177.53" cy="699.50" r="6.00" fill="#9FC5E5"/>
+<rect x="1186.86" y="696.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1177.53" cy="705.50" r="6.00" fill="#9FC5E5"/>
+<rect x="1233.75" y="702.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1223.96" cy="711.50" r="6.00" fill="#9FC5E5"/>
+<rect x="1171.53" y="708.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1223.96" cy="717.50" r="6.00" fill="#9FC5E5"/>
+<rect x="1156.36" y="714.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1223.96" cy="723.50" r="6.00" fill="#9FC5E5"/>
+<line x1="1186.71" y1="710.00" x2="1223.96" y2="710.00" stroke="#256FAF" stroke-width="3" stroke-linecap="round"/>
+<line x1="1186.71" y1="704.00" x2="1186.71" y2="716.00" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<line x1="1223.96" y1="704.00" x2="1223.96" y2="716.00" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<polygon points="1205.23,702.00 1213.23,710.00 1205.23,718.00 1197.23,710.00" fill="#256FAF"/>
+<text x="1746.00" y="681.00" fill="#256FAF" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">+0.8%  [-0.4%, +2.0%]</text>
+<text x="40.00" y="755.00" fill="#172033" font-family="DejaVu Sans" font-size="20" font-weight="700" text-anchor="start" dominant-baseline="hanging">Wide 10k · workers=1 · RESP3</text>
+<text x="40.00" y="784.00" fill="#505B70" font-family="DejaVu Sans" font-size="15" font-weight="400" text-anchor="start" dominant-baseline="hanging">10 pairs · 5 AB / 5 BA · 20 process runs</text>
+<line x1="30.00" y1="815.00" x2="1760.00" y2="815.00" stroke="#EEF1F5" stroke-width="1" stroke-linecap="round"/>
+<circle cx="874.74" cy="766.50" r="6.00" fill="#C5ADF2"/>
+<rect x="817.34" y="763.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="836.26" cy="772.50" r="6.00" fill="#C5ADF2"/>
+<rect x="805.17" y="769.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="848.29" cy="778.50" r="6.00" fill="#C5ADF2"/>
+<rect x="750.15" y="775.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="874.13" cy="784.50" r="6.00" fill="#C5ADF2"/>
+<rect x="874.28" y="781.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="835.70" cy="790.50" r="6.00" fill="#C5ADF2"/>
+<rect x="860.82" y="787.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<line x1="816.20" y1="780.00" x2="860.85" y2="780.00" stroke="#7C3AED" stroke-width="3" stroke-linecap="round"/>
+<line x1="816.20" y1="774.00" x2="816.20" y2="786.00" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<line x1="860.85" y1="774.00" x2="860.85" y2="786.00" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<polygon points="840.52,772.00 848.52,780.00 840.52,788.00 832.52,780.00" fill="#7C3AED"/>
+<text x="1006.00" y="751.00" fill="#7C3AED" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">-0.4%  [-1.0%, +0.2%]</text>
+<circle cx="1208.33" cy="766.50" r="6.00" fill="#C5ADF2"/>
+<rect x="1156.36" y="763.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1162.36" cy="772.50" r="6.00" fill="#C5ADF2"/>
+<rect x="1202.33" y="769.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1223.96" cy="778.50" r="6.00" fill="#C5ADF2"/>
+<rect x="1202.33" y="775.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1192.86" cy="784.50" r="6.00" fill="#C5ADF2"/>
+<rect x="1171.53" y="781.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1177.53" cy="790.50" r="6.00" fill="#C5ADF2"/>
+<rect x="1202.33" y="787.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<line x1="1180.59" y1="780.00" x2="1205.23" y2="780.00" stroke="#7C3AED" stroke-width="3" stroke-linecap="round"/>
+<line x1="1180.59" y1="774.00" x2="1180.59" y2="786.00" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<line x1="1205.23" y1="774.00" x2="1205.23" y2="786.00" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<polygon points="1192.86,772.00 1200.86,780.00 1192.86,788.00 1184.86,780.00" fill="#7C3AED"/>
+<text x="1746.00" y="751.00" fill="#7C3AED" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">0.0%  [-0.8%, +0.8%]</text>
+<text x="40.00" y="825.00" fill="#172033" font-family="DejaVu Sans" font-size="20" font-weight="700" text-anchor="start" dominant-baseline="hanging">Wide 10k · workers=16 · RESP2</text>
+<text x="40.00" y="854.00" fill="#505B70" font-family="DejaVu Sans" font-size="15" font-weight="400" text-anchor="start" dominant-baseline="hanging">10 pairs · 5 AB / 5 BA · 20 process runs</text>
+<line x1="30.00" y1="885.00" x2="1760.00" y2="885.00" stroke="#EEF1F5" stroke-width="1" stroke-linecap="round"/>
+<circle cx="647.56" cy="836.50" r="6.00" fill="#9FC5E5"/>
+<rect x="782.52" y="833.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="687.41" cy="842.50" r="6.00" fill="#9FC5E5"/>
+<rect x="638.27" y="839.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="660.86" cy="848.50" r="6.00" fill="#9FC5E5"/>
+<rect x="701.92" y="845.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="609.09" cy="854.50" r="6.00" fill="#9FC5E5"/>
+<rect x="751.55" y="851.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="657.50" cy="860.50" r="6.00" fill="#9FC5E5"/>
+<rect x="702.58" y="857.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<line x1="655.97" y1="850.00" x2="720.05" y2="850.00" stroke="#256FAF" stroke-width="3" stroke-linecap="round"/>
+<line x1="655.97" y1="844.00" x2="655.97" y2="856.00" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<line x1="720.05" y1="844.00" x2="720.05" y2="856.00" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<polygon points="686.56,842.00 694.56,850.00 686.56,858.00 678.56,850.00" fill="#256FAF"/>
+<text x="1006.00" y="821.00" fill="#256FAF" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">-4.3%  [-5.1%, -3.5%]</text>
+<circle cx="1406.57" cy="836.50" r="6.00" fill="#9FC5E5"/>
+<rect x="1453.94" y="833.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1441.98" cy="842.50" r="6.00" fill="#9FC5E5"/>
+<rect x="1400.57" y="839.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1406.57" cy="848.50" r="6.00" fill="#9FC5E5"/>
+<rect x="1453.94" y="845.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1459.94" cy="854.50" r="6.00" fill="#9FC5E5"/>
+<rect x="1435.98" y="851.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1389.13" cy="860.50" r="6.00" fill="#9FC5E5"/>
+<rect x="1348.77" y="857.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<line x1="1401.32" y1="850.00" x2="1441.98" y2="850.00" stroke="#256FAF" stroke-width="3" stroke-linecap="round"/>
+<line x1="1401.32" y1="844.00" x2="1401.32" y2="856.00" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<line x1="1441.98" y1="844.00" x2="1441.98" y2="856.00" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<polygon points="1422.42,842.00 1430.42,850.00 1422.42,858.00 1414.42,850.00" fill="#256FAF"/>
+<text x="1746.00" y="821.00" fill="#256FAF" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">+14.8%  [+13.5%, +16.1%]</text>
+<text x="40.00" y="895.00" fill="#172033" font-family="DejaVu Sans" font-size="20" font-weight="700" text-anchor="start" dominant-baseline="hanging">Wide 10k · workers=16 · RESP3</text>
+<text x="40.00" y="924.00" fill="#505B70" font-family="DejaVu Sans" font-size="15" font-weight="400" text-anchor="start" dominant-baseline="hanging">10 pairs · 5 AB / 5 BA · 20 process runs</text>
+<line x1="30.00" y1="955.00" x2="1760.00" y2="955.00" stroke="#EEF1F5" stroke-width="1" stroke-linecap="round"/>
+<rect x="748.33" y="900.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="640.25" cy="909.50" r="6.00" fill="#C5ADF2"/>
+<rect x="444.40" y="906.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="857.49" cy="915.50" r="6.00" fill="#C5ADF2"/>
+<rect x="660.12" y="912.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="454.07" cy="921.50" r="6.00" fill="#C5ADF2"/>
+<rect x="610.24" y="918.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="771.71" cy="927.50" r="6.00" fill="#C5ADF2"/>
+<rect x="649.83" y="924.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="804.46" cy="933.50" r="6.00" fill="#C5ADF2"/>
+<line x1="582.01" y1="920.00" x2="744.71" y2="920.00" stroke="#7C3AED" stroke-width="3" stroke-linecap="round"/>
+<line x1="582.01" y1="914.00" x2="582.01" y2="926.00" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<line x1="744.71" y1="914.00" x2="744.71" y2="926.00" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<polygon points="664.77,912.00 672.77,920.00 664.77,928.00 656.77,920.00" fill="#7C3AED"/>
+<text x="1006.00" y="891.00" fill="#7C3AED" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">-4.9%  [-7.0%, -2.8%]</text>
+<rect x="1472.09" y="900.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1496.42" cy="909.50" r="6.00" fill="#C5ADF2"/>
+<rect x="1453.94" y="906.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1496.42" cy="915.50" r="6.00" fill="#C5ADF2"/>
+<rect x="1435.98" y="912.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1459.94" cy="921.50" r="6.00" fill="#C5ADF2"/>
+<rect x="1435.98" y="918.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1459.94" cy="927.50" r="6.00" fill="#C5ADF2"/>
+<rect x="1348.77" y="924.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1478.09" cy="933.50" r="6.00" fill="#C5ADF2"/>
+<line x1="1429.50" y1="920.00" x2="1476.27" y2="920.00" stroke="#7C3AED" stroke-width="3" stroke-linecap="round"/>
+<line x1="1429.50" y1="914.00" x2="1429.50" y2="926.00" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<line x1="1476.27" y1="914.00" x2="1476.27" y2="926.00" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<polygon points="1456.34,912.00 1464.34,920.00 1456.34,928.00 1448.34,920.00" fill="#7C3AED"/>
+<text x="1746.00" y="891.00" fill="#7C3AED" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">+17.0%  [+15.3%, +18.3%]</text>
+<text x="40.00" y="965.00" fill="#172033" font-family="DejaVu Sans" font-size="20" font-weight="700" text-anchor="start" dominant-baseline="hanging">Wide, no LIMIT · workers=1 · RESP2</text>
+<text x="40.00" y="994.00" fill="#505B70" font-family="DejaVu Sans" font-size="15" font-weight="400" text-anchor="start" dominant-baseline="hanging">10 pairs · 5 AB / 5 BA · 20 process runs</text>
+<line x1="30.00" y1="1025.00" x2="1760.00" y2="1025.00" stroke="#EEF1F5" stroke-width="1" stroke-linecap="round"/>
+<circle cx="820.35" cy="976.50" r="6.00" fill="#9FC5E5"/>
+<rect x="811.30" y="973.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="780.04" cy="982.50" r="6.00" fill="#9FC5E5"/>
+<rect x="867.08" y="979.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="802.86" cy="988.50" r="6.00" fill="#9FC5E5"/>
+<rect x="810.40" y="985.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="871.09" cy="994.50" r="6.00" fill="#9FC5E5"/>
+<rect x="863.64" y="991.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="831.64" cy="1000.50" r="6.00" fill="#9FC5E5"/>
+<rect x="842.65" y="997.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<line x1="814.38" y1="990.00" x2="851.45" y2="990.00" stroke="#256FAF" stroke-width="3" stroke-linecap="round"/>
+<line x1="814.38" y1="984.00" x2="814.38" y2="996.00" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<line x1="851.45" y1="984.00" x2="851.45" y2="996.00" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<polygon points="832.99,982.00 840.99,990.00 832.99,998.00 824.99,990.00" fill="#256FAF"/>
+<text x="1006.00" y="961.00" fill="#256FAF" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">-0.6%  [-1.0%, -0.1%]</text>
+<circle cx="1177.53" cy="976.50" r="6.00" fill="#9FC5E5"/>
+<rect x="1217.96" y="973.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1177.53" cy="982.50" r="6.00" fill="#9FC5E5"/>
+<rect x="1186.86" y="979.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1239.75" cy="988.50" r="6.00" fill="#9FC5E5"/>
+<rect x="1186.86" y="985.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1177.53" cy="994.50" r="6.00" fill="#9FC5E5"/>
+<rect x="1217.96" y="991.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1239.75" cy="1000.50" r="6.00" fill="#9FC5E5"/>
+<rect x="1217.96" y="997.50" width="12.00" height="12.00" fill="#9FC5E5"/>
+<line x1="1191.32" y1="990.00" x2="1222.39" y2="990.00" stroke="#256FAF" stroke-width="3" stroke-linecap="round"/>
+<line x1="1191.32" y1="984.00" x2="1191.32" y2="996.00" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<line x1="1222.39" y1="984.00" x2="1222.39" y2="996.00" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<polygon points="1206.78,982.00 1214.78,990.00 1206.78,998.00 1198.78,990.00" fill="#256FAF"/>
+<text x="1746.00" y="961.00" fill="#256FAF" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">+0.9%  [-0.1%, +1.9%]</text>
+<text x="40.00" y="1035.00" fill="#172033" font-family="DejaVu Sans" font-size="20" font-weight="700" text-anchor="start" dominant-baseline="hanging">Wide, no LIMIT · workers=1 · RESP3</text>
+<text x="40.00" y="1064.00" fill="#505B70" font-family="DejaVu Sans" font-size="15" font-weight="400" text-anchor="start" dominant-baseline="hanging">10 pairs · 5 AB / 5 BA · 20 process runs</text>
+<line x1="30.00" y1="1095.00" x2="1760.00" y2="1095.00" stroke="#EEF1F5" stroke-width="1" stroke-linecap="round"/>
+<rect x="746.51" y="1040.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="819.75" cy="1049.50" r="6.00" fill="#C5ADF2"/>
+<rect x="887.26" y="1046.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="852.38" cy="1055.50" r="6.00" fill="#C5ADF2"/>
+<rect x="805.25" y="1052.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="820.98" cy="1061.50" r="6.00" fill="#C5ADF2"/>
+<rect x="860.37" y="1058.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="810.67" cy="1067.50" r="6.00" fill="#C5ADF2"/>
+<rect x="859.37" y="1064.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="856.89" cy="1073.50" r="6.00" fill="#C5ADF2"/>
+<line x1="810.29" y1="1060.00" x2="857.23" y2="1060.00" stroke="#7C3AED" stroke-width="3" stroke-linecap="round"/>
+<line x1="810.29" y1="1054.00" x2="810.29" y2="1066.00" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<line x1="857.23" y1="1054.00" x2="857.23" y2="1066.00" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<polygon points="834.75,1052.00 842.75,1060.00 834.75,1068.00 826.75,1060.00" fill="#7C3AED"/>
+<text x="1006.00" y="1031.00" fill="#7C3AED" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">-0.5%  [-1.2%, +0.1%]</text>
+<rect x="1156.36" y="1040.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1208.33" cy="1049.50" r="6.00" fill="#C5ADF2"/>
+<rect x="1202.33" y="1046.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1192.86" cy="1055.50" r="6.00" fill="#C5ADF2"/>
+<rect x="1186.86" y="1052.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1239.75" cy="1061.50" r="6.00" fill="#C5ADF2"/>
+<rect x="1202.33" y="1058.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1223.96" cy="1067.50" r="6.00" fill="#C5ADF2"/>
+<rect x="1156.36" y="1064.50" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1208.33" cy="1073.50" r="6.00" fill="#C5ADF2"/>
+<line x1="1185.18" y1="1060.00" x2="1214.57" y2="1060.00" stroke="#7C3AED" stroke-width="3" stroke-linecap="round"/>
+<line x1="1185.18" y1="1054.00" x2="1185.18" y2="1066.00" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<line x1="1214.57" y1="1054.00" x2="1214.57" y2="1066.00" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<polygon points="1200.58,1052.00 1208.58,1060.00 1200.58,1068.00 1192.58,1060.00" fill="#7C3AED"/>
+<text x="1746.00" y="1031.00" fill="#7C3AED" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">+0.5%  [-0.5%, +1.4%]</text>
+<circle cx="48.00" cy="1159.00" r="5.00" fill="#7B8495"/>
+<text x="63.00" y="1151.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="start" dominant-baseline="hanging">AB run</text>
+<rect x="151.00" y="1154.00" width="10.00" height="10.00" fill="#7B8495"/>
+<text x="174.00" y="1151.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="start" dominant-baseline="hanging">BA run</text>
+<polygon points="272.00,1151.00 280.00,1159.00 272.00,1167.00 264.00,1159.00" fill="#256FAF"/>
+<text x="292.00" y="1151.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="start" dominant-baseline="hanging">RESP2 estimate</text>
+<polygon points="430.00,1151.00 438.00,1159.00 430.00,1167.00 422.00,1159.00" fill="#7C3AED"/>
+<text x="450.00" y="1151.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="start" dominant-baseline="hanging">RESP3 estimate · whisker = 95% paired-bootstrap CI</text>
+<text x="40.00" y="1189.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="start" dominant-baseline="hanging">Dots/squares are the 10 actual paired effects in every row. Blue band = ±3% equivalence. CI = 10,000 whole-pair resamples (seed 17473), not benchmark runs.</text>
+<text x="40.00" y="1223.00" fill="#172033" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="start" dominant-baseline="hanging">Plotted equal-work subset: 12 cases × 10 pairs = 120 pairs / 240 observations. Whole campaign: 18 cases × 10 = 180 pairs / 360 observations (90 AB, 90 BA).</text>
+<text x="40.00" y="1255.00" fill="#C53B36" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="start" dominant-baseline="hanging">Timeout cases are omitted because baseline and candidate returned different row distributions and therefore did unequal work.</text>
+</svg>

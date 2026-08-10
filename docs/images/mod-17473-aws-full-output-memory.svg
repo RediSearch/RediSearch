@@ -1,0 +1,259 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1040" viewBox="0 0 1800 1040" role="img" aria-labelledby="plot-title plot-description">
+<title id="plot-title">MOD-17473 — AWS full-output memory</title>
+<desc id="plot-description">Full-output memory comparison for four RESP and worker combinations. Every row shows ten paired candidate-minus-baseline deltas, five AB and five BA, with a paired-median bootstrap confidence interval.</desc>
+<rect width="1800" height="1040" fill="#FFFFFF"/>
+<text x="40.00" y="25.00" fill="#172033" font-family="DejaVu Sans" font-size="38" font-weight="700" text-anchor="start" dominant-baseline="hanging">MOD-17473 — AWS full-output memory</text>
+<text x="40.00" y="78.00" fill="#505B70" font-family="DejaVu Sans" font-size="21" font-weight="400" text-anchor="start" dominant-baseline="hanging">Complete wide 10k replies · baseline 20ba4ed7c2 → candidate 3ff80fa72 · positive delta = candidate uses more memory</text>
+<text x="40.00" y="115.00" fill="#172033" font-family="DejaVu Sans" font-size="20" font-weight="700" text-anchor="start" dominant-baseline="hanging">Every case: 10 paired runs = 10 baseline + 10 candidate measurements (20 fresh Redis processes); balanced 5 AB / 5 BA</text>
+<line x1="390.00" y1="285.00" x2="390.00" y2="825.00" stroke="#D8DEE9" stroke-width="1" stroke-linecap="round"/>
+<text x="390.00" y="837.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">-20</text>
+<line x1="499.33" y1="285.00" x2="499.33" y2="825.00" stroke="#D8DEE9" stroke-width="1" stroke-linecap="round"/>
+<text x="499.33" y="837.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">+0</text>
+<line x1="608.67" y1="285.00" x2="608.67" y2="825.00" stroke="#D8DEE9" stroke-width="1" stroke-linecap="round"/>
+<text x="608.67" y="837.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">+20</text>
+<line x1="718.00" y1="285.00" x2="718.00" y2="825.00" stroke="#D8DEE9" stroke-width="1" stroke-linecap="round"/>
+<text x="718.00" y="837.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">+40</text>
+<line x1="499.33" y1="285.00" x2="499.33" y2="825.00" stroke="#2D3A4F" stroke-width="3" stroke-linecap="round"/>
+<text x="595.00" y="209.00" fill="#172033" font-family="DejaVu Sans" font-size="23" font-weight="700" text-anchor="middle" dominant-baseline="hanging">Allocator peak excursion</text>
+<text x="595.00" y="241.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">load peak − pre-load · MiB</text>
+<line x1="865.00" y1="285.00" x2="865.00" y2="825.00" stroke="#D8DEE9" stroke-width="1" stroke-linecap="round"/>
+<text x="865.00" y="837.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">-0.6</text>
+<line x1="965.00" y1="285.00" x2="965.00" y2="825.00" stroke="#D8DEE9" stroke-width="1" stroke-linecap="round"/>
+<text x="965.00" y="837.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">-0.4</text>
+<line x1="1065.00" y1="285.00" x2="1065.00" y2="825.00" stroke="#D8DEE9" stroke-width="1" stroke-linecap="round"/>
+<text x="1065.00" y="837.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">-0.2</text>
+<line x1="1165.00" y1="285.00" x2="1165.00" y2="825.00" stroke="#D8DEE9" stroke-width="1" stroke-linecap="round"/>
+<text x="1165.00" y="837.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">+0.0</text>
+<line x1="1265.00" y1="285.00" x2="1265.00" y2="825.00" stroke="#D8DEE9" stroke-width="1" stroke-linecap="round"/>
+<text x="1265.00" y="837.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">+0.2</text>
+<line x1="1165.00" y1="285.00" x2="1165.00" y2="825.00" stroke="#2D3A4F" stroke-width="3" stroke-linecap="round"/>
+<text x="1065.00" y="209.00" fill="#172033" font-family="DejaVu Sans" font-size="23" font-weight="700" text-anchor="middle" dominant-baseline="hanging">Allocator live after 10s</text>
+<text x="1065.00" y="241.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">cooldown − pre-load · MiB</text>
+<line x1="1355.62" y1="285.00" x2="1355.62" y2="825.00" stroke="#D8DEE9" stroke-width="1" stroke-linecap="round"/>
+<text x="1355.62" y="837.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">+0</text>
+<line x1="1483.75" y1="285.00" x2="1483.75" y2="825.00" stroke="#D8DEE9" stroke-width="1" stroke-linecap="round"/>
+<text x="1483.75" y="837.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">+50</text>
+<line x1="1611.88" y1="285.00" x2="1611.88" y2="825.00" stroke="#D8DEE9" stroke-width="1" stroke-linecap="round"/>
+<text x="1611.88" y="837.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">+100</text>
+<line x1="1740.00" y1="285.00" x2="1740.00" y2="825.00" stroke="#D8DEE9" stroke-width="1" stroke-linecap="round"/>
+<text x="1740.00" y="837.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">+150</text>
+<line x1="1355.62" y1="285.00" x2="1355.62" y2="825.00" stroke="#2D3A4F" stroke-width="3" stroke-linecap="round"/>
+<text x="1535.00" y="209.00" fill="#172033" font-family="DejaVu Sans" font-size="23" font-weight="700" text-anchor="middle" dominant-baseline="hanging">Process RSS after 10s</text>
+<text x="1535.00" y="241.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="middle" dominant-baseline="hanging">cooldown − pre-load · MiB</text>
+<text x="40.00" y="327.50" fill="#172033" font-family="DejaVu Sans" font-size="20" font-weight="700" text-anchor="start" dominant-baseline="hanging">Wide 10k · workers=0 · RESP2</text>
+<text x="40.00" y="356.50" fill="#505B70" font-family="DejaVu Sans" font-size="15" font-weight="400" text-anchor="start" dominant-baseline="hanging">10 pairs · 5 AB / 5 BA · 20 process runs</text>
+<line x1="30.00" y1="420.00" x2="1760.00" y2="420.00" stroke="#EEF1F5" stroke-width="1" stroke-linecap="round"/>
+<circle cx="502.47" cy="339.00" r="6.00" fill="#9FC5E5"/>
+<rect x="495.61" y="336.00" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="502.19" cy="345.00" r="6.00" fill="#9FC5E5"/>
+<rect x="495.37" y="342.00" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="503.12" cy="351.00" r="6.00" fill="#9FC5E5"/>
+<rect x="496.51" y="348.00" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="504.06" cy="357.00" r="6.00" fill="#9FC5E5"/>
+<rect x="496.55" y="354.00" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="502.45" cy="363.00" r="6.00" fill="#9FC5E5"/>
+<rect x="495.62" y="360.00" width="12.00" height="12.00" fill="#9FC5E5"/>
+<line x1="501.62" y1="352.50" x2="502.82" y2="352.50" stroke="#256FAF" stroke-width="3" stroke-linecap="round"/>
+<line x1="501.62" y1="346.50" x2="501.62" y2="358.50" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<line x1="502.82" y1="346.50" x2="502.82" y2="358.50" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<polygon points="502.46,344.50 510.46,352.50 502.46,360.50 494.46,352.50" fill="#256FAF"/>
+<text x="796.00" y="322.50" fill="#256FAF" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">137.4 → 137.9; median Δ +0.6 MiB</text>
+<text x="796.00" y="375.50" fill="#505B70" font-family="DejaVu Sans" font-size="14" font-weight="400" text-anchor="end" dominant-baseline="hanging">95% CI [+0.4, +0.6] MiB</text>
+<circle cx="1164.99" cy="339.00" r="6.00" fill="#9FC5E5"/>
+<rect x="1158.91" y="336.00" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1164.94" cy="345.00" r="6.00" fill="#9FC5E5"/>
+<rect x="1159.02" y="342.00" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1164.95" cy="351.00" r="6.00" fill="#9FC5E5"/>
+<rect x="1158.95" y="348.00" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1235.66" cy="357.00" r="6.00" fill="#9FC5E5"/>
+<rect x="1158.92" y="354.00" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1165.01" cy="363.00" r="6.00" fill="#9FC5E5"/>
+<rect x="1088.30" y="360.00" width="12.00" height="12.00" fill="#9FC5E5"/>
+<line x1="1164.92" y1="352.50" x2="1165.01" y2="352.50" stroke="#256FAF" stroke-width="3" stroke-linecap="round"/>
+<line x1="1164.92" y1="346.50" x2="1164.92" y2="358.50" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<line x1="1165.01" y1="346.50" x2="1165.01" y2="358.50" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<polygon points="1164.95,344.50 1172.95,352.50 1164.95,360.50 1156.95,352.50" fill="#256FAF"/>
+<text x="1261.00" y="322.50" fill="#256FAF" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">0.1039 → 0.1038; median Δ -0.0001 MiB</text>
+<text x="1261.00" y="375.50" fill="#505B70" font-family="DejaVu Sans" font-size="14" font-weight="400" text-anchor="end" dominant-baseline="hanging">95% CI [-0.0002, 0.0000] MiB</text>
+<circle cx="1367.20" cy="339.00" r="6.00" fill="#9FC5E5"/>
+<rect x="1351.32" y="336.00" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1356.75" cy="345.00" r="6.00" fill="#9FC5E5"/>
+<rect x="1350.85" y="342.00" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1357.15" cy="351.00" r="6.00" fill="#9FC5E5"/>
+<rect x="1362.39" y="348.00" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1357.24" cy="357.00" r="6.00" fill="#9FC5E5"/>
+<rect x="1361.77" y="354.00" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1367.74" cy="363.00" r="6.00" fill="#9FC5E5"/>
+<rect x="1361.51" y="360.00" width="12.00" height="12.00" fill="#9FC5E5"/>
+<line x1="1357.04" y1="352.50" x2="1367.74" y2="352.50" stroke="#256FAF" stroke-width="3" stroke-linecap="round"/>
+<line x1="1357.04" y1="346.50" x2="1357.04" y2="358.50" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<line x1="1367.74" y1="346.50" x2="1367.74" y2="358.50" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<polygon points="1362.26,344.50 1370.26,352.50 1362.26,360.50 1354.26,352.50" fill="#256FAF"/>
+<text x="1736.00" y="322.50" fill="#256FAF" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">124.8 → 127.4; median Δ +2.6 MiB</text>
+<text x="1736.00" y="375.50" fill="#505B70" font-family="DejaVu Sans" font-size="14" font-weight="400" text-anchor="end" dominant-baseline="hanging">95% CI [+0.6, +4.7] MiB</text>
+<text x="40.00" y="462.50" fill="#172033" font-family="DejaVu Sans" font-size="20" font-weight="700" text-anchor="start" dominant-baseline="hanging">Wide 10k · workers=0 · RESP3</text>
+<text x="40.00" y="491.50" fill="#505B70" font-family="DejaVu Sans" font-size="15" font-weight="400" text-anchor="start" dominant-baseline="hanging">10 pairs · 5 AB / 5 BA · 20 process runs</text>
+<line x1="30.00" y1="555.00" x2="1760.00" y2="555.00" stroke="#EEF1F5" stroke-width="1" stroke-linecap="round"/>
+<circle cx="523.51" cy="474.00" r="6.00" fill="#C5ADF2"/>
+<rect x="517.72" y="471.00" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="521.87" cy="480.00" r="6.00" fill="#C5ADF2"/>
+<rect x="516.72" y="477.00" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="522.80" cy="486.00" r="6.00" fill="#C5ADF2"/>
+<rect x="517.61" y="483.00" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="522.75" cy="492.00" r="6.00" fill="#C5ADF2"/>
+<rect x="515.93" y="489.00" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="524.57" cy="498.00" r="6.00" fill="#C5ADF2"/>
+<rect x="515.86" y="495.00" width="12.00" height="12.00" fill="#C5ADF2"/>
+<line x1="521.93" y1="487.50" x2="523.62" y2="487.50" stroke="#7C3AED" stroke-width="3" stroke-linecap="round"/>
+<line x1="521.93" y1="481.50" x2="521.93" y2="493.50" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<line x1="523.62" y1="481.50" x2="523.62" y2="493.50" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<polygon points="522.77,479.50 530.77,487.50 522.77,495.50 514.77,487.50" fill="#7C3AED"/>
+<text x="796.00" y="457.50" fill="#7C3AED" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">170.6 → 174.9; median Δ +4.3 MiB</text>
+<text x="796.00" y="510.50" fill="#505B70" font-family="DejaVu Sans" font-size="14" font-weight="400" text-anchor="end" dominant-baseline="hanging">95% CI [+4.1, +4.4] MiB</text>
+<circle cx="1144.96" cy="474.00" r="6.00" fill="#C5ADF2"/>
+<rect x="1241.73" y="471.00" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1082.92" cy="480.00" r="6.00" fill="#C5ADF2"/>
+<rect x="1076.94" y="477.00" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1165.34" cy="486.00" r="6.00" fill="#C5ADF2"/>
+<rect x="1160.62" y="483.00" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1082.94" cy="492.00" r="6.00" fill="#C5ADF2"/>
+<rect x="1076.93" y="489.00" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1247.74" cy="498.00" r="6.00" fill="#C5ADF2"/>
+<rect x="1076.94" y="495.00" width="12.00" height="12.00" fill="#C5ADF2"/>
+<line x1="1082.93" y1="487.50" x2="1196.35" y2="487.50" stroke="#7C3AED" stroke-width="3" stroke-linecap="round"/>
+<line x1="1082.93" y1="481.50" x2="1082.93" y2="493.50" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<line x1="1196.35" y1="481.50" x2="1196.35" y2="493.50" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<polygon points="1113.95,479.50 1121.95,487.50 1113.95,495.50 1105.95,487.50" fill="#7C3AED"/>
+<text x="1261.00" y="457.50" fill="#7C3AED" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">0.1273 → -0.0368; median Δ -0.1021 MiB</text>
+<text x="1261.00" y="510.50" fill="#505B70" font-family="DejaVu Sans" font-size="14" font-weight="400" text-anchor="end" dominant-baseline="hanging">95% CI [-0.1641, +0.0627] MiB</text>
+<circle cx="1353.23" cy="474.00" r="6.00" fill="#C5ADF2"/>
+<rect x="1348.53" y="471.00" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1353.63" cy="480.00" r="6.00" fill="#C5ADF2"/>
+<rect x="1348.05" y="477.00" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1353.65" cy="486.00" r="6.00" fill="#C5ADF2"/>
+<rect x="1347.62" y="483.00" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1353.20" cy="492.00" r="6.00" fill="#C5ADF2"/>
+<rect x="1346.75" y="489.00" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1354.51" cy="498.00" r="6.00" fill="#C5ADF2"/>
+<rect x="1346.76" y="495.00" width="12.00" height="12.00" fill="#C5ADF2"/>
+<line x1="1353.00" y1="487.50" x2="1354.08" y2="487.50" stroke="#7C3AED" stroke-width="3" stroke-linecap="round"/>
+<line x1="1353.00" y1="481.50" x2="1353.00" y2="493.50" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<line x1="1354.08" y1="481.50" x2="1354.08" y2="493.50" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<polygon points="1353.63,479.50 1361.63,487.50 1353.63,495.50 1345.63,487.50" fill="#7C3AED"/>
+<text x="1736.00" y="457.50" fill="#7C3AED" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">162.2 → 161.3; median Δ -0.8 MiB</text>
+<text x="1736.00" y="510.50" fill="#505B70" font-family="DejaVu Sans" font-size="14" font-weight="400" text-anchor="end" dominant-baseline="hanging">95% CI [-1.0, -0.6] MiB</text>
+<text x="40.00" y="597.50" fill="#172033" font-family="DejaVu Sans" font-size="20" font-weight="700" text-anchor="start" dominant-baseline="hanging">Wide 10k · workers=16 · RESP2</text>
+<text x="40.00" y="626.50" fill="#505B70" font-family="DejaVu Sans" font-size="15" font-weight="400" text-anchor="start" dominant-baseline="hanging">10 pairs · 5 AB / 5 BA · 20 process runs</text>
+<line x1="30.00" y1="690.00" x2="1760.00" y2="690.00" stroke="#EEF1F5" stroke-width="1" stroke-linecap="round"/>
+<rect x="645.95" y="603.00" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="760.05" cy="612.00" r="6.00" fill="#9FC5E5"/>
+<rect x="712.09" y="609.00" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="734.85" cy="618.00" r="6.00" fill="#9FC5E5"/>
+<rect x="730.62" y="615.00" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="692.78" cy="624.00" r="6.00" fill="#9FC5E5"/>
+<rect x="755.84" y="621.00" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="674.05" cy="630.00" r="6.00" fill="#9FC5E5"/>
+<rect x="698.78" y="627.00" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="773.50" cy="636.00" r="6.00" fill="#9FC5E5"/>
+<line x1="689.42" y1="622.50" x2="760.05" y2="622.50" stroke="#256FAF" stroke-width="3" stroke-linecap="round"/>
+<line x1="689.42" y1="616.50" x2="689.42" y2="628.50" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<line x1="760.05" y1="616.50" x2="760.05" y2="628.50" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<polygon points="726.47,614.50 734.47,622.50 726.47,630.50 718.47,622.50" fill="#256FAF"/>
+<text x="796.00" y="592.50" fill="#256FAF" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">113.2 → 158.4; median Δ +41.5 MiB</text>
+<text x="796.00" y="645.50" fill="#505B70" font-family="DejaVu Sans" font-size="14" font-weight="400" text-anchor="end" dominant-baseline="hanging">95% CI [+34.8, +47.7] MiB</text>
+<rect x="903.63" y="603.00" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="980.15" cy="612.00" r="6.00" fill="#9FC5E5"/>
+<rect x="974.15" y="609.00" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="979.09" cy="618.00" r="6.00" fill="#9FC5E5"/>
+<rect x="974.23" y="615.00" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1050.89" cy="624.00" r="6.00" fill="#9FC5E5"/>
+<rect x="974.41" y="621.00" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="980.34" cy="630.00" r="6.00" fill="#9FC5E5"/>
+<rect x="903.62" y="627.00" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="980.20" cy="636.00" r="6.00" fill="#9FC5E5"/>
+<line x1="944.89" y1="622.50" x2="980.34" y2="622.50" stroke="#256FAF" stroke-width="3" stroke-linecap="round"/>
+<line x1="944.89" y1="616.50" x2="944.89" y2="628.50" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<line x1="980.34" y1="616.50" x2="980.34" y2="628.50" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<polygon points="980.17,614.50 988.17,622.50 980.17,630.50 972.17,622.50" fill="#256FAF"/>
+<text x="1261.00" y="592.50" fill="#256FAF" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">0.4765 → 0.1070; median Δ -0.3697 MiB</text>
+<text x="1261.00" y="645.50" fill="#505B70" font-family="DejaVu Sans" font-size="14" font-weight="400" text-anchor="end" dominant-baseline="hanging">95% CI [-0.4402, -0.3693] MiB</text>
+<rect x="1416.49" y="603.00" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1503.96" cy="612.00" r="6.00" fill="#9FC5E5"/>
+<rect x="1425.35" y="609.00" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1542.20" cy="618.00" r="6.00" fill="#9FC5E5"/>
+<rect x="1427.77" y="615.00" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1439.40" cy="624.00" r="6.00" fill="#9FC5E5"/>
+<rect x="1391.49" y="621.00" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1390.42" cy="630.00" r="6.00" fill="#9FC5E5"/>
+<rect x="1405.81" y="627.00" width="12.00" height="12.00" fill="#9FC5E5"/>
+<circle cx="1431.60" cy="636.00" r="6.00" fill="#9FC5E5"/>
+<line x1="1409.99" y1="622.50" x2="1468.87" y2="622.50" stroke="#256FAF" stroke-width="3" stroke-linecap="round"/>
+<line x1="1409.99" y1="616.50" x2="1409.99" y2="628.50" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<line x1="1468.87" y1="616.50" x2="1468.87" y2="628.50" stroke="#256FAF" stroke-width="2" stroke-linecap="round"/>
+<polygon points="1431.47,614.50 1439.47,622.50 1431.47,630.50 1423.47,622.50" fill="#256FAF"/>
+<text x="1736.00" y="592.50" fill="#256FAF" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">62.1 → 91.6; median Δ +29.6 MiB</text>
+<text x="1736.00" y="645.50" fill="#505B70" font-family="DejaVu Sans" font-size="14" font-weight="400" text-anchor="end" dominant-baseline="hanging">95% CI [+21.2, +44.2] MiB</text>
+<text x="40.00" y="732.50" fill="#172033" font-family="DejaVu Sans" font-size="20" font-weight="700" text-anchor="start" dominant-baseline="hanging">Wide 10k · workers=16 · RESP3</text>
+<text x="40.00" y="761.50" fill="#505B70" font-family="DejaVu Sans" font-size="15" font-weight="400" text-anchor="start" dominant-baseline="hanging">10 pairs · 5 AB / 5 BA · 20 process runs</text>
+<line x1="30.00" y1="825.00" x2="1760.00" y2="825.00" stroke="#EEF1F5" stroke-width="1" stroke-linecap="round"/>
+<rect x="589.37" y="738.00" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="635.53" cy="747.00" r="6.00" fill="#C5ADF2"/>
+<rect x="610.41" y="744.00" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="540.30" cy="753.00" r="6.00" fill="#C5ADF2"/>
+<rect x="591.28" y="750.00" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="501.81" cy="759.00" r="6.00" fill="#C5ADF2"/>
+<rect x="601.41" y="756.00" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="656.44" cy="765.00" r="6.00" fill="#C5ADF2"/>
+<rect x="399.64" y="762.00" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="614.86" cy="771.00" r="6.00" fill="#C5ADF2"/>
+<line x1="540.30" y1="757.50" x2="625.19" y2="757.50" stroke="#7C3AED" stroke-width="3" stroke-linecap="round"/>
+<line x1="540.30" y1="751.50" x2="540.30" y2="763.50" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<line x1="625.19" y1="751.50" x2="625.19" y2="763.50" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<polygon points="602.34,749.50 610.34,757.50 602.34,765.50 594.34,757.50" fill="#7C3AED"/>
+<text x="796.00" y="727.50" fill="#7C3AED" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">148.5 → 169.0; median Δ +18.8 MiB</text>
+<text x="796.00" y="780.50" fill="#505B70" font-family="DejaVu Sans" font-size="14" font-weight="400" text-anchor="end" dominant-baseline="hanging">95% CI [+7.5, +23.0] MiB</text>
+<rect x="974.39" y="738.00" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="968.61" cy="747.00" r="6.00" fill="#C5ADF2"/>
+<rect x="971.87" y="744.00" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="980.22" cy="753.00" r="6.00" fill="#C5ADF2"/>
+<rect x="891.88" y="750.00" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="980.24" cy="759.00" r="6.00" fill="#C5ADF2"/>
+<rect x="982.88" y="756.00" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="980.19" cy="765.00" r="6.00" fill="#C5ADF2"/>
+<rect x="1036.43" y="762.00" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="897.91" cy="771.00" r="6.00" fill="#C5ADF2"/>
+<line x1="937.89" y1="757.50" x2="984.55" y2="757.50" stroke="#7C3AED" stroke-width="3" stroke-linecap="round"/>
+<line x1="937.89" y1="751.50" x2="937.89" y2="763.50" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<line x1="984.55" y1="751.50" x2="984.55" y2="763.50" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<polygon points="980.21,749.50 988.21,757.50 980.21,765.50 972.21,757.50" fill="#7C3AED"/>
+<text x="1261.00" y="727.50" fill="#7C3AED" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">0.4113 → -0.0342; median Δ -0.3696 MiB</text>
+<text x="1261.00" y="780.50" fill="#505B70" font-family="DejaVu Sans" font-size="14" font-weight="400" text-anchor="end" dominant-baseline="hanging">95% CI [-0.4542, -0.3609] MiB</text>
+<rect x="1564.60" y="738.00" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1714.92" cy="747.00" r="6.00" fill="#C5ADF2"/>
+<rect x="1607.76" y="744.00" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1627.11" cy="753.00" r="6.00" fill="#C5ADF2"/>
+<rect x="1456.22" y="750.00" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1603.68" cy="759.00" r="6.00" fill="#C5ADF2"/>
+<rect x="1494.44" y="756.00" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1665.12" cy="765.00" r="6.00" fill="#C5ADF2"/>
+<rect x="1581.26" y="762.00" width="12.00" height="12.00" fill="#C5ADF2"/>
+<circle cx="1564.34" cy="771.00" r="6.00" fill="#C5ADF2"/>
+<line x1="1535.52" y1="757.50" x2="1639.44" y2="757.50" stroke="#7C3AED" stroke-width="3" stroke-linecap="round"/>
+<line x1="1535.52" y1="751.50" x2="1535.52" y2="763.50" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<line x1="1639.44" y1="751.50" x2="1639.44" y2="763.50" stroke="#7C3AED" stroke-width="2" stroke-linecap="round"/>
+<polygon points="1595.47,749.50 1603.47,757.50 1595.47,765.50 1587.47,757.50" fill="#7C3AED"/>
+<text x="1736.00" y="727.50" fill="#7C3AED" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="end" dominant-baseline="hanging">100.6 → 197.1; median Δ +93.6 MiB</text>
+<text x="1736.00" y="780.50" fill="#505B70" font-family="DejaVu Sans" font-size="14" font-weight="400" text-anchor="end" dominant-baseline="hanging">95% CI [+70.2, +110.8] MiB</text>
+<circle cx="48.00" cy="878.00" r="5.00" fill="#7B8495"/>
+<text x="63.00" y="870.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="start" dominant-baseline="hanging">AB run</text>
+<rect x="151.00" y="873.00" width="10.00" height="10.00" fill="#7B8495"/>
+<text x="174.00" y="870.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="start" dominant-baseline="hanging">BA run</text>
+<polygon points="272.00,870.00 280.00,878.00 272.00,886.00 264.00,878.00" fill="#256FAF"/>
+<text x="292.00" y="870.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="start" dominant-baseline="hanging">RESP2 median</text>
+<polygon points="420.00,870.00 428.00,878.00 420.00,886.00 412.00,878.00" fill="#7C3AED"/>
+<text x="440.00" y="870.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="start" dominant-baseline="hanging">RESP3 median · whisker = 95% bootstrap CI</text>
+<text x="40.00" y="906.00" fill="#505B70" font-family="DejaVu Sans" font-size="16" font-weight="400" text-anchor="start" dominant-baseline="hanging">Dots/squares are the 10 actual paired MiB deltas in every row. CI = 10,000 whole-pair resamples (seed 17473), not benchmark runs.</text>
+<text x="40.00" y="940.00" fill="#172033" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="start" dominant-baseline="hanging">Plotted equal-work subset: 4 cases × 10 pairs = 40 pairs / 80 observations. Whole memory campaign: 8 cases × 10 = 80 pairs / 160 observations (40 AB, 40 BA).</text>
+<text x="40.00" y="972.00" fill="#C53B36" font-family="DejaVu Sans" font-size="16" font-weight="700" text-anchor="start" dominant-baseline="hanging">Allocator-live found no retained live allocation after 10s; RSS residuals are consistent with allocator residency/high-water.</text>
+</svg>

@@ -1,0 +1,1563 @@
+{
+  "baseline_revision": "20ba4ed7c2a90dd72b685275a0aca993412591af",
+  "candidate_revision": "3ff80fa72b73a1bcde562095d98dcc80fec85b58",
+  "host": {
+    "cpu": "AMD EPYC 7R32",
+    "instance": "3.16.40.116",
+    "logical_cpus": 16,
+    "memory_gib": 30,
+    "os": "Ubuntu",
+    "physical_cpus": 8,
+    "swap_gib": 0
+  },
+  "memory_campaign": {
+    "ab": 40,
+    "ba": 40,
+    "campaign_id": "37bc957a7471e6c4f2b7d34fc636909552fa57196e44c99658d04f988ab6c59f",
+    "cases": 8,
+    "observations": 160,
+    "pairs": 80,
+    "plotted_equal_work_cases": 4,
+    "plotted_observations": 80,
+    "plotted_pairs": 40,
+    "source_analysis_sha256": "2e51af6b143ffaa03796812eab56202e65eb32127bd1d88bd5b2d09e32fca331",
+    "source_bundle_sha256": "4c1658576a147ac318655ca5519dc931a1669bcf1486417ea11352f4ea223c8e"
+  },
+  "memory_cases": [
+    {
+      "case": "full-wide10000-r2-c32-w0",
+      "label": "Wide 10k \u00b7 workers=0 \u00b7 RESP2",
+      "metrics": {
+        "allocator_live_10s": {
+          "baseline_median": 0.1038818359375,
+          "candidate_median": 0.10378265380859375,
+          "median_delta": -0.0001068115234375,
+          "median_delta_ci95": [
+            -0.000152587890625,
+            1.52587890625e-05
+          ],
+          "metric": "redis_allocator_allocated_bytes/cooldown_residual",
+          "orders": [
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA"
+          ],
+          "paired_absolute_deltas": [
+            -1.52587890625e-05,
+            -0.00018310546875,
+            -0.0001220703125,
+            3.0517578125e-05,
+            -0.0001068115234375,
+            -0.0001068115234375,
+            0.1413116455078125,
+            -0.000152587890625,
+            1.52587890625e-05,
+            -0.1414031982421875
+          ],
+          "title": "Allocator live at 10s",
+          "units": "MiB"
+        },
+        "allocator_peak": {
+          "baseline_median": 137.35851287841797,
+          "candidate_median": 137.92018127441406,
+          "median_delta": 0.571868896484375,
+          "median_delta_ci95": [
+            0.4190826416015625,
+            0.6370468139648438
+          ],
+          "metric": "redis_allocator_allocated_bytes/peak_minus_before",
+          "orders": [
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA"
+          ],
+          "paired_absolute_deltas": [
+            0.573028564453125,
+            0.4165191650390625,
+            0.52197265625,
+            0.3723297119140625,
+            0.6923065185546875,
+            0.581787109375,
+            0.8637237548828125,
+            0.588531494140625,
+            0.570709228515625,
+            0.4190826416015625
+          ],
+          "title": "Allocator peak excursion",
+          "units": "MiB"
+        },
+        "rss_10s": {
+          "baseline_median": 124.75,
+          "candidate_median": 127.431640625,
+          "median_delta": 2.587890625,
+          "median_delta_ci95": [
+            0.552734375,
+            4.7265625
+          ],
+          "metric": "proc_VmRSS_bytes/cooldown_residual",
+          "orders": [
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA"
+          ],
+          "paired_absolute_deltas": [
+            4.515625,
+            0.66015625,
+            0.4375,
+            0.4765625,
+            0.59375,
+            4.98046875,
+            0.62890625,
+            4.73828125,
+            4.7265625,
+            4.63671875
+          ],
+          "title": "Process RSS at 10s",
+          "units": "MiB"
+        }
+      },
+      "protocol": "RESP2",
+      "runs": {
+        "ab": 5,
+        "ba": 5,
+        "baseline_observations": 10,
+        "candidate_observations": 10,
+        "pairs": 10,
+        "process_executions": 20
+      }
+    },
+    {
+      "case": "full-wide10000-r3-c32-w0",
+      "label": "Wide 10k \u00b7 workers=0 \u00b7 RESP3",
+      "metrics": {
+        "allocator_live_10s": {
+          "baseline_median": 0.12729644775390625,
+          "candidate_median": -0.0368194580078125,
+          "median_delta": -0.10210418701171875,
+          "median_delta_ci95": [
+            -0.16413116455078125,
+            0.06269073486328125
+          ],
+          "metric": "redis_allocator_allocated_bytes/cooldown_residual",
+          "orders": [
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA"
+          ],
+          "paired_absolute_deltas": [
+            -0.0400848388671875,
+            0.16546630859375,
+            -0.164154052734375,
+            -0.16412353515625,
+            0.0006866455078125,
+            0.00323486328125,
+            -0.16412353515625,
+            -0.1641387939453125,
+            0.1654815673828125,
+            -0.16412353515625
+          ],
+          "title": "Allocator live at 10s",
+          "units": "MiB"
+        },
+        "allocator_peak": {
+          "baseline_median": 170.62237548828125,
+          "candidate_median": 174.90628814697266,
+          "median_delta": 4.2877655029296875,
+          "median_delta_ci95": [
+            4.1340789794921875,
+            4.4420166015625
+          ],
+          "metric": "redis_allocator_allocated_bytes/peak_minus_before",
+          "orders": [
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA"
+          ],
+          "paired_absolute_deltas": [
+            4.4229736328125,
+            4.4610595703125,
+            4.1229705810546875,
+            4.27880859375,
+            4.2919158935546875,
+            4.4414825439453125,
+            4.2836151123046875,
+            4.1340789794921875,
+            4.615631103515625,
+            4.121551513671875
+          ],
+          "title": "Allocator peak excursion",
+          "units": "MiB"
+        },
+        "rss_10s": {
+          "baseline_median": 162.1640625,
+          "candidate_median": 161.314453125,
+          "median_delta": -0.779296875,
+          "median_delta_ci95": [
+            -1.025390625,
+            -0.6015625
+          ],
+          "metric": "proc_VmRSS_bytes/cooldown_residual",
+          "orders": [
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA"
+          ],
+          "paired_absolute_deltas": [
+            -0.93359375,
+            -0.42578125,
+            -0.77734375,
+            -0.61328125,
+            -0.76953125,
+            -0.78125,
+            -0.9453125,
+            -1.12109375,
+            -0.43359375,
+            -1.1171875
+          ],
+          "title": "Process RSS at 10s",
+          "units": "MiB"
+        }
+      },
+      "protocol": "RESP3",
+      "runs": {
+        "ab": 5,
+        "ba": 5,
+        "baseline_observations": 10,
+        "candidate_observations": 10,
+        "pairs": 10,
+        "process_executions": 20
+      }
+    },
+    {
+      "case": "full-wide10000-r2-c32-w16",
+      "label": "Wide 10k \u00b7 workers=16 \u00b7 RESP2",
+      "metrics": {
+        "allocator_live_10s": {
+          "baseline_median": 0.4765472412109375,
+          "candidate_median": 0.10697174072265625,
+          "median_delta": -0.36965179443359375,
+          "median_delta_ci95": [
+            -0.44022369384765625,
+            -0.36932373046875
+          ],
+          "metric": "redis_allocator_allocated_bytes/cooldown_residual",
+          "orders": [
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB"
+          ],
+          "paired_absolute_deltas": [
+            -0.5107421875,
+            -0.3697052001953125,
+            -0.3697052001953125,
+            -0.3718109130859375,
+            -0.369537353515625,
+            -0.22821044921875,
+            -0.369171142578125,
+            -0.36932373046875,
+            -0.5107574462890625,
+            -0.369598388671875
+          ],
+          "title": "Allocator live at 10s",
+          "units": "MiB"
+        },
+        "allocator_peak": {
+          "baseline_median": 113.24237060546875,
+          "candidate_median": 158.36024475097656,
+          "median_delta": 41.549278259277344,
+          "median_delta_ci95": [
+            34.771751403808594,
+            47.69261932373047
+          ],
+          "metric": "redis_allocator_allocated_bytes/peak_minus_before",
+          "orders": [
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB"
+          ],
+          "paired_absolute_deltas": [
+            27.917434692382812,
+            47.69261932373047,
+            40.016990661621094,
+            43.081565856933594,
+            43.405242919921875,
+            35.38714599609375,
+            48.019287109375,
+            31.960952758789062,
+            37.582550048828125,
+            50.15221405029297
+          ],
+          "title": "Allocator peak excursion",
+          "units": "MiB"
+        },
+        "rss_10s": {
+          "baseline_median": 62.08984375,
+          "candidate_median": 91.634765625,
+          "median_delta": 29.599609375,
+          "median_delta_ci95": [
+            21.21484375,
+            44.19140625
+          ],
+          "metric": "proc_VmRSS_bytes/cooldown_residual",
+          "orders": [
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB"
+          ],
+          "paired_absolute_deltas": [
+            26.09375,
+            57.88671875,
+            29.55078125,
+            72.80859375,
+            30.49609375,
+            32.69140625,
+            16.3359375,
+            13.578125,
+            21.92578125,
+            29.6484375
+          ],
+          "title": "Process RSS at 10s",
+          "units": "MiB"
+        }
+      },
+      "protocol": "RESP2",
+      "runs": {
+        "ab": 5,
+        "ba": 5,
+        "baseline_observations": 10,
+        "candidate_observations": 10,
+        "pairs": 10,
+        "process_executions": 20
+      }
+    },
+    {
+      "case": "full-wide10000-r3-c32-w16",
+      "label": "Wide 10k \u00b7 workers=16 \u00b7 RESP3",
+      "metrics": {
+        "allocator_live_10s": {
+          "baseline_median": 0.411285400390625,
+          "candidate_median": -0.0341644287109375,
+          "median_delta": -0.3695831298828125,
+          "median_delta_ci95": [
+            -0.4542236328125,
+            -0.36090087890625
+          ],
+          "metric": "redis_allocator_allocated_bytes/cooldown_residual",
+          "orders": [
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB"
+          ],
+          "paired_absolute_deltas": [
+            -0.3692169189453125,
+            -0.3927764892578125,
+            -0.374267578125,
+            -0.3695526123046875,
+            -0.53424072265625,
+            -0.3695220947265625,
+            -0.3522491455078125,
+            -0.3696136474609375,
+            -0.245147705078125,
+            -0.5341796875
+          ],
+          "title": "Allocator live at 10s",
+          "units": "MiB"
+        },
+        "allocator_peak": {
+          "baseline_median": 148.45642852783203,
+          "candidate_median": 169.0490493774414,
+          "median_delta": 18.843013763427734,
+          "median_delta_ci95": [
+            7.4936676025390625,
+            23.023326873779297
+          ],
+          "metric": "redis_allocator_allocated_bytes/peak_minus_before",
+          "orders": [
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB"
+          ],
+          "paired_absolute_deltas": [
+            17.56774139404297,
+            24.91407012939453,
+            21.41558074951172,
+            7.4936676025390625,
+            17.916366577148438,
+            0.4530792236328125,
+            19.76966094970703,
+            28.738265991210938,
+            -17.13915252685547,
+            21.132583618164062
+          ],
+          "title": "Allocator peak excursion",
+          "units": "MiB"
+        },
+        "rss_10s": {
+          "baseline_median": 100.591796875,
+          "candidate_median": 197.06640625,
+          "median_delta": 93.59765625,
+          "median_delta_ci95": [
+            70.203125,
+            110.755859375
+          ],
+          "metric": "proc_VmRSS_bytes/cooldown_residual",
+          "orders": [
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB"
+          ],
+          "paired_absolute_deltas": [
+            83.89453125,
+            140.2109375,
+            100.734375,
+            105.9453125,
+            41.59765625,
+            96.80078125,
+            56.51171875,
+            120.77734375,
+            90.39453125,
+            81.44921875
+          ],
+          "title": "Process RSS at 10s",
+          "units": "MiB"
+        }
+      },
+      "protocol": "RESP3",
+      "runs": {
+        "ab": 5,
+        "ba": 5,
+        "baseline_observations": 10,
+        "candidate_observations": 10,
+        "pairs": 10,
+        "process_executions": 20
+      }
+    }
+  ],
+  "method": {
+    "bootstrap_iterations": 10000,
+    "bootstrap_seed": 17473,
+    "fresh_redis_process_per_observation": true,
+    "memory_delta_estimator": "paired median",
+    "performance_effect_estimator": "paired geometric mean"
+  },
+  "performance_campaign": {
+    "ab": 90,
+    "ba": 90,
+    "campaign_id": "adedd38cc29376b9d69fb691bf7d91513aa2bd6a67bb4f91517364d3ab89a123",
+    "cases": 18,
+    "observations": 360,
+    "pairs": 180,
+    "plotted_equal_work_cases": 12,
+    "plotted_observations": 240,
+    "plotted_pairs": 120,
+    "source_analysis_sha256": "5d37414c98866d28a9e7d2ac38c8b801ba9ff1c2ea0856dacaa8bcf81c26da0c",
+    "source_bundle_sha256": "1a1f09fee7fd350b8186ba0a6377daf01b50069eeb058900a0e99803d29fe1c0"
+  },
+  "performance_cases": [
+    {
+      "case": "full-narrow1000-r2-c32-w1",
+      "label": "Narrow 1k \u00b7 workers=1 \u00b7 RESP2",
+      "metrics": {
+        "latency_p95": {
+          "baseline_median": 100.235961,
+          "candidate_median": 124.14764,
+          "effect_ci95": [
+            19.733827423791062,
+            27.353059868455976
+          ],
+          "effect_percent": 23.484692604260292,
+          "metric": "latency_p95_ms",
+          "orders": [
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA"
+          ],
+          "paired_percent": [
+            34.7848921342498,
+            25.71630209512805,
+            30.820888181854112,
+            18.43044333961654,
+            22.01900373858838,
+            28.243199745273053,
+            20.810895681464725,
+            12.682502933549134,
+            24.471585601897907,
+            18.43044378047034
+          ],
+          "units": "ms"
+        },
+        "throughput": {
+          "baseline_median": 419.9579466027458,
+          "candidate_median": 419.12830147493275,
+          "effect_ci95": [
+            -1.506903246040714,
+            0.006860729317526015
+          ],
+          "effect_percent": -0.7907167240426172,
+          "metric": "requests_per_second",
+          "orders": [
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA"
+          ],
+          "paired_percent": [
+            -1.2282651746672868,
+            0.4077098576294791,
+            -2.001044278955344,
+            -1.7140829561665072,
+            1.6502769398186068,
+            -2.3158264810557605,
+            0.1976349038129932,
+            -1.91169172521104,
+            0.136794042495203,
+            -1.0514428773135576
+          ],
+          "units": "req/s"
+        }
+      },
+      "protocol": "RESP2",
+      "runs": {
+        "ab": 5,
+        "ba": 5,
+        "baseline_observations": 10,
+        "candidate_observations": 10,
+        "pairs": 10,
+        "process_executions": 20
+      }
+    },
+    {
+      "case": "full-narrow1000-r3-c32-w1",
+      "label": "Narrow 1k \u00b7 workers=1 \u00b7 RESP3",
+      "metrics": {
+        "latency_p95": {
+          "baseline_median": 185.758516,
+          "candidate_median": 211.410518,
+          "effect_ci95": [
+            12.346635947828165,
+            14.149567673245823
+          ],
+          "effect_percent": 13.357251986682229,
+          "metric": "latency_p95_ms",
+          "orders": [
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB"
+          ],
+          "paired_percent": [
+            12.682502803801476,
+            13.809327589589483,
+            14.947421306918706,
+            13.809328046644076,
+            13.809328123709385,
+            9.36852736874041,
+            13.809327589589483,
+            12.682502660046225,
+            14.947421348149593,
+            13.809328046644076
+          ],
+          "units": "ms"
+        },
+        "throughput": {
+          "baseline_median": 200.46719980769808,
+          "candidate_median": 200.04099313752957,
+          "effect_ci95": [
+            -0.5716348378171476,
+            0.18785925232407408
+          ],
+          "effect_percent": -0.17726931570560822,
+          "metric": "requests_per_second",
+          "orders": [
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB"
+          ],
+          "paired_percent": [
+            -1.5093840381833035,
+            -0.6098487814899856,
+            -0.2792583060117648,
+            0.19264531702145593,
+            0.8654555473644354,
+            0.17417782946653748,
+            -0.29674156978549693,
+            0.3025044599780813,
+            0.0480006946730116,
+            -0.6410193470945624
+          ],
+          "units": "req/s"
+        }
+      },
+      "protocol": "RESP3",
+      "runs": {
+        "ab": 5,
+        "ba": 5,
+        "baseline_observations": 10,
+        "candidate_observations": 10,
+        "pairs": 10,
+        "process_executions": 20
+      }
+    },
+    {
+      "case": "full-wide1000-r2-c32-w1",
+      "label": "Wide 1k \u00b7 workers=1 \u00b7 RESP2",
+      "metrics": {
+        "latency_p95": {
+          "baseline_median": 806.0402715,
+          "candidate_median": 802.030121,
+          "effect_ci95": [
+            -1.2852126624005145,
+            0.49875619901893486
+          ],
+          "effect_percent": -0.39722219107243273,
+          "metric": "latency_p95_ms",
+          "orders": [
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA"
+          ],
+          "paired_percent": [
+            1.000000052147798,
+            0.9999999738164567,
+            -0.9900989842333563,
+            -1.9703950075343424,
+            -1.9703949984486213,
+            0.9999999728411924,
+            0.9999999738164567,
+            0.0,
+            -2.9409851208797577,
+            0.0
+          ],
+          "units": "ms"
+        },
+        "throughput": {
+          "baseline_median": 39.78275445293463,
+          "candidate_median": 40.05363848597208,
+          "effect_ci95": [
+            -0.20513926327149212,
+            1.218341466349404
+          ],
+          "effect_percent": 0.48706811708001396,
+          "metric": "requests_per_second",
+          "orders": [
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA"
+          ],
+          "paired_percent": [
+            -1.0113740770893331,
+            -0.5459577386580095,
+            1.1403672019226319,
+            1.9623014904445624,
+            1.3116301268009778,
+            -0.9830145477915386,
+            -0.24081751639486448,
+            0.06147004056302752,
+            2.526662809726754,
+            0.7173463234361188
+          ],
+          "units": "req/s"
+        }
+      },
+      "protocol": "RESP2",
+      "runs": {
+        "ab": 5,
+        "ba": 5,
+        "baseline_observations": 10,
+        "candidate_observations": 10,
+        "pairs": 10,
+        "process_executions": 20
+      }
+    },
+    {
+      "case": "full-wide1000-r3-c32-w1",
+      "label": "Wide 1k \u00b7 workers=1 \u00b7 RESP3",
+      "metrics": {
+        "latency_p95": {
+          "baseline_median": 838.7687390000001,
+          "candidate_median": 834.59576,
+          "effect_ci95": [
+            -1.7751154338791597,
+            0.39880637775409067
+          ],
+          "effect_percent": -0.6941030560720485,
+          "metric": "latency_p95_ms",
+          "orders": [
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB"
+          ],
+          "paired_percent": [
+            1.0000000479273963,
+            -0.9900990568840196,
+            -1.9703950850999852,
+            -0.9900989671934091,
+            -3.901965621608716,
+            0.0,
+            -2.94098519326621,
+            1.0000000479273963,
+            2.0100000268393314,
+            0.0
+          ],
+          "units": "ms"
+        },
+        "throughput": {
+          "baseline_median": 38.246321689971055,
+          "candidate_median": 38.34453626381348,
+          "effect_ci95": [
+            -0.45745902120172266,
+            1.4011624412158419
+          ],
+          "effect_percent": 0.4537567700445999,
+          "metric": "requests_per_second",
+          "orders": [
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB"
+          ],
+          "paired_percent": [
+            -0.4681856558258368,
+            0.504211327010351,
+            1.890134262023846,
+            1.1764013308733778,
+            2.8960127192326324,
+            -0.3084366999644206,
+            2.6150425738918237,
+            -1.062731773738923,
+            -1.8544356955511376,
+            -0.7328131185252329
+          ],
+          "units": "req/s"
+        }
+      },
+      "protocol": "RESP3",
+      "runs": {
+        "ab": 5,
+        "ba": 5,
+        "baseline_observations": 10,
+        "candidate_observations": 10,
+        "pairs": 10,
+        "process_executions": 20
+      }
+    },
+    {
+      "case": "full-wide10000-r2-c32-w0",
+      "label": "Wide 10k \u00b7 workers=0 \u00b7 RESP2",
+      "metrics": {
+        "latency_p95": {
+          "baseline_median": 3462.841592,
+          "candidate_median": 3749.761238,
+          "effect_ci95": [
+            7.962909057158485,
+            8.825752064396974
+          ],
+          "effect_percent": 8.393472005393221,
+          "metric": "latency_p95_ms",
+          "orders": [
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA"
+          ],
+          "paired_percent": [
+            8.285670566994629,
+            7.213535224852796,
+            8.285670568934611,
+            8.285670550534373,
+            9.368527277832307,
+            9.368527245066073,
+            7.213535196096532,
+            8.285670550534373,
+            9.368527245066073,
+            8.285670550534373
+          ],
+          "units": "ms"
+        },
+        "throughput": {
+          "baseline_median": 8.330692841081461,
+          "candidate_median": 7.752277721761437,
+          "effect_ci95": [
+            -7.39654426318751,
+            -6.637823039539448
+          ],
+          "effect_percent": -7.028989710775058,
+          "metric": "requests_per_second",
+          "orders": [
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA"
+          ],
+          "paired_percent": [
+            -7.581457012985293,
+            -7.03628002600577,
+            -7.631474458519549,
+            -6.580187753501587,
+            -7.533308413129925,
+            -7.802843120587499,
+            -6.333328123571014,
+            -6.400033571371965,
+            -7.388710550315237,
+            -5.981713955445922
+          ],
+          "units": "req/s"
+        }
+      },
+      "protocol": "RESP2",
+      "runs": {
+        "ab": 5,
+        "ba": 5,
+        "baseline_observations": 10,
+        "candidate_observations": 10,
+        "pairs": 10,
+        "process_executions": 20
+      }
+    },
+    {
+      "case": "full-wide10000-r3-c32-w0",
+      "label": "Wide 10k \u00b7 workers=0 \u00b7 RESP3",
+      "metrics": {
+        "latency_p95": {
+          "baseline_median": 4621.175528,
+          "candidate_median": 4808.813786,
+          "effect_ci95": [
+            4.1639960852657865,
+            4.996478057222942
+          ],
+          "effect_percent": 4.579408722988587,
+          "metric": "latency_p95_ms",
+          "orders": [
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB"
+          ],
+          "paired_percent": [
+            6.152015074969985,
+            4.0604010037488925,
+            4.060401014051251,
+            5.101005010570447,
+            4.060401014051251,
+            4.060401014051251,
+            5.101005020780258,
+            5.1010050055817935,
+            4.060401014051251,
+            4.060401014051251
+          ],
+          "units": "ms"
+        },
+        "throughput": {
+          "baseline_median": 5.514662256379547,
+          "candidate_median": 5.329968110884492,
+          "effect_ci95": [
+            -3.6016411900446688,
+            -3.0581230442983665
+          ],
+          "effect_percent": -3.33456429936162,
+          "metric": "requests_per_second",
+          "orders": [
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB"
+          ],
+          "paired_percent": [
+            -3.3355141327142013,
+            -3.5992319280106377,
+            -2.7418980949098226,
+            -3.3580222092268186,
+            -3.0741379771402233,
+            -4.104311139078021,
+            -3.2218293568455514,
+            -3.6467110827282267,
+            -3.6987350744119407,
+            -2.55526242054408
+          ],
+          "units": "req/s"
+        }
+      },
+      "protocol": "RESP3",
+      "runs": {
+        "ab": 5,
+        "ba": 5,
+        "baseline_observations": 10,
+        "candidate_observations": 10,
+        "pairs": 10,
+        "process_executions": 20
+      }
+    },
+    {
+      "case": "full-wide10000-r2-c32-w1",
+      "label": "Wide 10k \u00b7 workers=1 \u00b7 RESP2",
+      "metrics": {
+        "latency_p95": {
+          "baseline_median": 3428.556031,
+          "candidate_median": 3428.556031,
+          "effect_ci95": [
+            -0.39722219932613045,
+            2.0100000026584075
+          ],
+          "effect_percent": 0.7992031884103357,
+          "metric": "latency_p95_ms",
+          "orders": [
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB"
+          ],
+          "paired_percent": [
+            4.060400999048874,
+            -0.9900990006600274,
+            0.0,
+            -0.9900990002759458,
+            3.0300999785286775,
+            2.0100000108053795,
+            -0.9900990006600274,
+            2.0100000000230933,
+            -1.9703950406286919,
+            2.010000022659675
+          ],
+          "units": "ms"
+        },
+        "throughput": {
+          "baseline_median": 10.526527529995215,
+          "candidate_median": 10.623822027684042,
+          "effect_ci95": [
+            -0.704299761530125,
+            1.0940417477429465
+          ],
+          "effect_percent": 0.24286231952177495,
+          "metric": "requests_per_second",
+          "orders": [
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB"
+          ],
+          "paired_percent": [
+            -0.3166883744985305,
+            0.8791578227224095,
+            1.2863027928294635,
+            -0.21155148870961593,
+            -2.6961261995394614,
+            0.15090753551887381,
+            1.8508355058559633,
+            -1.5741017191982065,
+            2.1568059460080224,
+            1.0074452550310475
+          ],
+          "units": "req/s"
+        }
+      },
+      "protocol": "RESP2",
+      "runs": {
+        "ab": 5,
+        "ba": 5,
+        "baseline_observations": 10,
+        "candidate_observations": 10,
+        "pairs": 10,
+        "process_executions": 20
+      }
+    },
+    {
+      "case": "full-wide10000-r3-c32-w1",
+      "label": "Wide 10k \u00b7 workers=1 \u00b7 RESP3",
+      "metrics": {
+        "latency_p95": {
+          "baseline_median": 4598.2984215,
+          "candidate_median": 4598.2984215,
+          "effect_ci95": [
+            -0.7928665698497261,
+            0.7992031830233559
+          ],
+          "effect_percent": 2.9392044353926394e-10,
+          "metric": "latency_p95_ms",
+          "orders": [
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA"
+          ],
+          "paired_percent": [
+            0.9999999969095619,
+            -1.9703950695084682,
+            -1.9703950502450773,
+            0.9999999967216233,
+            2.010000010614732,
+            0.9999999939409365,
+            0.0,
+            -0.99009900396132,
+            -0.99009900396132,
+            0.9999999939409365
+          ],
+          "units": "ms"
+        },
+        "throughput": {
+          "baseline_median": 6.549286473111382,
+          "candidate_median": 6.54180528565636,
+          "effect_ci95": [
+            -1.0012575285302194,
+            0.15090751591362306
+          ],
+          "effect_percent": -0.3737169765586579,
+          "metric": "requests_per_second",
+          "orders": [
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA"
+          ],
+          "paired_percent": [
+            0.5093902143472384,
+            -0.8169384221508036,
+            -0.48372879907856436,
+            -1.13106910993106,
+            -0.1731439561009962,
+            -2.551043820964438,
+            0.49359561440596167,
+            0.652361347506325,
+            -0.49805075143614097,
+            0.30501936346964964
+          ],
+          "units": "req/s"
+        }
+      },
+      "protocol": "RESP3",
+      "runs": {
+        "ab": 5,
+        "ba": 5,
+        "baseline_observations": 10,
+        "candidate_observations": 10,
+        "pairs": 10,
+        "process_executions": 20
+      }
+    },
+    {
+      "case": "full-wide10000-r2-c32-w16",
+      "label": "Wide 10k \u00b7 workers=16 \u00b7 RESP2",
+      "metrics": {
+        "latency_p95": {
+          "baseline_median": 3073.096088,
+          "candidate_median": 3497.470008,
+          "effect_ci95": [
+            13.47010246371807,
+            16.096895547801047
+          ],
+          "effect_percent": 14.83310172631709,
+          "metric": "latency_p95_ms",
+          "orders": [
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA"
+          ],
+          "paired_percent": [
+            13.809328041425806,
+            17.257864513800204,
+            16.096895535796207,
+            13.809328047278413,
+            13.809328047278413,
+            17.257864493443552,
+            17.25786452190503,
+            16.096895535796207,
+            12.68250301452991,
+            10.462212530726433
+          ],
+          "units": "ms"
+        },
+        "throughput": {
+          "baseline_median": 10.138295254237422,
+          "candidate_median": 9.674797337507261,
+          "effect_ci95": [
+            -5.136313622430954,
+            -3.482597326240622
+          ],
+          "effect_percent": -4.346819228982135,
+          "metric": "requests_per_second",
+          "orders": [
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA"
+          ],
+          "paired_percent": [
+            -5.3534110776842,
+            -1.7157048081935966,
+            -4.324804904164226,
+            -5.438276572054912,
+            -5.009973294811121,
+            -3.7956327097681597,
+            -6.346023531111166,
+            -2.5148859234615184,
+            -5.096650597915731,
+            -3.7786447591665495
+          ],
+          "units": "req/s"
+        }
+      },
+      "protocol": "RESP2",
+      "runs": {
+        "ab": 5,
+        "ba": 5,
+        "baseline_observations": 10,
+        "candidate_observations": 10,
+        "pairs": 10,
+        "process_executions": 20
+      }
+    },
+    {
+      "case": "full-wide10000-r3-c32-w16",
+      "label": "Wide 10k \u00b7 workers=16 \u00b7 RESP3",
+      "metrics": {
+        "latency_p95": {
+          "baseline_median": 4020.251585,
+          "candidate_median": 4714.061156,
+          "effect_ci95": [
+            15.29106343072899,
+            18.312659544859898
+          ],
+          "effect_percent": 17.024745622368197,
+          "metric": "latency_p95_ms",
+          "orders": [
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB"
+          ],
+          "paired_percent": [
+            18.430443120148855,
+            19.614747592966864,
+            17.257864497552333,
+            19.614747555663925,
+            16.096895537944313,
+            17.257864489240383,
+            16.096895537842215,
+            17.257864497552333,
+            10.462212536656379,
+            18.430443153472442
+          ],
+          "units": "ms"
+        },
+        "throughput": {
+          "baseline_median": 6.409539594332726,
+          "candidate_median": 6.1247218510304755,
+          "effect_ci95": [
+            -7.044888105918046,
+            -2.846160306808032
+          ],
+          "effect_percent": -4.9092046208667135,
+          "metric": "requests_per_second",
+          "orders": [
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB"
+          ],
+          "paired_percent": [
+            -2.5980493842533647,
+            -5.5420249403915545,
+            -10.441288171047225,
+            0.06434885889368136,
+            -4.874241379169597,
+            -10.34669368352067,
+            -6.161584743343651,
+            -2.149309835771951,
+            -5.1398122767821075,
+            -1.3042796006278667
+          ],
+          "units": "req/s"
+        }
+      },
+      "protocol": "RESP3",
+      "runs": {
+        "ab": 5,
+        "ba": 5,
+        "baseline_observations": 10,
+        "candidate_observations": 10,
+        "pairs": 10,
+        "process_executions": 20
+      }
+    },
+    {
+      "case": "full-nolimit-wide-r2-c32-w1",
+      "label": "Wide, no LIMIT \u00b7 workers=1 \u00b7 RESP2",
+      "metrics": {
+        "latency_p95": {
+          "baseline_median": 3411.5829814999997,
+          "candidate_median": 3462.841592,
+          "effect_ci95": [
+            -0.09945381471008208,
+            1.9085471610576388
+          ],
+          "effect_percent": 0.8995516458575992,
+          "metric": "latency_p95_ms",
+          "orders": [
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA"
+          ],
+          "paired_percent": [
+            -0.9900990002759458,
+            2.009999980562327,
+            -0.9900990006600274,
+            0.0,
+            3.030100000897562,
+            0.0,
+            -0.9900990121657016,
+            2.010000022659675,
+            3.0301000132700873,
+            2.0100000108053795
+          ],
+          "units": "ms"
+        },
+        "throughput": {
+          "baseline_median": 10.637340881284626,
+          "candidate_median": 10.58850753704472,
+          "effect_ci95": [
+            -1.0482014298165865,
+            -0.09169892337805852
+          ],
+          "effect_percent": -0.5680333705775586,
+          "metric": "requests_per_second",
+          "orders": [
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA"
+          ],
+          "paired_percent": [
+            -0.8940933913027416,
+            -0.9727820214877725,
+            -1.9344292805395846,
+            0.4666072106881858,
+            -1.345563458306298,
+            -0.9962078528660379,
+            0.4151781290865131,
+            0.3778620861806914,
+            -0.6027738456146459,
+            -0.16384206362662912
+          ],
+          "units": "req/s"
+        }
+      },
+      "protocol": "RESP2",
+      "runs": {
+        "ab": 5,
+        "ba": 5,
+        "baseline_observations": 10,
+        "candidate_observations": 10,
+        "pairs": 10,
+        "process_executions": 20
+      }
+    },
+    {
+      "case": "full-nolimit-wide-r3-c32-w1",
+      "label": "Wide, no LIMIT \u00b7 workers=1 \u00b7 RESP3",
+      "metrics": {
+        "latency_p95": {
+          "baseline_median": 4575.421315,
+          "candidate_median": 4621.175528,
+          "effect_ci95": [
+            -0.496280977734187,
+            1.4027944160577288
+          ],
+          "effect_percent": 0.4987562087477748,
+          "metric": "latency_p95_ms",
+          "orders": [
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB"
+          ],
+          "paired_percent": [
+            -1.9703950531263947,
+            0.9999999969095619,
+            1.0000000136000775,
+            0.0,
+            0.0,
+            3.03009998732231,
+            0.9999999939409365,
+            2.009999990569189,
+            -1.9703950695084682,
+            0.9999999967216233
+          ],
+          "units": "ms"
+        },
+        "throughput": {
+          "baseline_median": 6.562665597757313,
+          "candidate_median": 6.5218839539262525,
+          "effect_ci95": [
+            -1.1537923640318026,
+            0.05742273167792522
+          ],
+          "effect_percent": -0.522478148155181,
+          "metric": "requests_per_second",
+          "orders": [
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB",
+            "BA",
+            "AB"
+          ],
+          "paired_percent": [
+            -2.644925413331456,
+            -0.9097174116917017,
+            0.9873795406067698,
+            -0.0676498537819592,
+            -1.1289090032638782,
+            -0.8779706884444516,
+            0.2934186728410282,
+            -1.1440564029257194,
+            0.2676232228971509,
+            0.04865622729006702
+          ],
+          "units": "req/s"
+        }
+      },
+      "protocol": "RESP3",
+      "runs": {
+        "ab": 5,
+        "ba": 5,
+        "baseline_observations": 10,
+        "candidate_observations": 10,
+        "pairs": 10,
+        "process_executions": 20
+      }
+    }
+  ],
+  "schema": "mod17473-aws-plot-data-v2"
+}
