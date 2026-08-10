@@ -57,9 +57,12 @@ const _: () = assert!(
     "the poll window divides the candidate count"
 );
 
-/// Longest addable term, in bytes, after lowercasing. The underlying
-/// trie stores node labels with `u16` lengths, so a longer key cannot
-/// be represented and would panic on insert.
+/// Longest addable term, in bytes, after lowercasing. The bound is on
+/// the term, not on the trie: node labels carry a `u16` length and a
+/// label is always a substring of some inserted key, so a term within
+/// this bound can never force an oversized label. A longer term can,
+/// depending on which keys are already stored, and insertion would
+/// panic the moment one node had to hold more than `u16::MAX` bytes.
 const MAX_TERM_BYTE_LEN: usize = u16::MAX as usize;
 
 #[derive(Default)]
@@ -91,14 +94,16 @@ impl TermSuffixIndex {
     /// queryable suffix. [Lowercased on entry](crate#case-insensitivity);
     /// re-adding an existing term, or adding an empty one, is a no-op.
     /// So is adding a term whose lowercased form exceeds `u16::MAX`
-    /// bytes — the trie cannot represent such a key.
+    /// bytes: it is skipped rather than inserted, since a single trie
+    /// node label holds at most that many bytes and insertion would
+    /// otherwise risk a panic.
     pub fn add(&mut self, term: &str) {
         if term.is_empty() {
             return;
         }
 
         let lowered = unicode::tolower_cow(term);
-        let term: &str = &lowered;
+        let term = &lowered;
 
         if term.len() > MAX_TERM_BYTE_LEN {
             return;
@@ -108,7 +113,7 @@ impl TermSuffixIndex {
             return;
         }
 
-        let owner = Arc::from(term);
+        let owner = Arc::from(term as &str);
         self.inner.insert_with(term, |existing| {
             TermRefs::upsert_full_term(existing, Arc::clone(&owner))
         });
@@ -164,8 +169,6 @@ impl TermSuffixIndex {
     /// `needle` yields nothing. A term may be yielded more than once
     /// (once per matching suffix entry).
     pub fn iter_contains(&self, needle: &str) -> impl Iterator<Item = &str> {
-        // An empty needle denotes no term here, but to the trie it is a
-        // prefix of every key.
         let subtree = if needle.is_empty() {
             None
         } else {
@@ -182,10 +185,10 @@ impl TermSuffixIndex {
     /// Matching is [case-insensitive](crate#case-insensitivity). Empty
     /// `needle` yields nothing.
     pub fn iter_suffix(&self, needle: &str) -> impl Iterator<Item = &str> {
-        let lowered = unicode::tolower_cow(needle);
-        let data = if lowered.is_empty() {
+        let data = if needle.is_empty() {
             None
         } else {
+            let lowered = unicode::tolower_cow(needle);
             self.inner.get(&lowered)
         };
         data.into_iter()
