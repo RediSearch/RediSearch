@@ -44,22 +44,37 @@ void TagIndex_RdbSave_Empty(RedisModuleIO *rdb, void *value) {
   RedisModule_SaveUnsigned(rdb, 0); // n_tags
 }
 
-// The shared handler aborts the server, which turns "AOF is enabled on a database that still
-// holds a legacy key" into a crash on every rewrite. A legacy key carries no data, so emitting no
-// commands is safe: nothing is lost, and the key does not come back when the AOF is replayed.
+// The shared handler calls abort(), which kills the AOF rewrite child every time a database holding
+// a legacy key rewrites - so the rewrite never completes and the AOF grows without bound.
 //
-// Emitting nothing is also the only option here. Recreating the key would need a RESTORE of a full
-// DUMP envelope (payload plus RDB version and CRC), which no module API can build -
-// RedisModule_SaveDataTypeToString produces the bare module payload. Deleting the key instead is
-// impossible too, because this callback runs in the forked AOF child and cannot touch the parent's
-// keyspace.
-//
-// Consequence worth knowing: a command-only AOF drops these keys on replay, while an AOF with an
-// RDB preamble goes through rdb_save and keeps them. That divergence follows from Redis having two
-// AOF formats; the only way to make every path agree is for the keys not to exist, which is the
-// cleanup work tracked in MOD-15685.
-void LegacyType_AofRewrite_Skip(RedisModuleIO *aof, RedisModuleString *key, void *value) {
+// Emit the key's own serialization instead, so that a command-only AOF and an AOF with an RDB
+// preamble agree: both keep the key. Asking Redis for the payload via DUMP avoids hand-building the
+// envelope (RDB version plus CRC), and the rdb_save callbacks above are what make DUMP succeed. The
+// rewrite child has a consistent snapshot, so the value cannot change underneath us.
+void LegacyType_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {
   RS_ASSERT_ALWAYS(value == dummyNonNull);
+
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
+  // A detached context starts on DB 0, but the key lives in whichever database is being rewritten.
+  RedisModule_SelectDb(ctx, RedisModule_GetDbIdFromIO(aof));
+
+  RedisModuleCallReply *rep = RedisModule_Call(ctx, "DUMP", "s", key);
+  if (rep != NULL && RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_STRING) {
+    size_t n = 0;
+    const char *payload = RedisModule_CallReplyStringPtr(rep, &n);
+    RedisModule_EmitAOF(aof, "RESTORE", "slb", key, 0, payload, n);
+  } else {
+    // Only reachable if the key vanished or rdb_save failed; the latter cannot happen here, since
+    // the save callbacks write constants. Losing a legacy key costs nothing, so warn rather than
+    // take down the rewrite.
+    RedisModule_Log(RedisModule_GetContextFromIO(aof), "warning",
+                    "Failed to emit AOF for a legacy index key; it will not survive AOF replay");
+  }
+
+  if (rep != NULL) {
+    RedisModule_FreeCallReply(rep);
+  }
+  RedisModule_FreeThreadSafeContext(ctx);
 }
 
 void GenericType_DummyFree(void *value) {
@@ -150,7 +165,7 @@ int RegisterLegacyTypes(RedisModuleCtx *ctx) {
   RedisModuleTypeMethods tm = {
     .version = REDISMODULE_TYPE_METHOD_VERSION,
     .rdb_save = InvertedIndex_RdbSave_Empty,
-    .aof_rewrite = LegacyType_AofRewrite_Skip,
+    .aof_rewrite = LegacyType_AofRewrite,
     .free = GenericType_DummyFree,
   };
 
