@@ -1229,7 +1229,7 @@ class testWarningsAndErrorsCluster:
     # the AC_GetLongLong failure on the non-numeric offset and keeps the default LIMIT, so the
     # command is fanned out and a shard is the one to reject it.
     self.env.expect('FT.SEARCH', 'idx', 'hello world', 'LIMIT', 'A', 0, 'MEOW').error().contains('Unknown argument')
-    # shard should not change actually but this bug fix breaks current behavoiur
+    # shard should not change actually but this bug fix breaks current behaviour
     check_per_shard("2", "has wrong args error count")
     # coord actually should change and not fan out but this bug fix breaks current behavior so postponed to major ver
     check_coord("0")
