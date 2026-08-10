@@ -286,7 +286,7 @@ def prepare_data(args):
         "baseline_revision": performance["baseline_revision"],
         "candidate_revision": performance["pr_revision"],
         "host": {
-            "instance": "3.16.40.116",
+            "environment": "requested AWS EC2 instance",
             "os": "Ubuntu",
             "cpu": "AMD EPYC 7R32",
             "physical_cpus": 8,

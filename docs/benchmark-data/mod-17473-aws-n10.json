@@ -3,7 +3,7 @@
   "candidate_revision": "3ff80fa72b73a1bcde562095d98dcc80fec85b58",
   "host": {
     "cpu": "AMD EPYC 7R32",
-    "instance": "3.16.40.116",
+    "environment": "requested AWS EC2 instance",
     "logical_cpus": 16,
     "memory_gib": 30,
     "os": "Ubuntu",
