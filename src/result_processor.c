@@ -840,11 +840,11 @@ static void rpSafeLoader_Load(RPSafeLoader *self) {
   while ((curr_res = GetNextResult(self))) {
     // Only deletion before loading means the row was invalidated in the unlocked window.
     // Loading can itself mark a lazily expired key deleted on Redis 6/7.
-    bool wasDeletedBeforeLoad = curr_res->dmd->flags & Document_Deleted;
-    rpLoader_loadDocument(&self->base_loader, curr_res);
-    if (wasDeletedBeforeLoad) {
+    if (curr_res->dmd->flags & Document_Deleted) {
       loaderDropResult(&self->base_loader.base, curr_res);
+      continue;
     }
+    rpLoader_loadDocument(&self->base_loader, curr_res);
   }
 
   // Reset the iterator
