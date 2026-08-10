@@ -726,17 +726,19 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   bool dropCommand = RMUtil_StringEqualsCaseC(argv[0], RS_DROP_CMD_PUBLIC) ||
                RMUtil_StringEqualsCaseC(argv[0], RS_DROP_CMD_INTERNAL);
-  bool delDocs = dropCommand;
+  // FT.DROP deletes the documents by default (KEEPDOCS opts out); FT.DROPINDEX
+  // keeps them by default (DD opts in).
+  IndexDropMode dropMode = dropCommand ? IndexDrop_DeleteDocs : IndexDrop_KeepDocs;
   if (SearchDisk_IsEnabledForValidation() && dropCommand) {
     return RedisModule_ReplyWithError(ctx, "FT.DROP is not supported in Redis Flex");
   }
   if (argc == 3){
     if (RMUtil_StringEqualsCaseC(argv[2], "_FORCEKEEPDOCS")) {
-      delDocs = false;
+      dropMode = IndexDrop_KeepDocs;
     } else if (dropCommand && RMUtil_StringEqualsCaseC(argv[2], "KEEPDOCS")) {
-      delDocs = false;
+      dropMode = IndexDrop_KeepDocs;
     } else if (!dropCommand && RMUtil_StringEqualsCaseC(argv[2], "DD")) {
-      delDocs = true;
+      dropMode = IndexDrop_DeleteDocs;
       if (SearchDisk_IsEnabledForValidation()) {
         return RedisModule_ReplyWithError(ctx, "DD is not supported in Redis Flex");
       }
@@ -745,7 +747,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
   }
 
-  RS_ASSERT(!(delDocs && SearchDisk_IsEnabledForValidation()));
+  RS_ASSERT(!(dropMode == IndexDrop_DeleteDocs && SearchDisk_IsEnabledForValidation()));
 
   CurrentThread_SetIndexSpec(global_ref);
 
@@ -757,7 +759,13 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     SearchDisk_MarkIndexForDeletion(sp->diskSpec);
   }
 
-  if((delDocs || sp->flags & Index_Temporary)) {
+  // A temporary index takes its documents with it regardless of the argument.
+  if (sp->flags & Index_Temporary) {
+    dropMode = IndexDrop_DeleteDocs;
+  }
+  sp->dropMode = dropMode;
+
+  if (dropMode == IndexDrop_DeleteDocs) {
     // We take a strong reference to the index, so it will not be freed
     // and we can still use it's doc table to delete the keys.
     StrongRef own_ref = StrongRef_Clone(global_ref);
@@ -772,13 +780,10 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     CurrentThread_ClearIndexSpec();
     StrongRef_Release(own_ref);
   } else {
-    // KEEPDOCS: keys outlive the index, so prune this spec's key metadata
-    // before the DocTable is freed (memory mode only; disk GCs via RDB).
-    if (!SearchDisk_IsEnabled()) {
-      sp->pruneKeyMetaOnFree = true;
-      if (!RSGlobalConfig.freeResourcesThread) {
-        IndexSpec_PruneDocIdMetaOnDrop(ctx, sp);
-      }
+    // Without the free-resources thread the spec is freed inline on an unknown
+    // thread, so prune here while we still hold a command context.
+    if (!RSGlobalConfig.freeResourcesThread) {
+      IndexSpec_PruneDocIdMetaOnDrop(ctx, sp);
     }
     Indexes_RemoveSpecFromGlobals(global_ref, true);
   }

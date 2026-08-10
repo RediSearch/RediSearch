@@ -294,6 +294,24 @@ typedef struct CharBuf {
   size_t len;
 } CharBuf;
 
+// What FT.DROP / FT.DROPINDEX did with this index's documents, and hence what
+// teardown still owes the keyspace. Set by DropIndexCommand before the spec is
+// unlinked, and reset to IndexDrop_None once the cleanup it implies has run, so
+// that happens exactly once whichever teardown path frees the spec.
+typedef enum {
+  // Not dropped, or the cleanup below already ran.
+  IndexDrop_None = 0,
+  // The documents' keys go away with the index (FT.DROP, FT.DROPINDEX DD, or a
+  // temporary index), taking their DocIdMeta entries with them.
+  IndexDrop_DeleteDocs,
+  // KEEPDOCS: the keys outlive the index. In memory mode nothing else removes
+  // this spec's DocIdMeta entries from them, so teardown must prune them while
+  // the DocTable - the only remaining list of those keys - is still alive; that
+  // needs the GIL and a usable module context (IndexSpec_PruneDocIdMetaOnDrop).
+  // In disk mode the RDB save/load cycle reclaims them instead.
+  IndexDrop_KeepDocs,
+} IndexDropMode;
+
 typedef struct IndexSpec {
   const HiddenString *specName;         // Index private name
   char *obfuscatedName;           // Index hashed name
@@ -381,9 +399,7 @@ typedef struct IndexSpec {
   // Idempotent re-indexing (DocIdMeta skip) makes the restart a safe backfill.
   bool resume_bg_indexing;
 
-  // KEEPDOCS drop (memory mode): prune this spec's DocIdMeta from surviving keys
-  // during background teardown (see IndexSpec_PruneDocIdMeta).
-  bool pruneKeyMetaOnFree;
+  IndexDropMode dropMode;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;

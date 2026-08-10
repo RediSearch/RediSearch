@@ -2057,16 +2057,14 @@ static void IndexSpec_PruneDocIdMetaBatch(RedisModuleCtx *ctx, sds *keys, size_t
 // batches so sparse DocTables cannot block command processing while empty
 // buckets are traversed. The synchronous FT.DROPINDEX path already runs with a
 // Redis command context, so it uses the same batching without locking/yielding.
-// Memory mode only (disk GCs via RDB); gated on pruneKeyMetaOnFree so
-// delete-docs drops skip it. specId is monotonic, so any entry left behind is
-// inert. See the design doc.
+// Memory mode only (disk GCs via RDB). specId is monotonic, so any entry left
+// behind is inert. See the design doc.
 static void IndexSpec_PruneDocIdMeta(IndexSpec *sp, RedisModuleCtx *ctx, bool lockGil,
                                      bool pauseBetweenBatches) {
-  if (!sp->pruneKeyMetaOnFree) {
+  if (sp->dropMode != IndexDrop_KeepDocs || SearchDisk_IsEnabled()) {
     return;
   }
-  RS_ASSERT(!SearchDisk_IsEnabled());
-  sp->pruneKeyMetaOnFree = false;
+  sp->dropMode = IndexDrop_None;
 
   if (sp->docs.size == 0) {
     return;
