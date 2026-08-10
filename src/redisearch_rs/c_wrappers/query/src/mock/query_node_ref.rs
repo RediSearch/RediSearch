@@ -211,6 +211,20 @@ impl MockQueryNode {
         }
     }
 
+    /// Set the `maxDist` field of the fuzzy-node union variant: the maximum
+    /// Levenshtein distance between the query token and a term it expands to.
+    ///
+    /// Zero-initialising the node leaves this at 0, which would only ever match
+    /// the token itself, so a fuzzy test must set it explicitly.
+    pub fn set_fuzzy_max_dist(&mut self, max_dist: i32) {
+        // SAFETY: `self.node` is valid and exclusively owned; the caller
+        // guarantees the node type is Fuzzy so the `fz` variant is active.
+        unsafe {
+            let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
+            (*union_ptr.cast::<ffi::QueryFuzzyNode>()).maxDist = max_dist;
+        }
+    }
+
     /// Set the `exact` field of the phrase-node union variant.
     pub fn set_phrase_exact(&mut self, exact: i32) {
         // SAFETY: `self.node` is valid and exclusively owned; the caller
