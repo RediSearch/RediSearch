@@ -440,10 +440,18 @@ enum MetricType GetMetricType(const QueryIterator *header);
 /**
  * Creates a new not iterator.
  *
+ * `timeout` is the deadline the iterator probes, read back through the pointer on every probe so
+ * that a cursor read which re-arms it in place is measured against its own budget rather than an
+ * earlier read's. Pass NULL when the query has no deadline; the iterator then skips timeout checks
+ * entirely, which is also the only correct choice for a caller that cannot satisfy 3 and 4.
+ *
  * # Safety
  *
  * 1. `child` must be a valid non-null pointer to an implementation of the C query iterator API.
  * 2. `child` must not be aliased.
+ * 3. `timeout` must be NULL, or a valid pointer to a `timespec` that stays alive and at a stable
+ *    address for as long as the returned iterator is used - not merely for this call.
+ * 4. No write to `*timeout` may overlap a read of the returned iterator.
  */
 QueryIterator *NewNotIteratorNonOptimized(QueryIterator *child,
                                           t_docId max_doc_id,

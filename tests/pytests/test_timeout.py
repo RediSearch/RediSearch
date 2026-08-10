@@ -54,12 +54,17 @@ def TestLimitWithCursor():
     env.assertEqual(total_res, num_docs, message="unexpected results count")
 
 
-@skip(cluster=True)
-def testCursorDeadlineIsNotStaleOnResume():
-    """A cursor read is measured against its own deadline, not an earlier read's."""
+def cursorDeadlineIsNotStaleOnResume(optimized):
+    """A cursor read is measured against its own deadline, not an earlier read's.
+
+    Run against both NOT iterators: `INDEXALL ENABLE` makes `rule.index_all` true and selects the
+    optimized C iterator, otherwise the non-optimized Rust one is used. Each keeps its own deadline,
+    so each needs covering.
+    """
     env = Env(protocol=3, moduleArgs='ON_TIMEOUT RETURN')
     conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx', 'INDEXALL', 'ENABLE' if optimized else 'DISABLE',
+               'SCHEMA', 'text', 'TEXT').ok()
 
     skipped = 6000
     with conn.pipeline(transaction=False) as p:
@@ -80,6 +85,18 @@ def testCursorDeadlineIsNotStaleOnResume():
     remaining = []
     while cursor != 0:
         res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
-        env.assertEqual(res.get('warning', []), [])
+        env.assertEqual(res.get('warning', []), [],
+                        message="a cursor read gets a fresh deadline, so nothing should time out")
         remaining.extend(d['extra_attributes']['__key'] for d in res['results'])
-    env.assertEqual(remaining, [f'doc:{skipped + 1}', f'doc:{skipped + 2}'])
+    env.assertEqual(remaining, [f'doc:{skipped + 1}', f'doc:{skipped + 2}'],
+                    message="documents past the skipped run must still be served")
+
+
+@skip(cluster=True)
+def testCursorDeadlineIsNotStaleOnResume():
+    cursorDeadlineIsNotStaleOnResume(optimized=False)
+
+
+@skip(cluster=True)
+def testCursorDeadlineIsNotStaleOnResumeOptimized():
+    cursorDeadlineIsNotStaleOnResume(optimized=True)

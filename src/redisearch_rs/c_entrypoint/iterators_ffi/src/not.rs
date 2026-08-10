@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ptr::NonNull;
+use std::{ptr::NonNull, time::Duration};
 
 use ffi::{IteratorType_NOT_ITERATOR, QueryIterator, t_docId, timespec};
 use rqe_iterators::interop::RQEIteratorWrapper;
@@ -18,10 +18,18 @@ use rqe_iterators::c2rust::CRQEIterator;
 #[unsafe(no_mangle)]
 /// Creates a new not iterator.
 ///
+/// `timeout` is the deadline the iterator probes, read back through the pointer on every probe so
+/// that a cursor read which re-arms it in place is measured against its own budget rather than an
+/// earlier read's. Pass NULL when the query has no deadline; the iterator then skips timeout checks
+/// entirely, which is also the only correct choice for a caller that cannot satisfy 3 and 4.
+///
 /// # Safety
 ///
 /// 1. `child` must be a valid non-null pointer to an implementation of the C query iterator API.
 /// 2. `child` must not be aliased.
+/// 3. `timeout` must be NULL, or a valid pointer to a `timespec` that stays alive and at a stable
+///    address for as long as the returned iterator is used - not merely for this call.
+/// 4. No write to `*timeout` may overlap a read of the returned iterator.
 pub unsafe extern "C" fn NewNotIteratorNonOptimized(
     child: *mut QueryIterator,
     max_doc_id: t_docId,
@@ -34,11 +42,15 @@ pub unsafe extern "C" fn NewNotIteratorNonOptimized(
     // SAFETY: thanks to 1 + 2
     let child = unsafe { CRQEIterator::new(child) };
 
-    let deadline = NonNull::new(timeout.cast_mut()).expect("timeout must be non-null");
-    // SAFETY: the C query context owns the deadline for the lifetime of the returned iterator and
-    // updates it only between cursor reads, never concurrently with a probe.
-    let rust_iterator = unsafe {
-        Not::new_with_deadline(child, max_doc_id, weight, deadline, skip_timeout_checks)
+    let rust_iterator = match NonNull::new(timeout.cast_mut()) {
+        // SAFETY: forwarded to this function's caller by clauses 3 and 4.
+        Some(deadline) => unsafe {
+            Not::new_with_deadline(child, max_doc_id, weight, deadline, skip_timeout_checks)
+        },
+        // No deadline to probe. The duration is unused because the checks are skipped outright,
+        // which is what this entry point already did for a query whose deadline was the "no
+        // timeout" sentinel.
+        None => Not::new(child, max_doc_id, weight, Duration::ZERO, true),
     };
 
     RQEIteratorWrapper::boxed_new(IteratorType_NOT_ITERATOR, rust_iterator)

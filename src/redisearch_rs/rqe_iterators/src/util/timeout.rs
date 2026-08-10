@@ -31,7 +31,10 @@ pub struct TimeoutContext {
 }
 
 enum Deadline {
+    /// A deadline computed once, when the context was built.
     Captured(Instant),
+    /// A deadline owned by someone else, re-read on every probe so that re-arming it in place is
+    /// observed. Upheld by [`TimeoutContext::from_deadline`]'s safety contract.
     Live(NonNull<ffi::timespec>),
 }
 
@@ -54,10 +57,18 @@ impl TimeoutContext {
         }
     }
 
+    /// Creates a [`TimeoutContext`] that probes a deadline it does not own, re-reading it through
+    /// `deadline` on every clock check rather than capturing it now.
+    ///
+    /// This is the difference that makes a re-armed deadline visible: whoever owns the `timespec`
+    /// can move it, and the next probe measures against the new value. `limit` and
+    /// `skip_timeout_checks` behave as in [`new`](Self::new).
+    ///
     /// # Safety
     ///
-    /// `deadline` must remain valid and stable for this context's lifetime, and no write may
-    /// overlap a timeout probe.
+    /// * `deadline` must point to an initialized `timespec` that stays alive, and at this same
+    ///   address, for as long as this context is used - not merely for this call.
+    /// * No write to `*deadline` may overlap a [`check_timeout`](Self::check_timeout) call.
     pub const unsafe fn from_deadline(
         deadline: NonNull<ffi::timespec>,
         limit: u32,
@@ -81,11 +92,15 @@ impl TimeoutContext {
             self.counter = 0;
             let timed_out = match self.deadline {
                 Deadline::Captured(deadline) => Instant::now() >= deadline,
-                // SAFETY: guaranteed by the `from_deadline` constructor contract.
                 Deadline::Live(deadline) => {
+                    // SAFETY: `from_deadline`'s contract guarantees the pointee is alive,
+                    // initialized, and not being written while this probe runs.
                     let deadline = unsafe { deadline.read() };
-                    let mut now = libc::timespec { tv_sec: 0, tv_nsec: 0 };
-                    // SAFETY: `now` is writable and the clock id is valid.
+                    let mut now = libc::timespec {
+                        tv_sec: 0,
+                        tv_nsec: 0,
+                    };
+                    // SAFETY: `now` is a writable `libc::timespec` and the clock id is valid.
                     unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC_RAW, &mut now) };
                     now.tv_sec > deadline.tv_sec
                         || (now.tv_sec == deadline.tv_sec && now.tv_nsec >= deadline.tv_nsec)
@@ -103,5 +118,116 @@ impl TimeoutContext {
     #[inline(always)]
     pub const fn reset_counter(&mut self) {
         self.counter = 0;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Read the clock `check_timeout` compares against.
+    fn monotonic_now() -> ffi::timespec {
+        let mut now = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        // SAFETY: `now` is a writable `libc::timespec` and the clock id is valid.
+        unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC_RAW, &mut now) };
+        ffi::timespec {
+            tv_sec: now.tv_sec,
+            tv_nsec: now.tv_nsec,
+        }
+    }
+
+    /// A deadline `secs` away from now, on that same clock.
+    fn deadline_in(secs: i64) -> ffi::timespec {
+        let now = monotonic_now();
+        ffi::timespec {
+            tv_sec: now.tv_sec + secs,
+            tv_nsec: now.tv_nsec,
+        }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "miri has no clock_gettime(CLOCK_MONOTONIC_RAW)")]
+    fn a_future_live_deadline_does_not_time_out() {
+        let mut deadline = deadline_in(60);
+        let ptr = NonNull::from(&mut deadline);
+        // SAFETY: `deadline` outlives `ctx`, and nothing writes to it while a probe runs.
+        let mut ctx = unsafe { TimeoutContext::from_deadline(ptr, 1, false) };
+
+        assert!(ctx.check_timeout().is_ok());
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "miri has no clock_gettime(CLOCK_MONOTONIC_RAW)")]
+    fn a_past_live_deadline_times_out() {
+        let mut deadline = deadline_in(-1);
+        let ptr = NonNull::from(&mut deadline);
+        // SAFETY: as above.
+        let mut ctx = unsafe { TimeoutContext::from_deadline(ptr, 1, false) };
+
+        assert!(matches!(
+            ctx.check_timeout(),
+            Err(RQEIteratorError::TimedOut)
+        ));
+    }
+
+    /// The reason the live variant exists (MOD-17489): a cursor read re-arms the deadline in place
+    /// between reads, and the next probe must measure against the new value. A captured deadline
+    /// would keep reporting the first read's budget forever.
+    #[test]
+    #[cfg_attr(miri, ignore = "miri has no clock_gettime(CLOCK_MONOTONIC_RAW)")]
+    fn re_arming_the_deadline_in_place_is_observed() {
+        let mut deadline = deadline_in(-1);
+        let ptr = NonNull::from(&mut deadline);
+        // SAFETY: as above.
+        let mut ctx = unsafe { TimeoutContext::from_deadline(ptr, 1, false) };
+
+        assert!(
+            matches!(ctx.check_timeout(), Err(RQEIteratorError::TimedOut)),
+            "the deadline starts in the past"
+        );
+
+        // Write through the same pointer the context holds, so this stays a single borrow chain.
+        // SAFETY: `ptr` points at `deadline`, still alive here, and no probe overlaps this write.
+        unsafe { ptr.write(deadline_in(60)) };
+
+        assert!(
+            ctx.check_timeout().is_ok(),
+            "the extended deadline must be picked up, not the one read before"
+        );
+    }
+
+    #[test]
+    fn skipping_timeout_checks_never_probes_the_deadline() {
+        // Already expired, so any probe that happened would report a timeout.
+        let mut deadline = ffi::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        let ptr = NonNull::from(&mut deadline);
+        // SAFETY: as above.
+        let mut ctx = unsafe { TimeoutContext::from_deadline(ptr, 1, true) };
+
+        for _ in 0..10_000 {
+            assert!(ctx.check_timeout().is_ok());
+        }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "miri has no clock_gettime(CLOCK_MONOTONIC_RAW)")]
+    fn the_deadline_is_only_probed_once_every_limit_calls() {
+        let mut deadline = deadline_in(-1);
+        let ptr = NonNull::from(&mut deadline);
+        // SAFETY: as above.
+        let mut ctx = unsafe { TimeoutContext::from_deadline(ptr, 3, false) };
+
+        assert!(ctx.check_timeout().is_ok());
+        assert!(ctx.check_timeout().is_ok());
+        assert!(
+            matches!(ctx.check_timeout(), Err(RQEIteratorError::TimedOut)),
+            "the third call is the one that reaches the limit and reads the clock"
+        );
     }
 }

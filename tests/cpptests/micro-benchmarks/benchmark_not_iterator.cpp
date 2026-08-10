@@ -8,9 +8,11 @@
 */
 
 #include "benchmark/benchmark.h"
+#include "index_utils.h"
 #include "iterator_util.h"
 #include "redismock/util.h"
 
+#include <memory>
 #include <random>
 #include <vector>
 
@@ -26,6 +28,9 @@ public:
   std::vector<t_docId> childIds;
   std::vector<t_docId> wcIds;
   t_docId maxDocId;
+  // `NewNotIterator` requires a query context. Under `RS_IsMock` it is never armed with a deadline,
+  // so the iterator skips timeout checks rather than probing the clock - what a benchmark wants.
+  std::unique_ptr<MockQueryEvalCtx> mockQctx;
   static bool initialized;
 
   void SetUp(::benchmark::State &state) {
@@ -69,7 +74,8 @@ public:
       // Use REDISEARCH_UNINITIALIZED to skip timeout checks in benchmarks
       iterator_base = _New_NotIterator_With_WildCardIterator(child, wcii, maxDocId, 1.0, timeout, REDISEARCH_UNINITIALIZED);
     } else {
-      iterator_base = NewNotIterator(child, maxDocId, 1.0, timeout, nullptr);
+      mockQctx = std::make_unique<MockQueryEvalCtx>(maxDocId, maxDocId);
+      iterator_base = NewNotIterator(child, maxDocId, 1.0, timeout, &mockQctx->qctx);
     }
   }
 

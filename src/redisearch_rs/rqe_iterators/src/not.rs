@@ -72,7 +72,11 @@ where
         }
     }
 
-    /// Create a NOT iterator that reads a live deadline owned by the query context.
+    /// Create a NOT iterator that probes a deadline owned by the query context, read back on every
+    /// probe, instead of one captured now.
+    ///
+    /// This is what lets a cursor read be measured against its own budget: the query re-arms the
+    /// deadline in place between reads, and the iterator sees the new value.
     ///
     /// # Safety
     ///
@@ -88,12 +92,17 @@ where
             child: MaybeEmpty::new(child),
             max_doc_id,
             forced_eof: false,
-            result: RSIndexResult::virt()
+            result: RSIndexResult::build_virt()
                 .weight(weight)
-                .field_mask(RS_FIELDMASK_ALL),
-            // SAFETY: forwarded to the caller by this method's contract.
-            timeout_ctx: unsafe {
-                TimeoutContext::from_deadline(deadline, 5_000, skip_timeout_checks)
+                .field_mask(RS_FIELDMASK_ALL)
+                .build(),
+            // Skipping is represented by the absence of a context, exactly as in `new`, rather than
+            // by a context whose counter never reaches its limit.
+            timeout_ctx: if skip_timeout_checks {
+                None
+            } else {
+                // SAFETY: forwarded to the caller by this method's contract.
+                Some(unsafe { TimeoutContext::from_deadline(deadline, 5_000, false) })
             },
         }
     }
