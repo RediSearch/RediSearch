@@ -17,17 +17,14 @@
 //! cannot execute.
 #![cfg(not(miri))]
 
-use std::ffi::CString;
-
 use ffi::{
     IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
     IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets,
 };
 use index_result::{RSIndexResult, RSOffsetSlice};
-use query::mock::MockQueryNode;
+use query::mock::{MockQueryNode, TokenNodeType};
 use query_eval::{Config, EvalResult, QueryEvalContext, QueryNodeMut, eval_node};
 use query_term::RSQueryTerm;
-use query_types::QueryNodeType;
 use rqe_core::{FieldMask, RS_FIELDMASK_ALL};
 use rqe_iterators::{IteratorType, RQEIterator};
 use rqe_iterators_test_utils::{GlobalGuard, TestContext};
@@ -38,15 +35,14 @@ use rqe_iterators_test_utils::{GlobalGuard, TestContext};
 const INDEXED_TERM: &str = "term";
 
 /// Owns everything a `QN_TOKEN` evaluation borrows — the FFI `TestContext`, the
-/// [`QueryEvalContext`], the node, and the token's backing string — so
-/// [`eval`](Self::eval) can hand the evaluated iterator back to the caller.
+/// [`QueryEvalContext`], and the node, which owns the token's backing string in
+/// turn — so [`eval`](Self::eval) can hand the evaluated iterator back to the
+/// caller.
 struct TokenFixture {
     _guard: GlobalGuard,
     _context: TestContext,
     ctx: QueryEvalContext,
     node: MockQueryNode,
-    // Backs the token's `str`/`len` pointer; must outlive `node`.
-    _token: CString,
 }
 
 impl TokenFixture {
@@ -92,18 +88,15 @@ impl TokenFixture {
         // exclusively owned by this fixture.
         let ctx = unsafe { QueryEvalContext::new(qctx) };
 
-        let token = CString::new(token).expect("token must not contain a NUL byte");
-        let mut node = MockQueryNode::new(QueryNodeType::Token);
+        let mut node = MockQueryNode::with_token(TokenNodeType::Token, token);
         node.opts_mut().weight = 1.0;
         node.opts_mut().field_mask = RS_FIELDMASK_ALL;
-        node.set_token(token.as_ptr().cast_mut(), token.as_bytes().len());
 
         Self {
             _guard,
             _context: context,
             ctx,
             node,
-            _token: token,
         }
     }
 

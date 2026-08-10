@@ -7,10 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ffi::c_char;
-
 use inverted_index::NumericFilter;
-use query::{QueryNode, QueryNodeMut, QueryNodeRef, WildcardMode, mock::MockQueryNode};
+use query::{
+    QueryNode, QueryNodeMut, QueryNodeRef, WildcardMode,
+    mock::{MockQueryNode, TokenNodeType},
+};
 use query_types::QueryNodeType;
 
 #[test]
@@ -282,16 +283,13 @@ fn token_mut_reads_the_nodes_own_token() {
     // Every node type that carries a rewritable token reaches the same field
     // through a different payload struct, so each is exercised.
     for node_type in [
-        QueryNodeType::Prefix,
-        QueryNodeType::Fuzzy,
-        QueryNodeType::WildcardQuery,
+        TokenNodeType::Prefix,
+        TokenNodeType::Fuzzy,
+        TokenNodeType::WildcardQuery,
     ] {
-        let mut buf: Vec<c_char> = b"he?l*o\0".iter().map(|&b| b as c_char).collect();
-        let mut mock = MockQueryNode::new(node_type);
-        mock.set_token(buf.as_mut_ptr(), 6);
-        // SAFETY: sole wrapper to a valid node; `buf` outlives it and is writable
-        // for its 6 content bytes with a terminator at `buf[6]`, per invariants (3)
-        // and (4).
+        let mock = MockQueryNode::with_token(node_type, b"he?l*o");
+        // SAFETY: sole wrapper to a valid node; the mock owns writable, terminated
+        // token backing that outlives it, per invariants (3) and (4).
         let mut node = unsafe { QueryNodeMut::new(mock.as_non_null()) };
         let tok = node.token_mut().expect("node type carries a token");
         assert_eq!(tok.as_ref().as_c_str(), Some(c"he?l*o"), "{node_type:?}");
@@ -306,19 +304,9 @@ fn token_mut_rewrites_the_nodes_own_token() {
     // The handle must address the node's own token, not a copy: a rewrite through
     // it has to be visible to every later read of the node. Reading the result back
     // through `as_enum` — a path that never saw the handle — is what shows that.
-    // `w'a\*b\?c'`: seven content bytes plus the terminator the token contract
-    // requires at `buf[7]`.
-    let pattern = br"a\*b\?c";
-    let mut buf: Vec<c_char> = pattern
-        .iter()
-        .map(|&b| b as c_char)
-        .chain(std::iter::once(0))
-        .collect();
-    let mut mock = MockQueryNode::new(QueryNodeType::WildcardQuery);
-    mock.set_token(buf.as_mut_ptr(), pattern.len());
-    // SAFETY: sole wrapper to a valid node; `buf` outlives it and is writable for
-    // its `pattern.len()` content bytes with a terminator at `buf[pattern.len()]`,
-    // per invariants (3) and (4).
+    let mock = MockQueryNode::with_token(TokenNodeType::WildcardQuery, br"a\*b\?c");
+    // SAFETY: sole wrapper to a valid node; the mock owns writable, terminated
+    // token backing that outlives it, per invariants (3) and (4).
     let mut node = unsafe { QueryNodeMut::new(mock.as_non_null()) };
 
     node.token_mut()
