@@ -130,15 +130,23 @@ static bool docIdMetaEntryIsStale(dictEntry *de) {
   return docId == DOCID_META_INVALID || !isSpecValid(specId);
 }
 
-static int docIdMetaResetIfEmpty(RedisModuleKey *key, dict *specIdToDocId) {
+// Detach and free `key`'s per-key dict once its last entry is removed.
+static int docIdMetaResetIfEmpty(RedisModuleKey *key) {
+  uint64_t meta = 0;
+  if (RedisModule_GetKeyMeta(docIdKeyMetaClassId, key, &meta) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+  if (meta == 0) {
+    return REDISMODULE_OK;
+  }
+
+  dict *specIdToDocId = (dict *)meta;
   if (dictSize(specIdToDocId) != 0) {
     return REDISMODULE_OK;
   }
 
-  // Last entry gone: reset the KeyMeta value and free the now-empty per-key
-  // dict. SetKeyMeta does not free the old value, and Redis skips the free
-  // callback once meta == reset_value(0). The current Redis module API does not
-  // remove/shrink an existing KeyMeta slot; it only resets its stored value.
+  // SetKeyMeta does not free the old value, and Redis skips the free callback
+  // once meta == reset_value(0), so detach first and release ourselves.
   if (RedisModule_SetKeyMeta(docIdKeyMetaClassId, key, 0) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
@@ -165,7 +173,7 @@ static int docIdMetaPruneDeletedSpecsWithOpenKey(RedisModuleKey *key) {
   }
   dictReleaseIterator(iter);
 
-  return docIdMetaResetIfEmpty(key, specIdToDocId);
+  return docIdMetaResetIfEmpty(key);
 }
 
 // Return values for RedisModuleKeyMetaLoadFunc (documented on RM_CreateKeyMetaClass):
@@ -383,7 +391,7 @@ int DocIdMeta_DeleteWithOpenKey(RedisModuleKey *key, uint64_t specId) {
   static_assert(DICT_OK == REDISMODULE_OK);
   static_assert(DICT_ERR == REDISMODULE_ERR);
   int rc = dictDelete(specIdToDocId, SPECID_TO_KEY(specId));
-  if (rc == DICT_OK && docIdMetaResetIfEmpty(key, specIdToDocId) != REDISMODULE_OK) {
+  if (rc == DICT_OK && docIdMetaResetIfEmpty(key) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
   return rc;

@@ -15,7 +15,12 @@
 extern "C" {
 #endif
 
-// Initialize the DocIdMeta module
+/*
+ * Initialize the DocIdMeta module by registering its key metadata class.
+ * @param ctx The Redis module context
+ * @return true if DocIdMeta is usable, false if the Redis key metadata API is
+ * missing (Redis older than 8.6.0) or the class could not be created
+ */
 bool DocIdMeta_Init(RedisModuleCtx *ctx);
 
 /*
