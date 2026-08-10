@@ -1,4 +1,12 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 import struct
+import time
 
 import redis
 
@@ -38,7 +46,37 @@ def _binary_conn(env, db=None):
     kwargs['decode_responses'] = False
     if db is not None:
         kwargs['db'] = db
+    # A pool built for a unix socket reports it as `path`, but the client constructor takes
+    # `unix_socket_path`. Forwarding the pool's kwargs verbatim breaks under UNIX=1.
+    if 'path' in kwargs:
+        kwargs['unix_socket_path'] = kwargs.pop('path')
     return redis.Redis(**kwargs)
+
+
+def _as_text(value):
+    if isinstance(value, bytes):
+        return value.decode()
+    return str(value)
+
+
+def _waitForAofRewrite(env, conn, timeout=60):
+    """`waitForRdbSaveToFinish` only polls rdb_bgsave_in_progress, so it returns immediately here and
+    DEBUG LOADAOF would race a rewrite that is still running or merely scheduled."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        # redis-py applies its own INFO response callback, so this comes back already parsed into a
+        # dict; the raw-text branch is only for a client that has that callback disabled.
+        info = conn.execute_command('INFO', 'persistence')
+        if isinstance(info, dict):
+            fields = {_as_text(k): _as_text(v) for k, v in info.items()}
+        else:
+            fields = dict(line.split(':', 1)
+                          for line in _as_text(info).splitlines() if ':' in line)
+        if (fields.get('aof_rewrite_in_progress', '0').strip() == '0'
+                and fields.get('aof_rewrite_scheduled', '0').strip() == '0'):
+            return
+        time.sleep(0.1)
+    env.assertTrue(False, message='AOF rewrite did not finish within {}s'.format(timeout))
 
 
 def _expect_restore_error(env, conn, key, payload, message):
@@ -216,7 +254,7 @@ def testLegacySurvivesAofRewrite():
         conn.execute_command('RESTORE', 'aof:' + type_name, 0, _dump_payload(conn, type_name, body))
 
     conn.execute_command('BGREWRITEAOF')
-    waitForRdbSaveToFinish(env)
+    _waitForAofRewrite(env, conn)
     conn.execute_command('DEBUG', 'LOADAOF')
 
     for type_name in bodies:
@@ -246,7 +284,7 @@ def testLegacyAofRewriteUsesTheKeysOwnDatabase():
     env.assertEqual(db1.execute_command('TYPE', key), b'ft_invidx')
 
     db0.execute_command('BGREWRITEAOF')
-    waitForRdbSaveToFinish(env)
+    _waitForAofRewrite(env, db0)
     db0.execute_command('DEBUG', 'LOADAOF')
 
     db0 = _binary_conn(env, db=0)

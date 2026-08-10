@@ -70,7 +70,9 @@ void LegacyType_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *val
     size_t n = 0;
     const char *payload = RedisModule_CallReplyStringPtr(rep, &n);
     // Redis emits the key's PEXPIREAT itself after this, so a TTL is preserved.
-    RedisModule_EmitAOF(aof, "RESTORE", "slb", key, 0, payload, n);
+    // The TTL must be a long long: "l" consumes one, and a bare 0 is an int - undefined behaviour
+    // wherever variadic int and long long are laid out differently.
+    RedisModule_EmitAOF(aof, "RESTORE", "slb", key, 0LL, payload, n);
   } else if (reply_type == REDISMODULE_REPLY_NULL) {
     // The key expired between the fork snapshot and this DUMP. Nothing to recreate.
   } else {
