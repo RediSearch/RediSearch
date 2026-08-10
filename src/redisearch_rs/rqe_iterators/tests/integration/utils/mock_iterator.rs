@@ -137,6 +137,7 @@ impl MockData {
             validation_count: 0,
             read_count: 0,
             error_at_done: None,
+            error_on_skip_to: None,
             resume_error: None,
             delays: Vec::new(),
             force_read_none: false,
@@ -209,6 +210,22 @@ impl MockData {
         self
     }
 
+    /// Configure an error that [`RQEIterator::skip_to`] returns in place of
+    /// seeking, while the iterator still holds documents at or past the target.
+    ///
+    /// [`set_error_at_done`](Self::set_error_at_done) only fires once the
+    /// documents run out, which is the case where a caller guessing "not here"
+    /// happens to be right. This one models the interesting failure — a leaf
+    /// hitting the query deadline or an IO error mid-seek — so a parent that
+    /// swallows the error is caught guessing about a document that *is* present.
+    ///
+    /// The position is left untouched, as the contract requires of a skip that
+    /// carries no result.
+    pub fn set_error_on_skip_to(&mut self, maybe_err: Option<MockIteratorError>) -> &mut Self {
+        self.0.borrow_mut().error_on_skip_to = maybe_err;
+        self
+    }
+
     /// Configure an error that the suspended counterpart's
     /// [`RQESuspendedIterator::resume`](rqe_iterators::RQESuspendedIterator::resume)
     /// will return instead of resuming.
@@ -272,6 +289,9 @@ struct MockDataInternal {
     validation_count: usize,
     read_count: usize,
     error_at_done: Option<MockIteratorError>,
+    /// Error returned by `skip_to` in place of seeking, *without* running out
+    /// of documents. See [`MockData::set_error_on_skip_to`].
+    error_on_skip_to: Option<MockIteratorError>,
     /// Error returned by the suspended counterpart's `resume` instead of
     /// resuming. See [`MockData::set_error_on_resume`].
     resume_error: Option<MockIteratorError>,
@@ -482,6 +502,13 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
             self.last_doc_id() < doc_id,
             "skip_to called with a target at or below the current position"
         );
+
+        // Fails the seek without moving: the documents are still there, the
+        // iterator just could not reach them. See
+        // [`MockData::set_error_on_skip_to`].
+        if let Some(err) = data.error_on_skip_to {
+            return Err(err.into_rqe_iterator_error());
+        }
 
         if self.no_more_docs() {
             return if let Some(err) = data.error_at_done {
@@ -885,6 +912,11 @@ impl<'index> RQEIterator<'index> for MockVec<'index> {
             self.last_doc_id() < doc_id,
             "skip_to called with a target at or below the current position"
         );
+
+        // See `Mock::skip_to` and [`MockData::set_error_on_skip_to`].
+        if let Some(err) = data.error_on_skip_to {
+            return Err(err.into_rqe_iterator_error());
+        }
 
         let n = self.doc_ids.len();
         if self.no_more_docs() {

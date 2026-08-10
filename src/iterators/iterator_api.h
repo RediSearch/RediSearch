@@ -62,7 +62,27 @@ typedef struct QueryIterator {
   // the last docId read. Initially should be 0.
   t_docId lastDocId;
 
-  // Current result. Should always point to a valid current result, except when `lastDocId` is 0
+  // Current result: the document the iterator is positioned on, or NULL when it is
+  // positioned on none.
+  //
+  // Non-NULL after a `Read` or `SkipTo` returning ITERATOR_OK or ITERATOR_NOTFOUND, and
+  // after a `Revalidate` returning VALIDATE_MOVED with a result.
+  //
+  // NULL before the first read (`lastDocId` is 0), and again once an operation has
+  // reported that there is nothing to point at: an ITERATOR_EOF, or a VALIDATE_MOVED
+  // that landed past the end. The two answers are the same state, so the field is the C
+  // face of Rust's `RQEIterator::current`, which returns `None` in exactly these cases —
+  // that is what lets a caller distinguish "moved onto a document" from "moved past the
+  // end" after a revalidation. Clearing it is also what keeps the pointer safe: an
+  // iterator that owns the result it hands out frees it on the way past the end, so a
+  // pointer left behind would dangle rather than merely go stale.
+  //
+  // Caveat, until the port completes: `OptimizerIterator` and `HybridIterator` are still
+  // implemented in C and do not clear this field, so after they report EOF it keeps
+  // pointing at the last result they yielded. Both are slated to be replaced by the Rust
+  // `TopKIterator`, which clears it like every other Rust iterator; until then, a caller
+  // that inspects this field after a non-OK status may get a document it has already
+  // consumed instead of NULL. Check the status, not this field.
   RSIndexResult *current;
 
   /** Return an upper-bound estimation for the number of results the iterator is going to yield */
@@ -72,6 +92,11 @@ typedef struct QueryIterator {
    *  On a successful read, the iterator must:
    *  1. Set its `lastDocId` member to the new current result id
    *  2. Set its `current` pointer to its current result, for the caller to access if desired
+   *  On ITERATOR_EOF it must instead set `atEOF` and clear `current` to NULL, leaving
+   *  `lastDocId` on the last result it yielded: there is nothing to point at, and an
+   *  iterator that owns its result frees it on the way past the end.
+   *  On ITERATOR_TIMEOUT both `current` and `lastDocId` are untouched — the iterator has
+   *  not moved, and a later call may still find a result where it stands.
    *  @returns ITERATOR_OK on normal operation, or any other `IteratorStatus` except `ITERATOR_NOTFOUND`
    */
   IteratorStatus (*Read)(struct QueryIterator *self);
@@ -84,7 +109,10 @@ typedef struct QueryIterator {
    *  A read is successful if the iterator has a valid result to yield.
    *  @returns ITERATOR_OK if the iterator has found `docId`.
    *  @returns ITERATOR_NOTFOUND if the iterator has only found a result greater than `docId`.
-   *  In any other case, `current` and `lastDocId` should be untouched, and the relevant IteratorStatus is returned.
+   *  Otherwise the relevant IteratorStatus is returned, under the same post-conditions as
+   *  `Read`: ITERATOR_EOF sets `atEOF` and clears `current` to NULL while leaving
+   *  `lastDocId` where the last yield left it — never on `docId`, which the iterator has no
+   *  result to back — and ITERATOR_TIMEOUT touches neither.
    */
   IteratorStatus (*SkipTo)(struct QueryIterator *self, t_docId docId);
 
@@ -94,7 +122,10 @@ typedef struct QueryIterator {
    *
    * @param spec The index spec, provided by the caller (result processor).
    * @return VALIDATE_OK if the iterator is still valid
-   * @return VALIDATE_MOVED if the iterator is still valid, but the lastDocId has changed (moved forward)
+   * @return VALIDATE_MOVED if the iterator is still valid, but the lastDocId has changed
+   * (moved forward). A move that landed on a document publishes it in `current`; one that
+   * ran past the end sets `atEOF` and clears `current` to NULL, which is how a caller tells
+   * the two apart.
    * @return VALIDATE_ABORTED if the iterator is no longer valid
    * @return VALIDATE_TIMEOUT if the deadline expired mid-revalidation. Composite iterators must
    *         propagate it to their caller rather than folding it into VALIDATE_ABORTED: freeing is

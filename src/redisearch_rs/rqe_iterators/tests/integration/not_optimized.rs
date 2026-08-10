@@ -889,11 +889,56 @@ mod revalidate {
         assert!(it.at_eof());
     }
 
-    /// A revalidation whose scan fails has no position to report, but it also
-    /// clears `forced_eof` so a later read can retry. The EOF it reports in the
-    /// meantime must not outlive that retry succeeding.
+    /// Catching the child up to the wildcard's new position is what makes the
+    /// membership test that follows it mean anything. A failure there leaves
+    /// membership *undecided* — and since the contract keeps a failed skip from
+    /// parking the child on the probed id, the test would read it as "absent"
+    /// and publish a document the NOT exists to exclude. So the error goes to
+    /// the caller instead.
     #[test]
-    fn revalidate_scan_error_does_not_latch_eof() {
+    fn revalidate_child_skip_error_propagates() {
+        // A sparse wildcard, so GC-ing its first document makes it jump far
+        // enough forward to leave the child behind — the only shape in which the
+        // catch-up skip runs at all.
+        let (_guard, context) = (
+            GlobalGuard::default(),
+            TestContext::wildcard([1, 50].iter().copied()),
+        );
+        let ii = DocIdsOnly::from_opaque(context.wildcard_inverted_index());
+        let wcii = rqe_iterators::inverted_index::Wildcard::new(ii.reader(), 1.0);
+        // The child holds 50 — the id the wildcard lands on below — so the
+        // membership that cannot be decided is one where the answer is "present",
+        // and guessing is wrong rather than merely unlucky.
+        let child = Mock::<2>::new([3, 50]);
+        let mut child_data = child.data();
+        child_data.set_revalidate_result(MockRevalidateResult::Ok);
+        let mut it = NotOptimized::new(wcii, child, 100, 1.0, NoTimeoutChecker);
+
+        // Doc 1. Catching the child up to it stops on 3, behind the wildcard's
+        // remaining document.
+        assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+
+        // From here the child cannot be caught up.
+        child_data.set_error_on_skip_to(Some(MockIteratorError::TimeoutError(None)));
+
+        // GC doc 1, so the wildcard moves onto 50, past the child at 3.
+        gc_document(&context, 1);
+        let error = it
+            .revalidate(&*context.spec_read())
+            .expect_err("a child that cannot be caught up must reach the caller");
+        assert!(
+            matches!(error, RQEIteratorError::TimedOut),
+            "the child's error must be propagated as it stands, got {error:?}",
+        );
+    }
+
+    /// A revalidation whose scan fails has no position to report, and neither
+    /// status it could return would be true — so the error goes to the caller,
+    /// which aborts the iterator. Reporting `Moved { current: None }` instead
+    /// would say "exhausted" to a parent that acts on it, leaving any later read
+    /// to resurrect behind its back.
+    #[test]
+    fn revalidate_scan_error_propagates() {
         let (_guard, context) = make_revalidate_context();
         let ii = DocIdsOnly::from_opaque(context.wildcard_inverted_index());
         let wcii = rqe_iterators::inverted_index::Wildcard::new(ii.reader(), 1.0);
@@ -914,30 +959,17 @@ mod revalidate {
         // GC doc 5, so the wildcard moves onto 10 — which the child holds, so
         // the iterator scans for the next valid result and the scan fails.
         gc_document(&context, 5);
-        let status = it.revalidate(&*context.spec_read()).unwrap();
+        let error = it
+            .revalidate(&*context.spec_read())
+            .expect_err("a failing revalidation scan must reach the caller");
         assert!(
-            matches!(status, RQEValidateStatus::Moved { current: None }),
-            "expected Moved {{ current: None }}, got {status:?}"
+            matches!(error, RQEIteratorError::TimedOut),
+            "the child's error must be propagated as it stands, got {error:?}",
         );
-        assert!(it.at_eof(), "nothing to report yet, so at EOF for now");
 
-        // The failure was transient, and the wildcard still holds documents past
-        // 10, so the retry finds one.
-        child_data.set_error_at_done(None);
-        let doc_id = it
-            .read()
-            .expect("read must be able to retry after a failed revalidation scan")
-            .expect("the wildcard has documents beyond 10")
-            .doc_id;
-
-        assert!(
-            !it.at_eof(),
-            "at_eof() must be false while positioned on doc {doc_id}",
-        );
-        assert!(
-            it.current().is_some(),
-            "current() must return the result read() just yielded (doc {doc_id})",
-        );
+        // Nothing further is asserted, and nothing may be: an `Err` from
+        // `revalidate` reaches the C boundary as `VALIDATE_ABORTED`, and an
+        // aborted iterator is dropped rather than used.
     }
 }
 

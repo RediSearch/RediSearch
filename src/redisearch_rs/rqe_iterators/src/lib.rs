@@ -238,6 +238,20 @@ pub trait RQEIterator<'index> {
     ///
     /// The caller must hold the spec read lock, represented by [`IndexSpecReadGuard`].
     /// The lock ensures the spec remains valid and unchanged during this call.
+    ///
+    /// # Errors
+    ///
+    /// An error is terminal. It interrupts a fix-up that is already half applied —
+    /// children repositioned or dropped, the state derived from them never re-synced —
+    /// so [`current`](Self::current), [`at_eof`](Self::at_eof) and
+    /// [`last_doc_id`](Self::last_doc_id) stop describing anything, and there is no
+    /// earlier state to roll back to either: the position they would be restored to
+    /// belongs to an index the iterator no longer sits in.
+    ///
+    /// Calling any of them afterwards is therefore meaningless rather than merely
+    /// stale, and so is [`rewind`](Self::rewind). Drop the iterator instead. Composites
+    /// propagate the error rather than handling it, and the C boundary reports
+    /// `VALIDATE_ABORTED`, on which the result processor frees the whole tree.
     fn revalidate(
         &mut self,
         spec: &IndexSpecReadGuard,
