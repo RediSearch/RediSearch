@@ -8,9 +8,11 @@
 */
 
 #include "benchmark/benchmark.h"
+#include "index_utils.h"
 #include "iterator_util.h"
 #include "redismock/util.h"
 
+#include <memory>
 #include <random>
 #include <vector>
 
@@ -25,6 +27,9 @@ public:
   std::vector<t_docId> childIds;
   std::vector<t_docId> wcIds;
   t_docId maxDocId;
+  // `NewNotIterator` requires a query context; it is left unarmed so that the iterator probes the
+  // "infinite" timeout below rather than a deadline this fixture would have to keep re-arming.
+  std::unique_ptr<MockQueryEvalCtx> mockQctx;
   static bool initialized;
 
   void SetUp(::benchmark::State &state) {
@@ -67,7 +72,8 @@ public:
       QueryIterator *wcii = (QueryIterator *)new MockIterator(wcIds);
       iterator_base = _New_NotIterator_With_WildCardIterator(child, wcii, maxDocId, 1.0, timeout);
     } else {
-      iterator_base = NewNotIterator(child, maxDocId, 1.0, timeout, nullptr);
+      mockQctx = std::make_unique<MockQueryEvalCtx>(maxDocId, maxDocId);
+      iterator_base = NewNotIterator(child, maxDocId, 1.0, timeout, &mockQctx->qctx);
     }
   }
 
