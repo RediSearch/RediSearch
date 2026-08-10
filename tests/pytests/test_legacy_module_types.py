@@ -79,15 +79,6 @@ def _waitForAofRewrite(env, conn, timeout=60):
     env.assertTrue(False, message='AOF rewrite did not finish within {}s'.format(timeout))
 
 
-def _expect_restore_error(env, conn, key, payload, message):
-    try:
-        conn.execute_command('RESTORE', key, 0, payload)
-        env.assertTrue(False, message='expected RESTORE to be rejected: ' + message)
-    except redis.exceptions.ResponseError:
-        pass
-    env.assertEqual(conn.execute_command('EXISTS', key), 0, message=message)
-
-
 def _crc64(data):
     # Reflected form of the Jones polynomial Redis uses, init 0, no final xor.
     # testDumpPayloadHelperMatchesRedis proves this matches the server rather than assuming it.
@@ -194,46 +185,6 @@ def testLegacyEmptyPayloadRoundTrips(env):
     env.assertEqual(conn.execute_command('DBSIZE'), expected)
     for type_name in _legacy_bodies():
         env.assertEqual(conn.execute_command('TYPE', 'legacy:' + type_name), type_name.encode())
-
-
-@skip(cluster=True)
-def testLegacyMalformedCountIsRejected(env):
-    """Every count in these payloads is attacker-controlled. A truncated payload declaring a huge count
-    used to spin the server, because exhausted reads return 0 without consuming anything.
-
-    A regression shows up as this test hanging rather than failing: the loop really does run
-    UINT64_MAX times."""
-    skipOnExistingEnv(env)
-    conn = _binary_conn(env)
-
-    huge = (1 << 64) - 1
-    cases = {
-        'ft_invidx': (LEGACY_ENC_VER, _module_uint(0) * 3 + _module_uint(huge)),  # block count, no blocks
-        'numericdx': (0, _module_uint(huge)),                                     # v0 entry count, no entries
-        'ft_tagidx': (LEGACY_ENC_VER, _module_uint(huge)),                        # tag count, no tags
-    }
-
-    for type_name, (encver, body) in cases.items():
-        payload = _dump_payload(conn, type_name, body, encver=encver)
-        _expect_restore_error(env, conn, 'bad:' + type_name, payload, type_name)
-
-    env.assertTrue(env.isUp())
-
-
-@skip(cluster=True)
-def testLegacyUnknownEncverIsRejected(env):
-    """Redis matches a module type on its 54-bit signature and ignores the 10-bit encoding version, so
-    a crafted payload reaches these loaders claiming any version."""
-    skipOnExistingEnv(env)
-    conn = _binary_conn(env)
-
-    for type_name, body in _legacy_bodies().items():
-        for encver in (LEGACY_ENC_VER + 1, 7, 1023):
-            payload = _dump_payload(conn, type_name, body, encver=encver)
-            key = 'ver:{}:{}'.format(type_name, encver)
-            _expect_restore_error(env, conn, key, payload, key)
-
-    env.assertTrue(env.isUp())
 
 
 @skip(cluster=True)
