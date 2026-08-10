@@ -235,10 +235,13 @@ static void Cursors_RescheduleSweepLocked(CursorList *cl) {
 
   // `RedisModule_StopTimer` / `RedisModule_CreateTimer` below mutate the
   // server's event-loop timer state, so they must only be reached from the main
-  // thread. Any caller that may run on a worker (e.g. `Cursor_Pause` when
-  // `FT.CURSOR READ` is dispatched to the workers pool, or `Cursors_CollectIdle`
-  // when `FT.CURSOR GC` is dispatched to `DIST_THREADPOOL` on a multi-shard
-  // cluster) must go through `Cursors_RequestRescheduleSweep` instead.
+  // thread. Any caller that can run elsewhere must post
+  // `Cursors_RequestRescheduleSweep` instead of re-arming inline. Which callers
+  // those are depends on how each command is dispatched: `Cursor_Pause` runs on
+  // a worker whenever `FT.CURSOR READ` is handed to the workers pool, and
+  // `Cursors_CollectIdle` does whenever a cluster serves `FT.CURSOR GC` off the
+  // main thread. This assertion is the enforcement, so the rule holds without
+  // having to re-derive the dispatch path of every caller.
   //
   // `MainThread_GetBlockedQueries` is a proxy for "am I the thread that ran
   // `RediSearch_InitModuleInternal`": the TLS slot is populated there and is

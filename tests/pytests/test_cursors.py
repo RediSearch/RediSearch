@@ -829,22 +829,26 @@ def test_cursor_gc_edge_cases(env: Env):
 @skip(cluster=False)
 def test_cursor_gc_reschedules_sweep_on_main_thread():
     """
-    Pins the invariant that re-arming the cursor idle-sweep timer only ever
-    happens on the main thread.
+    `FT.CURSOR GC` can re-arm the cursor idle-sweep timer, so that re-arming
+    must happen on the main thread.
 
-    `Cursors_RescheduleSweepLocked` calls `RedisModule_StopTimer` /
-    `RedisModule_CreateTimer`, which mutate the server's event-loop timer state
-    and are therefore main-thread only; off-thread callers must instead post
-    `Cursors_RequestRescheduleSweep`. On a multi-shard cluster the user-facing
-    `FT.CURSOR GC` is dispatched to `DIST_THREADPOOL` and `threadHandleCommand`
-    does not take the GIL, so a `Cursors_CollectIdle` that re-arms the timer
-    inline violates that invariant. Under `ENABLE_ASSERT` builds the assertion
-    in `Cursors_RescheduleSweepLocked` turns that into a hard failure here
-    rather than a silent data race.
+    `Cursors_CollectIdle` re-arms the timer, and re-arming calls
+    `RedisModule_StopTimer` / `RedisModule_CreateTimer`, which mutate the
+    server's event-loop timer state. That is main-thread-only work: a caller
+    that may run elsewhere has to post `Cursors_RequestRescheduleSweep` instead
+    of re-arming inline.
+
+    This test drives the user-facing `FT.CURSOR GC` on a multi-shard cluster,
+    the configuration in which the coordinator may serve that command from a
+    worker pool rather than on the main thread. Whether it actually does so is
+    an implementation detail that differs between branches; what must hold
+    everywhere is that the timer is only ever re-armed from the main thread. In
+    `ENABLE_ASSERT` builds the assertion in `Cursors_RescheduleSweepLocked`
+    makes a violation a hard failure here instead of a silent data race.
 
     `test_cursor_gc_edge_cases` above only drives the shard-local
-    `_FT.CURSOR GC`, which already runs on the main thread, so it does not
-    reach this path.
+    `_FT.CURSOR GC`, which runs on the main thread, so it does not exercise
+    this path.
     """
     env = Env(shardsCount=3)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
