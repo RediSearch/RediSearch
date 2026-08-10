@@ -334,7 +334,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        member_id: [1, 2, 3]
+        member_id: [1, 2, 3, 4]
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
