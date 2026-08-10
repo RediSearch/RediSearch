@@ -118,7 +118,7 @@ static void freeHashFields() {
   }
 }
 
-int HandleKeyspaceNotification(RedisModuleCtx *ctx, int type, enum RedisCmd redisCommand,
+int HandleKeyspaceNotification(RedisModuleCtx *ctx, enum RedisCmd redisCommand,
                                RedisModuleString *key);
 
 // Transform the event string into its corresponding enum value. The core events
@@ -159,20 +159,11 @@ static enum RedisCmd GetRedisCmd(const char *event) {
 #undef CHECK_JSON_EVENT
 }
 
-// Payload carried to a deferred per-key notification job. The per-key job
-// callback only receives (ctx, key, pd), so the original notification type and
-// the precomputed event enum are stashed here. We deliberately do not keep the
-// raw event string: RedisJSON event strings are freed once the notification
-// returns (see GetRedisCmd), and the enum already carries everything the handler
-// needs.
-typedef struct {
-  int type;
-  enum RedisCmd redisCommand;
-} KeyspaceNotificationJob;
-
+// The event enum travels in the payload pointer itself, so deferring allocates
+// nothing per notification. We deliberately do not carry the raw event string:
+// RedisJSON frees it once the notification returns (see GetRedisCmd).
 void HandlePerKeyJobFunc(RedisModuleCtx *ctx, RedisModuleString *key, void *pd) {
-  KeyspaceNotificationJob *job = pd;
-  HandleKeyspaceNotification(ctx, job->type, job->redisCommand, key);
+  HandleKeyspaceNotification(ctx, (enum RedisCmd)(uintptr_t)pd, key);
 }
 
 static bool ShouldDeferKeyspaceNotification(enum RedisCmd redisCommand) {
@@ -188,23 +179,22 @@ static bool ShouldDeferKeyspaceNotification(enum RedisCmd redisCommand) {
 
 int KeySpaceNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
                                  RedisModuleString *key) {
+  REDISMODULE_NOT_USED(type);
   enum RedisCmd redisCommand = GetRedisCmd(event);
   // Post-notification jobs run after the mutating command/module callback returns and any open
   // RedisModuleKey handles it held during notification emission are closed. Defer all handled
   // non-loaded notifications except rename_from, which only stores an owned source-key copy for
   // the following rename_to job.
   if (ShouldDeferKeyspaceNotification(redisCommand)) {
-    KeyspaceNotificationJob *job = rm_malloc(sizeof(*job));
-    job->type = type;
-    job->redisCommand = redisCommand;
-    int rc = RedisModule_AddPostNotificationJobForKey(ctx, HandlePerKeyJobFunc, key, job, rm_free);
+    int rc = RedisModule_AddPostNotificationJobForKey(ctx, HandlePerKeyJobFunc, key,
+                                                     (void *)(uintptr_t)redisCommand, NULL);
     RS_LOG_ASSERT(rc == REDISMODULE_OK, "Failed to add post-notification job for key");
     return REDISMODULE_OK;
   }
-  return HandleKeyspaceNotification(ctx, type, redisCommand, key);
+  return HandleKeyspaceNotification(ctx, redisCommand, key);
 }
 
-int HandleKeyspaceNotification(RedisModuleCtx *ctx, int type, enum RedisCmd redisCommand,
+int HandleKeyspaceNotification(RedisModuleCtx *ctx, enum RedisCmd redisCommand,
                                RedisModuleString *key) {
 
   RedisModuleKey *kp;
@@ -304,11 +294,9 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, int type, enum RedisCmd redi
  ********************************************************/
     case del_cmd:
     case set_cmd:
-      // We still subscribe to GENERIC/STRING for other events, so DEL/SET can
-      // arrive. De-indexing is done earlier via the DocIdMeta `unlink` callback
-      // (both modes); for SET overwrites, Redis unlinks the old value before the
-      // notification. The later KeyMeta free callback only releases the per-key
-      // metadata dict.
+      // DEL/SET arrive because we subscribe to GENERIC/STRING for other events.
+      // De-indexing is done earlier, by the DocIdMeta `unlink` callback (both
+      // modes); for SET overwrites Redis unlinks the old value first.
       break;
 
 /********************************************************
@@ -341,8 +329,8 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, int type, enum RedisCmd redi
         RedisModule_CloseKey(kp);
       }
       if (kType == DocumentType_Unsupported) {
-        // Empty key = deleted (e.g. under CRDT); de-indexed via the DocIdMeta
-        // `unlink` callback (both modes).
+        // In CRDT, an empty key means the key was deleted; de-indexing is done
+        // by the DocIdMeta `unlink` callback (both modes).
         break;
       }
       // todo: here we will open the key again, we can optimize it by
