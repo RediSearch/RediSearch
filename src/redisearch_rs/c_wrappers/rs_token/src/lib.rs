@@ -15,6 +15,7 @@ use std::{
 };
 
 use query_term::RSTokenFlags;
+use rqe_wildcard::remove_escape_in_place;
 
 /// The most bytes the C `strToLowerRunes` decoder (`nu_utf8_read`) reads past a
 /// multibyte lead byte. A UTF-8 sequence is at most four bytes, so the decoder
@@ -339,22 +340,6 @@ pub struct RSTokenMut<'a> {
     tok: &'a mut ffi::RSToken,
 }
 
-/// A token too long to be rewritten in place, returned by
-/// [`RSTokenMut::remove_wildcard_escapes`].
-///
-/// The escape converter walks the string with `int` cursors, which a length past
-/// [`i32::MAX`] overflows into negative indices — reads and writes outside the
-/// allocation. Nothing upstream caps a token at that: a query parameter is bounded
-/// only by `proto-max-bulk-len`, which an operator may raise further. The length is
-/// therefore user-controlled, so the refusal has to be one a query can report
-/// rather than a panic reaching an `extern "C"` frame.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("token length {len} exceeds maximum {}", i32::MAX)]
-pub struct TokenTooLong {
-    /// The token's length, in bytes.
-    pub len: usize,
-}
-
 impl<'a> RSTokenMut<'a> {
     /// Wrap a raw pointer to an [`ffi::RSToken`] for in-place rewriting.
     ///
@@ -370,8 +355,9 @@ impl<'a> RSTokenMut<'a> {
     /// - A non-null `str_` must address `len` initialized bytes that are
     ///   **writable**, and the allocation must extend one byte further: `str_[len]`
     ///   must be readable and equal to `0`. A rewrite writes only within
-    ///   `str_[0..len]`; the extra byte is what it reads when an escape has nothing
-    ///   after it.
+    ///   `str_[0..len]`, re-terminating the string at its new end; the extra byte
+    ///   is what already terminates it when a rewrite leaves the length alone, and
+    ///   what [`as_ref`](Self::as_ref)'s NUL-terminated handle rests on throughout.
     /// - A null `str_` implies `len == 0`, since a rewrite dereferences the string
     ///   whenever `len` is non-zero.
     pub unsafe fn from_nul_terminated_ffi(tok: *mut ffi::RSToken) -> Self {
@@ -415,7 +401,10 @@ impl<'a> RSTokenMut<'a> {
     ///
     /// A token is binary data, not text, so the rewrite works on bytes. One
     /// consequence is that an interior NUL ends the pattern, escape or no escape:
-    /// `a\0b` searches for `a`. Only a query parameter can carry such a token.
+    /// `a\0b` searches for `a`. Only a query parameter can carry such a token. The
+    /// rules are [`remove_escape_in_place`]'s; this adds the token bookkeeping
+    /// around them — the new length, and the terminator at the new end that keeps
+    /// the string readable as a C string.
     ///
     /// Escape removal is single-level and destructive, which makes this method
     /// **not idempotent**: it must be applied at most once per token — `a\\b`
@@ -423,44 +412,30 @@ impl<'a> RSTokenMut<'a> {
     /// keeps two handles from each applying it, but not one handle from applying it
     /// twice, so a token reachable from more than one evaluation path must be
     /// unescaped by exactly one of them.
-    ///
-    /// # Errors
-    ///
-    /// [`TokenTooLong`] if the token is too long for the converter to address,
-    /// leaving it untouched. Checking the bound here rather than adding it to the
-    /// constructor's contract is what keeps a caller from reaching the overflow
-    /// without first passing a check.
-    pub fn remove_wildcard_escapes(&mut self) -> Result<(), TokenTooLong> {
+    pub fn remove_wildcard_escapes(&mut self) {
         let len = self.tok.len;
 
-        // Handed the empty token, the converter would write a terminator past the
-        // one-byte allocation an empty query parameter produces. It guards this
-        // itself, but guarding here too keeps this method's soundness off the far
-        // side of the FFI boundary — and makes a token carrying no string, which
-        // the constructor's contract makes an empty one, a no-op rather than a null
-        // dereference.
+        // A token carrying no string is an empty one, per the constructor's
+        // contract, so returning here is what keeps the slice below off a null
+        // pointer. An empty token has nothing to unescape either way.
         if len == 0 {
-            return Ok(());
-        }
-
-        // Checked before the string is touched, so a refused token is left exactly
-        // as it was.
-        if len > i32::MAX as usize {
-            return Err(TokenTooLong { len });
+            return;
         }
 
         let str_ = self.tok.str_;
         debug_assert!(!str_.is_null(), "a non-empty token always carries a string");
 
-        // SAFETY: per the constructor's contract, `str_` is writable for `len`
-        // bytes and readable one further, where the terminator sits. `len` is
-        // within the range the converter's `int` cursors address, as just checked.
-        // `Wildcard_RemoveEscape` reads at most that terminator and writes only
-        // within `str_[0..len]`, so every access stays inside the allocation.
-        let new_len = unsafe { ffi::Wildcard_RemoveEscape(str_, len) };
+        // SAFETY: per the constructor's contract, `str_` addresses `len`
+        // initialized, writable bytes, and this handle is the only way to reach
+        // them, so the exclusive slice is sound.
+        let pattern = unsafe { std::slice::from_raw_parts_mut(str_.cast::<u8>(), len) };
+        // A shortened string comes back re-terminated at its new end; an unshortened
+        // one still ends at the terminator the constructor's contract requires. So
+        // the string stays readable as a C string either way, and nothing writes
+        // past `str_[len - 1]`.
+        let new_len = remove_escape_in_place(pattern);
         debug_assert!(new_len <= len, "escape removal must not lengthen the token");
         self.tok.len = new_len;
-        Ok(())
     }
 }
 

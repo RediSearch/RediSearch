@@ -296,9 +296,6 @@ fn token_mut_reads_the_nodes_own_token() {
     }
 }
 
-// This test rewrites through the C `Wildcard_RemoveEscape`, so it cannot run under
-// miri.
-#[cfg(not(miri))]
 #[test]
 fn token_mut_rewrites_the_nodes_own_token() {
     // The handle must address the node's own token, not a copy: a rewrite through
@@ -311,8 +308,7 @@ fn token_mut_rewrites_the_nodes_own_token() {
 
     node.token_mut()
         .expect("a wildcard-query node carries a token")
-        .remove_wildcard_escapes()
-        .expect("token is short enough to rewrite");
+        .remove_wildcard_escapes();
 
     // The handle is dead, so the node is readable again — and shows the rewrite.
     let QueryNode::WildcardQuery { tok } = node.as_ref().as_enum() else {

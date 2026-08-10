@@ -11,7 +11,7 @@
 use std::ffi::c_char;
 
 use query_term::RSTokenFlags;
-use rs_token::{RSTokenMut, RSTokenRef, TokenTooLong};
+use rs_token::{RSTokenMut, RSTokenRef};
 
 // Install the mock Redis allocator so the C `strToLowerRunes` can allocate, and
 // force the combined C bundle to be linked into the test binary.
@@ -238,10 +238,7 @@ fn handle_reflects_mutation_between_borrows() {
 ///
 /// The handle is confined to an inner scope: it is the only way to reach the token
 /// while it is live, and the buffer is read again only after it is dropped.
-fn rewrite(
-    content: &[u8],
-    f: impl FnOnce(&mut RSTokenMut) -> Result<(), TokenTooLong>,
-) -> (Vec<u8>, Vec<c_char>) {
+fn rewrite(content: &[u8], f: impl FnOnce(&mut RSTokenMut)) -> (Vec<u8>, Vec<c_char>) {
     let mut buf: Vec<c_char> = content
         .iter()
         .map(|&b| b as c_char)
@@ -258,9 +255,7 @@ fn rewrite(
         // at `str_[len]`. Nothing else reaches the token or the buffer for the
         // handle's lifetime, which ends with this scope.
         let mut tok = unsafe { RSTokenMut::from_nul_terminated_ffi(&raw mut raw) };
-        // None of these fixtures is anywhere near the length limit, so a refusal
-        // here would mean the bound check fired on a token it should not have.
-        f(&mut tok).expect("token is short enough to rewrite");
+        f(&mut tok);
     }
     let bytes = buf[..raw.len].iter().map(|&c| c as u8).collect();
     (bytes, buf)
@@ -316,8 +311,6 @@ fn mut_handle_accepts_a_token_carrying_no_string() {
     // string, and a rewrite is a no-op rather than a null dereference. The
     // `rewrite` helper always allocates a buffer, so this shape is built by hand.
     //
-    // No FFI is reached — `remove_wildcard_escapes` returns on the empty case
-    // before the converter — so this needs no `miri` exemption.
     let mut raw = build_raw(None, 0);
     {
         // SAFETY: `raw` is a valid token that outlives the handle and carries no
@@ -327,7 +320,7 @@ fn mut_handle_accepts_a_token_carrying_no_string() {
         assert!(tok.as_ref().is_empty());
         assert_eq!(tok.as_ref().as_bytes(), None);
         assert_eq!(tok.as_ref().as_c_str(), None);
-        assert_eq!(tok.remove_wildcard_escapes(), Ok(()));
+        tok.remove_wildcard_escapes();
         assert!(tok.as_ref().is_empty());
     }
     assert!(raw.str_.is_null(), "the token must be left untouched");
@@ -342,23 +335,19 @@ fn mut_handle_reads_through_as_ref() {
         assert_eq!(tok.as_ref().len(), 6);
         assert_eq!(tok.as_ref().as_bytes(), Some(&b"he?l*o"[..]));
         assert_eq!(tok.as_ref().as_c_str(), Some(c"he?l*o"));
-        Ok(())
     });
 }
 
 #[test]
 fn remove_wildcard_escapes_leaves_an_empty_token_alone() {
     // An empty query parameter reaches the AST as a one-byte allocation holding
-    // only the terminator. The empty case returns before the converter is called
-    // at all, which is what keeps the write off the end of that single byte —
-    // hence no FFI here, and no reason to skip this under `miri`.
+    // only the terminator. The empty case returns before the string is touched at
+    // all, which is what keeps the write off the end of that single byte.
     let (bytes, buf) = rewrite(b"", |tok| tok.remove_wildcard_escapes());
     assert_eq!(bytes, b"");
     assert_eq!(buf, vec![0 as c_char], "the buffer must be left untouched");
 }
 
-// These tests call the C `Wildcard_RemoveEscape`, so they cannot run under miri.
-#[cfg(not(miri))]
 mod remove_wildcard_escapes {
     use super::*;
 
@@ -447,9 +436,8 @@ mod remove_wildcard_escapes {
         // still yields a NUL-terminated string rather than running on into the
         // bytes the collapse left stranded.
         let (_bytes, _buf) = rewrite(br"a\*b\?c", |tok| {
-            tok.remove_wildcard_escapes()?;
+            tok.remove_wildcard_escapes();
             assert_eq!(tok.as_ref().as_c_str(), Some(c"a*b?c"));
-            Ok(())
         });
     }
 }
