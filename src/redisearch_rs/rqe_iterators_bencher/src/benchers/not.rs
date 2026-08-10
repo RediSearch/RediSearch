@@ -23,12 +23,6 @@ impl Bencher {
 
     const MAX_DOC_ID: u64 = 1_000_000;
 
-    /// Duration is irrelevant since we skip timeout checks in benchmarks.
-    const NOT_ITERATOR_TIMEOUT: Duration = Duration::ZERO;
-
-    /// Skip timeout checks in benchmarks to avoid any overhead.
-    const SKIP_TIMEOUT_CHECKS: bool = true;
-
     fn benchmark_group<'a>(
         &self,
         c: &'a mut Criterion,
@@ -55,15 +49,7 @@ impl Bencher {
         // Rust implementation
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
-                || {
-                    Not::new(
-                        Empty,
-                        Self::MAX_DOC_ID,
-                        1.0,
-                        Self::NOT_ITERATOR_TIMEOUT,
-                        Self::SKIP_TIMEOUT_CHECKS,
-                    )
-                },
+                || Not::new(Empty, Self::MAX_DOC_ID, 1.0, None),
                 |it| {
                     while let Ok(Some(current)) = it.read() {
                         black_box(current);
@@ -86,13 +72,7 @@ impl Bencher {
                 || {
                     // Child has 99% of docs (all except every 100th doc)
                     let data: Vec<_> = (1..Self::MAX_DOC_ID).filter(|x| x % 100 != 0).collect();
-                    Not::new(
-                        IdListSorted::new(data),
-                        Self::MAX_DOC_ID,
-                        1.0,
-                        Self::NOT_ITERATOR_TIMEOUT,
-                        Self::SKIP_TIMEOUT_CHECKS,
-                    )
+                    Not::new(IdListSorted::new(data), Self::MAX_DOC_ID, 1.0, None)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
@@ -114,15 +94,7 @@ impl Bencher {
         // Rust implementation
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
-                || {
-                    Not::new(
-                        Empty,
-                        Self::MAX_DOC_ID,
-                        1.0,
-                        Self::NOT_ITERATOR_TIMEOUT,
-                        Self::SKIP_TIMEOUT_CHECKS,
-                    )
-                },
+                || Not::new(Empty, Self::MAX_DOC_ID, 1.0, None),
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
                         black_box(current);
@@ -145,13 +117,7 @@ impl Bencher {
             b.iter_batched_ref(
                 || {
                     let data: Vec<_> = (1..Self::MAX_DOC_ID).step_by(100).collect();
-                    Not::new(
-                        IdListSorted::new(data),
-                        Self::MAX_DOC_ID,
-                        1.0,
-                        Self::NOT_ITERATOR_TIMEOUT,
-                        Self::SKIP_TIMEOUT_CHECKS,
-                    )
+                    Not::new(IdListSorted::new(data), Self::MAX_DOC_ID, 1.0, None)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
@@ -175,13 +141,7 @@ impl Bencher {
             b.iter_batched_ref(
                 || {
                     let data: Vec<_> = (1..Self::MAX_DOC_ID).filter(|x| x % 100 != 0).collect();
-                    Not::new(
-                        IdListSorted::new(data),
-                        Self::MAX_DOC_ID,
-                        1.0,
-                        Self::NOT_ITERATOR_TIMEOUT,
-                        Self::SKIP_TIMEOUT_CHECKS,
-                    )
+                    Not::new(IdListSorted::new(data), Self::MAX_DOC_ID, 1.0, None)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {

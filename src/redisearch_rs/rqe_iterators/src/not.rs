@@ -9,9 +9,7 @@
 
 //! Supporting types for [`Not`].
 
-use std::ptr::NonNull;
-
-use ffi::{RS_FIELDMASK_ALL, t_docId, timespec};
+use ffi::{RS_FIELDMASK_ALL, t_docId};
 use inverted_index::RSIndexResult;
 
 use crate::{
@@ -36,8 +34,9 @@ pub struct Not<'index, I> {
     result: RSIndexResult<'index>,
     /// Tracks the execution deadline for this iterator.
     ///
-    /// Uses an amortized check to minimize overhead in hot paths. The timeout
-    /// is absolute for the iterator's lifetime and does not reset upon rewinding.
+    /// Uses an amortized check to minimize overhead in hot paths. The context reads the deadline
+    /// back on every clock check, so a cursor read that re-arms it is honoured; `None` disables
+    /// timeout checks entirely.
     timeout_ctx: Option<TimeoutContext>,
 }
 
@@ -45,12 +44,18 @@ impl<'index, I> Not<'index, I>
 where
     I: RQEIterator<'index>,
 {
+    /// Build a NOT iterator over `child`.
+    ///
+    /// `timeout_ctx` is `None` when the query opts out of timeout checks, and otherwise the
+    /// context this iterator probes — see [`TimeoutContext::new`] for the deadline's requirements.
+    /// Build it with [`TIMEOUT_CHECK_GRANULARITY`](crate::not_reducer::TIMEOUT_CHECK_GRANULARITY)
+    /// as the limit, so that the amortized check happens at the same rate as in the other NOT
+    /// iterators.
     pub fn new(
         child: I,
         max_doc_id: t_docId,
         weight: f64,
-        deadline: NonNull<timespec>,
-        skip_timeout_checks: bool,
+        timeout_ctx: Option<TimeoutContext>,
     ) -> Self {
         Self {
             child: MaybeEmpty::new(child),
@@ -60,17 +65,7 @@ where
                 .weight(weight)
                 .field_mask(RS_FIELDMASK_ALL)
                 .build(),
-            // The `limit` of 5_000 determines the granularity of the timeout check.
-            // Each time [`TimeoutContext::check_timeout`] is called (during `read` / `skip_to`),
-            // the internal counter goes up. When it reaches this `limit` of 5_000 it will
-            // reset that counter and do the actual (OS) expensive timeout check.
-            timeout_ctx: if skip_timeout_checks {
-                None
-            } else {
-                // SAFETY: the caller guarantees the deadline remains valid for the iterator and
-                // is not updated concurrently with a timeout probe.
-                Some(unsafe { TimeoutContext::new(deadline, 5_000, false) })
-            },
+            timeout_ctx,
         }
     }
 

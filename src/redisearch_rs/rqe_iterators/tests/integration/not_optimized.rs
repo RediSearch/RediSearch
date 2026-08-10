@@ -11,9 +11,12 @@ use std::time::Duration;
 
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
-use rqe_iterators::{RQEIterator, RQEIteratorError, SkipToOutcome, not_optimized::NotOptimized};
+use rqe_iterators::{
+    RQEIterator, RQEIteratorError, SkipToOutcome, not_optimized::NotOptimized,
+    not_reducer::TIMEOUT_CHECK_GRANULARITY,
+};
 
-use crate::utils::{Mock, MockIteratorError, MockVec, WildcardHelper};
+use crate::utils::{Mock, MockIteratorError, MockVec, TestDeadline, WildcardHelper};
 
 /// Helper: compute the expected result set for a NOT-optimized iterator.
 ///
@@ -522,7 +525,14 @@ fn read_timeout_via_timeout_ctx() {
     let mut child_data = child.data();
     child_data.add_delay_since_index(1, Duration::from_micros(100));
 
-    let mut it = NotOptimized::new(wcii, child, 10_000, 1.0, Some(Duration::from_micros(50)));
+    let mut deadline = TestDeadline::in_(Duration::from_micros(50));
+    let mut it = NotOptimized::new(
+        wcii,
+        child,
+        10_000,
+        1.0,
+        Some(deadline.timeout_ctx(TIMEOUT_CHECK_GRANULARITY)),
+    );
 
     let result = it.read();
     assert!(

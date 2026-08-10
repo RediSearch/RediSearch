@@ -18,6 +18,7 @@ use rqe_iterators::{
     not::Not,
     not_optimized::NotOptimized,
     not_reducer::{NewNotIterator, new_not_iterator},
+    utils::duration_from_redis_timespec,
 };
 
 type NotFfi<'index> = Not<'index, CRQEIterator>;
@@ -165,7 +166,13 @@ type NotIteratorWrapper<'index> = RQEIteratorWrapper<NotIteratorEnum<'index>>;
 /// 2. When non-null, `child` must not be aliased.
 /// 3. `q` must be a valid non-null pointer to a [`QueryEvalCtx`](ffi::QueryEvalCtx).
 /// 4. `q.sctx` must be a non-null pointer to a valid
-///    [`RedisSearchCtx`](ffi::RedisSearchCtx).
+///    [`RedisSearchCtx`](ffi::RedisSearchCtx), which must stay valid and at a stable
+///    address for the lifetime of the returned iterator: unless timeout checks are
+///    disabled, the iterator reads `q.sctx.time.timeout` back on every probe, so that a
+///    deadline re-armed by a later cursor read is honoured. No write to that deadline may
+///    overlap a probe. There is deliberately no deadline parameter — a caller wanting a
+///    different deadline sets `q.sctx.time.timeout`, which is the only value the iterator
+///    will ever consult.
 /// 5. `q.sctx.spec` must be a non-null pointer to a valid
 ///    [`IndexSpec`](ffi::IndexSpec).
 /// 6. `q.sctx.spec.rule`, when non-null, must point to a valid
@@ -181,32 +188,30 @@ pub unsafe extern "C" fn NewNotIterator(
 ) -> *mut QueryIterator {
     let query = NonNull::new(q).expect("q must be non-null");
 
+    // `skipTimeoutChecks` and the presence of a deadline are read once, here, while the deadline
+    // itself is read live on every probe. A deadline that is absent *now* stays absent:
+    // `SearchCtx_UpdateTime` only ever re-arms a timeout the request was configured with, so a
+    // request without one never gains one.
     let skip_timeout_checks = {
         // SAFETY: caller guarantees q is valid (3).
         let q_ref = unsafe { query.as_ref() };
-        // SAFETY: caller guarantees q.sctx is valid (4).
-        let sctx = unsafe { &*q_ref.sctx };
-        if sctx.time.skipTimeoutChecks {
-            true
-        } else {
-            crate::timespec::duration_from_redis_timespec(sctx.time.timeout).is_none()
-        }
+        // SAFETY: caller guarantees q.sctx is valid (4). Read the two construction-time inputs
+        // through raw projections rather than a `&RedisSearchCtx`: C writes the deadline through
+        // that same location while the iterator lives.
+        let time = unsafe { &raw const (*q_ref.sctx).time };
+        // SAFETY: `time` points into the valid `q.sctx`.
+        let skip = unsafe { (*time).skipTimeoutChecks };
+        // SAFETY: as above.
+        let deadline = unsafe { (*time).timeout };
+        skip || duration_from_redis_timespec(deadline).is_none()
     };
 
     // Handle null child: reduce with Empty directly (always becomes wildcard).
     let Some(child_ptr) = NonNull::new(child) else {
         let empty = rqe_iterators::Empty;
         // SAFETY: caller guarantees preconditions (3–7).
-        let result = unsafe {
-            new_not_iterator(
-                empty,
-                max_doc_id,
-                weight,
-                std::time::Duration::ZERO,
-                skip_timeout_checks,
-                query,
-            )
-        };
+        let result =
+            unsafe { new_not_iterator(empty, max_doc_id, weight, skip_timeout_checks, query) };
         return match result {
             NewNotIterator::ReducedWildcard(wc) => RQEIteratorWrapper::boxed_new(wc),
             NewNotIterator::ReducedEmpty(empty) => {
@@ -223,16 +228,7 @@ pub unsafe extern "C" fn NewNotIterator(
     let child = unsafe { CRQEIterator::new(child_ptr) };
 
     // SAFETY: caller guarantees preconditions (3–7).
-    let result = unsafe {
-        new_not_iterator(
-            child,
-            max_doc_id,
-            weight,
-            std::time::Duration::ZERO,
-            skip_timeout_checks,
-            query,
-        )
-    };
+    let result = unsafe { new_not_iterator(child, max_doc_id, weight, skip_timeout_checks, query) };
 
     match result {
         NewNotIterator::ReducedWildcard(wc) => RQEIteratorWrapper::boxed_new(wc),

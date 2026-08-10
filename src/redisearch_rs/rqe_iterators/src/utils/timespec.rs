@@ -11,7 +11,11 @@
 
 use std::time::Duration;
 
-pub(crate) fn duration_from_redis_timespec(deadline: ffi::timespec) -> Option<Duration> {
+/// Converts an absolute Redis deadline into a [`Duration`] from now.
+///
+/// Returns `None` when `deadline` is the Redis sentinel meaning "no timeout",
+/// and `Some(Duration::ZERO)` when the deadline has already passed.
+pub fn duration_from_redis_timespec(deadline: ffi::timespec) -> Option<Duration> {
     // Redis sentinel for no timeout
     // `libc::time_t` is deprecated on musl (musl 1.2 changed it to 64-bit,
     // and the libc crate will follow suit — see libc#1848). Suppress the
@@ -30,16 +34,6 @@ pub(crate) fn duration_from_redis_timespec(deadline: ffi::timespec) -> Option<Du
     }
 
     Some(timespec_sub_to_duration(deadline, now))
-}
-
-/// Report whether `deadline` has been reached, reading the clock now.
-pub(crate) fn deadline_passed(deadline: ffi::timespec) -> bool {
-    #[cfg_attr(target_env = "musl", expect(deprecated))]
-    let time_t_max = libc::time_t::MAX;
-    if deadline.tv_sec >= time_t_max - 1 {
-        return false;
-    }
-    timespec_le(deadline, monotonic_now_timespec())
 }
 
 /// Report whether `deadline` has been reached, reading the clock now.

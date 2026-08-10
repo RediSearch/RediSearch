@@ -10,7 +10,7 @@
 //! Reducer logic for creating the right NOT iterator variant,
 //! with short-circuit reductions applied before construction.
 
-use std::{ptr::NonNull, time::Duration};
+use std::ptr::NonNull;
 
 use ffi::t_docId;
 
@@ -18,10 +18,14 @@ use crate::{
     Empty, IteratorType, NewWildcardIterator, RQEIterator,
     not::Not,
     not_optimized::NotOptimized,
+    utils::TimeoutContext,
     wildcard::{
         new_wildcard_iterator, new_wildcard_iterator_on_disk, new_wildcard_iterator_optimized,
     },
 };
+
+/// Check the clock every this many loop iterations to amortize syscall cost.
+pub const TIMEOUT_CHECK_GRANULARITY: u32 = 5_000;
 
 /// The result of [`not_iterator_reducer`].
 ///
@@ -108,7 +112,10 @@ pub enum NewNotIterator<'index, I> {
 /// 1. `query` must point to a valid [`QueryEvalCtx`](ffi::QueryEvalCtx)
 ///    that remains valid for `'index`.
 /// 2. `query.sctx` must be a non-null pointer to a valid
-///    [`RedisSearchCtx`](ffi::RedisSearchCtx) that remains valid for `'index`.
+///    [`RedisSearchCtx`](ffi::RedisSearchCtx) that remains valid for `'index`, and must stay at a
+///    stable address: unless `skip_timeout_checks` is set, the returned iterator reads
+///    `query.sctx.time.timeout` back on every timeout probe. No write to that deadline may
+///    overlap a probe. See [`TimeoutContext::new`] for the full contract.
 /// 3. `query.sctx.spec` must be a non-null pointer to a valid
 ///    [`IndexSpec`](ffi::IndexSpec) that remains valid for `'index`.
 /// 4. `query.sctx.spec.rule`, when non-null, must point to a valid
@@ -120,7 +127,6 @@ pub unsafe fn new_not_iterator<'index, I>(
     child: I,
     max_doc_id: t_docId,
     weight: f64,
-    _timeout: Duration,
     skip_timeout_checks: bool,
     query: NonNull<ffi::QueryEvalCtx>,
 ) -> NewNotIterator<'index, I>
@@ -142,11 +148,27 @@ where
     // SAFETY: Caller guarantees `query` points to a valid `QueryEvalCtx` (1).
     let query_ref = unsafe { query.as_ref() };
     let sctx = NonNull::new(query_ref.sctx).expect("query.sctx is null");
+
+    // Project the deadline through a raw pointer rather than through a `&RedisSearchCtx`: C keeps
+    // writing to this very location while the iterator lives — that is the whole point of reading
+    // it back — and a pointer derived from `&sctx.time.timeout` would freeze the location for the
+    // iterator's lifetime, making those writes undefined behaviour.
+    // SAFETY: Caller guarantees `query.sctx` is a valid, non-null pointer (2), so projecting one
+    // of its fields stays in bounds, and the result stays valid for as long as `sctx` does.
+    let deadline = unsafe { &raw mut (*sctx.as_ptr()).time.timeout };
+    let deadline = NonNull::new(deadline).expect("projected from a non-null pointer");
+    let timeout_ctx = if skip_timeout_checks {
+        None
+    } else {
+        // SAFETY: forwarded to our caller by precondition (2), both clauses: `sctx` outlives the
+        // iterator at a stable address, and no write to its deadline overlaps a probe.
+        Some(unsafe { TimeoutContext::new(deadline, TIMEOUT_CHECK_GRANULARITY) })
+    };
+
     // SAFETY: Caller guarantees `query.sctx` is a valid, non-null pointer (2).
-    let sctx_ref = unsafe { sctx.as_ref() };
-    let deadline = NonNull::from(&sctx_ref.time.timeout);
+    let spec_ptr = unsafe { (*sctx.as_ptr()).spec };
     // SAFETY: Caller guarantees `query.sctx.spec` is a valid, non-null pointer (3).
-    let spec = unsafe { &*sctx_ref.spec };
+    let spec = unsafe { &*spec_ptr };
 
     let index_all = NonNull::new(spec.rule)
         .map(|rule| {
@@ -175,19 +197,9 @@ where
             child,
             max_doc_id,
             weight,
-            if skip_timeout_checks {
-                None
-            } else {
-                Some(deadline)
-            },
+            timeout_ctx,
         ))
     } else {
-        NewNotIterator::Not(Not::new(
-            child,
-            max_doc_id,
-            weight,
-            deadline,
-            skip_timeout_checks,
-        ))
+        NewNotIterator::Not(Not::new(child, max_doc_id, weight, timeout_ctx))
     }
 }
