@@ -310,8 +310,6 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     }
     hybridReq->profileClocks.initClock = now;
 
-    // Initialize timeout coordination fields.
-    pthread_mutex_init(&hybridReq->cursorMutex, NULL);
 }
 
 HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests, RedisModuleString **argv, uint32_t argc) {
@@ -342,12 +340,20 @@ void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, uint32_t a
 void HybridRequest_Free(HybridRequest *req) {
     if (!req) return;
 
-    // Park the published sub-cursors: the container dies on the main thread
-    // at the end of the initial cursor cycle, after the IDs were replied, so
-    // this is the cycle-end disposition. Pause frees delete-marked cursors.
+    // Cycle-end disposition of the published sub-cursors: the container dies
+    // on the main thread at the end of the initial cursor cycle, so park them
+    // for reads — or drop them when the cycle timed out, since the timeout
+    // reply exposes no IDs. Published cursors own their subs (the handoff);
+    // the teardown below then leaves the subs to their cursors.
+    const bool cursorsOwnSubqueries = req->cursors != NULL;
     if (req->cursors) {
+      const bool timedOut = HybridRequest_TimedOut(req);
       for (size_t i = 0; i < array_len(req->cursors); i++) {
-        Cursor_Pause(req->cursors[i]);
+        if (timedOut) {
+          Cursor_Free(req->cursors[i]);
+        } else {
+          Cursor_Pause(req->cursors[i]);
+        }
       }
       array_free(req->cursors);
       req->cursors = NULL;
@@ -363,7 +369,7 @@ void HybridRequest_Free(HybridRequest *req) {
     // construction time. Freeing sctx first would dangle those borrows during
     // iterator teardown. Detach areq->sctx so AREQ_Free leaves it alone, decref
     // to tear down iterators, then free sctx + thctx ourselves.
-    for (size_t i = 0; !req->cursorsOwnSubqueries && i < req->nrequests; i++) {
+    for (size_t i = 0; !cursorsOwnSubqueries && i < req->nrequests; i++) {
       AREQ *areq = req->requests[i];
       RedisModuleCtx *thctx = NULL;
       RedisSearchCtx *sctx = NULL;
@@ -413,9 +419,6 @@ void HybridRequest_Free(HybridRequest *req) {
 
     // Clean up the tail pipeline error
     QueryError_ClearError(&req->tailPipelineError);
-
-    // Destroy the cursor mutex
-    pthread_mutex_destroy(&req->cursorMutex);
 
     rm_free(req->debugParams);
 

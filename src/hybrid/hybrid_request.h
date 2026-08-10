@@ -37,27 +37,12 @@ typedef struct HybridRequest {
     profiler_func profile;
     ProfilePrinterCtx profileCtx;
 
-    // State for reply_callback path (FAIL policy with workers in coordinator mode)
-    // Background thread stores results here, then calls UnblockClient.
-    // Mutex for synchronizing cursor creation with timeout callback.
-    // Protects cursor array access to ensure proper cleanup on timeout.
-    pthread_mutex_t cursorMutex;
-
-    // Array of depleted cursors for reply_callback path (internal hybrid search).
-    // Non-NULL only after the initial cursor pipelines are safe to publish.
-    // Protected by cursorMutex to synchronize with timeout callback.
-    // Cleanup is handled by:
-    // - reply_callback: frees array after replying with cursor IDs
-    // - timeout_callback: acquires lock and consumes published cursors, if any
-    // - HybridRequest_StartCursors: checks timedOut flag before publishing, or frees on error
+    // Sub-cursors of the initial WITHCURSOR cycle (shard-internal hybrid),
+    // published once depletion completed. Publication is the handoff: each
+    // cursor owns its sub-AREQ. Consumed only by HybridRequest_Free — parked
+    // for reads, or dropped when the cycle timed out (the timeout reply
+    // exposes no IDs).
     arrayof(struct Cursor*) cursors;
-
-    // The handoff marker (shard-internal WITHCURSOR): set under cursorMutex
-    // when the sub-cursors are published, transferring ownership of each
-    // sub-AREQ from the container to its cursor. HybridRequest_Free then
-    // frees the container-only remainder and leaves the subs to their
-    // cursors.
-    bool cursorsOwnSubqueries;
 
     // Optional debug parameters for _FT.DEBUG FT.HYBRID.
     // When non-NULL, debug timeouts are applied after pipeline building.
@@ -105,15 +90,6 @@ static inline void HybridRequest_SetExecutionStage(HybridRequest *req, QueryTime
 // AREQ. Propagation flips each subquery's RPNet abort flag so a BG worker
 // blocked in MRChannel_PopWithTimeout exits as soon as the channel is woken.
 void HybridRequest_SetTimedOut(HybridRequest *req);
-
-// Cursor mutex wrappers for synchronizing cursor creation with timeout callback
-static inline void HybridRequest_LockCursors(HybridRequest *req) {
-  pthread_mutex_lock(&req->cursorMutex);
-}
-
-static inline void HybridRequest_UnlockCursors(HybridRequest *req) {
-  pthread_mutex_unlock(&req->cursorMutex);
-}
 
 static inline bool HybridRequest_ShouldCheckTimeout(HybridRequest *req) {
   return QueryRequestTimeout_ShouldCheck(&req->base.timeout);

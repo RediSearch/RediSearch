@@ -865,10 +865,10 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       }
     }
 
-    // Only publish cursors after depletion has completed.
-    HybridRequest_LockCursors(req);
+    // Only publish cursors after depletion has completed. A timeout that
+    // races past this check is benign: the timeout reply exposes no IDs, and
+    // the container's teardown drops a timed-out cycle's cursors.
     if (HybridRequest_TimedOut(req)) {
-      HybridRequest_UnlockCursors(req);
       array_free(depleters);
       array_free_ex(cursors, Cursor_Free(*(Cursor**)ptr));
       QueryError_SetError(status, QUERY_ERROR_CODE_TIMED_OUT, NULL);
@@ -881,14 +881,12 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     for (size_t i = 0; i < req->nrequests; i++) {
       cursors[i]->query = &req->requests[i]->base;
     }
-    req->cursorsOwnSubqueries = true;
     req->cursors = cursors;
     cursors = NULL;
     // Cursors are published: the remaining work is handing off the mapping reply,
     // so a timeout from here on is attributed to the REPLY stage (no-op if the
     // timeout already fired, via the SetExecutionStage freeze).
     HybridRequest_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_REPLY);
-    HybridRequest_UnlockCursors(req);
     array_free(depleters);
 
     // Pause after store cursors (hybrid cursors only)
@@ -1010,9 +1008,8 @@ done:
 
 // Timeout callback for HybridRequest execution in Run in Threads mode.
 // Called on the main thread when the blocking client times out (FAIL policy only).
-// Acquires cursorMutex to synchronize with HybridRequest_StartCursors:
-// - If cursors were already created, we free them here
-// - If cursors haven't been created yet, StartCursors will see timedOut and skip creation
+// The error reply exposes no cursor IDs; any published cursors are dropped by
+// the container's teardown, which sees the timedOut flag set here.
 static int HybridQueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);
@@ -1026,24 +1023,8 @@ static int HybridQueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString
 
   // Signal timeout to background thread
   HybridRequest_SetTimedOut(hreq);
-  // Read before disposing the cursors below: published cursors own their
-  // sub-AREQs, so freeing them frees the subs.
   const bool coordinator = !IsInternal(hreq->requests[0]);
   recordHREQTimeoutStage(hreq, /*isError=*/true, coordinator);
-
-  // Lock to synchronize with cursor creation in HybridRequest_StartCursors.
-  // After setting timedOut, any subsequent cursor creation attempt will be skipped.
-  // If cursors were already created, we free them here.
-  HybridRequest_LockCursors(hreq);
-
-
-  // Free cursors if they were already created
-  if (hreq->cursors) {
-    array_free_ex(hreq->cursors, Cursor_Free(*(Cursor**)ptr));
-    hreq->cursors = NULL;
-  }
-
-  HybridRequest_UnlockCursors(hreq);
 
   // Reply with timeout error
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, coordinator);
@@ -1100,9 +1081,8 @@ static int HybridQueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModu
 
 // Timeout callback for HybridRequest execution in Run in Threads mode.
 // Called on the main thread when the blocking client times out (RETURN-STRICT policy only).
-// Acquires cursorMutex only to take ownership of publishable cursors:
-// - If cursors were depleted and published, detach them from hreq and reply after unlocking
-// - If cursors are not publishable yet, reply with an empty timeout mapping
+// A strict timeout drops the cycle's cursors — published or not — and replies
+// cursor id 0 for both subqueries, like a timed-out aggregate cursor.
 static int HybridQueryCursorTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);
@@ -1120,26 +1100,7 @@ static int HybridQueryCursorTimeoutReturnStrictCallback(RedisModuleCtx *ctx, Red
   // were published, QUEUE/PIPELINE before that).
   recordHREQTimeoutStage(hreq, /*isError=*/false, !IsInternal(hreq->requests[0]));
 
-  // Lock only long enough to synchronize with cursor publication in HybridRequest_StartCursors.
-  // Replying pauses cursors and can touch other locks, so it must happen after unlocking.
-  HybridRequest_LockCursors(hreq);
-
-  arrayof(Cursor*) cursors = hreq->cursors;
-  hreq->cursors = NULL;
-  HybridRequest_UnlockCursors(hreq);
-
-  if (cursors) {
-    // Reply, then park right away: the container's teardown waits on the
-    // worker's UnblockClient, and the client may READ the replied IDs first.
-    replyWithCursors(ctx, cursors, hreq, true);
-    for (size_t i = 0; i < array_len(cursors); i++) {
-      Cursor_Pause(cursors[i]);
-    }
-    array_free(cursors);
-  } else {
-    // Cursors were not published - reply with empty cursors reply
-    common_hybrid_query_reply_empty(ctx, QUERY_ERROR_CODE_TIMED_OUT, true, IsProfile(hreq));
-  }
+  common_hybrid_query_reply_empty(ctx, QUERY_ERROR_CODE_TIMED_OUT, true, IsProfile(hreq));
 
   return REDISMODULE_OK;
 }
