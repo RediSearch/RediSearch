@@ -46,7 +46,7 @@ static size_t expectedTrieNodeSize(t_len numChildren, t_len slen) {
   return alignUp(childKeysEnd, _Alignof(TrieNode *)) + (size_t)numChildren * sizeof(TrieNode *);
 }
 
-static float trieExactScore(TrieNode *n, rune *str, t_len len) {
+static float trieExactScore(TrieNode *n, const rune *str, t_len len) {
   TrieNode *res = TrieNode_Get(n, str, len, true, NULL);
   return res ? res->score : 0;
 }
@@ -80,7 +80,7 @@ FilterCode stepFilter(unsigned char b, void *ctx, int *matched, void *matchCtx) 
 int __trie_add(TrieNode **n, char *str, char *payloadStr, float sc, TrieAddOp op) {
   size_t rlen;
   runeBuf buf;
-  rune *runes = runeBufFill(str, strlen(str), &buf, &rlen);
+  const rune *runes = runeBufFill(str, strlen(str), &buf, &rlen);
 
   RSPayload payload = {.data = payloadStr, .len = payloadStr ? strlen(payloadStr) : 0};
   int rc = TrieNode_Add(n, runes, rlen, &payload, sc, op, NULL, 0);
@@ -94,7 +94,7 @@ int testRuneUtil() {
   rune expectedRunes[3] = {121, 89, 3};
   size_t len;
   runeBuf buf;
-  rune *runes = runeBufFill(str, strlen(str), &buf, &len);
+  const rune *runes = runeBufFill(str, strlen(str), &buf, &len);
   ASSERT_EQUAL(len, 2);
   ASSERT_EQUAL(runes[0], expectedRunes[0]);
   ASSERT_EQUAL(runes[1], expectedRunes[1]);
@@ -110,7 +110,7 @@ int testRuneUtil() {
   rune expectedUnicodeRunes[5] = {216, 8719, 960, 229, 197};
   char *expectedUnicodeStr = "Ø∏πåÅ";
   runeBuf unicodeBuf;
-  rune *unicodeRunes =
+  const rune *unicodeRunes =
       runeBufFill(expectedUnicodeStr, strlen(expectedUnicodeStr), &unicodeBuf, &unicodeLen);
   ASSERT_EQUAL(unicodeLen, 5);
   for (int i = 0; i < 5; i++) {
@@ -152,7 +152,7 @@ int testRuneUtil() {
 int testPayload() {
   size_t rootLen;
   runeBuf rootBuf;
-  rune *rootRunes = runeBufFill("", 0, &rootBuf, &rootLen);
+  const rune *rootRunes = runeBufFill("", 0, &rootBuf, &rootLen);
   TrieNode *root = __newTrieNode(rootRunes, 0, 0, NULL, 0, 0, 1, 0, Trie_Sort_Score, 0);
   ASSERT(root != NULL)
   runeBufFree(&rootBuf);
@@ -193,7 +193,7 @@ int testPayload() {
 int testTrie() {
   size_t rootLen;
   runeBuf rootBuf;
-  rune *rootRunes = runeBufFill("", 0, &rootBuf, &rootLen);
+  const rune *rootRunes = runeBufFill("", 0, &rootBuf, &rootLen);
   TrieNode *root = __newTrieNode(rootRunes, 0, 0, NULL, 0, 0, 1, 0, Trie_Sort_Score, 0);
   ASSERT(root != NULL)
   runeBufFree(&rootBuf);
@@ -208,7 +208,7 @@ int testTrie() {
   __trie_add(&root, "helter skelter", NULL, 3, ADD_REPLACE);
   size_t rlen;
   runeBuf buf;
-  rune *runes = runeBufFill("helter skelter", strlen("helter skelter"), &buf, &rlen);
+  const rune *runes = runeBufFill("helter skelter", strlen("helter skelter"), &buf, &rlen);
   float sc = trieExactScore(root, runes, rlen);
   ASSERT(sc == 3);
 
@@ -238,7 +238,7 @@ int testUnicode() {
 
   size_t rootLen;
   runeBuf rootBuf;
-  rune *rn = runeBufFill("", 0, &rootBuf, &rootLen);
+  const rune *rn = runeBufFill("", 0, &rootBuf, &rootLen);
   TrieNode *root = __newTrieNode(rn, 0, 0, NULL, 0, 0, 1, 0, Trie_Sort_Score, 0);
   runeBufFree(&rootBuf);
   ASSERT(root != NULL)
@@ -249,7 +249,7 @@ int testUnicode() {
   ASSERT_EQUAL(0, rc);
   size_t rlen;
   runeBuf buf;
-  rune *runes = runeBufFill(str, strlen(str), &buf, &rlen);
+  const rune *runes = runeBufFill(str, strlen(str), &buf, &rlen);
   float sc = trieExactScore(root, runes, rlen);
   runeBufFree(&buf);
   ASSERT(sc == 1);
@@ -267,7 +267,7 @@ int testDFAFilter() {
   ssize_t read;
   size_t rlen;
   runeBuf rootBuf;
-  rune *rootRunes = runeBufFill("root", strlen("root"), &rootBuf, &rlen);
+  const rune *rootRunes = runeBufFill("root", strlen("root"), &rootBuf, &rlen);
   TrieNode *root = __newTrieNode(rootRunes, 0, rlen, NULL, 0, 0, 0, 0, Trie_Sort_Score, 0);
   ASSERT(root != NULL)
   runeBufFree(&rootBuf);
@@ -284,7 +284,7 @@ int testDFAFilter() {
     }
 
     runeBuf buf;
-    rune *runes = runeBufFill(line, strlen(line), &buf, &rlen);
+    const rune *runes = runeBufFill(line, strlen(line), &buf, &rlen);
     int rc = TrieNode_Add(&root, runes, rlen, NULL, (float)score, ADD_REPLACE, NULL, 0);
     ASSERT(rc == 1);
     runeBufFree(&buf);
@@ -383,13 +383,18 @@ int testNumDocs() {
 
   // Allocate runes upfront
   size_t helpLen, helpingLen, helperLen, aLen, abLen, abcLen;
-  runeBuf helpBuf, helpingBuf, helperBuf, aBuf, abBuf, abcBuf;
-  rune *helpRunes = runeBufFill("help", strlen("help"), &helpBuf, &helpLen);
-  rune *helpingRunes = runeBufFill("helping", strlen("helping"), &helpingBuf, &helpingLen);
-  rune *helperRunes = runeBufFill("helper", strlen("helper"), &helperBuf, &helperLen);
-  rune *aRunes = runeBufFill("A", strlen("A"), &aBuf, &aLen);
-  rune *abRunes = runeBufFill("AB", strlen("AB"), &abBuf, &abLen);
-  rune *abcRunes = runeBufFill("ABC", strlen("ABC"), &abcBuf, &abcLen);
+  runeBuf helpBuf;
+  runeBuf helpingBuf;
+  runeBuf helperBuf;
+  runeBuf aBuf;
+  runeBuf abBuf;
+  runeBuf abcBuf;
+  const rune *helpRunes = runeBufFill("help", strlen("help"), &helpBuf, &helpLen);
+  const rune *helpingRunes = runeBufFill("helping", strlen("helping"), &helpingBuf, &helpingLen);
+  const rune *helperRunes = runeBufFill("helper", strlen("helper"), &helperBuf, &helperLen);
+  const rune *aRunes = runeBufFill("A", strlen("A"), &aBuf, &aLen);
+  const rune *abRunes = runeBufFill("AB", strlen("AB"), &abBuf, &abLen);
+  const rune *abcRunes = runeBufFill("ABC", strlen("ABC"), &abcBuf, &abcLen);
 
   // Insert "help"
   int rc = Trie_InsertStringBuffer(t, "help", 4, 1.0, 0, NULL, 1);
@@ -526,7 +531,7 @@ int testDeleteThenReinsertResetsState() {
 
   size_t helloLen;
   runeBuf helloBuf;
-  rune *helloRunes = runeBufFill("hello", strlen("hello"), &helloBuf, &helloLen);
+  const rune *helloRunes = runeBufFill("hello", strlen("hello"), &helloBuf, &helloLen);
 
   // Insert "hello" with score = 2.5 and numDocs = 7 in ADD_INCR mode.
   int rc = Trie_InsertStringBuffer(t, "hello", 5, 2.5, 1, NULL, 7);
@@ -565,9 +570,11 @@ int testDecrementNumDocs() {
 
   // Allocate runes for lookups
   size_t helloLen, worldLen, cafeLen;
-  runeBuf helloBuf, worldBuf, cafeBuf;
-  rune *helloRunes = runeBufFill("hello", strlen("hello"), &helloBuf, &helloLen);
-  rune *worldRunes = runeBufFill("world", strlen("world"), &worldBuf, &worldLen);
+  runeBuf helloBuf;
+  runeBuf worldBuf;
+  runeBuf cafeBuf;
+  const rune *helloRunes = runeBufFill("hello", strlen("hello"), &helloBuf, &helloLen);
+  const rune *worldRunes = runeBufFill("world", strlen("world"), &worldBuf, &worldLen);
 
   // Test 1: Decrement non-existent term
   TrieDecrResult rc = Trie_DecrementNumDocs(t, "nonexistent", 11, 1);
@@ -608,7 +615,7 @@ int testDecrementNumDocs() {
   // Test 5: Unicode string - "café" (UTF-8: 0x63 0x61 0x66 0xC3 0xA9)
   const char *cafe = "caf\xc3\xa9";  // café in UTF-8
   size_t cafeUtf8Len = 5;  // 5 bytes in UTF-8
-  rune *cafeRunes = runeBufFill(cafe, cafeUtf8Len, &cafeBuf, &cafeLen);
+  const rune *cafeRunes = runeBufFill(cafe, cafeUtf8Len, &cafeBuf, &cafeLen);
 
   insertRc = Trie_InsertStringBuffer(t, cafe, cafeUtf8Len, 1.0, 0, NULL, 8);
   ASSERT_EQUAL(1, insertRc);
@@ -632,10 +639,12 @@ int testDecrementNumDocs() {
 
   // Decrement "help" - should not affect "helper" or "helping"
   size_t helpLen, helperLen, helpingLen;
-  runeBuf helpBuf, helperBuf, helpingBuf;
-  rune *helpRunes = runeBufFill("help", strlen("help"), &helpBuf, &helpLen);
-  rune *helperRunes = runeBufFill("helper", strlen("helper"), &helperBuf, &helperLen);
-  rune *helpingRunes = runeBufFill("helping", strlen("helping"), &helpingBuf, &helpingLen);
+  runeBuf helpBuf;
+  runeBuf helperBuf;
+  runeBuf helpingBuf;
+  const rune *helpRunes = runeBufFill("help", strlen("help"), &helpBuf, &helpLen);
+  const rune *helperRunes = runeBufFill("helper", strlen("helper"), &helperBuf, &helperLen);
+  const rune *helpingRunes = runeBufFill("helping", strlen("helping"), &helpingBuf, &helpingLen);
 
   rc = Trie_DecrementNumDocs(t, "help", 4, 5);
   ASSERT_EQUAL(TRIE_DECR_UPDATED, rc);
@@ -754,7 +763,7 @@ int testDecrementNumDocsComplex() {
 
   // Verify initial state
   size_t runeLen;
-  rune *runes;
+  const rune *runes;
   runeBuf buf;
 
   runes = runeBufFill("redis", strlen("redis"), &buf, &runeLen);
@@ -990,7 +999,7 @@ int testDecrementNumDocsNonTerminal() {
   TrieNode *node;
   TrieDecrResult rc;
   size_t runeLen;
-  rune *runes;
+  const rune *runes;
   runeBuf buf;
 
   // ========================================
