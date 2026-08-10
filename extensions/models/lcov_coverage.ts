@@ -24,7 +24,7 @@
  *
  * @module
  */
-import { z } from "npm:zod@4";
+import { z } from "npm:zod@4.4.3";
 
 /** Where build.sh writes its traces, relative to the repository root. */
 const DEFAULT_BIN_DIR = "bin";

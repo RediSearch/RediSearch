@@ -26,7 +26,7 @@
  *
  * @module
  */
-import { z } from "npm:zod@4";
+import { z } from "npm:zod@4.4.3";
 
 /** Default timeout: 10 minutes. The suite itself takes seconds. */
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
@@ -401,6 +401,27 @@ export const model = {
         if (timedOut) {
           throw new Error(
             `\`${command}\` timed out after ${timeoutMs}ms. See the log data for details.`,
+          );
+        }
+
+        // A clean exit that produced no summary did not run the suite. The
+        // target has one way to exit 0 without testing anything: `SWAMP_DENO`
+        // pointing at something that is not deno. It is read as `?=`, so a
+        // value exported into the environment wins over the one the Makefile
+        // would have found, and a binary that ignores its arguments and exits 0
+        // satisfies both the format check and the test run. Nothing downstream
+        // would notice — the record says `passed`, and `summaryParsed: false`
+        // is not something a gate thinks to ask about.
+        //
+        // Checked here rather than clearing the variable, which is not
+        // available: make treats a variable exported as empty as *set*, so `?=`
+        // keeps the empty value and the target loses the deno it would
+        // otherwise have found.
+        if (status.success && counts === null && !args.ignoreFailure) {
+          throw new Error(
+            `\`${command}\` exited 0 without reporting any test. The suite did ` +
+              `not run: check SWAMP_DENO in the environment, which overrides ` +
+              `the deno the Makefile would find. See the log data for details.`,
           );
         }
 

@@ -143,10 +143,15 @@ Deno.test("maps deployment onto REDIS_STANDALONE", () => {
 });
 
 /**
- * The controls the model clears so an inherited one cannot decide for a run
- * that did not ask. Empty is how build.sh spells "unset".
+ * The controls the model neutralises so an inherited one cannot decide for a
+ * run that did not ask. Empty is how build.sh spells "unset", except for the
+ * `EXT` family, which it reads in the form where empty is a value — those are
+ * pinned to build.sh's own defaults instead.
  */
 const CLEARED = {
+  EXT: "RUN",
+  EXT_HOST: "127.0.0.1",
+  EXT_PORT: "6379",
   SKIP_BUILD: "",
   SAN: "",
   COV: "",
@@ -174,6 +179,24 @@ Deno.test("clears the build.sh controls it owns", () => {
   const args = { deployment: "standalone", enableAssert: false } as never;
 
   assertEquals(buildEnv(args), CLEARED);
+});
+
+Deno.test("pins the suite to a server it starts itself", () => {
+  // `EXT=1` in the caller's environment means "test whatever is already
+  // listening on EXT_HOST:EXT_PORT". Inherited, it is the one control that
+  // changes what a run measured rather than how it ran: the summary reports the
+  // modulePath this run built while the tests exercised whatever that server
+  // had loaded, and the validation gate reading it would be vouching for a
+  // build nothing ran. Clearing is not available here — build.sh reads these as
+  // `${VAR-default}`, where empty is a value — so they are pinned to its own
+  // defaults, which cannot be spelled as an absence.
+  const env = buildEnv(
+    { deployment: "standalone", enableAssert: false } as never,
+  );
+
+  assertEquals(env.EXT, "RUN");
+  assertEquals(env.EXT_HOST, "127.0.0.1");
+  assertEquals(env.EXT_PORT, "6379");
 });
 
 Deno.test("passes SKIP_BUILD and PARALLEL through the environment", () => {

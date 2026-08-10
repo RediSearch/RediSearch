@@ -18,7 +18,7 @@
  *
  * @module
  */
-import { z } from "npm:zod@4";
+import { z } from "npm:zod@4.4.3";
 
 /** Default timeout for a lint run: 45 minutes. */
 const DEFAULT_TIMEOUT_MS = 45 * 60 * 1000;

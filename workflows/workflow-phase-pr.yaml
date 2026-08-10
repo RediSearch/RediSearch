@@ -1,0 +1,406 @@
+id: f4bb1fb4-1ba7-49f7-bbb3-32bc45c91f7f
+name: phase-pr
+description: >-
+  Phase 6 of the implement-task skill: open the pull request for work that has
+  already been implemented, validated, reviewed, and approved.
+
+  It is its own workflow because opening a pull request is the first step in the
+  flow that is visible outside this machine, and the first that cannot be undone
+  by re-running something. So it starts at a gate rather than ending at one: the
+  run suspends before the agent is spawned, and approving it is the decision to
+  publish.
+
+  Phase 7 — driving CI to green — is not here. It is an unbounded wait on
+  external state, which a DAG models badly: every poll would be a step, and the
+  number of them is not known when the run starts. Watch CI and address what it
+  raises the usual way once this has run.
+
+  Approve or reject the gate with:
+
+    swamp workflow approve phase-pr ready-to-open
+    swamp workflow reject  phase-pr ready-to-open --reason "..."
+    swamp workflow resume  phase-pr
+tags:
+  purpose: implement-task
+inputs:
+  type: object
+  properties:
+    task:
+      type: string
+      description: >-
+        What the change does, in your own words. Use the same wording the
+        earlier phases were given.
+    ticket:
+      type: string
+      default: ""
+      description: >-
+        The Jira ticket, e.g. MOD-1234, giving the pull request its
+        `[MOD-xyz] summary` title. Optional: empty opens the pull request under a
+        plain descriptive title instead. The agent is told never to invent a
+        ticket id — a wrong one attaches the work to somebody else's issue, which
+        is worse than having none.
+    expectedPlanPath:
+      type: string
+      default: ""
+      description: >-
+        The design document this change was built against, named so the pull
+        request is described against the right one.
+
+        The implementation record says what was built but not which design it
+        followed, so the design is otherwise read as the newest one — which is
+        the right document while one task runs at a time, and the wrong one the
+        moment another task records a design in between. That produces the worst
+        kind of wrong: one task's implementation described against another's
+        design, in a pull request opened for review.
+
+        Left empty the newest design is used, which is what running this phase
+        straight after `phase-implement` means. Name it when time has passed, or
+        when more than one task is in flight — and name `implementationLabel`
+        with it.
+    implementationLabel:
+      type: string
+      default: ""
+      description: >-
+        The implementation to publish, named by the label its phase stamped on
+        it. Read it from the run you are handing off:
+
+          swamp data get task-implementer --json   # .content.agent.label
+
+        Empty takes the newest implementation recorded before this run started,
+        which is right when one task is in flight and wrong when two are — and
+        pinning the design without pinning this is worse than pinning neither,
+        because it produces a coherent-looking pull request describing one task's
+        design over another task's code. So the two are required together, and
+        `pinned-work-exists` refuses a half-pinned hand-off.
+    blockingSeverities:
+      type: array
+      items:
+        type: string
+      default: ["critical", "high", "medium"]
+      description: >-
+        Which finding severities count as unresolved when deciding whether the
+        change was reviewed. Must match what the review loop ran with: the loop
+        settles on a review that found nothing at these severities, so a stricter
+        list here refuses to open a pull request the review phase considered
+        finished, and a looser one accepts findings the loop would still be
+        working on.
+    agentModel:
+      type: string
+      default: ""
+      description: Model to run the agent on. Empty inherits the CLI's default.
+    permissionMode:
+      type: string
+      default: auto
+      description: Permission mode for the agent. `auto` matches an interactive session.
+    timeout:
+      type: integer
+      default: 3600000
+      description: Timeout for the agent run, in milliseconds.
+jobs:
+  - name: hand-off
+    description: Confirm, then open the pull request
+    concurrency: 1
+    steps:
+      - name: work-approved
+        description: >-
+          There is implemented work, and it has been validated and reviewed.
+
+          A pull request opened against a task whose implementation phase never
+          ran would be an empty one, and the mistake is much more expensive to
+          discover on GitHub than here. But the implementer's own verdict is not
+          enough by itself: it is written the moment the code is, before anything
+          has built or reviewed it, so a phase-implement run that went on to fail
+          in `validate` or `review-code` still leaves a successful-looking
+          implementation record behind. A clean review is the evidence that the
+          rest of that chain ran, because the review step only starts once
+          validation has passed.
+
+          The review must also have completed. Reviews pass `ignoreFailure`, so
+          a reviewer that could not inspect the change still records a result —
+          and one that records `clean` while saying it did not succeed is not a
+          review, it is an absence of one.
+
+          "Reviewed" means settled, which is what the review loop means by it: a
+          review that completed and found nothing at a blocking severity. Reading
+          `clean` alone would be a stricter bar than the loop it is checking —
+          the loop finishes on a review holding only low findings, and this would
+          then refuse to open the pull request that phase had finished with,
+          which is a disagreement between two gates rather than a gate.
+
+          The marker also has to come from a `verify` run rather than from a bare
+          `miri` invocation. Records carry the workflow that produced them, and
+          within `verify` miri runs last, behind every other suite on a chain of
+          `succeeded` dependencies — so a passing miri summary from that workflow
+          means the rest of it passed. A summary from someone running the model
+          directly means only that miri was run.
+
+          The work being published is the newest implementation recorded
+          *before this run started*, and every step here reads that same one —
+          this gate, and the hand-off after it. The bound matters at both ends.
+          Below it, a run that has suspended at the gate for days would
+          otherwise re-read `data.latest` and publish whatever finished in the
+          meantime, which is not what was approved. Above it, "newest overall"
+          would leave this refusing to publish finished work for as long as
+          another task kept recording implementations.
+
+          The review has to be a review *of that implementation*, which is a
+          stronger thing than a review that came after it. Time alone cannot
+          say what was read: task B implementing, reviewing and validating
+          while task A's implementation is the newest satisfies "a clean review
+          exists, and it is newer" while having read none of A's code. So the
+          review is matched to the implementation by `agent.label`, which
+          `phase-implement` stamps on the implementer and on its review loop
+          alike, so that the two carry the same one. Records written before
+          labelling existed carry an empty label and so match each other — the
+          behaviour this replaces, not a hole it opens.
+
+          Validation cannot be tied the same way: `verify` is a workflow of
+          model methods, not agents, so its summaries carry no label to match
+          on and time ordering is what is available.
+
+          A validation has to postdate the review, too. Validation runs again
+          after the review, because the review usually changes code — so the
+          clean review is written before the last thing that could invalidate
+          it, and a run whose final `verify` failed leaves a clean review behind
+          exactly as though it had passed. The marker is a passing miri summary,
+          miri being the last step `verify` runs: newer than the review, it means
+          the suite ran after the review and finished.
+
+          It has to be a summary `verify` would itself have accepted, which is
+          why this asks for the same things `verify`'s own `miri-ran` assert
+          does: interpreted under miri, its output parsed, and tests actually
+          run. A miri step can exit cleanly having interpreted nothing — every
+          crate in scope excluded — and `verify` fails on that afterwards while
+          the passing summary stays in the store. Reading the summary alone would
+          take a result that run had rejected as evidence it succeeded.
+
+          And it has to be a `verify` run that was not narrowed anywhere. Three
+          of its steps take a filter — `miriCrate`, `pytestFilter` and
+          `cTestFilter` — and each is for chasing one case while iterating.
+          Narrowing shows up only in the summary of the step it narrowed: a run
+          given `pytestFilter` writes a perfectly unnarrowed miri summary, so
+          checking miri alone lets a run that executed one Python test stand in
+          for the pre-pull-request gate. The other two summaries are therefore
+          required to be unfiltered as well, and to come from the same `verify`
+          run as the miri one — matched on `workflowRunId`, because a full miri
+          from one run and a full pytest from another say nothing about a run in
+          which both happened.
+
+          Each of the three has to postdate the review individually, not just
+          the run they belong to. Within `verify` the suites run in order and
+          miri runs last, so a run already under way when the review landed
+          finishes with a miri summary newer than the review and C and Python
+          summaries older than it — green for the code as it stood before the
+          review changed it.
+
+          And the run has to have *started* after the review, which is a
+          stronger claim than any of the suites postdating it. `verify` builds
+          once and runs the suites against that build with `skipBuild`, so a run
+          that built before the review and reached the suites afterwards would
+          test a module compiled from the pre-review tree while every summary
+          this gate reads looks newer than the review. The marker for that is the
+          `fmt` summary from the same run: `fmt` is `verify`'s first step, so a
+          run whose formatting check postdates the review is a run in which
+          nothing predates it — the build and the earlier gates included.
+
+          Unnarrowed is `null` rather than an empty string in all three: the
+          models record `args.<filter> || null`, and testing for `""` matched
+          nothing at all, which failed this gate after a perfectly good full run.
+
+          A consequence worth knowing: with `revalidateAfterReview` off there is
+          no validation after the review, and this refuses to open. Run `verify`
+          before the hand-off — which is the thing being asked for anyway.
+
+          The review also has to postdate the implementation it vouches for —
+          a matching label says the two belong to the same phase run, and the
+          ordering says the review read the finished work rather than the run's
+          first commit. Timestamps are ISO 8601, which compare correctly as
+          strings.
+        task:
+          type: assert
+          # The size check comes first and everything else indexes behind it:
+          # `[size() - 1]` on an empty result is an evaluation error, not a
+          # false, and a gate that errors cannot report the thing it exists to
+          # report — "nothing has been implemented yet" is the answer here, not
+          # a crash. `orValue` is for the same reason one level in: optional
+          # chaining yields an `optional<dyn>`, which has no `==` overload
+          # against a bool, so a review that recorded no findings has to be
+          # given an empty list rather than compared as an absence.
+          expr: >-
+            data.query('modelName == "task-implementer" && name == "implementation" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '"' + (inputs.implementationLabel == "" ? "" : ' && attributes.agent.label == "' + inputs.implementationLabel + '"')).size() > 0
+            && data.query('modelName == "task-implementer" && name == "implementation" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '"' + (inputs.implementationLabel == "" ? "" : ' && attributes.agent.label == "' + inputs.implementationLabel + '"'))[data.query('modelName == "task-implementer" && name == "implementation" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '"' + (inputs.implementationLabel == "" ? "" : ' && attributes.agent.label == "' + inputs.implementationLabel + '"')).size() - 1].attributes.succeeded
+            && data.query('modelName == "code-reviewer" && name == "review" && version >= 0 && attributes.succeeded == true').filter(r, r.attributes.clean || !r.attributes.?findings.orValue([]).exists(f, f.?severity.orValue("low") in inputs.blockingSeverities)).exists(r,
+                 r.attributes.agent.label == data.query('modelName == "task-implementer" && name == "implementation" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '"' + (inputs.implementationLabel == "" ? "" : ' && attributes.agent.label == "' + inputs.implementationLabel + '"'))[data.query('modelName == "task-implementer" && name == "implementation" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '"' + (inputs.implementationLabel == "" ? "" : ' && attributes.agent.label == "' + inputs.implementationLabel + '"')).size() - 1].attributes.agent.label
+                 && r.attributes.agent.executedAt > data.query('modelName == "task-implementer" && name == "implementation" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '"' + (inputs.implementationLabel == "" ? "" : ' && attributes.agent.label == "' + inputs.implementationLabel + '"'))[data.query('modelName == "task-implementer" && name == "implementation" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '"' + (inputs.implementationLabel == "" ? "" : ' && attributes.agent.label == "' + inputs.implementationLabel + '"')).size() - 1].attributes.agent.executedAt
+                 && data.query('modelName == "miri" && name == "summary" && version >= 0 && workflowName == "verify" && attributes.status == "passed" && attributes.miri == true && attributes.summaryParsed == true && attributes.testsRun > 0 && attributes.crate == null && attributes.testFilter == null').exists(m,
+                      m.attributes.executedAt > r.attributes.agent.executedAt
+                      && data.query('modelName == "pytest" && name == "summary" && version >= 0 && workflowName == "verify" && attributes.status == "passed" && attributes.summaryParsed == true && attributes.testsRun > 0 && attributes.testFilter == null').exists(p, p.workflowRunId == m.workflowRunId && p.attributes.executedAt > r.attributes.agent.executedAt)
+                      && data.query('modelName == "c-unit-tests" && name == "summary" && version >= 0 && workflowName == "verify" && attributes.status == "passed" && attributes.summaryParsed == true && attributes.testsRun > 0 && attributes.testFilter == null').exists(c, c.workflowRunId == m.workflowRunId && c.attributes.executedAt > r.attributes.agent.executedAt)
+                      && data.query('modelName == "fmt" && name == "summary" && version >= 0 && workflowName == "verify" && attributes.status == "clean"').exists(t, t.workflowRunId == m.workflowRunId && t.attributes.executedAt > r.attributes.agent.executedAt)))
+          message: >-
+            No implementation with a clean review and a full, passing validation
+            after it was found. A `verify` run narrowed with `miriCrate`,
+            `pytestFilter` or `cTestFilter` does not count here, however green:
+            run it with no filters. Otherwise run `swamp workflow run
+            phase-implement` first — the
+            implementer reporting success is not enough on its own, because it
+            says so before anything has validated or reviewed what it wrote.
+          severity: high
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+
+      - name: pinned-work-exists
+        description: >-
+          The pinning is complete, and what it names was actually found.
+
+          Two things, because they fail the same way. A path or label that
+          matches nothing — mistyped, or belonging to a task whose records
+          landed after this run started — leaves the hand-off with no design or
+          no implementation, and an agent given neither writes the pull request
+          from the diff. That reads as a thinner description rather than as an
+          error, which is the failure worth being loud about: the inputs exist
+          precisely because the operator knew which records they meant.
+
+          And pinning one without the other, which is worse than pinning
+          neither. Unpinned, both default to the newest before this run started,
+          and on a machine running one task at a time those are the same record
+          pair. Pin only the design and the newest implementation is still taken
+          — so in the very situation the pin exists for, two tasks in flight, the
+          hand-off pairs one task's design with another task's code and opens a
+          pull request that reads as coherent. Refusing a half-pinned hand-off
+          costs one more input; not refusing costs a published description of
+          work that was never done.
+        guard: >-
+          ${{ inputs.expectedPlanPath == "" && inputs.implementationLabel == "" ? "skip" : "" }}
+        task:
+          type: assert
+          expr: >-
+            inputs.expectedPlanPath != "" && inputs.implementationLabel != ""
+            && data.query('modelName == "task-design-agent" && name == "design" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '" && attributes.planPath == "' + inputs.expectedPlanPath + '"').size() > 0
+            && data.query('modelName == "task-implementer" && name == "implementation" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '" && attributes.agent.label == "' + inputs.implementationLabel + '"').size() > 0
+          message: >-
+            The hand-off is pinned to a design at "${{ inputs.expectedPlanPath }}"
+            and an implementation labelled "${{ inputs.implementationLabel }}",
+            and one of those is missing or empty. Pin both or neither: pinning
+            the design alone still publishes whichever implementation is newest.
+            Read what exists with `swamp data get task-design-agent --json` and
+            `swamp data get task-implementer --json` (the label is under
+            `.content.agent.label`).
+          severity: high
+        dependsOn:
+          - step: work-approved
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: ready-to-open
+        description: >-
+          The gate before anything leaves this machine.
+
+          Everything up to here has been local and repeatable. Opening the pull
+          request is neither, and the repository forbids rewriting the branch
+          once it exists — so the history as it stands now is the history the
+          pull request keeps.
+        task:
+          type: manual_approval
+          prompt: >-
+            About to open a pull request. This is the first step that is visible
+            outside this machine, and the branch cannot be rewritten afterwards.
+
+            Check the commits are the shape you want them reviewed in — this is
+            the last moment they can be reorganised.
+
+            What was built:
+              swamp data get task-implementer --json
+            The review that cleared it:
+              swamp data get code-reviewer --json
+
+            Approve with:
+              swamp workflow approve phase-pr ready-to-open
+              swamp workflow resume  phase-pr
+            Reject with:
+              swamp workflow reject phase-pr ready-to-open --reason "..."
+        # `always`, because the step before this one skips when no design was
+        # named, and a skip propagates through `succeeded` and `completed`
+        # alike — this gate would then never be reached in the ordinary case.
+        # It is not a way past a failure: a hard failure leaves the rest of the
+        # job pending, `always` included.
+        dependsOn:
+          - step: pinned-work-exists
+            condition:
+              type: always
+        weight: 0
+        allowFailure: false
+
+      - name: open-pr
+        description: Open the pull request from the repository's template
+        task:
+          type: model_method
+          modelType: "@gdesmott/claude-task"
+          modelName: task-pr-agent
+          methodName: pr
+          globalArgs:
+            model: ${{ inputs.agentModel }}
+            permissionMode: ${{ inputs.permissionMode }}
+            timeout: ${{ inputs.timeout }}
+          inputs:
+            task: ${{ inputs.task }}
+            context:
+              ticket: ${{ inputs.ticket }}
+              # The records the gate above vetted, not whatever is latest now.
+              # `ready-to-open` suspends — for minutes or days — and `latest`
+              # re-read here would hand this agent a design and an
+              # implementation that finished during the suspension, so the pull
+              # request would describe work nobody approved. Bounded to before
+              # this run started, which is the same bound `work-approved` used
+              # to choose what it was approving.
+              # Narrowed to the named document when one was named — the
+              # predicate grows a clause rather than the expression growing a
+              # branch, so there is one query here and not two.
+              design: >-
+                ${{ (data.query('modelName == "task-design-agent" && name == "design" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '"' + (inputs.expectedPlanPath == "" ? "" : ' && attributes.planPath == "' + inputs.expectedPlanPath + '"')).size() == 0 ? null : data.query('modelName == "task-design-agent" && name == "design" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '"' + (inputs.expectedPlanPath == "" ? "" : ' && attributes.planPath == "' + inputs.expectedPlanPath + '"'))[data.query('modelName == "task-design-agent" && name == "design" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '"' + (inputs.expectedPlanPath == "" ? "" : ' && attributes.planPath == "' + inputs.expectedPlanPath + '"')).size() - 1].attributes) }}
+              implementation: >-
+                ${{ (data.query('modelName == "task-implementer" && name == "implementation" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '"' + (inputs.implementationLabel == "" ? "" : ' && attributes.agent.label == "' + inputs.implementationLabel + '"')).size() == 0 ? null : data.query('modelName == "task-implementer" && name == "implementation" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '"' + (inputs.implementationLabel == "" ? "" : ' && attributes.agent.label == "' + inputs.implementationLabel + '"'))[data.query('modelName == "task-implementer" && name == "implementation" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '"' + (inputs.implementationLabel == "" ? "" : ' && attributes.agent.label == "' + inputs.implementationLabel + '"')).size() - 1].attributes) }}
+            instructions: >-
+              The Jira ticket is "${{ inputs.ticket }}". If that is empty, there
+              is no ticket: open the pull request anyway, under a plain
+              descriptive title with no [MOD-xyz] prefix. Do not invent a ticket
+              id and do not stop over a missing one.
+
+              Do not amend, rebase, squash, or force-push. The commits as they
+              stand are what the pull request keeps.
+        dependsOn:
+          - step: ready-to-open
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: pull-request-opened
+        description: >-
+          A pull request actually exists.
+
+          The agent reports a refusal as a blocker rather than as a failure, so
+          an agent that decided not to open one — for whatever reason it gives —
+          exits successfully. Without this the run would end green having
+          published nothing, which is the one outcome indistinguishable from
+          success by every other signal here.
+        task:
+          type: assert
+          expr: >-
+            data.query('modelName == "task-pr-agent" && name == "pullrequest" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "task-pr-agent" && name == "pullrequest" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.prUrl != null
+          message: >-
+            No pull request was opened:
+            ${{ data.query('modelName == "task-pr-agent" && name == "pullrequest" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "task-pr-agent" && name == "pullrequest" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.summary }}
+          severity: high
+        dependsOn:
+          - step: open-pr
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+    dependsOn: []
+    weight: 0
+version: 1

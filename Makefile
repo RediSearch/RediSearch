@@ -408,7 +408,20 @@ else
 	@echo "Checking swamp extension formatting..."
 	@cd $(ROOT)/extensions && $(SWAMP_DENO) fmt --check models/ reports/
 	@echo "Running swamp extension tests..."
-	@cd $(ROOT)/extensions && $(SWAMP_DENO) test --allow-all models/ reports/
+# Not --allow-all, which additionally disables the sandbox. What is left is what
+# the suite needs and no more: temp directories to work in (read/write), the fake
+# executables the execute tests drive instead of real builds (run), and the
+# environment those fakes are configured through (env).
+#
+# `--allow-run` is the one that cannot be narrowed: the fakes are generated per
+# test into temporary directories, so there is no set of paths to allow, and a
+# subprocess runs outside the sandbox whatever it is. A test could therefore
+# still spawn something that reaches the network. That is why the CI job running
+# this holds nothing worth reaching — see the swamp-tests job in
+# .github/workflows/task-lint.yml, which has `contents: read` and no more. The
+# job is the boundary; these flags only keep the default path narrow.
+	@cd $(ROOT)/extensions && $(SWAMP_DENO) test \
+		--allow-read --allow-write --allow-run --allow-env models/ reports/
 endif
 
 # The tests above cover the model sources. This covers the definitions that are
@@ -416,50 +429,81 @@ endif
 # argument or expression path that does not exist, while every TypeScript test
 # passes — and the first anyone would hear of it is a workflow refusing to run.
 #
+# The work list is built by walking the files, not by grepping for the field
+# being validated. Deriving it from `name:` means a definition whose name is
+# missing or misspelled contributes no entry at all — so the one file that is
+# certainly broken is the one nothing checks. Walking the files makes a missing
+# name a failure in its own right.
+#
 # Warnings are failures here. `swamp workflow validate` reports a step naming a
 # model that does not exist as a warning and still exits 0, which is exactly the
 # breakage this is meant to catch.
 #
 # Workflows are evaluated as well as validated. Validation is structural — schema,
 # dependencies, whether a step's inputs cover the method's required arguments —
-# and says nothing about the expressions. Evaluation resolves them, so a guard or
-# an input that does not parse, or that compares types CEL has no overload for,
-# fails here rather than the first time someone runs the workflow.
+# and says nothing about the expressions.
 #
-# It is not the whole story: expressions that read `data` or `vault` are left
-# unresolved by design, because their values do not exist until the run does. So
-# this catches the input-only expressions, which is most of them, and leaves the
-# data-dependent ones to the run.
+# Evaluation is not a gate on its own: swamp reports an expression it could not
+# resolve as a *warning* and exits 0, so `swamp workflow evaluate` succeeds on a
+# workflow whose guard refers to `inputs.coverageFilse`. The gate script reads
+# those warnings. It cannot simply fail on all of them — evaluating without
+# inputs warns about every declared input that has no value, and `run` and the
+# async data lookups do not exist until there is a run — so it fails only on
+# warnings that are none of those, which is what a typo looks like.
 #
-# Skipped rather than failed when swamp is absent: CI installs deno alone, and
-# the deno half is the part that has to gate every PR. (Version drift between an
-# instance and its type is checked in the deno tests for the same reason.)
+# What it cannot see: anything inside an expression that reads `data`, because
+# those are never resolved at evaluation. Those are left to the run.
+#
+# Skipped rather than failed when swamp is absent, so that a contributor without
+# it can still run the rest — but not in CI, where skipping would be silent and
+# this is the only gate that reads the definitions at all. A pull request that
+# changes nothing but `workflows/` would otherwise pass every check while
+# carrying a guard that cannot evaluate. Set SWAMP_REQUIRED=1 to turn the skip
+# into a failure; the CI job that installs swamp does.
 swamp-definitions-check:
 	@if command -v swamp >/dev/null 2>&1; then \
 		echo "Validating swamp model and workflow definitions..."; \
-		entries="$$(sed -n 's/^name: /model:/p' $(ROOT)/models/*/*/*.yaml; \
-		            sed -n 's/^name: /workflow:/p' $(ROOT)/workflows/*.yaml)"; \
+		entries=""; \
+		for file in $(ROOT)/models/*/*/*.yaml $(ROOT)/workflows/*.yaml; do \
+			case "$$file" in *"/workflows/"*) kind=workflow;; *) kind=model;; esac; \
+			name="$$(sed -n 's/^name: *//p' "$$file" | head -1)"; \
+			if [ -z "$$name" ]; then \
+				echo "$$file has no top-level name; nothing would validate it." >&2; \
+				exit 1; \
+			fi; \
+			entries="$$entries $$kind:$$name"; \
+		done; \
 		for entry in $$entries; do \
 			kind="$${entry%%:*}"; name="$${entry#*:}"; \
 			out="$$(swamp $$kind validate "$$name" --repo-dir $(ROOT) 2>&1)" || \
 				{ echo "$$out" >&2; exit 1; }; \
 			case "$$out" in \
-				*warning*) \
+				*warning*|*Warning*|*WARNING*) \
 					echo "$$out" >&2; \
 					echo "$$kind $$name validated with warnings; treating as a failure." >&2; \
 					exit 1;; \
 			esac; \
-			if [ "$$kind" = "workflow" ]; then \
-				out="$$(swamp workflow evaluate "$$name" --repo-dir $(ROOT) --json 2>&1)" || \
-					{ echo "$$out" >&2; \
-					  echo "workflow $$name failed to evaluate." >&2; exit 1; }; \
-			fi; \
 		done; \
+		python3 $(ROOT)/scripts/swamp_evaluate_gate.py $(ROOT); \
+	elif [ -n "$(SWAMP_REQUIRED)" ]; then \
+		echo "swamp is not on PATH and SWAMP_REQUIRED is set." >&2; \
+		echo "This is the only gate that reads the workflow definitions, so" >&2; \
+		echo "skipping it would let a broken guard or input expression through." >&2; \
+		exit 1; \
 	else \
 		echo "swamp not on PATH; skipping model and workflow validation."; \
 	fi
 
-swamp-tests: swamp-extension-tests swamp-definitions-check
+# Definitions first, deliberately. The extension tests are PR-controlled code
+# running with --allow-write and --allow-run, so a test file could edit
+# workflows/ or models/ — or replace the swamp binary on PATH — and the check
+# that reads those definitions would then be validating whatever the tests left
+# behind. Validating first means the definitions are checked as they arrived.
+#
+# Make runs prerequisites left to right for a serial build, which is what CI
+# does; the CI job also runs the two as separate steps so the order does not
+# depend on that.
+swamp-tests: swamp-definitions-check swamp-extension-tests
 
 pack: build
 	@echo "Creating installation packages..."

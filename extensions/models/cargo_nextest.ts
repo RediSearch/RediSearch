@@ -22,7 +22,7 @@
  *
  * @module
  */
-import { z } from "npm:zod@4";
+import { z } from "npm:zod@4.4.3";
 
 /** Default timeout for a test run: 30 minutes. */
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;

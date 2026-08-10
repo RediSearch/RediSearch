@@ -31,7 +31,7 @@
  *
  * @module
  */
-import { z } from "npm:zod@4";
+import { z } from "npm:zod@4.4.3";
 
 /** Default timeout: 5 minutes. Formatting the workspace takes seconds. */
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;

@@ -27,7 +27,7 @@
  *
  * @module
  */
-import { z } from "npm:zod@4";
+import { z } from "npm:zod@4.4.3";
 
 /** Default timeout for a build: 60 minutes. A cold full build is slow. */
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;

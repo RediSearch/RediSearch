@@ -24,7 +24,7 @@
  *
  * @module
  */
-import { z } from "npm:zod@4";
+import { z } from "npm:zod@4.4.3";
 
 /** Default timeout: an instrumented build plus the suite is not quick. */
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;

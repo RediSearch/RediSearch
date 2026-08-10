@@ -23,7 +23,7 @@
  *
  * @module
  */
-import { z } from "npm:zod@4";
+import { z } from "npm:zod@4.4.3";
 
 /** Default timeout for a suite run: 3 hours. The full suite is long. */
 const DEFAULT_TIMEOUT_MS = 3 * 60 * 60 * 1000;
@@ -462,10 +462,13 @@ export function buildArgv(args: RunArgs, coord: GlobalArgs["coord"]): string[] {
  * summary records the other one.
  *
  * Deliberately not listed: `INLINE_LSE_ATOMICS`, `BUILD_INTEL_SVS_OPT`,
- * `RUST_DYN_CRT`, `SCCACHE_PATH`, and the `EXT` family. The first group
- * describes the machine rather than contradicts the run; `EXT` and its
- * companions are read as `${VAR-<default>}`, which takes an empty string as a
- * real value, so clearing them would break the run rather than reset it.
+ * `RUST_DYN_CRT` and `SCCACHE_PATH`, which describe the machine rather than
+ * contradict the run.
+ *
+ * The `EXT` family is owned too, but through {@linkcode PINNED_ENV} rather than
+ * here: it cannot be cleared. build.sh reads it as `${VAR-<default>}`, and that
+ * form — unlike `${VAR:-<default>}` — takes an empty string as a real value, so
+ * an emptied `EXT_HOST` would reach runtests.sh as a host of "".
  */
 const OWNED_ENV = [
   "SKIP_BUILD",
@@ -486,6 +489,29 @@ const OWNED_ENV = [
 ];
 
 /**
+ * Controls this model owns that have to be set to a value rather than cleared,
+ * given here as build.sh's own defaults.
+ *
+ * `EXT` decides what the suite is run against. `EXT=1` means "test whatever is
+ * already listening on EXT_HOST:EXT_PORT", which is the one inherited value
+ * that changes what a run measured rather than how it ran: the module under
+ * test would be whichever one that server loaded, while the summary reports the
+ * `modulePath` this run built. A validation gate reading that summary would be
+ * vouching for a build nothing had exercised.
+ *
+ * Pinned to the default instead of cleared because build.sh reads these as
+ * `${VAR-<default>}`, where an empty string is a value and not an absence.
+ * `RUN` is build.sh's own default and is not runtests.sh's `run` — the
+ * comparison there is case-sensitive, so this is the inert value, which is the
+ * point: it selects the ordinary path of starting a server for the tests.
+ */
+const PINNED_ENV: Record<string, string> = {
+  EXT: "RUN",
+  EXT_HOST: "127.0.0.1",
+  EXT_PORT: "6379",
+};
+
+/**
  * Environment for the run. build.sh reads SKIP_BUILD and PARALLEL from the
  * environment rather than its argument parser, so passing them in argv would
  * silently become CMake defines instead.
@@ -495,15 +521,18 @@ const OWNED_ENV = [
  * to 3. Passed in argv it would become `-DSHARDS=n` and the shard count would
  * quietly stay at the default.
  *
- * Every control this model owns is cleared first, so an inherited one can never
- * decide what a run did not. Empty rather than a value: build.sh reads them as
- * `${VAR:-<default>}`, and that form treats empty exactly as unset, so clearing
- * one restores build.sh's own default without naming it a second time here.
+ * Every control this model owns is neutralised first, so an inherited one can
+ * never decide what a run did not. Most are cleared rather than set: build.sh
+ * reads them as `${VAR:-<default>}`, and that form treats empty exactly as
+ * unset, so clearing one restores build.sh's own default without naming it a
+ * second time here. The exceptions are in {@linkcode PINNED_ENV}, which are
+ * read in the form where empty is a value and so have to be named.
  */
 export function buildEnv(args: RunArgs): Record<string, string> {
-  const env: Record<string, string> = Object.fromEntries(
-    OWNED_ENV.map((name) => [name, ""]),
-  );
+  const env: Record<string, string> = {
+    ...Object.fromEntries(OWNED_ENV.map((name) => [name, ""])),
+    ...PINNED_ENV,
+  };
   if (args.skipBuild) env.SKIP_BUILD = "1";
   if (args.parallel !== undefined) env.PARALLEL = String(args.parallel);
   if (args.shards !== undefined) env.SHARDS = String(args.shards);

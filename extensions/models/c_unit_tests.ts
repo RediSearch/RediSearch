@@ -23,7 +23,7 @@
  *
  * @module
  */
-import { z } from "npm:zod@4";
+import { z } from "npm:zod@4.4.3";
 
 /** Default timeout for a suite run: 60 minutes, including any rebuild. */
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;

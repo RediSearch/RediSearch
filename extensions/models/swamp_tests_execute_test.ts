@@ -166,6 +166,26 @@ Deno.test("records a failure the target reported in neither shape", async () => 
   });
 });
 
+Deno.test("a clean exit that ran no test is a failure", async () => {
+  await withTempRepo(async (dir) => {
+    // What a wrong SWAMP_DENO looks like from here: the target is read as
+    // `SWAMP_DENO ?=`, so a value exported into the environment wins, and a
+    // binary that ignores its arguments and exits 0 passes the format check and
+    // the test run without doing either. Exit code alone calls that a pass, and
+    // the pre-pull-request gate would then have skipped the extension suite
+    // entirely without anything saying so.
+    const make = await fakeMake(dir, "exit 0");
+    const { context, recorded } = makeContext(dir, globals(make));
+
+    const error = await captureError(() =>
+      run.execute({ quiet: true }, context)
+    );
+
+    assertEquals(error?.message.includes("without reporting any test"), true);
+    assertEquals(summaryOf(recorded).summaryParsed, false);
+  });
+});
+
 Deno.test("records the result without failing when told to", async () => {
   await withTempRepo(async (dir) => {
     const make = await fakeMake(

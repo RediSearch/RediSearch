@@ -1,0 +1,630 @@
+id: 0e32df92-892c-49c6-94e3-688df43a2ca9
+name: phase-implement
+description: >-
+  Phases 3 to 5 of the implement-task skill: implement the approved design,
+  validate it, and review the code adversarially.
+
+  This runs after `phase-design` has been approved, and it reads that design from
+  the data that workflow left behind rather than being told about it again. That
+  is deliberate: the implementation is measured against the document that was
+  approved, and passing it along by hand is how a phase ends up built against
+  something nobody signed off.
+
+  Validation is the existing `verify` workflow, unchanged — the same gate a
+  human runs before opening a pull request. It runs twice: once after the
+  implementation, and again after the review, because a review that ends with
+  unvalidated edits has moved the risk rather than removed it. The second run
+  can be turned off with `revalidateAfterReview` when you have read the review
+  and know it changed nothing; it is on by default because the review usually
+  does change something, and a gate that validated the wrong tree is worse than
+  a slow one.
+
+  The approval gate is not in this workflow. It belongs between this phase and
+  the pull request, and it lives in the `implement-task` parent, which calls this
+  and then suspends — a gate here would be the last step of the run, by which
+  point the code it might have stopped is already written and committed. Running
+  this workflow on its own is still useful and still safe: it leaves the work on
+  the branch and nothing is published until you publish it.
+
+  Read what it produced with:
+
+    swamp data get task-implementer --json
+    swamp data get code-reviewer --json
+tags:
+  purpose: implement-task
+inputs:
+  type: object
+  properties:
+    task:
+      type: string
+      description: >-
+        What to do, in your own words. Use the same wording the design phase was
+        given, so the implementation is working on the same task.
+    coordinator:
+      type: boolean
+      default: false
+      description: >-
+        Force the cluster suite on. It already runs by itself when the
+        implementation touched src/coord/, so this is for the cases the paths do
+        not reveal — a change to shared query code whose behaviour only diverges
+        once the work is spread across shards.
+    blockingSeverities:
+      type: array
+      items:
+        type: string
+      default: ["critical", "high", "medium"]
+      description: >-
+        Which finding severities have to be gone before a review loop is done.
+        Passed to every review loop this workflow runs. The default leaves `low`
+        out: a reviewer that has run out of substantive findings reports smaller
+        ones rather than none, and waiting for those to stop is how a loop spends
+        its rounds on things nobody would hold the change for.
+    taskType:
+      type: string
+      enum: ["port", "bugfix", "feature"]
+      default: port
+      description: >-
+        Which kind of task this is, passed through from the design phase. A
+        `feature` design deliberately wrote no tests, so there is no tests record
+        belonging to it — and the implementer must not be handed the last one
+        somebody else's task left behind.
+    requirePinnedDesign:
+      type: boolean
+      default: false
+      description: >-
+        Refuse to start without `expectedPlanPath`. The parent flow sets this:
+        its design gate prints the path it is approving as part of the resume
+        command, so an unpinned resume there means the operator dropped the one
+        thing tying this implementation to the design they had just read.
+        Failing at the first step costs nothing and says why; carrying on would
+        implement whichever design was newest by then.
+    expectedPlanPath:
+      type: string
+      default: ""
+      description: >-
+        The design to implement, named by its path. Every step that reads a
+        design reads the one recorded at this path — it selects, rather than
+        checking the newest record against it.
+
+        Left empty the newest design recorded before this run started is used,
+        which is the right one for a single task running at a time and the wrong
+        one if a second task wrote a design in between. So when you are running
+        this phase on its own, some time after the design was approved, name the
+        document you meant: it is the difference between implementing the design
+        that was approved and implementing whichever one happens to be newest.
+    label:
+      type: string
+      default: ""
+      description: >-
+        Stamped onto every record this phase's agents write, as `agent.label`.
+        It is how a caller finds the implementation *this* call produced rather
+        than the newest one in the store — which is not the same record once a
+        second task runs, and cannot be told apart by time when the caller
+        suspends at a gate in between. The parent flow passes its own run id.
+
+        Left empty, this run's own id is used rather than nothing. The label is
+        not only for callers: it is also what ties the implementation to the
+        review of it, which `phase-pr` reads to check that the review it is
+        publishing on actually read this code. An unlabelled run would leave
+        every record here carrying the same empty label as every other
+        unlabelled run, and that check would match across tasks.
+    revalidateAfterReview:
+      type: boolean
+      default: true
+      description: >-
+        Run the full validation again after the review loop. On by default: the
+        review usually changes code, and validating before those changes is not
+        validating the thing being approved. Turn it off only when you have read
+        the review and know it changed nothing.
+    agentModel:
+      type: string
+      default: ""
+      description: Model to run the agents on. Empty inherits the CLI's default.
+    permissionMode:
+      type: string
+      default: auto
+      description: Permission mode for the agents. `auto` matches an interactive session.
+    timeout:
+      type: integer
+      default: 3600000
+      description: Timeout for a single agent run, in milliseconds.
+jobs:
+  - name: implement
+    description: Implement, validate, review, validate again if needed, then gate
+    # One agent at a time, and never an agent alongside a build: they share the
+    # checkout and the Cargo build-directory lock.
+    concurrency: 1
+    steps:
+      - name: design-available
+        description: >-
+          A design exists to implement.
+
+          Checked before anything runs rather than left to the implementing
+          agent, which would otherwise be free to invent one — and an agent that
+          designs and implements in the same session has skipped the gate this
+          flow is built around.
+
+          The design is the one at `expectedPlanPath` when a path was given, and
+          otherwise the newest recorded *before this run started*. Every step
+          that reads a design reads that same one, selected the same way.
+
+          Both halves matter. The bound rules out anything written while this run
+          is going: taking the latest would be right while one task runs at a
+          time and wrong the moment two do, and the code review would end up
+          judging the work against a document nobody approved. The bound holds
+          for the whole run because a design necessarily predates the phase that
+          implements it.
+
+          The path, when given, then *selects* — it is not checked against the
+          newest and rejected on mismatch. That distinction is the whole use of
+          the input: it exists for the case where the approved design is no
+          longer the newest one, and a version that compared instead of selected
+          would fail exactly there, on the run it was meant to make possible.
+
+          Existing is not enough either. `phase-design` writes the design record
+          before its own gates run, so one that then failed the large-change
+          check, the bug-fix repro check or its review looks identical to one
+          that passed. A settled `design-reviewer` review newer than the design
+          is the evidence those gates were reached and cleared, the review being
+          the last of them.
+
+          The review must also be *of this design*: it carries the same run
+          stamp, so a review that settled on somebody else's design cannot stand
+          in for one that never happened here. Timestamps alone allowed exactly
+          that, since a review finishing after this design was recorded need not
+          have read it.
+
+          Settled means what the loop means by it — completed, and holding
+          nothing at a blocking severity. The reviewer steps run with
+          `ignoreFailure`, so a review that did its job and reported blockers
+          still records `succeeded: true`; reading that alone would accept a
+          design whose own review had stopped the phase. Running tasks concurrently is not supported for this
+          reason and several others — every phase works in the same checkout and
+          contends on the same build lock — but the failure here is quieter than
+          the others, so `expectedPlanPath` exists to make it loud.
+        task:
+          type: assert
+          # A size check and `!= null`, not `hasValue()`. `hasValue()` belongs to
+          # optionals, and this expression stopped producing one when it stopped
+          # using `.?` chaining: indexing a query result yields a plain `dyn`.
+          # The type checker cannot see the difference — `dyn` satisfies the
+          # `optional.hasValue()` overload statically — so it passed validation,
+          # passed the evaluate gate, and passed here in a store with no design
+          # in it. It fails on `string.hasValue()` at runtime, meaning the gate
+          # would have errored for exactly one reason: a design existing.
+          #
+          # Verified by probe rather than by reading: `!= null` resolves on a
+          # `dyn` in both directions, true for a real path and false for a null
+          # one.
+          expr: >-
+            data.query('modelName == "task-design-agent" && name == "design" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '"' + (inputs.expectedPlanPath == "" ? "" : ' && attributes.planPath == "' + inputs.expectedPlanPath + '"')).size() > 0
+            && data.query('modelName == "task-design-agent" && name == "design" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '"' + (inputs.expectedPlanPath == "" ? "" : ' && attributes.planPath == "' + inputs.expectedPlanPath + '"'))[data.query('modelName == "task-design-agent" && name == "design" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '"' + (inputs.expectedPlanPath == "" ? "" : ' && attributes.planPath == "' + inputs.expectedPlanPath + '"')).size() - 1].attributes.planPath != null
+            && (!inputs.requirePinnedDesign || inputs.expectedPlanPath != "")
+            && data.query('modelName == "design-reviewer" && name == "review" && version >= 0 && attributes.succeeded == true').filter(v, v.attributes.clean || !v.attributes.?findings.orValue([]).exists(f, f.?severity.orValue("low") in inputs.blockingSeverities)).exists(r, r.attributes.agent.label == data.query('modelName == "task-design-agent" && name == "design" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '"' + (inputs.expectedPlanPath == "" ? "" : ' && attributes.planPath == "' + inputs.expectedPlanPath + '"'))[data.query('modelName == "task-design-agent" && name == "design" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '"' + (inputs.expectedPlanPath == "" ? "" : ' && attributes.planPath == "' + inputs.expectedPlanPath + '"')).size() - 1].attributes.agent.label && r.attributes.agent.executedAt > data.query('modelName == "task-design-agent" && name == "design" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '"' + (inputs.expectedPlanPath == "" ? "" : ' && attributes.planPath == "' + inputs.expectedPlanPath + '"'))[data.query('modelName == "task-design-agent" && name == "design" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '"' + (inputs.expectedPlanPath == "" ? "" : ' && attributes.planPath == "' + inputs.expectedPlanPath + '"')).size() - 1].attributes.agent.executedAt)
+          message: >-
+            No design is ready to implement${{ inputs.expectedPlanPath == "" ? "" : ' at "' + inputs.expectedPlanPath + '"' }}.
+            It has to exist, have been recorded before this run started, and have
+            a review of its own that settled — a design whose phase then failed
+            at the large-change gate, the bug-fix repro gate or its review is
+            sitting in the store looking exactly like one that passed.
+
+            When a path is pinned, that is the only design considered, so this
+            also means "nothing at that path": check it against `swamp data get
+            task-design-agent --json`. Otherwise run `swamp workflow run
+            phase-design` first and approve its gate — this workflow implements a
+            design, it does not produce one.
+          severity: high
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+
+      - name: implement
+        description: >-
+          Implement the approved design, committing at each checkpoint rather
+          than once at the end.
+        task:
+          type: model_method
+          modelType: "@gdesmott/claude-task"
+          modelName: task-implementer
+          methodName: implement
+          globalArgs:
+            model: ${{ inputs.agentModel }}
+            permissionMode: ${{ inputs.permissionMode }}
+            timeout: ${{ inputs.timeout }}
+          inputs:
+            task: ${{ inputs.task }}
+            # Recorded on the result, so a caller that suspended at a gate while
+            # this ran can find this implementation rather than the newest one.
+            label: >-
+              ${{ inputs.label == "" ? run.id : inputs.label }}
+            context:
+              design: >-
+                ${{ data.query('modelName == "task-design-agent" && name == "design" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '"' + (inputs.expectedPlanPath == "" ? "" : ' && attributes.planPath == "' + inputs.expectedPlanPath + '"'))[data.query('modelName == "task-design-agent" && name == "design" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '"' + (inputs.expectedPlanPath == "" ? "" : ' && attributes.planPath == "' + inputs.expectedPlanPath + '"')).size() - 1].attributes }}
+              # Empty for a feature, which wrote none. Otherwise the tests
+              # written by the same design run as the design being implemented:
+              # `phase-design` stamps everything it records with its own run id,
+              # so the tests, the design and its review carry the same label and
+              # a later phase can tell them apart from another task's.
+              #
+              # Time alone could not. Tests precede their design, so "newest
+              # before the design" is the right shape and the wrong record as
+              # soon as two design phases interleave.
+              tests: >-
+                ${{ inputs.taskType == "feature" ? null : (data.query('modelName == "task-tests" && name == "tests" && version >= 0 && attributes.agent.label == "' + data.query('modelName == "task-design-agent" && name == "design" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '"' + (inputs.expectedPlanPath == "" ? "" : ' && attributes.planPath == "' + inputs.expectedPlanPath + '"'))[data.query('modelName == "task-design-agent" && name == "design" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '"' + (inputs.expectedPlanPath == "" ? "" : ' && attributes.planPath == "' + inputs.expectedPlanPath + '"')).size() - 1].attributes.agent.label + '"').size() == 0 ? null : data.query('modelName == "task-tests" && name == "tests" && version >= 0 && attributes.agent.label == "' + data.query('modelName == "task-design-agent" && name == "design" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '"' + (inputs.expectedPlanPath == "" ? "" : ' && attributes.planPath == "' + inputs.expectedPlanPath + '"'))[data.query('modelName == "task-design-agent" && name == "design" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '"' + (inputs.expectedPlanPath == "" ? "" : ' && attributes.planPath == "' + inputs.expectedPlanPath + '"')).size() - 1].attributes.agent.label + '"')[data.query('modelName == "task-tests" && name == "tests" && version >= 0 && attributes.agent.label == "' + data.query('modelName == "task-design-agent" && name == "design" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '"' + (inputs.expectedPlanPath == "" ? "" : ' && attributes.planPath == "' + inputs.expectedPlanPath + '"'))[data.query('modelName == "task-design-agent" && name == "design" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '"' + (inputs.expectedPlanPath == "" ? "" : ' && attributes.planPath == "' + inputs.expectedPlanPath + '"')).size() - 1].attributes.agent.label + '"').size() - 1].attributes) }}
+            instructions: >-
+              The approved design is in the context. Follow it. If you find it
+              wrong, stop and say so in `blockers` rather than redesigning
+              silently — the design went through an approval gate and changing it
+              here would bypass that gate.
+
+              Do not run the full build or test suite yourself: this workflow
+              runs `verify` as its next step, and a suite run from inside this
+              phase would contend for the same build-directory lock. Use the
+              narrow checks the skill lists while iterating.
+        dependsOn:
+          - step: design-available
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: validate
+        description: >-
+          The full gate: formatting, both unit suites, clippy, rustdoc, the
+          Python behavioural tests, and miri.
+
+          `verify` is run with its own defaults, so miri interprets the whole
+          workspace. Its `miriCrate` knob is not exposed here: it exists for
+          narrowing a run once you know which crate you touched, and nothing
+          here knows that in advance — the implementation is written by the step
+          before this one. Narrowing it would also only defer the cost, since CI
+          gates the pull request on whole-workspace miri either way.
+        task:
+          type: workflow
+          workflowIdOrName: verify
+        dependsOn:
+          - step: implement
+            condition:
+              type: succeeded
+        weight: 0
+        # Allowed to fail so the triage below can run. The failure is not
+        # forgiven by this: `validation-usable` re-imposes it unless every
+        # failure turns out to predate the change.
+        allowFailure: true
+
+      - name: triage-validation
+        description: >-
+          Work out whether the validation failures belong to this change.
+
+          The skill's rule is that a failure is not automatically yours: a suite
+          this size has failures that predate any given change, and one of them
+          landing in a run is not evidence the change caused it. Fixing it anyway
+          burns a review iteration on somebody else's bug, and the repository has
+          a documented case of exactly that — a vector test that times out under
+          gcov instrumentation and has had a ticket for months.
+
+          So a failed validation is classified before it is acted on, from the
+          digest `verify` already produces, with anything that looks unrelated
+          checked at the revision before the change. It runs only when validation
+          failed, and it fixes nothing.
+        task:
+          type: model_method
+          modelType: "@gdesmott/claude-task"
+          modelName: validation-triage
+          methodName: triage
+          globalArgs:
+            model: ${{ inputs.agentModel }}
+            permissionMode: ${{ inputs.permissionMode }}
+            timeout: ${{ inputs.timeout }}
+          inputs:
+            task: ${{ inputs.task }}
+            context:
+              implementation: >-
+                ${{ data.query('modelName == "task-implementer" && name == "implementation" && version >= 0 && workflowRunId == "' + run.id + '"').map(r, r.attributes) }}
+            # A triage that cannot attribute a failure has still done its job:
+            # it says so, and the assert below stops the run. Failing the step
+            # instead would skip that assert and lose the reasoning with it.
+            ignoreFailure: true
+        dependsOn:
+          - step: validate
+            condition:
+              type: failed
+        weight: 0
+        allowFailure: false
+
+      - name: validation-usable
+        description: >-
+          Either validation passed, or everything that failed was shown to
+          predate this change.
+
+          The first clause is what a clean run looks like from here: no triage
+          ran, so there is no triage record for this run — and no record of one
+          having tried and died either. Those are different things that look the
+          same from here: a triage that could not start writes no verdict, which
+          on its own is indistinguishable from a validation that passed and
+          needed none. The failure record it now leaves is what tells them
+          apart. The second is the only
+          way a failed validation is allowed through, and it demands a triage
+          that finished, attributed every failure, and found them all to predate
+          the change. A triage that gave up, or left one `unknown`, is not
+          permission to continue — `unknown` is not `pre-existing`, and the whole
+          point of the step is that a failure nobody could account for stops the
+          run rather than being carried into review as though it were settled.
+        task:
+          type: assert
+          expr: >-
+            data.query('modelName == "validation-triage" && name == "triage" && version >= 0 && workflowRunId == "' + run.id + '"').size() == 0
+                && data.query('modelName == "validation-triage" && name == "failure" && version >= 0 && workflowRunId == "' + run.id + '"').size() == 0
+            || (data.query('modelName == "validation-triage" && name == "triage" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "validation-triage" && name == "triage" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.succeeded
+                && !data.query('modelName == "validation-triage" && name == "triage" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "validation-triage" && name == "triage" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.failures.exists(f, f.verdict == "unknown")
+                && data.query('modelName == "validation-triage" && name == "triage" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "validation-triage" && name == "triage" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.allPreExisting)
+          message: >-
+            Validation failed with failures this change is answerable for.
+            Triage said:
+            ${{ data.query('modelName == "validation-triage" && name == "triage" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "validation-triage" && name == "triage" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.recommendation }}
+            Read the detail with `swamp data get validation-triage --json`.
+          severity: high
+        dependsOn:
+          - step: triage-validation
+            condition:
+              type: always
+        weight: 0
+        allowFailure: false
+
+      - name: validate-cluster
+        description: >-
+          The cluster suite, for changes whose behaviour only appears once the
+          work is spread across shards. A second complete run of the Python
+          suite, which is why it is a separate workflow rather than folded into
+          `verify`.
+
+          It runs when the implementation touched src/coord/, whether or not
+          anyone asked for it. Deciding that up front means predicting which
+          files the change will land in before it has been written, and the cost
+          of forgetting is a coordinator change validated only as a single shard
+          — so the decision is taken here, where the answer is a fact rather than
+          a guess: the implementation reports the files it changed, and this
+          reads them.
+
+          `coordinator` still forces it on, for the cases the paths do not
+          reveal — a change to shared query code whose behaviour only diverges
+          once it is distributed.
+        guard: >-
+          ${{ inputs.coordinator || data.query('modelName == "task-implementer" && name == "implementation" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "task-implementer" && name == "implementation" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.filesChanged.exists(f, f.startsWith("src/coord/")) ? "" : "skip" }}
+        task:
+          type: workflow
+          workflowIdOrName: verify-cluster
+        dependsOn:
+          - step: validation-usable
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: review-code
+        description: >-
+          Review the implementation until nothing is left unresolved. The tests
+          written alongside the code are part of what is under review.
+        task:
+          type: workflow
+          workflowIdOrName: review-loop
+          inputs:
+            task: ${{ inputs.task }}
+            subject: the implementation of the approved design, and its tests
+            blockingSeverities: ${{ inputs.blockingSeverities }}
+            label: >-
+              ${{ inputs.label == "" ? run.id : inputs.label }}
+            reviewer: code-reviewer
+            reviser: code-reviser
+            context:
+              design: >-
+                ${{ data.query('modelName == "task-design-agent" && name == "design" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '"' + (inputs.expectedPlanPath == "" ? "" : ' && attributes.planPath == "' + inputs.expectedPlanPath + '"'))[data.query('modelName == "task-design-agent" && name == "design" && version >= 0 && attributes.agent.executedAt < "' + run.startedAt + '"' + (inputs.expectedPlanPath == "" ? "" : ' && attributes.planPath == "' + inputs.expectedPlanPath + '"')).size() - 1].attributes }}
+              implementation: >-
+                ${{ data.query('modelName == "task-implementer" && name == "implementation" && version >= 0 && workflowRunId == "' + run.id + '"').map(r, r.attributes) }}
+            reviewInstructions: >-
+              Load .skills/code-review/SKILL.md for C changes and
+              .skills/rust-review/SKILL.md for Rust ones, and treat their
+              guidelines — documentation quality included — as the review
+              criteria. Review the implementation against the approved design in
+              the context, and report departures from it as findings. The tests
+              added alongside the code are under review on the same terms as the
+              code: a test written next to the code it covers is the easiest one
+              to write so that it cannot fail.
+            reviseInstructions: >-
+              Commit each fix into the checkpoint it belongs to rather than
+              appending one "address review" commit on top. This is the last
+              point at which that history can still be rewritten.
+            agentModel: ${{ inputs.agentModel }}
+            permissionMode: ${{ inputs.permissionMode }}
+            timeout: ${{ inputs.timeout }}
+        dependsOn:
+          - step: validate-cluster
+            condition:
+              type: always
+        weight: 0
+        allowFailure: false
+
+      - name: revalidate
+        description: >-
+          Validate again after the review, because a review that ends with
+          unvalidated edits has moved the risk rather than removed it.
+
+          This runs whenever the review loop ran at all, rather than only when
+          it changed something — the cost of a needless suite run is time, and
+          the cost of the opposite is a gate reporting success over a tree
+          nothing validated.
+
+          `revalidateAfterReview` false says you have read the review and know
+          it changed nothing. That is a claim about the review, and it is
+          checkable: the review loop stamps every revision it records with this
+          run's label, so a revision carrying it means the review did change
+          code and the claim was wrong. The suite then runs anyway rather than
+          being skipped on it.
+
+          Being wrong here is not a slow build, it is a published change. With
+          the parent flow driving, `phase-pr`'s validation gate is never
+          consulted — the parent opens the pull request itself once this phase
+          succeeds — so a mistaken skip is the last thing that would have caught
+          post-review edits.
+        guard: >-
+          ${{ inputs.revalidateAfterReview || data.query('modelName == "code-reviser" && name == "revision" && version >= 0').exists(r, r.attributes.agent.label == (inputs.label == "" ? run.id : inputs.label)) ? "" : "skip" }}
+        task:
+          type: workflow
+          workflowIdOrName: verify
+        dependsOn:
+          - step: review-code
+            condition:
+              type: succeeded
+        weight: 0
+        # Allowed to fail so the triage below can run, exactly as the first
+        # validation is. `revalidation-usable` re-imposes the failure unless
+        # every failure turns out to predate the change.
+        allowFailure: true
+
+      - name: triage-revalidation
+        description: >-
+          Work out whether the post-review validation failures belong to this
+          change.
+
+          The same rule as the first validation, applied to the second: a suite
+          this size has failures that predate any given change, and this phase
+          has already said so once — `validation-usable` let the run continue
+          over failures triaged as pre-existing. Without this the same flaky or
+          pre-existing failure stops the phase when it reappears after the
+          review, having been judged not ours an hour earlier.
+
+          Recorded under its own model instance rather than reusing
+          `validation-triage`. Both would otherwise write into one place within a
+          single run, and the asserts that read them index the first record of
+          the run — so the second triage's verdict would be read through the
+          first one's.
+        task:
+          type: model_method
+          modelType: "@gdesmott/claude-task"
+          modelName: revalidation-triage
+          methodName: triage
+          globalArgs:
+            model: ${{ inputs.agentModel }}
+            permissionMode: ${{ inputs.permissionMode }}
+            timeout: ${{ inputs.timeout }}
+          inputs:
+            task: ${{ inputs.task }}
+            context:
+              implementation: >-
+                ${{ data.query('modelName == "task-implementer" && name == "implementation" && version >= 0 && workflowRunId == "' + run.id + '"').map(r, r.attributes) }}
+              revisions: >-
+                ${{ data.query('modelName == "code-reviser" && name == "revision" && version >= 0').filter(r, r.attributes.agent.label == (inputs.label == "" ? run.id : inputs.label)).map(r, r.attributes) }}
+            instructions: >-
+              This validation ran after a code review that may have changed the
+              tree, so a failure here can belong to a revision rather than to the
+              original implementation. The revisions are in the context. Treat
+              them as part of this change: a failure one of them introduced is
+              ours, however pre-existing the surrounding test looks.
+            # A triage that cannot attribute a failure has still done its job:
+            # it says so, and the assert below stops the run.
+            ignoreFailure: true
+        dependsOn:
+          - step: revalidate
+            condition:
+              type: failed
+        weight: 0
+        allowFailure: false
+
+      - name: revalidation-usable
+        description: >-
+          Either the post-review validation passed, was skipped, or everything
+          that failed was shown to predate this change.
+
+          Reads the same way as `validation-usable`: no triage record and no
+          record of one having died means nothing needed triaging, and the only
+          way a failure is allowed through is a triage that finished, attributed
+          every failure, and found them all to predate the change. `unknown` is
+          not `pre-existing` here either.
+        task:
+          type: assert
+          expr: >-
+            data.query('modelName == "revalidation-triage" && name == "triage" && version >= 0 && workflowRunId == "' + run.id + '"').size() == 0
+                && data.query('modelName == "revalidation-triage" && name == "failure" && version >= 0 && workflowRunId == "' + run.id + '"').size() == 0
+            || (data.query('modelName == "revalidation-triage" && name == "triage" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "revalidation-triage" && name == "triage" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.succeeded
+                && !data.query('modelName == "revalidation-triage" && name == "triage" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "revalidation-triage" && name == "triage" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.failures.exists(f, f.verdict == "unknown")
+                && data.query('modelName == "revalidation-triage" && name == "triage" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "revalidation-triage" && name == "triage" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.allPreExisting)
+          message: >-
+            The validation after the review failed with failures this change is
+            answerable for. Triage said:
+            ${{ data.query('modelName == "revalidation-triage" && name == "triage" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "revalidation-triage" && name == "triage" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.summary }}
+            Read the detail with `swamp data get revalidation-triage --json`.
+          severity: high
+        dependsOn:
+          - step: triage-revalidation
+            condition:
+              type: always
+        weight: 0
+        allowFailure: false
+
+      - name: revalidate-cluster
+        description: >-
+          Run the cluster suite after the review when the review is what made it
+          necessary.
+
+          The decision before the review reads the implementation's own list of
+          changed files, which is the right list at that moment and stale by the
+          end: a review finding fixed by touching src/coord/ arrives after the
+          cluster suite has already been skipped, and the post-review validation
+          runs the ordinary `verify` — so the change reaches the gate having
+          never been tested across shards, on exactly the edit that made it
+          necessary.
+
+          It runs in two cases, and the second is the less obvious one.
+
+          A revision that touched src/coord/ itself, plainly: a run before the
+          review does not cover edits made after it, so an implementation that
+          touched src/coord/ and was then revised there again needs the suite a
+          second time, on the code that is actually going to be handed off.
+
+          And any code-changing revision at all, once this change is one the
+          cluster suite was required for. Whether a file is under src/coord/
+          decides whether a change *needs* cluster coverage; it does not decide
+          whether an edit invalidates coverage already taken. A review that fixes
+          shared query execution or result handling changes what the coordinator
+          runs across shards while touching nothing under that directory, and the
+          tree handed off is then not the tree `verify-cluster` passed. So the
+          earlier requirement stays live across post-review edits rather than
+          being re-derived from the revision's own paths.
+
+          It checks every revision the review made, not the last one. A loop
+          runs up to four: an early revision can fix a finding by touching
+          src/coord/ and a later one touch nothing but Rust, and the coordinator
+          change is still in the tree while the newest record no longer mentions
+          it. Reading only the latest would skip the suite on exactly that
+          sequence.
+
+          Revisions are matched by the label this run gives its review loop, not
+          by time. `code-reviser` is shared, so a time bound alone would let
+          another task's revision decide whether this one runs a cluster suite.
+
+          Revisions are written by the review-loop child run, whose id this
+          workflow does not know, so they cannot be scoped by `workflowRunId` —
+          the label this run passes into the loop is what identifies them.
+        guard: >-
+          ${{ data.query('modelName == "code-reviser" && name == "revision" && version >= 0').filter(r, r.attributes.agent.label == (inputs.label == "" ? run.id : inputs.label)).exists(r,
+                 r.attributes.filesChanged.exists(f, f.startsWith("src/coord/"))
+                 || ((inputs.coordinator || data.query('modelName == "task-implementer" && name == "implementation" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "task-implementer" && name == "implementation" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.filesChanged.exists(f, f.startsWith("src/coord/")))
+                     && r.attributes.codeChanged)) ? "" : "skip" }}
+        task:
+          type: workflow
+          workflowIdOrName: verify-cluster
+        # Behind the usable gate rather than behind `revalidate` itself, so the
+        # cluster suite is not spent on a tree the gate is about to reject.
+        # `always` because everything above it legitimately skips: no
+        # revalidation when the flag is off and the review changed nothing, and
+        # no triage when the revalidation passed.
+        dependsOn:
+          - step: revalidation-usable
+            condition:
+              type: always
+        weight: 0
+        allowFailure: false
+
+    dependsOn: []
+    weight: 0
+version: 1
