@@ -474,7 +474,12 @@ static inline const char *AREQ_Query(const AREQ *req, size_t *len) {
     if (len) *len = 1;
     return "*";
   }
-  return RedisModule_StringPtrLen(req->brc->argv[req->brc->queryOffset], len);
+  const char *query = RedisModule_StringPtrLen(req->brc->argv[req->brc->queryOffset], len);
+  // TRANSITIONAL: report the C-string length, truncating at the first NUL, so a
+  // query with embedded NULs behaves as it always has.
+  // TODO: remove — the true length is what StringPtrLen already reported.
+  if (len) *len = strlen(query);
+  return query;
 }
 
 /* Allocate a heap BlockedRequestCtx owning the request (refcount=1), wire the

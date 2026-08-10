@@ -2360,7 +2360,10 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   // Length-faithful copy: keeps any embedded NULs the client sent, matching
   // the (buffer, length) parse downstream.
   req->queryString = rm_strndup(queryPtr, queryLen);
-  req->queryStringLen = queryLen;
+  // TRANSITIONAL: record the C-string length, truncating at the first NUL, so a query
+  // with embedded NULs behaves as it always has — consistent with AREQ_Query on the shards.
+  // TODO: remove — the true length is queryLen.
+  req->queryStringLen = strlen(req->queryString);
   req->limit = 10;
   req->offset = 0;
   req->specialCases = NULL;
