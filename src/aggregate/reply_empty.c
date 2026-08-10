@@ -246,7 +246,9 @@ int cursor_read_empty_reply_timeout(RedisModuleCtx *ctx, long long cid, bool int
     if (internal) {
         AREQ_AddRequestFlags(req, QEXEC_F_INTERNAL);
     }
+    // TODO($$$): Remove the legacy cursor fields once all consumers use QueryRequest.cursorInfo.
     req->cursor_id = (uint64_t)cid;
+    req->base.cursorInfo.id = (uint64_t)cid;
 
     int ret = empty_sendChunk_common(ctx, req);
     QueryError_ClearError(&status);

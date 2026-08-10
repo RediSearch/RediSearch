@@ -61,7 +61,7 @@ void CursorList_Init(CursorList *cl, bool is_coord) {
 }
 
 static void Cursor_RemoveFromIdle(Cursor *cur) {
-  CursorList *cl = getCursorList(cur->is_coord);
+  CursorList *cl = getCursorList(CURSOR_IS_COORD(cur->id));
   Array *idle = &cl->idle;
   Cursor **ll = ARRAY_GETARRAY_AS(idle, Cursor **);
   size_t n = ARRAY_GETSIZE_AS(idle, Cursor *);
@@ -81,7 +81,7 @@ static void Cursor_RemoveFromIdle(Cursor *cur) {
 
 /* Assumed to be called under the cursors global lock or upon server shut down. */
 static void Cursor_FreeInternal(Cursor *cur) {
-  CursorList *cl = getCursorList(cur->is_coord);
+  CursorList *cl = getCursorList(CURSOR_IS_COORD(cur->id));
   khiter_t khi = kh_get(cursors, cl->lookup, cur->id);
 
   /* Decrement the used count */
@@ -368,7 +368,6 @@ Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned inte
   cur->id = CursorList_GenerateId(cl);
   cur->pos = -1;
   cur->timeoutIntervalMs = interval;
-  cur->is_coord = cl->is_coord;
   if(spec) {
     // Get a a weak reference to the spec out of the strong ref, and save it in the
     // cursor's struct.
@@ -385,7 +384,7 @@ done:
 }
 
 int Cursor_Pause(Cursor *cur) {
-  CursorList *cl = getCursorList(cur->is_coord);
+  CursorList *cl = getCursorList(CURSOR_IS_COORD(cur->id));
 
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
@@ -468,7 +467,7 @@ int Cursors_Purge(CursorList *cl, uint64_t cid) {
 }
 
 int Cursor_Free(Cursor *cur) {
-  CursorList *cl = getCursorList(cur->is_coord);
+  CursorList *cl = getCursorList(CURSOR_IS_COORD(cur->id));
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
   Cursor_FreeInternal(cur);

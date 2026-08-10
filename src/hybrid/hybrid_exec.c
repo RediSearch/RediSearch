@@ -751,6 +751,8 @@ int HybridRequest_StartSingleCursor(StrongRef hybrid_ref, RedisModule_Reply *rep
       return REDISMODULE_ERR;
     }
     cursor->hybrid_ref = hybrid_ref;
+    // TODO($$$): Stop mirroring Cursor fields once QueryRequest owns the cursor information.
+    req->base.cursorInfo.id = cursor->id;
     RedisModule_Reply_LongLong(reply, cursor->id);;
     return REDISMODULE_OK;
 }
@@ -846,7 +848,9 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       cursor->hybrid_ref = StrongRef_Clone(hybrid_ref);
       cursor->queryTimeoutMS = (size_t)areq->reqConfig.queryTimeoutMS;
       cursor->queryTimeoutPolicy = areq->reqConfig.timeoutPolicy;
+      // TODO($$$): Remove the legacy cursor fields once all consumers use QueryRequest.cursorInfo.
       areq->cursor_id = cursor->id;
+      areq->base.cursorInfo.id = cursor->id;
       array_ensure_append_1(cursors, cursor);
     }
 

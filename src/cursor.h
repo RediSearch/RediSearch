@@ -68,9 +68,6 @@ typedef struct Cursor {
    * Should only be accessed under cursor list lock */
   int pos;
 
-  /** Is it an internal coordinator cursor or a user cursor*/
-  bool is_coord;
-
   /** If true, a call to `Cursor_Pause` should drop it instead.
    *  Should only be accessed under cursor list lock */
   bool delete_mark;
@@ -136,8 +133,10 @@ typedef struct CursorList {
 extern CursorList g_CursorsList;
 extern CursorList g_CursorsListCoord;
 
+#define CURSOR_IS_COORD(cid) ((cid) % 2 == 1)
+
 static inline CursorList *GetGlobalCursor(uint64_t cid) {
-  return cid % 2 == 1 ? &g_CursorsListCoord : &g_CursorsList;
+  return CURSOR_IS_COORD(cid) ? &g_CursorsListCoord : &g_CursorsList;
 }
 
 /**

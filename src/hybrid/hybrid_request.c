@@ -279,6 +279,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
  * @param nrequests Number of requests in the array
  */
 void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests, size_t nrequests) {
+    QueryRequest_Init(&hybridReq->base, QUERY_REQUEST_KIND_HYBRID);
     hybridReq->requests = requests;
     hybridReq->nrequests = nrequests;
     hybridReq->sctx = sctx;

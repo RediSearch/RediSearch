@@ -2150,7 +2150,9 @@ int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, Quer
   RS_ASSERT(cursor->hybrid_ref.rm == NULL); // assuming hybrid cursors don't reach here
   cursor->queryTimeoutMS = (size_t)r->reqConfig.queryTimeoutMS;
   cursor->queryTimeoutPolicy = r->reqConfig.timeoutPolicy;
+  // TODO($$$): Remove the legacy cursor fields once all consumers use QueryRequest.cursorInfo.
   r->cursor_id = cursor->id;
+  r->base.cursorInfo.id = cursor->id;
   runCursor(reply, cursor, 0);
   return REDISMODULE_OK;
 }
@@ -2499,7 +2501,7 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %lld", cid);
   }
 
-  if (cursor->is_coord &&
+  if (CURSOR_IS_COORD(cursor->id) &&
       !(RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_DENY_BLOCKING)) {
     // Coordinator cursor: the read pulls from the shards over the network, so
     // it is always dispatched to the coordinator pool, independent of the
@@ -2646,7 +2648,9 @@ int RSCursorProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     QueryError status = QueryError_Default();
     AREQ_QueryProcessingCtx(req)->err = &status;
     // Cursor is freed below; signal cursor exhaustion to the client.
+    // TODO($$$): Remove the legacy cursor fields once all consumers use QueryRequest.cursorInfo.
     req->cursor_id = 0;
+    req->base.cursorInfo.id = 0;
     sendChunk_ReplyOnly_EmptyResults(ctx, req);
     IndexSpecRef_Release(execution_ref);
   }
