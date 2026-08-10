@@ -203,21 +203,27 @@ static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *
     // AGGREGATE commands has the index name at position 1
     size_t idxLen;
     const char *idx = MRCommand_ArgStringPtrLen(cmd, 1, &idxLen);
-    const char *verb;
-    size_t verbLen;
+    const char *subcommand;
+    size_t subcommandLen;
     MRRootCommand root;
     // If we timed out and not in cursor mode, we want to send the shard a DEL
     // command instead of a READ command (here we know it has more results)
     if (timedout && cmd->forProfiling) {
       // Internally we delete the cursor
-      verb = "PROFILE"; verbLen = sizeof("PROFILE") - 1; root = C_PROFILE;
+      subcommand = "PROFILE";
+      subcommandLen = sizeof("PROFILE") - 1;
+      root = C_PROFILE;
     } else if (timedout && !cmd->forCursor) {
-      verb = "DEL"; verbLen = sizeof("DEL") - 1; root = C_DEL;
+      subcommand = "DEL";
+      subcommandLen = sizeof("DEL") - 1;
+      root = C_DEL;
     } else {
-      verb = "READ"; verbLen = sizeof("READ") - 1; root = C_READ;
+      subcommand = "READ";
+      subcommandLen = sizeof("READ") - 1;
+      root = C_READ;
     }
-    const char *argv[4] = {"_FT.CURSOR", verb, idx, buf};
-    const size_t lens[4] = {sizeof("_FT.CURSOR") - 1, verbLen, idxLen, (size_t)bufLen};
+    const char *argv[4] = {"_FT.CURSOR", subcommand, idx, buf};
+    const size_t lens[4] = {sizeof("_FT.CURSOR") - 1, subcommandLen, idxLen, (size_t)bufLen};
     MRCommand newCmd = MR_NewCommandArgvLen(4, argv, lens);
     newCmd.rootCommand = root;
 
