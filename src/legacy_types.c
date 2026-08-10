@@ -44,10 +44,20 @@ void TagIndex_RdbSave_Empty(RedisModuleIO *rdb, void *value) {
   RedisModule_SaveUnsigned(rdb, 0); // n_tags
 }
 
-// The shared handler aborts the server, which turns "AOF is enabled on a database that
-// still holds legacy keys" into a crash on every rewrite. A legacy key carries no data,
-// so emitting no commands is both safe and the desired outcome: the husk does not come
-// back when the AOF is replayed.
+// The shared handler aborts the server, which turns "AOF is enabled on a database that still
+// holds a legacy key" into a crash on every rewrite. A legacy key carries no data, so emitting no
+// commands is safe: nothing is lost, and the key does not come back when the AOF is replayed.
+//
+// Emitting nothing is also the only option here. Recreating the key would need a RESTORE of a full
+// DUMP envelope (payload plus RDB version and CRC), which no module API can build -
+// RedisModule_SaveDataTypeToString produces the bare module payload. Deleting the key instead is
+// impossible too, because this callback runs in the forked AOF child and cannot touch the parent's
+// keyspace.
+//
+// Consequence worth knowing: a command-only AOF drops these keys on replay, while an AOF with an
+// RDB preamble goes through rdb_save and keeps them. That divergence follows from Redis having two
+// AOF formats; the only way to make every path agree is for the keys not to exist, which is the
+// cleanup work tracked in MOD-15685.
 void LegacyType_AofRewrite_Skip(RedisModuleIO *aof, RedisModuleString *key, void *value) {
   RS_ASSERT_ALWAYS(value == dummyNonNull);
 }
@@ -55,6 +65,12 @@ void LegacyType_AofRewrite_Skip(RedisModuleIO *aof, RedisModuleString *key, void
 void GenericType_DummyFree(void *value) {
   RS_ASSERT(value == dummyNonNull);
 }
+
+// Every count below is attacker-controlled: these loaders are reachable from RESTORE, so the
+// payload is untrusted input. Once the stream is exhausted the Load* calls become no-ops that
+// return 0 without consuming anything, so a counted loop must stop on the IO error - otherwise a
+// truncated payload declaring UINT64_MAX entries spins the server. Returning NULL on error also
+// stops a corrupt payload from materializing a key.
 
 // Consume an inverted index type from RDB
 void *InvertedIndex_RdbLoad_Consume(RedisModuleIO *rdb, int encver) {
@@ -67,11 +83,14 @@ void *InvertedIndex_RdbLoad_Consume(RedisModuleIO *rdb, int encver) {
   RedisModule_LoadUnsigned(rdb); // Consume the number of documents in the index
   size_t n_blocks = RedisModule_LoadUnsigned(rdb); // Load the number of blocks in the index
 
-  for (size_t i = 0; i < n_blocks; i++) {
+  for (size_t i = 0; i < n_blocks && !RedisModule_IsIOError(rdb); i++) {
     RedisModule_LoadUnsigned(rdb); // Consume the firstId of the block
     RedisModule_LoadUnsigned(rdb); // Consume the lastId of the block
     RedisModule_LoadUnsigned(rdb); // Consume the number of entries in the block
     RedisModule_Free(RedisModule_LoadStringBuffer(rdb, NULL)); // Consume the buffer of the block
+  }
+  if (RedisModule_IsIOError(rdb)) {
+    return NULL;
   }
   return dummyNonNull;
 }
@@ -85,27 +104,43 @@ void *NumericIndexType_RdbLoad_Consume(RedisModuleIO *rdb, int encver) {
   if (encver == LEGACY_LEGACY_ENC_VER) {
     // Version 0 stores the number of entries beforehand, and then loads them
     size_t num = RedisModule_LoadUnsigned(rdb);
-    for (size_t ii = 0; ii < num; ++ii) {
+    for (size_t ii = 0; ii < num && !RedisModule_IsIOError(rdb); ++ii) {
       RedisModule_LoadUnsigned(rdb); // Consume the document ID
       RedisModule_LoadDouble(rdb); // Consume the value
     }
   } else if (encver == LEGACY_ENC_VER) {
-    // Version 1 stores (id,value) pairs, with a final 0 as a terminator
+    // Version 1 stores (id,value) pairs, with a final 0 as a terminator. A failed read returns 0,
+    // so this loop already terminates on an exhausted stream.
     while (RedisModule_LoadUnsigned(rdb)) { // Consume the document ID
       RedisModule_LoadDouble(rdb); // Consume the value
     }
   }
 
+  if (RedisModule_IsIOError(rdb)) {
+    return NULL;
+  }
   return dummyNonNull;
 }
 
 // Consume a tag index type from RDB
 void *TagIndex_RdbLoad_Consume(RedisModuleIO *rdb, int encver) {
+  // Redis matches a module type on its 54-bit signature and ignores the 10-bit encoding version,
+  // so a crafted RESTORE can reach this loader with any encver. Guard it like the other two.
+  if (encver > LEGACY_ENC_VER) {
+    return NULL;
+  }
+
   size_t n_tags = RedisModule_LoadUnsigned(rdb); // Consume the number of tags in the index
 
-  for (size_t i = 0; i < n_tags; i++) {
+  for (size_t i = 0; i < n_tags && !RedisModule_IsIOError(rdb); i++) {
     RedisModule_Free(RedisModule_LoadStringBuffer(rdb, NULL)); // Consume the tag value
-    InvertedIndex_RdbLoad_Consume(rdb, encver); // Consume the inverted index for the tag
+    // Propagate the nested failure: ignoring it would keep looping over a dead stream.
+    if (InvertedIndex_RdbLoad_Consume(rdb, encver) == NULL) {
+      return NULL;
+    }
+  }
+  if (RedisModule_IsIOError(rdb)) {
+    return NULL;
   }
   return dummyNonNull;
 }

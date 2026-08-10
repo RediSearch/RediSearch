@@ -431,3 +431,75 @@ TEST_F(RdbMockTest, testLegacyNumericDummyValueRoundTripEncver0) {
 
   RMCK_FreeRdbIO(io);
 }
+
+// The legacy loaders are reachable from RESTORE, so every count they read is untrusted input.
+// A truncated payload that declares a huge count must abort on the IO error instead of iterating
+// the declared number of times: once the stream is exhausted the Load* calls return 0 without
+// consuming anything, so a counted loop would otherwise spin. See MOD-15685.
+//
+// Note the failure mode if a guard is ever removed: this test does not fail, it hangs, because the
+// loop then really does run UINT64_MAX times. A CI timeout pointing here means a missing
+// RedisModule_IsIOError check in one of the loaders below.
+TEST_F(RdbMockTest, testLegacyLoadersRejectTruncatedHugeCounts) {
+  const uint64_t huge = UINT64_MAX;
+
+  {
+    // ft_invidx: flags, lastId, numDocs, then a block count with no blocks behind it.
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    ASSERT_TRUE(io != nullptr);
+    RMCK_SaveUnsigned(io, 0);
+    RMCK_SaveUnsigned(io, 0);
+    RMCK_SaveUnsigned(io, 0);
+    RMCK_SaveUnsigned(io, huge);
+    io->read_pos = 0;
+    EXPECT_EQ(nullptr, InvertedIndex_RdbLoad_Consume(io, kLegacyEncVer));
+    EXPECT_NE(0, RMCK_IsIOError(io));
+    RMCK_FreeRdbIO(io);
+  }
+
+  {
+    // numericdx v0: an entry count with no entries behind it. The v1 framing is terminator-based,
+    // so a failed read ends its loop on its own.
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    ASSERT_TRUE(io != nullptr);
+    RMCK_SaveUnsigned(io, huge);
+    io->read_pos = 0;
+    EXPECT_EQ(nullptr, NumericIndexType_RdbLoad_Consume(io, kLegacyLegacyEncVer));
+    EXPECT_NE(0, RMCK_IsIOError(io));
+    RMCK_FreeRdbIO(io);
+  }
+
+  {
+    // ft_tagidx: a tag count with no tags behind it.
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    ASSERT_TRUE(io != nullptr);
+    RMCK_SaveUnsigned(io, huge);
+    io->read_pos = 0;
+    EXPECT_EQ(nullptr, TagIndex_RdbLoad_Consume(io, kLegacyEncVer));
+    EXPECT_NE(0, RMCK_IsIOError(io));
+    RMCK_FreeRdbIO(io);
+  }
+}
+
+// Redis matches a module type on its 54-bit signature and ignores the 10-bit encoding version, so
+// a crafted RESTORE can reach these loaders with any encver. All three must refuse anything they
+// do not understand rather than parsing it as a version they do.
+TEST_F(RdbMockTest, testLegacyLoadersRejectUnknownEncver) {
+  const int unsupported[] = {kLegacyEncVer + 1, 7, 1023};
+
+  for (int encver : unsupported) {
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    ASSERT_TRUE(io != nullptr) << encver;
+    // A well-formed empty ft_invidx payload, so a refusal cannot be mistaken for a short read.
+    InvertedIndex_RdbSave_Empty(io, dummyNonNull);
+    io->read_pos = 0;
+
+    EXPECT_EQ(nullptr, InvertedIndex_RdbLoad_Consume(io, encver)) << encver;
+    io->read_pos = 0;
+    EXPECT_EQ(nullptr, NumericIndexType_RdbLoad_Consume(io, encver)) << encver;
+    io->read_pos = 0;
+    EXPECT_EQ(nullptr, TagIndex_RdbLoad_Consume(io, encver)) << encver;
+
+    RMCK_FreeRdbIO(io);
+  }
+}
