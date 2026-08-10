@@ -210,6 +210,49 @@ fn test_find_unbounded_window_matches_find() {
     }
 }
 
+/// A window whose `limit` the tree cannot fill still returns every matching
+/// range: a window may overshoot, but it may not drop a match.
+#[test]
+fn test_find_windowed_with_fewer_matches_than_limit() {
+    // Two value clusters, each with enough cardinality to split the root, and a
+    // gap between them wide enough that the split value lands inside it.
+    let mut tree = NumericRangeTree::new(false);
+    let mut doc: u64 = 1;
+    for i in 0..500u64 {
+        tree.add(doc, 5.0 + (i % 50) as f64 * 0.08, false, false, 0);
+        doc += 1;
+        tree.add(doc, 21.0 + (i % 50) as f64 * 0.08, false, false, 0);
+        doc += 1;
+    }
+    assert_eq!(
+        tree.num_leaves(),
+        2,
+        "fixture must split into exactly the two cluster leaves"
+    );
+
+    // The filter slices through both clusters, so neither leaf is contained in
+    // it: the traversal cannot know how many of their documents match without
+    // reading them. Fewer documents match than the limit asks for.
+    let filter = make_filter_full(8.0, 22.0, true);
+    let windowed = tree.find_windowed(
+        &filter,
+        RangeWindow {
+            offset: 0,
+            limit: 300,
+        },
+    );
+
+    let all = tree.find(&filter);
+    assert_eq!(
+        windowed.len(),
+        all.len(),
+        "a window the tree cannot fill must not restrict the result"
+    );
+    for (windowed, all) in windowed.iter().zip(&all) {
+        assert!(std::ptr::eq(*windowed, *all));
+    }
+}
+
 #[test]
 fn test_find_on_empty_tree() {
     let tree = NumericRangeTree::new(false);
