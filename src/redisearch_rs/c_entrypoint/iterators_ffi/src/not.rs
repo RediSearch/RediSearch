@@ -9,7 +9,7 @@
 
 use std::ptr::NonNull;
 
-use ffi::{QueryIterator, t_docId, timespec};
+use ffi::{QueryIterator, t_docId};
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
     NewWildcardIterator, RQEIterator,
@@ -177,24 +177,19 @@ pub unsafe extern "C" fn NewNotIterator(
     child: *mut QueryIterator,
     max_doc_id: t_docId,
     weight: f64,
-    timeout: timespec,
     q: *mut ffi::QueryEvalCtx,
 ) -> *mut QueryIterator {
     let query = NonNull::new(q).expect("q must be non-null");
 
-    let (rust_timeout, skip_timeout_checks) = {
+    let skip_timeout_checks = {
         // SAFETY: caller guarantees q is valid (3).
         let q_ref = unsafe { query.as_ref() };
         // SAFETY: caller guarantees q.sctx is valid (4).
         let sctx = unsafe { &*q_ref.sctx };
         if sctx.time.skipTimeoutChecks {
-            (std::time::Duration::ZERO, true)
+            true
         } else {
-            match crate::timespec::duration_from_redis_timespec(timeout) {
-                Some(d) => (d, false),
-                // Redis sentinel (no timeout) => skip timeout checks
-                None => (std::time::Duration::ZERO, true),
-            }
+            crate::timespec::duration_from_redis_timespec(sctx.time.timeout).is_none()
         }
     };
 
@@ -207,7 +202,7 @@ pub unsafe extern "C" fn NewNotIterator(
                 empty,
                 max_doc_id,
                 weight,
-                rust_timeout,
+                std::time::Duration::ZERO,
                 skip_timeout_checks,
                 query,
             )
@@ -233,7 +228,7 @@ pub unsafe extern "C" fn NewNotIterator(
             child,
             max_doc_id,
             weight,
-            rust_timeout,
+            std::time::Duration::ZERO,
             skip_timeout_checks,
             query,
         )

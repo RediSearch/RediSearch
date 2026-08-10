@@ -9,9 +9,9 @@
 
 //! Supporting types for [`Not`].
 
-use std::time::Duration;
+use std::ptr::NonNull;
 
-use ffi::{RS_FIELDMASK_ALL, t_docId};
+use ffi::{RS_FIELDMASK_ALL, t_docId, timespec};
 use inverted_index::RSIndexResult;
 
 use crate::{
@@ -49,7 +49,7 @@ where
         child: I,
         max_doc_id: t_docId,
         weight: f64,
-        timeout: Duration,
+        deadline: NonNull<timespec>,
         skip_timeout_checks: bool,
     ) -> Self {
         Self {
@@ -67,7 +67,9 @@ where
             timeout_ctx: if skip_timeout_checks {
                 None
             } else {
-                Some(TimeoutContext::new(timeout, 5_000, false))
+                // SAFETY: the caller guarantees the deadline remains valid for the iterator and
+                // is not updated concurrently with a timeout probe.
+                Some(unsafe { TimeoutContext::new(deadline, 5_000, false) })
             },
         }
     }

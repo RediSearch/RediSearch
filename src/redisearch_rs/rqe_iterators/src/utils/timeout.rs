@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::time::{Duration, Instant};
+use std::ptr::NonNull;
 
 use crate::RQEIteratorError;
 
@@ -19,7 +19,7 @@ use crate::RQEIteratorError;
 /// syscall overhead while still ensuring eventual termination.
 pub struct TimeoutContext {
     /// The absolute point in time after which the operation is considered timed out.
-    deadline: Instant,
+    deadline: NonNull<ffi::timespec>,
     /// The number of times `check_timeout` has been called since the last clock check.
     counter: u32,
     /// The threshold at which a real clock check is performed (the amortized frequency).
@@ -37,9 +37,17 @@ impl TimeoutContext {
     /// If `skip_timeout_checks` is `true`, `limit` is set to `u32::MAX` to effectively
     /// skip timeout checks (the counter will never reach the limit in practice).
     #[inline(always)]
-    pub fn new(duration: Duration, limit: u32, skip_timeout_checks: bool) -> Self {
+    /// # Safety
+    ///
+    /// `deadline` must remain valid and at a stable address for the lifetime of this context, and
+    /// no write to it may overlap a timeout probe.
+    pub const unsafe fn new(
+        deadline: NonNull<ffi::timespec>,
+        limit: u32,
+        skip_timeout_checks: bool,
+    ) -> Self {
         Self {
-            deadline: Instant::now() + duration,
+            deadline,
             counter: 0,
             // Use u32::MAX to effectively skip timeout checks
             limit: if skip_timeout_checks { u32::MAX } else { limit },
@@ -55,7 +63,9 @@ impl TimeoutContext {
         self.counter += 1;
         if self.counter >= self.limit {
             self.counter = 0;
-            if Instant::now() >= self.deadline {
+            // SAFETY: guaranteed by the constructor contract.
+            let deadline = unsafe { self.deadline.read() };
+            if crate::timespec::deadline_passed(deadline) {
                 return Err(RQEIteratorError::TimedOut);
             }
         }

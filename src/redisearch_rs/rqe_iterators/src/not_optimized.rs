@@ -9,9 +9,9 @@
 
 //! Supporting types for [`NotOptimized`].
 
-use std::time::Duration;
+use std::ptr::NonNull;
 
-use ffi::{RS_FIELDMASK_ALL, t_docId};
+use ffi::{RS_FIELDMASK_ALL, t_docId, timespec};
 use inverted_index::RSIndexResult;
 
 use crate::{
@@ -71,7 +71,7 @@ where
         child: I,
         max_doc_id: t_docId,
         weight: f64,
-        timeout: Option<Duration>,
+        deadline: Option<NonNull<timespec>>,
     ) -> Self {
         Self {
             wcii,
@@ -82,7 +82,11 @@ where
                 .weight(weight)
                 .field_mask(RS_FIELDMASK_ALL)
                 .build(),
-            timeout_ctx: timeout.map(|t| TimeoutContext::new(t, TIMEOUT_CHECK_GRANULARITY, false)),
+            timeout_ctx: deadline.map(|deadline| {
+                // SAFETY: the caller guarantees the deadline remains valid for the iterator and
+                // is not updated concurrently with a timeout probe.
+                unsafe { TimeoutContext::new(deadline, TIMEOUT_CHECK_GRANULARITY, false) }
+            }),
         }
     }
 

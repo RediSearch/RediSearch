@@ -497,7 +497,6 @@ enum MetricType GetMetricType(const QueryIterator *header);
 QueryIterator *NewNotIterator(QueryIterator *child,
                               t_docId max_doc_id,
                               double weight,
-                              timespec timeout,
                               QueryEvalCtx *q);
 
 /**

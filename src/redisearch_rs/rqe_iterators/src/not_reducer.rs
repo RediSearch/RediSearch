@@ -120,7 +120,7 @@ pub unsafe fn new_not_iterator<'index, I>(
     child: I,
     max_doc_id: t_docId,
     weight: f64,
-    timeout: Duration,
+    _timeout: Duration,
     skip_timeout_checks: bool,
     query: NonNull<ffi::QueryEvalCtx>,
 ) -> NewNotIterator<'index, I>
@@ -144,6 +144,7 @@ where
     let sctx = NonNull::new(query_ref.sctx).expect("query.sctx is null");
     // SAFETY: Caller guarantees `query.sctx` is a valid, non-null pointer (2).
     let sctx_ref = unsafe { sctx.as_ref() };
+    let deadline = NonNull::from(&sctx_ref.time.timeout);
     // SAFETY: Caller guarantees `query.sctx.spec` is a valid, non-null pointer (3).
     let spec = unsafe { &*sctx_ref.spec };
 
@@ -177,7 +178,7 @@ where
             if skip_timeout_checks {
                 None
             } else {
-                Some(timeout)
+                Some(deadline)
             },
         ))
     } else {
@@ -185,7 +186,7 @@ where
             child,
             max_doc_id,
             weight,
-            timeout,
+            deadline,
             skip_timeout_checks,
         ))
     }
