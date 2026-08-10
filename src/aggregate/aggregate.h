@@ -42,45 +42,6 @@ struct Cursor;
 // Forward declaration for the MR channel used by the abort-wake path.
 struct MRChannel;
 
-/** Cached variables to avoid serializeResult retrieving these each time */
-typedef struct {
-  RLookup *lastLookup;
-  const PLN_ArrangeStep *lastAstp;
-} cachedVars;
-
-/**
- * State needed for reply serialization in reply_callback path.
- * When using FAIL policy with workers, the background thread stores results here,
- * then calls UnblockClient. The reply_callback reads from here to build the reply.
- *
- * ## Cursor ↔ AREQ Ownership
- *
- * **Cursor owns AREQ** (not vice versa):
- * - cursor->query points to the AREQ's wrapper
- * - Cursor_FreeInternal releases the wrapper reference
- *
- * **AREQ does NOT own Cursor**:
- * - The `cursor` field below is a NON-OWNING handle.
- * - It exists solely so QueryReplyCallback knows which cursor to pause/free after
- *   finishSendChunk completes.
- * - In normal flow, QueryReplyCallback calls Cursor_Free/Cursor_Pause and clears this field.
- */
-typedef struct {
-  SearchResult **results;  // Aggregated results array (NULL if not aggregated yet)
-  int rc;                  // Pipeline return code (RS_RESULT_OK, RS_RESULT_EOF, etc.)
-  bool hasStoredResults;   // Flag to indicate results were stored for reply_callback
-  QueryError err;          // Query error state (copied from qctx->err after pipeline execution)
-  cachedVars cv;           // Cached lookup variables for result serialization
-  /**
-   * NON-OWNING cursor handle for reply_callback path.
-   * See ownership model above. This is set in runCursor() when useReplyCallback is true,
-   * and cleared by QueryReplyCallback after it handles cursor pause/free.
-   * If timeout fires first, ChunkReplyState_Destroy cleans this up.
-   */
-  struct Cursor *cursor;
-  size_t limit;            // Original limit passed to sendChunk (for RESP2 resultsLen calculation)
-} ChunkReplyState;
-
 /**
  * Clean up all resources held by a ChunkReplyState.
  * Handles the cursor ownership edge case (see struct documentation above).

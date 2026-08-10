@@ -547,7 +547,12 @@ static inline void debugPauseHybridStoreCursors(HybridRequest *hreq, bool before
  * @param cv Cached variables for result serialization
  */
 void HREQ_StoreResults(HybridRequest *hreq, SearchResult **results, int rc, cachedVars cv) {
-  // Store results in hreq for reply_callback to use
+  hreq->base.reply.results = results;
+  hreq->base.reply.rc = rc;
+  hreq->base.reply.cv = cv;
+  hreq->base.reply.hasStoredResults = true;
+
+  // TODO($$$): Remove the legacy reply state once all consumers use QueryRequest.reply.
   hreq->brc->reply.results = results;
   hreq->brc->reply.rc = rc;
   hreq->brc->reply.cv = cv;
@@ -564,6 +569,9 @@ void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError
   if (hreq->useReplyCallback) {
     // Deep copy since QueryError contains heap-allocated strings.
     // reply_callback will clear the stored error after replying.
+    QueryError_ClearError(&hreq->base.reply.err);
+    QueryError_CloneFrom(status, &hreq->base.reply.err);
+    // TODO($$$): Remove the legacy reply state once all consumers use QueryRequest.reply.
     QueryError_ClearError(&hreq->brc->reply.err);
     QueryError_CloneFrom(status, &hreq->brc->reply.err);
     // Clear the original to avoid leaking heap-allocated strings.
@@ -667,6 +675,9 @@ void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
     serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &stored->cv, &r, &results, &err);
 
     // Clear stored results pointer since ownership was transferred
+    hreq->base.reply.results = NULL;
+    hreq->base.reply.hasStoredResults = false;
+    // TODO($$$): Remove the legacy reply state once all consumers use QueryRequest.reply.
     stored->results = NULL;
     stored->hasStoredResults = false;
 

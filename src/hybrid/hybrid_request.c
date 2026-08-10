@@ -428,6 +428,7 @@ void HybridRequest_Free(HybridRequest *req) {
     rm_free(req->debugParams);
 
     RequestSyncState_Destroy(&req->syncState);
+    QueryRequest_Destroy(&req->base);
 
     if (req->args) {
       for (size_t ii = 0; ii < req->nargs; ++ii) {

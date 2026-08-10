@@ -1920,6 +1920,7 @@ void AREQ_Free(AREQ *req) {
   rm_free(req->args);
 
   RequestSyncState_Destroy(&req->syncState);
+  QueryRequest_Destroy(&req->base);
 
   rm_free(req);
 }
@@ -1927,6 +1928,8 @@ void AREQ_Free(AREQ *req) {
 void AREQ_CleanUpStoredCursor(AREQ *req) {
   if (req->brc->reply.cursor) {
     Cursor *cursor = req->brc->reply.cursor;
+    req->base.reply.cursor = NULL;
+    // TODO($$$): Remove the legacy reply state once all consumers use QueryRequest.reply.
     req->brc->reply.cursor = NULL;
     Cursor_Free(cursor);
   }

@@ -66,7 +66,14 @@ void BlockedRequestCtx_EndCycle(BlockedRequestCtx *brc) {
   // Per-cycle reply-state teardown: dispose whatever the reply callback did
   // not consume (unconsumed stored results when the timeout replied first).
   // Idempotent; also runs in BlockedRequestCtx_Free as a safety net.
+  QueryRequest *request = brc->kind == REQUEST_KIND_AREQ
+                            ? (QueryRequest *)brc->query.areq
+                            : (QueryRequest *)brc->query.hybrid;
+  QueryRequest_ResetReply(request);
+
+  // TODO($$$): Remove the legacy reply state once all consumers use QueryRequest.reply.
   ChunkReplyState_Destroy(&brc->reply);
+  // TODO($$$): Remove the legacy reply state once all consumers use QueryRequest.reply.
   brc->reply.hasStoredResults = false;
   brc->bc = NULL;
   brc->deferred_reply = false;

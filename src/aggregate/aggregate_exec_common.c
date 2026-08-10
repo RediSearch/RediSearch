@@ -231,6 +231,8 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
  }
 
  void AREQ_DrainStoredResultsAfterTimeout(AREQ *req) {
+   // TODO($$$): Remove the legacy reply state once all consumers use QueryRequest.reply.
    Pipeline_DrainStoredResultsAfterTimeout(AREQ_QueryProcessingCtx(req),
                                            &req->brc->reply);
+   req->base.reply.results = req->brc->reply.results;
  }

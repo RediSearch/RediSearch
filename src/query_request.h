@@ -9,11 +9,44 @@
 #ifndef QUERY_REQUEST_H__
 #define QUERY_REQUEST_H__
 
+#include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
+
+#include "query_error.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+typedef struct RLookup RLookup;
+typedef struct PLN_ArrangeStep PLN_ArrangeStep;
+typedef struct SearchResult SearchResult;
+struct Cursor;
+
+/** Cached variables used while serializing stored results. */
+typedef struct {
+  RLookup *lastLookup;
+  const PLN_ArrangeStep *lastAstp;
+} cachedVars;
+
+/**
+ * State retained while results wait for the main-thread reply callback.
+ *
+ * The cursor owns its request through the request wrapper, not vice versa.
+ * The cursor pointer stored here is non-owning and exists only so the reply
+ * callback can pause or free it after serialization determines whether the
+ * cursor is depleted. It must be cleared after the cursor is handled.
+ */
+typedef struct {
+  SearchResult **results;  // Aggregated results array (NULL if not stored)
+  int rc;                  // Pipeline return code (RS_RESULT_OK, RS_RESULT_EOF, etc.)
+  bool hasStoredResults;   // Whether results are available to the reply callback
+  QueryError err;          // Error copied from the pipeline's temporary QueryError
+  cachedVars cv;           // Cached lookup variables used during serialization
+  struct Cursor *cursor;   // Non-owning cursor handle for the reply callback
+  size_t limit;            // Original limit, used to calculate the RESP2 result length
+} ChunkReplyState;
 
 typedef enum {
   QUERY_REQUEST_KIND_AREQ,
@@ -27,9 +60,12 @@ typedef struct {
 typedef struct QueryRequest {
   QueryRequestKind kind;
   CursorInfo cursorInfo;
+  ChunkReplyState reply;
 } QueryRequest;
 
 void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind);
+void QueryRequest_ResetReply(QueryRequest *request);
+void QueryRequest_Destroy(QueryRequest *request);
 
 #ifdef __cplusplus
 }

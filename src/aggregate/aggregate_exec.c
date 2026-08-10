@@ -473,7 +473,13 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
 static void AREQ_StoreResults(AREQ *req, SearchResult **results, int rc, cachedVars cv, size_t limit) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
 
-  // Store results in AREQ for reply_callback to use
+  req->base.reply.results = results;
+  req->base.reply.rc = rc;
+  req->base.reply.cv = cv;
+  req->base.reply.limit = limit;
+  req->base.reply.hasStoredResults = true;
+
+  // TODO($$$): Remove the legacy reply state once all consumers use QueryRequest.reply.
   req->brc->reply.results = results;
   req->brc->reply.rc = rc;
   req->brc->reply.cv = cv;
@@ -482,6 +488,9 @@ static void AREQ_StoreResults(AREQ *req, SearchResult **results, int rc, cachedV
 
   // Deep copy error state since qctx->err points to a local variable in the caller
   // which will go out of scope. QueryError contains heap-allocated strings.
+  QueryError_ClearError(&req->base.reply.err);
+  QueryError_CloneFrom(qctx->err, &req->base.reply.err);
+  // TODO($$$): Remove the legacy reply state once all consumers use QueryRequest.reply.
   QueryError_ClearError(&req->brc->reply.err);
   QueryError_CloneFrom(qctx->err, &req->brc->reply.err);
   QueryError_ClearError(qctx->err);
@@ -1279,6 +1288,9 @@ void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) 
     // Clear destination before cloning to avoid leaking any existing error strings.
     // Deep copy since QueryError contains heap-allocated strings.
     // QueryReplyCallback will clear the stored error after replying.
+    QueryError_ClearError(&req->base.reply.err);
+    QueryError_CloneFrom(status, &req->base.reply.err);
+    // TODO($$$): Remove the legacy reply state once all consumers use QueryRequest.reply.
     QueryError_ClearError(&req->brc->reply.err);
     QueryError_CloneFrom(status, &req->brc->reply.err);
     // Clear the original to avoid leaking heap-allocated strings.
@@ -1715,6 +1727,8 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
   // BG signals only after AREQ_StoreResults
   RS_ASSERT(req->brc->reply.hasStoredResults);
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
+    req->base.reply.rc = RS_RESULT_TIMEDOUT;
+    // TODO($$$): Remove the legacy reply state once all consumers use QueryRequest.reply.
     req->brc->reply.rc = RS_RESULT_TIMEDOUT;
   }
 
@@ -1762,6 +1776,9 @@ void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req) {
   RedisModule_EndReply(reply);
 
   // Clear stored results pointer since ownership was transferred to state
+  req->base.reply.results = NULL;
+  req->base.reply.hasStoredResults = false;
+  // TODO($$$): Remove the legacy reply state once all consumers use QueryRequest.reply.
   stored->results = NULL;
   stored->hasStoredResults = false;
 
@@ -1775,6 +1792,8 @@ void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req) {
   // inline callers execute it immediately.
   if (stored->cursor) {
     cursorEndOfCycle(req, stored->cursor, req->stateflags & QEXEC_S_ITERDONE);
+    req->base.reply.cursor = NULL;
+    // TODO($$$): Remove the legacy reply state once all consumers use QueryRequest.reply.
     stored->cursor = NULL;
   }
 }
@@ -1872,6 +1891,8 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
   AREQ_WaitForAggregateResultsComplete(req);
 
   if (req->brc->reply.hasStoredResults) {
+    req->base.reply.rc = RS_RESULT_TIMEDOUT;
+    // TODO($$$): Remove the legacy reply state once all consumers use QueryRequest.reply.
     req->brc->reply.rc = RS_RESULT_TIMEDOUT;
     drainPartialResultsAfterTimeout(req);
     AREQ_ReplyWithStoredResults(ctx, req);
@@ -2213,6 +2234,8 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   if (req->useReplyCallback) {
     // Stash the cursor BEFORE sendChunk: sendChunk's signal can wake the
     // timeout_callback, which reads brc->reply.cursor to pause/free it.
+    req->base.reply.cursor = cursor;
+    // TODO($$$): Remove the legacy reply state once all consumers use QueryRequest.reply.
     req->brc->reply.cursor = cursor;
   }
 
@@ -2227,6 +2250,8 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
       // The strict timeout callback won the sync claim and already replied with
       // cursor 0. Keep cursor ownership consistent with the depleted id already
       // returned to the caller.
+      req->base.reply.cursor = NULL;
+      // TODO($$$): Remove the legacy reply state once all consumers use QueryRequest.reply.
       req->brc->reply.cursor = NULL;
       cursorEndOfCycle(req, cursor,
                        (AREQ_RequestFlags(req) & QEXEC_F_IS_AGGREGATE) ||

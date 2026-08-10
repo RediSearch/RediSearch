@@ -1097,6 +1097,8 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
   // BG signals only after AREQ_StoreResults
   RS_ASSERT(req->brc->reply.hasStoredResults);
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
+    req->base.reply.rc = RS_RESULT_TIMEDOUT;
+    // TODO($$$): Remove the legacy reply state once all consumers use QueryRequest.reply.
     req->brc->reply.rc = RS_RESULT_TIMEDOUT;
   }
 
@@ -1187,6 +1189,8 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
     // Drain anything queued before the deadline, then serialize and dispose
     // the stashed cursor (Pause if more rows remain, Free on EOF) inside
     // AREQ_ReplyWithStoredResults.
+    req->base.reply.rc = RS_RESULT_TIMEDOUT;
+    // TODO($$$): Remove the legacy reply state once all consumers use QueryRequest.reply.
     req->brc->reply.rc = RS_RESULT_TIMEDOUT;
     drainPartialResultsAfterTimeout(req);
     AREQ_ReplyWithStoredResults(ctx, req);
