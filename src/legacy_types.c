@@ -54,21 +54,30 @@ void TagIndex_RdbSave_Empty(RedisModuleIO *rdb, void *value) {
 void LegacyType_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {
   RS_ASSERT_ALWAYS(value == dummyNonNull);
 
+  // No ThreadSafeContextLock: the rewrite child inherits the module GIL already held, and it is
+  // single-threaded. Locking here would deadlock.
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
   // A detached context starts on DB 0, but the key lives in whichever database is being rewritten.
-  RedisModule_SelectDb(ctx, RedisModule_GetDbIdFromIO(aof));
+  // Failing to switch would dump a same-named, unrelated key from DB 0.
+  RS_ASSERT_ALWAYS(RedisModule_SelectDb(ctx, RedisModule_GetDbIdFromIO(aof)) == REDISMODULE_OK);
 
   RedisModuleCallReply *rep = RedisModule_Call(ctx, "DUMP", "s", key);
-  if (rep != NULL && RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_STRING) {
+  const int reply_type = rep ? RedisModule_CallReplyType(rep) : REDISMODULE_REPLY_UNKNOWN;
+
+  if (reply_type == REDISMODULE_REPLY_STRING) {
     size_t n = 0;
     const char *payload = RedisModule_CallReplyStringPtr(rep, &n);
+    // Redis emits the key's PEXPIREAT itself after this, so a TTL is preserved.
     RedisModule_EmitAOF(aof, "RESTORE", "slb", key, 0, payload, n);
+  } else if (reply_type == REDISMODULE_REPLY_NULL) {
+    // The key expired between the fork snapshot and this DUMP. Nothing to recreate.
   } else {
-    // Only reachable if the key vanished or rdb_save failed; the latter cannot happen here, since
-    // the save callbacks write constants. Losing a legacy key costs nothing, so warn rather than
-    // take down the rewrite.
+    // Anything else would silently install an AOF base that is missing this key, which is exactly
+    // the mode-dependent divergence this callback exists to prevent. Fail the rewrite instead: Redis
+    // discards a rewrite whose child dies, so the previous base stays valid.
     RedisModule_Log(RedisModule_GetContextFromIO(aof), "warning",
-                    "Failed to emit AOF for a legacy index key; it will not survive AOF replay");
+                    "DUMP failed while rewriting a legacy index key into the AOF");
+    RS_ABORT_ALWAYS("DUMP failed for a legacy index key during AOF rewrite");
   }
 
   if (rep != NULL) {
