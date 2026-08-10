@@ -852,9 +852,14 @@ def test_cursor_gc_reschedules_sweep_on_main_thread():
         for i in range(100 * env.shardsCount):
             con.execute_command('HSET', f'doc{i}', 't', 'hello')
 
-    # Leave a coordinator cursor idle with a short MAXIDLE, so the sweep timer
-    # is armed and every GC below has a reason to re-arm it.
-    env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '1', 'MAXIDLE', '600')
+    # Leave a coordinator cursor idle, so the sweep timer is armed and every GC
+    # below has a reason to re-arm it. MAXIDLE has to comfortably outlast the GC
+    # loop below, or the cursor is reaped mid-loop and the reap assertion at the
+    # end becomes vacuous.
+    _, cid = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '1',
+                     'MAXIDLE', '1500')
+    # Fail here rather than timing out below if the cursor was never created.
+    env.assertNotEqual(0, cid)
     with TimeLimit(2, "cursors were not created"):
         while getCursorStats(env)['global_total'] < 1:
             sleep(0.01)
@@ -862,6 +867,10 @@ def test_cursor_gc_reschedules_sweep_on_main_thread():
     # Drive the coordinator GC repeatedly; each call re-arms the sweep timer.
     for _ in range(30):
         env.cmd('FT.CURSOR', 'GC', 'idx', '0')
+
+    # The loop must finish inside MAXIDLE, otherwise the cursor is already gone
+    # and the wait below would succeed without proving anything.
+    env.assertNotEqual(0, getCursorStats(env)['global_total'])
 
     # Reaping must still happen at MAXIDLE, i.e. the timer survived the re-arms.
     with TimeLimit(5, "idle cursor was not reaped after cluster FT.CURSOR GC"):
