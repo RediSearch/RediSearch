@@ -262,7 +262,12 @@ impl QueryEvalContext {
             }
             // No Blocked Client Timeout source: derive the Clock Based Timeout
             // (or `NoTimeout`) from `sctx.time`.
-            None => AnyTimeoutContext::from_sctx(self.sctx(), TIMEOUT_CHECK_GRANULARITY),
+            None => {
+                let sctx = NonNull::new(self.sctx_ptr().cast_mut()).expect("sctx must be non-null");
+                // SAFETY: this query context keeps `sctx` alive for every derived iterator and
+                // deadline writes do not overlap probes.
+                unsafe { AnyTimeoutContext::from_sctx(sctx, TIMEOUT_CHECK_GRANULARITY) }
+            }
         }
     }
 }

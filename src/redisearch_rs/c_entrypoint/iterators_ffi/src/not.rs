@@ -18,10 +18,7 @@ use rqe_iterators::{
     not::Not,
     not_optimized::NotOptimized,
     not_reducer::{NewNotIterator, TIMEOUT_CHECK_GRANULARITY, new_not_iterator},
-    utils::{
-        AnyTimeoutContext, NoTimeout, TimeoutContextBlockedClient, TimeoutContextClock,
-        duration_from_redis_timespec,
-    },
+    utils::{AnyTimeoutContext, TimeoutContextBlockedClient},
 };
 
 type NotFfi<'index> = Not<'index, CRQEIterator, AnyTimeoutContext>;
@@ -185,18 +182,10 @@ unsafe fn build_timeout_context(
         None => {
             // SAFETY: caller guarantees q is valid (3).
             let q_ref = unsafe { q.as_ref() };
-            // SAFETY: caller guarantees q.sctx is valid (4).
-            let sctx = unsafe { &*q_ref.sctx };
-            if sctx.time.skipTimeoutChecks {
-                return AnyTimeoutContext::NoTimeout(NoTimeout);
-            }
-            match duration_from_redis_timespec(timeout) {
-                Some(duration) => AnyTimeoutContext::Clock(TimeoutContextClock::new(
-                    duration,
-                    TIMEOUT_CHECK_GRANULARITY,
-                )),
-                None => AnyTimeoutContext::NoTimeout(NoTimeout),
-            }
+            let sctx = NonNull::new(q_ref.sctx).expect("q.sctx must be non-null");
+            // SAFETY: caller guarantees the search context outlives the returned iterator and
+            // deadline writes do not overlap probes.
+            unsafe { AnyTimeoutContext::from_sctx(sctx, TIMEOUT_CHECK_GRANULARITY) }
         }
     }
 }
