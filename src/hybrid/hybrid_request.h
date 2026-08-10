@@ -1,6 +1,7 @@
 #pragma once
 
 #include "aggregate/aggregate.h"
+#include "query_request.h"
 #include "pipeline/pipeline.h"
 #include "hybrid/hybrid_scoring.h"
 #include "hybrid/hybrid_debug.h"
@@ -21,6 +22,8 @@ struct Cursor;
 #define HYBRID_IMPLICIT_KEY_FIELD "__key"
 
 typedef struct HybridRequest {
+    QueryRequest base;
+
     /* Arguments converted to sds. Received on input */
     // We need to copy the arguments so rlookup keys can point to them
     // in short lifetime of the strings

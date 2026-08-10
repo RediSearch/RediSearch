@@ -10,6 +10,7 @@
 #define RS_AGGREGATE_H__
 
 #include "query_flags.h"
+#include "query_request.h"
 #include "value_ffi.h"
 #include "query.h"
 #include "reducer.h"
@@ -253,6 +254,8 @@ static inline void RequestSyncState_Destroy(RequestSyncState *st) {
 }
 
 typedef struct AREQ {
+  QueryRequest base;
+
   /* Arguments converted to sds. Received on input */
   sds *args;
   size_t nargs;
