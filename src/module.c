@@ -2435,6 +2435,21 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
     AC_GetLongLong(&limitArgs, &req->limit, 0);
   }
   if (req->limit < 0 || req->offset < 0) {
+    // Report the same error the shard's parser (`handleCommonArgs`) produces for a negative
+    // LIMIT: it reads the values with AC_GetU64, which rejects negatives as non-numeric. Without
+    // setting the error here, `rscParseRequest` returns NULL with an empty status and the caller
+    // replies success for a malformed command.
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "LIMIT needs two numeric arguments");
+    searchRequestCtx_Free(req);
+    return NULL;
+  }
+  if (req->limit == 0 && req->offset != 0) {
+    // `LIMIT <non-zero offset> 0` is rejected here rather than by the shards: the fan-out below
+    // only rewrites the shard LIMIT when `limit > 0`, so this combination would otherwise be sent
+    // verbatim and each shard would reject it with the same error. Failing on the coordinator keeps
+    // the reply identical to standalone (`handleCommonArgs`) without a round trip to the shards.
+    QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT,
+                        "The `offset` of the LIMIT must be 0 when `num` is 0");
     searchRequestCtx_Free(req);
     return NULL;
   }
