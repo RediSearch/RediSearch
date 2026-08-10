@@ -407,10 +407,11 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply, bo
   RedisModule_Reply_MapEnd(reply);
 }
 
-int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
+static int infoReplyReducer(struct MRCtx *mc, int count, MRReply **replies, bool partial) {
   // Summarize all aggregate replies
   InfoFields fields = { .indexError = IndexError_Init() };
   MRReply *firstError = NULL;
+  size_t numErrored = 0;
   RedisModuleCtx *ctx = MRCtx_GetRedisCtx(mc);
 
   if (count == 0) {
@@ -420,10 +421,13 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   QueryError error = QueryError_Default();
 
-  for (size_t ii = 0; ii < count && !firstError; ++ii) {
+  for (size_t ii = 0; ii < count && (partial || !firstError); ++ii) {
     int type = MRReply_Type(replies[ii]);
     if (type == MR_REPLY_ERROR) {
-      firstError = replies[ii];
+      if (!firstError) {
+        firstError = replies[ii];
+      }
+      numErrored++;
       continue;
     }
 
@@ -439,8 +443,9 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
     }
   }
 
-  // Now we've received all the replies.
-  if (firstError) {
+  // Now we've received all the replies. In partial mode a shard that could not report is
+  // tolerated, so only an all-shards failure is fatal.
+  if (firstError && (!partial || numErrored == count)) {
     // Reply with error
     MR_ReplyWithMRReply(reply, firstError);
   } else if (QueryError_HasError(&error)) {
@@ -454,4 +459,12 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
   cleanInfoReply(&fields);
   RedisModule_EndReply(reply);
   return REDISMODULE_OK;
+}
+
+int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
+  return infoReplyReducer(mc, count, replies, false);
+}
+
+int InfoReplyReducerPartial(struct MRCtx *mc, int count, MRReply **replies) {
+  return infoReplyReducer(mc, count, replies, true);
 }

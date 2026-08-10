@@ -305,6 +305,13 @@
         "name": "index",
         "type": "string",
         "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
+      },
+      {
+        "name": "partial",
+        "type": "pure-token",
+        "token": "PARTIAL",
+        "optional": true,
+        "summary": "On a cluster, aggregate the shards that can report on the index instead of failing when one of them cannot. The reply then describes a subset of the shards."
       }
     ],
     "since": "1.0.0",

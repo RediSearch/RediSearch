@@ -323,9 +323,16 @@ int SetFtInfoInfo(RedisModuleCommand *cmd) {
         .summary = "Specifies the name of the index. The index must be created using `FT.CREATE`.",
         .type = REDISMODULE_ARG_TYPE_STRING,
       },
+      {
+        .name = "partial",
+        .token = "PARTIAL",
+        .summary = "On a cluster, aggregate the shards that can report on the index instead of failing when one of them cannot. The reply then describes a subset of the shards.",
+        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+        .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+      },
       {0}
     },
-    .arity = 2,
+    .arity = -2,
     .since = "1.0.0",
     .tips = "dont_cache",
   };
