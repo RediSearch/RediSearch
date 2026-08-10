@@ -17,6 +17,7 @@
 #include "rlookup.h"
 #include "extension.h"
 #include "score_explain.h"
+#include "rmutil/rm_assert.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -92,6 +93,10 @@ typedef struct {
   // and decremented by others who might disqualify results
   uint32_t totalResults;
 
+  // Results counted in totalResults but dropped by a buffering result processor because the
+  // document was deleted or re-indexed after buffering and before loading.
+  uint32_t skippedResults;
+
   // the number of results we requested to return at the current chunk.
   // This value is meant to be used by the RP to limit the number of results
   // returned by its upstream RP ONLY.
@@ -105,6 +110,10 @@ typedef struct {
   // Background indexing OOM warning
   bool bgScanOOM;
 
+  // Debug-only rendezvous used to invalidate a buffered result before the safe loader takes the
+  // Redis GIL. Set only by _FT.DEBUG queries.
+  bool debugPauseBeforeSafeLoaderGIL;
+
   bool isProfile;
   RSTimeoutPolicy timeoutPolicy;
 } QueryIterator, QueryProcessingCtx;
@@ -112,6 +121,12 @@ typedef struct {
 IndexIterator *QITR_GetRootFilter(QueryIterator *it);
 void QITR_PushRP(QueryIterator *it, struct ResultProcessor *rp);
 void QITR_FreeChain(QueryIterator *qitr);
+
+static inline uint32_t QITR_ReportedTotal(const QueryProcessingCtx *qctx) {
+  RS_LOG_ASSERT(qctx->skippedResults <= qctx->totalResults,
+                "skippedResults must not exceed totalResults");
+  return qctx->totalResults - qctx->skippedResults;
+}
 
 /*
  * SearchResult - the object all the processing chain is working on.
