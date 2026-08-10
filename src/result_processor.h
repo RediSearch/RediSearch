@@ -93,8 +93,8 @@ typedef struct {
   // and decremented by others who might disqualify results
   uint32_t totalResults;
 
-  // Results counted in totalResults but dropped by a buffering result processor
-  // because the document was deleted, re-indexed, or expired mid-load.
+  // Results counted in totalResults but dropped by a buffering result processor because the
+  // document was deleted or re-indexed after buffering and before loading.
   uint32_t skippedResults;
 
   // the number of results we requested to return at the current chunk.

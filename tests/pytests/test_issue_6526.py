@@ -2,9 +2,7 @@ from common import *
 import threading
 
 
-@skip(cluster=True)
-def test_aggregate_drops_doc_reindexed_during_load():
-    """FT.AGGREGATE must not emit an empty row for a doc invalidated before LOAD."""
+def _run_query_with_reindex_during_load(query):
     # A dedicated environment is required for the background safe-loader path and its debug hook.
     if not MT_BUILD:
         raise SkipTest('MT_BUILD is not set')
@@ -20,7 +18,6 @@ def test_aggregate_drops_doc_reindexed_during_load():
     conn.execute_command('HSET', 'doc:2', 'n', '2', 'title', 'two')
     waitForIndex(env, 'idx')
 
-    query = ['FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@n']
     args = parseDebugQueryCommandArgs(query, ['PAUSE_BEFORE_SAFE_LOADER_GIL'])
     query_conn = env.getConnection()
     outcome = []
@@ -57,12 +54,47 @@ def test_aggregate_drops_doc_reindexed_during_load():
     env.assertFalse(thread.is_alive(), message='query did not resume after loader signal')
     env.assertEqual(len(outcome), 1, message=outcome)
     env.assertFalse(isinstance(outcome[0], Exception), message=outcome[0])
+    return env, outcome[0]
 
-    total, rows = outcome[0][0], outcome[0][1:]
+
+@skip(cluster=True)
+def test_aggregate_drops_doc_reindexed_during_load():
+    """FT.AGGREGATE must not emit an empty row for a doc invalidated before LOAD."""
+    env, result = _run_query_with_reindex_during_load(
+        ['FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@n']
+    )
+
+    total, rows = result[0], result[1:]
     invalid_rows = [row for row in rows if row is None or row == []]
-    env.assertEqual(invalid_rows, [], message=f'invalid aggregate row: {outcome[0]}')
-    env.assertEqual(rows, [['n', '2']], message=outcome[0])
-    env.assertEqual(total, len(rows), message=outcome[0])
+    env.assertEqual(invalid_rows, [], message=f'invalid aggregate row: {result}')
+    env.assertEqual(rows, [['n', '2']], message=result)
+    env.assertEqual(total, len(rows), message=result)
+
+
+@skip(cluster=True)
+def test_aggregate_groupby_drops_doc_reindexed_during_load():
+    """GROUPBY must not subtract an upstream loader drop from its recomputed group count."""
+    env, result = _run_query_with_reindex_during_load(
+        ['FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@n', 'GROUPBY', '1', '@n']
+    )
+
+    total, rows = result[0], result[1:]
+    env.assertEqual(rows, [['n', '2']], message=result)
+    env.assertEqual(total, len(rows), message=result)
+
+
+@skip(cluster=True)
+def test_search_optimizer_drops_doc_reindexed_during_load():
+    """The optimizer must fold the loader-drop correction before applying LIMIT."""
+    env, result = _run_query_with_reindex_during_load(
+        ['FT.SEARCH', 'idx', '*', 'WITHOUTCOUNT', 'LIMIT', '0', '10']
+    )
+
+    total, flat_results = result[0], result[1:]
+    pairs = list(zip(flat_results[0::2], flat_results[1::2]))
+    env.assertEqual([fields for _, fields in pairs if fields is None], [], message=result)
+    env.assertEqual([key for key, _ in pairs], ['doc:2'], message=result)
+    env.assertEqual(total, len(pairs), message=result)
 
 
 @skip(cluster=True)
