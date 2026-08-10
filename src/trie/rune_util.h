@@ -41,7 +41,13 @@ typedef rune (*runeTransform)(rune r);
 /* fold rune: assumes rune is of the correct size */
 rune runeFold(rune r);
 
-/* Convert a rune string to utf-8 characters */
+/* Convert a rune string to utf-8 characters. The caller owns the returned
+ * buffer. Returns NULL for an input longer than MAX_RUNE_STR_LEN runes.
+ * Parameters:
+ * - in: The input runes.
+ * - len: The number of runes in `in`.
+ * - utflen: A pointer to a size_t where the byte length of the result is
+ *   written. Must be non-NULL; it is set to 0 when NULL is returned. */
 char *runesToStr(const rune *in, size_t len, size_t *utflen);
 
 /* Convert a string to runes, lowercase them and return the transformed runes.
