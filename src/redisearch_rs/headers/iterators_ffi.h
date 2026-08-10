@@ -496,7 +496,9 @@ void Optimus_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, st
  *
  * 1. `sctx` must be a non-null pointer to a valid [`RedisSearchCtx`] whose
  *    `spec` is a valid [`IndexSpec`](ffi::IndexSpec); both must outlive the
- *    returned iterator.
+ *    returned iterator, and `sctx` must stay at a stable address for that
+ *    whole window: the iterator reads `sctx.time.timeout` back on every
+ *    timeout probe. No write to that deadline may overlap a probe.
  * 2. `filter_ctx` must be a non-null pointer to a valid [`FieldFilterContext`].
  * 3. `ids` must be null, or point to `num` initialized [`DocId`]s allocated via
  *    `RedisModule_Alloc`. Ownership is transferred to the iterator. When `ids`
