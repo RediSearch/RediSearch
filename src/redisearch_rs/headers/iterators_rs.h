@@ -486,7 +486,13 @@ enum MetricType GetMetricType(const QueryIterator *header);
  * 2. When non-null, `child` must not be aliased.
  * 3. `q` must be a valid non-null pointer to a [`QueryEvalCtx`](ffi::QueryEvalCtx).
  * 4. `q.sctx` must be a non-null pointer to a valid
- *    [`RedisSearchCtx`](ffi::RedisSearchCtx).
+ *    [`RedisSearchCtx`](ffi::RedisSearchCtx), which must stay valid and at a stable
+ *    address for the lifetime of the returned iterator: unless timeout checks are
+ *    disabled, the iterator reads `q.sctx.time.timeout` back on every probe, so that a
+ *    deadline re-armed by a later cursor read is honoured. No write to that deadline may
+ *    overlap a probe. There is deliberately no deadline parameter — a caller wanting a
+ *    different deadline sets `q.sctx.time.timeout`, which is the only value the iterator
+ *    will ever consult.
  * 5. `q.sctx.spec` must be a non-null pointer to a valid
  *    [`IndexSpec`](ffi::IndexSpec).
  * 6. `q.sctx.spec.rule`, when non-null, must point to a valid
@@ -497,7 +503,6 @@ enum MetricType GetMetricType(const QueryIterator *header);
 QueryIterator *NewNotIterator(QueryIterator *child,
                               t_docId max_doc_id,
                               double weight,
-                              timespec timeout,
                               QueryEvalCtx *q);
 
 /**

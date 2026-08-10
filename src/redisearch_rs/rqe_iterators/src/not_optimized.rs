@@ -9,8 +9,6 @@
 
 //! Supporting types for [`NotOptimized`].
 
-use std::time::Duration;
-
 use ffi::{RS_FIELDMASK_ALL, t_docId};
 use inverted_index::RSIndexResult;
 
@@ -18,9 +16,6 @@ use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
     WildcardIterator, maybe_empty::MaybeEmpty, not::NotIterator, utils::TimeoutContext,
 };
-
-/// Check the clock every this many loop iterations to amortize syscall cost.
-const TIMEOUT_CHECK_GRANULARITY: u32 = 5_000;
 
 /// An optimized NOT iterator that uses a wildcard inverted index iterator.
 ///
@@ -65,13 +60,15 @@ where
     /// `child` is the iterator whose documents will be excluded.
     /// `max_doc_id` is the upper bound for document IDs.
     /// `weight` is the score weight applied to every returned result.
-    /// `timeout` controls the amortized timeout. Pass [`None`] to skip timeout checks.
+    /// `timeout_ctx` controls the amortized timeout. Pass [`None`] to skip timeout checks.
+    /// Build it with [`TIMEOUT_CHECK_GRANULARITY`](crate::not_reducer::TIMEOUT_CHECK_GRANULARITY)
+    /// as the limit — see [`TimeoutContext::new`] for the deadline's requirements.
     pub fn new(
         wcii: W,
         child: I,
         max_doc_id: t_docId,
         weight: f64,
-        timeout: Option<Duration>,
+        timeout_ctx: Option<TimeoutContext>,
     ) -> Self {
         Self {
             wcii,
@@ -82,7 +79,7 @@ where
                 .weight(weight)
                 .field_mask(RS_FIELDMASK_ALL)
                 .build(),
-            timeout_ctx: timeout.map(|t| TimeoutContext::new(t, TIMEOUT_CHECK_GRANULARITY, false)),
+            timeout_ctx,
         }
     }
 

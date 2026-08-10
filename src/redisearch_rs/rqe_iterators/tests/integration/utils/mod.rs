@@ -9,9 +9,11 @@
 
 mod mock_enterprise_iterators;
 mod mock_iterator;
+mod test_deadline;
 mod wildcard_helper;
 pub(crate) use mock_enterprise_iterators::{MOCK_DISK_WILDCARD_TOP_ID, init_enterprise_iterators};
 pub(crate) use mock_iterator::{Mock, MockData, MockIteratorError, MockRevalidateResult, MockVec};
+pub(crate) use test_deadline::{TestDeadline, deadline_in_secs};
 pub(crate) use wildcard_helper::WildcardHelper;
 
 use inverted_index::RSIndexResult;

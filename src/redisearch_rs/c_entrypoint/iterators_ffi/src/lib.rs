@@ -7,8 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-mod timespec;
-
 pub mod empty;
 pub mod id_list;
 pub mod intersection;
