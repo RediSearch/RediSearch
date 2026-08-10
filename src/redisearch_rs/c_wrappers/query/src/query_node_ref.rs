@@ -97,8 +97,10 @@ pub enum QueryNode<'a> {
     },
     /// A filter by explicit document key names.
     Ids {
-        /// SDS key strings to match against.
-        keys: &'a [ffi::sds],
+        /// The key names to match against: `RedisModuleString`s borrowed
+        /// from storage owned by the request (its held argv). Opaque to
+        /// Rust; resolved through `DocTable_GetIdR`.
+        keys: &'a [*mut redis_module::raw::RedisModuleString],
         /// Pre-resolved document IDs (resolved on the main thread for
         /// search-on-disk).  `None` when not in disk mode.
         doc_ids: Option<&'a [DocId]>,
@@ -313,7 +315,7 @@ impl QueryNodeRef {
                         &[]
                     } else {
                         // SAFETY: invariant (1) of `new` guarantees `keys` is a
-                        // valid pointer to `len` SDS strings when non-null.
+                        // valid pointer to `len` string pointers when non-null.
                         unsafe { std::slice::from_raw_parts(fn_.keys, len) }
                     },
                     doc_ids: if fn_.docIds.is_null() {

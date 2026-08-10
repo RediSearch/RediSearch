@@ -20,15 +20,15 @@ use crate::{Evaluated, QueryEvalContext};
 /// Resolves each key to a document ID, sorts, deduplicates, and creates a
 /// sorted [`IdListSorted`] iterator.
 ///
-/// * `keys` — SDS key strings from the query node.  When `doc_ids` is
-///   `None`, each key is looked up in the [`DocTable`](ffi::DocTable) to
-///   obtain its document ID.
+/// * `keys` — the key names to match against, borrowing the request's held
+///   argv. When `doc_ids` is `None`, each key is looked up in the
+///   [`DocTable`](ffi::DocTable) to obtain its document ID.
 /// * `doc_ids` — when present (search-on-disk mode), contains pre-resolved
 ///   document IDs positionally matching `keys`, bypassing the `DocTable`
 ///   lookup.
 pub(crate) fn eval<'index>(
     ctx: &'index mut QueryEvalContext,
-    keys: &[ffi::sds],
+    keys: &[*mut redis_module::raw::RedisModuleString],
     doc_ids: Option<&[DocId]>,
 ) -> Evaluated<'index> {
     // Pre-resolved `doc_ids` are only produced on the search-on-disk path, so
@@ -53,12 +53,11 @@ pub(crate) fn eval<'index>(
         None => keys
             .iter()
             .filter_map(|&key| {
-                // SAFETY: `key` is a valid SDS string (guaranteed by
-                // `QueryNodeRef`); `sdslen_rust` reads its header.
-                let key_len = unsafe { ffi::sdslen_rust(key) };
-                // SAFETY: `doc_table()` returns a valid `DocTable` reference
+                // SAFETY: `key` is a valid `RedisModuleString` (guaranteed by
+                // `QueryNodeRef`: the node borrows the request's held argv)
+                // and `doc_table()` returns a valid `DocTable` reference
                 // (`QueryEvalContext` invariant).
-                let did = unsafe { ffi::DocTable_GetId(ctx.doc_table(), key, key_len) };
+                let did = unsafe { ffi::DocTable_GetIdR(ctx.doc_table(), key) };
                 (did != 0).then_some(did)
             })
             .collect(),

@@ -86,15 +86,15 @@ fn eval_optional_wildcard_child_passes_through() {
 //   wildcard fallback distinct from the structurally-empty shortcircuit.
 // ---------------------------------------------------------------------------
 
-// Disabled under Miri: `TestContext` and SDS creation call into the C library,
-// which Miri cannot execute.
+// Disabled under Miri: `TestContext` calls into the C library, which Miri
+// cannot execute.
 #[cfg(not(miri))]
 mod optional {
     use ffi::IndexFlags_Index_StoreFreqs;
     use rqe_iterators_test_utils::{GlobalGuard, TestContext};
 
     use super::*;
-    use crate::util::new_sds;
+    use crate::util::MockKeys;
 
     #[test]
     fn eval_optional_wraps_real_child_in_optional() {
@@ -110,7 +110,7 @@ mod optional {
         let mut ctx = unsafe { QueryEvalContext::new(context.qctx()) };
 
         // QN_IDS child resolving to the two known documents.
-        let keys: Vec<ffi::sds> = vec![new_sds("doc_a"), new_sds("doc_b")];
+        let keys = MockKeys::new(&["doc_a", "doc_b"]);
         let mut ids_child = MockQueryNode::new(QueryNodeType::Ids);
         ids_child.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
 
@@ -133,11 +133,6 @@ mod optional {
         }
         assert!(matches!(it.read(), Ok(None)));
         assert!(it.at_eof());
-
-        for key in keys {
-            // SAFETY: each `key` was allocated by `sdsnewlen` and is freed once.
-            unsafe { ffi::sdsfree(key) };
-        }
     }
 
     #[test]
@@ -205,7 +200,7 @@ mod optional {
         // QN_IDS child resolving to a real document → neither empty nor a
         // wildcard, so the reducer skips its shortcircuits and reaches the
         // optimized constructor.
-        let keys: Vec<ffi::sds> = vec![new_sds("doc_a")];
+        let keys = MockKeys::new(&["doc_a"]);
         let mut ids_child = MockQueryNode::new(QueryNodeType::Ids);
         ids_child.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
 
@@ -225,10 +220,5 @@ mod optional {
         // empty and the iterator yields nothing — but it must drain cleanly.
         assert!(matches!(it.read(), Ok(None)));
         assert!(it.at_eof());
-
-        for key in keys {
-            // SAFETY: each `key` was allocated by `sdsnewlen` and is freed once.
-            unsafe { ffi::sdsfree(key) };
-        }
     }
 }

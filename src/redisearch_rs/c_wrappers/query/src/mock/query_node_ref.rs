@@ -281,7 +281,12 @@ impl MockQueryNode {
     /// Set the fields of the IDs-node union variant.
     ///
     /// `keys` and `doc_ids` must outlive this `MockQueryNode`.
-    pub fn set_ids(&mut self, keys: *const ffi::sds, doc_ids: *mut DocId, len: usize) {
+    pub fn set_ids(
+        &mut self,
+        keys: *mut *mut redis_module::raw::RedisModuleString,
+        doc_ids: *mut DocId,
+        len: usize,
+    ) {
         // SAFETY: `self.node` is valid and exclusively owned; the caller
         // guarantees the node type is Ids so the `fn` variant is active.
         unsafe {

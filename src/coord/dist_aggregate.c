@@ -761,7 +761,12 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
     }
   }
 
-  rc = AREQ_Compile(r, ctx, argv + ac.offset, argc - ac.offset, SearchDisk_IsEnabledForValidation(), status);
+  // Compile parses the held argv — this job's argv copies die with the job,
+  // the plan's borrows must not. The job argv mirrors the original, so the
+  // offset computed on it indexes the holds too, and this view's length must
+  // match the wrapper's parse extent (the debug dispatcher trims both).
+  RS_ASSERT((uint32_t)argc == r->brc->parseArgc);
+  rc = AREQ_Compile(r, ctx, ac.offset, SearchDisk_IsEnabledForValidation(), status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
   // User-facing cursors are unsupported on disk (flex). Reject before fan-out.
@@ -780,9 +785,11 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   if(dialect >= 2) {
     // Check if we have KNN in the query string, and if so, parse the query string to see if it is
     // a KNN section in the query. IN that case, we treat this as a SORTBY+LIMIT step.
-    if(strcasestr(r->query, "KNN")) {
+    size_t queryLen;
+    const char *query = AREQ_Query(r, &queryLen);
+    if (strcasestr(query, "KNN")) {
       // For distributed aggregation, command type detection is automatic
-      knnCtx = prepareOptionalTopKCase(r->query, argv, argc, dialect, status);
+      knnCtx = prepareOptionalTopKCase(query, queryLen, argv, argc, dialect, status);
       *knnCtx_ptr = knnCtx;
       if (QueryError_HasError(status)) {
         return REDISMODULE_ERR;

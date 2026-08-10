@@ -16,13 +16,15 @@ use rqe_iterators_test_utils::ContractChecker;
 
 use query::mock::{MockQueryEvalCtx, MockQueryNode};
 
+use crate::util::MockKeys;
+
 #[test]
 fn eval_ids_with_pre_resolved_doc_ids() {
     let mut mock_ctx = MockQueryEvalCtx::new();
     mock_ctx.enable_disk_mode();
     let mut ctx = unsafe { QueryEvalContext::new(mock_ctx.as_non_null()) };
 
-    let keys: Vec<ffi::sds> = vec![std::ptr::null_mut(); 3];
+    let keys = MockKeys::nulls(3);
     let mut doc_ids: Vec<u64> = vec![10, 5, 20];
 
     let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
@@ -54,7 +56,7 @@ fn eval_ids_deduplicates() {
     mock_ctx.enable_disk_mode();
     let mut ctx = unsafe { QueryEvalContext::new(mock_ctx.as_non_null()) };
 
-    let keys: Vec<ffi::sds> = vec![std::ptr::null_mut(); 4];
+    let keys = MockKeys::nulls(4);
     let mut doc_ids: Vec<u64> = vec![3, 3, 7, 7];
 
     let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
@@ -80,7 +82,7 @@ fn eval_ids_filters_zero_doc_ids() {
     mock_ctx.enable_disk_mode();
     let mut ctx = unsafe { QueryEvalContext::new(mock_ctx.as_non_null()) };
 
-    let keys: Vec<ffi::sds> = vec![std::ptr::null_mut(); 3];
+    let keys = MockKeys::nulls(3);
     let mut doc_ids: Vec<u64> = vec![0, 5, 0];
 
     let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
@@ -104,7 +106,7 @@ fn eval_ids_all_zero_produces_empty_list() {
     mock_ctx.enable_disk_mode();
     let mut ctx = unsafe { QueryEvalContext::new(mock_ctx.as_non_null()) };
 
-    let keys: Vec<ffi::sds> = vec![std::ptr::null_mut(); 2];
+    let keys = MockKeys::nulls(2);
     let mut doc_ids: Vec<u64> = vec![0, 0];
 
     let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
@@ -130,7 +132,7 @@ fn eval_ids_empty_keys() {
     let mut ctx = unsafe { QueryEvalContext::new(mock_ctx.as_non_null()) };
 
     let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
-    mock_node.set_ids(std::ptr::null(), std::ptr::null_mut(), 0);
+    mock_node.set_ids(std::ptr::null_mut(), std::ptr::null_mut(), 0);
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
     let mut it = ContractChecker::new(
@@ -150,19 +152,19 @@ fn eval_ids_empty_keys() {
 // QN_IDS → IdList, resolving key names through the DocTable
 //
 // The lightweight `MockQueryEvalCtx` has an empty `DocTable`, so the key→docId
-// resolution path (`DocTable_GetId`) is exercised here with the full-FFI
+// resolution path (`DocTable_GetIdR`) is exercised here with the full-FFI
 // `TestContext`, which can register real documents.
 // ---------------------------------------------------------------------------
 
-// Disabled under Miri: `TestContext` and SDS creation call into the C library,
-// which Miri cannot execute.
+// Disabled under Miri: `TestContext` calls into the C library, which Miri
+// cannot execute.
 #[cfg(not(miri))]
 mod ids_doctable {
     use ffi::IndexFlags_Index_StoreFreqs;
     use rqe_iterators_test_utils::{GlobalGuard, TestContext};
 
     use super::*;
-    use crate::util::new_sds;
+    use crate::util::MockKeys;
 
     #[test]
     fn eval_ids_resolves_keys_through_doc_table() {
@@ -179,7 +181,7 @@ mod ids_doctable {
         // Query for both known keys plus an unknown one, which must resolve to
         // id 0 and be filtered out. `doc_ids` is NULL, so the DocTable lookup
         // path is taken.
-        let keys: Vec<ffi::sds> = vec![new_sds("doc_b"), new_sds("ghost"), new_sds("doc_a")];
+        let keys = MockKeys::new(&["doc_b", "ghost", "doc_a"]);
 
         let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
         mock_node.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
@@ -199,11 +201,6 @@ mod ids_doctable {
         assert_eq!(r.doc_id, id_b);
         assert!(matches!(it.read(), Ok(None)));
         assert!(it.at_eof());
-
-        for key in keys {
-            // SAFETY: each `key` was allocated by `sdsnewlen` and is freed once.
-            unsafe { ffi::sdsfree(key) };
-        }
     }
 
     #[test]
@@ -214,7 +211,7 @@ mod ids_doctable {
         let mut ctx = unsafe { QueryEvalContext::new(context.qctx()) };
 
         // None of these keys exist in the (empty) DocTable.
-        let keys: Vec<ffi::sds> = vec![new_sds("nope"), new_sds("missing")];
+        let keys = MockKeys::new(&["nope", "missing"]);
 
         let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
         mock_node.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
@@ -230,10 +227,5 @@ mod ids_doctable {
         assert!(!it.at_eof());
         assert!(matches!(it.read(), Ok(None)));
         assert!(it.at_eof());
-
-        for key in keys {
-            // SAFETY: each `key` was allocated by `sdsnewlen` and is freed once.
-            unsafe { ffi::sdsfree(key) };
-        }
     }
 }
