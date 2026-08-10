@@ -9,7 +9,7 @@
 
 use std::ptr::NonNull;
 
-use ffi::{AREQ, QueryIterator, timespec};
+use ffi::{AREQ, QueryIterator};
 use rqe_core::DocId;
 use rqe_iterators::{
     NewWildcardIterator, RQEIterator,
@@ -18,10 +18,7 @@ use rqe_iterators::{
     not::Not,
     not_optimized::NotOptimized,
     not_reducer::{NewNotIterator, TIMEOUT_CHECK_GRANULARITY, new_not_iterator},
-    utils::{
-        AnyTimeoutContext, NoTimeout, TimeoutContextBlockedClient, TimeoutContextClock,
-        duration_from_redis_timespec,
-    },
+    utils::{AnyTimeoutContext, TimeoutContextBlockedClient},
 };
 
 type NotFfi<'index> = Not<'index, CRQEIterator, AnyTimeoutContext>;
@@ -171,7 +168,6 @@ impl<'index> rqe_iterators::interop::ProfileChildren<'index> for NotIteratorEnum
 /// must uphold the [`TimeoutContextBlockedClient::new`] safety contract for
 /// as long as the returned context (and any iterator built from it) is used.
 unsafe fn build_timeout_context(
-    timeout: timespec,
     bc_timeout_areq: *mut AREQ,
     q: NonNull<ffi::QueryEvalCtx>,
 ) -> AnyTimeoutContext {
@@ -185,18 +181,13 @@ unsafe fn build_timeout_context(
         None => {
             // SAFETY: caller guarantees q is valid (3).
             let q_ref = unsafe { q.as_ref() };
-            // SAFETY: caller guarantees q.sctx is valid (4).
-            let sctx = unsafe { &*q_ref.sctx };
-            if sctx.time.skipTimeoutChecks {
-                return AnyTimeoutContext::NoTimeout(NoTimeout);
-            }
-            match duration_from_redis_timespec(timeout) {
-                Some(duration) => AnyTimeoutContext::Clock(TimeoutContextClock::new(
-                    duration,
-                    TIMEOUT_CHECK_GRANULARITY,
-                )),
-                None => AnyTimeoutContext::NoTimeout(NoTimeout),
-            }
+            let sctx = NonNull::new(q_ref.sctx).expect("q.sctx must be non-null (precondition 4)");
+            // The deadline comes from `sctx` and is read back on every probe: cursor reads re-arm
+            // it, and an iterator that captured it once would answer with the first read's
+            // deadline forever after. `from_sctx` also decides whether there is a deadline at all.
+            // SAFETY: caller guarantees `q.sctx` is valid (4) for as long as the returned context
+            // and any iterator built from it are used.
+            unsafe { AnyTimeoutContext::from_sctx(sctx, TIMEOUT_CHECK_GRANULARITY) }
         }
     }
 }
@@ -208,11 +199,13 @@ unsafe fn build_timeout_context(
 ///
 /// `bc_timeout_areq` selects the timeout source. When non-null, the Blocked
 /// Client Timeout path is used: every iterator timeout probe forwards to
-/// `AREQ_CheckTimedOut` and `timeout` / `skipTimeoutChecks` are ignored.
-/// When null, the Clock Based Timeout path is used: `timeout` is the
-/// deadline and `skipTimeoutChecks` (read from `q.sctx.time`) disables the
-/// check entirely. The C caller is expected to pre-filter the owning
-/// request via `AREQ_TimeoutAreqOrNull` before passing it here.
+/// `AREQ_CheckTimedOut` and `q.sctx.time` is ignored.
+/// When null, the Clock Based Timeout path is used, driven entirely by `q.sctx.time`:
+/// `timeout` is the deadline, read back on every probe so that a re-armed deadline is
+/// honoured, and `skipTimeoutChecks` disables the check entirely. There is deliberately no
+/// deadline parameter — a caller wanting a different deadline sets `q.sctx.time.timeout`,
+/// which is the only value the iterator will ever consult. The C caller is expected to
+/// pre-filter the owning request via `AREQ_TimeoutAreqOrNull` before passing it here.
 ///
 /// # Safety
 ///
@@ -221,7 +214,10 @@ unsafe fn build_timeout_context(
 /// 2. When non-null, `child` must not be aliased.
 /// 3. `q` must be a valid non-null pointer to a [`QueryEvalCtx`](ffi::QueryEvalCtx).
 /// 4. `q.sctx` must be a non-null pointer to a valid
-///    [`RedisSearchCtx`](ffi::RedisSearchCtx).
+///    [`RedisSearchCtx`](ffi::RedisSearchCtx), which must stay valid and at a stable
+///    address for the lifetime of the returned iterator: on the Clock Based Timeout path
+///    the iterator reads `q.sctx.time.timeout` back on every probe. No write to that
+///    deadline may overlap a probe.
 /// 5. `q.sctx.spec` must be a non-null pointer to a valid
 ///    [`IndexSpec`](ffi::IndexSpec).
 /// 6. `q.sctx.spec.rule`, when non-null, must point to a valid
@@ -236,14 +232,13 @@ pub unsafe extern "C" fn NewNotIterator(
     child: *mut QueryIterator,
     max_doc_id: DocId,
     weight: f64,
-    timeout: timespec,
     bc_timeout_areq: *mut AREQ,
     q: *mut ffi::QueryEvalCtx,
 ) -> *mut QueryIterator {
     let query = NonNull::new(q).expect("q must be non-null");
 
     // SAFETY: caller upholds preconditions (3, 4, 8).
-    let timeout_ctx = unsafe { build_timeout_context(timeout, bc_timeout_areq, query) };
+    let timeout_ctx = unsafe { build_timeout_context(bc_timeout_areq, query) };
 
     // Handle null child: reduce with Empty directly (always becomes wildcard).
     let Some(child_ptr) = NonNull::new(child) else {

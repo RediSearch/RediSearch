@@ -14,7 +14,10 @@ use std::{
 
 use ffi::{AREQ, AREQ_CheckTimedOut, RedisSearchCtx};
 
-use crate::{RQEIteratorError, utils::duration_from_redis_timespec};
+use crate::{
+    RQEIteratorError,
+    utils::{duration_from_redis_timespec, timespec::deadline_passed},
+};
 
 /// Abstraction over the different ways a query iterator can detect that the
 /// surrounding query has run out of time.
@@ -57,12 +60,26 @@ pub trait TimeoutContext {
 /// only perform a real clock check every `limit` iterations, significantly reducing
 /// syscall overhead while still ensuring eventual termination.
 pub struct TimeoutContextClock {
-    /// The absolute point in time after which the operation is considered timed out.
-    deadline: Instant,
+    /// The point in time after which the operation is considered timed out.
+    deadline: ClockDeadline,
     /// The number of times `check_timeout` has been called since the last clock check.
     counter: u32,
     /// The threshold at which a real clock check is performed (the amortized frequency).
     limit: u32,
+}
+
+/// Where a [`TimeoutContextClock`] gets the deadline it compares the clock against.
+enum ClockDeadline {
+    /// A deadline computed once, when the context was built.
+    ///
+    /// Only appropriate when nothing can move the deadline afterwards — in practice, tests.
+    Captured(Instant),
+    /// A deadline owned elsewhere (in practice `sctx.time.timeout`) and read back on every probe.
+    ///
+    /// Query iterators use this: an iterator tree is built once and reused for the whole life of
+    /// a cursor, while each cursor read re-arms the deadline via `SearchCtx_UpdateTime`. A
+    /// captured deadline would keep answering with the first read's budget forever after.
+    Live(NonNull<ffi::timespec>),
 }
 
 impl TimeoutContextClock {
@@ -77,7 +94,36 @@ impl TimeoutContextClock {
     #[inline(always)]
     pub fn new(duration: Duration, limit: u32) -> Self {
         Self {
-            deadline: Instant::now() + duration,
+            deadline: ClockDeadline::Captured(Instant::now() + duration),
+            counter: 0,
+            limit,
+        }
+    }
+
+    /// Creates a [`TimeoutContextClock`] probing the deadline stored at `deadline`, reading it
+    /// back on every clock check rather than capturing it now.
+    ///
+    /// `limit` plays the same role as in [`new`](Self::new).
+    ///
+    /// # Safety
+    ///
+    /// * `deadline` must point to a valid [`timespec`](ffi::timespec) — in practice
+    ///   `sctx.time.timeout` — that stays valid, and at a stable address, for as long as this
+    ///   context (and any iterator holding it) is used. A request assigns its search context once,
+    ///   in `AREQ_ApplyContext`, and later cursor reads update the deadline in place, so the
+    ///   address holds for the whole request.
+    /// * The deadline must not be written concurrently with a probe. C *does* write to it — that
+    ///   is the point of reading it back — from every `SearchCtx_UpdateTime` call site, and
+    ///   directly from `RPTimeoutAfterCount_SimulateTimeout`. Each of those either runs before the
+    ///   pipeline for that read starts (`runCursor`, `buildPipelineAndExecute`, the hybrid and
+    ///   coordinator entry points) or runs inside the pipeline on the thread that would be
+    ///   probing, so no write overlaps a probe. A new write site has to preserve that.
+    /// * `deadline` must be derived from a pointer that permits the C side to keep writing to it,
+    ///   not from a shared reference: taking `&sctx.time.timeout` would freeze the location for
+    ///   this context's lifetime and make those writes undefined behaviour.
+    pub const unsafe fn from_deadline(deadline: NonNull<ffi::timespec>, limit: u32) -> Self {
+        Self {
+            deadline: ClockDeadline::Live(deadline),
             counter: 0,
             limit,
         }
@@ -92,7 +138,12 @@ impl TimeoutContext for TimeoutContextClock {
         self.counter += 1;
         if self.counter >= self.limit {
             self.counter = 0;
-            if Instant::now() >= self.deadline {
+            let passed = match self.deadline {
+                ClockDeadline::Captured(deadline) => Instant::now() >= deadline,
+                // SAFETY: guaranteed by the `from_deadline` constructor contract.
+                ClockDeadline::Live(deadline) => deadline_passed(unsafe { deadline.read() }),
+            };
+            if passed {
                 return Err(RQEIteratorError::TimedOut);
             }
         }
@@ -210,14 +261,35 @@ impl AnyTimeoutContext {
     /// `granularity` checks. A search context carries no Blocked Client Timeout
     /// source, so the [`BlockedClient`](Self::BlockedClient) variant is never
     /// produced here.
-    pub fn from_sctx(sctx: &RedisSearchCtx, granularity: u32) -> Self {
-        if sctx.time.skipTimeoutChecks {
+    ///
+    /// # Safety
+    ///
+    /// Both preconditions of [`TimeoutContextClock::from_deadline`] are forwarded to the caller:
+    ///
+    /// * `sctx` must stay valid, and at a stable address, for as long as the returned context and
+    ///   any iterator built from it are used — not merely for this call. The deadline is read back
+    ///   through a pointer on every probe.
+    /// * No write to `sctx.time.timeout` may overlap a probe.
+    ///
+    /// Note that `skipTimeoutChecks` is read once, here, while the deadline is read live. A
+    /// request that flips the flag after its iterators are built (only `TIMEOUT_AFTER_N` does,
+    /// via `AREQ_SetSkipTimeoutChecks`) keeps whichever variant this chose.
+    pub unsafe fn from_sctx(sctx: NonNull<RedisSearchCtx>, granularity: u32) -> Self {
+        // SAFETY: the caller guarantees `sctx` remains valid.
+        let time = unsafe { &raw const (*sctx.as_ptr()).time };
+        // SAFETY: `time` points inside the valid search context.
+        if unsafe { (*time).skipTimeoutChecks } {
             return Self::NoTimeout(NoTimeout);
         }
-        match duration_from_redis_timespec(sctx.time.timeout) {
-            Some(duration) => Self::Clock(TimeoutContextClock::new(duration, granularity)),
-            None => Self::NoTimeout(NoTimeout),
+        // SAFETY: as above.
+        if duration_from_redis_timespec(unsafe { (*time).timeout }).is_none() {
+            return Self::NoTimeout(NoTimeout);
         }
+        // SAFETY: this field projection remains valid as long as `sctx` does.
+        let deadline = unsafe { &raw const (*time).timeout }.cast_mut();
+        let deadline = NonNull::new(deadline).expect("projected from a non-null pointer");
+        // SAFETY: this method forwards the constructor's lifetime and synchronization contract.
+        Self::Clock(unsafe { TimeoutContextClock::from_deadline(deadline, granularity) })
     }
 }
 
@@ -244,6 +316,20 @@ impl TimeoutContext for AnyTimeoutContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A deadline `secs` from now, on the clock the live variant reads.
+    fn deadline_in(secs: i64) -> ffi::timespec {
+        let mut now = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        // SAFETY: `now` is writable and the clock id is valid.
+        unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC_RAW, &mut now) };
+        ffi::timespec {
+            tv_sec: now.tv_sec + secs,
+            tv_nsec: now.tv_nsec,
+        }
+    }
 
     #[test]
     fn clock_context_does_not_time_out_within_deadline() {
@@ -298,6 +384,34 @@ mod tests {
         assert!(ctx.check_timeout().is_ok());
         ctx.reset_counter();
         assert!(ctx.check_timeout().is_ok());
+    }
+
+    /// The bug the live variant exists to prevent.
+    ///
+    /// An iterator tree is built once and reused for the whole life of a cursor, while every
+    /// cursor read calls `SearchCtx_UpdateTime` to give that read its own budget. A context that
+    /// captured the deadline at construction would keep measuring against the *first* read's
+    /// deadline, long past, and report a timeout for a budget just extended.
+    #[test]
+    #[cfg_attr(miri, ignore = "miri has no clock_gettime(CLOCK_MONOTONIC_RAW)")]
+    fn clock_context_follows_a_deadline_that_moves() {
+        let mut deadline = deadline_in(-1);
+        // Derive the pointer once and drive both the checker and the re-arm through it, the way C
+        // writes to the very location the iterator reads back.
+        let ptr = NonNull::from(&mut deadline);
+        // SAFETY: `deadline` outlives the checker and is not written during a probe.
+        let mut ctx = unsafe { TimeoutContextClock::from_deadline(ptr, 1) };
+        assert!(
+            ctx.check_timeout().is_err(),
+            "a deadline already in the past must be reported as timed out",
+        );
+        // Re-arm, as `SearchCtx_UpdateTime` does at the start of the next cursor read.
+        // SAFETY: `ptr` still points to `deadline`, and no probe overlaps the write.
+        unsafe { ptr.as_ptr().write(deadline_in(60)) };
+        assert!(
+            ctx.check_timeout().is_ok(),
+            "the re-armed deadline must be picked up, not the one seen at construction",
+        );
     }
 
     // The `BlockedClient` variant is a thin wrapper around the C symbol
