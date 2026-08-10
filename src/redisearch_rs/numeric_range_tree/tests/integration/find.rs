@@ -253,6 +253,76 @@ fn test_find_windowed_with_fewer_matches_than_limit() {
     }
 }
 
+/// Consecutive windows must tile the unbounded result: advancing `offset` by
+/// the consumed ranges' whole-`num_docs` sum yields the next ranges in order,
+/// with no gap, no overlap, and nothing left over.
+///
+/// This is the contract the optimizer's expand-and-retry loop relies on
+/// (`OPT_Rewind` advances the filter's offset by the drained iterator's
+/// estimate; `NumericScoreSource::expand_window` does the same with its
+/// `RangeWindow`). It is also where the first window's head-leaf-counted-as-1
+/// rule and the full-count offset advance must agree with each other.
+#[rstest]
+#[cfg_attr(miri, ignore = "Too slow to run under miri")]
+fn test_find_windowed_windows_tile(#[values(true, false)] ascending: bool) {
+    let tree = build_large_tree(false);
+    // Fractional bounds so both boundary leaves overlap the filter without
+    // being contained in it, exercising the head-leaf special case.
+    let filter = make_filter_full(2.5, 4321.5, ascending);
+
+    let all = tree.find(&filter);
+    assert!(all.len() > 3, "fixture must produce several ranges");
+
+    // Walk the tree window by window, advancing `offset` the way the
+    // consumers do: by the whole-range document count of what was consumed.
+    let mut window = RangeWindow {
+        offset: 0,
+        limit: 100,
+    };
+    let mut tiled = Vec::new();
+    loop {
+        let ranges = tree.find_windowed(&filter, window);
+        if ranges.is_empty() {
+            break;
+        }
+        window.offset += ranges.iter().map(|r| r.num_docs() as usize).sum::<usize>();
+        tiled.extend(ranges);
+        assert!(
+            tiled.len() <= all.len(),
+            "windows returned more ranges than the unbounded find: overlap or \
+             non-termination (offset={}, limit={})",
+            window.offset,
+            window.limit,
+        );
+    }
+
+    // Both sequences borrow ranges from the same tree, so correct tiling means
+    // they hold literally the same ranges in the same order — which pointer
+    // identity states directly, proving completeness, order, and disjointedness
+    // at once. Comparing bounds instead would assume `(min_val, max_val)`
+    // uniquely identifies a range, and the tree does not promise that: with
+    // `max_depth_range > 0`, an internal node retains a range indexing the
+    // same documents as its subtree, whose bounds can coincide with a child
+    // leaf's. The containment shortcut in the traversal picks between exactly
+    // those two, so a bounds comparison could miss a divergence there.
+    assert_eq!(
+        tiled.len(),
+        all.len(),
+        "windows must cover every range exactly once"
+    );
+    for (i, (tiled, all)) in tiled.iter().zip(all.iter()).enumerate() {
+        assert!(
+            std::ptr::eq(*tiled, *all),
+            "window tiling diverged from the unbounded result at position {i}: \
+             got [{}, {}], expected [{}, {}]",
+            tiled.min_val(),
+            tiled.max_val(),
+            all.min_val(),
+            all.max_val(),
+        );
+    }
+}
+
 #[test]
 fn test_find_on_empty_tree() {
     let tree = NumericRangeTree::new(false);
