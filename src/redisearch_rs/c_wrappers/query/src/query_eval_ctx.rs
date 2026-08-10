@@ -91,6 +91,12 @@ impl QueryEvalContext {
         unsafe { &*self.as_ref().sctx }
     }
 
+    /// Raw pointer to the [`ffi::RedisSearchCtx`], for passing to C functions
+    /// that take a `const RedisSearchCtx *`.
+    pub const fn sctx_ptr(&self) -> *const ffi::RedisSearchCtx {
+        self.as_ref().sctx
+    }
+
     /// The [`ffi::IndexSpec`] being queried.
     pub fn spec(&self) -> &ffi::IndexSpec {
         // SAFETY: invariant (2) of `new` guarantees `sctx.spec` is a valid,
@@ -236,7 +242,10 @@ impl QueryEvalContext {
     /// # Safety
     ///
     /// The returned context, and any iterator built from it, must not be used
-    /// after the `AREQ` behind `bcTimeoutAreq` is freed.
+    /// after the `AREQ` behind `bcTimeoutAreq` is freed — nor after `sctx` is
+    /// freed or moved, since the clock-based variant reads the deadline out of
+    /// it on every probe. No write to `sctx.time.timeout` may overlap a probe;
+    /// see [`TimeoutContextClock::from_deadline`](rqe_iterators::utils::TimeoutContextClock::from_deadline).
     ///
     /// A Blocked Client Timeout context holds that `AREQ` as a raw pointer with
     /// no lifetime, so nothing enforces the precondition at compile time:
@@ -264,8 +273,10 @@ impl QueryEvalContext {
             // (or `NoTimeout`) from `sctx.time`.
             None => {
                 let sctx = NonNull::new(self.sctx_ptr().cast_mut()).expect("sctx must be non-null");
-                // SAFETY: this query context keeps `sctx` alive for every derived iterator and
-                // deadline writes do not overlap probes.
+                // SAFETY: invariant (2) of `new` guarantees `sctx` stays valid for the lifetime of
+                // every timeout context and iterator derived from this one, which is what
+                // `from_sctx` needs to read the deadline back on each probe. Writes to the
+                // deadline never overlap a probe (see `TimeoutContextClock::from_deadline`).
                 unsafe { AnyTimeoutContext::from_sctx(sctx, TIMEOUT_CHECK_GRANULARITY) }
             }
         }
