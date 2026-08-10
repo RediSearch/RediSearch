@@ -69,9 +69,12 @@ static ElemSet trieIterRange(Trie *t, const char *begin, size_t nbegin, const ch
   nr1 = strToRunes(begin, nbegin, r1, std::size(r1));
   nr2 = strToRunes(end, nend, r2, std::size(r2));
   // The counts are passed on as buffer lengths, so a truncated decode would
-  // make `Trie_IterateRange` read past the arrays.
-  EXPECT_LE(nr1, std::size(r1));
-  EXPECT_LE(nr2, std::size(r2));
+  // make `Trie_IterateRange` read past the arrays. Bail out before it runs.
+  if (nr1 > std::size(r1) || nr2 > std::size(r2)) {
+    ADD_FAILURE() << "decode truncated: " << nr1 << "/" << nr2 << " runes exceed "
+                  << std::size(r1) << "/" << std::size(r2);
+    return {};
+  }
 
   if (!begin) {
     r1Ptr = NULL;
