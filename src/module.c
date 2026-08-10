@@ -2445,6 +2445,16 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
     searchRequestCtx_Free(req);
     return NULL;
   }
+  if (req->limit == 0 && req->offset != 0) {
+    // `LIMIT <non-zero offset> 0` is rejected here rather than by the shards: the fan-out below
+    // only rewrites the shard LIMIT when `limit > 0`, so this combination would otherwise be sent
+    // verbatim and each shard would reject it with the same error. Failing on the coordinator keeps
+    // the reply identical to standalone (`handleCommonArgs`) without a round trip to the shards.
+    QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT,
+                        "The `offset` of the LIMIT must be 0 when `num` is 0");
+    searchRequestCtx_Free(req);
+    return NULL;
+  }
   req->requestedResultsCount = req->limit + req->offset;
 
   // Handle SORTBY special case

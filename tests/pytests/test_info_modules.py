@@ -1,3 +1,5 @@
+from typing import Any
+
 from common import *
 from RLTest import Env
 import redis
@@ -794,6 +796,8 @@ NON_NUMERIC_LIMIT_CASES = [
 # different error code (QUERY_ERROR_CODE_LIMIT). That code is not mapped to any counter in
 # `QueryErrorsGlobalStats_UpdateError`, so unlike INVALID_LIMIT_CASES this case must leave every
 # metric untouched. Asserted separately in both modes.
+# Both coordinator parsers reject it (`rscParseRequest` for FT.SEARCH, `handleCommonArgs` for
+# FT.AGGREGATE), so in cluster mode it is never fanned out to the shards.
 INVALID_LIMIT_OFFSET_ARGS = ['1', '0']
 INVALID_LIMIT_OFFSET_DESCRIPTION = 'offset must be 0 when num is 0'
 INVALID_LIMIT_OFFSET_ERROR = 'SEARCH_LIMIT_OVER The `offset` of the LIMIT must be 0 when `num` is 0'
@@ -1260,6 +1264,16 @@ class testWarningsAndErrorsCluster:
     coord_args_error_count = int(self.coord_prev_info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC])
     shard_args_error_counts = {shardId: self.shards_prev_info_dict[shardId][WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC]
                                for shardId in range(1, self.env.shardsCount + 1)}
+    def check_counters(env: Env , err_cnt: int, mmsg: str):
+      inf_dict = info_modules_to_dict(env)
+      self.env.assertEqual(inf_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC],
+                           str(err_cnt), message=msg)
+      for shardId in range(1, env.shardsCount + 1):
+        s_conn = env.getConnection(shardId)
+        s_info_dict = info_modules_to_dict(s_conn)
+        self.env.assertEqual(s_info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC],
+                             shard_args_error_counts[shardId],
+                             message=f"Shard {shardId} has wrong args error count for {mmsg}")
 
     for limit_args, description in INVALID_LIMIT_CASES:
       for cmd in ('FT.SEARCH', 'FT.AGGREGATE'):
@@ -1267,16 +1281,8 @@ class testWarningsAndErrorsCluster:
         self.env.expect(cmd, 'idx', 'hello world', 'LIMIT', *limit_args).error().equal(INVALID_LIMIT_ERROR, message=msg)
         # Check coord metric (should change)
         coord_args_error_count += 1
-        info_dict = info_modules_to_dict(self.env)
-        self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC],
-                             str(coord_args_error_count), message=msg)
         # Test counter on each shard (should not change - the command never reached them)
-        for shardId in range(1, self.env.shardsCount + 1):
-          shard_conn = self.env.getConnection(shardId)
-          shard_info_dict = info_modules_to_dict(shard_conn)
-          self.env.assertEqual(shard_info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC],
-                               shard_args_error_counts[shardId],
-                               message=f"Shard {shardId} has wrong args error count for {msg}")
+        check_counters(self.env, coord_args_error_count, msg)
 
     # Non-numeric values are rejected on the coordinator for FT.AGGREGATE, but FT.SEARCH keeps the
     # default LIMIT and fans out, so it answers with results and counts nothing anywhere.
@@ -1288,18 +1294,21 @@ class testWarningsAndErrorsCluster:
               .error().equal(INVALID_LIMIT_ERROR, message=msg)
       # Check coord metric (should change for the FT.AGGREGATE rejection only)
       coord_args_error_count += 1
-      info_dict = info_modules_to_dict(self.env)
-      self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC],
-                           str(coord_args_error_count), message=msg)
-      # Test counter on each shard (should not change - the fanned out FT.SEARCH is well formed)
-      for shardId in range(1, self.env.shardsCount + 1):
-        shard_conn = self.env.getConnection(shardId)
-        shard_info_dict = info_modules_to_dict(shard_conn)
-        self.env.assertEqual(shard_info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC],
-                             shard_args_error_counts[shardId],
-                             message=f"Shard {shardId} has wrong args error count for {msg}")
+      # Test counter on each shard (should not change - the fanned out FT.SEARCH is well-formed)
+      check_counters(self.env, coord_args_error_count, msg)
 
-    # `LIMIT 1 0` is rejected with its own error, and with an error code that is not counted
+    # `LIMIT 1 0` is rejected with its own error, and with an error code that is not counted.
+    # The args error metric cannot tell a shard-side rejection apart from a command that never
+    # arrived (QUERY_ERROR_CODE_LIMIT is mapped to no counter), so the internal command counters
+    # are what prove the rejection happens on the coordinator, before any fan-out.
+    def internal_call_counts(shard_conn):
+      cmdstats = shard_conn.execute_command('INFO', 'COMMANDSTATS')
+      return {cmd: cmdstats.get(f'cmdstat__{cmd}', {}).get('calls', 0)
+              for cmd in ('FT.SEARCH', 'FT.AGGREGATE')}
+
+    prev_internal_calls = {shardId: internal_call_counts(self.env.getConnection(shardId))
+                           for shardId in range(1, self.env.shardsCount + 1)}
+
     for cmd in ('FT.SEARCH', 'FT.AGGREGATE'):
       msg = _invalid_limit_case_message(cmd, INVALID_LIMIT_OFFSET_ARGS, INVALID_LIMIT_OFFSET_DESCRIPTION)
       self.env.expect(cmd, 'idx', 'hello world', 'LIMIT', *INVALID_LIMIT_OFFSET_ARGS) \
@@ -1315,6 +1324,9 @@ class testWarningsAndErrorsCluster:
         self.env.assertEqual(shard_info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC],
                              shard_args_error_counts[shardId],
                              message=f"Shard {shardId} has wrong args error count for {msg}")
+        # No internal command was issued to any shard - the coordinator rejected the request
+        self.env.assertEqual(internal_call_counts(shard_conn), prev_internal_calls[shardId],
+                             message=f"Shard {shardId} was sent an internal command for {msg}")
 
     # Test other metrics not changed
     tested_in_this_test = [ARGS_ERROR_SHARD_METRIC, ARGS_ERROR_COORD_METRIC]
