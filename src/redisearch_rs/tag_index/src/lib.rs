@@ -768,9 +768,10 @@ impl TagIndex {
         // SAFETY: 3. guarantees sctx/spec validity for the checker's lifetime.
         let checker = unsafe { FieldExpirationChecker::new(sctx, filter_ctx, reader.flags()) };
 
-        // SAFETY: 1. guarantees the index (and thus the trie backing this
-        // lookup) outlives the iterator.
-        let lookup = TrieLookup(NonNull::from(self));
+        // SAFETY: contract 1 guarantees the index — and thus the trie backing
+        // this lookup — outlives the iterator, and that it is mutated only
+        // between revalidations.
+        let lookup = unsafe { TrieLookup::new(NonNull::from(self)) };
 
         // SAFETY: 3. guarantees `sctx` and `sctx.spec` are valid.
         let iterator = unsafe { Tag::new(reader, sctx, lookup, term, weight, checker) };

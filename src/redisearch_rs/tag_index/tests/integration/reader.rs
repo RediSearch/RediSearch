@@ -136,6 +136,65 @@ fn value_path_reads_all_matching_docs_via_c_vtable() {
     unsafe { (*it).Free.expect("Free is set")(it) };
 }
 
+/// Revalidating through the C vtable aborts once the garbage collector has
+/// dropped the tag's postings — the lookup no longer resolves the tag, so the
+/// reader is stale.
+///
+/// The lib-level test of this covers a hand-built lookup; this one goes through
+/// `query_iterator_for_value`, so it is the lookup that `get_reader` actually
+/// installs in production that gets exercised, and it drives `Revalidate` the way
+/// the C query layer does.
+#[test]
+fn revalidate_aborts_after_gc_via_c_vtable() {
+    let tags: &[&[u8]] = &[b"team"];
+    let mut tag_index = TagIndex::new(1, None, false);
+    for doc_id in 1..=3 {
+        index_mem(&mut tag_index, tags, doc_id);
+    }
+    // Heap-allocate and reach the index through a raw pointer, so it can be
+    // mutated while the iterator holds its back-pointer — as C owns it across GC
+    // cycles.
+    let tag_index = Box::into_raw(Box::new(tag_index));
+
+    let mock = MockContext::new(3, 3);
+    // SAFETY: just allocated, and mutated below only between revalidations.
+    let idx = unsafe { &*tag_index };
+    let ii = idx.find_value(b"team").expect("tag was indexed");
+    // SAFETY: `tag_index` and `mock` outlive the iterator, `ii` is the trie's
+    // current value for the tag, and the iterator is freed below.
+    let it = unsafe { idx.query_iterator_for_value(mock.sctx(), b"team", ii, 1.0, 0) };
+    assert!(!it.is_null());
+
+    // SAFETY: `mock` owns a valid `RedisSearchCtx` for the whole test.
+    let spec = unsafe { (*mock.sctx().as_ptr()).spec };
+    // SAFETY: `it` is the valid iterator built above.
+    let revalidate = unsafe { (*it).Revalidate }.expect("Revalidate is set");
+
+    // SAFETY: `it` is valid and positioned, and `spec` is the mock's live spec.
+    let status = unsafe { revalidate(it, spec) };
+    assert_eq!(status, ffi::ValidateStatus_VALIDATE_OK);
+
+    // Simulate the garbage collector dropping every document for the tag.
+    // SAFETY: the iterator is untouched during the mutation, per the
+    // revalidation protocol.
+    unsafe { (*tag_index).delete_tag_value(b"team") };
+
+    // SAFETY: as above; the protocol allows a read only after revalidating.
+    let status = unsafe { revalidate(it, spec) };
+    assert_eq!(
+        status,
+        ffi::ValidateStatus_VALIDATE_ABORTED,
+        "a reader whose tag the GC removed must abort"
+    );
+
+    // SAFETY: `it` is the valid iterator built above.
+    let free = unsafe { (*it).Free }.expect("Free is set");
+    // SAFETY: hands ownership of `it` back; nothing touches it afterwards.
+    unsafe { free(it) };
+    // SAFETY: allocated with `Box::into_raw`; the iterator borrowing it is gone.
+    drop(unsafe { Box::from_raw(tag_index) });
+}
+
 /// An inverted index with no documents yields no iterator, matching the C
 /// `TagIndex_GetIteratorFromTrieMapValue` returning NULL for an empty value.
 #[test]
