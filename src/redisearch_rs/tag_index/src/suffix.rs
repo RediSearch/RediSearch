@@ -247,6 +247,8 @@ impl TagSuffixIndex {
         self.entries.lending_iter()
     }
 
+    /// Iterate over the `(suffix, data)` entries whose key starts with `prefix`,
+    /// in lexicographical order — how a contains query (`*foo*`) expands.
     pub fn prefixed_iter(&self, prefix: &[u8]) -> trie_rs::iter::Iter<'_, SuffixData, VisitAll> {
         self.entries.prefixed_iter(prefix)
     }
@@ -296,10 +298,14 @@ impl TagSuffixIndex {
         }
     }
 
-    pub fn find(&self, prefix: &[u8]) -> Option<&SuffixData> {
-        self.entries.find(prefix)
+    /// The entry keyed by exactly `key`, if any — how a suffix query (`*foo`)
+    /// expands, `key` being the suffix itself.
+    pub fn find(&self, key: &[u8]) -> Option<&SuffixData> {
+        self.entries.find(key)
     }
 
+    /// Bytes the suffix trie occupies, counted into
+    /// [`TagIndex::get_overhead`](crate::TagIndex::get_overhead).
     pub const fn mem_usage(&self) -> usize {
         self.entries.mem_usage()
     }

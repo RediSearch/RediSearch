@@ -242,7 +242,11 @@ impl TagIndex {
         }
     }
 
-    /// Get the id.
+    /// The unique id this index was created with (C: `TagIndex_GetId`).
+    ///
+    /// The fork GC captures it before scanning and re-checks it before applying a
+    /// delta, so that an index dropped and recreated in between is not mistaken
+    /// for the one that was scanned.
     pub const fn id(&self) -> u32 {
         self.unique_id
     }
@@ -259,6 +263,8 @@ impl TagIndex {
         matches!(self.mode, TagIndexMode::Disk { .. })
     }
 
+    /// How many distinct tags the index holds, in either mode (C:
+    /// `TagIndex_NUniqueValues`).
     pub const fn unique_values(&self) -> usize {
         match &self.mode {
             TagIndexMode::InMemory { values } => values.n_unique_keys(),
@@ -672,8 +678,27 @@ impl TagIndex {
         self.remove_tag_value(tag);
     }
 
+    /// Create a [`QueryIterator`] over the documents matching `tag`, or `None`
+    /// when the tag is absent or holds no documents.
+    ///
+    /// Port of the C `TagIndex_OpenReader`. In memory mode the tag is resolved in
+    /// the values trie and the postings are read inline. In disk mode the reader
+    /// is built through the disk API, keyed by the tag string, and uses the
+    /// caller's `field_index` rather than the field recorded at write time —
+    /// matching C.
+    ///
     /// # Safety
-    /// - status needs to be valid for SearchDisk_NewTagIterator function.
+    ///
+    /// 1. `self` must outlive the returned iterator, and must not be mutated
+    ///    while it is in use except under the standard revalidation protocol.
+    ///    The memory-mode iterator is the one
+    ///    [`query_iterator_for_value`](Self::query_iterator_for_value) builds and
+    ///    shares its contract; see there for what the protocol requires.
+    /// 2. `sctx` and `sctx.spec` must be valid and outlive the returned iterator.
+    /// 3. `status` must be null or point to a valid [`QueryError`]. Only the disk
+    ///    branch writes it; memory mode leaves it untouched, as in C.
+    /// 4. The caller owns the returned iterator and must free it through its
+    ///    `Free` callback (`it->Free(it)`).
     pub unsafe fn open_reader(
         &self,
         sctx: NonNull<RedisSearchCtx>,
@@ -753,11 +778,13 @@ impl TagIndex {
             .expect("RQEIteratorWrapper::boxed_new never returns NULL pointer")
     }
 
+    /// Bytes the index's tries occupy, as reported by `FT.INFO`.
+    ///
+    /// Port of the C `TagIndex_GetOverhead`: the values trie plus the suffix trie,
+    /// in both modes. In disk mode the values trie holds only tag-presence
+    /// sentinels — the postings live on disk and are accounted for by the disk
+    /// backend — but the trie structure itself is still counted.
     pub const fn get_overhead(&self) -> usize {
-        // Port of the C `TagIndex_GetOverhead`: the values trie plus the suffix
-        // trie, in both modes. In disk mode the values trie only holds tag
-        // presence sentinels (the postings live on disk and are accounted for
-        // by the disk backend), but the trie structure itself is still counted.
         let mut size = match &self.mode {
             TagIndexMode::InMemory { values } => values.mem_usage(),
             TagIndexMode::Disk { values, .. } => values.mem_usage(),
