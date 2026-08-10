@@ -219,6 +219,21 @@ pub trait RQEIterator<'index> {
     /// The iterator should check if it is still valid by comparing its stored state
     /// against the current index state.
     ///
+    /// # Errors
+    ///
+    /// Revalidation re-reads and seeks the index to restore the position, so it can fail with an
+    /// [`RQEIteratorError`] — [`TimedOut`](RQEIteratorError::TimedOut) or
+    /// [`IoError`](RQEIteratorError::IoError) — which is distinct from
+    /// [`Aborted`](RQEValidateStatus::Aborted). On `Err` the fix-up is left half-applied: children
+    /// may have been repositioned or dropped while the state derived from them was never re-synced.
+    /// The iterator is therefore in an indeterminate state, and the caller must drop it rather than
+    /// read from it or revalidate it again. This mirrors [`RQESuspendedIterator::resume`], which
+    /// consumes the iterator and drops it on the same failure.
+    ///
+    /// At the FFI boundary the two errors are reported apart: `TimedOut` becomes
+    /// `VALIDATE_TIMEOUT`, which tells the C caller the result set is incomplete, while `IoError`
+    /// becomes `VALIDATE_ABORTED`, a dead subtree in a query that still has time left.
+    ///
     /// # Locking
     ///
     /// The caller must hold the spec read lock, represented by [`IndexSpecReadGuard`].
