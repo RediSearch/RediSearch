@@ -13,6 +13,7 @@
 
 #include "module.h"
 #include "rmutil/rm_assert.h"
+#include "info/info_redis/threads/main_thread.h"
 #include "query_error.h"
 #include "query_error_ffi.h"
 #include "redisearch.h"
@@ -231,6 +232,24 @@ static void Cursors_RescheduleSweepLocked(CursorList *cl) {
   if (RS_IsMock) {
     return;
   }
+
+  // `RedisModule_StopTimer` / `RedisModule_CreateTimer` below mutate the
+  // server's event-loop timer state, so they must only be reached from the main
+  // thread. Any caller that can run elsewhere must post
+  // `Cursors_RequestRescheduleSweep` instead of re-arming inline. Which callers
+  // those are depends on how each command is dispatched: `Cursor_Pause` runs on
+  // a worker whenever `FT.CURSOR READ` is handed to the workers pool, and
+  // `Cursors_CollectIdle` does whenever a cluster serves `FT.CURSOR GC` off the
+  // main thread. This assertion is the enforcement, so the rule holds without
+  // having to re-derive the dispatch path of every caller.
+  //
+  // `MainThread_GetBlockedQueries` is a proxy for "am I the thread that ran
+  // `RediSearch_InitModuleInternal`": the TLS slot is populated there and is
+  // NULL on every other thread. It is therefore only a valid main-thread test
+  // after module init, which is guaranteed for any cursor operation.
+  RS_LOG_ASSERT(MainThread_GetBlockedQueries() != NULL,
+                "Cursors_RescheduleSweepLocked must run on the main thread; "
+                "use Cursors_RequestRescheduleSweep from worker threads");
 
   if (cl->idleSweepTimerId != IDLE_SWEEP_TIMER_NONE) {
     RedisModule_StopTimer(RSDummyContext, cl->idleSweepTimerId, NULL);
