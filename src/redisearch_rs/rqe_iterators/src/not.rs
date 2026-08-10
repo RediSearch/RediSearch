@@ -92,7 +92,9 @@ where
                 .weight(weight)
                 .field_mask(RS_FIELDMASK_ALL),
             // SAFETY: forwarded to the caller by this method's contract.
-            timeout_ctx: unsafe { TimeoutContext::from_deadline(deadline, 5_000, skip_timeout_checks) },
+            timeout_ctx: unsafe {
+                TimeoutContext::from_deadline(deadline, 5_000, skip_timeout_checks)
+            },
         }
     }
 

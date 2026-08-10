@@ -7,7 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{ptr::NonNull, time::{Duration, Instant}};
+use std::{
+    ptr::NonNull,
+    time::{Duration, Instant},
+};
 
 use crate::RQEIteratorError;
 
