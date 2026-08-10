@@ -23,6 +23,7 @@ typedef struct {
   QueryIterator *child;       // child index iterator
   t_docId maxDocId;
   TimeoutCtx timeoutCtx;
+  const struct timespec *timeout;
 } NotIterator;
 
 /**

@@ -65,7 +65,7 @@ static IteratorStatus NI_Read_NotOptimized(QueryIterator *base) {
     rc = ni->child->Read(ni->child);
     if (rc == ITERATOR_TIMEOUT) return rc;
     // Check for timeout with low granularity (MOD-5512)
-    if (TimedOut_WithCtx_Gran(&ni->timeoutCtx, 5000)) {
+    if (TimedOut_WithCounter_Gran(ni->timeout, &ni->timeoutCtx.counter, 5000)) {
       base->atEOF = true;
       return ITERATOR_TIMEOUT;
     }
@@ -115,7 +115,7 @@ static IteratorStatus NI_Read_Optimized(QueryIterator *base) {
         if (rc == ITERATOR_TIMEOUT) return rc;
       }
     }
-    if (TimedOut_WithCtx_Gran(&ni->timeoutCtx, 5000)) {
+    if (TimedOut_WithCounter_Gran(ni->timeout, &ni->timeoutCtx.counter, 5000)) {
       return ITERATOR_TIMEOUT;
     }
   }
@@ -326,6 +326,7 @@ QueryIterator *NewNotIterator(QueryIterator *it, t_docId maxDocId, double weight
   ni->child = it;
   ni->maxDocId = maxDocId;          // Valid for the optimized case as well, since this is the maxDocId of the embedded wildcard iterator
   ni->timeoutCtx = (TimeoutCtx){ .timeout = timeout, .counter = 0 };
+  ni->timeout = &q->sctx->time.timeout;
 
   ret->current = NewVirtualResult(weight, RS_FIELDMASK_ALL);
   ret->current->docId = 0;
@@ -350,6 +351,7 @@ QueryIterator *_New_NotIterator_With_WildCardIterator(QueryIterator *child, Quer
   ni->wcii = wcii;
   ni->maxDocId = maxDocId;          // Valid for the optimized case as well, since this is the maxDocId of the embedded wildcard iterator
   ni->timeoutCtx = (TimeoutCtx){ .timeout = timeout, .counter = 0 };
+  ni->timeout = &ni->timeoutCtx.timeout;
 
   ret->current = NewVirtualResult(weight, RS_FIELDMASK_ALL);
   ret->current->docId = 0;
