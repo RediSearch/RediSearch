@@ -13,6 +13,7 @@
 mod create;
 mod disk;
 mod filtered_iteration;
+mod gc;
 mod indexing;
 mod util;
 
