@@ -719,6 +719,102 @@ TEST_F(NotIteratorReducerTest, TestNotWithReaderWildcardChild) {
   InvertedIndex_Free(idx);
 }
 
+/* Which deadline the iterator ends up probing (MOD-17489).
+ *
+ * The clock probe itself cannot be exercised here - `RS_IsMock` short-circuits
+ * `TimedOut_WithCounter_Gran` because the timer API is not registered in these tests, which is why
+ * `NotIteratorSelfTimeoutTest` above is skipped. What is checkable, and what the bug came down to, is
+ * *which* deadline the iterator holds: one it re-reads from the query context, or a copy of its own.
+ */
+class NotIteratorDeadlineTest : public ::testing::Test {};
+
+TEST_F(NotIteratorDeadlineTest, ArmedContextIsProbedByReference) {
+  struct timespec fallback = {LONG_MAX, 999999999};
+  t_docId maxDocId = 100;
+
+  MockQueryEvalCtx mockQctx(maxDocId, maxDocId);
+  mockQctx.sctx.time.timeout = (struct timespec){1000, 500};
+
+  QueryIterator *child = (QueryIterator *)new MockIterator(std::vector<t_docId>{1, 2, 3});
+  QueryIterator *it = NewNotIterator(child, maxDocId, 1.0, fallback, &mockQctx.qctx);
+  NotIterator *ni = (NotIterator *)it;
+
+  // The context's deadline wins over the passed-in copy, and is held by reference.
+  ASSERT_EQ(ni->deadline, &mockQctx.sctx.time.timeout);
+  ASSERT_EQ(ni->deadline->tv_sec, 1000);
+  ASSERT_EQ(ni->deadline->tv_nsec, 500);
+
+  // Re-arming in place, as a cursor read does, is visible to the iterator. Before the fix this is
+  // what the iterator missed: it measured every read against the first read's deadline.
+  mockQctx.sctx.time.timeout = (struct timespec){2000, 600};
+  ASSERT_EQ(ni->deadline->tv_sec, 2000);
+  ASSERT_EQ(ni->deadline->tv_nsec, 600);
+
+  it->Free(it);
+}
+
+TEST_F(NotIteratorDeadlineTest, ArmedContextIsProbedByReferenceOptimized) {
+  struct timespec fallback = {LONG_MAX, 999999999};
+  t_docId maxDocId = 100;
+
+  std::vector<t_docId> wildcard = {1, 2, 3};
+  MockQueryEvalCtx mockQctx(wildcard);
+  mockQctx.sctx.time.timeout = (struct timespec){1000, 500};
+
+  QueryIterator *child = (QueryIterator *)new MockIterator(std::vector<t_docId>{1, 2, 3});
+  QueryIterator *it = NewNotIterator(child, maxDocId, 1.0, fallback, &mockQctx.qctx);
+  NotIterator *ni = (NotIterator *)it;
+
+  ASSERT_NE(ni->wcii, nullptr) << "expected the optimized construction path";
+  ASSERT_EQ(ni->deadline, &mockQctx.sctx.time.timeout);
+
+  mockQctx.sctx.time.timeout = (struct timespec){2000, 600};
+  ASSERT_EQ(ni->deadline->tv_sec, 2000);
+  ASSERT_EQ(ni->deadline->tv_nsec, 600);
+
+  it->Free(it);
+}
+
+TEST_F(NotIteratorDeadlineTest, UnarmedContextFallsBackToOwnedCopy) {
+  struct timespec fallback = {LONG_MAX, 999999999};
+  t_docId maxDocId = 100;
+
+  // `MockQueryEvalCtx` zeroes its search context, so it carries no deadline - the same shape a
+  // benchmark hands over when it cannot keep the context alive past construction.
+  MockQueryEvalCtx mockQctx(maxDocId, maxDocId);
+  ASSERT_EQ(mockQctx.sctx.time.timeout.tv_sec, 0);
+  ASSERT_EQ(mockQctx.sctx.time.timeout.tv_nsec, 0);
+
+  QueryIterator *child = (QueryIterator *)new MockIterator(std::vector<t_docId>{1, 2, 3});
+  QueryIterator *it = NewNotIterator(child, maxDocId, 1.0, fallback, &mockQctx.qctx);
+  NotIterator *ni = (NotIterator *)it;
+
+  // The iterator owns what it probes, so it does not outlive-borrow the context...
+  ASSERT_EQ(ni->deadline, &ni->timeoutCtx.timeout);
+  // ...and it probes the deadline it was handed, not the epoch.
+  ASSERT_EQ(ni->deadline->tv_sec, LONG_MAX);
+  ASSERT_EQ(ni->deadline->tv_nsec, 999999999);
+
+  it->Free(it);
+}
+
+TEST_F(NotIteratorDeadlineTest, WildcardConstructorFallsBackToOwnedCopy) {
+  struct timespec fallback = {LONG_MAX, 999999999};
+  t_docId maxDocId = 100;
+
+  // This constructor takes no query context, so there is nothing to borrow from.
+  QueryIterator *child = (QueryIterator *)new MockIterator(std::vector<t_docId>{1, 2, 3});
+  QueryIterator *wcii = (QueryIterator *)new MockIterator(std::vector<t_docId>{1, 2, 3});
+  QueryIterator *it = _New_NotIterator_With_WildCardIterator(child, wcii, maxDocId, 1.0, fallback);
+  NotIterator *ni = (NotIterator *)it;
+
+  ASSERT_EQ(ni->deadline, &ni->timeoutCtx.timeout);
+  ASSERT_EQ(ni->deadline->tv_sec, LONG_MAX);
+  ASSERT_EQ(ni->deadline->tv_nsec, 999999999);
+
+  it->Free(it);
+}
+
 // Test class for Revalidate functionality of Not Iterator
 class NotIteratorRevalidateTest : public ::testing::Test {
 protected:

@@ -148,9 +148,14 @@ impl QueryIterator {
         // The C code checks: optimized = q && q->sctx && q->sctx->spec && q->sctx->spec->rule && q->sctx->spec->rule->index_all
         // By zeroing everything, we ensure spec->rule is NULL, so optimized = false
         let query_eval_ctx = new_redis_search_ctx(max_doc_id);
+        // The context is zeroed, so it carries no deadline and `NewNotIterator` copies this one into
+        // the iterator instead of borrowing the context's. That is what makes freeing the context
+        // below safe, and it keeps the benchmark measuring iteration rather than tripping the
+        // timeout check every 5,000 skipped documents.
         let timeout = bindings::timespec {
-            tv_sec: 0,
-            tv_nsec: 0,
+            // An "infinite" deadline, matching what the C++ iterator tests pass.
+            tv_sec: std::ffi::c_long::MAX,
+            tv_nsec: 999_999_999,
         };
 
         let it = unsafe {

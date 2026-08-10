@@ -65,7 +65,7 @@ static IteratorStatus NI_Read_NotOptimized(QueryIterator *base) {
     rc = ni->child->Read(ni->child);
     if (rc == ITERATOR_TIMEOUT) return rc;
     // Check for timeout with low granularity (MOD-5512)
-    if (TimedOut_WithCounter_Gran(ni->timeout, &ni->timeoutCtx.counter, 5000)) {
+    if (TimedOut_WithCounter_Gran(ni->deadline, &ni->timeoutCtx.counter, 5000)) {
       base->atEOF = true;
       return ITERATOR_TIMEOUT;
     }
@@ -115,7 +115,7 @@ static IteratorStatus NI_Read_Optimized(QueryIterator *base) {
         if (rc == ITERATOR_TIMEOUT) return rc;
       }
     }
-    if (TimedOut_WithCounter_Gran(ni->timeout, &ni->timeoutCtx.counter, 5000)) {
+    if (TimedOut_WithCounter_Gran(ni->deadline, &ni->timeoutCtx.counter, 5000)) {
       return ITERATOR_TIMEOUT;
     }
   }
@@ -289,6 +289,27 @@ static ValidateStatus NI_Revalidate_Optimized(QueryIterator *base) {
 }
 
 /*
+ * Resolve which deadline the iterator's reads will probe, per the contract on `NewNotIterator`.
+ *
+ * A query that has a deadline gets it probed by reference, so that re-arming it in place between
+ * cursor reads is visible to the iterator. Anything else - no query context, no search context, or a
+ * search context that was never armed - falls back to the copy the iterator owns, which is also the
+ * only safe choice for a caller that does not keep `q` alive.
+ */
+static const struct timespec *NI_ResolveDeadline(NotIterator *ni, QueryEvalCtx *q) {
+  if (q && q->sctx) {
+    const struct timespec *live = &q->sctx->time.timeout;
+    // An unarmed context reads as the epoch, i.e. a deadline that has always been in the past.
+    // `SearchCtx_UpdateTime` only ever re-arms a deadline the request was configured with, so a
+    // context without one now will not acquire one later.
+    if (live->tv_sec != 0 || live->tv_nsec != 0) {
+      return live;
+    }
+  }
+  return &ni->timeoutCtx.timeout;
+}
+
+/*
  * Reduce the not iterator by applying these rules:
  * 1. If the child is an empty iterator or NULL, return a wildcard iterator
  * 2. If the child is a wildcard iterator, return an empty iterator
@@ -326,7 +347,7 @@ QueryIterator *NewNotIterator(QueryIterator *it, t_docId maxDocId, double weight
   ni->child = it;
   ni->maxDocId = maxDocId;          // Valid for the optimized case as well, since this is the maxDocId of the embedded wildcard iterator
   ni->timeoutCtx = (TimeoutCtx){ .timeout = timeout, .counter = 0 };
-  ni->timeout = &q->sctx->time.timeout;
+  ni->deadline = NI_ResolveDeadline(ni, q);
 
   ret->current = NewVirtualResult(weight, RS_FIELDMASK_ALL);
   ret->current->docId = 0;
@@ -351,7 +372,7 @@ QueryIterator *_New_NotIterator_With_WildCardIterator(QueryIterator *child, Quer
   ni->wcii = wcii;
   ni->maxDocId = maxDocId;          // Valid for the optimized case as well, since this is the maxDocId of the embedded wildcard iterator
   ni->timeoutCtx = (TimeoutCtx){ .timeout = timeout, .counter = 0 };
-  ni->timeout = &ni->timeoutCtx.timeout;
+  ni->deadline = NI_ResolveDeadline(ni, NULL);
 
   ret->current = NewVirtualResult(weight, RS_FIELDMASK_ALL);
   ret->current->docId = 0;
