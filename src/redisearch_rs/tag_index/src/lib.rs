@@ -303,16 +303,31 @@ impl TagIndex {
     /// `commitDocument`) and the returned delta is zero — the record count is
     /// tallied in [`commit`](Self::commit), matching the C two-phase contract.
     ///
-    /// In disk mode the caller must pass the valid disk write context `ctx` and
-    /// batch handle `batch` for the ongoing document write, and each tag must
-    /// borrow a NUL-terminated C string (as produced at the FFI boundary);
-    /// memory mode places no requirement on `ctx`/`batch`.
-    pub fn index(
+    /// `has_field_expiration` records whether this document carries a TTL on the
+    /// field being indexed. It is stored per posting as
+    /// [`RSIndexResult::has_field_expiration`] and gates the TTL re-check
+    /// performed on read, so a wrong value silently changes which documents a tag
+    /// query returns.
+    ///
+    /// # Safety
+    ///
+    /// Both conditions apply to disk mode only — memory mode places no
+    /// requirement on `ctx`, `batch`, or the bytes past each tag.
+    ///
+    /// 1. `ctx` and `batch` must be the valid disk write context and batch handle
+    ///    for the ongoing document write.
+    /// 2. Each tag must borrow from a NUL-terminated buffer: the byte at
+    ///    `tag.as_ptr().add(tag.len())` must be readable and zero, so the pointer
+    ///    is usable as the `const char *` the disk API expects. Note this is a
+    ///    property of the surrounding buffer, not of the tag bytes, which stay
+    ///    NUL-free like everywhere else in this crate.
+    pub unsafe fn index(
         &mut self,
         ctx: *const RedisModuleCtx,
         batch: *const SearchDiskWriteBatchHandle,
         tags: &[&[u8]],
         doc_id: DocId,
+        has_field_expiration: bool,
     ) -> Option<WritePostingsDelta> {
         match &mut self.mode {
             TagIndexMode::Disk {
@@ -326,15 +341,14 @@ impl TagIndex {
                 if tags.is_empty() {
                     return Some(WritePostingsDelta::default());
                 }
-                // Each tag borrows a NUL-terminated C string, so its pointer is
+                // Contract 2 puts a NUL just past each tag, so the tag pointer is
                 // directly usable as the `const char *` the disk API expects.
                 let mut value_ptrs: Vec<*const c_char> =
                     tags.iter().map(|tag| tag.as_ptr().cast()).collect();
                 // SAFETY: `disk_index_spec` is a valid `RedisSearchDiskIndexSpec`
-                // (invariant from `new`); the caller guarantees `ctx`/`batch` are
-                // the valid disk write context/batch; `value_ptrs` addresses
-                // `tags.len()` valid NUL-terminated C strings that outlive the
-                // call.
+                // (invariant from `new`); contract 1 covers `ctx`/`batch`; and by
+                // contract 2 every pointer in `value_ptrs` addresses a
+                // NUL-terminated string that outlives the call.
                 let ok = unsafe {
                     ffi::SearchDisk_IndexTags(
                         ctx.cast_mut(),
@@ -348,7 +362,9 @@ impl TagIndex {
                 };
                 ok.then(WritePostingsDelta::default)
             }
-            TagIndexMode::InMemory { values } => Some(write_postings(values, tags, doc_id)),
+            TagIndexMode::InMemory { values } => {
+                Some(write_postings(values, tags, doc_id, has_field_expiration))
+            }
         }
     }
 
@@ -1075,7 +1091,8 @@ mod tests {
         let mut idx = TagIndex::new(1, None, false);
         let tags: &[&[u8]] = &[b"team"];
         for doc_id in 1..=3 {
-            idx.index(std::ptr::null(), std::ptr::null(), tags, doc_id);
+            // SAFETY: memory mode, so neither disk-mode condition of `index` applies.
+            unsafe { idx.index(std::ptr::null(), std::ptr::null(), tags, doc_id, false) };
         }
         // Heap-allocate the index and go through raw pointers so it can be
         // mutated while the iterator holds a lookup back-pointer, mirroring
@@ -1344,10 +1361,14 @@ fn write_postings(
     values: &mut TrieMap<Box<InvertedIndex<DocIdsOnly>>>,
     tags: &[&[u8]],
     doc_id: DocId,
+    has_field_expiration: bool,
 ) -> WritePostingsDelta {
     let mut delta = WritePostingsDelta::default();
 
-    let record = RSIndexResult::build_virt().doc_id(doc_id).build();
+    let mut record = RSIndexResult::build_virt().doc_id(doc_id).build();
+    // The builder always clears this, so set it explicitly: `add_record` reads it
+    // off the record to write the posting's expiration bit (C: `tagIndex_Put`).
+    record.has_field_expiration = has_field_expiration;
     for tag in tags {
         values.insert_with(tag, |slot| {
             let mut ii = slot.unwrap_or_else(|| {

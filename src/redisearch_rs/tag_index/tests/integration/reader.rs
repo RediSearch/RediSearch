@@ -12,10 +12,12 @@
 //! `TagIndex::query_iterator_for_value` (port of
 //! `TagIndex_GetIteratorFromTrieMapValue`) — through their vtable.
 
-use std::ptr::{null, null_mut};
+use std::ptr::null_mut;
 
 use rqe_iterators_test_utils::MockContext;
 use tag_index::TagIndex;
+
+use crate::util::index_mem;
 
 /// Read every document id the iterator yields, in order, until `ITERATOR_EOF`.
 ///
@@ -49,7 +51,7 @@ fn open_reader_reads_all_ids_in_order() {
     let mut tag_index = TagIndex::new(1, None, false);
     let tags: &[&[u8]] = &[b"hello"];
     for doc_id in 1..=N {
-        tag_index.index(null(), null(), tags, doc_id);
+        index_mem(&mut tag_index, tags, doc_id);
     }
 
     let mock = MockContext::new(N, N as usize);
@@ -70,7 +72,7 @@ fn open_reader_reads_all_ids_in_order() {
 fn skip_to_past_last_id_yields_eof() {
     let mut tag_index = TagIndex::new(1, None, false);
     let doc_id: ffi::t_docId = 1;
-    tag_index.index(null(), null(), &[b"hello"], doc_id);
+    index_mem(&mut tag_index, &[b"hello"], doc_id);
 
     let mock = MockContext::new(1, 1);
     let it = unsafe { tag_index.open_reader(mock.sctx(), b"hello", 1.0, 0, null_mut()) }
@@ -99,7 +101,7 @@ fn skip_to_past_last_id_yields_eof() {
 #[test]
 fn open_reader_absent_tag_returns_none() {
     let mut tag_index = TagIndex::new(1, None, false);
-    tag_index.index(null(), null(), &[b"hello"], 1);
+    index_mem(&mut tag_index, &[b"hello"], 1);
 
     let mock = MockContext::new(1, 1);
     assert!(
@@ -116,7 +118,7 @@ fn value_path_reads_all_matching_docs_via_c_vtable() {
     let mut tag_index = TagIndex::new(1, None, false);
     let tags: &[&[u8]] = &[b"team"];
     for doc_id in 1..=3 {
-        tag_index.index(null(), null(), tags, doc_id);
+        index_mem(&mut tag_index, tags, doc_id);
     }
 
     let mock = MockContext::new(3, 3);

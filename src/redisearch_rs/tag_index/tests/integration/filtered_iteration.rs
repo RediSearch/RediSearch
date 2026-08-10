@@ -14,11 +14,11 @@
 //! The traversal logic itself is tested in `trie_rs`; these tests verify that
 //! each mode drives the right traversal over the index's values trie.
 
-use std::ptr::null;
-
 use lending_iterator::LendingIterator;
 use tag_index::{IterMode, TagIndex, ValueIterator};
 use trie_rs::iter::{RangeBoundary, RangeFilter};
+
+use crate::util::index_mem;
 
 /// Collect the keys yielded by a lending iterator over `(key, value)` pairs.
 macro_rules! collect_keys {
@@ -44,7 +44,7 @@ fn value_iter_keys(mut it: ValueIterator<'_>) -> Vec<Vec<u8>> {
 /// Build an in-memory index holding `tags`, each with one document.
 fn index_with_tags(tags: &[&[u8]]) -> TagIndex {
     let mut tag_index = TagIndex::new(1, None, false);
-    tag_index.index(null(), null(), tags, 1);
+    index_mem(&mut tag_index, tags, 1);
     tag_index
 }
 
@@ -130,7 +130,7 @@ fn iter_suffix_entries_is_none_without_suffix_trie() {
 #[test]
 fn iter_suffix_entries_lists_every_suffix() {
     let mut tag_index = TagIndex::new(1, None, true);
-    tag_index.index(null(), null(), &[b"foo"], 1);
+    index_mem(&mut tag_index, &[b"foo"], 1);
     tag_index.commit(&[b"foo"]);
 
     let keys = value_iter_keys(
