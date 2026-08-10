@@ -61,14 +61,15 @@ These record where the implementation refined the plan below:
     only resets the slot value.
   - *KEEPDOCS drop* (the `FT.DROPINDEX` default: index gone, keys kept) —
     nothing else ever removes the dropped spec's entries. `DropIndexCommand`
-    marks `sp->pruneKeyMetaOnFree`, and background teardown
+    records `sp->dropMode = IndexDrop_KeepDocs`, and background teardown
     (`IndexSpec_PruneDocIdMeta`, on the `cleanPool` worker before `DocTable_Free`)
     walks the still-intact DocTable and drops this spec's entry from each key,
     reusing the retained `DMD->keyPtr` as the key list. It opens keys under the
     GIL in bounded batches (`DOCID_META_PRUNE_GIL_BATCH`) — the concurrent-search
     / fork-GC yield pattern — so `FT.DROPINDEX` itself stays O(1) on the main
-    thread. A delete-docs drop leaves the flag clear (those keys and their
-    metadata are removed as the keys are deleted). Disk mode skips this.
+    thread. A delete-docs drop records `IndexDrop_DeleteDocs` and skips the prune
+    (those keys and their metadata are removed as the keys are deleted). Disk
+    mode skips it too.
   - *Synchronous `_FREE_RESOURCE_ON_THREAD false` path:* when the spec is freed
     inline, `DropIndexCommand` prunes from the Redis command path before
     `Indexes_RemoveSpecFromGlobals` and before `DocTable_Free`. That caller
