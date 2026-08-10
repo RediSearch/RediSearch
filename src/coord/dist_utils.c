@@ -198,25 +198,28 @@ static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *
   bool timedout = MRIteratorCallback_GetTimedOut(ctx) || shardTimedOut;
 
   if (cmd->rootCommand == C_AGG) {
-    MRCommand newCmd;
     char buf[24]; // enough digits for a long long
-    snprintf(buf, sizeof(buf), "%lld", cursorId);
+    int bufLen = snprintf(buf, sizeof(buf), "%lld", cursorId);
     // AGGREGATE commands has the index name at position 1
-    const char *idx = MRCommand_ArgStringPtrLen(cmd, 1, NULL);
+    size_t idxLen;
+    const char *idx = MRCommand_ArgStringPtrLen(cmd, 1, &idxLen);
+    const char *verb;
+    size_t verbLen;
+    MRRootCommand root;
     // If we timed out and not in cursor mode, we want to send the shard a DEL
     // command instead of a READ command (here we know it has more results)
     if (timedout && cmd->forProfiling) {
-      newCmd = MR_NewCommand(4, "_FT.CURSOR", "PROFILE", idx, buf);
       // Internally we delete the cursor
-      newCmd.rootCommand = C_PROFILE;
+      verb = "PROFILE"; verbLen = sizeof("PROFILE") - 1; root = C_PROFILE;
     } else if (timedout && !cmd->forCursor) {
-      newCmd = MR_NewCommand(4, "_FT.CURSOR", "DEL", idx, buf);
-      // Mark that the last command was a DEL command
-      newCmd.rootCommand = C_DEL;
+      verb = "DEL"; verbLen = sizeof("DEL") - 1; root = C_DEL;
     } else {
-      newCmd = MR_NewCommand(4, "_FT.CURSOR", "READ", idx, buf);
-      newCmd.rootCommand = C_READ;
+      verb = "READ"; verbLen = sizeof("READ") - 1; root = C_READ;
     }
+    const char *argv[4] = {"_FT.CURSOR", verb, idx, buf};
+    const size_t lens[4] = {sizeof("_FT.CURSOR") - 1, verbLen, idxLen, (size_t)bufLen};
+    MRCommand newCmd = MR_NewCommandArgvLen(4, argv, lens);
+    newCmd.rootCommand = root;
 
     newCmd.targetShard = cmd->targetShard;
     newCmd.targetShardIdx = cmd->targetShardIdx;
@@ -239,7 +242,7 @@ static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *
       // If we timed out and it's a profile command, we want to get the profile data
       if (cmd->forProfiling) {
         RS_LOG_ASSERT(!cmd->forCursor, "profile is not supported on a cursor command");
-        MRCommand_ReplaceArg(cmd, 1, "PROFILE", strlen("PROFILE"));
+        MRCommand_ReplaceArg(cmd, 1, "PROFILE", sizeof("PROFILE") - 1);
         cmd->rootCommand = C_PROFILE;
       } else if (!cmd->forCursor) {
         // If we timed out and not in cursor mode, we want to send the shard a DEL

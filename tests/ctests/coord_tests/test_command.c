@@ -25,7 +25,9 @@ void testReplaceArgSubstringFallback() {
     const char *expected = "hgreetings world";
 
     // Create a command with a test argument
-    MRCommand cmd = MR_NewCommand(3, "FT.SEARCH", "myindex", test_arg);
+    const char *argv[] = {"FT.SEARCH", "myindex", test_arg};
+    const size_t lens[] = {sizeof("FT.SEARCH") - 1, sizeof("myindex") - 1, strlen(test_arg)};
+    MRCommand cmd = MR_NewCommandArgvLen(3, argv, lens);
 
     int arg_index = 2;
     size_t pos = 1;
@@ -50,7 +52,9 @@ void testReplaceArgSubstringOptimization() {
     const char *expected = "hhi   world";
 
     // Create a command with a test argument
-    MRCommand cmd = MR_NewCommand(3, "FT.SEARCH", "myindex", test_arg);
+    const char *argv[] = {"FT.SEARCH", "myindex", test_arg};
+    const size_t lens[] = {sizeof("FT.SEARCH") - 1, sizeof("myindex") - 1, strlen(test_arg)};
+    MRCommand cmd = MR_NewCommandArgvLen(3, argv, lens);
 
     int arg_index = 2;
     size_t pos = 1;

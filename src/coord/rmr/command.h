@@ -77,8 +77,6 @@ void MRCommand_Free(MRCommand *cmd);
  * binary-safe. Arguments whose bytes can come from a client (query text,
  * user-defined names) must carry their true length — never strlen. */
 MRCommand MR_NewCommandArgvLen(int argc, const char **argv, const size_t *lens);
-/* Variadic creation of a command from a list of strings */
-MRCommand MR_NewCommand(int argc, ...);
 /* Create a command from a list of redis strings */
 MRCommand MR_NewCommandFromRedisStrings(int argc, RedisModuleString **argv);
 
@@ -141,6 +139,9 @@ static inline const char *MRCommand_ArgStringPtrLen(const MRCommand *cmd, size_t
 
 /** Copy from an argument of an existing command */
 void MRCommand_Append(MRCommand *cmd, const char *s, size_t len);
+/* Append a string literal; length computed at compile time. The "" concatenation
+ * rejects anything that is not a string literal. */
+#define MRCommand_AppendLiteral(cmd, lit) MRCommand_Append((cmd), (lit), sizeof("" lit "") - 1)
 void MRCommand_AppendRstr(MRCommand *cmd, RedisModuleString *rmstr);
 void MRCommand_Insert(MRCommand *cmd, int pos, const char *s, size_t n);
 
