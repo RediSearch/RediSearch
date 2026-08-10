@@ -4122,8 +4122,8 @@ int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
 
 int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc != 2) {
-    // FT.INFO {index}
+  if (argc < 2 || argc > 3) {
+    // FT.INFO {index} [PARTIAL]
     return RedisModule_WrongArity(ctx);
   } else if (!SearchCluster_Ready()) {
     // Check that the cluster state is valid
@@ -4131,22 +4131,34 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   }
   RS_AutoMemory(ctx);
 
+  bool partial = false;
+  if (argc == 3) {
+    const char *opt = RedisModule_StringPtrLen(argv[2], NULL);
+    if (strcasecmp(opt, "PARTIAL")) {
+      return RedisModule_ReplyWithErrorFormat(ctx, "Unknown argument `%s`", opt);
+    }
+    partial = true;
+  }
+
   VERIFY_ACL(ctx, argv[1])
 
   if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
-    return IndexInfoCommand(ctx, argv, argc);
+    // Nothing is aggregated, so PARTIAL has nothing to tolerate.
+    return IndexInfoCommand(ctx, argv, 2);
   } else if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
-  MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
+  // Only the index name goes to the shards: `_FT.INFO` reads WITH_INDEX_ERROR_TIME
+  // positionally from argv[2], so forwarding PARTIAL there would displace it.
+  MRCommand cmd = MR_NewCommandFromRedisStrings(2, argv);
   MRCommand_Append(&cmd, WITH_INDEX_ERROR_TIME, strlen(WITH_INDEX_ERROR_TIME));
   MRCommand_SetProtocol(&cmd, ctx);
   MRCommand_SetPrefix(&cmd, "_FT");
 
   struct MRCtx *mctx = MR_CreateCtx(ctx, 0, NULL, NumShards);
-  MR_Fanout(mctx, InfoReplyReducer, cmd, true);
+  MR_Fanout(mctx, partial ? InfoReplyReducerPartial : InfoReplyReducer, cmd, true);
   return REDISMODULE_OK;
 }
 

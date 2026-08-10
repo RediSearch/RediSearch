@@ -228,6 +228,39 @@ def test_index_missing_on_one_shard(env):
     env.expect('FT.MGET', index_name, 'doc1').error().contains(error_msg)
     env.expect('FT.DROP', index_name).error().contains(error_msg)
 
+@skip(cluster=False, min_shards=2)
+def test_info_partial(env):
+    """FT.INFO PARTIAL aggregates the shards that can report on the index instead of
+    failing when one of them cannot."""
+
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    for i in range(20):
+        conn.execute_command('HSET', f'doc{i}', 't', f'hello{i}')
+
+    total_docs = int(index_info(env, 'idx')['num_docs'])
+    env.assertEqual(total_docs, 20)
+
+    last_conn = env.getConnection(0)
+    last_conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+    last_conn.execute_command('_FT.DROPINDEX', 'idx')
+
+    error_msg = 'SEARCH_INDEX_NOT_FOUND Index not found: idx'
+    env.expect('FT.INFO', 'idx').error().contains(error_msg)
+
+    # PARTIAL tolerates the shard that lost the index, and the counters shrink to match
+    # the shards that answered.
+    partial = to_dict(env.cmd('FT.INFO', 'idx', 'PARTIAL'))
+    env.assertLess(int(partial['num_docs']), total_docs)
+
+    # The index error section is still populated, i.e. the shard command keeps carrying
+    # its positional _WITH_INDEX_ERROR_TIME marker.
+    env.assertEqual(to_dict(partial['Index Errors'])['indexing failures'], 0)
+
+    env.expect('FT.INFO', 'idx', 'partial').noError()
+    env.expect('FT.INFO', 'idx', 'BOGUS').error().contains('Unknown argument')
+    env.expect('FT.INFO', 'idx', 'PARTIAL', 'EXTRA').error()
+
 @skip(cluster=False)
 def test_timeout():
     """Tests that timeouts are handled properly by the coordinator.
