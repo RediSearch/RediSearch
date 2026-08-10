@@ -73,8 +73,10 @@ typedef struct {
  * allocated on the stack */
 void MRCommand_Free(MRCommand *cmd);
 
-/* Create a new command from an argv list of strings */
-MRCommand MR_NewCommandArgv(int argc, const char **argv);
+/* Create a new command from an argv list with explicit per-argument lengths;
+ * binary-safe. Arguments whose bytes can come from a client (query text,
+ * user-defined names) must carry their true length — never strlen. */
+MRCommand MR_NewCommandArgvLen(int argc, const char **argv, const size_t *lens);
 /* Variadic creation of a command from a list of strings */
 MRCommand MR_NewCommand(int argc, ...);
 /* Create a command from a list of redis strings */

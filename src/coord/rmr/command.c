@@ -84,12 +84,12 @@ static void MRCommand_Init(MRCommand *cmd, size_t len) {
   cmd->coordStartTime = 0;
 }
 
-MRCommand MR_NewCommandArgv(int argc, const char **argv) {
+MRCommand MR_NewCommandArgvLen(int argc, const char **argv, const size_t *lens) {
   MRCommand cmd = {0};
   MRCommand_Init(&cmd, argc);
 
   for (int i = 0; i < argc; i++) {
-    assignCstr(&cmd, i, argv[i]);
+    assignStr(&cmd, i, argv[i], lens[i]);
   }
   return cmd;
 }

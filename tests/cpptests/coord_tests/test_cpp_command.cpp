@@ -185,13 +185,17 @@ TEST_F(MRCommandTest, testBasicCommandCreation) {
     MRCommand_Free(&cmd);
 }
 
-// Test command creation from argv
+// Test command creation from argv with explicit lengths; the query argument
+// carries an embedded NUL that a strlen-based construction would truncate.
 TEST_F(MRCommandTest, testCommandCreationFromArgv) {
-    const char* argv[] = {"FT.AGGREGATE", "myindex", "*", "GROUPBY", "1", "@category"};
-    MRCommand cmd = MR_NewCommandArgv(6, argv);
+    const std::string query("he\0llo", 6);
+    const char* argv[] = {"FT.AGGREGATE", "myindex", query.data(), "GROUPBY", "1", "@category"};
+    const size_t lens[] = {strlen("FT.AGGREGATE"), strlen("myindex"), query.length(),
+                           strlen("GROUPBY"),      strlen("1"),       strlen("@category")};
+    MRCommand cmd = MR_NewCommandArgvLen(6, argv, lens);
 
     EXPECT_EQ(cmd.num, 6);
-    EXPECT_TRUE(verifyCommandArgs(&cmd, {"FT.AGGREGATE", "myindex", "*", "GROUPBY", "1", "@category"}));
+    EXPECT_TRUE(verifyCommandArgs(&cmd, {"FT.AGGREGATE", "myindex", query, "GROUPBY", "1", "@category"}));
 
     MRCommand_Free(&cmd);
 }

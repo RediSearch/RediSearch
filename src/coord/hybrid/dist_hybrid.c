@@ -322,20 +322,26 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                             IndexSpec *sp, int *outKArgIndex) {
   RS_ASSERT(outKArgIndex != NULL);
   int argOffset;
-  const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
+  size_t index_name_len;
+  const char *index_name = RedisModule_StringPtrLen(argv[1], &index_name_len);
 
   int cmdArgCount = 2;
   const char *cmdArgs[5] = {"_FT.HYBRID", index_name};
+  size_t cmdLens[5] = {strlen("_FT.HYBRID"), index_name_len};
 
   if (profileOptions != EXEC_NO_FLAGS) {
     cmdArgs[0] = "_FT.PROFILE";
-    cmdArgs[cmdArgCount++] = "HYBRID";
+    cmdLens[0] = strlen("_FT.PROFILE");
+    cmdArgs[cmdArgCount] = "HYBRID";
+    cmdLens[cmdArgCount++] = strlen("HYBRID");
     if (profileOptions & EXEC_WITH_PROFILE_LIMITED) {
-      cmdArgs[cmdArgCount++] = "LIMITED";
+      cmdArgs[cmdArgCount] = "LIMITED";
+      cmdLens[cmdArgCount++] = strlen("LIMITED");
     }
-    cmdArgs[cmdArgCount++] = "QUERY";
+    cmdArgs[cmdArgCount] = "QUERY";
+    cmdLens[cmdArgCount++] = strlen("QUERY");
   }
-  *xcmd = MR_NewCommandArgv(cmdArgCount, cmdArgs);
+  *xcmd = MR_NewCommandArgvLen(cmdArgCount, cmdArgs, cmdLens);
 
   // Add all SEARCH-related arguments (SEARCH, query, optional SCORER, YIELD_SCORE_AS)
   int searchOffset = RMUtil_ArgIndex("SEARCH", argv, argc);
