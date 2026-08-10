@@ -55,6 +55,8 @@ help() {
 		REDIS_SERVER=path     Location of redis-server
 		REDIS_PORT=n          Redis server port
 		CONFIG_FILE=file      Path to config file
+		REDIS_TEST_CONFIG=f   redis-server config for every server started, empty for Redis
+		                      defaults (default: redis-test.conf)
 
 		EXT=1|run             Test on existing env (1=running; run=start redis-server)
 		EXT_HOST=addr         Address of existing env (default: 127.0.0.1)
@@ -221,6 +223,7 @@ run_env() {
 	cat <<-EOF > $rltest_config
 		--env-only
 		--oss-redis-path=$REDIS_SERVER
+		--redis-config-file=$REDIS_TEST_CONFIG
 		--module $MODULE
 		--module-args '$MODARGS'
 		$RLTEST_ARGS
@@ -277,6 +280,7 @@ run_tests() {
 		if [[ $RLEC != 1 ]]; then
 			cat <<-EOF > $rltest_config
 				--oss-redis-path=$REDIS_SERVER
+				--redis-config-file=$REDIS_TEST_CONFIG
 				--module $MODULE
 				--module-args '$MODARGS'
 				$RLTEST_ARGS
@@ -301,10 +305,14 @@ run_tests() {
 			if [[ $REJSON_MODULE ]]; then
 				XREDIS_REJSON_ARGS="loadmodule $REJSON_MODULE $REJSON_ARGS"
 			fi
+			if [[ -n $REDIS_TEST_CONFIG ]]; then
+				XREDIS_INCLUDE="include $REDIS_TEST_CONFIG"
+			fi
 
 			xredis_conf=$(mktemp "${TMPDIR:-/tmp}/xredis_conf.XXXXXXX")
 			rm -f $xredis_conf
 			cat <<-EOF > $xredis_conf
+				$XREDIS_INCLUDE
 				loadmodule $MODULE $MODARGS
 				$XREDIS_REJSON_ARGS
 				EOF
@@ -393,6 +401,12 @@ RLEC_PORT=${RLEC_PORT:-12000}
 
 EXT_HOST=${EXT_HOST:-127.0.0.1}
 EXT_PORT=${EXT_PORT:-6379}
+
+# Absolute: RLTest starts each server in that test's db directory, not here.
+REDIS_TEST_CONFIG=${REDIS_TEST_CONFIG-$HERE/redis-test.conf}
+if [[ -n $REDIS_TEST_CONFIG ]] && ! is_abspath "$REDIS_TEST_CONFIG"; then
+	REDIS_TEST_CONFIG="$ROOT/$REDIS_TEST_CONFIG"
+fi
 
 PID=$$
 
