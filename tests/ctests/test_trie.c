@@ -79,11 +79,12 @@ FilterCode stepFilter(unsigned char b, void *ctx, int *matched, void *matchCtx) 
 
 int __trie_add(TrieNode **n, char *str, char *payloadStr, float sc, TrieAddOp op) {
   size_t rlen;
-  rune *runes = strToRunes(str, &rlen);
+  runeBuf buf;
+  rune *runes = runeBufFill(str, strlen(str), &buf, &rlen);
 
   RSPayload payload = {.data = payloadStr, .len = payloadStr ? strlen(payloadStr) : 0};
   int rc = TrieNode_Add(n, runes, rlen, &payload, sc, op, NULL, 0);
-  free(runes);
+  runeBufFree(&buf);
   return rc;
 }
 
@@ -92,11 +93,12 @@ int testRuneUtil() {
   char *str = "yY";
   rune expectedRunes[3] = {121, 89, 3};
   size_t len;
-  rune *runes = strToRunes(str, &len);
+  runeBuf buf;
+  rune *runes = runeBufFill(str, strlen(str), &buf, &len);
   ASSERT_EQUAL(len, 2);
   ASSERT_EQUAL(runes[0], expectedRunes[0]);
   ASSERT_EQUAL(runes[1], expectedRunes[1]);
-  free(runes);
+  runeBufFree(&buf);
   // convert from runes back to string
   size_t backToStrLen;
   char *backToStr = runesToStr(expectedRunes, 2, &backToStrLen);
@@ -107,12 +109,14 @@ int testRuneUtil() {
   size_t unicodeLen;
   rune expectedUnicodeRunes[5] = {216, 8719, 960, 229, 197};
   char *expectedUnicodeStr = "Ø∏πåÅ";
-  rune *unicodeRunes = strToRunes(expectedUnicodeStr, &unicodeLen);
+  runeBuf unicodeBuf;
+  rune *unicodeRunes =
+      runeBufFill(expectedUnicodeStr, strlen(expectedUnicodeStr), &unicodeBuf, &unicodeLen);
   ASSERT_EQUAL(unicodeLen, 5);
   for (int i = 0; i < 5; i++) {
     ASSERT_EQUAL(unicodeRunes[i], expectedUnicodeRunes[i]);
   }
-  free(unicodeRunes);
+  runeBufFree(&unicodeBuf);
   // convert from runes back to string
   size_t backUnicodeStrUtfLen;
   char *backUnicodeStr = runesToStr(expectedUnicodeRunes, 2, &backUnicodeStrUtfLen);
@@ -146,17 +150,20 @@ int testRuneUtil() {
 }
 
 int testPayload() {
-  rune *rootRunes = strToRunes("", NULL);
+  size_t rootLen;
+  runeBuf rootBuf;
+  rune *rootRunes = runeBufFill("", 0, &rootBuf, &rootLen);
   TrieNode *root = __newTrieNode(rootRunes, 0, 0, NULL, 0, 0, 1, 0, Trie_Sort_Score, 0);
   ASSERT(root != NULL)
-  free(rootRunes);
+  runeBufFree(&rootBuf);
 
   char expectedRunes[3] = {'y', 'Y', '\0'};
   int rc = __trie_add(&root, "hello", "yY", 1, ADD_REPLACE);
   ASSERT_EQUAL(1, rc);
 
   size_t rlen;
-  rune *runes = strToRunes("hel", &rlen);
+  runeBuf buf;
+  rune *runes = runeBufFill("hel", strlen("hel"), &buf, &rlen);
   DFAFilter *fc = NewDFAFilter(runes, rlen, 1, 1);
   TrieIterator *it = TrieNode_Iterate(root, FoldingFilterFunc, StackPop, fc);
   rune *s;
@@ -177,17 +184,19 @@ int testPayload() {
   ASSERT(matches > 0);
 
   TrieIterator_Free(it);
-  free(runes);
+  runeBufFree(&buf);
 
   TrieNode_Free(root, NULL);
   return 0;
 }
 
 int testTrie() {
-  rune *rootRunes = strToRunes("", NULL);
+  size_t rootLen;
+  runeBuf rootBuf;
+  rune *rootRunes = runeBufFill("", 0, &rootBuf, &rootLen);
   TrieNode *root = __newTrieNode(rootRunes, 0, 0, NULL, 0, 0, 1, 0, Trie_Sort_Score, 0);
   ASSERT(root != NULL)
-  free(rootRunes);
+  runeBufFree(&rootBuf);
 
   int rc = __trie_add(&root, "hello", NULL, 1, ADD_REPLACE);
   ASSERT_EQUAL(1, rc);
@@ -198,7 +207,8 @@ int testTrie() {
 
   __trie_add(&root, "helter skelter", NULL, 3, ADD_REPLACE);
   size_t rlen;
-  rune *runes = strToRunes("helter skelter", &rlen);
+  runeBuf buf;
+  rune *runes = runeBufFill("helter skelter", strlen("helter skelter"), &buf, &rlen);
   float sc = trieExactScore(root, runes, rlen);
   ASSERT(sc == 3);
 
@@ -217,7 +227,7 @@ int testTrie() {
   ASSERT(sc == 12);
 
   TrieNode_Free(root, NULL);
-  free(runes);
+  runeBufFree(&buf);
 
   return 0;
 }
@@ -226,9 +236,11 @@ int testUnicode() {
 
   char *str = "\xc4\x8c\xc4\x87";
 
-  rune *rn = strToRunes("", NULL);
+  size_t rootLen;
+  runeBuf rootBuf;
+  rune *rn = runeBufFill("", 0, &rootBuf, &rootLen);
   TrieNode *root = __newTrieNode(rn, 0, 0, NULL, 0, 0, 1, 0, Trie_Sort_Score, 0);
-  free(rn);
+  runeBufFree(&rootBuf);
   ASSERT(root != NULL)
 
   int rc = __trie_add(&root, str, NULL, 1, ADD_REPLACE);
@@ -236,9 +248,10 @@ int testUnicode() {
   rc = __trie_add(&root, str, NULL, 1, ADD_REPLACE);
   ASSERT_EQUAL(0, rc);
   size_t rlen;
-  rune *runes = strToRunes(str, &rlen);
+  runeBuf buf;
+  rune *runes = runeBufFill(str, strlen(str), &buf, &rlen);
   float sc = trieExactScore(root, runes, rlen);
-  free(runes);
+  runeBufFree(&buf);
   ASSERT(sc == 1);
   TrieNode_Free(root, NULL);
   return 0;
@@ -253,10 +266,11 @@ int testDFAFilter() {
   size_t len = 0;
   ssize_t read;
   size_t rlen;
-  rune *runes = strToRunes("root", &rlen);
-  TrieNode *root = __newTrieNode(runes, 0, rlen, NULL, 0, 0, 0, 0, Trie_Sort_Score, 0);
+  runeBuf rootBuf;
+  rune *rootRunes = runeBufFill("root", strlen("root"), &rootBuf, &rlen);
+  TrieNode *root = __newTrieNode(rootRunes, 0, rlen, NULL, 0, 0, 0, 0, Trie_Sort_Score, 0);
   ASSERT(root != NULL)
-  free(runes);
+  runeBufFree(&rootBuf);
   int i = 0;
   while ((read = getline(&line, &len, fp)) != -1) {
     char *sep = strchr(line, ',');
@@ -269,10 +283,11 @@ int testDFAFilter() {
       *sep-- = 0;
     }
 
-    runes = strToRunes(line, &rlen);
+    runeBuf buf;
+    rune *runes = runeBufFill(line, strlen(line), &buf, &rlen);
     int rc = TrieNode_Add(&root, runes, rlen, NULL, (float)score, ADD_REPLACE, NULL, 0);
     ASSERT(rc == 1);
-    free(runes);
+    runeBufFree(&buf);
 
     i++;
   }
@@ -298,7 +313,7 @@ int testDFAFilter() {
   clock_gettime(CLOCK_REALTIME, &start_time);
 
   for (i = 0; terms[i] != NULL; i++) {
-    runes = strToSingleCodepointFoldedRunes(terms[i], strlen(terms[i]), &rlen);
+    rune *runes = strToSingleCodepointFoldedRunes(terms[i], strlen(terms[i]), &rlen);
     DFAFilter *fc = NewDFAFilter(runes, rlen, 2, 0);
 
     TrieIterator *it = TrieNode_Iterate(root, FoldingFilterFunc, StackPop, fc);
@@ -329,7 +344,8 @@ int testDFAFilter() {
   char *prefixes[] = {"dos", "cb", "gang", "jez", "של", "שח", NULL};
   for (i = 0; prefixes[i] != NULL; i++) {
     // printf("prefix %d: %s\n", i, prefixes[i]);
-    runes = strToRunes(prefixes[i], &rlen);
+    runeBuf buf;
+    rune *runes = runeBufFill(prefixes[i], strlen(prefixes[i]), &buf, &rlen);
 
     DFAFilter *fc = NewDFAFilter(runes, rlen, 1, 1);
 
@@ -352,7 +368,7 @@ int testDFAFilter() {
     ASSERT(matches > 0);
 
     TrieIterator_Free(it);
-    free(runes);
+    runeBufFree(&buf);
   }
 
   TrieNode_Free(root, NULL);
@@ -367,12 +383,13 @@ int testNumDocs() {
 
   // Allocate runes upfront
   size_t helpLen, helpingLen, helperLen, aLen, abLen, abcLen;
-  rune *helpRunes = strToRunes("help", &helpLen);
-  rune *helpingRunes = strToRunes("helping", &helpingLen);
-  rune *helperRunes = strToRunes("helper", &helperLen);
-  rune *aRunes = strToRunes("A", &aLen);
-  rune *abRunes = strToRunes("AB", &abLen);
-  rune *abcRunes = strToRunes("ABC", &abcLen);
+  runeBuf helpBuf, helpingBuf, helperBuf, aBuf, abBuf, abcBuf;
+  rune *helpRunes = runeBufFill("help", strlen("help"), &helpBuf, &helpLen);
+  rune *helpingRunes = runeBufFill("helping", strlen("helping"), &helpingBuf, &helpingLen);
+  rune *helperRunes = runeBufFill("helper", strlen("helper"), &helperBuf, &helperLen);
+  rune *aRunes = runeBufFill("A", strlen("A"), &aBuf, &aLen);
+  rune *abRunes = runeBufFill("AB", strlen("AB"), &abBuf, &abLen);
+  rune *abcRunes = runeBufFill("ABC", strlen("ABC"), &abcBuf, &abcLen);
 
   // Insert "help"
   int rc = Trie_InsertStringBuffer(t, "help", 4, 1.0, 0, NULL, 1);
@@ -487,12 +504,12 @@ int testNumDocs() {
   TrieIterator_Free(it);
 
   // Cleanup
-  free(helpRunes);
-  free(helpingRunes);
-  free(helperRunes);
-  free(aRunes);
-  free(abRunes);
-  free(abcRunes);
+  runeBufFree(&helpBuf);
+  runeBufFree(&helpingBuf);
+  runeBufFree(&helperBuf);
+  runeBufFree(&aBuf);
+  runeBufFree(&abBuf);
+  runeBufFree(&abcBuf);
   TrieType_Free(t);
   return 0;
 }
@@ -508,7 +525,8 @@ int testDeleteThenReinsertResetsState() {
   ASSERT(t != NULL);
 
   size_t helloLen;
-  rune *helloRunes = strToRunes("hello", &helloLen);
+  runeBuf helloBuf;
+  rune *helloRunes = runeBufFill("hello", strlen("hello"), &helloBuf, &helloLen);
 
   // Insert "hello" with score = 2.5 and numDocs = 7 in ADD_INCR mode.
   int rc = Trie_InsertStringBuffer(t, "hello", 5, 2.5, 1, NULL, 7);
@@ -535,7 +553,7 @@ int testDeleteThenReinsertResetsState() {
   ASSERT(node->score == 1.0f);
   ASSERT_EQUAL(3, node->numDocs);
 
-  free(helloRunes);
+  runeBufFree(&helloBuf);
   TrieType_Free(t);
   return 0;
 }
@@ -547,8 +565,9 @@ int testDecrementNumDocs() {
 
   // Allocate runes for lookups
   size_t helloLen, worldLen, cafeLen;
-  rune *helloRunes = strToRunes("hello", &helloLen);
-  rune *worldRunes = strToRunes("world", &worldLen);
+  runeBuf helloBuf, worldBuf, cafeBuf;
+  rune *helloRunes = runeBufFill("hello", strlen("hello"), &helloBuf, &helloLen);
+  rune *worldRunes = runeBufFill("world", strlen("world"), &worldBuf, &worldLen);
 
   // Test 1: Decrement non-existent term
   TrieDecrResult rc = Trie_DecrementNumDocs(t, "nonexistent", 11, 1);
@@ -589,7 +608,7 @@ int testDecrementNumDocs() {
   // Test 5: Unicode string - "café" (UTF-8: 0x63 0x61 0x66 0xC3 0xA9)
   const char *cafe = "caf\xc3\xa9";  // café in UTF-8
   size_t cafeUtf8Len = 5;  // 5 bytes in UTF-8
-  rune *cafeRunes = strToRunes(cafe, &cafeLen);
+  rune *cafeRunes = runeBufFill(cafe, cafeUtf8Len, &cafeBuf, &cafeLen);
 
   insertRc = Trie_InsertStringBuffer(t, cafe, cafeUtf8Len, 1.0, 0, NULL, 8);
   ASSERT_EQUAL(1, insertRc);
@@ -613,9 +632,10 @@ int testDecrementNumDocs() {
 
   // Decrement "help" - should not affect "helper" or "helping"
   size_t helpLen, helperLen, helpingLen;
-  rune *helpRunes = strToRunes("help", &helpLen);
-  rune *helperRunes = strToRunes("helper", &helperLen);
-  rune *helpingRunes = strToRunes("helping", &helpingLen);
+  runeBuf helpBuf, helperBuf, helpingBuf;
+  rune *helpRunes = runeBufFill("help", strlen("help"), &helpBuf, &helpLen);
+  rune *helperRunes = runeBufFill("helper", strlen("helper"), &helperBuf, &helperLen);
+  rune *helpingRunes = runeBufFill("helping", strlen("helping"), &helpingBuf, &helpingLen);
 
   rc = Trie_DecrementNumDocs(t, "help", 4, 5);
   ASSERT_EQUAL(TRIE_DECR_UPDATED, rc);
@@ -633,12 +653,12 @@ int testDecrementNumDocs() {
   ASSERT_EQUAL(3, node->numDocs);  // Unchanged
 
   // Cleanup
-  free(helloRunes);
-  free(worldRunes);
-  free(cafeRunes);
-  free(helpRunes);
-  free(helperRunes);
-  free(helpingRunes);
+  runeBufFree(&helloBuf);
+  runeBufFree(&worldBuf);
+  runeBufFree(&cafeBuf);
+  runeBufFree(&helpBuf);
+  runeBufFree(&helperBuf);
+  runeBufFree(&helpingBuf);
   TrieType_Free(t);
   return 0;
 }
@@ -735,18 +755,19 @@ int testDecrementNumDocsComplex() {
   // Verify initial state
   size_t runeLen;
   rune *runes;
+  runeBuf buf;
 
-  runes = strToRunes("redis", &runeLen);
+  runes = runeBufFill("redis", strlen("redis"), &buf, &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(500, node->numDocs);
-  free(runes);
+  runeBufFree(&buf);
 
-  runes = strToRunes("banana", &runeLen);
+  runes = runeBufFill("banana", strlen("banana"), &buf, &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(80, node->numDocs);
-  free(runes);
+  runeBufFree(&buf);
 
   // ========================================
   // Documents 1-10 were deleted.
@@ -789,7 +810,7 @@ int testDecrementNumDocsComplex() {
                                               decrements[i].delta);
     ASSERT_EQUAL(decrements[i].expectedResult, rc);
 
-    runes = strToRunes(decrements[i].term, &runeLen);
+    runes = runeBufFill(decrements[i].term, decrements[i].len, &buf, &runeLen);
     node = Trie_GetNode(t, runes, runeLen, true, NULL);
 
     if (decrements[i].expectedNumDocsAfter == 0) {
@@ -798,83 +819,83 @@ int testDecrementNumDocsComplex() {
       ASSERT(node != NULL);
       ASSERT_EQUAL(decrements[i].expectedNumDocsAfter, node->numDocs);
     }
-    free(runes);
+    runeBufFree(&buf);
   }
 
   // Verify that "bandana" was deleted but "band" and "banana" still exist
-  runes = strToRunes("bandana", &runeLen);
+  runes = runeBufFill("bandana", strlen("bandana"), &buf, &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node == NULL);
-  free(runes);
+  runeBufFree(&buf);
 
-  runes = strToRunes("band", &runeLen);
+  runes = runeBufFill("band", strlen("band"), &buf, &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(25, node->numDocs);  // Unchanged
-  free(runes);
+  runeBufFree(&buf);
 
-  runes = strToRunes("banana", &runeLen);
+  runes = runeBufFill("banana", strlen("banana"), &buf, &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(77, node->numDocs);  // Was decremented
-  free(runes);
+  runeBufFree(&buf);
 
   // Verify Unicode terms: caféine and 東京 were deleted, café still exists
-  runes = strToRunes(cafeine, &runeLen);
+  runes = runeBufFill(cafeine, strlen(cafeine), &buf, &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node == NULL);  // caféine was deleted
-  free(runes);
+  runeBufFree(&buf);
 
-  runes = strToRunes(tokyo, &runeLen);
+  runes = runeBufFill(tokyo, strlen(tokyo), &buf, &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node == NULL);  // 東京 was deleted
-  free(runes);
+  runeBufFree(&buf);
 
-  runes = strToRunes(cafe, &runeLen);
+  runes = runeBufFill(cafe, strlen(cafe), &buf, &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(100, node->numDocs);  // café: was decremented from 120 to 100
-  free(runes);
+  runeBufFree(&buf);
 
   // Verify 日本語 is unchanged (shares prefix with 日本 which was decremented)
-  runes = strToRunes(nihongo, &runeLen);
+  runes = runeBufFill(nihongo, strlen(nihongo), &buf, &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(150, node->numDocs);  // 日本語 unchanged
-  free(runes);
+  runeBufFree(&buf);
 
   // Verify 日本 was decremented
-  runes = strToRunes(nihon, &runeLen);
+  runes = runeBufFill(nihon, strlen(nihon), &buf, &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(150, node->numDocs);  // 日本: 200 -> 150
-  free(runes);
+  runeBufFree(&buf);
 
   // Verify Zürich is unchanged (different prefix from München which was decremented)
-  runes = strToRunes(zurich, &runeLen);
+  runes = runeBufFill(zurich, strlen(zurich), &buf, &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(70, node->numDocs);  // Zürich unchanged
-  free(runes);
+  runeBufFree(&buf);
 
   // Verify terms that were not touched remain unchanged
-  runes = strToRunes("cat", &runeLen);
+  runes = runeBufFill("cat", strlen("cat"), &buf, &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(200, node->numDocs);
-  free(runes);
+  runeBufFree(&buf);
 
-  runes = strToRunes("redisearch", &runeLen);
+  runes = runeBufFill("redisearch", strlen("redisearch"), &buf, &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(300, node->numDocs);
-  free(runes);
+  runeBufFree(&buf);
 
-  runes = strToRunes("red", &runeLen);
+  runes = runeBufFill("red", strlen("red"), &buf, &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(1000, node->numDocs);
-  free(runes);
+  runeBufFree(&buf);
 
   // Trie size should be numTerms - 3 (bandana, caféine, 東京 were deleted)
   ASSERT_EQUAL(numTerms - 3, Trie_Size(t));
@@ -897,20 +918,20 @@ int testDecrementNumDocsComplex() {
   ASSERT_EQUAL(TRIE_DECR_DELETED, rc);
 
   // Verify all "app*" terms are gone
-  runes = strToRunes("apple", &runeLen);
+  runes = runeBufFill("apple", strlen("apple"), &buf, &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node == NULL);
-  free(runes);
+  runeBufFree(&buf);
 
-  runes = strToRunes("application", &runeLen);
+  runes = runeBufFill("application", strlen("application"), &buf, &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node == NULL);
-  free(runes);
+  runeBufFree(&buf);
 
-  runes = strToRunes("apply", &runeLen);
+  runes = runeBufFill("apply", strlen("apply"), &buf, &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node == NULL);
-  free(runes);
+  runeBufFree(&buf);
 
   // Trie size should now be numTerms - 6 (3 from first pass + 3 app* terms)
   ASSERT_EQUAL(numTerms - 6, Trie_Size(t));
@@ -928,34 +949,34 @@ int testDecrementNumDocsComplex() {
   // Test underflow protection in batch scenario
   // ========================================
   // Decrement "redis" by more than it has
-  runes = strToRunes("redis", &runeLen);
+  runes = runeBufFill("redis", strlen("redis"), &buf, &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node != NULL);
   size_t currentRedisCount = node->numDocs;  // Should be 490
   ASSERT_EQUAL(490, currentRedisCount);
-  free(runes);
+  runeBufFree(&buf);
 
   // Try to decrement by 1000 (more than 490)
   rc = Trie_DecrementNumDocs(t, "redis", 5, 1000);
   ASSERT_EQUAL(TRIE_DECR_DELETED, rc);  // Should clamp to 0 and delete
 
-  runes = strToRunes("redis", &runeLen);
+  runes = runeBufFill("redis", strlen("redis"), &buf, &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node == NULL);  // Should be deleted
-  free(runes);
+  runeBufFree(&buf);
 
   // But "redisearch" and "red" should still exist
-  runes = strToRunes("redisearch", &runeLen);
+  runes = runeBufFill("redisearch", strlen("redisearch"), &buf, &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(300, node->numDocs);
-  free(runes);
+  runeBufFree(&buf);
 
-  runes = strToRunes("red", &runeLen);
+  runes = runeBufFill("red", strlen("red"), &buf, &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(1000, node->numDocs);
-  free(runes);
+  runeBufFree(&buf);
 
   TrieType_Free(t);
   return 0;
@@ -970,6 +991,7 @@ int testDecrementNumDocsNonTerminal() {
   TrieDecrResult rc;
   size_t runeLen;
   rune *runes;
+  runeBuf buf;
 
   // ========================================
   // Test 1: Non-terminal prefix node (split scenario)
@@ -980,12 +1002,12 @@ int testDecrementNumDocsNonTerminal() {
   ASSERT_EQUAL(1, Trie_Size(t));
 
   // Verify "helloworld" exists and is terminal
-  runes = strToRunes("helloworld", &runeLen);
+  runes = runeBufFill("helloworld", strlen("helloworld"), &buf, &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT(TrieNode_IsTerminal(node));
   ASSERT_EQUAL(100, node->numDocs);
-  free(runes);
+  runeBufFree(&buf);
 
   // Try to decrement "hello" which is NOT a terminal node (just a prefix)
   // This should return NOT_FOUND, not corrupt the trie
@@ -993,11 +1015,11 @@ int testDecrementNumDocsNonTerminal() {
   ASSERT_EQUAL(TRIE_DECR_NOT_FOUND, rc);
 
   // Verify "helloworld" is still intact
-  runes = strToRunes("helloworld", &runeLen);
+  runes = runeBufFill("helloworld", strlen("helloworld"), &buf, &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(100, node->numDocs);
-  free(runes);
+  runeBufFree(&buf);
 
   // Trie size should still be 1
   ASSERT_EQUAL(1, Trie_Size(t));
@@ -1011,29 +1033,29 @@ int testDecrementNumDocsNonTerminal() {
   ASSERT_EQUAL(2, Trie_Size(t));
 
   // Verify "hello" is now terminal
-  runes = strToRunes("hello", &runeLen);
+  runes = runeBufFill("hello", strlen("hello"), &buf, &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT(TrieNode_IsTerminal(node));
   ASSERT_EQUAL(50, node->numDocs);
-  free(runes);
+  runeBufFree(&buf);
 
   // Decrement "hello" should now work
   rc = Trie_DecrementNumDocs(t, "hello", 5, 10);
   ASSERT_EQUAL(TRIE_DECR_UPDATED, rc);
 
-  runes = strToRunes("hello", &runeLen);
+  runes = runeBufFill("hello", strlen("hello"), &buf, &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(40, node->numDocs);
-  free(runes);
+  runeBufFree(&buf);
 
   // "helloworld" should still be intact
-  runes = strToRunes("helloworld", &runeLen);
+  runes = runeBufFill("helloworld", strlen("helloworld"), &buf, &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(100, node->numDocs);
-  free(runes);
+  runeBufFree(&buf);
 
   // ========================================
   // Test 3: Delete "hello", then try to decrement it again
@@ -1044,21 +1066,21 @@ int testDecrementNumDocsNonTerminal() {
   ASSERT_EQUAL(1, Trie_Size(t));
 
   // "hello" should no longer be found (deleted)
-  runes = strToRunes("hello", &runeLen);
+  runes = runeBufFill("hello", strlen("hello"), &buf, &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node == NULL);
-  free(runes);
+  runeBufFree(&buf);
 
   // Try to decrement again - should return NOT_FOUND
   rc = Trie_DecrementNumDocs(t, "hello", 5, 1);
   ASSERT_EQUAL(TRIE_DECR_NOT_FOUND, rc);
 
   // "helloworld" should still be intact
-  runes = strToRunes("helloworld", &runeLen);
+  runes = runeBufFill("helloworld", strlen("helloworld"), &buf, &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(100, node->numDocs);
-  free(runes);
+  runeBufFree(&buf);
 
   // ========================================
   // Test 4: Multiple levels of non-terminal prefixes
@@ -1084,11 +1106,11 @@ int testDecrementNumDocsNonTerminal() {
   rc = Trie_DecrementNumDocs(t, "abcdefgh", 8, 50);
   ASSERT_EQUAL(TRIE_DECR_UPDATED, rc);
 
-  runes = strToRunes("abcdefgh", &runeLen);
+  runes = runeBufFill("abcdefgh", strlen("abcdefgh"), &buf, &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(150, node->numDocs);
-  free(runes);
+  runeBufFree(&buf);
 
   // ========================================
   // Test 5: Suffix insertion creating split nodes
@@ -1109,18 +1131,18 @@ int testDecrementNumDocsNonTerminal() {
   rc = Trie_DecrementNumDocs(t, "redis", 5, 100);
   ASSERT_EQUAL(TRIE_DECR_UPDATED, rc);
 
-  runes = strToRunes("redis", &runeLen);
+  runes = runeBufFill("redis", strlen("redis"), &buf, &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(400, node->numDocs);
-  free(runes);
+  runeBufFree(&buf);
 
   // "redisearch" should be unaffected
-  runes = strToRunes("redisearch", &runeLen);
+  runes = runeBufFill("redisearch", strlen("redisearch"), &buf, &runeLen);
   node = Trie_GetNode(t, runes, runeLen, true, NULL);
   ASSERT(node != NULL);
   ASSERT_EQUAL(300, node->numDocs);
-  free(runes);
+  runeBufFree(&buf);
 
   TrieType_Free(t);
   return 0;
