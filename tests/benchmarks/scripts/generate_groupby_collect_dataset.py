@@ -106,15 +106,18 @@ QUERY_VARIANTS = {
         "fields": "*",
         "limit": (500, 50),
     },
-    # Baseline for the DISTINCT variants below: same projection and sort, no
-    # DISTINCT. The pair is what makes the DISTINCT number interpretable.
+    # The DISTINCT variants come in pairs: each has a no-DISTINCT twin with the
+    # identical projection and sort, so the only difference between the two is
+    # the flag. Comparing across projections instead would conflate DISTINCT
+    # with the cost of loading, hashing and sorting a different field set.
+    #
+    # Heavy-dedup pair: 12 distinct tuples per group regardless of group size.
     "collect-fields-tags-k50": {
         "load": ["@entityName", *TAG_FIELDS],
         "fields": TAG_FIELDS,
         "sort": TAG_SORT,
         "limit": (0, 50),
     },
-    # Heavy dedup: 12 distinct tuples per group regardless of group size.
     "collect-fields-tags-distinct-k50": {
         "load": ["@entityName", *TAG_FIELDS],
         "fields": TAG_FIELDS,
@@ -122,8 +125,14 @@ QUERY_VARIANTS = {
         "limit": (0, 50),
         "distinct": True,
     },
-    # Light dedup: adding @dueDate (3681 values) leaves most rows unique, so
-    # this measures the DISTINCT machinery when it removes little.
+    # Light-dedup pair: adding @dueDate (3681 values) leaves most rows unique,
+    # so DISTINCT does the work but removes little.
+    "collect-fields-tags-duedate-k50": {
+        "load": ["@entityName", *TAG_FIELDS, "@dueDate"],
+        "fields": [*TAG_FIELDS, "@dueDate"],
+        "sort": [*TAG_SORT, "@dueDate", "ASC"],
+        "limit": (0, 50),
+    },
     "collect-fields-tags-duedate-distinct-k50": {
         "load": ["@entityName", *TAG_FIELDS, "@dueDate"],
         "fields": [*TAG_FIELDS, "@dueDate"],
