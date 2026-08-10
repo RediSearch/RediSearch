@@ -13,8 +13,7 @@
 //! after every mutation (`add`, `trim_empty_leaves`) to catch structural
 //! violations early.
 
-use index_result::RSIndexResult;
-use inverted_index::{IndexReader, NumericFilter};
+use inverted_index::NumericFilter;
 
 use super::{AddResult, CheckedCount, NumericRangeTree, TreeStats, TrimEmptyLeavesResult};
 use crate::NumericRange;
@@ -229,16 +228,14 @@ impl NumericRangeTree {
     /// 2. **Ordering** — consecutive ranges are strictly ordered (ascending or
     ///    descending based on the filter's `ascending` flag). This transitively
     ///    implies pairwise non-overlap.
-    /// 3. **Limit sufficiency** — when the window has a `limit` and the tree
-    ///    contained enough matching documents (`total >= offset + limit`), the
-    ///    returned ranges must collectively hold at least `limit` documents.
-    ///    Both counts are rounded up to whole ranges, so this is the weakest of
-    ///    the three.
+    /// 3. **Windowing** — a window only trims the traversal, so its result is a
+    ///    contiguous stretch of the ranges the same filter returns unbounded,
+    ///    and only a non-zero `limit` may cut the tail short.
     pub(crate) fn check_find_invariants(
+        &self,
         ranges: &[&NumericRange],
         filter: &NumericFilter,
         window: RangeWindow,
-        total: usize,
     ) {
         // Every returned range must overlap the filter.
         for (i, range) in ranges.iter().enumerate() {
@@ -277,38 +274,50 @@ impl NumericRangeTree {
             }
         }
 
-        // Limit sufficiency: if limit > 0 and we had enough matching documents
-        // (total >= offset + limit), the returned ranges must contain at least
-        // `limit` documents whose values fall within the filter bounds.
-        if window.limit > 0 {
-            let target = window.offset.saturating_add(window.limit);
-            if total >= target {
-                let mut docs: usize = 0;
-                for range in ranges {
-                    if range.contained_in(filter.min, filter.max) {
-                        docs += range.num_docs() as usize;
-                    } else {
-                        let mut reader = range.reader();
-                        let mut result = RSIndexResult::build_numeric(0.0).build();
-                        while reader.next_record(&mut result).unwrap_or(false) {
-                            // SAFETY: The entries in a NumericRange always contain
-                            // numeric data—they are created via `RSIndexResult::numeric`.
-                            let value = unsafe { result.as_numeric_unchecked() };
-                            if filter.value_in_range(value) {
-                                docs += 1;
-                            }
-                        }
-                    }
-                }
-                assert!(
-                    docs >= window.limit,
-                    "find invariant violated: limit={} but returned ranges contain only \
-                     {docs} in-bounds docs (total={total}, offset={})",
-                    window.limit,
-                    window.offset,
-                );
-            }
+        // Windowing. Both traversals visit the same ranges in the same order, so
+        // a window can only drop a prefix (the ranges before `offset`) and a
+        // suffix (everything past `limit`) of the unbounded result.
+        if !window.is_bounded() {
+            return;
         }
+        let all = self.find(filter);
+        let Some(first) = ranges.first() else {
+            return;
+        };
+        let start = all
+            .iter()
+            .position(|range| std::ptr::eq(*range, *first))
+            .unwrap_or_else(|| {
+                panic!(
+                    "find invariant violated: windowed range [{}, {}] is absent from the \
+                     unbounded result",
+                    first.min_val(),
+                    first.max_val(),
+                )
+            });
+        let end = start + ranges.len();
+        assert!(
+            all.get(start..end).is_some_and(|slice| {
+                slice
+                    .iter()
+                    .zip(ranges)
+                    .all(|(all, windowed)| std::ptr::eq(*all, *windowed))
+            }),
+            "find invariant violated: the {} windowed ranges are not a contiguous stretch of \
+             the {} unbounded ones (offset={}, limit={})",
+            ranges.len(),
+            all.len(),
+            window.offset,
+            window.limit,
+        );
+
+        // Without a limit the traversal never stops early, so nothing may be
+        // missing from the tail.
+        assert!(
+            window.limit > 0 || end == all.len(),
+            "find invariant violated: an offset-only window dropped {} range(s) from the tail",
+            all.len() - end,
+        );
     }
 
     /// Verify all structural invariants of the tree.

@@ -52,7 +52,7 @@ impl NumericRangeTree {
         Self::recursive_find_ranges(&mut ranges, &self.nodes, self.root, filter, &mut cursor);
 
         #[cfg(all(feature = "unittest", not(miri)))]
-        Self::check_find_invariants(&ranges, filter, window, cursor.total);
+        self.check_find_invariants(&ranges, filter, window);
 
         ranges
     }
