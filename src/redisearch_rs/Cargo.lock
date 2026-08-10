@@ -2501,6 +2501,7 @@ dependencies = [
  "redis-module",
  "redis_mock",
  "redisearch_rs",
+ "rqe_wildcard",
  "rs_token",
  "workspace_hack",
 ]

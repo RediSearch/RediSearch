@@ -57,6 +57,52 @@ fn alloc_zeroed_aux<T>() -> (*mut T, AuxAlloc) {
     (ptr.cast::<T>(), AuxAlloc { ptr, layout })
 }
 
+/// Allocate a writable, NUL-terminated copy of `content` on the heap.
+///
+/// The allocation spans one byte more than `content`: the copy, then the
+/// terminator an in-place token rewrite reads past the end and re-writes at the
+/// shortened end. Allocated raw rather than as a [`Vec`] so the pointer handed to
+/// the node has provenance over the whole buffer, matching how the node itself is
+/// stored (see [`MockQueryNode`]).
+///
+/// The returned [`AuxAlloc`] both keeps the allocation alive and addresses it,
+/// through its [`ptr`](AuxAlloc::ptr).
+fn alloc_token_aux(content: &[u8]) -> AuxAlloc {
+    let layout = Layout::array::<c_char>(content.len() + 1).expect("token layout must be valid");
+    // SAFETY: the layout is never zero-sized — the terminator alone accounts for a
+    // byte — and zeroing it leaves that terminator in place.
+    let ptr = unsafe { alloc_zeroed(layout) };
+    assert!(!ptr.is_null());
+    // SAFETY: `ptr` owns `content.len() + 1` writable bytes and cannot overlap a
+    // caller's slice, so the copy fits and leaves the zeroed final byte untouched.
+    unsafe { std::ptr::copy_nonoverlapping(content.as_ptr(), ptr, content.len()) };
+    AuxAlloc { ptr, layout }
+}
+
+/// A [`QueryNodeType`] whose union payload begins with an [`ffi::RSToken`].
+///
+/// These four are exactly the node types [`MockQueryNode::with_token`] accepts:
+/// [`Token`](QueryNodeType::Token)'s payload *is* a token, and the prefix, fuzzy
+/// and verbatim payloads each start with one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TokenNodeType {
+    Token,
+    Prefix,
+    Fuzzy,
+    WildcardQuery,
+}
+
+impl From<TokenNodeType> for QueryNodeType {
+    fn from(type_: TokenNodeType) -> Self {
+        match type_ {
+            TokenNodeType::Token => Self::Token,
+            TokenNodeType::Prefix => Self::Prefix,
+            TokenNodeType::Fuzzy => Self::Fuzzy,
+            TokenNodeType::WildcardQuery => Self::WildcardQuery,
+        }
+    }
+}
+
 impl Drop for MockQueryNode {
     fn drop(&mut self) {
         // SAFETY: `self.node` is a valid, owned allocation. If `children` is
@@ -175,22 +221,43 @@ impl MockQueryNode {
         }
     }
 
-    /// Set the `str`/`len` fields of the token-node union variant
-    /// ([`ffi::RSToken`]).
+    /// Build a token-carrying node whose [`ffi::RSToken`] addresses a writable,
+    /// NUL-terminated copy of `content` that the node owns.
     ///
-    /// The caller must keep `str_` valid for `len` bytes for as long as the
-    /// node is used (e.g. by owning the backing buffer alongside the node).
+    /// A query-node token is not read-only — evaluation rewrites some in place —
+    /// so a mock token needs backing that is writable, terminated one byte past
+    /// its content, and alive for as long as the node. Rather than leave those to
+    /// a caller's `unsafe` promise, this owns the buffer and copies into it, and
+    /// takes a [`TokenNodeType`] so the payload it writes through is the active
+    /// union variant by construction. That is the whole of what
+    /// [`QueryNodeMut::token_mut`] needs from a node, discharged by the types.
+    ///
+    /// `content` is the string *without* a terminator, and is taken as bytes
+    /// rather than a [`CStr`](std::ffi::CStr) because a token is binary data: an
+    /// interior NUL is legal content, and merely ends the string as far as C is
+    /// concerned.
+    ///
     /// The token's `flags`/`expanded` bitfields keep their zeroed defaults.
-    pub fn set_token(&mut self, str_: *mut c_char, len: usize) {
-        // SAFETY: `self.node` is valid and exclusively owned; the caller
-        // guarantees the node type is Token so the `tn` (`RSToken`) variant is
-        // active.
+    ///
+    /// [`QueryNodeMut::token_mut`]: crate::QueryNodeMut::token_mut
+    pub fn with_token(type_: TokenNodeType, content: impl AsRef<[u8]>) -> Self {
+        let content = content.as_ref();
+        let alloc = alloc_token_aux(content);
+        let str_ = alloc.ptr.cast::<c_char>();
+        let mut this = Self::new(type_.into());
+        this._aux.push(alloc);
+
+        // SAFETY: `self.node` is valid and exclusively owned, and `type_` is a
+        // token-carrying type, so the union's active member either is an `RSToken`
+        // or begins with one.
         unsafe {
-            let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
+            let union_ptr = &raw mut (*this.node).__bindgen_anon_1;
             let tok = &mut *union_ptr.cast::<ffi::RSToken>();
             tok.str_ = str_;
-            tok.len = len;
+            tok.len = content.len();
         }
+
+        this
     }
 
     /// Allocate a children array and populate it with the given child pointers.

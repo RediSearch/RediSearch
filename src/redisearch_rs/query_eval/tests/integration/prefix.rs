@@ -19,14 +19,11 @@
 //! cannot execute.
 #![cfg(not(miri))]
 
-use std::ffi::CString;
-
 use index_result::{RSIndexResult, RSOffsetSlice};
-use query::mock::MockQueryNode;
+use query::mock::{MockQueryNode, TokenNodeType};
 use query_error::QueryErrorCode;
 use query_eval::{Config, EvalResult, QueryEvalContext, QueryNodeMut, eval_node};
 use query_term::RSQueryTerm;
-use query_types::QueryNodeType;
 use rqe_core::{FieldMask, RS_FIELDMASK_ALL};
 use rqe_iterators::{IteratorType, RQEIterator};
 use rqe_iterators_test_utils::{GlobalGuard, TestContext};
@@ -138,9 +135,6 @@ struct PrefixFixture {
     /// prefix-expansion knobs ([`Config::max_prefix_expansions`],
     /// [`Config::min_term_prefix`], ...).
     config: Config,
-    /// Backs the token's string pointer in [`node`](Self::node), which borrows
-    /// it as a raw pointer; must outlive it.
-    _token: CString,
 }
 
 impl PrefixFixture {
@@ -194,11 +188,9 @@ impl PrefixFixture {
         // exclusively owned by this fixture.
         let ctx = unsafe { QueryEvalContext::new(qctx) };
 
-        let token = CString::new(token).expect("token must not contain a NUL byte");
-        let mut node = MockQueryNode::new(QueryNodeType::Prefix);
+        let mut node = MockQueryNode::with_token(TokenNodeType::Prefix, token);
         node.opts_mut().weight = opts.weight;
         node.opts_mut().field_mask = opts.field_mask;
-        node.set_token(token.as_ptr().cast_mut(), token.as_bytes().len());
         node.set_prefix_mode(prefix, suffix);
 
         Self {
@@ -207,7 +199,6 @@ impl PrefixFixture {
             ctx,
             node,
             config,
-            _token: token,
         }
     }
 
