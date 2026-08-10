@@ -48,14 +48,16 @@ void printMRCommand(const MRCommand* cmd) {
     printf("\n");
 }
 
-// Build a command from C strings, standing in for the deleted variadic
+// Build a command from strings, standing in for the deleted variadic
 // MR_NewCommand; production code must pass explicit lengths instead.
-MRCommand newCommand(std::initializer_list<const char*> args) {
-    std::vector<const char*> argv(args);
+MRCommand newCommand(std::initializer_list<std::string> args) {
+    std::vector<const char*> argv;
     std::vector<size_t> lens;
-    lens.reserve(argv.size());
-    for (const char* s : argv) {
-        lens.push_back(strlen(s));
+    argv.reserve(args.size());
+    lens.reserve(args.size());
+    for (const std::string& s : args) {
+        argv.push_back(s.data());
+        lens.push_back(s.size());
     }
     return MR_NewCommandArgvLen((int)argv.size(), argv.data(), lens.data());
 }
@@ -201,10 +203,7 @@ TEST_F(MRCommandTest, testBasicCommandCreation) {
 // carries an embedded NUL that a strlen-based construction would truncate.
 TEST_F(MRCommandTest, testCommandCreationFromArgv) {
     const std::string query("he\0llo", 6);
-    const char* argv[] = {"FT.AGGREGATE", "myindex", query.data(), "GROUPBY", "1", "@category"};
-    const size_t lens[] = {strlen("FT.AGGREGATE"), strlen("myindex"), query.length(),
-                           strlen("GROUPBY"),      strlen("1"),       strlen("@category")};
-    MRCommand cmd = MR_NewCommandArgvLen(6, argv, lens);
+    MRCommand cmd = newCommand({"FT.AGGREGATE", "myindex", query, "GROUPBY", "1", "@category"});
 
     EXPECT_EQ(cmd.num, 6);
     EXPECT_TRUE(verifyCommandArgs(&cmd, {"FT.AGGREGATE", "myindex", query, "GROUPBY", "1", "@category"}));
