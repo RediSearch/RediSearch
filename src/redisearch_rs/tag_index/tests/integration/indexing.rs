@@ -37,6 +37,34 @@ fn indexing_registers_every_tag() {
     assert_eq!(tags, values.as_slice());
 }
 
+/// A document write drives `index` and `commit` from the same tag buffers, so
+/// both must key on those bytes verbatim: the tag stays resolvable afterwards and
+/// the values trie, the suffix trie and iteration all agree on the key.
+///
+/// Nothing else exercises the two phases together, which is how a mismatch
+/// between them could go unnoticed.
+#[test]
+fn index_and_commit_agree_on_the_key() {
+    let mut tag_index = TagIndex::new(1, None, true);
+    let tags: &[&[u8]] = &[b"foo"];
+
+    tag_index.index(null(), null(), tags, 1);
+    tag_index.commit(tags);
+
+    assert!(
+        tag_index.find_value(b"foo").is_some(),
+        "the indexed tag must still resolve under the bytes it was written with"
+    );
+    assert_eq!(value_iter_keys(tag_index.value_iter()), [b"foo".to_vec()]);
+    assert!(
+        tag_index
+            .suffix_trie_map(b"oo", false, None)
+            .next()
+            .is_some(),
+        "the suffix trie must resolve the same tag through one of its suffixes"
+    );
+}
+
 /// Tags are yielded in lexicographical order, whatever the insertion order.
 #[test]
 fn iterate_values_is_lexicographically_ordered() {

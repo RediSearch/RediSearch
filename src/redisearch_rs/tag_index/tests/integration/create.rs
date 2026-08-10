@@ -86,11 +86,13 @@ fn open_index_creates_the_posting_list_once() {
 #[test]
 fn commit_indexes_no_documents() {
     let mut tag_index = TagIndex::new(1, None, true);
-    // `commit` requires NUL-terminated tags for the suffix trie.
-    tag_index.commit(&[b"hello\0", b"world\0"]);
+    tag_index.commit(&[b"hello", b"world"]);
 
     assert_eq!(tag_index.unique_values(), 0, "commit creates no postings");
-    assert!(tag_index.find_value(b"hello\0").is_none());
+    assert!(
+        tag_index.find_value(b"hello").is_none(),
+        "no posting list is registered for a committed-but-unindexed tag"
+    );
 }
 
 /// `get_overhead` accounts for the suffix trie: an index built
@@ -100,7 +102,7 @@ fn commit_indexes_no_documents() {
 /// depend on the trie's absolute byte size).
 #[test]
 fn get_overhead_accounts_for_the_suffix_trie() {
-    let tags: &[&[u8]] = &[b"hello\0", b"world\0"];
+    let tags: &[&[u8]] = &[b"hello", b"world"];
 
     let mut with_suffix = TagIndex::new(1, None, true);
     with_suffix.commit(tags);

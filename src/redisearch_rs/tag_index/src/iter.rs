@@ -211,14 +211,13 @@ impl TagIndex {
             }
         } else {
             match mode {
-                IterMode::Prefix => {
-                    ValueIteratorImpl::MemAll(self.prefixed_iter_values(pattern))
-                }
+                IterMode::Prefix => ValueIteratorImpl::MemAll(self.prefixed_iter_values(pattern)),
                 IterMode::Contains => {
                     ValueIteratorImpl::MemContains(self.contains_iter_values(pattern))
                 }
                 IterMode::Suffix => ValueIteratorImpl::MemSuffix(
-                    self.iter_values().filter(suffix_predicate(pattern.to_vec())),
+                    self.iter_values()
+                        .filter(suffix_predicate(pattern.to_vec())),
                 ),
                 IterMode::Wildcard => {
                     ValueIteratorImpl::MemWildcard(self.wildcard_iter_values(pattern))
@@ -256,7 +255,9 @@ pub struct TagValueReader<'trie> {
 impl<'trie> TagValueReader<'trie> {
     /// Open a reader over `ii`'s postings.
     pub fn new(ii: &'trie InvertedIndex<DocIdsOnly>) -> Self {
-        Self { reader: ii.reader() }
+        Self {
+            reader: ii.reader(),
+        }
     }
 
     /// Read the next record into `res`, returning `true` when a record was

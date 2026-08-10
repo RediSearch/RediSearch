@@ -53,19 +53,10 @@ fn fake_disk_spec() -> NonNull<RedisSearchDiskIndexSpec> {
 }
 
 /// Build a disk-mode index and register `tags` through `commit` (the phase-3
-/// path). `commit` expects NUL-terminated tags, as the FFI boundary hands it.
+/// path).
 fn disk_index_with_tags(tags: &[&[u8]], with_suffix: bool) -> TagIndex {
     let mut idx = TagIndex::new(1, Some((fake_disk_spec(), 0)), with_suffix);
-    let owned: Vec<Vec<u8>> = tags
-        .iter()
-        .map(|t| {
-            let mut v = t.to_vec();
-            v.push(0);
-            v
-        })
-        .collect();
-    let refs: Vec<&[u8]> = owned.iter().map(|v| v.as_slice()).collect();
-    idx.commit(&refs);
+    idx.commit(tags);
     idx
 }
 
@@ -83,7 +74,7 @@ fn disk_spec_means_disk_mode() {
 fn commit_counts_records_and_registers_presence() {
     let mut idx = TagIndex::new(1, Some((fake_disk_spec(), 0)), false);
 
-    let n = idx.commit(&[b"foo\0", b"bar\0", b"foo\0"]);
+    let n = idx.commit(&[b"foo", b"bar", b"foo"]);
     assert_eq!(n, 3, "disk commit counts every committed tag value");
 
     // The duplicate `foo` collapses to a single trie entry.
@@ -98,11 +89,11 @@ fn commit_counts_records_and_registers_presence() {
     );
 }
 
-/// The empty tag (INDEXEMPTY) commits to an empty NUL-free key.
+/// The empty tag (INDEXEMPTY) commits to an empty key.
 #[test]
 fn commit_indexes_the_empty_tag() {
     let mut idx = TagIndex::new(1, Some((fake_disk_spec(), 0)), false);
-    let n = idx.commit(&[b"\0"]);
+    let n = idx.commit(&[b""]);
     assert_eq!(n, 1);
     let values = value_iter_keys(idx.value_iter());
     assert_eq!(values, vec![Vec::<u8>::new()]);
@@ -112,7 +103,7 @@ fn commit_indexes_the_empty_tag() {
 #[test]
 fn memory_commit_reports_no_records() {
     let mut idx = TagIndex::new(1, None, false);
-    assert_eq!(idx.commit(&[b"foo\0", b"bar\0"]), 0);
+    assert_eq!(idx.commit(&[b"foo", b"bar"]), 0);
 }
 
 /// Disk-mode prefix iteration yields only the matching tag keys.
@@ -142,7 +133,12 @@ fn disk_wildcard_iteration_matches_metacharacters() {
     let keys = value_iter_keys(idx.value_iter_filtered(b"f*o", IterMode::Wildcard));
     assert_eq!(
         keys,
-        [b"fao".to_vec(), b"fo".to_vec(), b"foo".to_vec(), b"fooo".to_vec()]
+        [
+            b"fao".to_vec(),
+            b"fo".to_vec(),
+            b"foo".to_vec(),
+            b"fooo".to_vec()
+        ]
     );
 }
 

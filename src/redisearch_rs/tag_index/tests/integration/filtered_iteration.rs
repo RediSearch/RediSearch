@@ -125,14 +125,13 @@ fn iter_suffix_entries_is_none_without_suffix_trie() {
     assert!(tag_index.suffix_value_iter().is_none());
 }
 
-/// With `WITHSUFFIXTRIE`, committing a tag registers every suffix of the tag
-/// in the suffix index. The keys are NUL-free — the tag and each of its
-/// suffixes without the trailing NUL — matching the C `addSuffixTrieMap`.
+/// With `WITHSUFFIXTRIE`, committing a tag registers the tag and every one of
+/// its suffixes in the suffix index, matching the C `addSuffixTrieMap`.
 #[test]
 fn iter_suffix_entries_lists_every_suffix() {
     let mut tag_index = TagIndex::new(1, None, true);
-    tag_index.index(null(), null(), &[b"foo\0"], 1);
-    tag_index.commit(&[b"foo\0"]);
+    tag_index.index(null(), null(), &[b"foo"], 1);
+    tag_index.commit(&[b"foo"]);
 
     let keys = value_iter_keys(
         tag_index
@@ -146,4 +145,10 @@ fn iter_suffix_entries_lists_every_suffix() {
         .collect();
     expected.sort();
     assert_eq!(keys, expected);
+
+    assert_eq!(
+        value_iter_keys(tag_index.value_iter()),
+        [b"foo".to_vec()],
+        "the values trie is keyed by the same bytes as the suffix trie"
+    );
 }

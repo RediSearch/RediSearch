@@ -3001,6 +3001,7 @@ dependencies = [
  "inverted_index",
  "lending-iterator",
  "query_term",
+ "redis-module",
  "redis_mock",
  "redisearch_rs",
  "rqe_iterators",

@@ -26,6 +26,14 @@
 //! - for each suffix:
 //!   - insert borrowed term under the suffix key
 //!
+//! # Keys and stored terms
+//!
+//! Keys are the NUL-free tag bytes and each of their suffixes, matching the C
+//! `addSuffixTrieMap`. The stored *terms* are separate allocations that
+//! [`OwnedTerm::new`] NUL-terminates itself, mirroring C's `rm_strndup(str,
+//! len)`. That terminator is why a [`TermPtr`] is usable as a C `char *`: query
+//! expansion hands these pointers back to C, which calls `strlen` on them.
+//!
 
 use std::{
     alloc::{Layout, alloc, dealloc, handle_alloc_error},
@@ -56,26 +64,20 @@ fn tag_term_layout(size: usize) -> Layout {
 struct OwnedTerm(NonNull<u8>);
 
 impl OwnedTerm {
-    /// Copy `term` into a fresh allocation.
+    /// Copy the NUL-free `term` into a fresh, NUL-terminated allocation.
     ///
-    /// # Safety
-    /// 1. term is NULL terminated and cannot contain NULL inside
-    /// 2. term is not empty (it contains at least the null)
-    unsafe fn new(term: &[u8]) -> Self {
-        #[cfg(debug_assertions)]
-        {
-            debug_assert!(!term.is_empty(), "term shouldn't be empty");
-            debug_assert_eq!(
-                *term.last().expect("term shouldn't be empty"),
-                0,
-                "term should be NULL terminated"
-            );
-        }
+    /// The allocation is one byte longer than `term`, and its last byte is the
+    /// terminator written here — so every [`OwnedTerm`] upholds the invariant the
+    /// [module docs](self) describe without the caller having to promise anything.
+    fn new(term: &[u8]) -> Self {
+        debug_assert!(
+            !term.contains(&0),
+            "tag terms are NUL-free; an interior NUL would make `alloc_size` report a short allocation"
+        );
 
-        let size = term.len();
-        let layout = tag_term_layout(size);
+        let layout = tag_term_layout(term.len() + 1);
 
-        // SAFETY: `layout` has non-zero size (guarantee 2)
+        // SAFETY: `layout` has non-zero size — it is `term.len() + 1`.
         let ptr = unsafe { alloc(layout) };
         let Some(ptr) = NonNull::new(ptr) else {
             handle_alloc_error(layout);
@@ -83,19 +85,22 @@ impl OwnedTerm {
 
         // SAFETY: source and destination are valid for `term.len()` bytes
         // and cannot overlap because `dst` is a freshly allocated block.
-        unsafe { std::ptr::copy_nonoverlapping(term.as_ptr(), ptr.as_ptr(), size) };
+        unsafe { std::ptr::copy_nonoverlapping(term.as_ptr(), ptr.as_ptr(), term.len()) };
+        // SAFETY: the allocation holds `term.len() + 1` bytes, so offset
+        // `term.len()` is the last one in bounds.
+        let terminator = unsafe { ptr.as_ptr().add(term.len()) };
+        // SAFETY: `terminator` is in bounds, as above, and freshly allocated.
+        unsafe { terminator.write(0) };
 
         Self(ptr)
     }
 
     /// Full allocation size in bytes (term bytes + the trailing NUL).
-    ///
-    /// # Safety
-    /// `self` is built by [`OwnedTerm::new`]
-    const unsafe fn alloc_size(&self) -> usize {
+    const fn alloc_size(&self) -> usize {
         // This cast doesn't change size, we care about only the NULL
         let ptr = self.0.as_ptr().cast::<std::ffi::c_char>().cast_const();
-        // SAFETY: guarantee 1 of [`OwnedTerm::new`]
+        // SAFETY: [`OwnedTerm::new`] NUL-terminates every allocation and rejects
+        // interior NULs, so the scan stops at the terminator it wrote.
         unsafe { std::ffi::CStr::from_ptr(ptr) }
             .to_bytes_with_nul()
             .len()
@@ -108,8 +113,7 @@ impl OwnedTerm {
 
 impl Drop for OwnedTerm {
     fn drop(&mut self) {
-        // SAFETY: `self` is allocated using new method.
-        let len = unsafe { self.alloc_size() };
+        let len = self.alloc_size();
 
         // SAFETY: `self.0` came from `OwnedTerm::new` with exactly this
         // layout, and this is the only deallocation.
@@ -131,11 +135,12 @@ impl TermPtr {
     /// Full allocation size in bytes (term bytes + the trailing NUL).
     ///
     /// # Safety
-    /// `self` is built by [`OwnedTerm::borrowed`]
+    /// The [`OwnedTerm`] this pointer was taken from must still be alive.
     pub const unsafe fn alloc_size(&self) -> usize {
         // This cast doesn't change size, we care about only the NULL
         let ptr = self.0.as_ptr().cast::<std::ffi::c_char>().cast_const();
-        // SAFETY: guarantee 1 of [`OwnedTerm::borrowed`]
+        // SAFETY: the pointee is a live allocation from [`OwnedTerm::new`], which
+        // NUL-terminates it.
         unsafe { std::ffi::CStr::from_ptr(ptr) }
             .to_bytes_with_nul()
             .len()
@@ -190,47 +195,30 @@ impl TagSuffixIndex {
         }
     }
 
-    /// Add term to suffix trie
+    /// Index `term` and every one of its suffixes, keyed as the [module
+    /// docs](self) describe.
     ///
-    /// # Safety
-    /// `term` is NULL-terminated
-    pub unsafe fn add(&mut self, term: &[u8]) {
+    /// `term` is the NUL-free tag value. The empty tag (`INDEXEMPTY`) is never
+    /// indexed — C asserts a non-empty length in `addSuffixTrieMap`.
+    pub fn add(&mut self, term: &[u8]) {
         if term.is_empty() {
-            return;
-        }
-        debug_assert_eq!(
-            *term.last().expect("term shouldn't be empty"),
-            0,
-            "term should be NULL terminated"
-        );
-
-        // The trie keys are the tag and each of its suffixes, **without** the
-        // trailing NUL — matching the C `addSuffixTrieMap` (`src/suffix.c`),
-        // which keys on `copyStr`/`copyStr + j` for `len`/`len - j` bytes. The
-        // stored *value* (the [`OwnedTerm`]/[`TermPtr`]) keeps the NUL, so the
-        // pointers handed back to C are usable as NUL-terminated `char*`.
-        let key = &term[..term.len() - 1];
-        if key.is_empty() {
-            // The empty tag (INDEXEMPTY) is never indexed in the suffix trie —
-            // C asserts a non-empty length here.
             return;
         }
 
         // Don't store duplicates
         if self
             .entries
-            .find(key)
+            .find(term)
             .is_some_and(|data| data.full_term.is_some())
         {
             return;
         }
 
-        // SAFETY: Term is not empty and term is null terminated
-        let owned = unsafe { OwnedTerm::new(term) };
+        let owned = OwnedTerm::new(term);
         let ptr = owned.borrowed();
 
         // Store the OwnedTerm into the full tag term
-        self.entries.insert_with(key, |slot| {
+        self.entries.insert_with(term, |slot| {
             let mut data = slot.unwrap_or_else(|| SuffixData {
                 full_term: None,
                 refs: ThinVec::with_capacity(2),
@@ -241,8 +229,8 @@ impl TagSuffixIndex {
         });
 
         // Process the suffixes as TermPtr
-        for start in 1..key.len() {
-            self.entries.insert_with(&key[start..], |slot| {
+        for start in 1..term.len() {
+            self.entries.insert_with(&term[start..], |slot| {
                 let mut data = slot.unwrap_or_else(|| SuffixData {
                     full_term: None,
                     refs: ThinVec::with_capacity(2),
@@ -321,56 +309,54 @@ impl TagSuffixIndex {
 mod tests {
     use super::*;
 
-    /// Read back the bytes stored in an [`OwnedTerm`].
-    ///
-    /// # Safety
-    /// `t` must be a live [`OwnedTerm`] produced by [`OwnedTerm::new`].
-    unsafe fn read_back(t: &OwnedTerm) -> Vec<u8> {
-        // SAFETY: guaranteed by Safety rule
-        let len = unsafe { t.alloc_size() };
+    /// Read back the bytes stored in an [`OwnedTerm`], terminator included.
+    fn read_back(t: &OwnedTerm) -> Vec<u8> {
+        let len = t.alloc_size();
 
-        // SAFETY: `src` is valid for `len` initialized bytes.
+        // SAFETY: `t` is a live `OwnedTerm`, so its allocation holds `len`
+        // initialized bytes.
         unsafe { std::slice::from_raw_parts(t.0.as_ptr(), len) }.to_vec()
     }
 
+    /// [`OwnedTerm::new`] takes the NUL-free term and appends the terminator
+    /// itself, so the stored bytes are one longer than the input.
     #[test]
     fn roundtrip() {
-        let term = unsafe { OwnedTerm::new(b"hello\0") };
-        // SAFETY: `term` is live and built by `OwnedTerm::new`.
-        assert_eq!(unsafe { read_back(&term) }, b"hello\0");
+        let term = OwnedTerm::new(b"hello");
+        assert_eq!(read_back(&term), b"hello\0");
         // `term` drops here; miri checks the alloc/dealloc layout match.
     }
 
+    /// The empty term still gets an allocation — just the terminator.
     #[test]
     fn empty_term_is_fine() {
-        let term = unsafe { OwnedTerm::new(b"\0") };
-        // SAFETY: `term` is live and built by `OwnedTerm::new`.
-        assert_eq!(unsafe { read_back(&term) }, b"\0");
+        let term = OwnedTerm::new(b"");
+        assert_eq!(read_back(&term), b"\0");
     }
 
     #[test]
     fn larger_term_is_fine() {
-        let mut expected = vec![0xABu8; 300];
+        let term_bytes = vec![0xABu8; 300];
+        let term = OwnedTerm::new(&term_bytes);
+
+        let mut expected = term_bytes;
         expected.push(0);
-        let term = unsafe { OwnedTerm::new(&expected) };
-        // SAFETY: `term` is live and built by `OwnedTerm::new`.
-        assert_eq!(unsafe { read_back(&term) }, expected);
+        assert_eq!(read_back(&term), expected);
     }
 
-    /// `add` receives NUL-terminated tags but keys the trie on the NUL-free
-    /// tag and each of its suffixes (matching C's `addSuffixTrieMap`); it never
-    /// creates the stray empty (`\0`) suffix entry the naive iteration would.
+    /// `add` keys the trie on the tag and each of its suffixes, all NUL-free
+    /// (matching C's `addSuffixTrieMap`); the terminator it stores is part of the
+    /// value, never of a key, and no stray empty entry is created.
     #[test]
     fn add_stores_nul_free_keys_without_empty_entry() {
         let mut idx = TagSuffixIndex::new();
-        // SAFETY: `term` is NUL-terminated and non-empty.
-        unsafe { idx.add(b"foo\0") };
+        idx.add(b"foo");
 
         assert!(idx.find(b"foo").is_some());
         assert!(idx.find(b"oo").is_some());
         assert!(idx.find(b"o").is_some());
-        // The trailing NUL is not part of any key, and the empty suffix is not
-        // an entry.
+        // The stored terminator is not part of any key, and the empty suffix is
+        // not an entry.
         assert!(idx.find(b"foo\0").is_none());
         assert!(idx.find(b"").is_none());
         assert!(idx.find(b"\0").is_none());
@@ -381,8 +367,7 @@ mod tests {
     #[test]
     fn add_ignores_the_empty_tag() {
         let mut idx = TagSuffixIndex::new();
-        // SAFETY: `term` is the NUL-terminated empty tag.
-        unsafe { idx.add(b"\0") };
+        idx.add(b"");
 
         assert!(idx.find(b"").is_none());
         assert!(idx.find(b"\0").is_none());
@@ -394,11 +379,8 @@ mod tests {
     fn delete_keeps_suffixes_still_used_by_other_terms() {
         let mut idx = TagSuffixIndex::new();
         // "cat" and "bat" share the suffixes "at" and "t".
-        // SAFETY: both terms are NUL-terminated and non-empty.
-        unsafe {
-            idx.add(b"cat\0");
-            idx.add(b"bat\0");
-        }
+        idx.add(b"cat");
+        idx.add(b"bat");
 
         idx.delete(b"cat");
 

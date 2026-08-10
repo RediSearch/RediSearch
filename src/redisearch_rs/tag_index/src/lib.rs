@@ -20,6 +20,14 @@
 //!   disk iterator ([`TagIndex::open_reader`]), and query expansion still walks
 //!   the presence trie for matching keys before opening each reader by string.
 //!
+//! ## Tag bytes
+//!
+//! Every method here takes **NUL-free** tag bytes, mirroring the `(value, len)`
+//! pairs C passes around after `strlen`. The one place a terminator is visible is
+//! the other direction: the terms yielded by [`TagIndex::suffix_trie_map`] and
+//! [`TagIndex::suffix_wildcard`] carry theirs, because C calls `strlen` on them.
+//! [`TagSuffixIndex`] owns that terminator and documents where it comes from.
+//!
 //! [`TagIndex`] uses the same indexes as the full text but in a simpler manner. In fact:
 //!
 //! 1. An entire tag index resides in a single redis key, and doesn't have a key per term
@@ -135,8 +143,8 @@ use std::ffi::c_char;
 use std::ptr::NonNull;
 
 use ffi::{
-    IndexFlags_Index_DocIdsOnly, QueryError, QueryIterator, RSToken, RedisModuleCtx,
-    RedisSearchCtx, RedisSearchDiskIndexSpec, SearchDiskWriteBatchHandle, t_fieldIndex, timespec,
+    IndexFlags_Index_DocIdsOnly, QueryError, QueryIterator, RSToken, RedisSearchCtx,
+    RedisSearchDiskIndexSpec, SearchDiskWriteBatchHandle, t_fieldIndex, timespec,
 };
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use index_result::RSIndexResult;
@@ -144,6 +152,8 @@ use inverted_index::{
     DocId, GcApplyInfo, GcScanDelta, IndexReader, InvertedIndex, doc_ids_only::DocIdsOnly,
 };
 use query_term::RSQueryTerm;
+// `ffi` blocklists the Redis module types, so this comes from its owning crate.
+use redis_module::RedisModuleCtx;
 use rqe_iterators::{
     FieldExpirationChecker,
     interop::RQEIteratorWrapper,
@@ -379,23 +389,14 @@ impl TagIndex {
     /// committed tag values are counted here; in memory mode they were already
     /// counted by [`index`](Self::index), so `0` is returned. Port of the C
     /// `TagIndex_Commit` accounting.
-    ///
-    /// The tags carry their trailing NUL (the [suffix index](TagSuffixIndex)
-    /// keys on NUL-terminated terms); the values trie is keyed NUL-free, like
-    /// memory mode and like the tags queries look up.
     pub fn commit(&mut self, tags: &[&[u8]]) -> u32 {
         let disk = self.disk_mode();
         for tag in tags {
             if let TagIndexMode::Disk { values, .. } = &mut self.mode {
-                let key = tag.strip_suffix(&[0u8]).unwrap_or(tag);
-                values.insert(key, ());
+                values.insert(tag, ());
             }
             if let Some(suffix) = &mut self.suffix {
-                // SAFETY: `add` requires the term to be NUL-terminated, which
-                // holds for the tag buffers C hands to `commit`.
-                unsafe {
-                    suffix.add(tag);
-                }
+                suffix.add(tag);
             }
         }
         if disk { tags.len() as u32 } else { 0 }
@@ -1130,7 +1131,6 @@ mod suffix_wildcard_tests {
     const NO_CAP: u64 = u64::MAX;
 
     /// Build an in-memory index with a suffix trie and commit `tags`.
-    /// `commit` requires NUL-terminated tags for the suffix trie.
     fn indexed(tags: &[&[u8]]) -> TagIndex {
         let mut idx = TagIndex::new(1, None, true);
         idx.commit(tags);
@@ -1153,7 +1153,7 @@ mod suffix_wildcard_tests {
 
     #[test]
     fn no_usable_token_returns_none() {
-        let idx = indexed(&[b"hello\0"]);
+        let idx = indexed(&[b"hello"]);
         // Patterns made only of `*` (or empty) have no literal anchor: this is
         // the C BAD_POINTER / brute-force-fallback signal.
         assert_eq!(matches(&idx, b"*", NO_CAP), None);
@@ -1163,13 +1163,13 @@ mod suffix_wildcard_tests {
 
     #[test]
     fn valid_token_no_match_returns_empty() {
-        let idx = indexed(&[b"hello\0", b"world\0"]);
+        let idx = indexed(&[b"hello", b"world"]);
         assert_eq!(matches(&idx, b"*zzz", NO_CAP), Some(vec![]));
     }
 
     #[test]
     fn suffix_match() {
-        let idx = indexed(&[b"hello\0", b"jello\0", b"world\0"]);
+        let idx = indexed(&[b"hello", b"jello", b"world"]);
         assert_eq!(
             matches(&idx, b"*llo", NO_CAP),
             Some(vec![b"hello".to_vec(), b"jello".to_vec()])
@@ -1178,7 +1178,7 @@ mod suffix_wildcard_tests {
 
     #[test]
     fn prefix_match_via_wildcard() {
-        let idx = indexed(&[b"hello\0", b"hero\0", b"her\0", b"world\0"]);
+        let idx = indexed(&[b"hello", b"hero", b"her", b"world"]);
         // `he*` must include `her` and `hero` (matched through their own full
         // keys, i.e. via `SuffixData::full_term`) as well as `hello`.
         assert_eq!(
@@ -1189,7 +1189,7 @@ mod suffix_wildcard_tests {
 
     #[test]
     fn contains_match() {
-        let idx = indexed(&[b"abcXYZ\0", b"XYZabc\0", b"nomatch\0"]);
+        let idx = indexed(&[b"abcXYZ", b"XYZabc", b"nomatch"]);
         assert_eq!(
             matches(&idx, b"*abc*", NO_CAP),
             Some(vec![b"XYZabc".to_vec(), b"abcXYZ".to_vec()])
@@ -1198,7 +1198,7 @@ mod suffix_wildcard_tests {
 
     #[test]
     fn question_mark_matches_single_char() {
-        let idx = indexed(&[b"cat\0", b"cot\0", b"coat\0"]);
+        let idx = indexed(&[b"cat", b"cot", b"coat"]);
         // `c?t` matches only the exactly-3-char terms `c_t`, not `coat`.
         assert_eq!(
             matches(&idx, b"c?t", NO_CAP),
@@ -1208,7 +1208,7 @@ mod suffix_wildcard_tests {
 
     #[test]
     fn max_prefix_expansions_caps_results() {
-        let idx = indexed(&[b"aa\0", b"ba\0", b"ca\0", b"da\0"]);
+        let idx = indexed(&[b"aa", b"ba", b"ca", b"da"]);
         // Cap semantics mirror C `_getWildcardArray`: it stops once the result
         // length already exceeds the cap, so a cap of N yields N + 1 entries.
         let pattern = SuffixWildcardPattern::new(b"*a").expect("valid token");
@@ -1220,6 +1220,10 @@ mod suffix_wildcard_tests {
 /// Timeout handling of the suffix/wildcard expansion. On timeout both
 /// functions stop and return the matches gathered so far (partial results),
 /// mirroring the C `GetList_SuffixTrieMap*` behavior.
+///
+/// The tests that actually reach the deadline are `#[cfg_attr(miri, ignore)]`:
+/// probing it calls `clock_gettime(CLOCK_MONOTONIC_RAW)`, which miri does not
+/// implement. The no-timeout tests stay in miri's reach.
 #[cfg(test)]
 mod expansion_timeout_tests {
     use super::*;
@@ -1241,13 +1245,12 @@ mod expansion_timeout_tests {
     }
 
     /// Build a `WITHSUFFIXTRIE` index over `CORPUS` distinct terms that all
-    /// share the literal prefix `he` (NUL-terminated, as `commit` requires).
-    /// `he*` (wildcard) visits one full-term suffix entry per term, and the
-    /// contains-expansion `e` visits one proper-suffix entry per term — both
-    /// more than the check granularity.
+    /// share the literal prefix `he`. `he*` (wildcard) visits one full-term
+    /// suffix entry per term, and the contains-expansion `e` visits one
+    /// proper-suffix entry per term — both more than the check granularity.
     fn big_index() -> (TagIndex, usize) {
         let owned: Vec<Vec<u8>> = (0..CORPUS)
-            .map(|i| format!("he{i:05}\0").into_bytes())
+            .map(|i| format!("he{i:05}").into_bytes())
             .collect();
         let tags: Vec<&[u8]> = owned.iter().map(|t| t.as_slice()).collect();
         let mut idx = TagIndex::new(1, None, true);
@@ -1264,6 +1267,7 @@ mod expansion_timeout_tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn suffix_wildcard_times_out_with_partial_results() {
         let (idx, total) = big_index();
         // An already-elapsed deadline must not panic (the old `unimplemented!()`
@@ -1288,6 +1292,7 @@ mod expansion_timeout_tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn suffix_trie_map_times_out_with_partial_results() {
         let (idx, total) = big_index();
         let got = idx.suffix_trie_map(b"e", true, Some(expired())).count();
@@ -1308,6 +1313,7 @@ mod expansion_timeout_tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn expansion_timeout_uses_clock_for_a_real_deadline() {
         let mut ctx = expansion_timeout(Some(expired()));
         assert!(matches!(ctx, AnyTimeoutChecker::Deadline(_)));
