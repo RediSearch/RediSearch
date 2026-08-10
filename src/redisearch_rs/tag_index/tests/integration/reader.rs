@@ -201,8 +201,9 @@ fn value_path_reads_all_matching_docs_via_c_vtable() {
     // is freed below.
     let it = unsafe {
         (*tag_index).query_iterator_for_value(mock.sctx(), b"team", ii, 1.0, FIELD_INDEX, lookup)
-    };
-    assert!(!it.is_null());
+    }
+    .expect("the tag holds documents")
+    .as_ptr();
 
     // SAFETY: `it` is the valid iterator just built; freed below.
     let doc_ids = unsafe { drain(it) };
@@ -243,8 +244,9 @@ fn revalidate_aborts_after_gc_via_c_vtable() {
     // is freed below.
     let it = unsafe {
         (*tag_index).query_iterator_for_value(mock.sctx(), b"team", ii, 1.0, FIELD_INDEX, lookup)
-    };
-    assert!(!it.is_null());
+    }
+    .expect("the tag holds documents")
+    .as_ptr();
 
     // SAFETY: `mock` owns a valid `RedisSearchCtx` for the whole test.
     let spec = unsafe { (*mock.sctx().as_ptr()).spec };
@@ -275,9 +277,9 @@ fn revalidate_aborts_after_gc_via_c_vtable() {
 }
 
 /// An inverted index with no documents yields no iterator: the value path returns
-/// a NULL pointer rather than a reader that would immediately hit EOF.
+/// `None` rather than a reader that would immediately hit EOF.
 #[test]
-fn value_path_returns_null_for_empty_inverted_index() {
+fn value_path_returns_none_for_empty_inverted_index() {
     let (tag_index, lookup) = allocate(TagIndex::new_in_memory(1, false));
     // Register the tag with a fresh, empty posting list (no documents indexed).
     // SAFETY: `tag_index` was just allocated and is not yet aliased.
@@ -295,7 +297,7 @@ fn value_path_returns_null_for_empty_inverted_index() {
     let it = unsafe {
         (*tag_index).query_iterator_for_value(mock.sctx(), b"empty", ii, 1.0, FIELD_INDEX, lookup)
     };
-    assert!(it.is_null());
+    assert!(it.is_none());
 
     // SAFETY: `allocate` allocated it; no iterator was built from it.
     drop(unsafe { Box::from_raw(tag_index) });

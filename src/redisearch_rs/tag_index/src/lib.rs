@@ -395,7 +395,6 @@ impl TagIndex {
     /// field feeds the tags to [`TagSuffixIndex::add`]; see there for why an
     /// interior NUL is undefined behaviour.
     pub unsafe fn commit(&mut self, tags: &[&[u8]]) -> u32 {
-        let disk = self.disk_mode();
         for tag in tags {
             if let TagIndexMode::Disk { values, .. } = &mut self.mode {
                 values.insert(tag, ());
@@ -405,7 +404,11 @@ impl TagIndex {
                 unsafe { suffix.add(tag) };
             }
         }
-        if disk { tags.len() as u32 } else { 0 }
+        if self.disk_mode() {
+            tags.len() as u32
+        } else {
+            0
+        }
     }
 
     /// Create a [`QueryIterator`] over the documents matching the given tag,
@@ -418,7 +421,7 @@ impl TagIndex {
     ///
     /// `lookup` is the handle the iterator revalidates through;
     ///
-    /// Returns a null pointer when `ii` holds no documents.
+    /// Returns `None` when `ii` holds no documents.
     ///
     /// # Panics
     /// Panics on a disk-mode index: the postings live on disk, so there is no
@@ -443,13 +446,15 @@ impl TagIndex {
         weight: f64,
         field_index: t_fieldIndex,
         lookup: TrieLookup,
-    ) -> *mut QueryIterator {
+    ) -> Option<NonNull<QueryIterator>> {
         let TagIndexMode::InMemory { values } = &self.mode else {
-            unimplemented!()
+            unimplemented!(
+                "query_iterator_for_value requires memory mode: disk readers come from the disk API"
+            )
         };
 
         if ii.unique_docs() == 0 {
-            return std::ptr::null_mut();
+            return None;
         }
 
         // Same identity check as `gc`: the caller must hand us the trie's
@@ -464,14 +469,14 @@ impl TagIndex {
 
         // SAFETY: contracts 1 to 4 are exactly `get_reader`'s four
         // pre-conditions, and this function's caller upholds them.
-        unsafe { self.get_reader(sctx, ii, tag, weight, field_index, lookup) }.as_ptr()
+        Some(unsafe { self.get_reader(sctx, ii, tag, weight, field_index, lookup) })
     }
 
     /// Iterate over all `(tag, inverted index)` entries, in lexicographical
     /// order of the tag.
     pub(crate) fn iter_values(&self) -> LendingIter<'_, Box<InvertedIndex<DocIdsOnly>>, VisitAll> {
         let TagIndexMode::InMemory { values } = &self.mode else {
-            unimplemented!()
+            unimplemented!("iter_values requires memory mode: use disk_iter_values in disk mode")
         };
         values.lending_iter()
     }
@@ -483,7 +488,9 @@ impl TagIndex {
         prefix: &[u8],
     ) -> LendingIter<'_, Box<InvertedIndex<DocIdsOnly>>, VisitAll> {
         let TagIndexMode::InMemory { values } = &self.mode else {
-            unimplemented!()
+            unimplemented!(
+                "prefixed_iter_values requires memory mode: use disk_prefixed_iter_values in disk mode"
+            )
         };
         values.prefixed_lending_iter(prefix)
     }
@@ -495,7 +502,9 @@ impl TagIndex {
         fragment: &'t [u8],
     ) -> ContainsLendingIter<'tm, 't, Box<InvertedIndex<DocIdsOnly>>> {
         let TagIndexMode::InMemory { values } = &self.mode else {
-            unimplemented!()
+            unimplemented!(
+                "contains_iter_values requires memory mode: use disk_contains_iter_values in disk mode"
+            )
         };
         values.contains_iter(fragment).into()
     }
@@ -508,7 +517,9 @@ impl TagIndex {
         pattern: &'p [u8],
     ) -> WildcardLendingIter<'tm, 'p, Box<InvertedIndex<DocIdsOnly>>> {
         let TagIndexMode::InMemory { values } = &self.mode else {
-            unimplemented!()
+            unimplemented!(
+                "wildcard_iter_values requires memory mode: use disk_wildcard_iter_values in disk mode"
+            )
         };
         values.wildcard_iter(WildcardPattern::parse(pattern)).into()
     }
@@ -523,7 +534,9 @@ impl TagIndex {
         filter: RangeFilter<'f>,
     ) -> RangeLendingIter<'tm, 'f, Box<InvertedIndex<DocIdsOnly>>> {
         let TagIndexMode::InMemory { values } = &self.mode else {
-            unimplemented!()
+            unimplemented!(
+                "range_iter_values requires memory mode: use disk_range_iter_values in disk mode"
+            )
         };
         values.range_iter(filter).into()
     }
@@ -542,7 +555,7 @@ impl TagIndex {
     /// Panics on a memory-mode index;
     pub(crate) fn disk_iter_values(&self) -> LendingIter<'_, (), VisitAll> {
         let TagIndexMode::Disk { values, .. } = &self.mode else {
-            unimplemented!()
+            unimplemented!("disk_iter_values requires disk mode: use iter_values in memory mode")
         };
         values.lending_iter()
     }
@@ -554,7 +567,9 @@ impl TagIndex {
     /// Panics on a memory-mode index;
     pub(crate) fn disk_prefixed_iter_values(&self, prefix: &[u8]) -> LendingIter<'_, (), VisitAll> {
         let TagIndexMode::Disk { values, .. } = &self.mode else {
-            unimplemented!()
+            unimplemented!(
+                "disk_prefixed_iter_values requires disk mode: use prefixed_iter_values in memory mode"
+            )
         };
         values.prefixed_lending_iter(prefix)
     }
@@ -569,7 +584,9 @@ impl TagIndex {
         fragment: &'t [u8],
     ) -> ContainsLendingIter<'tm, 't, ()> {
         let TagIndexMode::Disk { values, .. } = &self.mode else {
-            unimplemented!()
+            unimplemented!(
+                "disk_contains_iter_values requires disk mode: use contains_iter_values in memory mode"
+            )
         };
         values.contains_iter(fragment).into()
     }
@@ -584,7 +601,9 @@ impl TagIndex {
         pattern: &'p [u8],
     ) -> WildcardLendingIter<'tm, 'p, ()> {
         let TagIndexMode::Disk { values, .. } = &self.mode else {
-            unimplemented!()
+            unimplemented!(
+                "disk_wildcard_iter_values requires disk mode: use wildcard_iter_values in memory mode"
+            )
         };
         values.wildcard_iter(WildcardPattern::parse(pattern)).into()
     }
@@ -598,7 +617,9 @@ impl TagIndex {
         filter: RangeFilter<'f>,
     ) -> RangeLendingIter<'tm, 'f, ()> {
         let TagIndexMode::Disk { values, .. } = &self.mode else {
-            unimplemented!()
+            unimplemented!(
+                "disk_range_iter_values requires disk mode: use range_iter_values in memory mode"
+            )
         };
         values.range_iter(filter).into()
     }
@@ -904,7 +925,7 @@ impl TagIndex {
     /// currently indexed.
     pub fn find_value(&self, tag: &[u8]) -> Option<&InvertedIndex<DocIdsOnly>> {
         let TagIndexMode::InMemory { values } = &self.mode else {
-            unimplemented!()
+            unimplemented!("find_value requires memory mode: disk postings are not in the trie")
         };
 
         values.find(tag).map(Box::as_ref)
@@ -914,7 +935,7 @@ impl TagIndex {
     /// `tag`, if the tag is currently indexed.
     pub fn find_value_mut(&mut self, tag: &[u8]) -> Option<&mut InvertedIndex<DocIdsOnly>> {
         let TagIndexMode::InMemory { values } = &mut self.mode else {
-            unimplemented!()
+            unimplemented!("find_value_mut requires memory mode: disk postings are not in the trie")
         };
 
         values.find_mut(tag).map(Box::as_mut)
@@ -928,7 +949,7 @@ impl TagIndex {
         create_if_missing: bool,
     ) -> Option<&InvertedIndex<DocIdsOnly>> {
         let TagIndexMode::InMemory { values } = &mut self.mode else {
-            unimplemented!()
+            unimplemented!("open_index requires memory mode: disk postings are not in the trie")
         };
 
         if values.find(tag).is_none() {
@@ -1163,7 +1184,7 @@ impl TagLookup<DocIdsOnly> for TrieLookup {
         let tag_index = unsafe { self.0.as_ref() };
 
         let TagIndexMode::InMemory { values } = &tag_index.mode else {
-            unimplemented!()
+            unimplemented!("TrieLookup is installed only by memory-mode readers")
         };
 
         values.find(tag).map(Box::as_ref)
