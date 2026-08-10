@@ -507,45 +507,59 @@ static bool extractKnnOptimizationContext(specialCaseCtx *knnCtx, ProfileOptions
 static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions profileOptions,
                            AREQDIST_UpstreamInfo *us, MRCommand *xcmd, IndexSpec *sp) {
   // We need to prepend the array with the command, index, and query that
-  // we want to use.
+  // we want to use. Lengths ride along so binary-capable arguments (the query,
+  // user-defined names) reach the shards without strlen truncation.
   const char **tmparr = array_new(const char *, array_len(us->serialized));
+  size_t *tmplens = array_new(size_t, array_len(us->serialized));
+#define APPEND_ARG(s, l)      \
+  do {                        \
+    array_append(tmparr, (s)); \
+    array_append(tmplens, (l)); \
+  } while (0)
+// The "" concatenation rejects anything that is not a string literal.
+#define APPEND_LITERAL(lit) APPEND_ARG((lit), sizeof("" lit "") - 1)
 
-  const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
+  size_t index_name_len;
+  const char *index_name = RedisModule_StringPtrLen(argv[1], &index_name_len);
 
   int profileArgs = getProfileArgs(profileOptions);
   if (profileOptions == EXEC_NO_FLAGS) {
-    array_append(tmparr, RS_AGGREGATE_CMD);                         // Command
-    array_append(tmparr, index_name);  // Index name
+    APPEND_LITERAL(RS_AGGREGATE_CMD);                 // Command
+    APPEND_ARG(index_name, index_name_len);        // Index name
   } else {
-    array_append(tmparr, RS_PROFILE_CMD);
-    array_append(tmparr, index_name);  // Index name
-    array_append(tmparr, "AGGREGATE");
+    APPEND_LITERAL(RS_PROFILE_CMD);
+    APPEND_ARG(index_name, index_name_len);        // Index name
+    APPEND_LITERAL("AGGREGATE");
     if (profileOptions & EXEC_WITH_PROFILE_LIMITED) {
-      array_append(tmparr, "LIMITED");
+      APPEND_LITERAL("LIMITED");
     }
-    array_append(tmparr, "QUERY");
+    APPEND_LITERAL("QUERY");
   }
 
-  array_append(tmparr, RedisModule_StringPtrLen(argv[2 + profileArgs], NULL));  // Query
-  array_append(tmparr, "WITHCURSOR");
+  size_t query_len;
+  const char *query = RedisModule_StringPtrLen(argv[2 + profileArgs], &query_len);
+  APPEND_ARG(query, query_len);  // Query
+  APPEND_LITERAL("WITHCURSOR");
   // Numeric responses are encoded as simple strings.
-  array_append(tmparr, "_NUM_SSTRING");
+  APPEND_LITERAL("_NUM_SSTRING");
 
   int argOffset = 0;
   // Preserve WITHCOUNT flag from the original command
   argOffset  = RMUtil_ArgIndex("WITHCOUNT", argv + 3 + profileArgs, argc - 3 - profileArgs);
   if (argOffset != -1) {
-    array_append(tmparr, "WITHCOUNT");
+    APPEND_LITERAL("WITHCOUNT");
   }
 
   // Add the index prefixes to the command, for validation in the shard
-  array_append(tmparr, "_INDEX_PREFIXES");
+  APPEND_LITERAL("_INDEX_PREFIXES");
   arrayof(HiddenUnicodeString*) prefixes = sp->rule->prefixes;
   char *n_prefixes;
-  rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
-  array_append(tmparr, n_prefixes);
+  int n_prefixes_len = rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
+  APPEND_ARG(n_prefixes, (size_t)n_prefixes_len);
   for (uint32_t i = 0; i < array_len(prefixes); i++) {
-    array_append(tmparr, HiddenUnicodeString_GetUnsafe(prefixes[i], NULL));
+    size_t prefix_len;
+    const char *prefix = HiddenUnicodeString_GetUnsafe(prefixes[i], &prefix_len);
+    APPEND_ARG(prefix, prefix_len);
   }
 
   // Slots info will be added here
@@ -553,35 +567,43 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
 
   argOffset = RMUtil_ArgIndex("DIALECT", argv + 3 + profileArgs, argc - 3 - profileArgs);
   if (argOffset != -1 && argOffset + 3 + 1 + profileArgs < argc) {
-    array_append(tmparr, "DIALECT");
-    array_append(tmparr, RedisModule_StringPtrLen(argv[argOffset + 3 + 1 + profileArgs], NULL));  // the dialect
+    APPEND_LITERAL("DIALECT");
+    size_t dialect_len;
+    const char *dialect = RedisModule_StringPtrLen(argv[argOffset + 3 + 1 + profileArgs], &dialect_len);
+    APPEND_ARG(dialect, dialect_len);
   }
 
   argOffset = RMUtil_ArgIndex("FORMAT", argv + 3 + profileArgs, argc - 3 - profileArgs);
   if (argOffset != -1 && argOffset + 3 + 1 + profileArgs < argc) {
-    array_append(tmparr, "FORMAT");
-    array_append(tmparr, RedisModule_StringPtrLen(argv[argOffset + 3 + 1 + profileArgs], NULL));  // the format
+    APPEND_LITERAL("FORMAT");
+    size_t format_len;
+    const char *format = RedisModule_StringPtrLen(argv[argOffset + 3 + 1 + profileArgs], &format_len);
+    APPEND_ARG(format, format_len);
   }
 
   argOffset = RMUtil_ArgIndex("SCORER", argv + 3 + profileArgs, argc - 3 - profileArgs);
   if (argOffset != -1 && argOffset + 3 + 1 + profileArgs < argc) {
-    array_append(tmparr, "SCORER");
-    array_append(tmparr, RedisModule_StringPtrLen(argv[argOffset + 3 + 1 + profileArgs], NULL));  // the scorer
+    APPEND_LITERAL("SCORER");
+    size_t scorer_len;
+    const char *scorer = RedisModule_StringPtrLen(argv[argOffset + 3 + 1 + profileArgs], &scorer_len);
+    APPEND_ARG(scorer, scorer_len);
   }
 
   if (RMUtil_ArgIndex("ADDSCORES", argv + 3 + profileArgs, argc - 3 - profileArgs) != -1) {
-    array_append(tmparr, "ADDSCORES");
+    APPEND_LITERAL("ADDSCORES");
   }
 
   if (RMUtil_ArgIndex("VERBATIM", argv + 3 + profileArgs, argc - 3 - profileArgs) != -1) {
-    array_append(tmparr, "VERBATIM");
+    APPEND_LITERAL("VERBATIM");
   }
 
   for (size_t ii = 0; ii < array_len(us->serialized); ++ii) {
-    array_append(tmparr, us->serialized[ii]);
+    APPEND_ARG(us->serialized[ii], strlen(us->serialized[ii]));
   }
+#undef APPEND_LITERAL
+#undef APPEND_ARG
 
-  *xcmd = MR_NewCommandArgv(array_len(tmparr), tmparr);
+  *xcmd = MR_NewCommandArgvLen(array_len(tmparr), tmparr, tmplens);
 
   // Prepare command for slot info (Cluster mode)
   MRCommand_PrepareForSlotInfo(xcmd, slotsInfoPos);
@@ -620,6 +642,7 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
 
   rm_free(n_prefixes);
   array_free(tmparr);
+  array_free(tmplens);
 }
 
 

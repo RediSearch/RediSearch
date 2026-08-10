@@ -276,35 +276,35 @@ static void MRCommand_appendCombine(MRCommand *xcmd, const HybridCombineWirePara
   const size_t numBufSize = sizeof(numBuf);
   int n;
 
-  MRCommand_Append(xcmd, "COMBINE", strlen("COMBINE"));
+  MRCommand_AppendLiteral(xcmd, "COMBINE");
   if (sc->scoringType == HYBRID_SCORING_RRF) {
     // COMBINE RRF <count> CONSTANT <c> WINDOW <w> [YIELD_SCORE_AS <alias>]
     n = snprintf(numBuf, numBufSize, "%d", hasAlias ? 6 : 4);
-    MRCommand_Append(xcmd, "RRF", strlen("RRF"));
+    MRCommand_AppendLiteral(xcmd, "RRF");
     MRCommand_Append(xcmd, numBuf, n);
-    MRCommand_Append(xcmd, "CONSTANT", strlen("CONSTANT"));
+    MRCommand_AppendLiteral(xcmd, "CONSTANT");
     n = snprintf(numBuf, numBufSize, "%.17g", sc->rrfCtx.constant);
     MRCommand_Append(xcmd, numBuf, n);
-    MRCommand_Append(xcmd, "WINDOW", strlen("WINDOW"));
+    MRCommand_AppendLiteral(xcmd, "WINDOW");
     n = snprintf(numBuf, numBufSize, "%zu", sc->rrfCtx.window);
     MRCommand_Append(xcmd, numBuf, n);
   } else {
     // COMBINE LINEAR <count> ALPHA <a> BETA <b> WINDOW <w> [YIELD_SCORE_AS <alias>]
     n = snprintf(numBuf, numBufSize, "%d", hasAlias ? 8 : 6);
-    MRCommand_Append(xcmd, "LINEAR", strlen("LINEAR"));
+    MRCommand_AppendLiteral(xcmd, "LINEAR");
     MRCommand_Append(xcmd, numBuf, n);
-    MRCommand_Append(xcmd, "ALPHA", strlen("ALPHA"));
+    MRCommand_AppendLiteral(xcmd, "ALPHA");
     n = snprintf(numBuf, numBufSize, "%.17g", sc->linearCtx.linearWeights[0]);
     MRCommand_Append(xcmd, numBuf, n);
-    MRCommand_Append(xcmd, "BETA", strlen("BETA"));
+    MRCommand_AppendLiteral(xcmd, "BETA");
     n = snprintf(numBuf, numBufSize, "%.17g", sc->linearCtx.linearWeights[1]);
     MRCommand_Append(xcmd, numBuf, n);
-    MRCommand_Append(xcmd, "WINDOW", strlen("WINDOW"));
+    MRCommand_AppendLiteral(xcmd, "WINDOW");
     n = snprintf(numBuf, numBufSize, "%zu", sc->linearCtx.window);
     MRCommand_Append(xcmd, numBuf, n);
   }
   if (hasAlias) {
-    MRCommand_Append(xcmd, "YIELD_SCORE_AS", strlen("YIELD_SCORE_AS"));
+    MRCommand_AppendLiteral(xcmd, "YIELD_SCORE_AS");
     MRCommand_Append(xcmd, cp->scoreAlias, strlen(cp->scoreAlias));
   }
 }
@@ -322,20 +322,26 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                             IndexSpec *sp, int *outKArgIndex) {
   RS_ASSERT(outKArgIndex != NULL);
   int argOffset;
-  const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
+  size_t index_name_len;
+  const char *index_name = RedisModule_StringPtrLen(argv[1], &index_name_len);
 
   int cmdArgCount = 2;
   const char *cmdArgs[5] = {"_FT.HYBRID", index_name};
+  size_t cmdLens[5] = {sizeof("_FT.HYBRID") - 1, index_name_len};
 
   if (profileOptions != EXEC_NO_FLAGS) {
     cmdArgs[0] = "_FT.PROFILE";
-    cmdArgs[cmdArgCount++] = "HYBRID";
+    cmdLens[0] = sizeof("_FT.PROFILE") - 1;
+    cmdArgs[cmdArgCount] = "HYBRID";
+    cmdLens[cmdArgCount++] = sizeof("HYBRID") - 1;
     if (profileOptions & EXEC_WITH_PROFILE_LIMITED) {
-      cmdArgs[cmdArgCount++] = "LIMITED";
+      cmdArgs[cmdArgCount] = "LIMITED";
+      cmdLens[cmdArgCount++] = sizeof("LIMITED") - 1;
     }
-    cmdArgs[cmdArgCount++] = "QUERY";
+    cmdArgs[cmdArgCount] = "QUERY";
+    cmdLens[cmdArgCount++] = sizeof("QUERY") - 1;
   }
-  *xcmd = MR_NewCommandArgv(cmdArgCount, cmdArgs);
+  *xcmd = MR_NewCommandArgvLen(cmdArgCount, cmdArgs, cmdLens);
 
   // Add all SEARCH-related arguments (SEARCH, query, optional SCORER, YIELD_SCORE_AS)
   int searchOffset = RMUtil_ArgIndex("SEARCH", argv, argc);
@@ -409,15 +415,15 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   // Forward EXPLAINSCORE so the shard's text scorer produces an RSScoreExplain
   // tree and the shard's merger wraps it.
   if (sendExplainScore) {
-    MRCommand_Append(xcmd, "EXPLAINSCORE", strlen("EXPLAINSCORE"));
+    MRCommand_AppendLiteral(xcmd, "EXPLAINSCORE");
   }
 
   // Add WITHCURSOR
-  MRCommand_Append(xcmd, "WITHCURSOR", strlen("WITHCURSOR"));
+  MRCommand_AppendLiteral(xcmd, "WITHCURSOR");
 
-  MRCommand_Append(xcmd, "WITHSCORES", strlen("WITHSCORES"));
+  MRCommand_AppendLiteral(xcmd, "WITHSCORES");
   // Numeric responses are encoded as simple strings.
-  MRCommand_Append(xcmd, "_NUM_SSTRING", strlen("_NUM_SSTRING"));
+  MRCommand_AppendLiteral(xcmd, "_NUM_SSTRING");
 
   // Prepare command for slot info (Cluster mode)
   MRCommand_PrepareForSlotInfo(xcmd, xcmd->num);
@@ -426,11 +432,11 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   MRCommand_PrepareForDispatchTime(xcmd, xcmd->num);
 
   if (sp && sp->rule && sp->rule->prefixes && array_len(sp->rule->prefixes) > 0) {
-    MRCommand_Append(xcmd, "_INDEX_PREFIXES", strlen("_INDEX_PREFIXES"));
+    MRCommand_AppendLiteral(xcmd, "_INDEX_PREFIXES");
     arrayof(HiddenUnicodeString*) prefixes = sp->rule->prefixes;
     char *n_prefixes;
-    rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
-    MRCommand_Append(xcmd, n_prefixes, strlen(n_prefixes));
+    int n_prefixes_len = rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
+    MRCommand_Append(xcmd, n_prefixes, n_prefixes_len);
     rm_free(n_prefixes);
 
     for (uint32_t i = 0; i < array_len(prefixes); i++) {

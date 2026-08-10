@@ -4167,7 +4167,7 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   }
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
-  MRCommand_Append(&cmd, WITH_INDEX_ERROR_TIME, strlen(WITH_INDEX_ERROR_TIME));
+  MRCommand_AppendLiteral(&cmd, WITH_INDEX_ERROR_TIME);
   MRCommand_SetProtocol(&cmd, ctx);
   MRCommand_SetPrefix(&cmd, "_FT");
 
@@ -4178,7 +4178,7 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
 void sendRequiredFields(const searchRequestCtx *req, MRCommand *cmd) {
   if(req->requiredFields) {
-    MRCommand_Append(cmd, "_REQUIRED_FIELDS", strlen("_REQUIRED_FIELDS"));
+    MRCommand_AppendLiteral(cmd, "_REQUIRED_FIELDS");
     int numberOfFields = array_len(req->requiredFields);
     char snum[8];
     int len = sprintf(snum, "%d", numberOfFields);
@@ -4245,8 +4245,8 @@ static int prepareCommand(MRCommand *cmd, const searchRequestCtx *req, int proto
     size_t k =0;
     MRCommand_ReplaceArg(cmd, limitIndex + 1, "0", 1);
     char buf[32];
-    snprintf(buf, sizeof(buf), "%lld", req->requestedResultsCount);
-    MRCommand_ReplaceArg(cmd, limitIndex + 2, buf, strlen(buf));
+    int bufLen = snprintf(buf, sizeof(buf), "%lld", req->requestedResultsCount);
+    MRCommand_ReplaceArg(cmd, limitIndex + 2, buf, bufLen);
   }
 
   /* Replace our own FT command with _FT. command */
