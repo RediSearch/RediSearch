@@ -22,11 +22,15 @@ static inline void QueryRequestAsyncState_Init(QueryRequestAsyncState *state) {
   state->aggregateResultsDone = false;
   state->safeLoadersHoldingGIL = 0;
   state->strictReadOwner = 0;
+  QueryRequestAsyncState_SetExecutionPhase(state, 0);
+  state->abortWakeChannel = NULL;
+  pthread_mutex_init(&state->abortWakeLock, NULL);
   pthread_mutex_init(&state->aggregateResultsLock, NULL);
   pthread_cond_init(&state->aggregateResultsCond, NULL);
 }
 
 static inline void QueryRequestAsyncState_Destroy(QueryRequestAsyncState *state) {
+  pthread_mutex_destroy(&state->abortWakeLock);
   pthread_mutex_destroy(&state->aggregateResultsLock);
   pthread_cond_destroy(&state->aggregateResultsCond);
 }
@@ -37,6 +41,7 @@ void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind) {
   request->cursorInfo = (CursorInfo) {0};
   request->registryInfo = (RegistryInfo) {0};
   ChunkReplyState_Init(&request->reply);
+  QueryRequestTimeout_ClearTimedOut(&request->timeout);
   QueryRequestAsyncState_Init(&request->async);
   QueryRequest_SetEndProcRef(request, NULL);
 }

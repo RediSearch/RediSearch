@@ -866,7 +866,8 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
     // DistHybridCleanups can reply with them.
     if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, knnCtx, status,
                                      oomPolicy, timeoutPolicy, &maxPrefixSearch, &maxPrefixVsim,
-                                     &shardTimedOutWarning, deadline, &hreq->syncState)) {
+                                     &shardTimedOutWarning, deadline, &hreq->syncState,
+                                     &hreq->base.async)) {
         // Handle error
         StrongRef_Release(searchMappingsRef);
         StrongRef_Release(vsimMappingsRef);

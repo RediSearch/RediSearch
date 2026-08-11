@@ -26,6 +26,7 @@ typedef struct PLN_ArrangeStep PLN_ArrangeStep;
 typedef struct ResultProcessor ResultProcessor;
 typedef struct SearchResult SearchResult;
 struct Cursor;
+struct MRChannel;
 
 /** Cached variables used while serializing stored results. */
 typedef struct {
@@ -79,11 +80,27 @@ typedef struct {
   RegistryEntryKind kind;
 } RegistryInfo;
 
+typedef struct {
+  RS_Atomic(bool) timedOut;
+} QueryRequestTimeout;
+
+static inline bool QueryRequestTimeout_GetTimedOut(const QueryRequestTimeout *timeout) {
+  return RS_AtomicBoolLoadRelaxed(&timeout->timedOut);
+}
+
+static inline void QueryRequestTimeout_SetTimedOut(QueryRequestTimeout *timeout) {
+  RS_AtomicBoolStoreRelaxed(&timeout->timedOut, true);
+}
+
+static inline void QueryRequestTimeout_ClearTimedOut(QueryRequestTimeout *timeout) {
+  RS_AtomicBoolStoreRelaxed(&timeout->timedOut, false);
+}
+
 /**
  * Timeout-only synchronization between query workers and main-thread callbacks.
  * TODO($$$): Remove this temporary state after MOD-17486 is merged.
  */
-typedef struct {
+typedef struct QueryRequestAsyncState {
   bool requiresAggregateResultsSync;
   RS_Atomic(bool) aggregatingResults;
   bool aggregateResultsClaimLost;
@@ -91,10 +108,23 @@ typedef struct {
   int safeLoadersHoldingGIL;
   // Per-cycle CAS owner for coordinator RETURN_STRICT cursor reads.
   RS_Atomic(int) strictReadOwner;
+  RS_Atomic(int) execPhase;
+  struct MRChannel *abortWakeChannel;
+  // TODO($$$): Plug this primitive into the abort-wake paths later in this PR.
+  pthread_mutex_t abortWakeLock;
   // TODO($$$): Plug both primitives into the async synchronization paths later in this PR.
   pthread_mutex_t aggregateResultsLock;
   pthread_cond_t aggregateResultsCond;
 } QueryRequestAsyncState;
+
+static inline int QueryRequestAsyncState_GetExecutionPhase(const QueryRequestAsyncState *state) {
+  return RS_AtomicIntLoadRelaxed(&state->execPhase);
+}
+
+static inline void QueryRequestAsyncState_SetExecutionPhase(QueryRequestAsyncState *state,
+                                                            int phase) {
+  RS_AtomicIntStoreRelaxed(&state->execPhase, phase);
+}
 
 typedef struct QueryRequest {
   QueryRequestKind kind;
@@ -104,6 +134,7 @@ typedef struct QueryRequest {
   // TODO($$$): Replace the legacy BRC registry node and type flag with this field.
   RegistryInfo registryInfo;
   ChunkReplyState reply;
+  QueryRequestTimeout timeout;
   QueryRequestAsyncState async;
   /**
    * Transitional reference to the legacy QueryProcessingCtx.endProc slot.

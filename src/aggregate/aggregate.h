@@ -689,6 +689,8 @@ static inline bool AREQ_TimedOut(AREQ *req) {
   return RequestSyncState_GetTimedOut(&req->syncState);
 }
 static inline void AREQ_SetTimedOut(AREQ *req) {
+  QueryRequestTimeout_SetTimedOut(&req->base.timeout);
+  // TODO($$$): Remove the legacy timeout state once consumers use QueryRequest.timeout.
   RequestSyncState_SetTimedOut(&req->syncState);
 }
 // The pipeline stage the request had reached, used to attribute a timeout.
@@ -697,7 +699,10 @@ static inline QueryTimeoutStage AREQ_ExecutionStage(AREQ *req) {
 }
 // Advance the request's execution-phase marker (QUEUE -> PIPELINE -> REPLY).
 static inline void AREQ_SetExecutionStage(AREQ *req, QueryTimeoutStage stage) {
+  // TODO($$$): Remove the legacy execution phase once consumers use QueryRequest.async.
   RequestSyncState_SetExecutionStage(&req->syncState, stage);
+  QueryRequestAsyncState_SetExecutionPhase(
+      &req->base.async, RequestSyncState_GetExecutionStage(&req->syncState));
 }
 #ifdef ENABLE_ASSERT
 // SyncPointStopFn predicate adapter for AREQ_TimedOut. Pass the AREQ as `arg`

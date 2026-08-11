@@ -17,6 +17,8 @@
 extern "C" {
 #endif
 
+typedef struct QueryRequestAsyncState QueryRequestAsyncState;
+
 typedef enum  {
   TYPE_SEARCH,
   TYPE_VSIM,
@@ -78,7 +80,8 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappings,
                                  QueryError *status, RSOomPolicy oomPolicy,
                                  RSTimeoutPolicy timeoutPolicy, bool *maxPrefixSearch,
                                  bool *maxPrefixVsim, bool *shardTimedOutWarning,
-                                 const struct timespec *deadline, RequestSyncState *syncState);
+                                 const struct timespec *deadline, RequestSyncState *syncState,
+                                 QueryRequestAsyncState *asyncState);
 
 /**
  * Apply SHARD_K_RATIO optimization to an MRCommand based on the provided

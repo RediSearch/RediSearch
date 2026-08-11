@@ -1137,6 +1137,7 @@ AREQ *AREQ_New(void) {
   req->prefixesOffset = 0;
   req->keySpaceVersion = INVALID_KEYSPACE_VERSION;
   req->querySlots = NULL;
+  // TODO($$$): Remove RequestSyncState once consumers use QueryRequest timeout/async state.
   RequestSyncState_Init(&req->syncState);
   req->brc = NULL;
   return req;
@@ -1325,6 +1326,8 @@ void AREQ_ResetForCursorReadReturnStrict(AREQ *req) {
   req->brc->aggregateResultsDone = false;
   req->brc->safeLoadersHoldingGIL = 0;
   pthread_mutex_unlock(&req->brc->aggregateResultsLock);
+  QueryRequestTimeout_ClearTimedOut(&req->base.timeout);
+  // TODO($$$): Remove the legacy timeout state once consumers use QueryRequest.timeout.
   RequestSyncState_ClearTimedOut(&req->syncState);
   ResultProcessor *root = AREQ_QueryProcessingCtx(req)->rootProc;
   if (root && root->type == RP_NETWORK) {
@@ -1953,6 +1956,7 @@ void AREQ_Free(AREQ *req) {
 
   rm_free(req->args);
 
+  // TODO($$$): Remove RequestSyncState once consumers use QueryRequest timeout/async state.
   RequestSyncState_Destroy(&req->syncState);
   QueryRequest_Destroy(&req->base);
 

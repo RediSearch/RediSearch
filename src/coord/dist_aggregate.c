@@ -334,6 +334,8 @@ static int rpnetCreateIterator(RPNet *nc) {
   // Register the iterator's channel so the main-thread timeout callback can wake
   // this reader if it blocks in MRIterator_NextWithTimeout after AREQ timed out.
   // Paired with RequestSyncState_UnregisterAbortWakeChannel in rpnetFree.
+  nc->areq->base.async.abortWakeChannel = MRIterator_GetChannel(it);
+  // TODO($$$): Remove the legacy abort-wake state once consumers use QueryRequest.async.
   RequestSyncState_RegisterAbortWakeChannel(&nc->areq->syncState, MRIterator_GetChannel(it));
 #ifdef ENABLE_ASSERT
   // Expose the iterator to FT.DEBUG BG_PENDING_REPLIES; cleared in rpnetFree.

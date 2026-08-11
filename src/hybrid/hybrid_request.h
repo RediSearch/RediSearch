@@ -97,7 +97,10 @@ static inline QueryTimeoutStage HybridRequest_ExecutionStage(HybridRequest *req)
 }
 // Advance the hybrid request's execution-phase marker (QUEUE -> PIPELINE -> REPLY).
 static inline void HybridRequest_SetExecutionStage(HybridRequest *req, QueryTimeoutStage stage) {
+  // TODO($$$): Remove the legacy execution phase once consumers use QueryRequest.async.
   RequestSyncState_SetExecutionStage(&req->syncState, stage);
+  QueryRequestAsyncState_SetExecutionPhase(
+      &req->base.async, RequestSyncState_GetExecutionStage(&req->syncState));
 }
 // Sets the hybrid request's timedOut flag and propagates it to every subquery
 // AREQ. Propagation flips each subquery's RPNet abort flag so a BG worker

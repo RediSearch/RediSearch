@@ -307,6 +307,8 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
     // blocked reader after flipping AREQ's `timedOut` flag. Paired with
     // RequestSyncState_UnregisterAbortWakeChannel in rpnetFree.
     if (nc->areq) {
+      nc->areq->base.async.abortWakeChannel = MRIterator_GetChannel(nc->it);
+      // TODO($$$): Remove the legacy abort-wake state once consumers use QueryRequest.async.
       RequestSyncState_RegisterAbortWakeChannel(&nc->areq->syncState, MRIterator_GetChannel(nc->it));
     }
 #ifdef ENABLE_ASSERT
@@ -324,6 +326,8 @@ void rpnetFree(ResultProcessor *rp) {
     // Unregister the abort-wake channel before releasing the iterator, so the main
     // thread's timeout callback cannot observe a channel that is about to be freed.
     if (nc->areq) {
+      nc->areq->base.async.abortWakeChannel = NULL;
+      // TODO($$$): Remove the legacy abort-wake state once consumers use QueryRequest.async.
       RequestSyncState_UnregisterAbortWakeChannel(&nc->areq->syncState);
     }
 #ifdef ENABLE_ASSERT

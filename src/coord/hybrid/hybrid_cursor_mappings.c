@@ -290,7 +290,8 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
                                  QueryError *status, const RSOomPolicy oomPolicy,
                                  const RSTimeoutPolicy timeoutPolicy, bool *maxPrefixSearch,
                                  bool *maxPrefixVsim, bool *shardTimedOutWarning,
-                                 const struct timespec *deadline, RequestSyncState *syncState) {
+                                 const struct timespec *deadline, RequestSyncState *syncState,
+                                 QueryRequestAsyncState *asyncState) {
     CursorMappings *searchMappings = StrongRef_Get(searchMappingsRef);
     CursorMappings *vsimMappings = StrongRef_Get(vsimMappingsRef);
     RS_ASSERT(array_len(searchMappings->mappings) == 0 && array_len(vsimMappings->mappings) == 0);
@@ -328,6 +329,8 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
     // Register the iterator's channel so an external abort - the coordinator timeout
     // callback (RequestSyncState_WakeAbortChannel) or a client disconnect - can wake
     // this wait promptly. Unregistered below before the iterator is released.
+    asyncState->abortWakeChannel = MRIterator_GetChannel(it);
+    // TODO($$$): Remove the legacy abort-wake state once consumers use QueryRequest.async.
     RequestSyncState_RegisterAbortWakeChannel(syncState, MRIterator_GetChannel(it));
 
     // Pass both the deadline and the abort flag: `deadline` is NULL under RETURN-STRICT /
@@ -337,6 +340,8 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
     MRReply *r = MRIterator_NextWithTimeout(it, deadline, &syncState->timedOut, &timedOut);
     RS_ASSERT(r == NULL);  // the callbacks never AddReply; a non-NULL reply is a bug
 
+    asyncState->abortWakeChannel = NULL;
+    // TODO($$$): Remove the legacy abort-wake state once consumers use QueryRequest.async.
     RequestSyncState_UnregisterAbortWakeChannel(syncState);
 
     if (timedOut || RequestSyncState_GetTimedOut(syncState)) {
