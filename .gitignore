@@ -41,3 +41,5 @@ compile_commands.json
 # Per-run memtier_benchmark result files dropped in the repo root by
 # `redisbench-admin run-local` (named <setup>-<timestamp>--<test>.json).
 oss-*--*.json
+fuzzing/corpus
+fuzzing/findings
