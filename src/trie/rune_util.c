@@ -35,7 +35,7 @@ rune runeFold(rune r) {
 
 char *runesToStr(const rune *in, size_t len, size_t *utflen) {
   if (len > MAX_RUNE_STR_LEN) {
-    if (utflen) *utflen = 0;
+    *utflen = 0;
     return NULL;
   }
 
