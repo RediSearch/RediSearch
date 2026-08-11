@@ -64,7 +64,6 @@
 #include "search_ctx.h"
 #include "search_disk_api.h"
 #include "search_result_rs.h"
-#include "sorting_vector_ffi.h"
 #include "ttl_table.h"
 #include "ttl_table_rs.h"
 #include "util/arr/arr.h"
@@ -901,91 +900,6 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
   }
 
   RedisModule_CloseKey(k);
-  Indexes_SpecOpsIndexingCtxFree(specs);
-}
-
-// A SORTABLE field's value is served straight from the document's sorting vector,
-// which no read path checks TTLs against; only a reindex rebuilds it. The reindex
-// for `hexpired` is deferred, and Redis does not drain per-key jobs after active
-// field expiration, so it lands after the reply of the query that triggers the
-// drain -- that query would return a value Redis has already deleted.
-//
-// Null the slot of every already-expired sortable field so the row reports the
-// field as absent until the deferred reindex rebuilds the vector. Touches module
-// memory only: writing key metadata here could reallocate the Redis key object
-// while hashTypeExpire() still holds it.
-void Indexes_InvalidateExpiredSortables(RedisModuleCtx *ctx, RedisModuleString *key) {
-  SpecOpIndexingCtx *specs =
-      Indexes_FindMatchingSchemaRules(ctx, key, DocumentType_Hash, false, NULL);
-  if (array_len(specs->specsOps) == 0) {
-    Indexes_SpecOpsIndexingCtxFree(specs);
-    return;
-  }
-
-  struct timespec now;
-  clock_gettime(CLOCK_REALTIME, &now);
-
-  for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
-    IndexSpec *spec = specs->specsOps[i].spec;
-    if (!spec->monitorFieldExpiration || spec->numSortableFields == 0) {
-      continue;
-    }
-
-    RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
-    RedisSearchCtx_LockSpecWrite(&sctx);
-
-    const RSDocumentMetadata *cdmd = IndexSpec_BorrowDocByKeyR(spec, ctx, key);
-    if (cdmd && (cdmd->flags & Document_HasSortVector)) {
-      // Walk the doc's own expiration entries rather than every field in the
-      // schema: one table lookup, and the list is as long as the number of fields
-      // that actually carry a TTL. An index that never registered a field TTL
-      // gets an empty slice, so this costs a NULL check.
-      //
-      // Document_HasExpiration is deliberately not used as a gate: it is only set
-      // on the disk path, and only for doc-level TTLs.
-      const struct FieldExpirationSlice fes = DocTable_GetFieldExpirations(&spec->docs, cdmd->id);
-      RSSortingVector *sv = &((RSDocumentMetadata *)cdmd)->sortVector;
-      size_t sizeBefore = 0;
-      bool nulled = false;
-      for (size_t ii = 0; ii < fes.len; ++ii) {
-        const t_fieldIndex idx = fes.ptr[ii].index;
-        if (idx >= spec->numFields) {
-          continue;
-        }
-        const FieldSpec *fs = &spec->fields[idx];
-        if (!FieldSpec_IsSortable(fs) || fs->sortIdx < 0 ||
-            fs->sortIdx >= spec->numSortableFields) {
-          continue;
-        }
-        // Predicate holds while the field is still valid; a false result is the
-        // expired case.
-        if (DocTable_CheckFieldExpirationPredicate(&spec->docs, cdmd->id, idx,
-                                                   FIELD_EXPIRATION_PREDICATE_DEFAULT, &now)) {
-          continue;
-        }
-        if (!nulled) {
-          sizeBefore = RSSortingVector_GetMemorySize(sv);
-          nulled = true;
-        }
-        RSSortingVector_PutNull(sv, (size_t)fs->sortIdx);
-      }
-      // Nulling a slot releases the stored value, and the vector stops counting
-      // it. DocTable only adds the size on attach and subtracts it on delete, so
-      // without this the released bytes stay counted for the rest of the index's
-      // life and inflate the reported sortable size.
-      if (nulled) {
-        const size_t freed = sizeBefore - RSSortingVector_GetMemorySize(sv);
-        RS_LOG_ASSERT(spec->docs.sortablesSize >= freed, "sortablesSize underflow");
-        spec->docs.sortablesSize -= freed;
-      }
-    }
-    if (cdmd) {
-      DMD_Return(cdmd);
-    }
-
-    RedisSearchCtx_UnlockSpec(&sctx);
-  }
-
   Indexes_SpecOpsIndexingCtxFree(specs);
 }
 

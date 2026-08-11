@@ -181,13 +181,6 @@ int KeySpaceNotificationCallback(RedisModuleCtx *ctx, int type, const char *even
                                  RedisModuleString *key) {
   REDISMODULE_NOT_USED(type);
   enum RedisCmd redisCommand = GetRedisCmd(event);
-  // The deferred reindex is what drops an expired field's value from the sorting
-  // vector, and it does not run until the tail of the next command's call(). Repair
-  // just the sortable cache inline first, so no query in that window serves a value
-  // Redis has already deleted. Safe here because it only writes module memory.
-  if (redisCommand == hexpired_cmd && !SearchDisk_IsEnabled()) {
-    Indexes_InvalidateExpiredSortables(ctx, key);
-  }
   // Post-notification jobs run after the mutating command/module callback returns and any open
   // RedisModuleKey handles it held during notification emission are closed. Defer all handled
   // non-loaded notifications except rename_from, which only stores an owned source-key copy for
