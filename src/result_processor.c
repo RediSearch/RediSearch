@@ -2353,6 +2353,7 @@ static inline bool verifyInvariants(arrayof(ResultProcessor*) safeDepleters, Dep
 * 5. If any depleter fails to acquire the lock (RS_RESULT_ERROR), return RS_RESULT_ERROR to propagate the failure
 */
 int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, RedisSearchCtx *lockedCtx, QueryError *status) {
+  RS_ASSERT(lockedCtx != NULL && lockedCtx->lock_state == SPEC_LOCK_READ);
   DepleterSync *sync = NULL;
   // Verify we are in a sane state before starting the depletion process
   if (!verifyInvariants(safeDepleters, &sync)) {

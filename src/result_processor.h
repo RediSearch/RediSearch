@@ -333,6 +333,9 @@ int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters);
 /**
 * Starts the depletion for all the safe depleters in the array, waits until all finished depleting, and returns.
 * @param safeDepleters Array of safe depleter processors
+* @param lockedCtx The ctx holding the spec read lock; the depletion-start handshake releases the
+*                  lock through it. Passing a ctx that is not the lock holder silently no-ops the
+*                  unlock and leaves the spec read-locked.
 * @param status Query error object to populate in case of error
 * @return RS_RESULT_OK if all safe depleters completed successfully, otherwise an error code
 */
