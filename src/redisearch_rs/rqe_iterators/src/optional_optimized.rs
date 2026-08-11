@@ -104,6 +104,8 @@ const _: () = {
     assert!(offset_of!(A, child) == offset_of!(S, child));
     assert!(offset_of!(A, virt) == offset_of!(S, virt));
     assert!(offset_of!(A, max_doc_id) == offset_of!(S, max_doc_id));
+    assert!(offset_of!(A, weight) == offset_of!(S, weight));
+    assert!(offset_of!(A, last_doc_id) == offset_of!(S, last_doc_id));
     assert!(offset_of!(A, past_end) == offset_of!(S, past_end));
     assert!(size_of::<A>() == size_of::<S>());
     assert!(align_of::<A>() == align_of::<S>());
@@ -132,6 +134,34 @@ where
     /// * `max_doc_id` — inclusive upper bound on doc IDs.
     /// * `weight` — applied to results produced by `child`.
     pub fn new(wcii: W, child: I, max_doc_id: DocId, weight: f64) -> Self {
+        // [`WildcardIterator`] is a marker trait, and the impls covering
+        // [`CRQEIterator`](crate::c2rust::CRQEIterator),
+        // [`TypeErasedRQEIterator`](crate::TypeErasedRQEIterator) and
+        // `Box<dyn WildcardIterator>` are blanket ones: for those the marker is a
+        // promise the caller makes, not a property the compiler can check. This
+        // catches a broken promise at the point it is made rather than as wrong
+        // results much later.
+        //
+        // The set is deliberately explicit: a genuine wildcard base is either one
+        // of the two wildcard leaves, the `Empty` an index with no documents
+        // degenerates to, a `Profile` wrapper around any of those, or a test mock.
+        // The one base whose type this repo cannot pin down is the enterprise
+        // disk wildcard (`NewWildcardIterator::Disk`), which comes from
+        // `SEARCH_ENTERPRISE_ITERATORS` — the in-tree mock reports `Wildcard`.
+        // Extend the list if a real one turns out to report something else.
+        debug_assert!(
+            matches!(
+                wcii.type_(),
+                crate::IteratorType::Wildcard
+                    | crate::IteratorType::InvIdxWildcard
+                    | crate::IteratorType::Empty
+                    | crate::IteratorType::Profile
+                    | crate::IteratorType::Mock
+            ),
+            "OptionalOptimized's base must be a wildcard iterator, got {:?}",
+            wcii.type_(),
+        );
+
         Self {
             wcii,
             child: MaybeEmpty::new(child),

@@ -1716,6 +1716,73 @@ mod via_resume {
             "a wildcard resume failure must propagate out of OptionalOptimized::resume",
         );
     }
+
+    /// The suspended form's accessors exist so callers can interrogate a
+    /// suspended iterator *without* resuming it, which is only useful if they
+    /// answer what the active iterator answered a moment earlier. Suspending
+    /// changes no position, so both must survive the transition unchanged.
+    #[test]
+    fn suspended_accessors_agree_with_the_active_iterator() {
+        let wcii = utils::Mock::new([5u64, 20, 50]);
+        let child = utils::Mock::new([5u64, 20]);
+        let mut it = Box::new(OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT));
+
+        // Advance past the initial state so `last_doc_id` is not the `0` an
+        // unread iterator would report either way.
+        assert_eq!(it.read().expect("read").expect("result").doc_id, 5);
+        assert_eq!(it.read().expect("read").expect("result").doc_id, 20);
+
+        let active_last_doc_id = RQEIterator::last_doc_id(&*it);
+        let active_num_estimated = RQEIterator::num_estimated(&*it);
+        assert_eq!(active_last_doc_id, 20);
+        assert_eq!(
+            active_num_estimated, 3,
+            "delegated to the wildcard base, which has 3 docs"
+        );
+
+        let suspended = it.suspend();
+        assert_eq!(
+            RQESuspendedIterator::last_doc_id(&*suspended),
+            active_last_doc_id,
+        );
+        assert_eq!(
+            RQESuspendedIterator::num_estimated(&*suspended),
+            active_num_estimated,
+        );
+    }
+
+    /// The type-erased sibling of
+    /// [`suspended_accessors_agree_with_the_active_iterator`].
+    ///
+    /// The suspended `num_estimated` delegates to the suspended wildcard, so
+    /// with an erased base it dispatches through the *suspended* vtable — a
+    /// different code path from the concrete case, and the one that only holds
+    /// because `suspend` transitions the slot through the base's own `suspend`
+    /// rather than byte-casting it.
+    #[test]
+    fn suspended_accessors_agree_with_a_type_erased_wildcard() {
+        let wcii = TypeErasedRQEIterator::new(Box::new(utils::Mock::new([5u64, 20, 50])));
+        let child = utils::Mock::new([5u64, 20]);
+        let mut it = Box::new(OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT));
+
+        assert_eq!(it.read().expect("read").expect("result").doc_id, 5);
+        assert_eq!(it.read().expect("read").expect("result").doc_id, 20);
+
+        let active_last_doc_id = RQEIterator::last_doc_id(&*it);
+        let active_num_estimated = RQEIterator::num_estimated(&*it);
+        assert_eq!(active_last_doc_id, 20);
+        assert_eq!(active_num_estimated, 3);
+
+        let suspended = it.suspend();
+        assert_eq!(
+            RQESuspendedIterator::last_doc_id(&*suspended),
+            active_last_doc_id,
+        );
+        assert_eq!(
+            RQESuspendedIterator::num_estimated(&*suspended),
+            active_num_estimated,
+        );
+    }
 }
 
 /// A `Not` child whose `max_doc_id` coincides with this iterator's, over a
