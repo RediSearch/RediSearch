@@ -171,6 +171,12 @@ static bool ShouldDeferKeyspaceNotification(enum RedisCmd redisCommand) {
     case _null_cmd:
     case loaded_cmd:
     case rename_from_cmd:
+    // Active field expiration emits `hexpired` from the server cron, which is not
+    // wrapped in an execution unit, so a per-key job queued there is not drained
+    // until the tail of the next command's call(). Handle it inline: a query in
+    // between would otherwise still see the expired field's value, which for a
+    // SORTABLE field is served from the sorting vector and only the reindex clears.
+    case hexpired_cmd:
       return false;
     default:
       return true;
