@@ -9,6 +9,9 @@
 
 #include "legacy_types.h"
 
+#include <stdbool.h>
+
+#include "notifications.h"
 #include <stddef.h>
 
 #include "util/misc.h"
@@ -20,6 +23,25 @@
 // RDB load callback cannot return NULL, as it indicates an error
 void *dummyNonNull = (void*)0xDEADBEEF;
 
+// Retained so the cleanup below recognises a key by type rather than by name - an untrusted payload
+// does not have to respect any naming convention.
+static RedisModuleType *LegacyInvertedIndexType = NULL;
+static RedisModuleType *LegacyNumericIndexType = NULL;
+static RedisModuleType *LegacyTagIndexType = NULL;
+
+
+// Called whenever a legacy key is deserialized, from the type callbacks below.
+//
+// Subscribing to keyspace events here rather than at module load is what keeps this free for everyone
+// else: a database that never deserializes one of these keys never starts listening. It has to happen
+// in the loader because the subscription is otherwise lazy - Initialize_KeyspaceNotifications runs
+// only when an index is created or loaded, so a database with no index has no subscriber at all and
+// the `restore` event this cleanup depends on would never reach us. That is exactly the shape of the
+// database this was reported on: ~101k legacy keys and search_number_of_indexes:0.
+static void noteLegacyKeyLoaded(void) {
+  Initialize_KeyspaceNotifications();
+}
+
 // Dummy no-op functions for type methods
 void GenericType_DummyRdbSave(RedisModuleIO *rdb, void *value) {
   RS_ABORT("Attempted to save a legacy type to RDB");
@@ -29,10 +51,11 @@ void GenericType_DummyFree(void *value) {
   RS_ASSERT(value == dummyNonNull);
 }
 
-// Consume an inverted index type from RDB
-void *InvertedIndex_RdbLoad_Consume(RedisModuleIO *rdb, int encver) {
+// Consume an inverted index payload. Separate from the type callback because the tag loader consumes
+// one of these per tag, and a tag is not a key - counting them would inflate the load count.
+static bool consumeInvertedIndex(RedisModuleIO *rdb, int encver) {
   if (encver > LEGACY_ENC_VER) {
-    return NULL;
+    return false;
   }
 
   RedisModule_LoadUnsigned(rdb); // Consume the flags of the index
@@ -46,6 +69,14 @@ void *InvertedIndex_RdbLoad_Consume(RedisModuleIO *rdb, int encver) {
     RedisModule_LoadUnsigned(rdb); // Consume the number of entries in the block
     RedisModule_Free(RedisModule_LoadStringBuffer(rdb, NULL)); // Consume the buffer of the block
   }
+  return true;
+}
+
+void *InvertedIndex_RdbLoad_Consume(RedisModuleIO *rdb, int encver) {
+  if (!consumeInvertedIndex(rdb, encver)) {
+    return NULL;
+  }
+  noteLegacyKeyLoaded();
   return dummyNonNull;
 }
 
@@ -69,6 +100,7 @@ void *NumericIndexType_RdbLoad_Consume(RedisModuleIO *rdb, int encver) {
     }
   }
 
+  noteLegacyKeyLoaded();
   return dummyNonNull;
 }
 
@@ -78,10 +110,91 @@ void *TagIndex_RdbLoad_Consume(RedisModuleIO *rdb, int encver) {
 
   for (size_t i = 0; i < n_tags; i++) {
     RedisModule_Free(RedisModule_LoadStringBuffer(rdb, NULL)); // Consume the tag value
-    InvertedIndex_RdbLoad_Consume(rdb, encver); // Consume the inverted index for the tag
+    consumeInvertedIndex(rdb, encver); // Consume the inverted index for the tag
   }
+  noteLegacyKeyLoaded();
   return dummyNonNull;
 }
+
+/* ---------------------------------------------------------------------------------------------
+ * Cleanup of orphaned legacy keys. See legacy_types.h for why they exist at all.
+ * ------------------------------------------------------------------------------------------- */
+
+// True when `kp` holds one of our legacy types *and* the sentinel. Both halves matter: the type alone
+// would match a future non-sentinel value, and the sentinel alone is just an integer.
+static bool isOrphanedLegacyKey(RedisModuleKey *kp) {
+  if (kp == NULL || RedisModule_KeyType(kp) != REDISMODULE_KEYTYPE_MODULE) {
+    return false;
+  }
+  RedisModuleType *type = RedisModule_ModuleTypeGetType(kp);
+  if (type != LegacyInvertedIndexType && type != LegacyNumericIndexType &&
+      type != LegacyTagIndexType) {
+    return false;
+  }
+  return RedisModule_ModuleTypeGetValue(kp) == dummyNonNull;
+}
+
+static bool isOrphanedLegacyKeyByName(RedisModuleCtx *ctx, RedisModuleString *key) {
+  RedisModuleKey *kp = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
+  const bool orphaned = isOrphanedLegacyKey(kp);
+  if (kp != NULL) {
+    RedisModule_CloseKey(kp);
+  }
+  return orphaned;
+}
+
+static void deleteWithPropagation(RedisModuleCtx *ctx, RedisModuleString *key) {
+  RedisModuleCallReply *rep = RedisModule_Call(ctx, "DEL", "!s", key);
+  if (rep != NULL) {
+    RedisModule_FreeCallReply(rep);
+  }
+}
+
+static void freeOwnedKey(void *pd) {
+  // Created with a NULL context, so it is ours to release.
+  RedisModule_FreeString(NULL, (RedisModuleString *)pd);
+}
+
+// Writing from inside a keyspace notification is not allowed, so the delete happens here, once Redis
+// says writes are safe. The value is re-checked first: a post-notification job runs after the whole
+// execution unit, so `MULTI; RESTORE k <legacy>; SET k valuable; EXEC` would otherwise lose
+// `valuable`.
+//
+// The key arrives as owned privdata rather than through the per-key job variant, because
+// RedisModule_AddPostNotificationJobForKey exists only in the Enterprise build - against OSS Redis
+// that pointer is NULL and calling it crashes the server.
+static void deleteOrphanedLegacyKey(RedisModuleCtx *ctx, void *pd) {
+  RedisModuleString *key = pd;
+  if (isOrphanedLegacyKeyByName(ctx, key)) {
+    deleteWithPropagation(ctx, key);
+  }
+}
+
+void LegacyTypes_CleanupRestoredKey(RedisModuleCtx *ctx, RedisModuleString *key) {
+  // Only a primary may delete. A replica keeps the key until the primary's DEL arrives - deleting
+  // locally would diverge from a primary that still holds it, and post-notification jobs are rejected
+  // on read-only replicas anyway. Tested positively: if the role is somehow unknown, doing nothing is
+  // the safe outcome.
+  if (!(RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_MASTER)) {
+    return;
+  }
+  if (!isOrphanedLegacyKeyByName(ctx, key)) {
+    return;
+  }
+  // The notification's key is not ours to retain, so hand the job an owned copy.
+  RedisModuleString *owned = RedisModule_CreateStringFromString(NULL, key);
+  if (RedisModule_AddPostNotificationJob(ctx, deleteOrphanedLegacyKey, owned, freeOwnedKey) !=
+      REDISMODULE_OK) {
+    RedisModule_FreeString(NULL, owned);
+    RedisModule_Log(ctx, "warning",
+                    "Could not schedule cleanup of a restored legacy index key; it will remain until "
+                    "the next load or a manual UNLINK");
+  }
+}
+
+
+
+
 
 int RegisterLegacyTypes(RedisModuleCtx *ctx) {
 
@@ -94,19 +207,22 @@ int RegisterLegacyTypes(RedisModuleCtx *ctx) {
 
   // Register the inverted index type
   tm.rdb_load = InvertedIndex_RdbLoad_Consume;
-  if (!RedisModule_CreateDataType(ctx, "ft_invidx", LEGACY_ENC_VER, &tm)) {
+  LegacyInvertedIndexType = RedisModule_CreateDataType(ctx, "ft_invidx", LEGACY_ENC_VER, &tm);
+  if (!LegacyInvertedIndexType) {
     return REDISMODULE_ERR;
   }
 
   // Register the numeric index type
   tm.rdb_load = NumericIndexType_RdbLoad_Consume;
-  if (!RedisModule_CreateDataType(ctx, "numericdx", LEGACY_ENC_VER, &tm)) {
+  LegacyNumericIndexType = RedisModule_CreateDataType(ctx, "numericdx", LEGACY_ENC_VER, &tm);
+  if (!LegacyNumericIndexType) {
     return REDISMODULE_ERR;
   }
 
   // Register the tag index type
   tm.rdb_load = TagIndex_RdbLoad_Consume;
-  if (!RedisModule_CreateDataType(ctx, "ft_tagidx", LEGACY_ENC_VER, &tm)) {
+  LegacyTagIndexType = RedisModule_CreateDataType(ctx, "ft_tagidx", LEGACY_ENC_VER, &tm);
+  if (!LegacyTagIndexType) {
     return REDISMODULE_ERR;
   }
 
