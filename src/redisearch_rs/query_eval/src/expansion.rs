@@ -180,10 +180,12 @@ fn open_expanded_term_reader(
 /// A single pattern expansion in progress: the inputs every walk shares, the
 /// context they open readers against, and the readers opened so far.
 ///
-/// Built once per `QN_PREFIX` or `QN_WILDCARD_QUERY` evaluation. The prefix walks
-/// consume it and hand back the accumulated readers; the wildcard walks take
-/// `&mut self`, since a declined suffix walk falls back to the terms-trie walk
-/// with both accumulating into the same `children`.
+/// Built once per `QN_PREFIX`, `QN_WILDCARD_QUERY` or `QN_FUZZY` evaluation. The
+/// prefix walks consume it and hand back the accumulated readers; the wildcard
+/// and fuzzy walks take `&mut self`, since both have something left to do after
+/// the walk — a declined suffix walk falls back to the terms-trie walk, and a
+/// fuzzy expansion may append the empty term — with everything accumulating into
+/// the same `children`.
 pub(super) struct Expansion<'a> {
     /// The evaluation context readers are opened against, and where the
     /// expansion-cap warning and the unsupported-fields error are recorded.
@@ -213,6 +215,21 @@ impl Expansion<'_> {
         if self.cap_reached() {
             return ControlFlow::Break(());
         }
+        self.push_child_ignoring_cap(num_docs, term_bytes);
+        ControlFlow::Continue(())
+    }
+
+    /// Open a reader for `term_bytes` and push it as a union child **without**
+    /// consulting the expansion cap, so no warning is recorded either.
+    ///
+    /// For an expansion that is not one of the terms a walk found and so is not
+    /// what the cap bounds — the fuzzy empty term, which is appended after the
+    /// walk and admitted even when the cap is full. Every walk-driven expansion
+    /// goes through [`push_child`](Self::push_child) instead.
+    ///
+    /// `num_docs` is the term's document count, used only on the disk path for
+    /// the IDF.
+    pub(crate) fn push_child_ignoring_cap(&mut self, num_docs: usize, term_bytes: &[u8]) {
         if let Some(it) = open_expanded_term_reader(
             self.ctx,
             term_bytes,
@@ -222,7 +239,6 @@ impl Expansion<'_> {
         ) {
             self.children.push(it);
         }
-        ControlFlow::Continue(())
     }
 
     /// Whether the expansion cap has been reached, recording the "reached max
