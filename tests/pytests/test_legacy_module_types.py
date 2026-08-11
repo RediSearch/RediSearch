@@ -162,3 +162,28 @@ def testLegacyEmptyPayloadRoundTrips(env):
     env.assertEqual(conn.execute_command('DBSIZE'), expected)
     for type_name in _legacy_bodies():
         env.assertEqual(conn.execute_command('TYPE', 'legacy:' + type_name), type_name.encode())
+
+
+@skip(cluster=True)
+def testLegacyIndexSpecRestoreIsRefused(env):
+    """A legacy index *spec* key (`ft_index0`) can only be upgraded during an RDB load: the
+    `UPGRADE_INDEX` rules and the legacy-spec registry are built for the duration of a load and released
+    at the end of it. Restoring one on a running server used to reach `dictFetchValue` on those NULL
+    globals and segfault, so this test failing looks like a dead server rather than an assertion.
+    MOD-15685 finding #71."""
+    skipOnExistingEnv(env)
+    conn = _binary_conn(env)
+
+    # Any body will do: the guard refuses before reading a byte. LEGACY_INDEX_MAX_VERSION is 16, and
+    # anything in 2..16 routes to the legacy spec loader.
+    for encver in (2, 9, 16):
+        key = 'idx:legacy:{}'.format(encver)
+        payload = _dump_payload(conn, 'ft_index0', _module_uint(0), encver=encver)
+        # Assert on the message, not merely that something was raised: `Query` catches every
+        # exception, so a bare `.error()` would also be satisfied by the `ConnectionError` of the
+        # crash this test exists to catch - and by the 'payload version or checksum are wrong' of a
+        # drifted helper.
+        env.expect('RESTORE', key, 0, payload).error().contains('Bad data format')
+        env.assertEqual(conn.execute_command('EXISTS', key), 0, message=key)
+
+    env.assertTrue(env.isUp())
