@@ -930,15 +930,27 @@ void Indexes_InvalidateExpiredSortables(RedisModuleCtx *ctx, RedisModuleString *
 
     const RSDocumentMetadata *cdmd = IndexSpec_BorrowDocByKeyR(spec, ctx, key);
     if (cdmd && (cdmd->flags & Document_HasSortVector)) {
-      for (size_t ii = 0; ii < spec->numFields; ++ii) {
-        const FieldSpec *fs = &spec->fields[ii];
+      // Walk the doc's own expiration entries rather than every field in the
+      // schema: one table lookup, and the list is as long as the number of fields
+      // that actually carry a TTL. An index that never registered a field TTL
+      // gets an empty slice, so this costs a NULL check.
+      //
+      // Document_HasExpiration is deliberately not used as a gate: it is only set
+      // on the disk path, and only for doc-level TTLs.
+      const struct FieldExpirationSlice fes = DocTable_GetFieldExpirations(&spec->docs, cdmd->id);
+      for (size_t ii = 0; ii < fes.len; ++ii) {
+        const t_fieldIndex idx = fes.ptr[ii].index;
+        if (idx >= spec->numFields) {
+          continue;
+        }
+        const FieldSpec *fs = &spec->fields[idx];
         if (!FieldSpec_IsSortable(fs) || fs->sortIdx < 0 ||
             fs->sortIdx >= spec->numSortableFields) {
           continue;
         }
         // Predicate holds while the field is still valid; a false result is the
-        // expired case. Fields without a TTL entry always satisfy it.
-        if (!DocTable_CheckFieldExpirationPredicate(&spec->docs, cdmd->id, (t_fieldIndex)ii,
+        // expired case.
+        if (!DocTable_CheckFieldExpirationPredicate(&spec->docs, cdmd->id, idx,
                                                     FIELD_EXPIRATION_PREDICATE_DEFAULT, &now)) {
           RSSortingVector_PutNull(&((RSDocumentMetadata *)cdmd)->sortVector, (size_t)fs->sortIdx);
         }
