@@ -7,7 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ref_mode::{Active, Ref, SharedPtr};
+use std::ptr::NonNull;
+
+use ref_mode::{Active, Ref, SharedPtr, Suspended};
 use thin_vec::SmallThinVec;
 
 use super::core::{RSIndexResult, RawIndexResult};
@@ -64,7 +66,6 @@ pub type RSAggregateResult<'a> = RawAggregateResult<'a, Active<'a>>;
 // read through that pointer is guarded by the `core/mod.rs` block. Part of the
 // recursive net backing the conversions on `RawIndexResult`.
 const _: () = {
-    use ref_mode::Suspended;
     use std::mem::{align_of, size_of};
     type A = RawAggregateResult<'static, Active<'static>>;
     type S = RawAggregateResult<'static, Suspended>;
@@ -148,6 +149,21 @@ impl<'query, R: Ref> RawAggregateResult<'query, R> {
         }
     }
 
+    /// The number of entries this aggregate borrows from elsewhere.
+    ///
+    /// These are the entries whose validity a [`Suspended`] → [`Active`]
+    /// transition has to re-establish, and therefore the total that the
+    /// per-child [`rederive_borrowed`](RawAggregateResult::rederive_borrowed)
+    /// counts must add up to before the transition is sound. An
+    /// [`Owned`](Self::Owned) aggregate keeps its children in its own
+    /// allocation, so it borrows none.
+    pub fn num_borrowed(&self) -> usize {
+        match self {
+            Self::Borrowed { records, .. } => records.len(),
+            Self::Owned { .. } => 0,
+        }
+    }
+
     /// The current type mask of the aggregate result
     pub const fn kind_mask(&self) -> RSResultKindMask {
         match self {
@@ -170,6 +186,76 @@ impl<'query, R: Ref> RawAggregateResult<'query, R> {
                 *kind_mask = RSResultKindMask::empty();
             }
         }
+    }
+}
+
+impl<'query> RawAggregateResult<'query, Suspended> {
+    /// Re-derives every borrowed entry that points at `child` from that live
+    /// reference, and reports how many entries were re-derived.
+    ///
+    /// # Why a suspended aggregate needs this
+    ///
+    /// A composite iterator's aggregate borrows its children's results: every
+    /// entry is a pointer derived from a `&` to a child's own
+    /// [`RawIndexResult`]. Suspending the composite weakens those pointers, and
+    /// the resume re-narrows them in a single whole-allocation cast, on the
+    /// strength of the children never leaving their slots — the address and the
+    /// pointee do survive that. Their *provenance* does not: transitioning a
+    /// child hands its allocation through a by-value `Box<Self>`, whose retag
+    /// invalidates the borrow the entry was derived from, so reading through the
+    /// entry after the cast is undefined behaviour even though nothing was
+    /// dropped, moved, or written.
+    ///
+    /// Re-derivation discharges that. Called once per live child while the
+    /// result is still suspended — after every child has been transitioned, and
+    /// before the cast — it replaces each entry with a pointer taken from a
+    /// reference that post-dates the retag.
+    ///
+    /// # Why not rebuild the aggregate instead
+    ///
+    /// Rebuilding it from the children, the way the composite's read path does,
+    /// is not equivalent: that path *moves* each child's metrics into the
+    /// aggregate (see [`RSIndexResult::push_borrowed`]), and the children were
+    /// drained when the aggregate was first built, so a rebuild would discard
+    /// the metrics accumulated so far rather than preserve them. This method
+    /// touches nothing but the entry pointers, leaving the position, `freq`,
+    /// `field_mask`, `metrics`, and which children back which entry exactly as
+    /// they were.
+    ///
+    /// The kind mask is likewise untouched: a re-derived entry is the same child
+    /// it always was, so the mask it contributed still stands.
+    ///
+    /// # Recognising an aggregate that cannot be re-derived
+    ///
+    /// An entry whose child really was dropped — or relocated, which for a child
+    /// stored inline in its parent's buffer amounts to the same thing — matches
+    /// no live child, so the counts summed over all children fall short of
+    /// [`num_borrowed`](Self::num_borrowed). The caller must then clear the
+    /// aggregate instead of re-narrowing it (see
+    /// [`RawIndexResult::reset_aggregate`]). Nothing here dereferences an entry —
+    /// they are compared and overwritten by address — so a stale entry is
+    /// harmless until the cast, which is exactly why the check belongs on this
+    /// side of it.
+    pub fn rederive_borrowed(&mut self, child: &RSIndexResult<'_>) -> usize {
+        let Self::Borrowed { records, .. } = self else {
+            // An owned aggregate borrows nothing, so there is nothing to re-derive.
+            return 0;
+        };
+
+        // A fresh pointer to the child, carrying the provenance of the live
+        // reference it came from. The cast is between the two `Ref` modes of one
+        // `#[repr(C)]` type, proven layout-identical in `core`, and changes
+        // neither address nor provenance.
+        let live = NonNull::from_ref(child).cast::<RawIndexResult<'query, Suspended>>();
+
+        let mut rederived = 0;
+        for entry in records.iter_mut() {
+            if entry.as_non_null() == live {
+                *entry = SharedPtr::from_non_null(live);
+                rederived += 1;
+            }
+        }
+        rederived
     }
 }
 
