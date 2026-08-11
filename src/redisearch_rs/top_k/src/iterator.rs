@@ -128,7 +128,9 @@ pub struct TopKIterator<
     child: Option<C>,
     last_doc_id: DocId,
     at_eof: bool,
-    /// Diagnostic counters — not reset on [`rewind`](Self::rewind).
+    /// Diagnostic counters for the current evaluation. Cleared by
+    /// [`rewind`](Self::rewind), but preserved when collection aborts on
+    /// timeout so a timed-out profile still reports the work done.
     pub metrics: TopKMetrics,
 }
 
@@ -781,10 +783,14 @@ pub trait TopKSourceProfile {
     /// [`TopKIterator`] passes its own (already profile-wrapped) child here so
     /// the source renders the same iterator it read through — and thus the
     /// child's real read counts — rather than an unprofiled side handle.
+    ///
+    /// Prefer `metrics` over any source-local equivalent: it spans the whole
+    /// evaluation, whereas a source counter is cleared by every mid-evaluation
+    /// source reset, including the one on the timeout path.
     fn print_profile(
         &self,
         mode: TopKMode,
-        switches: usize,
+        metrics: &TopKMetrics,
         map: &mut MapBuilder<'_>,
         ctx: &mut ProfilePrintCtx<'_>,
         child: Option<&dyn ProfilePrint>,
@@ -799,7 +805,7 @@ where
     fn print_profile(&self, map: &mut MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         let child = self.child.as_ref().map(|c| c as &dyn ProfilePrint);
         self.source
-            .print_profile(self.mode, self.metrics.strategy_switches, map, ctx, child);
+            .print_profile(self.mode, &self.metrics, map, ctx, child);
     }
 }
 

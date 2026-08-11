@@ -41,7 +41,7 @@ use rqe_iterators::{
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::{NoTimeoutChecker, TimeoutContext},
 };
-use top_k::{TopKIterator, TopKMode, TopKSourceProfile};
+use top_k::{TopKIterator, TopKMetrics, TopKMode, TopKSourceProfile};
 
 /// A [`TopKIterator`] driven by a [`NumericScoreSource`].
 ///
@@ -115,17 +115,17 @@ impl<V: DocValidity, E: ExpirationChecker, T: TimeoutContext> TopKSourceProfile
     fn print_profile(
         &self,
         _mode: TopKMode,
-        switches: usize,
+        metrics: &TopKMetrics,
         map: &mut MapBuilder<'_>,
         ctx: &mut ProfilePrintCtx<'_>,
         child: Option<&dyn ProfilePrint>,
     ) {
         map.kv_simple_string(c"Type", c"OPTIMIZER");
         ctx.print_optional_counters(map);
-        map.kv_long_long(c"Batches number", self.num_batches() as i64);
-        // `switches` is the iterator's strategy-switch count, which for the
-        // numeric source is exactly its disjoint-window expansions.
-        map.kv_long_long(c"Window expansions", switches as i64);
+        map.kv_long_long(c"Batches number", metrics.num_batches as i64);
+        // A strategy switch on the numeric source is exactly a disjoint-window
+        // expansion.
+        map.kv_long_long(c"Window expansions", metrics.strategy_switches as i64);
 
         if let Some(child) = child {
             let mut child_map = map.kv_map(c"Child iterator");

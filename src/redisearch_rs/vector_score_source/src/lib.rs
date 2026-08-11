@@ -46,7 +46,7 @@ use ffi::{
 use redis_reply::MapBuilder;
 use rqe_iterators::profile_print::ProfilePrintCtx;
 use rqe_iterators::{ExpirationChecker, FieldExpirationChecker, RQEIterator};
-use top_k::{TopKIterator, TopKMode, TopKSourceProfile};
+use top_k::{TopKIterator, TopKMetrics, TopKMode, TopKSourceProfile};
 
 /// A [`TopKIterator`] parameterised over [`VectorScoreSource`].
 ///
@@ -150,7 +150,7 @@ impl<E: ExpirationChecker> TopKSourceProfile for VectorScoreSource<'_, E> {
     fn print_profile(
         &self,
         mode: TopKMode,
-        switches: usize,
+        metrics: &TopKMetrics,
         map: &mut MapBuilder<'_>,
         ctx: &mut ProfilePrintCtx<'_>,
         child: Option<&dyn ProfilePrint>,
@@ -158,6 +158,7 @@ impl<E: ExpirationChecker> TopKSourceProfile for VectorScoreSource<'_, E> {
         map.kv_simple_string(c"Type", c"VECTOR");
         ctx.print_optional_counters(map);
 
+        let switches = metrics.strategy_switches;
         let mode_enum = top_k_mode_to_vecsim(mode, switches);
         // SAFETY: `mode_enum` is one of the four VecSearchMode values above, each
         // of which VecSimSearchMode_ToString maps to a non-null static C string.
