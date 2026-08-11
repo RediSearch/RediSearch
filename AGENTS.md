@@ -319,6 +319,8 @@ git worktree add --no-track -b <your-handle>-<feature> .worktree/<your-handle>-<
 
 To remove a worktree, use `git worktree remove --force <path>` (plain `remove` fails on initialized submodules).
 
+The git-worktree guidance above applies to plain git checkouts. In a checkout managed by jj (a `.jj/` directory is present), the equivalent is a **jj workspace** — invoke [/jj-workspace](.skills/jj-workspace/SKILL.md) to create or delete one, and do not hand-roll it. jj does not support submodules, so a workspace needs a git worktree attached to it in a specific order; getting that wrong silently breaks the submodules in every other checkout on the machine.
+
 ### C Code
 Invoke [/code-review](.skills/code-review/SKILL.md) to review C code changes or PRs.
 Invoke [/run-c-unit-tests](.skills/run-c-unit-tests/SKILL.md) to run C/C++ unit tests.
@@ -345,6 +347,7 @@ Invoke [/build](.skills/build/SKILL.md) to compile and verify the build.
 Invoke [/lint](.skills/lint/SKILL.md) to check code quality and formatting.
 Invoke [/jj-fix-conflicts](.skills/jj-fix-conflicts/SKILL.md) to resolve conflicts in jj changes.
 Invoke [/jj-split-changeset](.skills/jj-split-changeset/SKILL.md) to break a jj changeset into smaller, focused ones.
+Invoke [/jj-workspace](.skills/jj-workspace/SKILL.md) to create or delete a jj workspace (a second checkout of the repo).
 Follow [/commit-guidelines](.skills/commit-guidelines/SKILL.md) whenever the worktree is dirty or you are about to commit, split, or rewrite history.
 Invoke [/open-pr](.skills/open-pr/SKILL.md) to open a pull request.
 Invoke [/adversarial-review](.skills/adversarial-review/SKILL.md) to get an independent review of a change before opening or updating a PR.
