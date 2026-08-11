@@ -303,17 +303,18 @@ impl CTrieRef {
             return 0;
         }
 
-        // A UTF-8 string yields at most as many runes as bytes; the extra slot
-        // leaves room for the conversion to write a trailing rune.
+        // A UTF-8 string yields at most as many runes as bytes, so the decode
+        // cannot truncate and `rlen` below indexes within `runes`. The extra
+        // slot keeps the pointer non-dangling for an empty term.
         let mut runes = vec![0 as ffi::rune; term.len() + 1];
         // SAFETY: `term` is valid UTF-8 of `term.len()` bytes, so the decode
-        // stays within the slice, and `runes` has room for `term.len() + 1`
-        // runes, so the conversion writes within bounds.
+        // stays within the slice, and `runes.len()` bounds the write.
         let rlen = unsafe {
-            ffi::strToRunesN(
+            ffi::strToRunes(
                 term.as_ptr() as *const c_char,
                 term.len(),
                 runes.as_mut_ptr(),
+                runes.len(),
             )
         };
         // SAFETY: `self.ptr` is a valid `Trie` (`CTrieRef` invariant); `runes`/

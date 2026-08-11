@@ -73,8 +73,11 @@ rune *strToLowerRunes(const char *str, size_t utf8_len, size_t *unicode_len);
  *   May be NULL. */
 rune *strToSingleCodepointFoldedRunes(const char *str, size_t utf8_len, size_t *len);
 
-/* Decode a string to a rune in-place */
-size_t strToRunesN(const char *s, size_t slen, rune *outbuf);
+/* Decode `slen` bytes of UTF-8 from `src` into the caller-supplied `out`,
+ * writing at most `outcap` runes and never NUL-terminating. Decoding stops
+ * early at an embedded NUL. Returns the input's full rune count, which exceeds
+ * `outcap` when the output was truncated. */
+size_t strToRunes(const char *src, size_t slen, rune *out, size_t outcap);
 
 static inline rune *runeBufFill(const char *s, size_t n, runeBuf *buf, size_t *len) {
   /**
@@ -89,7 +92,7 @@ static inline rune *runeBufFill(const char *s, size_t n, runeBuf *buf, size_t *l
     buf->isDynamic = 0;
     target = buf->u.s;
   }
-  *len = strToRunesN(s, n, target);
+  *len = strToRunes(s, n, target, n);
   target[*len] = 0;
   return target;
 }

@@ -19,6 +19,7 @@
 #include <memory>
 #include <functional>
 #include <cstdint>
+#include <iterator>  // std::size
 
 typedef std::set<std::string> ElemSet;
 
@@ -65,8 +66,8 @@ static ElemSet trieIterRange(Trie *t, const char *begin, size_t nbegin, const ch
   rune *r1Ptr = r1;
   rune *r2Ptr = r2;
 
-  nr1 = strToRunesN(begin, nbegin, r1);
-  nr2 = strToRunesN(end, nend, r2);
+  nr1 = strToRunes(begin, nbegin, r1, std::size(r1));
+  nr2 = strToRunes(end, nend, r2, std::size(r2));
 
   if (!begin) {
     r1Ptr = NULL;
