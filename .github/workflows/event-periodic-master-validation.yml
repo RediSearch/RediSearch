@@ -180,8 +180,12 @@ jobs:
       platform: 'ubuntu:noble,macos-26,!macos-26~x86_64,alpine:3.23,intel'
       architecture: all
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      job-test-config: '{"test": "", "coverage": "", "sanitize": ""}'
-      options: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && 'unit-tests,coordinator,standalone,rejson,coverage,sanitize' || 'unit-tests,coordinator,standalone,rejson,sanitize' }}
+      job-test-config: '{"test": "", "coverage": "", "sanitize": "", "ubsan": ""}'
+      options: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && 'unit-tests,coordinator,standalone,rejson,coverage,sanitize,ubsan' || 'unit-tests,coordinator,standalone,rejson,sanitize,ubsan' }}
+      # Full alignment UBSan currently exposes unrelated pre-existing UB in the
+      # C/C++ suite. Keep this lane focused on the trie regression until those
+      # findings are fixed separately.
+      ubsan-unit-test-filter: 'TrieTest\.test.*ScansPackedChildKeys'
       rejson-branch: master
 
   notify-cie-failure:

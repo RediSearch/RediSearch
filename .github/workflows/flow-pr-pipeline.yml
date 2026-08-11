@@ -3,7 +3,8 @@ name: PR Pipeline (one job-type)
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 #
 # Reusable workflow that encapsulates the full build → test fan-out for a
-# single job-type (basic-test / coverage / sanitize) on the Linux PR matrix.
+# single job-type (basic-test / coverage / sanitize) on one Linux platform.
+# Used by the pull-request flow and by the master merge queue.
 # Platform configuration and the prebuilt container image are resolved ONCE
 # here (get-config + build-image) and passed down to the build / test-unit /
 # test-flow jobs as inputs — so the per-task workflows don't redo that setup.
@@ -38,6 +39,13 @@ on:
       test-timeout:
         type: number
         default: 120
+      enable-lto:
+        description: >-
+          Override the platform's enable_lto ('0' or '1'). Empty keeps whatever
+          task-get-config.yml resolves for the platform. Callers that only run
+          tests (and never ship the binary) can turn LTO off to skip the link.
+        type: string
+        default: ''
 
 jobs:
   get-config:
@@ -93,7 +101,7 @@ jobs:
       install-mode: ${{ needs.get-config.outputs.install_mode }}
       setup-script: ${{ needs.get-config.outputs.setup_script }}
       post-setup-script: ${{ needs.get-config.outputs.post_setup_script }}
-      enable-lto: ${{ needs.get-config.outputs.enable_lto }}
+      enable-lto: ${{ inputs.enable-lto != '' && inputs.enable-lto || needs.get-config.outputs.enable_lto }}
       image: ${{ needs.build-image.outputs.image }}
       image-built: ${{ needs.build-image.outputs.succeeded }}
 
@@ -167,7 +175,7 @@ jobs:
       image-built: ${{ needs.build-image.outputs.succeeded }}
 
   test-flow-coordinator:
-    name: ${{ inputs.job-type }} (Coordinator ${{ matrix.shard }}/${{ inputs.job-type == 'basic-test' && 3 || 4 }})
+    name: ${{ inputs.job-type }} (Coordinator ${{ matrix.shard }}/${{ strategy.job-total }})
     needs: [get-config, build-image, build]
     if: ${{ !cancelled() && needs.build.result == 'success' && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') }}
     # Coordinator tests are the slowest flow suite (cluster setup, inter-shard
@@ -193,7 +201,8 @@ jobs:
       test-config: ${{ inputs.test-config }}
       test-mode: coordinator
       shard-index: ${{ matrix.shard }}
-      shard-total: ${{ inputs.job-type == 'basic-test' && 3 || 4 }}
+      # Derived from the matrix so the total can never drift from the shard list.
+      shard-total: ${{ strategy.job-total }}
       coverage: ${{ inputs.job-type == 'coverage' }}
       san: ${{ inputs.job-type == 'sanitize' && 'address' || '' }}
       rejson-branch: ${{ inputs.rejson-branch }}
