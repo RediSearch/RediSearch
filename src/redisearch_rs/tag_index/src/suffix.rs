@@ -48,13 +48,15 @@ use trie_rs::{
 };
 
 /// Layout of a tag term allocation.
+///
+/// Both [`OwnedTerm::new`] and [`OwnedTerm::drop`](OwnedTerm#impl-Drop) go
+/// through here, so the alloc and dealloc layouts cannot drift apart.
 fn tag_term_layout(size: usize) -> Layout {
-    let align = align_of::<u16>();
+    // A term is a plain byte buffer, so it needs no alignment beyond 1.
+    let align = align_of::<u8>();
 
-    // `align` is not 0 and power of two
-    // `size` is less than isize::MAX
     Layout::from_size_align(size, align)
-        .expect("tag term length is bounded by u16::MAX, far below Layout's limits")
+        .expect("a tag term is one byte longer than a tag, far below Layout's size limit")
 }
 
 /// Owning handle to a tag term allocation.
@@ -383,6 +385,35 @@ mod tests {
 
         assert!(idx.find(b"").is_none());
         assert!(idx.find(b"\0").is_none());
+    }
+
+    /// Re-adding a term already in the trie must be ignored. The second insert
+    /// would otherwise overwrite the entry's [`OwnedTerm`], freeing the
+    /// allocation that every suffix entry's [`TermPtr`] still points at.
+    /// [`TagIndex::commit`](crate::TagIndex::commit) runs once per document, so
+    /// any tag value shared by two documents takes this path.
+    #[test]
+    fn add_of_an_already_indexed_term_is_ignored() {
+        let mut idx = TagSuffixIndex::new();
+        idx.add(b"cat");
+        idx.add(b"cat");
+
+        let term = idx.find(b"cat").expect("`cat` is indexed");
+        assert_eq!(term.members().count(), 1, "one owned term, not two");
+
+        for suffix in [b"at".as_slice(), b"t"] {
+            let data = idx.find(suffix).expect("suffix is indexed");
+            assert_eq!(
+                data.members().count(),
+                1,
+                "`{}` must not gain a second reference to the same term",
+                String::from_utf8_lossy(suffix)
+            );
+            assert!(
+                data.members().eq(term.members()),
+                "the surviving reference must point at the live term allocation"
+            );
+        }
     }
 
     /// Deleting a tag that is merely a *suffix* of an indexed term must not

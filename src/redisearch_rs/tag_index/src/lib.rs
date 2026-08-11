@@ -347,6 +347,30 @@ impl TagIndex {
                 if tags.is_empty() {
                     return Some(WritePostingsDelta::default());
                 }
+                debug_assert!(!ctx.is_null(), "disk-mode indexing needs a write context");
+                debug_assert!(
+                    !batch.is_null(),
+                    "disk-mode indexing needs a disk write batch"
+                );
+                debug_assert!(
+                    tags.iter().all(|tag| !tag.contains(&0)),
+                    "tag bytes are NUL-free"
+                );
+                // Contract 2 is checkable: read the byte it promises is there. If
+                // a caller broke the contract this read is itself the violation —
+                // which is the point, since debug builds, miri and the sanitizer
+                // suites then flag it here instead of inside the disk backend's
+                // `strlen`.
+                debug_assert!(
+                    tags.iter().all(|tag| {
+                        // SAFETY: contract 2 promises the byte just past the tag
+                        // is inside the buffer the tag borrows from.
+                        let terminator = unsafe { tag.as_ptr().add(tag.len()) };
+                        // SAFETY: as above — that byte is readable.
+                        unsafe { *terminator == 0 }
+                    }),
+                    "every tag must borrow from a NUL-terminated buffer"
+                );
                 // Contract 2 puts a NUL just past each tag, so the tag pointer is
                 // directly usable as the `const char *` the disk API expects.
                 let mut value_ptrs: Vec<*const c_char> =
@@ -435,6 +459,11 @@ impl TagIndex {
     ///
     /// Returns a null pointer when `ii` holds no documents.
     ///
+    /// # Panics
+    /// Panics on a disk-mode index: the postings live on disk, so there is no
+    /// in-memory inverted index to build a reader over. Use
+    /// [`open_reader`](Self::open_reader), which handles both modes.
+    ///
     /// # Safety
     ///
     /// 1. `self` must outlive the returned iterator, and must not be mutated
@@ -474,7 +503,9 @@ impl TagIndex {
             "ii must be the inverted index currently stored for tag"
         );
 
-        self.get_reader(sctx, ii, tag, weight, field_index).as_ptr()
+        // SAFETY: contracts 1, 2 and 3 are exactly `get_reader`'s three
+        // pre-conditions, and this function's caller upholds them.
+        unsafe { self.get_reader(sctx, ii, tag, weight, field_index) }.as_ptr()
     }
 
     /// Iterate over all `(tag, inverted index)` entries, in lexicographical
@@ -527,6 +558,14 @@ impl TagIndex {
 
     /// Iterate over the `(tag, inverted index)` entries whose tag falls within
     /// `filter`'s boundaries, in lexicographical order of the tag.
+    ///
+    /// # Panics
+    /// Panics on a disk-mode index, which has no in-memory postings to yield —
+    /// use [`disk_range_iter_values`](Self::disk_range_iter_values) there. Unlike
+    /// [`value_iter_filtered`](Self::value_iter_filtered), the two range
+    /// iterators yield different value types and so cannot dispatch on the mode
+    /// behind one signature; the caller selects with
+    /// [`disk_mode`](Self::disk_mode).
     pub fn range_iter_values<'tm, 'f>(
         &'tm self,
         filter: RangeFilter<'f>,
@@ -590,6 +629,11 @@ impl TagIndex {
     }
 
     /// Disk-mode counterpart of [`range_iter_values`](Self::range_iter_values).
+    ///
+    /// # Panics
+    /// Panics on a memory-mode index; see
+    /// [`range_iter_values`](Self::range_iter_values) for why the two are
+    /// separate methods.
     pub fn disk_range_iter_values<'tm, 'f>(
         &'tm self,
         filter: RangeFilter<'f>,
@@ -617,8 +661,9 @@ impl TagIndex {
     /// and `None` is returned without applying anything.
     ///
     /// On success, returns the [`GcApplyInfo`] describing the applied changes.
-    /// Its `bytes_freed`/`block_count_delta` already account for the whole
-    /// posting list being dropped when the tag became empty.
+    /// Its [`bytes_freed`](GcApplyInfo::bytes_freed) and
+    /// [`block_count_delta`](GcApplyInfo::block_count_delta) already account for
+    /// the whole posting list being dropped when the tag became empty.
     pub fn gc(
         &mut self,
         tag: &[u8],
@@ -724,9 +769,10 @@ impl TagIndex {
                 tok.len = tag.len();
                 // SAFETY: `disk_index_spec` is a valid `RedisSearchDiskIndexSpec`
                 // (invariant from `new`); `sctx` is valid for the call
-                // (contract 3); `tok` borrows `tag` for the duration of the
-                // call; `status` may be null. The disk backend owns the
-                // returned iterator, which C frees through its `Free` callback.
+                // (contract 2); `tok` borrows `tag` for the duration of the
+                // call; `status` is null or valid (contract 3). The disk backend
+                // owns the returned iterator, which C frees through its `Free`
+                // callback.
                 let it = unsafe {
                     ffi::SearchDisk_NewTagIterator(
                         disk_index_spec.as_ptr(),
@@ -744,13 +790,30 @@ impl TagIndex {
                 match a {
                     None => None,
                     Some(ii) if ii.unique_docs() == 0 => None,
-                    Some(ii) => Some(self.get_reader(sctx, ii, tag, weight, field_index)),
+                    Some(ii) => Some(
+                        // SAFETY: `get_reader`'s contract 1 is this function's
+                        // contract 1; its contract 2 holds because `ii` was just
+                        // resolved from the values trie for `tag`; and its
+                        // contract 3 is this function's contract 2.
+                        unsafe { self.get_reader(sctx, ii, tag, weight, field_index) },
+                    ),
                 }
             }
         }
     }
 
-    fn get_reader(
+    /// Build the [`QueryIterator`] reading `ii`'s postings for `tag`, shared by
+    /// [`open_reader`](Self::open_reader) and
+    /// [`query_iterator_for_value`](Self::query_iterator_for_value).
+    ///
+    /// # Safety
+    ///
+    /// 1. `self` must outlive the returned iterator, and may be mutated while it
+    ///    is alive only under the revalidation protocol described on
+    ///    [`query_iterator_for_value`](Self::query_iterator_for_value).
+    /// 2. `ii` must be the inverted index this index currently stores for `tag`.
+    /// 3. `sctx` and `sctx.spec` must be valid and outlive the returned iterator.
+    unsafe fn get_reader(
         &self,
         sctx: NonNull<RedisSearchCtx>,
         ii: &InvertedIndex<DocIdsOnly>,
@@ -765,7 +828,8 @@ impl TagIndex {
             predicate: FieldExpirationPredicate::Default,
         };
         let reader = ii.reader();
-        // SAFETY: 3. guarantees sctx/spec validity for the checker's lifetime.
+        // SAFETY: contract 3 guarantees sctx/spec validity for the checker's
+        // lifetime.
         let checker = unsafe { FieldExpirationChecker::new(sctx, filter_ctx, reader.flags()) };
 
         // SAFETY: contract 1 guarantees the index — and thus the trie backing
@@ -773,7 +837,8 @@ impl TagIndex {
         // between revalidations.
         let lookup = unsafe { TrieLookup::new(NonNull::from(self)) };
 
-        // SAFETY: 3. guarantees `sctx` and `sctx.spec` are valid.
+        // SAFETY: contract 2 makes `reader` the current reader for `tag`, and
+        // contract 3 guarantees `sctx` and `sctx.spec` are valid.
         let iterator = unsafe { Tag::new(reader, sctx, lookup, term, weight, checker) };
         NonNull::new(RQEIteratorWrapper::boxed_new(iterator))
             .expect("RQEIteratorWrapper::boxed_new never returns NULL pointer")
@@ -971,6 +1036,18 @@ impl<'p> SuffixWildcardPattern<'p> {
 
         Ok(Self { full: pattern, sub })
     }
+
+    /// The anchor sub-pattern [`TagIndex::suffix_wildcard`] walks the suffix trie
+    /// with, as chosen by [`choose_token`].
+    ///
+    /// Which token wins only changes how much of the trie is visited, never the
+    /// matched terms — every candidate is re-checked against [`Self::full`] — so
+    /// nothing else observes a divergence from C's `Suffix_ChooseToken`. Exposed
+    /// so the tests can pin the choice itself.
+    #[cfg(test)]
+    pub(crate) fn anchor(&self) -> &[u8] {
+        &self.sub
+    }
 }
 
 /// How many suffix-trie entries are walked between two consecutive clock
@@ -1147,9 +1224,7 @@ mod tests {
             )
         };
 
-        let status = it
-            .revalidate(&*mock.spec_read())
-            .expect("revalidate failed");
+        let status = it.revalidate(&mock.spec_read()).expect("revalidate failed");
         assert_eq!(status, RQEValidateStatus::Ok);
 
         // Simulate the garbage collector removing the tag's postings entirely.
@@ -1157,9 +1232,7 @@ mod tests {
         // revalidation protocol.
         unsafe { (*idx).delete_tag_value(b"team") };
 
-        let status = it
-            .revalidate(&*mock.spec_read())
-            .expect("revalidate failed");
+        let status = it.revalidate(&mock.spec_read()).expect("revalidate failed");
         assert_eq!(status, RQEValidateStatus::Aborted);
 
         drop(it);
@@ -1196,6 +1269,56 @@ mod suffix_wildcard_tests {
             .collect();
         out.sort();
         Some(out)
+    }
+
+    /// Which literal token anchors the suffix-trie walk, for each rule of C's
+    /// `Suffix_ChooseToken` scoring. A wrong choice is invisible in the matched
+    /// terms — only in how much of the trie is walked — so these are the only
+    /// assertions that can catch a divergence.
+    ///
+    /// The score is `len + token_index`, minus
+    /// [`SUFFIX_STARRED_ANCHOR_PENALTY`] when the token is immediately followed
+    /// by `*`, minus one per `?` inside it; ties go to the later token.
+    #[test]
+    fn anchor_token_follows_the_c_scoring() {
+        for (pattern, expected, why) in [
+            (&b"hello"[..], &b"hello"[..], "the only token"),
+            (b"*llo", b"llo", "a leading `*` is not part of the token"),
+            (
+                b"he*",
+                b"he*",
+                "a token followed by `*` keeps it, to prefix-expand the trie",
+            ),
+            (
+                b"abcdef*ghi",
+                b"ghi",
+                "the starred penalty (6 - 5 = 1) drops `abcdef` below `ghi` (3 + 1 = 4)",
+            ),
+            (
+                b"abcdefghij*xyz",
+                b"abcdefghij*",
+                "a long enough token still wins the penalty (10 - 5 = 5 > 3 + 1)",
+            ),
+            (
+                b"ab??????ij*xyz",
+                b"xyz",
+                "the same length, but six `?` take it to -1, below `xyz`",
+            ),
+            (
+                b"abcdefg*z",
+                b"z",
+                "a tie (7 - 5 = 2 == 1 + 1) resolves to the later token",
+            ),
+        ] {
+            let prepared =
+                SuffixWildcardPattern::new(pattern).expect("pattern has a literal token");
+            assert_eq!(
+                prepared.anchor(),
+                expected,
+                "anchor for {:?}: {why}",
+                String::from_utf8_lossy(pattern)
+            );
+        }
     }
 
     #[test]

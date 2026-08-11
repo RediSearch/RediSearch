@@ -48,7 +48,7 @@ fn value_iter_keys(mut it: ValueIterator<'_>) -> Vec<Vec<u8>> {
 
 /// A dangling but non-null, well-aligned disk-spec pointer. Sound to store
 /// because these tests only drive paths that never dereference it.
-fn fake_disk_spec() -> NonNull<RedisSearchDiskIndexSpec> {
+const fn fake_disk_spec() -> NonNull<RedisSearchDiskIndexSpec> {
     NonNull::dangling()
 }
 
@@ -133,20 +133,21 @@ fn disk_suffix_iteration_yields_matching_keys() {
 /// Disk-mode wildcard iteration supports the `*` and `?` metacharacters.
 #[test]
 fn disk_wildcard_iteration_matches_metacharacters() {
-    let idx = disk_index_with_tags(&[b"bar", b"fao", b"fo", b"foo", b"fooo"], false);
+    let idx = disk_index_with_tags(&[b"bar", b"gao", b"go", b"goo", b"gooo"], false);
 
-    let keys = value_iter_keys(idx.value_iter_filtered(b"f?o", IterMode::Wildcard));
-    assert_eq!(keys, [b"fao".to_vec(), b"foo".to_vec()]);
+    let keys = value_iter_keys(idx.value_iter_filtered(b"g?o", IterMode::Wildcard));
+    assert_eq!(keys, [b"gao".to_vec(), b"goo".to_vec()]);
 
-    let keys = value_iter_keys(idx.value_iter_filtered(b"f*o", IterMode::Wildcard));
+    let keys = value_iter_keys(idx.value_iter_filtered(b"g*o", IterMode::Wildcard));
     assert_eq!(
         keys,
         [
-            b"fao".to_vec(),
-            b"fo".to_vec(),
-            b"foo".to_vec(),
-            b"fooo".to_vec()
-        ]
+            b"gao".to_vec(),
+            b"go".to_vec(),
+            b"goo".to_vec(),
+            b"gooo".to_vec()
+        ],
+        "`g*o` also matches `go`, where the `*` expands to nothing"
     );
 }
 

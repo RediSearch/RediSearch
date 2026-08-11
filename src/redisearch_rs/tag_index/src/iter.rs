@@ -11,8 +11,9 @@
 //!
 //! [`ValueIterator`] walks the tag *values* (the keys of the values trie, or
 //! the suffix trie), optionally filtered by a pattern and bounded by a timeout;
-//! it is the engine behind the C `TagIndex_IterateValues*` family. Its `advance`
-//! yields, for each tag, the borrowed key together with the tag's
+//! it is the engine behind the C `TagIndex_IterateValues*` family. Its
+//! [`advance`](ValueIterator::advance) yields, for each tag, the borrowed key
+//! together with the tag's
 //! [`InvertedIndex<DocIdsOnly>`] in memory mode (`None` in disk mode or when
 //! walking the suffix trie, where the trie holds no in-memory postings).
 //!
@@ -30,11 +31,11 @@ use trie_rs::iter::{ContainsLendingIter, LendingIter, WildcardLendingIter, filte
 use crate::{SuffixData, TagIndex, expansion_timeout};
 
 /// Value type stored in the memory-mode values trie. Boxed so the heap
-/// `InvertedIndex` address stays stable across trie restructuring — callers
+/// [`InvertedIndex`] address stays stable across trie restructuring — callers
 /// (e.g. the C query layer) hold it across mutations.
 type MemValue = Box<InvertedIndex<DocIdsOnly>>;
 
-/// Predicate owned by the suffix-filter variants. A `Filter` combinator's
+/// Predicate owned by the suffix-filter variants. A [`Filter`] combinator's
 /// closure type is unnameable, so it is boxed to appear in an enum variant.
 /// This is a boxed *predicate*, not a boxed iterator — dispatch over the
 /// iterator shapes below stays static.

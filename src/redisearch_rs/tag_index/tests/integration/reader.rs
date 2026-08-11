@@ -28,8 +28,11 @@ use crate::util::index_mem;
 unsafe fn drain(it: *mut ffi::QueryIterator) -> Vec<ffi::t_docId> {
     let mut doc_ids = Vec::new();
     loop {
-        // SAFETY: `it` is a valid `QueryIterator`; `Read` is always set.
-        let status = unsafe { (*it).Read.expect("Read is set")(it) };
+        // SAFETY: `it` is a valid `QueryIterator`.
+        let read = unsafe { (*it).Read }.expect("Read is set");
+        // SAFETY: `read` is `it`'s own vtable entry, so `it` is the argument it
+        // expects.
+        let status = unsafe { read(it) };
         if status != ffi::IteratorStatus_ITERATOR_OK {
             assert_eq!(status, ffi::IteratorStatus_ITERATOR_EOF);
             break;
@@ -38,6 +41,19 @@ unsafe fn drain(it: *mut ffi::QueryIterator) -> Vec<ffi::t_docId> {
         doc_ids.push(unsafe { (*it).lastDocId });
     }
     doc_ids
+}
+
+/// Hand ownership of `it` back through its `Free` callback.
+///
+/// # Safety
+///
+/// `it` must be a valid `QueryIterator` that nothing touches afterwards.
+unsafe fn free(it: *mut ffi::QueryIterator) {
+    // SAFETY: `it` is a valid `QueryIterator`.
+    let free = unsafe { (*it).Free }.expect("Free is set");
+    // SAFETY: `free` is `it`'s own vtable entry; the caller promises nothing
+    // uses `it` after this.
+    unsafe { free(it) };
 }
 
 /// `open_reader` yields an iterator that reads every indexed document id in
@@ -55,6 +71,7 @@ fn open_reader_reads_all_ids_in_order() {
     }
 
     let mock = MockContext::new(N, N as usize);
+    // SAFETY: `tag_index` and `mock` outlive the iterator, which is freed below.
     let it = unsafe { tag_index.open_reader(mock.sctx(), b"hello", 1.0, 0, null_mut()) }
         .expect("the tag is indexed");
 
@@ -62,8 +79,8 @@ fn open_reader_reads_all_ids_in_order() {
     let doc_ids = unsafe { drain(it.as_ptr()) };
     assert_eq!(doc_ids, (1..=N).collect::<Vec<_>>());
 
-    // SAFETY: `it` is a valid `QueryIterator`; this hands ownership back.
-    unsafe { (*it.as_ptr()).Free.expect("Free is set")(it.as_ptr()) };
+    // SAFETY: `it` is the valid iterator built above; nothing touches it after.
+    unsafe { free(it.as_ptr()) };
 }
 
 /// After reading the only document, skipping past the last id reports EOF and
@@ -75,24 +92,29 @@ fn skip_to_past_last_id_yields_eof() {
     index_mem(&mut tag_index, &[b"hello"], doc_id);
 
     let mock = MockContext::new(1, 1);
+    // SAFETY: `tag_index` and `mock` outlive the iterator, which is freed below.
     let it = unsafe { tag_index.open_reader(mock.sctx(), b"hello", 1.0, 0, null_mut()) }
         .expect("the tag is indexed");
     let it = it.as_ptr();
 
     // SAFETY: `it` is the valid iterator just built.
-    let status = unsafe { (*it).Read.expect("Read is set")(it) };
+    let read = unsafe { (*it).Read }.expect("Read is set");
+    // SAFETY: `read` is `it`'s own vtable entry.
+    let status = unsafe { read(it) };
     assert_eq!(status, ffi::IteratorStatus_ITERATOR_OK);
     // SAFETY: `it` is valid and positioned on the first (only) result.
     assert_eq!(unsafe { (*it).lastDocId }, doc_id);
 
     // SAFETY: `it` is valid; `SkipTo` is populated by `RQEIteratorWrapper`.
-    let status = unsafe { (*it).SkipTo.expect("SkipTo is set")(it, doc_id + 1) };
+    let skip_to = unsafe { (*it).SkipTo }.expect("SkipTo is set");
+    // SAFETY: `skip_to` is `it`'s own vtable entry.
+    let status = unsafe { skip_to(it, doc_id + 1) };
     assert_eq!(status, ffi::IteratorStatus_ITERATOR_EOF);
     // SAFETY: `it` is valid; the failed skip must not rewind `lastDocId`.
     assert!(unsafe { (*it).lastDocId } >= doc_id);
 
-    // SAFETY: `it` is a valid `QueryIterator`; this hands ownership back.
-    unsafe { (*it).Free.expect("Free is set")(it) };
+    // SAFETY: `it` is the valid iterator built above; nothing touches it after.
+    unsafe { free(it) };
 }
 
 /// Opening a reader on a tag that was never indexed yields no iterator (C:
@@ -104,9 +126,9 @@ fn open_reader_absent_tag_returns_none() {
     index_mem(&mut tag_index, &[b"hello"], 1);
 
     let mock = MockContext::new(1, 1);
-    assert!(
-        unsafe { tag_index.open_reader(mock.sctx(), b"missing", 1.0, 0, null_mut()) }.is_none()
-    );
+    // SAFETY: `tag_index` and `mock` outlive the (never created) iterator.
+    let it = unsafe { tag_index.open_reader(mock.sctx(), b"missing", 1.0, 0, null_mut()) };
+    assert!(it.is_none());
 }
 
 /// Drive the `QueryIterator` built from an already-resolved inverted index
@@ -132,8 +154,8 @@ fn value_path_reads_all_matching_docs_via_c_vtable() {
     let doc_ids = unsafe { drain(it) };
     assert_eq!(doc_ids, vec![1, 2, 3]);
 
-    // SAFETY: `it` is a valid `QueryIterator`; this hands ownership back.
-    unsafe { (*it).Free.expect("Free is set")(it) };
+    // SAFETY: `it` is the valid iterator built above; nothing touches it after.
+    unsafe { free(it) };
 }
 
 /// Revalidating through the C vtable aborts once the garbage collector has
@@ -187,9 +209,7 @@ fn revalidate_aborts_after_gc_via_c_vtable() {
         "a reader whose tag the GC removed must abort"
     );
 
-    // SAFETY: `it` is the valid iterator built above.
-    let free = unsafe { (*it).Free }.expect("Free is set");
-    // SAFETY: hands ownership of `it` back; nothing touches it afterwards.
+    // SAFETY: `it` is the valid iterator built above; nothing touches it after.
     unsafe { free(it) };
     // SAFETY: allocated with `Box::into_raw`; the iterator borrowing it is gone.
     drop(unsafe { Box::from_raw(tag_index) });

@@ -173,20 +173,51 @@ fn suffix_trie_map_exact_node_yields_every_member() {
 /// The `Wildcard` mode supports the `*` and `?` metacharacters.
 #[test]
 fn wildcard_iter_values_matches_metacharacters() {
-    let tag_index = index_with_tags(&[b"bar", b"fao", b"fo", b"foo", b"fooo"]);
+    let tag_index = index_with_tags(&[b"bar", b"gao", b"go", b"goo", b"gooo"]);
 
-    let keys = value_iter_keys(tag_index.value_iter_filtered(b"f?o", IterMode::Wildcard));
-    assert_eq!(keys, [b"fao".to_vec(), b"foo".to_vec()]);
+    let keys = value_iter_keys(tag_index.value_iter_filtered(b"g?o", IterMode::Wildcard));
+    assert_eq!(keys, [b"gao".to_vec(), b"goo".to_vec()]);
 
-    let keys = value_iter_keys(tag_index.value_iter_filtered(b"f*o", IterMode::Wildcard));
+    let keys = value_iter_keys(tag_index.value_iter_filtered(b"g*o", IterMode::Wildcard));
     assert_eq!(
         keys,
         [
-            b"fao".to_vec(),
-            b"fo".to_vec(),
-            b"foo".to_vec(),
-            b"fooo".to_vec()
-        ]
+            b"gao".to_vec(),
+            b"go".to_vec(),
+            b"goo".to_vec(),
+            b"gooo".to_vec()
+        ],
+        "`g*o` also matches `go`, where the `*` expands to nothing"
+    );
+}
+
+/// Committing a tag that is already in the suffix trie must not re-register it.
+/// The second registration would replace the entry's owned term, freeing the
+/// allocation the suffix entries still point at — so expanding a suffix query
+/// afterwards would read through dangling pointers. `commit` runs once per
+/// document, so any tag value shared by two documents takes this path.
+#[test]
+fn recommitting_a_tag_keeps_its_suffix_terms_readable() {
+    let mut tag_index = TagIndex::new(1, None, true);
+    let tags: &[&[u8]] = &[b"cat"];
+
+    for doc_id in 1..=2 {
+        index_mem(&mut tag_index, tags, doc_id);
+        tag_index.commit(tags);
+    }
+
+    // Materializing the expanded terms dereferences each suffix entry's term
+    // pointer, so a freed allocation surfaces here (as garbage, or as a miri
+    // error) rather than staying latent.
+    let terms: Vec<Vec<u8>> = tag_index
+        .suffix_trie_map(b"at", false, None)
+        .map(|term| term[..term.len() - 1].to_vec())
+        .collect();
+
+    assert_eq!(
+        terms,
+        [b"cat".to_vec()],
+        "`cat` stays registered exactly once under its suffix `at`"
     );
 }
 
