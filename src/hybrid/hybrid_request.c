@@ -571,12 +571,17 @@ void HybridRequest_SetTimedOut(HybridRequest *req) {
 
 bool HybridRequest_TryClaimAggregateResults(HybridRequest *req) {
   bool expected = false;
-  return atomic_compare_exchange_strong_explicit(&req->brc->aggregatingResults, &expected, true,
-                                                 memory_order_relaxed, memory_order_relaxed);
+  // TODO($$$): Remove the legacy async state once consumers use QueryRequest.async.
+  bool claimed = atomic_compare_exchange_strong_explicit(
+      &req->brc->aggregatingResults, &expected, true, memory_order_relaxed, memory_order_relaxed);
+  RS_AtomicBoolStoreRelaxed(&req->base.async.aggregatingResults, true);
+  return claimed;
 }
 
 void HybridRequest_SignalAggregateResultsComplete(HybridRequest *req) {
   pthread_mutex_lock(&req->brc->aggregateResultsLock);
+  req->base.async.aggregateResultsDone = true;
+  // TODO($$$): Remove the legacy async state once consumers use QueryRequest.async.
   req->brc->aggregateResultsDone = true;
   pthread_cond_broadcast(&req->brc->aggregateResultsCond);
   pthread_mutex_unlock(&req->brc->aggregateResultsLock);

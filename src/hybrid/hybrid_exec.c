@@ -1230,6 +1230,8 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
         timeoutCallback = internal
             ? HybridQueryCursorTimeoutReturnStrictCallback
             : HybridQueryTimeoutReturnStrictCallback;
+        hreq->base.async.requiresAggregateResultsSync = true;
+        // TODO($$$): Remove the legacy async state once consumers use QueryRequest.async.
         hreq->brc->requiresAggregateResultsSync = true;
       }
     }

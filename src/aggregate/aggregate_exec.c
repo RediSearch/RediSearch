@@ -433,6 +433,8 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
       // The RETURN_STRICT timeout callback claimed the sync phase first and
       // already owns the reply. The caller must skip stored-result handling and
       // clean up the cursor in runCursor.
+      req->base.async.aggregateResultsClaimLost = true;
+      // TODO($$$): Remove the legacy async state once consumers use QueryRequest.async.
       req->brc->aggregateResultsClaimLost = true;
       *rc = RS_RESULT_TIMEDOUT;
       return;
@@ -1989,6 +1991,8 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
       if (policy == TimeoutPolicy_Fail) {
         timeoutCallback = QueryTimeoutFailCallback;
       } else {
+        r->base.async.requiresAggregateResultsSync = true;
+        // TODO($$$): Remove the legacy async state once consumers use QueryRequest.async.
         r->brc->requiresAggregateResultsSync = true;
         timeoutCallback = QueryTimeoutReturnStrictCallback;
       }
@@ -2588,6 +2592,8 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         // Shard/standalone RETURN_STRICT cursor reads bypass coordCursorReadReturnStrict,
         // so opt into the same per-read worker/timeout claim handshake here.
         // BeginCycle performs the per-read reset.
+        req->base.async.requiresAggregateResultsSync = true;
+        // TODO($$$): Remove the legacy async state once consumers use QueryRequest.async.
         req->brc->requiresAggregateResultsSync = true;
       }
       replyCallback = CursorReadReplyCallback;

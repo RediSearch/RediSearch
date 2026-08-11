@@ -1153,6 +1153,7 @@ static BlockedRequestCtx *BlockedRequestCtx_NewCommon(RequestKind kind) {
   BlockedRequestCtx *brc = rm_calloc(1, sizeof(BlockedRequestCtx));
   brc->kind = kind;
   brc->refcount = 1;
+  // TODO($$$): Remove the legacy async state once consumers use QueryRequest.async.
   brc->requiresAggregateResultsSync = false;
   brc->aggregatingResults = false;
   brc->aggregateResultsClaimLost = false;
@@ -1216,8 +1217,11 @@ void BlockedRequestCtx_Free(BlockedRequestCtx *brc) {
 
 bool AREQ_TryClaimAggregateResults(AREQ *req) {
   bool expected = false;
-  return atomic_compare_exchange_strong_explicit(&req->brc->aggregatingResults, &expected, true,
-                                                 memory_order_relaxed, memory_order_relaxed);
+  // TODO($$$): Remove the legacy async state once consumers use QueryRequest.async.
+  bool claimed = atomic_compare_exchange_strong_explicit(
+      &req->brc->aggregatingResults, &expected, true, memory_order_relaxed, memory_order_relaxed);
+  RS_AtomicBoolStoreRelaxed(&req->base.async.aggregatingResults, true);
+  return claimed;
 }
 
 bool BlockedRequestCtx_TryOwnStrictRead(BlockedRequestCtx *brc, BrcStrictReadOwner owner) {
@@ -1230,6 +1234,8 @@ bool BlockedRequestCtx_TryOwnStrictRead(BlockedRequestCtx *brc, BrcStrictReadOwn
 
 void AREQ_SignalAggregateResultsComplete(AREQ *req) {
   pthread_mutex_lock(&req->brc->aggregateResultsLock);
+  req->base.async.aggregateResultsDone = true;
+  // TODO($$$): Remove the legacy async state once consumers use QueryRequest.async.
   req->brc->aggregateResultsDone = true;
   pthread_cond_broadcast(&req->brc->aggregateResultsCond);
   pthread_mutex_unlock(&req->brc->aggregateResultsLock);
@@ -1252,6 +1258,11 @@ static bool BlockedRequestCtx_OwnedRequestTimedOut(BlockedRequestCtx *brc) {
   return RequestSyncState_GetTimedOut(&brc->query.hybrid->syncState);
 }
 
+static QueryRequest *BlockedRequestCtx_QueryRequest(BlockedRequestCtx *brc) {
+  return brc->kind == REQUEST_KIND_AREQ ? (QueryRequest *)brc->query.areq
+                                       : (QueryRequest *)brc->query.hybrid;
+}
+
 /* See aggregate.h for the full handshake contract. The aggregateResultsLock
  * serializes the worker's "set holding, then check timedOut" against the main
  * thread's "set timedOut, then check holding", making the two race-free. */
@@ -1263,6 +1274,8 @@ bool BlockedRequestCtx_SafeLoaderEnterGIL(BlockedRequestCtx *sync) {
     // GIL the main thread holds while it waits.
     proceed = false;
   } else {
+    BlockedRequestCtx_QueryRequest(sync)->async.safeLoadersHoldingGIL++;
+    // TODO($$$): Remove the legacy async state once consumers use QueryRequest.async.
     sync->safeLoadersHoldingGIL++;
     proceed = true;
   }
@@ -1273,6 +1286,8 @@ bool BlockedRequestCtx_SafeLoaderEnterGIL(BlockedRequestCtx *sync) {
 void BlockedRequestCtx_SafeLoaderExitGIL(BlockedRequestCtx *sync) {
   pthread_mutex_lock(&sync->aggregateResultsLock);
   RS_LOG_ASSERT(sync->safeLoadersHoldingGIL > 0, "SafeLoaderExitGIL without matching EnterGIL");
+  BlockedRequestCtx_QueryRequest(sync)->async.safeLoadersHoldingGIL--;
+  // TODO($$$): Remove the legacy async state once consumers use QueryRequest.async.
   sync->safeLoadersHoldingGIL--;
   pthread_mutex_unlock(&sync->aggregateResultsLock);
 }
@@ -1286,9 +1301,16 @@ bool BlockedRequestCtx_TimeoutPreemptSafeLoaderGIL(BlockedRequestCtx *sync) {
 }
 
 void AREQ_ResetForCursorReadReturnStrict(AREQ *req) {
+  RS_AtomicBoolStoreRelaxed(&req->base.async.aggregatingResults, false);
+  // TODO($$$): Remove the legacy async state once consumers use QueryRequest.async.
   RS_AtomicBoolStoreRelaxed(&req->brc->aggregatingResults, false);
+  req->base.async.aggregateResultsClaimLost = false;
+  // TODO($$$): Remove the legacy async state once consumers use QueryRequest.async.
   req->brc->aggregateResultsClaimLost = false;
   pthread_mutex_lock(&req->brc->aggregateResultsLock);
+  req->base.async.aggregateResultsDone = false;
+  req->base.async.safeLoadersHoldingGIL = 0;
+  // TODO($$$): Remove the legacy async state once consumers use QueryRequest.async.
   req->brc->aggregateResultsDone = false;
   req->brc->safeLoadersHoldingGIL = 0;
   pthread_mutex_unlock(&req->brc->aggregateResultsLock);

@@ -9,11 +9,13 @@
 #ifndef QUERY_REQUEST_H__
 #define QUERY_REQUEST_H__
 
+#include <pthread.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
 #include "query_error.h"
+#include "util/rs_atomic.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -58,10 +60,26 @@ typedef struct {
   uint64_t id;
 } CursorInfo;
 
+/**
+ * Timeout-only synchronization between query workers and main-thread callbacks.
+ * TODO($$$): Remove this temporary state after MOD-17486 is merged.
+ */
+typedef struct {
+  bool requiresAggregateResultsSync;
+  RS_Atomic(bool) aggregatingResults;
+  bool aggregateResultsClaimLost;
+  bool aggregateResultsDone;
+  int safeLoadersHoldingGIL;
+  // TODO($$$): Plug both primitives into the async synchronization paths later in this PR.
+  pthread_mutex_t aggregateResultsLock;
+  pthread_cond_t aggregateResultsCond;
+} QueryRequestAsyncState;
+
 typedef struct QueryRequest {
   QueryRequestKind kind;
   CursorInfo cursorInfo;
   ChunkReplyState reply;
+  QueryRequestAsyncState async;
   /**
    * Transitional reference to the legacy QueryProcessingCtx.endProc slot.
    * The extra indirection makes changes to that slot immediately visible here,

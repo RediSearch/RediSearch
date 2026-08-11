@@ -10,21 +10,41 @@
 
 #include "query_error_ffi.h"
 
+static inline void ChunkReplyState_Init(ChunkReplyState *state) {
+  *state = (ChunkReplyState) {0};
+  state->err = QueryError_Default();
+}
+
+static inline void QueryRequestAsyncState_Init(QueryRequestAsyncState *state) {
+  state->requiresAggregateResultsSync = false;
+  state->aggregatingResults = false;
+  state->aggregateResultsClaimLost = false;
+  state->aggregateResultsDone = false;
+  state->safeLoadersHoldingGIL = 0;
+  pthread_mutex_init(&state->aggregateResultsLock, NULL);
+  pthread_cond_init(&state->aggregateResultsCond, NULL);
+}
+
+static inline void QueryRequestAsyncState_Destroy(QueryRequestAsyncState *state) {
+  pthread_mutex_destroy(&state->aggregateResultsLock);
+  pthread_cond_destroy(&state->aggregateResultsCond);
+}
+
 void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind) {
   request->kind = kind;
-  request->cursorInfo.id = 0;
+  request->cursorInfo = (CursorInfo) {0};
+  ChunkReplyState_Init(&request->reply);
+  QueryRequestAsyncState_Init(&request->async);
   QueryRequest_SetEndProcRef(request, NULL);
-  request->reply = (ChunkReplyState) {0};
-  request->reply.err = QueryError_Default();
 }
 
 void QueryRequest_ResetReply(QueryRequest *request) {
   QueryError_ClearError(&request->reply.err);
-  request->reply = (ChunkReplyState) {0};
-  request->reply.err = QueryError_Default();
+  ChunkReplyState_Init(&request->reply);
 }
 
 void QueryRequest_Destroy(QueryRequest *request) {
   QueryError_ClearError(&request->reply.err);
+  QueryRequestAsyncState_Destroy(&request->async);
   QueryRequest_SetEndProcRef(request, NULL);
 }
