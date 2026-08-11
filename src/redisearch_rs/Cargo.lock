@@ -2505,6 +2505,7 @@ dependencies = [
  "redisearch_rs",
  "rqe_wildcard",
  "rs_token",
+ "string_utils",
  "workspace_hack",
 ]
 

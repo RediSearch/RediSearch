@@ -16,13 +16,7 @@ use std::{
 
 use query_term::RSTokenFlags;
 use rqe_wildcard::remove_escape_in_place;
-
-/// The most bytes the C `strToLowerRunes` decoder (`nu_utf8_read`) reads past a
-/// multibyte lead byte. A UTF-8 sequence is at most four bytes, so the decoder
-/// touches at most three bytes beyond the lead — and it does so without any
-/// bounds check. Padding a decoder input with this many trailing zero bytes
-/// keeps a truncated trailing lead byte from reading out of bounds.
-const NU_MAX_READAHEAD: usize = 3;
+use string_utils::libnu::{NU_MAX_READAHEAD, tail_may_overread};
 
 /// Upper bound on how many token bytes are copied for a rune conversion. A term
 /// is stored under at most [`ffi::MAX_RUNE_STR_LEN`] runes, and every UTF-8
@@ -32,42 +26,6 @@ const NU_MAX_READAHEAD: usize = 3;
 /// way, so capping the copy here keeps a huge token from forcing an equally huge
 /// transient allocation before that rejection.
 const MAX_DECODE_BYTES: usize = 4 * (ffi::MAX_RUNE_STR_LEN as usize + 1);
-
-/// How many bytes the C decoder (`nu_utf8_read`) consumes for the lead byte `b`,
-/// mirroring its branches exactly — including that it treats a stray
-/// continuation byte (`0x80..=0xBF`) as a two-byte lead rather than rejecting it.
-const fn nu_seq_len(b: u8) -> usize {
-    match b {
-        0x00..=0x7F => 1,
-        0x80..=0xDF => 2,
-        0xE0..=0xEF => 3,
-        0xF0..=0xFF => 4,
-    }
-}
-
-/// Whether handing `bytes` to the C decoder would read past its end.
-///
-/// The decoder walks the input one sequence at a time, reading [`nu_seq_len`]
-/// bytes from each position it lands on without checking that many remain. This
-/// replays that same walk — the lengths alone decide where it lands, so no
-/// decoding is needed — and reports whether any step would run off the end. It
-/// is exact rather than conservative: a well-formed input, whatever its last
-/// character, never trips it, and only a genuinely truncated trailing sequence
-/// does.
-///
-/// `false` means no read can escape `bytes`, so it may be decoded in place; the
-/// padded copy is only needed when this returns `true`.
-fn tail_may_overread(bytes: &[u8]) -> bool {
-    let mut pos = 0;
-    while pos < bytes.len() {
-        let seq_len = nu_seq_len(bytes[pos]);
-        if pos + seq_len > bytes.len() {
-            return true;
-        }
-        pos += seq_len;
-    }
-    false
-}
 
 /// Safe, read-only, [`Copy`] handle borrowing a query-node's [`ffi::RSToken`].
 ///
@@ -436,42 +394,5 @@ impl<'a> RSTokenMut<'a> {
         let new_len = remove_escape_in_place(pattern);
         debug_assert!(new_len <= len, "escape removal must not lengthen the token");
         self.tok.len = new_len;
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn well_formed_input_needs_no_padding() {
-        // Nothing here can over-read, so all of it decodes in place: ASCII, and
-        // sequences of every width sitting flush against the end.
-        assert!(!tail_may_overread(b""));
-        assert!(!tail_may_overread(b"hello"));
-        assert!(!tail_may_overread(b"ab\0cd"));
-        assert!(!tail_may_overread("é".as_bytes()));
-        assert!(!tail_may_overread("日本".as_bytes()));
-        assert!(!tail_may_overread("ab😀".as_bytes()));
-    }
-
-    #[test]
-    fn truncated_trailing_sequence_needs_padding() {
-        // A lead byte announcing more bytes than remain: the decoder would read
-        // past the end, so these must take the padded-copy path.
-        assert!(tail_may_overread(b"ab\xF0"));
-        assert!(tail_may_overread(b"ab\xF0\x9F"));
-        assert!(tail_may_overread(b"ab\xF0\x9F\x98"));
-        assert!(tail_may_overread(b"ab\xE0"));
-        assert!(tail_may_overread(b"ab\xC3"));
-        // A stray continuation byte at the end is read as a two-byte lead.
-        assert!(tail_may_overread(b"ab\x80"));
-    }
-
-    #[test]
-    fn earlier_malformed_bytes_do_not_force_padding() {
-        // The damage is mid-string: the walk resynchronises past it and still
-        // lands inside the input, so no over-read is possible.
-        assert!(!tail_may_overread(b"\xC3(ab"));
     }
 }
