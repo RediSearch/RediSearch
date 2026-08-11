@@ -35,9 +35,8 @@
 
 /* Rust-backed child iterators (src/redisearch_rs/headers/iterators_ffi.h).
  * NewSortedIdListIterator takes ownership of `ids` and frees them with
- * RedisModule_Free, so the caller must allocate `ids` with RedisModule_Alloc
- * (done Rust-side in the bench, so the alloc/free pair matches the mock
- * allocator). */
+ * RedisModule_Free, so every buffer handed to it here comes from
+ * RedisModule_Alloc rather than the C runtime's allocator. */
 QueryIterator *NewSortedIdListIterator(t_docId *ids, uint64_t num, double weight);
 QueryIterator *NewWildcardIterator_NonOptimized(t_docId max_id, double weight);
 /* Takes ownership of `its` and of every child it holds. */
@@ -45,29 +44,35 @@ QueryIterator *NewUnionIterator(QueryIterator **its, int32_t num, bool quick_exi
                                 QueryNodeType type_, const char *q_str,
                                 const IteratorsConfig *config);
 
-/* Spread `ids` round-robin over `arity` sorted-id-list iterators and union them.
+/* Sorted-id-list child over every `stride`-th id of `ids`, starting at `offset`.
+ *
+ * A stride of 1 selects them all. The buffer the child takes ownership of is
+ * filled in a single pass, so a child costs one allocation and one copy of the
+ * ids it holds — no more than building the equivalent list Rust-side. */
+static QueryIterator *make_id_list_child(const t_docId *ids, size_t count, size_t offset,
+                                         size_t stride) {
+  size_t len = count > offset ? (count - offset + stride - 1) / stride : 0;
+  t_docId *part = RedisModule_Alloc((len ? len : 1) * sizeof(*part));
+  size_t i = 0;
+  for (size_t j = offset; j < count; j += stride) {
+    part[i++] = ids[j];
+  }
+  return NewSortedIdListIterator(part, len, 1.0);
+}
+
+/* Spread `ids` round-robin over `arity` sorted-id-list children and union them.
  *
  * Every child then holds ids from across the whole doc-id space, so each step of
  * the union interleaves them — the cost a single id list does not have. The
- * union takes ownership of the array and of its children; `ids` is consumed
- * here.
- *
- * The iterators release all three allocations with RedisModule_Free, so they are
- * taken from the matching allocator rather than the C runtime's.
+ * union takes ownership of the array and of its children; `ids` itself is only
+ * borrowed.
  */
-static QueryIterator *make_union_child(t_docId *ids, size_t count, size_t arity,
+static QueryIterator *make_union_child(const t_docId *ids, size_t count, size_t arity,
                                        const IteratorsConfig *config) {
   QueryIterator **its = RedisModule_Alloc(arity * sizeof(*its));
   for (size_t slot = 0; slot < arity; slot++) {
-    size_t len = count > slot ? (count - slot + arity - 1) / arity : 0;
-    t_docId *part = RedisModule_Alloc((len ? len : 1) * sizeof(*part));
-    size_t i = 0;
-    for (size_t j = slot; j < count; j += arity) {
-      part[i++] = ids[j];
-    }
-    its[slot] = NewSortedIdListIterator(part, len, 1.0);
+    its[slot] = make_id_list_child(ids, count, slot, arity);
   }
-  RedisModule_Free(ids);
   // quick_exit matches the union the query planner builds for a filter child.
   return NewUnionIterator(its, (int32_t)arity, true, 1.0, QN_UNION, NULL, config);
 }
@@ -87,10 +92,9 @@ static size_t drain(QueryIterator *it) {
 
 /* Run the real OptimizerIterator over a child filter and count the results.
  *
- * `ids` is an owning pointer (allocated via RedisModule_Alloc by the caller),
- * sorted ascending, of length `child_count`; ownership is transferred to the
- * child iterator, which frees it via RedisModule_Free. A NULL `ids` selects a
- * wildcard child spanning doc ids 1..=`child_count`, the unfiltered case.
+ * `ids` is borrowed for the duration of the call: sorted ascending, of length
+ * `child_count`, and only read from. A NULL `ids` selects a wildcard child
+ * spanning doc ids 1..=`child_count`, the unfiltered case.
  *
  * `union_arity` above 1 wraps the same ids in a union of that many sorted id
  * lists, so the child costs more per read, skip and rewind than a single list.
@@ -98,7 +102,7 @@ static size_t drain(QueryIterator *it) {
  * The numeric filter spans the whole field and is created by the iterator
  * itself, which also sizes the first window from the child's estimate.
  */
-size_t bench_c_optimizer(RedisSearchCtx *sctx, const char *field_name, t_docId *ids,
+size_t bench_c_optimizer(RedisSearchCtx *sctx, const char *field_name, const t_docId *ids,
                          size_t child_count, size_t union_arity, size_t k, int ascending) {
   IteratorsConfig config;
   iteratorsConfig_init(&config);
@@ -109,7 +113,7 @@ size_t bench_c_optimizer(RedisSearchCtx *sctx, const char *field_name, t_docId *
   } else if (union_arity > 1) {
     child = make_union_child(ids, child_count, union_arity, &config);
   } else {
-    child = NewSortedIdListIterator(ids, child_count, 1.0);
+    child = make_id_list_child(ids, child_count, 0, 1);
   }
 
   QOptimizer opt = {0};

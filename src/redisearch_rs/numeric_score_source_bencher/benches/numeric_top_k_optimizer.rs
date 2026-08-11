@@ -63,7 +63,6 @@ use numeric_range_tree::{NumericRangeTree, RangeWindow};
 use numeric_score_source::{
     NumericScoreSource, new_numeric_top_k_filtered, new_numeric_top_k_unfiltered,
 };
-use redis_module::RedisModule_Alloc;
 use rqe_core::DocId;
 use rqe_iterators::{IdList, RQEIterator, UnionQuickFlat};
 use rqe_iterators_test_utils::TestContext;
@@ -84,30 +83,17 @@ unsafe extern "C" {
     /// results. A null `ids` selects a wildcard child over doc ids
     /// `1..=child_count`, otherwise the ids are taken as a sorted-id child —
     /// spread over a union of `union_arity` such lists when that exceeds 1.
+    ///
+    /// `ids` is borrowed for the call; the shim allocates each child's own list.
     fn bench_c_optimizer(
         sctx: *mut RedisSearchCtx,
         field_name: *const c_char,
-        ids: *mut DocId,
+        ids: *const DocId,
         child_count: usize,
         union_arity: usize,
         k: usize,
         ascending: c_int,
     ) -> usize;
-}
-
-/// Allocate a `RedisModule_Alloc`-owned copy of `ids`, so the child iterator's
-/// `OwnedSlice` can free it via the matching `RedisModule_Free` (same mock
-/// allocator pair). Ownership is transferred to `bench_c_optimizer`.
-fn alloc_owned_ids(ids: &[DocId]) -> *mut DocId {
-    // SAFETY: the mock allocator is installed once, by linking redis_mock, and
-    // never reassigned.
-    let alloc = unsafe { RedisModule_Alloc }.expect("mock allocator not initialised");
-    // SAFETY: `alloc` returns a fresh allocation of the requested size.
-    let ptr = unsafe { alloc(std::mem::size_of_val(ids)) }.cast::<DocId>();
-    // SAFETY: `ptr` is a fresh allocation sized for `ids.len()` doc ids, and
-    // cannot overlap `ids`.
-    unsafe { ptr::copy_nonoverlapping(ids.as_ptr(), ptr, ids.len()) };
-    ptr
 }
 
 /// Whole-field filter: matches every value.
@@ -247,14 +233,13 @@ fn run_rust_unfiltered(index: &Index, k: NonZeroUsize) -> usize {
 /// Run one C OptimizerIterator scan to depletion, returning result count.
 /// `ids` of `None` selects the wildcard child, matching the Rust unfiltered run.
 fn run_c(index: &Index, ids: Option<&[DocId]>, union_arity: usize, k: NonZeroUsize) -> usize {
-    // Fresh owned copy each call: the child iterator frees it via RedisModule_Free.
     let (ids_ptr, child_count) = match ids {
-        Some(ids) => (alloc_owned_ids(ids), ids.len()),
-        None => (ptr::null_mut(), index.n),
+        Some(ids) => (ids.as_ptr(), ids.len()),
+        None => (ptr::null(), index.n),
     };
     // SAFETY: the search context and its spec outlive the call; `ids_ptr` is
-    // either null or a sorted, owned array of `child_count` ids whose ownership
-    // transfers to the call. `FIELD` names a numeric field of the spec.
+    // either null or a sorted array of `child_count` ids, only read from for the
+    // duration of the call. `FIELD` names a numeric field of the spec.
     unsafe {
         bench_c_optimizer(
             index.sctx(),
