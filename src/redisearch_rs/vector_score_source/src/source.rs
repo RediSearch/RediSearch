@@ -91,13 +91,13 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker> {
     /// and reads the `timeoutCtx` referent, the `timeout_ctx` field, dropped no
     /// earlier than this iterator.
     batch_iter: Option<BatchIterator<'index, 'index>>,
-    /// Number of batches consumed so far. Reset on rewind.
+    /// Number of batches consumed over the whole evaluation.
     pub num_iterations: usize,
-    /// Largest batch size used so far. Reset on rewind. Read by the
-    /// profile printer.
+    /// Largest batch size used over the whole evaluation; only ever grows. Read
+    /// by the profile printer.
     pub max_batch_size: usize,
     /// Zero-based iteration index at which the current
-    /// [`max_batch_size`](Self::max_batch_size) was reached. Reset on rewind.
+    /// [`max_batch_size`](Self::max_batch_size) was reached.
     /// Read by the profile printer.
     pub max_batch_iteration: usize,
     /// Raw child iterator handle exposed to the C profile printer.
@@ -300,7 +300,8 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
             }
             // Seed the largest-batch tracker. A user-pinned size is constant, so
             // it is also the maximum; a dynamic size starts at 0 and grows below.
-            self.max_batch_size = self.fixed_batch_size;
+            // Raise only, so a scan restarted mid-evaluation cannot lower it.
+            self.max_batch_size = self.max_batch_size.max(self.fixed_batch_size);
         }
 
         if !self
@@ -428,11 +429,12 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
         self.k.min(self.index_size())
     }
 
+    /// Restarts the scan from the beginning. The profile counters are
+    /// evaluation-scoped and left untouched: this also runs when the iterator
+    /// discards a partially collected scan, whose profile still has to report
+    /// the batches that scan consumed.
     fn rewind(&mut self) {
         self.batch_iter = None;
-        self.num_iterations = 0;
-        self.max_batch_size = 0;
-        self.max_batch_iteration = 0;
         self.k_remaining = self.k;
         self.child_num_estimated = self.initial_child_num_estimated;
         self.unfiltered_consumed = false;
@@ -661,10 +663,10 @@ mod tests {
     }
 
     /// The largest-batch profile metrics track each dynamically-computed batch
-    /// (size plus its zero-based iteration) and reset on rewind.
+    /// (size plus its zero-based iteration) and survive a rewind.
     #[test]
     #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
-    fn largest_batch_metrics_track_and_reset() {
+    fn largest_batch_metrics_track_and_survive_rewind() {
         let index = build_flat_index(20, 1);
         // SAFETY: index is freed after the source is dropped at end of scope.
         let mut source = unsafe { flat_source(index, 3, 20) };
@@ -685,10 +687,19 @@ mod tests {
         );
         assert_eq!(grown_iter, 1, "recorded at its iteration");
         assert_eq!(
-            (source.max_batch_size, source.max_batch_iteration),
-            (0, 0),
-            "rewind clears the metrics"
+            (
+                source.num_iterations,
+                source.max_batch_size,
+                source.max_batch_iteration
+            ),
+            (2, grown_size, grown_iter),
+            "rewind preserves the metrics"
         );
+
+        // The scan restarted by the rewind re-seeds the tracker without lowering it.
+        source.next_batch().unwrap();
+        assert_eq!(source.max_batch_size, grown_size, "re-seed only raises");
+        assert_eq!(source.num_iterations, 3, "batches keep accumulating");
 
         drop(source);
         // SAFETY: no live references to the index remain.
