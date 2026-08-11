@@ -1118,6 +1118,7 @@ bool RunInThread(RedisModuleCtx *ctx) {
 AREQ *AREQ_New(void) {
   AREQ* req = rm_calloc(1, sizeof(AREQ));
   QueryRequest_Init(&req->base, QUERY_REQUEST_KIND_AREQ);
+  QueryRequest_SetEndProcRef(&req->base, &req->pipeline.qctx.endProc);
   /*
   unsigned int dialectVersion;
   long long queryTimeoutMS;

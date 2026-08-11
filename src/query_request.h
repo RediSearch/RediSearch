@@ -21,6 +21,7 @@ extern "C" {
 
 typedef struct RLookup RLookup;
 typedef struct PLN_ArrangeStep PLN_ArrangeStep;
+typedef struct ResultProcessor ResultProcessor;
 typedef struct SearchResult SearchResult;
 struct Cursor;
 
@@ -61,7 +62,23 @@ typedef struct QueryRequest {
   QueryRequestKind kind;
   CursorInfo cursorInfo;
   ChunkReplyState reply;
+  /**
+   * Transitional reference to the legacy QueryProcessingCtx.endProc slot.
+   * The extra indirection makes changes to that slot immediately visible here,
+   * without mirroring every pipeline mutation.
+   * TODO($$$): Once QueryRequest owns endProc, replace this with ResultProcessor *.
+   */
+  ResultProcessor **endProcRef;
 } QueryRequest;
+
+static inline void QueryRequest_SetEndProcRef(QueryRequest *request,
+                                              ResultProcessor **endProcRef) {
+  request->endProcRef = endProcRef;
+}
+
+static inline ResultProcessor *QueryRequest_GetEndProc(const QueryRequest *request) {
+  return request->endProcRef ? *request->endProcRef : NULL;
+}
 
 void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind);
 void QueryRequest_ResetReply(QueryRequest *request);

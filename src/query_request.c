@@ -13,6 +13,7 @@
 void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind) {
   request->kind = kind;
   request->cursorInfo.id = 0;
+  QueryRequest_SetEndProcRef(request, NULL);
   request->reply = (ChunkReplyState) {0};
   request->reply.err = QueryError_Default();
 }
@@ -25,4 +26,5 @@ void QueryRequest_ResetReply(QueryRequest *request) {
 
 void QueryRequest_Destroy(QueryRequest *request) {
   QueryError_ClearError(&request->reply.err);
+  QueryRequest_SetEndProcRef(request, NULL);
 }

@@ -303,6 +303,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     AGPLN_Init(&hybridReq->tailPipeline->ap);
     hybridReq->tailPipelineError = QueryError_Default();
     Pipeline_Initialize(hybridReq->tailPipeline, hybridReq->reqConfig.timeoutPolicy, &hybridReq->tailPipelineError);
+    QueryRequest_SetEndProcRef(&hybridReq->base, &hybridReq->tailPipeline->qctx.endProc);
 
     // Initialize pipelines for each individual request
     for (size_t i = 0; i < nrequests; i++) {
