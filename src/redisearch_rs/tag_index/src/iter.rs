@@ -10,12 +10,11 @@
 //! Iterators over the contents of a [`TagIndex`].
 //!
 //! [`ValueIterator`] walks the tag *values* (the keys of the values trie, or
-//! the suffix trie), optionally filtered by a pattern and bounded by a timeout;
-//! it is the engine behind the C `TagIndex_IterateValues*` family. Its
-//! [`advance`](ValueIterator::advance) yields, for each tag, the borrowed key
-//! together with the tag's
-//! [`InvertedIndex<DocIdsOnly>`] in memory mode (`None` in disk mode or when
-//! walking the suffix trie, where the trie holds no in-memory postings).
+//! the suffix trie), optionally filtered by a pattern and bounded by a timeout.
+//! Its [`advance`](ValueIterator::advance) yields, for each tag, the borrowed key
+//! together with the tag's [`InvertedIndex<DocIdsOnly>`] in memory mode (`None` in
+//! disk mode or when walking the suffix trie, where the trie holds no in-memory
+//! postings).
 //!
 //! [`TagValueReader`] reads the postings (document ids) of a single tag value.
 
@@ -31,8 +30,8 @@ use trie_rs::iter::{ContainsLendingIter, LendingIter, WildcardLendingIter, filte
 use crate::{SuffixData, TagIndex, expansion_timeout};
 
 /// Value type stored in the memory-mode values trie. Boxed so the heap
-/// [`InvertedIndex`] address stays stable across trie restructuring — callers
-/// (e.g. the C query layer) hold it across mutations.
+/// [`InvertedIndex`] address stays stable across trie restructuring — callers hold
+/// it across mutations.
 type MemValue = Box<InvertedIndex<DocIdsOnly>>;
 
 /// Predicate owned by the suffix-filter variants. A [`Filter`] combinator's
@@ -44,9 +43,6 @@ type SuffixPredicate<V> = Box<dyn Fn(&(&[u8], &V)) -> bool>;
 /// Which subset of tag values a [filtered iterator](TagIndex::value_iter_filtered)
 /// walks. A tag matches when it starts with (`Prefix`), ends with (`Suffix`),
 /// contains (`Contains`), or wildcard-matches (`Wildcard`) the pattern.
-///
-/// This is the crate-native counterpart of the C `tm_iter_mode` enum; the FFI
-/// layer maps one to the other.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IterMode {
     /// Tags starting with the pattern.
@@ -115,9 +111,8 @@ impl<'ti> ValueIterator<'ti> {
     /// reached. The key slice is borrowed from trie-internal storage and is
     /// invalidated by the next call.
     pub fn advance(&mut self) -> Option<(&[u8], Option<&InvertedIndex<DocIdsOnly>>)> {
-        // Probe the deadline before advancing, mirroring the amortized cadence
-        // used elsewhere in this crate (see `expansion_timeout`); `NoTimeoutChecker`
-        // makes this a no-op.
+        // Probe the deadline before advancing (see `expansion_timeout`);
+        // `NoTimeoutChecker` makes this a no-op.
         if self.timeout.check_timeout().is_err() {
             return None;
         }
@@ -146,12 +141,10 @@ impl<'ti> ValueIterator<'ti> {
     /// Set the deadline honored while iterating (affix queries). It is checked in
     /// [`advance`](Self::advance), which stops once it is reached.
     ///
-    /// An all-zero `timeout` clears the deadline rather than setting one far in
-    /// the past. C reaches the same outcome by not calling
-    /// `TrieMapIterator_SetTimeout` at all when no timeout is configured, but here
-    /// the value always arrives, and C's `TimedOut` fires whenever `now >=`
-    /// deadline — so a zeroed one would abort the iteration immediately. The
-    /// Redis "no timeout" sentinel is handled by [`expansion_timeout`].
+    /// An all-zero `timeout` clears the deadline rather than setting one: taken
+    /// literally it is a deadline long past, which would abort the iteration on
+    /// the first probe. The Redis "no timeout" sentinel is handled by
+    /// [`expansion_timeout`].
     pub fn set_timeout(&mut self, timeout: timespec) {
         self.timeout = if timeout.tv_sec == 0 && timeout.tv_nsec == 0 {
             AnyTimeoutChecker::NoTimeout(NoTimeoutChecker)
@@ -163,8 +156,6 @@ impl<'ti> ValueIterator<'ti> {
 
 impl TagIndex {
     /// Iterate over all tag values, in lexicographical order, in either mode.
-    ///
-    /// Port of the C `TagIndex_IterateValues`.
     pub fn value_iter(&self) -> ValueIterator<'_> {
         let iter = if self.disk_mode() {
             ValueIteratorImpl::DiskAll(self.disk_iter_values())
@@ -180,10 +171,9 @@ impl TagIndex {
     /// Iterate over the tag values matching `pattern` under `mode`, in
     /// lexicographical order.
     ///
-    /// Port of the C `TagIndex_IterateValuesWithFilter`, in both modes. In disk
-    /// mode the values trie holds only tag presence, so callers resolve each
-    /// reader by tag string; in memory mode the yielded value is still exposed
-    /// by [`advance`](ValueIterator::advance).
+    /// In disk mode the values trie holds only tag presence, so callers resolve
+    /// each reader by tag string; in memory mode the yielded value is still
+    /// exposed by [`advance`](ValueIterator::advance).
     ///
     /// `pattern` is borrowed for the iterator's lifetime by the prefix,
     /// contains, and wildcard modes (the suffix mode copies it).
@@ -240,9 +230,8 @@ impl TagIndex {
     /// Iterate over all entries of the suffix index, in lexicographical order,
     /// or `None` when the index was created without `WITHSUFFIXTRIE`.
     ///
-    /// Port of the memory-mode `TagIndex_IterateSuffix`. Only the keys are
-    /// meaningful; [`advance`](ValueIterator::advance) yields `None` for the
-    /// value.
+    /// Only the keys are meaningful; [`advance`](ValueIterator::advance) yields
+    /// `None` for the value.
     pub fn suffix_value_iter(&self) -> Option<ValueIterator<'_>> {
         let iter = self.iter_suffix_entries()?;
         Some(ValueIterator {

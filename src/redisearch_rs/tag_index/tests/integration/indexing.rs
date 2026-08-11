@@ -181,7 +181,7 @@ fn iter_values_on_empty_index_yields_nothing() {
 
 /// Re-indexing the same document under the same tags is a no-op: the second
 /// write adds no records, allocates no blocks and grows the index by zero
-/// bytes (C: `testCreate`, the repeated-push idempotency check).
+/// bytes.
 #[test]
 fn reindexing_the_same_document_is_a_no_op() {
     let mut tag_index = TagIndex::new(1, None, false);
@@ -198,9 +198,8 @@ fn reindexing_the_same_document_is_a_no_op() {
 }
 
 /// Indexing N documents over a fixed tag set leaves one posting list per
-/// distinct tag and accumulates one record per (tag, doc) pair (C: `testCreate`,
-/// the `NUniqueValues` / `numRecords` assertions). A few hundred docs is enough
-/// to cross block boundaries without the 100k scale the C test benchmarked.
+/// distinct tag and accumulates one record per (tag, doc) pair. A few hundred docs
+/// is enough to cross block boundaries.
 #[test]
 fn unique_values_and_record_count_track_the_writes() {
     const N: u64 = 500;
@@ -219,9 +218,8 @@ fn unique_values_and_record_count_track_the_writes() {
     assert_eq!(total_records, N as u32 * tags.len() as u32);
 }
 
-/// A tag value repeated within a single document is counted once (C:
-/// `testDuplicateTagValuesCountOnce`): `["foo", "foo", "bar"]` yields two
-/// records and two unique values.
+/// A tag value repeated within a single document is counted once:
+/// `["foo", "foo", "bar"]` yields two records and two unique values.
 #[test]
 fn intra_document_duplicate_tag_counted_once() {
     let mut tag_index = TagIndex::new(1, None, false);
@@ -237,9 +235,8 @@ fn intra_document_duplicate_tag_counted_once() {
 /// The accumulated `WritePostingsDelta` accounting matches the crate's own
 /// memory model — the sum of every `size_delta` equals the memory the per-tag
 /// inverted indexes report, and blocks accumulate (one per tag on the first
-/// write). This is the portable form of `testCreate`'s memory assertions, which
-/// hardcoded C `InvertedIndex` byte constants that do not describe the Rust
-/// `InvertedIndex<DocIdsOnly>` layout.
+/// write). Asserted against the reported memory rather than absolute byte
+/// constants, which would pin the `InvertedIndex<DocIdsOnly>` layout.
 #[test]
 fn size_and_block_accounting_matches_reported_memory() {
     // A `DocIdsOnly` block holds up to 1000 entries, so index past that to make

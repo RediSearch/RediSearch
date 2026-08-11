@@ -7,21 +7,21 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Tests for `TagIndex::new` (the port of the C `NewTagIndex`) and for
-//! `TagIndex::open_index`, the path creating per-tag posting lists.
+//! Tests for `TagIndex::new` and for `TagIndex::open_index`, the path creating
+//! per-tag posting lists.
 
 use std::ptr::NonNull;
 
 use tag_index::TagIndex;
 
-/// A tag index reports the id it was created with (C: `TagIndex_GetId`).
+/// A tag index reports the id it was created with.
 #[test]
 fn reports_the_creation_id() {
     let tag_index = TagIndex::new(1, None, false);
     assert_eq!(tag_index.id(), 1);
 }
 
-/// `with_suffix` toggles suffix support (C: `TagIndex_HasSuffix`).
+/// `with_suffix` toggles suffix support.
 #[test]
 fn suffix_support_follows_the_creation_flag() {
     let tag_index = TagIndex::new(1, None, false);
@@ -81,8 +81,7 @@ fn open_index_creates_the_posting_list_once() {
 
 /// `commit` registers metadata (suffixes) but indexes no documents: on a
 /// memory-mode index it leaves the values trie empty, so no posting list — and
-/// hence no record — is created (C: `testCommitAndOverheadWithSuffix`, the
-/// `numRecords == 0` assertion after a bare `Commit`).
+/// hence no record — is created.
 #[test]
 fn commit_indexes_no_documents() {
     let mut tag_index = TagIndex::new(1, None, true);
@@ -97,9 +96,8 @@ fn commit_indexes_no_documents() {
 
 /// `get_overhead` accounts for the suffix trie: an index built
 /// `WITHSUFFIXTRIE` reports strictly more overhead than one without, once the
-/// suffix trie has been populated (C: `testCommitAndOverheadWithSuffix`, the
-/// `GetOverhead > 0` assertion — expressed here as a comparison so it does not
-/// depend on the trie's absolute byte size).
+/// suffix trie has been populated. Asserted as a comparison so it does not depend
+/// on the trie's absolute byte size.
 #[test]
 fn get_overhead_accounts_for_the_suffix_trie() {
     let tags: &[&[u8]] = &[b"hello", b"world"];
@@ -120,14 +118,14 @@ fn get_overhead_accounts_for_the_suffix_trie() {
     );
 }
 
-/// A disk spec selects the disk-backed mode, which is still a stub: the
-/// memory-mode accessors abort with `unimplemented!` instead of silently
-/// operating on in-memory postings that don't exist.
+/// A disk spec selects the disk-backed mode, where the memory-mode-only accessors
+/// abort with `unimplemented!` instead of silently operating on in-memory postings
+/// that don't exist.
 #[test]
 #[should_panic(expected = "not implemented")]
-fn disk_spec_selects_the_stubbed_disk_mode() {
-    // The spec pointer is only stored, never dereferenced — no disk code path
-    // is implemented yet — so a dangling pointer is enough for the test.
+fn disk_spec_selects_the_disk_mode() {
+    // This path only stores the spec pointer, never dereferences it, so a dangling
+    // pointer is enough (see the `disk` module docs).
     let tag_index = TagIndex::new(1, Some((NonNull::dangling(), 0)), false);
 
     let _ = tag_index.find_value(b"team");

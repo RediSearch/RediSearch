@@ -8,9 +8,8 @@
 */
 
 //! Tests driving the C `QueryIterator`s the index builds — both
-//! `TagIndex::open_reader` (port of `TagIndex_OpenReader`) and
-//! `TagIndex::query_iterator_for_value` (port of
-//! `TagIndex_GetIteratorFromTrieMapValue`) — through their vtable.
+//! `TagIndex::open_reader` and `TagIndex::query_iterator_for_value` — through
+//! their vtable.
 
 use std::ptr::null_mut;
 
@@ -57,9 +56,8 @@ unsafe fn free(it: *mut ffi::QueryIterator) {
 }
 
 /// `open_reader` yields an iterator that reads every indexed document id in
-/// ascending order, then reports EOF (C: `testCreate`, the `TagIndex_OpenReader`
-/// read loop). A few hundred docs is enough to cross block boundaries; the goal
-/// is ordering/EOF correctness, not the 100k-scale benchmark the C test ran.
+/// ascending order, then reports EOF. A few hundred docs is enough to cross block
+/// boundaries; the goal is ordering/EOF correctness, not throughput.
 #[test]
 fn open_reader_reads_all_ids_in_order() {
     const N: ffi::t_docId = 300;
@@ -84,7 +82,7 @@ fn open_reader_reads_all_ids_in_order() {
 }
 
 /// After reading the only document, skipping past the last id reports EOF and
-/// leaves `lastDocId` at or beyond the last read id (C: `testSkipToLastId`).
+/// leaves `lastDocId` at or beyond the last read id.
 #[test]
 fn skip_to_past_last_id_yields_eof() {
     let mut tag_index = TagIndex::new(1, None, false);
@@ -117,9 +115,8 @@ fn skip_to_past_last_id_yields_eof() {
     unsafe { free(it) };
 }
 
-/// Opening a reader on a tag that was never indexed yields no iterator (C:
-/// `testOpenReaderEdgeCases`, absent-tag case). The NULL-index case is a C-ABI
-/// concern and stays in the C++ suite.
+/// Opening a reader on a tag that was never indexed yields no iterator. The
+/// NULL-index case is a C-ABI concern and stays in the C++ suite.
 #[test]
 fn open_reader_absent_tag_returns_none() {
     let mut tag_index = TagIndex::new(1, None, false);
@@ -174,8 +171,8 @@ fn revalidate_aborts_after_gc_via_c_vtable() {
         index_mem(&mut tag_index, tags, doc_id);
     }
     // Heap-allocate and reach the index through a raw pointer, so it can be
-    // mutated while the iterator holds its back-pointer — as C owns it across GC
-    // cycles.
+    // mutated while the iterator holds its back-pointer — as the query layer does
+    // across GC cycles.
     let tag_index = Box::into_raw(Box::new(tag_index));
 
     let mock = MockContext::new(3, 3);
@@ -215,8 +212,8 @@ fn revalidate_aborts_after_gc_via_c_vtable() {
     drop(unsafe { Box::from_raw(tag_index) });
 }
 
-/// An inverted index with no documents yields no iterator, matching the C
-/// `TagIndex_GetIteratorFromTrieMapValue` returning NULL for an empty value.
+/// An inverted index with no documents yields no iterator: the value path returns
+/// a NULL pointer rather than a reader that would immediately hit EOF.
 #[test]
 fn value_path_returns_null_for_empty_inverted_index() {
     let mut tag_index = TagIndex::new(1, None, false);

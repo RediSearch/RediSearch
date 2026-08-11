@@ -154,8 +154,7 @@ fn gc_drops_the_empty_tag_without_touching_the_suffix_trie() {
 
 /// A delta scanned against a different posting list than the tag currently holds
 /// is stale: the GC ran while the tag was being rewritten, so applying it would
-/// corrupt the live list. Port of the identity check C did with
-/// `idx != value` (`testDeleteDuringGCCleanup`).
+/// corrupt the live list.
 #[test]
 fn gc_rejects_a_delta_scanned_against_another_index() {
     let mut idx = indexed(&[b"team", b"other"], 3, false);

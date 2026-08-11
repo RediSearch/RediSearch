@@ -28,11 +28,10 @@
 //!
 //! # Keys and stored terms
 //!
-//! Keys are the NUL-free tag bytes and each of their suffixes, matching the C
-//! `addSuffixTrieMap`. The stored *terms* are separate allocations that
-//! [`OwnedTerm::new`] NUL-terminates itself, mirroring C's `rm_strndup(str,
-//! len)`. That terminator is why a [`TermPtr`] is usable as a C `char *`: query
-//! expansion hands these pointers back to C, which calls `strlen` on them.
+//! Keys are the NUL-free tag bytes and each of their suffixes. The stored *terms*
+//! are separate allocations that [`OwnedTerm::new`] NUL-terminates itself. That
+//! terminator is why a [`TermPtr`] is usable as a C `char *`: query expansion
+//! hands these pointers to C, which calls `strlen` on them.
 //!
 
 use std::{
@@ -166,10 +165,9 @@ pub(crate) struct SuffixData {
 }
 
 impl SuffixData {
-    /// Every member term this entry's key belongs to, mirroring the C
-    /// `suffixData.array`: the term itself when the key is a full term
-    /// (stored separately in [`Self::full_term`]) followed by every term the
-    /// key is a *proper* suffix of ([`Self::refs`]).
+    /// Every member term this entry's key belongs to: the term itself when the
+    /// key is a full term (stored separately in [`Self::full_term`]) followed by
+    /// every term the key is a *proper* suffix of ([`Self::refs`]).
     ///
     /// Unlike iterating [`Self::refs`] alone, this includes the full-term entry,
     /// so a term matched through its own key (e.g. `he*` matching `hero`) is not
@@ -201,7 +199,7 @@ impl TagSuffixIndex {
     /// docs](self) describe.
     ///
     /// `term` is the NUL-free tag value. The empty tag (`INDEXEMPTY`) is never
-    /// indexed — C asserts a non-empty length in `addSuffixTrieMap`.
+    /// indexed: it has no suffixes to look up.
     pub fn add(&mut self, term: &[u8]) {
         if term.is_empty() {
             return;
@@ -265,7 +263,7 @@ impl TagSuffixIndex {
     }
 
     /// Remove `tag` and all of its suffixes from the trie, dropping the entries
-    /// that no other term still relies on. Port of the C `deleteSuffixTrieMap`.
+    /// that no other term still relies on.
     ///
     /// `tag` is the NUL-free tag value (the values-trie key), matching the keys
     /// stored by [`add`](Self::add).
@@ -282,8 +280,8 @@ impl TagSuffixIndex {
         for j in 0..tag.len() {
             let data = self.entries.find_mut(&tag[j..]);
             debug_assert!(data.is_some(), "all suffixes must exist");
-            // C asserts the same invariant but carries on harmlessly when the
-            // entry is missing; do that rather than panicking inside the GC.
+            // A missing entry means this trie and the values trie disagree; skip
+            // it rather than panicking inside the garbage collector.
             let Some(data) = data else { continue };
 
             if j == 0 {
@@ -291,10 +289,8 @@ impl TagSuffixIndex {
             }
 
             // Drop the references pointing at the term being deleted, keeping
-            // every reference that belongs to a different term (C's
-            // `removeSuffix`, which deletes the single array entry equal to the
-            // deleted term). With no term to delete there is nothing to match:
-            // C compares by content, and every `refs` entry reachable here
+            // every reference that belongs to a different term. With no term to
+            // delete there is nothing to match: every `refs` entry reachable here
             // belongs to a strictly longer term.
             if let Some(deleted) = &deleted_term {
                 data.refs.retain(|b| !b.belong_to(deleted));
@@ -358,9 +354,9 @@ mod tests {
         assert_eq!(read_back(&term), expected);
     }
 
-    /// `add` keys the trie on the tag and each of its suffixes, all NUL-free
-    /// (matching C's `addSuffixTrieMap`); the terminator it stores is part of the
-    /// value, never of a key, and no stray empty entry is created.
+    /// `add` keys the trie on the tag and each of its suffixes, all NUL-free: the
+    /// terminator it stores is part of the value, never of a key, and no stray
+    /// empty entry is created.
     #[test]
     fn add_stores_nul_free_keys_without_empty_entry() {
         let mut idx = TagSuffixIndex::new();
@@ -376,8 +372,8 @@ mod tests {
         assert!(idx.find(b"\0").is_none());
     }
 
-    /// The empty tag (INDEXEMPTY) is never registered in the suffix trie —
-    /// C asserts a non-empty length in `addSuffixTrieMap`.
+    /// The empty tag (INDEXEMPTY) is never registered in the suffix trie, not even
+    /// as an empty key.
     #[test]
     fn add_ignores_the_empty_tag() {
         let mut idx = TagSuffixIndex::new();
@@ -417,8 +413,7 @@ mod tests {
     }
 
     /// Deleting a tag that is merely a *suffix* of an indexed term must not
-    /// panic. The entry exists but owns no term, so there is nothing to unlink —
-    /// C's `deleteSuffixTrieMap` copes with a NULL `oldTerm` the same way.
+    /// panic: the entry exists but owns no term, so there is nothing to unlink.
     #[test]
     fn delete_of_a_suffix_only_entry_changes_nothing() {
         let mut idx = TagSuffixIndex::new();
@@ -435,7 +430,7 @@ mod tests {
     }
 
     /// Deleting a term drops only the references pointing at that term, keeping
-    /// the suffix entries that other terms still rely on (C's `removeSuffix`).
+    /// the suffix entries that other terms still rely on.
     #[test]
     fn delete_keeps_suffixes_still_used_by_other_terms() {
         let mut idx = TagSuffixIndex::new();

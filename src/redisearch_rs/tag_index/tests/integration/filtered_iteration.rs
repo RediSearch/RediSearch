@@ -158,7 +158,7 @@ fn suffix_trie_map_exact_node_yields_every_member() {
 
     let mut terms: Vec<Vec<u8>> = tag_index
         .suffix_trie_map(b"eat", false, None)
-        // The yielded terms carry their terminator, for C's benefit.
+        // The yielded terms carry their terminator; compare without it.
         .map(|term| term[..term.len() - 1].to_vec())
         .collect();
     terms.sort();
@@ -248,7 +248,7 @@ fn iter_suffix_entries_is_none_without_suffix_trie() {
 }
 
 /// With `WITHSUFFIXTRIE`, committing a tag registers the tag and every one of
-/// its suffixes in the suffix index, matching the C `addSuffixTrieMap`.
+/// its suffixes in the suffix index.
 #[test]
 fn iter_suffix_entries_lists_every_suffix() {
     let mut tag_index = TagIndex::new(1, None, true);

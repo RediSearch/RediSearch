@@ -60,7 +60,7 @@ fn disk_index_with_tags(tags: &[&[u8]], with_suffix: bool) -> TagIndex {
     idx
 }
 
-/// A disk spec selects disk mode (C: `TagIndex_HasDiskSpec`).
+/// A disk spec selects disk mode.
 #[test]
 fn disk_spec_means_disk_mode() {
     let idx = TagIndex::new(1, Some((fake_disk_spec(), 0)), false);
@@ -69,7 +69,7 @@ fn disk_spec_means_disk_mode() {
 
 /// `commit` counts every committed tag value (disk postings are written during
 /// this phase) and registers each tag's presence in the values trie, keyed
-/// NUL-free like the tags queries look up (C: `TagIndex_Commit` disk branch).
+/// NUL-free like the tags queries look up.
 #[test]
 fn commit_counts_records_and_registers_presence() {
     let mut idx = TagIndex::new(1, Some((fake_disk_spec(), 0)), false);
@@ -177,7 +177,8 @@ fn disk_iter_values_yields_every_key_in_order() {
     assert_eq!(keys, [b"a".to_vec(), b"m".to_vec(), b"z".to_vec()]);
 }
 
-/// `get_overhead` works in disk mode (C: `TagIndex_GetOverhead`, both modes).
+/// `get_overhead` counts the values trie in disk mode too, even though the
+/// postings it would otherwise account for live on disk.
 #[test]
 fn get_overhead_accounts_for_the_values_trie() {
     let idx = disk_index_with_tags(&[b"foo", b"bar", b"baz"], false);

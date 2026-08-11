@@ -22,11 +22,11 @@
 //!
 //! ## Tag bytes
 //!
-//! Every method here takes **NUL-free** tag bytes, mirroring the `(value, len)`
-//! pairs C passes around after `strlen`. The one place a terminator is visible is
-//! the other direction: the terms yielded by [`TagIndex::suffix_trie_map`] and
-//! [`TagIndex::suffix_wildcard`] carry theirs, because C calls `strlen` on them.
-//! [`TagSuffixIndex`] owns that terminator and documents where it comes from.
+//! Every method here takes **NUL-free** tag bytes. The one place a terminator is
+//! visible is the other direction: the terms yielded by
+//! [`TagIndex::suffix_trie_map`] and [`TagIndex::suffix_wildcard`] carry theirs, so
+//! their pointers are usable as a C `char *`. [`TagSuffixIndex`] owns that
+//! terminator and documents where it comes from.
 //!
 //! [`TagIndex`] uses the same indexes as the full text but in a simpler manner. In fact:
 //!
@@ -178,11 +178,10 @@ enum TagIndexMode {
         /// tag value → document ids.
         ///
         /// The posting list is boxed so it keeps a stable heap address even as
-        /// the trie restructures on insert/remove. C holds these pointers
+        /// the trie restructures on insert/remove. Callers hold these pointers
         /// across mutations — e.g. the fork GC captures a tag's inverted index
         /// while scanning and later re-checks pointer identity when applying
-        /// the delta (see [`TagIndex::gc`]) — mirroring the pre-Rust C
-        /// `TagIndex` which stored heap `InvertedIndex*`.
+        /// the delta (see [`TagIndex::gc`]).
         values: TrieMap<Box<InvertedIndex<DocIdsOnly>>>,
     },
     /// If the postings (doc_ids) are kept on disk
@@ -242,7 +241,7 @@ impl TagIndex {
         }
     }
 
-    /// The unique id this index was created with (C: `TagIndex_GetId`).
+    /// The unique id this index was created with.
     ///
     /// The fork GC captures it before scanning and re-checks it before applying a
     /// delta, so that an index dropped and recreated in between is not mistaken
@@ -257,14 +256,11 @@ impl TagIndex {
     }
 
     /// Returns `true` if the postings are backed by disk (disk/Flex mode).
-    ///
-    /// Port of the C `TagIndex_HasDiskSpec` (`idx->diskSpec != NULL`).
     pub const fn disk_mode(&self) -> bool {
         matches!(self.mode, TagIndexMode::Disk { .. })
     }
 
-    /// How many distinct tags the index holds, in either mode (C:
-    /// `TagIndex_NUniqueValues`).
+    /// How many distinct tags the index holds, in either mode.
     pub const fn unique_values(&self) -> usize {
         match &self.mode {
             TagIndexMode::InMemory { values } => values.n_unique_keys(),
@@ -301,13 +297,13 @@ impl TagIndex {
     ///
     /// Returns the [`WritePostingsDelta`] the caller folds into the spec
     /// statistics (records, memory, blocks), or `None` when a disk-mode write
-    /// fails — mirroring the C `TagIndex_Index` returning `false`.
+    /// fails.
     ///
     /// In memory mode the postings are written inline into the per-tag
     /// inverted index and `ctx`/`batch` are ignored; this always succeeds. In
     /// disk mode the postings are staged onto `batch` (committed later by
     /// `commitDocument`) and the returned delta is zero — the record count is
-    /// tallied in [`commit`](Self::commit), matching the C two-phase contract.
+    /// tallied in [`commit`](Self::commit).
     ///
     /// `has_field_expiration` records whether this document carries a TTL on the
     /// field being indexed. It is stored per posting as
@@ -342,8 +338,7 @@ impl TagIndex {
                 ..
             } => {
                 // Stage the postings onto `batch`; the trie/suffix/record
-                // accounting runs afterwards in `commit`. Port of the C
-                // `TagIndex_Index` disk branch (`SearchDisk_IndexTags`).
+                // accounting runs afterwards in `commit`.
                 if tags.is_empty() {
                     return Some(WritePostingsDelta::default());
                 }
@@ -433,8 +428,7 @@ impl TagIndex {
     /// Returns the number of records to fold into the spec statistics: in disk
     /// mode the postings are written to disk during this phase, so the
     /// committed tag values are counted here; in memory mode they were already
-    /// counted by [`index`](Self::index), so `0` is returned. Port of the C
-    /// `TagIndex_Commit` accounting.
+    /// counted by [`index`](Self::index), so `0` is returned.
     pub fn commit(&mut self, tags: &[&[u8]]) -> u32 {
         let disk = self.disk_mode();
         for tag in tags {
@@ -451,7 +445,6 @@ impl TagIndex {
     /// Create a [`QueryIterator`] over the documents matching the given tag,
     /// reading from `ii`.
     ///
-    /// Port of the memory-mode branch of the C `TagIndex_GetIteratorFromTrieMapValue`:
     /// `ii` is the inverted index already resolved for `tag` (e.g. while
     /// iterating the values trie), so no lookup is performed at construction
     /// time. The tag is still looked up again on every revalidation, to detect
@@ -510,8 +503,6 @@ impl TagIndex {
 
     /// Iterate over all `(tag, inverted index)` entries, in lexicographical
     /// order of the tag.
-    ///
-    /// Port of the memory-mode `TagIndex_IterateValues`.
     pub(crate) fn iter_values(&self) -> LendingIter<'_, Box<InvertedIndex<DocIdsOnly>>, VisitAll> {
         let TagIndexMode::InMemory { values } = &self.mode else {
             unimplemented!()
@@ -582,10 +573,9 @@ impl TagIndex {
     // postings living on disk. Query expansion (prefix / contains / wildcard /
     // lex-range / suffix) and `FT.TAGVALS` still walk this trie for the
     // matching tag *keys*, then open each reader by tag string via the disk
-    // API — mirroring master's `tag_index.c`, where the same iterators run
-    // over `idx->values` regardless of mode. These mirror the memory-mode
-    // methods above but over `TrieMap<()>`, so the FFI hands C a NULL value
-    // pointer (the disk NULL sentinel) for each entry.
+    // API. These mirror the memory-mode methods above but over `TrieMap<()>`,
+    // so the FFI hands C a NULL value pointer (the disk NULL sentinel) for each
+    // entry.
 
     /// Disk-mode counterpart of [`iter_values`](Self::iter_values).
     pub(crate) fn disk_iter_values(&self) -> LendingIter<'_, (), VisitAll> {
@@ -670,9 +660,6 @@ impl TagIndex {
         value: *const InvertedIndex<DocIdsOnly>,
         delta: GcScanDelta,
     ) -> Option<GcApplyInfo> {
-        // Disk indexes never reach the fork-GC tag path: the spec selects
-        // `GCPolicy_Disk` (see `spec.c`), so the disk backend owns deletion and
-        // `TagIndex2_GC` is not called for them.
         let TagIndexMode::InMemory { values } = &mut self.mode else {
             unreachable!("tag GC runs only in memory mode; disk uses GCPolicy_Disk");
         };
@@ -726,11 +713,10 @@ impl TagIndex {
     /// Create a [`QueryIterator`] over the documents matching `tag`, or `None`
     /// when the tag is absent or holds no documents.
     ///
-    /// Port of the C `TagIndex_OpenReader`. In memory mode the tag is resolved in
-    /// the values trie and the postings are read inline. In disk mode the reader
-    /// is built through the disk API, keyed by the tag string, and uses the
-    /// caller's `field_index` rather than the field recorded at write time —
-    /// matching C.
+    /// In memory mode the tag is resolved in the values trie and the postings are
+    /// read inline. In disk mode the reader is built through the disk API, keyed by
+    /// the tag string, and filters on the caller's `field_index` rather than the
+    /// field recorded at write time.
     ///
     /// # Safety
     ///
@@ -741,7 +727,7 @@ impl TagIndex {
     ///    shares its contract; see there for what the protocol requires.
     /// 2. `sctx` and `sctx.spec` must be valid and outlive the returned iterator.
     /// 3. `status` must be null or point to a valid [`QueryError`]. Only the disk
-    ///    branch writes it; memory mode leaves it untouched, as in C.
+    ///    branch writes it; memory mode leaves it untouched.
     /// 4. The caller owns the returned iterator and must free it through its
     ///    `Free` callback (`it->Free(it)`).
     pub unsafe fn open_reader(
@@ -757,13 +743,11 @@ impl TagIndex {
                 disk_index_spec, ..
             } => {
                 // Postings live on disk: build the reader through the disk API,
-                // keyed by the tag string. Port of the C `TagIndex_OpenReader`
-                // disk branch. Note the reader uses the caller's `field_index`
-                // (not the stored write-time field), matching the C code.
+                // keyed by the tag string.
                 //
                 // SAFETY: `RSToken` is a plain-old-data `#[repr(C)]` struct
-                // whose all-zero bit pattern is a valid, unexpanded token; we
-                // then set only `str`/`len`, exactly as the C code does.
+                // whose all-zero bit pattern is a valid, unexpanded token; only
+                // `str`/`len` are then set.
                 let mut tok: RSToken = unsafe { std::mem::zeroed() };
                 tok.str_ = tag.as_ptr().cast::<c_char>().cast_mut();
                 tok.len = tag.len();
@@ -844,12 +828,12 @@ impl TagIndex {
             .expect("RQEIteratorWrapper::boxed_new never returns NULL pointer")
     }
 
-    /// Bytes the index's tries occupy, as reported by `FT.INFO`.
+    /// Bytes the index's tries occupy, as reported by `FT.INFO`: the values trie
+    /// plus the suffix trie, in both modes.
     ///
-    /// Port of the C `TagIndex_GetOverhead`: the values trie plus the suffix trie,
-    /// in both modes. In disk mode the values trie holds only tag-presence
-    /// sentinels — the postings live on disk and are accounted for by the disk
-    /// backend — but the trie structure itself is still counted.
+    /// In disk mode the values trie holds only tag-presence sentinels — the
+    /// postings live on disk and are accounted for by the disk backend — but the
+    /// trie structure itself is still counted.
     pub const fn get_overhead(&self) -> usize {
         let mut size = match &self.mode {
             TagIndexMode::InMemory { values } => values.mem_usage(),
@@ -865,26 +849,23 @@ impl TagIndex {
     /// Expand a suffix (`*foo`) or contains (`*foo*`) tag query against the
     /// [suffix index](TagSuffixIndex) into the concrete tag terms it matches.
     ///
-    /// Port of the memory-mode `GetList_SuffixTrieMap` (`src/suffix.c`). The
-    /// `prefix` flag comes straight from the query node (`qn->pfx.prefix`) and
-    /// selects the same two branches as C:
+    /// `prefix` selects which of the two query forms `tag` was taken from:
     ///
-    /// - `!prefix` — suffix query `*foo`: exact lookup of the suffix-trie node
+    /// - `false` — suffix query `*foo`: exact lookup of the suffix-trie node
     ///   `foo`, returning every term that node belongs to.
-    /// - `prefix` — contains query `*foo*`: prefix-iterate every suffix-trie
+    /// - `true` — contains query `*foo*`: prefix-iterate every suffix-trie
     ///   node whose key starts with `foo`, unioning the terms they belong to.
     ///
     /// In both cases the terms come from [`SuffixData::members`] (the term
     /// itself when the key is a full term, plus every term the key is a proper
-    /// suffix of) — mirroring C's `data->array`.
+    /// suffix of).
     ///
     /// Each yielded slice is the matched term including its trailing NUL, so its
     /// pointer is directly usable as a C `char*`. Terms are yielded lazily; the
     /// two branches produce different iterator types, so the result is boxed.
     ///
     /// # Panics
-    /// Panics if this index was created without `WITHSUFFIXTRIE`. C's
-    /// `TagIndex_GetSuffixMatches` checks that before calling in.
+    /// Panics if this index was created without `WITHSUFFIXTRIE`.
     pub fn suffix_trie_map<'a>(
         &'a self,
         tag: &[u8],
@@ -905,8 +886,8 @@ impl TagIndex {
         };
 
         if !prefix {
-            // Suffix query `*foo`: exact node lookup (C: `!prefix` branch). No
-            // timeout loop — a single node yields all its members.
+            // Suffix query `*foo`: exact node lookup. No deadline probing — a
+            // single node yields all its members.
             Box::new(
                 suffix
                     .find(tag)
@@ -914,9 +895,8 @@ impl TagIndex {
                     .flat_map(move |data| data.members().map(materialize)),
             )
         } else {
-            // Contains query `*foo*`: prefix-iterate the suffix trie (C: `prefix`
-            // branch, `TM_PREFIX_MODE`). Probe the deadline once per trie entry,
-            // mirroring C's per `TrieMapIterator_Next` cadence; on timeout stop
+            // Contains query `*foo*`: prefix-iterate the suffix trie, probing the
+            // deadline once per entry (see `expansion_timeout`); on timeout stop
             // and keep the partial matches collected so far. `scan` owns
             // `timeout_ctx` so its state persists across entries.
             let mut timeout_ctx = expansion_timeout(timeout);
@@ -934,12 +914,12 @@ impl TagIndex {
     /// Expand the wildcard `pattern` against the [suffix index](TagSuffixIndex)
     /// into the concrete tag terms it matches, yielded lazily.
     ///
-    /// Port of the memory-mode `GetList_SuffixTrieMap_Wildcard` (`src/suffix.c`).
-    /// The "no usable anchor token" case (e.g. `*`, `???`) — which the C code
-    /// signals with `BAD_POINTER` so the caller brute-forces — is decided up
-    /// front by [`SuffixWildcardPattern::new`]; this method assumes a valid
-    /// anchor. An empty iterator means the anchor token had no matching terms
-    /// (C `NULL`).
+    /// A pattern with no usable anchor token (e.g. `*`, `???`) is rejected up
+    /// front by [`SuffixWildcardPattern::new`], so this method always has a valid
+    /// anchor; an empty iterator means the anchor token had no matching terms.
+    ///
+    /// At most `max_prefix_expansions + 1` terms are yielded: the count is checked
+    /// before each match is collected, so the cap is overshot by one.
     ///
     /// Each yielded slice is the matched term including its trailing NUL, so its
     /// pointer is directly usable as a C `char*` (consistent with
@@ -960,10 +940,9 @@ impl TagIndex {
 
         suffix
             .wildcard_iter(WildcardPattern::parse(&pattern.sub))
-            // Probe the deadline once per trie entry, mirroring C's per
-            // `TrieMapIterator_Next` cadence; on timeout stop iterating and keep
-            // only the matches collected so far. `scan` owns `timeout_ctx` so its
-            // state persists across entries.
+            // Probe the deadline once per trie entry (see `expansion_timeout`); on
+            // timeout stop iterating and keep only the matches collected so far.
+            // `scan` owns `timeout_ctx` so its state persists across entries.
             .scan(timeout_ctx, |timeout_ctx, entry| {
                 if timeout_ctx.check_timeout().is_err() {
                     None
@@ -980,14 +959,13 @@ impl TagIndex {
                 // suffix trie, borrowed for the lifetime of `&self`.
                 unsafe { std::slice::from_raw_parts(term.as_ptr(), alloc) }
             })
-            // C matches against `strlen(term)` — exclude the trailing NUL.
+            // Re-check the whole pattern against the term itself, terminator
+            // excluded.
             .filter(move |with_nul| {
                 full.matches(&with_nul[..with_nul.len() - 1]) == MatchOutcome::Match
             })
-            // Expansion cap on *matched* terms. The C loop checks `count > max`
-            // before each push, so it collects up to `max + 1` matches; `take`
-            // reproduces that (`saturating_add` guards the `u64::MAX` no-cap
-            // sentinel).
+            // Cap the *matched* terms, overshooting by one as documented above
+            // (`saturating_add` guards the `u64::MAX` no-cap sentinel).
             .take((max_prefix_expansions as usize).saturating_add(1))
     }
 }
@@ -1008,15 +986,15 @@ pub struct SuffixWildcardPattern<'p> {
 }
 
 /// The pattern has no literal token usable as a suffix-trie anchor (e.g. it is
-/// all `*`/`?`, or empty). The caller must fall back to a brute-force scan —
-/// this is the C `BAD_POINTER` sentinel.
+/// all `*`/`?`, or empty). The caller must fall back to a brute-force scan of the
+/// whole tag trie.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NoAnchorToken;
 
 impl<'p> SuffixWildcardPattern<'p> {
     /// Prepare `pattern` for a suffix-trie lookup, choosing the most selective
     /// literal token as the anchor. Returns [`NoAnchorToken`] when there is no
-    /// usable literal token (C `BAD_POINTER`).
+    /// usable literal token.
     pub fn new(pattern: &'p [u8]) -> Result<Self, NoAnchorToken> {
         // Pick the most selective literal token to anchor the trie lookup.
         let (tokenidx, tokenlen) = choose_token(pattern).ok_or(NoAnchorToken)?;
@@ -1042,8 +1020,8 @@ impl<'p> SuffixWildcardPattern<'p> {
     ///
     /// Which token wins only changes how much of the trie is visited, never the
     /// matched terms — every candidate is re-checked against [`Self::full`] — so
-    /// nothing else observes a divergence from C's `Suffix_ChooseToken`. Exposed
-    /// so the tests can pin the choice itself.
+    /// nothing in production can observe the choice. Exposed so the tests can pin
+    /// it.
     #[cfg(test)]
     pub(crate) fn anchor(&self) -> &[u8] {
         &self.sub
@@ -1051,29 +1029,26 @@ impl<'p> SuffixWildcardPattern<'p> {
 }
 
 /// How many suffix-trie entries are walked between two consecutive clock
-/// probes during expansion. Port of the C `TIMEOUT_COUNTER_LIMIT`
-/// (`src/util/timeout.h`).
+/// probes during expansion.
 const TIMEOUT_CHECK_GRANULARITY: u32 = 100;
 
 /// Build the timeout checker used while expanding a suffix/wildcard pattern.
 ///
-/// `timeout` carries the absolute `CLOCK_MONOTONIC_RAW` deadline the C caller
-/// computed. It yields [`NoTimeoutChecker`] — so expansion runs to completion — when
+/// `timeout` is the absolute `CLOCK_MONOTONIC_RAW` deadline of the query being
+/// built. It yields [`NoTimeoutChecker`] — so expansion runs to completion — when
 /// the caller opted out (`None`, set from `skipTimeoutChecks` at the FFI
 /// boundary) or the deadline is the Redis "no timeout" sentinel
 /// (`time_t::MAX`); see [`duration_from_redis_timespec`]. Otherwise the
 /// remaining budget drives an amortized [`DeadlineTimeoutChecker`] that probes the
-/// clock once every [`TIMEOUT_CHECK_GRANULARITY`] entries, matching C's cadence.
-/// An already-elapsed deadline maps to a zero budget, i.e. it times out on the
-/// first probe.
+/// clock once every [`TIMEOUT_CHECK_GRANULARITY`] entries. An already-elapsed
+/// deadline maps to a zero budget, i.e. it times out on the first probe.
 ///
 /// The budget is captured here rather than re-read through a pointer on every
 /// probe, which is why this is an [`AnyTimeoutChecker`] and not the query
 /// iterators' [`AnyTimeoutContext`](rqe_iterators::utils::AnyTimeoutContext).
 /// Those need the live deadline because a query's iterator tree outlives a single
 /// read and each cursor read re-arms the deadline. An expansion has no such
-/// second read: C hands `GetList_SuffixTrieMap` and `TrieMapIterator_SetTimeout`
-/// a `timespec` by value, and the whole expansion runs inside one query build.
+/// second read: it runs to completion inside one query build.
 pub(crate) fn expansion_timeout(timeout: Option<timespec>) -> AnyTimeoutChecker {
     match timeout.and_then(duration_from_redis_timespec) {
         Some(remaining) => AnyTimeoutChecker::Deadline(DeadlineTimeoutChecker::new(
@@ -1085,17 +1060,15 @@ pub(crate) fn expansion_timeout(timeout: Option<timespec>) -> AnyTimeoutChecker 
 }
 
 /// Penalty applied when an anchor token is immediately followed by `*`:
-/// iterating all of a node's children is expensive. Port of the C
-/// `SUFFIX_STARRED_ANCHOR_PENALTY` (`src/suffix.h`).
+/// iterating all of a node's children is expensive.
 const SUFFIX_STARRED_ANCHOR_PENALTY: i32 = 5;
 
 /// Split `pattern` on `*` into literal tokens and return the `(offset, len)` of
 /// the most selective one, or `None` when there is no usable literal token
 /// (e.g. the pattern is all `*`/`?`).
 ///
-/// Port of the C `Suffix_ChooseToken` (`src/suffix.c`). The score favors longer
-/// tokens and tokens later in the pattern, penalizes a trailing `*` and every
-/// `?` inside the token; ties resolve to the later token.
+/// The score favors longer tokens and tokens later in the pattern, penalizes a
+/// trailing `*` and every `?` inside the token; ties resolve to the later token.
 fn choose_token(pattern: &[u8]) -> Option<(usize, usize)> {
     let len = pattern.len();
 
@@ -1134,7 +1107,7 @@ fn choose_token(pattern: &[u8]) -> Option<(usize, usize)> {
             }
         }
 
-        // `>=` keeps the later token on ties, matching C.
+        // `>=` keeps the later token on ties.
         if score >= best_score {
             best_score = score;
             best = Some((start, tlen));
@@ -1180,9 +1153,8 @@ impl TagLookup<DocIdsOnly> for TrieLookup {
     }
 }
 
-// Creating the iterator requires FFI-backed contexts and the revalidation
-// protocol mutates the index behind a raw pointer, mirroring the C GC flow —
-// neither is supported by miri.
+// Creating the iterator requires FFI-backed contexts, and the revalidation
+// protocol mutates the index behind a raw pointer — neither is supported by miri.
 #[cfg(all(test, not(miri)))]
 mod tests {
     use super::*;
@@ -1202,8 +1174,8 @@ mod tests {
             unsafe { idx.index(std::ptr::null(), std::ptr::null(), tags, doc_id, false) };
         }
         // Heap-allocate the index and go through raw pointers so it can be
-        // mutated while the iterator holds a lookup back-pointer, mirroring
-        // how C owns the index across GC cycles.
+        // mutated while the iterator holds a lookup back-pointer, as the query
+        // layer does across GC cycles.
         let idx = Box::into_raw(Box::new(idx));
 
         // SAFETY: `idx` was just allocated and is not mutated while `ii` is in use.
@@ -1242,8 +1214,8 @@ mod tests {
     }
 }
 
-// These tests exercise only the suffix-trie wildcard logic (no C interop), so
-// they are safe to run under miri as well.
+// These tests exercise only the suffix-trie wildcard logic — no FFI-backed
+// context is involved, so they are safe to run under miri as well.
 #[cfg(test)]
 mod suffix_wildcard_tests {
     use super::*;
@@ -1260,8 +1232,8 @@ mod suffix_wildcard_tests {
     /// Run `suffix_wildcard` and return the matched terms as owned byte vectors
     /// with the trailing NUL stripped, sorted for order-independent comparison.
     fn matches(idx: &TagIndex, pattern: &[u8], cap: u64) -> Option<Vec<Vec<u8>>> {
-        // `None` (no usable anchor token) is now the `SuffixWildcardPattern::new`
-        // error, mirroring the C `BAD_POINTER` signal.
+        // A pattern with no usable anchor token is a `SuffixWildcardPattern::new`
+        // error, surfaced here as `None`.
         let pattern = SuffixWildcardPattern::new(pattern).ok()?;
         let mut out: Vec<Vec<u8>> = idx
             .suffix_wildcard(&pattern, None, cap)
@@ -1271,16 +1243,16 @@ mod suffix_wildcard_tests {
         Some(out)
     }
 
-    /// Which literal token anchors the suffix-trie walk, for each rule of C's
-    /// `Suffix_ChooseToken` scoring. A wrong choice is invisible in the matched
-    /// terms — only in how much of the trie is walked — so these are the only
-    /// assertions that can catch a divergence.
+    /// Which literal token anchors the suffix-trie walk, for each rule of
+    /// [`choose_token`]'s selectivity scoring. A wrong choice is invisible in the
+    /// matched terms — only in how much of the trie is walked — so these are the
+    /// only assertions that can catch a regression in it.
     ///
     /// The score is `len + token_index`, minus
     /// [`SUFFIX_STARRED_ANCHOR_PENALTY`] when the token is immediately followed
     /// by `*`, minus one per `?` inside it; ties go to the later token.
     #[test]
-    fn anchor_token_follows_the_c_scoring() {
+    fn anchor_token_follows_the_selectivity_scoring() {
         for (pattern, expected, why) in [
             (&b"hello"[..], &b"hello"[..], "the only token"),
             (b"*llo", b"llo", "a leading `*` is not part of the token"),
@@ -1324,8 +1296,8 @@ mod suffix_wildcard_tests {
     #[test]
     fn no_usable_token_returns_none() {
         let idx = indexed(&[b"hello"]);
-        // Patterns made only of `*` (or empty) have no literal anchor: this is
-        // the C BAD_POINTER / brute-force-fallback signal.
+        // Patterns made only of `*` (or empty) have no literal anchor, so the
+        // caller must brute-force instead.
         assert_eq!(matches(&idx, b"*", NO_CAP), None);
         assert_eq!(matches(&idx, b"**", NO_CAP), None);
         assert_eq!(matches(&idx, b"", NO_CAP), None);
@@ -1379,8 +1351,8 @@ mod suffix_wildcard_tests {
     #[test]
     fn max_prefix_expansions_caps_results() {
         let idx = indexed(&[b"aa", b"ba", b"ca", b"da"]);
-        // Cap semantics mirror C `_getWildcardArray`: it stops once the result
-        // length already exceeds the cap, so a cap of N yields N + 1 entries.
+        // The cap is checked before each match is collected, so a cap of N yields
+        // N + 1 entries.
         let pattern = SuffixWildcardPattern::new(b"*a").expect("valid token");
         let got = idx.suffix_wildcard(&pattern, None, 1).count();
         assert_eq!(got, 2);
@@ -1388,8 +1360,7 @@ mod suffix_wildcard_tests {
 }
 
 /// Timeout handling of the suffix/wildcard expansion. On timeout both
-/// functions stop and return the matches gathered so far (partial results),
-/// mirroring the C `GetList_SuffixTrieMap*` behavior.
+/// functions stop and return the matches gathered so far (partial results).
 ///
 /// The tests that actually reach the deadline are `#[cfg_attr(miri, ignore)]`:
 /// probing it calls `clock_gettime(CLOCK_MONOTONIC_RAW)`, which miri does not
@@ -1440,8 +1411,8 @@ mod expansion_timeout_tests {
     #[cfg_attr(miri, ignore)]
     fn suffix_wildcard_times_out_with_partial_results() {
         let (idx, total) = big_index();
-        // An already-elapsed deadline must not panic (the old `unimplemented!()`
-        // would have) and must yield a strict, non-empty subset.
+        // An already-elapsed deadline must not panic, and must yield a strict,
+        // non-empty subset.
         let pattern = SuffixWildcardPattern::new(b"he*").expect("valid token");
         let got = idx
             .suffix_wildcard(&pattern, Some(expired()), NO_CAP)
@@ -1497,7 +1468,7 @@ mod expansion_timeout_tests {
 }
 
 /// Deltas produced by writing a document's tag postings, to fold into the
-/// spec statistics — mirrors the C `TagIndex_WritePostings` accounting.
+/// spec statistics.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct WritePostingsDelta {
     /// Bytes by which the inverted-index memory grew.
@@ -1520,7 +1491,7 @@ fn write_postings(
 
     let mut record = RSIndexResult::build_virt().doc_id(doc_id).build();
     // The builder always clears this, so set it explicitly: `add_record` reads it
-    // off the record to write the posting's expiration bit (C: `tagIndex_Put`).
+    // off the record to write the posting's expiration bit.
     record.has_field_expiration = has_field_expiration;
     for tag in tags {
         values.insert_with(tag, |slot| {
