@@ -508,45 +508,59 @@ static bool extractKnnOptimizationContext(specialCaseCtx *knnCtx, ProfileOptions
 static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions profileOptions,
                            AREQDIST_UpstreamInfo *us, MRCommand *xcmd, IndexSpec *sp) {
   // We need to prepend the array with the command, index, and query that
-  // we want to use.
+  // we want to use. Lengths ride along so binary-capable arguments (the query,
+  // user-defined names) reach the shards without strlen truncation.
   const char **tmparr = array_new(const char *, array_len(us->serialized));
+  size_t *tmplens = array_new(size_t, array_len(us->serialized));
+#define APPEND_ARG(s, l)      \
+  do {                        \
+    array_append(tmparr, (s)); \
+    array_append(tmplens, (l)); \
+  } while (0)
+// The "" concatenation rejects anything that is not a string literal.
+#define APPEND_LITERAL(lit) APPEND_ARG((lit), sizeof("" lit "") - 1)
 
-  const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
+  size_t index_name_len;
+  const char *index_name = RedisModule_StringPtrLen(argv[1], &index_name_len);
 
   int profileArgs = getProfileArgs(profileOptions);
   if (profileOptions == EXEC_NO_FLAGS) {
-    array_append(tmparr, RS_AGGREGATE_CMD);                         // Command
-    array_append(tmparr, index_name);  // Index name
+    APPEND_LITERAL(RS_AGGREGATE_CMD);                 // Command
+    APPEND_ARG(index_name, index_name_len);        // Index name
   } else {
-    array_append(tmparr, RS_PROFILE_CMD);
-    array_append(tmparr, index_name);  // Index name
-    array_append(tmparr, "AGGREGATE");
+    APPEND_LITERAL(RS_PROFILE_CMD);
+    APPEND_ARG(index_name, index_name_len);        // Index name
+    APPEND_LITERAL("AGGREGATE");
     if (profileOptions & EXEC_WITH_PROFILE_LIMITED) {
-      array_append(tmparr, "LIMITED");
+      APPEND_LITERAL("LIMITED");
     }
-    array_append(tmparr, "QUERY");
+    APPEND_LITERAL("QUERY");
   }
 
-  array_append(tmparr, RedisModule_StringPtrLen(argv[2 + profileArgs], NULL));  // Query
-  array_append(tmparr, "WITHCURSOR");
+  size_t query_len;
+  const char *query = RedisModule_StringPtrLen(argv[2 + profileArgs], &query_len);
+  APPEND_ARG(query, query_len);  // Query
+  APPEND_LITERAL("WITHCURSOR");
   // Numeric responses are encoded as simple strings.
-  array_append(tmparr, "_NUM_SSTRING");
+  APPEND_LITERAL("_NUM_SSTRING");
 
   int argOffset = 0;
   // Preserve WITHCOUNT flag from the original command
   argOffset  = RMUtil_ArgIndex("WITHCOUNT", argv + 3 + profileArgs, argc - 3 - profileArgs);
   if (argOffset != -1) {
-    array_append(tmparr, "WITHCOUNT");
+    APPEND_LITERAL("WITHCOUNT");
   }
 
   // Add the index prefixes to the command, for validation in the shard
-  array_append(tmparr, "_INDEX_PREFIXES");
+  APPEND_LITERAL("_INDEX_PREFIXES");
   arrayof(HiddenUnicodeString*) prefixes = sp->rule->prefixes;
   char *n_prefixes;
-  rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
-  array_append(tmparr, n_prefixes);
+  int n_prefixes_len = rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
+  APPEND_ARG(n_prefixes, (size_t)n_prefixes_len);
   for (uint32_t i = 0; i < array_len(prefixes); i++) {
-    array_append(tmparr, HiddenUnicodeString_GetUnsafe(prefixes[i], NULL));
+    size_t prefix_len;
+    const char *prefix = HiddenUnicodeString_GetUnsafe(prefixes[i], &prefix_len);
+    APPEND_ARG(prefix, prefix_len);
   }
 
   // Slots info will be added here
@@ -554,35 +568,43 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
 
   argOffset = RMUtil_ArgIndex("DIALECT", argv + 3 + profileArgs, argc - 3 - profileArgs);
   if (argOffset != -1 && argOffset + 3 + 1 + profileArgs < argc) {
-    array_append(tmparr, "DIALECT");
-    array_append(tmparr, RedisModule_StringPtrLen(argv[argOffset + 3 + 1 + profileArgs], NULL));  // the dialect
+    APPEND_LITERAL("DIALECT");
+    size_t dialect_len;
+    const char *dialect = RedisModule_StringPtrLen(argv[argOffset + 3 + 1 + profileArgs], &dialect_len);
+    APPEND_ARG(dialect, dialect_len);
   }
 
   argOffset = RMUtil_ArgIndex("FORMAT", argv + 3 + profileArgs, argc - 3 - profileArgs);
   if (argOffset != -1 && argOffset + 3 + 1 + profileArgs < argc) {
-    array_append(tmparr, "FORMAT");
-    array_append(tmparr, RedisModule_StringPtrLen(argv[argOffset + 3 + 1 + profileArgs], NULL));  // the format
+    APPEND_LITERAL("FORMAT");
+    size_t format_len;
+    const char *format = RedisModule_StringPtrLen(argv[argOffset + 3 + 1 + profileArgs], &format_len);
+    APPEND_ARG(format, format_len);
   }
 
   argOffset = RMUtil_ArgIndex("SCORER", argv + 3 + profileArgs, argc - 3 - profileArgs);
   if (argOffset != -1 && argOffset + 3 + 1 + profileArgs < argc) {
-    array_append(tmparr, "SCORER");
-    array_append(tmparr, RedisModule_StringPtrLen(argv[argOffset + 3 + 1 + profileArgs], NULL));  // the scorer
+    APPEND_LITERAL("SCORER");
+    size_t scorer_len;
+    const char *scorer = RedisModule_StringPtrLen(argv[argOffset + 3 + 1 + profileArgs], &scorer_len);
+    APPEND_ARG(scorer, scorer_len);
   }
 
   if (RMUtil_ArgIndex("ADDSCORES", argv + 3 + profileArgs, argc - 3 - profileArgs) != -1) {
-    array_append(tmparr, "ADDSCORES");
+    APPEND_LITERAL("ADDSCORES");
   }
 
   if (RMUtil_ArgIndex("VERBATIM", argv + 3 + profileArgs, argc - 3 - profileArgs) != -1) {
-    array_append(tmparr, "VERBATIM");
+    APPEND_LITERAL("VERBATIM");
   }
 
   for (size_t ii = 0; ii < array_len(us->serialized); ++ii) {
-    array_append(tmparr, us->serialized[ii]);
+    APPEND_ARG(us->serialized[ii], strlen(us->serialized[ii]));
   }
+#undef APPEND_LITERAL
+#undef APPEND_ARG
 
-  *xcmd = MR_NewCommandArgv(array_len(tmparr), tmparr);
+  *xcmd = MR_NewCommandArgvLen(array_len(tmparr), tmparr, tmplens);
 
   // Prepare command for slot info (Cluster mode)
   MRCommand_PrepareForSlotInfo(xcmd, slotsInfoPos);
@@ -621,6 +643,7 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
 
   rm_free(n_prefixes);
   array_free(tmparr);
+  array_free(tmplens);
 }
 
 
@@ -762,7 +785,12 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
     }
   }
 
-  rc = AREQ_Compile(r, ctx, argv + ac.offset, argc - ac.offset, SearchDisk_IsEnabledForValidation(), status);
+  // Compile parses the held argv — this job's argv copies die with the job,
+  // the plan's borrows must not. The job argv mirrors the original, so the
+  // offset computed on it indexes the holds too, and this view's length must
+  // match the wrapper's parse extent (the debug dispatcher trims both).
+  RS_ASSERT((uint32_t)argc == r->brc->parseArgc);
+  rc = AREQ_Compile(r, ctx, ac.offset, SearchDisk_IsEnabledForValidation(), status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
   // User-facing cursors are unsupported on disk (flex). Reject before fan-out.
@@ -781,9 +809,11 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   if(dialect >= 2) {
     // Check if we have KNN in the query string, and if so, parse the query string to see if it is
     // a KNN section in the query. IN that case, we treat this as a SORTBY+LIMIT step.
-    if(strcasestr(r->query, "KNN")) {
+    size_t queryLen;
+    const char *query = AREQ_Query(r, &queryLen);
+    if (strcasestr(query, "KNN")) {
       // For distributed aggregation, command type detection is automatic
-      knnCtx = prepareOptionalTopKCase(r->query, argv, argc, dialect, status);
+      knnCtx = prepareOptionalTopKCase(query, queryLen, argv, argc, dialect, status);
       *knnCtx_ptr = knnCtx;
       if (QueryError_HasError(status)) {
         return REDISMODULE_ERR;

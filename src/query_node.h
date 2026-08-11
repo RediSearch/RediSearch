@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include "query_types.h"
 #include "redisearch.h"
+#include "redismodule.h"
 #include "hiredis/sds.h"
 #include "param.h"
 
@@ -78,7 +79,9 @@ typedef struct {
 } QueryVectorNode;
 
 typedef struct {
-  const sds *keys;
+  /* The key names: a borrowed window into the request's held argv (see
+   * BlockedRequestCtx.argv), which outlives the AST. Not owned. */
+  RedisModuleString **keys;
   // Pre-resolved document IDs (for SearchDisk, resolved on main thread)
   t_docId *docIds;
   size_t len;

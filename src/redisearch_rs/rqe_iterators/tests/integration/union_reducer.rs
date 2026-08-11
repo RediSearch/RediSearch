@@ -14,6 +14,8 @@ use rqe_iterators::{
     union_reducer::{NewUnionIterator, new_union_iterator},
 };
 
+use rqe_iterators_test_utils::ContractChecker;
+
 use crate::utils::Mock;
 
 // ---------------------------------------------------------------------------
@@ -51,9 +53,10 @@ fn single_child_reduces_to_single() {
     let children: Vec<Mock<3>> = vec![Mock::new([1, 2, 3])];
     let result = new_union_iterator(children, false, 20);
 
-    let NewUnionIterator::ReducedSingle(mut it) = result else {
+    let NewUnionIterator::ReducedSingle(it) = result else {
         panic!("Expected ReducedSingle");
     };
+    let mut it = ContractChecker::new(it);
     let mut seen = Vec::new();
     while let Ok(Some(doc)) = it.read() {
         seen.push(doc.doc_id);
@@ -70,9 +73,10 @@ fn single_non_empty_after_filtering_reduces_to_single() {
     ];
     let result = new_union_iterator(children, false, 20);
 
-    let NewUnionIterator::ReducedSingle(mut it) = result else {
+    let NewUnionIterator::ReducedSingle(it) = result else {
         panic!("Expected ReducedSingle");
     };
+    let mut it = ContractChecker::new(it);
     let mut seen = Vec::new();
     while let Ok(Some(doc)) = it.read() {
         seen.push(doc.doc_id);
@@ -184,9 +188,10 @@ fn flat_union_produces_all_docs() {
     ];
     let result = new_union_iterator(children, false, 20);
 
-    let NewUnionIterator::Flat(mut it) = result else {
+    let NewUnionIterator::Flat(it) = result else {
         panic!("Expected Flat");
     };
+    let mut it = ContractChecker::new(it);
     let mut seen = Vec::new();
     while let Ok(Some(doc)) = it.read() {
         seen.push(doc.doc_id);
@@ -204,9 +209,10 @@ fn heap_union_produces_all_docs() {
     ];
     let result = new_union_iterator(children, false, 2);
 
-    let NewUnionIterator::Heap(mut it) = result else {
+    let NewUnionIterator::Heap(it) = result else {
         panic!("Expected Heap");
     };
+    let mut it = ContractChecker::new(it);
     let mut seen = Vec::new();
     while let Ok(Some(doc)) = it.read() {
         seen.push(doc.doc_id);

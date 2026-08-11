@@ -127,8 +127,9 @@ void TrieMapIterator_Free(struct TrieMapIterator *it);
 int TrieMapIterator_Next(struct TrieMapIterator *it, char * *ptr, tm_len_t *len, void * *value);
 
 /**
- * Set timeout limit used for affix queries. This timeout is checked in
- * [`TrieMapIterator_Next`], which will return `0` if the timeout is reached.
+ * Set timeout limit used for affix queries. The deadline is enforced inside
+ * the underlying trie iterator's traversal loop; once it is reached
+ * [`TrieMapIterator_Next`] returns `0`, as if the iterator were exhausted.
  *
  * If the provided timeout is 0, it's interpreted as unlimited.
  *

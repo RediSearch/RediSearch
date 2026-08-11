@@ -13,15 +13,25 @@ use timeout::{
     AnyTimeoutChecker, DeadlineTimeoutChecker, NoTimeoutChecker, TimeoutCheckResult, TimeoutChecker,
 };
 
+/// Number of traversal steps between two consecutive clock probes.
+const TIMEOUT_CHECK_GRANULARITY: u32 = 100;
+
+/// Deadline enforcement for a trie iterator.
+///
+/// Wraps an [`AnyTimeoutChecker`] so each iterator can carry a timeout without
+/// naming the concrete checker type. Construct it from an optional deadline
+/// [`Instant`] via its [`From`] impl, then call [`check`](Self::check) once per
+/// traversal step.
 pub struct IteratorTimeoutState(AnyTimeoutChecker);
 
 impl IteratorTimeoutState {
-    /// No timeout state
+    /// A state that never times out (used when no deadline is set).
     pub const fn no_timeout() -> Self {
         Self(AnyTimeoutChecker::NoTimeout(NoTimeoutChecker))
     }
 
-    /// Check timeout state
+    /// Advance the amortized checker by one step and report whether the
+    /// deadline has been reached.
     pub fn check(&mut self) -> TimeoutCheckResult {
         self.0.check_timeout()
     }
@@ -34,7 +44,8 @@ impl From<Option<Instant>> for IteratorTimeoutState {
             Some(deadline) => {
                 let duration = deadline.saturating_duration_since(Instant::now());
                 Self(AnyTimeoutChecker::Deadline(DeadlineTimeoutChecker::new(
-                    duration, 100,
+                    duration,
+                    TIMEOUT_CHECK_GRANULARITY,
                 )))
             }
         }

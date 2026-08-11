@@ -1766,6 +1766,7 @@ dependencies = [
  "query_error",
  "query_flags",
  "query_types",
+ "redis-module",
  "redis_mock",
  "redisearch_rs",
  "rlookup",
@@ -2501,6 +2502,7 @@ dependencies = [
  "redis-module",
  "redis_mock",
  "redisearch_rs",
+ "rqe_wildcard",
  "rs_token",
  "workspace_hack",
 ]
@@ -3025,7 +3027,6 @@ dependencies = [
  "ffi",
  "itertools 0.15.0",
  "proptest",
- "rqe_wildcard",
  "rstest",
  "string_utils",
  "trie_rs",

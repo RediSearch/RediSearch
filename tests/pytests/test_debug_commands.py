@@ -76,6 +76,7 @@ class TestDebugCommands(object):
             'QUERY_CONTROLLER',
             'DUMP_SCHEMA',
             'VECSIM_MOCK_TIMEOUT',
+            'MOCK_REVALIDATE_TIMEOUT',
             'GET_MAX_DOC_ID',
             'DUMP_DELETED_IDS',
             'NUMERIC_BUCKET_MAP',

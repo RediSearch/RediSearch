@@ -46,7 +46,9 @@ extern "C" {
  *
  * 1. `qast` must be a non-null pointer to a valid [`QueryAST`] whose `root` is
  *    a valid [`RSQueryNode`]; it (and its `metricRequests`/`config` fields)
- *    must stay valid and exclusively borrowed for the duration of the call.
+ *    must stay valid and exclusively borrowed for the duration of the call. The
+ *    root's subtree must meet the token-buffer requirement of
+ *    [`Query_EvalNode_Rs`]'s precondition 2, for the same reason.
  * 2. `opts` must be a non-null pointer to a valid [`RSSearchOptions`].
  * 3. `sctx` must be a non-null pointer to a valid [`RedisSearchCtx`] whose
  *    `spec` is a valid, non-null [`IndexSpec`](ffi::IndexSpec).
@@ -71,7 +73,12 @@ QueryIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSe
  * 1. `q` must be a non-null pointer to a valid [`QueryEvalCtx`] that satisfies
  *    all the invariants documented on [`QueryEvalContext::new`] and remains
  *    valid for the lifetime of the returned iterator.
- * 2. `n` must be a non-null pointer to a valid [`RSQueryNode`].
+ * 2. `n` must be a non-null pointer to a valid [`RSQueryNode`]. Evaluation
+ *    rewrites some tokens in place, so every node in the subtree that carries a
+ *    rewritable one — see [`QueryNodeMut::token_mut`] — must additionally satisfy
+ *    invariant (4) of [`QueryNodeMut::new`]. A parser-produced AST does; one
+ *    assembled by hand, with a token borrowing a read-only or length-delimited
+ *    string, does not.
  * 3. `eval_config` must be a non-null [`EvalConfig`](ffi::EvalConfig) handle
  *    pointing to a valid [`Config`] that stays valid for the duration of the
  *    call — the snapshot [`QAST_Iterate`] loaded and threaded through the C

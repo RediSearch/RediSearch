@@ -18,6 +18,7 @@ use inverted_index::{FilterMaskReader, full::Full};
 use query_term::RSQueryTerm;
 use rqe_core::{DocId, FieldMask};
 use rqe_iterators::{IteratorType, NoOpChecker, RQEIterator, inverted_index::Term};
+use rqe_iterators_test_utils::ContractChecker;
 
 use crate::inverted_index::utils::{BaseTest, RevalidateIndexType, RevalidateTest};
 
@@ -84,7 +85,7 @@ impl TermBaseTest {
 #[test]
 fn term_type() {
     let test = TermBaseTest::new(10);
-    let it = test.create_iterator();
+    let it = ContractChecker::new(test.create_iterator());
     assert_eq!(it.type_(), IteratorType::InvIdxTerm);
 }
 
@@ -92,7 +93,7 @@ fn term_type() {
 /// test reading from Term iterator
 fn term_read() {
     let test = TermBaseTest::new(100);
-    let mut it = test.create_iterator();
+    let mut it = ContractChecker::new(test.create_iterator());
 
     // Read the first record and verify the term, weight, and IDF are correct.
     let record = it.read().unwrap().expect("expected at least one record");
@@ -117,7 +118,7 @@ fn term_read() {
 /// test skipping from Term iterator
 fn term_skip_to() {
     let test = TermBaseTest::new(10);
-    let mut it = test.create_iterator();
+    let mut it = ContractChecker::new(test.create_iterator());
     test.test.skip_to(&mut it);
 }
 
@@ -126,7 +127,7 @@ fn term_skip_to() {
 fn term_filter() {
     let test = TermBaseTest::new(10);
     let reader = FilterMaskReader::new(1, test.test.ii.reader());
-    let mut it = unsafe {
+    let mut it = ContractChecker::new(unsafe {
         Term::new(
             reader,
             test.test.mock_ctx.sctx(),
@@ -134,7 +135,7 @@ fn term_filter() {
             1.0,
             NoOpChecker,
         )
-    };
+    });
     // results have their doc id as field mask so we filter by odd ids
     let docs_ids = test.test.docs_ids_iter().filter(|id| id % 2 == 1);
     test.test.read(&mut it, docs_ids);
@@ -253,19 +254,19 @@ mod not_miri {
 
         fn test_read_expiration(&mut self) {
             self.mark_even_ids_expired();
-            let mut it = self.create_iterator();
+            let mut it = ContractChecker::new(self.create_iterator());
             self.test.read(&mut it);
         }
 
         fn test_read_expiration_wide(&mut self) {
             self.mark_even_ids_expired();
-            let mut it = self.create_iterator_wide();
+            let mut it = ContractChecker::new(self.create_iterator_wide());
             self.test.read(&mut it);
         }
 
         fn test_skip_to_expiration(&mut self) {
             self.mark_even_ids_expired();
-            let mut it = self.create_iterator();
+            let mut it = ContractChecker::new(self.create_iterator());
             self.test.skip_to(&mut it);
         }
     }
@@ -340,17 +341,21 @@ mod not_miri {
     #[test]
     fn term_revalidate_basic() {
         let test = TermRevalidateTest::new(10);
-        let mut it = test.create_iterator();
+        let mut it = ContractChecker::new(test.create_iterator());
         test.test.revalidate_basic(&mut it);
     }
 
     #[test]
     fn term_revalidate_at_eof() {
         let test = TermRevalidateTest::new(10);
-        let mut it = test.create_iterator();
+        let mut it = ContractChecker::new(test.create_iterator());
         test.test.revalidate_at_eof(&mut it);
     }
 
+    /// Driven bare, deliberately: this test reaches for `swap_index`, which
+    /// swaps the index out from under the iterator by `&mut self`. The checker
+    /// deliberately hands out no mutable access to what it wraps — a mutation it
+    /// cannot see would leave its tracked position describing a different index.
     #[test]
     fn term_revalidate_after_index_disappears() {
         let test = TermRevalidateTest::new(10);
@@ -407,7 +412,7 @@ mod not_miri {
         let reader = test.test.context.term_inverted_index().reader(field_mask);
         let gc_collected_term = RSQueryTerm::new("gc_collected", 1, 0);
         // SAFETY: reader and sctx are valid pointers from the test context.
-        let mut it = unsafe {
+        let mut it = ContractChecker::new(unsafe {
             Term::new(
                 reader,
                 test.test.context.sctx,
@@ -415,7 +420,7 @@ mod not_miri {
                 1.0,
                 NoOpChecker,
             )
-        };
+        });
 
         // The reader still works because it reads from the actual inverted
         // index — only the query term stored in the result differs.
@@ -433,7 +438,7 @@ mod not_miri {
     #[test]
     fn term_revalidate_after_document_deleted() {
         let test = TermRevalidateTest::new(10);
-        let mut it = test.create_iterator();
+        let mut it = ContractChecker::new(test.create_iterator());
         let ii = {
             use inverted_index::{full::Full, opaque::OpaqueEncoding};
             Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut()

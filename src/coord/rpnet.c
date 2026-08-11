@@ -287,15 +287,16 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
 
     size_t idx_len;
     const char *idx = MRCommand_ArgStringPtrLen(&nc->cmd, 1, &idx_len);
-    char *idx_copy = rm_strndup(idx, idx_len);
+    // Build the cursor-read command before freeing the old command — idx points
+    // into its storage.
+    const char *argv[3] = {"_FT.CURSOR", "READ", idx};
+    const size_t lens[3] = {sizeof("_FT.CURSOR") - 1, sizeof("READ") - 1, idx_len};
+    MRCommand newCmd = MR_NewCommandArgvLen(3, argv, lens);
     MRCommand_Free(&nc->cmd);
-
-    // Create cursor read command using the copied index name
-    nc->cmd = MR_NewCommand(3, "_FT.CURSOR", "READ", idx_copy);
+    nc->cmd = newCmd;
     nc->cmd.rootCommand = C_READ;
     nc->cmd.forProfiling = IsProfile(nc->areq);
     nc->cmd.protocol = 3;
-    rm_free(idx_copy);
 
     nc->it = MR_IterateWithPrivateData(&nc->cmd, &(MRIteratorConfig){
       .successCB = netCursorCallback,

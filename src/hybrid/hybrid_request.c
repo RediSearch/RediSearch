@@ -278,7 +278,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
  * @param requests Array of AREQ pointers, the hybrid request takes ownership
  * @param nrequests Number of requests in the array
  */
-void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests, size_t nrequests) {
+void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests, size_t nrequests, RedisModuleString **argv, uint32_t argc) {
     QueryRequest_Init(&hybridReq->base, QUERY_REQUEST_KIND_HYBRID);
     hybridReq->requests = requests;
     hybridReq->nrequests = nrequests;
@@ -308,6 +308,11 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     // Initialize pipelines for each individual request
     for (size_t i = 0; i < nrequests; i++) {
         initializeAREQ(requests[i]);
+        // Each sub-AREQ gets its own wrapper, holding the whole command
+        // rather than its own slice: slice boundaries are only discovered
+        // while parsing, and sub pipelines borrow beyond their slice anyway
+        // (distributed tail steps like LOAD, PARAMS).
+        BlockedRequestCtx_NewAREQ(requests[i], argv, argc);
         hybridReq->errors[i] = QueryError_Default();
         Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &hybridReq->errors[i]);
     }
@@ -316,35 +321,27 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     // Initialize timeout coordination fields (embedded per-request slot only;
     // the aggregate-coord fields live on the heap BlockedRequestCtx wrapper).
     pthread_mutex_init(&hybridReq->cursorMutex, NULL);
-
-
 }
 
-HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests) {
+HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests, RedisModuleString **argv, uint32_t argc) {
+    // The wrappers hold the full command; each sub takes its own holds — a
+    // sub's borrows can outlive the container.
     HybridRequest *hybridReq = rm_calloc(1, sizeof(*hybridReq));
-    HybridRequest_Init(hybridReq, sctx, requests, nrequests);
+    HybridRequest_Init(hybridReq, sctx, requests, nrequests, argv, argc);
     // Wrap the top-level hybrid request in its single-owner sync context.
     // Sets hybridReq->brc; ownership is released via HybridRequest_DecrRef.
-    BlockedRequestCtx_NewHybrid(hybridReq);
+    BlockedRequestCtx_NewHybrid(hybridReq, argv, argc);
     return hybridReq;
 }
 
-void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, RedisModuleString **argv, int argc) {
-  // skip command and index name
-  const int step = argc > 2 ? 2 : argc;
-  argv += step;
-  argc -= step;
-  req->args = rm_calloc(argc, sizeof(*req->args));
-  req->nargs = argc;
-  // Copy the arguments into an owned array of sds strings
-  for (size_t ii = 0; ii < argc; ++ii) {
-    size_t n;
-    const char *s = RedisModule_StringPtrLen(argv[ii], &n);
-    req->args[ii] = sdsnewlen(s, n);
-  }
-
-  // Parse the query and basic keywords first..
-  ArgsCursor_InitSDS(ac, req->args, req->nargs);
+void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, uint32_t argc) {
+  // argc bounds the parse; the holds may cover a superset (debug flows).
+  RS_ASSERT(argc <= req->brc->argc);
+  // The cursor covers the whole held command, pre-advanced past the command
+  // and index names: recorded positions (sub queryOffsets, syntax-error
+  // offsets) are relative to the full command.
+  ArgsCursor_InitRString(ac, req->brc->argv, (int)argc);
+  AC_AdvanceBy(ac, argc > 2 ? 2 : argc);
 }
 
 /**
@@ -429,13 +426,6 @@ void HybridRequest_Free(HybridRequest *req) {
 
     QueryRequest_Destroy(&req->base);
 
-    if (req->args) {
-      for (size_t ii = 0; ii < req->nargs; ++ii) {
-        sdsfree(req->args[ii]);
-      }
-      rm_free(req->args);
-    }
-
     rm_free(req);
 }
 
@@ -507,7 +497,7 @@ static RedisSearchCtx* createThreadSafeSearchContext(RedisModuleCtx *ctx, const 
   return NewSearchCtxC(detachedCtx, indexname, true);
 }
 
-HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx) {
+HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx, RedisModuleString **argv, uint32_t argc) {
   extern size_t NumShards;  // Declared in module.c
   AREQ *search = AREQ_New();
   AREQ *vector = AREQ_New();
@@ -517,7 +507,7 @@ HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx) {
   arrayof(AREQ*) requests = array_new(AREQ*, HYBRID_REQUEST_NUM_SUBQUERIES);
   requests = array_ensure_append_1(requests, search);
   requests = array_ensure_append_1(requests, vector);
-  return HybridRequest_New(sctx, requests, array_len(requests));
+  return HybridRequest_New(sctx, requests, array_len(requests), argv, argc);
 }
 
 void AddValidationErrorContext(AREQ *req, QueryError *status) {

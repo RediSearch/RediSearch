@@ -2269,8 +2269,7 @@ void setKNNSpecialCase(searchRequestCtx *req, specialCaseCtx *knn_ctx) {
 // Prepare a TOPK special case, return a context with the required KNN fields if query is
 // valid and contains KNN section, NULL otherwise (and set proper error in *status* if error
 // was found).
-specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleString **argv, int argc, uint dialectVersion,
-                                        QueryError *status) {
+specialCaseCtx *prepareOptionalTopKCase(const char *query_string, size_t query_len, RedisModuleString **argv, int argc, uint dialectVersion, QueryError *status) {
 
   // First, parse the query params if exists, to set the params in the query parser ctx.
   dict *params = NULL;
@@ -2286,14 +2285,13 @@ specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleStr
   RedisSearchCtx sctx = {0};
   RSSearchOptions opts = {0};
   opts.params = params;
-  QueryParseCtx qpCtx = {
-      .raw = query_string,
-      .len = strlen(query_string),
-      .sctx = &sctx,
-      .opts = &opts,
-      .status = status,
+  QueryParseCtx qpCtx = {.raw = query_string,
+                         .len = query_len,
+                         .sctx = &sctx,
+                         .opts = &opts,
+                         .status = status,
 #ifdef PARSER_DEBUG
-      .trace_log = NULL
+                         .trace_log = NULL
 #endif
   };
 
@@ -2357,7 +2355,15 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   }
 
   int argvOffset = 2 + req->profileArgs;
-  req->queryString = rm_strdup(RedisModule_StringPtrLen(argv[argvOffset++], NULL));
+  size_t queryLen;
+  const char *queryPtr = RedisModule_StringPtrLen(argv[argvOffset++], &queryLen);
+  // Length-faithful copy: keeps any embedded NULs the client sent, matching
+  // the (buffer, length) parse downstream.
+  req->queryString = rm_strndup(queryPtr, queryLen);
+  // TRANSITIONAL: record the C-string length, truncating at the first NUL, so a query
+  // with embedded NULs behaves as it always has — consistent with AREQ_Query on the shards.
+  // TODO: remove — the true length is queryLen.
+  req->queryStringLen = strlen(req->queryString);
   req->limit = 10;
   req->offset = 0;
   req->specialCases = NULL;
@@ -2435,6 +2441,21 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
     AC_GetLongLong(&limitArgs, &req->limit, 0);
   }
   if (req->limit < 0 || req->offset < 0) {
+    // Report the same error the shard's parser (`handleCommonArgs`) produces for a negative
+    // LIMIT: it reads the values with AC_GetU64, which rejects negatives as non-numeric. Without
+    // setting the error here, `rscParseRequest` returns NULL with an empty status and the caller
+    // replies success for a malformed command.
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "LIMIT needs two numeric arguments");
+    searchRequestCtx_Free(req);
+    return NULL;
+  }
+  if (req->limit == 0 && req->offset != 0) {
+    // `LIMIT <non-zero offset> 0` is rejected here rather than by the shards: the fan-out below
+    // only rewrites the shard LIMIT when `limit > 0`, so this combination would otherwise be sent
+    // verbatim and each shard would reject it with the same error. Failing on the coordinator keeps
+    // the reply identical to standalone (`handleCommonArgs`) without a round trip to the shards.
+    QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT,
+                        "The `offset` of the LIMIT must be 0 when `num` is 0");
     searchRequestCtx_Free(req);
     return NULL;
   }
@@ -2491,7 +2512,8 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   if (dialect >= 2) {
     // Note: currently there is only one single case. For extending those cases we should use a trie here.
     if (strcasestr(req->queryString, "KNN")) {
-      specialCaseCtx *knnCtx = prepareOptionalTopKCase(req->queryString, argv, argc, dialect, status);
+      specialCaseCtx *knnCtx = prepareOptionalTopKCase(req->queryString, req->queryStringLen,
+                                                       argv, argc, dialect, status);
       if (QueryError_HasError(status)) {
         searchRequestCtx_Free(req);
         return NULL;
@@ -3865,8 +3887,10 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     r = &debug_req->r;
   } else {
     r = AREQ_New();
-    BlockedRequestCtx_NewAREQ(r);
+    BlockedRequestCtx_NewAREQ(r, argv, argc);
   }
+  // Either path took the argv holds here, on the main thread; the BG parse
+  // borrows from them (the job's own argv copies die with the job).
 
   ConcurrentSearchHandlerCtx handlerCtx;
   ConcurrentSearchHandlerCtx_Init(&handlerCtx);
@@ -3966,7 +3990,9 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   // thread; the sub-AREQ contexts are detached thread-safe contexts.
   RedisSearchCtx *sctx = NewSearchCtxC(ctx, idx, true);
   RS_ASSERT(sctx != NULL);  // the index was validated above in the same GIL window
-  HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
+  // Construction takes the argv holds here, on the main thread; the BG parse
+  // borrows from them (the job's own argv copies die with the job).
+  HybridRequest *hreq = MakeDefaultHybridRequest(sctx, argv, argc);
   // The tail sctx aliased this handler's ctx, which dies when the handler
   // returns. The BG executor re-points it at its own thread-safe ctx.
   sctx->redisCtx = NULL;
@@ -4145,7 +4171,7 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   }
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
-  MRCommand_Append(&cmd, WITH_INDEX_ERROR_TIME, strlen(WITH_INDEX_ERROR_TIME));
+  MRCommand_AppendLiteral(&cmd, WITH_INDEX_ERROR_TIME);
   MRCommand_SetProtocol(&cmd, ctx);
   MRCommand_SetPrefix(&cmd, "_FT");
 
@@ -4156,7 +4182,7 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
 void sendRequiredFields(const searchRequestCtx *req, MRCommand *cmd) {
   if(req->requiredFields) {
-    MRCommand_Append(cmd, "_REQUIRED_FIELDS", strlen("_REQUIRED_FIELDS"));
+    MRCommand_AppendLiteral(cmd, "_REQUIRED_FIELDS");
     int numberOfFields = array_len(req->requiredFields);
     char snum[8];
     int len = sprintf(snum, "%d", numberOfFields);
@@ -4223,8 +4249,8 @@ static int prepareCommand(MRCommand *cmd, const searchRequestCtx *req, int proto
     size_t k =0;
     MRCommand_ReplaceArg(cmd, limitIndex + 1, "0", 1);
     char buf[32];
-    snprintf(buf, sizeof(buf), "%lld", req->requestedResultsCount);
-    MRCommand_ReplaceArg(cmd, limitIndex + 2, buf, strlen(buf));
+    int bufLen = snprintf(buf, sizeof(buf), "%lld", req->requestedResultsCount);
+    MRCommand_ReplaceArg(cmd, limitIndex + 2, buf, bufLen);
   }
 
   /* Replace our own FT command with _FT. command */

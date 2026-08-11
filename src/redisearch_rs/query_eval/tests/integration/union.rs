@@ -12,6 +12,7 @@
 use query_eval::{Config, QueryEvalContext, QueryNodeMut, eval_node};
 use query_types::QueryNodeType;
 use rqe_iterators::{IteratorType, RQEIterator};
+use rqe_iterators_test_utils::ContractChecker;
 
 use query::mock::{MockQueryEvalCtx, MockQueryNode};
 
@@ -32,9 +33,11 @@ fn eval_union_merges_children() {
     union.set_children(&[c1.as_ptr(), c2.as_ptr()]);
     let node = unsafe { QueryNodeMut::new(union.as_non_null()) };
 
-    let mut it = eval_node(&mut ctx, node, Config::default())
-        .expect("should not be None")
-        .into_boxed();
+    let mut it = ContractChecker::new(
+        eval_node(&mut ctx, node, Config::default())
+            .expect("should not be None")
+            .into_boxed(),
+    );
 
     assert_eq!(it.type_(), IteratorType::Union);
     for expected in [1, 2, 3] {
@@ -65,9 +68,11 @@ fn eval_union_zero_weight_takes_quick_exit() {
     union.set_children(&[c1.as_ptr(), c2.as_ptr()]);
     let node = unsafe { QueryNodeMut::new(union.as_non_null()) };
 
-    let mut it = eval_node(&mut ctx, node, Config::default())
-        .expect("should not be None")
-        .into_boxed();
+    let mut it = ContractChecker::new(
+        eval_node(&mut ctx, node, Config::default())
+            .expect("should not be None")
+            .into_boxed(),
+    );
 
     // Quick-exit collapsed the union to a single wildcard child.
     assert_eq!(it.type_(), IteratorType::Wildcard);
@@ -101,9 +106,11 @@ fn eval_union_in_not_subtree_takes_quick_exit() {
     union.set_children(&[c1.as_ptr(), c2.as_ptr()]);
     let node = unsafe { QueryNodeMut::new(union.as_non_null()) };
 
-    let mut it = eval_node(&mut ctx, node, Config::default())
-        .expect("should not be None")
-        .into_boxed();
+    let mut it = ContractChecker::new(
+        eval_node(&mut ctx, node, Config::default())
+            .expect("should not be None")
+            .into_boxed(),
+    );
 
     // Quick-exit collapsed the union to a single wildcard child.
     assert_eq!(it.type_(), IteratorType::Wildcard);
@@ -121,8 +128,8 @@ fn eval_union_in_not_subtree_takes_quick_exit() {
 // distinct documents, which requires the full-FFI `TestContext`.
 // ---------------------------------------------------------------------------
 
-// Disabled under Miri: `TestContext` and SDS creation call into the C library,
-// which Miri cannot execute.
+// Disabled under Miri: `TestContext` calls into the C library, which Miri
+// cannot execute.
 #[cfg(not(miri))]
 mod union {
     use ffi::IndexFlags_Index_StoreFreqs;
@@ -130,12 +137,7 @@ mod union {
     use rqe_iterators_test_utils::{GlobalGuard, TestContext};
 
     use super::*;
-
-    fn new_sds(s: &str) -> ffi::sds {
-        // SAFETY: `s` points to `s.len()` valid bytes; `sdsnewlen` copies them
-        // into a freshly allocated SDS string.
-        unsafe { ffi::sdsnewlen(s.as_ptr().cast(), s.len()) }
-    }
+    use crate::util::MockKeys;
 
     #[test]
     fn eval_union_merges_distinct_children() {
@@ -163,8 +165,8 @@ mod union {
 
         // child 1 matches {doc_a, doc_b}; child 2 matches {doc_b, doc_c}; the
         // union is {doc_a, doc_b, doc_c}.
-        let keys1: Vec<ffi::sds> = vec![new_sds("doc_a"), new_sds("doc_b")];
-        let keys2: Vec<ffi::sds> = vec![new_sds("doc_b"), new_sds("doc_c")];
+        let keys1 = MockKeys::new(&["doc_a", "doc_b"]);
+        let keys2 = MockKeys::new(&["doc_b", "doc_c"]);
         let mut c1 = MockQueryNode::new(QueryNodeType::Ids);
         c1.set_ids(keys1.as_ptr(), std::ptr::null_mut(), keys1.len());
         let mut c2 = MockQueryNode::new(QueryNodeType::Ids);
@@ -175,9 +177,11 @@ mod union {
         union.set_children(&[c1.as_ptr(), c2.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(union.as_non_null()) };
 
-        let mut it = eval_node(&mut ctx, node, Config::default())
-            .expect("should not be None")
-            .into_boxed();
+        let mut it = ContractChecker::new(
+            eval_node(&mut ctx, node, Config::default())
+                .expect("should not be None")
+                .into_boxed(),
+        );
 
         assert_eq!(it.type_(), IteratorType::Union);
         for expected in [1, 2, 3] {
@@ -185,11 +189,6 @@ mod union {
             assert_eq!(r.doc_id, expected);
         }
         assert!(matches!(it.read(), Ok(None)));
-
-        for key in keys1.into_iter().chain(keys2) {
-            // SAFETY: each `key` was allocated by `sdsnewlen` and is freed once.
-            unsafe { ffi::sdsfree(key) };
-        }
     }
 
     #[test]
@@ -224,7 +223,7 @@ mod union {
         let mut missing_child = MockQueryNode::new(QueryNodeType::Missing);
         missing_child.set_missing_field(context.field_spec());
         // child 2: QN_IDS resolving to a real document.
-        let keys: Vec<ffi::sds> = vec![new_sds("doc_a")];
+        let keys = MockKeys::new(&["doc_a"]);
         let mut ids_child = MockQueryNode::new(QueryNodeType::Ids);
         ids_child.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
 
@@ -233,9 +232,11 @@ mod union {
         union.set_children(&[missing_child.as_ptr(), ids_child.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(union.as_non_null()) };
 
-        let mut it = eval_node(&mut ctx, node, Config::default())
-            .expect("a multi-child union always yields an iterator")
-            .into_boxed();
+        let mut it = ContractChecker::new(
+            eval_node(&mut ctx, node, Config::default())
+                .expect("a multi-child union always yields an iterator")
+                .into_boxed(),
+        );
 
         // The empty child was dropped, leaving the single QN_IDS child, to which
         // the union collapses.
@@ -243,10 +244,5 @@ mod union {
         let r = it.read().unwrap().expect("should have a result");
         assert_eq!(r.doc_id, 1);
         assert!(matches!(it.read(), Ok(None)));
-
-        for key in keys {
-            // SAFETY: each `key` was allocated by `sdsnewlen` and is freed once.
-            unsafe { ffi::sdsfree(key) };
-        }
     }
 }

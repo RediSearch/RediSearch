@@ -121,6 +121,8 @@ static int verifyArgsPreservedWithReconstructedCombine(
     }
     EXPECT_STREQ(xcmd->strs[oi], inputArgs[ii])
         << "Argument at input index " << ii << " should be preserved";
+    EXPECT_EQ(xcmd->lens[oi], strlen(inputArgs[ii]))
+        << "Recorded length at output index " << oi << " should match the arg bytes";
     oi++;
     ii++;
   }
@@ -193,7 +195,7 @@ protected:
         RedisSearchCtx *sctx = NewSearchCtxC(ctx, "test_idx", true);
         ASSERT_NE(sctx, nullptr) << "Failed to create search context";
 
-        HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
+        HybridRequest *hreq = MakeDefaultHybridRequest(sctx, args, args.size());
         ASSERT_NE(hreq, nullptr) << "Failed to create hybrid request";
 
         // Stack-allocated variables (following hybrid_debug.c pattern)
@@ -208,7 +210,7 @@ protected:
         cmd.coordDispatchTime = &hreq->profileClocks.coordDispatchTime;
 
         ArgsCursor ac = {};
-        HybridRequest_InitArgsCursor(hreq, &ac, args, args.size());
+        HybridRequest_InitArgsCursor(hreq, &ac, args.size());
 
         QueryError status = QueryError_Default();
         if (int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, &status, false, EXEC_NO_FLAGS); rc != REDISMODULE_OK) {
@@ -287,7 +289,7 @@ protected:
         RedisSearchCtx *sctx = NewSearchCtxC(ctx, "test_idx", true);
         EXPECT_NE(sctx, nullptr);
         if (!sctx) return out;
-        HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
+        HybridRequest *hreq = MakeDefaultHybridRequest(sctx, args, args.size());
 
         HybridPipelineParams hybridParams = {};
         ParseHybridCommandCtx cmd = {};
@@ -300,7 +302,7 @@ protected:
         cmd.coordDispatchTime = &hreq->profileClocks.coordDispatchTime;
 
         ArgsCursor ac = {};
-        HybridRequest_InitArgsCursor(hreq, &ac, args, args.size());
+        HybridRequest_InitArgsCursor(hreq, &ac, args.size());
         QueryError status = QueryError_Default();
         int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, &status, false, EXEC_NO_FLAGS);
         EXPECT_EQ(rc, REDISMODULE_OK) << QueryError_GetDisplayableError(&status, false);
@@ -620,6 +622,34 @@ TEST_F(HybridBuildMRCommandTest, testMinimalCommand) {
     testCommandTransformationWithIndexSpec({
         "FT.HYBRID", "idx", "SEARCH", "test", "VSIM", "@vec", "data"
     });
+}
+
+// Client-controlled arguments can carry embedded NULs; the builder must
+// forward each at its full byte length — a strlen-based assembly would
+// truncate them at the first NUL.
+TEST_F(HybridBuildMRCommandTest, testBinaryArgsForwardedAtFullLength) {
+    const std::string index("id\0x", 4);
+    const std::string query("he\0llo", 6);
+    const std::string vector("d\0ta", 4);
+    RMCK::ArgvList args(ctx, std::vector<std::string>{
+        "FT.HYBRID", index, "SEARCH", query, "VSIM", "@vec", vector});
+
+    MRCommand xcmd;
+    int kArgIndex = -1;
+    HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
+                                 /*sendExplainScore=*/false, nullptr, &xcmd,
+                                 nullptr, nullptr, &kArgIndex);
+
+    // _FT.HYBRID <index> SEARCH <query> VSIM @vec <vector> ...
+    ASSERT_GE(xcmd.num, 7);
+    EXPECT_EQ(xcmd.lens[1], index.size());
+    EXPECT_EQ(memcmp(xcmd.strs[1], index.data(), index.size()), 0);
+    EXPECT_EQ(xcmd.lens[3], query.size());
+    EXPECT_EQ(memcmp(xcmd.strs[3], query.data(), query.size()), 0);
+    EXPECT_EQ(xcmd.lens[6], vector.size());
+    EXPECT_EQ(memcmp(xcmd.strs[6], vector.data(), vector.size()), 0);
+
+    MRCommand_Free(&xcmd);
 }
 
 // EXPLAINSCORE forwarding to the shard is driven by the parsed top-level

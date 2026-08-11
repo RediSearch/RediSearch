@@ -136,6 +136,7 @@ void QueryNode_Free(QueryNode *n) {
       QueryGeometryNode_Free(&n->gmn);
       break;
     case QN_IDS:
+      // fn.keys is a borrowed window into the request's held argv; not freed here
       if (n->fn.docIds) {
         rm_free(n->fn.docIds);
         n->fn.docIds = NULL;
@@ -479,9 +480,9 @@ void QAST_SetGlobalFilters(QueryAST *ast, QAST_GlobalFilterOptions *options) {
   }
   if (options->keys) {
     QueryNode *n = NewQueryNode(QN_IDS);
-    n->fn.keys = options->keys;
+    n->fn.keys = options->keys;  // borrowed from the request's held argv
     n->fn.len = options->nkeys;
-    // Transfer ownership of docIds to the QueryNode (freed in QueryNode_Free)
+    // Transfer ownership of the docIds to the QueryNode (freed in QueryNode_Free)
     n->fn.docIds = options->docIds;
     options->docIds = NULL;
     SetFilterNode(ast, n);
@@ -1708,7 +1709,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
             RS_ASSERT(SearchDisk_IsEnabled());
             did = qs->fn.docIds[i];
           } else {
-            did = DocTable_GetId(&spec->docs, qs->fn.keys[i], sdslen(qs->fn.keys[i]));
+            did = DocTable_GetIdR(&spec->docs, qs->fn.keys[i]);
           }
           if (did != 0) {
             s = sdscatprintf(s, "%" PRIu64 ",", did);

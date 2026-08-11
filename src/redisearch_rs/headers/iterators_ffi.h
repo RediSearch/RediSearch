@@ -271,7 +271,9 @@ QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, GeoFilter *gf, con
  *
  * 1. `sctx` must be a non-null pointer to a valid [`RedisSearchCtx`] whose
  *    `spec` is a valid [`IndexSpec`](ffi::IndexSpec); both must outlive the
- *    returned iterator.
+ *    returned iterator, and `sctx` must stay at a stable address for that
+ *    whole window: the iterator reads `sctx.time.timeout` back on every
+ *    timeout probe. No write to that deadline may overlap a probe.
  * 2. `filter_ctx` must be a non-null pointer to a valid [`FieldFilterContext`].
  * 3. `ids` must be null, or point to `num` initialized [`DocId`]s allocated via
  *    `RedisModule_Alloc`. Ownership is transferred to the iterator. When `ids`
@@ -485,11 +487,13 @@ QueryIterator *NewMetricIteratorSortedByScore(t_docId *ids, double *metric_list,
  *
  * `bc_timeout_areq` selects the timeout source. When non-null, the Blocked
  * Client Timeout path is used: every iterator timeout probe forwards to
- * `AREQ_CheckTimedOut` and `timeout` / `skipTimeoutChecks` are ignored.
- * When null, the Clock Based Timeout path is used: `timeout` is the
- * deadline and `skipTimeoutChecks` (read from `q.sctx.time`) disables the
- * check entirely. The C caller is expected to pre-filter the owning
- * request via `AREQ_TimeoutAreqOrNull` before passing it here.
+ * `AREQ_CheckTimedOut` and `q.sctx.time` is ignored.
+ * When null, the Clock Based Timeout path is used, driven entirely by `q.sctx.time`:
+ * `timeout` is the deadline, read back on every probe so that a re-armed deadline is
+ * honoured, and `skipTimeoutChecks` disables the check entirely. There is deliberately no
+ * deadline parameter — a caller wanting a different deadline sets `q.sctx.time.timeout`,
+ * which is the only value the iterator will ever consult. The C caller is expected to
+ * pre-filter the owning request via `AREQ_TimeoutAreqOrNull` before passing it here.
  *
  * # Safety
  *
@@ -498,7 +502,10 @@ QueryIterator *NewMetricIteratorSortedByScore(t_docId *ids, double *metric_list,
  * 2. When non-null, `child` must not be aliased.
  * 3. `q` must be a valid non-null pointer to a [`QueryEvalCtx`](ffi::QueryEvalCtx).
  * 4. `q.sctx` must be a non-null pointer to a valid
- *    [`RedisSearchCtx`](ffi::RedisSearchCtx).
+ *    [`RedisSearchCtx`](ffi::RedisSearchCtx), which must stay valid and at a stable
+ *    address for the lifetime of the returned iterator: on the Clock Based Timeout path
+ *    the iterator reads `q.sctx.time.timeout` back on every probe. No write to that
+ *    deadline may overlap a probe.
  * 5. `q.sctx.spec` must be a non-null pointer to a valid
  *    [`IndexSpec`](ffi::IndexSpec).
  * 6. `q.sctx.spec.rule`, when non-null, must point to a valid
@@ -509,7 +516,7 @@ QueryIterator *NewMetricIteratorSortedByScore(t_docId *ids, double *metric_list,
  *    [`TimeoutContextBlockedClient::new`] safety contract and remain
  *    valid for the lifetime of the returned iterator.
  */
-QueryIterator *NewNotIterator(QueryIterator *child, t_docId max_doc_id, double weight, timespec timeout, AREQ *bc_timeout_areq, QueryEvalCtx *q);
+QueryIterator *NewNotIterator(QueryIterator *child, t_docId max_doc_id, double weight, AREQ *bc_timeout_areq, QueryEvalCtx *q);
 
 /**
  * Opens the numeric/geo index and creates an iterator over all matching sub-ranges.
@@ -688,6 +695,25 @@ void Profile_AddIters(QueryIterator * *root);
  *    that has been profile-wrapped via `Profile_AddIters`.
  */
 void Profile_PrintIterators(struct RedisModuleCtx *ctx, const QueryIterator *root, bool limited, bool print_profile_clock);
+
+/**
+ * Report whether [`RQEIterators_SetMockRevalidateTimeout`] is currently on.
+ *
+ * Backs `FT.DEBUG MOCK_REVALIDATE_TIMEOUT status`. A server left with the switch on reports a
+ * timeout on every cursor resume, which is worth being able to see directly: a test that dies
+ * between `enable` and its teardown would otherwise turn every later query in the file into a
+ * confusing failure.
+ */
+bool RQEIterators_GetMockRevalidateTimeout(void);
+
+/**
+ * Make every subsequent iterator revalidation report `VALIDATE_TIMEOUT`, as if the query had run
+ * out of time while re-seeking the index, until this is called again with `false`.
+ *
+ * Backs `FT.DEBUG MOCK_REVALIDATE_TIMEOUT enable|disable`. The switch is process-wide, like the
+ * `VECSIM_MOCK_TIMEOUT` one it mirrors, so a test that enables it must disable it again.
+ */
+void RQEIterators_SetMockRevalidateTimeout(bool enabled);
 
 /**
  * Sets the [`RLookupKeyHandle`] for this metric iterator.

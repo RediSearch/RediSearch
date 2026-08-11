@@ -208,8 +208,8 @@ void TermSuffixIndex_IterateSuffix(const struct TermSuffixIndex *tsi, const char
 /**
  * Invoke `cb` once per member term matching the wildcard pattern
  * `(pattern, len)` (`*` matches any run of characters, `?` exactly one
- * byte); a term may be reported more than once. Iteration stops early
- * when the callback returns a non-zero value.
+ * codepoint); a term may be reported more than once. Iteration stops
+ * early when the callback returns a non-zero value.
  *
  * When `should_stop` is non-NULL it is polled periodically while the
  * candidate set is scanned; once it returns `true` the scan is abandoned

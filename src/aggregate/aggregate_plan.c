@@ -328,7 +328,7 @@ void AGPLN_Dump(const AGGPlan *pln) {
       case PLN_T_LOAD: {
         const PLN_LoadStep *lstp = (PLN_LoadStep *)stp;
         for (size_t ii = 0; ii < lstp->args.argc; ++ii) {
-          printf("  %s\n", (char *)lstp->args.objs[ii]);
+          printf("  %s\n", AC_StringArg(&lstp->args, ii, NULL));
         }
         break;
       }
@@ -346,7 +346,7 @@ void AGPLN_Dump(const AGGPlan *pln) {
             printf("    ARGS:[");
           }
           for (size_t jj = 0; jj < r->args.argc; ++jj) {
-            printf("%s ", (char *)r->args.objs[jj]);
+            printf("%s ", AC_StringArg(&r->args, jj, NULL));
           }
           printf("]\n");
         }
@@ -375,7 +375,7 @@ static inline void append_uint(myArgArray_t *arr, unsigned long long ll) {
 }
 static inline void append_ac(myArgArray_t *arr, const ArgsCursor *ac) {
   for (size_t ii = 0; ii < ac->argc; ++ii) {
-    append_string(arr, AC_StringArg(ac, ii));
+    append_string(arr, AC_StringArg(ac, ii, NULL));
   }
 }
 

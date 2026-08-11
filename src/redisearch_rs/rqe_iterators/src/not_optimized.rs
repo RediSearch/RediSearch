@@ -236,10 +236,6 @@ where
 
     #[inline(always)]
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        // Assigned rather than only set, because `revalidate` can leave the flag
-        // raised on an iterator it also allowed to recover: a scan that failed
-        // there has no position to report, yet clears `forced_eof` so a later
-        // read can try again. Landing on a result here is that retry succeeding.
         let found = self.read_inner()?;
         self.past_end = !found;
 
@@ -377,28 +373,34 @@ where
             if have_valid_pos {
                 self.result.doc_id = self.wcii.last_doc_id();
 
-                // If child is behind, skip it forward.
-                // Errors are intentionally ignored: a timeout here should
-                // not abort the iterator, since we are already committed
-                // to returning Moved.
+                // If child is behind, skip it forward — the only thing that makes
+                // the membership test below mean anything.
+                //
+                // A failure here must not be swallowed. The contract forbids a
+                // skip that carries no result from leaving the child's position
+                // *on* the target, exactly so a parent cannot mistake it for a
+                // hit — so the test below would read the failure as "not in the
+                // child" and publish a document this iterator exists to exclude.
+                // Undecided is not the same as absent.
                 if self.child.last_doc_id() < self.result.doc_id {
-                    let _ = self.child.skip_to(self.result.doc_id);
+                    let _ = self.child.skip_to(self.result.doc_id)?;
                 }
 
                 // If child landed on the same position, the current
                 // result is in the child and invalid for NOT. Advance to
                 // the next valid position.
                 if self.child.last_doc_id() == self.result.doc_id {
-                    match self.read_inner() {
-                        Ok(found) => have_valid_pos = found,
-                        Err(_) => {
-                            // A timeout during revalidation should not
-                            // permanently terminate the iterator, but we
-                            // have no valid position to return.
-                            self.forced_eof = false;
-                            have_valid_pos = false;
-                        }
-                    }
+                    // A failing scan leaves nothing to report, and neither answer
+                    // available here would be true: `Moved { current: None }` says
+                    // exhausted, which every composite acts on — `Intersection`
+                    // ends, `OptionalOptimized` latches `past_end`, both unions drop
+                    // the child — so a later `read` finding a document would be
+                    // resurrecting past a parent that has already written this
+                    // iterator off. The error goes to the caller instead, which
+                    // aborts the iterator rather than trusting a position that does
+                    // not exist. Same trade `UnionFlat` makes when catching up a
+                    // lagging child fails.
+                    have_valid_pos = self.read_inner()?;
                 }
             }
 

@@ -846,14 +846,10 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       if (!cursor) {
         break;
       }
-      // A cursor-backing sub-AREQ needs its own heap BlockedRequestCtx: RETURN_STRICT
-      // FT.CURSOR READ cycles run the claim/done-latch handshake against the read
-      // AREQ's wrapper (req->brc), at per-sub-AREQ granularity. Ownership is
-      // unchanged — the hybrid request still owns the sub-AREQ, and the wrapper is
-      // freed with it (HybridRequest_Free -> AREQ_DecrRef -> BlockedRequestCtx_Free).
+      // FT.CURSOR READ cycles run against the read sub-AREQ's wrapper.
       // TRANSITIONAL(MOD-16691): the cursor's own hold rides hybrid_ref until
       // the container-handoff step.
-      BlockedRequestCtx_NewAREQ(areq);
+      RS_ASSERT(areq->brc != NULL);
       // The cursor lifetime will determine the hybrid request lifetime
       cursor->query = areq->brc;
       cursor->hybrid_ref = StrongRef_Clone(hybrid_ref);
@@ -1363,7 +1359,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
   CurrentThread_SetIndexSpec(spec_ref);
 
-  HybridRequest *hybridRequest = MakeDefaultHybridRequest(sctx);
+  HybridRequest *hybridRequest = MakeDefaultHybridRequest(sctx, argv, argc);
   hybridRequest->profile = printHybridProfile;
   hybridRequest->tailPipeline->qctx.isProfile = profileOptions & EXEC_WITH_PROFILE;
   if (debugParams) {
@@ -1382,7 +1378,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   cmd.coordDispatchTime = &hybridRequest->profileClocks.coordDispatchTime;
 
   ArgsCursor ac = {0};
-  HybridRequest_InitArgsCursor(hybridRequest, &ac, argv, argc);
+  HybridRequest_InitArgsCursor(hybridRequest, &ac, argc);
 
   if (parseHybridCommand(ctx, &ac, sctx, &cmd, &status, internal, profileOptions) != REDISMODULE_OK) {
     return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status, internal);
