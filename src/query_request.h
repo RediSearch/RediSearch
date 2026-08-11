@@ -68,6 +68,17 @@ typedef struct {
   CursorDisposition disposition;
 } CursorInfo;
 
+typedef enum {
+  REGISTRY_ENTRY_NONE,    // The request has no active registry entry.
+  REGISTRY_ENTRY_QUERY,   // The node belongs to the blocked-query registry.
+  REGISTRY_ENTRY_CURSOR,  // The node belongs to the blocked-cursor registry.
+} RegistryEntryKind;
+
+typedef struct {
+  void *node;
+  RegistryEntryKind kind;
+} RegistryInfo;
+
 /**
  * Timeout-only synchronization between query workers and main-thread callbacks.
  * TODO($$$): Remove this temporary state after MOD-17486 is merged.
@@ -88,6 +99,8 @@ typedef struct QueryRequest {
   // TODO($$$): Temporary marker intended to replace BlockedRequestCtx.bc.
   bool blockedClientCycleActive;
   CursorInfo cursorInfo;
+  // TODO($$$): Replace the legacy BRC registry node and type flag with this field.
+  RegistryInfo registryInfo;
   ChunkReplyState reply;
   QueryRequestAsyncState async;
   /**

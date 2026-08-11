@@ -34,6 +34,7 @@ void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind) {
   request->kind = kind;
   request->blockedClientCycleActive = false;
   request->cursorInfo = (CursorInfo) {0};
+  request->registryInfo = (RegistryInfo) {0};
   ChunkReplyState_Init(&request->reply);
   QueryRequestAsyncState_Init(&request->async);
   QueryRequest_SetEndProcRef(request, NULL);

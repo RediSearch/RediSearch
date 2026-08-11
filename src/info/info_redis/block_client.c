@@ -50,6 +50,8 @@ void BlockedRequestCtx_BeginCycle(BlockedRequestCtx *brc, RedisModuleBlockedClie
 }
 
 void BlockedRequestCtx_EndCycle(BlockedRequestCtx *brc) {
+  QueryRequest *request = BlockedRequestCtx_QueryRequest(brc);
+  // TODO($$$): Remove the legacy registry state once consumers use QueryRequest.registryInfo.
   if (brc->registry_node) {
     if (brc->registry_node_is_cursor) {
       BlockedQueries_RemoveCursor(brc->registry_node);
@@ -59,6 +61,9 @@ void BlockedRequestCtx_EndCycle(BlockedRequestCtx *brc) {
     rm_free(brc->registry_node);
     brc->registry_node = NULL;
   }
+  brc->registry_node_is_cursor = false;
+  request->registryInfo.node = NULL;
+  request->registryInfo.kind = REGISTRY_ENTRY_NONE;
   // Dispose a stashed cursor reference-releasingly BEFORE the generic destroy:
   // AREQ_CleanUpStoredCursor frees the cursor with its wrapper handle intact,
   // so Cursor_FreeInternal releases the cursor's wrapper reference. Skipping
@@ -73,7 +78,6 @@ void BlockedRequestCtx_EndCycle(BlockedRequestCtx *brc) {
   // Per-cycle reply-state teardown: dispose whatever the reply callback did
   // not consume (unconsumed stored results when the timeout replied first).
   // Idempotent; also runs in BlockedRequestCtx_Free as a safety net.
-  QueryRequest *request = BlockedRequestCtx_QueryRequest(brc);
   QueryRequest_ResetReply(request);
 
   // TODO($$$): Remove the legacy reply state once all consumers use QueryRequest.reply.
@@ -135,6 +139,11 @@ RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, Stron
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, reply_cb, timeout_cb,
                                                          BlockedRequestCtx_OnFree, timeout_ms);
   BlockedRequestCtx_BeginCycle(brc, bc, reply_cb);
+  BlockedRequestCtx_QueryRequest(brc)->registryInfo = (RegistryInfo) {
+    .node = node,
+    .kind = REGISTRY_ENTRY_QUERY,
+  };
+  // TODO($$$): Remove the legacy registry state once consumers use QueryRequest.registryInfo.
   brc->registry_node = node;
   brc->registry_node_is_cursor = false;
   // report block client start time
@@ -167,6 +176,11 @@ RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Curs
   if (brc->requiresAggregateResultsSync) {
     AREQ_ResetForCursorReadReturnStrict(BlockedRequestCtx_GetAREQ(brc));
   }
+  BlockedRequestCtx_QueryRequest(brc)->registryInfo = (RegistryInfo) {
+    .node = node,
+    .kind = REGISTRY_ENTRY_CURSOR,
+  };
+  // TODO($$$): Remove the legacy registry state once consumers use QueryRequest.registryInfo.
   brc->registry_node = node;
   brc->registry_node_is_cursor = true;
   // report block client start time
