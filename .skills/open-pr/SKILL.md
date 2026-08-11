@@ -205,7 +205,55 @@ are required, the title must describe the **user impact** — that is what the r
 are generated from.
 
 **Body.** Use `.github/PULL_REQUEST_TEMPLATE.md` and keep every template section,
-including ones that do not apply.
+including ones that do not apply — write "N/A" rather than deleting one. The template's
+HTML comments carry the per-section budgets; they are the spec, not decoration. Do not
+strip them from the file, and do not leave them in the PR body you submit.
+
+The failure mode to avoid is a body that narrates the diff. It is the easiest thing to
+write from a change you just made — every function you touched is fresh in mind — and the
+least useful thing to read, because the diff already says it, more accurately, and stays
+correct when the PR is amended. Write instead for a reviewer who has not read the diff and
+will read only part of it: what changes for a user of the module, and what they should
+look at first.
+
+Concretely:
+
+- **Length is a constraint, not a target.** Three sentences that say what changed beat
+  three paragraphs that say how. If a section wants to grow past its budget, that usually
+  means the PR should be split, or that the detail belongs in a code comment or the ticket.
+- **Lead with the observable.** A reader should be able to tell, from *Outcome* alone,
+  whether this PR affects them. Reply shapes, error messages, defaults, limits, latency,
+  memory — those are outcomes. "Extracted a helper", "renamed the struct", "added a null
+  check" are not.
+- **Link rather than restate.** The ticket, the design doc, and the discussion thread hold
+  the background; a paragraph re-deriving them here goes stale independently of them.
+- **Say "internal-only" when it is true.** Refactors, CI changes, test additions and
+  dependency bumps have no user impact, and manufacturing one reads as noise. State what
+  the change unblocks instead — that is the real justification.
+- **Do not list routine verification.** `./build.sh`, the test suites, `make lint` and the
+  CI jobs are assumed and visible in the checks. Mention verification only where it was
+  manual, environment-specific, or covers something automation cannot reach — a
+  reproduction that only fires under a specific cluster shape, a benchmark run, a
+  hand-checked RDB upgrade.
+- **Flag what a reviewer would otherwise miss.** Tradeoffs taken knowingly, invariants
+  that are hard to see locally, fail-closed or hot-path behavior, wire-format and
+  migration impact, follow-up work deliberately left out. This is the one place extra
+  words earn their keep — but only for things not already obvious from the diff.
+
+A concrete contrast, for the same change:
+
+> **Too verbose** — *Change:* This PR modifies `RQEIterator::revalidate` in
+> `src/redisearch_rs/rqe_iterators/src/lib.rs` to add a default implementation that
+> panics. It also updates `WildcardIterator` and `DiskWildcardIterator` in their
+> respective modules to implement `RQEIteratorBoxed`, adds a new `RQESuspendedIterator`
+> trait, changes the signature of `resume` to return a `Result`, and threads the timeout
+> value through `CRQEIterator::resume` by adding a new field to the struct…
+
+> **Right** — *Current:* Iterators cannot be suspended across a yield point, so long
+> queries hold the GIL for their whole run. *Change:* Wildcard iterators can now suspend
+> and revalidate; revalidation reports a timeout instead of blocking. *Outcome:* No
+> user-visible change yet — this is the last prerequisite for MOD-1234, which lets
+> `FT.SEARCH` yield mid-query.
 
 **Release notes.** Exactly one of these must be ticked — CI enforces it and will fail the
 PR otherwise:
@@ -227,6 +275,9 @@ After creating the PR, inspect it with `gh pr view` and confirm:
 - base branch is correct
 - head branch or bookmark is correct
 - body follows the PR template, with exactly one release-notes checkbox ticked
+- no template HTML comments survived into the submitted body, and no section was dropped
+- each section is within its budget, and *Outcome* states an observable effect (or says
+  the change is internal-only) rather than summarizing the diff
 - all intended commits are included
 
 If the body does not match what you requested, fix it immediately instead of
