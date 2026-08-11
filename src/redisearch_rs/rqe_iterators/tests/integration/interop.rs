@@ -134,6 +134,28 @@ fn flatten(report: Result<ResumeReport, RQEIteratorError>) -> FlatReport {
 }
 
 #[test]
+fn a_resume_that_times_out_is_reported_as_an_error() {
+    let (report, data) = resume_through_c_abi(MockRevalidateResult::TimedOut);
+
+    let err = report.expect_err(
+        "`VALIDATE_TIMEOUT` is a first-class status of the C `Revalidate` contract, which every \
+         Rust iterator lowered to the C ABI reports and `FT.DEBUG MOCK_REVALIDATE_TIMEOUT` can \
+         force: `resume` must map it to an error like `revalidate` does, not treat it as \
+         unreachable",
+    );
+    assert!(
+        matches!(err, RQEIteratorError::TimedOut),
+        "expected a timeout, got {err:?}: reported as an abort instead, the query would end as if \
+         the index were exhausted and hand the client a truncated result set labelled complete",
+    );
+    assert_eq!(
+        data.drop_count(),
+        1,
+        "an `Err` consumes the suspended iterator, so its `Free` callback must run exactly once",
+    );
+}
+
+#[test]
 fn a_resume_that_fails_to_read_the_index_is_reported_as_an_abort() {
     let (report, data) = resume_through_c_abi(MockRevalidateResult::IoError);
 
@@ -194,6 +216,42 @@ fn a_resume_that_moves_publishes_its_new_position() {
         "a `Moved` that does not publish the position it moved to hands its caller the stale \
          pre-suspend result instead, and a composite one level up cannot recover its own position \
          from it",
+    );
+}
+
+// Relies on nextest's process-per-test isolation, as the legacy twin above does: the switch is
+// process-global, so a shared-process runner could leak it into another test's resume.
+#[cfg(not(miri))]
+#[test]
+fn the_debug_switch_makes_a_resume_time_out_without_consulting_the_iterator() {
+    let ctx = MockContext::new(100, 10);
+    let guard = ctx.spec_read();
+    let mock = Mock::new([1, 2, 3]);
+    let data = mock.data();
+    let suspended = RQEIteratorBoxed::suspend(Box::new(CRQEIterator::from_rust_leaf(mock)));
+
+    rqe_iterators::interop::set_mock_revalidate_timeout(true);
+    let report = RQESuspendedIterator::resume(suspended, &guard);
+    rqe_iterators::interop::set_mock_revalidate_timeout(false);
+
+    let err = report.err().expect(
+        "this switch is how the flow tests drive a revalidation timeout, so `resume` has to survive \
+         being handed one",
+    );
+    assert!(
+        matches!(err, RQEIteratorError::TimedOut),
+        "expected a timeout, got {err:?}"
+    );
+    assert_eq!(
+        data.revalidate_count(),
+        0,
+        "the switch stands in for an expired deadline, so it must short-circuit rather than let \
+         the iterator revalidate and then discard the outcome",
+    );
+    assert_eq!(
+        data.drop_count(),
+        1,
+        "the error consumed the suspended iterator"
     );
 }
 
@@ -359,11 +417,37 @@ fn a_c_iterator_resumes_through_the_type_erased_bridge() {
 }
 
 #[test]
+fn a_timed_out_resume_through_the_type_erased_bridge_stays_a_timeout() {
+    let ctx = MockContext::new(100, 10);
+    let guard = ctx.spec_read();
+    let mock = Mock::new([1, 2, 3]);
+    let data = mock.data();
+    mock.data()
+        .set_revalidate_result(MockRevalidateResult::TimedOut);
+
+    let it = TypeErasedRQEIterator::new(Box::new(CRQEIterator::from_rust_leaf(mock)));
+    let err = revalidate_via_resume(it, &guard)
+        .err()
+        .expect("the erased bridge forwards the error rather than swallowing it");
+
+    assert!(
+        matches!(err, RQEIteratorError::TimedOut),
+        "expected a timeout, got {err:?}"
+    );
+    assert_eq!(
+        data.drop_count(),
+        1,
+        "the error consumed the erased suspended iterator, which owns the C one underneath",
+    );
+}
+
+#[test]
 fn revalidate_and_resume_report_the_same_outcome() {
     for outcome in [
         MockRevalidateResult::Ok,
         MockRevalidateResult::Move,
         MockRevalidateResult::Abort,
+        MockRevalidateResult::TimedOut,
         MockRevalidateResult::IoError,
     ] {
         let (legacy, _) = revalidate_c_iterator(outcome);
