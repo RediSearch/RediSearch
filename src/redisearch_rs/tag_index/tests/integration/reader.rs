@@ -11,12 +11,36 @@
 //! `TagIndex::open_reader` and `TagIndex::query_iterator_for_value` — through
 //! their vtable.
 
-use std::ptr::null_mut;
+use std::ptr::{NonNull, null_mut};
 
 use rqe_iterators_test_utils::MockContext;
-use tag_index::TagIndex;
+use tag_index::{TagIndex, TrieLookup};
 
 use crate::util::index_mem;
+
+/// Field index the reader filters on. These tests index a single field, so any
+/// value works as long as it matches what `index_mem` writes.
+const FIELD_INDEX: ffi::t_fieldIndex = 0;
+
+/// Heap-allocate `index` and mint the revalidation lookup for it, returning both.
+///
+/// The pointer has to be raw from the start, and the lookup has to be minted from
+/// that pointer rather than from a reference to it: the query layer mutates the
+/// index (GC) while an iterator holds the lookup, which invalidates anything
+/// derived above it. This is the same discipline the FFI entry points follow with
+/// the pointer C hands them.
+///
+/// The caller owns the returned allocation and must free it with `Box::from_raw`
+/// once every iterator built from it is gone.
+fn allocate(index: TagIndex) -> (*mut TagIndex, TrieLookup) {
+    let index = Box::into_raw(Box::new(index));
+    let ptr = NonNull::new(index).expect("Box::into_raw is never null");
+    // SAFETY: `ptr` is the owning pointer itself, and the allocation lives until
+    // the caller frees it — which every test does only after freeing its
+    // iterators, so nothing reads the lookup afterwards.
+    let lookup = unsafe { TrieLookup::new(ptr) };
+    (index, lookup)
+}
 
 /// Read every document id the iterator yields, in order, until `ITERATOR_EOF`.
 ///
@@ -62,16 +86,20 @@ unsafe fn free(it: *mut ffi::QueryIterator) {
 fn open_reader_reads_all_ids_in_order() {
     const N: ffi::t_docId = 300;
 
-    let mut tag_index = TagIndex::new(1, None, false);
+    let mock = MockContext::new(N, N as usize);
+    let (tag_index, lookup) = allocate(TagIndex::new(1, None, false));
     let tags: &[&[u8]] = &[b"hello"];
     for doc_id in 1..=N {
-        index_mem(&mut tag_index, tags, doc_id);
+        // SAFETY: `tag_index` was just allocated and is not yet aliased.
+        index_mem(unsafe { &mut *tag_index }, tags, doc_id);
     }
 
-    let mock = MockContext::new(N, N as usize);
-    // SAFETY: `tag_index` and `mock` outlive the iterator, which is freed below.
-    let it = unsafe { tag_index.open_reader(mock.sctx(), b"hello", 1.0, 0, null_mut()) }
-        .expect("the tag is indexed");
+    // SAFETY: `tag_index` and `mock` outlive the iterator, which is freed below,
+    // and `lookup` resolves `tag_index`.
+    let it = unsafe {
+        (*tag_index).open_reader(mock.sctx(), b"hello", 1.0, FIELD_INDEX, lookup, null_mut())
+    }
+    .expect("the tag is indexed");
 
     // SAFETY: `it` is the valid iterator just built; freed below.
     let doc_ids = unsafe { drain(it.as_ptr()) };
@@ -79,20 +107,26 @@ fn open_reader_reads_all_ids_in_order() {
 
     // SAFETY: `it` is the valid iterator built above; nothing touches it after.
     unsafe { free(it.as_ptr()) };
+    // SAFETY: `allocate` allocated it; the iterator using it is gone.
+    drop(unsafe { Box::from_raw(tag_index) });
 }
 
 /// After reading the only document, skipping past the last id reports EOF and
 /// leaves `lastDocId` at or beyond the last read id.
 #[test]
 fn skip_to_past_last_id_yields_eof() {
-    let mut tag_index = TagIndex::new(1, None, false);
-    let doc_id: ffi::t_docId = 1;
-    index_mem(&mut tag_index, &[b"hello"], doc_id);
-
     let mock = MockContext::new(1, 1);
-    // SAFETY: `tag_index` and `mock` outlive the iterator, which is freed below.
-    let it = unsafe { tag_index.open_reader(mock.sctx(), b"hello", 1.0, 0, null_mut()) }
-        .expect("the tag is indexed");
+    let (tag_index, lookup) = allocate(TagIndex::new(1, None, false));
+    let doc_id: ffi::t_docId = 1;
+    // SAFETY: `tag_index` was just allocated and is not yet aliased.
+    index_mem(unsafe { &mut *tag_index }, &[b"hello"], doc_id);
+
+    // SAFETY: `tag_index` and `mock` outlive the iterator, which is freed below,
+    // and `lookup` resolves `tag_index`.
+    let it = unsafe {
+        (*tag_index).open_reader(mock.sctx(), b"hello", 1.0, FIELD_INDEX, lookup, null_mut())
+    }
+    .expect("the tag is indexed");
     let it = it.as_ptr();
 
     // SAFETY: `it` is the valid iterator just built.
@@ -113,19 +147,35 @@ fn skip_to_past_last_id_yields_eof() {
 
     // SAFETY: `it` is the valid iterator built above; nothing touches it after.
     unsafe { free(it) };
+    // SAFETY: `allocate` allocated it; the iterator using it is gone.
+    drop(unsafe { Box::from_raw(tag_index) });
 }
 
 /// Opening a reader on a tag that was never indexed yields no iterator. The
 /// NULL-index case is a C-ABI concern and stays in the C++ suite.
 #[test]
 fn open_reader_absent_tag_returns_none() {
-    let mut tag_index = TagIndex::new(1, None, false);
-    index_mem(&mut tag_index, &[b"hello"], 1);
+    let (tag_index, lookup) = allocate(TagIndex::new(1, None, false));
+    // SAFETY: `tag_index` was just allocated and is not yet aliased.
+    index_mem(unsafe { &mut *tag_index }, &[b"hello"], 1);
 
     let mock = MockContext::new(1, 1);
-    // SAFETY: `tag_index` and `mock` outlive the (never created) iterator.
-    let it = unsafe { tag_index.open_reader(mock.sctx(), b"missing", 1.0, 0, null_mut()) };
+    // SAFETY: `tag_index` and `mock` outlive the (never created) iterator, and
+    // `lookup` resolves `tag_index`.
+    let it = unsafe {
+        (*tag_index).open_reader(
+            mock.sctx(),
+            b"missing",
+            1.0,
+            FIELD_INDEX,
+            lookup,
+            null_mut(),
+        )
+    };
     assert!(it.is_none());
+
+    // SAFETY: `allocate` allocated it; no iterator was built from it.
+    drop(unsafe { Box::from_raw(tag_index) });
 }
 
 /// Drive the `QueryIterator` built from an already-resolved inverted index
@@ -134,17 +184,24 @@ fn open_reader_absent_tag_returns_none() {
 /// `query_iterator_for_value` → `Tag` iterator → `RQEIteratorWrapper`.
 #[test]
 fn value_path_reads_all_matching_docs_via_c_vtable() {
-    let mut tag_index = TagIndex::new(1, None, false);
+    let mock = MockContext::new(3, 3);
+    let (tag_index, lookup) = allocate(TagIndex::new(1, None, false));
     let tags: &[&[u8]] = &[b"team"];
     for doc_id in 1..=3 {
-        index_mem(&mut tag_index, tags, doc_id);
+        // SAFETY: `tag_index` was just allocated and is not yet aliased.
+        index_mem(unsafe { &mut *tag_index }, tags, doc_id);
     }
 
-    let mock = MockContext::new(3, 3);
-    let ii = tag_index.find_value(b"team").expect("tag was indexed");
+    // SAFETY: `tag_index` is valid and not mutated while `ii` is in use.
+    let ii = unsafe { &*tag_index }
+        .find_value(b"team")
+        .expect("tag was indexed");
     // SAFETY: `tag_index` and `mock` outlive the iterator, `ii` is the trie's
-    // current value for the tag, and the iterator is freed below.
-    let it = unsafe { tag_index.query_iterator_for_value(mock.sctx(), b"team", ii, 1.0, 0) };
+    // current value for the tag, `lookup` resolves `tag_index`, and the iterator
+    // is freed below.
+    let it = unsafe {
+        (*tag_index).query_iterator_for_value(mock.sctx(), b"team", ii, 1.0, FIELD_INDEX, lookup)
+    };
     assert!(!it.is_null());
 
     // SAFETY: `it` is the valid iterator just built; freed below.
@@ -153,6 +210,8 @@ fn value_path_reads_all_matching_docs_via_c_vtable() {
 
     // SAFETY: `it` is the valid iterator built above; nothing touches it after.
     unsafe { free(it) };
+    // SAFETY: `allocate` allocated it; the iterator using it is gone.
+    drop(unsafe { Box::from_raw(tag_index) });
 }
 
 /// Revalidating through the C vtable aborts once the garbage collector has
@@ -160,28 +219,31 @@ fn value_path_reads_all_matching_docs_via_c_vtable() {
 /// reader is stale.
 ///
 /// The lib-level test of this covers a hand-built lookup; this one goes through
-/// `query_iterator_for_value`, so it is the lookup that `get_reader` actually
-/// installs in production that gets exercised, and it drives `Revalidate` the way
-/// the C query layer does.
+/// `query_iterator_for_value`, so it exercises the lookup all the way through the
+/// reader construction path, and it drives `Revalidate` the way the C query layer
+/// does.
 #[test]
 fn revalidate_aborts_after_gc_via_c_vtable() {
-    let tags: &[&[u8]] = &[b"team"];
-    let mut tag_index = TagIndex::new(1, None, false);
-    for doc_id in 1..=3 {
-        index_mem(&mut tag_index, tags, doc_id);
-    }
-    // Heap-allocate and reach the index through a raw pointer, so it can be
-    // mutated while the iterator holds its back-pointer — as the query layer does
-    // across GC cycles.
-    let tag_index = Box::into_raw(Box::new(tag_index));
-
     let mock = MockContext::new(3, 3);
-    // SAFETY: just allocated, and mutated below only between revalidations.
-    let idx = unsafe { &*tag_index };
-    let ii = idx.find_value(b"team").expect("tag was indexed");
+    let tags: &[&[u8]] = &[b"team"];
+    // `allocate` reaches the index through a raw pointer, so it can be mutated while
+    // the iterator holds its back-pointer — as the query layer does across GC cycles.
+    let (tag_index, lookup) = allocate(TagIndex::new(1, None, false));
+    for doc_id in 1..=3 {
+        // SAFETY: `tag_index` was just allocated and is not yet aliased.
+        index_mem(unsafe { &mut *tag_index }, tags, doc_id);
+    }
+
+    // SAFETY: valid, and mutated below only between revalidations.
+    let ii = unsafe { &*tag_index }
+        .find_value(b"team")
+        .expect("tag was indexed");
     // SAFETY: `tag_index` and `mock` outlive the iterator, `ii` is the trie's
-    // current value for the tag, and the iterator is freed below.
-    let it = unsafe { idx.query_iterator_for_value(mock.sctx(), b"team", ii, 1.0, 0) };
+    // current value for the tag, `lookup` resolves `tag_index`, and the iterator
+    // is freed below.
+    let it = unsafe {
+        (*tag_index).query_iterator_for_value(mock.sctx(), b"team", ii, 1.0, FIELD_INDEX, lookup)
+    };
     assert!(!it.is_null());
 
     // SAFETY: `mock` owns a valid `RedisSearchCtx` for the whole test.
@@ -208,7 +270,7 @@ fn revalidate_aborts_after_gc_via_c_vtable() {
 
     // SAFETY: `it` is the valid iterator built above; nothing touches it after.
     unsafe { free(it) };
-    // SAFETY: allocated with `Box::into_raw`; the iterator borrowing it is gone.
+    // SAFETY: `allocate` allocated it; the iterator using it is gone.
     drop(unsafe { Box::from_raw(tag_index) });
 }
 
@@ -216,15 +278,25 @@ fn revalidate_aborts_after_gc_via_c_vtable() {
 /// a NULL pointer rather than a reader that would immediately hit EOF.
 #[test]
 fn value_path_returns_null_for_empty_inverted_index() {
-    let mut tag_index = TagIndex::new(1, None, false);
+    let (tag_index, lookup) = allocate(TagIndex::new(1, None, false));
     // Register the tag with a fresh, empty posting list (no documents indexed).
-    tag_index
+    // SAFETY: `tag_index` was just allocated and is not yet aliased.
+    unsafe { &mut *tag_index }
         .open_index(b"empty", true)
         .expect("empty inverted index registered");
 
     let mock = MockContext::new(0, 0);
-    let ii = tag_index.find_value(b"empty").expect("tag was inserted");
-    // SAFETY: `tag_index` and `mock` outlive the (never created) iterator.
-    let it = unsafe { tag_index.query_iterator_for_value(mock.sctx(), b"empty", ii, 1.0, 0) };
+    // SAFETY: `tag_index` is valid and not mutated while `ii` is in use.
+    let ii = unsafe { &*tag_index }
+        .find_value(b"empty")
+        .expect("tag was inserted");
+    // SAFETY: `tag_index` and `mock` outlive the (never created) iterator, `ii` is
+    // the trie's current value for the tag, and `lookup` resolves `tag_index`.
+    let it = unsafe {
+        (*tag_index).query_iterator_for_value(mock.sctx(), b"empty", ii, 1.0, FIELD_INDEX, lookup)
+    };
     assert!(it.is_null());
+
+    // SAFETY: `allocate` allocated it; no iterator was built from it.
+    drop(unsafe { Box::from_raw(tag_index) });
 }

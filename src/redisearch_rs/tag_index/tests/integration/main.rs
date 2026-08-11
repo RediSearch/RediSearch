@@ -15,9 +15,5 @@ mod disk;
 mod filtered_iteration;
 mod gc;
 mod indexing;
-mod util;
-
-// Building the query iterators goes through the FFI-backed mock search
-// context, which miri cannot execute.
-#[cfg(not(miri))]
 mod reader;
+mod util;

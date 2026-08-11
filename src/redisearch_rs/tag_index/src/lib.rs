@@ -450,6 +450,9 @@ impl TagIndex {
     /// time. The tag is still looked up again on every revalidation, to detect
     /// that the garbage collector removed or replaced the inverted index.
     ///
+    /// `lookup` is the handle the iterator revalidates through; see
+    /// [`TrieLookup::new`] for the pointer it must be built from.
+    ///
     /// Returns a null pointer when `ii` holds no documents.
     ///
     /// # Panics
@@ -468,7 +471,9 @@ impl TagIndex {
     ///    values trie for `tag`.
     /// 3. `sctx` and `sctx.spec` must be valid and outlive the returned
     ///    iterator.
-    /// 4. The caller owns the returned iterator and must free it through its
+    /// 4. `lookup` must resolve `self`, checked by a `debug_assert!` in
+    ///    [`get_reader`](Self::get_reader).
+    /// 5. The caller owns the returned iterator and must free it through its
     ///    `Free` callback (`it->Free(it)`).
     pub unsafe fn query_iterator_for_value(
         &self,
@@ -477,6 +482,7 @@ impl TagIndex {
         ii: &InvertedIndex<DocIdsOnly>,
         weight: f64,
         field_index: t_fieldIndex,
+        lookup: TrieLookup,
     ) -> *mut QueryIterator {
         let TagIndexMode::InMemory { values } = &self.mode else {
             unimplemented!()
@@ -496,9 +502,9 @@ impl TagIndex {
             "ii must be the inverted index currently stored for tag"
         );
 
-        // SAFETY: contracts 1, 2 and 3 are exactly `get_reader`'s three
+        // SAFETY: contracts 1 to 4 are exactly `get_reader`'s four
         // pre-conditions, and this function's caller upholds them.
-        unsafe { self.get_reader(sctx, ii, tag, weight, field_index) }.as_ptr()
+        unsafe { self.get_reader(sctx, ii, tag, weight, field_index, lookup) }.as_ptr()
     }
 
     /// Iterate over all `(tag, inverted index)` entries, in lexicographical
@@ -718,6 +724,10 @@ impl TagIndex {
     /// the tag string, and filters on the caller's `field_index` rather than the
     /// field recorded at write time.
     ///
+    /// `lookup` is only used by the memory-mode iterator, which revalidates by
+    /// re-resolving the tag in the values trie. The disk backend owns its reader
+    /// and revalidates it itself, so the disk branch drops `lookup` unused.
+    ///
     /// # Safety
     ///
     /// 1. `self` must outlive the returned iterator, and must not be mutated
@@ -728,7 +738,9 @@ impl TagIndex {
     /// 2. `sctx` and `sctx.spec` must be valid and outlive the returned iterator.
     /// 3. `status` must be null or point to a valid [`QueryError`]. Only the disk
     ///    branch writes it; memory mode leaves it untouched.
-    /// 4. The caller owns the returned iterator and must free it through its
+    /// 4. `lookup` must resolve `self`, checked by a `debug_assert!` in
+    ///    [`get_reader`](Self::get_reader).
+    /// 5. The caller owns the returned iterator and must free it through its
     ///    `Free` callback (`it->Free(it)`).
     pub unsafe fn open_reader(
         &self,
@@ -736,6 +748,7 @@ impl TagIndex {
         tag: &[u8],
         weight: f64,
         field_index: t_fieldIndex,
+        lookup: TrieLookup,
         status: *mut QueryError,
     ) -> Option<NonNull<QueryIterator>> {
         match &self.mode {
@@ -777,9 +790,10 @@ impl TagIndex {
                     Some(ii) => Some(
                         // SAFETY: `get_reader`'s contract 1 is this function's
                         // contract 1; its contract 2 holds because `ii` was just
-                        // resolved from the values trie for `tag`; and its
-                        // contract 3 is this function's contract 2.
-                        unsafe { self.get_reader(sctx, ii, tag, weight, field_index) },
+                        // resolved from the values trie for `tag`; its contract 3
+                        // is this function's contract 2; and its contract 4 is
+                        // this function's contract 4.
+                        unsafe { self.get_reader(sctx, ii, tag, weight, field_index, lookup) },
                     ),
                 }
             }
@@ -797,6 +811,9 @@ impl TagIndex {
     ///    [`query_iterator_for_value`](Self::query_iterator_for_value).
     /// 2. `ii` must be the inverted index this index currently stores for `tag`.
     /// 3. `sctx` and `sctx.spec` must be valid and outlive the returned iterator.
+    /// 4. `lookup` must resolve `self` — this is [`Tag::new`]'s contract that the
+    ///    lookup and the reader address the same container, and a
+    ///    `debug_assert!` below enforces it.
     unsafe fn get_reader(
         &self,
         sctx: NonNull<RedisSearchCtx>,
@@ -804,6 +821,7 @@ impl TagIndex {
         tag: &[u8],
         weight: f64,
         field_index: t_fieldIndex,
+        lookup: TrieLookup,
     ) -> NonNull<QueryIterator> {
         let term = RSQueryTerm::new_bytes(tag, 0, 0);
 
@@ -816,13 +834,20 @@ impl TagIndex {
         // lifetime.
         let checker = unsafe { FieldExpirationChecker::new(sctx, filter_ctx, reader.flags()) };
 
-        // SAFETY: contract 1 guarantees the index — and thus the trie backing
-        // this lookup — outlives the iterator, and that it is mutated only
-        // between revalidations.
-        let lookup = unsafe { TrieLookup::new(NonNull::from(self)) };
+        // Contract 4. Comparing addresses only — the lookup's pointer is never
+        // dereferenced here — so this is sound even when the two carry different
+        // provenance, which is exactly the mistake it catches.
+        debug_assert!(
+            std::ptr::eq(
+                lookup.index_ptr().as_ptr().cast_const(),
+                std::ptr::from_ref(self)
+            ),
+            "lookup must resolve the index this reader reads from"
+        );
 
-        // SAFETY: contract 2 makes `reader` the current reader for `tag`, and
-        // contract 3 guarantees `sctx` and `sctx.spec` are valid.
+        // SAFETY: contract 2 makes `reader` the current reader for `tag`,
+        // contract 3 guarantees `sctx` and `sctx.spec` are valid, and contract 4
+        // is `Tag::new`'s own requirement on `lookup`.
         let iterator = unsafe { Tag::new(reader, sctx, lookup, term, weight, checker) };
         NonNull::new(RQEIteratorWrapper::boxed_new(iterator))
             .expect("RQEIteratorWrapper::boxed_new never returns NULL pointer")
@@ -1128,21 +1153,48 @@ impl TrieLookup {
     ///
     /// # Safety
     ///
-    /// `idx` must point to a valid [`TagIndex`] that outlives this lookup (and
-    /// any iterator holding it). The index may only be mutated while the lookup
-    /// is alive under the standard revalidation protocol — i.e. between
-    /// [`revalidate`](rqe_iterators::RQEIterator::revalidate) calls, never
-    /// concurrently with a read — mirroring the contract of
-    /// [`TagIndex::query_iterator_for_value`].
+    /// 1. `idx` must be the pointer the index's owner holds — the one the
+    ///    collector is handed to reach the same index — and **not** a pointer
+    ///    derived from a `&TagIndex` or a `&mut TagIndex`.
+    ///
+    ///    The collector takes `&mut *idx` (`TagIndex2_GC`), and
+    ///    [`find`](TagLookup::find) reads back through this pointer afterwards.
+    ///    Taking that `&mut` invalidates every pointer derived above `idx`, so a
+    ///    reborrowed one would be dead by the time `find` runs — undefined
+    ///    behaviour under both Stacked and Tree Borrows. Passing `idx` itself
+    ///    keeps the alternation raw → `&mut` → raw, which is permitted.
+    ///
+    ///    In production that pointer is the one the owning field spec holds in
+    ///    `tagOpts.tagIndex`; the FFI entry points mint the lookup from the very
+    ///    argument C hands them, and tests mint it from their `Box::into_raw`.
+    ///
+    /// 2. `idx` must stay valid for this lookup and any iterator holding it. The
+    ///    index is freed only by `FieldSpec_Cleanup`, so holding the spec's read
+    ///    lock for the iterator's lifetime is sufficient.
+    ///
+    /// 3. The index may only be mutated while the lookup is alive under the
+    ///    standard revalidation protocol — i.e. between
+    ///    [`revalidate`](rqe_iterators::RQEIterator::revalidate) calls, never
+    ///    concurrently with a read — mirroring the contract of
+    ///    [`TagIndex::query_iterator_for_value`].
     pub const unsafe fn new(idx: NonNull<TagIndex>) -> Self {
         Self(idx)
+    }
+
+    /// The index this lookup resolves tags in, for the identity check in
+    /// [`TagIndex::get_reader`]. Returns the pointer without dereferencing it, so
+    /// callers may compare it against an index reached another way.
+    pub(crate) const fn index_ptr(&self) -> NonNull<TagIndex> {
+        self.0
     }
 }
 
 impl TagLookup<DocIdsOnly> for TrieLookup {
     fn find(&self, tag: &[u8]) -> Option<&InvertedIndex<DocIdsOnly>> {
-        // SAFETY: `TagIndex::query_iterator_for_value`'s contract — the index
-        // outlives the iterator holding this lookup.
+        // SAFETY: contracts 1 and 2 of `TrieLookup::new` — the pointer carries the
+        // owner's provenance, so the collector's `&mut` did not revoke it, and the
+        // index outlives the iterator holding this lookup. The reference dies with
+        // this call, so nothing is outstanding across the next mutation.
         let tag_index = unsafe { self.0.as_ref() };
 
         let TagIndexMode::InMemory { values } = &tag_index.mode else {
@@ -1153,9 +1205,7 @@ impl TagLookup<DocIdsOnly> for TrieLookup {
     }
 }
 
-// Creating the iterator requires FFI-backed contexts, and the revalidation
-// protocol mutates the index behind a raw pointer — neither is supported by miri.
-#[cfg(all(test, not(miri)))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use rqe_iterators::{NoOpChecker, RQEIterator, RQEValidateStatus};
@@ -1164,6 +1214,10 @@ mod tests {
     /// The iterator built by [`TagIndex::query_iterator_for_value`] must abort
     /// revalidation once the garbage collector removed the tag's postings —
     /// [`TrieLookup`] no longer resolves the tag, so the reader is stale.
+    ///
+    /// The index is reached through raw pointers because the GC mutates it while
+    /// the iterator is parked. That is the interleaving [`TrieLookup::new`]'s
+    /// provenance contract exists for.
     #[test]
     fn revalidate_aborts_after_tag_removed() {
         let mock = MockContext::new(3, 3);
