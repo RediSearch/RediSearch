@@ -1215,6 +1215,8 @@ void BlockedRequestCtx_Free(BlockedRequestCtx *brc) {
   rm_free(brc);
 }
 
+static QueryRequest *BlockedRequestCtx_QueryRequest(BlockedRequestCtx *brc);
+
 bool AREQ_TryClaimAggregateResults(AREQ *req) {
   bool expected = false;
   // TODO($$$): Remove the legacy async state once consumers use QueryRequest.async.
@@ -1228,8 +1230,17 @@ bool BlockedRequestCtx_TryOwnStrictRead(BlockedRequestCtx *brc, BrcStrictReadOwn
   int expected = BRC_READ_OWNER_NONE;
   // acq_rel: the winner's subsequent actions (BG running the read / the timer
   // replying depleted) must be ordered against the loser's observation.
-  return atomic_compare_exchange_strong_explicit(&brc->strictReadOwner, &expected, (int)owner,
-                                                 memory_order_acq_rel, memory_order_acquire);
+  // TODO($$$): Remove the legacy async state once consumers use QueryRequest.async.
+  bool claimed = atomic_compare_exchange_strong_explicit(
+      &brc->strictReadOwner, &expected, (int)owner, memory_order_acq_rel, memory_order_acquire);
+  int currentOwner = claimed ? (int)owner : expected;
+  /* Transitional passive mirror only: the legacy CAS above remains the sole
+   * arbitration and synchronization point. This relaxed store does not carry
+   * its acquire-release contract; move the CAS itself here before consumers
+   * use QueryRequest.async.strictReadOwner for synchronization. */
+  RS_AtomicIntStoreRelaxed(
+      &BlockedRequestCtx_QueryRequest(brc)->async.strictReadOwner, currentOwner);
+  return claimed;
 }
 
 void AREQ_SignalAggregateResultsComplete(AREQ *req) {

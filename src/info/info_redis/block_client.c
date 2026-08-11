@@ -45,6 +45,9 @@ void BlockedRequestCtx_BeginCycle(BlockedRequestCtx *brc, RedisModuleBlockedClie
   // TODO($$$): Remove the legacy cycle marker once consumers use QueryRequest.blockedClientCycleActive.
   brc->bc = bc;
   brc->deferred_reply = (reply_cb != NULL);
+  RS_AtomicIntStoreRelaxed(
+      &BlockedRequestCtx_QueryRequest(brc)->async.strictReadOwner, BRC_READ_OWNER_NONE);
+  // TODO($$$): Remove the legacy async state once consumers use QueryRequest.async.
   atomic_store_explicit(&brc->strictReadOwner, BRC_READ_OWNER_NONE, memory_order_relaxed);
   RedisModule_BlockClientSetPrivateData(bc, brc);
 }

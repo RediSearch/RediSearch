@@ -21,6 +21,7 @@ static inline void QueryRequestAsyncState_Init(QueryRequestAsyncState *state) {
   state->aggregateResultsClaimLost = false;
   state->aggregateResultsDone = false;
   state->safeLoadersHoldingGIL = 0;
+  state->strictReadOwner = 0;
   pthread_mutex_init(&state->aggregateResultsLock, NULL);
   pthread_cond_init(&state->aggregateResultsCond, NULL);
 }

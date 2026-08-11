@@ -89,6 +89,8 @@ typedef struct {
   bool aggregateResultsClaimLost;
   bool aggregateResultsDone;
   int safeLoadersHoldingGIL;
+  // Per-cycle CAS owner for coordinator RETURN_STRICT cursor reads.
+  RS_Atomic(int) strictReadOwner;
   // TODO($$$): Plug both primitives into the async synchronization paths later in this PR.
   pthread_mutex_t aggregateResultsLock;
   pthread_cond_t aggregateResultsCond;
