@@ -45,7 +45,14 @@ def testStopwords(env):
     r = env.cmd('ft.search', 'idx', '%with%')
     env.assertEqual([1, 'witha', ['t1', 'witha']], r)
 
+    # 'ta' is Levenshtein distance 2 from 'at' (two substitutions), outside
+    # the %single% budget of 1. The old C matcher returned it through an
+    # accept-state off-by-one that also admitted terms whose all-but-last-rune
+    # form was within budget; fuzzy now enforces the documented distance.
     r = env.cmd('ft.search', 'idx', '%at%')
+    env.assertEqual([0], r)
+
+    r = env.cmd('ft.search', 'idx', '%%at%%')
     env.assertEqual([1, 'ta', ['t1', 'ta']], r)
 
 def testFuzzyMultipleResults(env):

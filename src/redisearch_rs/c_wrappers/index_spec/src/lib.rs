@@ -18,11 +18,11 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use c_trie::TermsTrie;
 use dict::{Dict, MissingFieldDictType};
 use field_spec::FieldSpec;
 use inverted_index::opaque::InvertedIndex;
 use schema_rule::SchemaRule;
+use term_dictionary::TermDictionary;
 use term_suffix_index::TermSuffixIndex;
 
 /// A safe wrapper around an `ffi::IndexSpec`.
@@ -216,14 +216,14 @@ impl<'lock> IndexSpecWriteGuard<'lock> {
         unsafe { slice::from_raw_parts_mut(self.0.fields.cast::<FieldSpec>(), len) }
     }
 
-    /// Returns the terms trie.
-    pub fn terms_mut(&mut self) -> &mut TermsTrie {
-        debug_assert!(!self.0.terms.is_null(), "terms trie must not be null");
-        // SAFETY: `terms` is a valid, non-null `Trie` for a properly initialised IndexSpec,
-        // and it lives as long as the spec, which outlives this guard's borrow. We hold the
-        // write lock, which every other reader and writer of the trie — Rust or C — must
-        // acquire, so the exclusive borrow is not aliased.
-        unsafe { TermsTrie::from_raw_mut(self.0.terms) }
+    /// Returns the terms dictionary.
+    pub fn terms_mut(&mut self) -> &mut TermDictionary {
+        debug_assert!(!self.0.terms.is_null(), "terms dictionary must not be null");
+        // SAFETY: `terms` is a valid, non-null `TermDictionary` for a properly initialised
+        // IndexSpec, and it lives as long as the spec, which outlives this guard's borrow. We
+        // hold the write lock, which every other reader and writer of the dictionary — Rust or
+        // C — must acquire, so the exclusive borrow is not aliased.
+        unsafe { &mut *self.0.terms.cast::<TermDictionary>() }
     }
 
     /// Returns the suffix index.
@@ -367,14 +367,14 @@ impl<'lock> IndexSpecReadGuard<'lock> {
         unsafe { Dict::from_raw(self.0.missingFieldDict) }
     }
 
-    /// Returns the terms trie.
-    pub fn terms(&self) -> &TermsTrie {
-        debug_assert!(!self.0.terms.is_null(), "terms trie must not be null");
-        // SAFETY: `terms` is a valid, non-null `Trie` for a properly initialised IndexSpec,
-        // and it lives as long as the spec, which outlives this guard's borrow. The guard
-        // holds the spec's read lock, which every writer of the terms trie must not hold
-        // concurrently, so the trie is not mutated for that borrow either.
-        unsafe { TermsTrie::from_raw(self.0.terms) }
+    /// Returns the terms dictionary.
+    pub fn terms(&self) -> &TermDictionary {
+        debug_assert!(!self.0.terms.is_null(), "terms dictionary must not be null");
+        // SAFETY: `terms` is a valid, non-null `TermDictionary` for a properly initialised
+        // IndexSpec, and it lives as long as the spec, which outlives this guard's borrow. The
+        // guard holds the spec's read lock, which every writer of the dictionary must not hold
+        // concurrently, so the dictionary is not mutated for that borrow either.
+        unsafe { &*self.0.terms.cast::<TermDictionary>() }
     }
 
     /// Returns a pointer to the keys dictionary.

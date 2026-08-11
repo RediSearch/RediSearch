@@ -372,6 +372,9 @@ after_includes = """
 typedef struct timespec timespec;
 """
 
+[header.term_dictionary_ffi]
+includes = ["redismodule.h"]
+
 [header.trie_rdb_ffi]
 includes = ["redismodule.h"]
 

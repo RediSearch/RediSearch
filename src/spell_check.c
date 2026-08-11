@@ -14,6 +14,8 @@
 
 #include "types_ffi.h"
 #include "dictionary.h"
+#include "trie/trie.h"
+#include "term_dictionary_ffi.h"
 #include "reply.h"
 #include "inverted_index.h"
 #include "inverted_index_ffi.h"
@@ -30,6 +32,8 @@
 
 /** Forward declaration **/
 static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len, double *outScore);
+static bool SpellCheck_IsTermExistsInTermDict(TermDictionary *t, const char *term, size_t len,
+                                              double *outScore);
 
 
 int SpellCheckCandidate_Compare(const void *val1, const void *val2) {
@@ -145,28 +149,37 @@ static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len,
   return retVal;
 }
 
-static void SpellCheck_FindCandidates(SpellCheckCtx *scCtx, Trie *t, const char *term, size_t len,
-                                      t_fieldMask fieldMask, SpellCheckCandidates *s, int incr) {
-  rune *rstr = NULL;
-  t_len slen = 0;
+// Term-dictionary counterpart of SpellCheck_IsTermExistsInTrie: a case-folded
+// exact existence check against the index term dictionary.
+static bool SpellCheck_IsTermExistsInTermDict(TermDictionary *t, const char *term, size_t len,
+                                              double *outScore) {
   float score = 0;
-  int dist = 0;
-  size_t candidateLen;
+  bool retVal = TermDictionary_Get(t, term, len, &score, NULL);
+  if (outScore) {
+    *outScore = score;
+  }
+  return retVal;
+}
 
-  TrieIterator *it = Trie_IterateFuzzy(t, term, len, (int)scCtx->distance, TRIE_MATCH_EDIT_DISTANCE);
-  // TrieIterator can be NULL when rune length exceed TRIE_MAX_PREFIX
+static void SpellCheck_FindCandidates(SpellCheckCtx *scCtx, TermDictionary *t, const char *term,
+                                      size_t len, t_fieldMask fieldMask, SpellCheckCandidates *s,
+                                      int incr) {
+  const char *candidate = NULL;
+  size_t candidateLen = 0;
+
+  TermDictionaryIterator *it = TermDictionary_IterateFuzzy(t, term, len, (uint32_t)scCtx->distance);
   if (it == NULL) {
     return;
   }
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) {
-    char *res = runesToStr(rstr, slen, &candidateLen);
+  // The cursor lends each term only until the next advance; both consumers
+  // below (SpellCheck_GetScore, SpellCheckCandidates_Add) copy what they keep.
+  while (TermDictionaryIterator_Next(it, &candidate, &candidateLen, NULL, NULL)) {
     double score;
-    if ((score = SpellCheck_GetScore(scCtx, res, candidateLen, fieldMask)) != -1) {
-      SpellCheckCandidates_Add(s, res, candidateLen, score, incr);
+    if ((score = SpellCheck_GetScore(scCtx, (char *)candidate, candidateLen, fieldMask)) != -1) {
+      SpellCheckCandidates_Add(s, (char *)candidate, candidateLen, score, incr);
     }
-    rm_free(res);
   }
-  TrieIterator_Free(it);
+  TermDictionaryIterator_Free(it);
 }
 
 // Dict flavor of SpellCheck_FindCandidates: same accumulation contract, but
@@ -263,9 +276,9 @@ static bool SpellCheck_ReplyTermCandidates(SpellCheckCtx *scCtx, char *term, siz
                                             t_fieldMask fieldMask) {
   RedisModule_Reply *reply = scCtx->reply;
 
-  // searching the term on the term trie, if its there we just return false
-  // because there is no need to return candidates for it.
-  if (SpellCheck_IsTermExistsInTrie(scCtx->sctx->spec->terms, term, len, NULL)) {
+  // searching the term on the term dictionary, if its there we just return
+  // false because there is no need to return candidates for it.
+  if (SpellCheck_IsTermExistsInTermDict(scCtx->sctx->spec->terms, term, len, NULL)) {
     if (!scCtx->fullScoreInfo) {
       return false;
     }

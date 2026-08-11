@@ -1842,17 +1842,20 @@ def testTextToLowerConversionSimilarMatch(env):
             (f'@t:(*{lower_term[1:]})'),
         ]
 
-        lower_char_utf8_bytes = lower_char.encode('utf-8')
-        lower_char_num_bytes = len(lower_char_utf8_bytes)
-
         for query in queries:
-            # TODO: Why 3 bytes and not only 2?
-            if lower_char_num_bytes <= 3:
-                # If the lower character is 3 bytes or less, we expect both
-                # upper and lower case terms to be found
-                expected = [2, f'doc:u:{codepoint:04X}', f'doc:l:{codepoint:04X}']
-            else:
-                expected = [0]
+            # Both the upper- and lower-case documents are expected to match,
+            # regardless of the lowercase character's UTF-8 length.
+            #
+            # NOTE: this diverges from the legacy C terms trie, which keyed on
+            # 16-bit `rune`s and bit-truncated any astral codepoint (>U+FFFF,
+            # i.e. a 4-byte lowercase form) down into the BMP at index time.
+            # Truncated terms still matched an exact lookup but were unreachable
+            # via the prefix/infix/suffix queries used here, so the old
+            # expectation for 4-byte lowercase characters was `[0]`. The Rust
+            # `TermDictionary` port keys on UTF-8 and preserves astral
+            # codepoints, so those terms are now searchable and match at `[2]`
+            # like every other codepoint.
+            expected = [2, f'doc:u:{codepoint:04X}', f'doc:l:{codepoint:04X}']
 
             # Test query results
             res = conn.execute_command('FT.SEARCH', idx, query, 'NOCONTENT')

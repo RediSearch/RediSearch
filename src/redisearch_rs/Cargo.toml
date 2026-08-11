@@ -41,6 +41,7 @@ members = [
     "spellcheck_dictionary",
     "string_utils",
     "tag_index",
+    "term_dictionary",
     "term_suffix_index",
     "timeout",
     "tools/license_header_linter",
@@ -164,6 +165,7 @@ slots_tracker = { path = "./slots_tracker" }
 sorting_vector = { path = "./sorting_vector" }
 spellcheck_dictionary = { path = "./spellcheck_dictionary" }
 string_utils = { path = "./string_utils" }
+term_dictionary = { path = "./term_dictionary" }
 term_suffix_index = { path = "./term_suffix_index" }
 thin_vec = { path = "./thin_vec" }
 timeout = { path = "timeout" }

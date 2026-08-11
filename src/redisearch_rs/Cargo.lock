@@ -1091,7 +1091,6 @@ dependencies = [
 name = "index_spec"
 version = "0.0.1"
 dependencies = [
- "c_trie",
  "dict",
  "document",
  "ffi",
@@ -1102,6 +1101,7 @@ dependencies = [
  "redisearch_rs",
  "rqe_core",
  "schema_rule",
+ "term_dictionary",
  "term_suffix_index",
  "workspace_hack",
 ]
@@ -1794,7 +1794,6 @@ name = "query"
 version = "0.0.1"
 dependencies = [
  "build_utils",
- "c_trie",
  "ffi",
  "inverted_index",
  "query",
@@ -1809,6 +1808,7 @@ dependencies = [
  "rqe_iterators",
  "rs_token",
  "search_disk",
+ "term_dictionary",
  "workspace_hack",
 ]
 
@@ -1837,7 +1837,6 @@ name = "query_eval"
 version = "0.0.1"
 dependencies = [
  "build_utils",
- "c_trie",
  "cheadergen",
  "ffi",
  "field",
@@ -1859,6 +1858,7 @@ dependencies = [
  "rs_token",
  "search_disk",
  "string_utils",
+ "term_dictionary",
  "term_suffix_index",
  "thiserror",
  "workspace_hack",
@@ -2162,6 +2162,7 @@ dependencies = [
  "sorting_vector_ffi",
  "spellcheck_dictionary_ffi",
  "syn 2.0.118",
+ "term_dictionary_ffi",
  "term_suffix_index_ffi",
  "toml",
  "trie_rdb_ffi",
@@ -3076,6 +3077,28 @@ dependencies = [
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "term_dictionary"
+version = "0.0.1"
+dependencies = [
+ "rdb_io",
+ "trie_rdb",
+ "trie_rs",
+ "workspace_hack",
+]
+
+[[package]]
+name = "term_dictionary_ffi"
+version = "0.0.1"
+dependencies = [
+ "cheadergen",
+ "ffi",
+ "redis-module",
+ "redis_mock",
+ "term_dictionary",
+ "workspace_hack",
 ]
 
 [[package]]

@@ -9,13 +9,12 @@
 
 //! Evaluation of `QN_FUZZY` query nodes.
 
-use std::ops::ControlFlow;
+use std::str;
 
-use c_trie::{FuzzyWalk, InvalidFuzzyDistance, TermsTrie};
 use query_types::QueryNodeType;
 use rqe_iterators::union_opaque::build_union_with_q_str;
 use rs_token::RSTokenRefNulTerminated;
-use string_utils::runes::runes_to_bytes;
+use term_dictionary::TermDictionary;
 
 use crate::{
     Config, Evaluated, QueryEvalContext, QueryNodeRef, expansion::Expansion,
@@ -27,25 +26,24 @@ use crate::{
 const EMPTY_TERM_API_VERSION: u32 = 2;
 
 /// `QN_FUZZY` — expand a token to every term within `max_dist` edits of it over
-/// the spec's terms trie, and union the per-term readers.
+/// the spec's terms dictionary, and union the per-term readers.
 ///
-/// The distance is a Levenshtein distance counted in runes, and the pattern is
-/// lowercased before the walk, since the trie stores folded keys.
+/// The distance is a Levenshtein distance counted in codepoints, and the pattern
+/// is case-folded before the walk, since the dictionary stores folded keys.
 ///
-/// Returns `None`, and sets no error, when the pattern is too long for the trie
-/// to walk: a fuzzy query that names nothing is well-formed and simply matches
-/// nothing, unlike an over-long prefix pattern, which is reported as an error.
-/// Every other outcome yields a union, empty if no term is within the distance.
-/// The number of expansions is capped by the configured
-/// [`Config::max_prefix_expansions`], with the empty term below exempt from it.
+/// Always yields a union, empty if no term is within the distance, and never
+/// sets an error: a fuzzy query that names nothing is well-formed and simply
+/// matches nothing, unlike an over-long prefix pattern. The number of
+/// expansions is capped by the configured [`Config::max_prefix_expansions`],
+/// with the empty term below exempt from it.
 ///
 /// # Panics
 ///
-/// Panics if the walk refuses `max_dist` with [`InvalidFuzzyDistance`]. That is
-/// a caller bug rather than a query the grammar can express — it spells the
-/// distance as the number of `%` delimiters and has productions for only one,
-/// two and three — and no expansion the node could stand for is known at that
-/// point, so there is no result to return in its place.
+/// Panics if `max_dist` is negative. That is a caller bug rather than a query
+/// the grammar can express — it spells the distance as the number of `%`
+/// delimiters and has productions for only one, two and three — and no
+/// expansion the node could stand for is known at that point, so there is no
+/// result to return in its place.
 pub(crate) fn eval<'index>(
     ctx: &'index mut QueryEvalContext,
     node: &QueryNodeRef,
@@ -62,10 +60,14 @@ pub(crate) fn eval<'index>(
     // Read with every other use of `ctx`, because `Expansion` borrows it mutably
     // for the rest of the expansion.
     let api_version = ctx.sctx().apiVersion;
+    // The dictionary counts the distance in codepoints, so it takes it unsigned;
+    // converted before anything compares against it, so no gate below can be
+    // reached with a negative distance reinterpreted as a huge one.
+    let max_dist = u32::try_from(max_dist).expect("fuzzy distance must not be negative");
     // SAFETY: the reference is confined to this evaluation — the walk below and
     // the empty-term lookup after it — which the query, and so the spec owning
-    // the trie, outlives.
-    let terms = unsafe { ctx.terms_trie() };
+    // the dictionary, outlives.
+    let terms = unsafe { ctx.terms_dict() };
 
     let q_str = tok.as_c_str().expect("fuzzy token must carry a string");
     let pattern = q_str.to_bytes();
@@ -79,34 +81,30 @@ pub(crate) fn eval<'index>(
         max_expansions: config.max_prefix_expansions,
     };
 
-    match expansion.expand_via_fuzzy_walk(terms, pattern, max_dist) {
-        Ok(FuzzyWalk::Walked) => {}
-        // A pattern the trie declines was never walked, so nothing is known
-        // about what the index holds within the distance: yield no iterator at
-        // all, rather than the empty union a walk that found nothing produces.
-        Ok(FuzzyWalk::PatternRejected) => return None,
-        // The distance reaches C as the size of a stack allocation, so the walk
-        // bounds it rather than trusting it the whole way down. Nothing a query
-        // can express is refused here, and the node builder asserts the range
-        // too, so a refusal means the AST was built by something that does not
-        // respect the grammar's distances.
-        Err(err) => panic!("{err}"),
+    // A token is a byte string and nothing between the query text and here
+    // validates its encoding, but indexing refuses a term whose bytes are not
+    // valid UTF-8, so a pattern that is not valid UTF-8 names no stored term:
+    // the walk matches nothing rather than erroring. The empty term below is
+    // still reached, since it is a matter of the pattern's length alone.
+    if let Ok(pattern) = str::from_utf8(pattern) {
+        expansion.expand_via_fuzzy_walk(terms, pattern, max_dist);
     }
 
     // A token no longer than the distance could be deleted entirely and still be
-    // within budget, so it also matches the empty term — which no walk can find,
-    // since a zero-length key is refused on insertion and an indexed empty value
-    // exists only as an inverted index.
+    // within budget, so it also matches the empty term. It is pushed
+    // unconditionally of what the walk found, and exempt from the expansion cap,
+    // so that a query whose expansions filled the cap still reaches the empty
+    // term's documents.
     //
     // The gate measures the token in bytes even though the distance counts
-    // runes, so a single multibyte character does not reach the empty term at
-    // distance 1.
+    // codepoints, so a single multibyte character does not reach the empty term
+    // at distance 1.
     if api_version >= EMPTY_TERM_API_VERSION && pattern.len() <= max_dist as usize {
-        // The document count the disk path scores the term by is zero without a
-        // lookup: a zero-length key is refused on insertion, so the terms trie
-        // cannot hold one and could only answer zero. The empty term is scored
-        // as one never seen, whatever its inverted index holds.
-        expansion.push_child_ignoring_cap(0, b"");
+        // An indexed empty text value does register in the dictionary, so the
+        // count the disk path scores the term by is looked up rather than
+        // assumed; a spec that never indexed one answers zero.
+        let num_docs = terms.get("").map_or(0, |entry| entry.num_docs);
+        expansion.push_child_ignoring_cap(num_docs, b"");
     }
 
     let children = expansion.children;
@@ -137,48 +135,40 @@ pub(crate) fn eval<'index>(
 }
 
 impl Expansion<'_> {
-    /// Walk the primary terms trie for every term within `max_dist` edits of
-    /// `pattern`, accumulating one reader per term.
+    /// Walk the primary terms dictionary for every term within `max_dist` edits
+    /// of `pattern`, accumulating one reader per term.
     ///
-    /// `terms` wraps the spec's primary terms trie and `pattern` is the raw token
-    /// bytes, which the trie lowercases and decodes itself.
+    /// `terms` is the spec's primary terms dictionary and `pattern` is the raw
+    /// token text, which the dictionary case-folds itself.
     ///
     /// The walk carries no deadline and cannot be interrupted — matching the
     /// behaviour it replaces, and unlike the prefix walk, which threads a
-    /// timeout through. The edit-distance filter prunes the trie but is no bound
-    /// on the work: as `max_dist` approaches the pattern's rune length the
-    /// automaton accepts an ever larger share of it. The only thing that cuts
-    /// the walk short is the expansion cap, via
+    /// timeout through. The edit-distance filter prunes the walk but is no bound
+    /// on the work: as `max_dist` approaches the pattern's codepoint length the
+    /// automaton accepts an ever larger share of the dictionary. The only thing
+    /// that cuts the walk short is the expansion cap, via
     /// [`push_child`](Self::push_child) breaking — and that bounds the readers
     /// opened, not the terms visited, since a term with no inverted index
     /// consumes no cap slot.
     ///
-    /// [`FuzzyWalk::PatternRejected`] is not an empty expansion — the walk never
-    /// ran — so a caller must not answer it with the empty union it would build
-    /// for a walk that matched nothing. The same holds of
-    /// [`InvalidFuzzyDistance`], which the walk returns without visiting
-    /// anything.
-    fn expand_via_fuzzy_walk(
-        &mut self,
-        terms: &TermsTrie,
-        pattern: &[u8],
-        max_dist: i32,
-    ) -> Result<FuzzyWalk, InvalidFuzzyDistance> {
-        // The trie hands terms back as runes (with their document count, used for
-        // the disk IDF), which must be encoded back into the term's key, byte for
-        // byte as the index stored it — WTF-8 rather than UTF-8 where a rune is a
-        // lone surrogate.
-        let on_runes = |runes: &[ffi::rune], num_docs: usize| {
-            let Ok(key) = runes_to_bytes(runes) else {
-                // The term key cannot be reconstructed; skip this expansion.
-                return ControlFlow::Continue(());
-            };
-            self.push_child(num_docs, &key)
-        };
-        // SAFETY: `terms` wraps the spec's valid primary terms `Trie`, which is
-        // not mutated or re-iterated for the duration of the call: `on_runes`
-        // only opens per-term readers, which read the spec's inverted indexes
-        // rather than the terms trie being walked.
-        unsafe { terms.iterate_fuzzy(pattern, max_dist, on_runes) }
+    /// The empty term is never among the accumulated readers, whatever the
+    /// distance: it is expanded to separately, under the API-version gate its
+    /// caller applies.
+    fn expand_via_fuzzy_walk(&mut self, terms: &TermDictionary, pattern: &str, max_dist: u32) {
+        // The dictionary hands each match back as the term's stored key, with the
+        // document count used for the disk IDF.
+        for (term, entry) in terms.fuzzy_iter(pattern, max_dist) {
+            // An indexed empty text value registers as the empty term, which the
+            // automaton accepts from any pattern no longer than the distance —
+            // the same condition the caller's API-gated expansion covers. Left in
+            // here it would reach a query whose API version excludes it, and
+            // spend a cap slot the gated expansion is deliberately exempt from.
+            if term.is_empty() {
+                continue;
+            }
+            if self.push_child(entry.num_docs, term.as_bytes()).is_break() {
+                break;
+            }
+        }
     }
 }

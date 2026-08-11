@@ -297,14 +297,39 @@ fn eval_prefix_skips_expansion_without_inverted_index() {
 }
 
 #[test]
-fn eval_prefix_expands_a_term_whose_key_is_not_utf8() {
-    // A term key is not necessarily valid UTF-8. `\xED\xA0\xBD` is the
-    // three-byte encoding of the lone surrogate `U+D83D`, which UTF-8 forbids —
-    // and which is exactly what a non-BMP codepoint becomes once the trie
-    // truncates it to a 16-bit rune, so encoding that rune back yields these
-    // same bytes. The expansion must hand them to the inverted-index lookup
-    // unvalidated: validating instead would fold them to replacement characters
-    // and look up a key that was never stored, dropping the term's document.
+fn eval_prefix_expands_a_term_holding_a_non_bmp_codepoint() {
+    // The terms dictionary keys on UTF-8, so a codepoint outside the BMP
+    // survives indexing whole and expands under its own bytes. The rune trie it
+    // replaced stored each codepoint in 16 bits, truncating `U+1F600` to the
+    // lone surrogate `U+D83D`; expanding that key looked up an inverted index
+    // the term was never written to, losing the document.
+    let mut fixture = PrefixFixture::build(
+        "ap",
+        true,
+        false,
+        PrefixOptions {
+            terms: vec![
+                ("ap\u{1F600}le".as_bytes(), vec![7]),
+                (b"apple", vec![1, 2]),
+            ],
+            ..PrefixOptions::default()
+        },
+    );
+    let mut it = ContractChecker::new(
+        fixture
+            .eval()
+            .expect("a prefix with matches must build an iterator"),
+    );
+    assert_eq!(collect_doc_ids(&mut it), vec![1, 2, 7]);
+}
+
+#[test]
+fn eval_prefix_skips_a_term_whose_bytes_are_not_utf8() {
+    // A TEXT field carries arbitrary bytes, so the tokenizer can hand indexing
+    // a term the UTF-8-keyed dictionary cannot represent — `\xED\xA0\xBD` here,
+    // the encoding UTF-8 forbids for the lone surrogate `U+D83D`. Indexing
+    // drops such a term instead of failing, so the expansion never sees it and
+    // its sibling still expands.
     let mut fixture = PrefixFixture::build(
         "ap",
         true,
@@ -319,7 +344,7 @@ fn eval_prefix_expands_a_term_whose_key_is_not_utf8() {
             .eval()
             .expect("a prefix with matches must build an iterator"),
     );
-    assert_eq!(collect_doc_ids(&mut it), vec![1, 2, 7]);
+    assert_eq!(collect_doc_ids(&mut it), vec![1, 2]);
 }
 
 #[test]

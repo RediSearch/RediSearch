@@ -8,6 +8,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+typedef struct RedisModuleIO RedisModuleIO;
+
 /**
  * A case-preserving set of spell-check terms.
  *
@@ -25,8 +27,6 @@ typedef struct SpellCheckDictionary SpellCheckDictionary;
  * [`SpellCheckDictionaryIterator_Free`].
  */
 typedef struct SpellCheckDictionaryIterator SpellCheckDictionaryIterator;
-
-typedef struct RedisModuleIO RedisModuleIO;
 
 #ifdef __cplusplus
 extern "C" {

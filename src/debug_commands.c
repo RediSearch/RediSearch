@@ -35,6 +35,7 @@
 #include "term_suffix_index_ffi.h"
 #include "trie/trie.h"
 #include "triemap_ffi.h"
+#include "term_dictionary_ffi.h"
 #include "util/workers.h"
 #include "cursor.h"
 #include "aggregate/aggregate_debug.h"
@@ -528,20 +529,18 @@ DEBUG_COMMAND(DumpTerms) {
   }
   GET_SEARCH_CTX(argv[2])
 
-  rune *rstr = NULL;
-  t_len slen = 0;
+  const char *term = NULL;
+  size_t termLen = 0;
   float score = 0;
-  size_t termLen;
+  size_t numDocs = 0;
 
-  RedisModule_ReplyWithArray(ctx, Trie_Size(sctx->spec->terms));
+  RedisModule_ReplyWithArray(ctx, TermDictionary_Len(sctx->spec->terms));
 
-  TrieIterator *it = Trie_IterateAll(sctx->spec->terms);
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, NULL)) {
-    char *res = runesToStr(rstr, slen, &termLen);
-    RedisModule_ReplyWithStringBuffer(ctx, res, termLen);
-    rm_free(res);
+  TermDictionaryIterator *it = TermDictionary_Iterate(sctx->spec->terms);
+  while (TermDictionaryIterator_Next(it, &term, &termLen, &score, &numDocs)) {
+    RedisModule_ReplyWithStringBuffer(ctx, term, termLen);
   }
-  TrieIterator_Free(it);
+  TermDictionaryIterator_Free(it);
 
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
@@ -883,7 +882,7 @@ DEBUG_COMMAND(DumpSuffix) {
 
     RedisModule_ReplySetArrayLength(ctx, resultSize);
 
-  } else { // suffix triemap of tag field
+  } else {  // suffix triemap of tag field
     FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_TAG);
     if (!fs) {
       RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");

@@ -11,9 +11,8 @@
 //! into a union of per-term readers.
 //!
 //! The walk itself differs per node type — that lives in the node's own module —
-//! but opening a reader for an expanded term, capping the number of expansions,
-//! and encoding a rune slice back into the term's stored key are common to all
-//! of them.
+//! but opening a reader for an expanded term and capping the number of
+//! expansions are common to all of them.
 
 use std::{marker::PhantomData, ops::ControlFlow, ptr::NonNull};
 
@@ -93,11 +92,8 @@ impl<'a> BorrowedToken<'a> {
 /// union of sibling expansions.
 ///
 /// `term_bytes` is the term's key as the index stored it, and is looked up in
-/// the spec's inverted index verbatim. Those bytes are not necessarily valid
-/// UTF-8: a rune that is a lone surrogate — what truncating a non-BMP codepoint
-/// to [`u16`] at index time produces — encodes to its three-byte form, which
-/// UTF-8 forbids. They must stay unvalidated; rejecting them would drop exactly
-/// the terms such a codepoint creates.
+/// the spec's inverted index verbatim — the same bytes the inverted index was
+/// written under.
 ///
 /// Every expanded reader is opened with weight `1.0`: the node's own weight is
 /// applied once, by the enclosing union, so applying it here too would

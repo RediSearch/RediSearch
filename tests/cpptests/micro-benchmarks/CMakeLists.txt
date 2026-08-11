@@ -59,3 +59,11 @@ target_link_libraries(bench_suffix redisearch redismock benchmark::benchmark)
 # Local-only (bench_*) A/B: C spell-check dictionary trie vs Rust SpellCheckDictionary.
 add_executable(bench_spellcheck bench_spellcheck.cpp)
 target_link_libraries(bench_spellcheck redisearch redismock benchmark::benchmark)
+
+# Local-only (bench_*) A/B: C terms trie vs Rust TermDictionary (indexing + query expansion + GC).
+add_executable(bench_term_dict bench_term_dict.cpp)
+target_link_libraries(bench_term_dict redisearch redismock benchmark::benchmark)
+
+# Local-only (bench_*) A/B: terms-dictionary RDB wire path, C TrieType vs Rust TermDictionary.
+add_executable(bench_term_dict_rdb bench_term_dict_rdb.cpp)
+target_link_libraries(bench_term_dict_rdb redisearch redismock benchmark::benchmark)

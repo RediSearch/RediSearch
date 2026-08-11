@@ -131,8 +131,8 @@ enum TestContextInner {
     Geometry {
         field_spec: ptr::NonNull<ffi::FieldSpec>,
     },
-    /// A text field whose terms trie and per-term inverted indexes are populated
-    /// for prefix/suffix/contains expansion tests. The inverted indexes live in
+    /// A text field whose terms dictionary and per-term inverted indexes are
+    /// populated for prefix/suffix/contains expansion tests. The inverted indexes live in
     /// the spec's keysDict and are freed with the spec.
     Prefix {
         field_spec: ptr::NonNull<ffi::FieldSpec>,
@@ -539,24 +539,25 @@ impl TestContext {
         }
     }
 
-    /// Create a [`TestContext`] whose terms trie and per-term inverted indexes
-    /// are populated for prefix/suffix/contains expansion tests.
+    /// Create a [`TestContext`] whose terms dictionary and per-term inverted
+    /// indexes are populated for prefix/suffix/contains expansion tests.
     ///
-    /// Each `(term, records)` pair inserts `term` into the spec's terms trie —
-    /// so trie iteration can discover it — and creates an inverted index keyed by
-    /// `term`, populated with `records`. The inverted indexes live in the spec's
-    /// keysDict and are freed with the spec on drop.
+    /// Each `(term, records)` pair inserts `term` into the spec's terms
+    /// dictionary — so expansion can discover it — and creates an inverted index
+    /// keyed by `term`, populated with `records`. The inverted indexes live in
+    /// the spec's keysDict and are freed with the spec on drop.
     ///
-    /// A term is anything that converts to a byte string, not just a `str`: the
-    /// trie decodes it without validating, so a term key can hold bytes UTF-8
-    /// forbids — notably the three-byte form of a lone surrogate, which is what
-    /// a non-BMP codepoint truncated to a rune round-trips to. Pass a `&[u8]` to
-    /// index such a term.
+    /// A term is anything that converts to a byte string, not just a `str`, so
+    /// that the arbitrary bytes a TEXT field may hold can be indexed. The terms
+    /// dictionary is keyed by UTF-8 and silently drops a term that is not, which
+    /// is how the module behaves; the inverted index is still written, so such a
+    /// term is reachable by an exact lookup but not by expansion.
     ///
     /// When `with_suffix_trie` is set, the text field is declared
     /// `WITHSUFFIXTRIE` and each term is also inserted into the spec's suffix
-    /// trie, exercising the suffix-trie expansion path instead of the brute-force
-    /// terms-trie scan.
+    /// index, exercising the suffix-index expansion path instead of the
+    /// brute-force dictionary scan. The suffix index requires valid UTF-8 and
+    /// panics otherwise, so combining it with non-UTF-8 terms is not supported.
     pub fn prefix<T, S>(terms: T, with_suffix_trie: bool) -> Self
     where
         T: IntoIterator<Item = (S, Vec<RSIndexResult<'static>>)>,
@@ -589,9 +590,9 @@ impl TestContext {
 
         for (term, records) in terms {
             let cterm = CString::new(term).expect("term must not contain a NUL byte");
-            // Insert into the terms trie so trie iteration discovers this term.
-            // SAFETY: `spec` is a valid, non-null `IndexSpec` whose terms trie
-            // `create_spec_sctx` initialised, and `cterm` is a valid
+            // Insert into the terms dictionary so expansion discovers this term.
+            // SAFETY: `spec` is a valid, non-null `IndexSpec` whose terms
+            // dictionary `create_spec_sctx` initialised, and `cterm` is a valid
             // NUL-terminated string whose byte length is passed alongside it.
             unsafe {
                 ffi::IndexSpec_AddTerm(spec, cterm.as_ptr(), cterm.as_bytes().len());

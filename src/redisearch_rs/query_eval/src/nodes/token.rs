@@ -9,7 +9,7 @@
 
 //! Evaluation of `QN_TOKEN` query nodes.
 
-use std::ptr::NonNull;
+use std::{ptr::NonNull, str};
 
 use field::FieldMaskOrIndex;
 use query_term::RSQueryTerm;
@@ -18,6 +18,7 @@ use rqe_core::FieldMask;
 use rqe_iterators::build_term_iterator;
 use rs_token::RSTokenRef;
 use search_disk::SearchDiskHandle;
+use term_dictionary::TermDictionary;
 
 use crate::{Config, Evaluated, QueryEvalContext, QueryNodeRef, disk, expansion_needs_offsets};
 
@@ -128,22 +129,33 @@ fn eval_disk<'index>(
     effective_field_mask: FieldMask,
     config: Config,
 ) -> Option<Evaluated<'index>> {
-    // Look up the term's document count in the terms trie to compute IDF, then
-    // build a disk term iterator through the enterprise API.
+    let spec = ctx.spec();
+    // Look up the term's document count in the terms dictionary to compute IDF,
+    // then build a disk term iterator through the enterprise API.
+    // SAFETY: in search-on-disk mode the terms dictionary is always initialised.
+    debug_assert!(
+        !spec.terms.is_null(),
+        "terms dictionary should be initialized"
+    );
     let term_bytes = tok.as_bytes();
     // A `QN_TOKEN` node always carries a non-null term string; the term lookup
     // below relies on it.
     debug_assert!(term_bytes.is_some(), "token string should not be null");
 
-    // SAFETY: the reference is confined to the document-count lookup below,
-    // which the query, and so the spec owning the trie, outlives.
-    let terms = unsafe { ctx.terms_trie() };
-    // The lookup refuses a term that is not valid UTF-8. These bytes are query
-    // text rather than a stored key, and a disk index only stages terms whose
-    // bytes are valid UTF-8, so zero is the true count for such a term rather
-    // than a lost one.
-    let num_docs_in_term = terms.num_docs(term_bytes.unwrap_or_default());
-    let num_documents = ctx.spec().stats.scoring.numDocuments;
+    // SAFETY: `spec.terms` is the spec's `TermDictionary`, built by
+    // `NewTermDictionary` and held behind an opaque C typedef, so the cast
+    // recovers the Rust type it was created as. It outlives this lookup and is
+    // not mutated during the query.
+    let terms = unsafe { &*spec.terms.cast::<TermDictionary>() };
+    // The dictionary is keyed by UTF-8, so a term that is not valid UTF-8 has no
+    // entry. These bytes are query text rather than a stored key, and a disk
+    // index only stages terms whose bytes are valid UTF-8, so zero is the true
+    // count for such a term rather than a lost one.
+    let num_docs_in_term = str::from_utf8(term_bytes.unwrap_or_default())
+        .ok()
+        .and_then(|term| terms.get(term))
+        .map_or(0, |entry| entry.num_docs);
+    let num_documents = spec.stats.scoring.numDocuments;
     term.set_idfs(num_documents, num_docs_in_term);
 
     let needs_offsets = expansion_needs_offsets(ctx, opts, config);

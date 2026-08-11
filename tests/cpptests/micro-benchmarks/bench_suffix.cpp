@@ -257,21 +257,17 @@ void BM_Suffix_Wildcard_C(benchmark::State& state) {
   auto pats = MakeWildcards(corpus);
   Trie* t = BuildC(corpus);
 
-  // C wildcard needs both the rune form (token selection) and the lowercased
-  // UTF-8 form (the `Wildcard_MatchChar` recheck) — same as the query path.
+  // The C wildcard path drives both token selection and the per-candidate
+  // recheck off the lowercased rune form — same as the query path.
   struct Prep {
     rune* r;
     size_t rl;
-    std::string cstr;
   };
   std::vector<Prep> preps;
   for (const auto& p : pats) {
     size_t rl = 0;
     rune* r = strToLowerRunes(p.c_str(), p.size(), &rl);
-    size_t cl = 0;
-    char* c = runesToStr(r, rl, &cl);
-    preps.push_back({r, rl, std::string(c, cl)});
-    rm_free(c);
+    preps.push_back({r, rl});
   }
   struct timespec never;
   never.tv_sec = static_cast<time_t>(1) << 40;
@@ -284,8 +280,6 @@ void BM_Suffix_Wildcard_C(benchmark::State& state) {
       sc.trie = t;
       sc.rune = pr.r;
       sc.runelen = pr.rl;
-      sc.cstr = pr.cstr.c_str();
-      sc.cstrlen = pr.cstr.size();
       sc.type = SUFFIX_TYPE_WILDCARD;
       sc.callback = count_cb;
       sc.cbCtx = &count;
@@ -309,7 +303,7 @@ void BM_Suffix_Wildcard_Rust(benchmark::State& state) {
   size_t count = 0;
   for (auto _ : state) {
     for (const auto& p : pats) {
-      TermSuffixIndex_IterateWildcard(t, p.c_str(), p.size(), count_cb, &count);
+      TermSuffixIndex_IterateWildcard(t, p.c_str(), p.size(), count_cb, &count, nullptr, nullptr);
     }
   }
   benchmark::DoNotOptimize(count);
@@ -447,7 +441,7 @@ void BM_Suffix_Wildcard_Rust_Mixed(benchmark::State& state) {
   size_t count = 0;
   for (auto _ : state) {
     for (const auto& p : pats) {
-      TermSuffixIndex_IterateWildcard(t, p.c_str(), p.size(), count_cb, &count);
+      TermSuffixIndex_IterateWildcard(t, p.c_str(), p.size(), count_cb, &count, nullptr, nullptr);
     }
   }
   benchmark::DoNotOptimize(count);

@@ -7,10 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! QN_FUZZY → expand a token over the terms trie to every term within a given
-//! Levenshtein distance of it, and union the per-term readers.
+//! QN_FUZZY → expand a token over the terms dictionary to every term within a
+//! given Levenshtein distance of it, and union the per-term readers.
 //!
-//! Each test populates the terms trie with a handful of terms and evaluates a
+//! Each test populates the terms dictionary with a handful of terms and evaluates a
 //! fuzzy token, asserting the union yields exactly the documents of the terms
 //! within `maxDist` edits. The fixtures use a deliberately tight term set — a
 //! query and its neighbours at distance 1, 2 and 3 — so that a test which moves
@@ -38,10 +38,12 @@ const API_VERSION_EMPTY_TERM: u32 = 2;
 /// negative controls sit right against the gate rather than far below it.
 const API_VERSION_NO_EMPTY_TERM: u32 = API_VERSION_EMPTY_TERM - 1;
 
-/// The longest pattern, in runes, the trie's fuzzy walk accepts. A longer one
-/// builds no iterator at all. Read from the C constant rather than restated, so
-/// the two boundary tests below follow it if it ever moves.
-const MAX_FUZZY_PATTERN_RUNES: usize = ffi::TRIE_MAX_PREFIX as usize;
+/// A pattern length, in codepoints, past every bit-parallel bound the
+/// dictionary's fuzzy walk has, so a pattern this long is walked on its
+/// widest-and-slowest automaton. Nothing rejects a pattern for its length, and
+/// the tests below hold the walk to that at a length no bit-parallel automaton
+/// covers.
+const LONG_PATTERN_CODEPOINTS: usize = 200;
 
 /// The default term set, laid out as a distance ladder around the query `word`:
 /// `world`(1) and `ward`(2) are one edit away (insert `l`, substitute `a`),
@@ -82,10 +84,10 @@ struct FuzzyOptions {
     /// inverted index holding those documents. A term with no documents is still
     /// discoverable but opens no reader.
     ///
-    /// The empty term is the exception, and deliberately so: no trie takes a
-    /// zero-length key, so an empty term contributes only its inverted index —
-    /// which is exactly the state the `apiVersion` empty-term expansion exists
-    /// to reach, since the walk itself can never find it.
+    /// The empty term is indexable like any other — an empty text value under
+    /// `INDEXEMPTY` registers as one — but the walk skips it, so it is reached
+    /// only through the `apiVersion` empty-term expansion, which is what these
+    /// fixtures use it to exercise.
     terms: Vec<(Vec<u8>, Vec<u64>)>,
     /// The node's weight. Applied once by the enclosing union, so it is *not*
     /// visible on the results of a token that expands to a single term.
@@ -608,30 +610,12 @@ fn eval_fuzzy_appends_the_empty_term_even_with_the_cap_full() {
 }
 
 #[test]
-fn eval_fuzzy_pattern_over_trie_limit_yields_no_iterator_without_error() {
-    // A token longer than the trie's fuzzy-walk limit starts no walk at all, so
-    // evaluation yields no iterator. Unlike an over-long prefix pattern this is
-    // *not* reported as an error: the query silently matches nothing.
-    let long = "a".repeat(MAX_FUZZY_PATTERN_RUNES + 1);
-    let mut fixture = FuzzyFixture::new(&long, 1);
-    assert!(
-        fixture.eval().is_none(),
-        "an over-long fuzzy token yields no iterator"
-    );
-    assert_eq!(
-        fixture.status_code(),
-        QueryErrorCode::Ok,
-        "an over-long fuzzy token is not an error"
-    );
-}
-
-#[test]
-fn eval_fuzzy_pattern_at_trie_limit_still_expands() {
-    // One rune shorter than the rejected length above, the walk does run: the
-    // limit is an inclusive bound on the pattern and not an off-by-one that
-    // rejects it. The term is the pattern itself, so a walk that starts at all
-    // must reach it.
-    let pattern = "a".repeat(MAX_FUZZY_PATTERN_RUNES);
+fn eval_fuzzy_long_pattern_expands_and_is_not_an_error() {
+    // No length bounds the pattern: one long enough to leave every bit-parallel
+    // automaton behind is still walked, and the term it names — itself — is
+    // found. A pattern the walk declined would silently match nothing, which is
+    // why the status is asserted too: it would not be reported as an error.
+    let pattern = "a".repeat(LONG_PATTERN_CODEPOINTS);
     let mut fixture = FuzzyFixture::build(
         &pattern,
         1,
@@ -642,21 +626,21 @@ fn eval_fuzzy_pattern_at_trie_limit_still_expands() {
     );
     let mut it = fixture
         .eval()
-        .expect("a token at the limit must build an iterator");
+        .expect("a long fuzzy token must build an iterator");
     assert_eq!(collect_doc_ids(&mut it), vec![1]);
+    drop(it);
+    assert_eq!(fixture.status_code(), QueryErrorCode::Ok);
 }
 
 #[test]
-fn eval_fuzzy_pattern_over_the_limit_in_bytes_but_not_in_runes_still_expands() {
-    // The limit is on the pattern's length in *runes*, measured after decoding,
-    // not on its length in bytes: a pattern of two-byte characters that is well
-    // over the limit in bytes but half of it in runes is walked normally. A
-    // length check on the raw bytes would reject it and silently yield no
-    // iterator at all.
-    let pattern = "é".repeat(MAX_FUZZY_PATTERN_RUNES / 2 + 1);
+fn eval_fuzzy_long_multibyte_pattern_expands() {
+    // The same at a length that is far longer in bytes than in codepoints: the
+    // walk measures the pattern in codepoints, as the distance does, so a
+    // multibyte pattern is neither refused nor decoded into something else.
+    let pattern = "é".repeat(LONG_PATTERN_CODEPOINTS);
     assert!(
-        pattern.len() > MAX_FUZZY_PATTERN_RUNES,
-        "the pattern must be over the limit in bytes to be a test of anything"
+        pattern.len() > LONG_PATTERN_CODEPOINTS,
+        "the pattern must be longer in bytes than in codepoints to test anything"
     );
     let mut fixture = FuzzyFixture::build(
         &pattern,
@@ -668,7 +652,7 @@ fn eval_fuzzy_pattern_over_the_limit_in_bytes_but_not_in_runes_still_expands() {
     );
     let mut it = fixture
         .eval()
-        .expect("a token under the rune limit must build an iterator");
+        .expect("a long multibyte fuzzy token must build an iterator");
     assert_eq!(collect_doc_ids(&mut it), vec![1]);
 }
 
@@ -676,8 +660,8 @@ fn eval_fuzzy_pattern_over_the_limit_in_bytes_but_not_in_runes_still_expands() {
 fn eval_fuzzy_expands_to_the_empty_term_from_api_version_2() {
     // From API version 2, a token no longer than `maxDist` — i.e. one that could
     // be deleted entirely and still be within budget — also expands to the empty
-    // term. No trie holds a zero-length key, so the walk can never find it; it is
-    // appended explicitly, and its document (9) joins `ax`'s (1).
+    // term. The walk skips it, so it is appended explicitly, and its document (9)
+    // joins `ax`'s (1).
     let mut fixture = FuzzyFixture::build(
         "a",
         1,

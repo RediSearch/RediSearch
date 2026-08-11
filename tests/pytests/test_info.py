@@ -124,10 +124,12 @@ def test_info_text_tag_overhead(env):
   # Create an index with a text and a tag field
   env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'tag1', 'TAG', 'text1', 'TEXT')
 
-  # No docs, no GC --> no overhead
+  # No docs, no GC --> no overhead. The term dictionary (text) is allocated
+  # eagerly at FT.CREATE, so it reports its fixed 24-byte struct baseline; the
+  # tag TrieMap is created lazily on first value, so it is still 0.
   res = index_info(env, 'idx')
   env.assertEqual(float(res['tag_overhead_sz_mb']), 0)
-  env.assertEqual(float(res['text_overhead_sz_mb']), 0)
+  env.assertEqual(float(res['text_overhead_sz_mb']), 24. / 1024 / 1024)
 
   # Add some docs (enough to enable GC, and for Trie/TrieMap splitting deletion
   # of multiple nodes)
@@ -166,10 +168,11 @@ def test_info_text_tag_overhead(env):
   forceInvokeGC(env, 'idx')
   time.sleep(1)
 
-  # Overhead ~= 0
+  # Overhead ~= 0: both tries are emptied but retain their fixed 24-byte
+  # struct baseline (the leftover root container) after GC.
   res = index_info(env, 'idx')
   env.assertEqual(float(res['tag_overhead_sz_mb']), 24. / 1024 / 1024)
-  env.assertEqual(float(res['text_overhead_sz_mb']), 0)
+  env.assertEqual(float(res['text_overhead_sz_mb']), 24. / 1024 / 1024)
 
 @skip(cluster=True)
 def test_total_inverted_index_blocks_per_spec(env):

@@ -14,7 +14,6 @@ unittest = []
 build_utils.workspace = true
 
 [dependencies]
-c_trie.workspace = true
 cheadergen.workspace = true
 ffi.workspace = true
 field.workspace = true
@@ -30,6 +29,7 @@ rqe_iterators.workspace = true
 rs_token.workspace = true
 search_disk.workspace = true
 string_utils.workspace = true
+term_dictionary.workspace = true
 term_suffix_index.workspace = true
 thiserror.workspace = true
 workspace_hack.workspace = true

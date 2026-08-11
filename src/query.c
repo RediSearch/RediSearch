@@ -28,6 +28,7 @@
 #include "query_eval_ffi.h"
 #include "trie/trie.h"
 #include "triemap_ffi.h"
+#include "term_dictionary_ffi.h"
 #include "extension.h"
 #include "hiredis/sds.h"
 #include "tag_index.h"

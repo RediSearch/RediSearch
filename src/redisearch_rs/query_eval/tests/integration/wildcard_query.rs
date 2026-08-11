@@ -374,12 +374,12 @@ fn eval_wildcard_query_no_match_yields_empty_union() {
 }
 
 #[test]
-fn eval_wildcard_query_expands_a_term_whose_key_is_not_utf8() {
-    // A term key is not necessarily valid UTF-8. `\xED\xA0\xBD` is the three-byte
-    // encoding of the lone surrogate `U+D83D`, which UTF-8 forbids — and which is
-    // what a non-BMP codepoint becomes once the trie truncates it to a 16-bit
-    // rune. The expansion must hand those bytes to the inverted-index lookup
-    // unvalidated, or the term's document is dropped.
+fn eval_wildcard_query_skips_a_term_whose_bytes_are_not_utf8() {
+    // A TEXT field carries arbitrary bytes, so the tokenizer can hand indexing
+    // a term the UTF-8-keyed dictionary cannot represent — `\xED\xA0\xBD` here,
+    // the encoding UTF-8 forbids for the lone surrogate `U+D83D`. Indexing
+    // drops such a term instead of failing, so the expansion never sees it and
+    // its sibling still expands.
     let mut fixture = WildcardFixture::build(
         b"ap*",
         WildcardOptions {
@@ -390,7 +390,7 @@ fn eval_wildcard_query_expands_a_term_whose_key_is_not_utf8() {
     let mut it = fixture
         .eval()
         .expect("a wildcard always builds an iterator");
-    assert_eq!(collect_doc_ids(&mut it), vec![1, 2, 7]);
+    assert_eq!(collect_doc_ids(&mut it), vec![1, 2]);
 }
 
 #[test]
