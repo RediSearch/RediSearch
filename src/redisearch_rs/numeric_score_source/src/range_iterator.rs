@@ -140,9 +140,12 @@ impl<'index> NumericRangeIterator<'index> {
 /// times with different scores. Occurrences within this batch's ranges are
 /// coalesced to a single entry carrying the doc's best score for the sort
 /// direction; occurrences already handed out by an earlier batch (tracked in
-/// `emitted`) are dropped, since their better value was scored there. An
-/// `emitted` of `None` states that no doc spans several values, so only the
-/// within-batch coalescing is needed.
+/// `emitted`) are dropped, since their better value was scored there.
+///
+/// `emitted` is the single statement of whether the field is multivalued at all:
+/// `None` says no document carries more than one value, so a doc id cannot
+/// repeat — within a batch or across batches — and both de-duplication steps are
+/// skipped.
 ///
 /// `timeout` is polled once per record and once more before the sort, so a
 /// large batch stays deadline-aware across its ordering pass. The amortized
@@ -174,10 +177,14 @@ fn merge_ranges(
     }
     timeout.check_timeout()?;
     items.sort_unstable_by_key(|(doc_id, _)| *doc_id);
-    coalesce_by_doc_id(&mut items, filter.ascending);
     if let Some(emitted) = emitted {
+        coalesce_by_doc_id(&mut items, filter.ascending);
         emitted.extend(items.iter().map(|(doc_id, _)| *doc_id));
     }
+    debug_assert!(
+        items.windows(2).all(|w| w[0].0 < w[1].0),
+        "a batch must hold one strictly-increasing entry per doc id"
+    );
     Ok(NumericScoreBatch::new(items))
 }
 
