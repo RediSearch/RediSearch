@@ -1,4 +1,4 @@
 interface:
   display_name: "Close PR"
-  short_description: "Clean up mistaken PRs safely"
-  default_prompt: "Use $close-pr to clean up this mistaken pull request safely."
+  short_description: "Close or clean up PRs safely"
+  default_prompt: "Use $close-pr to choose ordinary closure or cleanup closure for this pull request."
