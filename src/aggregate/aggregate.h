@@ -150,70 +150,6 @@ typedef enum {
  * AREQ struct (it references AREQ/HybridRequest only by pointer). */
 typedef struct BlockedRequestCtx BlockedRequestCtx;
 
-/**
- * Per-request synchronization slot embedded in every AREQ and HybridRequest.
- * Holds only the state the timeout callback shares with the background reader
- * draining that specific (sub-)request: the timeout flag and the single-slot
- * abort-wake channel used to unblock a parked MR reader.
- *
- * Top-level result-production coordination lives on the owning BlockedRequestCtx
- * wrapper, not here (sub-AREQs never run that handshake).
- */
-typedef struct RequestSyncState {
-  // Timeout signaling flag set by the timeout callback on the main thread.
-  RS_Atomic(bool) timedOut;
-
-  // Execution-phase marker (QueryTimeoutStage values), advanced monotonically by
-  // the executing thread (QUEUE -> PIPELINE -> REPLY) and frozen once `timedOut` is
-  // set. The main-thread timeout callbacks only read it to attribute a timeout to
-  // the pipeline stage it occurred in.
-  RS_Atomic(int) execPhase;
-
-  /* Abort-wake registration (single-slot). BG reader registers its blocking MR
-   * channel; timeout callback broadcasts on it after flipping `timedOut`.
-   * `abortWakeLock` serializes register/unregister/wake. */
-  struct MRChannel *abortWakeChannel;
-  pthread_mutex_t abortWakeLock;
-} RequestSyncState;
-
-// Initialize a RequestSyncState with default values
-static inline void RequestSyncState_Init(RequestSyncState *st) {
-  st->timedOut = false;
-  st->execPhase = QUERY_TIMEOUT_STAGE_QUEUE;
-  st->abortWakeChannel = NULL;
-  pthread_mutex_init(&st->abortWakeLock, NULL);
-}
-
-static inline bool RequestSyncState_GetTimedOut(RequestSyncState *st) {
-  return RS_AtomicBoolLoadRelaxed(&st->timedOut);
-}
-static inline void RequestSyncState_SetTimedOut(RequestSyncState *st) {
-  RS_AtomicBoolStoreRelaxed(&st->timedOut, true);
-}
-static inline void RequestSyncState_ClearTimedOut(RequestSyncState *st) {
-  RS_AtomicBoolStoreRelaxed(&st->timedOut, false);
-}
-
-// Read the current execution phase as a QueryTimeoutStage. Used to attribute a
-// timeout to the stage the request had reached when the deadline fired.
-static inline QueryTimeoutStage RequestSyncState_GetExecutionStage(RequestSyncState *st) {
-  return (QueryTimeoutStage)RS_AtomicIntLoadRelaxed(&st->execPhase);
-}
-// Advance the execution phase (executing thread). Frozen once a timeout is signalled,
-// so the stage a main-thread callback reads cannot change underneath it.
-static inline void RequestSyncState_SetExecutionStage(RequestSyncState *st, QueryTimeoutStage stage) {
-  if (RequestSyncState_GetTimedOut(st)) {
-    return;
-  }
-  RS_AtomicIntStoreRelaxed(&st->execPhase, (int)stage);
-}
-
-// Release resources owned by a RequestSyncState. Must be called exactly once
-// per successful Init, from the request's free path.
-static inline void RequestSyncState_Destroy(RequestSyncState *st) {
-  pthread_mutex_destroy(&st->abortWakeLock);
-}
-
 typedef struct AREQ {
   QueryRequest base;
 
@@ -298,9 +234,6 @@ typedef struct AREQ {
   size_t prefixesOffset;
 
   ProfilePrinterCtx profileCtx;
-
-  // Per-request synchronization slot (timeout flag + abort-wake channel).
-  RequestSyncState syncState;
 
   // Non-owning back-pointer to the heap wrapper that owns this request.
   // Set for the top-level request; NULL for hybrid sub-AREQs.
@@ -686,23 +619,18 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 
 static inline bool AREQ_TimedOut(AREQ *req) {
-  return RequestSyncState_GetTimedOut(&req->syncState);
+  return QueryRequestTimeout_GetTimedOut(&req->base.timeout);
 }
 static inline void AREQ_SetTimedOut(AREQ *req) {
   QueryRequestTimeout_SetTimedOut(&req->base.timeout);
-  // TODO($$$): Remove the legacy timeout state once consumers use QueryRequest.timeout.
-  RequestSyncState_SetTimedOut(&req->syncState);
 }
 // The pipeline stage the request had reached, used to attribute a timeout.
 static inline QueryTimeoutStage AREQ_ExecutionStage(AREQ *req) {
-  return RequestSyncState_GetExecutionStage(&req->syncState);
+  return (QueryTimeoutStage)QueryRequest_GetExecutionPhase(&req->base);
 }
 // Advance the request's execution-phase marker (QUEUE -> PIPELINE -> REPLY).
 static inline void AREQ_SetExecutionStage(AREQ *req, QueryTimeoutStage stage) {
-  // TODO($$$): Remove the legacy execution phase once consumers use QueryRequest.async.
-  RequestSyncState_SetExecutionStage(&req->syncState, stage);
-  QueryRequestAsyncState_SetExecutionPhase(
-      &req->base.async, RequestSyncState_GetExecutionStage(&req->syncState));
+  QueryRequest_SetExecutionPhase(&req->base, (int)stage);
 }
 #ifdef ENABLE_ASSERT
 // SyncPointStopFn predicate adapter for AREQ_TimedOut. Pass the AREQ as `arg`
@@ -765,20 +693,13 @@ bool BlockedRequestCtx_TimeoutPreemptSafeLoaderGIL(BlockedRequestCtx *sync);
  *   - brc->aggregatingResults (CAS claim)
  *   - brc->aggregateResultsDone (signal latch)
  *   - brc->safeLoadersHoldingGIL (GIL-handshake latch)
- *   - syncState.timedOut (timer latch from the previous chunk's timer)
+ *   - base.timeout.timedOut (timer latch from the previous chunk's timer)
  *   - RPNet::drainOnly on the root proc when it is RP_NETWORK (so the next
  *     read does not short-circuit to EOF on the first empty-channel observation).
  * Caller MUST hold the per-request setRequestLock so the timer cannot publish a
  * fresh TimedOut between the reset and SetRequest. Does NOT reset
  * RPSorter::base.Next: the Yield latch is load-bearing across reads. */
 void AREQ_ResetForCursorReadReturnStrict(AREQ *req);
-
-/* Abort-wake registration (single-slot). BG reader registers its blocking channel
- * before reading; timeout callback flips `timedOut` then broadcasts to wake it.
- * Operates on the embedded RequestSyncState so AREQ and HybridRequest can share. */
-void RequestSyncState_RegisterAbortWakeChannel(RequestSyncState *st, struct MRChannel *chan);
-void RequestSyncState_UnregisterAbortWakeChannel(RequestSyncState *st);
-void RequestSyncState_WakeAbortChannel(RequestSyncState *st);
 
 static inline bool AREQ_ShouldCheckTimeout(AREQ *req) {
   return !req->skipTimeoutChecks;

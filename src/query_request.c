@@ -8,6 +8,7 @@
  */
 #include "query_request.h"
 
+#include "coord/rmr/chan.h"
 #include "query_error_ffi.h"
 
 static inline void ChunkReplyState_Init(ChunkReplyState *state) {
@@ -55,4 +56,25 @@ void QueryRequest_Destroy(QueryRequest *request) {
   QueryError_ClearError(&request->reply.err);
   QueryRequestAsyncState_Destroy(&request->async);
   QueryRequest_SetEndProcRef(request, NULL);
+}
+
+void QueryRequestAsyncState_RegisterAbortWakeChannel(QueryRequestAsyncState *state,
+                                                     struct MRChannel *channel) {
+  pthread_mutex_lock(&state->abortWakeLock);
+  state->abortWakeChannel = channel;
+  pthread_mutex_unlock(&state->abortWakeLock);
+}
+
+void QueryRequestAsyncState_UnregisterAbortWakeChannel(QueryRequestAsyncState *state) {
+  pthread_mutex_lock(&state->abortWakeLock);
+  state->abortWakeChannel = NULL;
+  pthread_mutex_unlock(&state->abortWakeLock);
+}
+
+void QueryRequestAsyncState_WakeAbortChannel(QueryRequestAsyncState *state) {
+  pthread_mutex_lock(&state->abortWakeLock);
+  if (state->abortWakeChannel) {
+    MRChannel_WakeAbort(state->abortWakeChannel);
+  }
+  pthread_mutex_unlock(&state->abortWakeLock);
 }

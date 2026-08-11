@@ -1137,8 +1137,6 @@ AREQ *AREQ_New(void) {
   req->prefixesOffset = 0;
   req->keySpaceVersion = INVALID_KEYSPACE_VERSION;
   req->querySlots = NULL;
-  // TODO($$$): Remove RequestSyncState once consumers use QueryRequest timeout/async state.
-  RequestSyncState_Init(&req->syncState);
   req->brc = NULL;
   return req;
 }
@@ -1261,18 +1259,15 @@ void AREQ_WaitForAggregateResultsComplete(AREQ *req) {
   pthread_mutex_unlock(&req->brc->aggregateResultsLock);
 }
 
-/* Read the owned request's timeout flag through the wrapper. The flag lives on
- * the request's embedded RequestSyncState, not on the wrapper itself. */
-static bool BlockedRequestCtx_OwnedRequestTimedOut(BlockedRequestCtx *brc) {
-  if (brc->kind == REQUEST_KIND_AREQ) {
-    return RequestSyncState_GetTimedOut(&brc->query.areq->syncState);
-  }
-  return RequestSyncState_GetTimedOut(&brc->query.hybrid->syncState);
-}
-
 static QueryRequest *BlockedRequestCtx_QueryRequest(BlockedRequestCtx *brc) {
   return brc->kind == REQUEST_KIND_AREQ ? (QueryRequest *)brc->query.areq
                                        : (QueryRequest *)brc->query.hybrid;
+}
+
+/* Read the common base without coupling this path to a concrete request kind. */
+static bool BlockedRequestCtx_OwnedRequestTimedOut(BlockedRequestCtx *brc) {
+  QueryRequest *request = BlockedRequestCtx_QueryRequest(brc);
+  return QueryRequestTimeout_GetTimedOut(&request->timeout);
 }
 
 /* See aggregate.h for the full handshake contract. The aggregateResultsLock
@@ -1327,35 +1322,11 @@ void AREQ_ResetForCursorReadReturnStrict(AREQ *req) {
   req->brc->safeLoadersHoldingGIL = 0;
   pthread_mutex_unlock(&req->brc->aggregateResultsLock);
   QueryRequestTimeout_ClearTimedOut(&req->base.timeout);
-  // TODO($$$): Remove the legacy timeout state once consumers use QueryRequest.timeout.
-  RequestSyncState_ClearTimedOut(&req->syncState);
   ResultProcessor *root = AREQ_QueryProcessingCtx(req)->rootProc;
   if (root && root->type == RP_NETWORK) {
     ((RPNet *)root)->drainOnly = false;
   }
 }
-
-void RequestSyncState_RegisterAbortWakeChannel(RequestSyncState *st, struct MRChannel *chan) {
-  pthread_mutex_lock(&st->abortWakeLock);
-  st->abortWakeChannel = chan;
-  pthread_mutex_unlock(&st->abortWakeLock);
-}
-
-void RequestSyncState_UnregisterAbortWakeChannel(RequestSyncState *st) {
-  pthread_mutex_lock(&st->abortWakeLock);
-  st->abortWakeChannel = NULL;
-  pthread_mutex_unlock(&st->abortWakeLock);
-}
-
-void RequestSyncState_WakeAbortChannel(RequestSyncState *st) {
-  pthread_mutex_lock(&st->abortWakeLock);
-  if (st->abortWakeChannel) {
-    MRChannel_WakeAbort(st->abortWakeChannel);
-  }
-  pthread_mutex_unlock(&st->abortWakeLock);
-}
-
-
 
 int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, bool isDiskIndex, QueryError *status) {
   while (!AC_IsAtEnd(ac)) {
@@ -1709,7 +1680,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Borrow the request's timed-out flag onto the sctx so pipeline RPs can
   // observe a RETURN-STRICT main-thread timeout without holding an AREQ
   // back-pointer (read via SearchTime_IsTimedOut).
-  sctx->time.timedOutFlag = &req->syncState.timedOut;
+  sctx->time.timedOutFlag = &req->base.timeout.timedOut;
 
   if (!IsIndexCoherent(req)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_MISMATCH, NULL);
@@ -1956,8 +1927,6 @@ void AREQ_Free(AREQ *req) {
 
   rm_free(req->args);
 
-  // TODO($$$): Remove RequestSyncState once consumers use QueryRequest timeout/async state.
-  RequestSyncState_Destroy(&req->syncState);
   QueryRequest_Destroy(&req->base);
 
   rm_free(req);

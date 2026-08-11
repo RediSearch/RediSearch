@@ -333,10 +333,9 @@ static int rpnetCreateIterator(RPNet *nc) {
   nc->it = it;
   // Register the iterator's channel so the main-thread timeout callback can wake
   // this reader if it blocks in MRIterator_NextWithTimeout after AREQ timed out.
-  // Paired with RequestSyncState_UnregisterAbortWakeChannel in rpnetFree.
-  nc->areq->base.async.abortWakeChannel = MRIterator_GetChannel(it);
-  // TODO($$$): Remove the legacy abort-wake state once consumers use QueryRequest.async.
-  RequestSyncState_RegisterAbortWakeChannel(&nc->areq->syncState, MRIterator_GetChannel(it));
+  // Paired with QueryRequestAsyncState_UnregisterAbortWakeChannel in rpnetFree.
+  QueryRequestAsyncState_RegisterAbortWakeChannel(&nc->areq->base.async,
+                                                  MRIterator_GetChannel(it));
 #ifdef ENABLE_ASSERT
   // Expose the iterator to FT.DEBUG BG_PENDING_REPLIES; cleared in rpnetFree.
   DebugBgIterator_Set(it);
@@ -1091,7 +1090,7 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
 
   // Losing TryClaim means BG owns the claim, it may be blocked in MRIterator_NextWithTimeout.
   // Wake it so it observes the Timeout and exits the pipeline promptly.
-  RequestSyncState_WakeAbortChannel(&req->syncState);
+  QueryRequestAsyncState_WakeAbortChannel(&req->base.async);
 
   // Sync with the background thread
   AREQ_WaitForAggregateResultsComplete(req);
@@ -1181,7 +1180,7 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
 
   // Wake the abort channel — unblocks BG from
   // MRIterator_NextWithTimeout if it's mid-pipeline; no-op otherwise.
-  RequestSyncState_WakeAbortChannel(&req->syncState);
+  QueryRequestAsyncState_WakeAbortChannel(&req->base.async);
 
   // BG owns the read: a started RETURN_STRICT read always stores a
   // cursor-shaped reply, signals completion, and parks/frees the cursor.

@@ -44,10 +44,6 @@ typedef struct HybridRequest {
     profiler_func profile;
     ProfilePrinterCtx profileCtx;
 
-    // Synchronization context for timeout/reply callbacks.
-    // Holds the per-request timeout flag and abort-wake channel.
-    RequestSyncState syncState;
-
     // Non-owning back-pointer to the heap wrapper that owns this request.
     BlockedRequestCtx *brc;
 
@@ -89,18 +85,15 @@ typedef struct HybridRequest {
 
 // Timeout helper functions for HybridRequest (mirrors AREQ pattern)
 static inline bool HybridRequest_TimedOut(HybridRequest *req) {
-  return RequestSyncState_GetTimedOut(&req->syncState);
+  return QueryRequestTimeout_GetTimedOut(&req->base.timeout);
 }
 // The pipeline stage the hybrid request had reached, used to attribute a timeout.
 static inline QueryTimeoutStage HybridRequest_ExecutionStage(HybridRequest *req) {
-  return RequestSyncState_GetExecutionStage(&req->syncState);
+  return (QueryTimeoutStage)QueryRequest_GetExecutionPhase(&req->base);
 }
 // Advance the hybrid request's execution-phase marker (QUEUE -> PIPELINE -> REPLY).
 static inline void HybridRequest_SetExecutionStage(HybridRequest *req, QueryTimeoutStage stage) {
-  // TODO($$$): Remove the legacy execution phase once consumers use QueryRequest.async.
-  RequestSyncState_SetExecutionStage(&req->syncState, stage);
-  QueryRequestAsyncState_SetExecutionPhase(
-      &req->base.async, RequestSyncState_GetExecutionStage(&req->syncState));
+  QueryRequest_SetExecutionPhase(&req->base, (int)stage);
 }
 // Sets the hybrid request's timedOut flag and propagates it to every subquery
 // AREQ. Propagation flips each subquery's RPNet abort flag so a BG worker

@@ -315,8 +315,6 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
 
     // Initialize timeout coordination fields (embedded per-request slot only;
     // the aggregate-coord fields live on the heap BlockedRequestCtx wrapper).
-    // TODO($$$): Remove RequestSyncState once consumers use QueryRequest timeout/async state.
-    RequestSyncState_Init(&hybridReq->syncState);
     pthread_mutex_init(&hybridReq->cursorMutex, NULL);
 
 
@@ -429,8 +427,6 @@ void HybridRequest_Free(HybridRequest *req) {
 
     rm_free(req->debugParams);
 
-    // TODO($$$): Remove RequestSyncState once consumers use QueryRequest timeout/async state.
-    RequestSyncState_Destroy(&req->syncState);
     QueryRequest_Destroy(&req->base);
 
     if (req->args) {
@@ -560,10 +556,8 @@ void AddValidationErrorContext(AREQ *req, QueryError *status) {
 
 void HybridRequest_SetTimedOut(HybridRequest *req) {
   QueryRequestTimeout_SetTimedOut(&req->base.timeout);
-  // TODO($$$): Remove the legacy timeout state once consumers use QueryRequest.timeout.
-  RequestSyncState_SetTimedOut(&req->syncState);
   // Propagate to each subquery AREQ so its RPNet's MRChannel_PopWithTimeout
-  // abort flag (&areq->syncState.timedOut) is flipped. Without this the BG
+  // abort flag (&areq->base.timeout.timedOut) is flipped. Without this the BG
   // worker can stay parked on the channel even after the hybrid-level flag
   // is set.
   for (size_t i = 0; i < req->nrequests; i++) {

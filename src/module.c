@@ -4325,7 +4325,7 @@ static void DistSearchCommandHandler(void* pd) {
     sCmdCtx->handlerCtx.coordQueueTime = rs_wall_clock_now_ns() - sCmdCtx->handlerCtx.coordStartTime;
   }
   // Dequeued by the coord: advance to PIPELINE (fan-out/reduce). Skipped once timed
-  // out while queued (freeze, mirroring RequestSyncState_SetExecutionStage).
+  // out while queued, preserving the phase where the timeout was observed.
   searchRequestCtx *sReq = MRCtx_GetPrivData(sCmdCtx->mrctx);
   if (sReq && !MRCtx_IsTimedOut(sCmdCtx->mrctx)) {
     searchReqCtx_SetExecutionStage(sReq, QUERY_TIMEOUT_STAGE_PIPELINE);
@@ -5113,7 +5113,7 @@ static void DEBUG_DistSearchCommandHandler(void* pd) {
     sCmdCtx->handlerCtx.coordQueueTime = rs_wall_clock_now_ns() - sCmdCtx->handlerCtx.coordStartTime;
   }
   // Dequeued by the coord: advance to PIPELINE (fan-out/reduce). Skipped once timed
-  // out while queued (freeze, mirroring RequestSyncState_SetExecutionStage).
+  // out while queued, preserving the phase where the timeout was observed.
   searchRequestCtx *sReq = MRCtx_GetPrivData(sCmdCtx->mrctx);
   if (sReq && !MRCtx_IsTimedOut(sCmdCtx->mrctx)) {
     searchReqCtx_SetExecutionStage(sReq, QUERY_TIMEOUT_STAGE_PIPELINE);

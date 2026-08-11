@@ -182,14 +182,14 @@ impl MockQueryEvalCtx {
     /// Blocked Client Timeout source is selected (simulating a
     /// background-executed request).
     ///
-    /// The allocation is owned by this mock and freed on drop. It is zeroed,
-    /// so its `RequestSyncState::timedOut` flag reads as "not timed out": a code
-    /// path that probes the timeout (via `AREQ_CheckTimedOut`) sees a valid,
-    /// non-expired request.
+    /// The allocation is owned by this mock and freed on drop. Its zeroed
+    /// `QueryRequestTimeout::timedOut` flag reads as "not timed out", so
+    /// `AREQ_CheckTimedOut` sees a non-expired request.
     pub fn enable_blocked_client_timeout(&mut self) {
-        // SAFETY: `ffi::AREQ` is a `#[repr(C)]` POD struct, so an all-zero bit
-        // pattern is a valid (non-expired) instance; the allocation is checked
-        // non-null and stored for cleanup in `Drop`.
+        // SAFETY: the allocation has the size and alignment of `ffi::AREQ` and
+        // is checked non-null. This mock only exposes it to `AREQ_CheckTimedOut`,
+        // which reads the zeroed atomic timeout flag; it never uses uninitialized
+        // request resources. The allocation is retained for cleanup in `Drop`.
         unsafe {
             if self.areq.is_null() {
                 let areq = alloc_zeroed(Layout::new::<ffi::AREQ>()).cast::<ffi::AREQ>();

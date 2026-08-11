@@ -866,7 +866,7 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
     // DistHybridCleanups can reply with them.
     if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, knnCtx, status,
                                      oomPolicy, timeoutPolicy, &maxPrefixSearch, &maxPrefixVsim,
-                                     &shardTimedOutWarning, deadline, &hreq->syncState,
+                                     &shardTimedOutWarning, deadline, &hreq->base.timeout,
                                      &hreq->base.async)) {
         // Handle error
         StrongRef_Release(searchMappingsRef);
@@ -1228,10 +1228,10 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 // phase) or a subquery's channel (read phase); wake all of them.
 static void wakeHybridAbortChannels(HybridRequest *hreq) {
   if (!hreq) return;
-  RequestSyncState_WakeAbortChannel(&hreq->syncState);
+  QueryRequestAsyncState_WakeAbortChannel(&hreq->base.async);
   for (size_t i = 0; i < hreq->nrequests; i++) {
     if (hreq->requests[i]) {
-      RequestSyncState_WakeAbortChannel(&hreq->requests[i]->syncState);
+      QueryRequestAsyncState_WakeAbortChannel(&hreq->requests[i]->base.async);
     }
   }
 }

@@ -290,7 +290,7 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
                                  QueryError *status, const RSOomPolicy oomPolicy,
                                  const RSTimeoutPolicy timeoutPolicy, bool *maxPrefixSearch,
                                  bool *maxPrefixVsim, bool *shardTimedOutWarning,
-                                 const struct timespec *deadline, RequestSyncState *syncState,
+                                 const struct timespec *deadline, QueryRequestTimeout *timeout,
                                  QueryRequestAsyncState *asyncState) {
     CursorMappings *searchMappings = StrongRef_Get(searchMappingsRef);
     CursorMappings *vsimMappings = StrongRef_Get(vsimMappingsRef);
@@ -327,24 +327,20 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
     }
 
     // Register the iterator's channel so an external abort - the coordinator timeout
-    // callback (RequestSyncState_WakeAbortChannel) or a client disconnect - can wake
+    // callback or a client disconnect can wake
     // this wait promptly. Unregistered below before the iterator is released.
-    asyncState->abortWakeChannel = MRIterator_GetChannel(it);
-    // TODO($$$): Remove the legacy abort-wake state once consumers use QueryRequest.async.
-    RequestSyncState_RegisterAbortWakeChannel(syncState, MRIterator_GetChannel(it));
+    QueryRequestAsyncState_RegisterAbortWakeChannel(asyncState, MRIterator_GetChannel(it));
 
     // Pass both the deadline and the abort flag: `deadline` is NULL under RETURN-STRICT /
     // disabled timeout checks, where the abort flag is the only wake (chan.c requires
     // at least one non-NULL).
     bool timedOut = false;
-    MRReply *r = MRIterator_NextWithTimeout(it, deadline, &syncState->timedOut, &timedOut);
+    MRReply *r = MRIterator_NextWithTimeout(it, deadline, &timeout->timedOut, &timedOut);
     RS_ASSERT(r == NULL);  // the callbacks never AddReply; a non-NULL reply is a bug
 
-    asyncState->abortWakeChannel = NULL;
-    // TODO($$$): Remove the legacy abort-wake state once consumers use QueryRequest.async.
-    RequestSyncState_UnregisterAbortWakeChannel(syncState);
+    QueryRequestAsyncState_UnregisterAbortWakeChannel(asyncState);
 
-    if (timedOut || RequestSyncState_GetTimedOut(syncState)) {
+    if (timedOut || QueryRequestTimeout_GetTimedOut(timeout)) {
         QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
         MRIterator_Release(it);
         return false;

@@ -80,7 +80,7 @@ typedef struct {
   RegistryEntryKind kind;
 } RegistryInfo;
 
-typedef struct {
+typedef struct QueryRequestTimeout {
   RS_Atomic(bool) timedOut;
 } QueryRequestTimeout;
 
@@ -110,7 +110,6 @@ typedef struct QueryRequestAsyncState {
   RS_Atomic(int) strictReadOwner;
   RS_Atomic(int) execPhase;
   struct MRChannel *abortWakeChannel;
-  // TODO($$$): Plug this primitive into the abort-wake paths later in this PR.
   pthread_mutex_t abortWakeLock;
   // TODO($$$): Plug both primitives into the async synchronization paths later in this PR.
   pthread_mutex_t aggregateResultsLock;
@@ -125,6 +124,11 @@ static inline void QueryRequestAsyncState_SetExecutionPhase(QueryRequestAsyncSta
                                                             int phase) {
   RS_AtomicIntStoreRelaxed(&state->execPhase, phase);
 }
+
+void QueryRequestAsyncState_RegisterAbortWakeChannel(QueryRequestAsyncState *state,
+                                                     struct MRChannel *channel);
+void QueryRequestAsyncState_UnregisterAbortWakeChannel(QueryRequestAsyncState *state);
+void QueryRequestAsyncState_WakeAbortChannel(QueryRequestAsyncState *state);
 
 typedef struct QueryRequest {
   QueryRequestKind kind;
@@ -152,6 +156,17 @@ static inline void QueryRequest_SetEndProcRef(QueryRequest *request,
 
 static inline ResultProcessor *QueryRequest_GetEndProc(const QueryRequest *request) {
   return request->endProcRef ? *request->endProcRef : NULL;
+}
+
+static inline int QueryRequest_GetExecutionPhase(const QueryRequest *request) {
+  return QueryRequestAsyncState_GetExecutionPhase(&request->async);
+}
+
+// Preserve the phase where a timeout was first observed.
+static inline void QueryRequest_SetExecutionPhase(QueryRequest *request, int phase) {
+  if (!QueryRequestTimeout_GetTimedOut(&request->timeout)) {
+    QueryRequestAsyncState_SetExecutionPhase(&request->async, phase);
+  }
 }
 
 void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind);
