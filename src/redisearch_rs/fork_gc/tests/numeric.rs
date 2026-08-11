@@ -45,8 +45,8 @@ struct TestSpec {
         reason = "the field specs retain pointers to individually pinned tree allocations"
     )]
     trees: Vec<Box<NumericRangeTree>>,
-    write_attempts: usize,
-    fail_write_on: Option<usize>,
+    fail_lock_on_attempt: Option<usize>,
+    lock_attempts: usize,
 }
 
 impl TestSpec {
@@ -84,8 +84,8 @@ impl TestSpec {
             spec,
             field_specs,
             trees,
-            write_attempts: 0,
-            fail_write_on: None,
+            lock_attempts: 0,
+            fail_lock_on_attempt: None,
         }
     }
 
@@ -98,18 +98,18 @@ impl TestSpec {
 }
 
 impl SpecWriteAccess for TestSpec {
-    fn with_write<T>(
+    fn with_write<T, C>(
         &mut self,
-        apply: impl FnOnce(&mut IndexSpecWriteGuard<'_>) -> T,
-    ) -> Option<T> {
-        self.write_attempts += 1;
-        if self.fail_write_on == Some(self.write_attempts) {
-            return None;
+        apply: impl FnOnce(&mut IndexSpecWriteGuard<'_>) -> Result<T, HandleError<C>>,
+    ) -> Result<T, HandleError<C>> {
+        self.lock_attempts += 1;
+        if self.fail_lock_on_attempt == Some(self.lock_attempts) {
+            return Err(HandleError::SpecDeleted);
         }
         // SAFETY: this test accessor has exclusive access to `self.spec`.
         // `ManuallyDrop` prevents releasing a lock that the test did not acquire.
         let mut guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut self.spec) };
-        Some(apply(&mut guard))
+        apply(&mut guard)
     }
 }
 
@@ -413,7 +413,7 @@ fn handle_numeric_with_applies_field_stream_and_compacts() {
 
     assert_eq!(outcome, HandleOutcome::Collected);
     assert_eq!(
-        test.write_attempts, 3,
+        test.lock_attempts, 3,
         "two node applications plus final compaction"
     );
     // Every doc is deleted, so both leaves empty out and the tree becomes
@@ -427,7 +427,7 @@ fn handle_numeric_with_applies_field_stream_and_compacts() {
     assert_eq!(outcome, HandleOutcome::Done);
     assert_eq!(stats, GcApplyStats::default());
     assert_eq!(
-        test.write_attempts, 3,
+        test.lock_attempts, 3,
         "the global terminator does not acquire the spec"
     );
 }
@@ -444,14 +444,14 @@ fn handle_numeric_with_preserves_progress_when_spec_is_deleted() {
     )]);
     let mut buf = Vec::new();
     collect_numeric(&mut buf, &test.read_guard()).unwrap();
-    test.fail_write_on = Some(2);
+    test.fail_lock_on_attempt = Some(2);
 
     let mut stats = GcApplyStats::default();
     let error =
         handle_numeric_with(&mut Cursor::new(buf), &mut test, &mut stats, false).unwrap_err();
 
     assert!(matches!(error, HandleError::SpecDeleted));
-    assert_eq!(test.write_attempts, 2);
+    assert_eq!(test.lock_attempts, 2);
     assert!(
         stats.bytes_collected > stats.bytes_allocated,
         "the first node's statistics remain available to the adapter"
@@ -470,14 +470,14 @@ fn handle_numeric_with_reports_spec_deleted_during_compaction() {
     )]);
     let buf = collect_stream(&test);
     // The first two writes apply the nodes; the third is the compaction pass.
-    test.fail_write_on = Some(3);
+    test.fail_lock_on_attempt = Some(3);
 
     let mut stats = GcApplyStats::default();
     let error =
         handle_numeric_with(&mut Cursor::new(buf), &mut test, &mut stats, true).unwrap_err();
 
     assert!(matches!(error, HandleError::SpecDeleted));
-    assert_eq!(test.write_attempts, 3);
+    assert_eq!(test.lock_attempts, 3);
     assert!(
         stats.bytes_collected > 0,
         "both nodes were applied before the failure"
@@ -519,7 +519,7 @@ fn roundtrip_applies_gc_to_tree() {
     let outcome = handle_numeric_with(&mut cursor, &mut test, &mut stats, false).unwrap();
 
     assert_eq!(outcome, HandleOutcome::Collected);
-    assert_eq!(test.write_attempts, 1, "compaction was disabled");
+    assert_eq!(test.lock_attempts, 1, "compaction was disabled");
     assert!(stats.bytes_collected > 0);
     assert!(test.trees[0].num_entries() < entries_before);
 
@@ -610,7 +610,7 @@ fn handle_numeric_with_accepts_empty_node_stream_without_locking_spec() {
     let outcome = handle_numeric_with(&mut Cursor::new(buf), &mut test, &mut stats, true).unwrap();
 
     assert_eq!(outcome, HandleOutcome::Collected);
-    assert_eq!(test.write_attempts, 0);
+    assert_eq!(test.lock_attempts, 0);
     assert_eq!(stats, GcApplyStats::default());
 }
 

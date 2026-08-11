@@ -26,30 +26,21 @@ use crate::{ForkGC, GcApplyStats, HandleError, HandleOutcome};
 /// reference that keeps the spec alive. Test implementations can provide the
 /// same scope over an exclusively owned synthetic spec.
 pub trait SpecWriteAccess {
-    /// Promote and lock the spec, returning `None` if it has been deleted.
-    fn with_write<T>(&mut self, apply: impl FnOnce(&mut IndexSpecWriteGuard<'_>) -> T)
-    -> Option<T>;
-
-    /// [`with_write`](Self::with_write) for a fallible `apply`, reporting a
-    /// deleted spec as [`HandleError::SpecDeleted`].
-    ///
-    /// Flattens the nested `Option<Result<..>>` the plain accessor would produce.
-    fn try_with_write<T, C>(
+    /// Promote and write-lock the spec, then run `apply` under the lock.
+    fn with_write<T, C>(
         &mut self,
         apply: impl FnOnce(&mut IndexSpecWriteGuard<'_>) -> Result<T, HandleError<C>>,
-    ) -> Result<T, HandleError<C>> {
-        self.with_write(apply).ok_or(HandleError::SpecDeleted)?
-    }
+    ) -> Result<T, HandleError<C>>;
 }
 
 impl SpecWriteAccess for IndexSpecWeakRef {
-    fn with_write<T>(
+    fn with_write<T, C>(
         &mut self,
-        apply: impl FnOnce(&mut IndexSpecWriteGuard<'_>) -> T,
-    ) -> Option<T> {
-        let mut spec_ref = self.promote()?;
+        apply: impl FnOnce(&mut IndexSpecWriteGuard<'_>) -> Result<T, HandleError<C>>,
+    ) -> Result<T, HandleError<C>> {
+        let mut spec_ref = self.promote().ok_or(HandleError::SpecDeleted)?;
         let mut guard = spec_ref.write();
-        Some(apply(&mut guard))
+        apply(&mut guard)
     }
 }
 

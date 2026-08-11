@@ -128,10 +128,14 @@ impl NumericNodeDelta {
 /// Resolving a field by name walks the spec's field list, so [`apply_node_stream`]
 /// does it once and reuses the result for the rest of the field's node stream.
 ///
-/// The index stays valid because a spec's field array is only ever appended to.
+/// The index survives the lock releases between nodes because a spec's field array
+/// is only ever appended to. [`Self::get_mut`] re-checks the tree's unique id
+/// regardless, so a future violation of that invariant surfaces as a [`TreeError`]
+/// instead of applying deltas to an unrelated tree.
 #[derive(Clone, Copy)]
 struct ResolvedTree {
     field_index: usize,
+    unique_id: u32,
 }
 
 impl ResolvedTree {
@@ -158,27 +162,45 @@ impl ResolvedTree {
             .tree()
             .ok_or(TreeError::new("the field has no numeric tree"))?;
 
-        if u32::from(tree.unique_id()) != unique_id {
-            return Err(TreeError::new(
-                "the field's numeric tree was replaced since the child scanned it",
-            ));
-        }
+        Self::check_unique_id(tree, unique_id)?;
 
-        Ok(Self { field_index })
+        Ok(Self {
+            field_index,
+            unique_id,
+        })
     }
 
-    /// Borrow the resolved tree under the write lock.
+    /// Borrow the resolved tree under the write lock, re-checking that the field
+    /// still holds the tree the child scanned.
     fn get_mut<'g>(
         &self,
         guard: &'g mut IndexSpecWriteGuard<'_>,
     ) -> Result<&'g mut NumericRangeTree, HandleError<TreeError>> {
-        guard
+        let tree = guard
             .field_specs_mut()
             .get_mut(self.field_index)
             .and_then(|fs| fs.tree_mut())
             .ok_or(TreeError::new(
                 "the numeric tree was dropped while its deltas were being applied",
-            ))
+            ))?;
+
+        Self::check_unique_id(tree, self.unique_id)?;
+
+        Ok(tree)
+    }
+
+    /// Confirm `tree` is the one the child scanned.
+    fn check_unique_id(
+        tree: &NumericRangeTree,
+        unique_id: u32,
+    ) -> Result<(), HandleError<TreeError>> {
+        if u32::from(tree.unique_id()) != unique_id {
+            return Err(TreeError::new(
+                "the field's numeric tree is not the one the child scanned",
+            ));
+        }
+
+        Ok(())
     }
 }
 
@@ -289,7 +311,7 @@ fn apply_node_stream(
     let mut resolved_tree = None;
 
     while let Some(node) = NumericNodeDelta::decode(reader)? {
-        let node_stats = spec.try_with_write(|guard| {
+        let node_stats = spec.with_write(|guard| {
             let resolved_tree = match resolved_tree {
                 Some(resolved_tree) => resolved_tree,
                 None => {
@@ -317,7 +339,7 @@ fn trim_empty_nodes(
     resolved_tree: ResolvedTree,
     stats: &mut GcApplyStats,
 ) -> Result<(), HandleError<TreeError>> {
-    spec.try_with_write(|guard| {
+    spec.with_write(|guard| {
         let result = resolved_tree.get_mut(guard)?.compact_if_sparse();
 
         stats.record(GcApplyStats {
@@ -369,7 +391,10 @@ pub fn handle_numeric(fgc: &mut ForkGC) -> Result<HandleOutcome, HandleError<Tre
 
     // No need to lock the spec and update the stats if there are none.
     if stats != GcApplyStats::default() {
-        spec.with_write(|guard| stats.apply(fgc, guard));
+        spec.with_write(|guard| {
+            stats.apply(fgc, guard);
+            Ok(())
+        })?;
     }
 
     result
