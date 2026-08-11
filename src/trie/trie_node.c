@@ -47,14 +47,10 @@ typedef struct {
   const rune *origStr;
   int lenOrigStr;
   bool prefix;
-  union {
-    struct {
-      bool suffix;
-    };
-    struct {
-      bool containsStars;
-    };
-  };
+  // Exactly one iteration mode is active per context, so the flags belonging to
+  // the other modes stay zero.
+  bool suffix;
+  bool containsStars;
   // stop if reach limit
   bool stop;
 
