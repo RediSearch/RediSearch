@@ -56,8 +56,16 @@ typedef enum {
   QUERY_REQUEST_KIND_HYBRID,
 } QueryRequestKind;
 
+typedef enum {
+  CURSOR_DISPOSITION_NONE,   // No cursor is awaiting end-of-cycle handling.
+  CURSOR_DISPOSITION_PAUSE,  // Return the cursor to the idle list for another read.
+  CURSOR_DISPOSITION_FREE,   // Destroy the cursor when the active cycle ends.
+} CursorDisposition;
+
 typedef struct {
   uint64_t id;
+  struct Cursor *cursor;
+  CursorDisposition disposition;
 } CursorInfo;
 
 /**

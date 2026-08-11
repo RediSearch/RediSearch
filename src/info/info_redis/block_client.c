@@ -84,6 +84,9 @@ void BlockedRequestCtx_EndCycle(BlockedRequestCtx *brc) {
   // TODO($$$): Remove the legacy cycle marker once consumers use QueryRequest.blockedClientCycleActive.
   brc->bc = NULL;
   brc->deferred_reply = false;
+  request->cursorInfo.cursor = NULL;
+  request->cursorInfo.disposition = CURSOR_DISPOSITION_NONE;
+  // TODO($$$): Remove the legacy cursor disposition once consumers use QueryRequest.cursorInfo.
   brc->cursor = NULL;
   brc->cursor_dispose_free = false;
 }

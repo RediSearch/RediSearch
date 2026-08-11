@@ -2190,6 +2190,10 @@ int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, Quer
  * (inline execution) it executes immediately. */
 static void cursorEndOfCycle(AREQ *req, Cursor *cursor, bool free_it) {
   if (req->brc->bc) {
+    req->base.cursorInfo.cursor = cursor;
+    req->base.cursorInfo.disposition =
+        free_it ? CURSOR_DISPOSITION_FREE : CURSOR_DISPOSITION_PAUSE;
+    // TODO($$$): Remove the legacy cursor disposition once consumers use QueryRequest.cursorInfo.
     req->brc->cursor = cursor;
     req->brc->cursor_dispose_free = free_it;
   } else if (free_it) {
