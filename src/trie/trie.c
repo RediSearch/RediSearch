@@ -12,7 +12,6 @@
 #include <string.h>
 #include <limits.h>
 #include <stdint.h>
-#include <stdlib.h>
 
 #include "util/heap.h"
 #include "util/misc.h"
