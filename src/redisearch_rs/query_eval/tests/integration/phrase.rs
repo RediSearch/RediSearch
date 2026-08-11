@@ -9,9 +9,10 @@
 
 //! QN_PHRASE → Intersection
 
-use query_eval::{QueryEvalContext, QueryNodeMut, eval, eval::Config};
+use query_eval::{Config, QueryEvalContext, QueryNodeMut, eval_node};
 use query_types::QueryNodeType;
 use rqe_iterators::{IteratorType, RQEIterator};
+use rqe_iterators_test_utils::ContractChecker;
 
 use query::mock::{MockQueryEvalCtx, MockQueryNode};
 
@@ -34,9 +35,11 @@ fn eval_phrase_single_child_returns_child() {
     phrase.set_children(&[wc_child.as_ptr()]);
     let node = unsafe { QueryNodeMut::new(phrase.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, node, Config::default())
-        .expect("should not be None")
-        .into_boxed();
+    let mut it = ContractChecker::new(
+        eval_node(&mut ctx, node, Config::default())
+            .expect("should not be None")
+            .into_boxed(),
+    );
 
     // The single child is returned directly, not wrapped in an intersection.
     assert_eq!(it.type_(), IteratorType::Wildcard);
@@ -55,15 +58,15 @@ fn eval_phrase_single_child_returns_child() {
 // plain set intersection, requiring no positional offsets.
 // ---------------------------------------------------------------------------
 
-// Disabled under Miri: `TestContext` and SDS creation call into the C library,
-// which Miri cannot execute.
+// Disabled under Miri: `TestContext` calls into the C library, which Miri
+// cannot execute.
 #[cfg(not(miri))]
 mod phrase {
     use ffi::IndexFlags_Index_StoreFreqs;
     use rqe_iterators_test_utils::{GlobalGuard, TestContext};
 
     use super::*;
-    use crate::util::new_sds;
+    use crate::util::MockKeys;
 
     #[test]
     fn eval_phrase_intersects_children() {
@@ -90,9 +93,8 @@ mod phrase {
 
         // child 1 matches {doc_a, doc_b}; child 2 matches {doc_b, doc_c}; the
         // intersection is {doc_b}.
-        let keys1: Vec<ffi::sds> = vec![new_sds("doc_a"), new_sds("doc_b")];
-        let keys2: Vec<ffi::sds> = vec![new_sds("doc_b"), new_sds("doc_c")];
-        // IDS nodes carry pre-resolved docIds, positionally matching the keys.
+        let keys1 = MockKeys::new(&["doc_a", "doc_b"]);
+        let keys2 = MockKeys::new(&["doc_b", "doc_c"]);
         let mut dids1 = vec![id_a, id_b];
         let mut dids2 = vec![id_b, id_c];
         let mut c1 = MockQueryNode::new(QueryNodeType::Ids);
@@ -107,19 +109,16 @@ mod phrase {
         phrase.set_children(&[c1.as_ptr(), c2.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(phrase.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, node, Config::default())
-            .expect("should not be None")
-            .into_boxed();
+        let mut it = ContractChecker::new(
+            eval_node(&mut ctx, node, Config::default())
+                .expect("should not be None")
+                .into_boxed(),
+        );
 
         assert_eq!(it.type_(), IteratorType::Intersect);
         let r = it.read().unwrap().expect("should have a result");
         assert_eq!(r.doc_id, 2);
         assert!(matches!(it.read(), Ok(None)));
-
-        for key in keys1.into_iter().chain(keys2) {
-            // SAFETY: each `key` was allocated by `sdsnewlen` and is freed once.
-            unsafe { ffi::sdsfree(key) };
-        }
     }
 
     #[test]
@@ -152,9 +151,8 @@ mod phrase {
 
         // child 1 matches {doc_a, doc_b}; child 2 matches {doc_b, doc_c}; the
         // intersection is {doc_b}.
-        let keys1: Vec<ffi::sds> = vec![new_sds("doc_a"), new_sds("doc_b")];
-        let keys2: Vec<ffi::sds> = vec![new_sds("doc_b"), new_sds("doc_c")];
-        // IDS nodes carry pre-resolved docIds, positionally matching the keys.
+        let keys1 = MockKeys::new(&["doc_a", "doc_b"]);
+        let keys2 = MockKeys::new(&["doc_b", "doc_c"]);
         let mut dids1 = vec![id_a, id_b];
         let mut dids2 = vec![id_b, id_c];
         let mut c1 = MockQueryNode::new(QueryNodeType::Ids);
@@ -170,19 +168,16 @@ mod phrase {
         phrase.set_children(&[c1.as_ptr(), c2.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(phrase.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, node, Config::default())
-            .expect("should not be None")
-            .into_boxed();
+        let mut it = ContractChecker::new(
+            eval_node(&mut ctx, node, Config::default())
+                .expect("should not be None")
+                .into_boxed(),
+        );
 
         assert_eq!(it.type_(), IteratorType::Intersect);
         let r = it.read().unwrap().expect("should have a result");
         assert_eq!(r.doc_id, 2);
         assert!(matches!(it.read(), Ok(None)));
-
-        for key in keys1.into_iter().chain(keys2) {
-            // SAFETY: each `key` was allocated by `sdsnewlen` and is freed once.
-            unsafe { ffi::sdsfree(key) };
-        }
     }
 
     #[test]
@@ -216,9 +211,8 @@ mod phrase {
 
         // child 1 matches {doc_a, doc_b}; child 2 matches {doc_b, doc_c}; the
         // intersection is {doc_b}.
-        let keys1: Vec<ffi::sds> = vec![new_sds("doc_a"), new_sds("doc_b")];
-        let keys2: Vec<ffi::sds> = vec![new_sds("doc_b"), new_sds("doc_c")];
-        // IDS nodes carry pre-resolved docIds, positionally matching the keys.
+        let keys1 = MockKeys::new(&["doc_a", "doc_b"]);
+        let keys2 = MockKeys::new(&["doc_b", "doc_c"]);
         let mut dids1 = vec![id_a, id_b];
         let mut dids2 = vec![id_b, id_c];
         let mut c1 = MockQueryNode::new(QueryNodeType::Ids);
@@ -234,19 +228,16 @@ mod phrase {
         phrase.set_children(&[c1.as_ptr(), c2.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(phrase.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, node, Config::default())
-            .expect("should not be None")
-            .into_boxed();
+        let mut it = ContractChecker::new(
+            eval_node(&mut ctx, node, Config::default())
+                .expect("should not be None")
+                .into_boxed(),
+        );
 
         assert_eq!(it.type_(), IteratorType::Intersect);
         let r = it.read().unwrap().expect("should have a result");
         assert_eq!(r.doc_id, 2);
         assert!(matches!(it.read(), Ok(None)));
-
-        for key in keys1.into_iter().chain(keys2) {
-            // SAFETY: each `key` was allocated by `sdsnewlen` and is freed once.
-            unsafe { ffi::sdsfree(key) };
-        }
     }
 
     #[test]
@@ -278,8 +269,8 @@ mod phrase {
         // child 1: QN_MISSING for a field with no missing values → None.
         let mut missing_child = MockQueryNode::new(QueryNodeType::Missing);
         missing_child.set_missing_field(context.field_spec());
-        // child 2: QN_IDS resolving to a real document (pre-resolved docId).
-        let keys: Vec<ffi::sds> = vec![new_sds("doc_a")];
+        // child 2: QN_IDS resolving to a real document.
+        let keys = MockKeys::new(&["doc_a"]);
         let mut dids = vec![id_a];
         let mut ids_child = MockQueryNode::new(QueryNodeType::Ids);
         ids_child.set_ids(keys.as_ptr(), dids.as_mut_ptr(), keys.len());
@@ -290,18 +281,15 @@ mod phrase {
         phrase.set_children(&[missing_child.as_ptr(), ids_child.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(phrase.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, node, Config::default())
-            .expect("a multi-child phrase always yields an iterator")
-            .into_boxed();
+        let mut it = ContractChecker::new(
+            eval_node(&mut ctx, node, Config::default())
+                .expect("a multi-child phrase always yields an iterator")
+                .into_boxed(),
+        );
 
         assert_eq!(it.type_(), IteratorType::Empty);
         assert!(matches!(it.read(), Ok(None)));
         assert!(it.at_eof());
-
-        for key in keys {
-            // SAFETY: each `key` was allocated by `sdsnewlen` and is freed once.
-            unsafe { ffi::sdsfree(key) };
-        }
     }
 
     #[test]
@@ -331,9 +319,9 @@ mod phrase {
         unsafe { (*qctx.as_ptr()).opts = &mut search_opts };
         let mut ctx = unsafe { QueryEvalContext::new(qctx) };
 
-        // Both children resolve to the shared document `doc_b` (pre-resolved docId).
-        let keys1: Vec<ffi::sds> = vec![new_sds("doc_b")];
-        let keys2: Vec<ffi::sds> = vec![new_sds("doc_b")];
+        // Both children resolve to the shared document `doc_b`.
+        let keys1 = MockKeys::new(&["doc_b"]);
+        let keys2 = MockKeys::new(&["doc_b"]);
         let mut dids1 = vec![id_b];
         let mut dids2 = vec![id_b];
         let mut c1 = MockQueryNode::new(QueryNodeType::Ids);
@@ -348,9 +336,11 @@ mod phrase {
         phrase.set_children(&[c1.as_ptr(), c2.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(phrase.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, node, Config::default())
-            .expect("should not be None")
-            .into_boxed();
+        let mut it = ContractChecker::new(
+            eval_node(&mut ctx, node, Config::default())
+                .expect("should not be None")
+                .into_boxed(),
+        );
 
         // The exact params flowed into a real intersection (not a reduced leaf).
         assert_eq!(it.type_(), IteratorType::Intersect);
@@ -358,11 +348,6 @@ mod phrase {
         assert_eq!(r.doc_id, 2);
         assert!(matches!(it.read(), Ok(None)));
         assert!(it.at_eof());
-
-        for key in keys1.into_iter().chain(keys2) {
-            // SAFETY: each `key` was allocated by `sdsnewlen` and is freed once.
-            unsafe { ffi::sdsfree(key) };
-        }
     }
 }
 
@@ -396,9 +381,11 @@ mod phrase_reducer {
         phrase.set_children(&[c1.as_ptr(), c2.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(phrase.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, node, Config::default())
-            .expect("a multi-child phrase always yields an iterator")
-            .into_boxed();
+        let mut it = ContractChecker::new(
+            eval_node(&mut ctx, node, Config::default())
+                .expect("a multi-child phrase always yields an iterator")
+                .into_boxed(),
+        );
 
         assert_eq!(it.type_(), IteratorType::Empty);
         assert!(matches!(it.read(), Ok(None)));
@@ -427,9 +414,11 @@ mod phrase_reducer {
         phrase.set_children(&[c1.as_ptr(), c2.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(phrase.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, node, Config::default())
-            .expect("a multi-child phrase always yields an iterator")
-            .into_boxed();
+        let mut it = ContractChecker::new(
+            eval_node(&mut ctx, node, Config::default())
+                .expect("a multi-child phrase always yields an iterator")
+                .into_boxed(),
+        );
 
         // All children were wildcards, so the reducer returns the single
         // remaining wildcard directly.

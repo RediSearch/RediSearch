@@ -9,9 +9,10 @@
 
 //! QN_WILDCARD → Wildcard
 
-use query_eval::{QueryEvalContext, QueryNodeMut, eval, eval::Config};
+use query_eval::{Config, QueryEvalContext, QueryNodeMut, eval_node};
 use query_types::QueryNodeType;
 use rqe_iterators::{IteratorType, RQEIterator};
+use rqe_iterators_test_utils::ContractChecker;
 
 use query::mock::{MockQueryEvalCtx, MockQueryNode};
 
@@ -25,9 +26,11 @@ fn eval_wildcard_returns_wildcard_iterator() {
     mock_node.opts_mut().weight = 1.0;
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, node, Config::default())
-        .expect("should not be None")
-        .into_boxed();
+    let mut it = ContractChecker::new(
+        eval_node(&mut ctx, node, Config::default())
+            .expect("should not be None")
+            .into_boxed(),
+    );
 
     assert_eq!(it.type_(), IteratorType::Wildcard);
     assert!(!it.at_eof());
@@ -44,12 +47,16 @@ fn eval_wildcard_empty_index() {
     let mock_node = MockQueryNode::new(QueryNodeType::Wildcard);
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, node, Config::default())
-        .expect("should not be None")
-        .into_boxed();
+    let mut it = ContractChecker::new(
+        eval_node(&mut ctx, node, Config::default())
+            .expect("should not be None")
+            .into_boxed(),
+    );
 
-    assert!(it.at_eof());
+    // Nothing to yield, but nothing read yet either: EOF arrives with the read.
+    assert!(!it.at_eof());
     assert!(matches!(it.read(), Ok(None)));
+    assert!(it.at_eof());
 }
 
 #[test]
@@ -62,9 +69,11 @@ fn eval_wildcard_respects_weight() {
     mock_node.opts_mut().weight = 2.5;
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, node, Config::default())
-        .expect("should not be None")
-        .into_boxed();
+    let mut it = ContractChecker::new(
+        eval_node(&mut ctx, node, Config::default())
+            .expect("should not be None")
+            .into_boxed(),
+    );
     let result = it.read().unwrap().expect("should have a result");
     assert_eq!(result.weight, 2.5);
 }

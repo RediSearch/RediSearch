@@ -1308,7 +1308,6 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
       fs->options |= FieldSpec_IndexMissing;
     }
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEO_STR)) {  // geo field
-    if (!SearchDisk_MarkUnsupportedFieldIfDiskEnabled(SPEC_GEO_STR, fs, status)) goto error;
     fs->types |= INDEXFLD_T_GEO;
     if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
       fs->options |= FieldSpec_IndexMissing;
@@ -1487,8 +1486,8 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
 
     if (isSpecOnDiskForValidation(sp))
     {
-      if (!FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && !FIELD_IS(fs, INDEXFLD_T_VECTOR) && !FIELD_IS(fs, INDEXFLD_T_TAG) && !FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Disk index does not support non-TEXT/VECTOR/TAG/NUMERIC fields");
+      if (!FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && !FIELD_IS(fs, INDEXFLD_T_VECTOR) && !FIELD_IS(fs, INDEXFLD_T_TAG) && !FIELD_IS(fs, INDEXFLD_T_NUMERIC) && !FIELD_IS(fs, INDEXFLD_T_GEO)) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Disk index does not support non-TEXT/VECTOR/TAG/NUMERIC/GEO fields");
         goto reset;
       }
       if (fs->options & FieldSpec_NotIndexable) {
@@ -1622,7 +1621,7 @@ int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, 
   return IndexSpec_AddFieldsInternal(sp, spec_ref, ac, status, 0);
 }
 
-bool IndexSpec_IsCoherent(IndexSpec *spec, sds* prefixes, size_t n_prefixes) {
+bool IndexSpec_IsCoherent(IndexSpec *spec, RedisModuleString **prefixes, size_t n_prefixes) {
   if (!spec || !spec->rule) {
     return false;
   }
@@ -1634,8 +1633,10 @@ bool IndexSpec_IsCoherent(IndexSpec *spec, sds* prefixes, size_t n_prefixes) {
   // Validate that the prefixes in the arguments are the same as the ones in the
   // index (also in the same order)
   for (size_t i = 0; i < n_prefixes; i++) {
-    sds arg = prefixes[i];
-    if (HiddenUnicodeString_CompareC(spec_prefixes[i], arg) != 0) {
+    size_t spec_len, arg_len;
+    const char *spec_str = HiddenUnicodeString_GetUnsafe(spec_prefixes[i], &spec_len);
+    const char *arg = RedisModule_StringPtrLen(prefixes[i], &arg_len);
+    if (spec_len != arg_len || memcmp(spec_str, arg, arg_len) != 0) {
       // Unmatching prefixes
       return false;
     }

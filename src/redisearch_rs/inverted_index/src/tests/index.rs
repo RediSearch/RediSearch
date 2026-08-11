@@ -11,7 +11,7 @@ use std::io::Cursor;
 
 use crate::{
     Decoder, Encoder, EntriesTrackingIndex, FieldMaskTrackingIndex, GcScanDelta, IdDelta,
-    IndexBlock, InvertedIndex,
+    IndexBlock, IndexReader as _, InvertedIndex,
     debug::{BlockSummary, Summary},
     gc::BlockGcScanResult,
     gc::RepairType,
@@ -49,7 +49,7 @@ fn adding_records() {
     assert_eq!(
         mem_growth,
         8 + IndexBlock::STACK_SIZE + 4,
-        "header of the thin vec storing the blocks (8 bytes), size of the first index block (48 bytes) plus 4 bytes for the encoded delta"
+        "header of the thin vec storing the blocks (8 bytes), size of the first index block (56 bytes) plus 4 bytes for the encoded delta"
     );
     assert_eq!(ii.blocks.len(), 1);
     assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0]);
@@ -184,7 +184,7 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
     assert_eq!(
         mem_growth,
         8 + IndexBlock::STACK_SIZE + 1,
-        "header of the thin vec storing the blocks (8 bytes), size of the first index block (48 bytes) plus the byte written"
+        "header of the thin vec storing the blocks (8 bytes), size of the first index block (56 bytes) plus the byte written"
     );
     assert_eq!(ii.blocks.len(), 1);
     let mem_growth = ii
@@ -202,7 +202,7 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
     assert_eq!(
         mem_growth,
         IndexBlock::STACK_SIZE + 1,
-        "size of the new index block (48 bytes) plus the byte written"
+        "size of the new index block (56 bytes) plus the byte written"
     );
     assert_eq!(
         ii.blocks.len(),
@@ -242,8 +242,8 @@ fn adding_big_delta_makes_new_block() {
 
     assert_eq!(
         mem_growth,
-        4 + 8 + 48,
-        "should write 4 bytes for delta, 8 bytes of thin vec header, and 48 bytes for the index block"
+        4 + 8 + IndexBlock::STACK_SIZE,
+        "should write 4 bytes for delta, 8 bytes of thin vec header, and one index block"
     );
     assert_eq!(ii.blocks.len(), 1);
     assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0]);
@@ -260,8 +260,8 @@ fn adding_big_delta_makes_new_block() {
 
     assert_eq!(
         mem_growth,
-        4 + 48,
-        "should write 4 bytes for delta and 48 bytes for the new index block"
+        4 + IndexBlock::STACK_SIZE,
+        "should write 4 bytes for delta and one new index block"
     );
     assert_eq!(ii.blocks.len(), 2);
     assert_eq!(ii.blocks[1].buffer, [0, 0, 0, 0]);
@@ -271,9 +271,9 @@ fn adding_big_delta_makes_new_block() {
     assert_eq!(ii.n_unique_docs, 2);
 }
 
-// An `IndexBlock` is 48 bytes so we want to carefully control the growth strategy used by it to
-// limit memory usage. This test ensures the blocks field of an inverted index only grows by one
-// element at a time.
+// `IndexBlock`s are stored inline in the blocks vector, so we want to carefully control the growth
+// strategy used by it to limit memory usage. This test ensures the blocks field of an inverted
+// index only grows by one element at a time.
 #[test]
 fn adding_ii_blocks_growth_strategy() {
     /// Dummy encoder which only allows 2 entries per block for testing
@@ -414,7 +414,7 @@ fn adding_track_field_mask() {
     assert_eq!(
         mem_growth,
         8 + IndexBlock::STACK_SIZE + 4,
-        "header of the thin vec storing the blocks (8 bytes), size of the first index block (48 bytes) plus 4 bytes for the encoded result"
+        "header of the thin vec storing the blocks (8 bytes), size of the first index block (56 bytes) plus 4 bytes for the encoded result"
     );
     assert_eq!(ii.field_mask(), 0b101);
 
@@ -656,10 +656,12 @@ fn add_prepared_record_matches_add_record() {
     for (i, value) in values.iter().enumerate() {
         let doc_id = i as DocId + 1;
 
-        let record = RSIndexResult::build_numeric(*value).doc_id(doc_id).build();
+        let has_field_expiration = i % 2 == 0;
+        let mut record = RSIndexResult::build_numeric(*value).doc_id(doc_id).build();
+        record.has_field_expiration = has_field_expiration;
         let record_outcome = from_records.add_record(&record).unwrap();
         let prepared_outcome = from_prepared
-            .add_prepared_record(doc_id, Numeric::prepare(*value))
+            .add_prepared_record(doc_id, Numeric::prepare(*value), has_field_expiration)
             .unwrap();
 
         assert_eq!(
@@ -678,4 +680,14 @@ fn add_prepared_record_matches_add_record() {
     let record_bytes: Vec<_> = from_records.blocks.iter().map(|b| b.data()).collect();
     let prepared_bytes: Vec<_> = from_prepared.blocks.iter().map(|b| b.data()).collect();
     assert_eq!(record_bytes, prepared_bytes, "encoded bytes diverged");
+
+    let mut record_reader = from_records.reader();
+    let mut prepared_reader = from_prepared.reader();
+    let mut record = RSIndexResult::build_numeric(0.0).build();
+    let mut prepared = RSIndexResult::build_numeric(0.0).build();
+    while record_reader.next_record(&mut record).unwrap() {
+        assert!(prepared_reader.next_record(&mut prepared).unwrap());
+        assert_eq!(record, prepared);
+    }
+    assert!(!prepared_reader.next_record(&mut prepared).unwrap());
 }

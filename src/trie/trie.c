@@ -41,12 +41,11 @@ size_t Trie_Size(const Trie *t) {
 
 Trie *NewTrie(TrieFreeCallback freecb, TrieSortMode sortMode) {
   Trie *tree = rm_malloc(sizeof(Trie));
-  rune *rs = strToRunes("", 0);
+  rune rs[1] = {0};
   tree->root = __newTrieNode(rs, 0, 0, NULL, 0, 0, 0, 0, sortMode, 0);
   tree->size = 0;
   tree->freecb = freecb;
   tree->sortMode = sortMode;
-  rm_free(rs);
   return tree;
 }
 

@@ -11,7 +11,7 @@
 
 #include "config.h"
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 extern "C" {
 #endif
 
@@ -24,17 +24,16 @@ typedef uint32_t nu_mph_codepoints_full_t;
 	typedef nu_mph_codepoints_bmp_t nu_mph_codepoints_t;
 #else
 	typedef nu_mph_codepoints_full_t nu_mph_codepoints_t;
-#endif /* NU_BMP_ONLY */
+#endif /* NU_WITH_BMP_ONLY */
 
-/* those need to be the same values as used in MPH generation */
-#define PRIME 0x01000193
+#define NU_MPH_PRIME (0x01000193) /* this must match the value used for MPH generation */
 
 /** Calculate G offset from codepoint
  */
 static inline
 uint32_t _nu_hash(uint32_t hash, uint32_t codepoint) {
 	if (hash == 0) {
-		hash = PRIME;
+		hash = NU_MPH_PRIME;
 	}
 
 	return hash ^ codepoint;
@@ -73,7 +72,7 @@ uint32_t nu_mph_lookup(const nu_mph_codepoints_t *V_C, const uint16_t *V_I,
 
 #endif /* NU_WITH_UDB */
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 }
 #endif
 

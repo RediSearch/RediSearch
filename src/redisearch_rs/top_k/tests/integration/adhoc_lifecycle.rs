@@ -18,6 +18,7 @@ use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use rqe_core::DocId;
 use rqe_iterators::{IdList, RQEIterator, RQEIteratorError};
+use rqe_iterators_test_utils::ContractChecker;
 use top_k::{
     BatchStrategy, ScoreSource, ScoredResult, TopKIterator, TopKMode, mock::MockScoreBatch,
     mock::MockScoreSource,
@@ -69,6 +70,16 @@ impl ScoreSource for CallCountingScoreSource {
         Self: 'r,
     {
         RSIndexResult::build_virt().doc_id(doc_id).build()
+    }
+
+    fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+    where
+        Self: 'r,
+    {
+    }
+
+    fn yields_child_record(&self) -> bool {
+        true
     }
 
     fn batch_strategy(&mut self, _: usize, _: usize) -> BatchStrategy {
@@ -146,7 +157,12 @@ impl<'index> ErrOnSecondRead<'index> {
 
 impl<'index> RQEIterator<'index> for ErrOnSecondRead<'index> {
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
-        None
+        // Later reads fail rather than report depletion, so this stub never
+        // advances past its single document once it has been read.
+        if self.n == 0 {
+            return None;
+        }
+        Some(&mut self.result)
     }
 
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
@@ -278,13 +294,13 @@ fn rerank_reorders_topk_by_exact_scores() {
     })
     .with_rerank(vec![(1, 0.30), (2, 0.20), (3, 0.10)]);
 
-    let mut it = TopKIterator::new_with_mode(
+    let mut it = ContractChecker::new_unordered(TopKIterator::new_with_mode(
         source,
         Some(make_child(vec![1, 2, 3])),
         NonZeroUsize::new(3).unwrap(),
         asc,
         TopKMode::AdhocBF,
-    );
+    ));
 
     let mut ids = Vec::new();
     while let Some(r) = it.read().unwrap() {
@@ -304,13 +320,13 @@ fn rerank_keeps_adhoc_score_for_unmapped_doc() {
     })
     .with_rerank(vec![(1, 0.05)]);
 
-    let mut it = TopKIterator::new_with_mode(
+    let mut it = ContractChecker::new_unordered(TopKIterator::new_with_mode(
         source,
         Some(make_child(vec![1, 2, 3])),
         NonZeroUsize::new(3).unwrap(),
         asc,
         TopKMode::AdhocBF,
-    );
+    ));
 
     let mut ids = Vec::new();
     while let Some(r) = it.read().unwrap() {

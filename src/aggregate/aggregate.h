@@ -9,6 +9,8 @@
 #ifndef RS_AGGREGATE_H__
 #define RS_AGGREGATE_H__
 
+#include <stdint.h>
+
 #include "query_flags.h"
 #include "value_ffi.h"
 #include "query.h"
@@ -55,8 +57,8 @@ typedef struct {
  * ## Cursor ↔ AREQ Ownership
  *
  * **Cursor owns AREQ** (not vice versa):
- * - cursor->execState points to the AREQ
- * - Cursor_FreeInternal calls AREQ_DecrRef(cur->execState)
+ * - cursor->query points to the AREQ's wrapper
+ * - Cursor_FreeInternal releases the wrapper reference
  *
  * **AREQ does NOT own Cursor**:
  * - The `cursor` field below is a NON-OWNING handle.
@@ -176,6 +178,14 @@ typedef enum {
   REQUEST_KIND_HYBRID,
 } RequestKind;
 
+/* TRANSITIONAL(MOD-16691): values of BlockedRequestCtx.strictReadOwner (see
+ * the field's doc; deleted by the RETURN_STRICT flip). */
+typedef enum {
+  BRC_READ_OWNER_NONE = 0,
+  BRC_READ_OWNER_BG,
+  BRC_READ_OWNER_TIMEOUT,
+} BrcStrictReadOwner;
+
 /* Heap-allocated owning wrapper around a top-level request. Defined below the
  * AREQ struct (it references AREQ/HybridRequest only by pointer). */
 typedef struct BlockedRequestCtx BlockedRequestCtx;
@@ -245,13 +255,6 @@ static inline void RequestSyncState_Destroy(RequestSyncState *st) {
 }
 
 typedef struct AREQ {
-  /* Arguments converted to sds. Received on input */
-  sds *args;
-  size_t nargs;
-
-  /** Search query string */
-  const char *query;
-
   /** For hybrid queries: contains parsed vector data and partially constructed query node */
   ParsedVectorData *parsedVectorData;
 
@@ -331,7 +334,7 @@ typedef struct AREQ {
   RequestSyncState syncState;
 
   // Non-owning back-pointer to the heap wrapper that owns this request.
-  // Set for the top-level request; NULL for hybrid sub-AREQs.
+  // Every AREQ is wrapped at construction (hybrid sub-AREQs included).
   BlockedRequestCtx *brc;
 
   // Flag to indicate whether to skip timeout checks using clock checks
@@ -343,6 +346,9 @@ typedef struct AREQ {
 
 /* Forward declaration; full type lives in hybrid_request.h. */
 struct HybridRequest;
+
+/* BlockedRequestCtx.queryOffset value meaning "no query argument". */
+#define QUERY_OFFSET_NONE UINT32_MAX
 
 /**
  * Heap-allocated owning wrapper around a top-level request (AREQ or
@@ -356,6 +362,24 @@ struct BlockedRequestCtx {
     AREQ *areq;
     struct HybridRequest *hybrid;
   } query;
+
+  /* Held references to the command argv strings the owned request's plan
+   * borrows from; may be a superset of the parsed slice. Taken at
+   * construction, on the main thread (string refcounts are not thread safe);
+   * released in BlockedRequestCtx_Free, after the owned request. */
+  RedisModuleString **argv;
+  uint32_t argc;
+
+  /* The logical command length within argv — the extent parsing may
+   * read. Set with the holds at construction; the debug constructors lower
+   * it so the trailing debug params stay held but unparsed. */
+  uint32_t parseArgc;
+
+  /* Index of the owned request's query string within argv — the start
+   * of its parse slice. Set where the query is discovered (AREQ_Compile;
+   * setSubQueryArg for hybrid subs). QUERY_OFFSET_NONE means no query
+   * argument (a VSIM sub without FILTER, or the container). */
+  uint32_t queryOffset;
 
   /* Partial-timeout coordination. The CAS claim grants exclusive ownership of
    * the result-production phase: the BG-thread winner runs AggregateResults
@@ -399,6 +423,14 @@ struct BlockedRequestCtx {
   // Destroyed at EndCycle (per cycle) and, idempotently, in
   // BlockedRequestCtx_Free as a safety net.
   ChunkReplyState reply;
+  /* Cursor disposition for this cycle. The point that decides the cursor's
+   * fate (the BG worker at cycle end, or the reply path once finishSendChunk
+   * set QEXEC_S_ITERDONE) records it here; OnFree — the single park-or-free
+   * point — executes it, so a cycle's cursor stays unreachable to other
+   * clients until the cycle fully ended. NULL when the cycle has no cursor;
+   * inline execution (brc->bc == NULL) disposes directly. */
+  struct Cursor *cursor;
+  bool cursor_dispose_free;
 
   /* ===== TRANSITIONAL(MOD-16691) — refactor scaffolding =====
    * Every field below is temporary bloat: each one bridges a gap that a later
@@ -413,6 +445,18 @@ struct BlockedRequestCtx {
    * triggering Free. ACQ_REL on decrement so the free path sees prior writes. */
   RS_Atomic(int) refcount;
 
+  /* TRANSITIONAL(MOD-16691): "has the BG worker dequeued this cursor read?"
+   * latch for coord RETURN_STRICT cursor reads; per-cycle, reset by
+   * BeginCycle. The BG handler CASes NONE→BG at its entry; the RETURN_STRICT
+   * timeout callback CASes NONE→TIMEOUT after flipping the timeout flag. A
+   * timer that wins replies with a depleted empty cursor and never waits (the
+   * BG job may be queued behind a paused/saturated pool); a BG that loses
+   * frees the taken cursor and stores nothing. A timer that loses may wait: a
+   * started RETURN_STRICT read always stores a reply and signals completion.
+   * Deleted by the RETURN_STRICT flip (a never-waiting timeout callback does
+   * not care whether BG started). */
+  RS_Atomic(int) strictReadOwner;
+
   /* TRANSITIONAL(MOD-16691): per-cycle registry bridge, until Step 3 links
    * the wrapper itself into BlockedQueries. The node created for this cycle,
    * unlinked and freed in EndCycle. Kind-tagged because query and cursor
@@ -421,11 +465,28 @@ struct BlockedRequestCtx {
   bool registry_node_is_cursor;
 };
 
-/* Allocate a heap BlockedRequestCtx that takes ownership of the request,
- * initializes the result-production coordination state (refcount=1), and
- * wires the non-owning back-pointer (`brc`) on the owned request. */
-BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq);
-BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid);
+/* The request's query string: the first argument of its parse slice, backed
+ * by the wrapper's held argv. A request with no query argument (a hybrid
+ * VSIM sub-request without a FILTER) defaults to the match-all wildcard
+ * query "*". */
+static inline const char *AREQ_Query(const AREQ *req, size_t *len) {
+  if (req->brc->queryOffset == QUERY_OFFSET_NONE) {
+    if (len) *len = 1;
+    return "*";
+  }
+  const char *query = RedisModule_StringPtrLen(req->brc->argv[req->brc->queryOffset], len);
+  // TRANSITIONAL: report the C-string length, truncating at the first NUL, so a
+  // query with embedded NULs behaves as it always has.
+  // TODO: remove — the true length is what StringPtrLen already reported.
+  if (len) *len = strlen(query);
+  return query;
+}
+
+/* Allocate a heap BlockedRequestCtx owning the request (refcount=1), wire the
+ * `brc` back-pointer, and take the argv holds (see `argv`). Main-thread
+ * only; `argv` must not be NULL. */
+BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq, RedisModuleString **argv, uint32_t argc);
+BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid, RedisModuleString **argv, uint32_t argc);
 
 /* TRANSITIONAL(MOD-16691): increment / decrement the wrapper's reference
  * count. DecrRef triggers BlockedRequestCtx_Free when the count drops to
@@ -444,10 +505,12 @@ void BlockedRequestCtx_Free(BlockedRequestCtx *brc);
  * loudly in debug builds. */
 static inline AREQ *BlockedRequestCtx_GetAREQ(BlockedRequestCtx *brc) {
   RS_ASSERT(brc->kind == REQUEST_KIND_AREQ);
+  RS_ASSERT(brc->query.areq != NULL);
   return brc->query.areq;
 }
 static inline struct HybridRequest *BlockedRequestCtx_GetHybrid(BlockedRequestCtx *brc) {
   RS_ASSERT(brc->kind == REQUEST_KIND_HYBRID);
+  RS_ASSERT(brc->query.hybrid != NULL);
   return brc->query.hybrid;
 }
 
@@ -492,11 +555,13 @@ void AREQ_DecrRef(AREQ *req);
 AREQ *AREQ_New(void);
 
 /**
- * Compile the request given the arguments. This does not rely on
+ * Compile the request from the wrapper's held argv, starting at `offset`
+ * (the query token) and reading up to the wrapper's `parseArgc` — the holds are
+ * the only string source by construction. This does not rely on
  * Redis-specific states and may be unit-tested. This largely just
  * compiles the options and parses the commands..
  */
-int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDiskIndex, QueryError *status);
+int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskIndex, QueryError *status);
 
 /**
  * Parse aggregate plan arguments (GROUPBY, APPLY, LOAD, FILTER) from an ArgsCursor.
@@ -732,6 +797,11 @@ static inline bool AREQ_RequiresThreadsSyncResults(const AREQ *req) {
  * Signal: called by winner at completion. Wait: called by loser, blocks until Signal.
  * Exactly one of {BG thread, timeout callback} wins. */
 bool AREQ_TryClaimAggregateResults(AREQ *req);
+
+/* TRANSITIONAL(MOD-16691): CAS BlockedRequestCtx.strictReadOwner NONE ->
+ * `owner`. Returns true if this caller won the latch (see the field's doc for
+ * the protocol; deleted by the RETURN_STRICT flip). */
+bool BlockedRequestCtx_TryOwnStrictRead(BlockedRequestCtx *brc, BrcStrictReadOwner owner);
 void AREQ_SignalAggregateResultsComplete(AREQ *req);
 void AREQ_WaitForAggregateResultsComplete(AREQ *req);
 

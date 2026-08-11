@@ -9,9 +9,10 @@
 
 //! QN_NOT → Not / Wildcard / Empty (via the reducer shortcircuits)
 
-use query_eval::{QueryEvalContext, QueryNodeMut, eval, eval::Config};
+use query_eval::{Config, QueryEvalContext, QueryNodeMut, eval_node};
 use query_types::QueryNodeType;
 use rqe_iterators::{IteratorType, RQEIterator};
+use rqe_iterators_test_utils::ContractChecker;
 
 use query::mock::{MockQueryEvalCtx, MockQueryNode};
 
@@ -31,9 +32,11 @@ fn eval_not_empty_child_falls_back_to_wildcard() {
     not.set_children(&[null_child.as_ptr()]);
     let node = unsafe { QueryNodeMut::new(not.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, node, Config::default())
-        .expect("should not be None")
-        .into_boxed();
+    let mut it = ContractChecker::new(
+        eval_node(&mut ctx, node, Config::default())
+            .expect("should not be None")
+            .into_boxed(),
+    );
 
     assert_eq!(it.type_(), IteratorType::Wildcard);
     for expected in [1, 2, 3] {
@@ -59,9 +62,11 @@ fn eval_not_wildcard_child_reduces_to_empty() {
     not.set_children(&[wc_child.as_ptr()]);
     let node = unsafe { QueryNodeMut::new(not.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, node, Config::default())
-        .expect("should not be None")
-        .into_boxed();
+    let mut it = ContractChecker::new(
+        eval_node(&mut ctx, node, Config::default())
+            .expect("should not be None")
+            .into_boxed(),
+    );
 
     assert_eq!(it.type_(), IteratorType::Empty);
     assert!(matches!(it.read(), Ok(None)));
@@ -84,7 +89,7 @@ mod not {
     use rqe_iterators_test_utils::{GlobalGuard, TestContext};
 
     use super::*;
-    use crate::util::new_sds;
+    use crate::util::MockKeys;
 
     #[test]
     fn eval_not_wraps_real_child_in_not() {
@@ -106,8 +111,8 @@ mod not {
 
         let mut ctx = unsafe { QueryEvalContext::new(context.qctx()) };
 
-        // QN_IDS child resolving to the middle document only (pre-resolved docId).
-        let keys: Vec<ffi::sds> = vec![new_sds("doc_b")];
+        // QN_IDS child resolving to the middle document only.
+        let keys = MockKeys::new(&["doc_b"]);
         let mut dids = vec![id_b];
         let mut ids_child = MockQueryNode::new(QueryNodeType::Ids);
         ids_child.set_ids(keys.as_ptr(), dids.as_mut_ptr(), keys.len());
@@ -117,9 +122,11 @@ mod not {
         not.set_children(&[ids_child.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(not.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, node, Config::default())
-            .expect("should not be None")
-            .into_boxed();
+        let mut it = ContractChecker::new(
+            eval_node(&mut ctx, node, Config::default())
+                .expect("should not be None")
+                .into_boxed(),
+        );
 
         assert_eq!(it.type_(), IteratorType::Not);
         // Every id except the one matched by the child (doc 2).
@@ -129,11 +136,6 @@ mod not {
         }
         assert!(matches!(it.read(), Ok(None)));
         assert!(it.at_eof());
-
-        for key in keys {
-            // SAFETY: each `key` was allocated by `sdsnewlen` and is freed once.
-            unsafe { ffi::sdsfree(key) };
-        }
     }
 
     #[test]
@@ -166,9 +168,11 @@ mod not {
         not.set_children(&[missing_child.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(not.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, node, Config::default())
-            .expect("a not node always yields an iterator")
-            .into_boxed();
+        let mut it = ContractChecker::new(
+            eval_node(&mut ctx, node, Config::default())
+                .expect("a not node always yields an iterator")
+                .into_boxed(),
+        );
 
         assert_eq!(it.type_(), IteratorType::Wildcard);
         for expected in [1, 2] {
@@ -204,7 +208,7 @@ mod not {
         // QN_IDS child resolving to a real document → neither empty nor a
         // wildcard, so the reducer skips its shortcircuits and reaches the
         // optimized constructor.
-        let keys: Vec<ffi::sds> = vec![new_sds("doc_b")];
+        let keys = MockKeys::new(&["doc_b"]);
         let mut dids = vec![id_b];
         let mut ids_child = MockQueryNode::new(QueryNodeType::Ids);
         ids_child.set_ids(keys.as_ptr(), dids.as_mut_ptr(), keys.len());
@@ -214,9 +218,11 @@ mod not {
         not.set_children(&[ids_child.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(not.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, node, Config::default())
-            .expect("should not be None")
-            .into_boxed();
+        let mut it = ContractChecker::new(
+            eval_node(&mut ctx, node, Config::default())
+                .expect("should not be None")
+                .into_boxed(),
+        );
 
         assert_eq!(it.type_(), IteratorType::NotOptimized);
         // `existingDocs` is null in the term context, so the backing wildcard is
@@ -224,10 +230,5 @@ mod not {
         // optimized NOT yields nothing — but it must drain cleanly.
         assert!(matches!(it.read(), Ok(None)));
         assert!(it.at_eof());
-
-        for key in keys {
-            // SAFETY: each `key` was allocated by `sdsnewlen` and is freed once.
-            unsafe { ffi::sdsfree(key) };
-        }
     }
 }

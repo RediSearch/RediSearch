@@ -14,8 +14,8 @@ use top_k::ScoreBatch;
 
 /// A [`ScoreBatch`] backed by a doc-id-ordered `Vec<(DocId, f64)>`.
 ///
-/// Doc IDs must be strictly increasing — the numeric index reader yields them
-/// in ascending order; this is asserted in debug builds.
+/// Doc IDs must be strictly increasing, so [`skip_to`](ScoreBatch::skip_to) can
+/// `partition_point`; this is asserted in debug builds.
 pub struct NumericScoreBatch {
     items: Vec<(DocId, f64)>,
     pos: usize,
@@ -30,6 +30,14 @@ impl NumericScoreBatch {
             "NumericScoreBatch: doc IDs must be strictly increasing"
         );
         Self { items, pos: 0 }
+    }
+
+    /// Drop records for which `keep` returns `false`, preserving the strictly
+    /// increasing doc-id order. Called before the batch is consumed, so `pos`
+    /// stays at `0`.
+    pub(crate) fn retain(&mut self, keep: impl Fn(DocId, f64) -> bool) {
+        debug_assert_eq!(self.pos, 0, "retain must run before the batch is read");
+        self.items.retain(|&(doc_id, score)| keep(doc_id, score));
     }
 }
 

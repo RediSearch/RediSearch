@@ -73,20 +73,15 @@ void QOptimizer_Parse(AREQ *req) {
     opt->scorerType = SCORER_TYPE_NONE;
   } else {
     const char *scorer = req->searchopts.scorerName;
-    if (!scorer || !strcmp(scorer, BM25_STD_SCORER_NAME)) {      // default is BM25STD
-      opt->scorerType = SCORER_TYPE_TERM;
-    } else if (!strcmp(scorer, TFIDF_SCORER_NAME)) {
-      opt->scorerType = SCORER_TYPE_TERM;
-    } else if (!strcmp(scorer, TFIDF_DOCNORM_SCORER_NAME)) {
-      opt->scorerType = SCORER_TYPE_TERM;
-    } else if (!strcmp(scorer, DISMAX_SCORER_NAME)) {
-      opt->scorerType = SCORER_TYPE_TERM;
-    } else if (!strcmp(scorer, BM25_SCORER_NAME)) {
-      opt->scorerType = SCORER_TYPE_TERM;
-    } else if (!strcmp(scorer, DOCSCORE_SCORER)) {
+    // Scorers reading only document metadata, never term data.
+    if (scorer && (!strcmp(scorer, DOCSCORE_SCORER) ||
+                   !strcmp(scorer, HAMMINGDISTANCE_SCORER))) {
       opt->scorerType = SCORER_TYPE_DOC;
-    } else if (!strcmp(scorer, HAMMINGDISTANCE_SCORER)) {
-      opt->scorerType = SCORER_TYPE_DOC;
+    } else {
+      // Every other scorer, including the default and any extension-provided
+      // one, needs scoring. Claiming otherwise drops the scorer and sorter from
+      // the pipeline, so results come back unranked.
+      opt->scorerType = SCORER_TYPE_TERM;
     }
   }
 }

@@ -18,20 +18,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # TODO: revert to calling task-get-latest-tag.yml once Redis 8.10 is released.
-  # Pinned to a redis/redis unstable commit (the redis/redis#15350 merge) because the module
-  # requires RedisModule_GetClusterNodeSlotRanges (MOD-15868) and
-  # RedisModuleEvent_ClusterTopologyChange (MOD-15870), neither of which is in any Redis release yet.
   get-latest-redis-tag:
-    permissions: {} # echoes a pinned SHA
-    # uses: ./.github/workflows/task-get-latest-tag.yml
-    # with:
-    #   repo: redis/redis
-    runs-on: ubuntu-slim
-    outputs:
-      tag: 8897348030c20bcd26841bc7d3ec7227f8187aeb
-    steps:
-      - run: echo "Using pinned redis/redis unstable commit instead of the latest release tag"
+    permissions: {}
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
 
   lint:
     permissions:
@@ -63,9 +54,52 @@ jobs:
       options: skip-tests,fail-fast
       rejson-branch: master
 
-  test-ubuntu:
+  # ------------------------------------------------------------------
+  # The ubuntu test lane, in two mutually exclusive flavours.
+  #
+  # master goes through flow-pr-pipeline.yml: one build, then unit +
+  # standalone + coordinator as separate concurrent jobs off a single
+  # artifact. Release branches keep the task-test.yml monolith, where the
+  # build and every suite run as sequential steps on one runner.
+  #
+  # Both feed the same `pr-validation` aggregate, and a skipped job reports
+  # `skipped` (which that gate treats as passing), so the required check name
+  # is identical for either branch family.
+  #
+  # Only the release-branch lane passes `fail-fast`. In the monolith it saves
+  # real time by skipping the test steps that follow a failure; in the fan-out
+  # those steps are already-running sibling jobs, and `pr-validation` waits for
+  # every job regardless — so cancelling them would buy no wall time and cost
+  # the full failure picture, which is what a queue eviction needs.
+  # ------------------------------------------------------------------
+
+  test-ubuntu-master:
     # Always run tests for merge queue submissions, including text-only PRs.
     needs: get-latest-redis-tag
+    if: ${{ github.event.merge_group.base_ref == 'refs/heads/master' }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write # OIDC role assumption for sccache S3 (used inside flow-pr-pipeline.yml)
+      actions: write  # Swatinem/rust-cache read/write of GH cache (used inside flow-pr-pipeline.yml)
+    uses: ./.github/workflows/flow-pr-pipeline.yml
+    secrets: inherit
+    with:
+      job-type: basic-test
+      platform: ubuntu:noble
+      architecture: x86_64
+      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      test-config: QUICK=1
+      rejson-branch: master
+      # This lane only runs tests, so the LTO link is dead weight on the queue's
+      # critical path. LTO codegen is still covered on master by
+      # event-periodic-master-validation.yml and event-nightly.yml, both of
+      # which build ubuntu:noble with the platform default.
+      enable-lto: '0'
+
+  test-ubuntu-release-branch:
+    needs: get-latest-redis-tag
+    if: ${{ github.event.merge_group.base_ref != 'refs/heads/master' }}
     permissions:
       contents: read
       packages: write
@@ -77,8 +111,12 @@ jobs:
       platform: ubuntu:noble
       architecture: x86_64
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      job-test-config: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1"}'
-      options: unit-tests,coordinator,standalone,rejson,fail-fast
+      job-test-config: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1", "ubsan": "QUICK=1"}'
+      options: unit-tests,coordinator,standalone,rejson,fail-fast,ubsan
+      # Full alignment UBSan currently exposes unrelated pre-existing UB in the
+      # C/C++ suite. Keep the merge-queue lane focused on the trie regression
+      # until those findings are fixed separately.
+      ubsan-unit-test-filter: 'TrieTest\.test.*ScansPackedChildKeys'
       separate-coordinator-job: true
       rejson-branch: master
 
@@ -88,7 +126,8 @@ jobs:
       - get-latest-redis-tag
       - lint
       - build-unique-oses
-      - test-ubuntu
+      - test-ubuntu-master
+      - test-ubuntu-release-branch
     runs-on: ubuntu-slim
     if: ${{ !cancelled() }}
     steps:

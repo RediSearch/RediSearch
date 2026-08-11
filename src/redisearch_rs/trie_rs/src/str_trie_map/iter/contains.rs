@@ -12,19 +12,15 @@ use crate::{TrieMap, iter, str_trie_map::iter::unfiltered::key_to_string};
 /// Substring-filtered iterator over a [`StrTrieMap`](crate::str_trie_map::StrTrieMap),
 /// in lexicographical key order.
 ///
-/// Empty `target` yields zero matches (mirrors the C `Trie_IterateContains`
-/// short-circuit) by delegating to an empty inner iterator.
+/// Empty `target` yields every entry — the empty string is a substring of
+/// every key.
 ///
 /// See [`crate::iter::ContainsIter`] for the underlying traversal.
 pub struct ContainsIter<'tm, 'p, Data: 'tm>(iter::ContainsIter<'tm, 'p, Data>);
 
 impl<'tm, 'p, Data: 'tm> ContainsIter<'tm, 'p, Data> {
     pub(crate) fn new(trie: &'tm TrieMap<Data>, target: &'p str) -> Self {
-        if target.is_empty() {
-            Self(iter::ContainsIter::empty())
-        } else {
-            Self(trie.contains_iter(target.as_bytes()))
-        }
+        Self(trie.contains_iter(target.as_bytes()))
     }
 }
 

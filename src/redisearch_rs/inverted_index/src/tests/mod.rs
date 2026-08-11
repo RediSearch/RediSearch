@@ -13,6 +13,7 @@ use ::index_result::RSIndexResult;
 
 use crate::Encoder;
 
+mod expiration_bit;
 mod gc;
 mod index;
 mod index_result;

@@ -54,6 +54,12 @@ impl QueryEvalContext {
     /// 2. All pointer fields within the [`ffi::QueryEvalCtx`] (`sctx`, `opts`,
     ///    `status`, `metricRequestsP`, `docTable`, `config`) and the nested
     ///    `sctx.spec` pointer must themselves be valid, non-null pointers.
+    ///    `sctx` must additionally stay valid, and at a stable address, for the
+    ///    lifetime of every timeout context and iterator derived from this
+    ///    context (e.g. via
+    ///    [`build_timeout_context`](QueryEvalContext::build_timeout_context)):
+    ///    a clock-based timeout context reads `sctx.time.timeout` back on every
+    ///    probe rather than capturing it.
     ///    The nested `sctx.spec.diskSpec` pointer may be null (in-memory mode);
     ///    when non-null it must point to a valid
     ///    [`RedisSearchDiskIndexSpec`](ffi::RedisSearchDiskIndexSpec).
@@ -277,7 +283,10 @@ impl QueryEvalContext {
     /// # Safety
     ///
     /// The returned context, and any iterator built from it, must not be used
-    /// after the `AREQ` behind `bcTimeoutAreq` is freed.
+    /// after the `AREQ` behind `bcTimeoutAreq` is freed — nor after `sctx` is
+    /// freed or moved, since the clock-based variant reads the deadline out of
+    /// it on every probe. No write to `sctx.time.timeout` may overlap a probe;
+    /// see [`TimeoutContextDeadline::new`](rqe_iterators::utils::TimeoutContextDeadline::new).
     ///
     /// A Blocked Client Timeout context holds that `AREQ` as a raw pointer with
     /// no lifetime, so nothing enforces the precondition at compile time:
@@ -303,7 +312,14 @@ impl QueryEvalContext {
             }
             // No Blocked Client Timeout source: derive the Clock Based Timeout
             // (or `NoTimeoutChecker`) from `sctx.time`.
-            None => AnyTimeoutContext::from_sctx(self.sctx(), TIMEOUT_CHECK_GRANULARITY),
+            None => {
+                let sctx = NonNull::new(self.sctx_ptr().cast_mut()).expect("sctx must be non-null");
+                // SAFETY: invariant (2) of `new` guarantees `sctx` stays valid for the lifetime of
+                // every timeout context and iterator derived from this one, which is what
+                // `from_sctx` needs to read the deadline back on each probe. Writes to the
+                // deadline never overlap a probe (see `TimeoutContextDeadline::new`).
+                unsafe { AnyTimeoutContext::from_sctx(sctx, TIMEOUT_CHECK_GRANULARITY) }
+            }
         }
     }
 }

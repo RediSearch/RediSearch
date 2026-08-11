@@ -363,11 +363,6 @@ void SearchDisk_FreeSnapshot(RedisSearchDiskSnapshot *snapshot) {
     disk->index.freeSnapshot(snapshot);
 }
 
-QueryIterator* SearchDisk_NewNumericIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, const NumericFilter *filter, t_fieldIndex fieldIndex, QueryError *status) {
-    RS_ASSERT(disk && index && sctx && sctx->diskSnapshot && filter);
-    return disk->index.newNumericIterator(index, filter, fieldIndex, sctx->diskSnapshot, status);
-}
-
 void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats) {
     RS_ASSERT(disk && index && stats);
     disk->index.runGC(index, stats);
@@ -635,6 +630,11 @@ void SearchDisk_PreFork(IndexSpec *sp) {
 void SearchDisk_PostFork(IndexSpec *sp) {
   RS_ASSERT(disk && sp && sp->diskSpec);
   disk->index.postFork(sp->diskSpec);
+}
+
+void SearchDisk_HotRestartSaveEnded(IndexSpec *sp) {
+  RS_ASSERT(disk && sp && sp->diskSpec);
+  disk->index.hotRestartSaveEnded(sp->diskSpec);
 }
 
 void SearchDisk_ReplicationAbort(IndexSpec *sp) {

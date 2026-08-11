@@ -65,11 +65,9 @@ uint32_t ReadVarint(BufferReader *b);
 t_fieldMask ReadVarintFieldMask(BufferReader *b);
 
 /**
- * Delta-encode an integer and write it into the vector.
+ * Free the memory allocated for the [`VectorWriter`].
  *
- * # Return value
- *
- * The varint's actual size, if the operation is successful. 0 in case of failure.
+ * After calling this function, the pointer is invalidated and should not be used.
  *
  * # Safety
  *
@@ -77,41 +75,7 @@ t_fieldMask ReadVarintFieldMask(BufferReader *b);
  * 1. `writer` must point to a valid [`VectorWriter`] obtained from [`NewVarintVectorWriter`] and cannot be NULL.
  * 2. The caller must have exclusive access to the [`VectorWriter`] pointed to by `writer`.
  */
-size_t VVW_Write(struct VarintVectorWriter *writer, uint32_t value);
-
-/**
- * Write a varint-encoded value into the given buffer writer.
- * It returns the number of bytes that have been added to the capacity of
- * the underlying buffer.
- *
- * # Panics
- *
- * Panics if the buffer can't grow its capacity to fit the encoded field value.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * 1. `writer` must point to a valid `BufferWriter` instance and cannot be NULL.
- * 2. The caller must have exclusive access to the buffer writer.
- */
-size_t WriteVarint(uint32_t value, BufferWriter *writer);
-
-/**
- * Write a varint-encoded field mask into the given buffer writer.
- * It returns the number of bytes that have been added to the capacity of
- * the underlying buffer.
- *
- * # Panics
- *
- * Panics if the buffer can't grow its capacity to fit the encoded field mask.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * 1. `writer` must point to a valid `BufferWriter` instance and cannot be NULL.
- * 2. The caller must have exclusive access to the buffer writer.
- */
-size_t WriteVarintFieldMask(t_fieldMask value, BufferWriter *writer);
+void VVW_Free(struct VarintVectorWriter *writer);
 
 /**
  * Get a reference to the underlying byte buffer.
@@ -160,17 +124,18 @@ size_t VVW_GetCount(const struct VarintVectorWriter *writer);
 void VVW_Reset(struct VarintVectorWriter *writer);
 
 /**
- * Free the memory allocated for the [`VectorWriter`].
- *
- * After calling this function, the pointer is invalidated and should not be used.
+ * Take ownership of the byte buffer stored in the vector.
+ * After this call, `len` will be set to the length of the byte buffer while `writer`
+ * will be left holding a fresh empty buffer.
  *
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
  * 1. `writer` must point to a valid [`VectorWriter`] obtained from [`NewVarintVectorWriter`] and cannot be NULL.
  * 2. The caller must have exclusive access to the [`VectorWriter`] pointed to by `writer`.
+ * 3. The caller must have exclusive access to `len`.
  */
-void VVW_Free(struct VarintVectorWriter *writer);
+uint8_t *VVW_TakeByteData(struct VarintVectorWriter *writer, size_t *len);
 
 /**
  * Resize the vector, dropping any excess capacity.
@@ -184,18 +149,53 @@ void VVW_Free(struct VarintVectorWriter *writer);
 size_t VVW_Truncate(struct VarintVectorWriter *writer);
 
 /**
- * Take ownership of the byte buffer stored in the vector.
- * After this call, `len` will be set to the length of the byte buffer while `writer`
- * will be left holding a fresh empty buffer.
+ * Delta-encode an integer and write it into the vector.
+ *
+ * # Return value
+ *
+ * The varint's actual size, if the operation is successful. 0 in case of failure.
  *
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
  * 1. `writer` must point to a valid [`VectorWriter`] obtained from [`NewVarintVectorWriter`] and cannot be NULL.
  * 2. The caller must have exclusive access to the [`VectorWriter`] pointed to by `writer`.
- * 3. The caller must have exclusive access to `len`.
  */
-uint8_t *VVW_TakeByteData(struct VarintVectorWriter *writer, size_t *len);
+size_t VVW_Write(struct VarintVectorWriter *writer, uint32_t value);
+
+/**
+ * Write a varint-encoded value into the given buffer writer.
+ * It returns the number of bytes that have been added to the capacity of
+ * the underlying buffer.
+ *
+ * # Panics
+ *
+ * Panics if the buffer can't grow its capacity to fit the encoded field value.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * 1. `writer` must point to a valid `BufferWriter` instance and cannot be NULL.
+ * 2. The caller must have exclusive access to the buffer writer.
+ */
+size_t WriteVarint(uint32_t value, BufferWriter *writer);
+
+/**
+ * Write a varint-encoded field mask into the given buffer writer.
+ * It returns the number of bytes that have been added to the capacity of
+ * the underlying buffer.
+ *
+ * # Panics
+ *
+ * Panics if the buffer can't grow its capacity to fit the encoded field mask.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * 1. `writer` must point to a valid `BufferWriter` instance and cannot be NULL.
+ * 2. The caller must have exclusive access to the buffer writer.
+ */
+size_t WriteVarintFieldMask(t_fieldMask value, BufferWriter *writer);
 
 #ifdef __cplusplus
 }  // extern "C"

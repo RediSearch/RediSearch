@@ -194,7 +194,7 @@ fn numeric_field_writes_header_and_node_deltas() {
     // `max_depth_range == 0`, the internal node keeps no range, leaving exactly the
     // two leaves with GC work once every doc is deleted.
     let (mut tree, split_doc) = build_tree_at_split_edge();
-    tree.add(split_doc, split_doc as f64, false, 0);
+    tree.add(split_doc, split_doc as f64, false, false, 0);
     assert_eq!(tree.num_leaves(), 2);
 
     let test = TestSpec::create(vec![(c"price", FieldSpecType::Numeric.into(), Some(tree))]);

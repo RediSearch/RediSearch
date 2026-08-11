@@ -45,7 +45,7 @@ unsafe fn parse_level(level: *const c_char) -> LevelFilter {
 /// `level` must point to a valid, null-terminated C string.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TracingRedisModule_Init(
-    ctx: Option<NonNull<ffi::RedisModuleCtx>>,
+    ctx: Option<NonNull<redis_module::RedisModuleCtx>>,
     level: *const c_char,
 ) {
     // Safety: forwarded to the caller's contract on `level`.
@@ -93,7 +93,7 @@ pub extern "C" fn RustPanicHook_Init() {
 ///
 /// `ctx` must be a valid pointer to a `RedisModuleInfoCtx`.
 #[unsafe(no_mangle)]
-pub extern "C" fn AddToInfo_RustBacktrace(ctx: Option<NonNull<ffi::RedisModuleInfoCtx>>) {
+pub extern "C" fn AddToInfo_RustBacktrace(ctx: Option<NonNull<redis_module::RedisModuleInfoCtx>>) {
     use std::ffi::CString;
 
     let Some(ctx) = ctx else {
@@ -124,9 +124,9 @@ pub extern "C" fn AddToInfo_RustBacktrace(ctx: Option<NonNull<ffi::RedisModuleIn
     };
 
     // SAFETY: `RedisModule_InfoAddSection` has been initialized during module load.
-    let info_add_section = unsafe { ffi::RedisModule_InfoAddSection.unwrap() };
+    let info_add_section = unsafe { redis_module::RedisModule_InfoAddSection.unwrap() };
     // SAFETY: `RedisModule_InfoAddFieldCString` has been initialized during module load.
-    let info_add_field_cstring = unsafe { ffi::RedisModule_InfoAddFieldCString.unwrap() };
+    let info_add_field_cstring = unsafe { redis_module::RedisModule_InfoAddFieldCString.unwrap() };
 
     // SAFETY: `ctx` is a valid pointer to a `RedisModuleInfoCtx`.
     unsafe { info_add_section(ctx.as_ptr(), c"rust_backtrace".as_ptr()) };

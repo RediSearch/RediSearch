@@ -18,6 +18,10 @@ use index_spec::IndexSpecReadGuard;
 /// with GC work, then a per-field terminator. A final terminator is sent once
 /// all fields have been processed.
 ///
+/// # Panic
+///
+/// Panics if `pipe_write_fd` on `gc` is an invalid or closed writable file descriptor.
+///
 /// # Safety
 ///
 /// 1. `gc` must point to a valid [`ffi::ForkGC`].

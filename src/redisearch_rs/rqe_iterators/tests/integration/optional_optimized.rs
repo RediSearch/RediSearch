@@ -12,9 +12,11 @@ use index_result::{RSIndexResult, RSResultKind};
 use inverted_index::{InvertedIndex, doc_ids_only::DocIdsOnly};
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 use rqe_iterators::{
-    RQEIterator, RQEValidateStatus, SkipToOutcome, empty::Empty, inverted_index::Wildcard,
-    optional_optimized::OptionalOptimized,
+    RQEIterator, RQEValidateStatus, SkipToOutcome, empty::Empty, id_list::IdListSorted,
+    inverted_index::Wildcard, not::Not, optional_optimized::OptionalOptimized,
 };
+
+use rqe_iterators_test_utils::ContractChecker;
 
 use crate::utils;
 
@@ -66,11 +68,12 @@ mod optional_optimized_iterator_tests {
 
     fn create_optional_optimized<'index>(
         wcii_index: &'index WildcardIndex,
-    ) -> OptionalOptimized<'index, Wildcard<'index, DocIdsOnly>, utils::Mock<'index, NUM_DOCS>>
-    {
+    ) -> ContractChecker<
+        OptionalOptimized<'index, Wildcard<'index, DocIdsOnly>, utils::Mock<'index, NUM_DOCS>>,
+    > {
         let wcii = wcii_index.create_iterator();
         let child = utils::Mock::new(CHILD_DOCS);
-        OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT)
+        ContractChecker::new(OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT))
     }
 
     #[test]
@@ -223,7 +226,7 @@ mod optional_optimized_iterator_tests {
         const WCII_DOCS: [DocId; 2] = [5, 150];
         let wcii = utils::Mock::new(WCII_DOCS);
         let child: Empty = Empty;
-        let mut it = OptionalOptimized::new(wcii, child, 100, WEIGHT);
+        let mut it = ContractChecker::new(OptionalOptimized::new(wcii, child, 100, WEIGHT));
 
         let r = it.read().expect("no error").expect("doc 5");
         assert_eq!(r.doc_id, 5);
@@ -241,7 +244,7 @@ mod optional_optimized_iterator_tests {
         const WCII_DOCS: [DocId; 2] = [5, 150];
         let wcii = utils::Mock::new(WCII_DOCS);
         let child: Empty = Empty;
-        let mut it = OptionalOptimized::new(wcii, child, 100, WEIGHT);
+        let mut it = ContractChecker::new(OptionalOptimized::new(wcii, child, 100, WEIGHT));
 
         let r = it.read().expect("no error").expect("doc 5");
         assert_eq!(r.doc_id, 5);
@@ -270,7 +273,7 @@ mod optional_optimized_iterator_tests {
 
         let wcii = utils::Mock::new(WILDCARD_DOCS);
         let child = utils::Mock::new(CHILD_DOCS_EXH);
-        let mut it = OptionalOptimized::new(wcii, child, MAX_EXH, WEIGHT_EXH);
+        let mut it = ContractChecker::new(OptionalOptimized::new(wcii, child, MAX_EXH, WEIGHT_EXH));
 
         for &from_id in &WILDCARD_DOCS {
             for skip_to_id in (from_id + 1)..=*WILDCARD_DOCS.last().unwrap() {
@@ -343,9 +346,9 @@ mod optional_optimized_iterator_with_empty_child_tests {
 
     fn create<'index>(
         wcii_index: &'index WildcardIndex,
-    ) -> OptionalOptimized<'index, Wildcard<'index, DocIdsOnly>, Empty> {
+    ) -> ContractChecker<OptionalOptimized<'index, Wildcard<'index, DocIdsOnly>, Empty>> {
         let wcii = wcii_index.create_iterator();
-        OptionalOptimized::new(wcii, Empty, MAX_DOC_ID, WEIGHT)
+        ContractChecker::new(OptionalOptimized::new(wcii, Empty, MAX_DOC_ID, WEIGHT))
     }
 
     #[test]
@@ -423,7 +426,7 @@ mod optional_optimized_iterator_sparse_wcii_tests {
         // After consuming both, the next read() must return None.
         let wcii = utils::Mock::new([5u64, 15]);
         let child: Empty = Empty;
-        let mut it = OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT);
+        let mut it = ContractChecker::new(OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT));
 
         let r = it.read().expect("no error").expect("doc 5");
         assert_eq!(r.doc_id, 5);
@@ -451,7 +454,7 @@ mod optional_optimized_iterator_sparse_wcii_tests {
         // three times.
         let wcii = utils::Mock::new([20u64]);
         let child = utils::Mock::new([5u64, 10, 15, 25]);
-        let mut it = OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT);
+        let mut it = ContractChecker::new(OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT));
 
         // wcii_doc_id=20, child advances 5→10→15→25; 25≠20 → virtual hit.
         let r = it.read().expect("no error").expect("doc 20");
@@ -466,7 +469,7 @@ mod optional_optimized_iterator_sparse_wcii_tests {
         // wcii has only doc 10; after reading it, wcii is at_eof.
         let wcii = utils::Mock::new([10u64]);
         let child: Empty = Empty;
-        let mut it = OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT);
+        let mut it = ContractChecker::new(OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT));
 
         // Consume the only wcii doc so wcii is at_eof.
         let r = it.read().expect("no error").expect("doc 10");
@@ -488,7 +491,7 @@ mod optional_optimized_iterator_sparse_wcii_tests {
         // child also has doc 15 → real hit at 15, but outcome is NotFound.
         let wcii = utils::Mock::new([15u64]);
         let child = utils::Mock::new([15u64]);
-        let mut it = OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT);
+        let mut it = ContractChecker::new(OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT));
 
         match it.skip_to(10).expect("no error") {
             Some(SkipToOutcome::NotFound(r)) => {
@@ -509,7 +512,7 @@ mod optional_optimized_iterator_sparse_wcii_tests {
         // wcii returns NotFound(15). No child match → virtual hit at 15, NotFound.
         let wcii = utils::Mock::new([15u64]);
         let child: Empty = Empty;
-        let mut it = OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT);
+        let mut it = ContractChecker::new(OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT));
 
         match it.skip_to(10).expect("no error") {
             Some(SkipToOutcome::NotFound(r)) => {
@@ -527,7 +530,7 @@ mod optional_optimized_iterator_sparse_wcii_tests {
         let wcii = utils::Mock::new([5u64]);
         let mut wcii_data = wcii.data();
         let child: Empty = Empty;
-        let mut it = OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT);
+        let mut it = ContractChecker::new(OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT));
 
         // Consume the only wcii doc.
         let r = it.read().expect("no error").expect("doc 5");
@@ -546,7 +549,7 @@ mod optional_optimized_iterator_sparse_wcii_tests {
         let wcii = utils::Mock::new([5u64]);
         let mut wcii_data = wcii.data();
         let child: Empty = Empty;
-        let mut it = OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT);
+        let mut it = ContractChecker::new(OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT));
 
         let r = it.read().expect("no error").expect("doc 5");
         assert_eq!(r.doc_id, 5);
@@ -566,7 +569,7 @@ mod optional_optimized_iterator_sparse_wcii_tests {
         let child = utils::Mock::new([10u64, 20]);
         let mut child_data = child.data();
         child_data.set_error_at_done(Some(utils::MockIteratorError::TimeoutError(None)));
-        let mut it = OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT);
+        let mut it = ContractChecker::new(OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT));
 
         let err = it.skip_to(30).expect_err("expected timeout error");
         assert!(matches!(err, rqe_iterators::RQEIteratorError::TimedOut));
@@ -581,7 +584,7 @@ mod optional_optimized_iterator_sparse_wcii_tests {
         // child finds doc 30 → real Found hit.
         let wcii = utils::Mock::new([30u64]);
         let child = utils::Mock::new([20u64, 30]);
-        let mut it = OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT);
+        let mut it = ContractChecker::new(OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT));
 
         match it.skip_to(30).expect("no error") {
             Some(SkipToOutcome::Found(r)) => {
@@ -615,14 +618,20 @@ mod optional_optimized_iterator_revalidate_tests {
         fn setup<'index>(
             test_ctx: &'index TestContext,
         ) -> (
-            OptionalOptimized<'index, Wildcard<'index, DocIdsOnly>, utils::Mock<'index, NUM_DOCS>>,
+            ContractChecker<
+                OptionalOptimized<
+                    'index,
+                    Wildcard<'index, DocIdsOnly>,
+                    utils::Mock<'index, NUM_DOCS>,
+                >,
+            >,
             utils::MockData,
         ) {
             let ii = DocIdsOnly::from_opaque(test_ctx.wildcard_inverted_index());
             let wcii = Wildcard::new(ii.reader(), 0.);
             let child = utils::Mock::new(CHILD_DOCS);
             let data = child.data();
-            let it = OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT);
+            let it = ContractChecker::new(OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT));
             (it, data)
         }
 
@@ -661,7 +670,7 @@ mod optional_optimized_iterator_revalidate_tests {
             // Child aborted while on a virtual result → Ok (no state change needed)
             assert!(matches!(status, RQEValidateStatus::Ok));
             assert!(
-                it.child().is_none(),
+                it.inner().child().is_none(),
                 "child must be replaced by Empty after abort"
             );
             assert_eq!(data.revalidate_count(), 1);
@@ -718,7 +727,7 @@ mod optional_optimized_iterator_revalidate_tests {
         let wcii = utils::Mock::new(wcii_docs);
         let mut wcii_data = wcii.data();
         let child = utils::Mock::new(CHILD_DOCS);
-        let mut it = OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT);
+        let mut it = ContractChecker::new(OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT));
 
         // Read one result first
         let _ = it.read().expect("read").expect("result");
@@ -727,6 +736,38 @@ mod optional_optimized_iterator_revalidate_tests {
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
         let status = it.revalidate(&*mock_ctx.spec_read()).expect("revalidate");
         assert!(matches!(status, RQEValidateStatus::Aborted));
+    }
+
+    /// An iterator that has already run past its own end is not revived by a
+    /// wildcard that moves onto a live document: the status must agree with what
+    /// `current()` and `at_eof()` report, or a parent is handed a result the
+    /// iterator itself denies having.
+    #[test]
+    fn test_revalidate_after_latched_eof_reports_no_current() {
+        // `wcii` still holds 5 and 7 after doc 1, so its move lands well within
+        // `MAX_DOC_ID` — the iterator's own end is what has been passed.
+        let wcii = utils::Mock::new([1u64, 5, 7]);
+        let mut wcii_data = wcii.data();
+        let child = utils::Mock::new([9u64]);
+        let mut it = ContractChecker::new(OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT));
+
+        let r = it.read().expect("read").expect("result");
+        assert_eq!(r.doc_id, 1);
+
+        // Skipping beyond `MAX_DOC_ID` runs the iterator past its end.
+        assert!(it.skip_to(MAX_DOC_ID + 1).expect("skip_to").is_none());
+        assert!(it.at_eof());
+        assert!(it.current().is_none());
+
+        wcii_data.set_revalidate_result(utils::MockRevalidateResult::Move);
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let status = it.revalidate(&*mock_ctx.spec_read()).expect("revalidate");
+        assert!(
+            matches!(status, RQEValidateStatus::Moved { current: None }),
+            "expected Moved with no current, got {status:?}",
+        );
+        assert!(it.at_eof());
+        assert!(it.current().is_none());
     }
 
     /// When `wcii` moves to a position where `child` also has a match, `revalidate`
@@ -739,7 +780,7 @@ mod optional_optimized_iterator_revalidate_tests {
         let wcii = utils::Mock::new([5u64, 20]);
         let mut wcii_data = wcii.data();
         let child = utils::Mock::new([5u64, 20]);
-        let mut it = OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT);
+        let mut it = ContractChecker::new(OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT));
 
         let r = it.read().expect("read").expect("result");
         assert_eq!(r.doc_id, 5);
@@ -767,7 +808,7 @@ mod optional_optimized_iterator_revalidate_tests {
         let wcii = utils::Mock::new([5u64, 20]);
         let mut wcii_data = wcii.data();
         let child = utils::Mock::new([5u64, 25]);
-        let mut it = OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT);
+        let mut it = ContractChecker::new(OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT));
 
         let r = it.read().expect("read").expect("result");
         assert_eq!(r.doc_id, 5);
@@ -795,7 +836,7 @@ mod optional_optimized_iterator_revalidate_tests {
         let wcii = utils::Mock::new([5u64, 150]);
         let mut wcii_data = wcii.data();
         let child = utils::Mock::new(CHILD_DOCS);
-        let mut it = OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT);
+        let mut it = ContractChecker::new(OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT));
 
         let r = it.read().expect("read").expect("result");
         assert_eq!(r.doc_id, 5);
@@ -825,7 +866,7 @@ mod optional_optimized_iterator_revalidate_tests {
         let wcii = utils::Mock::new([5u64]);
         let mut wcii_data = wcii.data();
         let child = utils::Mock::new([5u64]);
-        let mut it = OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT);
+        let mut it = ContractChecker::new(OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT));
 
         // Consume the only document; wcii's last_doc_id is now 5 (stale after EOF).
         let r = it.read().expect("read").expect("result");
@@ -852,7 +893,7 @@ mod optional_optimized_iterator_revalidate_tests {
         let mut wcii_data = wcii.data();
         let child = utils::Mock::new([5u64, 35]);
         let mut child_data = child.data();
-        let mut it = OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT);
+        let mut it = ContractChecker::new(OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT));
 
         // Position on doc 5 (real hit: both wcii and child land there).
         let r = it.read().expect("read").expect("result");
@@ -872,7 +913,7 @@ mod optional_optimized_iterator_revalidate_tests {
             other => panic!("expected Moved with virtual result, got {other:?}"),
         }
         assert!(
-            it.child().is_none(),
+            it.inner().child().is_none(),
             "child must be replaced by Empty after abort"
         );
         assert_eq!(wcii_data.revalidate_count(), 1);
@@ -887,7 +928,7 @@ mod optional_optimized_iterator_revalidate_tests {
         let mut wcii_data = wcii.data();
         let child = utils::Mock::new([5u64, 35]);
         let mut child_data = child.data();
-        let mut it = OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT);
+        let mut it = ContractChecker::new(OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT));
 
         let r = it.read().expect("read").expect("result");
         assert_eq!(r.doc_id, 5);
@@ -913,7 +954,7 @@ mod optional_optimized_iterator_revalidate_tests {
         let mut wcii_data = wcii.data();
         let child = utils::Mock::new([5u64, 25, 35]);
         let mut child_data = child.data();
-        let mut it = OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT);
+        let mut it = ContractChecker::new(OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT));
 
         let r = it.read().expect("read").expect("result");
         assert_eq!(r.doc_id, 5);
@@ -939,4 +980,64 @@ mod optional_optimized_iterator_revalidate_tests {
         let r = it.read().expect("read after revalidate").expect("result");
         assert!(r.doc_id > 20);
     }
+}
+
+/// A `Not` child whose `max_doc_id` coincides with this iterator's, over a
+/// document the negation excludes, is the configuration that used to panic: the
+/// child's `skip_to` ran off the end while publishing the probed id as its
+/// position, and the real-hit branch unwrapped a `current()` that was `None`.
+///
+/// The document is virtual — the negation excludes it — so the wildcard's own
+/// result is what must come back.
+#[test]
+fn not_child_running_off_the_end_at_max_doc_id_yields_a_virtual_hit() {
+    const MAX: DocId = 10;
+
+    let wcii_index = WildcardIndex::new(MAX);
+    // `Not` over {MAX} yields 1..MAX and nothing at MAX itself, so a probe at MAX
+    // finds no result at or after it.
+    let child = Not::new(
+        IdListSorted::new(vec![MAX]),
+        MAX,
+        1.0,
+        timeout::NoTimeoutChecker,
+    );
+    let mut it = ContractChecker::new(OptionalOptimized::new(
+        wcii_index.create_iterator(),
+        child,
+        MAX,
+        2.0,
+    ));
+
+    let mut doc_ids = Vec::new();
+    while let Some(result) = it.read().expect("read must not fail") {
+        let doc_id = result.doc_id;
+        // Every document up to MAX - 1 is a real hit through `Not`; MAX itself is
+        // excluded by the negation, so it comes back virtual and unweighted.
+        let expected_weight = if doc_id == MAX { 0.0 } else { 2.0 };
+        assert_eq!(
+            result.weight,
+            expected_weight,
+            "doc {doc_id} should be a {} hit",
+            if doc_id == MAX { "virtual" } else { "real" },
+        );
+        doc_ids.push(doc_id);
+    }
+
+    assert_eq!(doc_ids, (1..=MAX).collect::<Vec<_>>());
+    assert!(it.at_eof());
+    assert!(it.current().is_none());
+}
+
+#[test]
+fn optional_optimized_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    let mut it = ContractChecker::new(OptionalOptimized::new(
+        utils::Mock::new([1u64, 2, 3, 4, 5]),
+        utils::Mock::new([2u64, 4]),
+        5,
+        2.0,
+    ));
+    assert_eq!(assert_current_contract(&mut it), [1, 2, 3, 4, 5]);
+    assert_current_contract_via_skip_to(&mut it, 6);
 }

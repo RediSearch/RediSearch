@@ -105,6 +105,25 @@ Rules:
 
 ## Code Style
 
+### Comments
+
+Applies to every language here — C, C++, Rust, Python — and to test code as much
+as production code.
+
+- **Focus on why, not how.** Don't restate what the code plainly does. Document
+  non-obvious choices, invariants that are hard to infer, and constraints a
+  maintainer would otherwise miss.
+- **Prefer code-enforced invariants over prose.** If an assertion, type, enum, or
+  test can express the constraint, add that instead — comments drift, code mostly
+  doesn't.
+- **State each fact in exactly one place** — the definition, the interface, or the
+  implementation, whichever is canonical. Elsewhere refer to it by name rather
+  than restating it.
+- **Never reference line numbers or line ranges** — they go stale. If a note must
+  attach to a specific spot, put a line comment at that spot.
+- Full rules, including which layer owns which fact:
+  [/docs-guidelines](.skills/docs-guidelines/SKILL.md).
+
 ### C
 
 - `.clang-format` is the authoritative formatting spec; run `clang-format` before committing C changes
@@ -121,12 +140,17 @@ Rules:
 ### Rust
 - Edition 2024
 - Document all `unsafe` blocks with `// SAFETY:` comments
+- Doc comments: intra-doc link every symbol mentioned, constants included — never
+  hard-code a constant's value into another item's docs. Full rules:
+  [/rust-docs-guidelines](.skills/rust-docs-guidelines/SKILL.md),
+  [/rust-tests-guidelines](.skills/rust-tests-guidelines/SKILL.md)
 - Use `#[expect(...)]` over `#[allow(...)]` for lint suppressions
 - Use `tracing` macros for logging (debug!, info!, warn!, error!)
 
 ## C Code Architecture
 
 ### Module Entry and Command Dispatch
+- `src/redismodule_api.c` — owns the `RedisModule_*` API function-pointer table (the only file defining `REDISMODULE_MAIN`)
 - `src/module-init/module-init.c` — `RedisModule_OnLoad`, calls `RediSearch_InitModuleInternal`
 - `src/module.c` — command registration and top-level handlers for `FT.CREATE`, `FT.SEARCH`, `FT.AGGREGATE`, `FT.INFO`, etc.
 

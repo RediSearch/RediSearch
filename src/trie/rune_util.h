@@ -67,9 +67,6 @@ rune *strToLowerRunes(const char *str, size_t utf8_len, size_t *unicode_len);
  *   May be NULL. */
 rune *strToSingleCodepointFoldedRunes(const char *str, size_t utf8_len, size_t *len);
 
-/* Convert a utf-8 string to constant width runes */
-rune *strToRunes(const char *str, size_t *len);
-
 /* Decode a string to a rune in-place */
 size_t strToRunesN(const char *s, size_t slen, rune *outbuf);
 

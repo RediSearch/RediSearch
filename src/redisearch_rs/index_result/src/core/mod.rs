@@ -168,6 +168,7 @@ impl<'query, R: Ref> RawIndexResultBuilder<'query, R> {
             data: self.data,
             metrics: MetricsVec::new(),
             weight: self.weight,
+            has_field_expiration: false,
         }
     }
 }
@@ -278,6 +279,7 @@ impl<'query, R: Ref> RawTermResultBuilder<'query, R> {
             data,
             metrics: MetricsVec::new(),
             weight: self.weight,
+            has_field_expiration: false,
         }
     }
 }
@@ -316,6 +318,10 @@ pub struct RawIndexResult<'query, R: Ref> {
 
     /// Relative weight for scoring calculations. This is derived from the result's iterator weight
     pub weight: f64,
+
+    /// Whether expiration-aware iterators must verify field-level expiration
+    /// (HFE) for this result.
+    pub has_field_expiration: bool,
 }
 
 /// The [`Active`] instantiation of [`RawIndexResult`].
@@ -380,6 +386,7 @@ impl<'a> PartialEq for RSIndexResult<'a> {
             data,
             metrics,
             weight,
+            has_field_expiration,
         } = self;
         let Self {
             doc_id: o_doc_id,
@@ -389,6 +396,7 @@ impl<'a> PartialEq for RSIndexResult<'a> {
             data: o_data,
             metrics: o_metrics,
             weight: o_weight,
+            has_field_expiration: o_has_field_expiration,
         } = other;
         doc_id == o_doc_id
             && dmd == o_dmd
@@ -397,6 +405,7 @@ impl<'a> PartialEq for RSIndexResult<'a> {
             && data == o_data
             && metrics == o_metrics
             && weight == o_weight
+            && has_field_expiration == o_has_field_expiration
     }
 }
 
@@ -998,6 +1007,7 @@ impl<'a> RSIndexResult<'a> {
             data: self.data.to_owned(),
             metrics: self.metrics.clone(),
             weight: self.weight,
+            has_field_expiration: self.has_field_expiration,
         }
     }
 

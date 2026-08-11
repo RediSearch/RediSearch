@@ -73,7 +73,8 @@ mod ffi_comparison {
         let runes = unsafe { std::slice::from_raw_parts(ptr, unicode_len) }.to_vec();
         // SAFETY: `RedisModule_Free` is a `static mut` set by the test harness and
         // not mutated concurrently.
-        let rm_free = unsafe { ffi::RedisModule_Free.expect("Redis allocator not available") };
+        let rm_free =
+            unsafe { redis_module::RedisModule_Free.expect("Redis allocator not available") };
         // SAFETY: `ptr` was allocated by `rm_calloc` (backed by RedisModule_Alloc).
         unsafe { rm_free(ptr.cast::<c_void>()) };
         Some(runes)

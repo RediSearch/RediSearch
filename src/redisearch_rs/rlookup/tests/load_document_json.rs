@@ -344,7 +344,7 @@ fn borrow_loads_field_like_open() {
             let loader = if via_borrow {
                 // The mock models the pinned handle by the context pointer.
                 // Safety: the mock resolves the handle to the document root.
-                let open_key = unsafe { ctx.cast::<ffi::RedisModuleKey>().as_ref() };
+                let open_key = unsafe { ctx.cast::<redis_module::RedisModuleKey>().as_ref() };
                 format.borrow(open_key, &key_name).unwrap()
             } else {
                 format.open(&key_name).unwrap()
@@ -385,7 +385,7 @@ fn borrow_falls_back_to_open_by_name() {
 
         // The mock models the pinned handle by the context pointer.
         // Safety: the mock resolves the handle to the document root.
-        let open_key = unsafe { ctx.cast::<ffi::RedisModuleKey>().as_ref() };
+        let open_key = unsafe { ctx.cast::<redis_module::RedisModuleKey>().as_ref() };
         format
             .borrow(open_key, &key_name)
             .expect("borrow should fall back to open-by-name")

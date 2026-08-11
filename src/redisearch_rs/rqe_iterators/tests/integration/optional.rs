@@ -13,14 +13,20 @@ use rqe_iterators::{
     wildcard::Wildcard,
 };
 
+use rqe_iterators_test_utils::ContractChecker;
+
 use crate::utils;
 
 #[test]
 fn type_() {
-    let it = Optional::new(10, 1.0, Empty::default());
+    let it = ContractChecker::new(Optional::new(10, 1.0, Empty::default()));
     assert_eq!(it.type_(), IteratorType::Optional);
 }
 
+/// Driven bare, deliberately: these probe an id at or below the position the
+/// iterator holds, to pin *Optional's own* `debug_assert` that a skip goes
+/// forward. `ContractChecker` enforces that precondition for the driver one step
+/// earlier, so wrapping them would pin its panic instead.
 mod optional_iterator_skip_backward_panics {
     use super::*;
 
@@ -68,11 +74,11 @@ mod optional_iterator_tests {
     const CHILD_DOCS: [DocId; NUM_DOCS] = [10, 20, 30, 50, 80];
 
     fn setup_optional_iterator_with_mock_child<'index>()
-    -> Optional<'index, utils::Mock<'index, NUM_DOCS>> {
+    -> ContractChecker<Optional<'index, utils::Mock<'index, NUM_DOCS>>> {
         // Create child iterator with specific docIds
         let child = utils::Mock::new(CHILD_DOCS);
 
-        Optional::new(MAX_DOC_ID, WEIGHT, child)
+        ContractChecker::new(Optional::new(MAX_DOC_ID, WEIGHT, child))
     }
 
     #[test]
@@ -349,14 +355,14 @@ mod optional_iterator_timeout_tests {
     const CHILD_DOCS: [DocId; NUM_DOCS] = [10, 20, 30];
 
     fn setup_optional_iterator_with_mock_child<'index>()
-    -> Optional<'index, utils::Mock<'index, NUM_DOCS>> {
+    -> ContractChecker<Optional<'index, utils::Mock<'index, NUM_DOCS>>> {
         // Create child iterator with specific docIds
         let child = utils::Mock::new(CHILD_DOCS);
         child
             .data()
             .set_error_at_done(Some(utils::MockIteratorError::TimeoutError(None)));
 
-        Optional::new(MAX_DOC_ID, WEIGHT, child)
+        ContractChecker::new(Optional::new(MAX_DOC_ID, WEIGHT, child))
     }
 
     #[test]
@@ -465,11 +471,41 @@ mod optional_iterator_with_empty_child_test {
     const MAX_DOC_ID: DocId = 50;
     const WEIGHT: f64 = 3.;
 
-    fn setup_optional_iterator_with_empty_child<'index>() -> Optional<'index, Empty> {
+    fn setup_optional_iterator_with_empty_child<'index>() -> ContractChecker<Optional<'index, Empty>>
+    {
         // Create empty child iterator
         let child = Empty::default();
 
-        Optional::new(MAX_DOC_ID, WEIGHT, child)
+        ContractChecker::new(Optional::new(MAX_DOC_ID, WEIGHT, child))
+    }
+
+    /// A skip past `max_doc_id` carries no result, so it must not adopt one as
+    /// the position — `max_doc_id` least of all, which a parent would read as
+    /// "this iterator is sitting on the last document".
+    #[test]
+    fn skip_to_beyond_max_doc_id_keeps_the_last_yielded_position() {
+        let mut it = setup_optional_iterator_with_empty_child();
+
+        for expected_id in 1..=3 {
+            assert_eq!(it.read().unwrap().unwrap().doc_id, expected_id);
+        }
+
+        assert!(matches!(it.skip_to(MAX_DOC_ID + 1), Ok(None)));
+        assert!(it.at_eof());
+        assert_eq!(it.last_doc_id(), 3);
+        assert!(it.current().is_none());
+
+        // Exhaustion is recorded on its own, so it holds even though the position
+        // (3) is far below `max_doc_id` and a forward probe is well-formed.
+        assert!(matches!(it.skip_to(4), Ok(None)));
+        assert!(matches!(it.read(), Ok(None)));
+        assert!(it.at_eof());
+        assert_eq!(it.last_doc_id(), 3);
+
+        // Only a rewind revives it.
+        it.rewind();
+        assert!(!it.at_eof());
+        assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
     }
 
     #[test]
@@ -653,14 +689,14 @@ mod optional_iterator_revalidate_test {
     const CHILD_DOCS: [DocId; NUM_DOCS] = [10, 20, 30, 50, 80];
 
     fn setup_optional_iterator_with_mock_child_and_data<'index>() -> (
-        Optional<'index, utils::Mock<'index, NUM_DOCS>>,
+        ContractChecker<Optional<'index, utils::Mock<'index, NUM_DOCS>>>,
         utils::MockData,
     ) {
         // Create child iterator with specific docIds
         let child = utils::Mock::new(CHILD_DOCS);
         let data = child.data();
 
-        let it = Optional::new(MAX_DOC_ID, WEIGHT, child);
+        let it = ContractChecker::new(Optional::new(MAX_DOC_ID, WEIGHT, child));
 
         (it, data)
     }
@@ -816,7 +852,7 @@ mod optional_iterator_revalidate_after_abort {
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
         let child = utils::Mock::new([5, 10, 15]);
         let mut data = child.data();
-        let mut it = Optional::new(MAX_DOC_ID, WEIGHT, child);
+        let mut it = ContractChecker::new(Optional::new(MAX_DOC_ID, WEIGHT, child));
 
         // Position on a virtual result (doc 1)
         let doc = it.read().unwrap().unwrap();
@@ -844,7 +880,7 @@ mod optional_iterator_revalidate_after_abort {
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
         let child = utils::Mock::new([5, 10, 15]);
         let mut data = child.data();
-        let mut it = Optional::new(MAX_DOC_ID, WEIGHT, child);
+        let mut it = ContractChecker::new(Optional::new(MAX_DOC_ID, WEIGHT, child));
 
         // Position on a virtual result
         let doc = it.read().unwrap().unwrap();
@@ -875,7 +911,7 @@ mod optional_iterator_revalidate_after_abort {
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
         let child = utils::Mock::new([5, 10, 15]);
         let mut data = child.data();
-        let mut it = Optional::new(MAX_DOC_ID, WEIGHT, child);
+        let mut it = ContractChecker::new(Optional::new(MAX_DOC_ID, WEIGHT, child));
 
         // Read several docs
         for _ in 0..5 {
@@ -904,6 +940,8 @@ mod optional_iterator_non_sequential_reads {
 
     struct ReadStepIterator<'index, const N: usize> {
         read_steps: [DocId; N],
+        /// Index of the next step to serve, [`utils::past_end_cursor`] once a
+        /// `read`/`skip_to` ran past the last one.
         read_step: usize,
         result: index_result::RSIndexResult<'index>,
     }
@@ -916,10 +954,25 @@ mod optional_iterator_non_sequential_reads {
                 result: index_result::RSIndexResult::build_numeric(42.).build(),
             }
         }
+
+        /// Whether a `read`/`skip_to` has already run past the last step — the
+        /// state behind both `current()` and `at_eof()`.
+        fn past_end(&self) -> bool {
+            self.read_step == utils::past_end_cursor(N)
+        }
+
+        /// Whether the next `read` would find nothing, true one step before
+        /// [`Self::past_end`].
+        fn no_more_steps(&self) -> bool {
+            self.read_step >= N
+        }
     }
 
     impl<'index, const N: usize> RQEIterator<'index> for ReadStepIterator<'index, N> {
         fn current(&mut self) -> Option<&mut index_result::RSIndexResult<'index>> {
+            if self.past_end() {
+                return None;
+            }
             Some(&mut self.result)
         }
 
@@ -927,7 +980,8 @@ mod optional_iterator_non_sequential_reads {
             &mut self,
         ) -> Result<Option<&mut index_result::RSIndexResult<'index>>, rqe_iterators::RQEIteratorError>
         {
-            if self.at_eof() {
+            if self.no_more_steps() {
+                self.read_step = utils::past_end_cursor(N);
                 return Ok(None);
             }
 
@@ -940,13 +994,16 @@ mod optional_iterator_non_sequential_reads {
             &mut self,
             doc_id: DocId,
         ) -> Result<Option<SkipToOutcome<'_, 'index>>, rqe_iterators::RQEIteratorError> {
-            while !self.at_eof() && self.result.doc_id < doc_id {
+            while !self.no_more_steps() && self.result.doc_id < doc_id {
                 self.result.doc_id = self.read_steps[self.read_step];
                 self.read_step += 1;
             }
 
             match self.result.doc_id.cmp(&doc_id) {
-                std::cmp::Ordering::Less => Ok(None),
+                std::cmp::Ordering::Less => {
+                    self.read_step = utils::past_end_cursor(N);
+                    Ok(None)
+                }
                 std::cmp::Ordering::Equal => Ok(Some(SkipToOutcome::Found(&mut self.result))),
                 std::cmp::Ordering::Greater => Ok(Some(SkipToOutcome::NotFound(&mut self.result))),
             }
@@ -966,7 +1023,7 @@ mod optional_iterator_non_sequential_reads {
         }
 
         fn at_eof(&self) -> bool {
-            self.read_step >= N
+            self.past_end()
         }
 
         fn revalidate(
@@ -1025,7 +1082,8 @@ mod optional_iterator_non_sequential_reads {
 
     #[test]
     fn test_non_sequential_reads() {
-        let mut it = Optional::new(9, 1., ReadStepIterator::new([1, 2, 4, 8]));
+        let mut it =
+            ContractChecker::new(Optional::new(9, 1., ReadStepIterator::new([1, 2, 4, 8])));
 
         // do twice, rewinding at end...
         for _ in 1..=2 {
@@ -1059,7 +1117,8 @@ mod optional_iterator_non_sequential_reads {
 
     #[test]
     fn test_non_sequential_reads_mixed_with_skip_to() {
-        let mut it = Optional::new(9, 1., ReadStepIterator::new([1, 2, 4, 8]));
+        let mut it =
+            ContractChecker::new(Optional::new(9, 1., ReadStepIterator::new([1, 2, 4, 8])));
 
         // real read
         // + skip just after real
@@ -1101,7 +1160,7 @@ mod optional_iterator_non_sequential_reads {
 
     #[test]
     fn test_non_sequential_skip_to_pre_read_child_result() {
-        let mut it = Optional::new(9, 1., ReadStepIterator::new([1, 4]));
+        let mut it = ContractChecker::new(Optional::new(9, 1., ReadStepIterator::new([1, 4])));
 
         assert_numeric_read(&mut it, 1, 1.);
         assert_virtual_read(&mut it, 2);
@@ -1133,7 +1192,7 @@ mod optional_iterator_non_sequential_reads {
     #[test]
     #[should_panic]
     fn test_reads_backwards_panic() {
-        let mut it = Optional::new(5, 1., ReadStepIterator::new([1, 2, 1]));
+        let mut it = ContractChecker::new(Optional::new(5, 1., ReadStepIterator::new([1, 2, 1])));
 
         for _ in 1..=2 {
             let _ = it.read();
@@ -1321,6 +1380,96 @@ mod via_resume {
         );
     }
 
+    /// A resume whose re-read runs off the end must report `Moved` with **no
+    /// current** — not the stale pre-suspend result.
+    ///
+    /// `ResumeOutcome::Moved` carries no `Option`, so the caller recovers the
+    /// new position from `current()`. The legacy `revalidate` forwarded
+    /// `read()` straight into `Moved { current }` and so surfaced EOF as
+    /// `current: None`; the resume path discarded the re-read's outcome, which
+    /// left `current()` handing back the very position the resume was repairing.
+    #[test]
+    fn resume_reread_to_eof_reports_no_current() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        // `max_doc_id` of 1 with a child hit at doc 1: after reading it the
+        // iterator sits on its final result, so the resume's re-read finds
+        // nothing.
+        let child = Mock::new([1]);
+        child
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+        let mut optional = Box::new(Optional::new(1, WEIGHT, child));
+
+        let hit = optional.read().unwrap().unwrap();
+        assert_eq!(hit.doc_id, 1);
+        assert_eq!(hit.weight, WEIGHT, "doc 1 is a real child hit");
+        assert!(
+            !optional.at_eof(),
+            "doc 1 is the bound, but it is still the current result",
+        );
+        assert!(optional.current().is_some(), "doc 1 is the current result");
+
+        let mut active = match optional
+            .suspend()
+            .resume(&mock_ctx.spec_read())
+            .expect("resume failed")
+        {
+            ResumeOutcome::Moved(it) => it,
+            ResumeOutcome::Ok(_) => panic!("expected Moved, got Ok"),
+            ResumeOutcome::Aborted => panic!("expected Moved, got Aborted"),
+        };
+        assert!(
+            active.current().is_none(),
+            "the re-read ran off the end, so the moved iterator has no current",
+        );
+    }
+
+    /// A child whose resume *re-seeks* past the end — the inverted-index shape
+    /// where the cached offset was invalidated, so the seek runs off the end and
+    /// leaves `last_doc_id()` reset to 0 rather than advanced.
+    ///
+    /// `Optional` cannot notice that by comparing the child's `last_doc_id`
+    /// before and after: it went backwards, not forwards. Only the child's
+    /// `current()` reporting `None` identifies it. What must not happen is
+    /// `Optional` handing back the real hit it was sitting on, which no longer
+    /// exists.
+    #[test]
+    fn resume_child_reseeking_past_end_does_not_yield_stale_hit() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        // Child hits at doc 2 only; `max_doc_id` of 4 leaves room to move on.
+        let child = Mock::new([2]);
+        child.data().set_resume_reseeks_past_end(true);
+        let mut optional = Box::new(Optional::new(4, WEIGHT, child));
+
+        assert_eq!(optional.read().unwrap().unwrap().doc_id, 1, "virtual");
+        let hit = optional.read().unwrap().unwrap();
+        assert_eq!(hit.doc_id, 2);
+        assert_eq!(hit.weight, WEIGHT, "doc 2 is a real child hit");
+
+        let mut active = match optional
+            .suspend()
+            .resume(&mock_ctx.spec_read())
+            .expect("resume failed")
+        {
+            ResumeOutcome::Moved(it) => it,
+            ResumeOutcome::Ok(_) => panic!("expected Moved, got Ok"),
+            ResumeOutcome::Aborted => panic!("expected Moved, got Aborted"),
+        };
+
+        let current = active
+            .current()
+            .expect("doc 3 is still within max_doc_id, so there is a current");
+        assert_eq!(
+            current.doc_id, 3,
+            "the re-read moved past the hit that vanished",
+        );
+        assert_eq!(
+            current.weight, 0.,
+            "doc 3 is virtual: the child is left unpositioned",
+        );
+        assert!(!active.at_eof());
+    }
+
     /// `Present` child that moves during resume, forcing a re-read whose own
     /// `read` then fails: the error propagates out of `Optional::resume`.
     #[test]
@@ -1423,4 +1572,13 @@ mod via_resume {
 
     const MAX_DOC_ID: DocId = 100;
     const WEIGHT: f64 = 2.0;
+}
+
+#[test]
+fn optional_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    // Yields every id in 1..=5, real at 2 and 4, virtual elsewhere.
+    let mut it = ContractChecker::new(Optional::new(5, 2.0, utils::Mock::new([2u64, 4])));
+    assert_eq!(assert_current_contract(&mut it), [1, 2, 3, 4, 5]);
+    assert_current_contract_via_skip_to(&mut it, 6);
 }

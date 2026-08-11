@@ -34,15 +34,15 @@ fn test_new_range_bounds() {
 fn test_add_updates_bounds() {
     let mut range = NumericRange::new(false);
 
-    range.add(1, prepared(5.0));
+    range.add(1, prepared(5.0), false);
     assert_eq!(range.min_val(), 5.0);
     assert_eq!(range.max_val(), 5.0);
 
-    range.add(2, prepared(10.0));
+    range.add(2, prepared(10.0), false);
     assert_eq!(range.min_val(), 5.0);
     assert_eq!(range.max_val(), 10.0);
 
-    range.add(3, prepared(2.0));
+    range.add(3, prepared(2.0), false);
     assert_eq!(range.min_val(), 2.0);
     assert_eq!(range.max_val(), 10.0);
 }
@@ -51,9 +51,9 @@ fn test_add_updates_bounds() {
 fn test_add_updates_cardinality() {
     let mut range = NumericRange::new(false);
 
-    range.add(1, prepared(1.0));
-    range.add(2, prepared(2.0));
-    range.add(3, prepared(3.0));
+    range.add(1, prepared(1.0), false);
+    range.add(2, prepared(2.0), false);
+    range.add(3, prepared(3.0), false);
 
     // HLL gives approximate count, but for small counts it should be reasonably accurate
     let card = range.cardinality();
@@ -66,8 +66,8 @@ fn test_add_updates_cardinality() {
 #[test]
 fn test_contained_in() {
     let mut range = NumericRange::new(false);
-    range.add(1, prepared(5.0));
-    range.add(2, prepared(10.0));
+    range.add(1, prepared(5.0), false);
+    range.add(2, prepared(10.0), false);
 
     // Range [5, 10] is contained in [0, 20]
     assert!(range.contained_in(0.0, 20.0));
@@ -82,8 +82,8 @@ fn test_contained_in() {
 #[test]
 fn test_overlaps() {
     let mut range = NumericRange::new(false);
-    range.add(1, prepared(5.0));
-    range.add(2, prepared(10.0));
+    range.add(1, prepared(5.0), false);
+    range.add(2, prepared(10.0), false);
 
     // Overlapping cases
     assert!(range.overlaps(0.0, 6.0)); // left overlap
@@ -110,9 +110,9 @@ fn test_add_without_cardinality() {
     let mut range = NumericRange::new(false);
 
     // Add entries without updating cardinality
-    range.add_without_cardinality(1, prepared(5.0));
-    range.add_without_cardinality(2, prepared(10.0));
-    range.add_without_cardinality(3, prepared(2.0));
+    range.add_without_cardinality(1, prepared(5.0), false);
+    range.add_without_cardinality(2, prepared(10.0), false);
+    range.add_without_cardinality(3, prepared(2.0), false);
 
     // Bounds should be updated
     assert_eq!(range.min_val(), 2.0);
@@ -129,11 +129,11 @@ fn test_add_without_cardinality_vs_add() {
     let mut range_without_card = NumericRange::new(false);
 
     // Add same values to both
-    range_with_card.add(1, prepared(5.0));
-    range_with_card.add(2, prepared(10.0));
+    range_with_card.add(1, prepared(5.0), false);
+    range_with_card.add(2, prepared(10.0), false);
 
-    range_without_card.add_without_cardinality(1, prepared(5.0));
-    range_without_card.add_without_cardinality(2, prepared(10.0));
+    range_without_card.add_without_cardinality(1, prepared(5.0), false);
+    range_without_card.add_without_cardinality(2, prepared(10.0), false);
 
     // Bounds should be the same
     assert_eq!(range_with_card.min_val(), range_without_card.min_val());
@@ -153,13 +153,13 @@ fn test_num_docs() {
     let mut range = NumericRange::new(false);
     assert_eq!(range.num_docs(), 0);
 
-    range.add(1, prepared(5.0));
+    range.add(1, prepared(5.0), false);
     assert_eq!(range.num_docs(), 1);
 
-    range.add(2, prepared(10.0));
+    range.add(2, prepared(10.0), false);
     assert_eq!(range.num_docs(), 2);
 
-    range.add(3, prepared(15.0));
+    range.add(3, prepared(15.0), false);
     assert_eq!(range.num_docs(), 3);
 }
 
@@ -168,8 +168,8 @@ fn test_entries_accessor() {
     use numeric_range_tree::NumericIndex;
 
     let mut range = NumericRange::new(false);
-    range.add(1, prepared(5.0));
-    range.add(2, prepared(10.0));
+    range.add(1, prepared(5.0), false);
+    range.add(2, prepared(10.0), false);
 
     let entries = range.entries();
     match entries {
@@ -187,9 +187,9 @@ fn test_entries_accessor() {
 #[test]
 fn test_hll_accessor() {
     let mut range = NumericRange::new(false);
-    range.add(1, prepared(5.0));
-    range.add(2, prepared(10.0));
-    range.add(3, prepared(15.0));
+    range.add(1, prepared(5.0), false);
+    range.add(2, prepared(10.0), false);
+    range.add(3, prepared(15.0), false);
 
     let hll = range.hll();
     // HLL count should approximate the number of distinct values
@@ -205,11 +205,11 @@ fn test_inverted_index_size() {
     let mut range = NumericRange::new(false);
     let initial_size = range.memory_usage();
 
-    range.add(1, prepared(5.0));
+    range.add(1, prepared(5.0), false);
     let size_after_one = range.memory_usage();
     assert!(size_after_one >= initial_size);
 
-    range.add(2, prepared(10.0));
+    range.add(2, prepared(10.0), false);
     let size_after_two = range.memory_usage();
     assert!(size_after_two >= size_after_one);
 }
@@ -224,8 +224,8 @@ fn test_compressed_range_treats_collapsing_values_as_one() {
     // value for both, so its statistics must report one value.
     let mut range = NumericRange::new(true);
     let index = NumericIndex::new(true);
-    range.add(1, index.prepare(100.5));
-    range.add(2, index.prepare(100.500001));
+    range.add(1, index.prepare(100.5), false);
+    range.add(2, index.prepare(100.500001), false);
 
     assert_eq!(range.num_entries(), 2);
     assert_eq!(
@@ -242,8 +242,8 @@ fn test_compressed_range_treats_collapsing_values_as_one() {
     // The same two inputs stay distinct without compression.
     let mut range = NumericRange::new(false);
     let index = NumericIndex::new(false);
-    range.add(1, index.prepare(100.5));
-    range.add(2, index.prepare(100.500001));
+    range.add(1, index.prepare(100.5), false);
+    range.add(2, index.prepare(100.500001), false);
     assert_eq!(range.cardinality(), 2);
     assert_eq!((range.min_val(), range.max_val()), (100.5, 100.500001));
 }
@@ -254,8 +254,8 @@ fn test_signed_zeros_are_one_stored_value(#[values(false, true)] compress_floats
     // `-0.0` and `+0.0` are indistinguishable once stored.
     let mut range = NumericRange::new(compress_floats);
     let index = NumericIndex::new(compress_floats);
-    range.add(1, index.prepare(-0.0));
-    range.add(2, index.prepare(0.0));
+    range.add(1, index.prepare(-0.0), false);
+    range.add(2, index.prepare(0.0), false);
 
     assert_eq!(range.cardinality(), 1);
     assert!(range.min_val().is_sign_positive());
@@ -280,7 +280,7 @@ fn test_geohash_values_are_stored_exactly(#[values(false, true)] compress_floats
 
     let mut range = NumericRange::new(compress_floats);
     for (i, geohash) in geohashes.iter().enumerate() {
-        range.add(i as u64 + 1, index.prepare(*geohash));
+        range.add(i as u64 + 1, index.prepare(*geohash), false);
     }
     assert_eq!(range.cardinality(), geohashes.len());
     assert_eq!(range.min_val(), geohashes[0]);
@@ -299,11 +299,16 @@ fn test_numeric_index_write_paths_agree(#[values(false, true)] compress_floats: 
 
     for (i, value) in values.iter().enumerate() {
         let doc_id = i as u64 + 1;
-        let record = RSIndexResult::build_numeric(*value).doc_id(doc_id).build();
+        let has_field_expiration = i % 2 == 0;
+        let mut record = RSIndexResult::build_numeric(*value).doc_id(doc_id).build();
+        record.has_field_expiration = has_field_expiration;
 
         let record_outcome = from_records.add_record(&record);
-        let prepared_outcome =
-            from_prepared.add_prepared_record(doc_id, from_prepared.prepare(*value));
+        let prepared_outcome = from_prepared.add_prepared_record(
+            doc_id,
+            from_prepared.prepare(*value),
+            has_field_expiration,
+        );
 
         assert_eq!(
             record_outcome, prepared_outcome,
@@ -329,7 +334,11 @@ fn test_numeric_index_write_paths_agree(#[values(false, true)] compress_floats: 
         let mut decoded = Vec::new();
         while reader.next_record(&mut result).unwrap_or(false) {
             // SAFETY: a numeric index only ever holds numeric records
-            decoded.push((result.doc_id, unsafe { result.as_numeric_unchecked() }));
+            decoded.push((
+                result.doc_id,
+                unsafe { result.as_numeric_unchecked() },
+                result.has_field_expiration,
+            ));
         }
         decoded
     };
@@ -351,8 +360,8 @@ fn test_compressed_signed_zero_collapse_counts_once() {
     assert!(positive.is_sign_positive());
 
     let mut range = NumericRange::new(true);
-    range.add(1, index.prepare(5e-324));
-    range.add(2, index.prepare(-5e-324));
+    range.add(1, index.prepare(5e-324), false);
+    range.add(2, index.prepare(-5e-324), false);
 
     assert_eq!((range.min_val(), range.max_val()), (0.0, 0.0));
     assert_eq!(

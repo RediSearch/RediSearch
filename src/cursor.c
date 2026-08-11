@@ -13,6 +13,7 @@
 
 #include "module.h"
 #include "rmutil/rm_assert.h"
+#include "info/info_redis/threads/main_thread.h"
 #include "query_error.h"
 #include "query_error_ffi.h"
 #include "redisearch.h"
@@ -90,12 +91,14 @@ static void Cursor_FreeInternal(Cursor *cur) {
   RS_LOG_ASSERT(kh_get(cursors, cl->lookup, cur->id) == kh_end(cl->lookup),
                                                     "Failed to delete cursor");
   if (cur->hybrid_ref.rm) {
-    // The AREQ will be free by the hybrid request free function.
+    // TRANSITIONAL(MOD-16691): the sub-AREQ (and its wrapper) is freed by the
+    // hybrid container; the cursor's hold rides the StrongRef until the
+    // container-handoff step.
     StrongRef_Release(cur->hybrid_ref);
-    cur->execState = NULL;
-  } else if (cur->execState) {
-    AREQ_DecrRef(cur->execState);
-    cur->execState = NULL;
+    cur->query = NULL;
+  } else if (cur->query) {
+    BlockedRequestCtx_DecrRef(cur->query);
+    cur->query = NULL;
   }
   // if There's a spec associated with the cursor
   if(cur->spec_ref.rm) {
@@ -230,6 +233,24 @@ static void Cursors_RescheduleSweepLocked(CursorList *cl) {
     return;
   }
 
+  // `RedisModule_StopTimer` / `RedisModule_CreateTimer` below mutate the
+  // server's event-loop timer state, so they must only be reached from the main
+  // thread. Any caller that can run elsewhere must post
+  // `Cursors_RequestRescheduleSweep` instead of re-arming inline. Which callers
+  // those are depends on how each command is dispatched: `Cursor_Pause` runs on
+  // a worker whenever `FT.CURSOR READ` is handed to the workers pool, and
+  // `Cursors_CollectIdle` does whenever a cluster serves `FT.CURSOR GC` off the
+  // main thread. This assertion is the enforcement, so the rule holds without
+  // having to re-derive the dispatch path of every caller.
+  //
+  // `MainThread_GetBlockedQueries` is a proxy for "am I the thread that ran
+  // `RediSearch_InitModuleInternal`": the TLS slot is populated there and is
+  // NULL on every other thread. It is therefore only a valid main-thread test
+  // after module init, which is guaranteed for any cursor operation.
+  RS_LOG_ASSERT(MainThread_GetBlockedQueries() != NULL,
+                "Cursors_RescheduleSweepLocked must run on the main thread; "
+                "use Cursors_RequestRescheduleSweep from worker threads");
+
   if (cl->idleSweepTimerId != IDLE_SWEEP_TIMER_NONE) {
     RedisModule_StopTimer(RSDummyContext, cl->idleSweepTimerId, NULL);
     cl->idleSweepTimerId = IDLE_SWEEP_TIMER_NONE;
@@ -322,8 +343,9 @@ static uint64_t CursorList_GenerateId(CursorList *curlist) {
 }
 
 static void cursorMarkASMInaccuracyCb(CursorList *cl, Cursor *cur, void *arg) {
-  if (cur->execState) {
-    cur->execState->stateflags |= QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT;
+  AREQ *req = Cursor_AREQ(cur);
+  if (req) {
+    req->stateflags |= QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT;
   }
 }
 
@@ -436,26 +458,6 @@ Cursor *Cursors_TakeForExecution(CursorList *cl, uint64_t cid) {
 
   CursorList_Unlock(cl);
   return cur;
-}
-
-CursorTimeoutInfo Cursors_PeekTimeoutInfo(CursorList *cl, uint64_t cid) {
-  CursorTimeoutInfo info = {.queryTimeoutMS = 0,
-                            .queryTimeoutPolicy = TimeoutPolicy_Return,
-                            .found = false};
-  CursorList_Lock(cl);
-  CursorList_IncrCounter(cl);
-  khiter_t iter = kh_get(cursors, cl->lookup, cid);
-  if (iter != kh_end(cl->lookup)) {
-    const Cursor *cur = kh_value(cl->lookup, iter);
-    info.queryTimeoutMS = cur->queryTimeoutMS;
-    info.queryTimeoutPolicy = cur->queryTimeoutPolicy;
-    info.found = true;
-#ifdef ENABLE_ASSERT
-    info.isHybrid = (cur->hybrid_ref.rm != NULL);
-#endif
-  }
-  CursorList_Unlock(cl);
-  return info;
 }
 
 int Cursors_Purge(CursorList *cl, uint64_t cid) {

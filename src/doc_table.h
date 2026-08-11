@@ -174,6 +174,19 @@ static inline struct FieldExpirationSlice DocTable_GetFieldExpirations(const Doc
   return TimeToLiveTable_GetFieldExpirations(t->ttl, docId);
 }
 
+// Returns true if `docId` has a field-level expiration registered for the field
+// at the given spec field index.
+static inline bool DocTable_FieldHasExpiration(const DocTable *t, t_docId docId,
+                                               t_fieldIndex fieldIndex) {
+  const struct FieldExpirationSlice fes = DocTable_GetFieldExpirations(t, docId);
+  for (size_t i = 0; i < fes.len; ++i) {
+    if (fes.ptr[i].index == fieldIndex) {
+      return true;
+    }
+  }
+  return false;
+}
+
 
 /* Free the table and all the keys of documents */
 void DocTable_Free(DocTable *t);

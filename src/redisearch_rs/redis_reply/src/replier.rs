@@ -9,13 +9,13 @@
 
 use std::ffi::CStr;
 
-use ffi::{
+use redis_module::{
     REDISMODULE_POSTPONED_ARRAY_LEN, REDISMODULE_POSTPONED_LEN, RedisModule_ReplyWithArray,
     RedisModule_ReplyWithDouble, RedisModule_ReplyWithEmptyArray, RedisModule_ReplyWithLongLong,
     RedisModule_ReplyWithMap, RedisModule_ReplyWithSimpleString, RedisModule_ReplyWithStringBuffer,
 };
 
-pub use ffi::RedisModuleCtx;
+pub use redis_module::RedisModuleCtx;
 
 use crate::array::ArrayBuilder;
 use crate::map::MapBuilder;

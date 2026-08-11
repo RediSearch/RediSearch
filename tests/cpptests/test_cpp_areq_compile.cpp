@@ -131,7 +131,8 @@ TEST_P(AREQBinarySlotRangeTest, testBinarySlotRangeParsing) {
     argv.push_back(createBinaryString(binary_data));
 
     // Test AREQ_Compile
-    int result = AREQ_Compile(req, ctx, argv.data(), argv.size(), false, &status);
+    BlockedRequestCtx_NewAREQ(req, argv.data(), argv.size());
+    int result = AREQ_Compile(req, ctx, 0, false, &status);
 
     EXPECT_EQ(result, REDISMODULE_OK) << "AREQ_Compile should succeed for: " << test_data.description;
     EXPECT_FALSE(QueryError_HasError(&status)) << "Should not have query error for: " << test_data.description;
@@ -221,7 +222,8 @@ TEST_F(AREQTest, testBinarySlotRangeParsingSingleRange) {
     argv.push_back(createBinaryString(binary_data));
 
     // Test AREQ_Compile
-    int result = AREQ_Compile(req, ctx, argv.data(), argv.size(), false, &status);
+    BlockedRequestCtx_NewAREQ(req, argv.data(), argv.size());
+    int result = AREQ_Compile(req, ctx, 0, false, &status);
 
     EXPECT_EQ(result, REDISMODULE_OK) << "AREQ_Compile should succeed";
     EXPECT_FALSE(QueryError_HasError(&status)) << "Should not have query error";
@@ -256,7 +258,8 @@ TEST_F(AREQTest, testBinarySlotRangeInsufficientArgs) {
     argv.push_back(RedisModule_CreateString(ctx, SLOTS_STR, strlen(SLOTS_STR)));
 
     // Test AREQ_Compile - should fail due to insufficient arguments
-    int result = AREQ_Compile(req, ctx, argv.data(), argv.size(), false, &status);
+    BlockedRequestCtx_NewAREQ(req, argv.data(), argv.size());
+    int result = AREQ_Compile(req, ctx, 0, false, &status);
 
     EXPECT_EQ(result, REDISMODULE_ERR) << "AREQ_Compile should fail with insufficient arguments";
     EXPECT_TRUE(QueryError_HasError(&status)) << "Should have query error";
@@ -298,7 +301,8 @@ TEST_F(AREQTest, testComplexAggregateWithCursorAndSlotRanges) {
     argv.push_back(RedisModule_CreateString(ctx, "@__score", 8));
 
     // Test AREQ_Compile
-    int result = AREQ_Compile(req, ctx, argv.data(), argv.size(), false, &status);
+    BlockedRequestCtx_NewAREQ(req, argv.data(), argv.size());
+    int result = AREQ_Compile(req, ctx, 0, false, &status);
 
     EXPECT_EQ(result, REDISMODULE_OK) << "AREQ_Compile should succeed";
     EXPECT_FALSE(QueryError_HasError(&status)) << "Should not have query error";

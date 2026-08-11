@@ -14,6 +14,7 @@ members = [
     "index_result",
     "inverted_index",
     "inverted_index_bencher",
+    "nul_terminated_bytes",
     "numeric_range_tree",
     "thin_vec",
     "qint",
@@ -129,6 +130,7 @@ index_spec = { path = "./c_wrappers/index_spec" }
 index_result = { path = "./index_result" }
 index_spec_cache = { path = "./c_wrappers/index_spec_cache" }
 inverted_index = { path = "./inverted_index" }
+nul_terminated_bytes = { path = "./nul_terminated_bytes" }
 numeric_range_tree = { path = "./numeric_range_tree" }
 numeric_score_source = { path = "./numeric_score_source" }
 redis_reply = { path = "./redis_reply" }
@@ -212,7 +214,6 @@ rustc-hash = "2.1.1"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 smallvec = "1.15.1"
-strsim = "0.11.1"
 strum = { version = "0.27.2", features = ["derive"] }
 syn = "2"
 # need "unstable" for the "default_log_filter" attribute allowing to override the default level (info).
@@ -240,6 +241,12 @@ xxhash-rust = "0.8"
 [workspace.dependencies.redis-module]
 git = "https://github.com/RedisLabsModules/redismodule-rs.git"
 rev = "7fb620f1ef42453dea4e22c9358d0d25d4224710"
+# `default-features = false` is load-bearing. Members declare a plain
+# `redis-module.workspace = true` and rely on it contributing no features, so that
+# c_entrypoint/redisearch_rs/Cargo.toml is the only hand-written place choosing
+# between `bindgen-static` and `bindgen-runtime`. Enabling the defaults here would
+# turn on `bindgen-runtime` for every member and break the Alpine (musl) build; see
+# the comment on that crate's `redis-module` target blocks.
 default-features = false
 
 [profile.release]

@@ -18,7 +18,7 @@ mod timespec;
 pub use self::owned_slice::OwnedSlice;
 pub use min_heap::{DocIdMinHeap, HeapEntry};
 pub use timeout::{
-    AnyTimeoutContext, DeadlineTimeoutChecker, NoTimeoutChecker, TimeoutContext,
-    TimeoutContextBlockedClient,
+    AnyTimeoutContext, DeadlineTimeoutChecker, NoTimeoutChecker, TimeoutCheckResult,
+    TimeoutChecker, TimeoutContext, TimeoutContextBlockedClient, TimeoutContextDeadline,
 };
-pub use timespec::duration_from_redis_timespec;
+pub use timespec::{deadline_passed, duration_from_redis_timespec};

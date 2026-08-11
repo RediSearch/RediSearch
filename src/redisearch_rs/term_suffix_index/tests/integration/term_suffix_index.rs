@@ -30,8 +30,8 @@ fn add_promotes_existing_suffix_only_node_to_full_term() {
 #[test]
 #[cfg_attr(miri, ignore = "Takes too long with Miri, causing CI to timeout")]
 fn add_term_longer_than_u16_max_bytes_is_noop() {
-    // Trie node labels store their length as `u16`; an unrepresentable
-    // term must be skipped, not panic.
+    // Trie node labels store their length as `u16`; a term that could
+    // force an oversized label must be skipped, not panic.
     let mut sut = TermSuffixIndex::new();
 
     sut.add(&"a".repeat(u16::MAX as usize + 1));
@@ -241,12 +241,11 @@ fn iter_wildcard_multibyte_anchor_matches() {
 }
 
 #[test]
-fn iter_wildcard_question_mark_is_byte_wise_for_multibyte() {
-    // The matcher is byte-wise, so `?` consumes one *byte*, not one
-    // codepoint. `é` (U+00E9) is two UTF-8 bytes: `ab*c?` matches only its
-    // first byte, the second has nothing to pair with, and the term is
-    // dropped. This is the accepted approximation — an ASCII tail matches.
-    let corpus = ["abxc\u{e9}", "abxcd"]
+fn iter_wildcard_question_mark_is_codepoint_wise_for_multibyte() {
+    // `?` consumes one *codepoint*, not one byte: `é` (U+00E9, two UTF-8
+    // bytes) satisfies the trailing `?` just like an ASCII `d` does,
+    // while `abxc\u{e9}d` has two codepoints after `c` and is rejected.
+    let corpus = ["abxc\u{e9}", "abxc\u{e9}d", "abxcd"]
         .into_iter()
         .map(String::from)
         .collect::<Vec<_>>();
@@ -257,8 +256,8 @@ fn iter_wildcard_question_mark_is_byte_wise_for_multibyte() {
             .expect("'ab' is anchorable"),
     );
 
-    // The ASCII-tailed term matches; the `é`-tailed one is missed.
-    assert_eq!(actual, HashSet::from(["abxcd".to_string()]));
+    let expected = HashSet::from(["abxc\u{e9}".to_string(), "abxcd".to_string()]);
+    assert_eq!(actual, expected);
 }
 
 #[test]
@@ -501,18 +500,18 @@ mod fuzz {
             corpus in proptest::collection::vec(term_strategy(), 1..=20),
             pattern in "[ab*?]{0,8}",
         ) {
-            use rqe_wildcard::{MatchOutcome, WildcardPattern};
+            use trie_rs::automaton::CodepointWildcard;
 
             let sut = build_index(&corpus);
 
             // `None` requests the fallback scan — out of scope here. The
-            // oracle uses the same byte-wise matcher iter_wildcard does, so
-            // this pins the anchor-selection logic, not the matcher itself.
+            // oracle uses the same codepoint-wise matcher iter_wildcard does,
+            // so this pins the anchor-selection logic, not the matcher itself.
             if let Some(matches) = sut.iter_wildcard(&pattern, || false) {
-                let parsed = WildcardPattern::parse(pattern.as_bytes());
+                let parsed = CodepointWildcard::parse(&pattern);
                 let expected = corpus
                     .iter()
-                    .filter(|t| parsed.matches(t.as_bytes()) == MatchOutcome::Match)
+                    .filter(|t| parsed.matches(t))
                     .cloned()
                     .collect::<HashSet<_>>();
 

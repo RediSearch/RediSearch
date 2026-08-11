@@ -27,7 +27,7 @@ on:
       redis-ref:
         description: 'Redis version to use (only consumed by setup steps that key caches on it).'
         type: string
-        default: 3cd464263b03b425ffae2e23db24df3dc9346871
+        default: '8.10.0'
       test-timeout:
         type: number
         default: 120
@@ -367,4 +367,3 @@ jobs:
           flags: unit
           fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}
           token: ${{ secrets.CODECOV_TOKEN }}
-

@@ -17,6 +17,7 @@
 #include "redismock/internal.h"
 
 #include "gtest/gtest.h"
+#include "util/misc.h"
 
 extern "C" {
 
@@ -88,6 +89,7 @@ std::vector<std::string> RS::search(RSIndex *index, const char *s) {
 
 int main(int argc, char **argv) {
   RS::InstallSegvStackTraceHandler();
+  MainThread_Set();
   ::testing::InitGoogleTest(&argc, argv);
   ::testing::AddGlobalTestEnvironment(new MyEnvironment());
   return RUN_ALL_TESTS();
