@@ -122,6 +122,10 @@ fn set(items: &[&str]) -> HashSet<String> {
 // --- `TermsTrie::delete` ----------------------------------------------------
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "calling the C trie's foreign functions is not supported by Miri"
+)]
 fn delete_removes_a_stored_term() {
     with_terms_trie(&["apple", "maple", "grape"], |trie| {
         assert!(trie.delete(b"maple"), "a stored term is removed");
@@ -131,6 +135,10 @@ fn delete_removes_a_stored_term() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "calling the C trie's foreign functions is not supported by Miri"
+)]
 fn delete_removes_a_term_that_still_has_documents() {
     // Unlike `decrement_num_docs`, `delete` does not care about the doc count:
     // the term goes away in one step.
@@ -142,6 +150,10 @@ fn delete_removes_a_term_that_still_has_documents() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "calling the C trie's foreign functions is not supported by Miri"
+)]
 fn delete_reports_a_miss_for_an_absent_term() {
     with_terms_trie(&["apple"], |trie| {
         let removed = trie.delete(b"apricot");
@@ -151,6 +163,10 @@ fn delete_reports_a_miss_for_an_absent_term() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "calling the C trie's foreign functions is not supported by Miri"
+)]
 fn delete_reports_a_miss_for_a_prefix_of_a_stored_term() {
     with_terms_trie(&["apple"], |trie| {
         let removed = trie.delete(b"app");
@@ -160,6 +176,10 @@ fn delete_reports_a_miss_for_a_prefix_of_a_stored_term() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "calling the C trie's foreign functions is not supported by Miri"
+)]
 fn delete_reports_a_miss_for_an_empty_term() {
     // `TrieNode_Add` no-ops on a zero-length key, so the trie can never hold one.
     with_terms_trie(&["apple"], |trie| {
@@ -169,6 +189,10 @@ fn delete_reports_a_miss_for_an_empty_term() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "calling the C trie's foreign functions is not supported by Miri"
+)]
 fn delete_reports_a_miss_for_an_over_long_term() {
     let too_long = "a".repeat(ffi::TRIE_INITIAL_STRING_LEN as usize * size_of::<ffi::rune>() + 1);
     with_terms_trie(&["apple"], |trie| {
@@ -179,6 +203,10 @@ fn delete_reports_a_miss_for_an_over_long_term() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "calling the C trie's foreign functions is not supported by Miri"
+)]
 fn delete_of_a_multibyte_term_round_trips() {
     with_terms_trie(&["héllo", "wörld"], |trie| {
         assert!(trie.delete("héllo".as_bytes()));
@@ -189,6 +217,10 @@ fn delete_of_a_multibyte_term_round_trips() {
 // --- `SuffixTrie::delete` ---------------------------------------------------
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "calling the C trie's foreign functions is not supported by Miri"
+)]
 fn suffix_delete_removes_the_term_from_every_suffix_it_registered() {
     with_suffix_trie(&["apple", "maple"], |trie| {
         assert_eq!(
@@ -213,6 +245,10 @@ fn suffix_delete_removes_the_term_from_every_suffix_it_registered() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "calling the C trie's foreign functions is not supported by Miri"
+)]
 fn suffix_delete_ignores_an_absent_term() {
     // The suffix trie is shared by every TEXT field in an index, including those
     // that never contributed to it, so a miss is expected rather than an error.
