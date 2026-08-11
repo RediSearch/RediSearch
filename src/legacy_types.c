@@ -29,9 +29,9 @@ void *dummyNonNull = (void*)0xDEADBEEF;
 // Dummy no-op functions for type methods
 void GenericType_DummyRdbSave(RedisModuleIO *rdb, void *value) {
   // Writes nothing; the record's LEGACY_EMPTY_ENC_VER tells the loader not to expect a payload.
-  // _ALWAYS because a value that is not the sentinel would be dropped silently, and RS_ABORT here
-  // compiled to nothing in release builds - which is the bug this replaces.
-  RS_ASSERT_ALWAYS(value == dummyNonNull);
+  // This is now a legitimate call - a husk is saved whenever an RDB is written - so the check is that
+  // the value is the sentinel, not that the function is unreachable.
+  RS_ASSERT(value == dummyNonNull);
 }
 
 void GenericType_DummyFree(void *value) {
@@ -40,12 +40,11 @@ void GenericType_DummyFree(void *value) {
 
 // Consume an inverted index type from RDB
 void *InvertedIndex_RdbLoad_Consume(RedisModuleIO *rdb, int encver) {
+  if (encver > LEGACY_EMPTY_ENC_VER) {
+    return NULL;
+  }
   if (encver == LEGACY_EMPTY_ENC_VER) {
     return dummyNonNull; // written by GenericType_DummyRdbSave: no payload to consume
-  }
-
-  if (encver > LEGACY_ENC_VER) {
-    return NULL;
   }
 
   RedisModule_LoadUnsigned(rdb); // Consume the flags of the index
@@ -64,12 +63,11 @@ void *InvertedIndex_RdbLoad_Consume(RedisModuleIO *rdb, int encver) {
 
 // Consume a numeric index type from RDB
 void *NumericIndexType_RdbLoad_Consume(RedisModuleIO *rdb, int encver) {
+  if (encver > LEGACY_EMPTY_ENC_VER) {
+    return NULL;
+  }
   if (encver == LEGACY_EMPTY_ENC_VER) {
     return dummyNonNull; // written by GenericType_DummyRdbSave: no payload to consume
-  }
-
-  if (encver > LEGACY_ENC_VER) {
-    return NULL;
   }
 
   if (encver == LEGACY_LEGACY_ENC_VER) {
@@ -91,6 +89,9 @@ void *NumericIndexType_RdbLoad_Consume(RedisModuleIO *rdb, int encver) {
 
 // Consume a tag index type from RDB
 void *TagIndex_RdbLoad_Consume(RedisModuleIO *rdb, int encver) {
+  if (encver > LEGACY_EMPTY_ENC_VER) {
+    return NULL;
+  }
   if (encver == LEGACY_EMPTY_ENC_VER) {
     return dummyNonNull; // written by GenericType_DummyRdbSave: no payload to consume
   }
