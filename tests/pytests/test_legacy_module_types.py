@@ -59,24 +59,42 @@ def _as_text(value):
     return str(value)
 
 
-def _waitForAofRewrite(env, conn, timeout=60):
-    """`waitForRdbSaveToFinish` only polls rdb_bgsave_in_progress, so it returns immediately here and
-    DEBUG LOADAOF would race a rewrite that is still running or merely scheduled."""
+def _infoPersistence(conn):
+    # redis-py applies its own INFO response callback, so this comes back already parsed into a dict;
+    # the raw-text branch is only for a client that has that callback disabled.
+    info = conn.execute_command('INFO', 'persistence')
+    if isinstance(info, dict):
+        return {_as_text(k): _as_text(v) for k, v in info.items()}
+    return dict(line.split(':', 1) for line in _as_text(info).splitlines() if ':' in line)
+
+
+def _bgRewriteAofAndWait(env, conn, timeout=60):
+    """Trigger an AOF rewrite and wait for it to finish *successfully*.
+
+    Two separate checks, because neither alone is enough:
+
+    - `aof_rewrites` increments at rewrite *start*, just before Redis forks, so a change proves a
+      rewrite actually began. Polling only the activity flags can return before it starts.
+    - `aof_last_bgrewrite_status` is the only thing proving it succeeded. Without it the flags also read
+      idle after a *failed* rewrite, and `DEBUG LOADAOF` would then replay the previous generation -
+      which in these tests still holds the `RESTORE` commands that created the keys, so the assertions
+      would pass no matter what the rewrite callback did.
+    """
+    before = int(_infoPersistence(conn).get('aof_rewrites', '0'))
+    conn.execute_command('BGREWRITEAOF')
+
     deadline = time.time() + timeout
     while time.time() < deadline:
-        # redis-py applies its own INFO response callback, so this comes back already parsed into a
-        # dict; the raw-text branch is only for a client that has that callback disabled.
-        info = conn.execute_command('INFO', 'persistence')
-        if isinstance(info, dict):
-            fields = {_as_text(k): _as_text(v) for k, v in info.items()}
-        else:
-            fields = dict(line.split(':', 1)
-                          for line in _as_text(info).splitlines() if ':' in line)
-        if (fields.get('aof_rewrite_in_progress', '0').strip() == '0'
-                and fields.get('aof_rewrite_scheduled', '0').strip() == '0'):
+        fields = _infoPersistence(conn)
+        started = int(fields.get('aof_rewrites', '0')) > before
+        idle = (fields.get('aof_rewrite_in_progress', '0').strip() == '0'
+                and fields.get('aof_rewrite_scheduled', '0').strip() == '0')
+        if started and idle:
+            env.assertEqual(fields.get('aof_last_bgrewrite_status', '').strip(), 'ok',
+                            message='AOF rewrite finished but reported failure')
             return
         time.sleep(0.1)
-    env.assertTrue(False, message='AOF rewrite did not finish within {}s'.format(timeout))
+    env.assertTrue(False, message='AOF rewrite did not complete within {}s'.format(timeout))
 
 
 def _crc64(data):
@@ -204,8 +222,7 @@ def testLegacySurvivesAofRewrite():
     for type_name, body in bodies.items():
         conn.execute_command('RESTORE', 'aof:' + type_name, 0, _dump_payload(conn, type_name, body))
 
-    conn.execute_command('BGREWRITEAOF')
-    _waitForAofRewrite(env, conn)
+    _bgRewriteAofAndWait(env, conn)
     conn.execute_command('DEBUG', 'LOADAOF')
 
     for type_name in bodies:
@@ -234,8 +251,7 @@ def testLegacyAofRewriteUsesTheKeysOwnDatabase():
 
     env.assertEqual(db1.execute_command('TYPE', key), b'ft_invidx')
 
-    db0.execute_command('BGREWRITEAOF')
-    _waitForAofRewrite(env, db0)
+    _bgRewriteAofAndWait(env, db0)
     db0.execute_command('DEBUG', 'LOADAOF')
 
     db0 = _binary_conn(env, db=0)
