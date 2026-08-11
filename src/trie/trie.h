@@ -132,10 +132,6 @@ Vector *Trie_CollectFuzzy(const Trie *t, const char *str, size_t len, size_t num
 TrieIterator *Trie_IterateFuzzy(Trie *t, const char *str, size_t len, int maxDist,
                                 TrieMatchMode mode);
 
-/* Get a random key from the trie, and put the node's score in the score pointer. Returns 0 if the
- * trie is empty and we cannot do that */
-int Trie_RandomKey(Trie *t, char **str, t_len *len, double *score);
-
 /* Commands related to the redis TrieType registration */
 int TrieType_Register(RedisModuleCtx *ctx);
 void *TrieType_GenericLoad(RedisModuleIO *rdb, bool loadPayloads, bool loadNumDocs,

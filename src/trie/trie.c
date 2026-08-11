@@ -357,29 +357,6 @@ Vector *Trie_CollectFuzzy(const Trie *t, const char *str, size_t len, size_t num
   return ret;
 }
 
-int Trie_RandomKey(Trie *t, char **str, t_len *len, double *score) {
-  if (t->size == 0) {
-    return 0;
-  }
-
-  rune *rstr;
-  t_len rlen;
-
-  // TODO: deduce steps from cardinality properly
-  TrieNode *n =
-      TrieNode_RandomWalk(t->root, 2 + rand() % 8 + (int)round(logb(1 + t->size)), &rstr, &rlen);
-  if (!n) {
-    return 0;
-  }
-  size_t sz;
-  *str = runesToStr(rstr, rlen, &sz);
-  *len = sz;
-  rm_free(rstr);
-
-  *score = n->score;
-  return 1;
-}
-
 /***************************************************************
  *
  *                       Trie type methods
