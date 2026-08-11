@@ -391,13 +391,12 @@ def test_hybrid_cursors_race_with_flushall():
     # The flush delete-marked the sub-cursors mid-cycle; the cycle-end park
     # on the main thread frees them. Nothing may leak.
     # (INFO hides the cursors section with zero indexes — recreate one.)
-    env.cmd('FT.CREATE', 'observe_idx', 'SCHEMA', 't', 'TEXT')
+    env.expect('FT.CREATE', 'observe_idx', 'SCHEMA', 't', 'TEXT').ok()
     def shard_cursor_total():
         info = target_shard.execute_command('INFO', 'MODULES')
         return info['search_global_total_user'] + info['search_global_total_internal']
     wait_for_condition(lambda: (shard_cursor_total() == 0, {}),
-                       'delete-marked cursors were not reaped by the sweep')
-    env.assertTrue(target_shard.execute_command('PING'))
+                       'delete-marked cursors were not freed at the cycle-end park')
 
     # The shard survived the race.
     env.assertEqual(target_shard.execute_command('PING'), True)
@@ -2272,9 +2271,10 @@ class TestCoordinatorTimeout:
             assert_timeout_warning(env, result,
                                    message=f"FT.HYBRID existing cursor-mapping timeout, got: {result}")
 
-            # The shard replied with the already-published cursors from the timeout
-            # callback: shard warning +1, attributed to the REPLY stage (the marker
-            # advances to REPLY once the cursor mapping is published).
+            # The shard's strict-timeout reply exposes no cursor IDs (cursor id 0
+            # for both subqueries, like a timed-out aggregate): shard warning +1,
+            # attributed to the REPLY stage (the marker advances to REPLY once the
+            # cursor mapping is published).
             after_shard_info = info_modules_to_dict(target_shard)
             env.assertEqual(int(after_shard_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC]),
                             int(before_shard_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC]) + 1,
@@ -2292,6 +2292,15 @@ class TestCoordinatorTimeout:
                 pass
             run_command_on_all_shards(env, 'CONFIG', 'SET',
                                       ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
+        # Once the resumed worker ends the cycle, the teardown drops the
+        # published sub-cursors — the reply exposed no IDs, so none may stay
+        # parked or leak on the shard.
+        def shard_cursor_total():
+            info = target_shard.execute_command('INFO', 'MODULES')
+            return info['search_global_total_user'] + info['search_global_total_internal']
+        wait_for_condition(lambda: (shard_cursor_total() == 0, {}),
+                           'strict-timed-out cycle did not drop its published cursors')
 
     def test_return_strict_hybrid_cursor_mapping_timeout_during_depletion(self):
         """RETURN_STRICT _FT.HYBRID cursor-mapping timeout while depleters are active.
