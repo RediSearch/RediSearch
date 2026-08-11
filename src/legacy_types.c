@@ -15,35 +15,25 @@
 
 #define LEGACY_ENC_VER 1
 #define LEGACY_LEGACY_ENC_VER 0
+// Version we write for a legacy key that outlived the upgrade sweep. Such a key carries no data, so
+// there is nothing to serialize - and stamping the record with a version the loader recognises is what
+// makes an empty payload legal: the loader reads nothing, so Redis finds the module EOF marker exactly
+// where it left it. Writing zero bytes under version 1 is what corrupted the RDB, because the loader
+// then tried to read a payload that was not there and consumed the marker instead.
+#define LEGACY_EMPTY_ENC_VER 2
 
 // RDB load callback cannot return NULL, as it indicates an error
 void *dummyNonNull = (void*)0xDEADBEEF;
 
-// A legacy key that survived the upgrade sweep holds only `dummyNonNull` - the real
-// index payload was consumed and discarded on load. These callbacks emit the smallest
-// payload each matching `*_RdbLoad_Consume` accepts, so such a key round-trips instead
-// of writing zero bytes and desyncing the RDB stream for every later reader.
+// A legacy key that survived the upgrade sweep holds only `dummyNonNull` - the real index payload was
+// consumed and discarded on load, so there is genuinely nothing to write. Emitting no payload is only
+// safe because the record is stamped LEGACY_EMPTY_ENC_VER; see the loaders below.
 //
-// The assertions are `_ALWAYS`: writing an empty payload over a value that is *not* the
-// sentinel would silently discard real data, so a release build must crash rather than
-// corrupt. A disappearing debug-only assertion on this exact path is what produced the
-// zero-byte save in the first place.
-void InvertedIndex_RdbSave_Empty(RedisModuleIO *rdb, void *value) {
+// The assertion is `_ALWAYS`: a value that is not the sentinel would be silently dropped, so a release
+// build must crash rather than lose data. A disappearing debug-only assertion on this exact path is
+// what produced the original corruption.
+void GenericType_EmptyRdbSave(RedisModuleIO *rdb, void *value) {
   RS_ASSERT_ALWAYS(value == dummyNonNull);
-  RedisModule_SaveUnsigned(rdb, 0); // flags
-  RedisModule_SaveUnsigned(rdb, 0); // lastId
-  RedisModule_SaveUnsigned(rdb, 0); // numDocs
-  RedisModule_SaveUnsigned(rdb, 0); // n_blocks
-}
-
-void NumericIndexType_RdbSave_Empty(RedisModuleIO *rdb, void *value) {
-  RS_ASSERT_ALWAYS(value == dummyNonNull);
-  RedisModule_SaveUnsigned(rdb, 0); // terminator for legacy v1 encoding
-}
-
-void TagIndex_RdbSave_Empty(RedisModuleIO *rdb, void *value) {
-  RS_ASSERT_ALWAYS(value == dummyNonNull);
-  RedisModule_SaveUnsigned(rdb, 0); // n_tags
 }
 
 // The shared handler calls abort(), which kills the AOF rewrite child every time a database holding
@@ -96,6 +86,11 @@ void GenericType_DummyFree(void *value) {
 
 // Consume an inverted index type from RDB
 void *InvertedIndex_RdbLoad_Consume(RedisModuleIO *rdb, int encver) {
+  if (encver == LEGACY_EMPTY_ENC_VER) {
+    // Written by GenericType_EmptyRdbSave: no payload to consume.
+    return dummyNonNull;
+  }
+
   if (encver > LEGACY_ENC_VER) {
     return NULL;
   }
@@ -116,6 +111,11 @@ void *InvertedIndex_RdbLoad_Consume(RedisModuleIO *rdb, int encver) {
 
 // Consume a numeric index type from RDB
 void *NumericIndexType_RdbLoad_Consume(RedisModuleIO *rdb, int encver) {
+  if (encver == LEGACY_EMPTY_ENC_VER) {
+    // Written by GenericType_EmptyRdbSave: no payload to consume.
+    return dummyNonNull;
+  }
+
   if (encver > LEGACY_ENC_VER) {
     return NULL;
   }
@@ -139,6 +139,11 @@ void *NumericIndexType_RdbLoad_Consume(RedisModuleIO *rdb, int encver) {
 
 // Consume a tag index type from RDB
 void *TagIndex_RdbLoad_Consume(RedisModuleIO *rdb, int encver) {
+  if (encver == LEGACY_EMPTY_ENC_VER) {
+    // Written by GenericType_EmptyRdbSave: no payload to consume.
+    return dummyNonNull;
+  }
+
   size_t n_tags = RedisModule_LoadUnsigned(rdb); // Consume the number of tags in the index
 
   for (size_t i = 0; i < n_tags; i++) {
@@ -152,28 +157,26 @@ int RegisterLegacyTypes(RedisModuleCtx *ctx) {
 
   RedisModuleTypeMethods tm = {
     .version = REDISMODULE_TYPE_METHOD_VERSION,
-    .rdb_save = InvertedIndex_RdbSave_Empty,
+    .rdb_save = GenericType_EmptyRdbSave,
     .aof_rewrite = LegacyType_AofRewrite,
     .free = GenericType_DummyFree,
   };
 
   // Register the inverted index type
   tm.rdb_load = InvertedIndex_RdbLoad_Consume;
-  if (!RedisModule_CreateDataType(ctx, "ft_invidx", LEGACY_ENC_VER, &tm)) {
+  if (!RedisModule_CreateDataType(ctx, "ft_invidx", LEGACY_EMPTY_ENC_VER, &tm)) {
     return REDISMODULE_ERR;
   }
 
   // Register the numeric index type
   tm.rdb_load = NumericIndexType_RdbLoad_Consume;
-  tm.rdb_save = NumericIndexType_RdbSave_Empty;
-  if (!RedisModule_CreateDataType(ctx, "numericdx", LEGACY_ENC_VER, &tm)) {
+  if (!RedisModule_CreateDataType(ctx, "numericdx", LEGACY_EMPTY_ENC_VER, &tm)) {
     return REDISMODULE_ERR;
   }
 
   // Register the tag index type
   tm.rdb_load = TagIndex_RdbLoad_Consume;
-  tm.rdb_save = TagIndex_RdbSave_Empty;
-  if (!RedisModule_CreateDataType(ctx, "ft_tagidx", LEGACY_ENC_VER, &tm)) {
+  if (!RedisModule_CreateDataType(ctx, "ft_tagidx", LEGACY_EMPTY_ENC_VER, &tm)) {
     return REDISMODULE_ERR;
   }
 
