@@ -587,13 +587,18 @@ impl<'query> RQESuspendedIterator<'query> for CRQEIterator {
         // the C-side callback is safe to call per invariant 4., and
         // `spec.as_mut_ptr()` is valid for the duration of the call.
         let status = unsafe { callback(self.header.as_ptr(), spec.as_mut_ptr()) };
-        // On `ABORTED` the C `Revalidate` reports the status and leaves disposal to the owner:
-        // `Free` is a separate vtable entry the owner calls (see `iterator_api.h`), and
-        // `RQESuspendedIterator::resume` promises the same — the outcome hands back no active
-        // iterator. `self` is not moved into it, so it drops here and its `Free` callback runs
-        // exactly once.
+        // On `ABORTED`, and on a timeout, the C `Revalidate` reports the status and leaves disposal
+        // to the owner: `Free` is a separate vtable entry the owner calls (see `iterator_api.h`),
+        // and `RQESuspendedIterator::resume` promises the same — neither outcome hands back an
+        // active iterator. `self` is not moved into either, so it drops here and its `Free`
+        // callback runs exactly once.
         #[expect(non_upper_case_globals)]
         Ok(match status {
+            // Reported as an error, exactly as the `revalidate` impl above reports it: a Rust
+            // parent propagates it to the root of the tree, where it makes the result set partial
+            // instead of ending the query as if the index were exhausted. Returning early rather
+            // than producing an outcome is what drops `self`.
+            ValidateStatus_VALIDATE_TIMEOUT => return Err(RQEIteratorError::TimedOut),
             ValidateStatus_VALIDATE_ABORTED => ResumeOutcome::Aborted,
             ValidateStatus_VALIDATE_MOVED => ResumeOutcome::Moved(self),
             ValidateStatus_VALIDATE_OK => ResumeOutcome::Ok(self),
