@@ -127,6 +127,48 @@ def test_error_propagation_from_shards(env):
     #   2. The scorer requested in the command.
     #   3. Parameters evaluation
 
+@skip(cluster=False, min_shards=2)
+def test_info_index_missing_on_one_shard(env):
+    """Tests that `FT.INFO` fails when a single shard is missing the index,
+    instead of replying with counters summed over the remaining shards.
+    """
+
+    first_conn = env.getConnection(0)
+
+    # Create an index on all shards
+    index_name = 'idx'
+    env.expect('FT.CREATE', index_name, 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT').ok()
+
+    # Drop the index on only one shard (without recreating it)
+    first_conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+    first_conn.execute_command('_FT.DROPINDEX', index_name)
+
+    # The shard that lost the index rejects the internal command
+    shard_error = 'Unknown index name'
+    try:
+        first_conn.execute_command('_FT.INFO', index_name)
+        env.assertTrue(False) # Should not reach this point
+    except Exception as e:
+        env.assertContains(shard_error, str(e))
+
+    # Should fail regardless of which shard is the coordinator. A coordinator that
+    # lost the index itself rejects the command before the fanout; one that still
+    # has it must propagate the error of the shard that does not, rather than
+    # replying with the counters of the shards that answered.
+    local_error = f'{index_name}: no such index'
+    propagated = 0
+    for shard in range(1, env.shardsCount + 1):
+        shard_conn = env.getConnection(shard)
+        try:
+            shard_conn.execute_command('FT.INFO', index_name)
+            env.assertTrue(False, message=f'FT.INFO should have failed on shard {shard}')
+        except Exception as e:
+            if shard_error in str(e):
+                propagated += 1
+            else:
+                env.assertContains(local_error, str(e))
+    env.assertGreater(propagated, 0)
+
 @skip(cluster=False)
 def test_timeout():
     """Tests that timeouts are handled properly by the coordinator.
