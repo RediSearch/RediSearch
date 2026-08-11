@@ -28,6 +28,7 @@
 
 #include "spec.h"
 #include "indexes.h"
+#include "legacy_types.h"
 #include "indexes_scan.h"
 #include "document.h"
 #include "util/likely.h"
@@ -992,6 +993,7 @@ void Indexes_List(RedisModule_Reply* reply, bool obfuscate) {
 }
 
 void Indexes_StartRDBLoadingEvent(RedisModuleCtx* ctx) {
+  LegacyTypes_ResetLoadedCount();
   Indexes_Free(ctx, specDict_g, false);
   if (!SearchDisk_IsEnabled()) {
     if (legacySpecDict) {
@@ -1016,6 +1018,10 @@ void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx) {
   if (hasLegacyIndexes) {
     Indexes_ScanAndReindex();
   }
+
+  // Last on purpose: the sweep above removes the legacy keys it can reach through a loaded spec, so
+  // anything still present here had no spec to reach it.
+  LegacyTypes_SweepOrphansAfterLoad(ctx);
 }
 
 void Indexes_EndLoading() {
