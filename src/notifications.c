@@ -782,11 +782,21 @@ void ConfigChangedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t e
 void Initialize_KeyspaceNotifications() {
   static bool RS_KeyspaceEvents_Initialized = false;
   if (!RS_KeyspaceEvents_Initialized) {
-    // Physical key removal (EXPIRED/EVICTED/TRIMMED) is de-indexed via the
-    // DocIdMeta `unlink` callback in both modes, so we don't subscribe to those.
+    // Physical key removal (EXPIRED/EVICTED) is de-indexed via the DocIdMeta
+    // `unlink` callback in both modes, so we don't subscribe to those.
     int notifyFlags = REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
                       REDISMODULE_NOTIFY_STRING | REDISMODULE_NOTIFY_LOADED |
                       REDISMODULE_NOTIFY_MODULE;
+    // TRIMMED cannot rely on `unlink`: with no module subscribed, slot migration
+    // picks background slot-dictionary detachment (see asmTrimSlots), which never
+    // runs the key-meta callbacks, so trimmed keys would stay indexed and surface
+    // as ghost results on the source shard after a reshard. Subscribing is what
+    // forces per-key active trim -- the event itself maps to `_null_cmd` and is
+    // handled by doing nothing, so do not drop this as an unused subscription.
+    // Disk does not reshard today, and keeps the cheaper background path.
+    if (!SearchDisk_IsEnabled()) {
+      notifyFlags |= REDISMODULE_NOTIFY_KEY_TRIMMED;
+    }
     RedisModule_SubscribeToKeyspaceEvents(RSDummyContext, notifyFlags, KeySpaceNotificationCallback);
     RS_KeyspaceEvents_Initialized = true;
   }
