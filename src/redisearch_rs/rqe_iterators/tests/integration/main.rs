@@ -32,6 +32,7 @@ use rstest_reuse::template;
 ])]
 fn id_cases(#[case] case: &[u64]) {}
 
+mod aggregate_rederive;
 mod c2rust;
 mod contract_checker;
 mod deferred;
