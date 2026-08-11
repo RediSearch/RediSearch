@@ -306,20 +306,13 @@ round — an app re-running on a push, or a re-invocation given the earlier find
 apply to [/adversarial-review](.skills/adversarial-review/SKILL.md), whose follow-up rounds are
 deliberately blind to the earlier ones and so review the whole change by design.
 
+One exception runs through every rule below: a concrete failure is always in scope. Report it with
+its failure scenario however many rounds in, whatever the thread state, since nobody can weigh the
+trade-off without it.
+
 - Review only what changed since your previous review on this PR. Do not raise findings on code you already reviewed and chose not to flag, and do not reopen resolved threads.
-- If your earlier finding was addressed and the fix draws a new finding in the same hunk, do not post a third variation of the same concern — say once that the hunk needs a design decision, name the trade-off, and leave it to the human reviewer. A concrete failure is the exception: report it with its failure scenario however many rounds in, since nobody can weigh the trade-off without it.
+- If your earlier finding was addressed and the fix draws a new finding in the same hunk, do not post a third variation of the same concern. Say once that the hunk needs a design decision, name the trade-off, and leave it to the human reviewer.
 - Prefer confirming that earlier findings are resolved over finding new material. A re-review that reports nothing is a good outcome.
-
-### Responding to automated review
-
-Automated reviewers re-run on every push, so reacting comment-by-comment does not converge — each
-fix creates the next round's delta. Batch instead:
-
-- Wait until every automated reviewer has reported on the current head, then address the round in one commit and one push. Treat the round as settled once the reviewers you expect have reported, or once roughly 20 minutes have passed: an app that is disabled, rate-limited, or has failed never reports, and is not a reason to hold the fix.
-- Fix findings that name a concrete failure. For advisory findings whose fix would add risk or complexity, reply with the rationale and resolve the thread — that is a complete response, not a deferral.
-- If successive rounds keep landing on the same hunk, stop pushing fixes. The design is what is in question; raise it with the human reviewer.
-- Budget two automated rounds per PR: the initial review and one confirmation. Past that, resolve advisory findings with rationale rather than pushing again — but a finding that names a concrete failure is worth a fix however late it arrives, and a fix the confirmation round shows to be wrong is worth correcting.
-- Once a human has approved, do not restart the loop for advisory findings — a push dismisses the approval. Open a follow-up issue instead.
 
 ## Common Workflows
 
