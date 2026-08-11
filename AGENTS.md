@@ -347,6 +347,7 @@ Invoke [/jj-fix-conflicts](.skills/jj-fix-conflicts/SKILL.md) to resolve conflic
 Invoke [/jj-split-changeset](.skills/jj-split-changeset/SKILL.md) to break a jj changeset into smaller, focused ones.
 Follow [/commit-guidelines](.skills/commit-guidelines/SKILL.md) whenever the worktree is dirty or you are about to commit, split, or rewrite history.
 Invoke [/open-pr](.skills/open-pr/SKILL.md) to open a pull request.
+Invoke [/close-pr](.skills/close-pr/SKILL.md) to close a pull request or clean up a mistaken or unwanted PR.
 Invoke [/adversarial-review](.skills/adversarial-review/SKILL.md) to get an independent review of a change before opening or updating a PR.
 
 ## Pull Requests
@@ -355,9 +356,9 @@ The rules for opening one — title format, the CI-enforced release-notes checkb
 PR template — live in [/open-pr](.skills/open-pr/SKILL.md), which is also the procedure.
 [/pr-backport](.skills/pr-backport/SKILL.md) covers release-branch backports, and
 [/commit-guidelines](.skills/commit-guidelines/SKILL.md) covers when history on a branch
-with an open PR may still be rewritten. [/open-pr](.skills/open-pr/SKILL.md) also covers
-cleanup of mistaken or unwanted PRs before closing, deleting branches, or sanitizing PR
-metadata. Load the relevant one rather than working from memory.
+with an open PR may still be rewritten. [/close-pr](.skills/close-pr/SKILL.md) covers
+closing PRs and cleanup of mistaken or unwanted PRs before deleting branches or sanitizing
+PR metadata. Load the relevant one rather than working from memory.
 
 ## License Header (Required)
 ```
