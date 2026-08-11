@@ -1262,9 +1262,7 @@ mod via_resume {
             .expect("resume failed");
         assert!(matches!(outcome, ResumeOutcome::Aborted));
         assert_eq!(wcii_data.revalidate_count(), 1);
-        // Both children are resumed in the new path (resume drives both unconditionally);
-        // the suspend->resume cycle returns Aborted but doesn't short-circuit child.
-        assert_eq!(child_data.revalidate_count(), 1);
+        assert_eq!(child_data.revalidate_count(), 0);
     }
 
     #[test]

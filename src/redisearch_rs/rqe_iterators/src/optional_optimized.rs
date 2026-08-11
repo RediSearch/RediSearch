@@ -489,6 +489,115 @@ struct FreeSuspendedShell<'q, WS, IS> {
     raw: *mut RawOptionalOptimized<'q, Suspended, WS, IS>,
 }
 
+impl<'q, WS, IS> FreeSuspendedShell<'q, WS, IS>
+where
+    WS: RQESuspendedIterator<'q>,
+    IS: RQESuspendedIterator<'q>,
+{
+    /// Take a suspended optional iterator apart into its three components:
+    ///
+    /// - the suspended wildcard base,
+    /// - the suspended query child,
+    /// - everything else, left in the allocation and handed to the returned guard.
+    ///
+    /// The two children are moved *out* of the allocation, so their slots stay
+    /// uninitialised until [`Self::recompose`] writes the resumed forms back.
+    /// Until then the guard owns the leftover shell, which is what makes an early
+    /// return or a panic in between safe; the children are returned as owned
+    /// values and clean themselves up.
+    fn destructure_raw(
+        iter: Box<RawOptionalOptimized<'q, Suspended, WS, IS>>,
+    ) -> (Self, WS, MaybeEmpty<IS>) {
+        let raw = Box::into_raw(iter);
+
+        // `virt` stays in place — it must keep its address, being handed out via
+        // `current()`/`read()`/`skip_to` — as do the `Rf`-free scalar fields.
+        //
+        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned, initialised,
+        // exclusively owned); `&raw const` forms a field pointer to `wcii`.
+        let wcii_ptr = unsafe { &raw const (*raw).wcii };
+        // SAFETY: move the owned suspended `wcii` out exactly once.
+        let wcii = unsafe { std::ptr::read(wcii_ptr) };
+        // SAFETY: field pointer to `child`.
+        let child_ptr = unsafe { &raw const (*raw).child };
+        // SAFETY: move the owned suspended `child` out exactly once.
+        let child = unsafe { std::ptr::read(child_ptr) };
+
+        (Self { raw }, wcii, child)
+    }
+
+    /// Put the iterator back together: disarm the guard, write the resumed
+    /// children into the slots [`Self::destructure_raw`] emptied — preserving
+    /// their addresses, and `virt`'s, which never moved — then reinterpret the
+    /// reused allocation as the active form.
+    ///
+    /// # Safety
+    ///
+    /// 1. The shell's `virt` must still be a virtual sentinel
+    ///    ([`RSResultKind::Virtual`]): the reinterpretation re-narrows its `data`
+    ///    from raw pointers back to live `&'a` references, and only a virtual
+    ///    result carries none to re-validate.
+    ///
+    /// The size/alignment compatibility the in-place writes rely on is *not* a
+    /// caller obligation: the `const` blocks below reject a mismatched child at
+    /// compile time, and invariant 1 on [`RawOptionalOptimized`] (const proof
+    /// above) covers the wrapper itself.
+    unsafe fn recompose<'a>(
+        self,
+        wcii: WS::Resumed<'a>,
+        child: MaybeEmpty<IS::Resumed<'a>>,
+    ) -> Box<OptionalOptimized<'a, WS::Resumed<'a>, IS::Resumed<'a>>>
+    where
+        'q: 'a,
+    {
+        let raw = self.raw;
+        // Everything between here and the two writes below is moves, pointer
+        // arithmetic and `const` assertions — none of it can unwind, so no unwind
+        // can observe the uninitialised slots. That is why this window needs no
+        // `AbortOnUnwind`, unlike `suspend_child_slot_in_place` /
+        // `resume_child_slot_in_place`, which straddle a safe trait call.
+        std::mem::forget(self);
+
+        // Write the wildcard iterator in its slot. `WildcardIterator` and the
+        // child are public safe traits, so a custom impl whose resumed type
+        // differs in layout would corrupt the slot; the `const` block turns that
+        // into a compile error, mirroring the guard inside
+        // `resume_child_slot_in_place`/`suspend_child_slot_in_place`.
+        {
+            const { crate::boxed::assert_layout_compatible::<WS, WS::Resumed<'a>>() };
+            // SAFETY: the `wcii` slot is uninitialised; `&raw mut` forms a field
+            // pointer to it.
+            let wcii_slot = unsafe { &raw mut (*raw).wcii };
+            // SAFETY: write the resumed `wcii` back at the same offset, as its
+            // resumed type.
+            unsafe { std::ptr::write(wcii_slot.cast::<WS::Resumed<'a>>(), wcii) };
+        }
+
+        // Write the optional child iterator in its slot.
+        {
+            const {
+                crate::boxed::assert_layout_compatible::<MaybeEmpty<IS>, MaybeEmpty<IS::Resumed<'a>>>(
+                )
+            };
+            // SAFETY: `&raw mut` forms a field pointer to the uninitialised `child`
+            // slot.
+            let child_slot = unsafe { &raw mut (*raw).child };
+            // SAFETY: write the resumed `child` back at the same offset.
+            unsafe { std::ptr::write(child_slot.cast::<MaybeEmpty<IS::Resumed<'a>>>(), child) };
+        }
+
+        // SAFETY: both slots now hold their resumed forms and `virt` is a valid
+        // (pointerless) virtual sentinel by this function's safety contract, so
+        // the allocation is a valid `OptionalOptimized<'a, …>` — layout-identical to the suspended
+        // form by invariant 1 on `RawOptionalOptimized` (const proof above), with
+        // `virt` re-typing `Suspended → Active` soundly. `Box::from_raw` reuses
+        // the same allocation.
+        unsafe {
+            Box::from_raw(raw.cast::<OptionalOptimized<'a, WS::Resumed<'a>, IS::Resumed<'a>>>())
+        }
+    }
+}
+
 impl<'q, WS, IS> Drop for FreeSuspendedShell<'q, WS, IS> {
     fn drop(&mut self) {
         // SAFETY: `raw` is a valid, exclusively-owned allocation; `&raw mut`
@@ -545,95 +654,30 @@ where
         // "did the move land anywhere" directly.
         let pre_child_last_doc_id = RQESuspendedIterator::last_doc_id(&self.child);
 
-        let raw = Box::into_raw(self);
-
-        // Move both children out into owned locals; their slots become
-        // uninitialised. `virt` stays in place (it must keep its address — it is
-        // handed out via `current()`/`read()`/`skip_to`), as do the `Rf`-free
-        // scalar fields.
-        //
-        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned, initialised,
-        // exclusively owned); `&raw const` forms a field pointer to `wcii`.
-        let wcii_ptr = unsafe { &raw const (*raw).wcii };
-        // SAFETY: move the owned suspended `wcii` out exactly once.
-        let wcii = unsafe { std::ptr::read(wcii_ptr) };
-        // SAFETY: field pointer to `child`.
-        let child_ptr = unsafe { &raw const (*raw).child };
-        // SAFETY: move the owned suspended `child` out exactly once.
-        let child = unsafe { std::ptr::read(child_ptr) };
-
-        // From here until success, `raw` is a shell whose child slots are
-        // moved-out. This guard frees it — dropping the still-suspended `virt` and
-        // the allocation, but never the moved-out slots — on any early return or
-        // panic. The `wcii`/`child` locals clean themselves up via ownership, so
-        // there is no manual teardown and no uninitialised-slot window.
-        let shell = FreeSuspendedShell { raw };
-
-        // Resume both children up front. This differs from `revalidate`, which
-        // drives the child only *after* the `wcii` outcome and skips it entirely
-        // on a `wcii` abort or move-to-EOF; resuming both here keeps the
-        // move-out/write-back teardown uniform and is benign — a `wcii` abort
-        // still wins (its outcome is consumed first, below), and the child is
-        // simply dropped in that case. They are owned values, so `?` / early
-        // return drop them (and, via `shell`, `virt` + the allocation) with zero
-        // manual teardown.
-        let wcii_out = Box::new(wcii).resume(guard);
-        let child_out = Box::new(child).resume(guard);
+        let (shell, wcii, child) = FreeSuspendedShell::destructure_raw(self);
 
         // `wcii` is the base: if it is unrecoverable there is nothing to
         // enumerate, so the whole iterator aborts.
+        let wcii_out = Box::new(wcii).resume(guard);
         let (wcii, wcii_moved) = match wcii_out? {
             ResumeOutcome::Aborted => return Ok(ResumeOutcome::Aborted),
             ResumeOutcome::Ok(w) => (w, false),
             ResumeOutcome::Moved(w) => (w, true),
         };
+
         // An aborted query child is replaced by `Empty` (mirroring `revalidate`'s
         // `take_iterator`) and treated as "moved".
+        let child_out = Box::new(child).resume(guard);
         let (child, child_moved_or_aborted) = match child_out? {
             ResumeOutcome::Aborted => (Box::new(MaybeEmpty::new_empty()), true),
             ResumeOutcome::Ok(c) => (c, false),
             ResumeOutcome::Moved(c) => (c, true),
         };
 
-        // Success: disarm the guard and write the resumed children back into their
-        // original slots (preserving their addresses — and `virt`'s, which never
-        // moved), then reinterpret the reused allocation as the active form.
-        //
-        // Unlike `suspend_child_slot_in_place`/`resume_child_slot_in_place`, the
-        // window opened here needs no `AbortOnUnwind`: those helpers straddle a
-        // safe trait call that may panic, whereas everything between this
-        // `forget` and the two writes below is moves, pointer arithmetic and
-        // `const` assertions. None of it can unwind, so no unwind can observe the
-        // uninitialised slots.
-        std::mem::forget(shell);
-        // Statically enforce the size/alignment invariant the in-place writes
-        // below rely on. `WildcardIterator` and the child are public safe traits,
-        // so a custom impl whose resumed type differs in layout would corrupt the
-        // slot; a mismatch fails to compile here, mirroring the guard inside
-        // `resume_child_slot_in_place`/`suspend_child_slot_in_place`.
-        const { crate::boxed::assert_layout_compatible::<WS, WS::Resumed<'a>>() };
-        const { crate::boxed::assert_layout_compatible::<MaybeEmpty<IS>, MaybeEmpty<IS::Resumed<'a>>>() };
-        // SAFETY: the `wcii` slot is uninitialised; `&raw mut` forms a field
-        // pointer to it.
-        let wcii_slot = unsafe { &raw mut (*raw).wcii };
-        // SAFETY: write the resumed `wcii` back at the same offset, as its
-        // resumed type.
-        unsafe { std::ptr::write(wcii_slot.cast::<WS::Resumed<'a>>(), *wcii) };
-        // SAFETY: `&raw mut` forms a field pointer to the uninitialised `child`
-        // slot.
-        let child_slot = unsafe { &raw mut (*raw).child };
-        // SAFETY: write the resumed `child` back at the same offset.
-        unsafe { std::ptr::write(child_slot.cast::<MaybeEmpty<IS::Resumed<'a>>>(), *child) };
-
-        // SAFETY: both slots now hold their resumed forms and `virt` is a valid
-        // (pointerless) virtual sentinel (checked above), so the allocation is a
-        // valid `OptionalOptimized<'a, …>` — layout-identical to the suspended
-        // form by invariant 1 on `RawOptionalOptimized` (const proof above), with
-        // `virt` re-typing `Suspended → Active` soundly. `Box::from_raw` reuses
-        // the same allocation.
-        let mut active = unsafe {
-            Box::from_raw(raw.cast::<OptionalOptimized<'a, WS::Resumed<'a>, IS::Resumed<'a>>>())
-        };
+        // SAFETY: `virt` was checked to still be a virtual sentinel at the top of
+        // this function, before `self` was taken apart, and nothing since could
+        // have replaced it — the shell hands out no access to it.
+        let mut active = unsafe { shell.recompose(*wcii, *child) };
 
         // Distinguish "wcii moved to a new valid position" from "wcii moved past
         // all docs". `ResumeOutcome::Moved` carries no {Some, None}, so we ask
