@@ -26,14 +26,13 @@
  * builds add references to their own runtimes, which those builds always link.)
  *
  * Note the final artifacts hold more than one copy of the table: the `redis-module`
- * crate compiles its own from the header it vendors, which predates the
+ * crate compiles its own from the header it vendors, which lacks the
  * `REDISMODULE_MAIN` gate and so defines the table in every file that includes it.
  * The copies merge rather than collide because both sides emit *common* symbols --
  * `redismodule.h` tags every pointer with `REDISMODULE_ATTR_COMMON`
  * (`__attribute__((__common__))`, on GNU-compatible C compilers) and the vendored
- * header does the same. Should either side start emitting ordinary definitions,
- * the 394 pointers the two headers have in common become duplicate-definition
- * errors.
+ * header does the same. Should both sides start emitting ordinary definitions, every
+ * pointer the two headers have in common becomes a duplicate-definition error.
  */
 
 #define REDISMODULE_MAIN
