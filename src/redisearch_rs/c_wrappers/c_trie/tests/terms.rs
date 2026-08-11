@@ -7,11 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Integration tests for the trie-iteration APIs of [`TermsTrie`] and
-//! [`SuffixTrie`].
+//! Integration tests for [`TermsTrie`], the primary term index.
 //!
 //! Each test builds a live C trie through the linked static library, wraps it in
-//! a [`TermsTrie`] or [`SuffixTrie`], and exercises one of the iteration methods.
+//! a [`TermsTrie`], and exercises one of its methods.
 
 // Links the Rust-provided and C-provided symbols of the whole module.
 extern crate redisearch_rs;
@@ -26,8 +25,7 @@ use std::{
     ptr,
 };
 
-use c_trie::{LoweredPattern, SuffixMode, SuffixTrie, SuffixWalk, TermsTrie};
-use ffi::{SuffixType, SuffixType_SUFFIX_TYPE_CONTAINS, SuffixType_SUFFIX_TYPE_SUFFIX};
+use c_trie::{LoweredPattern, TermsTrie};
 
 /// Convert an ASCII/UTF-8 string to the trie's rune (`u16`) key.
 fn to_runes(s: &str) -> Vec<ffi::rune> {
@@ -47,62 +45,6 @@ fn runes_to_string(runes: &[ffi::rune]) -> String {
     runes.iter().map(|&r| char::from(r as u8)).collect()
 }
 
-/// Build a terms trie holding `terms`, each keyed with `numDocs == term length`
-/// (so tests can assert the document count flows through), run `f`, then free it.
-fn with_terms_trie(terms: &[&str], f: impl FnOnce(&TermsTrie)) {
-    // SAFETY: `NewTrie` returns a fresh, valid, empty terms trie; a terms trie
-    // stores no payload, so a null free callback is correct.
-    let ptr = unsafe { ffi::NewTrie(None, ffi::TrieSortMode_Trie_Sort_Lex) };
-    assert!(!ptr.is_null(), "NewTrie returned null");
-    for term in terms {
-        // SAFETY: `ptr` is the live trie just created; `term` points to
-        // `term.len()` valid UTF-8 bytes; a null payload is accepted.
-        unsafe {
-            ffi::Trie_InsertStringBuffer(
-                ptr,
-                term.as_ptr().cast::<c_char>(),
-                term.len(),
-                1.0,
-                0,
-                ptr::null_mut(),
-                term.chars().count(),
-            );
-        }
-    }
-    // SAFETY: `ptr` is a valid trie that stays alive for the whole closure and
-    // is not freed until after it returns.
-    let trie = unsafe { TermsTrie::from_raw(ptr) };
-    f(trie);
-    // SAFETY: `ptr` was produced by `NewTrie` and is freed exactly once here,
-    // after the last use of `trie`.
-    unsafe { ffi::TrieType_Free(ptr.cast::<c_void>()) };
-}
-
-/// Build a *suffix* trie holding `terms` (and all their suffixes), run `f`, then
-/// free it. `terms` must be non-empty strings — `addSuffixTrie` asserts on empty.
-fn with_suffix_trie(terms: &[&str], f: impl FnOnce(&SuffixTrie)) {
-    // SAFETY: `NewTrie` returns a fresh, valid trie; `suffixTrie_freeCallback` is
-    // the matching free callback for the payloads `addSuffixTrie` inserts.
-    let ptr = unsafe {
-        ffi::NewTrie(
-            Some(ffi::suffixTrie_freeCallback),
-            ffi::TrieSortMode_Trie_Sort_Lex,
-        )
-    };
-    assert!(!ptr.is_null(), "NewTrie returned null");
-    for term in terms {
-        assert!(!term.is_empty(), "addSuffixTrie rejects empty strings");
-        // SAFETY: `ptr` is the live suffix trie; `term` points to `term.len()`
-        // valid, non-empty UTF-8 bytes.
-        unsafe { ffi::addSuffixTrie(ptr, term.as_ptr().cast::<c_char>(), term.len() as u32) };
-    }
-    // SAFETY: as in `with_terms_trie` — `ptr` outlives the closure.
-    let trie = unsafe { SuffixTrie::from_raw(ptr) };
-    f(trie);
-    // SAFETY: freed exactly once after the last use of `trie`.
-    unsafe { ffi::TrieType_Free(ptr.cast::<c_void>()) };
-}
-
 /// Render a rune slice as text, for corpora that are not pure ASCII. Runes are
 /// UTF-16 code units and every corpus term stays inside the BMP, so each rune is
 /// its own `char`.
@@ -119,6 +61,45 @@ fn pattern(s: &str) -> LoweredPattern {
     LoweredPattern::new(&to_runes(s)).expect("pattern is short enough to convert")
 }
 
+/// Build a terms trie holding `terms`, each keyed with `numDocs == term length`
+/// (so tests can assert the document count flows through), run `f` against an
+/// exclusive handle, then free it.
+fn with_terms_trie(terms: &[&str], f: impl FnOnce(&mut TermsTrie)) {
+    // SAFETY: `NewTrie` returns a fresh, valid, empty terms trie; a terms trie
+    // stores no payload, so a null free callback is correct.
+    let trie_ptr = unsafe { ffi::NewTrie(None, ffi::TrieSortMode_Trie_Sort_Lex) };
+    assert!(!trie_ptr.is_null(), "NewTrie returned null");
+    for term in terms {
+        // SAFETY: `trie_ptr` is the live trie just created; `term` points to
+        // `term.len()` valid UTF-8 bytes; a null payload is accepted.
+        unsafe {
+            ffi::Trie_InsertStringBuffer(
+                trie_ptr,
+                term.as_ptr().cast::<c_char>(),
+                term.len(),
+                1.0,
+                0,
+                ptr::null_mut(),
+                term.chars().count(),
+            );
+        }
+    }
+    // SAFETY: `trie_ptr` is a valid trie that stays alive for the whole closure
+    // and is not freed until after it returns. No other handle to it exists.
+    let trie = unsafe { TermsTrie::from_raw_mut(trie_ptr) };
+    f(trie);
+    // SAFETY: `trie_ptr` was produced by `NewTrie` and is freed exactly once
+    // here, after the last use of `trie`.
+    unsafe { ffi::TrieType_Free(trie_ptr.cast::<c_void>()) };
+}
+
+/// Every term currently stored in a terms trie.
+fn terms_of(trie: &TermsTrie) -> HashSet<String> {
+    trie.iterate_all()
+        .map(|term| String::from_utf8(term).expect("term is valid UTF-8"))
+        .collect()
+}
+
 /// Corpus used across the anchoring tests. Every term contains `"ap"`; only
 /// `apple`/`apricot` start with it and only `apple`/`maple` end with `"ple"`.
 const CORPUS: &[&str] = &["apple", "maple", "grape", "apricot", "map"];
@@ -127,21 +108,7 @@ fn set(items: &[&str]) -> HashSet<String> {
     items.iter().map(|s| (*s).to_owned()).collect()
 }
 
-// --- `From<SuffixMode>` -----------------------------------------------------
-
-#[test]
-fn suffix_mode_maps_to_c_discriminant() {
-    assert_eq!(
-        SuffixType::from(SuffixMode::Suffix),
-        SuffixType_SUFFIX_TYPE_SUFFIX
-    );
-    assert_eq!(
-        SuffixType::from(SuffixMode::Contains),
-        SuffixType_SUFFIX_TYPE_CONTAINS
-    );
-}
-
-// --- `iterate_contains` (terms trie) ----------------------------------------
+// --- `iterate_contains` -----------------------------------------------------
 
 #[test]
 #[cfg_attr(
@@ -272,7 +239,7 @@ fn iterate_contains_some_and_none_timeout_agree() {
     });
 }
 
-// --- `iterate_all` (terms trie) ---------------------------------------------
+// --- `iterate_all` ----------------------------------------------------------
 
 #[test]
 #[cfg_attr(
@@ -309,145 +276,14 @@ fn iterate_all_empty_trie_visits_nothing() {
 fn into_iter_visits_every_term() {
     with_terms_trie(CORPUS, |trie| {
         let mut got = HashSet::new();
-        for term in trie {
+        for term in &*trie {
             got.insert(String::from_utf8(term).expect("terms are ASCII"));
         }
         assert_eq!(got, set(CORPUS));
     });
 }
 
-// --- `iterate_suffix` (suffix trie) -----------------------------------------
-
-#[test]
-#[cfg_attr(
-    miri,
-    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
-)]
-fn iterate_suffix_suffix_anchor() {
-    with_suffix_trie(CORPUS, |trie| {
-        let runes = to_runes("ple");
-        let mut got = HashSet::new();
-        trie.iterate_contains(&runes, SuffixMode::Suffix, |bytes| {
-            got.insert(String::from_utf8_lossy(bytes).into_owned());
-            ControlFlow::Continue(())
-        });
-        assert_eq!(got, set(&["apple", "maple"]));
-    });
-}
-
-#[test]
-#[cfg_attr(
-    miri,
-    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
-)]
-fn iterate_suffix_contains_anchor() {
-    with_suffix_trie(CORPUS, |trie| {
-        let runes = to_runes("ap");
-        let mut got = HashSet::new();
-        trie.iterate_contains(&runes, SuffixMode::Contains, |bytes| {
-            got.insert(String::from_utf8_lossy(bytes).into_owned());
-            ControlFlow::Continue(())
-        });
-        assert_eq!(got, set(CORPUS));
-    });
-}
-
-#[test]
-#[cfg_attr(
-    miri,
-    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
-)]
-fn iterate_suffix_break_stops_walk_early() {
-    with_suffix_trie(CORPUS, |trie| {
-        let runes = to_runes("ap");
-        let mut count = 0_usize;
-        trie.iterate_contains(&runes, SuffixMode::Contains, |_| {
-            count += 1;
-            ControlFlow::Break(())
-        });
-        assert_eq!(count, 1, "Break must stop after the first match");
-    });
-}
-
-#[test]
-#[cfg_attr(
-    miri,
-    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
-)]
-fn iterate_suffix_empty_pattern_visits_nothing() {
-    with_suffix_trie(CORPUS, |trie| {
-        let mut count = 0_usize;
-        trie.iterate_contains(&[], SuffixMode::Contains, |_| {
-            count += 1;
-            ControlFlow::Continue(())
-        });
-        assert_eq!(count, 0);
-    });
-}
-
-// --- `LoweredPattern` -------------------------------------------------------
-
-#[test]
-#[cfg_attr(
-    miri,
-    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
-)]
-fn lowered_pattern_length_excludes_the_sentinel() {
-    let p = pattern("he?l*o");
-    assert_eq!(p.len(), 6);
-    assert!(!p.is_empty());
-}
-
-#[test]
-#[cfg_attr(
-    miri,
-    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
-)]
-fn lowered_pattern_from_no_runes_is_empty() {
-    // The sentinel is still appended, but it does not count as content.
-    let p = LoweredPattern::new(&[]).expect("an empty pattern converts");
-    assert_eq!(p.len(), 0);
-    assert!(p.is_empty());
-}
-
-#[test]
-#[cfg_attr(
-    miri,
-    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
-)]
-fn lowered_pattern_length_is_in_runes_not_bytes() {
-    // A multibyte pattern separates rune count from source-byte count, which
-    // every ASCII pattern leaves equal. `len()` must count runes — it is what
-    // the walks take as the pattern length.
-    let p = pattern("hé*");
-    assert_eq!(p.len(), 3, "three runes: h, é, *");
-}
-
-#[test]
-#[cfg_attr(
-    miri,
-    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
-)]
-fn lowered_pattern_declines_a_pattern_longer_than_max_rune_str_len() {
-    // Term insertion declines anything over `MAX_RUNE_STR_LEN` runes, so such a
-    // pattern can name no stored term and there is nothing to walk with.
-    let runes = vec![ffi::rune::from(b'a'); ffi::MAX_RUNE_STR_LEN as usize + 1];
-    assert!(LoweredPattern::new(&runes).is_none());
-}
-
-#[test]
-#[cfg_attr(
-    miri,
-    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
-)]
-fn lowered_pattern_declines_a_pattern_holding_a_zero_rune() {
-    // An interior zero collides with the sentinel layout the type guarantees —
-    // a consumer scanning for the zero would see only `a`. Declined rather than
-    // built.
-    assert!(LoweredPattern::new(&[ffi::rune::from(b'a'), 0, ffi::rune::from(b'b')]).is_none());
-}
-
-// --- `iterate_wildcard` (terms trie) ----------------------------------------
+// --- `iterate_wildcard` -----------------------------------------------------
 
 #[test]
 #[cfg_attr(
@@ -605,153 +441,97 @@ fn iterate_wildcard_some_and_none_timeout_agree() {
     });
 }
 
-// --- `iterate_wildcard` (suffix trie) ---------------------------------------
+// --- `delete` ---------------------------------------------------------------
 
 #[test]
 #[cfg_attr(
     miri,
-    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    ignore = "calling the C trie's foreign functions is not supported by Miri"
 )]
-fn suffix_iterate_wildcard_anchors_on_the_pattern_literal() {
-    with_suffix_trie(CORPUS, |trie| {
-        let mut got = HashSet::new();
-        let outcome = trie.iterate_wildcard(pattern("*ple"), None, |bytes| {
-            got.insert(String::from_utf8_lossy(bytes).into_owned());
-            ControlFlow::Continue(())
-        });
-        assert!(
-            matches!(outcome, SuffixWalk::Walked),
-            "`ple` is a literal the suffix trie can use"
-        );
-        assert_eq!(got, set(&["apple", "maple"]));
+fn delete_removes_a_stored_term() {
+    with_terms_trie(&["apple", "maple", "grape"], |trie| {
+        assert!(trie.delete(b"maple"), "a stored term is removed");
+        assert_eq!(terms_of(trie), set(&["apple", "grape"]));
+        assert_eq!(trie.num_docs(b"maple"), 0);
     });
 }
 
 #[test]
 #[cfg_attr(
     miri,
-    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    ignore = "calling the C trie's foreign functions is not supported by Miri"
 )]
-fn suffix_iterate_wildcard_anchor_token_may_absorb_a_trailing_star() {
-    // The chosen anchor token `ma` is followed by `*`, so the walk extends the
-    // token to cover it and scans the whole sub-tree under `ma` — the only walk
-    // shape that honours an early stop.
-    with_suffix_trie(CORPUS, |trie| {
-        let mut got = HashSet::new();
-        let outcome = trie.iterate_wildcard(pattern("ma*"), None, |bytes| {
-            got.insert(String::from_utf8_lossy(bytes).into_owned());
-            ControlFlow::Continue(())
-        });
-        assert!(matches!(outcome, SuffixWalk::Walked));
-        assert_eq!(got, set(&["maple", "map"]));
+fn delete_removes_a_term_that_still_has_documents() {
+    // Unlike `decrement_num_docs`, `delete` does not care about the doc count:
+    // the term goes away in one step.
+    with_terms_trie(&["apple"], |trie| {
+        assert_eq!(trie.num_docs(b"apple"), 5, "inserted with numDocs == 5");
+        assert!(trie.delete(b"apple"));
+        assert_eq!(terms_of(trie), HashSet::new());
     });
 }
 
 #[test]
 #[cfg_attr(
     miri,
-    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    ignore = "calling the C trie's foreign functions is not supported by Miri"
 )]
-fn suffix_iterate_wildcard_matches_a_multibyte_pattern() {
-    // A multibyte pattern separates rune count from byte count; the walk operates
-    // rune-wise throughout, and every ASCII pattern leaves the two equal and so
-    // could not tell.
-    with_suffix_trie(&["héllo", "hallo"], |trie| {
-        let mut got = HashSet::new();
-        let outcome = trie.iterate_wildcard(pattern("*éllo"), None, |bytes| {
-            got.insert(String::from_utf8_lossy(bytes).into_owned());
-            ControlFlow::Continue(())
-        });
-        assert!(matches!(outcome, SuffixWalk::Walked));
-        assert_eq!(got, set(&["héllo"]));
+fn delete_reports_a_miss_for_an_absent_term() {
+    with_terms_trie(&["apple"], |trie| {
+        let removed = trie.delete(b"apricot");
+        assert!(!removed, "term was never inserted");
+        assert_eq!(terms_of(trie), set(&["apple"]), "trie is left untouched");
     });
 }
 
 #[test]
 #[cfg_attr(
     miri,
-    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    ignore = "calling the C trie's foreign functions is not supported by Miri"
 )]
-fn suffix_iterate_wildcard_declines_a_pattern_with_no_literal_to_anchor_on() {
-    with_suffix_trie(CORPUS, |trie| {
-        let mut count = 0_usize;
-        let outcome = trie.iterate_wildcard(pattern("**"), None, |_| {
-            count += 1;
-            ControlFlow::Continue(())
-        });
-        let SuffixWalk::NoAnchor(returned) = outcome else {
-            panic!("a pattern of only `*` has no token to anchor on");
-        };
-        assert_eq!(count, 0);
-        // The pattern comes back usable for the caller's fallback over the
-        // primary terms trie.
-        assert_eq!(returned.len(), 2);
+fn delete_reports_a_miss_for_a_prefix_of_a_stored_term() {
+    with_terms_trie(&["apple"], |trie| {
+        let removed = trie.delete(b"app");
+        assert!(!removed, "a prefix is not an exact match");
+        assert_eq!(terms_of(trie), set(&["apple"]));
     });
 }
 
 #[test]
 #[cfg_attr(
     miri,
-    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    ignore = "calling the C trie's foreign functions is not supported by Miri"
 )]
-fn suffix_iterate_wildcard_declines_an_empty_pattern() {
-    with_suffix_trie(CORPUS, |trie| {
-        let empty = LoweredPattern::new(&[]).expect("an empty pattern converts");
-        let mut count = 0_usize;
-        let outcome = trie.iterate_wildcard(empty, None, |_| {
-            count += 1;
-            ControlFlow::Continue(())
-        });
-        let SuffixWalk::NoAnchor(returned) = outcome else {
-            panic!("an empty pattern has no token to anchor on");
-        };
-        assert_eq!(count, 0);
-        assert!(returned.is_empty());
+fn delete_reports_a_miss_for_an_empty_term() {
+    // `TrieNode_Add` no-ops on a zero-length key, so the trie can never hold one.
+    with_terms_trie(&["apple"], |trie| {
+        assert!(!trie.delete(b""));
+        assert_eq!(terms_of(trie), set(&["apple"]));
     });
 }
 
 #[test]
 #[cfg_attr(
     miri,
-    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    ignore = "calling the C trie's foreign functions is not supported by Miri"
 )]
-fn suffix_iterate_wildcard_break_stops_a_star_terminated_anchor_early() {
-    // `ma*` extends its anchor token to include the `*`, which is what puts the
-    // walk on the sub-tree path — the only path that honours a stop request.
-    with_suffix_trie(CORPUS, |trie| {
-        let mut count = 0_usize;
-        let outcome = trie.iterate_wildcard(pattern("ma*"), None, |_| {
-            count += 1;
-            ControlFlow::Break(())
-        });
-        assert!(matches!(outcome, SuffixWalk::Walked));
-        assert_eq!(count, 1, "Break must stop after the first match");
+fn delete_reports_a_miss_for_an_over_long_term() {
+    let too_long = "a".repeat(ffi::TRIE_INITIAL_STRING_LEN as usize * size_of::<ffi::rune>() + 1);
+    with_terms_trie(&["apple"], |trie| {
+        let removed = trie.delete(too_long.as_bytes());
+        assert!(!removed, "longer than the trie holds");
+        assert_eq!(terms_of(trie), set(&["apple"]));
     });
 }
 
 #[test]
 #[cfg_attr(
     miri,
-    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    ignore = "calling the C trie's foreign functions is not supported by Miri"
 )]
-fn suffix_iterate_wildcard_break_is_ignored_for_an_anchor_without_a_trailing_star() {
-    // The documented caveat, pinned. `*p?e` anchors on `p?e`, which is not
-    // `*`-terminated, so the walk is not on the sub-tree path and discards the
-    // stop request — it only truncates the matches under the node it is on, then
-    // moves to the next matching node.
-    //
-    // Two suffix keys match `p?e` here: `ple` (from `apple`) and `pie`. One
-    // matching key would hide this, since `Break` does end that key's own list.
-    with_suffix_trie(&["apple", "pie"], |trie| {
-        let mut count = 0_usize;
-        let outcome = trie.iterate_wildcard(pattern("*p?e"), None, |_| {
-            count += 1;
-            ControlFlow::Break(())
-        });
-        assert!(matches!(outcome, SuffixWalk::Walked));
-        assert_eq!(
-            count, 2,
-            "one callback per matching suffix key, despite Break"
-        );
+fn delete_of_a_multibyte_term_round_trips() {
+    with_terms_trie(&["héllo", "wörld"], |trie| {
+        assert!(trie.delete("héllo".as_bytes()));
+        assert_eq!(terms_of(trie), set(&["wörld"]));
     });
 }
