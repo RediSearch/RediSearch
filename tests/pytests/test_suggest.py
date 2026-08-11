@@ -127,3 +127,25 @@ def testIssue_490(env):
     env.expect('ft.sugget', 'sug', 'Redis', 'WITHPAYLOADS').equal(['RediSearch', 'RediSearch, an awesome search engine'])
     env.expect('ft.sugadd', 'sug', 'RediSearch', '1', 'INCR', 'PAYLOAD', 'RediSearch 2.0, next gen search engine').equal(1)
     env.expect('ft.sugget', 'sug', 'Redis', 'WITHPAYLOADS').equal(['RediSearch', 'RediSearch 2.0, next gen search engine'])
+
+def testSuggestTrimDropsTail(env):
+    # Regression for MOD-15932: FT.SUGGET ... TRIM used to double-free when the
+    # trim post-pass dropped tail entries. The first loop left `h` pointing at
+    # the last surviving entry; the second loop then re-freed it once per
+    # dropped entry. Reliable crash with one score-dominant entry and several
+    # entries below the SCORE_TRIM_FACTOR (10x) cutoff.
+    skipOnCrdtEnv(env)
+
+    env.expect('FT.SUGADD', 'sug', 'ha', '100').equal(1)
+    env.expect('FT.SUGADD', 'sug', 'hb', '1').equal(2)
+    env.expect('FT.SUGADD', 'sug', 'hc', '1').equal(3)
+    env.expect('FT.SUGADD', 'sug', 'hd', '1').equal(4)
+    env.expect('FT.SUGADD', 'sug', 'he', '1').equal(5)
+
+    res = env.cmd('FT.SUGGET', 'sug', 'h', 'MAX', '10', 'TRIM')
+    env.assertEqual(res, ['ha'])
+
+    # Server must still be alive and the trie intact: a follow-up SUGGET
+    # without TRIM still returns the full set.
+    res = env.cmd('FT.SUGGET', 'sug', 'h', 'MAX', '10')
+    env.assertEqual(sorted(res), ['ha', 'hb', 'hc', 'hd', 'he'])
