@@ -938,6 +938,9 @@ void Indexes_InvalidateExpiredSortables(RedisModuleCtx *ctx, RedisModuleString *
       // Document_HasExpiration is deliberately not used as a gate: it is only set
       // on the disk path, and only for doc-level TTLs.
       const struct FieldExpirationSlice fes = DocTable_GetFieldExpirations(&spec->docs, cdmd->id);
+      RSSortingVector *sv = &((RSDocumentMetadata *)cdmd)->sortVector;
+      size_t sizeBefore = 0;
+      bool nulled = false;
       for (size_t ii = 0; ii < fes.len; ++ii) {
         const t_fieldIndex idx = fes.ptr[ii].index;
         if (idx >= spec->numFields) {
@@ -950,10 +953,24 @@ void Indexes_InvalidateExpiredSortables(RedisModuleCtx *ctx, RedisModuleString *
         }
         // Predicate holds while the field is still valid; a false result is the
         // expired case.
-        if (!DocTable_CheckFieldExpirationPredicate(&spec->docs, cdmd->id, idx,
-                                                    FIELD_EXPIRATION_PREDICATE_DEFAULT, &now)) {
-          RSSortingVector_PutNull(&((RSDocumentMetadata *)cdmd)->sortVector, (size_t)fs->sortIdx);
+        if (DocTable_CheckFieldExpirationPredicate(&spec->docs, cdmd->id, idx,
+                                                   FIELD_EXPIRATION_PREDICATE_DEFAULT, &now)) {
+          continue;
         }
+        if (!nulled) {
+          sizeBefore = RSSortingVector_GetMemorySize(sv);
+          nulled = true;
+        }
+        RSSortingVector_PutNull(sv, (size_t)fs->sortIdx);
+      }
+      // Nulling a slot releases the stored value, and the vector stops counting
+      // it. DocTable only adds the size on attach and subtracts it on delete, so
+      // without this the released bytes stay counted for the rest of the index's
+      // life and inflate the reported sortable size.
+      if (nulled) {
+        const size_t freed = sizeBefore - RSSortingVector_GetMemorySize(sv);
+        RS_LOG_ASSERT(spec->docs.sortablesSize >= freed, "sortablesSize underflow");
+        spec->docs.sortablesSize -= freed;
       }
     }
     if (cdmd) {
