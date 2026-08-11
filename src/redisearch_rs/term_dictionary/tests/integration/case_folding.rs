@@ -13,7 +13,7 @@
 //! [`TermDictionary`] for the rationale (it mirrors the C terms-trie's
 //! `runeBufFill` pre-fold). These tests pin the contract at every entry
 //! point: insert/lookup, remove, decrement, and all five iteration paths
-//! (prefixed, suffixed, contains, range, wildcard, fuzzy).
+//! (prefixed, suffixed, contains, wildcard, fuzzy).
 //!
 //! The underlying [`StrTrieMap`](trie_rs::str_trie_map::StrTrieMap) stays
 //! byte-exact; tests in sibling files exercise its raw byte semantics
@@ -47,21 +47,6 @@ fn collect_suffixed(dict: &TermDictionary, suffix: &str) -> Vec<String> {
 
 fn collect_contains(dict: &TermDictionary, target: &str) -> Vec<String> {
     let mut keys: Vec<String> = dict.contains_iter(target).map(|(k, _)| k).collect();
-    keys.sort();
-    keys
-}
-
-fn collect_range(
-    dict: &TermDictionary,
-    min: Option<&str>,
-    include_min: bool,
-    max: Option<&str>,
-    include_max: bool,
-) -> Vec<String> {
-    let mut keys: Vec<String> = dict
-        .range_iter(min, include_min, max, include_max)
-        .map(|(k, _)| k)
-        .collect();
     keys.sort();
     keys
 }
@@ -212,27 +197,6 @@ fn contains_iter_folds_pattern() {
     assert_eq!(
         collect_contains(&dict, "FOO"),
         vec!["afoob".to_string(), "xfooy".to_string()]
-    );
-}
-
-#[test]
-fn range_iter_folds_bounds() {
-    let mut dict = TermDictionary::new();
-    seed(&mut dict, &["alpha", "beta", "delta", "gamma"]);
-    assert_eq!(
-        collect_range(&dict, Some("A"), true, Some("C"), false),
-        vec!["alpha".to_string(), "beta".to_string()],
-        "uppercase bounds must fold to lowercase before traversal"
-    );
-}
-
-#[test]
-fn range_iter_none_bounds_unchanged() {
-    let mut dict = TermDictionary::new();
-    seed(&mut dict, &["alpha", "beta"]);
-    assert_eq!(
-        collect_range(&dict, None, true, None, true),
-        vec!["alpha".to_string(), "beta".to_string()]
     );
 }
 

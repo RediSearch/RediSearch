@@ -41,8 +41,8 @@ use trie_rdb::{EntryFields, RdbError, RdbOpts, str as str_rdb};
 use trie_rs::str_trie_map::{
     StrTrieMap,
     iter::{
-        ContainsIter as StrContainsIter, FuzzyIter, Iter, PrefixedIter, RangeBoundary, RangeFilter,
-        RangeIter as StrRangeIter, SuffixedIter, WildcardIter as StrWildcardIter,
+        ContainsIter as StrContainsIter, FuzzyIter, Iter, PrefixedIter, SuffixedIter,
+        WildcardIter as StrWildcardIter,
     },
 };
 
@@ -198,63 +198,6 @@ impl TermDictionary {
         self.inner.suffixed_iter(&fold(suffix))
     }
 
-    /// Case-folds the bounds; see [`StrTrieMap::range_iter`] and
-    /// [`RangeIter`] for the lazy-vs-drained behaviour. `None` on either
-    /// side disables that bound.
-    pub fn range_iter<'tm, 'p>(
-        &'tm self,
-        min: Option<&'p str>,
-        include_min: bool,
-        max: Option<&'p str>,
-        include_max: bool,
-    ) -> RangeIter<'tm, 'p> {
-        let min = min.map(fold);
-        let max = max.map(fold);
-        let min_owns = matches!(min, Some(Cow::Owned(_)));
-        let max_owns = matches!(max, Some(Cow::Owned(_)));
-
-        if !min_owns && !max_owns {
-            // Both bounds absent or borrowed — stay lazy, carrying the
-            // caller's `'p` lifetime rather than a borrow of the locals here.
-            let min_ref: Option<&'p str> = match min {
-                Some(Cow::Borrowed(s)) => Some(s),
-                _ => None,
-            };
-            let max_ref: Option<&'p str> = match max {
-                Some(Cow::Borrowed(s)) => Some(s),
-                _ => None,
-            };
-            let filter = RangeFilter {
-                min: min_ref.map(|value| RangeBoundary {
-                    value,
-                    is_included: include_min,
-                }),
-                max: max_ref.map(|value| RangeBoundary {
-                    value,
-                    is_included: include_max,
-                }),
-            };
-            return RangeIter::Lazy(self.inner.range_iter(filter));
-        }
-
-        // A bound owns its folded buffer, which cannot outlive this call,
-        // so drain the matches eagerly before the buffers drop.
-        let min_buf: Option<String> = min.map(Cow::into_owned);
-        let max_buf: Option<String> = max.map(Cow::into_owned);
-        let filter = RangeFilter {
-            min: min_buf.as_deref().map(|value| RangeBoundary {
-                value,
-                is_included: include_min,
-            }),
-            max: max_buf.as_deref().map(|value| RangeBoundary {
-                value,
-                is_included: include_max,
-            }),
-        };
-        let drained: Vec<(String, &'tm TermEntry)> = self.inner.range_iter(filter).collect();
-        RangeIter::Drained(drained.into_iter())
-    }
-
     /// Case-folds `pattern`; see [`StrTrieMap::wildcard_iter`] for the
     /// codepoint matching model (`?` consumes one codepoint). `?` and `*`
     /// are ASCII so wildcard semantics survive folding. The returned
@@ -341,24 +284,6 @@ pub enum ContainsIter<'tm, 'p> {
 }
 
 impl<'tm, 'p> Iterator for ContainsIter<'tm, 'p> {
-    type Item = (String, &'tm TermEntry);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            Self::Lazy(it) => it.next(),
-            Self::Drained(it) => it.next(),
-        }
-    }
-}
-
-/// Iterator returned by [`TermDictionary::range_iter`]. Drains eagerly when
-/// either folded bound allocates; see [`ContainsIter`] for the rationale.
-pub enum RangeIter<'tm, 'p> {
-    Lazy(StrRangeIter<'tm, 'p, TermEntry>),
-    Drained(std::vec::IntoIter<(String, &'tm TermEntry)>),
-}
-
-impl<'tm, 'p> Iterator for RangeIter<'tm, 'p> {
     type Item = (String, &'tm TermEntry);
 
     fn next(&mut self) -> Option<Self::Item> {
