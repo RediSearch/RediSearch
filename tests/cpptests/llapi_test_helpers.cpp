@@ -16,6 +16,7 @@
 #include "common.h"
 
 #include "spec.h"
+#include "term_suffix_index_ffi.h"
 #include "field_spec.h"
 #include "document.h"
 #include "rmutil/rm_assert.h"
@@ -127,7 +128,7 @@ RSFieldID RediSearch_CreateField(RefManager* rm, const char* name, unsigned type
     if (fs->types == INDEXFLD_T_FULLTEXT) {
       sp->suffixMask |= FIELD_BIT(fs);
       if (!sp->suffix) {
-        sp->suffix = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
+        sp->suffix = TermSuffixIndex_New();
         sp->flags = (IndexFlags)(sp->flags | Index_HasSuffixTrie);
       }
     }

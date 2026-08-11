@@ -35,6 +35,7 @@
 #include "redis_index.h"
 #include "indexer.h"
 #include "suffix.h"
+#include "term_suffix_index_ffi.h"
 #include "alias.h"
 #include "module.h"
 #include "rules.h"
@@ -404,8 +405,7 @@ size_t IndexSpec_collect_text_overhead(const IndexSpec *sp) {
   overhead += TrieType_MemUsage(sp->terms);
   // Collect overhead from sp->suffix
   if (sp->suffix) {
-    // TODO: Count the values' memory as well
-    overhead += TrieType_MemUsage(sp->suffix);
+    overhead += TermSuffixIndex_MemUsage(sp->suffix);
   }
   return overhead;
 }
@@ -1413,7 +1413,7 @@ static void IndexSpec_EnsureSuffixForField(IndexSpec *sp, const FieldSpec *fs) {
     sp->suffixMask |= FIELD_BIT(fs);
     sp->flags |= Index_HasSuffixTrie;
     if (!sp->suffix) {
-      sp->suffix = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
+      sp->suffix = TermSuffixIndex_New();
     }
   }
 }
@@ -1433,7 +1433,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
   const size_t prevSortLen = sp->numSortableFields;
   const uint32_t prevFieldIdToIndexLen = array_len(sp->fieldIdToIndex);
   const IndexFlags prevFlags = sp->flags;
-  Trie *prevSuffix = sp->suffix;
+  TermSuffixIndex *prevSuffix = sp->suffix;
   const t_fieldMask prevSuffixMask = sp->suffixMask;
 
   while (!AC_IsAtEnd(ac)) {
@@ -1601,7 +1601,7 @@ reset:
   sp->numSortableFields = prevSortLen;
   array_set_len(sp->fieldIdToIndex, prevFieldIdToIndexLen);
   if (sp->suffix && sp->suffix != prevSuffix) {
-    TrieType_Free(sp->suffix);
+    TermSuffixIndex_Free(sp->suffix);
   }
   sp->suffix = prevSuffix;
   sp->suffixMask = prevSuffixMask;
@@ -1998,9 +1998,9 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   array_free(spec->fieldIdToIndex);
   spec->fieldIdToIndex = NULL;
 
-  // Free suffix trie
+  // Free suffix index
   if (spec->suffix) {
-    TrieType_Free(spec->suffix);
+    TermSuffixIndex_Free(spec->suffix);
   }
 
   // Free spec name

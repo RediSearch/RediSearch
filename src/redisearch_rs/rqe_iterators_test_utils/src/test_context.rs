@@ -47,6 +47,7 @@ use index_result::RSIndexResult;
 use numeric_range_tree::{NumericIndex, NumericRangeTree};
 use query_error::QueryError;
 use rqe_iterators::IteratorsConfig;
+use term_suffix_index::TermSuffixIndex;
 use ttl_table::FieldExpirations;
 
 /// Wrapper around RedisModuleCtx ensuring its resources are properly cleaned up.
@@ -556,11 +557,6 @@ impl TestContext {
     /// `WITHSUFFIXTRIE` and each term is also inserted into the spec's suffix
     /// trie, exercising the suffix-trie expansion path instead of the brute-force
     /// terms-trie scan.
-    ///
-    /// The empty term is a special case, and is faithful to the indexer: neither
-    /// trie takes a zero-length key — the terms trie refuses one and the suffix
-    /// trie is gated against it — so an empty term contributes only its inverted
-    /// index, exactly as an `INDEXEMPTY` field's empty value does.
     pub fn prefix<T, S>(terms: T, with_suffix_trie: bool) -> Self
     where
         T: IntoIterator<Item = (S, Vec<RSIndexResult<'static>>)>,
@@ -600,23 +596,23 @@ impl TestContext {
             unsafe {
                 ffi::IndexSpec_AddTerm(spec, cterm.as_ptr(), cterm.as_bytes().len());
             }
-            // Mirror the indexer by also feeding the suffix trie when enabled —
-            // including its gate against the empty term, which `addSuffixTrie`
-            // asserts on.
-            if with_suffix_trie && !cterm.as_bytes().is_empty() {
+            // Mirror the indexer by also feeding the suffix index when enabled.
+            if with_suffix_trie {
                 // SAFETY: `spec` is a valid, non-null `IndexSpec` just returned
                 // by `create_spec_sctx`.
                 let suffix = unsafe { (*spec).suffix };
                 assert!(
                     !suffix.is_null(),
-                    "WITHSUFFIXTRIE spec must have a suffix trie"
+                    "WITHSUFFIXTRIE spec must have a suffix index"
                 );
-                // SAFETY: a `WITHSUFFIXTRIE` field makes `spec.suffix` a valid
-                // suffix `Trie`, checked non-null above; `cterm` is a valid
-                // NUL-terminated term whose byte length is passed alongside it.
-                unsafe {
-                    ffi::addSuffixTrie(suffix, cterm.as_ptr(), cterm.to_bytes().len() as u32);
-                }
+                // SAFETY: a `WITHSUFFIXTRIE` field makes `spec.suffix` a
+                // `TermSuffixIndex` built by `TermSuffixIndex_New` and held
+                // behind an opaque C typedef, checked non-null above, so the
+                // cast recovers the Rust type it was created as. This builder
+                // is the only party touching it while it runs, which satisfies
+                // the index's readers-writer contract.
+                let suffix = unsafe { &mut *suffix.cast::<TermSuffixIndex>() };
+                suffix.add(cterm.to_str().expect("term must be valid UTF-8"));
             }
             // Create and register the term's inverted index in the spec's keysDict.
             let mut is_new = false;

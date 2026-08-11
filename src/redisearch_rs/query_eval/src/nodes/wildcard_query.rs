@@ -9,13 +9,14 @@
 
 //! Evaluation of `QN_WILDCARD_QUERY` query nodes.
 
-use std::ops::ControlFlow;
+use std::{ops::ControlFlow, str};
 
-use c_trie::{LoweredPattern, SuffixTrie, SuffixWalk, TermsTrie};
+use c_trie::{LoweredPattern, TermsTrie};
 use query_error::QueryErrorCode;
 use query_types::QueryNodeType;
-use rqe_iterators::union_opaque::build_union_with_q_str;
+use rqe_iterators::{union_opaque::build_union_with_q_str, utils::deadline_passed};
 use string_utils::runes::runes_to_bytes;
+use term_suffix_index::TermSuffixIndex;
 
 use crate::{
     Config, Evaluated, QueryEvalContext, QueryNodeMut, expansion::Expansion,
@@ -27,8 +28,8 @@ use crate::{
 /// trie into a union of per-term readers.
 ///
 /// Unlike a prefix pattern, a wildcard pattern is not anchored: the spec's suffix
-/// trie is consulted whenever it exists, and the primary terms trie is walked
-/// only when the suffix trie has no literal run to anchor on.
+/// index is consulted whenever it exists, and the primary terms trie is walked
+/// only when the suffix index has no literal run to anchor on.
 ///
 /// An empty pattern is answered without either walk: it matches exactly the empty
 /// term, whose inverted index is opened directly.
@@ -48,7 +49,7 @@ pub(crate) fn eval<'index>(
     // nothing may consult `opts` once it is live.
     //
     // The reader field mask narrows the node's mask to the query-wide one; the
-    // suffix-trie support check below uses the node's own mask.
+    // suffix-index support check below uses the node's own mask.
     let node_field_mask = node.opts().field_mask;
     let weight = node.opts().weight;
     let is_disk = !ctx.spec().diskSpec.is_null();
@@ -78,7 +79,7 @@ pub(crate) fn eval<'index>(
     };
     let tok = tok.as_ref();
 
-    let suffix_trie = ctx.spec().suffix;
+    let suffix_index = ctx.spec().suffix;
     let suffix_mask = ctx.spec().suffixMask;
     // SAFETY: the reference is confined to this evaluation — the suffix-trie
     // walk and the terms-trie fallback below — which the query, and so the spec
@@ -98,11 +99,11 @@ pub(crate) fn eval<'index>(
         max_expansions: config.max_prefix_expansions,
     };
 
-    // A spec with a suffix trie may only answer a pattern when every queried field
+    // A spec with a suffix index may only answer a pattern when every queried field
     // is covered by it. An unsupported field set is an error that does *not* fall
     // back to a walk — it yields an empty union — and it is reported for any
     // pattern, so it is decided before the empty-pattern case below.
-    let fields_unsupported = !suffix_trie.is_null()
+    let fields_unsupported = !suffix_index.is_null()
         && node_field_mask != rqe_core::RS_FIELDMASK_ALL
         && (suffix_mask & node_field_mask) != node_field_mask;
 
@@ -122,35 +123,24 @@ pub(crate) fn eval<'index>(
         // inserted, so the terms trie cannot supply one, and the empty term is
         // scored as one never seen whatever its inverted index holds.
         let _ = expansion.push_child(0, b"");
-    } else if let Some(pattern) = LoweredPattern::new(&pattern) {
-        // The suffix trie is preferred whenever the spec has one; the brute-force
+    } else if let Some(lowered_pattern) = LoweredPattern::new(&pattern) {
+        // The suffix index is preferred whenever the spec has one; the brute-force
         // terms-trie scan is the fallback for a pattern it has no literal run to
         // anchor on.
-        //
-        // Carries the pattern while it is still un-walked; `None` once a walk has
-        // consumed it.
-        let mut brute_force = Some(pattern);
-        if !suffix_trie.is_null() {
+        let mut walked = false;
+        if !suffix_index.is_null() {
             // Reached only with the fields supported, ruled on above.
-            let pattern = brute_force
-                .take()
-                .expect("the pattern is un-walked on the first walk");
-            // SAFETY: `suffix_trie` is non-null (checked above) and is the spec's
-            // suffix `Trie`, whose nodes carry the suffix-data payload the walk
-            // expects; it is valid for and unmutated during the query
-            // (`QueryEvalContext` invariants 1/2).
-            let suffix = unsafe { SuffixTrie::from_raw(suffix_trie) };
-            brute_force =
-                match expansion.expand_wildcard_via_suffix_trie(suffix, terms, pattern, timeout) {
-                    // The walk answered the pattern, and consumed it doing so.
-                    SuffixWalk::Walked => None,
-                    // Nothing to anchor on, so the pattern is still un-walked and the
-                    // brute-force scan below has to answer it instead.
-                    SuffixWalk::NoAnchor(pattern) => Some(pattern),
-                };
+            // SAFETY: `suffix_index` is non-null (checked above) and is the spec's
+            // `TermSuffixIndex`, built by `TermSuffixIndex_New` and held behind an
+            // opaque C typedef, so the cast recovers the Rust type it was created
+            // as. It is valid for and unmutated during the query
+            // (`QueryEvalContext` invariants 1/2), which satisfies the index's
+            // readers-writer contract.
+            let suffix = unsafe { &*suffix_index.cast::<TermSuffixIndex>() };
+            walked = expansion.expand_wildcard_via_suffix_index(suffix, terms, &pattern, timeout);
         }
-        if let Some(pattern) = brute_force {
-            expansion.expand_wildcard_via_terms_trie(terms, &pattern, timeout);
+        if !walked {
+            expansion.expand_wildcard_via_terms_trie(terms, &lowered_pattern, timeout);
         }
     }
     // A pattern `LoweredPattern::new` declines falls through to an empty union.
@@ -187,46 +177,63 @@ pub(crate) fn eval<'index>(
 }
 
 impl Expansion<'_> {
-    /// Expand a wildcard `pattern` through the spec's suffix trie, accumulating one
+    /// Expand a wildcard `pattern` through the spec's suffix index, accumulating one
     /// reader per matching term.
     ///
-    /// `suffix` wraps the spec's suffix trie and `terms` its primary terms trie.
-    /// A [`SuffixWalk::NoAnchor`] hands the pattern back for the caller to retry
-    /// with [`expand_wildcard_via_terms_trie`](Self::expand_wildcard_via_terms_trie).
+    /// `suffix` is the spec's suffix index and `terms` wraps its primary terms trie.
+    /// Reports whether the index answered the pattern: `false` leaves it for
+    /// [`expand_wildcard_via_terms_trie`](Self::expand_wildcard_via_terms_trie),
+    /// either because no token in the pattern can anchor the scan or because the
+    /// pattern names runes no indexed term can carry.
+    ///
+    /// `timeout` bounds the scan (`None` runs it to completion). The scan gathers
+    /// its whole candidate set before reporting any term, so the deadline is polled
+    /// inside the index rather than by the per-term accumulation here.
     ///
     /// Terms may repeat: one term can sit under several matching suffix keys, and
     /// each occurrence opens its own reader and counts against the expansion cap.
     /// The union deduplicates by document, so this affects cost and the cap, not
     /// results.
-    fn expand_wildcard_via_suffix_trie(
+    fn expand_wildcard_via_suffix_index(
         &mut self,
-        suffix: &SuffixTrie,
+        suffix: &TermSuffixIndex,
         terms: &TermsTrie,
-        pattern: LoweredPattern,
+        pattern: &[ffi::rune],
         timeout: Option<ffi::timespec>,
-    ) -> SuffixWalk {
-        // The suffix trie hands terms back already as stored key bytes but carries
+    ) -> bool {
+        // The suffix index is keyed by `str`, so the pattern goes back to the term's
+        // key bytes and from there to UTF-8.
+        let Ok(needle) = runes_to_bytes(pattern) else {
+            return false;
+        };
+        let Ok(needle) = str::from_utf8(&needle) else {
+            // A pattern that is not valid UTF-8 encodes a lone surrogate, which no
+            // indexed term can carry — the index refuses such a term on the way in.
+            // Matching nothing is the answer, and the terms-trie scan would only
+            // reach the same one the slow way.
+            return true;
+        };
+        let should_stop = || match timeout {
+            Some(deadline) => deadline_passed(deadline),
+            None => false,
+        };
+        let Some(matches) = suffix.iter_wildcard(needle, should_stop) else {
+            return false;
+        };
+        // The suffix index hands terms back already as stored key bytes but carries
         // no document count, so on the disk path the term's count is looked up in
         // the primary terms trie for the IDF; the in-memory path ignores it.
-        //
-        // That lookup refuses a key that is not valid UTF-8, which here is the right
-        // answer rather than a lost count: a disk index only stages a term whose
-        // bytes are valid UTF-8, and the terms trie is only updated for terms that
-        // staged, so a refused key was never counted there in the first place.
-        let on_term = |term_bytes: &[u8]| {
-            // The walk may keep calling back after a `Break`, so check the cap
-            // before the document-count lookup, which is a trie walk of its own.
-            if self.cap_reached() {
-                return ControlFlow::Break(());
-            }
+        for term in matches {
             let num_docs = if self.is_disk {
-                terms.num_docs(term_bytes)
+                terms.num_docs(term.as_bytes())
             } else {
                 0
             };
-            self.push_child(num_docs, term_bytes)
-        };
-        suffix.iterate_wildcard(pattern, timeout, on_term)
+            if self.push_child(num_docs, term.as_bytes()).is_break() {
+                break;
+            }
+        }
+        true
     }
 
     /// Brute-force expand a wildcard `pattern` over the primary terms trie,

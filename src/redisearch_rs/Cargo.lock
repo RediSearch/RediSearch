@@ -1102,6 +1102,7 @@ dependencies = [
  "redisearch_rs",
  "rqe_core",
  "schema_rule",
+ "term_suffix_index",
  "workspace_hack",
 ]
 
@@ -1858,6 +1859,7 @@ dependencies = [
  "rs_token",
  "search_disk",
  "string_utils",
+ "term_suffix_index",
  "thiserror",
  "workspace_hack",
 ]
@@ -2488,6 +2490,7 @@ dependencies = [
  "redis_mock",
  "rqe_core",
  "rqe_iterators",
+ "term_suffix_index",
  "ttl_table",
  "varint_ffi",
  "workspace_hack",

@@ -18,11 +18,12 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use c_trie::{SuffixTrie, TermsTrie};
+use c_trie::TermsTrie;
 use dict::{Dict, MissingFieldDictType};
 use field_spec::FieldSpec;
 use inverted_index::opaque::InvertedIndex;
 use schema_rule::SchemaRule;
+use term_suffix_index::TermSuffixIndex;
 
 /// A safe wrapper around an `ffi::IndexSpec`.
 #[repr(transparent)]
@@ -225,19 +226,21 @@ impl<'lock> IndexSpecWriteGuard<'lock> {
         unsafe { TermsTrie::from_raw_mut(self.0.terms) }
     }
 
-    /// Returns the suffix trie.
+    /// Returns the suffix index.
     ///
-    /// `None` when no field in the schema was declared `WITHSUFFIXTRIE`: the trie is
+    /// `None` when no field in the schema was declared `WITHSUFFIXTRIE`: the index is
     /// only allocated once some field opts in.
-    pub const fn suffix_mut(&mut self) -> Option<&mut SuffixTrie> {
+    pub const fn suffix_mut(&mut self) -> Option<&mut TermSuffixIndex> {
         if self.0.suffix.is_null() {
             return None;
         }
-        // SAFETY: `suffix` is non-null (checked above) and, once allocated, stays valid
-        // for the life of the spec, which outlives this guard's borrow. We hold the write
-        // lock, which every other reader and writer of the trie must acquire, so the
-        // exclusive borrow is not aliased.
-        Some(unsafe { SuffixTrie::from_raw_mut(self.0.suffix) })
+        // SAFETY: `suffix` is non-null (checked above) and is the spec's
+        // `TermSuffixIndex`, built by `TermSuffixIndex_New` and held behind an opaque C
+        // typedef, so the cast recovers the Rust type it was created as. Once allocated
+        // it stays valid for the life of the spec, which outlives this guard's borrow.
+        // We hold the write lock, which every other reader and writer of the index must
+        // acquire, so the exclusive borrow is not aliased.
+        Some(unsafe { &mut *self.0.suffix.cast::<TermSuffixIndex>() })
     }
 
     /// Return the spec's `missingFieldDict` as a typed [`Dict`].

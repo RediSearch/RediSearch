@@ -15,6 +15,7 @@
 #include "vector_index.h"
 #include "redis_index.h"
 #include "suffix.h"
+#include "term_suffix_index_ffi.h"
 #include "config.h"
 #include "rmutil/rm_assert.h"
 #include "phonetic_manager.h"
@@ -128,7 +129,7 @@ static inline bool entryWantsSuffixTrie(const IndexSpec *spec, const ForwardInde
  * suffix-trie / stats updates that pair with the postings staged in
  * `stageText` and now durably committed. `IndexSpec_AddTerm` fires for
  * entries with `entry->staged == true` (i.e. `SearchDisk_IndexTerm` returned
- * true); `addSuffixTrie` is gated independently by `entryWantsSuffixTrie`
+ * true); `TermSuffixIndex_Add` is gated independently by `entryWantsSuffixTrie`
  * and runs regardless — matches master behavior.
  *
  * Memory mode does the equivalent work inline in `indexText`, in a single
@@ -144,7 +145,7 @@ static void applyTextIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
       IndexSpec_AddTerm(spec, entry->term, entry->len);
     }
     if (entryWantsSuffixTrie(spec, entry)) {
-      addSuffixTrie(spec->suffix, entry->term, entry->len);
+      TermSuffixIndex_Add(spec->suffix, entry->term, entry->len);
     }
   }
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT, spec->stats.scoring.numTerms - prevNumTerms);
@@ -177,7 +178,7 @@ static t_fieldMask docExpiringTextFieldMask(const IndexSpec *spec, t_docId docId
  * `IndexSpec_AddTerm` is gated by the master MOD-4140 perf rule: only the
  * first occurrence of a term in the spec triggers the term-trie update. See
  * MOD-15846 for the downstream `numDocs` / IDF impact and the planned fix.
- * `addSuffixTrie` is gated independently by `entryWantsSuffixTrie` and runs
+ * `TermSuffixIndex_Add` is gated independently by `entryWantsSuffixTrie` and runs
  * regardless of whether the term is new — matches master behavior.
  */
 static void indexText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
@@ -202,7 +203,7 @@ static void indexText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
       IndexSpec_AddTerm(spec, entry->term, entry->len);
     }
     if (entryWantsSuffixTrie(spec, entry)) {
-      addSuffixTrie(spec->suffix, entry->term, entry->len);
+      TermSuffixIndex_Add(spec->suffix, entry->term, entry->len);
     }
   }
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT, spec->stats.scoring.numTerms - prevNumTerms);

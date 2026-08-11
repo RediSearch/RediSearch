@@ -51,3 +51,7 @@ target_link_libraries(benchmark_unicode_tolower redisearch redismock benchmark::
 
 add_executable(benchmark_trie benchmark_trie.cpp)
 target_link_libraries(benchmark_trie redisearch redismock benchmark::benchmark)
+
+# Local-only (bench_*) A/B: C suffix trie vs Rust TermSuffixIndex.
+add_executable(bench_suffix bench_suffix.cpp)
+target_link_libraries(bench_suffix redisearch redismock benchmark::benchmark)

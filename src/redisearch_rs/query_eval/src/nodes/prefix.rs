@@ -9,9 +9,9 @@
 
 //! Evaluation of `QN_PREFIX` query nodes.
 
-use std::ops::ControlFlow;
+use std::{ops::ControlFlow, str};
 
-use c_trie::{SuffixMode, SuffixTrie, TermsTrie};
+use c_trie::TermsTrie;
 use query::WildcardMode;
 use query_error::QueryErrorCode;
 use query_types::QueryNodeType;
@@ -19,6 +19,7 @@ use rqe_core::FieldMask;
 use rqe_iterators::{c2rust::CRQEIterator, union_opaque::build_union_with_q_str};
 use rs_token::RSTokenRefNulTerminated;
 use string_utils::runes::runes_to_bytes;
+use term_suffix_index::TermSuffixIndex;
 
 use crate::{
     Config, Evaluated, QueryEvalContext, QueryNodeRef, expansion::Expansion,
@@ -89,7 +90,7 @@ pub(crate) fn eval<'index>(
     let is_disk = !ctx.spec().diskSpec.is_null();
     let needs_offsets = expansion_needs_offsets(ctx, node.opts(), config);
 
-    let suffix_trie = ctx.spec().suffix;
+    let suffix_index = ctx.spec().suffix;
     let suffix_mask = ctx.spec().suffixMask;
     // SAFETY: the reference is confined to this evaluation — whichever of the
     // two walks below answers the pattern — which the query, and so the spec
@@ -111,13 +112,17 @@ pub(crate) fn eval<'index>(
         max_expansions: config.max_prefix_expansions,
     };
 
-    let children = if match_suffix && !suffix_trie.is_null() {
-        // The spec maintains a suffix trie for this pattern's fields: expand
+    let children = if match_suffix && !suffix_index.is_null() {
+        // The spec maintains a suffix index for this pattern's fields: expand
         // through it.
-        // SAFETY: `suffix_trie` is non-null (checked above) and is the spec's
-        // suffix `Trie`, valid for and unmutated during the query.
-        let suffix = unsafe { SuffixTrie::from_raw(suffix_trie) };
-        expansion.expand_via_suffix_trie(
+        // SAFETY: `suffix_index` is non-null (checked above) and is the spec's
+        // `TermSuffixIndex`, built by `TermSuffixIndex_New` and held behind an
+        // opaque C typedef, so the cast recovers the Rust type it was created
+        // as. It is valid for and unmutated during the query
+        // (`QueryEvalContext` invariants 1/2), which satisfies the index's
+        // readers-writer contract.
+        let suffix = unsafe { &*suffix_index.cast::<TermSuffixIndex>() };
+        expansion.expand_via_suffix_index(
             suffix,
             terms,
             &pattern,
@@ -160,23 +165,23 @@ pub(crate) fn eval<'index>(
 }
 
 impl Expansion<'_> {
-    /// Expand `pattern` through the spec's suffix trie, returning one reader per
+    /// Expand `pattern` through the spec's suffix index, returning one reader per
     /// matching term.
     ///
-    /// `suffix` wraps the spec's suffix trie and `terms` its primary terms trie.
-    /// `contains` selects a contains (both-anchored) walk over a suffix
+    /// `suffix` is the spec's suffix index and `terms` wraps its primary terms
+    /// trie. `contains` selects a contains (both-anchored) walk over a suffix
     /// (end-anchored) one. When the queried fields are not all covered by the
-    /// suffix trie, a `Generic` error is set and no reader is returned.
-    fn expand_via_suffix_trie(
+    /// suffix index, a `Generic` error is set and no reader is returned.
+    fn expand_via_suffix_index(
         mut self,
-        suffix: &SuffixTrie,
+        suffix: &TermSuffixIndex,
         terms: &TermsTrie,
         pattern: &[ffi::rune],
         contains: bool,
         node_field_mask: FieldMask,
         suffix_mask: FieldMask,
     ) -> Vec<CRQEIterator> {
-        // Use the suffix trie only when every queried field is covered by it,
+        // Use the suffix index only when every queried field is covered by it,
         // otherwise the contains query is unsupported.
         let fields_supported = node_field_mask == rqe_core::RS_FIELDMASK_ALL
             || (suffix_mask & node_field_mask) == node_field_mask;
@@ -188,30 +193,47 @@ impl Expansion<'_> {
             return self.children;
         }
 
-        let suffix_mode = if contains {
-            SuffixMode::Contains
-        } else {
-            SuffixMode::Suffix
+        // The suffix index is keyed by `str`, so the pattern goes back to the
+        // term's key bytes and from there to UTF-8.
+        let Ok(needle) = runes_to_bytes(pattern) else {
+            return self.children;
+        };
+        let Ok(needle) = str::from_utf8(&needle) else {
+            // A pattern that is not valid UTF-8 encodes a lone surrogate, which
+            // no indexed term can carry — the index refuses such a term on the
+            // way in. Matching nothing is the answer, not an error.
+            return self.children;
         };
 
-        // The suffix trie hands terms back already as stored key bytes but carries
+        if contains {
+            self.push_suffix_matches(suffix.iter_contains(needle), terms);
+        } else {
+            self.push_suffix_matches(suffix.iter_suffix(needle), terms);
+        }
+        self.children
+    }
+
+    /// Open a reader per term in `matches`, stopping at the expansion cap.
+    ///
+    /// `terms` wraps the spec's primary terms trie.
+    fn push_suffix_matches<'t>(
+        &mut self,
+        matches: impl Iterator<Item = &'t str>,
+        terms: &TermsTrie,
+    ) {
+        // The suffix index hands terms back already as stored key bytes but carries
         // no document count, so on the disk path the term's count is looked up in the
         // primary terms trie for the IDF; the in-memory path ignores it.
-        //
-        // That lookup refuses a key that is not valid UTF-8, which here is the right
-        // answer rather than a lost count: a disk index only stages a term whose
-        // bytes are valid UTF-8, and the terms trie is only updated for terms that
-        // staged, so a refused key was never counted there in the first place.
-        let on_term = |term_bytes: &[u8]| {
+        for term in matches {
             let num_docs = if self.is_disk {
-                terms.num_docs(term_bytes)
+                terms.num_docs(term.as_bytes())
             } else {
                 0
             };
-            self.push_child(num_docs, term_bytes)
-        };
-        suffix.iterate_contains(pattern, suffix_mode, on_term);
-        self.children
+            if self.push_child(num_docs, term.as_bytes()).is_break() {
+                break;
+            }
+        }
     }
 
     /// Brute-force expand `pattern` over the primary terms trie, returning one
