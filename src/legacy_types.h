@@ -26,3 +26,10 @@ int RegisterLegacyTypes(RedisModuleCtx *ctx);
  * handing an RDB to Redis) and it fires no loading event. A no-op unless the key really is one. */
 void LegacyTypes_CleanupRestoredKey(RedisModuleCtx *ctx, RedisModuleString *key);
 
+/* Forget any legacy keys counted so far. Call at the start of an RDB load, and on failure. */
+void LegacyTypes_ResetLoadedCount(void);
+
+/* Delete legacy keys left behind by the load that just finished. Returns immediately when the load
+ * produced none, which is every load on a database that has never held one. Call *after* the
+ * spec-driven upgrade sweep, so keys it already removed are not counted as failures. */
+void LegacyTypes_SweepOrphansAfterLoad(RedisModuleCtx *ctx);

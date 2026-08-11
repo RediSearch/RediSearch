@@ -11,6 +11,7 @@
 
 #include <stdbool.h>
 
+#include "rmalloc.h"
 #include "notifications.h"
 #include <stddef.h>
 
@@ -29,6 +30,10 @@ static RedisModuleType *LegacyInvertedIndexType = NULL;
 static RedisModuleType *LegacyNumericIndexType = NULL;
 static RedisModuleType *LegacyTagIndexType = NULL;
 
+// How many legacy keys the load in progress materialized. Only the loaders below touch it, so it
+// stays zero for every database that has never held one - which is what keeps the post-load sweep
+// free for everyone else.
+static size_t legacyKeysLoaded = 0;
 
 // Called whenever a legacy key is deserialized, from the type callbacks below.
 //
@@ -39,6 +44,7 @@ static RedisModuleType *LegacyTagIndexType = NULL;
 // the `restore` event this cleanup depends on would never reach us. That is exactly the shape of the
 // database this was reported on: ~101k legacy keys and search_number_of_indexes:0.
 static void noteLegacyKeyLoaded(void) {
+  legacyKeysLoaded++;
   Initialize_KeyspaceNotifications();
 }
 
@@ -192,9 +198,71 @@ void LegacyTypes_CleanupRestoredKey(RedisModuleCtx *ctx, RedisModuleString *key)
   }
 }
 
+void LegacyTypes_ResetLoadedCount(void) {
+  legacyKeysLoaded = 0;
+}
 
+typedef struct {
+  RedisModuleString **keys;
+  size_t len;
+  size_t cap;
+} OrphanedKeys;
 
+// Collect rather than delete inline: mutating the keyspace while `RedisModule_Scan` walks it is not
+// something the API promises to tolerate.
+static void collectOrphanedLegacyKey(RedisModuleCtx *ctx, RedisModuleString *keyname,
+                                     RedisModuleKey *key, void *privdata) {
+  if (!isOrphanedLegacyKey(key)) {
+    return;
+  }
+  OrphanedKeys *found = privdata;
+  if (found->len == found->cap) {
+    found->cap = found->cap ? found->cap * 2 : 64;
+    found->keys = rm_realloc(found->keys, found->cap * sizeof(*found->keys));
+  }
+  found->keys[found->len++] = RedisModule_HoldString(ctx, keyname);
+}
 
+void LegacyTypes_SweepOrphansAfterLoad(RedisModuleCtx *ctx) {
+  const size_t counted = legacyKeysLoaded;
+  legacyKeysLoaded = 0;
+  if (counted == 0) {
+    return;
+  }
+
+  if (!(RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_MASTER)) {
+    // During a full sync only the replica is loading; the primary is not. Deleting here would diverge
+    // from a primary that still holds these keys, so wait for its DEL.
+    RedisModule_Log(ctx, "notice",
+                    "Loaded %zu legacy index keys without being a writable primary; leaving them for "
+                    "the primary to clean up", counted);
+    return;
+  }
+
+  OrphanedKeys found = {0};
+  RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
+  while (RedisModule_Scan(ctx, cursor, collectOrphanedLegacyKey, &found)) {
+  }
+  RedisModule_ScanCursorDestroy(cursor);
+
+  size_t deleted = 0;
+  for (size_t i = 0; i < found.len; i++) {
+    // Re-check: the spec-driven upgrade sweep ran before this and may already have removed the key,
+    // and an AOF can replay `RESTORE k <legacy>` followed by `SET k valuable`.
+    if (isOrphanedLegacyKeyByName(ctx, found.keys[i])) {
+      deleteWithPropagation(ctx, found.keys[i]);
+      deleted++;
+    }
+    RedisModule_FreeString(ctx, found.keys[i]);
+  }
+  rm_free(found.keys);
+
+  // `counted` exceeding `deleted` is normal rather than a failure: the upgrade sweep removes the keys
+  // it knows about first. Report both so the difference is attributable instead of alarming.
+  RedisModule_Log(ctx, "notice",
+                  "Removed %zu orphaned legacy index keys (%zu were loaded; the rest had already been "
+                  "cleaned up by the index upgrade)", deleted, counted);
+}
 
 int RegisterLegacyTypes(RedisModuleCtx *ctx) {
 
