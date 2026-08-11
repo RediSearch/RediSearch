@@ -188,13 +188,21 @@ static TrieDecrResult Trie_DecrementNumDocsRunes(Trie *t, const rune *runes, siz
 }
 
 void TrieSearchResult_Free(TrieSearchResult *e) {
-  if (e->str) {
-    rm_free(e->str);
-    e->str = NULL;
+  if (e->rstr) {
+    rm_free(e->rstr);
+    e->rstr = NULL;
   }
   e->payload = NULL;
   e->plen = 0;
   rm_free(e);
+}
+
+/* Copy the iterator's current key into the result. The iterator hands out a pointer into
+ * the buffer it reuses for the whole walk, so the key has to be taken before stepping. */
+static void TrieSearchResult_SetKey(TrieSearchResult *e, const rune *rstr, t_len slen) {
+  e->rstr = rm_malloc(slen * sizeof(rune));
+  memcpy(e->rstr, rstr, slen * sizeof(rune));
+  e->rlen = slen;
 }
 
 static int cmpEntries(const void *p1, const void *p2, const void *udata) {
@@ -261,7 +269,7 @@ Vector *Trie_CollectFuzzy(const Trie *t, const char *str, size_t len, size_t num
   while (TrieIterator_Next(it, &rstr, &slen, &payload, &score, NULL, &dist)) {
     if (pooledEntry == NULL) {
       pooledEntry = rm_malloc(sizeof(TrieSearchResult));
-      pooledEntry->str = NULL;
+      pooledEntry->rstr = NULL;
       pooledEntry->payload = NULL;
       pooledEntry->plen = 0;
     }
@@ -279,7 +287,7 @@ Vector *Trie_CollectFuzzy(const Trie *t, const char *str, size_t len, size_t num
     }
 
     if (heap_count(pq) < heap_size(pq)) {
-      ent->str = runesToStr(rstr, slen, &ent->len);
+      TrieSearchResult_SetKey(ent, rstr, slen);
       ent->payload = payload.data;
       ent->plen = payload.len;
       heap_offerx(pq, ent);
@@ -293,9 +301,9 @@ Vector *Trie_CollectFuzzy(const Trie *t, const char *str, size_t len, size_t num
     } else {
       if (ent->score > it->kthBestScore) {
         pooledEntry = heap_poll(pq);
-        rm_free(pooledEntry->str);
-        pooledEntry->str = NULL;
-        ent->str = runesToStr(rstr, slen, &ent->len);
+        rm_free(pooledEntry->rstr);
+        pooledEntry->rstr = NULL;
+        TrieSearchResult_SetKey(ent, rstr, slen);
         ent->payload = payload.data;
         ent->plen = payload.len;
         heap_offerx(pq, ent);

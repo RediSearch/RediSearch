@@ -1309,10 +1309,45 @@ TEST_F(TrieTest, testSearchTrimDropsTail) {
 
   TrieSearchResult *e;
   ASSERT_EQ(1, Vector_Get(res, 0, &e));
-  ASSERT_EQ(2, e->len);
-  ASSERT_EQ(0, memcmp(e->str, "ha", 2));
+  const rune expected[] = {'h', 'a'};
+  ASSERT_EQ(2, e->rlen);
+  ASSERT_EQ(0, memcmp(e->rstr, expected, sizeof(expected)));
   TrieSearchResult_Free(e);
   Vector_Free(res);
+
+  TrieType_Free(t);
+}
+
+// Each result owns a copy of its key: the iterator hands out a pointer into the single
+// buffer it reuses for the whole walk, so aliasing it would leave every result showing
+// the last key visited. Multibyte keys of differing lengths make such aliasing visible.
+TEST_F(TrieTest, testCollectFuzzyKeysOutliveIterator) {
+  Trie *t = NewTrie(NULL, Trie_Sort_Score);
+
+  trieInsertByScore(t, "på", 3.0f);
+  trieInsertByScore(t, "påske", 2.0f);
+  trieInsertByScore(t, "påskeägg", 1.0f);
+
+  Vector *res = Trie_CollectFuzzy(t, "på", strlen("på"), 10, 0, TRIE_MATCH_PREFIX, 0, 0);
+  ASSERT_TRUE(res != NULL);
+  ASSERT_EQ(3, Vector_Size(res));
+
+  std::set<std::string> keys;
+  for (size_t i = 0; i < Vector_Size(res); i++) {
+    TrieSearchResult *e;
+    ASSERT_EQ(1, Vector_Get(res, i, &e));
+
+    size_t utflen;
+    char *str = runesToStr(e->rstr, e->rlen, &utflen);
+    ASSERT_TRUE(str != NULL);
+    keys.insert(std::string(str, utflen));
+    rm_free(str);
+
+    TrieSearchResult_Free(e);
+  }
+  Vector_Free(res);
+
+  ASSERT_EQ(std::set<std::string>({"på", "påske", "påskeägg"}), keys);
 
   TrieType_Free(t);
 }

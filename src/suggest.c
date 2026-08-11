@@ -353,7 +353,13 @@ parse_error:
     TrieSearchResult *e;
     Vector_Get(res, i, &e);
 
-    RedisModule_ReplyWithStringBuffer(ctx, e->str, e->len);
+    size_t slen;
+    // Keys are bounded by the trie iterator's own buffer, well under the runesToStr limit.
+    char *str = runesToStr(e->rstr, e->rlen, &slen);
+    RS_LOG_ASSERT(str, "suggestion key exceeded the rune-to-UTF-8 conversion limit");
+    RedisModule_ReplyWithStringBuffer(ctx, str, slen);
+    rm_free(str);
+
     if (options.withScores) {
       RedisModule_ReplyWithDouble(ctx, e->score);
     }
