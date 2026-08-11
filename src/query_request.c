@@ -32,6 +32,7 @@ static inline void QueryRequestAsyncState_Destroy(QueryRequestAsyncState *state)
 
 void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind) {
   request->kind = kind;
+  request->blockedClientCycleActive = false;
   request->cursorInfo = (CursorInfo) {0};
   ChunkReplyState_Init(&request->reply);
   QueryRequestAsyncState_Init(&request->async);

@@ -21,6 +21,11 @@
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 
+static QueryRequest *BlockedRequestCtx_QueryRequest(BlockedRequestCtx *brc) {
+  return brc->kind == REQUEST_KIND_AREQ ? (QueryRequest *)brc->query.areq
+                                       : (QueryRequest *)brc->query.hybrid;
+}
+
 void BlockedRequestCtx_BeginCycle(BlockedRequestCtx *brc, RedisModuleBlockedClient *bc,
                                   RedisModuleCmdFunc reply_cb) {
   // No overlapping cycles: the previous cycle's OnFree must have run before a
@@ -36,6 +41,8 @@ void BlockedRequestCtx_BeginCycle(BlockedRequestCtx *brc, RedisModuleBlockedClie
   // TRANSITIONAL(MOD-16691): expressed through the refcount bridge until the
   // cursor-ownership step makes the cycle the single owner.
   BlockedRequestCtx_IncrRef(brc);
+  BlockedRequestCtx_QueryRequest(brc)->blockedClientCycleActive = true;
+  // TODO($$$): Remove the legacy cycle marker once consumers use QueryRequest.blockedClientCycleActive.
   brc->bc = bc;
   brc->deferred_reply = (reply_cb != NULL);
   atomic_store_explicit(&brc->strictReadOwner, BRC_READ_OWNER_NONE, memory_order_relaxed);
@@ -66,15 +73,15 @@ void BlockedRequestCtx_EndCycle(BlockedRequestCtx *brc) {
   // Per-cycle reply-state teardown: dispose whatever the reply callback did
   // not consume (unconsumed stored results when the timeout replied first).
   // Idempotent; also runs in BlockedRequestCtx_Free as a safety net.
-  QueryRequest *request = brc->kind == REQUEST_KIND_AREQ
-                            ? (QueryRequest *)brc->query.areq
-                            : (QueryRequest *)brc->query.hybrid;
+  QueryRequest *request = BlockedRequestCtx_QueryRequest(brc);
   QueryRequest_ResetReply(request);
 
   // TODO($$$): Remove the legacy reply state once all consumers use QueryRequest.reply.
   ChunkReplyState_Destroy(&brc->reply);
   // TODO($$$): Remove the legacy reply state once all consumers use QueryRequest.reply.
   brc->reply.hasStoredResults = false;
+  request->blockedClientCycleActive = false;
+  // TODO($$$): Remove the legacy cycle marker once consumers use QueryRequest.blockedClientCycleActive.
   brc->bc = NULL;
   brc->deferred_reply = false;
   brc->cursor = NULL;

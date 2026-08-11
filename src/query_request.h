@@ -77,6 +77,8 @@ typedef struct {
 
 typedef struct QueryRequest {
   QueryRequestKind kind;
+  // TODO($$$): Temporary marker intended to replace BlockedRequestCtx.bc.
+  bool blockedClientCycleActive;
   CursorInfo cursorInfo;
   ChunkReplyState reply;
   QueryRequestAsyncState async;
