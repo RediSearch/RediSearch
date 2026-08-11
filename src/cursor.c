@@ -169,11 +169,14 @@ static int Cursors_GCInternal(CursorList *cl, int force) {
   return ctx.numCollected;
 }
 
-// Runs on the main Redis thread with the GIL held.
+// May run off the main thread: on a multi-shard cluster `FT.CURSOR GC` is
+// dispatched to `DIST_THREADPOOL` and `threadHandleCommand` does not take the
+// GIL, so the idle-sweep timer has to be re-armed by posting the event-loop
+// one-shot rather than by touching the timer API inline.
 int Cursors_CollectIdle(CursorList *cl) {
   CursorList_Lock(cl);
   int rc = Cursors_GCInternal(cl, 1);
-  Cursors_RescheduleSweepLocked(cl);
+  Cursors_RequestRescheduleSweep(cl);
   CursorList_Unlock(cl);
   return rc;
 }
