@@ -126,23 +126,6 @@ typedef int(TrieSuffixCallback)(const char *, size_t, void *, void *);
 /**
  * Iterate all nodes within range.
  * @param n the node to iterateo
- * @param min the minimum lexical string to check from
- * @param minlen the length of min
- * @param includeMin is min included
- * @param max the maximum lexical string to check until
- * @param maxlen the maximum length of the max
- * @param includeMax is max included
- * @param callback the callback to invoke
- * @param ctx data to be passed to the callback
- */
-
-void TrieNode_IterateRange(TrieNode *n, const rune *min, int minlen, bool includeMin,
-                           const rune *max, int maxlen, bool includeMax, TrieRangeCallback callback,
-                           void *ctx);
-
-/**
- * Iterate all nodes within range.
- * @param n the node to iterateo
  * @param str the string to check
  * @param nstr the length of str
  * @param prefix is the string prefix
