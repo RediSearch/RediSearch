@@ -17,6 +17,7 @@
 
 #include "config.h"
 #include "notifications.h"
+#include "legacy_types.h"
 #include "spec.h"
 #include "indexes.h"
 #include "doc_types.h"
@@ -254,6 +255,10 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, int type, enum RedisCmd redi
       break;
 
     case restore_cmd:
+      // RESTORE is how a pre-2.0 index key reaches a running server - Enterprise import
+      // replays RESTORE rather than handing an RDB to Redis, so no loading event fires for it.
+      LegacyTypes_CleanupRestoredKey(ctx, key);
+      /* fallthrough */
     case copy_to_cmd:
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
       break;
