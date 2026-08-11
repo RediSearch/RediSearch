@@ -39,17 +39,21 @@ _MODULE_TYPE_CHARSET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123
 
 
 def _binary_conn(env, db=None):
-    """A connection that does not decode replies. DUMP returns arbitrary bytes, which the default
-    RLTest client tries to decode as UTF-8."""
-    kwargs = dict(env.getConnection().connection_pool.connection_kwargs)
+    """A connection to the same server that does not decode replies.
+
+    `DUMP` returns arbitrary bytes, which the default RLTest client tries to decode as UTF-8. Rebuild
+    the client from the source pool's own connection class and kwargs rather than calling
+    `redis.Redis(**kwargs)`: the class is what carries the TLS and unix-socket selectors, and
+    `connection_kwargs` alone loses them - it has no `ssl` flag, and its `path` is spelled
+    `unix_socket_path` on the `redis.Redis` constructor.
+    """
+    pool = env.getConnection().connection_pool
+    kwargs = dict(pool.connection_kwargs)
     kwargs['decode_responses'] = False
     if db is not None:
         kwargs['db'] = db
-    # A pool built for a unix socket reports it as `path`, but the client constructor takes
-    # `unix_socket_path`. Forwarding the pool's kwargs verbatim breaks under UNIX=1.
-    if 'path' in kwargs:
-        kwargs['unix_socket_path'] = kwargs.pop('path')
-    return redis.Redis(**kwargs)
+    return redis.Redis(connection_pool=redis.ConnectionPool(
+        connection_class=pool.connection_class, **kwargs))
 
 
 def _crc64(data):
