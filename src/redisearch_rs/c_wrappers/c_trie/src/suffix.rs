@@ -102,7 +102,9 @@ pub enum SuffixWalk {
     NoAnchor(LoweredPattern),
 }
 
-/// A safe wrapper around a C [`ffi::Trie`] used for suffix tries.
+/// A safe wrapper around a C [`ffi::Trie`] used as a *suffix* index: its keys
+/// are the suffixes of the indexed terms, and each node's payload lists the
+/// terms carrying that suffix.
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct SuffixTrie {
@@ -118,11 +120,12 @@ impl SuffixTrie {
     ///
     /// # Safety
     ///
-    /// 1. `ptr` must be a valid, non-null pointer to a suffix `ffi::Trie`, must
+    /// 1. `ptr` must be a valid, non-null pointer to an `ffi::Trie`, must
     ///    remain live for `'a`, and must not be mutated for the duration.
+    /// 2. Every node payload in that trie must be a valid `suffixData`.
     pub const unsafe fn from_raw<'a>(ptr: *const ffi::Trie) -> &'a Self {
         debug_assert!(!ptr.is_null(), "C Suffix Trie pointer cannot be null");
-        // SAFETY: guaranteed by caller (1.)
+        // SAFETY: guaranteed by caller (1., 2.)
         unsafe { &*ptr.cast::<Self>() }
     }
 
@@ -130,15 +133,17 @@ impl SuffixTrie {
     ///
     /// # Safety
     ///
-    /// 1. `ptr` must be a valid, non-null pointer to a suffix `ffi::Trie`, must remain
+    /// 1. `ptr` must be a valid, non-null pointer to an `ffi::Trie`, must remain
     ///    live for `'a`, and must have no other aliasing references for the duration.
+    /// 2. Every node payload in that trie must be a valid `suffixData`.
+    /// 3. The trie's free callback must point to [`ffi::suffixTrie_freeCallback`].
     pub const unsafe fn from_raw_mut<'a>(ptr: *mut ffi::Trie) -> &'a mut Self {
         debug_assert!(!ptr.is_null(), "C Suffix Trie pointer cannot be null");
-        // SAFETY: guaranteed by caller (1.)
+        // SAFETY: guaranteed by caller (1., 2., 3.)
         unsafe { &mut *ptr.cast::<Self>() }
     }
 
-    /// Return a raw pointer to the underlying suffix [`ffi::Trie`].
+    /// Return a raw pointer to the underlying [`ffi::Trie`].
     pub const fn as_ptr(&self) -> *mut ffi::Trie {
         ptr::from_ref(self).cast_mut().cast::<ffi::Trie>()
     }
@@ -181,8 +186,9 @@ impl SuffixTrie {
             skipTimeoutChecks: false,
         };
         // SAFETY: every `suffix_ctx` field is initialised above with a valid
-        // value, `self` borrows a valid suffix `Trie`, the pattern pointer/len
-        // describe a live rune slice, and the callback closure outlives the call.
+        // value, `self` borrows a valid `Trie` whose payloads the walk may cast
+        // to `suffixData`, the pattern pointer/len describe a live rune slice,
+        // and the callback closure outlives the call.
         unsafe {
             ffi::Suffix_IterateContains(std::ptr::from_mut(&mut suffix_ctx));
         }
@@ -240,7 +246,8 @@ impl SuffixTrie {
             skipTimeoutChecks: skip_timeout_checks,
         };
         // SAFETY: every `suffix_ctx` field is initialised above with a valid
-        // value — `self` borrows a valid suffix `Trie`, the rune pointer describes
+        // value — `self` borrows a valid `Trie` whose payloads the walk may cast
+        // to `suffixData`, the rune pointer describes
         // a live pattern followed by the sentinel the walk reads
         // (`LoweredPattern` invariant), the callback closure outlives the call,
         // and `timeout` is null or points to a valid `timeout` argument.
@@ -274,8 +281,10 @@ impl SuffixTrie {
             return;
         };
 
-        // SAFETY: `self` borrows a valid Suffix `Trie`, and `term`/`term_len`
-        // describe a valid byte slice for the duration of the call.
+        // SAFETY: `self` borrows a valid `Trie` whose payloads are `suffixData`
+        // and whose free callback releases them, so unregistering the term and
+        // freeing the nodes it empties is sound. `term`/`term_len` describe a
+        // readable byte slice for the call.
         unsafe {
             ffi::deleteSuffixTrie(self.as_ptr(), term.as_ptr() as *const c_char, term_len);
         }

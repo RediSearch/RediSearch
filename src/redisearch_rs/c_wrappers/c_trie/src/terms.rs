@@ -63,7 +63,7 @@ where
     }
 }
 
-/// Result of a decrement operation on the C Trie.
+/// Outcome of [`TermsTrie::decrement_num_docs`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::FromRepr)]
 #[repr(u32)]
 pub enum TermsTrieDecrResult {
@@ -77,7 +77,7 @@ pub enum TermsTrieDecrResult {
     Unsupported = 3,
 }
 
-/// A safe wrapper around a C [`ffi::Trie`] used for terms tries.
+/// A safe wrapper around a C [`ffi::Trie`] holding an index's terms.
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct TermsTrie {
@@ -93,7 +93,7 @@ impl TermsTrie {
     ///
     /// # Safety
     ///
-    /// 1. `ptr` must be a valid, non-null pointer to a terms `ffi::Trie`, must
+    /// 1. `ptr` must be a valid, non-null pointer to an `ffi::Trie`, must
     ///    remain live for `'a`, and must not be mutated for the duration.
     pub const unsafe fn from_raw<'a>(ptr: *const ffi::Trie) -> &'a Self {
         debug_assert!(!ptr.is_null(), "C Trie pointer cannot be null");
@@ -105,7 +105,7 @@ impl TermsTrie {
     ///
     /// # Safety
     ///
-    /// 1. `ptr` must be a valid, non-null pointer to a terms `ffi::Trie`, must remain
+    /// 1. `ptr` must be a valid, non-null pointer to an `ffi::Trie`, must remain
     ///    live for `'a`, and must have no other aliasing references for the duration.
     pub const unsafe fn from_raw_mut<'a>(ptr: *mut ffi::Trie) -> &'a mut Self {
         debug_assert!(!ptr.is_null(), "C Trie pointer cannot be null");
@@ -113,7 +113,7 @@ impl TermsTrie {
         unsafe { &mut *ptr.cast::<Self>() }
     }
 
-    /// Return a raw pointer to the underlying terms [`ffi::Trie`].
+    /// Return a raw pointer to the underlying [`ffi::Trie`].
     pub const fn as_ptr(&self) -> *mut ffi::Trie {
         ptr::from_ref(self).cast_mut().cast::<ffi::Trie>()
     }
@@ -132,11 +132,8 @@ impl TermsTrie {
     /// * `TermsTrieDecrResult::Deleted` - numDocs reached 0, term deleted
     /// * `TermsTrieDecrResult::Unsupported` - term too long/unconvertible; never inserted
     pub fn decrement_num_docs(&mut self, term: &[u8], delta: u64) -> TermsTrieDecrResult {
-        // SAFETY: We're calling the C function with valid parameters.
-        // The term is passed as a UTF-8 byte slice, and the C function
-        // handles the conversion to runes internally via runeBufFill.
-        // The C function mutates the Trie by decrementing numDocs and
-        // potentially deleting nodes.
+        // SAFETY: `self` borrows a valid `Trie`, and `term`/`term.len()`
+        // describe a readable byte slice for the duration of the call.
         let result = unsafe {
             ffi::Trie_DecrementNumDocs(
                 self.as_ptr(),
@@ -158,10 +155,6 @@ impl TermsTrie {
     /// Returns `0` for input that cannot correspond to a stored term — invalid
     /// UTF-8, or a term longer than the trie can hold — since such a term can
     /// never have been inserted.
-    ///
-    /// # Safety
-    ///
-    /// This function is safe to call if the `TermsTrie` was created safely.
     pub fn num_docs(&self, term: &[u8]) -> usize {
         // Terms longer than the trie can store are never present, so report zero
         // without a lookup (mirrors the C insertion/decrement guards). This also
@@ -192,9 +185,8 @@ impl TermsTrie {
                 runes.as_mut_ptr(),
             )
         };
-        // SAFETY: `self` borrows a valid `Trie` (`TermsTrie` invariant); `runes`/
-        // `rlen` describe a valid rune slice, and `rlen <= term.len()` fits
-        // `t_len` (guarded above).
+        // SAFETY: `self` borrows a valid `Trie`; `runes`/`rlen` describe a valid
+        // rune slice, and `rlen <= term.len()` fits `t_len` (guarded above).
         let node = unsafe {
             ffi::Trie_GetNode(
                 self.as_ptr(),
@@ -259,7 +251,7 @@ impl TermsTrie {
             Some(timeout) => (ptr::from_mut(timeout), false),
             None => (ptr::null_mut(), true),
         };
-        // SAFETY: `self` borrows a valid terms `Trie`; `pattern` points to
+        // SAFETY: `self` borrows a valid `Trie`; `pattern` points to
         // `pattern.len()` runes; `&mut callback` stays alive for the whole
         // call, so the `ctx` the trampoline reconstitutes is valid; and
         // `timeout` is null or points to a valid `timeout` argument.
@@ -320,7 +312,7 @@ impl TermsTrie {
             Some(timeout) => (ptr::from_mut(timeout), false),
             None => (ptr::null_mut(), true),
         };
-        // SAFETY: `self` borrows a valid terms `Trie`; `pattern` addresses its
+        // SAFETY: `self` borrows a valid `Trie`; `pattern` addresses its
         // content runes followed by the readable zero sentinel the matcher
         // requires (`LoweredPattern` invariant); `&mut callback` stays alive for
         // the whole call, so the `ctx` the trampoline reconstitutes is valid; and
@@ -355,8 +347,8 @@ impl TermsTrie {
             return false;
         }
 
-        // SAFETY: `self` borrows a valid Terms `Trie`, and `term`/`term_len`
-        // describe a valid byte slice for the duration of the call.
+        // SAFETY: `self` borrows a valid `Trie`, and `term`/`term.len()`
+        // describe a readable byte slice for the duration of the call.
         let removed =
             unsafe { ffi::Trie_Delete(self.as_ptr(), term.as_ptr() as *const c_char, term.len()) };
 
