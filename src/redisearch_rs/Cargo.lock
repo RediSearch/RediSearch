@@ -204,7 +204,9 @@ dependencies = [
  "ffi",
  "redis_mock",
  "redisearch_rs",
+ "string_utils",
  "strum",
+ "thiserror",
  "workspace_hack",
 ]
 
