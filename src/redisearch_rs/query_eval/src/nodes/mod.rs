@@ -27,3 +27,4 @@ pub(crate) mod prefix;
 pub(crate) mod token;
 pub(crate) mod union;
 pub(crate) mod wildcard;
+pub(crate) mod wildcard_query;
