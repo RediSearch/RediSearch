@@ -815,10 +815,9 @@ mod revalidate {
     ///
     /// The mock deliberately breaks the contract here — it reports `Moved` back onto a
     /// document *behind* the position it held while past its end, which no conforming
-    /// iterator does. That is the point: `W` is a type parameter, and among the things
-    /// it can be is a [`CRQEIterator`](rqe_iterators::c2rust::CRQEIterator) wrapping a C
-    /// implementation this crate cannot vouch for. Exhaustion has to be terminal because
-    /// this iterator latches it, not because every possible wildcard is well-behaved.
+    /// iterator does. That is the only way to reach the latch, and what it pins down:
+    /// this iterator's exhaustion is its own state, not something inherited from
+    /// whatever the wildcard answers.
     #[test]
     fn revalidate_stays_exhausted_when_wildcard_resurrects() {
         let (_guard, context) = make_revalidate_context();

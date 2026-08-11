@@ -534,6 +534,12 @@ impl RevalidateTest {
             "exhaustion must survive a revalidation that re-seeks"
         );
         assert_eq!(it.last_doc_id(), last_doc_id);
+        // The flags say exhausted; the reader was rewound to the head of the index. Only
+        // a read proves the two agree.
+        assert!(
+            it.read().expect("failed to read").is_none(),
+            "an exhausted iterator must stay exhausted until it is rewound"
+        );
     }
 
     /// [`revalidate_at_eof_after_gc`](Self::revalidate_at_eof_after_gc) for a numeric index.
@@ -772,7 +778,7 @@ pub mod via_resume {
         test.remove_document(ii, test.doc_ids[0]);
 
         let guard = test.context.spec_read();
-        let it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
+        let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
             .expect("resume should not fail in this test")
             .expect_ok();
         assert!(
@@ -780,6 +786,12 @@ pub mod via_resume {
             "exhaustion must survive a resume that re-seeks"
         );
         assert_eq!(it.last_doc_id(), last_doc_id);
+        // See the `revalidate` twin: only a read proves the restored flags and the
+        // rewound reader agree.
+        assert!(
+            it.read().expect("failed to read").is_none(),
+            "an exhausted iterator must stay exhausted until it is rewound"
+        );
     }
 
     /// [`revalidate_at_eof_after_gc`] for a numeric index.

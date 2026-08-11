@@ -463,34 +463,29 @@ where
         self.rewind();
 
         if was_at_eos {
-            // Exhaustion is terminal until `rewind` — see [`RQEIterator::at_eof`]. The re-seek
-            // below would re-find `last_doc_id`, the document we already yielded, and hand this
-            // iterator back to its parent as live; a composite that had dropped it on EOF would
-            // then re-admit it far behind the position it has moved on to.
+            // Restore the past-the-end position rather than re-seek to it. Exhaustion is
+            // terminal (see [`RQEIterator::at_eof`]), and re-seeking would end it silently: the
+            // `rewind` clears `at_eos`, and the seek then *finds* the document we already
+            // yielded, so we would come back live on a result our parent has consumed.
             //
-            // The `rewind` above still has to happen: it is the only thing that refreshes the
-            // reader's `gc_marker` and repoints it at a valid block, and
-            // [`ResumableReader::refresh_pointers`] deliberately leaves the buffer pointer stale
-            // on the GC path precisely because a rewind is coming. So we rewind and then restore
-            // the past-the-end position on top of it.
+            // The `rewind` above still has to run: it is the only thing that refreshes the
+            // reader's `gc_marker` and repoints it at a valid block, which is why
+            // [`ResumableReader::refresh_pointers`] leaves the buffer pointer stale on the GC
+            // path.
             self.at_eos = true;
             self.last_doc_id = last_doc_id;
-            // Skipping the re-seek also skips the re-decode that would have rebuilt the result's
-            // borrowed offsets against the live buffer, so drop them here instead. We only get
-            // this far when `needs_revalidation` fired, i.e. GC ran, and
-            // [`RefreshOutcome::NeedsReseek`] spells out that an `RSOffsetSlice` borrowed from
-            // the old buffer does not survive that. Nothing reads them through the trait —
-            // `current()` answers `None` while `at_eos` — but they sit behind an [`Active`]
-            // `SharedPtr` whose invariant says the referent is live, and a dangling pointer is
-            // not something to leave behind an invariant that denies it. The resume path clears
-            // them for the same reason, just before its own cast.
-            //
-            // Only `Borrowed` points into the index; the other variants own their offsets.
+            // Skipping the re-seek also skips the re-decode that would have rebuilt these
+            // against the live buffer, and [`RefreshOutcome::NeedsReseek`] — the only way here —
+            // says an `RSOffsetSlice` borrowed from the old buffer does not survive GC. Nothing
+            // reads them (`current()` answers `None` while `at_eos`), but they sit behind an
+            // [`Active`] `SharedPtr` whose invariant says the referent is live. Only `Borrowed`
+            // points into the index.
             if let Some(RawTermRecord::Borrowed { offsets, .. }) = self.result.as_term_mut() {
                 *offsets = RawOffsetSlice::empty();
             }
             // Composites cache raw pointers into a child's result, so leave the id the last yield
-            // put there rather than the zero `rewind` wrote.
+            // put there rather than the zero `rewind` wrote. Only reachable through those cached
+            // pointers, so no Rust-side test observes it.
             self.result.doc_id = result_doc_id;
             return Ok(RQEValidateStatus::Ok);
         }
@@ -504,11 +499,8 @@ where
         /// [`skip_to`](RQEIterator::skip_to) hands back has to end before `self` can be
         /// touched again.
         enum Reseek {
-            /// Landed back on the document we held.
             Found,
-            /// Landed on a later document.
             Moved,
-            /// Nothing left at or after the document we held.
             Exhausted,
         }
 
@@ -521,9 +513,14 @@ where
 
         match reseek {
             Reseek::Found => Ok(RQEValidateStatus::Ok),
-            Reseek::Moved => Ok(RQEValidateStatus::Moved {
-                current: self.current(),
-            }),
+            Reseek::Moved => {
+                let current = self.current();
+                // The re-seek carried a result, so it left us on a document. Asserted rather
+                // than assumed: a `None` here would quietly downgrade this to
+                // `Moved { current: None }`, which reads as exhausted.
+                debug_assert!(current.is_some());
+                Ok(RQEValidateStatus::Moved { current })
+            }
             Reseek::Exhausted => {
                 // The document we were sitting on is gone and there is nothing after it, so we
                 // are now past the end. An exhausted iterator still reports the position its
@@ -686,13 +683,9 @@ where
                 active.rewind();
 
                 if was_at_eos {
-                    // Exhaustion is terminal until `rewind` — the same restore
-                    // [`RQEIterator::revalidate`] performs, and for the same reason: the re-seek
-                    // below would re-find the document we already yielded and report this
-                    // iterator as live to a composite that had written it off. The `rewind` above
-                    // still has to run — it is what repoints the reader at a valid block and
-                    // refreshes its `gc_marker` after `refresh_pointers` deliberately left the
-                    // buffer pointer stale.
+                    // The same restore, for the same reasons — including why the `rewind` above
+                    // still has to run — as the [`RQEIterator::revalidate`] twin. The offsets it
+                    // clears there are cleared on this path already, ahead of the cast above.
                     active.at_eos = true;
                     active.last_doc_id = last_doc_id;
                     active.result.doc_id = result_doc_id;

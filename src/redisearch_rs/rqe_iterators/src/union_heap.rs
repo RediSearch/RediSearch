@@ -572,15 +572,19 @@ where
         // never been read and an earlier round's id for one that
         // `advance_lagging_children` left in the heap when it returned on an exact match.
         //
-        // A full union reaches this only if a child broke the contract, since
-        // `advance_matching_children` leaves no active child behind the union and
-        // exhaustion is terminal across a revalidation (see [`RQEIterator::at_eof`]), so
-        // a child dropped on EOF cannot be re-admitted by `rebuild_heap` behind us.
-        // Children include `CRQEIterator` wrapping a C implementation and the enterprise
-        // disk iterators, neither of which this crate can vouch for, so the recovery
-        // below stays rather than becoming an assertion — it is covered by
-        // `revalidate_resurrected_child_does_not_drag_a_full_union_backwards`.
+        // A full union cannot get here: `advance_matching_children` leaves no active
+        // child behind the union, and exhaustion is terminal across a revalidation (see
+        // [`RQEIterator::at_eof`]), so a child dropped on EOF cannot be re-admitted by
+        // `rebuild_heap` behind us. Asserted rather than compensated for — the recovery
+        // below is quick mode's, and a full union arriving in it means a child is broken.
         if min.doc_id < original_last_doc_id {
+            debug_assert!(
+                QUICK_EXIT,
+                "a full union's child moved behind the union's position: doc {} comes \
+                 before doc {original_last_doc_id}",
+                min.doc_id,
+            );
+
             // A child still sitting on the union's document backs the position as it
             // stands: republish from it (the result holds raw pointers into children
             // that may have moved or been dropped) and report `Ok`, with no reads

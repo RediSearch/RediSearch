@@ -1046,8 +1046,9 @@ macro_rules! union_common_tests {
 
         /// Only the `QUICK_EXIT` variants are instantiated: a lagging *live* sibling
         /// is quick mode's own doing (the early return on an exact match). A full
-        /// union's children only get behind it by resurrecting from EOF, covered by
-        /// [`revalidate_resurrected_child_does_not_drag_a_full_union_backwards`].
+        /// union's children only get behind it by breaking the contract, which it
+        /// asserts on — see
+        /// [`revalidate_asserts_when_a_resurrected_child_lands_behind_a_full_union`].
         #[test]
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn revalidate_child_behind_union_position_is_kept() {
@@ -1262,16 +1263,19 @@ macro_rules! union_common_tests {
             );
         }
 
-        /// A full union may not adopt a minimum behind its own position, and the
-        /// child that can put one there is an *exhausted* one coming back to life.
+        /// A child that comes back from EOF behind a full union is a broken child, and
+        /// the union says so instead of absorbing it.
         ///
-        /// A leaf's revalidation rewinds before re-seeking to the position it held,
-        /// and rewinding clears the past-the-end state. So a child dropped from the
-        /// active set at doc 30, while the union carried on to 100 without it, is
-        /// re-admitted at 30 — forward of nothing it owns, but far behind the union.
+        /// Exhaustion is terminal across a revalidation
+        /// ([`at_eof`](rqe_iterators::RQEIterator::at_eof)), so no conforming child can
+        /// put a minimum behind the union: one dropped from the active set at doc 30,
+        /// while the union carried on to 100 without it, stays dropped. The mock breaks
+        /// that on purpose — it is the only way to reach the assertion.
         #[test]
+        #[cfg(debug_assertions)]
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
-        fn revalidate_resurrected_child_does_not_drag_a_full_union_backwards() {
+        #[should_panic(expected = "moved behind the union's position")]
+        fn revalidate_asserts_when_a_resurrected_child_lands_behind_a_full_union() {
             let child0: Mock<'static, 2> = Mock::new([10, 30]);
             let child1: Mock<'static, 3> = Mock::new([20, 100, 200]);
 
@@ -1293,25 +1297,15 @@ macro_rules! union_common_tests {
             assert!(exhausted.at_eof(), "child0 ran past its last document");
             assert_eq!(exhausted.last_doc_id(), 30);
 
-            // GC forces a revalidation. child0 rewinds, re-seeks to 30 and finds it
-            // still there — so it comes back live on 30, well behind the union's 100.
+            // The contract violation: child0 comes back live on 30, well behind the
+            // union's 100.
             data0.set_revalidate_reseeks_to(Some(30));
             // Some other child has to move, or revalidation returns before ever
             // looking at the resurrected one.
             data1.set_revalidate_result(MockRevalidateResult::Move);
 
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let status = format!(
-                "{:?}",
-                union.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed"),
-            );
-
-            assert!(
-                union.last_doc_id() >= 100,
-                "the union must not fall back onto a document it already delivered, \
-                 got {} (status {status})",
-                union.last_doc_id(),
-            );
+            let _ = union.revalidate(&*mock_ctx.spec_read());
         }
 
         // =============================================================================

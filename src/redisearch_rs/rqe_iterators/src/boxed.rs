@@ -138,8 +138,7 @@ pub trait RQESuspendedIterator<'query> {
     /// up cannot recover its own position from it.
     ///
     /// Exhaustion must also survive the cycle: an iterator suspended at
-    /// [`at_eof`](RQEIterator::at_eof) must resume at it, for the reasons — and with
-    /// the same re-seek trap — spelled out on [`RQEIterator::revalidate`].
+    /// [`at_eof`](RQEIterator::at_eof) must resume at it.
     ///
     /// Resume re-reads/seeks the index to restore position (mirroring
     /// [`RQEIterator::revalidate`]), so it can fail with an

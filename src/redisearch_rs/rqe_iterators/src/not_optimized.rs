@@ -359,9 +359,8 @@ where
         if matches!(wcii_status, RQEValidateStatus::Moved { .. }) {
             // Sync the EOF flag with the wildcard iterator. Latched, never assigned: a
             // wildcard that has run out means we have too, and clearing the flag would
-            // let a wildcard that recovered documents revive an iterator this one had
-            // already reported as exhausted. `OptionalOptimized` latches the same way,
-            // for the same reason — `rewind` is what restarts an iterator.
+            // revive an iterator already reported as exhausted (see
+            // [`RQEIterator::at_eof`]). `OptionalOptimized` latches the same way.
             self.forced_eof |= self.wcii.at_eof();
             // Track whether we land on a valid NOT result. Starts true
             // when wcii is not at EOF (we have a candidate position).
@@ -373,12 +372,10 @@ where
             // its own. Without it, a concurrent index change could hand a native
             // parent `Moved { current: Some(_) }` with an out-of-range id.
             //
-            // `past_end` joins the guard because exhaustion is terminal until `rewind`
-            // (see [`RQEIterator::at_eof`]): an iterator that entered revalidation past
-            // its end must not leave it holding a position again. `forced_eof` alone is
-            // not enough — [`read`](RQEIterator::read) recomputes `past_end` from
-            // `read_inner`, so a `past_end` set without it would be dropped on the next
-            // read.
+            // `past_end` joins the guard because exhaustion is terminal. `forced_eof`
+            // alone is not enough: [`read`](RQEIterator::read) recomputes `past_end`
+            // from `read_inner`, so a `past_end` set without it would be dropped on the
+            // next read.
             let mut have_valid_pos =
                 !self.past_end && !self.forced_eof && self.wcii.last_doc_id() <= self.max_doc_id;
             if have_valid_pos {
