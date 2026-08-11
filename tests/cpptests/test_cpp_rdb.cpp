@@ -992,7 +992,7 @@ TEST_F(RdbMockTest, testHnswRerankRdbRoundtrip) {
 // Redis's module EOF marker as its first field. See MOD-15685.
 extern "C" {
 extern void *dummyNonNull;
-void GenericType_EmptyRdbSave(RedisModuleIO *rdb, void *value);
+void GenericType_DummyRdbSave(RedisModuleIO *rdb, void *value);
 void *InvertedIndex_RdbLoad_Consume(RedisModuleIO *rdb, int encver);
 void *NumericIndexType_RdbLoad_Consume(RedisModuleIO *rdb, int encver);
 void *TagIndex_RdbLoad_Consume(RedisModuleIO *rdb, int encver);
@@ -1013,7 +1013,7 @@ TEST_F(RdbMockTest, testLegacyEmptySaveConsumesNothingOnLoad) {
     RedisModuleIO *io = RMCK_CreateRdbIO();
     ASSERT_TRUE(io != nullptr);
 
-    GenericType_EmptyRdbSave(io, dummyNonNull);
+    GenericType_DummyRdbSave(io, dummyNonNull);
     // Nothing is written, which is the point: Redis appends its EOF marker straight after the header.
     EXPECT_EQ(0u, io->buffer.size());
 
