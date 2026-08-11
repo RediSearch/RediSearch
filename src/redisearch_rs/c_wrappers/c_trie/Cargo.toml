@@ -19,6 +19,7 @@ build_utils.workspace = true
 [dependencies]
 ffi.workspace = true
 redis-module.workspace = true
+string_utils.workspace = true
 strum.workspace = true
 workspace_hack.workspace = true
 

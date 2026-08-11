@@ -29,6 +29,7 @@ workspace_hack.workspace = true
 
 [dev-dependencies]
 criterion = { workspace = true }
+rstest.workspace = true
 proptest = { workspace = true, features = ["std"] }
 redis_mock.workspace = true
 redisearch_rs = { workspace = true, features = ["mock_allocator"] }

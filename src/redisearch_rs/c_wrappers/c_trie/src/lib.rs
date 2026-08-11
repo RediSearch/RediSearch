@@ -22,6 +22,7 @@ use ffi::{
     SuffixCtx, SuffixType, SuffixType_SUFFIX_TYPE_CONTAINS, SuffixType_SUFFIX_TYPE_SUFFIX,
     SuffixType_SUFFIX_TYPE_WILDCARD,
 };
+use string_utils::runes::runes_to_bytes;
 
 /// Which side(s) of a term a [`SuffixTrie::iterate_contains`] walk anchors on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -744,7 +745,7 @@ impl Iterator for CTrieAllIterator<'_> {
             // A key that cannot be converted back is skipped rather than
             // ending the walk: `runes_to_bytes` only fails for a key longer
             // than the trie can represent, which no stored key can be.
-            if let Some(term) = runes_to_bytes(runes) {
+            if let Ok(term) = runes_to_bytes(runes) {
                 return Some(term);
             }
         }
@@ -766,28 +767,4 @@ impl Drop for CTrieAllIterator<'_> {
         // been freed yet (owned exclusively by this iterator).
         unsafe { ffi::TrieIterator_Free(self.ptr.as_ptr()) };
     }
-}
-
-/// Convert a rune slice back to its original representation.
-///
-/// Returns `None` if `runes` is longer than the trie can represent; this
-/// can only happen for a key that was never actually stored in a trie.
-pub fn runes_to_bytes(runes: &[ffi::rune]) -> Option<Vec<u8>> {
-    let mut utflen: usize = 0;
-    // SAFETY: `runes` points to `runes.len()` valid runes; `utflen` is a
-    // valid `&mut usize` out-param.
-    let ptr = unsafe { ffi::runesToStr(runes.as_ptr(), runes.len(), &mut utflen) };
-    if ptr.is_null() {
-        return None;
-    }
-    // SAFETY: on success `ptr` points to `utflen` initialised bytes in a
-    // buffer allocated by `runesToStr` via `rm_calloc` (`RedisModule_Calloc`).
-    let bytes = unsafe { std::slice::from_raw_parts(ptr.cast::<u8>(), utflen) }.to_vec();
-    // SAFETY: `RedisModule_Free` is set during module init and not mutated
-    // afterwards.
-    let rm_free = unsafe { redis_module::RedisModule_Free.expect("Redis allocator not available") };
-    // SAFETY: `ptr` was allocated by `runesToStr` via the Redis allocator and
-    // is freed exactly once here, matching the C side's `rm_free`.
-    unsafe { rm_free(ptr.cast()) };
-    Some(bytes)
 }

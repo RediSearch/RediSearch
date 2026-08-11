@@ -18,10 +18,10 @@ use query_types::QueryNodeType;
 use rqe_core::FieldMask;
 use rqe_iterators::{c2rust::CRQEIterator, union_opaque::build_union_with_q_str};
 use rs_token::RSTokenRefNulTerminated;
+use string_utils::runes::runes_to_bytes;
 
 use crate::{
-    Config, Evaluated, QueryEvalContext, QueryNodeRef,
-    expansion::{Expansion, runes_to_key},
+    Config, Evaluated, QueryEvalContext, QueryNodeRef, expansion::Expansion,
     expansion_needs_offsets,
 };
 
@@ -235,7 +235,7 @@ impl Expansion<'_> {
         // byte as the index stored it — WTF-8 rather than UTF-8 where a rune is a
         // lone surrogate.
         let on_runes = |runes: &[ffi::rune], num_docs: usize| {
-            let Some(key) = runes_to_key(runes) else {
+            let Ok(key) = runes_to_bytes(runes) else {
                 // The term key cannot be reconstructed; skip this expansion.
                 return ControlFlow::Continue(());
             };

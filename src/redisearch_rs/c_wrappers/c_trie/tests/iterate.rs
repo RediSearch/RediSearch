@@ -26,7 +26,7 @@ use std::{
     ptr,
 };
 
-use c_trie::{LoweredPattern, SuffixMode, SuffixTrie, SuffixWalk, TermsTrie, runes_to_bytes};
+use c_trie::{LoweredPattern, SuffixMode, SuffixTrie, SuffixWalk, TermsTrie};
 use ffi::{SuffixType, SuffixType_SUFFIX_TYPE_CONTAINS, SuffixType_SUFFIX_TYPE_SUFFIX};
 
 /// Convert an ASCII/UTF-8 string to the trie's rune (`u16`) key.
@@ -314,19 +314,6 @@ fn into_iter_visits_every_term() {
         }
         assert_eq!(got, set(CORPUS));
     });
-}
-
-// --- `runes_to_bytes` --------------------------------------------------------
-
-#[test]
-fn runes_to_bytes_roundtrips_ascii() {
-    let runes = to_runes("apricot");
-    assert_eq!(runes_to_bytes(&runes).as_deref(), Some(&b"apricot"[..]));
-}
-
-#[test]
-fn runes_to_bytes_empty_slice_returns_empty_vec() {
-    assert_eq!(runes_to_bytes(&[]).as_deref(), Some(&b""[..]));
 }
 
 // --- `iterate_suffix` (suffix trie) -----------------------------------------
