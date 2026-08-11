@@ -64,6 +64,7 @@
 #include "search_ctx.h"
 #include "search_disk_api.h"
 #include "search_result_rs.h"
+#include "sorting_vector_ffi.h"
 #include "ttl_table.h"
 #include "ttl_table_rs.h"
 #include "util/arr/arr.h"
@@ -894,6 +895,62 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
   }
 
   RedisModule_CloseKey(k);
+  Indexes_SpecOpsIndexingCtxFree(specs);
+}
+
+// A SORTABLE field's value is served straight from the document's sorting vector,
+// which no read path checks TTLs against; only a reindex rebuilds it. The reindex
+// for `hexpired` is deferred, and Redis does not drain per-key jobs after active
+// field expiration, so it lands after the reply of the query that triggers the
+// drain -- that query would return a value Redis has already deleted.
+//
+// Null the slot of every already-expired sortable field so the row reports the
+// field as absent until the deferred reindex rebuilds the vector. Touches module
+// memory only: writing key metadata here could reallocate the Redis key object
+// while hashTypeExpire() still holds it.
+void Indexes_InvalidateExpiredSortables(RedisModuleCtx *ctx, RedisModuleString *key) {
+  SpecOpIndexingCtx *specs =
+      Indexes_FindMatchingSchemaRules(ctx, key, DocumentType_Hash, false, NULL);
+  if (array_len(specs->specsOps) == 0) {
+    Indexes_SpecOpsIndexingCtxFree(specs);
+    return;
+  }
+
+  struct timespec now;
+  clock_gettime(CLOCK_REALTIME, &now);
+
+  for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
+    IndexSpec *spec = specs->specsOps[i].spec;
+    if (!spec->monitorFieldExpiration || spec->numSortableFields == 0) {
+      continue;
+    }
+
+    RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+    RedisSearchCtx_LockSpecWrite(&sctx);
+
+    const RSDocumentMetadata *cdmd = IndexSpec_BorrowDocByKeyR(spec, ctx, key);
+    if (cdmd && (cdmd->flags & Document_HasSortVector)) {
+      for (size_t ii = 0; ii < spec->numFields; ++ii) {
+        const FieldSpec *fs = &spec->fields[ii];
+        if (!FieldSpec_IsSortable(fs) || fs->sortIdx < 0 ||
+            fs->sortIdx >= spec->numSortableFields) {
+          continue;
+        }
+        // Predicate holds while the field is still valid; a false result is the
+        // expired case. Fields without a TTL entry always satisfy it.
+        if (!DocTable_CheckFieldExpirationPredicate(&spec->docs, cdmd->id, (t_fieldIndex)ii,
+                                                    FIELD_EXPIRATION_PREDICATE_DEFAULT, &now)) {
+          RSSortingVector_PutNull(&((RSDocumentMetadata *)cdmd)->sortVector, (size_t)fs->sortIdx);
+        }
+      }
+    }
+    if (cdmd) {
+      DMD_Return(cdmd);
+    }
+
+    RedisSearchCtx_UnlockSpec(&sctx);
+  }
+
   Indexes_SpecOpsIndexingCtxFree(specs);
 }
 

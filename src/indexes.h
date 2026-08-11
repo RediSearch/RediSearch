@@ -85,6 +85,11 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
 // the matching specs' TTL tables, without re-tokenizing the document or
 // rebuilding inverted indexes. In-memory flow only; callers must use
 // Indexes_UpdateMatchingWithSchemaRules for disk-backed indexes.
+// Null the sorting-vector slot of every already-expired sortable field of `key`,
+// so a query cannot serve a value Redis has deleted before the deferred reindex
+// runs. Main thread only; takes each matching spec's write lock.
+void Indexes_InvalidateExpiredSortables(RedisModuleCtx *ctx, RedisModuleString *key);
+
 void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleString *key,
                                                DocumentType type);
 // Fast path for keyspace events that only change the document-level TTL
