@@ -13,7 +13,7 @@
 use std::ptr::null;
 
 use index_result::RSIndexResult;
-use tag_index::{TagIndex, TagValueReader, ValueIterator};
+use tag_index::{SuffixQuery, TagIndex, TagValueReader, ValueIterator};
 
 use crate::util::{commit, index_mem};
 
@@ -61,7 +61,7 @@ fn index_and_commit_agree_on_the_key() {
     assert_eq!(value_iter_keys(tag_index.value_iter()), [b"foo".to_vec()]);
     assert!(
         tag_index
-            .suffix_trie_map(b"oo", false, None)
+            .suffix_expand(SuffixQuery::Suffix(b"oo"), None)
             .next()
             .is_some(),
         "the suffix trie must resolve the same tag through one of its suffixes"
@@ -86,13 +86,13 @@ fn tag_value_reader_reads_every_posting_in_order() {
     let mut record = RSIndexResult::build_virt().doc_id(0).build();
 
     let mut doc_ids = Vec::new();
-    while reader.next(&mut record) {
+    while reader.next_record(&mut record) {
         doc_ids.push(record.doc_id);
     }
 
     assert_eq!(doc_ids, (1..=N).collect::<Vec<_>>());
     assert!(
-        !reader.next(&mut record),
+        !reader.next_record(&mut record),
         "a reader at the end of the postings stays there"
     );
 }
@@ -121,7 +121,7 @@ fn field_expiration_flag_round_trips() {
     let mut record = RSIndexResult::build_virt().doc_id(0).build();
 
     let mut seen = Vec::new();
-    while reader.next(&mut record) {
+    while reader.next_record(&mut record) {
         seen.push((record.doc_id, record.has_field_expiration));
     }
 

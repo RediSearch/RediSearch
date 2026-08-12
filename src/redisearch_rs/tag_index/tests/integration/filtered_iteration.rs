@@ -10,14 +10,14 @@
 //! Tests for the public filtered-iteration API (`value_iter_filtered` in each of
 //! its four modes, `range_iter_values`, and the iteration deadline), the
 //! suffix-index iteration (`suffix_value_iter`), and suffix-query expansion
-//! (`suffix_trie_map`).
+//! (`suffix_expand`).
 //!
 //! The traversal logic itself is tested in `trie_rs`; these tests verify that
 //! each mode drives the right traversal over the index's values trie.
 
 use ffi::timespec;
 use lending_iterator::LendingIterator;
-use tag_index::{IterMode, TagIndex, ValueIterator};
+use tag_index::{IterMode, SuffixQuery, TagIndex, ValueIterator};
 use trie_rs::iter::{RangeBoundary, RangeFilter};
 
 use crate::util::{commit, index_mem};
@@ -176,14 +176,14 @@ fn zero_timeout_clears_the_deadline() {
 /// term it belongs to: the node's own tag when the suffix is itself a tag, plus
 /// every tag it is a proper suffix of.
 #[test]
-fn suffix_trie_map_exact_node_yields_every_member() {
+fn suffix_query_exact_node_yields_every_member() {
     let mut tag_index = TagIndex::new(1, None, true);
     let tags: &[&[u8]] = &[b"eat", b"beat", b"heat", b"bean"];
     index_mem(&mut tag_index, tags, 1);
     commit(&mut tag_index, tags);
 
     let mut terms: Vec<Vec<u8>> = tag_index
-        .suffix_trie_map(b"eat", false, None)
+        .suffix_expand(SuffixQuery::Suffix(b"eat"), None)
         // The yielded terms carry their terminator; compare without it.
         .map(|term| term[..term.len() - 1].to_vec())
         .collect();
@@ -236,7 +236,7 @@ fn recommitting_a_tag_keeps_its_suffix_terms_readable() {
     // pointer, so a freed allocation surfaces here (as garbage, or as a miri
     // error) rather than staying latent.
     let terms: Vec<Vec<u8>> = tag_index
-        .suffix_trie_map(b"at", false, None)
+        .suffix_expand(SuffixQuery::Suffix(b"at"), None)
         .map(|term| term[..term.len() - 1].to_vec())
         .collect();
 

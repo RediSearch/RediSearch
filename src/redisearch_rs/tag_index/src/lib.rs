@@ -14,7 +14,7 @@
 //!
 //! - **Memory mode** keeps the per-tag posting lists (document ids) inline in
 //!   the values trie.
-//! - **Disk mode** (bigredis/Flex) keeps the postings on disk behind the
+//! - **Disk mode** keeps the postings on disk behind the
 //!   `SearchDisk_*` API; the values trie holds only tag *presence* sentinels.
 //!   Writes stage onto a disk write batch ([`TagIndex::index`]), reads open a
 //!   disk iterator ([`TagIndex::open_reader`]), and query expansion still walks
@@ -22,16 +22,12 @@
 //!
 //! ## Tag bytes
 //!
-//! Every method here takes **NUL-free** tag bytes. For most of them that is a
-//! convention — C strings are NUL-free after `strlen`, and a NUL would simply be
-//! indexed as part of the tag. [`TagIndex::commit`] is the exception: it is
-//! `unsafe` precisely because a NUL there is undefined behaviour, for the reason
-//! [`TagSuffixIndex::add`] gives.
+//! Every method here takes **NUL-free** tag bytes.
 //!
 //! The one place a terminator is visible is the other direction: the terms yielded
-//! by [`TagIndex::suffix_trie_map`] and [`TagIndex::suffix_wildcard`] carry theirs,
-//! so their pointers are usable as a C `char *`. [`TagSuffixIndex`] owns that
-//! terminator and documents where it comes from.
+//! by [`TagIndex::suffix_expand`] carry theirs, so their pointers are usable as a
+//! C `char *`. [`TagSuffixIndex`] owns that terminator and documents where it
+//! comes from.
 //!
 //! [`TagIndex`] uses the same indexes as the full text but in a simpler manner. In fact:
 //!
@@ -157,7 +153,6 @@ use inverted_index::{
     DocId, GcApplyInfo, GcScanDelta, IndexReader, InvertedIndex, doc_ids_only::DocIdsOnly,
 };
 use query_term::RSQueryTerm;
-// `ffi` blocklists the Redis module types, so this comes from its owning crate.
 use redis_module::RedisModuleCtx;
 use rqe_iterators::{
     FieldExpirationChecker,
@@ -180,18 +175,12 @@ use trie_rs::{
 enum TagIndexMode {
     /// If the postings (doc_ids) are kept in memory
     InMemory {
-        /// tag value → document ids.
-        ///
-        /// The posting list is boxed so it keeps a stable heap address even as
-        /// the trie restructures on insert/remove. Callers hold these pointers
-        /// across mutations — e.g. the fork GC captures a tag's inverted index
-        /// while scanning and later re-checks pointer identity when applying
-        /// the delta (see [`TagIndex::gc`]).
+        /// tag value -> document ids.
         values: TrieMap<Box<InvertedIndex<DocIdsOnly>>>,
     },
     /// If the postings (doc_ids) are kept on disk
     Disk {
-        /// tag value → (). It is used only to know whether a tag is there
+        /// tag value -> (). It is used only to know whether a tag is there
         values: TrieMap<()>,
         /// Field id
         field_id: t_fieldIndex,
@@ -247,10 +236,6 @@ impl TagIndex {
     }
 
     /// The unique id this index was created with.
-    ///
-    /// The fork GC captures it before scanning and re-checks it before applying a
-    /// delta, so that an index dropped and recreated in between is not mistaken
-    /// for the one that was scanned.
     pub const fn id(&self) -> u32 {
         self.unique_id
     }
@@ -260,12 +245,12 @@ impl TagIndex {
         self.suffix.is_some()
     }
 
-    /// Returns `true` if the postings are backed by disk (disk/Flex mode).
+    /// Returns `true` if the postings are backed by disk.
     pub const fn disk_mode(&self) -> bool {
         matches!(self.mode, TagIndexMode::Disk { .. })
     }
 
-    /// How many distinct tags the index holds, in either mode.
+    /// How many distinct tags the index holds.
     pub const fn unique_values(&self) -> usize {
         match &self.mode {
             TagIndexMode::InMemory { values } => values.n_unique_keys(),
@@ -273,32 +258,7 @@ impl TagIndex {
         }
     }
 
-    /// Get the inverted index holding the postings for `tag`, if the tag is
-    /// currently indexed.
-    #[cfg(feature = "test-utils")]
-    pub fn find_value(&self, tag: &[u8]) -> Option<&InvertedIndex<DocIdsOnly>> {
-        let TagIndexMode::InMemory { values } = &self.mode else {
-            unimplemented!()
-        };
-
-        values.find(tag).map(Box::as_ref)
-    }
-
-    /// Get a mutable reference to the inverted index holding the postings for
-    /// `tag`, if the tag is currently indexed.
-    ///
-    /// Exposed only for tests (no production caller); gated behind the
-    /// `test-utils` feature so it stays out of the public API in release builds.
-    #[cfg(feature = "test-utils")]
-    pub fn find_value_mut(&mut self, tag: &[u8]) -> Option<&mut InvertedIndex<DocIdsOnly>> {
-        let TagIndexMode::InMemory { values } = &mut self.mode else {
-            unimplemented!()
-        };
-
-        values.find_mut(tag).map(Box::as_mut)
-    }
-
-    /// Index `doc_id` under each tag in `tags` — phase 1 of a document write.
+    /// Index `doc_id` under each tag in `tags`.
     ///
     /// Returns the [`WritePostingsDelta`] the caller folds into the spec
     /// statistics (records, memory, blocks), or `None` when a disk-mode write
@@ -313,12 +273,13 @@ impl TagIndex {
     /// `has_field_expiration` records whether this document carries a TTL on the
     /// field being indexed. It is stored per posting as
     /// [`RSIndexResult::has_field_expiration`] and gates the TTL re-check
-    /// performed on read, so a wrong value silently changes which documents a tag
-    /// query returns.
+    /// performed on read.
     ///
     /// # Safety
     ///
-    /// Both conditions apply to disk mode only — memory mode places no
+    /// Each tag must be NUL-free, in both modes.
+    ///
+    /// The two conditions below apply to disk mode only: memory mode places no
     /// requirement on `ctx`, `batch`, or the bytes past each tag.
     ///
     /// 1. `ctx` and `batch` must be the valid disk write context and batch handle
@@ -326,8 +287,7 @@ impl TagIndex {
     /// 2. Each tag must borrow from a NUL-terminated buffer: the byte at
     ///    `tag.as_ptr().add(tag.len())` must be readable and zero, so the pointer
     ///    is usable as the `const char *` the disk API expects. Note this is a
-    ///    property of the surrounding buffer, not of the tag bytes, which stay
-    ///    NUL-free like everywhere else in this crate.
+    ///    property of the surrounding buffer, not of the tag bytes.
     pub unsafe fn index(
         &mut self,
         ctx: *const RedisModuleCtx,
@@ -336,14 +296,16 @@ impl TagIndex {
         doc_id: DocId,
         has_field_expiration: bool,
     ) -> Option<WritePostingsDelta> {
+        debug_assert!(
+            tags.iter().all(|tag| !tag.contains(&0)),
+            "tag bytes are NUL-free"
+        );
         match &mut self.mode {
             TagIndexMode::Disk {
                 field_id,
                 disk_index_spec,
                 ..
             } => {
-                // Stage the postings onto `batch`; the trie/suffix/record
-                // accounting runs afterwards in `commit`.
                 if tags.is_empty() {
                     return Some(WritePostingsDelta::default());
                 }
@@ -352,15 +314,6 @@ impl TagIndex {
                     !batch.is_null(),
                     "disk-mode indexing needs a disk write batch"
                 );
-                debug_assert!(
-                    tags.iter().all(|tag| !tag.contains(&0)),
-                    "tag bytes are NUL-free"
-                );
-                // Contract 2 is checkable: read the byte it promises is there. If
-                // a caller broke the contract this read is itself the violation —
-                // which is the point, since debug builds, miri and the sanitizer
-                // suites then flag it here instead of inside the disk backend's
-                // `strlen`.
                 debug_assert!(
                     tags.iter().all(|tag| {
                         // SAFETY: contract 2 promises the byte just past the tag
@@ -398,36 +351,9 @@ impl TagIndex {
         }
     }
 
-    /// Get the inverted index for `tag`, registering a new empty one when the
-    /// tag is not indexed yet and `create_if_missing` is set.
-    #[cfg(feature = "test-utils")]
-    pub fn open_index(
-        &mut self,
-        tag: &[u8],
-        create_if_missing: bool,
-    ) -> Option<&InvertedIndex<DocIdsOnly>> {
-        let TagIndexMode::InMemory { values } = &mut self.mode else {
-            unimplemented!()
-        };
-
-        if values.find(tag).is_none() {
-            if !create_if_missing {
-                return None;
-            }
-            values.insert(
-                tag,
-                Box::new(InvertedIndex::<DocIdsOnly>::new(
-                    IndexFlags_Index_DocIdsOnly,
-                )),
-            );
-        }
-
-        values.find(tag).map(Box::as_ref)
-    }
-
-    /// Apply the per-tag metadata updates after [`TagIndex::index`] — phase 3
+    /// Apply the per-tag metadata updates after [`TagIndex::index`]
     /// of a document write: register the tags in the values trie (disk mode
-    /// only — in memory mode the trie already holds the postings) and in the
+    /// only) and in the
     /// [suffix index](TagSuffixIndex), when enabled.
     ///
     /// Returns the number of records to fold into the spec statistics: in disk
@@ -437,7 +363,7 @@ impl TagIndex {
     ///
     /// # Safety
     ///
-    /// Each tag must be NUL-free, as everywhere in this crate. Here that is a
+    /// Each tag must be NUL-free. Here that is a
     /// safety requirement rather than a convention, because a `WITHSUFFIXTRIE`
     /// field feeds the tags to [`TagSuffixIndex::add`]; see there for why an
     /// interior NUL is undefined behaviour.
@@ -463,31 +389,25 @@ impl TagIndex {
     /// time. The tag is still looked up again on every revalidation, to detect
     /// that the garbage collector removed or replaced the inverted index.
     ///
-    /// `lookup` is the handle the iterator revalidates through; see
-    /// [`TrieLookup::new`] for the pointer it must be built from.
+    /// `lookup` is the handle the iterator revalidates through;
     ///
     /// Returns a null pointer when `ii` holds no documents.
     ///
     /// # Panics
     /// Panics on a disk-mode index: the postings live on disk, so there is no
-    /// in-memory inverted index to build a reader over. Use
-    /// [`open_reader`](Self::open_reader), which handles both modes.
+    /// in-memory inverted index to build a reader over.
     ///
     /// # Safety
     ///
     /// 1. `self` must outlive the returned iterator, and must not be mutated
     ///    while the iterator is in use except under the standard revalidation
-    ///    protocol: mutations happen while the query is yielded under the
-    ///    write lock, and the iterator's `Revalidate` callback runs before any
-    ///    further read.
+    ///    protocol.
     /// 2. `ii` must be the inverted index currently stored in this index's
     ///    values trie for `tag`.
     /// 3. `sctx` and `sctx.spec` must be valid and outlive the returned
     ///    iterator.
-    /// 4. `lookup` must resolve `self`, checked by a `debug_assert!` in
-    ///    [`get_reader`](Self::get_reader).
-    /// 5. The caller owns the returned iterator and must free it through its
-    ///    `Free` callback (`it->Free(it)`).
+    /// 4. `lookup` must hold a `self` reference.
+    /// 5. The caller owns the returned iterator and must free it. (`it->Free(it)`).
     pub unsafe fn query_iterator_for_value(
         &self,
         sctx: NonNull<RedisSearchCtx>,
@@ -570,12 +490,7 @@ impl TagIndex {
     /// `filter`'s boundaries, in lexicographical order of the tag.
     ///
     /// # Panics
-    /// Panics on a disk-mode index, which has no in-memory postings to yield —
-    /// use [`disk_range_iter_values`](Self::disk_range_iter_values) there. Unlike
-    /// [`value_iter_filtered`](Self::value_iter_filtered), the two range
-    /// iterators yield different value types and so cannot dispatch on the mode
-    /// behind one signature; the caller selects with
-    /// [`disk_mode`](Self::disk_mode).
+    /// Panics on a disk-mode index, which has no in-memory postings to yield.
     pub fn range_iter_values<'tm, 'f>(
         &'tm self,
         filter: RangeFilter<'f>,
@@ -592,11 +507,12 @@ impl TagIndex {
     // postings living on disk. Query expansion (prefix / contains / wildcard /
     // lex-range / suffix) and `FT.TAGVALS` still walk this trie for the
     // matching tag *keys*, then open each reader by tag string via the disk
-    // API. These mirror the memory-mode methods above but over `TrieMap<()>`,
-    // so the FFI hands C a NULL value pointer (the disk NULL sentinel) for each
-    // entry.
+    // API.
 
     /// Disk-mode counterpart of [`iter_values`](Self::iter_values).
+    ///
+    /// # Panics
+    /// Panics on a memory-mode index;
     pub(crate) fn disk_iter_values(&self) -> LendingIter<'_, (), VisitAll> {
         let TagIndexMode::Disk { values, .. } = &self.mode else {
             unimplemented!()
@@ -606,6 +522,9 @@ impl TagIndex {
 
     /// Disk-mode counterpart of
     /// [`prefixed_iter_values`](Self::prefixed_iter_values).
+    ///
+    /// # Panics
+    /// Panics on a memory-mode index;
     pub(crate) fn disk_prefixed_iter_values(&self, prefix: &[u8]) -> LendingIter<'_, (), VisitAll> {
         let TagIndexMode::Disk { values, .. } = &self.mode else {
             unimplemented!()
@@ -615,6 +534,9 @@ impl TagIndex {
 
     /// Disk-mode counterpart of
     /// [`contains_iter_values`](Self::contains_iter_values).
+    ///
+    /// # Panics
+    /// Panics on a memory-mode index;
     pub(crate) fn disk_contains_iter_values<'tm, 't>(
         &'tm self,
         fragment: &'t [u8],
@@ -627,6 +549,9 @@ impl TagIndex {
 
     /// Disk-mode counterpart of
     /// [`wildcard_iter_values`](Self::wildcard_iter_values).
+    ///
+    /// # Panics
+    /// Panics on a memory-mode index;
     pub(crate) fn disk_wildcard_iter_values<'tm, 'p>(
         &'tm self,
         pattern: &'p [u8],
@@ -640,9 +565,7 @@ impl TagIndex {
     /// Disk-mode counterpart of [`range_iter_values`](Self::range_iter_values).
     ///
     /// # Panics
-    /// Panics on a memory-mode index; see
-    /// [`range_iter_values`](Self::range_iter_values) for why the two are
-    /// separate methods.
+    /// Panics on a memory-mode index;
     pub fn disk_range_iter_values<'tm, 'f>(
         &'tm self,
         filter: RangeFilter<'f>,
@@ -673,6 +596,9 @@ impl TagIndex {
     /// Its [`bytes_freed`](GcApplyInfo::bytes_freed) and
     /// [`block_count_delta`](GcApplyInfo::block_count_delta) already account for
     /// the whole posting list being dropped when the tag became empty.
+    /// 
+    /// # Panics
+    /// Panics on a disk-mode index;
     pub fn gc(
         &mut self,
         tag: &[u8],
@@ -708,25 +634,15 @@ impl TagIndex {
         Some(info)
     }
 
-    /// Remove `tag` (and its postings) from the values trie, mirroring the
-    /// garbage collector dropping every document indexed under it.
+    /// Remove `tag` (and its postings) from the values trie.
     ///
-    /// Memory mode only: disk indexes use `GCPolicy_Disk` and never reach this
-    /// path (see [`gc`](Self::gc)).
+    /// # Panics
+    /// Panics on a disk-mode index;
     fn remove_tag_value(&mut self, tag: &[u8]) {
         let TagIndexMode::InMemory { values } = &mut self.mode else {
             unreachable!("tag deletion runs only in memory mode; disk uses GCPolicy_Disk");
         };
         values.remove(tag);
-    }
-
-    /// Test-only handle over [`remove_tag_value`](Self::remove_tag_value): lets
-    /// tests simulate the garbage collector dropping every document for `tag`.
-    /// Gated behind the `test-utils` feature so it stays out of the public API in
-    /// release builds (the production path is [`gc`](Self::gc)).
-    #[cfg(feature = "test-utils")]
-    pub fn delete_tag_value(&mut self, tag: &[u8]) {
-        self.remove_tag_value(tag);
     }
 
     /// Create a [`QueryIterator`] over the documents matching `tag`, or `None`
@@ -747,14 +663,13 @@ impl TagIndex {
     ///    while it is in use except under the standard revalidation protocol.
     ///    The memory-mode iterator is the one
     ///    [`query_iterator_for_value`](Self::query_iterator_for_value) builds and
-    ///    shares its contract; see there for what the protocol requires.
+    ///    shares its contract;
     /// 2. `sctx` and `sctx.spec` must be valid and outlive the returned iterator.
     /// 3. `status` must be null or point to a valid [`QueryError`]. Only the disk
     ///    branch writes it; memory mode leaves it untouched.
     /// 4. `lookup` must resolve `self`, checked by a `debug_assert!` in
     ///    [`get_reader`](Self::get_reader).
-    /// 5. The caller owns the returned iterator and must free it through its
-    ///    `Free` callback (`it->Free(it)`).
+    /// 5. The caller owns the returned iterator and must free it.
     pub unsafe fn open_reader(
         &self,
         sctx: NonNull<RedisSearchCtx>,
@@ -801,11 +716,8 @@ impl TagIndex {
                     None => None,
                     Some(ii) if ii.unique_docs() == 0 => None,
                     Some(ii) => Some(
-                        // SAFETY: `get_reader`'s contract 1 is this function's
-                        // contract 1; its contract 2 holds because `ii` was just
-                        // resolved from the values trie for `tag`; its contract 3
-                        // is this function's contract 2; and its contract 4 is
-                        // this function's contract 4.
+                        // SAFETY: `get_reader`'s contracts is this function's
+                        // contracts
                         unsafe { self.get_reader(sctx, ii, tag, weight, field_index, lookup) },
                     ),
                 }
@@ -813,9 +725,7 @@ impl TagIndex {
         }
     }
 
-    /// Build the [`QueryIterator`] reading `ii`'s postings for `tag`, shared by
-    /// [`open_reader`](Self::open_reader) and
-    /// [`query_iterator_for_value`](Self::query_iterator_for_value).
+    /// Build the [`QueryIterator`] reading `ii`'s postings for `tag`.
     ///
     /// # Safety
     ///
@@ -824,9 +734,7 @@ impl TagIndex {
     ///    [`query_iterator_for_value`](Self::query_iterator_for_value).
     /// 2. `ii` must be the inverted index this index currently stores for `tag`.
     /// 3. `sctx` and `sctx.spec` must be valid and outlive the returned iterator.
-    /// 4. `lookup` must resolve `self` — this is [`Tag::new`]'s contract that the
-    ///    lookup and the reader address the same container, and a
-    ///    `debug_assert!` below enforces it.
+    /// 4. `lookup` must resolve `self`.
     unsafe fn get_reader(
         &self,
         sctx: NonNull<RedisSearchCtx>,
@@ -847,9 +755,7 @@ impl TagIndex {
         // lifetime.
         let checker = unsafe { FieldExpirationChecker::new(sctx, filter_ctx, reader.flags()) };
 
-        // Contract 4. Comparing addresses only — the lookup's pointer is never
-        // dereferenced here — so this is sound even when the two carry different
-        // provenance, which is exactly the mistake it catches.
+        // Contract 4.
         debug_assert!(
             std::ptr::eq(
                 lookup.index_ptr().as_ptr().cast_const(),
@@ -868,10 +774,6 @@ impl TagIndex {
 
     /// Bytes the index's tries occupy, as reported by `FT.INFO`: the values trie
     /// plus the suffix trie, in both modes.
-    ///
-    /// In disk mode the values trie holds only tag-presence sentinels — the
-    /// postings live on disk and are accounted for by the disk backend — but the
-    /// trie structure itself is still counted.
     pub const fn get_overhead(&self) -> usize {
         let mut size = match &self.mode {
             TagIndexMode::InMemory { values } => values.mem_usage(),
@@ -884,35 +786,25 @@ impl TagIndex {
         size
     }
 
-    /// Expand a suffix (`*foo`) or contains (`*foo*`) tag query against the
-    /// [suffix index](TagSuffixIndex) into the concrete tag terms it matches.
-    ///
-    /// `prefix` selects which of the two query forms `tag` was taken from:
-    ///
-    /// - `false` — suffix query `*foo`: exact lookup of the suffix-trie node
-    ///   `foo`, returning every term that node belongs to.
-    /// - `true` — contains query `*foo*`: prefix-iterate every suffix-trie
-    ///   node whose key starts with `foo`, unioning the terms they belong to.
-    ///
-    /// In both cases the terms come from [`SuffixData::members`] (the term
-    /// itself when the key is a full term, plus every term the key is a proper
-    /// suffix of).
+    /// Expand a [`SuffixQuery`] against the [suffix index](TagSuffixIndex) into
+    /// the concrete tag terms it matches, yielded lazily.
     ///
     /// Each yielded slice is the matched term including its trailing NUL, so its
-    /// pointer is directly usable as a C `char*`. Terms are yielded lazily; the
-    /// two branches produce different iterator types, so the result is boxed.
+    /// pointer is directly usable as a C `char*`.
+    ///
+    /// The two walking forms are bounded by `timeout`, stopping early and keeping
+    /// the matches found so far; see [`deadline_bounded`].
     ///
     /// # Panics
     /// Panics if this index was created without `WITHSUFFIXTRIE`.
-    pub fn suffix_trie_map<'a>(
+    pub fn suffix_expand<'a>(
         &'a self,
-        tag: &[u8],
-        prefix: bool,
+        query: SuffixQuery<'a>,
         timeout: Option<timespec>,
     ) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
         let suffix = self.suffix.as_ref().expect("suffix trie must exist");
 
-        // Captures nothing, so it is `Copy` and can be moved into either branch's
+        // Captures nothing, so it is `Copy` and can be moved into every branch's
         // `flat_map` closure.
         let materialize = |p: suffix::TermPtr| {
             // SAFETY: `p` is a live `TermPtr` owned by this suffix trie (built
@@ -923,97 +815,111 @@ impl TagIndex {
             unsafe { std::slice::from_raw_parts(p.as_ptr(), len) }
         };
 
-        if !prefix {
-            // Suffix query `*foo`: exact node lookup. No deadline probing — a
-            // single node yields all its members.
-            Box::new(
+        match query {
+            SuffixQuery::Suffix(tag) => Box::new(
+                // Exact node lookup, so no deadline probing: a single node yields
+                // all its members.
                 suffix
                     .find(tag)
                     .into_iter()
                     .flat_map(move |data| data.members().map(materialize)),
-            )
-        } else {
-            // Contains query `*foo*`: prefix-iterate the suffix trie, probing the
-            // deadline once per entry (see `expansion_timeout`); on timeout stop
-            // and keep the partial matches collected so far. `scan` owns
-            // `timeout_ctx` so its state persists across entries.
-            let mut timeout_ctx = expansion_timeout(timeout);
-            Box::new(
-                suffix
-                    .prefixed_iter(tag)
-                    .scan((), move |_, (_key, data)| {
-                        timeout_ctx.check_timeout().is_ok().then_some(data)
-                    })
+            ),
+            SuffixQuery::Contains(tag) => Box::new(
+                deadline_bounded(suffix.prefixed_iter(tag), timeout)
                     .flat_map(move |data| data.members().map(materialize)),
-            )
+            ),
+            SuffixQuery::Wildcard {
+                pattern,
+                max_prefix_expansions,
+            } => {
+                let full = WildcardPattern::parse(pattern.full);
+                Box::new(
+                    deadline_bounded(
+                        suffix.wildcard_iter(WildcardPattern::parse(&pattern.sub)),
+                        timeout,
+                    )
+                    .flat_map(move |data| data.members().map(materialize))
+                    // The anchor only narrows the walk, so re-check the whole
+                    // pattern against the term itself, terminator excluded.
+                    .filter(move |with_nul| {
+                        full.matches(&with_nul[..with_nul.len() - 1]) == MatchOutcome::Match
+                    })
+                    // Cap the *matched* terms, overshooting by one as documented
+                    // on the variant (`saturating_add` guards the no-cap
+                    // sentinel).
+                    .take((max_prefix_expansions as usize).saturating_add(1)),
+                )
+            }
         }
     }
+}
 
-    /// Expand the wildcard `pattern` against the [suffix index](TagSuffixIndex)
-    /// into the concrete tag terms it matches, yielded lazily.
-    ///
-    /// A pattern with no usable anchor token (e.g. `*`, `???`) is rejected up
-    /// front by [`SuffixWildcardPattern::new`], so this method always has a valid
-    /// anchor; an empty iterator means the anchor token had no matching terms.
-    ///
-    /// At most `max_prefix_expansions + 1` terms are yielded: the count is checked
-    /// before each match is collected, so the cap is overshot by one.
-    ///
-    /// Each yielded slice is the matched term including its trailing NUL, so its
-    /// pointer is directly usable as a C `char*` (consistent with
-    /// [`suffix_trie_map`](Self::suffix_trie_map)).
-    ///
-    /// # Panics
-    /// Panics if this index was created without `WITHSUFFIXTRIE`.
-    pub fn suffix_wildcard<'a>(
-        &'a self,
-        pattern: &'a SuffixWildcardPattern<'a>,
-        timeout: Option<timespec>,
-        max_prefix_expansions: u64,
-    ) -> impl Iterator<Item = &'a [u8]> + 'a {
-        let suffix = self.suffix.as_ref().expect("suffix trie must exist");
+// Handles tests reach the index internals through, kept apart from the production
+// methods above and gated behind the `test-utils` feature so they stay out of the
+// public API in release builds.
+#[cfg(feature = "test-utils")]
+impl TagIndex {
+    /// Get the inverted index holding the postings for `tag`, if the tag is
+    /// currently indexed.
+    pub fn find_value(&self, tag: &[u8]) -> Option<&InvertedIndex<DocIdsOnly>> {
+        let TagIndexMode::InMemory { values } = &self.mode else {
+            unimplemented!()
+        };
 
-        let full = WildcardPattern::parse(pattern.full);
-        let timeout_ctx = expansion_timeout(timeout);
+        values.find(tag).map(Box::as_ref)
+    }
 
-        suffix
-            .wildcard_iter(WildcardPattern::parse(&pattern.sub))
-            // Probe the deadline once per trie entry (see `expansion_timeout`); on
-            // timeout stop iterating and keep only the matches collected so far.
-            // `scan` owns `timeout_ctx` so its state persists across entries.
-            .scan(timeout_ctx, |timeout_ctx, entry| {
-                if timeout_ctx.check_timeout().is_err() {
-                    None
-                } else {
-                    Some(entry)
-                }
-            })
-            .flat_map(|(_key, data)| data.members())
-            .map(|term| {
-                // SAFETY: `term` is a live `TermPtr` owned by this suffix trie,
-                // whose lifetime is tied to `&self`.
-                let alloc = unsafe { term.alloc_size() };
-                // SAFETY: `term` points to `alloc` initialized bytes owned by the
-                // suffix trie, borrowed for the lifetime of `&self`.
-                unsafe { std::slice::from_raw_parts(term.as_ptr(), alloc) }
-            })
-            // Re-check the whole pattern against the term itself, terminator
-            // excluded.
-            .filter(move |with_nul| {
-                full.matches(&with_nul[..with_nul.len() - 1]) == MatchOutcome::Match
-            })
-            // Cap the *matched* terms, overshooting by one as documented above
-            // (`saturating_add` guards the `u64::MAX` no-cap sentinel).
-            .take((max_prefix_expansions as usize).saturating_add(1))
+    /// Get a mutable reference to the inverted index holding the postings for
+    /// `tag`, if the tag is currently indexed.
+    pub fn find_value_mut(&mut self, tag: &[u8]) -> Option<&mut InvertedIndex<DocIdsOnly>> {
+        let TagIndexMode::InMemory { values } = &mut self.mode else {
+            unimplemented!()
+        };
+
+        values.find_mut(tag).map(Box::as_mut)
+    }
+
+    /// Get the inverted index for `tag`, registering a new empty one when the
+    /// tag is not indexed yet and `create_if_missing` is set.
+    pub fn open_index(
+        &mut self,
+        tag: &[u8],
+        create_if_missing: bool,
+    ) -> Option<&InvertedIndex<DocIdsOnly>> {
+        let TagIndexMode::InMemory { values } = &mut self.mode else {
+            unimplemented!()
+        };
+
+        if values.find(tag).is_none() {
+            if !create_if_missing {
+                return None;
+            }
+            values.insert(
+                tag,
+                Box::new(InvertedIndex::<DocIdsOnly>::new(
+                    IndexFlags_Index_DocIdsOnly,
+                )),
+            );
+        }
+
+        values.find(tag).map(Box::as_ref)
+    }
+
+    /// Handle over [`remove_tag_value`](Self::remove_tag_value): lets tests
+    /// simulate the garbage collector dropping every document for `tag`. The
+    /// production path is [`gc`](Self::gc).
+    pub fn delete_tag_value(&mut self, tag: &[u8]) {
+        self.remove_tag_value(tag);
     }
 }
 
 /// A wildcard pattern prepared for a suffix-trie lookup: the most selective
 /// literal token, expanded into the anchor sub-pattern used to walk the trie.
 ///
-/// Holds the bytes [`TagIndex::suffix_wildcard`]'s returned iterator borrows, so
-/// they outlive the call: the anchor `sub` (owned, since it may gain a trailing
-/// `*`) and the original `full` pattern re-checked against each candidate.
+/// Holds the bytes the expansion of a [`SuffixQuery::Wildcard`] borrows, so they
+/// outlive the call: the anchor `sub` (owned, since it may gain a trailing `*`)
+/// and the original `full` pattern re-checked against each candidate.
+#[derive(Debug)]
 pub struct SuffixWildcardPattern<'p> {
     /// The whole original pattern, used to fully re-check each candidate term.
     full: &'p [u8],
@@ -1053,7 +959,7 @@ impl<'p> SuffixWildcardPattern<'p> {
         Ok(Self { full: pattern, sub })
     }
 
-    /// The anchor sub-pattern [`TagIndex::suffix_wildcard`] walks the suffix trie
+    /// The anchor sub-pattern [`TagIndex::suffix_expand`] walks the suffix trie
     /// with, as chosen by [`choose_token`].
     ///
     /// Which token wins only changes how much of the trie is visited, never the
@@ -1064,6 +970,54 @@ impl<'p> SuffixWildcardPattern<'p> {
     pub(crate) fn anchor(&self) -> &[u8] {
         &self.sub
     }
+}
+
+/// Which query form [`TagIndex::suffix_expand`] expands, carrying the bytes it
+/// expands. Tag bytes are NUL-free, as everywhere else here.
+#[derive(Debug, Clone, Copy)]
+pub enum SuffixQuery<'a> {
+    /// Suffix query `*foo`: exact lookup of the suffix-trie node `foo`, returning
+    /// every term that node belongs to.
+    Suffix(&'a [u8]),
+    /// Contains query `*foo*`: prefix-iterate every suffix-trie node whose key
+    /// starts with `foo`, unioning the terms they belong to.
+    Contains(&'a [u8]),
+    /// Wildcard query (`*` and `?` metacharacters): walk the suffix trie with the
+    /// pattern's anchor sub-pattern, then re-check the whole pattern against each
+    /// candidate term.
+    Wildcard {
+        /// The prepared pattern, owning the bytes the expansion borrows.
+        ///
+        /// A pattern with no usable anchor token (e.g. `*`, `???`) is rejected up
+        /// front by [`SuffixWildcardPattern::new`], so an expansion always has a
+        /// valid anchor and an empty result means the anchor matched no term.
+        pattern: &'a SuffixWildcardPattern<'a>,
+        /// Cap on the *matched* terms, overshot by one: the count is checked
+        /// before each match is yielded. [`u64::MAX`] is the no-cap sentinel.
+        ///
+        /// Only this form is capped during expansion; the other two leave it to
+        /// their caller, which is how C splits it too
+        /// (`TagIndex_GetSuffixWildcardMatches` takes `maxPrefixExpansions`,
+        /// `TagIndex_GetSuffixMatches` does not).
+        max_prefix_expansions: u64,
+    },
+}
+
+/// Stop a suffix-trie walk at `timeout`'s deadline, dropping the keys and keeping
+/// only the entries' payloads.
+///
+/// The deadline is probed once per visited entry (see [`expansion_timeout`]);
+/// running out ends the iteration, so the caller keeps the matches collected so
+/// far rather than losing them. `scan` owns the checker, so its state persists
+/// across entries.
+fn deadline_bounded<'e>(
+    entries: impl Iterator<Item = (Vec<u8>, &'e SuffixData)>,
+    timeout: Option<timespec>,
+) -> impl Iterator<Item = &'e SuffixData> {
+    let mut timeout_ctx = expansion_timeout(timeout);
+    entries.scan((), move |(), (_key, data)| {
+        timeout_ctx.check_timeout().is_ok().then_some(data)
+    })
 }
 
 /// How many suffix-trie entries are walked between two consecutive clock
@@ -1298,14 +1252,20 @@ mod suffix_wildcard_tests {
         idx
     }
 
-    /// Run `suffix_wildcard` and return the matched terms as owned byte vectors
+    /// Expand a wildcard query and return the matched terms as owned byte vectors
     /// with the trailing NUL stripped, sorted for order-independent comparison.
     fn matches(idx: &TagIndex, pattern: &[u8], cap: u64) -> Option<Vec<Vec<u8>>> {
         // A pattern with no usable anchor token is a `SuffixWildcardPattern::new`
         // error, surfaced here as `None`.
         let pattern = SuffixWildcardPattern::new(pattern).ok()?;
         let mut out: Vec<Vec<u8>> = idx
-            .suffix_wildcard(&pattern, None, cap)
+            .suffix_expand(
+                SuffixQuery::Wildcard {
+                    pattern: &pattern,
+                    max_prefix_expansions: cap,
+                },
+                None,
+            )
             .map(|t| t[..t.len() - 1].to_vec()) // drop trailing NUL
             .collect();
         out.sort();
@@ -1423,7 +1383,15 @@ mod suffix_wildcard_tests {
         // The cap is checked before each match is collected, so a cap of N yields
         // N + 1 entries.
         let pattern = SuffixWildcardPattern::new(b"*a").expect("valid token");
-        let got = idx.suffix_wildcard(&pattern, None, 1).count();
+        let got = idx
+            .suffix_expand(
+                SuffixQuery::Wildcard {
+                    pattern: &pattern,
+                    max_prefix_expansions: 1,
+                },
+                None,
+            )
+            .count();
         assert_eq!(got, 2);
     }
 }
@@ -1469,44 +1437,55 @@ mod expansion_timeout_tests {
         (idx, owned.len())
     }
 
+    /// An uncapped wildcard query over `pattern`: these tests bound the expansion
+    /// by the deadline, never by the expansion cap.
+    fn wildcard<'p>(pattern: &'p SuffixWildcardPattern<'p>) -> SuffixQuery<'p> {
+        SuffixQuery::Wildcard {
+            pattern,
+            max_prefix_expansions: NO_CAP,
+        }
+    }
+
     #[test]
-    fn suffix_wildcard_no_timeout_returns_all() {
+    fn wildcard_no_timeout_returns_all() {
         let (idx, total) = big_index();
         let pattern = SuffixWildcardPattern::new(b"he*").expect("valid token");
-        let got = idx.suffix_wildcard(&pattern, None, NO_CAP).count();
+        let got = idx.suffix_expand(wildcard(&pattern), None).count();
         assert_eq!(got, total, "every `he*` term must be expanded");
     }
 
     #[test]
     #[cfg_attr(miri, ignore)]
-    fn suffix_wildcard_times_out_with_partial_results() {
+    fn wildcard_times_out_with_partial_results() {
         let (idx, total) = big_index();
         // An already-elapsed deadline must not panic, and must yield a strict,
         // non-empty subset.
         let pattern = SuffixWildcardPattern::new(b"he*").expect("valid token");
         let got = idx
-            .suffix_wildcard(&pattern, Some(expired()), NO_CAP)
+            .suffix_expand(wildcard(&pattern), Some(expired()))
             .count();
         assert!(got > 0, "the first granularity-1 entries are collected");
         assert!(got < total, "timeout must stop before the full expansion");
     }
 
-    // Contains-mode (`prefix == true`) prefix-iterates the suffix trie, probing
-    // the deadline once per entry. Each `heNNNNN` term contributes exactly one
+    // `SuffixQuery::Contains` prefix-iterates the suffix trie, probing the
+    // deadline once per entry. Each `heNNNNN` term contributes exactly one
     // suffix entry starting with `e` (`eNNNNN`), so `e` visits one entry per
     // term, above the check granularity.
     #[test]
-    fn suffix_trie_map_no_timeout_returns_all() {
+    fn contains_no_timeout_returns_all() {
         let (idx, total) = big_index();
-        let got = idx.suffix_trie_map(b"e", true, None).count();
+        let got = idx.suffix_expand(SuffixQuery::Contains(b"e"), None).count();
         assert_eq!(got, total, "every term containing `e` must be expanded");
     }
 
     #[test]
     #[cfg_attr(miri, ignore)]
-    fn suffix_trie_map_times_out_with_partial_results() {
+    fn contains_times_out_with_partial_results() {
         let (idx, total) = big_index();
-        let got = idx.suffix_trie_map(b"e", true, Some(expired())).count();
+        let got = idx
+            .suffix_expand(SuffixQuery::Contains(b"e"), Some(expired()))
+            .count();
         assert!(got > 0, "the first granularity-1 entries are collected");
         assert!(got < total, "timeout must stop before the full expansion");
     }

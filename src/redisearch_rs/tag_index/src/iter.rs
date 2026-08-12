@@ -92,8 +92,7 @@ enum ValueIteratorImpl<'ti> {
 }
 
 impl ValueIteratorImpl<'_> {
-    /// Hand `deadline` to the underlying trie iterator, which enforces it inside
-    /// its own traversal loop — see [`ValueIterator::set_timeout`].
+    /// Forward deadline to the behind iterator.
     fn set_timeout(&mut self, deadline: Option<Instant>) {
         match self {
             Self::MemAll(it) => it.set_timeout(deadline),
@@ -124,13 +123,7 @@ pub struct ValueIterator<'ti> {
 
 impl<'ti> ValueIterator<'ti> {
     /// Advance to the next entry, honoring the optional timeout, and return the
-    /// key together with the value:
-    ///
-    /// - memory-mode entries yield `Some(&InvertedIndex)` — the stable heap
-    ///   address of the tag's posting list;
-    /// - disk-mode and suffix-trie entries yield `None` (they carry no
-    ///   in-memory value).
-    ///
+    /// key together with the value (when provided).
     /// Returns `None` at the end of the iteration, or when the timeout is
     /// reached. The key slice is borrowed from trie-internal storage and is
     /// invalidated by the next call.
@@ -147,12 +140,6 @@ impl<'ti> ValueIterator<'ti> {
             ValueIteratorImpl::MemAll(it) => it.next().map(|(k, v)| (k, Some(mem_value(v)))),
             ValueIteratorImpl::MemContains(it) => it.next().map(|(k, v)| (k, Some(mem_value(v)))),
             ValueIteratorImpl::MemWildcard(it) => it.next().map(|(k, v)| (k, Some(mem_value(v)))),
-            // The suffix modes skip the non-matching entries with `find` — inside
-            // the trie's own traversal loop, so the deadline `set_timeout`
-            // installed is probed per *visited* entry. A filtering adapter wrapped
-            // around the trie iterator would instead leave the whole skipped run
-            // unbounded, since the deadline could then only be probed per *yielded*
-            // match.
             ValueIteratorImpl::MemSuffix(it, matches) => {
                 it.find(&mut *matches).map(|(k, v)| (k, Some(mem_value(v))))
             }
@@ -166,20 +153,9 @@ impl<'ti> ValueIterator<'ti> {
         }
     }
 
-    /// Set the deadline honored while iterating (affix queries). Iteration ends,
-    /// as if the trie were exhausted, once it is reached.
+    /// Set the deadline honored while iterating.
     ///
-    /// `timeout` is an absolute `CLOCK_MONOTONIC_RAW` deadline. It is handed to the
-    /// underlying trie iterator, which enforces it inside its traversal loop
-    /// (amortized over a fixed number of steps, like
-    /// [`expansion_timeout`](crate::expansion_timeout) does for suffix-trie
-    /// expansion). That is what bounds a walk whose entries mostly do *not* match:
-    /// the deadline is probed per visited entry, not per yielded match.
-    ///
-    /// An all-zero `timeout` clears the deadline rather than setting one: taken
-    /// literally it is a deadline long past, which would abort the iteration on
-    /// the first probe. The Redis "no timeout" sentinel is handled by
-    /// [`duration_from_redis_timespec`].
+    /// An all-zero `timeout` clears the deadline rather than setting one.
     pub fn set_timeout(&mut self, timeout: timespec) {
         let deadline = if timeout.tv_sec == 0 && timeout.tv_nsec == 0 {
             None
@@ -192,7 +168,7 @@ impl<'ti> ValueIterator<'ti> {
 }
 
 impl TagIndex {
-    /// Iterate over all tag values, in lexicographical order, in either mode.
+    /// Iterate over all tag values, in lexicographical order.
     pub fn value_iter(&self) -> ValueIterator<'_> {
         let iter = if self.disk_mode() {
             ValueIteratorImpl::DiskAll(self.disk_iter_values())
@@ -214,7 +190,7 @@ impl TagIndex {
     pub fn value_iter_filtered<'a>(
         &'a self,
         pattern: &'a [u8],
-        mode: IterMode,
+        iter_mode: IterMode,
     ) -> ValueIterator<'a> {
         // The suffix mode filters a full trie walk by an owned copy of the
         // pattern; the boxed predicate keeps the `Vec` alive for the iterator's
@@ -223,36 +199,31 @@ impl TagIndex {
             Box::new(move |(k, _): &(&[u8], &V)| k.ends_with(&suffix))
         }
 
-        let iter = if self.disk_mode() {
-            match mode {
-                IterMode::Prefix => {
-                    ValueIteratorImpl::DiskAll(self.disk_prefixed_iter_values(pattern))
-                }
-                IterMode::Contains => {
-                    ValueIteratorImpl::DiskContains(self.disk_contains_iter_values(pattern))
-                }
-                IterMode::Suffix => ValueIteratorImpl::DiskSuffix(
-                    self.disk_iter_values(),
-                    suffix_predicate(pattern.to_vec()),
-                ),
-                IterMode::Wildcard => {
-                    ValueIteratorImpl::DiskWildcard(self.disk_wildcard_iter_values(pattern))
-                }
+        let iter = match (self.disk_mode(), iter_mode) {
+            (true, IterMode::Prefix) => {
+                ValueIteratorImpl::DiskAll(self.disk_prefixed_iter_values(pattern))
             }
-        } else {
-            match mode {
-                IterMode::Prefix => ValueIteratorImpl::MemAll(self.prefixed_iter_values(pattern)),
-                IterMode::Contains => {
-                    ValueIteratorImpl::MemContains(self.contains_iter_values(pattern))
-                }
-                IterMode::Suffix => ValueIteratorImpl::MemSuffix(
-                    self.iter_values(),
-                    suffix_predicate(pattern.to_vec()),
-                ),
-                IterMode::Wildcard => {
-                    ValueIteratorImpl::MemWildcard(self.wildcard_iter_values(pattern))
-                }
+            (true, IterMode::Contains) => {
+                ValueIteratorImpl::DiskContains(self.disk_contains_iter_values(pattern))
             }
+            (true, IterMode::Suffix) => ValueIteratorImpl::DiskSuffix(
+                self.disk_iter_values(),
+                suffix_predicate(pattern.to_vec()),
+            ),
+            (true, IterMode::Wildcard) => {
+                ValueIteratorImpl::DiskWildcard(self.disk_wildcard_iter_values(pattern))
+            },
+            (false, IterMode::Prefix) => ValueIteratorImpl::MemAll(self.prefixed_iter_values(pattern)),
+            (false, IterMode::Contains) => {
+                ValueIteratorImpl::MemContains(self.contains_iter_values(pattern))
+            }
+            (false, IterMode::Suffix) => ValueIteratorImpl::MemSuffix(
+                self.iter_values(),
+                suffix_predicate(pattern.to_vec()),
+            ),
+            (false, IterMode::Wildcard) => {
+                ValueIteratorImpl::MemWildcard(self.wildcard_iter_values(pattern))
+            },
         };
 
         ValueIterator { iter }
@@ -260,9 +231,6 @@ impl TagIndex {
 
     /// Iterate over all entries of the suffix index, in lexicographical order,
     /// or `None` when the index was created without `WITHSUFFIXTRIE`.
-    ///
-    /// Only the keys are meaningful; [`advance`](ValueIterator::advance) yields
-    /// `None` for the value.
     pub fn suffix_value_iter(&self) -> Option<ValueIterator<'_>> {
         let iter = self.iter_suffix_entries()?;
         Some(ValueIterator {
@@ -287,7 +255,7 @@ impl<'trie> TagValueReader<'trie> {
 
     /// Read the next record into `res`, returning `true` when a record was
     /// written and `false` at the end of the postings.
-    pub fn next(&mut self, res: &mut RSIndexResult<'trie>) -> bool {
+    pub fn next_record(&mut self, res: &mut RSIndexResult<'trie>) -> bool {
         self.reader.next_record(res).unwrap_or_default()
     }
 }

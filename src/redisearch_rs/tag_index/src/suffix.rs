@@ -22,20 +22,14 @@
 //! Adding and removing items from this trie require order-aware operations.
 //!
 //! For instance, during the insertion:
-//! - insert owned term under tag key
+//! - insert owned term under tag key ([`OwnedTerm`])
 //! - for each suffix:
-//!   - insert borrowed term under the suffix key
+//!   - insert borrowed term under the suffix key ([`TermPtr`])
 //!
 //! # Keys and stored terms
 //!
 //! Keys are the NUL-free tag bytes and each of their suffixes. The stored *terms*
-//! are separate allocations that [`OwnedTerm::new`] NUL-terminates itself. That
-//! terminator is why a [`TermPtr`] is usable as a C `char *`: query expansion
-//! hands these pointers to C, which calls `strlen` on them.
-//!
-//! It is also what makes the tags being NUL-free a *safety* requirement of
-//! [`TagSuffixIndex::add`] rather than a convention; [`OwnedTerm::new`] documents
-//! why.
+//! are separate allocations that [`OwnedTerm::new`] NUL-terminates itself.
 //!
 
 use std::{
@@ -51,9 +45,6 @@ use trie_rs::{
 };
 
 /// Layout of a tag term allocation.
-///
-/// Both [`OwnedTerm::new`] and [`OwnedTerm::drop`](OwnedTerm#impl-Drop) go
-/// through here, so the alloc and dealloc layouts cannot drift apart.
 fn tag_term_layout(size: usize) -> Layout {
     // A term is a plain byte buffer, so it needs no alignment beyond 1.
     let align = align_of::<u8>();
@@ -76,14 +67,7 @@ impl OwnedTerm {
     ///
     /// # Safety
     ///
-    /// `term` must be NUL-free, as everything in this crate is (see the [crate
-    /// docs](crate)). This is the one place where violating that is undefined
-    /// behaviour rather than merely wrong: the length is not stored, so
-    /// [`alloc_size`](Self::alloc_size) recovers it by scanning for the
-    /// terminator, and [`drop`](OwnedTerm#impl-Drop) deallocates with the layout
-    /// that scan reports. An interior NUL would stop the scan early and free the
-    /// allocation under a shorter layout than it was allocated with. Checked by a
-    /// `debug_assert!`.
+    /// - `term` must be NUL-free.
     unsafe fn new(term: &[u8]) -> Self {
         debug_assert!(
             !term.contains(&0),
@@ -114,14 +98,13 @@ impl OwnedTerm {
     const fn alloc_size(&self) -> usize {
         // This cast doesn't change size, we care about only the NULL
         let ptr = self.0.as_ptr().cast::<std::ffi::c_char>().cast_const();
-        // SAFETY: [`OwnedTerm::new`] NUL-terminates every allocation, and its
-        // contract makes the term itself NUL-free, so the scan stops at the
-        // terminator it wrote.
+        // SAFETY: [`OwnedTerm::new`] NUL-terminates every allocation.
         unsafe { std::ffi::CStr::from_ptr(ptr) }
             .to_bytes_with_nul()
             .len()
     }
 
+    /// Build [`TermPtr`] from the current [`OwnedTerm`]
     const fn borrowed(&self) -> TermPtr {
         TermPtr(self.0)
     }
@@ -167,9 +150,7 @@ impl TermPtr {
     }
 }
 
-/// Payload of one trie entry. Opaque outside this module: entries are only
-/// handed out by reference, so callers can enumerate the suffixes without
-/// touching the term bookkeeping.
+/// Payload of one trie entry.
 #[derive(Debug, Default)]
 pub(crate) struct SuffixData {
     /// `Some` iff this entry's key is itself a member: the owning handle of
@@ -183,10 +164,6 @@ impl SuffixData {
     /// Every member term this entry's key belongs to: the term itself when the
     /// key is a full term (stored separately in [`Self::full_term`]) followed by
     /// every term the key is a *proper* suffix of ([`Self::refs`]).
-    ///
-    /// Unlike iterating [`Self::refs`] alone, this includes the full-term entry,
-    /// so a term matched through its own key (e.g. `he*` matching `hero`) is not
-    /// dropped.
     pub fn members(&self) -> impl Iterator<Item = TermPtr> + '_ {
         self.full_term
             .as_ref()
@@ -210,8 +187,7 @@ impl TagSuffixIndex {
         }
     }
 
-    /// Index `term` and every one of its suffixes, keyed as the [module
-    /// docs](self) describe.
+    /// Index `term` and every one of its suffixes.
     ///
     /// `term` is the tag value. The empty tag (`INDEXEMPTY`) is never indexed: it
     /// has no suffixes to look up.
@@ -243,6 +219,7 @@ impl TagSuffixIndex {
                 full_term: None,
                 refs: ThinVec::with_capacity(2),
             });
+            // Keep "alive" the owned term
             data.full_term = Some(owned);
 
             data
@@ -268,13 +245,13 @@ impl TagSuffixIndex {
     }
 
     /// Iterate over the `(suffix, data)` entries whose key starts with `prefix`,
-    /// in lexicographical order — how a contains query (`*foo*`) expands.
+    /// in lexicographical order.
     pub fn prefixed_iter(&self, prefix: &[u8]) -> trie_rs::iter::Iter<'_, SuffixData, VisitAll> {
         self.entries.prefixed_iter(prefix)
     }
 
     /// Iterate over all `(suffix, data)` entries whose suffix matches the
-    /// wildcard `pattern` (`*` and `?` metacharacters).
+    /// wildcard `pattern`.
     pub fn wildcard_iter<'tm, 'p>(
         &'tm self,
         pattern: WildcardPattern<'p>,
@@ -322,8 +299,7 @@ impl TagSuffixIndex {
         }
     }
 
-    /// The entry keyed by exactly `key`, if any — how a suffix query (`*foo`)
-    /// expands, `key` being the suffix itself.
+    /// The entry keyed by exactly `key`, if any.
     pub fn find(&self, key: &[u8]) -> Option<&SuffixData> {
         self.entries.find(key)
     }
