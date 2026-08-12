@@ -179,6 +179,13 @@ runs:
       uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
       with:
         prefix-key: ${{ inputs.rust-cache-prefix-key }}
+        # rust-cache folds the *calling job's id* into the key alongside this
+        # value. Only the default branch writes the cache (see save-if below), so
+        # the run that seeds it — task-test.yml, via the periodic master
+        # validation — and the merge-queue run that restores it must agree on
+        # both. They do because each declares the same rust-cache-key and both
+        # name their job `common-flow`; renaming either job silently stops the
+        # merge-queue build finding a cache, with no failure to point at it.
         key: ${{ inputs.rust-cache-key }}
         # The cargo workspaces and target directory configuration.
         # These entries are separated by newlines and have the form
@@ -190,6 +197,16 @@ runs:
         # compiled artifacts. Without this, cache is never populated on
         # platforms with high failure rates (e.g. macOS x86_64).
         cache-on-failure: true
+        # Only pushes to the default branch write the cache; every other run is
+        # restore-only. GitHub caps a repository at 10 GB of caches and evicts
+        # least-recently-used, while one CI run saves a ~450 MB target dir per
+        # platform. With every PR and merge-queue run saving, the whole budget
+        # churned in minutes and nothing survived long enough to be restored —
+        # so every Rust build compiled from cold. A cache written on a
+        # `gh-readonly-queue/*` or `refs/pull/*/merge` ref is also scoped to a
+        # ref no later run shares, whereas the default branch is readable by all
+        # of them.
+        save-if: ${{ github.ref == 'refs/heads/master' }}
 
     - name: Setup Rust test dependencies
       # Wrapped in retry-command (5 attempts) to survive cargo-binstall's
