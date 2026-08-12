@@ -234,6 +234,17 @@ void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg);
 // a time - where re-parking would change what the test measures.
 void SyncPoint_WaitUntilOnce(const char *name, SyncPointStopFn stop_fn, void *arg);
 
+// How the last SyncPoint_WaitUntilOnce park at a point ended. Lets a test assert on
+// recorded state instead of on how long a command took, which a stalled host can
+// distort past any threshold.
+typedef enum {
+  SYNC_POINT_EXIT_NONE = 0,   // never parked since it was armed
+  SYNC_POINT_EXIT_SIGNAL,     // released by SIGNAL or CLEAR
+  SYNC_POINT_EXIT_PREDICATE,  // the stop predicate returned true
+  SYNC_POINT_EXIT_TIMEOUT,    // the auto-release window ran out
+} SyncPointExit;
+int SyncPoint_LastExit(const char *name);
+
 // Shard dispatch fault injection (test-only, ENABLE_ASSERT builds): arm the next
 // `count` MRCluster_SendCommand calls to return REDIS_ERR, so DebugSendError_Consume
 // returns true that many times. Exercises the no-reply error path.

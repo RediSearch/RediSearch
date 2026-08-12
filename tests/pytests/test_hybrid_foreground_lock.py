@@ -47,11 +47,25 @@ def _hybrid_cmd(*extra):
             'PARAMS', '2', 'BLOB', _blob(), *extra]
 
 
+_probe_seq = itertools.count()
+
+
 def _assert_writer_not_blocked(env, when):
-    """A forced GC needs the spec write lock, so it cannot complete while a read
-    lock is still held. The blocked client replies DONE once the cycle ran, and
-    INVOCATION FAILED if it could not be scheduled within the timeout - which is
-    what a leaked read lock or borrow marker looks like from here."""
+    """A forced GC needs the spec write lock, so it cannot complete while a read lock
+    is still held. The blocked client replies DONE once the cycle ran, and an error if
+    it could not be scheduled within the timeout - which is what a leaked read lock or
+    borrow marker looks like from here.
+
+    The write lock is only taken per collected term (fork_gc/terms.c), and
+    FGC_parentHandleTerms returns at its terminator when the child sent no delta, so a
+    cycle with nothing to collect never takes it. Seed a deletion first, or this probe
+    passes whether or not the lock leaked.
+    """
+    conn = getConnectionByEnv(env)
+    probe = f'probe:{next(_probe_seq)}'
+    conn.execute_command('HSET', probe, 'text', 'hello probe')
+    conn.execute_command('DEL', probe)
+
     waitForRdbSaveToFinish(env)
     try:
         reply = env.cmd(debug_cmd(), 'GC_FORCEINVOKE', 'idx')
@@ -62,8 +76,9 @@ def _assert_writer_not_blocked(env, when):
                     message=f'writer did not acquire the spec lock after {when}')
 
 
-# The park windows below are what the assertion reads. The GC hold has to be the
-# shorter of the two, so that the two outcomes are far apart in wall-clock terms.
+# The build park is deliberately generous: the test can only go red if GC reaches the
+# write lock inside that window, so a wide margin over the few ms it actually needs is
+# what keeps the red side reliable on a loaded host.
 _BUILD_PARK_MS = 3000
 _GC_HOLD_MS = 500
 _GC_ARRIVAL_TIMEOUT_MS = 30000
@@ -74,19 +89,20 @@ def test_hybrid_foreground_build_excludes_gc_writer():
     """Regression test for MOD-16215: the foreground build must hold the spec read
     lock, so a fork-GC writer cannot mutate the trie/stats that QAST_Iterate reads.
 
-    Neither side can be released by a command, because the main thread is parked
-    inside the query for the whole window - so both parks release themselves, and the
-    query's own elapsed time is the oracle:
+    Neither side can be released by a command, because the main thread is parked inside
+    the query for the whole window - so both parks release themselves, and how the
+    build's park ended is the oracle:
 
-      * read lock held  -> GC blocks in LockSpecWrite, never reaches its post-lock
-        park, and the build runs out the full _BUILD_PARK_MS.
-      * read lock missing -> GC takes the write lock straight away and parks there;
-        the build sees that and resumes at once, finishing far inside the window
-        (_GC_HOLD_MS only bounds it if the iterators still take the lock themselves).
+      * read lock held  -> GC blocks in LockSpecWrite and never reaches its post-lock
+        park, so the build's predicate never fires and it exits on TIMEOUT.
+      * read lock missing -> GC takes the write lock straight away and parks there, the
+        build's predicate sees it, and the build exits on PREDICATE.
 
-    Slow is correct here. Reverting the RedisSearchCtx_LockSpecRead call in
-    buildPipelineAndExecute (the sync point sits just after it) turns this red -
-    measured at 3ms against the 3000ms this asserts.
+    The exit reason is recorded when the park ends rather than inferred from how long
+    the query took: a host stall can push the unlocked path past any elapsed-time
+    threshold, which would let a real regression pass. Elapsed time is kept only as a
+    diagnostic. Reverting the RedisSearchCtx_LockSpecRead call in
+    buildPipelineAndExecute (the sync point sits just after it) turns this red.
     """
     env = Env(moduleArgs='WORKERS 0 DEFAULT_DIALECT 2', enableDebugCommand=True)
     skipIfNoEnableAssert(env)
@@ -120,10 +136,11 @@ def test_hybrid_foreground_build_excludes_gc_writer():
     elapsed_ms = (time.time() - start) * 1000
 
     env.assertGreater(len(res), 0)
-    env.assertGreater(elapsed_ms, (_BUILD_PARK_MS + _GC_HOLD_MS) / 2,
-                      message='the foreground build did not hold the spec read lock '
-                              f'against the GC writer (took {elapsed_ms:.0f}ms, '
-                              f'expected about {_BUILD_PARK_MS}ms)')
+    exit_reason = env.cmd(debug_cmd(), 'SYNC_POINT', 'LAST_EXIT', 'HybridForegroundBuild')
+    env.assertEqual(exit_reason, 'TIMEOUT',
+                    message='GC acquired the spec write lock while the foreground build '
+                            'was in progress, so the build did not hold the read lock '
+                            f'(query took {elapsed_ms:.0f}ms)')
 
     env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
     env.cmd(debug_cmd(), 'GC_WAIT_FOR_JOBS')
