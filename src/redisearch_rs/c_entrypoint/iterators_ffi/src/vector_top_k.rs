@@ -155,13 +155,13 @@ fn box_reduced<'index, E: ExpirationChecker + 'index>(
 ///
 /// # Safety
 ///
-/// `it` must be a [`VectorTopKIterator`] and remain valid.
+/// `iter` must be a [`VectorTopKIterator`] and remain valid.
 const unsafe fn wrapper_mut(
-    it: *mut QueryIterator,
+    iter: *mut QueryIterator,
 ) -> &'static mut RQEIteratorWrapper<VectorTopKIterator<'static>> {
-    // SAFETY: `it` was created by `RQEIteratorWrapper::boxed_new` with inner type
+    // SAFETY: `iter` was created by `RQEIteratorWrapper::boxed_new` with inner type
     // `VectorTopKIterator<'static>`, so the cast is valid per `mut_ref_from_header_ptr`'s contract.
-    unsafe { RQEIteratorWrapper::<VectorTopKIterator<'static>>::mut_ref_from_header_ptr(it) }
+    unsafe { RQEIteratorWrapper::<VectorTopKIterator<'static>>::mut_ref_from_header_ptr(iter) }
 }
 
 /// Cast a `*const QueryIterator` produced by [`NewVectorTopKIterator`] back to
@@ -172,10 +172,11 @@ const unsafe fn wrapper_mut(
 /// 1. `it` must be a valid, non-null pointer to a [`VectorTopKIterator`] that was
 ///    created by [`NewVectorTopKIterator`].
 const unsafe fn wrapper_ref(
-    it: *const QueryIterator,
+    iter: *const QueryIterator,
 ) -> &'static RQEIteratorWrapper<VectorTopKIterator<'static>> {
-    // SAFETY: same contract as `wrapper_mut`.
-    unsafe { RQEIteratorWrapper::<VectorTopKIterator<'static>>::ref_from_header_ptr(it) }
+    // SAFETY: `iter` was created by `RQEIteratorWrapper::boxed_new` with inner type
+    // `VectorTopKIterator<'static>`, so the cast is valid per `ref_from_header_ptr`'s contract.
+    unsafe { RQEIteratorWrapper::<VectorTopKIterator<'static>>::ref_from_header_ptr(iter) }
 }
 
 /// Return a mutable reference to the `RLookupKey *` stored inside this iterator.
@@ -285,7 +286,7 @@ pub unsafe extern "C" fn VectorTopK_GetNumIterations(it: *const QueryIterator) -
     wrapper.inner.source().num_iterations
 }
 
-/// Return the largest batch size used during Batches mode.
+/// Return the maximum batch size used during Batches mode.
 ///
 /// # Safety
 ///
