@@ -757,6 +757,7 @@ fn metrics_reset_on_rewind() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "requires C FFI (RedisModule reply API)")]
 fn profile_reports_optimizer_type_and_counters() {
     let tree = build_tree(20, false, 0);
     let source = NumericScoreSource::with_range_batch_size(&tree, full_range(), false, 1);
@@ -785,6 +786,7 @@ fn profile_reports_optimizer_type_and_counters() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "requires C FFI (RedisModule reply API)")]
 fn profile_reports_batches_read_before_a_timeout() {
     // The abort path resets the source so the query can be retried; the profile of
     // the timed-out run must still report the batches that were read, since that is
@@ -810,6 +812,7 @@ fn profile_reports_batches_read_before_a_timeout() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "requires C FFI (RedisModule reply API)")]
 fn profile_renders_child_subtree() {
     let tree = tree_from(&[(1, 5.0), (2, 1.0), (3, 4.0)]);
     let source = NumericScoreSource::unfiltered(&tree, full_range(), false);
