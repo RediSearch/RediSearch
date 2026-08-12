@@ -679,6 +679,10 @@ fn main() {
     // `deps/rmalloc/rmalloc.h` uses.
     bindings = bindings.clang_arg("-D_GNU_SOURCE");
 
+    // `QueryRequest` is only passed across this FFI boundary by pointer. Keep its
+    // C-owned internals out of the generated Rust surface.
+    bindings = bindings.opaque_type("QueryRequest");
+
     for ty in BLOCKLIST_TYPES {
         bindings = bindings.blocklist_type(ty);
     }
