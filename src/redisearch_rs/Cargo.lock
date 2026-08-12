@@ -2487,6 +2487,7 @@ dependencies = [
  "query_error",
  "redis-module",
  "redis_mock",
+ "rlookup",
  "rqe_core",
  "rqe_iterators",
  "ttl_table",
