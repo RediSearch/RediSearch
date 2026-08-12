@@ -609,7 +609,9 @@ QueryIterator *NewUnsortedIdListIterator(t_docId *ids, uint64_t num, double weig
 /**
  * Construct a vector top-k iterator and expose it as a C [`QueryIterator`].
  *
- * This call can reduce to an `Empty` iterator.
+ * This call can reduce to an `Empty` iterator, whose `type_` is
+ * [`IteratorType::Empty`] rather than [`IteratorType::Hybrid`]. The `VectorTopK_*`
+ * accessors below must not be called on such a handle.
  *
  * Pass `child = NULL` for a pure KNN query; pass a valid owning child iterator
  * for a hybrid (filtered) query.
@@ -783,8 +785,8 @@ void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
  *
  * # Safety
  *
- * 1. `it` must be a valid, non-null pointer to a [`VectorTopKIterator`] that was
- *    created by [`NewVectorTopKIterator`].
+ * 1. `it` is a non-null handle from [`NewVectorTopKIterator`] that did not reduce
+ *    to `Empty`, whose `index` and `sctx` are still alive.
  */
 QueryIterator *VectorTopK_GetChild(const QueryIterator *it);
 
@@ -793,18 +795,18 @@ QueryIterator *VectorTopK_GetChild(const QueryIterator *it);
  *
  * # Safety
  *
- * 1. `it` must be a valid, non-null pointer to a [`VectorTopKIterator`] that was
- *    created by [`NewVectorTopKIterator`].
+ * 1. `it` is a non-null handle from [`NewVectorTopKIterator`] that did not reduce
+ *    to `Empty`, whose `index` and `sctx` are still alive.
  */
 size_t VectorTopK_GetMaxBatchIteration(const QueryIterator *it);
 
 /**
- * Return the largest batch size used during Batches mode.
+ * Return the maximum batch size used during Batches mode.
  *
  * # Safety
  *
- * 1. `it` must be a valid, non-null pointer to a [`VectorTopKIterator`] that was
- *    created by [`NewVectorTopKIterator`].
+ * 1. `it` is a non-null handle from [`NewVectorTopKIterator`] that did not reduce
+ *    to `Empty`, whose `index` and `sctx` are still alive.
  */
 size_t VectorTopK_GetMaxBatchSize(const QueryIterator *it);
 
@@ -813,8 +815,8 @@ size_t VectorTopK_GetMaxBatchSize(const QueryIterator *it);
  *
  * # Safety
  *
- * 1. `it` must be a valid, non-null pointer to a [`VectorTopKIterator`] that was
- *    created by [`NewVectorTopKIterator`].
+ * 1. `it` is a non-null handle from [`NewVectorTopKIterator`] that did not reduce
+ *    to `Empty`, whose `index` and `sctx` are still alive.
  */
 size_t VectorTopK_GetNumIterations(const QueryIterator *it);
 
@@ -826,8 +828,8 @@ size_t VectorTopK_GetNumIterations(const QueryIterator *it);
  *
  * # Safety
  *
- * 1. `it` must be a valid, non-null pointer to a [`VectorTopKIterator`] that was
- *    created by [`NewVectorTopKIterator`].
+ * 1. `it` is a non-null, unaliased handle from [`NewVectorTopKIterator`] that did
+ *    not reduce to `Empty`, whose `index` and `sctx` are still alive.
  */
 RLookupKey * *VectorTopK_GetOwnKeyRef(QueryIterator *it);
 
@@ -844,8 +846,8 @@ RLookupKey * *VectorTopK_GetOwnKeyRef(QueryIterator *it);
  *
  * # Safety
  *
- * 1. `it` must be a valid, non-null pointer to a [`VectorTopKIterator`] that was
- *    created by [`NewVectorTopKIterator`].
+ * 1. `it` is a non-null handle from [`NewVectorTopKIterator`] that did not reduce
+ *    to `Empty`, whose `index` and `sctx` are still alive.
  */
 const char *VectorTopK_GetSearchModeString(const QueryIterator *it);
 
@@ -856,8 +858,8 @@ const char *VectorTopK_GetSearchModeString(const QueryIterator *it);
  *
  * # Safety
  *
- * 1. `it` must be a valid, non-null pointer to a [`VectorTopKIterator`] that was
- *    created by [`NewVectorTopKIterator`].
+ * 1. `it` is a non-null handle from [`NewVectorTopKIterator`] that did not reduce
+ *    to `Empty`, whose `index` and `sctx` are still alive.
  */
 bool VectorTopK_IsBatchMode(const QueryIterator *it);
 
@@ -868,8 +870,8 @@ bool VectorTopK_IsBatchMode(const QueryIterator *it);
  *
  * # Safety
  *
- * 1. `it` must be a valid, non-null pointer to a [`VectorTopKIterator`] that was
- *    created by [`NewVectorTopKIterator`].
+ * 1. `it` is a non-null, unaliased handle from [`NewVectorTopKIterator`] that did
+ *    not reduce to `Empty`, whose `index` and `sctx` are still alive.
  * 2. `handle` is either null or a valid pointer to a [`RLookupKeyHandle`].
  */
 void VectorTopK_SetKeyHandle(QueryIterator *it, RLookupKeyHandle *handle);

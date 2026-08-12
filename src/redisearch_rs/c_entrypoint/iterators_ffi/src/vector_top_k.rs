@@ -26,7 +26,7 @@ use ffi::{
 };
 use field::FieldFilterContext;
 use rqe_iterators::{
-    ExpirationChecker, FieldExpirationChecker,
+    ExpirationChecker, FieldExpirationChecker, IteratorType,
     c2rust::CRQEIterator,
     interop::{RQEIteratorWrapper, patch_vtable},
 };
@@ -35,7 +35,9 @@ use vector_score_source::{NewVectorTopK, VectorTopKIterator, new_vector_top_k};
 
 /// Construct a vector top-k iterator and expose it as a C [`QueryIterator`].
 ///
-/// This call can reduce to an `Empty` iterator.
+/// This call can reduce to an `Empty` iterator, whose `type_` is
+/// [`IteratorType::Empty`] rather than [`IteratorType::Hybrid`]. The `VectorTopK_*`
+/// accessors below must not be called on such a handle.
 ///
 /// Pass `child = NULL` for a pure KNN query; pass a valid owning child iterator
 /// for a hybrid (filtered) query.
@@ -155,12 +157,23 @@ fn box_reduced<'index, E: ExpirationChecker + 'index>(
 ///
 /// # Safety
 ///
-/// `iter` must be a [`VectorTopKIterator`] and remain valid.
-const unsafe fn wrapper_mut(
+/// 1. `iter` is non-null, [valid], and was returned by [`NewVectorTopKIterator`]
+///    for a query that did not reduce to `Empty`, so its `type_` is
+///    [`IteratorType::Hybrid`].
+/// 2. No other reference to the wrapper is live for the duration of the returned
+///    borrow.
+/// 3. The `index` and `sctx` given to that [`NewVectorTopKIterator`] call are
+///    still alive.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+unsafe fn wrapper_mut(
     iter: *mut QueryIterator,
 ) -> &'static mut RQEIteratorWrapper<VectorTopKIterator<'static>> {
-    // SAFETY: `iter` was created by `RQEIteratorWrapper::boxed_new` with inner type
-    // `VectorTopKIterator<'static>`, so the cast is valid per `mut_ref_from_header_ptr`'s contract.
+    // SAFETY: guaranteed by 1.
+    debug_assert!(matches!(unsafe { (*iter).type_ }, IteratorType::Hybrid));
+    // SAFETY: 1 pins the inner type ; `NewVectorTopKIterator` boxes only
+    // `VectorTopKIterator` with a `FieldExpirationChecker` ; 2 gives the unique
+    // handle ; 3 makes the `'static` inner lifetime sound.
     unsafe { RQEIteratorWrapper::<VectorTopKIterator<'static>>::mut_ref_from_header_ptr(iter) }
 }
 
@@ -169,13 +182,23 @@ const unsafe fn wrapper_mut(
 ///
 /// # Safety
 ///
-/// 1. `it` must be a valid, non-null pointer to a [`VectorTopKIterator`] that was
-///    created by [`NewVectorTopKIterator`].
-const unsafe fn wrapper_ref(
+/// 1. `iter` is non-null, [valid], and was returned by [`NewVectorTopKIterator`]
+///    for a query that did not reduce to `Empty`, so its `type_` is
+///    [`IteratorType::Hybrid`].
+/// 2. No mutable reference to the wrapper is live for the duration of the
+///    returned borrow.
+/// 3. The `index` and `sctx` given to that [`NewVectorTopKIterator`] call are
+///    still alive.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+unsafe fn wrapper_ref(
     iter: *const QueryIterator,
 ) -> &'static RQEIteratorWrapper<VectorTopKIterator<'static>> {
-    // SAFETY: `iter` was created by `RQEIteratorWrapper::boxed_new` with inner type
-    // `VectorTopKIterator<'static>`, so the cast is valid per `ref_from_header_ptr`'s contract.
+    // SAFETY: guaranteed by 1.
+    debug_assert!(matches!(unsafe { (*iter).type_ }, IteratorType::Hybrid));
+    // SAFETY: 1 pins the inner type — `NewVectorTopKIterator` boxes only
+    // `VectorTopKIterator` with a `FieldExpirationChecker` — and 2 keeps the shared
+    // borrow unaliased; 3 makes the `'static` inner lifetime sound.
     unsafe { RQEIteratorWrapper::<VectorTopKIterator<'static>>::ref_from_header_ptr(iter) }
 }
 
@@ -186,8 +209,8 @@ const unsafe fn wrapper_ref(
 ///
 /// # Safety
 ///
-/// 1. `it` must be a valid, non-null pointer to a [`VectorTopKIterator`] that was
-///    created by [`NewVectorTopKIterator`].
+/// 1. `it` is a non-null, unaliased handle from [`NewVectorTopKIterator`] that did
+///    not reduce to `Empty`, whose `index` and `sctx` are still alive.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn VectorTopK_GetOwnKeyRef(it: *mut QueryIterator) -> *mut *mut RLookupKey {
     debug_assert!(!it.is_null());
@@ -207,8 +230,8 @@ pub unsafe extern "C" fn VectorTopK_GetOwnKeyRef(it: *mut QueryIterator) -> *mut
 ///
 /// # Safety
 ///
-/// 1. `it` must be a valid, non-null pointer to a [`VectorTopKIterator`] that was
-///    created by [`NewVectorTopKIterator`].
+/// 1. `it` is a non-null, unaliased handle from [`NewVectorTopKIterator`] that did
+///    not reduce to `Empty`, whose `index` and `sctx` are still alive.
 /// 2. `handle` is either null or a valid pointer to a [`RLookupKeyHandle`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn VectorTopK_SetKeyHandle(
@@ -233,8 +256,8 @@ pub unsafe extern "C" fn VectorTopK_SetKeyHandle(
 ///
 /// # Safety
 ///
-/// 1. `it` must be a valid, non-null pointer to a [`VectorTopKIterator`] that was
-///    created by [`NewVectorTopKIterator`].
+/// 1. `it` is a non-null handle from [`NewVectorTopKIterator`] that did not reduce
+///    to `Empty`, whose `index` and `sctx` are still alive.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn VectorTopK_GetSearchModeString(it: *const QueryIterator) -> *const c_char {
     debug_assert!(!it.is_null());
@@ -248,8 +271,7 @@ pub unsafe extern "C" fn VectorTopK_GetSearchModeString(it: *const QueryIterator
         TopKMode::AdhocBF if switches > 0 => VecSimSearchMode_VECSIM_HYBRID_BATCHES_TO_ADHOC_BF,
         TopKMode::AdhocBF => VecSimSearchMode_VECSIM_HYBRID_ADHOC_BF,
     };
-    // SAFETY: `VecSimSearchMode` and `VecSearchMode` are distinct bindgen types generated from
-    // two C enums that are kept in sync (same underlying integer type, matching variant values).
+    // SAFETY: the call is sound for any `mode`; `mode` is initialized with ffi-driven constants.
     unsafe { ffi::VecSimSearchMode_ToString(mode) }
 }
 
@@ -259,8 +281,8 @@ pub unsafe extern "C" fn VectorTopK_GetSearchModeString(it: *const QueryIterator
 ///
 /// # Safety
 ///
-/// 1. `it` must be a valid, non-null pointer to a [`VectorTopKIterator`] that was
-///    created by [`NewVectorTopKIterator`].
+/// 1. `it` is a non-null handle from [`NewVectorTopKIterator`] that did not reduce
+///    to `Empty`, whose `index` and `sctx` are still alive.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn VectorTopK_IsBatchMode(it: *const QueryIterator) -> bool {
     debug_assert!(!it.is_null());
@@ -276,8 +298,8 @@ pub unsafe extern "C" fn VectorTopK_IsBatchMode(it: *const QueryIterator) -> boo
 ///
 /// # Safety
 ///
-/// 1. `it` must be a valid, non-null pointer to a [`VectorTopKIterator`] that was
-///    created by [`NewVectorTopKIterator`].
+/// 1. `it` is a non-null handle from [`NewVectorTopKIterator`] that did not reduce
+///    to `Empty`, whose `index` and `sctx` are still alive.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn VectorTopK_GetNumIterations(it: *const QueryIterator) -> usize {
     debug_assert!(!it.is_null());
@@ -290,8 +312,8 @@ pub unsafe extern "C" fn VectorTopK_GetNumIterations(it: *const QueryIterator) -
 ///
 /// # Safety
 ///
-/// 1. `it` must be a valid, non-null pointer to a [`VectorTopKIterator`] that was
-///    created by [`NewVectorTopKIterator`].
+/// 1. `it` is a non-null handle from [`NewVectorTopKIterator`] that did not reduce
+///    to `Empty`, whose `index` and `sctx` are still alive.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn VectorTopK_GetMaxBatchSize(it: *const QueryIterator) -> usize {
     debug_assert!(!it.is_null());
@@ -304,8 +326,8 @@ pub unsafe extern "C" fn VectorTopK_GetMaxBatchSize(it: *const QueryIterator) ->
 ///
 /// # Safety
 ///
-/// 1. `it` must be a valid, non-null pointer to a [`VectorTopKIterator`] that was
-///    created by [`NewVectorTopKIterator`].
+/// 1. `it` is a non-null handle from [`NewVectorTopKIterator`] that did not reduce
+///    to `Empty`, whose `index` and `sctx` are still alive.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn VectorTopK_GetMaxBatchIteration(it: *const QueryIterator) -> usize {
     debug_assert!(!it.is_null());
@@ -320,8 +342,8 @@ pub unsafe extern "C" fn VectorTopK_GetMaxBatchIteration(it: *const QueryIterato
 ///
 /// # Safety
 ///
-/// 1. `it` must be a valid, non-null pointer to a [`VectorTopKIterator`] that was
-///    created by [`NewVectorTopKIterator`].
+/// 1. `it` is a non-null handle from [`NewVectorTopKIterator`] that did not reduce
+///    to `Empty`, whose `index` and `sctx` are still alive.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn VectorTopK_GetChild(it: *const QueryIterator) -> *mut QueryIterator {
     debug_assert!(!it.is_null());
