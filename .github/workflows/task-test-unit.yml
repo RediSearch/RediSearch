@@ -39,6 +39,10 @@ on:
         description: 'Workflow artifact name to download (produced by task-build.yml).'
         type: string
         required: true
+      rust-tests-artifact-name:
+        description: 'Workflow artifact holding the Rust nextest archive (produced by task-build.yml). This job is the only consumer, which is why it ships separately from artifact-name.'
+        type: string
+        required: true
       # Resolved platform config — produced by task-get-config.yml at the
       # pipeline level so this workflow doesn't redo it. Caller must supply.
       name:
@@ -119,17 +123,6 @@ jobs:
         shell: sh -l -eo pipefail {0}
         run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
 
-      - name: Free up disk space (container)
-        if: ${{ inputs.container }}
-        run: |
-          echo "Before cleanup:"
-          df -h
-          rm -rf /host_usr/dotnet/* 2>/dev/null || true
-          rm -rf /host_usr/android/* 2>/dev/null || true
-          rm -rf /host_opt/ghc/* 2>/dev/null || true
-          rm -rf /host_opt/hostedtoolcache/CodeQL/* 2>/dev/null || true
-          echo "After cleanup:"
-          df -h
       - name: Free up disk space (non-container)
         if: ${{ !inputs.container && !contains(inputs.env, 'macos') }}
         run: |
@@ -184,6 +177,9 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
+      - name: Free up disk space (container)
+        if: ${{ inputs.container }}
+        uses: ./.github/actions/free-container-disk-space
       - name: Setup build environment
         uses: ./.github/actions/setup-build-env
         with:
@@ -199,7 +195,13 @@ jobs:
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: ${{ inputs.artifact-name }}
-          # bin.tar.gz + nextest-archive.tar.zst land in the working directory.
+          # bin.tar.gz lands in the working directory.
+
+      - name: Download Rust test archive
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ inputs.rust-tests-artifact-name }}
+          # nextest-archive.tar.zst lands in the working directory.
 
       - name: Unpack build artifact
         # Untar instead of relying on the artifact's zip layout so executable

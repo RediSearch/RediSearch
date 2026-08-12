@@ -62,6 +62,10 @@ on:
         type: boolean
         default: false
         description: "If true, build the module for this platform but skip all test steps."
+      rust-cache-read-only:
+        type: boolean
+        default: false
+        description: "If true, restore the Rust cache but never write it. For callers that sweep far more platforms than the merge queue needs, whose saves would evict the caches on the critical path."
 
 env:
   REJSON: ${{ inputs.rejson && 1 || 0 }} # convert the boolean input to numeric
@@ -164,18 +168,6 @@ jobs:
         shell: sh -l -eo pipefail {0}
         run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
 
-      - name: Free up disk space (container)
-        # For container jobs - delete mounted host directories
-        if: ${{ needs.get-config.outputs.container }}
-        run: |
-          echo "Before cleanup:"
-          df -h
-          rm -rf /host_usr/dotnet/* 2>/dev/null || true
-          rm -rf /host_usr/android/* 2>/dev/null || true
-          rm -rf /host_opt/ghc/* 2>/dev/null || true
-          rm -rf /host_opt/hostedtoolcache/CodeQL/* 2>/dev/null || true
-          echo "After cleanup:"
-          df -h
       - name: Free up disk space (non-container)
         # For non-container jobs - delete directly with sudo
         # Skip macOS - it doesn't have these directories
@@ -237,6 +229,9 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
+      - name: Free up disk space (container)
+        if: ${{ needs.get-config.outputs.container }}
+        uses: ./.github/actions/free-container-disk-space
       - name: Setup build environment
         uses: ./.github/actions/setup-build-env
         with:
@@ -253,6 +248,7 @@ jobs:
           install-script: 'true'
           rust-cache: 'true'
           rust-cache-key: ${{ inputs.platform }}-${{ inputs.architecture }}-${{ inputs.san }}-${{ inputs.coverage && 'cov' || '' }}
+          rust-cache-read-only: ${{ inputs.rust-cache-read-only }}
           rust-test-deps: 'true'
           github-token: ${{ github.token }}
           python-test-deps: 'true'
