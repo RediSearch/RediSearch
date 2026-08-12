@@ -33,11 +33,6 @@
 //!
 //! Known asymmetries:
 //!
-//! - Window sizing dominates the unfiltered group. The C optimizer always sizes
-//!   its first window from the child's selectivity, so a wildcard child bounds it
-//!   at roughly `k` documents; the Rust unfiltered source reads an unbounded
-//!   window and can only stop on a batch boundary, so it materializes
-//!   [`RANGE_BATCH_SIZE`] whole ranges before the full heap lets it stop.
 //! - The C side has no unfiltered mode: `Q_OPT_PARTIAL_RANGE` still drives the
 //!   optimizer through a wildcard child, one `Read` plus one doc-table borrow per
 //!   candidate that the Rust source skips entirely.
