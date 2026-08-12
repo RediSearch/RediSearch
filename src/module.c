@@ -3910,8 +3910,6 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     QueryRequest_SetUseReplyCallback(&r->base, true);
     if (policy == TimeoutPolicy_ReturnStrict) {
       r->base.async.requiresAggregateResultsSync = true;
-      // TODO($$$): Remove the legacy async state once consumers use QueryRequest.async.
-      r->brc->requiresAggregateResultsSync = true;
     }
   }
 
@@ -3999,8 +3997,6 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
   RSTimeoutPolicy policy = hreq->reqConfig.timeoutPolicy;
   hreq->base.async.requiresAggregateResultsSync = (policy == TimeoutPolicy_ReturnStrict);
-  // TODO($$$): Remove the legacy async state once consumers use QueryRequest.async.
-  hreq->brc->requiresAggregateResultsSync = (policy == TimeoutPolicy_ReturnStrict);
 
   ConcurrentSearchHandlerCtx handlerCtx;
   ConcurrentSearchHandlerCtx_Init(&handlerCtx);

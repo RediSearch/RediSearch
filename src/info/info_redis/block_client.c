@@ -47,10 +47,7 @@ void BlockedRequestCtx_BeginCycle(BlockedRequestCtx *brc, RedisModuleBlockedClie
   // TODO($$$): Remove the legacy cycle marker once consumers use QueryRequest.blockedClientCycleActive.
   brc->bc = bc;
   brc->deferred_reply = (reply_cb != NULL);
-  RS_AtomicIntStoreRelaxed(
-      &BlockedRequestCtx_QueryRequest(brc)->async.strictReadOwner, BRC_READ_OWNER_NONE);
-  // TODO($$$): Remove the legacy async state once consumers use QueryRequest.async.
-  atomic_store_explicit(&brc->strictReadOwner, BRC_READ_OWNER_NONE, memory_order_relaxed);
+  RS_AtomicIntStoreRelaxed(&request->async.strictReadOwner, BRC_READ_OWNER_NONE);
   RedisModule_BlockClientSetPrivateData(bc, brc);
 }
 
@@ -173,7 +170,7 @@ RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Curs
   // Cursor cycles reuse the wrapper across reads: reset the per-read
   // RETURN_STRICT claim/latch state so the new cycle starts from a clean
   // slate.
-  if (brc->requiresAggregateResultsSync) {
+  if (BlockedRequestCtx_QueryRequest(brc)->async.requiresAggregateResultsSync) {
     AREQ_ResetForCursorReadReturnStrict(BlockedRequestCtx_GetAREQ(brc));
   }
   BlockedRequestCtx_QueryRequest(brc)->registryInfo = (RegistryInfo) {

@@ -559,28 +559,25 @@ void HybridRequest_SetTimedOut(HybridRequest *req) {
 
 bool HybridRequest_TryClaimAggregateResults(HybridRequest *req) {
   bool expected = false;
-  // TODO($$$): Remove the legacy async state once consumers use QueryRequest.async.
-  bool claimed = atomic_compare_exchange_strong_explicit(
-      &req->brc->aggregatingResults, &expected, true, memory_order_relaxed, memory_order_relaxed);
-  RS_AtomicBoolStoreRelaxed(&req->base.async.aggregatingResults, true);
-  return claimed;
+  return atomic_compare_exchange_strong_explicit(&req->base.async.aggregatingResults, &expected,
+                                                 true, memory_order_relaxed,
+                                                 memory_order_relaxed);
 }
 
 void HybridRequest_SignalAggregateResultsComplete(HybridRequest *req) {
-  pthread_mutex_lock(&req->brc->aggregateResultsLock);
+  pthread_mutex_lock(&req->base.async.aggregateResultsLock);
   req->base.async.aggregateResultsDone = true;
-  // TODO($$$): Remove the legacy async state once consumers use QueryRequest.async.
-  req->brc->aggregateResultsDone = true;
-  pthread_cond_broadcast(&req->brc->aggregateResultsCond);
-  pthread_mutex_unlock(&req->brc->aggregateResultsLock);
+  pthread_cond_broadcast(&req->base.async.aggregateResultsCond);
+  pthread_mutex_unlock(&req->base.async.aggregateResultsLock);
 }
 
 void HybridRequest_WaitForAggregateResultsComplete(HybridRequest *req) {
-  pthread_mutex_lock(&req->brc->aggregateResultsLock);
-  while (!req->brc->aggregateResultsDone) {
-    pthread_cond_wait(&req->brc->aggregateResultsCond, &req->brc->aggregateResultsLock);
+  pthread_mutex_lock(&req->base.async.aggregateResultsLock);
+  while (!req->base.async.aggregateResultsDone) {
+    pthread_cond_wait(&req->base.async.aggregateResultsCond,
+                      &req->base.async.aggregateResultsLock);
   }
-  pthread_mutex_unlock(&req->brc->aggregateResultsLock);
+  pthread_mutex_unlock(&req->base.async.aggregateResultsLock);
 }
 
 #ifdef __cplusplus

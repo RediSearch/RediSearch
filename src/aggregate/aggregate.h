@@ -140,8 +140,7 @@ typedef enum {
   REQUEST_KIND_HYBRID,
 } RequestKind;
 
-/* TRANSITIONAL(MOD-16691): values of BlockedRequestCtx.strictReadOwner (see
- * the field's doc; deleted by the RETURN_STRICT flip). */
+/* Values of QueryRequestAsyncState.strictReadOwner. */
 typedef enum {
   BRC_READ_OWNER_NONE = 0,
   BRC_READ_OWNER_BG,
@@ -241,9 +240,8 @@ struct HybridRequest;
 
 /**
  * Heap-allocated owning wrapper around a top-level request (AREQ or
- * HybridRequest). It is the single owner of the query and holds the
- * top-level-only result-production coordination state (the TryClaim/Signal/Wait
- * handshake between the background reader and the timeout callback).
+ * HybridRequest). It is the single owner of the query and holds the remaining
+ * blocked-client lifecycle state.
  */
 struct BlockedRequestCtx {
   RequestKind kind;
@@ -251,30 +249,6 @@ struct BlockedRequestCtx {
     AREQ *areq;
     struct HybridRequest *hybrid;
   } query;
-
-  /* Partial-timeout coordination. The CAS claim grants exclusive ownership of
-   * the result-production phase: the BG-thread winner runs AggregateResults
-   * and stores results, while the timeout-callback winner preempts BG (BG
-   * bails at its post-claim check) and replies empty without running the
-   * pipeline. The loser waits for the winner's completion signal.
-   * Gated by `requiresAggregateResultsSync`.
-   * NOTE: a planned follow-up flips this mechanism so the timeout callback
-   * never waits on BG state (mark flag → serialize → drain a thread-safe
-   * results store), replacing the whole claim/latch/wait block. */
-  bool requiresAggregateResultsSync;     // Enable CAS/Signal/Wait around AggregateResults
-  RS_Atomic(bool) aggregatingResults;    // CAS claim: BG winner runs the pipeline; timeout-callback winner skips it and replies empty
-  bool aggregateResultsClaimLost;        // BG lost the CAS claim to the timeout callback
-  bool aggregateResultsDone;             // Set at completion; guarded by aggregateResultsLock
-  /* RP_SAFE_LOADER deadlock-avoidance handshake. Incremented by a BG worker just
-   * before it takes the GIL, decremented after it releases it; guarded by
-   * aggregateResultsLock. The timeout callback reads it (same lock) to detect a
-   * worker parked at the GIL gate and preempt it instead of deadlocking in Wait
-   * while holding the GIL. A count rather than a bool: a hybrid request's tail
-   * and subquery pipelines all share this wrapper, so several safe loaders can
-   * be inside the Enter/Exit window concurrently. */
-  int safeLoadersHoldingGIL;
-  pthread_mutex_t aggregateResultsLock;
-  pthread_cond_t aggregateResultsCond;
 
   /* ===== Per-cycle fields =====
    * A "cycle" is one blocked-client round trip: the initial query execution or
@@ -315,18 +289,6 @@ struct BlockedRequestCtx {
    * incremented by IncrRef, decremented by DecrRef; reaches 0 exactly once,
    * triggering Free. ACQ_REL on decrement so the free path sees prior writes. */
   RS_Atomic(int) refcount;
-
-  /* TRANSITIONAL(MOD-16691): "has the BG worker dequeued this cursor read?"
-   * latch for coord RETURN_STRICT cursor reads; per-cycle, reset by
-   * BeginCycle. The BG handler CASes NONE→BG at its entry; the RETURN_STRICT
-   * timeout callback CASes NONE→TIMEOUT after flipping the timeout flag. A
-   * timer that wins replies with a depleted empty cursor and never waits (the
-   * BG job may be queued behind a paused/saturated pool); a BG that loses
-   * frees the taken cursor and stores nothing. A timer that loses may wait: a
-   * started RETURN_STRICT read always stores a reply and signals completion.
-   * Deleted by the RETURN_STRICT flip (a never-waiting timeout callback does
-   * not care whether BG started). */
-  RS_Atomic(int) strictReadOwner;
 
 };
 
@@ -654,8 +616,7 @@ static inline bool AREQ_RequiresThreadsSyncResults(const AREQ *req) {
   // Invariant: every AREQ reaching the strict-sync protocol is wrapped (the
   // blocked client's privdata is the wrapper). Unwrapped sub-/transient AREQs
   // never run it.
-  RS_ASSERT(req->brc != NULL);
-  return req->brc->requiresAggregateResultsSync;
+  return req->base.async.requiresAggregateResultsSync;
 }
 
 /* TryClaim: atomic CAS on `aggregatingResults`; winner runs AggregateResults.
@@ -663,9 +624,8 @@ static inline bool AREQ_RequiresThreadsSyncResults(const AREQ *req) {
  * Exactly one of {BG thread, timeout callback} wins. */
 bool AREQ_TryClaimAggregateResults(AREQ *req);
 
-/* TRANSITIONAL(MOD-16691): CAS BlockedRequestCtx.strictReadOwner NONE ->
- * `owner`. Returns true if this caller won the latch (see the field's doc for
- * the protocol; deleted by the RETURN_STRICT flip). */
+/* CAS QueryRequestAsyncState.strictReadOwner NONE -> `owner`. Returns true if
+ * this caller won the latch. */
 bool BlockedRequestCtx_TryOwnStrictRead(BlockedRequestCtx *brc, BrcStrictReadOwner owner);
 void AREQ_SignalAggregateResultsComplete(AREQ *req);
 void AREQ_WaitForAggregateResultsComplete(AREQ *req);
@@ -693,9 +653,9 @@ bool BlockedRequestCtx_TimeoutPreemptSafeLoaderGIL(BlockedRequestCtx *sync);
 
 /* Reset the per-cursor-read sync state on a coordinator RETURN_STRICT cursor
  * read so the next chunk starts from a clean slate. Resets:
- *   - brc->aggregatingResults (CAS claim)
- *   - brc->aggregateResultsDone (signal latch)
- *   - brc->safeLoadersHoldingGIL (GIL-handshake latch)
+ *   - base.async.aggregatingResults (CAS claim)
+ *   - base.async.aggregateResultsDone (signal latch)
+ *   - base.async.safeLoadersHoldingGIL (GIL-handshake latch)
  *   - base.timeout.timedOut (timer latch from the previous chunk's timer)
  *   - RPNet::drainOnly on the root proc when it is RP_NETWORK (so the next
  *     read does not short-circuit to EOF on the first empty-channel observation).

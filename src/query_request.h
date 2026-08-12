@@ -68,6 +68,10 @@ typedef enum {
 
 typedef struct {
   uint64_t id;
+  /* Cursor disposition for this cycle. The point that decides the cursor's
+   * fate records it here; OnFree executes it, keeping the cursor unreachable
+   * to other clients until the cycle has fully ended. The pointer is NULL when
+   * the cycle has no cursor; inline execution disposes the cursor directly. */
   struct Cursor *cursor;
   CursorDisposition disposition;
 } CursorInfo;
@@ -79,6 +83,9 @@ typedef enum {
 } RegistryEntryKind;
 
 typedef struct {
+  /* TRANSITIONAL(MOD-16691): per-cycle registry bridge, until the request is
+   * linked directly into BlockedQueries. The node is unlinked and freed at the
+   * end of the cycle; its kind identifies the registry list that owns it. */
   void *node;
   RegistryEntryKind kind;
 } RegistryInfo;
@@ -131,17 +138,29 @@ static inline void QueryRequestTimeout_SetSkipChecks(QueryRequestTimeout *timeou
  * TODO($$$): Remove this temporary state after MOD-17486 is merged.
  */
 typedef struct QueryRequestAsyncState {
-  bool requiresAggregateResultsSync;
-  RS_Atomic(bool) aggregatingResults;
-  bool aggregateResultsClaimLost;
-  bool aggregateResultsDone;
+  /* The CAS claim grants exclusive ownership of result production: the BG
+   * winner runs the pipeline and stores results, while the timeout-callback
+   * winner preempts BG and replies empty. The loser waits for completion.
+   * Gated by requiresAggregateResultsSync. MOD-17486 replaces this claim/wait
+   * protocol with a timeout callback that never waits on BG state. */
+  bool requiresAggregateResultsSync;   // Enable CAS/Signal/Wait around result production
+  RS_Atomic(bool) aggregatingResults;  // CAS claim shared by BG and timeout callback
+  bool aggregateResultsClaimLost;      // BG lost the claim to the timeout callback
+  bool aggregateResultsDone;           // Completion latch guarded by aggregateResultsLock
+  /* RP_SAFE_LOADER deadlock-avoidance handshake. A BG worker increments this
+   * before taking the GIL and decrements it after release, under
+   * aggregateResultsLock. The timeout callback uses it to avoid waiting while
+   * holding the GIL. This is a count because hybrid pipelines share the state. */
   int safeLoadersHoldingGIL;
-  // Per-cycle CAS owner for coordinator RETURN_STRICT cursor reads.
+  /* TRANSITIONAL(MOD-16691): per-cycle dequeue latch for coordinator
+   * RETURN_STRICT cursor reads. BG and the timeout callback race to claim it;
+   * a timeout winner replies without waiting, while a timeout loser may wait
+   * because a started read always stores a reply and signals completion.
+   * Deleted by the RETURN_STRICT flip. */
   RS_Atomic(int) strictReadOwner;
   RS_Atomic(int) execPhase;
   struct MRChannel *abortWakeChannel;
   pthread_mutex_t abortWakeLock;
-  // TODO($$$): Plug both primitives into the async synchronization paths later in this PR.
   pthread_mutex_t aggregateResultsLock;
   pthread_cond_t aggregateResultsCond;
 } QueryRequestAsyncState;
@@ -163,11 +182,19 @@ void QueryRequestAsyncState_WakeAbortChannel(QueryRequestAsyncState *state);
 typedef struct QueryRequest {
   QueryRequestKind kind;
   QueryRequestArgs args;
-  // TODO($$$): Temporary marker intended to replace BlockedRequestCtx.bc.
+  /* A blocked-client cycle is one initial query execution or cursor read.
+   * This is set after RedisModule_BlockClient returns and cleared by OnFree;
+   * per-cycle state must not be read while it is false.
+   * TODO($$$): Temporary marker intended to replace BlockedRequestCtx.bc. */
   bool blockedClientCycleActive;
   CursorInfo cursorInfo;
   RegistryInfo registryInfo;
+  /* Stored results and errors written by BG before UnblockClient and consumed
+   * by the main-thread reply or timeout callback. Reset at the end of each
+   * cycle and again during request destruction as a safety net. */
   ChunkReplyState reply;
+  /* false: BG replies inline through a thread-safe context; true: BG stores
+   * results and the Redis reply callback serializes them on the main thread. */
   bool useReplyCallback;
   QueryRequestTimeout timeout;
   QueryRequestAsyncState async;

@@ -117,7 +117,7 @@ static inline void HybridRequest_SetSkipTimeoutChecks(HybridRequest *req, bool s
 }
 
 static inline bool HybridRequest_RequiresThreadsSyncResults(HybridRequest *req) {
-  return req->brc->requiresAggregateResultsSync;
+  return req->base.async.requiresAggregateResultsSync;
 }
 
 bool HybridRequest_TryClaimAggregateResults(HybridRequest *req);

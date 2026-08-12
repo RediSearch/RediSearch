@@ -434,8 +434,6 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
       // already owns the reply. The caller must skip stored-result handling and
       // clean up the cursor in runCursor.
       req->base.async.aggregateResultsClaimLost = true;
-      // TODO($$$): Remove the legacy async state once consumers use QueryRequest.async.
-      req->brc->aggregateResultsClaimLost = true;
       *rc = RS_RESULT_TIMEDOUT;
       return;
     }
@@ -813,7 +811,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     startPipeline(req, rp, &state.results, &r, &rc);
 
     if (QueryRequest_UsesReplyCallback(&req->base)) {
-      if (req->brc->aggregateResultsClaimLost) {
+      if (req->base.async.aggregateResultsClaimLost) {
         SearchResult_Destroy(&r);
         return;
       }
@@ -1035,7 +1033,7 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     startPipeline(req, rp, &state.results, &r, &rc);
 
     if (QueryRequest_UsesReplyCallback(&req->base)) {
-      if (req->brc->aggregateResultsClaimLost) {
+      if (req->base.async.aggregateResultsClaimLost) {
         SearchResult_Destroy(&r);
         return;
       }
@@ -1995,8 +1993,6 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
         timeoutCallback = QueryTimeoutFailCallback;
       } else {
         r->base.async.requiresAggregateResultsSync = true;
-        // TODO($$$): Remove the legacy async state once consumers use QueryRequest.async.
-        r->brc->requiresAggregateResultsSync = true;
         timeoutCallback = QueryTimeoutReturnStrictCallback;
       }
       replyCallback = QueryReplyCallback;
@@ -2257,7 +2253,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   RedisSearchCtx_AssertLockNotHeld(AREQ_SearchCtx(req));
 
   if (QueryRequest_UsesReplyCallback(&req->base)) {
-    if (req->brc->aggregateResultsClaimLost) {
+    if (req->base.async.aggregateResultsClaimLost) {
       // The strict timeout callback won the sync claim and already replied with
       // cursor 0. Keep cursor ownership consistent with the depleted id already
       // returned to the caller.
@@ -2459,7 +2455,7 @@ static int cursorReadDispatchTaken(RedisModuleCtx *ctx, Cursor *cursor, long lon
   // RETURN_STRICT claim/latch state so the new cycle starts from a clean
   // slate — safe because taking the cursor proves the previous read cycle's
   // BG work is done with it.
-  if (req->brc->requiresAggregateResultsSync) {
+  if (req->base.async.requiresAggregateResultsSync) {
     AREQ_ResetForCursorReadReturnStrict(req);
   }
   RedisModule_BlockedClientMeasureTimeStart(bc);
@@ -2600,8 +2596,6 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         // so opt into the same per-read worker/timeout claim handshake here.
         // BeginCycle performs the per-read reset.
         req->base.async.requiresAggregateResultsSync = true;
-        // TODO($$$): Remove the legacy async state once consumers use QueryRequest.async.
-        req->brc->requiresAggregateResultsSync = true;
       }
       replyCallback = CursorReadReplyCallback;
       timeoutCallback =
