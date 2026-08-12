@@ -16,7 +16,10 @@ use std::{
     ptr::{self, NonNull},
 };
 
-use string_utils::libnu::{NU_MAX_READAHEAD, tail_may_overread};
+use string_utils::{
+    libnu::{NU_MAX_READAHEAD, tail_may_overread},
+    runes::runes_to_bytes,
+};
 
 use crate::LoweredPattern;
 
@@ -549,5 +552,121 @@ impl TermsTrie {
                 skip_timeout_checks,
             );
         }
+    }
+
+    /// Iterate every term in the trie, in the trie's natural iteration order,
+    /// with no filter or distance constraint.
+    pub fn iterate_all(&self) -> TermsTrieAllIterator<'_> {
+        TermsTrieAllIterator::new(self)
+    }
+
+    /// Remove `term` from the trie.
+    ///
+    /// Returns whether an entry was actually removed.
+    pub fn delete(&mut self, term: &[u8]) -> bool {
+        // Terms longer than the trie can store are never present, so report a
+        // miss without a lookup. The C function applies the same cap, but only
+        // after the rune conversion below has already run.
+        if term.len() > ffi::TRIE_INITIAL_STRING_LEN as usize * std::mem::size_of::<ffi::rune>() {
+            return false;
+        }
+
+        // SAFETY: `self` borrows a valid `ffi::Trie`, and `term`/`term.len()`
+        // describe a readable byte slice for the duration of the call.
+        let removed = unsafe {
+            ffi::Trie_Delete(
+                self.as_mut_ptr(),
+                term.as_ptr() as *const c_char,
+                term.len(),
+            )
+        };
+
+        removed != 0
+    }
+}
+
+/// Iterator over every term in a trie.
+///
+/// Reached through [`TermsTrie::iterate_all`], the public entry point.
+pub struct TermsTrieAllIterator<'a> {
+    ptr: NonNull<ffi::TrieIterator>,
+    _borrow: PhantomData<&'a TermsTrie>,
+}
+
+impl<'a> TermsTrieAllIterator<'a> {
+    fn new(trie: &'a TermsTrie) -> Self {
+        // SAFETY: `trie` borrows a valid `ffi::Trie`. `Trie_IterateAll` takes a
+        // non-const `Trie *` but only reads it to seed the iterator's own stack,
+        // so nothing is written through the shared pointer.
+        let ptr = unsafe { ffi::Trie_IterateAll(trie.as_ptr().cast_mut()) };
+        Self {
+            // `Trie_IterateAll` allocates via `rm_calloc`, which aborts the
+            // process on allocation failure rather than returning null.
+            ptr: NonNull::new(ptr).expect("Trie_IterateAll returned null"),
+            _borrow: PhantomData,
+        }
+    }
+
+    /// Advance the walk, returning the next term's rune key, or `None` once
+    /// every term has been visited.
+    fn advance(&mut self) -> Option<&[ffi::rune]> {
+        let mut ptr: *mut ffi::rune = std::ptr::null_mut();
+        let mut len: ffi::t_len = 0;
+        let mut score: f32 = 0.0;
+
+        // SAFETY: `self.ptr` is a valid, non-exhausted `TrieIterator`. `score`
+        // is a valid `&mut f32` the C function may write through unconditionally
+        // on a match; `numDocs`, `payload` and `matchCtx` are unused, and the C
+        // side skips each of them when null.
+        let has_next = unsafe {
+            ffi::TrieIterator_Next(
+                self.ptr.as_ptr(),
+                &mut ptr,
+                &mut len,
+                std::ptr::null_mut(),
+                &mut score,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        };
+
+        if has_next == 0 {
+            return None;
+        }
+
+        // SAFETY: on a match, the C function sets `ptr`/`len` to describe
+        // `len` valid, contiguous runes owned by the iterator's internal
+        // buffer, borrowed for `self`'s lifetime until the next call.
+        Some(unsafe { std::slice::from_raw_parts(ptr, len as usize) })
+    }
+}
+
+impl Iterator for TermsTrieAllIterator<'_> {
+    type Item = Vec<u8>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let runes = self.advance()?;
+        // terms trie insertion caps a trie key at `TRIE_INITIAL_STRING_LEN`
+        // runes, well inside the `MAX_RUNE_STR_LEN` which `runes_to_bytes`
+        // requires, so every key this iterator yields converts.
+        let bytes = runes_to_bytes(runes).expect("a stored trie key fits within MAX_RUNE_STR_LEN");
+        Some(bytes)
+    }
+}
+
+impl<'a> IntoIterator for &'a TermsTrie {
+    type Item = Vec<u8>;
+    type IntoIter = TermsTrieAllIterator<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iterate_all()
+    }
+}
+
+impl Drop for TermsTrieAllIterator<'_> {
+    fn drop(&mut self) {
+        // SAFETY: `self.ptr` was allocated by `Trie_IterateAll` and has not
+        // been freed yet (owned exclusively by this iterator).
+        unsafe { ffi::TrieIterator_Free(self.ptr.as_ptr()) };
     }
 }

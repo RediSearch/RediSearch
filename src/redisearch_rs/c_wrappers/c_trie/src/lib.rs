@@ -20,5 +20,7 @@ mod terms;
 mod util;
 
 pub use suffix::{SuffixMode, SuffixTrie, SuffixWalk};
-pub use terms::{FuzzyWalk, InvalidFuzzyDistance, TermsTrie, TermsTrieDecrResult};
+pub use terms::{
+    FuzzyWalk, InvalidFuzzyDistance, TermsTrie, TermsTrieAllIterator, TermsTrieDecrResult,
+};
 pub use util::LoweredPattern;

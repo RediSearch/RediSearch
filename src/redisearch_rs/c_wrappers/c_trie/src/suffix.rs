@@ -267,4 +267,21 @@ impl SuffixTrie {
             SuffixWalk::Walked
         }
     }
+
+    /// Remove `term` and all of its suffixes from the suffix trie.
+    pub fn delete(&mut self, term: &[u8]) {
+        let Ok(term_len) = u32::try_from(term.len()) else {
+            // The C API takes a `uint32_t` length. A term this long was never
+            // inserted, and truncating would delete an unrelated entry.
+            return;
+        };
+
+        // SAFETY: `self` borrows a valid `ffi::Trie` whose payloads are `suffixData`
+        // and whose free callback releases them, so unregistering the term and
+        // freeing the nodes it empties is sound. `term`/`term_len` describe a
+        // readable byte slice for the call.
+        unsafe {
+            ffi::deleteSuffixTrie(self.as_mut_ptr(), term.as_ptr() as *const c_char, term_len);
+        }
+    }
 }
