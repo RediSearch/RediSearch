@@ -94,8 +94,18 @@ RediSearch.
     carry on with other work until the notifications arrive:
 
     ```bash
-    prev="" errs=0
+    prev="" errs=0 stalled=0
     draft=$(gh pr view <number> --json isDraft --jq .isDraft 2>/dev/null)
+    # On a ready PR this must have been registered before an all-terminal payload
+    # may be read as a finished run. One name is enough, and it is deliberately
+    # this one: `pr-validation` in event-pull_request.yml `needs:` every lane, so
+    # it cannot be terminal until they all are — no per-lane list to maintain.
+    # Matched as a name prefix, since reusable-workflow checks report as
+    # "<job> / <child job> / <leaf>".
+    required=(pr-validation)
+    # A draft does not run the !draft-gated lanes, so pr-validation there attests
+    # to much less. Step 7 says do not open drafts; this is the fallback.
+    [ "$draft" = "true" ] && required=()
     while true; do
       s=$(gh pr checks <number> --json name,bucket 2>/dev/null)
       # Trust the payload, not the exit code: gh returns 1 both for "a check failed"
@@ -109,24 +119,37 @@ RediSearch.
       cur=$(jq -r '.[] | select(.bucket!="pending") | "\(.name): \(.bucket)"' <<<"$s" | LC_ALL=C sort)
       comm -13 <(echo "$prev") <(echo "$cur")
       prev=$cur
-      if jq -e 'length > 0 and all(.bucket!="pending")' <<<"$s" >/dev/null; then
-        if jq -e 'all(.bucket=="pass" or .bucket=="skipping")' <<<"$s" >/dev/null; then
-          if [ "$draft" = "true" ]; then
-            echo "DRAFT RUN GREEN — coverage/sanitize/miri are gated on non-draft and"
-            echo "have NOT run yet. Re-check after marking the PR ready."
-            exit 0
-          fi
-          echo "CI GREEN"; exit 0
-        fi
-        echo "CI NOT GREEN:"
-        jq -r '.[]|select(.bucket!="pass" and .bucket!="skipping")|"  \(.name): \(.bucket)"' <<<"$s"
-        exit 1
+      if ! jq -e 'length > 0 and all(.bucket!="pending")' <<<"$s" >/dev/null; then
+        stalled=0; sleep 30; continue
       fi
-      sleep 30
+      missing=()
+      for r in "${required[@]}"; do
+        jq -e --arg r "$r" 'any(.[]; .name|startswith($r))' <<<"$s" >/dev/null || missing+=("$r")
+      done
+      if [ "${#missing[@]}" -gt 0 ]; then
+        stalled=$((stalled+1))
+        echo "WAITING: reported checks are all terminal but these are not registered yet: ${missing[*]}"
+        [ "$stalled" -ge 20 ] && {
+          echo "MONITOR ABORTED: ${missing[*]} never registered — job renamed? update \`required\`"
+          exit 2
+        }
+        sleep 30; continue
+      fi
+      if jq -e 'all(.bucket=="pass" or .bucket=="skipping")' <<<"$s" >/dev/null; then
+        if [ "$draft" = "true" ]; then
+          echo "DRAFT RUN GREEN — coverage/sanitize/miri are gated on non-draft and"
+          echo "have NOT run yet. Re-check after marking the PR ready."
+          exit 0
+        fi
+        echo "CI GREEN"; exit 0
+      fi
+      echo "CI NOT GREEN:"
+      jq -r '.[]|select(.bucket!="pass" and .bucket!="skipping")|"  \(.name): \(.bucket)"' <<<"$s"
+      exit 1
     done
     ```
 
-    Four things in there are load-bearing:
+    Five things in there are load-bearing:
 
     - **Gate on the payload, not the exit code.** `gh pr checks` exits 8 while checks are
       pending and 1 when one has failed — but also 1 when the PR does not exist, auth has
@@ -145,6 +168,17 @@ RediSearch.
       draft branch in the snippet is a safety net for a PR that was opened as one anyway.
     - **Emit every terminal bucket**, not just `pass`: silence is indistinguishable from
       "still running".
+    - **On a ready PR, "all checks terminal" is not "the run finished".** For the first
+      minute or two after a push — and again after every force-push — `gh pr checks`
+      reports only the checks registered so far, which are the fast PR-level ones
+      (`check-release-notes`, `labeler`, `license/cla`, the skipped benchmark triggers).
+      Every one of them can already be `pass` or `skipping` while the pipeline has yet to
+      appear at all, so the completion test fires and the monitor announces a green run
+      that never ran. Requiring `pr-validation` to have been registered is what closes
+      that window: it is the aggregate gate that `needs:` every other job, so its
+      presence and terminal state imply the whole pipeline's. The abort after 20 stalled
+      polls covers the one way that can rot — the gate job being renamed — so it
+      surfaces loudly instead of waiting forever.
 
     CI must succeed. If not, failures must be triaged and addressed. Check whether a
     failure is a known flake before treating it as caused by this change:
