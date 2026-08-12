@@ -72,7 +72,8 @@ typedef struct {
   cachedVars cv;           // Cached lookup variables for result serialization
   /**
    * NON-OWNING cursor handle for reply_callback path.
-   * See ownership model above. This is set in runCursor() when useReplyCallback is true,
+   * See ownership model above. This is set in runCursor() when
+   * storeResultsForReplyCallback is true,
    * and cleared by QueryReplyCallback after it handles cursor pause/free.
    * If timeout fires first, ChunkReplyState_Destroy cleans this up.
    */
@@ -331,8 +332,8 @@ typedef struct AREQ {
   // Profiling function
   profiler_func profile;
 
-  // Optional execution-thread hook that finishes collecting profile data before
-  // a deferred reply is handed to the main thread for serialization.
+  // Optional execution-thread hook that finishes collecting profile data
+  // before results leave the execution phase for serialization or storage.
   profile_collector_func profileCollect;
 
   // The offset of the prefixes in the command
@@ -350,7 +351,10 @@ typedef struct AREQ {
   // Flag to indicate whether to skip timeout checks using clock checks
   bool skipTimeoutChecks;
 
-  bool useReplyCallback;
+  // True when the execution thread must retain rich SearchResult rows for a
+  // main-thread reply callback. RETURN has no reply callback and stages the
+  // encoded reply on the execution thread.
+  bool storeResultsForReplyCallback;
 
 } AREQ;
 
@@ -402,13 +406,10 @@ struct BlockedRequestCtx {
    * (called from BlockedRequestCtx_OnFree, the free_privdata callback).
    * Between cycles these are NULL/zeroed and must not be read. */
   RedisModuleBlockedClient *bc; // Redis-owned; valid for the cycle
-  bool deferred_reply; // false => BG replies inline via a thread-safe ctx;
-                       // true => BG stores results and the reply callback
-                       // registered with RedisModule_BlockClient serializes
-                       // them on main after UnblockClient
-  // Stored-reply slot for deferred (deferred_reply) cycles: the BG thread
-  // stores results/error here before UnblockClient; the reply or timeout
-  // callback reads it on main. One slot serves AREQ and hybrid cycles.
+  bool deferred_reply;          // true => RedisModule_BlockClient has a reply callback
+  // Stored-reply slot for callback-serialized cycles: the BG thread stores
+  // results/error here before UnblockClient; the reply or timeout callback
+  // reads it on main. One slot serves AREQ and hybrid cycles.
   // Destroyed at EndCycle (per cycle) and, idempotently, in
   // BlockedRequestCtx_Free as a safety net.
   ChunkReplyState reply;

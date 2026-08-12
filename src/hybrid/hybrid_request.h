@@ -51,14 +51,17 @@ typedef struct HybridRequest {
     // Flag to indicate whether to skip timeout checks using clock checks
     bool skipTimeoutChecks;
 
-    bool useReplyCallback;
+    // Defer reply construction past sendChunk_hybrid. Timer policies serialize
+    // in a main-thread callback; distributed RETURN serializes on its tail
+    // worker after all depleters finish.
+    bool deferReplySerialization;
 
-    // State for the background reply_callback path.
+    // State shared by deferred worker and reply-callback paths.
     // Mutex for synchronizing cursor creation with timeout callback.
     // Protects cursor array access to ensure proper cleanup on timeout.
     pthread_mutex_t cursorMutex;
 
-    // Array of depleted cursors for reply_callback path (internal hybrid search).
+    // Array of depleted cursors for timer-backed callback paths (internal hybrid search).
     // Non-NULL only after the initial cursor pipelines are safe to publish.
     // Protected by cursorMutex to synchronize with timeout callback.
     // Cleanup is handled by:

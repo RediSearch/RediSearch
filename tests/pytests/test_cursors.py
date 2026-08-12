@@ -60,6 +60,56 @@ def testCursorsBG():
     testCursors(env)
 
 
+def _testReturnCursorSerializesOnExecutionThread(protocol):
+    env = Env(protocol=protocol, enableDebugCommand=True,
+              moduleArgs='WORKERS 1 ON_TIMEOUT RETURN')
+    skipIfNoEnableAssert(env)
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+    for i in range(5):
+        conn.execute_command('HSET', f'doc:{i}', 'n', i)
+    waitForIndex(env, 'idx')
+
+    background_replies = int(conn.execute_command(
+        debug_cmd(), 'QUERY_CONTROLLER', 'GET_BACKGROUND_REPLY_SERIALIZATION_COUNT'))
+    chunks = []
+
+    reply, cursor = conn.execute_command(
+        'FT.AGGREGATE', 'idx', '*',
+        'LOAD', '1', '@n',
+        'WITHCURSOR', 'COUNT', '2',
+    )
+    chunks.append(reply)
+    env.assertEqual(conn.execute_command('PING'), True)
+
+    while cursor:
+        reply, cursor = conn.execute_command('FT.CURSOR', 'READ', 'idx', cursor, 'COUNT', '2')
+        chunks.append(reply)
+        env.assertEqual(conn.execute_command('PING'), True)
+
+    env.assertEqual(int(conn.execute_command(
+        debug_cmd(), 'QUERY_CONTROLLER', 'GET_BACKGROUND_REPLY_SERIALIZATION_COUNT')),
+        background_replies + len(chunks))
+
+    if protocol == 2:
+        env.assertEqual([len(chunk) - 1 for chunk in chunks], [2, 2, 1])
+        env.assertEqual([chunk[0] for chunk in chunks], [2, 2, 1])
+    else:
+        env.assertEqual([len(chunk['results']) for chunk in chunks], [2, 2, 1])
+        env.assertEqual([chunk['total_results'] for chunk in chunks], [2, 2, 1])
+
+
+@skip(cluster=True)
+def testReturnCursorSerializesOnExecutionThreadResp2():
+    _testReturnCursorSerializesOnExecutionThread(2)
+
+
+@skip(cluster=True)
+def testReturnCursorSerializesOnExecutionThreadResp3():
+    _testReturnCursorSerializesOnExecutionThread(3)
+
+
 @skip(cluster=True)
 def testInlineCursorChunksUseTerminalArray():
     """Every WORKERS=0 cursor chunk is accumulated before it is serialized."""

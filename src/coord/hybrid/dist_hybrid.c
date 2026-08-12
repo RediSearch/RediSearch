@@ -997,13 +997,27 @@ static void HybridDispatchCtx_Tail(void *arg) {
         .lastAstp = AGPLN_GetArrangeStep(plan)
     };
     sendChunk_hybrid(hreq, reply, UINT64_MAX, cv);
+
+    const bool serializeOnWorker = hreq->reqConfig.timeoutPolicy == TimeoutPolicy_Return;
+    if (serializeOnWorker) {
+      // A RETURN tail stores its universal result array so serialization can
+      // wait for subquery errors, warnings, and profile clocks to become
+      // immutable. The blocked-client context buffers this reply until Redis
+      // publishes it while unblocking the real client.
+      waitForDepleters(hreq);
+      RS_ASSERT(hreq->brc->reply.hasStoredResults);
+      serializeStoredResults_hybrid(hreq, reply);
+    }
+
     RedisModule_EndReply(reply);
     // Drop the alias before freeing replyCtx so the hreq teardown below can't
     // see a dangling pointer if SearchCtx ever starts reading sctx->redisCtx.
     hreq->sctx->redisCtx = NULL;
     RedisModule_FreeThreadSafeContext(replyCtx);
 
-    waitForDepleters(hreq);
+    if (!serializeOnWorker) {
+      waitForDepleters(hreq);
+    }
 
     CurrentThread_ClearIndexSpec();
     HybridDispatchCtx_Free(dispatch);

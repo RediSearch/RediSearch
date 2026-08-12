@@ -137,9 +137,9 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
 
  void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results,
                           int *rc) {
-   // Every executed reply path owns an array of results. Background execution
-   // transfers it to the blocked-client reply callback; inline execution
-   // serializes the same array immediately on the main thread.
+   // Every executed reply path owns an array of results. RETURN serializes it
+   // on the execution thread; timer-backed paths retain it for their reply
+   // callback.
    *results = AggregateResults(rp, ctx->areq, rc);
 
    // Preserve the post-aggregation deadline check only on paths that already

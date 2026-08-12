@@ -243,6 +243,11 @@ void HybridStoreCursorsDebugCtx_SetPause(bool pause);
 void BlockedRequestOnFreeDebug_Increment(void);
 uint64_t BlockedRequestOnFreeDebug_GetCount(void);
 
+// Counts replies constructed outside the Redis main thread. Tests use this to
+// distinguish worker-side serialization from main-thread callback serialization.
+void BackgroundReplySerializationDebug_RecordCurrentThread(void);
+uint64_t BackgroundReplySerializationDebug_GetCount(void);
+
 // Tracks the currently active coordinator MRIterator so tests can poll the
 // `pending` shard counter via FT.DEBUG BG_PENDING_REPLIES. Set after the
 // iterator is created in the RPNet start path; cleared before it is released

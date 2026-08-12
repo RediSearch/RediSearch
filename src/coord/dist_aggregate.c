@@ -418,7 +418,8 @@ static void executeAggregateDeferred(void *arg) {
       qctx->totalResults = totalResults;
     }
 
-    if (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) {
+    const bool isCursor = AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR;
+    if (isCursor) {
       // Cursor path: AREQ_StartCursor stashes the AREQ on the new Cursor and
       // emits the first chunk via runCursor. We cannot reuse executePlan here
       // because its cursor branch calls ConcurrentCmdCtx_KeepRedisCtx, and we
@@ -429,16 +430,19 @@ static void executeAggregateDeferred(void *arg) {
       StrongRef dummy_spec_ref = {.rm = NULL};
       if (AREQ_StartCursor(r, reply, dummy_spec_ref, &status, true) != REDISMODULE_OK) {
         AREQ_ReplyOrStoreError(r, replyCtx, &status);
+        RedisModule_EndReply(reply);
         AREQ_DecrRef(r);
+      } else {
+        RedisModule_EndReply(reply);
       }
     } else {
       // Converge on the existing non-cursor path: sendChunk + AREQ_DecrRef.
       // executePlan always returns REDISMODULE_OK in the non-cursor branch.
       executePlan(r, NULL, reply, &status);
       // r is freed by AREQ_DecrRef inside executePlan; do not access r after this.
+      RedisModule_EndReply(reply);
       RedisModule_FreeThreadSafeContext(replyCtx);
     }
-    RedisModule_EndReply(reply);
   } else if (!sp && !timedOut) {
     // Spec dropped between first-reply collection and deferred execution. Reply
     // DROPPED_BACKGROUND and release the AREQ so rpnetFree drops the iterator's

@@ -81,9 +81,15 @@ def _setup_return_strict_cursor_state(env, chunk_size=10, agg_steps=None):
     baseline_cursor_total = _coord_cursor_total(env)
     return prev_on_timeout_policy, cursor_id, baseline_cursor_total, before_info, base_warn_coord, res
 
-def _get_blocked_request_onfree_count(env):
+def _get_blocked_request_onfree_count(env, conn=None):
     """Read the coordinator BlockedRequestCtx_OnFree invocation counter (debug builds)."""
-    return int(env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_BLOCKED_REQUEST_ONFREE_COUNT'))
+    cmd = (debug_cmd(), 'QUERY_CONTROLLER', 'GET_BLOCKED_REQUEST_ONFREE_COUNT')
+    return int(conn.execute_command(*cmd) if conn is not None else env.cmd(*cmd))
+
+def _get_background_reply_serialization_count(env, conn=None):
+    """Read the replies serialized outside the Redis main thread."""
+    cmd = (debug_cmd(), 'QUERY_CONTROLLER', 'GET_BACKGROUND_REPLY_SERIALIZATION_COUNT')
+    return int(conn.execute_command(*cmd) if conn is not None else env.cmd(*cmd))
 
 def _assert_return_strict_cursor_timeout_reply(env, res_pair, expected_cid,
                                                expected_results,
@@ -151,6 +157,237 @@ def _reply_row_count(res):
         return len(res.get('results', []))
     # RESP2 aggregate cursor reply: [total_results, row0, row1, ...]
     return max(0, len(res) - 1)
+
+def _reply_total_count(res):
+    if isinstance(res, dict):
+        return int(res['total_results'])
+    return int(res[0])
+
+def _run_return_worker_reply_lifecycle_cluster(test):
+    """Exercise coordinator worker staging for plain, WITHCOUNT, and cursor replies."""
+    env = test.env
+    skipIfNoEnableAssert(env)
+    conn = env.getConnection(1)
+    chunk_size = 7
+
+    prev_config = conn.execute_command('CONFIG', 'GET', ON_TIMEOUT_CONFIG)
+    prev_policy = (prev_config[ON_TIMEOUT_CONFIG] if isinstance(prev_config, dict)
+                   else prev_config[1])
+    env.assertEqual(conn.execute_command(
+        'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return'), 'OK')
+    try:
+        # Keep shard commands inline so only the public coordinator request
+        # contributes to the process-wide background-serialization counter.
+        set_workers(env, 0)
+        expected_onfree = _get_blocked_request_onfree_count(env, conn)
+        expected_background_replies = _get_background_reply_serialization_count(env, conn)
+
+        for withcount in (False, True):
+            command = ['FT.AGGREGATE', 'idx', '*']
+            if withcount:
+                command.append('WITHCOUNT')
+            command += ['LOAD', '1', '@name', 'LIMIT', '0', str(test.n_docs)]
+            result = conn.execute_command(*command)
+            env.assertEqual(conn.execute_command('PING'), True)
+            expected_onfree += 1
+            expected_background_replies += 1
+            env.assertEqual(_get_blocked_request_onfree_count(env, conn), expected_onfree)
+            env.assertEqual(_get_background_reply_serialization_count(env, conn),
+                            expected_background_replies)
+            env.assertEqual(_reply_total_count(result), test.n_docs, message=result)
+            env.assertEqual(_reply_row_count(result), test.n_docs, message=result)
+            if isinstance(result, dict):
+                env.assertEqual(result.get('warning', []), [], message=result)
+
+        result, cursor_id = conn.execute_command(
+            'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name',
+            'WITHCURSOR', 'COUNT', str(chunk_size))
+        env.assertEqual(conn.execute_command('PING'), True)
+
+        expected_onfree += 1
+        expected_background_replies += 1
+        env.assertEqual(_get_blocked_request_onfree_count(env, conn), expected_onfree)
+        env.assertEqual(_get_background_reply_serialization_count(env, conn),
+                        expected_background_replies)
+        if isinstance(result, dict):
+            env.assertEqual(result.get('warning', []), [], message=result)
+        env.assertEqual(_reply_row_count(result), chunk_size, message=result)
+        env.assertNotEqual(cursor_id, 0, message=result)
+        received = _reply_row_count(result)
+
+        while cursor_id:
+            result, cursor_id = conn.execute_command(
+                'FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', str(chunk_size))
+            env.assertEqual(conn.execute_command('PING'), True)
+
+            expected_onfree += 1
+            expected_background_replies += 1
+            env.assertEqual(_get_blocked_request_onfree_count(env, conn), expected_onfree)
+            env.assertEqual(_get_background_reply_serialization_count(env, conn),
+                            expected_background_replies)
+            if isinstance(result, dict):
+                env.assertEqual(result.get('warning', []), [], message=result)
+            env.assertGreater(_reply_row_count(result), 0, message=result)
+            env.assertLessEqual(_reply_row_count(result), chunk_size, message=result)
+            received += _reply_row_count(result)
+
+        env.assertEqual(received, test.n_docs)
+    finally:
+        set_workers(env, 1)
+        env.assertEqual(conn.execute_command(
+            'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy), 'OK')
+
+def _expected_search_reply(protocol):
+    """Return the complete deterministic reply for ``@name:hello42 NOCONTENT``."""
+    if protocol == 2:
+        return [1, 'doc42']
+    return {
+        'attributes': [],
+        'warning': [],
+        'total_results': 1,
+        'format': 'STRING',
+        'results': [{'id': 'doc42', 'values': []}],
+    }
+
+def _assert_profile_search_reply(env, result, expected_search_reply):
+    """Validate the exact search payload and the nondeterministic profile envelope."""
+    if env.protocol == 3:
+        env.assertEqual(set(result), {'Results', 'Profile'}, message=result)
+        env.assertEqual(result['Results'], expected_search_reply, message=result)
+        profile = result['Profile']
+    else:
+        env.assertEqual(len(result), 2, message=result)
+        env.assertEqual(result[0], expected_search_reply, message=result)
+        profile = to_dict(result[1])
+
+    env.assertEqual(set(profile), {'Shards', 'Coordinator'}, message=result)
+    env.assertEqual(len(profile['Shards']), env.shardsCount, message=result)
+
+def _run_return_worker_reply_lifecycle_search_cluster(test, profile=False):
+    """Exercise coordinator-worker serialization for FT.SEARCH or its profile wrapper."""
+    env = test.env
+    skipIfNoEnableAssert(env)
+    conn = env.getConnection(1)
+
+    prev_config = conn.execute_command('CONFIG', 'GET', ON_TIMEOUT_CONFIG)
+    prev_policy = (prev_config[ON_TIMEOUT_CONFIG] if isinstance(prev_config, dict)
+                   else prev_config[1])
+    env.assertEqual(conn.execute_command(
+        'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return'), 'OK')
+    try:
+        # Shard searches run inline, leaving exactly one off-main serialization:
+        # the public coordinator request on DIST_THREADPOOL.
+        set_workers(env, 0)
+        onfree = _get_blocked_request_onfree_count(env, conn)
+        background_replies = _get_background_reply_serialization_count(env, conn)
+
+        if profile:
+            command = [
+                'FT.PROFILE', 'idx', 'SEARCH', 'QUERY',
+                '@name:hello42', 'NOCONTENT',
+            ]
+        else:
+            command = ['FT.SEARCH', 'idx', '@name:hello42', 'NOCONTENT']
+
+        result = conn.execute_command(*command)
+
+        # If both the worker and a stale reply callback publish, this reads the
+        # duplicate query response instead of PONG.
+        env.assertEqual(conn.execute_command('PING'), True)
+        env.assertEqual(_get_blocked_request_onfree_count(env, conn), onfree + 1)
+        env.assertEqual(_get_background_reply_serialization_count(env, conn),
+                        background_replies + 1)
+
+        expected = _expected_search_reply(env.protocol)
+        if profile:
+            _assert_profile_search_reply(env, result, expected)
+        else:
+            env.assertEqual(result, expected)
+    finally:
+        set_workers(env, 1)
+        env.assertEqual(conn.execute_command(
+            'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy), 'OK')
+
+def _run_return_search_bailout_index_drop_cluster(test):
+    """Exercise RETURN publication when the queued search loses its index."""
+    env = test.env
+    skipIfNoEnableAssert(env)
+    query_conn = env.getConnection(1)
+    control_conn = env.getConnection(1)
+    index_name = 'search_bailout_idx'
+
+    env.assertEqual(control_conn.execute_command(
+        'FT.CREATE', index_name, 'SCHEMA', 'name', 'TEXT'), 'OK')
+
+    prev_config = control_conn.execute_command('CONFIG', 'GET', ON_TIMEOUT_CONFIG)
+    prev_policy = (prev_config[ON_TIMEOUT_CONFIG] if isinstance(prev_config, dict)
+                   else prev_config[1])
+    coord_paused = False
+    query_thread = None
+    replies = []
+    errors = []
+
+    def run_search():
+        try:
+            replies.append(query_conn.execute_command(
+                'FT.SEARCH', index_name, '*', 'NOCONTENT'))
+        except Exception as error:
+            errors.append(error)
+
+    try:
+        env.assertEqual(control_conn.execute_command(
+            'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return'), 'OK')
+        onfree = _get_blocked_request_onfree_count(env, control_conn)
+        background_replies = _get_background_reply_serialization_count(env, control_conn)
+
+        env.assertEqual(control_conn.execute_command(
+            debug_cmd(), 'COORD_THREADS', 'PAUSE'), 'OK')
+        coord_paused = True
+        wait_for_condition(
+            lambda: (control_conn.execute_command(
+                debug_cmd(), 'COORD_THREADS', 'IS_PAUSED') == 1, {}),
+            'Timeout while waiting for coordinator threads to pause', timeout=30)
+
+        query_thread = threading.Thread(target=run_search, daemon=True)
+        query_thread.start()
+        wait_for_blocked_query_client(
+            control_conn, 'FT.SEARCH', 'Queued FT.SEARCH client was not blocked')
+
+        # The queued handler owns only a weak spec reference. Dropping the index
+        # makes prepareCommand fail and routes the reply through bailOut.
+        env.assertEqual(control_conn.execute_command('FT.DROPINDEX', index_name), 'OK')
+
+        env.assertEqual(control_conn.execute_command(
+            debug_cmd(), 'COORD_THREADS', 'RESUME'), 'OK')
+        coord_paused = False
+        wait_for_condition(
+            lambda: (control_conn.execute_command(
+                debug_cmd(), 'COORD_THREADS', 'IS_PAUSED') == 0, {}),
+            'Timeout while waiting for coordinator threads to resume', timeout=30)
+
+        query_thread.join(timeout=10)
+        env.assertFalse(query_thread.is_alive(), message='FT.SEARCH thread should have finished')
+        env.assertEqual(replies, [], message=f'Expected an error, got replies: {replies}')
+        env.assertEqual(len(errors), 1, message=f'Expected one error, got: {errors}')
+        env.assertTrue(isinstance(errors[0], redis_exceptions.ResponseError),
+                       message=f'Expected ResponseError, got: {errors[0]!r}')
+        env.assertTrue(str(errors[0]).startswith('SEARCH_INDEX_DROPPED_BG'),
+                       message=f'Expected dropped-background error, got: {errors[0]}')
+
+        # A stale reply callback would leave a second response ahead of PONG.
+        env.assertEqual(query_conn.execute_command('PING'), True)
+        env.assertEqual(_get_blocked_request_onfree_count(env, control_conn), onfree + 1)
+        env.assertEqual(_get_background_reply_serialization_count(env, control_conn),
+                        background_replies + 1)
+    finally:
+        try:
+            if coord_paused:
+                control_conn.execute_command(debug_cmd(), 'COORD_THREADS', 'RESUME')
+        finally:
+            if query_thread is not None:
+                query_thread.join(timeout=10)
+            control_conn.execute_command(
+                'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
 
 def _assert_aggregate_cursor_total_rows(env, first_res, cursor_id, expected_rows, context):
     total_rows = _reply_row_count(first_res) + _drain_cursor(env, cursor_id)
@@ -1166,11 +1403,27 @@ class TestCoordinatorTimeout:
         # Restore previous policy
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
+    def test_return_worker_reply_lifecycle_cluster(self):
+        """RESP3 publishes each coordinator-worker RETURN reply exactly once."""
+        _run_return_worker_reply_lifecycle_cluster(self)
+
+    def test_return_worker_reply_lifecycle_search_cluster(self):
+        """RESP3 FT.SEARCH serializes on the coordinator worker and publishes once."""
+        _run_return_worker_reply_lifecycle_search_cluster(self)
+
+    def test_return_worker_reply_lifecycle_profile_search_cluster(self):
+        """RESP3 FT.PROFILE SEARCH serializes on the coordinator worker and publishes once."""
+        _run_return_worker_reply_lifecycle_search_cluster(self, profile=True)
+
+    def test_return_search_bailout_index_drop_cluster(self):
+        """RESP3 RETURN publishes a queued FT.SEARCH index-drop error exactly once."""
+        _run_return_search_bailout_index_drop_cluster(self)
+
     def test_no_timeout_cursor(self):
         """
         Test that FAIL policy doesn't break cursor reads when there is no timeout.
-        This verifies that useReplyCallback is properly cleared for cursor reads,
-        since cursor reads use BlockCursorClientWithTimeout which has no reply_callback.
+        FAIL cursor reads retain their main-thread reply callback and must
+        complete normally when the blocked-client timer does not fire.
         """
         env = self.env
 
@@ -5334,6 +5587,22 @@ class TestCoordinatorTimeoutReturnStrictResp2:
         self.env.assertNotEqual(
             warmup_res, None, message=f"warmup FT.HYBRID empty reply: {warmup_res!r}")
 
+    def test_return_worker_reply_lifecycle_cluster_resp2(self):
+        """RESP2 publishes each coordinator-worker RETURN reply exactly once."""
+        _run_return_worker_reply_lifecycle_cluster(self)
+
+    def test_return_worker_reply_lifecycle_search_cluster_resp2(self):
+        """RESP2 FT.SEARCH serializes on the coordinator worker and publishes once."""
+        _run_return_worker_reply_lifecycle_search_cluster(self)
+
+    def test_return_worker_reply_lifecycle_profile_search_cluster_resp2(self):
+        """RESP2 FT.PROFILE SEARCH serializes on the coordinator worker and publishes once."""
+        _run_return_worker_reply_lifecycle_search_cluster(self, profile=True)
+
+    def test_return_search_bailout_index_drop_cluster_resp2(self):
+        """RESP2 RETURN publishes a queued FT.SEARCH index-drop error exactly once."""
+        _run_return_search_bailout_index_drop_cluster(self)
+
     @skip_until("2026-06-25", reason="MOD-16396: flaky under Linux ASAN; "
                 "hybrid RESP2 profile timeout can crash in printShardsHybridProfile")
     def test_return_strict_timeout_at_claim_sync_point_profile_hybrid_resp2(self):
@@ -6673,8 +6942,8 @@ class TestShardTimeout:
     def test_no_timeout_cursor(self):
         """
         Test that FAIL policy doesn't break cursor reads when there is no timeout.
-        This verifies that useReplyCallback is properly cleared for cursor reads,
-        since cursor reads use BlockCursorClientWithTimeout which has no reply_callback.
+        FAIL cursor reads retain their main-thread reply callback and must
+        complete normally when the blocked-client timer does not fire.
         """
         env = self.env
 

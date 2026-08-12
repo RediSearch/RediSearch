@@ -19,7 +19,6 @@
 #include "rs_wall_clock.h"
 #include "thpool/thpool.h"
 #include "profile/options.h"
-
 #include "util/stringify.h"
 #include "util/rs_atomic.h"
 
@@ -126,6 +125,10 @@ typedef struct {
   void *reducer;
   bool queryOOM;
   bool timedOut;
+  // Snapshotted at dispatch so reducer/error behavior cannot diverge if the
+  // global setting changes while this request is in flight.
+  RSTimeoutPolicy timeoutPolicy;
+  RSOomPolicy oomPolicy;
   // QueryTimeoutStage marker for the FT.SEARCH MR coord path (no RequestSyncState).
   RS_Atomic(int) execPhase;
 
@@ -148,8 +151,6 @@ int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 int ProfileCommandHandlerImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug);
 
 void ScheduleContextCleanup(RedisModuleCtx *thctx, struct RedisSearchCtx *sctx);
-
-bool should_return_error(QueryErrorCode errCode);
 
 bool QueryMemoryGuard(RedisModuleCtx *ctx);
 

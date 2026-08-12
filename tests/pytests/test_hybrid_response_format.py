@@ -144,6 +144,63 @@ def test_simple_query():
     _test_resp3_and_resp2(cmd, resp3_expected)
 
 
+def test_return_serializes_terminal_array_on_execution_thread():
+    """RETURN builds RESP2/3 replies off-main whenever execution is deferred."""
+    env = Env(protocol=3, enableDebugCommand=True,
+              moduleArgs='WORKERS 1 ON_TIMEOUT RETURN')
+    skipIfNoEnableAssert(env)
+    _setup_basic_index(env)
+    waitForIndex(env, 'idx')
+    # Use a fixed ingress node in cluster mode so the per-process debug counters
+    # and both public queries refer to the same coordinator process.
+    conn = env.getConnection(1) if env.isCluster() else getConnectionByEnv(env)
+
+    # In cluster mode the public coordinator still executes in its background
+    # pool. Keeping shard WORKERS at zero makes the one expected increment
+    # unambiguously belong to the coordinator serializer.
+    if env.isCluster():
+        set_workers(env, 0)
+
+    cmd = [
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'red',
+        'VSIM', '@embedding', '$BLOB',
+        'LOAD', 3, '@__key', '@__score', '@description',
+        'SORTBY', 2, '@description', 'ASC',
+        'PARAMS', '2', 'BLOB', np.array([1.2, 0.2]).astype(np.float32).tobytes()
+    ]
+
+    background_replies = int(conn.execute_command(
+        debug_cmd(), 'QUERY_CONTROLLER', 'GET_BACKGROUND_REPLY_SERIALIZATION_COUNT'))
+    onfree = int(conn.execute_command(
+        debug_cmd(), 'QUERY_CONTROLLER', 'GET_BLOCKED_REQUEST_ONFREE_COUNT'))
+
+    response = conn.execute_command(*cmd)
+    env.assertEqual(conn.execute_command('PING'), True)
+    background_replies += 1
+    onfree += 1
+    env.assertEqual(response['total_results'], 4)
+    env.assertEqual(len(response['results']), 4)
+    env.assertEqual(int(conn.execute_command(
+        debug_cmd(), 'QUERY_CONTROLLER', 'GET_BACKGROUND_REPLY_SERIALIZATION_COUNT')),
+        background_replies)
+    env.assertEqual(int(conn.execute_command(
+        debug_cmd(), 'QUERY_CONTROLLER', 'GET_BLOCKED_REQUEST_ONFREE_COUNT')), onfree)
+
+    conn.execute_command('HELLO', 2)
+    response = to_dict(conn.execute_command(*cmd))
+    env.assertEqual(conn.execute_command('PING'), True)
+    background_replies += 1
+    onfree += 1
+    env.assertEqual(int(response['total_results']), 4)
+    env.assertEqual(len(response['results']), 4)
+    env.assertEqual(int(conn.execute_command(
+        debug_cmd(), 'QUERY_CONTROLLER', 'GET_BACKGROUND_REPLY_SERIALIZATION_COUNT')),
+        background_replies)
+    env.assertEqual(int(conn.execute_command(
+        debug_cmd(), 'QUERY_CONTROLLER', 'GET_BLOCKED_REQUEST_ONFREE_COUNT')), onfree)
+
+
 @skip(cluster=True)
 def test_inline_query_uses_terminal_array():
     """The WORKERS=0 hybrid tail accumulates every row before serialization."""

@@ -341,7 +341,10 @@ static void uvFanoutRequest(void *p) {
   if (mrctx->numExpected == 0) {
     // No shard command was sent, so fanoutCallback() will never fire.
     IORuntimeCtx_RequestCompleted(ioRuntime);
-    if (!MRCtx_IsTimedOut(mrctx)) {
+    bool timedOut = MRCtx_IsTimedOut(mrctx);
+    if (!timedOut && mrctx->fn) {
+      mrctx->fn(mrctx, 0, mrctx->replies);
+    } else if (!timedOut) {
       RedisModuleBlockedClient *bc = mrctx->bc;
       RS_ASSERT(bc);
       RedisModule_BlockedClientMeasureTimeEnd(bc);

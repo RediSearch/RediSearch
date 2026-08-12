@@ -55,21 +55,24 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
 void sendChunk_ReplyOnly_HybridEmptyResults(RedisModule_Reply *reply, QueryError *err);
 
 /**
- * Store pipeline results for the background reply_callback path.
- * Called after pipeline execution to store results for serialization on the main thread.
+ * Store pipeline results for deferred serialization.
+ * Called after pipeline execution when serialization must wait for either the
+ * main-thread callback or completion of distributed hybrid depleters.
  */
 void HREQ_StoreResults(HybridRequest *hreq, SearchResult **results, int rc, cachedVars cv);
 
 /**
  * Helper for error handling in coordinator HREQ execution.
- * Background execution (useReplyCallback=true) stores the error for the
- * reply_callback. Inline execution replies directly.
+ * FAIL/RETURN_STRICT background execution stores errors for the main-thread
+ * callback. RETURN replies directly on the execution context, even when
+ * successful distributed row serialization is deferred until depleters finish.
  */
 void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status);
 
 /**
- * Serialize results from stored state on the main-thread reply_callback path.
- * Called by DistHybridReplyCallback on the main thread after background thread stored results.
+ * Serialize results from stored state after deferred execution finishes.
+ * The caller may be a main-thread reply callback or the distributed RETURN
+ * tail worker after all depleters complete.
  */
 void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply);
 
