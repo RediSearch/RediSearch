@@ -691,6 +691,11 @@ impl TagIndex {
     /// 4. `lookup` must resolve `self`, checked by a `debug_assert!` in
     ///    [`get_reader`](Self::get_reader).
     /// 5. The caller owns the returned iterator and must free it.
+    /// 6. In disk mode, `sctx.diskSnapshot` must be a non-null
+    ///    [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot) handle for
+    ///    this index's disk spec, valid for the duration of the call:
+    ///    `SearchDisk_NewTagIterator` reads it off `sctx` and hands it to the
+    ///    disk backend.
     pub unsafe fn open_reader(
         &self,
         sctx: NonNull<RedisSearchCtx>,
@@ -704,6 +709,12 @@ impl TagIndex {
             TagIndexMode::Disk {
                 disk_index_spec, ..
             } => {
+                debug_assert!(
+                    // SAFETY: `sctx` is valid (contract 2).
+                    !unsafe { sctx.as_ref() }.diskSnapshot.is_null(),
+                    "disk-mode reads need a snapshot on the search context"
+                );
+
                 // Postings live on disk: build the reader through the disk API,
                 // keyed by the tag string.
                 //
@@ -715,9 +726,10 @@ impl TagIndex {
                 tok.len = tag.len();
                 // SAFETY: `disk_index_spec` is a valid `RedisSearchDiskIndexSpec`
                 // (invariant from `new_on_disk`); `sctx` is valid for the call
-                // (contract 2); `tok` borrows `tag` for the duration of the
-                // call; `status` is null or valid (contract 3). The disk backend
-                // owns the returned iterator, which C frees through its `Free`
+                // and carries the snapshot the call reads off it (contracts 2
+                // and 6); `tok` borrows `tag` for the duration of the call;
+                // `status` is null or valid (contract 3). The disk backend owns
+                // the returned iterator, which C frees through its `Free`
                 // callback.
                 let it = unsafe {
                     ffi::SearchDisk_NewTagIterator(
