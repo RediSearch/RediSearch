@@ -1559,7 +1559,7 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
 
 static int buildRequest(RedisModuleCtx *ctx, int type, QueryError *status, AREQ **r) {
   int rc = REDISMODULE_ERR;
-  const char *indexname = RedisModule_StringPtrLen((*r)->brc->argv[1], NULL);
+  const char *indexname = RedisModule_StringPtrLen((*r)->base.args.argv[1], NULL);
   RedisSearchCtx *sctx = NULL;
   RedisModuleCtx *thctx = NULL;
 
@@ -1619,7 +1619,7 @@ static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, CommandType type, P
   // If we got here, we know the command name (the first held argument) is a
   // valid registered command. If it starts with an underscore, it is an
   // internal command.
-  if (RedisModule_StringPtrLen(r->brc->argv[0], NULL)[0] == '_') {
+  if (RedisModule_StringPtrLen(r->base.args.argv[0], NULL)[0] == '_') {
     AREQ_AddRequestFlags(r, QEXEC_F_INTERNAL);
   }
 
@@ -2106,8 +2106,8 @@ int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     return single_shard_common_query_reply_empty(ctx, argv, argc, profileOptions, QUERY_ERROR_CODE_OUT_OF_MEMORY);
   }
 
-  AREQ *r = AREQ_New();
-  BlockedRequestCtx_NewAREQ(r, argv, argc);
+  AREQ *r = AREQ_New(argv, argc);
+  BlockedRequestCtx_NewAREQ(r);
 
   if (prepareRequest(&r, ctx, type, profileOptions, &status) != REDISMODULE_OK) {
     RS_ASSERT(r == NULL);
@@ -2145,8 +2145,8 @@ int RSExecuteAggregateOrSearch(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
 char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                           QueryError *status) {
-  AREQ *r = AREQ_New();
-  BlockedRequestCtx_NewAREQ(r, argv, argc);
+  AREQ *r = AREQ_New(argv, argc);
+  BlockedRequestCtx_NewAREQ(r);
   if (buildRequest(ctx, COMMAND_EXPLAIN, status, &r) != REDISMODULE_OK) {
     return NULL;
   }

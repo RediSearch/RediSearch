@@ -257,24 +257,6 @@ struct BlockedRequestCtx {
     struct HybridRequest *hybrid;
   } query;
 
-  /* Held references to the command argv strings the owned request's plan
-   * borrows from; may be a superset of the parsed slice. Taken at
-   * construction, on the main thread (string refcounts are not thread safe);
-   * released in BlockedRequestCtx_Free, after the owned request. */
-  RedisModuleString **argv;
-  uint32_t argc;
-
-  /* The logical command length within argv — the extent parsing may
-   * read. Set with the holds at construction; the debug constructors lower
-   * it so the trailing debug params stay held but unparsed. */
-  uint32_t parseArgc;
-
-  /* Index of the owned request's query string within argv — the start
-   * of its parse slice. Set where the query is discovered (AREQ_Compile;
-   * setSubQueryArg for hybrid subs). QUERY_OFFSET_NONE means no query
-   * argument (a VSIM sub without FILTER, or the container). */
-  uint32_t queryOffset;
-
   /* Partial-timeout coordination. The CAS claim grants exclusive ownership of
    * the result-production phase: the BG-thread winner runs AggregateResults
    * and stores results, while the timeout-callback winner preempts BG (BG
@@ -360,15 +342,16 @@ struct BlockedRequestCtx {
 };
 
 /* The request's query string: the first argument of its parse slice, backed
- * by the wrapper's held argv. A request with no query argument (a hybrid
+ * by QueryRequest's held argv. A request with no query argument (a hybrid
  * VSIM sub-request without a FILTER) defaults to the match-all wildcard
  * query "*". */
 static inline const char *AREQ_Query(const AREQ *req, size_t *len) {
-  if (req->brc->queryOffset == QUERY_OFFSET_NONE) {
+  if (req->base.args.queryOffset == QUERY_OFFSET_NONE) {
     if (len) *len = 1;
     return "*";
   }
-  const char *query = RedisModule_StringPtrLen(req->brc->argv[req->brc->queryOffset], len);
+  const char *query =
+      RedisModule_StringPtrLen(req->base.args.argv[req->base.args.queryOffset], len);
   // TRANSITIONAL: report the C-string length, truncating at the first NUL, so a
   // query with embedded NULs behaves as it always has.
   // TODO: remove — the true length is what StringPtrLen already reported.
@@ -376,11 +359,10 @@ static inline const char *AREQ_Query(const AREQ *req, size_t *len) {
   return query;
 }
 
-/* Allocate a heap BlockedRequestCtx owning the request (refcount=1), wire the
- * `brc` back-pointer, and take the argv holds (see `argv`). Main-thread
- * only; `argv` must not be NULL. */
-BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq, RedisModuleString **argv, uint32_t argc);
-BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid, RedisModuleString **argv, uint32_t argc);
+/* Allocate a heap BlockedRequestCtx owning the request (refcount=1) and wire
+ * the `brc` back-pointer. */
+BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq);
+BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid);
 
 /* TRANSITIONAL(MOD-16691): increment / decrement the wrapper's reference
  * count. DecrRef triggers BlockedRequestCtx_Free when the count drops to
@@ -446,11 +428,11 @@ void AREQ_DecrRef(AREQ *req);
  * 6) Free: This releases all resources consumed by the request
  */
 
-AREQ *AREQ_New(void);
+AREQ *AREQ_New(RedisModuleString **argv, uint32_t argc);
 
 /**
- * Compile the request from the wrapper's held argv, starting at `offset`
- * (the query token) and reading up to the wrapper's `parseArgc` — the holds are
+ * Compile the request from QueryRequest's held argv, starting at `offset`
+ * (the query token) and reading up to `args.parseArgc` — the holds are
  * the only string source by construction. This does not rely on
  * Redis-specific states and may be unit-tested. This largely just
  * compiles the options and parses the commands..

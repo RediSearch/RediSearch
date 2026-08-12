@@ -84,8 +84,8 @@ typedef struct {
 } RegistryInfo;
 
 typedef struct {
-  // Held command arguments borrowed by the request plan. The owning wrapper
-  // retains their Redis string references until after the request is freed.
+  // Held command arguments borrowed by the request plan. QueryRequest retains
+  // their Redis string references until the request is destroyed.
   RedisModuleString **argv;
 
   // Number of held arguments; may include a trailing debug-only section.
@@ -190,7 +190,9 @@ static inline void QueryRequest_SetExecutionPhase(QueryRequest *request, int pha
   }
 }
 
-void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind);
+void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind, RedisModuleString **argv,
+                       uint32_t argc);
+void QueryRequest_HoldArgs(QueryRequest *request, RedisModuleString **argv, uint32_t argc);
 void QueryRequest_ResetReply(QueryRequest *request);
 void QueryRequest_Destroy(QueryRequest *request);
 

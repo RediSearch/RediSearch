@@ -3886,8 +3886,8 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     // after its rm_realloc).
     r = &debug_req->r;
   } else {
-    r = AREQ_New();
-    BlockedRequestCtx_NewAREQ(r, argv, argc);
+    r = AREQ_New(argv, argc);
+    BlockedRequestCtx_NewAREQ(r);
   }
   // Either path took the argv holds here, on the main thread; the BG parse
   // borrows from them (the job's own argv copies die with the job).

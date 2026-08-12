@@ -112,7 +112,7 @@ class AREQBinarySlotRangeTest : public AREQTest, public ::testing::WithParamInte
 TEST_P(AREQBinarySlotRangeTest, testBinarySlotRangeParsing) {
     const auto& test_data = GetParam();
 
-    AREQ* req = AREQ_New();
+    AREQ* req = AREQ_New(NULL, 0);
     ASSERT_NE(req, nullptr) << "AREQ_New should return a valid pointer";
 
     // Mark req as internal to bypass checks
@@ -131,7 +131,8 @@ TEST_P(AREQBinarySlotRangeTest, testBinarySlotRangeParsing) {
     argv.push_back(createBinaryString(binary_data));
 
     // Test AREQ_Compile
-    BlockedRequestCtx_NewAREQ(req, argv.data(), argv.size());
+    QueryRequest_HoldArgs(&req->base, argv.data(), argv.size());
+    BlockedRequestCtx_NewAREQ(req);
     int result = AREQ_Compile(req, ctx, 0, false, &status);
 
     EXPECT_EQ(result, REDISMODULE_OK) << "AREQ_Compile should succeed for: " << test_data.description;
@@ -202,7 +203,7 @@ INSTANTIATE_TEST_SUITE_P(
 
 // Test binary slot range parsing with single range
 TEST_F(AREQTest, testBinarySlotRangeParsingSingleRange) {
-    AREQ* req = AREQ_New();
+    AREQ* req = AREQ_New(NULL, 0);
     ASSERT_NE(req, nullptr) << "AREQ_New should return a valid pointer";
 
     // Mark req as internal to bypass checks
@@ -222,7 +223,8 @@ TEST_F(AREQTest, testBinarySlotRangeParsingSingleRange) {
     argv.push_back(createBinaryString(binary_data));
 
     // Test AREQ_Compile
-    BlockedRequestCtx_NewAREQ(req, argv.data(), argv.size());
+    QueryRequest_HoldArgs(&req->base, argv.data(), argv.size());
+    BlockedRequestCtx_NewAREQ(req);
     int result = AREQ_Compile(req, ctx, 0, false, &status);
 
     EXPECT_EQ(result, REDISMODULE_OK) << "AREQ_Compile should succeed";
@@ -244,7 +246,7 @@ TEST_F(AREQTest, testBinarySlotRangeParsingSingleRange) {
 
 // Test error handling for insufficient arguments
 TEST_F(AREQTest, testBinarySlotRangeInsufficientArgs) {
-    AREQ* req = AREQ_New();
+    AREQ* req = AREQ_New(NULL, 0);
     ASSERT_NE(req, nullptr) << "AREQ_New should return a valid pointer";
 
     // Mark req as internal to bypass checks
@@ -258,7 +260,8 @@ TEST_F(AREQTest, testBinarySlotRangeInsufficientArgs) {
     argv.push_back(RedisModule_CreateString(ctx, SLOTS_STR, strlen(SLOTS_STR)));
 
     // Test AREQ_Compile - should fail due to insufficient arguments
-    BlockedRequestCtx_NewAREQ(req, argv.data(), argv.size());
+    QueryRequest_HoldArgs(&req->base, argv.data(), argv.size());
+    BlockedRequestCtx_NewAREQ(req);
     int result = AREQ_Compile(req, ctx, 0, false, &status);
 
     EXPECT_EQ(result, REDISMODULE_ERR) << "AREQ_Compile should fail with insufficient arguments";
@@ -274,7 +277,7 @@ TEST_F(AREQTest, testBinarySlotRangeInsufficientArgs) {
 
 // Test complex aggregate query with cursor, scorer, and slot ranges
 TEST_F(AREQTest, testComplexAggregateWithCursorAndSlotRanges) {
-    AREQ* req = AREQ_New();
+    AREQ* req = AREQ_New(NULL, 0);
     ASSERT_NE(req, nullptr) << "AREQ_New should return a valid pointer";
 
     // Mark req as internal to bypass checks
@@ -301,7 +304,8 @@ TEST_F(AREQTest, testComplexAggregateWithCursorAndSlotRanges) {
     argv.push_back(RedisModule_CreateString(ctx, "@__score", 8));
 
     // Test AREQ_Compile
-    BlockedRequestCtx_NewAREQ(req, argv.data(), argv.size());
+    QueryRequest_HoldArgs(&req->base, argv.data(), argv.size());
+    BlockedRequestCtx_NewAREQ(req);
     int result = AREQ_Compile(req, ctx, 0, false, &status);
 
     EXPECT_EQ(result, REDISMODULE_OK) << "AREQ_Compile should succeed";

@@ -279,7 +279,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
  * @param nrequests Number of requests in the array
  */
 void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests, size_t nrequests, RedisModuleString **argv, uint32_t argc) {
-    QueryRequest_Init(&hybridReq->base, QUERY_REQUEST_KIND_HYBRID);
+    QueryRequest_Init(&hybridReq->base, QUERY_REQUEST_KIND_HYBRID, argv, argc);
     hybridReq->requests = requests;
     hybridReq->nrequests = nrequests;
     hybridReq->sctx = sctx;
@@ -312,7 +312,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
         // rather than its own slice: slice boundaries are only discovered
         // while parsing, and sub pipelines borrow beyond their slice anyway
         // (distributed tail steps like LOAD, PARAMS).
-        BlockedRequestCtx_NewAREQ(requests[i], argv, argc);
+        BlockedRequestCtx_NewAREQ(requests[i]);
         hybridReq->errors[i] = QueryError_Default();
         Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &hybridReq->errors[i]);
     }
@@ -330,17 +330,17 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
     HybridRequest_Init(hybridReq, sctx, requests, nrequests, argv, argc);
     // Wrap the top-level hybrid request in its single-owner sync context.
     // Sets hybridReq->brc; ownership is released via HybridRequest_DecrRef.
-    BlockedRequestCtx_NewHybrid(hybridReq, argv, argc);
+    BlockedRequestCtx_NewHybrid(hybridReq);
     return hybridReq;
 }
 
 void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, uint32_t argc) {
   // argc bounds the parse; the holds may cover a superset (debug flows).
-  RS_ASSERT(argc <= req->brc->argc);
+  RS_ASSERT(argc <= req->base.args.argc);
   // The cursor covers the whole held command, pre-advanced past the command
   // and index names: recorded positions (sub queryOffsets, syntax-error
   // offsets) are relative to the full command.
-  ArgsCursor_InitRString(ac, req->brc->argv, (int)argc);
+  ArgsCursor_InitRString(ac, req->base.args.argv, (int)argc);
   AC_AdvanceBy(ac, argc > 2 ? 2 : argc);
 }
 
@@ -499,8 +499,8 @@ static RedisSearchCtx* createThreadSafeSearchContext(RedisModuleCtx *ctx, const 
 
 HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx, RedisModuleString **argv, uint32_t argc) {
   extern size_t NumShards;  // Declared in module.c
-  AREQ *search = AREQ_New();
-  AREQ *vector = AREQ_New();
+  AREQ *search = AREQ_New(argv, argc);
+  AREQ *vector = AREQ_New(argv, argc);
   const char *indexName = HiddenString_GetUnsafe(sctx->spec->specName, NULL);
   search->sctx = createThreadSafeSearchContext(sctx->redisCtx, indexName);
   vector->sctx = createThreadSafeSearchContext(sctx->redisCtx, indexName);

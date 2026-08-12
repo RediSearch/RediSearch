@@ -79,9 +79,9 @@ protected:
     RMCK::ArgvList rmArgs(ctx, argv);
 
     QueryError qerr = QueryError_Default();
-    AREQ *r = AREQ_New();
+    AREQ *r = AREQ_New(rmArgs, rmArgs.size());
     AREQ_AddRequestFlags(r, QEXEC_F_IS_COORDINATOR);
-    BlockedRequestCtx_NewAREQ(r, rmArgs, rmArgs.size());
+    BlockedRequestCtx_NewAREQ(r);
     int rc = AREQ_Compile(r, ctx, 0, false, &qerr);
     EXPECT_EQ(rc, REDISMODULE_OK) << QueryError_GetUserError(&qerr);
     if (rc != REDISMODULE_OK) {

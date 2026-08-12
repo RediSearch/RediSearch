@@ -35,7 +35,6 @@ static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 //        'SORTBY', '2', '@avg_price', 'DESC']
 
 static void testAverage() {
-  AREQ *r = AREQ_New();
   RMCK::Context ctx{};
   RMCK::ArgvList vv(ctx, "sony",                                        // nl
                     "GROUPBY", "1", "@brand",                           // nl
@@ -43,8 +42,9 @@ static void testAverage() {
                     "REDUCE", "count", "0",                             // nl
                     "sortby", "2", "@avg_price", "DESC"                 // nl
   );
+  AREQ *r = AREQ_New(vv, vv.size());
   QueryError status{QueryErrorCode(0)};
-  BlockedRequestCtx_NewAREQ(r, vv, vv.size());
+  BlockedRequestCtx_NewAREQ(r);
   int rc = AREQ_Compile(r, ctx, 0, false, &status);
   if (rc != REDISMODULE_OK) {
     printf("Couldn't compile: %s\n", QueryError_GetUserError(&status));
@@ -95,16 +95,16 @@ static void testAverage() {
                ]
  */
 static void testCountDistinct() {
-  AREQ *r = AREQ_New();
-  AREQ_AddRequestFlags(r, QEXEC_F_IS_COORDINATOR); // mark for coordinator pipeline
   RMCK::Context ctx{};
   RMCK::ArgvList vv(ctx, "*",                                                                  // nl
                     "GROUPBY", "1", "@brand",                                                  // nl
                     "REDUCE", "COUNT_DISTINCT", "1", "@title", "AS", "count_distinct(title)",  // nl
                     "REDUCE", "COUNT", "0"                                                     // nl
   );
+  AREQ *r = AREQ_New(vv, vv.size());
+  AREQ_AddRequestFlags(r, QEXEC_F_IS_COORDINATOR); // mark for coordinator pipeline
   QueryError status{QueryErrorCode(0)};
-  BlockedRequestCtx_NewAREQ(r, vv, vv.size());
+  BlockedRequestCtx_NewAREQ(r);
   int rc = AREQ_Compile(r, ctx, 0, false, &status);
   if (rc != REDISMODULE_OK) {
     printf("Couldn't compile: %s\n", QueryError_GetUserError(&status));
@@ -134,16 +134,16 @@ static void testCountDistinct() {
   AREQ_DecrRef(r);
 }
 static void testSplit() {
-  AREQ *r = AREQ_New();
-  AREQ_AddRequestFlags(r, QEXEC_F_IS_COORDINATOR); // mark for coordinator pipeline
   RMCK::Context ctx{};
   RMCK::ArgvList vv(ctx, "*",                                                                  // nl
                     "GROUPBY", "1", "@brand",                                                  // nl
                     "REDUCE", "COUNT_DISTINCT", "1", "@title", "AS", "count_distinct(title)",  // nl
                     "REDUCE", "COUNT", "0"                                                     // nl
   );
+  AREQ *r = AREQ_New(vv, vv.size());
+  AREQ_AddRequestFlags(r, QEXEC_F_IS_COORDINATOR); // mark for coordinator pipeline
   QueryError status{QueryErrorCode(0)};
-  BlockedRequestCtx_NewAREQ(r, vv, vv.size());
+  BlockedRequestCtx_NewAREQ(r);
   int rc = AREQ_Compile(r, ctx, 0, false, &status);
   if (rc != REDISMODULE_OK) {
     printf("Couldn't compile: %s\n", QueryError_GetUserError(&status));

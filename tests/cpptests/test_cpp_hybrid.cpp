@@ -21,8 +21,8 @@ TEST_F(HybridRequestBasicTest, testHybridRequestCreationBasic) {
   // Test basic HybridRequest creation without Redis dependencies
   AREQ **requests = array_new(AREQ*, 2);
   // Initialize the AREQ structures
-  AREQ *req1 = AREQ_New();
-  AREQ *req2 = AREQ_New();
+  AREQ *req1 = AREQ_New(NULL, 0);
+  AREQ *req2 = AREQ_New(NULL, 0);
 
   requests = array_ensure_append_1(requests, req1);
   requests = array_ensure_append_1(requests, req2);

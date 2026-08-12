@@ -1118,9 +1118,9 @@ bool RunInThread(RedisModuleCtx *ctx) {
   return true;
 }
 
-AREQ *AREQ_New(void) {
+AREQ *AREQ_New(RedisModuleString **argv, uint32_t argc) {
   AREQ* req = rm_calloc(1, sizeof(AREQ));
-  QueryRequest_Init(&req->base, QUERY_REQUEST_KIND_AREQ);
+  QueryRequest_Init(&req->base, QUERY_REQUEST_KIND_AREQ, argv, argc);
   QueryRequest_SetEndProcRef(&req->base, &req->pipeline.qctx.endProc);
   /*
   unsigned int dialectVersion;
@@ -1154,8 +1154,6 @@ bool SearchTime_IsTimedOut(void *arg) {
 static BlockedRequestCtx *BlockedRequestCtx_NewCommon(RequestKind kind) {
   BlockedRequestCtx *brc = rm_calloc(1, sizeof(BlockedRequestCtx));
   brc->kind = kind;
-  // TODO($$$): Remove the legacy query offset once consumers use QueryRequest.
-  brc->queryOffset = QUERY_OFFSET_NONE;  // "no query argument" until parsing finds one
   brc->refcount = 1;
   // TODO($$$): Remove the legacy async state once consumers use QueryRequest.async.
   brc->requiresAggregateResultsSync = false;
@@ -1182,66 +1180,21 @@ void BlockedRequestCtx_DecrRef(BlockedRequestCtx *brc) {
   }
 }
 
-/* Hold references to `argv` strings whose contents the wrapped request's
- * plan borrows (see BlockedRequestCtx.argv). Runs at construction, on
- * the main thread; released in BlockedRequestCtx_Free, also on main. */
-static void holdArgv(BlockedRequestCtx *brc, QueryRequest *request, RedisModuleString **argv,
-                     uint32_t argc) {
-  RS_ASSERT(argv != NULL);
-  RS_ASSERT(brc->argv == NULL);
-  // TODO($$$): Remove the legacy argv state once consumers use QueryRequest.
-  brc->argv = rm_malloc(argc * sizeof(*brc->argv));
-  brc->argc = argc;
-  brc->parseArgc = argc;  // debug constructors lower it to exclude the debug tail
-  for (uint32_t ii = 0; ii < argc; ++ii) {
-    brc->argv[ii] = RedisModule_HoldString(NULL, argv[ii]);
-    // Redis auto-trims (reallocates) retained argv right after the command
-    // callback returns — racing any thread already reading the string. Trim
-    // here instead, before any borrow exists or a worker can see it.
-    RedisModule_TrimStringAllocation(brc->argv[ii]);
-  }
-  request->args.argv = brc->argv;
-  request->args.argc = brc->argc;
-  request->args.parseArgc = brc->parseArgc;
-}
-
-/* Release an argv array taken by holdArgv: drop each string reference and
- * free the array. Main-thread only (string refcounts are not thread safe). */
-static void releaseArgv(RedisModuleString **argv, uint32_t argc) {
-  for (uint32_t ii = 0; ii < argc; ++ii) {
-    RedisModule_FreeString(NULL, argv[ii]);
-  }
-  rm_free(argv);
-}
-
-typedef struct {
-  RedisModuleString **argv;
-  uint32_t argc;
-} DeferredArgvRelease;
-
-static void releaseArgvOnMainThread(void *privdata) {
-  DeferredArgvRelease *deferred = privdata;
-  releaseArgv(deferred->argv, deferred->argc);
-  rm_free(deferred);
-}
-
-BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq, RedisModuleString **argv, uint32_t argc) {
+BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq) {
   // Wrapping an already-wrapped request would silently leak the first wrapper.
   RS_ASSERT(areq->brc == NULL);
   BlockedRequestCtx *brc = BlockedRequestCtx_NewCommon(REQUEST_KIND_AREQ);
   brc->query.areq = areq;
   areq->brc = brc;
-  holdArgv(brc, &areq->base, argv, argc);
   return brc;
 }
 
-BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid, RedisModuleString **argv, uint32_t argc) {
+BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid) {
   // Wrapping an already-wrapped request would silently leak the first wrapper.
   RS_ASSERT(hybrid->brc == NULL);
   BlockedRequestCtx *brc = BlockedRequestCtx_NewCommon(REQUEST_KIND_HYBRID);
   brc->query.hybrid = hybrid;
   hybrid->brc = brc;
-  holdArgv(brc, &hybrid->base, argv, argc);
   return brc;
 }
 
@@ -1260,20 +1213,6 @@ void BlockedRequestCtx_Free(BlockedRequestCtx *brc) {
     AREQ_Free(brc->query.areq);
   } else {
     HybridRequest_Free(brc->query.hybrid);
-  }
-  // Every wrapper is born with its holds (construction invariant), released
-  // after the request: its plan borrows from these strings.
-  RS_ASSERT(brc->argv != NULL);
-  if (MainThread_Is()) {
-    releaseArgv(brc->argv, brc->argc);
-  } else {
-    // String references may only be released on the main thread; bounce the
-    // release to the main event loop.
-    DeferredArgvRelease *deferred = rm_new(DeferredArgvRelease);
-    *deferred = (DeferredArgvRelease){.argv = brc->argv, .argc = brc->argc};
-    int rc = RedisModule_EventLoopAddOneShot(releaseArgvOnMainThread, deferred);
-    RS_ASSERT(rc == REDISMODULE_OK);
-    (void)rc;
   }
   rm_free(brc);
 }
@@ -1468,19 +1407,17 @@ static bool shouldCheckInPipelineTimeout(RedisModuleCtx* ctx, AREQ *req) {
 }
 
 int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskIndex, QueryError *status) {
-  BlockedRequestCtx *brc = req->brc;
-  RS_ASSERT(brc != NULL);
-  RS_ASSERT(offset <= brc->parseArgc && brc->parseArgc <= brc->argc);
-  // TODO($$$): Remove the legacy query offset once consumers use QueryRequest.
-  brc->queryOffset = offset;
-  req->base.args.queryOffset = brc->queryOffset;
+  RS_ASSERT(req->brc != NULL);
+  RS_ASSERT(offset <= req->base.args.parseArgc &&
+            req->base.args.parseArgc <= req->base.args.argc);
+  req->base.args.queryOffset = offset;
 
   // Parse the query and basic keywords first..
   // The cursor covers the whole held command, pre-advanced to the parse
   // start: positions recorded off the cursor (syntax-error offsets,
   // prefixesOffset) are relative to the full command, not the parsed tail.
   ArgsCursor ac = {0};
-  ArgsCursor_InitRString(&ac, brc->argv, brc->parseArgc);
+  ArgsCursor_InitRString(&ac, req->base.args.argv, req->base.args.parseArgc);
   AC_AdvanceBy(&ac, offset);
 
   if (AC_IsAtEnd(&ac)) {
@@ -1662,7 +1599,7 @@ static bool IsIndexCoherent(AREQ *req) {
 
   // prefixesOffset indexes the full held command (recorded off the compile
   // cursor, which covers the whole command).
-  RedisModuleString **args = req->brc->argv;
+  RedisModuleString **args = req->base.args.argv;
   long long n_prefixes = 0;
   RedisModule_StringToLongLong(args[req->prefixesOffset + 1], &n_prefixes);
   // The first argument is at req->prefixesOffset + 2

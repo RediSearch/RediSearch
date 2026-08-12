@@ -788,8 +788,8 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   // Compile parses the held argv — this job's argv copies die with the job,
   // the plan's borrows must not. The job argv mirrors the original, so the
   // offset computed on it indexes the holds too, and this view's length must
-  // match the wrapper's parse extent (the debug dispatcher trims both).
-  RS_ASSERT((uint32_t)argc == r->brc->parseArgc);
+  // match the request's parse extent (the debug dispatcher trims both).
+  RS_ASSERT((uint32_t)argc == r->base.args.parseArgc);
   rc = AREQ_Compile(r, ctx, ac.offset, SearchDisk_IsEnabledForValidation(), status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 

@@ -91,7 +91,7 @@ typedef struct {
   bool empty;
 
   /** The keys to limit to: a borrowed window into the request's held argv
-   * (see BlockedRequestCtx.argv). Not owned. */
+   * (see QueryRequestArgs.argv). Not owned. */
   RedisModuleString **keys;
   /** Pre-resolved document IDs (for SearchDisk, resolved on main thread). Same length as keys. (Not owned) */
   t_docId *docIds;

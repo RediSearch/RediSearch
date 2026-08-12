@@ -152,7 +152,7 @@ typedef struct blockedClientHybridCtx {
  * @param nrequests Number of requests in the array
  * @param argv The command argv, not NULL; the container's and each
  *   sub-request's wrapper take holds on the full command (main-thread only —
- *   see BlockedRequestCtx.argv)
+ *   see QueryRequestArgs.argv)
  * @param argc Number of strings in argv
 */
 HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests, RedisModuleString **argv, uint32_t argc);
