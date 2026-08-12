@@ -59,6 +59,17 @@ void CrashInRust(void);
  */
 ResultProcessor *RPCounter_New(void);
 
+/**
+ * Create a new heap-allocated `Pager` result processor. `offset` and `limit` are taken from the
+ * user's `LIMIT` clause.
+ *
+ * # Safety
+ *
+ * - The caller must never move the allocated result processor from its original allocation.
+ * - The caller must ensure to call the `Free` VTable function to properly destroy the type.
+ */
+ResultProcessor *RPPager_New(size_t offset, size_t limit);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

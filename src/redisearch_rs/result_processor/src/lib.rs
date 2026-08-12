@@ -18,6 +18,7 @@
 //! the database indexes.
 
 pub mod counter;
+pub mod pager;
 /// Test harness (`Chain`, `from_iter`, `ResultRP`) for driving result processors in pure Rust.
 ///
 /// Exposed behind the `test-utils` feature so other crates (e.g. `redisearch_disk`) can build
@@ -146,6 +147,22 @@ impl Context<'_> {
         unsafe { query_processing_context_ptr.as_ref() }
     }
 
+    /// Returns the owning [`ffi::QueryProcessingCtx`] of the pipeline, mutably.
+    ///
+    /// Kept private: the narrow accessors below are the supported way for a processor to mutate
+    /// pipeline-wide state, so a processor cannot reach the `rootProc`/`endProc` links through here.
+    const fn parent_mut(&mut self) -> Option<&mut ffi::QueryProcessingCtx> {
+        // Safety: We trust that this result processor's pointer is valid.
+        let parent = unsafe { self.ptr.as_ref() }.parent.cast_mut();
+
+        // Safety: the parent pointer, if non-null, is the `QueryProcessingCtx` the C pipeline
+        // installed on this result processor; it outlives the processor, the chain runs on a single
+        // thread, and the C pipeline mutates these same fields. Provenance comes from the raw
+        // pointer C provided, so writing through it is sound. The returned borrow is tied to
+        // `&mut self`, so no two live `&mut` to the parent can be handed out at once.
+        unsafe { parent.as_mut() }
+    }
+
     /// Decrease the pipeline's running total result count by `n`.
     ///
     /// A result is counted (`totalResults++`) by the index processor as soon as it is produced
@@ -155,18 +172,29 @@ impl Context<'_> {
     /// document (non-resident key, or a docid that changed under the query).
     ///
     /// No-op when the processor has no parent.
-    pub fn subtract_total_results(&mut self, n: u32) {
-        // Safety: the parent pointer, if non-null, is the `QueryProcessingCtx` the C pipeline
-        // installed on this result processor; it outlives the processor, the chain runs on a single
-        // thread, and the C pipeline mutates this same field. Provenance comes from the raw pointer
-        // C provided, so writing through it is sound.
-        let parent = unsafe { self.ptr.as_ref() }.parent.cast_mut();
-        if !parent.is_null() {
-            // SAFETY: `parent` is non-null (checked above) and points to the `QueryProcessingCtx`
-            // the C pipeline installed on this processor; it outlives the processor and the chain
-            // runs on a single thread, so taking a transient `&mut` to update `totalResults` is sound.
-            let parent = unsafe { &mut *parent };
+    pub const fn subtract_total_results(&mut self, n: u32) {
+        if let Some(parent) = self.parent_mut() {
             parent.totalResults = parent.totalResults.saturating_sub(n);
+        }
+    }
+
+    /// The number of results the pipeline is currently allowed to produce for this chunk
+    /// (`QueryProcessingCtx::resultLimit`).
+    ///
+    /// A processor may lower this to cap how much its *upstream* produces, but must restore the
+    /// original value before returning, so the limit looks untouched to everything downstream.
+    ///
+    /// Returns `None` when the processor has no parent.
+    pub fn result_limit(&mut self) -> Option<u32> {
+        self.parent_mut().map(|parent| parent.resultLimit)
+    }
+
+    /// Set the pipeline's per-chunk result limit. See [`Self::result_limit`].
+    ///
+    /// No-op when the processor has no parent.
+    pub const fn set_result_limit(&mut self, limit: u32) {
+        if let Some(parent) = self.parent_mut() {
+            parent.resultLimit = limit;
         }
     }
 }

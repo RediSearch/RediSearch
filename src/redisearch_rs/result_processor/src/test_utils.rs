@@ -168,6 +168,19 @@ impl Chain {
             .totalResults = n;
     }
 
+    /// The pipeline's current per-chunk `resultLimit` (from [`ffi::QueryProcessingCtx`]).
+    ///
+    /// Used in tests to verify that a processor which lowers the limit to cap its upstream
+    /// restores it before returning.
+    pub fn result_limit(&self) -> u32 {
+        self.query_processing_context.resultLimit
+    }
+
+    /// Set the pipeline's per-chunk `resultLimit` directly (test-only).
+    pub fn set_result_limit(&mut self, n: u32) {
+        self.query_processing_context.as_mut().get_mut().resultLimit = n;
+    }
+
     /// Return a [`Context`] and mutable reference to the inner [`ResultProcessor`] implementation
     /// from the last result processor in the chain.
     ///

@@ -886,69 +886,8 @@ ResultProcessor *RPSorter_NewByScore(size_t maxresults, const RLookupKey *scoreT
  * without re-executing the entire query
  *******************************************************************************************************************/
 
-typedef struct {
-  ResultProcessor base;
-  uint32_t offset;
-  uint32_t remaining;
-} RPPager;
-
-static int rppagerNext_Limit(ResultProcessor *base, SearchResult *r) {
-  RPPager *self = (RPPager *)base;
-
-  // If we've reached LIMIT:
-  if (!self->remaining) {
-    return RS_RESULT_EOF;
-  }
-
-  int ret = base->upstream->Next(base->upstream, r);
-  // Account for the result only if we got one.
-  if (ret == RS_RESULT_OK) self->remaining--;
-  return ret;
-}
-
-static int rppagerNext_Skip(ResultProcessor *base, SearchResult *r) {
-  RPPager *self = (RPPager *)base;
-
-  // Currently a pager is never called more than offset+limit times.
-  // We limit the entire pipeline to offset+limit (upstream and downstream).
-  uint32_t limit = MIN(self->remaining, base->parent->resultLimit);
-  // Save the previous limit, so that it will seem untouched to the downstream
-  uint32_t downstreamLimit = base->parent->resultLimit;
-  base->parent->resultLimit = self->offset + limit;
-
-  // If we've not reached the offset
-  while (self->offset) {
-    int rc = base->upstream->Next(base->upstream, r);
-    if (rc != RS_RESULT_OK) {
-      return rc;
-    }
-    base->parent->resultLimit--;
-    self->offset--;
-    SearchResult_Clear(r);
-  }
-
-  base->parent->resultLimit = downstreamLimit;
-
-  base->Next = rppagerNext_Limit; // switch to second phase
-  return base->Next(base, r);
-}
-
-static void rppagerFree(ResultProcessor *base) {
-  rm_free(base);
-}
-
-/* Create a new pager. The offset and limit are taken from the user request */
-ResultProcessor *RPPager_New(size_t offset, size_t limit) {
-  RPPager *ret = rm_calloc(1, sizeof(*ret));
-  ret->offset = offset;
-  ret->remaining = limit;
-
-  ret->base.type = RP_PAGER_LIMITER;
-  ret->base.Next = rppagerNext_Skip;
-  ret->base.Free = rppagerFree;
-
-  return &ret->base;
-}
+/* Implemented in Rust; see `RPPager_New` in `result_processor_ffi.h` and the `pager` module of the
+ * `result_processor` crate. */
 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
