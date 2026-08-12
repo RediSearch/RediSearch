@@ -70,7 +70,13 @@ fn index_and_commit_agree_on_the_key() {
 
 /// `TagValueReader` walks a tag's postings in ascending document order and
 /// reports the end of the list, staying there once reached.
+// Crossing a block boundary needs more documents than
+// `DocIdsOnly::RECOMMENDED_BLOCK_ENTRIES`, which is a fixed trait constant — there is no
+// smaller corpus that keeps the property, and interpreting that many writes exceeds
+// `nextest`'s slow-test budget. `inverted_index`'s own Miri tests cover the multi-block
+// path by overriding the block capacity instead.
 #[test]
+#[cfg_attr(miri, ignore)]
 fn tag_value_reader_reads_every_posting_in_order() {
     // A `DocIdsOnly` block holds up to 1000 entries, so index past that to make
     // the reader cross a block boundary.
@@ -198,11 +204,16 @@ fn reindexing_the_same_document_is_a_no_op() {
 }
 
 /// Indexing N documents over a fixed tag set leaves one posting list per
-/// distinct tag and accumulates one record per (tag, doc) pair. A few hundred docs
-/// is enough to cross block boundaries.
+/// distinct tag and accumulates one record per (tag, doc) pair.
 #[test]
 fn unique_values_and_record_count_track_the_writes() {
+    // Both counts are linear in N, so the assertions hold at any size; a few hundred
+    // documents just exercises the accumulation over many writes.
+    #[cfg(not(miri))]
     const N: u64 = 500;
+    // Miri interprets every write, and 500 of them exceed `nextest`'s slow-test budget.
+    #[cfg(miri)]
+    const N: u64 = 20;
 
     let mut tag_index = TagIndex::new_in_memory(1, false);
     let tags: &[&[u8]] = &[b"hello", b"world", b"foo"];
@@ -237,7 +248,11 @@ fn intra_document_duplicate_tag_counted_once() {
 /// inverted indexes report, and blocks accumulate (one per tag on the first
 /// write). Asserted against the reported memory rather than absolute byte
 /// constants, which would pin the `InvertedIndex<DocIdsOnly>` layout.
+// Ignored under Miri for the same reason as
+// `tag_value_reader_reads_every_posting_in_order`: the block accounting is only
+// interesting past `DocIdsOnly::RECOMMENDED_BLOCK_ENTRIES`.
 #[test]
+#[cfg_attr(miri, ignore)]
 fn size_and_block_accounting_matches_reported_memory() {
     // A `DocIdsOnly` block holds up to 1000 entries, so index past that to make
     // each tag's posting list spill into more than one block.

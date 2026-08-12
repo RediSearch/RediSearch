@@ -133,7 +133,11 @@ pub use iter::{IterMode, TagValueReader, ValueIterator};
 // Rust FFI functions that the linked C code (`libredisearch_c_bundle`) calls back into, and
 // stub any remaining Redis module C symbols the tests pull in. Without the `extern crate`
 // reference the umbrella rlib is dropped as unused and those symbols go undefined at link
-// time. Mirrors `numeric_range_tree`/`query_eval`/`top_k`.
+// time.
+//
+// This only covers the unit-test harness built from this library. `cfg(test)` is off when the
+// library is compiled for `tests/integration`, so that binary repeats both declarations in its
+// own root — as `top_k` does.
 #[cfg(test)]
 extern crate redisearch_rs;
 
@@ -230,6 +234,8 @@ impl TagIndex {
     /// `disk_spec` must point to a [valid] [`RedisSearchDiskIndexSpec`] that
     /// remains valid for the lifetime of the returned [`TagIndex`]: the disk
     /// paths hand it to the `SearchDisk_*` API, which dereferences it.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub unsafe fn new_on_disk(
         id: u32,
         disk_spec: NonNull<RedisSearchDiskIndexSpec>,
@@ -1403,7 +1409,15 @@ mod expansion_timeout_tests {
     /// traversal steps, a `trie_rs` internal), so a zero-budget deadline is
     /// guaranteed to trigger before the corpus is exhausted while still leaving
     /// many entries unprocessed.
+    #[cfg(not(miri))]
     const CORPUS: usize = 300;
+    /// Miri interprets every traversal step, and a 300-term expansion there exceeds
+    /// `nextest`'s slow-test budget. Only the tests that assert on a *partial*
+    /// expansion need a corpus above the clock-probe granularity, and those need a
+    /// real clock, so they are `ignore`d under Miri anyway. What still runs only
+    /// needs more than one term.
+    #[cfg(miri)]
+    const CORPUS: usize = 8;
 
     /// A deadline that has already elapsed. Any `CLOCK_MONOTONIC_RAW` value one
     /// second after boot is in the past on a running system, so
@@ -1418,7 +1432,8 @@ mod expansion_timeout_tests {
     /// Build a `WITHSUFFIXTRIE` index over `CORPUS` distinct terms that all
     /// share the literal prefix `he`. `he*` (wildcard) visits one full-term
     /// suffix entry per term, and the contains-expansion `e` visits one
-    /// proper-suffix entry per term — both more than the check granularity.
+    /// proper-suffix entry per term — so both walks visit exactly `CORPUS`
+    /// entries, which is what makes `CORPUS` the knob the deadline tests rely on.
     fn big_index() -> (TagIndex, usize) {
         let owned: Vec<Vec<u8>> = (0..CORPUS)
             .map(|i| format!("he{i:05}").into_bytes())
@@ -1462,9 +1477,7 @@ mod expansion_timeout_tests {
     }
 
     // `SuffixQuery::Contains` prefix-iterates the suffix trie, probing the
-    // deadline once per entry. Each `heNNNNN` term contributes exactly one
-    // suffix entry starting with `e` (`eNNNNN`), so `e` visits one entry per
-    // term, above the check granularity.
+    // deadline once per entry.
     #[test]
     fn contains_no_timeout_returns_all() {
         let (idx, total) = big_index();
