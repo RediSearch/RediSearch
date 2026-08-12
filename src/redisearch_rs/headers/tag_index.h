@@ -381,6 +381,15 @@ struct ValueIterator *TagIndex2_IterateValuesWithFilter(const struct TagIndex *t
  */
 size_t TagIndex2_NUniqueValues(const struct TagIndex *tag_index);
 
+/**
+ * Create a new, empty [`TagIndex`]: disk-backed when `disk_spec` is non-NULL —
+ * paired with `field_index` — in memory otherwise.
+ *
+ * # Safety
+ *
+ * 1. When non-NULL, `disk_spec` must be a valid [`RedisSearchDiskIndexSpec`]
+ *    that outlives the returned [`TagIndex`]
+ */
 struct TagIndex *TagIndex2_New(uint32_t id, RedisSearchDiskIndexSpec *disk_spec, t_fieldIndex field_index, bool with_suffix);
 
 /**

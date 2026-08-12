@@ -81,7 +81,8 @@ impl MockContext {
         // tags — so an empty index is all they need. Unlike the C structs the
         // library dereferences through pointer chains, this value is only ever
         // touched by Rust, so a `Box` is fine (no Stacked-Borrows concern).
-        let tag_index_ptr: *mut TagIndex = Box::into_raw(Box::new(TagIndex::new(0, None, false)));
+        let tag_index_ptr: *mut TagIndex =
+            Box::into_raw(Box::new(TagIndex::new_in_memory(0, false)));
 
         // Initialize all structs through raw pointers
         unsafe {

@@ -43,20 +43,33 @@ use lending_iterator::LendingIterator as _;
 use redis_module::RedisModuleCtx;
 use rqe_core::DocId;
 use tag_index::{
-    IterMode, SuffixWildcardPattern, TagIndex, TagValueReader, TrieLookup, ValueIterator,
+    IterMode, SuffixQuery, SuffixWildcardPattern, TagIndex, TagValueReader, TrieLookup,
+    ValueIterator,
 };
 use trie_rs::iter::{RangeBoundary, RangeFilter};
 use triemap_ffi::{TrieMapRangeCallback, tm_iter_mode, tm_len_t};
 
+/// Create a new, empty [`TagIndex`]: disk-backed when `disk_spec` is non-NULL —
+/// paired with `field_index` — in memory otherwise.
+///
+/// # Safety
+///
+/// 1. When non-NULL, `disk_spec` must be a valid [`RedisSearchDiskIndexSpec`]
+///    that outlives the returned [`TagIndex`]
 #[unsafe(no_mangle)]
-pub extern "C" fn TagIndex2_New(
+pub unsafe extern "C" fn TagIndex2_New(
     id: u32,
     disk_spec: *mut RedisSearchDiskIndexSpec,
     field_index: t_fieldIndex,
     with_suffix: bool,
 ) -> *mut TagIndex {
-    let disk = NonNull::new(disk_spec).map(|ptr| (ptr, field_index));
-    let tag_index = TagIndex::new(id, disk, with_suffix);
+    let tag_index = match NonNull::new(disk_spec) {
+        // SAFETY: 1. is exactly `new_on_disk`'s requirement on `disk_spec`.
+        Some(disk_spec) => unsafe {
+            TagIndex::new_on_disk(id, disk_spec, field_index, with_suffix)
+        },
+        None => TagIndex::new_in_memory(id, with_suffix),
+    };
 
     Box::into_raw(Box::new(tag_index))
 }
@@ -425,7 +438,7 @@ pub unsafe extern "C" fn TagIndexValueIter_Next<'trie>(
     // SAFETY: The caller must ensure that `res` is a valid pointer to a `RSIndexResult`
     let res = unsafe { &mut *res };
 
-    tag_index_value.0.next(res)
+    tag_index_value.0.next_record(res)
 }
 
 /// # Safety
@@ -889,7 +902,9 @@ pub unsafe extern "C" fn TagIndex2_Commit(
     // Safety: TODO
     let tag_index = unsafe { &mut *tag_index };
 
-    tag_index.commit(&tags)
+    // SAFETY: `CStr::to_bytes` stops at the terminator, so no tag has an interior
+    // NUL — `commit`'s only requirement.
+    unsafe { tag_index.commit(&tags) }
 }
 
 /// # Safety
@@ -1037,8 +1052,13 @@ pub unsafe extern "C" fn TagIndex2_GetSuffixMatches(
 
     // Drain the lazily-yielded matches into the flat pointer array C consumes. The
     // pointers borrow the suffix trie, which must outlive the array (guarantee 1).
+    let query = if prefix {
+        SuffixQuery::Contains(tag)
+    } else {
+        SuffixQuery::Suffix(tag)
+    };
     let elems: Vec<*const c_void> = tag_index
-        .suffix_trie_map(tag, prefix, timeout)
+        .suffix_expand(query, timeout)
         .map(|t| t.as_ptr().cast())
         .collect();
     if elems.is_empty() {
@@ -1093,7 +1113,13 @@ pub unsafe extern "C" fn TagIndex2_GetSuffixWildcardMatches(
     // Drain the lazily-yielded matches into the flat pointer array C consumes.
     // The pointers borrow the suffix trie, which must outlive the array (guarantee 1).
     let elems: Vec<*const c_void> = tag_index
-        .suffix_wildcard(&pattern, timeout, max_prefix_expansions as u64)
+        .suffix_expand(
+            SuffixQuery::Wildcard {
+                pattern: &pattern,
+                max_prefix_expansions: max_prefix_expansions as u64,
+            },
+            timeout,
+        )
         .map(|t| t.as_ptr().cast())
         .collect();
 

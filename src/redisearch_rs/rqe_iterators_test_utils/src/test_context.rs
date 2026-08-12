@@ -807,7 +807,7 @@ impl TestContext {
         // the tag value `"test_tag"`. The tag value is deliberately NUL-free:
         // the query term used by the tag iterator is `"test_tag"` (no NUL), and
         // the lookup compares against those same bytes.
-        let mut tag_index = TagIndex::new(0, None, false);
+        let mut tag_index = TagIndex::new_in_memory(0, false);
         for doc_id in doc_ids {
             // SAFETY: memory mode, so neither disk-mode condition of `index`
             // applies — `ctx`/`batch` are ignored and the tag bytes are never
