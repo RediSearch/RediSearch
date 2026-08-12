@@ -45,12 +45,220 @@ fn status_mutations_are_visible() {
     assert_eq!(ctx.status().code(), query_error::QueryErrorCode::Syntax);
 }
 
-#[test]
-fn metric_requests_ptr_addresses_the_context_field() {
+/// Run `f` against a context, releasing the metric-request array the appends
+/// grow.
+///
+/// The mock owns the head *slot* but not the array behind it — it hands out an
+/// empty (null) head and never grows one — so whatever the appends allocate is
+/// this function's to free rather than its teardown's.
+fn with_metric_requests(f: impl FnOnce(&mut QueryEvalContext)) {
+    /// Releases the array on the way out, whether `f` returns or panics: an
+    /// assertion failure that skipped the release would leave a non-empty head
+    /// for the mock's teardown to assert on mid-unwind, aborting the process
+    /// instead of reporting which assertion failed.
+    struct FreeOnDrop(*mut *mut rlookup::MetricRequest<'static>);
+
+    impl Drop for FreeOnDrop {
+        fn drop(&mut self) {
+            // SAFETY: the head slot outlives this guard (the mock owning it is
+            // dropped later), and whatever the appends left on it is either
+            // null or a tracked array owned by nothing else.
+            unsafe {
+                let head = *self.0;
+                if head.is_null() {
+                    return;
+                }
+                for request in
+                    std::slice::from_raw_parts(head, ffi::array_len_func(head.cast()) as _)
+                {
+                    if !request.key_handle.is_null() {
+                        // Through the same allocator `bind_metric_request_key`
+                        // took the handle from, rather than the shim that
+                        // happens to back it in this build.
+                        let free = redis_module::RedisModule_Free.expect("RedisModule_Free unset");
+                        free(request.key_handle.cast());
+                    }
+                }
+                ffi::array_free(head.cast());
+                // Back to the empty state the mock handed out, so its teardown
+                // does not outlive the array through a dangling head.
+                *self.0 = std::ptr::null_mut();
+            }
+        }
+    }
+
     let mut mock = MockQueryEvalCtx::new();
+    // Declared after `mock` so it runs first, while the head slot is still live.
+    let _free = FreeOnDrop(mock.metric_requests_p());
+
+    // SAFETY: the mock is a valid, exclusively-owned `QueryEvalCtx`.
     let mut ctx = unsafe { QueryEvalContext::new(mock.as_non_null()) };
-    let ptr = ctx.metric_requests_ptr();
-    assert!(std::ptr::eq(ptr, mock.metric_requests_p().cast()));
+    f(&mut ctx);
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (array_ensure_append_n_func)")]
+fn add_metric_request_appends_and_returns_its_index() {
+    let first = c"__v_score";
+    let second = c"__w_score";
+
+    with_metric_requests(|ctx| {
+        // SAFETY: both are static C string literals — non-null,
+        // NUL-terminated, and outliving the array.
+        let (a, b) = unsafe {
+            (
+                ctx.add_metric_request(first.as_ptr(), false),
+                ctx.add_metric_request(second.as_ptr(), true),
+            )
+        };
+        // Indices are handed out in append order and stay valid as the array
+        // grows — a later request never displaces an earlier one.
+        assert_eq!((a, b), (0, 1));
+
+        let requests = ctx.metric_requests();
+        assert_eq!(requests.len(), 2);
+        assert!(std::ptr::eq(requests[0].metric_name, first.as_ptr()));
+        assert!(!requests[0].is_internal);
+        assert!(std::ptr::eq(requests[1].metric_name, second.as_ptr()));
+        assert!(requests[1].is_internal);
+        assert!(
+            requests.iter().all(|r| r.key_handle.is_null()),
+            "a freshly reserved request carries no key handle"
+        );
+    });
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (array_ensure_append_n_func)")]
+fn bind_metric_request_key_fills_in_a_valid_handle() {
+    with_metric_requests(|ctx| {
+        // SAFETY: a static C string literal — non-null, NUL-terminated,
+        // and outliving the array.
+        let idx = unsafe { ctx.add_metric_request(c"__v_score".as_ptr(), false) };
+
+        // Stands in for the key slot inside an iterator; it outlives the
+        // handle, which this test frees before it goes out of scope.
+        let mut key: *mut rlookup::RLookupKey<'_> = std::ptr::null_mut();
+        // SAFETY: `idx` was just reserved on this context and `key` outlives
+        // the handle.
+        let handle = unsafe { ctx.bind_metric_request_key(idx, &mut key) };
+
+        // SAFETY: `handle` is the freshly allocated, fully initialised handle.
+        let handle_ref = unsafe { &*handle };
+        assert!(std::ptr::eq(handle_ref.key_ptr, &mut key));
+        assert!(
+            handle_ref.is_valid,
+            "the pipeline gates the key write on this flag, so it must be set \
+             explicitly — the module allocator does not zero"
+        );
+        // The two pointers carry unrelated key lifetimes, so compare them by
+        // address rather than making the types line up.
+        assert_eq!(ctx.metric_requests()[idx].key_handle.addr(), handle.addr());
+    });
+}
+
+/// The order a vector node actually produces: reserve, evaluate the child
+/// subtree — which reserves and binds requests of its own, reallocating the
+/// array — and only then bind the outer request. So binds arrive out of order,
+/// at a non-zero index, and across a move of the whole array.
+///
+/// The third reservation is the one that matters: it lands with no spare
+/// capacity, so the array is reallocated between the two binds and the head may
+/// move. That makes this the test that would catch a wrong element stride, an
+/// off-by-one in the index, or a head cached across the append — none of which
+/// a bind at index 0 on a one-element array can distinguish.
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (array_ensure_append_n_func)")]
+fn binds_survive_the_array_moving_under_them() {
+    with_metric_requests(|ctx| {
+        let mut outer_key: *mut rlookup::RLookupKey<'_> = std::ptr::null_mut();
+        let mut inner_key: *mut rlookup::RLookupKey<'_> = std::ptr::null_mut();
+
+        // SAFETY: static C string literals — non-null, NUL-terminated, and
+        // outliving the array.
+        let (outer, inner) = unsafe {
+            (
+                ctx.add_metric_request(c"__v_score".as_ptr(), false),
+                ctx.add_metric_request(c"__w_score".as_ptr(), false),
+            )
+        };
+
+        // The inner request binds first, as the child subtree finishes first.
+        // SAFETY: `inner` was just reserved on this context, and `inner_key`
+        // outlives the handle.
+        let inner_handle = unsafe { ctx.bind_metric_request_key(inner, &mut inner_key) };
+
+        // A third reservation moves the array out from under the handle just
+        // stored, which is what the bind below has to tolerate.
+        // SAFETY: as for the reservations above.
+        let third = unsafe { ctx.add_metric_request(c"__x_score".as_ptr(), false) };
+        assert_eq!((outer, inner, third), (0, 1, 2));
+
+        // SAFETY: `outer` was reserved on this context and not yet bound, and
+        // `outer_key` outlives the handle.
+        let outer_handle = unsafe { ctx.bind_metric_request_key(outer, &mut outer_key) };
+
+        let requests = ctx.metric_requests();
+        assert_eq!(requests.len(), 3);
+        // The move did not disturb the earlier binding, and the later one
+        // landed on its own entry rather than overwriting a neighbour.
+        assert_eq!(requests[inner].key_handle.addr(), inner_handle.addr());
+        assert_eq!(requests[outer].key_handle.addr(), outer_handle.addr());
+        assert_ne!(inner_handle.addr(), outer_handle.addr());
+        assert!(
+            requests[third].key_handle.is_null(),
+            "a request reserved but never bound keeps a null handle"
+        );
+
+        // Each handle still points at its own key slot: a wrong stride would
+        // have crossed them over while leaving the assertions above intact.
+        // SAFETY: both handles are freshly allocated and fully initialised.
+        unsafe {
+            assert!(std::ptr::eq((*inner_handle).key_ptr, &mut inner_key));
+            assert!(std::ptr::eq((*outer_handle).key_ptr, &mut outer_key));
+        }
+    });
+}
+
+/// Binding twice orphans the first handle — nothing can reach it through the
+/// array afterwards, so nothing frees it. The debug-only assertion is what
+/// turns that silent leak into a located failure, so it is worth a test of its
+/// own.
+#[test]
+#[cfg(debug_assertions)] // the assertion only exists in debug builds
+#[cfg_attr(miri, ignore = "requires C FFI (array_ensure_append_n_func)")]
+#[should_panic(expected = "was already bound")]
+fn binding_a_metric_request_twice_panics() {
+    with_metric_requests(|ctx| {
+        // SAFETY: a static C string literal — non-null, NUL-terminated,
+        // and outliving the array.
+        let idx = unsafe { ctx.add_metric_request(c"__v_score".as_ptr(), false) };
+
+        let mut key: *mut rlookup::RLookupKey<'_> = std::ptr::null_mut();
+        // SAFETY: `idx` was just reserved on this context and `key` outlives
+        // the handle.
+        unsafe { ctx.bind_metric_request_key(idx, &mut key) };
+        // SAFETY: as above, except for the very precondition under test — the
+        // assertion fires before the second bind reaches the array.
+        unsafe { ctx.bind_metric_request_key(idx, &mut key) };
+    });
+}
+
+/// An index that was never reserved has no entry to bind, and on an empty list
+/// there is no length header to bounds-check it against either — so the
+/// assertion has to come before the length read.
+#[test]
+#[cfg(debug_assertions)] // the assertion only exists in debug builds
+#[should_panic(expected = "must come from `add_metric_request`")]
+fn binding_without_reserving_panics() {
+    let mut mock = MockQueryEvalCtx::new();
+    // SAFETY: the mock is a valid, exclusively-owned `QueryEvalCtx`.
+    let mut ctx = unsafe { QueryEvalContext::new(mock.as_non_null()) };
+
+    let mut key: *mut rlookup::RLookupKey<'_> = std::ptr::null_mut();
+    // SAFETY: none — this violates precondition (1) on purpose, and the
+    // assertion fires before anything reads the null head.
+    unsafe { ctx.bind_metric_request_key(0, &mut key) };
 }
 
 #[test]
