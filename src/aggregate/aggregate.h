@@ -328,12 +328,6 @@ struct BlockedRequestCtx {
    * not care whether BG started). */
   RS_Atomic(int) strictReadOwner;
 
-  /* TRANSITIONAL(MOD-16691): per-cycle registry bridge, until Step 3 links
-   * the wrapper itself into BlockedQueries. The node created for this cycle,
-   * unlinked and freed in EndCycle. Kind-tagged because query and cursor
-   * nodes live in different lists. */
-  void *registry_node;
-  bool registry_node_is_cursor;
 };
 
 /* The request's query string: the first argument of its parse slice, backed

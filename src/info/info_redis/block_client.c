@@ -28,12 +28,14 @@ static QueryRequest *BlockedRequestCtx_QueryRequest(BlockedRequestCtx *brc) {
 
 void BlockedRequestCtx_BeginCycle(BlockedRequestCtx *brc, RedisModuleBlockedClient *bc,
                                   RedisModuleCmdFunc reply_cb) {
+  QueryRequest *request = BlockedRequestCtx_QueryRequest(brc);
   // No overlapping cycles: the previous cycle's OnFree must have run before a
   // new cycle may begin on the same wrapper. This holds structurally for
   // blocked cursor cycles — the cursor is only parked back into the idle list
   // by OnFree (cursorEndOfCycle records the disposition; OnFree executes it),
   // so no other client can take it before the cycle fully ended.
-  RS_ASSERT(brc->bc == NULL && brc->registry_node == NULL);
+  RS_ASSERT(brc->bc == NULL && request->registryInfo.node == NULL &&
+            request->registryInfo.kind == REGISTRY_ENTRY_NONE);
   // The cycle's hold on the wrapper: keeps the wrapper (and the owned request)
   // alive until OnFree, so the reply/timeout callbacks may dereference the
   // privdata even if the BG worker released its own hold (e.g. a cursor freed
@@ -54,17 +56,15 @@ void BlockedRequestCtx_BeginCycle(BlockedRequestCtx *brc, RedisModuleBlockedClie
 
 void BlockedRequestCtx_EndCycle(BlockedRequestCtx *brc) {
   QueryRequest *request = BlockedRequestCtx_QueryRequest(brc);
-  // TODO($$$): Remove the legacy registry state once consumers use QueryRequest.registryInfo.
-  if (brc->registry_node) {
-    if (brc->registry_node_is_cursor) {
-      BlockedQueries_RemoveCursor(brc->registry_node);
+  if (request->registryInfo.node) {
+    if (request->registryInfo.kind == REGISTRY_ENTRY_CURSOR) {
+      BlockedQueries_RemoveCursor(request->registryInfo.node);
     } else {
-      BlockedQueries_RemoveQuery(brc->registry_node);
+      RS_ASSERT(request->registryInfo.kind == REGISTRY_ENTRY_QUERY);
+      BlockedQueries_RemoveQuery(request->registryInfo.node);
     }
-    rm_free(brc->registry_node);
-    brc->registry_node = NULL;
+    rm_free(request->registryInfo.node);
   }
-  brc->registry_node_is_cursor = false;
   request->registryInfo.node = NULL;
   request->registryInfo.kind = REGISTRY_ENTRY_NONE;
   // Dispose a stashed cursor reference-releasingly BEFORE the generic destroy:
@@ -146,9 +146,6 @@ RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, Stron
     .node = node,
     .kind = REGISTRY_ENTRY_QUERY,
   };
-  // TODO($$$): Remove the legacy registry state once consumers use QueryRequest.registryInfo.
-  brc->registry_node = node;
-  brc->registry_node_is_cursor = false;
   // report block client start time
   RedisModule_BlockedClientMeasureTimeStart(bc);
   return bc;
@@ -183,9 +180,6 @@ RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Curs
     .node = node,
     .kind = REGISTRY_ENTRY_CURSOR,
   };
-  // TODO($$$): Remove the legacy registry state once consumers use QueryRequest.registryInfo.
-  brc->registry_node = node;
-  brc->registry_node_is_cursor = true;
   // report block client start time
   RedisModule_BlockedClientMeasureTimeStart(bc);
   return bc;

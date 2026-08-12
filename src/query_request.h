@@ -166,7 +166,6 @@ typedef struct QueryRequest {
   // TODO($$$): Temporary marker intended to replace BlockedRequestCtx.bc.
   bool blockedClientCycleActive;
   CursorInfo cursorInfo;
-  // TODO($$$): Replace the legacy BRC registry node and type flag with this field.
   RegistryInfo registryInfo;
   ChunkReplyState reply;
   bool useReplyCallback;
