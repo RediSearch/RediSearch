@@ -172,8 +172,10 @@ Build:
                        Set to 0 on pre-Armv8.1-a cores (Cortex-A72,
                        Graviton1, Raspberry Pi 4) to avoid SIGILL on load.
 
-  make clean         Remove build artifacts
-    ALL=1              Remove entire artifacts directory
+  make clean         Remove build artifacts and stray *.profraw files
+    ALL=1              Also remove the whole artifacts directory, which holds
+                       the cargo target dir, plus any stray
+                       src/redisearch_rs/target
 
 Testing:
   make test          Run all tests
@@ -266,11 +268,18 @@ verify-deps:
 clean:
 ifeq ($(ALL),1)
 	@echo "Cleaning all build artifacts..."
-	@rm -rf $(ROOT)/bin
+	@rm -rf $(ROOT)/bin $(ROOT)/src/redisearch_rs/target
 else
 	@echo "Cleaning build artifacts..."
 	@rm -rf $(ROOT)/bin/*/search-*
 endif
+# An instrumented binary drops one .profraw per process into its working
+# directory. cargo-llvm-cov keeps its own under the cargo target dir, which
+# src/redisearch_rs/.cargo/config.toml points into bin/, but an ad-hoc
+# instrumented cargo run scatters them through the source tree instead.
+# Best-effort: an unwritable leftover must not fail the target.
+	@echo "Removing stray LLVM coverage profiles..."
+	@-find $(ROOT) -name '*.profraw' -type f -delete
 
 test: $(BUILD_SCRIPT)
 	@echo "Running all tests..."
