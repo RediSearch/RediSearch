@@ -15,7 +15,7 @@ use std::ptr::null;
 use index_result::RSIndexResult;
 use tag_index::{TagIndex, TagValueReader, ValueIterator};
 
-use crate::util::index_mem;
+use crate::util::{commit, index_mem};
 
 /// Drain a [`ValueIterator`] into its yielded keys, in iteration order.
 fn value_iter_keys(mut it: ValueIterator<'_>) -> Vec<Vec<u8>> {
@@ -52,7 +52,7 @@ fn index_and_commit_agree_on_the_key() {
     let tags: &[&[u8]] = &[b"foo"];
 
     index_mem(&mut tag_index, tags, 1);
-    tag_index.commit(tags);
+    commit(&mut tag_index, tags);
 
     assert!(
         tag_index.find_value(b"foo").is_some(),
@@ -226,7 +226,7 @@ fn intra_document_duplicate_tag_counted_once() {
     let tags: &[&[u8]] = &[b"foo", b"foo", b"bar"];
 
     let delta = index_mem(&mut tag_index, tags, 1).expect("memory-mode indexing is infallible");
-    tag_index.commit(tags);
+    commit(&mut tag_index, tags);
 
     assert_eq!(delta.num_records, 2, "the duplicate `foo` is counted once");
     assert_eq!(tag_index.unique_values(), 2);

@@ -14,6 +14,8 @@ use std::ptr::NonNull;
 
 use tag_index::TagIndex;
 
+use crate::util::commit;
+
 /// A tag index reports the id it was created with.
 #[test]
 fn reports_the_creation_id() {
@@ -85,7 +87,7 @@ fn open_index_creates_the_posting_list_once() {
 #[test]
 fn commit_indexes_no_documents() {
     let mut tag_index = TagIndex::new(1, None, true);
-    tag_index.commit(&[b"hello", b"world"]);
+    commit(&mut tag_index, &[b"hello", b"world"]);
 
     assert_eq!(tag_index.unique_values(), 0, "commit creates no postings");
     assert!(
@@ -103,14 +105,14 @@ fn get_overhead_accounts_for_the_suffix_trie() {
     let tags: &[&[u8]] = &[b"hello", b"world"];
 
     let mut with_suffix = TagIndex::new(1, None, true);
-    with_suffix.commit(tags);
+    commit(&mut with_suffix, tags);
     assert!(
         with_suffix.get_overhead() > 0,
         "a populated suffix trie contributes overhead"
     );
 
     let mut without_suffix = TagIndex::new(1, None, false);
-    without_suffix.commit(tags);
+    commit(&mut without_suffix, tags);
 
     assert!(
         with_suffix.get_overhead() > without_suffix.get_overhead(),

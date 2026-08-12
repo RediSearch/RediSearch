@@ -33,6 +33,10 @@
 //! terminator is why a [`TermPtr`] is usable as a C `char *`: query expansion
 //! hands these pointers to C, which calls `strlen` on them.
 //!
+//! It is also what makes the tags being NUL-free a *safety* requirement of
+//! [`TagSuffixIndex::add`] rather than a convention; [`OwnedTerm::new`] documents
+//! why.
+//!
 
 use std::{
     alloc::{Layout, alloc, dealloc, handle_alloc_error},
@@ -65,12 +69,22 @@ fn tag_term_layout(size: usize) -> Layout {
 struct OwnedTerm(NonNull<u8>);
 
 impl OwnedTerm {
-    /// Copy the NUL-free `term` into a fresh, NUL-terminated allocation.
+    /// Copy `term` into a fresh, NUL-terminated allocation.
     ///
     /// The allocation is one byte longer than `term`, and its last byte is the
-    /// terminator written here — so every [`OwnedTerm`] upholds the invariant the
-    /// [module docs](self) describe without the caller having to promise anything.
-    fn new(term: &[u8]) -> Self {
+    /// terminator written here.
+    ///
+    /// # Safety
+    ///
+    /// `term` must be NUL-free, as everything in this crate is (see the [crate
+    /// docs](crate)). This is the one place where violating that is undefined
+    /// behaviour rather than merely wrong: the length is not stored, so
+    /// [`alloc_size`](Self::alloc_size) recovers it by scanning for the
+    /// terminator, and [`drop`](OwnedTerm#impl-Drop) deallocates with the layout
+    /// that scan reports. An interior NUL would stop the scan early and free the
+    /// allocation under a shorter layout than it was allocated with. Checked by a
+    /// `debug_assert!`.
+    unsafe fn new(term: &[u8]) -> Self {
         debug_assert!(
             !term.contains(&0),
             "tag terms are NUL-free; an interior NUL would make `alloc_size` report a short allocation"
@@ -100,8 +114,9 @@ impl OwnedTerm {
     const fn alloc_size(&self) -> usize {
         // This cast doesn't change size, we care about only the NULL
         let ptr = self.0.as_ptr().cast::<std::ffi::c_char>().cast_const();
-        // SAFETY: [`OwnedTerm::new`] NUL-terminates every allocation and rejects
-        // interior NULs, so the scan stops at the terminator it wrote.
+        // SAFETY: [`OwnedTerm::new`] NUL-terminates every allocation, and its
+        // contract makes the term itself NUL-free, so the scan stops at the
+        // terminator it wrote.
         unsafe { std::ffi::CStr::from_ptr(ptr) }
             .to_bytes_with_nul()
             .len()
@@ -198,9 +213,13 @@ impl TagSuffixIndex {
     /// Index `term` and every one of its suffixes, keyed as the [module
     /// docs](self) describe.
     ///
-    /// `term` is the NUL-free tag value. The empty tag (`INDEXEMPTY`) is never
-    /// indexed: it has no suffixes to look up.
-    pub fn add(&mut self, term: &[u8]) {
+    /// `term` is the tag value. The empty tag (`INDEXEMPTY`) is never indexed: it
+    /// has no suffixes to look up.
+    ///
+    /// # Safety
+    ///
+    /// `term` must be NUL-free, for the reason [`OwnedTerm::new`] gives.
+    pub unsafe fn add(&mut self, term: &[u8]) {
         if term.is_empty() {
             return;
         }
@@ -214,7 +233,8 @@ impl TagSuffixIndex {
             return;
         }
 
-        let owned = OwnedTerm::new(term);
+        // SAFETY: this method's contract is `OwnedTerm::new`'s.
+        let owned = unsafe { OwnedTerm::new(term) };
         let ptr = owned.borrowed();
 
         // Store the OwnedTerm into the full tag term
@@ -319,6 +339,19 @@ impl TagSuffixIndex {
 mod tests {
     use super::*;
 
+    /// [`OwnedTerm::new`], with its NUL-free contract discharged once for all the
+    /// tests below: every term they pass is a NUL-free literal.
+    fn owned_term(term: &[u8]) -> OwnedTerm {
+        // SAFETY: as above — the term is NUL-free.
+        unsafe { OwnedTerm::new(term) }
+    }
+
+    /// [`TagSuffixIndex::add`], with the same contract discharged the same way.
+    fn add(idx: &mut TagSuffixIndex, term: &[u8]) {
+        // SAFETY: as above — the term is NUL-free.
+        unsafe { idx.add(term) }
+    }
+
     /// Read back the bytes stored in an [`OwnedTerm`], terminator included.
     fn read_back(t: &OwnedTerm) -> Vec<u8> {
         let len = t.alloc_size();
@@ -332,7 +365,7 @@ mod tests {
     /// itself, so the stored bytes are one longer than the input.
     #[test]
     fn roundtrip() {
-        let term = OwnedTerm::new(b"hello");
+        let term = owned_term(b"hello");
         assert_eq!(read_back(&term), b"hello\0");
         // `term` drops here; miri checks the alloc/dealloc layout match.
     }
@@ -340,14 +373,14 @@ mod tests {
     /// The empty term still gets an allocation — just the terminator.
     #[test]
     fn empty_term_is_fine() {
-        let term = OwnedTerm::new(b"");
+        let term = owned_term(b"");
         assert_eq!(read_back(&term), b"\0");
     }
 
     #[test]
     fn larger_term_is_fine() {
         let term_bytes = vec![0xABu8; 300];
-        let term = OwnedTerm::new(&term_bytes);
+        let term = owned_term(&term_bytes);
 
         let mut expected = term_bytes;
         expected.push(0);
@@ -360,7 +393,7 @@ mod tests {
     #[test]
     fn add_stores_nul_free_keys_without_empty_entry() {
         let mut idx = TagSuffixIndex::new();
-        idx.add(b"foo");
+        add(&mut idx, b"foo");
 
         assert!(idx.find(b"foo").is_some());
         assert!(idx.find(b"oo").is_some());
@@ -377,7 +410,7 @@ mod tests {
     #[test]
     fn add_ignores_the_empty_tag() {
         let mut idx = TagSuffixIndex::new();
-        idx.add(b"");
+        add(&mut idx, b"");
 
         assert!(idx.find(b"").is_none());
         assert!(idx.find(b"\0").is_none());
@@ -391,8 +424,8 @@ mod tests {
     #[test]
     fn add_of_an_already_indexed_term_is_ignored() {
         let mut idx = TagSuffixIndex::new();
-        idx.add(b"cat");
-        idx.add(b"cat");
+        add(&mut idx, b"cat");
+        add(&mut idx, b"cat");
 
         let term = idx.find(b"cat").expect("`cat` is indexed");
         assert_eq!(term.members().count(), 1, "one owned term, not two");
@@ -417,7 +450,7 @@ mod tests {
     #[test]
     fn delete_of_a_suffix_only_entry_changes_nothing() {
         let mut idx = TagSuffixIndex::new();
-        idx.add(b"cat");
+        add(&mut idx, b"cat");
 
         idx.delete(b"at");
 
@@ -435,8 +468,8 @@ mod tests {
     fn delete_keeps_suffixes_still_used_by_other_terms() {
         let mut idx = TagSuffixIndex::new();
         // "cat" and "bat" share the suffixes "at" and "t".
-        idx.add(b"cat");
-        idx.add(b"bat");
+        add(&mut idx, b"cat");
+        add(&mut idx, b"bat");
 
         idx.delete(b"cat");
 

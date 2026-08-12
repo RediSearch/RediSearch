@@ -22,10 +22,15 @@
 //!
 //! ## Tag bytes
 //!
-//! Every method here takes **NUL-free** tag bytes. The one place a terminator is
-//! visible is the other direction: the terms yielded by
-//! [`TagIndex::suffix_trie_map`] and [`TagIndex::suffix_wildcard`] carry theirs, so
-//! their pointers are usable as a C `char *`. [`TagSuffixIndex`] owns that
+//! Every method here takes **NUL-free** tag bytes. For most of them that is a
+//! convention — C strings are NUL-free after `strlen`, and a NUL would simply be
+//! indexed as part of the tag. [`TagIndex::commit`] is the exception: it is
+//! `unsafe` precisely because a NUL there is undefined behaviour, for the reason
+//! [`TagSuffixIndex::add`] gives.
+//!
+//! The one place a terminator is visible is the other direction: the terms yielded
+//! by [`TagIndex::suffix_trie_map`] and [`TagIndex::suffix_wildcard`] carry theirs,
+//! so their pointers are usable as a C `char *`. [`TagSuffixIndex`] owns that
 //! terminator and documents where it comes from.
 //!
 //! [`TagIndex`] uses the same indexes as the full text but in a simpler manner. In fact:
@@ -429,14 +434,22 @@ impl TagIndex {
     /// mode the postings are written to disk during this phase, so the
     /// committed tag values are counted here; in memory mode they were already
     /// counted by [`index`](Self::index), so `0` is returned.
-    pub fn commit(&mut self, tags: &[&[u8]]) -> u32 {
+    ///
+    /// # Safety
+    ///
+    /// Each tag must be NUL-free, as everywhere in this crate. Here that is a
+    /// safety requirement rather than a convention, because a `WITHSUFFIXTRIE`
+    /// field feeds the tags to [`TagSuffixIndex::add`]; see there for why an
+    /// interior NUL is undefined behaviour.
+    pub unsafe fn commit(&mut self, tags: &[&[u8]]) -> u32 {
         let disk = self.disk_mode();
         for tag in tags {
             if let TagIndexMode::Disk { values, .. } = &mut self.mode {
                 values.insert(tag, ());
             }
             if let Some(suffix) = &mut self.suffix {
-                suffix.add(tag);
+                // SAFETY: this method's contract is `TagSuffixIndex::add`'s.
+                unsafe { suffix.add(tag) };
             }
         }
         if disk { tags.len() as u32 } else { 0 }
@@ -1279,7 +1292,9 @@ mod suffix_wildcard_tests {
     /// Build an in-memory index with a suffix trie and commit `tags`.
     fn indexed(tags: &[&[u8]]) -> TagIndex {
         let mut idx = TagIndex::new(1, None, true);
-        idx.commit(tags);
+        // SAFETY: every tag these tests pass is a NUL-free literal, which is all
+        // `commit` requires.
+        unsafe { idx.commit(tags) };
         idx
     }
 
@@ -1449,7 +1464,8 @@ mod expansion_timeout_tests {
             .collect();
         let tags: Vec<&[u8]> = owned.iter().map(|t| t.as_slice()).collect();
         let mut idx = TagIndex::new(1, None, true);
-        idx.commit(&tags);
+        // SAFETY: the generated tags are ASCII, hence NUL-free.
+        unsafe { idx.commit(&tags) };
         (idx, owned.len())
     }
 

@@ -25,6 +25,8 @@ use lending_iterator::LendingIterator;
 use tag_index::{IterMode, TagIndex, ValueIterator};
 use trie_rs::iter::{RangeBoundary, RangeFilter};
 
+use crate::util::commit;
+
 /// Collect the keys yielded by a lending iterator over `(key, value)` pairs.
 macro_rules! collect_keys {
     ($iter:expr) => {{
@@ -56,7 +58,7 @@ const fn fake_disk_spec() -> NonNull<RedisSearchDiskIndexSpec> {
 /// path).
 fn disk_index_with_tags(tags: &[&[u8]], with_suffix: bool) -> TagIndex {
     let mut idx = TagIndex::new(1, Some((fake_disk_spec(), 0)), with_suffix);
-    idx.commit(tags);
+    commit(&mut idx, tags);
     idx
 }
 
@@ -74,7 +76,7 @@ fn disk_spec_means_disk_mode() {
 fn commit_counts_records_and_registers_presence() {
     let mut idx = TagIndex::new(1, Some((fake_disk_spec(), 0)), false);
 
-    let n = idx.commit(&[b"foo", b"bar", b"foo"]);
+    let n = commit(&mut idx, &[b"foo", b"bar", b"foo"]);
     assert_eq!(n, 3, "disk commit counts every committed tag value");
 
     // The duplicate `foo` collapses to a single trie entry.
@@ -93,7 +95,7 @@ fn commit_counts_records_and_registers_presence() {
 #[test]
 fn commit_indexes_the_empty_tag() {
     let mut idx = TagIndex::new(1, Some((fake_disk_spec(), 0)), false);
-    let n = idx.commit(&[b""]);
+    let n = commit(&mut idx, &[b""]);
     assert_eq!(n, 1);
     let values = value_iter_keys(idx.value_iter());
     assert_eq!(values, vec![Vec::<u8>::new()]);
@@ -103,7 +105,7 @@ fn commit_indexes_the_empty_tag() {
 #[test]
 fn memory_commit_reports_no_records() {
     let mut idx = TagIndex::new(1, None, false);
-    assert_eq!(idx.commit(&[b"foo", b"bar"]), 0);
+    assert_eq!(commit(&mut idx, &[b"foo", b"bar"]), 0);
 }
 
 /// Disk-mode prefix iteration yields only the matching tag keys.

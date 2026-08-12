@@ -20,7 +20,7 @@ use lending_iterator::LendingIterator;
 use tag_index::{IterMode, TagIndex, ValueIterator};
 use trie_rs::iter::{RangeBoundary, RangeFilter};
 
-use crate::util::index_mem;
+use crate::util::{commit, index_mem};
 
 /// Collect the keys yielded by a lending iterator over `(key, value)` pairs.
 macro_rules! collect_keys {
@@ -154,7 +154,7 @@ fn suffix_trie_map_exact_node_yields_every_member() {
     let mut tag_index = TagIndex::new(1, None, true);
     let tags: &[&[u8]] = &[b"eat", b"beat", b"heat", b"bean"];
     index_mem(&mut tag_index, tags, 1);
-    tag_index.commit(tags);
+    commit(&mut tag_index, tags);
 
     let mut terms: Vec<Vec<u8>> = tag_index
         .suffix_trie_map(b"eat", false, None)
@@ -203,7 +203,7 @@ fn recommitting_a_tag_keeps_its_suffix_terms_readable() {
 
     for doc_id in 1..=2 {
         index_mem(&mut tag_index, tags, doc_id);
-        tag_index.commit(tags);
+        commit(&mut tag_index, tags);
     }
 
     // Materializing the expanded terms dereferences each suffix entry's term
@@ -253,7 +253,7 @@ fn iter_suffix_entries_is_none_without_suffix_trie() {
 fn iter_suffix_entries_lists_every_suffix() {
     let mut tag_index = TagIndex::new(1, None, true);
     index_mem(&mut tag_index, &[b"foo"], 1);
-    tag_index.commit(&[b"foo"]);
+    commit(&mut tag_index, &[b"foo"]);
 
     let keys = value_iter_keys(
         tag_index

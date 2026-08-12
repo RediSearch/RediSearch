@@ -24,7 +24,7 @@ use index_result::RSIndexResult;
 use inverted_index::{DocId, GcScanDelta, InvertedIndex, RepairContext, doc_ids_only::DocIdsOnly};
 use tag_index::TagIndex;
 
-use crate::util::index_mem;
+use crate::util::{commit, index_mem};
 
 /// Build a memory-mode index holding `tags`, each carrying documents `1..=n`.
 /// `with_suffix` mirrors `WITHSUFFIXTRIE`, and commits the tags so the suffix
@@ -35,7 +35,7 @@ fn indexed(tags: &[&[u8]], n: DocId, with_suffix: bool) -> TagIndex {
         index_mem(&mut idx, tags, doc_id);
     }
     if with_suffix {
-        idx.commit(tags);
+        commit(&mut idx, tags);
     }
     idx
 }

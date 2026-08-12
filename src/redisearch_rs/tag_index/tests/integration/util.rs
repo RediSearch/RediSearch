@@ -23,3 +23,13 @@ pub fn index_mem(idx: &mut TagIndex, tags: &[&[u8]], doc_id: DocId) -> Option<Wr
     // SAFETY: memory mode, so neither disk-mode condition applies.
     unsafe { idx.index(std::ptr::null(), std::ptr::null(), tags, doc_id, false) }
 }
+
+/// Run the post-indexing commit phase for `tags`.
+///
+/// [`TagIndex::commit`] is `unsafe` because the tags must be NUL-free; every tag
+/// the tests pass is a NUL-free literal, so discharging that once here keeps the
+/// obligation out of every test.
+pub fn commit(idx: &mut TagIndex, tags: &[&[u8]]) -> u32 {
+    // SAFETY: as above — the tags are NUL-free.
+    unsafe { idx.commit(tags) }
+}
