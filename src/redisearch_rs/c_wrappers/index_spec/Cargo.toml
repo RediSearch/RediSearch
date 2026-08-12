@@ -9,6 +9,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+c_trie.workspace = true
 dict.workspace = true
 ffi.workspace = true
 field_spec.workspace = true
