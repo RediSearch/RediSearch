@@ -110,7 +110,7 @@ def expand_floor(floor: str) -> list[str]:
     """`">=8.6"` -> every registered release branch at or above 8.6.
 
     Order follows the registry (oldest first); the agent sorts targets
-    newest-to-oldest itself. Returns [] for an unparseable floor or an empty
+    newest-to-oldest itself. Returns [] for an unparsable floor or an empty
     registry, and logs why.
     """
     m = FLOOR_RE.match(floor)

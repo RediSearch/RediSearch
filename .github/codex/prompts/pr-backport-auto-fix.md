@@ -97,10 +97,11 @@ workflow has already filtered to OWNER/MEMBER/COLLABORATOR authors (same gate as
 - `pr_comments[]` — general (non-inline) PR comments **and** top-level review
   bodies (e.g. a "Request changes" review with no inline comment). The bot's own
   summaries/replies and `/backport-agent*` command comments are already filtered
-  out, and the list is bounded to feedback newer than the last fix attempt so
-  you don't re-reply to comments a prior run already handled. Each carries an
-  `id` (its identity). These have no thread to resolve — you address them in
-  code (if in scope) and reply once with a normal PR comment.
+  out, as is anything a prior run already replied to (tracked per-item — see the
+  acknowledgement marker below). Each carries a `kind` (`"comment"` or
+  `"review"`) and an `id`; together they form the item's identity `<kind>:<id>`.
+  These have no thread to resolve — you address them in code (if in scope) and
+  reply once with a normal PR comment that **must** carry the marker.
 
 If the file is missing or malformed, or `$BACKPORT_FIX_CONTEXT_FILE` is empty,
 stop and print a one-line error. Do not push.
@@ -410,11 +411,18 @@ still a new commit, never a force-push).
   its `thread_id`. If that retry fails again, leave it and note it in the
   summary; a human can resolve it manually.
 
-- **General PR comment** — there is no thread to resolve; reply once with a
-  normal PR comment noting what you changed:
+- **General PR comment / review body** — there is no thread to resolve; reply
+  once with a normal PR comment noting what you changed, and **end the body with
+  the acknowledgement marker** naming the item's `<kind>:<id>` (from
+  `pr_comments[i]`). The marker is how a later run knows this item was handled;
+  omit it and the next `/backport-agent-fix` will reply again. Only stamp it for
+  items you actually replied to — never for feedback you left open:
 
   ```bash
-  gh pr comment "${PR}" --body "🤖 Re: @<author>'s comment — addressed in <short-sha>: <one line>."
+  # KIND / ID are pr_comments[i].kind / .id from the context file.
+  gh pr comment "${PR}" --body "$(printf '%s\n\n%s' \
+    "🤖 Re: @<author>'s comment — addressed in <short-sha>: <one line>." \
+    "<!-- backport-agent-addressed: ${KIND}:${ID} -->")"
   ```
 
 Post **one** reply per thread/comment. If a mutation fails (e.g. the thread was

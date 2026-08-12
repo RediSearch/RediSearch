@@ -347,36 +347,32 @@ class GeneralCommentTests(unittest.TestCase):
     def test_excludes_bot_and_command_comments(self):
         # gh_paginated_array already applied the author_association --jq filter,
         # so the stub returns only write-level rows; fetch_general_pr_comments
-        # then drops the bot/command bodies.
+        # then drops the bot/command bodies and tags each survivor kind=comment.
         self._stub([
-            {"id": 1, "author": "alice", "body": "needs the header include",
-             "created_at": "2026-01-01T00:00:00Z"},
-            {"id": 2, "author": "redis-pr-app[bot]",
-             "body": "🤖 Auto-backport summary\n...", "created_at": "2026-01-01T00:00:00Z"},
-            {"id": 3, "author": "bob", "body": "/backport-agent-context extra hint",
-             "created_at": "2026-01-01T00:00:00Z"},
-            {"id": 4, "author": "carol", "body": "/backport-agent-fix",
-             "created_at": "2026-01-01T00:00:00Z"},
-            {"id": 5, "author": "dave", "body": "🤖 Re: @alice — addressed",
-             "created_at": "2026-01-01T00:00:00Z"},
+            {"id": 1, "author": "alice", "body": "needs the header include"},
+            {"id": 2, "author": "redis-pr-app[bot]", "body": "🤖 Auto-backport summary\n..."},
+            {"id": 3, "author": "bob", "body": "/backport-agent-context extra hint"},
+            {"id": 4, "author": "carol", "body": "/backport-agent-fix"},
+            {"id": 5, "author": "dave", "body": "🤖 Re: @alice — addressed"},
         ])
-        got = resolve_fix.fetch_general_pr_comments(1, None)
-        self.assertEqual(
-            got, [{"id": 1, "author": "alice", "body": "needs the header include"}])
+        got = resolve_fix.fetch_general_pr_comments(1, set())
+        self.assertEqual(got, [
+            {"id": 1, "kind": "comment", "author": "alice",
+             "body": "needs the header include"}])
 
-    def test_since_cutoff_drops_older_comments(self):
+    def test_addressed_ids_are_dropped(self):
+        # comment:1 was already replied to (marker present in a prior bot reply);
+        # comment:2 is still open and must survive.
         self._stub([
-            {"id": 1, "author": "alice", "body": "old feedback",
-             "created_at": "2026-01-01T00:00:00Z"},
-            {"id": 2, "author": "bob", "body": "new feedback",
-             "created_at": "2026-01-03T00:00:00Z"},
+            {"id": 1, "author": "alice", "body": "already handled"},
+            {"id": 2, "author": "bob", "body": "still open"},
         ])
-        got = resolve_fix.fetch_general_pr_comments(1, "2026-01-02T00:00:00Z")
-        self.assertEqual(got, [{"id": 2, "author": "bob", "body": "new feedback"}])
+        got = resolve_fix.fetch_general_pr_comments(1, {"comment:1"})
+        self.assertEqual([c["id"] for c in got], [2])
 
     def test_empty_when_none(self):
         self._stub([])
-        self.assertEqual(resolve_fix.fetch_general_pr_comments(1, None), [])
+        self.assertEqual(resolve_fix.fetch_general_pr_comments(1, set()), [])
 
 
 class ReviewBodyTests(unittest.TestCase):
@@ -392,24 +388,22 @@ class ReviewBodyTests(unittest.TestCase):
 
     def test_collects_write_level_nonempty_review_bodies(self):
         self._stub([
-            {"id": 10, "author": "alice", "body": "Please restore the guard.",
-             "submitted_at": "2026-01-03T00:00:00Z"},
-            {"id": 11, "author": "bob", "body": "",  # approval with no text
-             "submitted_at": "2026-01-03T00:00:00Z"},
-            {"id": 12, "author": resolve_fix.BOT_LOGIN, "body": "🤖 something",
-             "submitted_at": "2026-01-03T00:00:00Z"},
+            {"id": 10, "author": "alice", "body": "Please restore the guard."},
+            {"id": 11, "author": "bob", "body": ""},  # approval with no text
+            {"id": 12, "author": resolve_fix.BOT_LOGIN, "body": "🤖 something"},
         ])
-        got = resolve_fix.fetch_review_bodies(1, None)
-        self.assertEqual(
-            got, [{"id": 10, "author": "alice", "body": "Please restore the guard."}])
+        got = resolve_fix.fetch_review_bodies(1, set())
+        self.assertEqual(got, [
+            {"id": 10, "kind": "review", "author": "alice",
+             "body": "Please restore the guard."}])
 
-    def test_since_cutoff_applies(self):
+    def test_addressed_review_ids_are_dropped(self):
         self._stub([
-            {"id": 10, "author": "alice", "body": "old", "submitted_at": "2026-01-01T00:00:00Z"},
-            {"id": 11, "author": "bob", "body": "new", "submitted_at": "2026-01-03T00:00:00Z"},
+            {"id": 10, "author": "alice", "body": "already handled"},
+            {"id": 11, "author": "bob", "body": "still open"},
         ])
-        got = resolve_fix.fetch_review_bodies(1, "2026-01-02T00:00:00Z")
-        self.assertEqual(got, [{"id": 11, "author": "bob", "body": "new"}])
+        got = resolve_fix.fetch_review_bodies(1, {"review:10"})
+        self.assertEqual([r["id"] for r in got], [11])
 
     def test_query_excludes_dismissed_and_pending_reviews(self):
         # State-based exclusion lives in the jq (stubbed away above), so assert
@@ -421,12 +415,12 @@ class ReviewBodyTests(unittest.TestCase):
             captured["jq"] = args[args.index("--jq") + 1]
             return []
         common.gh_paginated_array = fake
-        resolve_fix.fetch_review_bodies(1, None)
+        resolve_fix.fetch_review_bodies(1, set())
         self.assertIn('.state != "DISMISSED"', captured["jq"])
         self.assertIn('.state != "PENDING"', captured["jq"])
 
 
-class LastAppliedFixTimestampTests(unittest.TestCase):
+class AddressedFeedbackIdsTests(unittest.TestCase):
     def setUp(self):
         os.environ["GITHUB_REPOSITORY"] = "RediSearch/RediSearch"
         self._orig = common.gh_paginated_array
@@ -434,32 +428,29 @@ class LastAppliedFixTimestampTests(unittest.TestCase):
     def tearDown(self):
         common.gh_paginated_array = self._orig
 
-    def test_returns_latest_applied_fix_stamp(self):
+    def test_parses_markers_from_bot_replies(self):
+        # The jq (stubbed) already restricts to bot-authored bodies; the parser
+        # extracts every `<kind>:<id>` acknowledgement marker across them.
         common.gh_paginated_array = lambda *a, **k: [
-            "2026-01-01T00:00:00Z", "2026-01-05T00:00:00Z", "2026-01-03T00:00:00Z",
+            "🤖 Re: @alice — addressed in abc123.\n\n"
+            "<!-- backport-agent-addressed: comment:123 -->",
+            "🤖 Re: @bob — addressed.\n<!-- backport-agent-addressed: review:456 -->",
+            "🤖 Auto-backport fix attempt\n...no marker here...",
         ]
         self.assertEqual(
-            resolve_fix.last_applied_fix_timestamp(1), "2026-01-05T00:00:00Z")
+            resolve_fix.addressed_feedback_ids(1), {"comment:123", "review:456"})
 
-    def test_none_when_no_prior_fix(self):
-        common.gh_paginated_array = lambda *a, **k: []
-        self.assertIsNone(resolve_fix.last_applied_fix_timestamp(1))
-
-    def test_cutoff_query_filters_by_bot_login_and_applied_marker(self):
-        # The dedup cutoff is enforced in the jq (stubbed away in the other
-        # tests), so assert the query itself gates on the bot author AND the
-        # exact applied-attempt prefix — a forged marker or a declined summary
-        # must not move the cutoff.
+    def test_query_gates_on_bot_login(self):
+        # A forged marker only counts if the comment is bot-authored, so the
+        # query must filter on BOT_LOGIN.
         captured = {}
 
         def fake(*args, **kwargs):
             captured["jq"] = args[args.index("--jq") + 1]
             return []
         common.gh_paginated_array = fake
-        resolve_fix.last_applied_fix_timestamp(1)
+        self.assertEqual(resolve_fix.addressed_feedback_ids(1), set())
         self.assertIn(f'.user.login == "{resolve_fix.BOT_LOGIN}"', captured["jq"])
-        self.assertIn(
-            f'startswith("{resolve_fix.FIX_APPLIED_PREFIX}")', captured["jq"])
 
 
 if __name__ == "__main__":
