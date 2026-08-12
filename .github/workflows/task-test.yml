@@ -62,6 +62,10 @@ on:
         type: boolean
         default: false
         description: "If true, build the module for this platform but skip all test steps."
+      rust-cache-read-only:
+        type: boolean
+        default: false
+        description: "If true, restore the Rust cache but never write it. For callers that sweep far more platforms than the merge queue needs, whose saves would evict the caches on the critical path."
 
 env:
   REJSON: ${{ inputs.rejson && 1 || 0 }} # convert the boolean input to numeric
@@ -244,6 +248,7 @@ jobs:
           install-script: 'true'
           rust-cache: 'true'
           rust-cache-key: ${{ inputs.platform }}-${{ inputs.architecture }}-${{ inputs.san }}-${{ inputs.coverage && 'cov' || '' }}
+          rust-cache-read-only: ${{ inputs.rust-cache-read-only }}
           rust-test-deps: 'true'
           github-token: ${{ github.token }}
           python-test-deps: 'true'

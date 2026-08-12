@@ -36,6 +36,11 @@ jobs:
       job-test-config: '{"test": "", "coverage": "", "sanitize": ""}'
       options: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && 'unit-tests,coordinator,standalone,rejson,coverage,sanitize' || 'unit-tests,coordinator,standalone,rejson,sanitize' }}
       rejson-branch: master
+      # This runs on the default branch, so it would otherwise be allowed to save
+      # a Rust cache for every platform above — roughly the entire 10 GB the
+      # repository gets, evicting the merge-queue platforms' caches in the
+      # process. Nightly latency does not matter; theirs does.
+      rust-cache-read-only: true
 
   micro-benchmarks:
     permissions:

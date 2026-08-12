@@ -82,6 +82,15 @@ inputs:
     description: "key for Swatinem/rust-cache (caller-computed so miri can key differently from build/test)."
     required: false
     default: ""
+  rust-cache-read-only:
+    description: |
+      "'true' to restore the cache but never write it, on top of the
+      default-branch gate below. For default-branch runs that build far more
+      platforms than the merge queue needs: saving every one of them would
+      exhaust the 10 GB repository budget and evict the caches that are actually
+      on the critical path.
+    required: false
+    default: "false"
 
   # --- Setup Rust test dependencies -------------------------------------------
   rust-test-deps:
@@ -206,7 +215,7 @@ runs:
         # `gh-readonly-queue/*` or `refs/pull/*/merge` ref is also scoped to a
         # ref no later run shares, whereas the default branch is readable by all
         # of them.
-        save-if: ${{ github.ref == 'refs/heads/master' }}
+        save-if: ${{ inputs.rust-cache-read-only != 'true' && github.ref == 'refs/heads/master' }}
 
     - name: Setup Rust test dependencies
       # Wrapped in retry-command (5 attempts) to survive cargo-binstall's
