@@ -3198,6 +3198,16 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver < LEGACY_INDEX_MIN_VERSION || encver > LEGACY_INDEX_MAX_VERSION) {
     return NULL;
   }
+  // Upgrading a legacy spec only makes sense while an RDB load is in progress. Both the UPGRADE_INDEX
+  // rules and the registry of legacy specs are built for the duration of a load and released at the end
+  // of it, so outside one - a RESTORE of a legacy payload on a running server, say - they are NULL and
+  // the lookups below would dereference NULL. Refuse instead: the caller sees a load failure, which for
+  // RESTORE surfaces as a command error.
+  if (legacySpecRules == NULL || legacySpecDict == NULL) {
+    RedisModule_LogIOError(rdb, "warning",
+                           "Refusing to load a legacy index outside of an RDB load");
+    return NULL;
+  }
   char *legacyName = RedisModule_LoadStringBuffer(rdb, NULL);
 
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
