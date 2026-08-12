@@ -720,8 +720,10 @@ static inline bool AREQ_ShouldCheckTimeout(AREQ *req) {
 }
 
 static inline void AREQ_SetSkipTimeoutChecks(AREQ *req, bool skipTimeoutChecks) {
+  req->base.timeout.skipTimeoutChecks = skipTimeoutChecks;
+  // TODO($$$): Remove the legacy field once consumers use QueryRequest.timeout.
   req->skipTimeoutChecks = skipTimeoutChecks;
-  // Also propagate to the SearchCtx's SearchTime for timeout functions that access it directly
+  // TODO($$$): Remove the SearchTime mirror once consumers use QueryRequest.timeout.
   if (req->sctx) {
     req->sctx->time.skipTimeoutChecks = skipTimeoutChecks;
   }

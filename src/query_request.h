@@ -102,6 +102,7 @@ typedef struct {
 
 typedef struct QueryRequestTimeout {
   RS_Atomic(bool) timedOut;
+  bool skipTimeoutChecks;
 } QueryRequestTimeout;
 
 static inline bool QueryRequestTimeout_GetTimedOut(const QueryRequestTimeout *timeout) {
