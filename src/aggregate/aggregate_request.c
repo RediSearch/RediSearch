@@ -1154,6 +1154,7 @@ bool SearchTime_IsTimedOut(void *arg) {
 static BlockedRequestCtx *BlockedRequestCtx_NewCommon(RequestKind kind) {
   BlockedRequestCtx *brc = rm_calloc(1, sizeof(BlockedRequestCtx));
   brc->kind = kind;
+  // TODO($$$): Remove the legacy query offset once consumers use QueryRequest.
   brc->queryOffset = QUERY_OFFSET_NONE;  // "no query argument" until parsing finds one
   brc->refcount = 1;
   // TODO($$$): Remove the legacy async state once consumers use QueryRequest.async.
@@ -1184,9 +1185,11 @@ void BlockedRequestCtx_DecrRef(BlockedRequestCtx *brc) {
 /* Hold references to `argv` strings whose contents the wrapped request's
  * plan borrows (see BlockedRequestCtx.argv). Runs at construction, on
  * the main thread; released in BlockedRequestCtx_Free, also on main. */
-static void holdArgv(BlockedRequestCtx *brc, RedisModuleString **argv, uint32_t argc) {
+static void holdArgv(BlockedRequestCtx *brc, QueryRequest *request, RedisModuleString **argv,
+                     uint32_t argc) {
   RS_ASSERT(argv != NULL);
   RS_ASSERT(brc->argv == NULL);
+  // TODO($$$): Remove the legacy argv state once consumers use QueryRequest.
   brc->argv = rm_malloc(argc * sizeof(*brc->argv));
   brc->argc = argc;
   brc->parseArgc = argc;  // debug constructors lower it to exclude the debug tail
@@ -1197,6 +1200,9 @@ static void holdArgv(BlockedRequestCtx *brc, RedisModuleString **argv, uint32_t 
     // here instead, before any borrow exists or a worker can see it.
     RedisModule_TrimStringAllocation(brc->argv[ii]);
   }
+  request->args.argv = brc->argv;
+  request->args.argc = brc->argc;
+  request->args.parseArgc = brc->parseArgc;
 }
 
 /* Release an argv array taken by holdArgv: drop each string reference and
@@ -1225,7 +1231,7 @@ BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq, RedisModuleString **arg
   BlockedRequestCtx *brc = BlockedRequestCtx_NewCommon(REQUEST_KIND_AREQ);
   brc->query.areq = areq;
   areq->brc = brc;
-  holdArgv(brc, argv, argc);
+  holdArgv(brc, &areq->base, argv, argc);
   return brc;
 }
 
@@ -1235,7 +1241,7 @@ BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid, Red
   BlockedRequestCtx *brc = BlockedRequestCtx_NewCommon(REQUEST_KIND_HYBRID);
   brc->query.hybrid = hybrid;
   hybrid->brc = brc;
-  holdArgv(brc, argv, argc);
+  holdArgv(brc, &hybrid->base, argv, argc);
   return brc;
 }
 
@@ -1465,7 +1471,9 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskInd
   BlockedRequestCtx *brc = req->brc;
   RS_ASSERT(brc != NULL);
   RS_ASSERT(offset <= brc->parseArgc && brc->parseArgc <= brc->argc);
+  // TODO($$$): Remove the legacy query offset once consumers use QueryRequest.
   brc->queryOffset = offset;
+  req->base.args.queryOffset = brc->queryOffset;
 
   // Parse the query and basic keywords first..
   // The cursor covers the whole held command, pre-advanced to the parse

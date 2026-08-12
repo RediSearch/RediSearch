@@ -38,6 +38,9 @@ static inline void QueryRequestAsyncState_Destroy(QueryRequestAsyncState *state)
 
 void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind) {
   request->kind = kind;
+  request->args = (QueryRequestArgs) {
+    .queryOffset = QUERY_OFFSET_NONE,
+  };
   request->blockedClientCycleActive = false;
   request->cursorInfo = (CursorInfo) {0};
   request->registryInfo = (RegistryInfo) {0};

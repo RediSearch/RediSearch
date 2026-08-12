@@ -58,7 +58,9 @@ AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *statu
   // Holds the full argv; `parseArgc` excludes the debug tail so parsing stops
   // before it. Must be called after rm_realloc so r points to stable memory.
   BlockedRequestCtx_NewAREQ(r, argv, argc);
+  // TODO($$$): Remove the legacy parse argc once consumers use QueryRequest.
   r->brc->parseArgc = (uint32_t)(argc - debug_argv_count);
+  r->base.args.parseArgc = r->brc->parseArgc;
   AREQ_AddRequestFlags(r, QEXEC_F_DEBUG);
 
   return debug_req;

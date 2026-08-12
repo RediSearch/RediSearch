@@ -22,11 +22,14 @@ extern "C" {
 #endif
 
 typedef struct RLookup RLookup;
+typedef struct RedisModuleString RedisModuleString;
 typedef struct PLN_ArrangeStep PLN_ArrangeStep;
 typedef struct ResultProcessor ResultProcessor;
 typedef struct SearchResult SearchResult;
 struct Cursor;
 struct MRChannel;
+
+#define QUERY_OFFSET_NONE UINT32_MAX
 
 /** Cached variables used while serializing stored results. */
 typedef struct {
@@ -80,6 +83,23 @@ typedef struct {
   RegistryEntryKind kind;
 } RegistryInfo;
 
+typedef struct {
+  // Held command arguments borrowed by the request plan. The owning wrapper
+  // retains their Redis string references until after the request is freed.
+  RedisModuleString **argv;
+
+  // Number of held arguments; may include a trailing debug-only section.
+  uint32_t argc;
+
+  // Logical command length available to parsing. Debug requests lower this
+  // while keeping the excluded trailing arguments held in argv.
+  uint32_t parseArgc;
+
+  // Index of this request's query string in argv. QUERY_OFFSET_NONE denotes a
+  // request without a query argument, such as a filterless VSIM subquery.
+  uint32_t queryOffset;
+} QueryRequestArgs;
+
 typedef struct QueryRequestTimeout {
   RS_Atomic(bool) timedOut;
 } QueryRequestTimeout;
@@ -132,6 +152,7 @@ void QueryRequestAsyncState_WakeAbortChannel(QueryRequestAsyncState *state);
 
 typedef struct QueryRequest {
   QueryRequestKind kind;
+  QueryRequestArgs args;
   // TODO($$$): Temporary marker intended to replace BlockedRequestCtx.bc.
   bool blockedClientCycleActive;
   CursorInfo cursorInfo;

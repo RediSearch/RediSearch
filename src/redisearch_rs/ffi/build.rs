@@ -590,6 +590,7 @@ const BLOCKLIST_TYPES: &[&str] = &[
     "QASTValidationFlagsSet",
     "QueryNodeOptions",
     "QueryProcessingCtx", // defined directly in `ffi/src/lib.rs`
+    "RedisModuleString",
     "RSQueryTerm",
     "RSTokenFlags",
 ];

@@ -244,9 +244,6 @@ typedef struct AREQ {
 /* Forward declaration; full type lives in hybrid_request.h. */
 struct HybridRequest;
 
-/* BlockedRequestCtx.queryOffset value meaning "no query argument". */
-#define QUERY_OFFSET_NONE UINT32_MAX
-
 /**
  * Heap-allocated owning wrapper around a top-level request (AREQ or
  * HybridRequest). It is the single owner of the query and holds the

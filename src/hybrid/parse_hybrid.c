@@ -56,7 +56,9 @@
 static void setSubQueryArg(AREQ *sub, uint32_t queryOffset) {
   BlockedRequestCtx *brc = sub->brc;
   RS_ASSERT(queryOffset < brc->argc);
+  // TODO($$$): Remove the legacy query offset once consumers use QueryRequest.
   brc->queryOffset = queryOffset;
+  sub->base.args.queryOffset = brc->queryOffset;
 }
 
 // Helper function to set error message with proper plural vs singular form
