@@ -142,6 +142,7 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 use std::ffi::c_char;
 use std::ptr::NonNull;
+use std::time::Instant;
 
 use ffi::{
     IndexFlags_Index_DocIdsOnly, QueryError, QueryIterator, RSToken, RedisSearchCtx,
@@ -158,11 +159,10 @@ use rqe_iterators::{
     FieldExpirationChecker,
     interop::RQEIteratorWrapper,
     inverted_index::{Tag, TagLookup},
-    utils::{TimeoutContext, duration_from_redis_timespec},
+    utils::duration_from_redis_timespec,
 };
 use rqe_wildcard::{MatchOutcome, WildcardPattern};
 pub(crate) use suffix::{SuffixData, TagSuffixIndex};
-use timeout::{AnyTimeoutChecker, DeadlineTimeoutChecker, NoTimeoutChecker};
 use trie_rs::{
     TrieMap,
     iter::{
@@ -596,7 +596,7 @@ impl TagIndex {
     /// Its [`bytes_freed`](GcApplyInfo::bytes_freed) and
     /// [`block_count_delta`](GcApplyInfo::block_count_delta) already account for
     /// the whole posting list being dropped when the tag became empty.
-    /// 
+    ///
     /// # Panics
     /// Panics on a disk-mode index;
     pub fn gc(
@@ -792,8 +792,9 @@ impl TagIndex {
     /// Each yielded slice is the matched term including its trailing NUL, so its
     /// pointer is directly usable as a C `char*`.
     ///
-    /// The two walking forms are bounded by `timeout`, stopping early and keeping
-    /// the matches found so far; see [`deadline_bounded`].
+    /// The two walking forms are bounded by `timeout`: the trie iterator stops at
+    /// the deadline (see [`expansion_deadline`]), so the caller keeps the matches
+    /// found so far.
     ///
     /// # Panics
     /// Panics if this index was created without `WITHSUFFIXTRIE`.
@@ -803,6 +804,7 @@ impl TagIndex {
         timeout: Option<timespec>,
     ) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
         let suffix = self.suffix.as_ref().expect("suffix trie must exist");
+        let deadline = expansion_deadline(timeout);
 
         // Captures nothing, so it is `Copy` and can be moved into every branch's
         // `flat_map` closure.
@@ -817,37 +819,37 @@ impl TagIndex {
 
         match query {
             SuffixQuery::Suffix(tag) => Box::new(
-                // Exact node lookup, so no deadline probing: a single node yields
-                // all its members.
+                // Exact node lookup, so nothing to bound: a single node yields all
+                // its members.
                 suffix
                     .find(tag)
                     .into_iter()
                     .flat_map(move |data| data.members().map(materialize)),
             ),
-            SuffixQuery::Contains(tag) => Box::new(
-                deadline_bounded(suffix.prefixed_iter(tag), timeout)
-                    .flat_map(move |data| data.members().map(materialize)),
-            ),
+            SuffixQuery::Contains(tag) => {
+                let mut entries = suffix.prefixed_iter(tag);
+                entries.set_timeout(deadline);
+                Box::new(entries.flat_map(move |(_key, data)| data.members().map(materialize)))
+            }
             SuffixQuery::Wildcard {
                 pattern,
                 max_prefix_expansions,
             } => {
                 let full = WildcardPattern::parse(pattern.full);
+                let mut entries = suffix.wildcard_iter(WildcardPattern::parse(&pattern.sub));
+                entries.set_timeout(deadline);
                 Box::new(
-                    deadline_bounded(
-                        suffix.wildcard_iter(WildcardPattern::parse(&pattern.sub)),
-                        timeout,
-                    )
-                    .flat_map(move |data| data.members().map(materialize))
-                    // The anchor only narrows the walk, so re-check the whole
-                    // pattern against the term itself, terminator excluded.
-                    .filter(move |with_nul| {
-                        full.matches(&with_nul[..with_nul.len() - 1]) == MatchOutcome::Match
-                    })
-                    // Cap the *matched* terms, overshooting by one as documented
-                    // on the variant (`saturating_add` guards the no-cap
-                    // sentinel).
-                    .take((max_prefix_expansions as usize).saturating_add(1)),
+                    entries
+                        .flat_map(move |(_key, data)| data.members().map(materialize))
+                        // The anchor only narrows the walk, so re-check the whole
+                        // pattern against the term itself, terminator excluded.
+                        .filter(move |with_nul| {
+                            full.matches(&with_nul[..with_nul.len() - 1]) == MatchOutcome::Match
+                        })
+                        // Cap the *matched* terms, overshooting by one as
+                        // documented on the variant (`saturating_add` guards the
+                        // no-cap sentinel).
+                        .take((max_prefix_expansions as usize).saturating_add(1)),
                 )
             }
         }
@@ -1003,52 +1005,9 @@ pub enum SuffixQuery<'a> {
     },
 }
 
-/// Stop a suffix-trie walk at `timeout`'s deadline, dropping the keys and keeping
-/// only the entries' payloads.
-///
-/// The deadline is probed once per visited entry (see [`expansion_timeout`]);
-/// running out ends the iteration, so the caller keeps the matches collected so
-/// far rather than losing them. `scan` owns the checker, so its state persists
-/// across entries.
-fn deadline_bounded<'e>(
-    entries: impl Iterator<Item = (Vec<u8>, &'e SuffixData)>,
-    timeout: Option<timespec>,
-) -> impl Iterator<Item = &'e SuffixData> {
-    let mut timeout_ctx = expansion_timeout(timeout);
-    entries.scan((), move |(), (_key, data)| {
-        timeout_ctx.check_timeout().is_ok().then_some(data)
-    })
-}
-
-/// How many suffix-trie entries are walked between two consecutive clock
-/// probes during expansion.
-const TIMEOUT_CHECK_GRANULARITY: u32 = 100;
-
-/// Build the timeout checker used while expanding a suffix/wildcard pattern.
-///
-/// `timeout` is the absolute `CLOCK_MONOTONIC_RAW` deadline of the query being
-/// built. It yields [`NoTimeoutChecker`] — so expansion runs to completion — when
-/// the caller opted out (`None`, set from `skipTimeoutChecks` at the FFI
-/// boundary) or the deadline is the Redis "no timeout" sentinel
-/// (`time_t::MAX`); see [`duration_from_redis_timespec`]. Otherwise the
-/// remaining budget drives an amortized [`DeadlineTimeoutChecker`] that probes the
-/// clock once every [`TIMEOUT_CHECK_GRANULARITY`] entries. An already-elapsed
-/// deadline maps to a zero budget, i.e. it times out on the first probe.
-///
-/// The budget is captured here rather than re-read through a pointer on every
-/// probe, which is why this is an [`AnyTimeoutChecker`] and not the query
-/// iterators' [`AnyTimeoutContext`](rqe_iterators::utils::AnyTimeoutContext).
-/// Those need the live deadline because a query's iterator tree outlives a single
-/// read and each cursor read re-arms the deadline. An expansion has no such
-/// second read: it runs to completion inside one query build.
-pub(crate) fn expansion_timeout(timeout: Option<timespec>) -> AnyTimeoutChecker {
-    match timeout.and_then(duration_from_redis_timespec) {
-        Some(remaining) => AnyTimeoutChecker::Deadline(DeadlineTimeoutChecker::new(
-            remaining,
-            TIMEOUT_CHECK_GRANULARITY,
-        )),
-        None => AnyTimeoutChecker::NoTimeout(NoTimeoutChecker),
-    }
+fn expansion_deadline(timeout: Option<timespec>) -> Option<Instant> {
+    let remaining = timeout.and_then(duration_from_redis_timespec)?;
+    Some(Instant::now() + remaining)
 }
 
 /// Penalty applied when an anchor token is immediately followed by `*`:
@@ -1407,10 +1366,11 @@ mod expansion_timeout_tests {
     use super::*;
 
     const NO_CAP: u64 = u64::MAX;
-    /// Comfortably larger than [`TIMEOUT_CHECK_GRANULARITY`], so a zero-budget
-    /// deadline is guaranteed to trigger before the corpus is exhausted while
-    /// still leaving many entries unprocessed.
-    const CORPUS: usize = TIMEOUT_CHECK_GRANULARITY as usize * 3;
+    /// Comfortably larger than the trie iterators' clock-probe granularity (100
+    /// traversal steps, a `trie_rs` internal), so a zero-budget deadline is
+    /// guaranteed to trigger before the corpus is exhausted while still leaving
+    /// many entries unprocessed.
+    const CORPUS: usize = 300;
 
     /// A deadline that has already elapsed. Any `CLOCK_MONOTONIC_RAW` value one
     /// second after boot is in the past on a running system, so
@@ -1491,27 +1451,21 @@ mod expansion_timeout_tests {
     }
 
     #[test]
-    fn expansion_timeout_opts_out_when_no_deadline() {
+    fn expansion_deadline_opts_out_when_no_timeout() {
         // `None` is the `skipTimeoutChecks` path (set at the FFI boundary): it
-        // must disable checks entirely. The Redis `time_t::MAX` "no timeout"
-        // sentinel is likewise mapped to `NoTimeout`, but that mapping lives in
+        // must leave the walk unbounded. The Redis `time_t::MAX` "no timeout"
+        // sentinel maps to `None` too, but that mapping lives in
         // `duration_from_redis_timespec` and is covered by its own crate tests.
-        assert!(matches!(
-            expansion_timeout(None),
-            AnyTimeoutChecker::NoTimeout(_)
-        ));
+        assert!(expansion_deadline(None).is_none());
     }
 
     #[test]
     #[cfg_attr(miri, ignore)]
-    fn expansion_timeout_uses_clock_for_a_real_deadline() {
-        let mut ctx = expansion_timeout(Some(expired()));
-        assert!(matches!(ctx, AnyTimeoutChecker::Deadline(_)));
-        // A zero-budget clock times out once the granularity counter is reached.
-        let timed_out = (0..TIMEOUT_CHECK_GRANULARITY).any(|_| ctx.check_timeout().is_err());
+    fn expansion_deadline_of_an_elapsed_timeout_is_already_past() {
+        let deadline = expansion_deadline(Some(expired())).expect("a real deadline");
         assert!(
-            timed_out,
-            "an elapsed deadline must time out within one window"
+            deadline <= Instant::now(),
+            "an elapsed deadline must stop the walk on its first clock probe"
         );
     }
 }

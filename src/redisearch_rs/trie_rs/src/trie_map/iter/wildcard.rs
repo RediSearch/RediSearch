@@ -123,7 +123,7 @@ impl<'tm, 'p, Data> WildcardIter<'tm, 'p, Data> {
     }
 
     /// Set timeout
-    pub(crate) fn set_timeout(&mut self, timeout: Option<Instant>) {
+    pub fn set_timeout(&mut self, timeout: Option<Instant>) {
         match self {
             Self::U64(it) => it.set_timeout(timeout),
             Self::U128(it) => it.set_timeout(timeout),

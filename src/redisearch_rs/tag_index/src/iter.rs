@@ -212,18 +212,19 @@ impl TagIndex {
             ),
             (true, IterMode::Wildcard) => {
                 ValueIteratorImpl::DiskWildcard(self.disk_wildcard_iter_values(pattern))
-            },
-            (false, IterMode::Prefix) => ValueIteratorImpl::MemAll(self.prefixed_iter_values(pattern)),
+            }
+            (false, IterMode::Prefix) => {
+                ValueIteratorImpl::MemAll(self.prefixed_iter_values(pattern))
+            }
             (false, IterMode::Contains) => {
                 ValueIteratorImpl::MemContains(self.contains_iter_values(pattern))
             }
-            (false, IterMode::Suffix) => ValueIteratorImpl::MemSuffix(
-                self.iter_values(),
-                suffix_predicate(pattern.to_vec()),
-            ),
+            (false, IterMode::Suffix) => {
+                ValueIteratorImpl::MemSuffix(self.iter_values(), suffix_predicate(pattern.to_vec()))
+            }
             (false, IterMode::Wildcard) => {
                 ValueIteratorImpl::MemWildcard(self.wildcard_iter_values(pattern))
-            },
+            }
         };
 
         ValueIterator { iter }
@@ -240,7 +241,7 @@ impl TagIndex {
 }
 
 /// A reader over the postings (document ids) of a single tag value's
-/// [`InvertedIndex<DocIdsOnly>`], driven with [`next`](Self::next).
+/// [`InvertedIndex<DocIdsOnly>`], driven with [`next_record`](Self::next_record).
 pub struct TagValueReader<'trie> {
     reader: IndexReaderCore<'trie, DocIdsOnly>,
 }
