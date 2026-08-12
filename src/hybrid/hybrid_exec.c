@@ -777,16 +777,43 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) c
     RedisModule_EndReply(reply);
 }
 
+// Collect each subquery's end depleter, unwrapping a profile RP. Returns NULL
+// with status set when a pipeline's end processor is not the expected type.
+static arrayof(ResultProcessor*) collectDepleters(const HybridRequest *req,
+                                                  ResultProcessorType expectedType,
+                                                  QueryError *status) {
+    arrayof(ResultProcessor*) depleters = array_new(ResultProcessor *, req->nrequests);
+    for (size_t i = 0; i < req->nrequests; i++) {
+      ResultProcessor *depleter = req->requests[i]->pipeline.qctx.endProc;
+      if (IsProfile(req) && depleter->type == RP_PROFILE) {
+        depleter = depleter->upstream;
+      }
+      if (depleter->type != expectedType) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC,
+          "Unexpected depleter type: expected %s, got %s",
+          RPTypeToString(expectedType), RPTypeToString(depleter->type));
+        array_free(depleters);
+        return NULL;
+      }
+      array_ensure_append_1(depleters, depleter);
+    }
+    return depleters;
+}
+
 int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, QueryError *status, bool backgroundDepletion) {
     HybridRequest *req = StrongRef_Get(hybrid_ref);
     if (req->nrequests == 0) {
       QueryError_SetError(&req->tailPipelineError, QUERY_ERROR_CODE_GENERIC, "No subqueries in hybrid request");
       return REDISMODULE_ERR;
     }
-    // Helper arrays to collect cursors and depleters. The cursor array remains
-    // local until depletion completes; hreq->cursors means "safe to publish".
+    // The cursor array remains local until depletion completes; hreq->cursors
+    // means "safe to publish".
     arrayof(Cursor*) cursors = NULL;
-    arrayof(ResultProcessor*) depleters = array_new(ResultProcessor *, req->nrequests);
+    arrayof(ResultProcessor*) depleters =
+        collectDepleters(req, backgroundDepletion ? RP_SAFE_DEPLETER : RP_DEPLETER, status);
+    if (!depleters) {
+      return REDISMODULE_ERR;
+    }
 
     // Pause before store cursors (hybrid cursors only)
     debugPauseHybridStoreCursors(req, true);
@@ -799,20 +826,8 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     }
 
     cursors = array_new(Cursor*, req->nrequests);
-    ResultProcessorType expectedDepleterType = backgroundDepletion ? RP_SAFE_DEPLETER : RP_DEPLETER;
     for (size_t i = 0; i < req->nrequests; i++) {
       AREQ *areq = req->requests[i];
-      ResultProcessor *depleter = areq->pipeline.qctx.endProc;
-      if (IsProfile(req) && depleter->type == RP_PROFILE) {
-        depleter = depleter->upstream;
-      }
-      if (depleter->type != expectedDepleterType) {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC,
-          "Unexpected depleter type: expected %s, got %s",
-          RPTypeToString(expectedDepleterType), RPTypeToString(depleter->type));
-        break;
-      }
-      array_ensure_append_1(depleters, depleter);
       Cursor *cursor = Cursors_Reserve(getCursorList(false), areq->sctx->spec->own_ref, areq->cursorConfig.maxIdle, status);
       if (!cursor) {
         break;
@@ -958,10 +973,7 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
   if (internal) {
     RS_LOG_ASSERT(isCursor, "Internal hybrid command must be a cursor request from a coordinator");
     isCursor = true;
-    // Cursor-flow depleters are built detached: nothing consumes them through
-    // Next before DepleteAll completes, and they only yield from their
-    // buffers afterwards — no thread ever reads a downstream ctx from them.
-    if (HybridRequest_BuildDepletionPipeline(hreq, hybridParams, depleteInBackground, NULL) != REDISMODULE_OK) {
+    if (HybridRequest_BuildDepletionPipeline(hreq, depleteInBackground) != REDISMODULE_OK) {
       goto done;
     }
   } else if (HybridRequest_BuildPipeline(hreq, hybridParams, depleteInBackground, status) != REDISMODULE_OK) {
@@ -987,6 +999,28 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
   }
 
   if (!isCursor) {
+    if (depleteInBackground) {
+      arrayof(ResultProcessor*) depleters = collectDepleters(hreq, RP_SAFE_DEPLETER, status);
+      if (!depleters) {
+        return REDISMODULE_ERR;
+      }
+#ifdef ENABLE_ASSERT
+      // Sync point (debug): pause while still holding the read lock, before
+      // the depleters race a queued writer for their own locks.
+      SyncPoint_WaitUntil(SYNC_POINT_BEFORE_HYBRID_DEPLETION, hreq_timeout_or_pending_spec_writers, hreq);
+#endif
+      // Launch and finish all background depletion up front; the caller holds
+      // the spec read lock, and DepleteAll releases it once every depleter has
+      // taken its own. Timeouts stay on the depleters — the merger below
+      // consumes each one's buffered results and last return code, so the
+      // policy-dependent reply (partial results or timeout error) is the
+      // pipeline's as usual. A lock failure is fatal before any result exists.
+      int rc = RPSafeDepleter_DepleteAll(depleters, sctx, status);
+      array_free(depleters);
+      if (rc == RS_RESULT_ERROR) {
+        return REDISMODULE_ERR;
+      }
+    }
     HybridRequest_Execute(hreq, ctx, sctx);
   } else if (HybridRequest_StartCursors(hybrid_ref, ctx, status, depleteInBackground) != REDISMODULE_OK) {
     goto done;

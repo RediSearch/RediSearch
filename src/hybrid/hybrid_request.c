@@ -35,7 +35,7 @@
 extern "C" {
 #endif
 
-int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params, bool depleteInBackground, RedisSearchCtx *depleterDownstreamCtx) {
+int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackground) {
     // Create synchronization context for coordinating depleter processors
     // This ensures thread-safe access when multiple depleters read from their pipelines
     StrongRef sync_ref = {0};
@@ -100,7 +100,7 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
           // Create a safe depleter processor to extract results from this pipeline
           // The safe depleter will feed results to the hybrid merger
           RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
-          ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread, depleterDownstreamCtx, depleterPool);
+          ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread, depleterPool);
           QITR_PushRP(qctx, depleter);
         } else {
           // Create a depleter processor for foreground depletion (WORKERS == 0)
@@ -226,8 +226,7 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
 
 int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params, bool depleteInBackground, QueryError *status) {
     // Build the depletion pipeline for extracting results from individual search requests
-    // The merger consumes the depleters on the tail thread, whose ctx is the params'.
-    if (HybridRequest_BuildDepletionPipeline(req, params, depleteInBackground, params->aggregationParams.common.sctx) != REDISMODULE_OK) {
+    if (HybridRequest_BuildDepletionPipeline(req, depleteInBackground) != REDISMODULE_OK) {
       for (size_t i = 0; i < req->nrequests; i++) {
         QueryError *subErr = &req->requests[i]->base.err;
         if (QueryError_HasError(subErr)) {

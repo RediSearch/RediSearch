@@ -177,16 +177,10 @@ void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, uint32_t a
  * AREQ3 -> [Individual Pipeline] -> Depleter3
  *
  * @param req The HybridRequest containing multiple AREQ search requests
- * @param params Pipeline parameters including synchronization settings
  * @param depleteInBackground Whether the pipeline should be built for asynchronous depletion
- * @param depleterDownstreamCtx The search context of the thread that consumes the
- *   depleters through their Next callback (timeout checks and the spec-unlock
- *   handshake). NULL for the cursor flow, whose depleters are driven only by
- *   RPSafeDepleter_DepleteAll — it gets the ctx from its caller — and yield
- *   from their buffers afterwards.
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params, bool depleteInBackground, RedisSearchCtx *depleterDownstreamCtx);
+int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackground);
 
 /**
  * Open the score key in the tail lookup for writing the final score.

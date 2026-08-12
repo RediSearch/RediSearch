@@ -154,6 +154,8 @@ pthread_mutex_t query_version_tracker_mutex;
 arrayof(int*) asm_sanitizer_allocs;
 #endif
 
+// Dedicated pool for RPSafeDepleter jobs, so they never contend with the
+// `_workers_thpool` queue — e.g. submitting a job after `WORKERS` was set to 0.
 redisearch_thpool_t *depleterPool = NULL;
 
 int DIST_THREADPOOL = -1;

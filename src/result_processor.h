@@ -258,30 +258,42 @@ ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLook
 *
 *  The RPSafeDepleter result processor offloads the task of consuming all results from
 *  its upstream processor into a background thread, storing them in an internal
-*  array. While the background thread is running, calls to Next() wait on a shared
-*  condition variable and return RS_RESULT_DEPLETING. The thread can be awakened
-*  either by its own depleting thread completing or by another RPSafeDepleter's thread
-*  signaling completion. Once depleting is complete for this processor, Next()
-*  yields results one by one from the internal array, and finally returns the last
-*  return code from the upstream.
+*  array. The launcher resolves every depleter's fate before its first Next() call:
+*  it schedules the background job (RPSafeDepleter_DepleteAll or
+*  RPSafeDepleter_StartDepletion) or marks the depleter timed out
+*  (RPSafeDepleter_MarkTimedOut). While the background thread is running, calls to
+*  Next() wait on a shared condition variable and return RS_RESULT_DEPLETING. The
+*  thread can be awakened either by its own depleting thread completing or by
+*  another RPSafeDepleter's thread signaling completion. Once depleting is complete
+*  for this processor, Next() yields results one by one from the internal array,
+*  and finally returns the last return code from the upstream.
 */
 
 /**
 * Constructs a new RPSafeDepleter processor that offloads result consumption to a background thread.
 * The returned processor takes ownership of result depleting and yielding.
 * @param sync_ref Reference to shared synchronization object for coordinating multiple safe depleters
-* @param depletingThreadCtx Search context for the upstream processor being wrapped
-* @param nextThreadCtx Search context for the downstream processor that will receive results
+* @param depletingThreadCtx Search context for the upstream processor being wrapped; used only on
+*                           the depleting thread
 * @param pool Thread pool used to run the depletion job (must be non-NULL)
 */
-ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx, RedisSearchCtx *nextThreadCtx, redisearch_thpool_t *pool);
+ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx, redisearch_thpool_t *pool);
 
 /**
-* Pre-submit a safe depleter to its thread pool. After this call the depleter's
-* lazy-start branch is skipped and Next() proceeds directly to wait-for-completion.
-* Used to enqueue depleters ahead of a tail continuation on the same pool.
+* Submit a safe depleter's depletion job to its thread pool. The caller decides
+* whether to deplete at all: a query that already timed out should be marked
+* with RPSafeDepleter_MarkTimedOut instead. Used to enqueue depleters ahead of
+* a tail continuation on the same pool.
 */
 void RPSafeDepleter_StartDepletion(ResultProcessor *base);
+
+/**
+* Resolve a safe depleter as timed out without scheduling its depletion job:
+* Next() yields RS_RESULT_TIMEDOUT and RPSafeDepleter_WaitForCompletion has
+* nothing to wait for. The launcher's alternative to
+* RPSafeDepleter_StartDepletion for a query that already timed out.
+*/
+void RPSafeDepleter_MarkTimedOut(ResultProcessor *base);
 
 /**
 * Block until this depleter's background depletion job (if any) has completed.
