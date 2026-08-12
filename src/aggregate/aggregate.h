@@ -262,19 +262,6 @@ struct BlockedRequestCtx {
                        // true => BG stores results and the reply callback
                        // registered with RedisModule_BlockClient serializes
                        // them on main after UnblockClient
-  /* ===== TRANSITIONAL(MOD-16691) — refactor scaffolding =====
-   * Every field below is temporary bloat: each one bridges a gap that a later
-   * step of the refactor (or the RETURN_STRICT flip follow-up) closes, and is
-   * deleted with it. The struct shrinks back accordingly. Grep for
-   * TRANSITIONAL(MOD-16691) to find all scaffolding. */
-
-  /* TRANSITIONAL(MOD-16691): reference count, until the cursor-ownership step
-   * makes the wrapper single-owner (cycle owns it via BeginCycle/OnFree, a
-   * parked cursor owns it between cycles). Starts at 1 (set by New);
-   * incremented by IncrRef, decremented by DecrRef; reaches 0 exactly once,
-   * triggering Free. ACQ_REL on decrement so the free path sees prior writes. */
-  RS_Atomic(int) refcount;
-
 };
 
 /* The request's query string: the first argument of its parse slice, backed
@@ -295,15 +282,13 @@ static inline const char *AREQ_Query(const AREQ *req, size_t *len) {
   return query;
 }
 
-/* Allocate a heap BlockedRequestCtx owning the request (refcount=1) and wire
- * the `brc` back-pointer. */
+/* Allocate a heap BlockedRequestCtx owning the request and wire the `brc`
+ * back-pointer. */
 BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq);
 BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid);
 
-/* TRANSITIONAL(MOD-16691): increment / decrement the wrapper's reference
- * count. DecrRef triggers BlockedRequestCtx_Free when the count drops to
- * zero. Deleted together with `refcount` once the cursor-ownership step makes
- * the wrapper single-owner. */
+/* Increment / decrement the owned QueryRequest's reference count. DecrRef
+ * triggers BlockedRequestCtx_Free when the count drops to zero. */
 BlockedRequestCtx *BlockedRequestCtx_IncrRef(BlockedRequestCtx *brc);
 void BlockedRequestCtx_DecrRef(BlockedRequestCtx *brc);
 
@@ -328,11 +313,10 @@ static inline struct HybridRequest *BlockedRequestCtx_GetHybrid(BlockedRequestCt
 
 /* Lifecycle helpers for AREQ objects. AREQ_Free destroys the AREQ directly
  * (no wrapper involved).
- * TRANSITIONAL(MOD-16691): AREQ_IncrRef / AREQ_DecrRef delegate to the owning
- * BlockedRequestCtx's refcount when one is present (req->brc != NULL);
+ * AREQ_IncrRef / AREQ_DecrRef delegate to the QueryRequest refcount through
+ * the owning BlockedRequestCtx when one is present (req->brc != NULL);
  * otherwise they call AREQ_Free directly (for unwrapped transient /
- * sub-AREQs). Deleted with the wrapper refcount once the cursor-ownership
- * step makes the wrapper single-owner. */
+ * sub-AREQs). */
 void AREQ_Free(AREQ *req);
 AREQ *AREQ_IncrRef(AREQ *req);
 void AREQ_DecrRef(AREQ *req);

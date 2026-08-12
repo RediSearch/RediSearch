@@ -181,11 +181,8 @@ void QueryRequestAsyncState_WakeAbortChannel(QueryRequestAsyncState *state);
 
 typedef struct QueryRequest {
   QueryRequestKind kind;
-  /* TRANSITIONAL(MOD-16691): reference count copied from BlockedRequestCtx
-   * while ownership moves onto QueryRequest. Starts at 1; ACQ_REL on the final
-   * decrement ensures destruction observes prior writes.
-   * TODO($$$): Remove the legacy BlockedRequestCtx refcount after all consumers
-   * use this field. */
+  /* Starts at 1. ACQ_REL on the final decrement ensures destruction observes
+   * prior writes from every owner. */
   RS_Atomic(int) refcount;
   QueryRequestArgs args;
   /* A blocked-client cycle is one initial query execution or cursor read.
@@ -212,6 +209,11 @@ typedef struct QueryRequest {
    */
   ResultProcessor **endProcRef;
 } QueryRequest;
+
+QueryRequest *QueryRequest_IncrRef(QueryRequest *request);
+
+/* Returns true when the caller released the final reference. */
+bool QueryRequest_DecrRef(QueryRequest *request);
 
 static inline void QueryRequest_SetEndProcRef(QueryRequest *request,
                                               ResultProcessor **endProcRef) {

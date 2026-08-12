@@ -1154,17 +1154,13 @@ bool SearchTime_IsTimedOut(void *arg) {
 static BlockedRequestCtx *BlockedRequestCtx_NewCommon(RequestKind kind) {
   BlockedRequestCtx *brc = rm_calloc(1, sizeof(BlockedRequestCtx));
   brc->kind = kind;
-  brc->refcount = 1;
   return brc;
 }
 
 BlockedRequestCtx *BlockedRequestCtx_IncrRef(BlockedRequestCtx *brc) {
   QueryRequest *request = brc->kind == REQUEST_KIND_AREQ ? (QueryRequest *)brc->query.areq
                                                         : (QueryRequest *)brc->query.hybrid;
-  atomic_fetch_add_explicit(&request->refcount, 1, memory_order_relaxed);
-  // TODO($$$): Remove the legacy BlockedRequestCtx refcount after all consumers
-  // use QueryRequest.refcount.
-  atomic_fetch_add_explicit(&brc->refcount, 1, memory_order_relaxed);
+  QueryRequest_IncrRef(request);
   return brc;
 }
 
@@ -1174,15 +1170,7 @@ void BlockedRequestCtx_DecrRef(BlockedRequestCtx *brc) {
   }
   QueryRequest *request = brc->kind == REQUEST_KIND_AREQ ? (QueryRequest *)brc->query.areq
                                                         : (QueryRequest *)brc->query.hybrid;
-  // ACQ_REL: release ensures our writes are visible before decrement;
-  // acquire ensures we see all prior writes when refcount reaches 0.
-  int requestRefcount =
-      atomic_fetch_sub_explicit(&request->refcount, 1, memory_order_acq_rel);
-  // TODO($$$): Remove the legacy BlockedRequestCtx refcount after all consumers
-  // use QueryRequest.refcount.
-  int brcRefcount = atomic_fetch_sub_explicit(&brc->refcount, 1, memory_order_acq_rel);
-  RS_ASSERT(requestRefcount == brcRefcount);
-  if (brcRefcount == 1) {
+  if (QueryRequest_DecrRef(request)) {
     BlockedRequestCtx_Free(brc);
   }
 }

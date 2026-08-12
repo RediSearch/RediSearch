@@ -8,6 +8,8 @@
  */
 #include "query_request.h"
 
+#include <stdatomic.h>
+
 #include "coord/rmr/chan.h"
 #include "query_error_ffi.h"
 #include "redismodule.h"
@@ -56,6 +58,15 @@ static inline void QueryRequestAsyncState_Destroy(QueryRequestAsyncState *state)
   pthread_mutex_destroy(&state->abortWakeLock);
   pthread_mutex_destroy(&state->aggregateResultsLock);
   pthread_cond_destroy(&state->aggregateResultsCond);
+}
+
+QueryRequest *QueryRequest_IncrRef(QueryRequest *request) {
+  atomic_fetch_add_explicit(&request->refcount, 1, memory_order_relaxed);
+  return request;
+}
+
+bool QueryRequest_DecrRef(QueryRequest *request) {
+  return atomic_fetch_sub_explicit(&request->refcount, 1, memory_order_acq_rel) == 1;
 }
 
 void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind, RedisModuleString **argv,

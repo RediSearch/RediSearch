@@ -255,7 +255,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
 
 /**
  * Free a HybridRequest and all its associated resources directly.
- * Called by BlockedRequestCtx_Free when the wrapper's refcount reaches zero.
+ * Called by BlockedRequestCtx_Free when the QueryRequest refcount reaches zero.
  * Do not call directly; use HybridRequest_DecrRef instead.
  */
 void HybridRequest_Free(HybridRequest *req);
