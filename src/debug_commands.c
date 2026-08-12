@@ -2385,6 +2385,8 @@ static int parseCompactionSite(const char *name, int *out) {
     *out = SEARCH_DISK_SITE_NUMERIC_SPLIT_PRE_COMMIT;
   } else if (!strcasecmp(name, "numeric_gate_closed")) {
     *out = SEARCH_DISK_SITE_NUMERIC_GATE_CLOSED;
+  } else if (!strcasecmp(name, "numeric_map_write_locked")) {
+    *out = SEARCH_DISK_SITE_NUMERIC_MAP_WRITE_LOCKED;
   } else {
     return 0;
   }
@@ -2402,7 +2404,7 @@ static int parseCompactionSite(const char *name, int *out) {
  *   RESET                              clear all state, free waiters
  *
  * <site> is one of: compaction_begin, compaction_completed, pre_checkpoint,
- * numeric_split_pre_commit, numeric_gate_closed.
+ * numeric_split_pre_commit, numeric_gate_closed, numeric_map_write_locked.
  */
 DEBUG_COMMAND(replCompactionCoordinator) {
   if (!debugCommandsEnabled(ctx)) {

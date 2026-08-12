@@ -920,6 +920,9 @@ typedef enum {
   // numeric index closes (main thread); cross-wake source for
   // deterministically deferring a held split.
   SEARCH_DISK_SITE_NUMERIC_GATE_CLOSED = 4,
+  // Numeric split Step A while the BucketMap write lock is held (GC thread) --
+  // the only site that parks a writer inside that lock.
+  SEARCH_DISK_SITE_NUMERIC_MAP_WRITE_LOCKED = 5,
 } SearchDiskCompactionSite;
 
 /**
