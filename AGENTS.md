@@ -295,7 +295,7 @@ When reviewing pull requests:
 - Security-sensitive issues are in scope for automated review. Look for memory-safety bugs, unsafe/FFI soundness problems, malformed input handling gaps, data exposure, ACL/auth bypasses, concurrency races, and denial-of-service risks from unbounded allocation, loops, or recursion.
 - Do not comment on minor style, formatting, naming, or preference issues by default unless they violate an explicit project rule and would block maintainability.
 - If the review explicitly requests nits, style comments, or `--include-nits`, minor findings may be reported as non-blocking suggestions, but must still avoid duplicates and should be grouped by root cause.
-- State the failure for every finding: the input, state, or thread interleaving that produces the wrong result, and what the wrong result is. A finding you cannot ground that way is a preference — do not post it in a default review. When nits are explicitly requested, the preceding bullet governs instead.
+- State the failure for every finding: the input, state, or thread interleaving that produces the wrong result, and what the wrong result is. A finding you cannot ground that way is a preference — do not post it in a default review. When nits are explicitly requested, the preceding bullet governs instead. A missing test needs no failing input: name the new or changed behavior and what an exercising test would assert, as [/rust-review](.skills/rust-review/SKILL.md) § *Test coverage* and [/adversarial-review](.skills/adversarial-review/SKILL.md) require.
 - Automated review is advisory. A human maintainer's approval is the merge gate, so post findings as comments and do not request changes.
 
 ### Re-reviewing after a push
@@ -306,9 +306,11 @@ round — an app re-running on a push, or a re-invocation given the earlier find
 apply to [/adversarial-review](.skills/adversarial-review/SKILL.md), whose follow-up rounds are
 deliberately blind to the earlier ones and so review the whole change by design.
 
-One exception runs through every rule below: a concrete failure is always in scope. Report it with
-its failure scenario however many rounds in, whatever the thread state, since nobody can weigh the
-trade-off without it.
+One exception runs through every rule below, and it is deliberately narrower than what a first
+review reports: a defect that corrupts data, crashes the server, breaks memory safety, or breaches
+security is worth raising however many rounds in and whatever the thread state. Everything else
+follows the rules as written even when you can ground it — for a lesser finding the churn costs more
+than the finding.
 
 - Review only what changed since your previous review on this PR. Do not raise findings on code you already reviewed and chose not to flag, and do not reopen resolved threads.
 - If your earlier finding was addressed and the fix draws a new finding in the same hunk, do not post a third variation of the same concern. Say once that the hunk needs a design decision, name the trade-off, and leave it to the human reviewer.
