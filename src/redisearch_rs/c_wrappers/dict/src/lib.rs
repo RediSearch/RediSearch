@@ -14,7 +14,7 @@ use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
 
-use hidden_string::HiddenStringRef;
+use hidden_string::HiddenString;
 use inverted_index::opaque::InvertedIndex;
 
 /// Describes a `Dict` type defined by a `ffi::dictType` with conversion
@@ -101,7 +101,7 @@ pub struct MissingFieldDictType;
 
 // SAFETY:
 // - missingFieldDictType is a valid static ffi::dictType whose callbacks are
-//   compatible with HiddenStringRef keys and Box<InvertedIndex> values.
+//   compatible with HiddenString keys and Box<InvertedIndex> values.
 // - keyDup copies the HiddenString so callers may free the original after insert.
 // - valDestructor is InvIndFreeCb → InvertedIndex_Free, which calls
 //   drop(Box::from_raw(ptr)); insert_val_into_ptr calls Box::into_raw,
@@ -109,7 +109,7 @@ pub struct MissingFieldDictType;
 // - iter_val_from_ptr and mut_val_from_ptr borrow the stored pointer as
 //   &InvertedIndex / &mut InvertedIndex respectively.
 unsafe impl DictType for MissingFieldDictType {
-    type K<'a> = HiddenStringRef<'a>;
+    type K<'a> = &'a HiddenString;
     type InsertV = Box<InvertedIndex>;
     type RefV<'a> = &'a InvertedIndex;
     type MutV<'a> = &'a mut InvertedIndex;
@@ -119,12 +119,12 @@ unsafe impl DictType for MissingFieldDictType {
     }
 
     fn key_into_ptr<'a>(key: Self::K<'a>) -> *mut c_void {
-        key.as_ptr().cast()
+        key.as_ptr().cast_mut().cast()
     }
 
     unsafe fn key_from_ptr<'a>(ptr: *mut c_void) -> Self::K<'a> {
         // SAFETY: caller guarantees ptr is a valid *mut HiddenString for 'a.
-        unsafe { HiddenStringRef::from_raw(ptr.cast::<ffi::HiddenString>()) }
+        unsafe { HiddenString::from_raw(ptr.cast::<ffi::HiddenString>()) }
     }
 
     fn insert_val_into_ptr(val: Self::InsertV) -> *mut c_void {

@@ -22,6 +22,10 @@ on:
         description: 'Include sanitize job in matrix'
         type: boolean
         default: false
+      include-ubsan:
+        description: 'Include UBSan C/C++ unit-test job in matrix'
+        type: boolean
+        default: false
       separate-coordinator-job:
         description: "Run coordinator tests in a separate parallel job per platform"
         type: boolean
@@ -96,6 +100,7 @@ jobs:
           architecture_filter = os.environ["INPUT_ARCHITECTURE"]
           include_coverage = "${{ inputs.include-coverage }}" == "true"
           include_sanitize = "${{ inputs.include-sanitize }}" == "true"
+          include_ubsan = "${{ inputs.include-ubsan }}" == "true"
           separate_coordinator = "${{ inputs.separate-coordinator-job }}" == "true"
 
           def add_matrix_entries(items, platform, architecture, job_type):
@@ -105,6 +110,9 @@ jobs:
                   items.append({'platform': platform, 'architecture': architecture, 'job-type': job_type, 'test-mode': 'coordinator'})
               else:
                   items.append({'platform': platform, 'architecture': architecture, 'job-type': job_type, 'test-mode': 'all'})
+
+          def add_unit_only_matrix_entry(items, platform, architecture, job_type):
+              items.append({'platform': platform, 'architecture': architecture, 'job-type': job_type, 'test-mode': 'unit'})
 
           # Parse comma-separated filters
           platform_list = [p.strip() for p in platform_filter.split(',') if p.strip()]
@@ -149,6 +157,10 @@ jobs:
           # Add sanitize job if requested (only on ubuntu:latest x86_64)
           if include_sanitize:
               add_matrix_entries(matrix_items, 'ubuntu:latest', 'x86_64', 'sanitize')
+
+          # Add UBSan C/C++ unit-test job if requested (only on ubuntu:latest x86_64)
+          if include_ubsan:
+              add_unit_only_matrix_entry(matrix_items, 'ubuntu:latest', 'x86_64', 'ubsan')
 
           # Check if matrix has any jobs
           has_jobs = len(matrix_items) > 0

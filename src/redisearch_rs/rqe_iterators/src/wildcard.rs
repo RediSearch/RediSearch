@@ -40,11 +40,45 @@ pub struct RawWildcard<'query, Rf: Ref> {
 
     /// A reusable result object to avoid allocations on each `read` call.
     result: RawIndexResult<'query, Rf>,
+
+    /// Whether the iterator has run *past* its last result, i.e. a
+    /// `read`/`skip_to` found nothing.
+    ///
+    /// The state behind [`current`](RQEIterator::current) and
+    /// [`at_eof`](RQEIterator::at_eof), and the *only* record of it: both
+    /// entry points check it before anything else, so an exhausted iterator
+    /// stays exhausted until [`rewind`](RQEIterator::rewind) whatever the
+    /// position says.
+    ///
+    /// It cannot be folded into `result.doc_id`: that field *is*
+    /// [`last_doc_id`](RQEIterator::last_doc_id), which parents use to choose
+    /// skip targets, so moving it to record exhaustion — past `top_id`, or onto
+    /// it when a skip overshoots — would report a position never yielded.
+    /// [`InvIndIterator`](crate::inverted_index::InvIndIterator) splits the two
+    /// the same way, with `at_eos` beside an untouched `last_doc_id`.
+    past_end: bool,
 }
 
 /// Alias for an [`Active`] [`RawWildcard`] — the only instantiation with an
 /// [`RQEIterator`] impl today.
 pub type Wildcard<'index> = RawWildcard<'index, Active<'index>>;
+
+// Compile-time proof that the `Active` and `Suspended` instantiations are
+// layout-identical, which is what lets [`RawWildcard::suspend`] and its `resume`
+// reinterpret the owning `Box` in place. `result: RawIndexResult<Rf>` is the only
+// `Rf`-dependent field, and its own cross-`Rf` compatibility is proven in
+// `index_result`; these asserts pin down that neither it nor the flag beside it
+// shifts across modes. Mirrors the block in [`crate::optional`].
+const _: () = {
+    use std::mem::{align_of, offset_of, size_of};
+    type A = RawWildcard<'static, Active<'static>>;
+    type S = RawWildcard<'static, Suspended>;
+    assert!(offset_of!(A, top_id) == offset_of!(S, top_id));
+    assert!(offset_of!(A, result) == offset_of!(S, result));
+    assert!(offset_of!(A, past_end) == offset_of!(S, past_end));
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
 
 impl Wildcard<'_> {
     pub fn new(top_id: DocId, weight: f64) -> Self {
@@ -55,18 +89,41 @@ impl Wildcard<'_> {
                 .weight(weight)
                 .field_mask(RS_FIELDMASK_ALL)
                 .build(),
+            past_end: false,
         }
+    }
+
+    /// Whether this iterator owes no further result, recording it if the
+    /// position has just reached `top_id`.
+    ///
+    /// The single gate on both entry points, and the only predicate either of
+    /// them needs: once [`past_end`](Self::past_end) is set, only a
+    /// [`rewind`](RQEIterator::rewind) clears it. It is checked before the
+    /// position, which is what lets an overshooting
+    /// [`skip_to`](RQEIterator::skip_to) leave the position alone — the position
+    /// then sits below `top_id` while the iterator owes nothing, so the
+    /// comparison alone would answer that there is more to come.
+    #[inline(always)]
+    const fn exhausted(&mut self) -> bool {
+        if self.past_end || self.result.doc_id >= self.top_id {
+            self.past_end = true;
+            return true;
+        }
+        false
     }
 }
 
 impl<'index> RQEIterator<'index> for Wildcard<'index> {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        if self.past_end {
+            return None;
+        }
         Some(&mut self.result)
     }
 
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        if self.at_eof() {
+        if self.exhausted() {
             return Ok(None);
         }
 
@@ -78,14 +135,16 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
         &mut self,
         doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        if self.at_eof() {
+        if self.exhausted() {
             return Ok(None);
         }
         debug_assert!(self.last_doc_id() < doc_id);
 
         if doc_id > self.top_id {
-            // skip beyond range - set to EOF
-            self.result.doc_id = self.top_id;
+            // Beyond the last document: this skip carries no result, so it may
+            // not move the position. `past_end` is what records the step, and
+            // the position stays where the last yield left it.
+            self.past_end = true;
             return Ok(None);
         }
 
@@ -95,6 +154,7 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
 
     fn rewind(&mut self) {
         self.result.doc_id = 0;
+        self.past_end = false;
     }
 
     // This should always return total results from the iterator, even after some yields.
@@ -107,7 +167,7 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
     }
 
     fn at_eof(&self) -> bool {
-        self.result.doc_id >= self.top_id
+        self.past_end
     }
 
     fn revalidate(
@@ -200,6 +260,17 @@ impl<'index, I: WildcardIterator<'index>> WildcardIterator<'index>
 impl<'index> WildcardIterator<'index> for crate::c2rust::CRQEIterator {}
 
 impl<'index> WildcardIterator<'index> for Box<dyn WildcardIterator<'index> + 'index> {}
+
+/// A [`TypeErasedRQEIterator`](crate::TypeErasedRQEIterator) may wrap a wildcard
+/// iterator, but — as with [`CRQEIterator`](crate::c2rust::CRQEIterator) — that
+/// cannot be verified statically once the concrete type is erased.
+///
+/// The caller is responsible for only using this impl when the erased iterator
+/// really is a wildcard. It exists so composites that take a wildcard base (e.g.
+/// [`OptionalOptimized`](crate::optional_optimized::OptionalOptimized)) can hold
+/// a type-erased one, which is what the suspend/resume path needs in order to
+/// dispatch the base's own `suspend`/`resume` through its vtable.
+impl<'index> WildcardIterator<'index> for crate::TypeErasedRQEIterator<'index> {}
 
 /// The result of [`new_wildcard_iterator`], representing the different kinds of
 /// wildcard iterators that can be created depending on the index configuration.

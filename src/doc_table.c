@@ -166,6 +166,12 @@ t_docId DocTable_GetId(const DocTable *dt, const char *s, size_t n) {
   return DocIdMap_Get(&dt->dim, s, n);
 }
 
+t_docId DocTable_GetIdR(const DocTable *dt, const RedisModuleString *r) {
+  size_t n;
+  const char *s = RedisModule_StringPtrLen(r, &n);
+  return DocTable_GetId(dt, s, n);
+}
+
 /* Set the payload for a document. Returns 1 if we set the payload, 0 if we couldn't find the
  * document */
 int DocTable_SetPayload(DocTable *t, RSDocumentMetadata *dmd, const char *data, size_t len) {

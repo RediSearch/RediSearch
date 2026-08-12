@@ -61,6 +61,7 @@
 #include "rlookup.h"
 #include "rlookup_ffi.h"
 #include "rmalloc.h"
+#include "util/misc.h"
 #include "rmutil/args.h"
 #include "rmutil/rm_assert.h"
 #include "rqe_core.h"
@@ -777,9 +778,11 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     return REDISMODULE_ERR;
   }
 
-  searchOpts->inkeys = (const sds*)inKeys.objs;
+  // INKEYS / INFIELDS: sub-cursors of the parse cursor; objs are
+  // RedisModuleString pointers, borrowed from the request's held argv.
+  searchOpts->inkeys = (RedisModuleString **)inKeys.objs;
   searchOpts->ninkeys = inKeys.argc;
-  searchOpts->legacy.infields = (const char **)inFields.objs;
+  searchOpts->legacy.infields = (RedisModuleString **)inFields.objs;
   searchOpts->legacy.ninfields = inFields.argc;
   // if language is NULL, set it to RS_LANG_UNSET and it will be updated
   // later, taking the index language
@@ -1150,6 +1153,7 @@ bool SearchTime_IsTimedOut(void *arg) {
 static BlockedRequestCtx *BlockedRequestCtx_NewCommon(RequestKind kind) {
   BlockedRequestCtx *brc = rm_calloc(1, sizeof(BlockedRequestCtx));
   brc->kind = kind;
+  brc->queryOffset = QUERY_OFFSET_NONE;  // "no query argument" until parsing finds one
   brc->refcount = 1;
   brc->requiresAggregateResultsSync = false;
   brc->aggregatingResults = false;
@@ -1175,21 +1179,61 @@ void BlockedRequestCtx_DecrRef(BlockedRequestCtx *brc) {
   }
 }
 
-BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq) {
+/* Hold references to `argv` strings whose contents the wrapped request's
+ * plan borrows (see BlockedRequestCtx.argv). Runs at construction, on
+ * the main thread; released in BlockedRequestCtx_Free, also on main. */
+static void holdArgv(BlockedRequestCtx *brc, RedisModuleString **argv, uint32_t argc) {
+  RS_ASSERT(argv != NULL);
+  RS_ASSERT(brc->argv == NULL);
+  brc->argv = rm_malloc(argc * sizeof(*brc->argv));
+  brc->argc = argc;
+  brc->parseArgc = argc;  // debug constructors lower it to exclude the debug tail
+  for (uint32_t ii = 0; ii < argc; ++ii) {
+    brc->argv[ii] = RedisModule_HoldString(NULL, argv[ii]);
+    // Redis auto-trims (reallocates) retained argv right after the command
+    // callback returns — racing any thread already reading the string. Trim
+    // here instead, before any borrow exists or a worker can see it.
+    RedisModule_TrimStringAllocation(brc->argv[ii]);
+  }
+}
+
+/* Release an argv array taken by holdArgv: drop each string reference and
+ * free the array. Main-thread only (string refcounts are not thread safe). */
+static void releaseArgv(RedisModuleString **argv, uint32_t argc) {
+  for (uint32_t ii = 0; ii < argc; ++ii) {
+    RedisModule_FreeString(NULL, argv[ii]);
+  }
+  rm_free(argv);
+}
+
+typedef struct {
+  RedisModuleString **argv;
+  uint32_t argc;
+} DeferredArgvRelease;
+
+static void releaseArgvOnMainThread(void *privdata) {
+  DeferredArgvRelease *deferred = privdata;
+  releaseArgv(deferred->argv, deferred->argc);
+  rm_free(deferred);
+}
+
+BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq, RedisModuleString **argv, uint32_t argc) {
   // Wrapping an already-wrapped request would silently leak the first wrapper.
   RS_ASSERT(areq->brc == NULL);
   BlockedRequestCtx *brc = BlockedRequestCtx_NewCommon(REQUEST_KIND_AREQ);
   brc->query.areq = areq;
   areq->brc = brc;
+  holdArgv(brc, argv, argc);
   return brc;
 }
 
-BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid) {
+BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid, RedisModuleString **argv, uint32_t argc) {
   // Wrapping an already-wrapped request would silently leak the first wrapper.
   RS_ASSERT(hybrid->brc == NULL);
   BlockedRequestCtx *brc = BlockedRequestCtx_NewCommon(REQUEST_KIND_HYBRID);
   brc->query.hybrid = hybrid;
   hybrid->brc = brc;
+  holdArgv(brc, argv, argc);
   return brc;
 }
 
@@ -1199,15 +1243,29 @@ void BlockedRequestCtx_Free(BlockedRequestCtx *brc) {
   }
   pthread_mutex_destroy(&brc->aggregateResultsLock);
   pthread_cond_destroy(&brc->aggregateResultsCond);
-  // Idempotent after EndCycle; still required for cycles that do not run
-  // EndCycle yet (coordinator paths until Step 5). Must run while the owned
-  // request is alive: disposing a stashed cursor clears its execState.
+  // Idempotent after EndCycle; kept as a safety net for wrappers freed
+  // outside a cycle. Must run while the owned request is alive: disposing a
+  // stashed cursor clears its wrapper handle.
   ChunkReplyState_Destroy(&brc->reply);
 
   if (brc->kind == REQUEST_KIND_AREQ) {
     AREQ_Free(brc->query.areq);
   } else {
     HybridRequest_Free(brc->query.hybrid);
+  }
+  // Every wrapper is born with its holds (construction invariant), released
+  // after the request: its plan borrows from these strings.
+  RS_ASSERT(brc->argv != NULL);
+  if (MainThread_Is()) {
+    releaseArgv(brc->argv, brc->argc);
+  } else {
+    // String references may only be released on the main thread; bounce the
+    // release to the main event loop.
+    DeferredArgvRelease *deferred = rm_new(DeferredArgvRelease);
+    *deferred = (DeferredArgvRelease){.argv = brc->argv, .argc = brc->argc};
+    int rc = RedisModule_EventLoopAddOneShot(releaseArgvOnMainThread, deferred);
+    RS_ASSERT(rc == REDISMODULE_OK);
+    (void)rc;
   }
   rm_free(brc);
 }
@@ -1216,6 +1274,14 @@ bool AREQ_TryClaimAggregateResults(AREQ *req) {
   bool expected = false;
   return atomic_compare_exchange_strong_explicit(&req->brc->aggregatingResults, &expected, true,
                                                  memory_order_relaxed, memory_order_relaxed);
+}
+
+bool BlockedRequestCtx_TryOwnStrictRead(BlockedRequestCtx *brc, BrcStrictReadOwner owner) {
+  int expected = BRC_READ_OWNER_NONE;
+  // acq_rel: the winner's subsequent actions (BG running the read / the timer
+  // replying depleted) must be ordered against the loser's observation.
+  return atomic_compare_exchange_strong_explicit(&brc->strictReadOwner, &expected, (int)owner,
+                                                 memory_order_acq_rel, memory_order_acquire);
 }
 
 void AREQ_SignalAggregateResultsComplete(AREQ *req) {
@@ -1386,26 +1452,26 @@ static bool shouldCheckInPipelineTimeout(RedisModuleCtx* ctx, AREQ *req) {
 
 }
 
-int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDiskIndex, QueryError *status) {
-  req->args = rm_malloc(sizeof(*req->args) * argc);
-  req->nargs = argc;
-  // Copy the arguments into an owned array of sds strings
-  for (size_t ii = 0; ii < argc; ++ii) {
-    size_t n;
-    const char *s = RedisModule_StringPtrLen(argv[ii], &n);
-    req->args[ii] = sdsnewlen(s, n);
-  }
+int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskIndex, QueryError *status) {
+  BlockedRequestCtx *brc = req->brc;
+  RS_ASSERT(brc != NULL);
+  RS_ASSERT(offset <= brc->parseArgc && brc->parseArgc <= brc->argc);
+  brc->queryOffset = offset;
 
   // Parse the query and basic keywords first..
+  // The cursor covers the whole held command, pre-advanced to the parse
+  // start: positions recorded off the cursor (syntax-error offsets,
+  // prefixesOffset) are relative to the full command, not the parsed tail.
   ArgsCursor ac = {0};
-  ArgsCursor_InitSDS(&ac, req->args, req->nargs);
+  ArgsCursor_InitRString(&ac, brc->argv, brc->parseArgc);
+  AC_AdvanceBy(&ac, offset);
 
   if (AC_IsAtEnd(&ac)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "No query string provided");
     return REDISMODULE_ERR;
   }
 
-  req->query = AC_GetStringNC(&ac, NULL);
+  AC_Advance(&ac);  // The query string: argv[queryOffset], read via AREQ_Query
   initializeAREQ(req);
   RSSearchOptions *searchOpts = &req->searchopts;
   ParseAggPlanContext papCtx;
@@ -1545,6 +1611,8 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
   }
 
   if (opts->inkeys) {
+    // inkeys is a window into the held argv, which outlives the AST; the
+    // id-filter node borrows it as-is.
     QAST_GlobalFilterOptions filterOpts = {.keys = opts->inkeys, .nkeys = opts->ninkeys};
 
     // For SearchDisk, resolve docIds from keys on the main thread
@@ -1552,20 +1620,16 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
       filterOpts.docIds = rm_malloc(sizeof(t_docId) * opts->ninkeys);
       for (size_t ii = 0; ii < opts->ninkeys; ++ii) {
         uint64_t docId = 0;
-        // TODO: inkeys are extracted from RedisModuleString* in the command arguments, we should consider
-        // changing the search options to also use RedisModuleString* to avoid this extra conversion
-        RedisModuleString* keyName = RedisModule_CreateString(
-            sctx->redisCtx, opts->inkeys[ii], sdslen(opts->inkeys[ii]));
-        if (DocIdMeta_Get(sctx->redisCtx, keyName, sctx->spec->specId, &docId) == REDISMODULE_OK) {
+        if (DocIdMeta_Get(sctx->redisCtx, opts->inkeys[ii], sctx->spec->specId, &docId) == REDISMODULE_OK) {
           filterOpts.docIds[ii] = docId;
         } else {
           filterOpts.docIds[ii] = 0;  // Mark as not found
         }
-        RedisModule_FreeString(sctx->redisCtx, keyName);
       }
     }
 
     QAST_SetGlobalFilters(ast, &filterOpts);
+    // Non-NULL only if the transfer to the query node did not happen.
     if (filterOpts.docIds) {
       rm_free(filterOpts.docIds);
     }
@@ -1579,10 +1643,13 @@ static bool IsIndexCoherent(AREQ *req) {
     return true;
   }
 
-  sds *args = req->args;
-  long long n_prefixes = strtol(args[req->prefixesOffset + 1], NULL, 10);
+  // prefixesOffset indexes the full held command (recorded off the compile
+  // cursor, which covers the whole command).
+  RedisModuleString **args = req->brc->argv;
+  long long n_prefixes = 0;
+  RedisModule_StringToLongLong(args[req->prefixesOffset + 1], &n_prefixes);
   // The first argument is at req->prefixesOffset + 2
-  sds *prefixes = args + req->prefixesOffset + 2;
+  RedisModuleString **prefixes = args + req->prefixesOffset + 2;
   return IndexSpec_IsCoherent(AREQ_SearchCtx(req)->spec, prefixes, n_prefixes);
 }
 
@@ -1690,8 +1757,9 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   if (opts->legacy.ninfields) {
     opts->fieldmask = 0;
     for (size_t ii = 0; ii < opts->legacy.ninfields; ++ii) {
-      const char *s = opts->legacy.infields[ii];
-      t_fieldMask bit = IndexSpec_GetFieldBit(index, s, strlen(s));
+      size_t slen;
+      const char *s = RedisModule_StringPtrLen(opts->legacy.infields[ii], &slen);
+      t_fieldMask bit = IndexSpec_GetFieldBit(index, s, slen);
       opts->fieldmask |= bit;
     }
   }
@@ -1736,7 +1804,9 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   bool skipParse = req->parsedVectorData && req->parsedVectorData->skipFilterIntegration;
 
   if (!skipParse) {
-    int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), dialectVersion, status);
+    size_t queryLen;
+    const char *query = AREQ_Query(req, &queryLen);
+    int rv = QAST_Parse(ast, sctx, opts, query, queryLen, dialectVersion, status);
     if (rv != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
@@ -1797,9 +1867,10 @@ void ChunkReplyState_Destroy(ChunkReplyState *state) {
 
   // Timeout edge case: cursor wasn't handled by reply_callback.
   // See ChunkReplyState ownership model in aggregate.h for full explanation.
-  // We must clear execState before Cursor_Free to prevent the AREQ_DecrRef loop.
+  // We must clear the cursor's wrapper handle before Cursor_Free to prevent
+  // the wrapper-release loop (this destroy runs from the wrapper's own free).
   if (state->cursor) {
-    state->cursor->execState = NULL;
+    state->cursor->query = NULL;
     Cursor_Free(state->cursor);
     state->cursor = NULL;
   }
@@ -1874,10 +1945,6 @@ void AREQ_Free(AREQ *req) {
     SearchCtx_Free(sctx);
   }
 
-  for (size_t ii = 0; ii < req->nargs; ++ii) {
-    sdsfree(req->args[ii]);
-    req->args[ii] = NULL;
-  }
   if (req->searchopts.legacy.filters) {
     for (size_t ii = 0; ii < array_len(req->searchopts.legacy.filters); ++ii) {
       LegacyNumericFilter *nf = req->searchopts.legacy.filters[ii];
@@ -1906,8 +1973,6 @@ void AREQ_Free(AREQ *req) {
     ParsedVectorData_Free(req->parsedVectorData);
     req->parsedVectorData = NULL;
   }
-
-  rm_free(req->args);
 
   RequestSyncState_Destroy(&req->syncState);
 

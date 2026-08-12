@@ -19,6 +19,8 @@ build_utils.workspace = true
 [dependencies]
 ffi.workspace = true
 query_term.workspace = true
+redis-module.workspace = true
+rqe_wildcard.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]

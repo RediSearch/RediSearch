@@ -586,6 +586,11 @@ typedef struct RawIndexResult_Active {
    * Relative weight for scoring calculations. This is derived from the result's iterator weight
    */
   double weight;
+  /**
+   * Whether expiration-aware iterators must verify field-level expiration
+   * (HFE) for this result.
+   */
+  bool hasFieldExpiration;
 } RawIndexResult_Active;
 #endif /* RAWINDEXRESULT_ACTIVE_DEFINED */
 

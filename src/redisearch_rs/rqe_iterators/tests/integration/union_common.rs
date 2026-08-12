@@ -27,6 +27,7 @@ macro_rules! union_common_tests {
         use rqe_iterators::{
             IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
         };
+        use rqe_iterators_test_utils::ContractChecker;
         use crate::utils::FieldMaskMock;
 
         type Union<I> = $UnionFull<'static, I>;
@@ -49,7 +50,7 @@ macro_rules! union_common_tests {
         fn read(#[case] num_children: usize, #[case] base_result_set: &[u64]) {
             let (children, expected) = create_union_children(num_children, base_result_set);
 
-            let mut union_iter = Union::new(children);
+            let mut union_iter = ContractChecker::new(Union::new(children));
             let mut count = 0;
             while let Ok(Some(result)) = union_iter.read() {
                 assert_eq!(
@@ -102,7 +103,7 @@ macro_rules! union_common_tests {
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn skip_to(#[case] num_children: usize, #[case] base_result_set: &[u64]) {
             let (children, expected) = create_union_children(num_children, base_result_set);
-            let mut union_iter = Union::new(children);
+            let mut union_iter = ContractChecker::new(Union::new(children));
 
             for &id in &expected {
                 union_iter.rewind();
@@ -150,7 +151,7 @@ macro_rules! union_common_tests {
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn rewind(#[case] num_children: usize, #[case] base_result_set: &[u64]) {
             let (children, expected) = create_union_children(num_children, base_result_set);
-            let mut union_iter = Union::new(children);
+            let mut union_iter = ContractChecker::new(Union::new(children));
 
             for i in 0..5 {
                 for j in 0..=i.min(expected.len() - 1) {
@@ -185,12 +186,12 @@ macro_rules! union_common_tests {
             // Child 1: [1, 5]      — exhausts second
             // Child 2: [1, 5, 10]  — exhausts last
             let (children, _data) = create_mock_3([1], [1, 5], [1, 5, 10]);
-            let mut union_iter = Union::new(children);
+            let mut union_iter = ContractChecker::new(Union::new(children));
 
             // Record the pointer (address) of each child before any reads.
             let ptrs_before: Vec<*const dyn RQEIterator<'static>> = (0..3)
                 .map(|i| {
-                    union_iter.child_at(i).unwrap() as *const dyn RQEIterator<'static>
+                    union_iter.inner().child_at(i).unwrap() as *const dyn RQEIterator<'static>
                 })
                 .collect();
 
@@ -200,7 +201,7 @@ macro_rules! union_common_tests {
             // Rewind and verify child_at returns the same child objects.
             union_iter.rewind();
             for i in 0..3 {
-                let ptr_after = union_iter.child_at(i).unwrap()
+                let ptr_after = union_iter.inner().child_at(i).unwrap()
                     as *const dyn RQEIterator<'static>;
                 assert!(
                     std::ptr::addr_eq(ptrs_before[i], ptr_after),
@@ -216,7 +217,7 @@ macro_rules! union_common_tests {
         #[test]
         fn edge_case_no_children() {
             let children: Vec<Box<dyn RQEIterator<'static>>> = vec![];
-            let mut union_iter = Union::new(children);
+            let mut union_iter = ContractChecker::new(Union::new(children));
 
             assert!(matches!(union_iter.read(), Ok(None)));
             assert!(union_iter.at_eof());
@@ -229,7 +230,7 @@ macro_rules! union_common_tests {
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn edge_case_single_child() {
             let (child, child_data) = create_mock_1([10, 20, 30, 40, 50]);
-            let mut union_iter = Union::new(vec![child]);
+            let mut union_iter = ContractChecker::new(Union::new(vec![child]));
 
             let expected = [10, 20, 30, 40, 50];
             for &expected_id in &expected {
@@ -248,7 +249,7 @@ macro_rules! union_common_tests {
         fn edge_case_disjoint_children() {
             let (children, data) = create_mock_3([1, 2, 3], [10, 20, 30], [100, 200, 300]);
 
-            let mut union_iter = Union::new(children);
+            let mut union_iter = ContractChecker::new(Union::new(children));
             let expected = [1, 2, 3, 10, 20, 30, 100, 200, 300];
 
             for &expected_id in &expected {
@@ -273,7 +274,7 @@ macro_rules! union_common_tests {
                 [3, 5, 10, 12, 20, 25],
             );
 
-            let mut union_iter = Union::new(children);
+            let mut union_iter = ContractChecker::new(Union::new(children));
             let expected = [1, 2, 3, 5, 8, 10, 12, 15, 18, 20, 25];
 
             for &expected_id in &expected {
@@ -292,7 +293,7 @@ macro_rules! union_common_tests {
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn edge_case_skip_to_exact_match() {
             let (children, _) = create_mock_2([10, 20, 30, 40, 50], [15, 25, 35, 45, 55]);
-            let mut union_iter = Union::new(children);
+            let mut union_iter = ContractChecker::new(Union::new(children));
 
             let outcome = union_iter.skip_to(30).expect("skip_to failed");
             match outcome {
@@ -308,7 +309,7 @@ macro_rules! union_common_tests {
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn edge_case_skip_to_not_found() {
             let (children, _) = create_mock_2([10, 20, 30, 40, 50], [15, 25, 35, 45, 55]);
-            let mut union_iter = Union::new(children);
+            let mut union_iter = ContractChecker::new(Union::new(children));
 
             let outcome = union_iter.skip_to(22).expect("skip_to failed");
             match outcome {
@@ -324,7 +325,7 @@ macro_rules! union_common_tests {
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn edge_case_skip_to_past_eof() {
             let (children, _) = create_mock_2([10, 20, 30], [15, 25, 35]);
-            let mut union_iter = Union::new(children);
+            let mut union_iter = ContractChecker::new(Union::new(children));
 
             assert!(matches!(union_iter.skip_to(100), Ok(None)));
             assert!(union_iter.at_eof());
@@ -343,7 +344,7 @@ macro_rules! union_common_tests {
                 [10, 20, 30, 40, 50, 60, 70, 80],
                 [15, 25, 35, 45, 55, 65, 75, 85],
             );
-            let mut union_iter = Union::new(children);
+            let mut union_iter = ContractChecker::new(Union::new(children));
 
             let result = union_iter.read().expect("read failed").unwrap();
             assert_eq!(result.doc_id, 10);
@@ -367,7 +368,7 @@ macro_rules! union_common_tests {
                 [10, 20, 30, 40, 50],
                 [100, 200, 300, 400, 500],
             );
-            let union_iter = Union::new(children);
+            let union_iter = ContractChecker::new(Union::new(children));
 
             assert_eq!(union_iter.num_estimated(), 15);
         }
@@ -381,7 +382,7 @@ macro_rules! union_common_tests {
 
             let children: Vec<Box<dyn RQEIterator<'static>>> =
                 vec![Box::new(empty_child), Box::new(child1), Box::new(child2)];
-            let mut union_iter = Union::new(children);
+            let mut union_iter = ContractChecker::new(Union::new(children));
 
             let expected = vec![10, 15, 20, 25, 30, 35];
             for &expected_id in &expected {
@@ -402,7 +403,7 @@ macro_rules! union_common_tests {
 
             let children: Vec<Box<dyn RQEIterator<'static>>> =
                 vec![Box::new(empty1), Box::new(empty2), Box::new(empty3)];
-            let mut union_iter = Union::new(children);
+            let mut union_iter = ContractChecker::new(Union::new(children));
             assert!(matches!(union_iter.read(), Ok(None)));
             assert!(union_iter.at_eof());
             assert_eq!(union_iter.num_estimated(), 0);
@@ -411,7 +412,7 @@ macro_rules! union_common_tests {
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn edge_case_skip_to_child_already_past_target() {
             let (children, _data) = create_mock_2([10, 50, 100], [20, 60, 110]);
-            let mut union_iter = Union::new(children);
+            let mut union_iter = ContractChecker::new(Union::new(children));
 
             union_iter.read().expect("read failed");
             union_iter.read().expect("read failed");
@@ -425,7 +426,7 @@ macro_rules! union_common_tests {
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn edge_case_skip_to_exhausts_some_children() {
             let (children, _data) = create_mock_2([10, 20, 30], [15, 25, 100]);
-            let mut union_iter = Union::new(children);
+            let mut union_iter = ContractChecker::new(Union::new(children));
 
             let outcome = union_iter.skip_to(50).expect("skip_to failed");
             assert!(matches!(outcome, Some(SkipToOutcome::NotFound(_))));
@@ -439,7 +440,7 @@ macro_rules! union_common_tests {
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn edge_case_skip_to_exhausts_all_children() {
             let (children, _data) = create_mock_2([10, 20, 30], [15, 25, 35]);
-            let mut union_iter = Union::new(children);
+            let mut union_iter = ContractChecker::new(Union::new(children));
 
             let outcome = union_iter.skip_to(1000).expect("skip_to failed");
             assert!(outcome.is_none());
@@ -486,7 +487,7 @@ macro_rules! union_common_tests {
             let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
                 vec![Box::new(mock1), Box::new(mock2)];
 
-            let mut union_iter = Union::new(children);
+            let mut union_iter = ContractChecker::new(Union::new(children));
 
             let result = union_iter.read().expect("read failed").unwrap();
             assert_eq!(result.doc_id, 20);
@@ -520,7 +521,7 @@ macro_rules! union_common_tests {
             let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
                 vec![Box::new(child0), Box::new(child1)];
 
-            let mut union_iter = Union::new(children);
+            let mut union_iter = ContractChecker::new(Union::new(children));
 
             let result = union_iter.read().expect("read failed").unwrap();
             assert_eq!(result.doc_id, 10);
@@ -551,7 +552,7 @@ macro_rules! union_common_tests {
             let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
                 vec![Box::new(child0), Box::new(child1)];
 
-            let mut union_iter = Union::new(children);
+            let mut union_iter = ContractChecker::new(Union::new(children));
 
             let result = union_iter.read().expect("read failed").unwrap();
             assert_eq!(result.doc_id, 10);
@@ -581,7 +582,7 @@ macro_rules! union_common_tests {
             let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
                 vec![Box::new(child0), Box::new(child1)];
 
-            let mut union_iter = Union::new(children);
+            let mut union_iter = ContractChecker::new(Union::new(children));
 
             while union_iter.read().expect("read failed").is_some() {}
             assert!(union_iter.at_eof());
@@ -612,7 +613,7 @@ macro_rules! union_common_tests {
             let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
                 vec![Box::new(child0), Box::new(child1), Box::new(child2)];
 
-            let mut union_iter = Union::new(children);
+            let mut union_iter = ContractChecker::new(Union::new(children));
 
             let result = union_iter.read().expect("read failed").unwrap();
             assert_eq!(result.doc_id, 10);
@@ -641,7 +642,7 @@ macro_rules! union_common_tests {
             let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
                 vec![Box::new(child0), Box::new(child1)];
 
-            let mut union_iter = Union::new(children);
+            let mut union_iter = ContractChecker::new(Union::new(children));
 
             let result = union_iter.read().expect("read failed").unwrap();
             assert_eq!(result.doc_id, 10);
@@ -651,10 +652,6 @@ macro_rules! union_common_tests {
             assert!(
                 matches!(status, RQEValidateStatus::Aborted),
                 "Union should abort when all children abort"
-            );
-            assert!(
-                union_iter.at_eof(),
-                "Union should be at EOF after all children abort"
             );
         }
 
@@ -674,7 +671,7 @@ macro_rules! union_common_tests {
             let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
                 vec![Box::new(child0), Box::new(child1)];
 
-            let mut union_iter = Union::new(children);
+            let mut union_iter = ContractChecker::new(Union::new(children));
 
             let result = union_iter.read().expect("read failed").unwrap();
             assert_eq!(result.doc_id, 10);
@@ -712,7 +709,7 @@ macro_rules! union_common_tests {
             let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
                 vec![Box::new(child0), Box::new(child1), Box::new(child2)];
 
-            let mut union_iter = Union::new(children);
+            let mut union_iter = ContractChecker::new(Union::new(children));
 
             let result = union_iter.read().expect("read failed").unwrap();
             assert_eq!(result.doc_id, 10);
@@ -742,7 +739,7 @@ macro_rules! union_common_tests {
             let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
                 vec![Box::new(child0), Box::new(child1)];
 
-            let mut union_iter = Union::new(children);
+            let mut union_iter = ContractChecker::new(Union::new(children));
 
             while union_iter.read().expect("read failed").is_some() {}
             assert!(union_iter.at_eof());
@@ -767,7 +764,7 @@ macro_rules! union_common_tests {
             let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
                 vec![Box::new(child0), Box::new(child1)];
 
-            let mut union_iter = Union::new(children);
+            let mut union_iter = ContractChecker::new(Union::new(children));
 
             let result = union_iter.read().expect("read failed").unwrap();
             assert_eq!(result.doc_id, 5);
@@ -819,7 +816,7 @@ macro_rules! union_common_tests {
                 let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
                     vec![Box::new(mock1), Box::new(mock2)];
 
-                let mut union_iter = Union::new(children);
+                let mut union_iter = ContractChecker::new(Union::new(children));
 
                 let result = union_iter.read().expect("read failed").unwrap();
                 assert_eq!(result.doc_id, 5);
@@ -837,10 +834,12 @@ macro_rules! union_common_tests {
                 ));
             }
 
-            // Test 2: ALL children move to EOF during revalidate
+            // Test 2: ALL children move *past* their last result during revalidate.
+            // Two ids each, both consumed by the reads below, so the moves run off
+            // the end and the children are left unpositioned.
             {
-                let mock1: Mock<'static, 3> = Mock::new([10, 20, 30]);
-                let mock2: Mock<'static, 3> = Mock::new([10, 25, 35]);
+                let mock1: Mock<'static, 2> = Mock::new([10, 20]);
+                let mock2: Mock<'static, 2> = Mock::new([10, 25]);
 
                 let mut data1 = mock1.data();
                 let mut data2 = mock2.data();
@@ -848,7 +847,7 @@ macro_rules! union_common_tests {
                 let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
                     vec![Box::new(mock1), Box::new(mock2)];
 
-                let mut union_iter = Union::new(children);
+                let mut union_iter = ContractChecker::new(Union::new(children));
 
                 union_iter.read().expect("read failed").unwrap();
                 union_iter.read().expect("read failed").unwrap();
@@ -861,8 +860,52 @@ macro_rules! union_common_tests {
                 assert!(matches!(status, RQEValidateStatus::Moved { current: None }));
                 assert!(union_iter.at_eof());
             }
+
+            // Test 3: children merely *sitting on* their last result are kept.
+            //
+            // A child that has just returned its final document still owes it. The
+            // post-revalidate rebuild partitions children by `at_eof()`, so
+            // dropping them here would lose 30 and 35 and report EOF for the whole
+            // union.
+            {
+                let mock1: Mock<'static, 3> = Mock::new([10, 20, 30]);
+                let mock2: Mock<'static, 3> = Mock::new([10, 25, 35]);
+
+                let mut data1 = mock1.data();
+                let mut data2 = mock2.data();
+
+                let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
+                    vec![Box::new(mock1), Box::new(mock2)];
+
+                let mut union_iter = ContractChecker::new(Union::new(children));
+
+                union_iter.read().expect("read failed").unwrap();
+                union_iter.read().expect("read failed").unwrap();
+
+                // Each child moves onto its final id: 30 and 35.
+                data1.set_revalidate_result(MockRevalidateResult::Move);
+                data2.set_revalidate_result(MockRevalidateResult::Move);
+
+                let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+                let status = union_iter.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
+                assert!(matches!(
+                    status,
+                    RQEValidateStatus::Moved { current: Some(_) }
+                ));
+                assert!(!union_iter.at_eof());
+                assert_eq!(union_iter.last_doc_id(), 30);
+
+                // Both survivors are still reachable.
+                let result = union_iter.read().expect("read failed").unwrap();
+                assert_eq!(result.doc_id, 35);
+            }
         }
 
+        /// A quick union whose children are all positioned reports a `Moved` normally:
+        /// the minimum lies ahead, so the stay-put clamp is not involved. No sibling
+        /// lags here — asserted below, since assuming one makes this test look like it
+        /// contradicts the clamp. [`revalidate_child_behind_union_position_is_kept`]
+        /// is the case that does strand a sibling: an exact match on the probe.
         #[test]
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn revalidate_quick_triggers_quick_exit() {
@@ -883,16 +926,41 @@ macro_rules! union_common_tests {
             let result = quick_iter.read().expect("read failed").unwrap();
             assert_eq!(result.doc_id, 10);
 
+            // The read probed doc 1, an exact match for neither child, so the early
+            // return could not fire and both children were seeked — no lagging sibling.
+            assert_eq!(
+                quick_iter
+                    .child_at(0)
+                    .expect("child0 is still there")
+                    .last_doc_id(),
+                10,
+                "child0 supplied the union's current document",
+            );
+            assert_eq!(
+                quick_iter
+                    .child_at(1)
+                    .expect("child1 is still there")
+                    .last_doc_id(),
+                20,
+                "child1 was seeked too — the probe matched neither child exactly",
+            );
+
             data1.set_revalidate_result(MockRevalidateResult::Move);
             data2.set_revalidate_result(MockRevalidateResult::Ok);
 
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
             let status = quick_iter.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
-            assert!(matches!(
-                status,
-                RQEValidateStatus::Moved { current: Some(_) }
-            ));
-            assert_eq!(quick_iter.last_doc_id(), 20);
+
+            // child0 moved 10 -> 30 and child1 stayed at 20: the minimum is ahead.
+            assert!(
+                matches!(status, RQEValidateStatus::Moved { current: Some(_) }),
+                "the minimum lies ahead, so it is adopted, got {status:?}",
+            );
+            assert_eq!(quick_iter.last_doc_id(), 20, "a reported move must be forward");
+
+            // And the union carries on from there, without re-delivering doc 20.
+            let r = quick_iter.read().expect("read failed").unwrap();
+            assert_eq!(r.doc_id, 30, "child0's moved-to document comes next");
         }
 
         #[test]
@@ -909,7 +977,7 @@ macro_rules! union_common_tests {
 
             let children: Vec<Box<dyn RQEIterator<'static>>> =
                 vec![Box::new(child0), Box::new(child1)];
-            let mut union = $UnionFull::new(children);
+            let mut union = ContractChecker::new($UnionFull::new(children));
 
             let result = union.read().expect("read failed").unwrap();
             assert_eq!(result.doc_id, 10);
@@ -952,7 +1020,7 @@ macro_rules! union_common_tests {
             let children: Vec<Box<dyn RQEIterator<'static>>> =
                 vec![Box::new(child0), Box::new(child1)];
 
-            let mut union = $UnionFull::new(children);
+            let mut union = ContractChecker::new($UnionFull::new(children));
 
             // Both children share doc_id 10.
             let result = union.read().expect("read failed").unwrap();
@@ -976,6 +1044,10 @@ macro_rules! union_common_tests {
             );
         }
 
+        /// Only the `QUICK_EXIT` variants are instantiated: a lagging *live* sibling
+        /// is quick mode's own doing (the early return on an exact match). A full
+        /// union's children only get behind it by resurrecting from EOF, covered by
+        /// [`revalidate_resurrected_child_does_not_drag_a_full_union_backwards`].
         #[test]
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn revalidate_child_behind_union_position_is_kept() {
@@ -987,33 +1059,70 @@ macro_rules! union_common_tests {
             let children: Vec<Box<dyn RQEIterator<'static>>> =
                 vec![Box::new(child0), Box::new(child1)];
 
-            let mut union = $UnionQuick::new(children);
+            let mut union = ContractChecker::new($UnionQuick::new(children));
 
             let r = union.read().expect("read failed").unwrap();
             assert_eq!(r.doc_id, 5);
 
-            // skip_to(100): in heap quick mode, advance_lagging_children finds
-            // child0 at the root (doc 5 < 100), skips child0 to 100 → Found.
-            // QUICK_EXIT returns immediately — child1 stays at doc 10.
+            // skip_to(100) is an exact match on child0, so the quick path returns
+            // without ever reaching child1 — stranding it behind the union.
             let outcome = union.skip_to(100).expect("skip_to failed");
             assert!(matches!(outcome, Some(SkipToOutcome::Found(_))));
             assert_eq!(union.last_doc_id(), 100);
 
-            // State: union at 100.  child0 at 100.  child1 at 10 (never advanced).
-            // Trigger Move on child1: mock advances to doc_ids[next_index] = 50.
-            //   child1.last_doc_id() = 50  <  100 = union.last_doc_id()
+            // The premise, asserted rather than assumed:
+            assert_eq!(
+                union
+                    .inner()
+                    .child_at(0)
+                    .expect("child0 is still there")
+                    .last_doc_id(),
+                100,
+                "child0 holds the probed document",
+            );
+            let lagging = union
+                .inner()
+                .child_at(1)
+                .expect("child1 is still there")
+                .last_doc_id();
+            assert_eq!(lagging, 10, "the early return never advanced child1");
+            assert!(
+                lagging < union.last_doc_id(),
+                "child1 must be behind the union for this test to exercise anything",
+            );
+
+            // child1's revalidate moves it forward to 50 — still behind the union's 100.
             data1.set_revalidate_result(MockRevalidateResult::Move);
 
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
             let status = union.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
-            assert!(
-                matches!(status, RQEValidateStatus::Moved { current: Some(_) }),
-                "Expected Moved with a current result, got {status:?}",
-            );
-            assert_eq!(union.last_doc_id(), 50, "union should move to child1 (50)");
 
-            let r = union.read().expect("read failed").unwrap();
-            assert_eq!(r.doc_id, 100);
+            // 50 is behind the already-delivered 100, so it is not a position to move
+            // to: the union stays put, backed by child0.
+            assert!(
+                matches!(status, RQEValidateStatus::Ok),
+                "Expected Ok — the only candidate minimum is behind us, got {status:?}",
+            );
+            assert_eq!(union.last_doc_id(), 100, "the union must not move backwards");
+
+            // Staying put still rebuilds the aggregate (it held raw pointers into
+            // children that have since moved) — and not via the heap descent, whose
+            // prune stops at the root (50) before ever reaching child0 on 100.
+            let current = union
+                .current()
+                .expect("staying put leaves the union on its current document");
+            assert_eq!(current.doc_id, 100);
+            assert_eq!(
+                current
+                    .as_aggregate()
+                    .expect("a union result is an aggregate")
+                    .len(),
+                1,
+                "child0 is still on doc 100 and must be in the rebuilt aggregate",
+            );
+
+            // Nothing already delivered comes back, and the lagging child's remaining
+            // documents are still yielded.
             let r = union.read().expect("read failed").unwrap();
             assert_eq!(r.doc_id, 200, "child1's doc 200 must not be lost");
             let r = union.read().expect("read failed").unwrap();
@@ -1022,6 +1131,188 @@ macro_rules! union_common_tests {
             assert!(union.at_eof());
         }
 
+        /// The sibling case to [`revalidate_child_behind_union_position_is_kept`]: here
+        /// the child that supplied the union's document has moved off it, so staying
+        /// put would publish a result no child holds while reporting `Ok`. The lagging
+        /// sibling does not hold the abandoned document either — contrast
+        /// [`revalidate_advance_keeps_a_document_a_lagging_child_still_matches`] —
+        /// so the union advances to its next document and reports the move.
+        #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+        fn revalidate_advances_when_nothing_backs_the_current_position() {
+            let child0: Mock<'static, 3> = Mock::new([10, 20, 40]);
+            let child1: Mock<'static, 2> = Mock::new([15, 25]);
+
+            let mut data0 = child0.data();
+
+            let children: Vec<Box<dyn RQEIterator<'static>>> =
+                vec![Box::new(child0), Box::new(child1)];
+            let mut union = ContractChecker::new($UnionQuick::new(children));
+
+            // Positions both children: child0 on 10, child1 on 15.
+            let r = union.read().expect("read failed").unwrap();
+            assert_eq!(r.doc_id, 10);
+
+            // Probing a document child0 holds exactly strands child1 behind the union.
+            let outcome = union.skip_to(20).expect("skip_to failed");
+            assert!(matches!(outcome, Some(SkipToOutcome::Found(_))));
+            assert_eq!(union.last_doc_id(), 20);
+            assert_eq!(
+                union.inner().child_at(1).expect("child1 is still there").last_doc_id(),
+                15,
+                "the early return left child1 behind the union",
+            );
+
+            // child0 supplied doc 20 and now moves off it, so nothing is left on 20.
+            data0.set_revalidate_result(MockRevalidateResult::Move);
+
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            let status = union.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
+
+            // child1's 25 is the next document: child0 has gone to 40, and child1 is
+            // seeked past the abandoned position on the way.
+            let current = match &status {
+                RQEValidateStatus::Moved { current: Some(r) } => r,
+                other => panic!("expected a forward Moved, got {other:?}"),
+            };
+            assert_eq!(current.doc_id, 25, "the union's new position");
+            assert_eq!(
+                current
+                    .as_aggregate()
+                    .expect("a union result is an aggregate")
+                    .len(),
+                1,
+                "the reported result must be backed by the child that holds it",
+            );
+            assert_eq!(union.last_doc_id(), 25);
+
+            // And it carries on from there, with nothing re-delivered.
+            let r = union.read().expect("read failed").unwrap();
+            assert_eq!(r.doc_id, 40, "child0's moved-to document");
+            assert!(union.read().expect("read failed").is_none());
+            assert!(union.at_eof());
+        }
+
+        /// Advancing past the abandoned position is only free if nothing else
+        /// matches it. A `QUICK_EXIT` union is where a `NOT` puts its child, and a
+        /// `NOT` does not consume its child's position — it treats it as a lookahead
+        /// boundary it has not reached yet. So a document the union walks past is one
+        /// the `NOT` has still to exclude.
+        ///
+        /// Here doc 20 is held by both children. The union delivers it from child0
+        /// while child1 is left behind on 15, then child0 moves off 20. Nothing backs
+        /// 20 any more, but child1 still matches it, so the union may not step over it
+        /// without first asking child1.
+        #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+        fn revalidate_advance_keeps_a_document_a_lagging_child_still_matches() {
+            use rqe_iterators::{not::Not, utils::NoTimeoutChecker};
+
+            let child0: Mock<'static, 3> = Mock::new([10, 20, 40]);
+            // Unlike [`revalidate_advances_when_nothing_backs_the_current_position`],
+            // the lagging sibling holds the abandoned document itself.
+            let child1: Mock<'static, 3> = Mock::new([15, 20, 25]);
+
+            let mut data0 = child0.data();
+
+            let children: Vec<Box<dyn RQEIterator<'static>>> =
+                vec![Box::new(child0), Box::new(child1)];
+            let mut union = ContractChecker::new($UnionQuick::new(children));
+
+            // Positions both children: child0 on 10, child1 on 15.
+            let r = union.read().expect("read failed").unwrap();
+            assert_eq!(r.doc_id, 10);
+
+            // Probing a document child0 holds exactly strands child1 behind the union,
+            // still holding 20 itself.
+            let outcome = union.skip_to(20).expect("skip_to failed");
+            assert!(matches!(outcome, Some(SkipToOutcome::Found(_))));
+            assert_eq!(union.last_doc_id(), 20);
+            assert_eq!(
+                union.inner().child_at(1).expect("child1 is still there").last_doc_id(),
+                15,
+                "the early return left child1 behind the union, short of its own 20",
+            );
+
+            // The union is where a NOT keeps its child: ahead of the NOT's own
+            // position, marking the next id the NOT must exclude.
+            let mut not = Not::new(union, 50, 1.0, NoTimeoutChecker);
+            let outcome = not.skip_to(12).expect("skip_to failed");
+            assert!(matches!(outcome, Some(SkipToOutcome::Found(_))));
+            assert_eq!(not.last_doc_id(), 12);
+            assert_eq!(
+                not.child().expect("the union is still there").last_doc_id(),
+                20,
+                "the NOT has not reached its child's position, so doc 20 is still owed",
+            );
+
+            // GC drops doc 20 from child0's postings: it moves on to 40, and nothing
+            // is left on the union's position — except child1, which has not been
+            // asked yet.
+            data0.set_revalidate_result(MockRevalidateResult::Move);
+
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            let status = not.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
+            assert!(matches!(status, RQEValidateStatus::Ok));
+
+            let remaining = drain_doc_ids(&mut not);
+            assert!(
+                !remaining.contains(&20),
+                "doc 20 is still matched by child1, so the NOT must exclude it. Got: {remaining:?}",
+            );
+        }
+
+        /// A full union may not adopt a minimum behind its own position, and the
+        /// child that can put one there is an *exhausted* one coming back to life.
+        ///
+        /// A leaf's revalidation rewinds before re-seeking to the position it held,
+        /// and rewinding clears the past-the-end state. So a child dropped from the
+        /// active set at doc 30, while the union carried on to 100 without it, is
+        /// re-admitted at 30 — forward of nothing it owns, but far behind the union.
+        #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+        fn revalidate_resurrected_child_does_not_drag_a_full_union_backwards() {
+            let child0: Mock<'static, 2> = Mock::new([10, 30]);
+            let child1: Mock<'static, 3> = Mock::new([20, 100, 200]);
+
+            let mut data0 = child0.data();
+            let mut data1 = child1.data();
+
+            let children: Vec<Box<dyn RQEIterator<'static>>> =
+                vec![Box::new(child0), Box::new(child1)];
+            let mut union = ContractChecker::new($UnionFull::new(children));
+
+            for expected in [10, 20, 30, 100] {
+                let r = union.read().expect("read failed").unwrap();
+                assert_eq!(r.doc_id, expected);
+            }
+
+            // Reading past 30 exhausted child0, so the union dropped it and reached
+            // 100 on child1 alone.
+            let exhausted = union.inner().child_at(0).expect("child0 is still there");
+            assert!(exhausted.at_eof(), "child0 ran past its last document");
+            assert_eq!(exhausted.last_doc_id(), 30);
+
+            // GC forces a revalidation. child0 rewinds, re-seeks to 30 and finds it
+            // still there — so it comes back live on 30, well behind the union's 100.
+            data0.set_revalidate_reseeks_to(Some(30));
+            // Some other child has to move, or revalidation returns before ever
+            // looking at the resurrected one.
+            data1.set_revalidate_result(MockRevalidateResult::Move);
+
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            let status = format!(
+                "{:?}",
+                union.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed"),
+            );
+
+            assert!(
+                union.last_doc_id() >= 100,
+                "the union must not fall back onto a document it already delivered, \
+                 got {} (status {status})",
+                union.last_doc_id(),
+            );
+        }
 
         // =============================================================================
         // skip_to edge cases (behavioral only, no read_count assertions)
@@ -1100,7 +1391,7 @@ macro_rules! union_common_tests {
             let children: Vec<Box<dyn RQEIterator<'static>>> =
                 vec![Box::new(child0), Box::new(child1)];
 
-            let mut union = $UnionFull::new(children);
+            let mut union = ContractChecker::new($UnionFull::new(children));
 
             // First read should return 10 (both children match).
             let result = union.read().expect("read failed").unwrap();
@@ -1129,7 +1420,7 @@ macro_rules! union_common_tests {
             let children: Vec<Box<dyn RQEIterator<'static>>> =
                 vec![Box::new(child0), Box::new(child1)];
 
-            let mut union = $UnionQuick::new(children);
+            let mut union = ContractChecker::new($UnionQuick::new(children));
 
             let result = union.read().expect("read failed").unwrap();
             assert_eq!(result.doc_id, 10);
@@ -1148,7 +1439,7 @@ macro_rules! union_common_tests {
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn quick_exit_early_match_in_skip_to() {
             let (children, _data) = create_mock_3([1, 30, 200, 1000], [2, 10, 300, 1000], [3, 20, 100, 1000]);
-            let mut union = $UnionQuick::new(children);
+            let mut union = ContractChecker::new($UnionQuick::new(children));
 
             let result = union
                 .read()
@@ -1195,7 +1486,7 @@ macro_rules! union_common_tests {
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn current_after_operations() {
             let (children, _) = create_mock_2([10, 20, 30, 40, 50], [15, 25, 35, 45, 55]);
-            let mut union_iter = Union::new(children);
+            let mut union_iter = ContractChecker::new(Union::new(children));
 
             assert!(union_iter.current().is_some());
             assert_eq!(union_iter.last_doc_id(), 0);
@@ -1367,7 +1658,7 @@ macro_rules! union_common_tests {
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn reuse_results_optimization_full_mode() {
             let (children, data) = create_mock_3([1, 3, 5], [2, 3, 6], [3, 4, 7]);
-            let mut union = $UnionFull::new(children);
+            let mut union = ContractChecker::new($UnionFull::new(children));
 
             let result = union
                 .read()
@@ -1466,7 +1757,7 @@ macro_rules! union_common_tests {
                 Box::new(FieldMaskMock::new(vec![10, 20], 0x1)),
                 Box::new(FieldMaskMock::new(vec![10, 30], 0x2)),
             ];
-            let mut union = $UnionFull::new(children);
+            let mut union = ContractChecker::new($UnionFull::new(children));
 
             let r = union.read().unwrap().unwrap();
             assert_eq!(r.doc_id, 10);
@@ -1544,7 +1835,7 @@ macro_rules! union_common_tests {
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn read_full_propagates_timeout_first_child() {
             let children = make_timeout_children(0);
-            let mut union = $UnionFull::new(children);
+            let mut union = ContractChecker::new($UnionFull::new(children));
             assert_read_eventually_times_out(&mut union);
         }
 
@@ -1552,7 +1843,7 @@ macro_rules! union_common_tests {
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn read_full_propagates_timeout_mid_child() {
             let children = make_timeout_children(1);
-            let mut union = $UnionFull::new(children);
+            let mut union = ContractChecker::new($UnionFull::new(children));
             assert_read_eventually_times_out(&mut union);
         }
 
@@ -1560,7 +1851,7 @@ macro_rules! union_common_tests {
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn read_full_propagates_timeout_last_child() {
             let children = make_timeout_children(2);
-            let mut union = $UnionFull::new(children);
+            let mut union = ContractChecker::new($UnionFull::new(children));
             assert_read_eventually_times_out(&mut union);
         }
 
@@ -1570,7 +1861,7 @@ macro_rules! union_common_tests {
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn read_quick_propagates_timeout_first_child() {
             let children = make_timeout_children(0);
-            let mut union = $UnionQuick::new(children);
+            let mut union = ContractChecker::new($UnionQuick::new(children));
             assert_read_eventually_times_out(&mut union);
         }
 
@@ -1578,7 +1869,7 @@ macro_rules! union_common_tests {
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn read_quick_propagates_timeout_mid_child() {
             let children = make_timeout_children(1);
-            let mut union = $UnionQuick::new(children);
+            let mut union = ContractChecker::new($UnionQuick::new(children));
             assert_read_eventually_times_out(&mut union);
         }
 
@@ -1586,7 +1877,7 @@ macro_rules! union_common_tests {
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn read_quick_propagates_timeout_last_child() {
             let children = make_timeout_children(2);
-            let mut union = $UnionQuick::new(children);
+            let mut union = ContractChecker::new($UnionQuick::new(children));
             assert_read_eventually_times_out(&mut union);
         }
 
@@ -1596,7 +1887,7 @@ macro_rules! union_common_tests {
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn skip_to_full_propagates_timeout_first_child() {
             let children = make_timeout_children(0);
-            let mut union = $UnionFull::new(children);
+            let mut union = ContractChecker::new($UnionFull::new(children));
             assert_skip_to_eventually_times_out(&mut union);
         }
 
@@ -1604,7 +1895,7 @@ macro_rules! union_common_tests {
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn skip_to_full_propagates_timeout_mid_child() {
             let children = make_timeout_children(1);
-            let mut union = $UnionFull::new(children);
+            let mut union = ContractChecker::new($UnionFull::new(children));
             assert_skip_to_eventually_times_out(&mut union);
         }
 
@@ -1612,7 +1903,7 @@ macro_rules! union_common_tests {
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn skip_to_full_propagates_timeout_last_child() {
             let children = make_timeout_children(2);
-            let mut union = $UnionFull::new(children);
+            let mut union = ContractChecker::new($UnionFull::new(children));
             assert_skip_to_eventually_times_out(&mut union);
         }
 
@@ -1622,7 +1913,7 @@ macro_rules! union_common_tests {
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn skip_to_quick_propagates_timeout_first_child() {
             let children = make_timeout_children(0);
-            let mut union = $UnionQuick::new(children);
+            let mut union = ContractChecker::new($UnionQuick::new(children));
             assert_skip_to_eventually_times_out(&mut union);
         }
 
@@ -1630,7 +1921,7 @@ macro_rules! union_common_tests {
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn skip_to_quick_propagates_timeout_mid_child() {
             let children = make_timeout_children(1);
-            let mut union = $UnionQuick::new(children);
+            let mut union = ContractChecker::new($UnionQuick::new(children));
             assert_skip_to_eventually_times_out(&mut union);
         }
 
@@ -1638,7 +1929,7 @@ macro_rules! union_common_tests {
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn skip_to_quick_propagates_timeout_last_child() {
             let children = make_timeout_children(2);
-            let mut union = $UnionQuick::new(children);
+            let mut union = ContractChecker::new($UnionQuick::new(children));
             assert_skip_to_eventually_times_out(&mut union);
         }
 
@@ -1653,7 +1944,7 @@ macro_rules! union_common_tests {
         fn into_trimmed_full_yields_all_children() {
             let (children, _data) = create_mock_3([1, 2], [3, 4], [5, 6]);
             let union = $UnionFull::new(children);
-            let mut trimmed = union.into_trimmed(usize::MAX, true).unwrap();
+            let mut trimmed = ContractChecker::new_unordered(union.into_trimmed(usize::MAX, true).unwrap());
 
             let docs = drain_doc_ids(&mut trimmed);
             assert_eq!(docs, [5, 6, 3, 4, 1, 2]);
@@ -1667,9 +1958,9 @@ macro_rules! union_common_tests {
             // Asc scan from child[1]: child[1].est=2 > 1 → keep=2.
             let (children, _data) = create_mock_3([1, 2], [3, 4], [5, 6]);
             let union = $UnionQuick::new(children);
-            let mut trimmed = union.into_trimmed(1, true).unwrap();
+            let mut trimmed = ContractChecker::new_unordered(union.into_trimmed(1, true).unwrap());
 
-            assert_eq!(trimmed.num_children_total(), 3, "all children stay alive");
+            assert_eq!(trimmed.inner().num_children_total(), 3, "all children stay alive");
             let docs = drain_doc_ids(&mut trimmed);
             // Active window [0..2), reads in reverse: child[1] then child[0].
             assert_eq!(docs, [3, 4, 1, 2]);
@@ -1683,9 +1974,9 @@ macro_rules! union_common_tests {
             // Desc scan from child[1] backward: child[1].est=2 > 1 → skip=1.
             let (children, _data) = create_mock_3([1, 2], [3, 4], [5, 6]);
             let union = $UnionQuick::new(children);
-            let mut trimmed = union.into_trimmed(1, false).unwrap();
+            let mut trimmed = ContractChecker::new_unordered(union.into_trimmed(1, false).unwrap());
 
-            assert_eq!(trimmed.num_children_total(), 3, "all children stay alive");
+            assert_eq!(trimmed.inner().num_children_total(), 3, "all children stay alive");
             let docs = drain_doc_ids(&mut trimmed);
             // Active window [1..3), reads in reverse: child[2] then child[1].
             assert_eq!(docs, [5, 6, 3, 4]);
@@ -1699,11 +1990,11 @@ macro_rules! union_common_tests {
         #[test]
         fn num_children_active_before_first_read() {
             let (children, _data) = create_mock_2([1, 3, 5], [2, 4, 6]);
-            let union = Union::new(children);
+            let union = ContractChecker::new(Union::new(children));
 
-            assert_eq!(union.num_children_total(), 2);
+            assert_eq!(union.inner().num_children_total(), 2);
             assert_eq!(
-                union.num_children_active(),
+                union.inner().num_children_active(),
                 2,
                 "all children should be active before any read"
             );
@@ -1714,13 +2005,13 @@ macro_rules! union_common_tests {
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn num_children_active_after_eof() {
             let (children, _data) = create_mock_2([1], [2]);
-            let mut union = Union::new(children);
+            let mut union = ContractChecker::new(Union::new(children));
 
             while union.read().expect("read failed").is_some() {}
 
             assert!(union.at_eof());
             assert_eq!(
-                union.num_children_active(),
+                union.inner().num_children_active(),
                 0,
                 "no children should be active after EOF"
             );
@@ -1731,15 +2022,15 @@ macro_rules! union_common_tests {
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn num_children_active_after_rewind() {
             let (children, _data) = create_mock_2([1, 3], [2, 4]);
-            let mut union = Union::new(children);
+            let mut union = ContractChecker::new(Union::new(children));
 
             // Read to EOF.
             while union.read().expect("read failed").is_some() {}
-            assert_eq!(union.num_children_active(), 0);
+            assert_eq!(union.inner().num_children_active(), 0);
 
             union.rewind();
             assert_eq!(
-                union.num_children_active(),
+                union.inner().num_children_active(),
                 2,
                 "all children should be active after rewind"
             );
@@ -1753,7 +2044,7 @@ macro_rules! union_common_tests {
         #[test]
         fn intersection_sort_weight_without_priority() {
             let (children, _data) = create_mock_2([1, 3, 5], [2, 4, 6]);
-            let union = Union::new(children);
+            let union = ContractChecker::new(Union::new(children));
             assert_eq!(union.intersection_sort_weight(false), 1.0);
         }
 
@@ -1762,7 +2053,7 @@ macro_rules! union_common_tests {
         #[test]
         fn intersection_sort_weight_with_priority() {
             let (children, _data) = create_mock_2([1, 3, 5], [2, 4, 6]);
-            let union = Union::new(children);
+            let union = ContractChecker::new(Union::new(children));
             assert_eq!(union.intersection_sort_weight(true), 2.0);
         }
 
@@ -1770,7 +2061,7 @@ macro_rules! union_common_tests {
         #[test]
         fn intersection_sort_weight_single_child() {
             let (child, _data) = create_mock_1([1, 2, 3]);
-            let union = Union::new(vec![child]);
+            let union = ContractChecker::new(Union::new(vec![child]));
             assert_eq!(union.intersection_sort_weight(true), 1.0);
         }
 

@@ -116,7 +116,7 @@ impl RedisJsonApi {
     /// 1. `ctx` must be a valid Redis module context.
     pub unsafe fn open_key(
         &self,
-        ctx: *mut ffi::RedisModuleCtx,
+        ctx: *mut redis_module::RedisModuleCtx,
         key_name: &RedisString,
     ) -> Option<JsonValueRef<'_>> {
         let open_key = vtable_fn!(self, openKey);
@@ -140,7 +140,7 @@ impl RedisJsonApi {
     /// 1. `ctx` must be a valid Redis module context.
     pub unsafe fn open_key_from_str(
         &self,
-        ctx: *mut ffi::RedisModuleCtx,
+        ctx: *mut redis_module::RedisModuleCtx,
         key_name: &CStr,
     ) -> Option<JsonValueRef<'_>> {
         let open_key_from_str = vtable_fn!(self, openKeyFromStr);
@@ -166,7 +166,7 @@ impl RedisJsonApi {
     /// 1. `ctx` must be a valid Redis module context.
     pub unsafe fn open_key_with_flags(
         &self,
-        ctx: *mut ffi::RedisModuleCtx,
+        ctx: *mut redis_module::RedisModuleCtx,
         key_name: &RedisString,
         flags: KeyFlags,
     ) -> Option<JsonValueRef<'_>> {
@@ -201,10 +201,10 @@ impl RedisJsonApi {
     ///
     /// 1. `redis_key` must be a valid, open `RedisModuleKey` handle (or NULL).
     ///
-    /// [`RedisModuleKey`]: ffi::RedisModuleKey
+    /// [`RedisModuleKey`]: redis_module::RedisModuleKey
     pub unsafe fn open_from_handle(
         &self,
-        redis_key: *mut ffi::RedisModuleKey,
+        redis_key: *mut redis_module::RedisModuleKey,
     ) -> Option<JsonValueRef<'_>> {
         // Safety: ensured by caller (1.); the helper tolerates a NULL/non-JSON key.
         let ptr = unsafe { ffi::JSON_GetJsonFromHandleCompat(redis_key) };

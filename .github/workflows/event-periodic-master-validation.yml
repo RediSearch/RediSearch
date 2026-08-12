@@ -156,22 +156,13 @@ jobs:
         run: |
           echo "Covered PRs: ${{ steps.check.outputs.covered-prs }}"
 
-  # TODO: revert to calling task-get-latest-tag.yml once Redis 8.10 is released.
-  # Pinned to a redis/redis unstable commit (the redis/redis#15350 merge) because the module
-  # requires RedisModule_GetClusterNodeSlotRanges (MOD-15868) and
-  # RedisModuleEvent_ClusterTopologyChange (MOD-15870), neither of which is in any Redis release yet.
   get-latest-redis-tag:
-    permissions: {} # echoes a pinned SHA
+    permissions: {}
     needs: should-run
     if: ${{ needs.should-run.outputs.run-validation == 'true' }}
-    # uses: ./.github/workflows/task-get-latest-tag.yml
-    # with:
-    #   repo: redis/redis
-    runs-on: ubuntu-slim
-    outputs:
-      tag: 8897348030c20bcd26841bc7d3ec7227f8187aeb
-    steps:
-      - run: echo "Using pinned redis/redis unstable commit instead of the latest release tag"
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
 
   test-selected-platforms:
     needs: [should-run, get-latest-redis-tag]
@@ -189,8 +180,12 @@ jobs:
       platform: 'ubuntu:noble,macos-26,!macos-26~x86_64,alpine:3.23,intel'
       architecture: all
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      job-test-config: '{"test": "", "coverage": "", "sanitize": ""}'
-      options: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && 'unit-tests,coordinator,standalone,rejson,coverage,sanitize' || 'unit-tests,coordinator,standalone,rejson,sanitize' }}
+      job-test-config: '{"test": "", "coverage": "", "sanitize": "", "ubsan": ""}'
+      options: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && 'unit-tests,coordinator,standalone,rejson,coverage,sanitize,ubsan' || 'unit-tests,coordinator,standalone,rejson,sanitize,ubsan' }}
+      # Full alignment UBSan currently exposes unrelated pre-existing UB in the
+      # C/C++ suite. Keep this lane focused on the trie regression until those
+      # findings are fixed separately.
+      ubsan-unit-test-filter: 'TrieTest\.test.*ScansPackedChildKeys'
       rejson-branch: master
 
   notify-cie-failure:

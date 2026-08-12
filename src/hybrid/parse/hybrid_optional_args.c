@@ -89,15 +89,18 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
     // TIMEOUT timeout - query timeout in milliseconds
     // Parsed already in the main thread to support blocked client timeout.
     // We still register it here since it is a valid argument for the command.
+    // Defaults for absent arguments must come from the request's own config
+    // (the construction-time snapshot), not from RSGlobalConfig: parsing may
+    // run on a background thread, after the snapshot was taken.
     ArgParser_AddLongLongV(parser, "TIMEOUT", "Query timeout in milliseconds",
                       &ctx->reqConfig->queryTimeoutMS,
                       ARG_OPT_OPTIONAL,
-                      ARG_OPT_DEFAULT_INT, RSGlobalConfig.requestConfigParams.queryTimeoutMS,
+                      ARG_OPT_DEFAULT_INT, ctx->reqConfig->queryTimeoutMS,
                       ARG_OPT_CALLBACK, handleTimeout, ctx,
                       ARG_OPT_END);
 
     // DIALECT dialect - query dialect version
-    unsigned int defaultDialect = RSGlobalConfig.requestConfigParams.dialectVersion;
+    unsigned int defaultDialect = ctx->reqConfig->dialectVersion;
     if (defaultDialect < MIN_HYBRID_DIALECT) {
         defaultDialect = MIN_HYBRID_DIALECT;
     }

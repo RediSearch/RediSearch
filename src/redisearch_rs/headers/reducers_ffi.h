@@ -40,6 +40,23 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Create a local COLLECT reducer; free it with [`collectLocalFree`].
+ *
+ * # Safety
+ *
+ * 1. `input_key` must be a [valid] pointer to an [`RLookupKey`] that remains
+ *    alive for the lifetime of the returned reducer.
+ * 2. If `field_names_len > 0`, `field_names` must point to an array of at
+ *    least `field_names_len` valid, NUL-terminated C strings. Ignored when
+ *    `load_all` is `true`.
+ * 3. If `sort_names_len > 0`, `sort_names` must point to an array of at
+ *    least `sort_names_len` valid, NUL-terminated C strings.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+Reducer *CollectReducer_CreateLocal(const RLookupKey *input_key, const char *const *field_names, size_t field_names_len, bool load_all, const char *const *sort_names, size_t sort_names_len, uint64_t sort_asc_map, bool has_limit, uint64_t limit_offset, uint64_t limit_count, bool distinct);
+
+/**
  * Creates a new [`RemoteCollectReducer`] from pre-parsed configuration and
  * returns a pointer to its base [`ffi::Reducer`] with the vtable fully wired.
  *
@@ -63,32 +80,60 @@ extern "C" {
 Reducer *CollectReducer_CreateRemote(const RLookupKey *const *field_keys, size_t field_keys_len, const RLookup *srclookup, const RLookupKey *const *sort_keys, size_t sort_keys_len, uint64_t sort_asc_map, bool has_limit, uint64_t limit_offset, uint64_t limit_count, bool is_internal, bool distinct);
 
 /**
- * Create a local COLLECT reducer; free it with [`collectLocalFree`].
- *
  * # Safety
  *
- * 1. `input_key` must be a [valid] pointer to an [`RLookupKey`] that remains
- *    alive for the lifetime of the returned reducer.
- * 2. If `field_names_len > 0`, `field_names` must point to an array of at
- *    least `field_names_len` valid, NUL-terminated C strings. Ignored when
- *    `load_all` is `true`.
- * 3. If `sort_names_len > 0`, `sort_names` must point to an array of at
- *    least `sort_names_len` valid, NUL-terminated C strings.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ * `r` must point to a valid [`RemoteCollectReducer`] originally created by
+ * `CollectReducer_CreateRemote`.
  */
-Reducer *CollectReducer_CreateLocal(const RLookupKey *input_key, const char *const *field_names, size_t field_names_len, bool load_all, const char *const *sort_names, size_t sort_names_len, uint64_t sort_asc_map, bool has_limit, uint64_t limit_offset, uint64_t limit_count, bool distinct);
+size_t CollectReducer_GetFieldKeysLen(const Reducer *r);
 
 /**
- * Creates a new per-group shard collect reducer instance.
- *
  * # Safety
  *
- * 1. `r` must point to a [valid] `ShardCollectReducer` masquerading as a `ffi::Reducer`.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ * `r` must point to a valid [`RemoteCollectReducer`] originally created by
+ * `CollectReducer_CreateRemote`.
  */
-void *collectRemoteNewInstance(Reducer *r);
+uint64_t CollectReducer_GetLimitCount(const Reducer *r);
+
+/**
+ * # Safety
+ *
+ * `r` must point to a valid [`RemoteCollectReducer`] originally created by
+ * `CollectReducer_CreateRemote`.
+ */
+uint64_t CollectReducer_GetLimitOffset(const Reducer *r);
+
+/**
+ * # Safety
+ *
+ * `r` must point to a valid [`RemoteCollectReducer`] originally created by
+ * `CollectReducer_CreateRemote`.
+ */
+uint64_t CollectReducer_GetSortAscMap(const Reducer *r);
+
+/**
+ * # Safety
+ *
+ * `r` must point to a valid [`RemoteCollectReducer`] originally created by
+ * `CollectReducer_CreateRemote`.
+ */
+size_t CollectReducer_GetSortKeysLen(const Reducer *r);
+
+/**
+ * # Safety
+ *
+ * `r` must point to a valid [`RemoteCollectReducer`] originally created by
+ * `CollectReducer_CreateRemote`.
+ */
+bool CollectReducer_HasLimit(const Reducer *r);
+
+/**
+ * # Safety
+ *
+ * `r` must point to a valid [`RemoteCollectReducer`] originally created by
+ * `CollectReducer_CreateRemote`.
+ */
+bool CollectReducer_IsLoadAll(const Reducer *r);
 
 /**
  * # Safety
@@ -102,21 +147,32 @@ bool CollectReducer_IsLocalLoadAll(const Reducer *r);
  * # Safety
  *
  * 1. `r` must point to a [valid] `LocalCollectReducer` masquerading as a `ffi::Reducer`.
+ * 2. `ctx` must point to a [valid] `CoordCollectCtx` masquerading as a void pointer.
+ * 3. `srcrow` must point to a [valid] `ffi::RLookupRow`.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void *collectLocalNewInstance(Reducer *r);
+int collectLocalAdd(Reducer *r, void *ctx, const RLookupRow *srcrow);
 
 /**
- * Frees a per-group shard collect reducer instance.
- *
  * # Safety
  *
- * 1. `ctx` must point to a [valid] `ShardCollectCtx` masquerading as a void pointer.
+ * 1. `r` must point to a [valid] `LocalCollectReducer` masquerading as a `ffi::Reducer`.
+ * 2. `ctx` must point to a [valid] `CoordCollectCtx` masquerading as a void pointer.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void collectRemoteFreeInstance(Reducer *_r, void *ctx);
+RSValue *collectLocalFinalize(Reducer *r, void *ctx);
+
+/**
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `CoordCollectReducer` masquerading as a `ffi::Reducer`,
+ *    originally created by [`CollectReducer_CreateLocal`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void collectLocalFree(Reducer *r);
 
 /**
  * # Safety
@@ -126,6 +182,15 @@ void collectRemoteFreeInstance(Reducer *_r, void *ctx);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void collectLocalFreeInstance(Reducer *_r, void *ctx);
+
+/**
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `LocalCollectReducer` masquerading as a `ffi::Reducer`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void *collectLocalNewInstance(Reducer *r);
 
 /**
  * Processes the provided [`ffi::RLookupRow`] and document id with the shard
@@ -142,17 +207,6 @@ void collectLocalFreeInstance(Reducer *_r, void *ctx);
 int collectRemoteAddWithDocId(Reducer *r, void *ctx, const RLookupRow *srcrow, t_docId doc_id);
 
 /**
- * # Safety
- *
- * 1. `r` must point to a [valid] `LocalCollectReducer` masquerading as a `ffi::Reducer`.
- * 2. `ctx` must point to a [valid] `CoordCollectCtx` masquerading as a void pointer.
- * 3. `srcrow` must point to a [valid] `ffi::RLookupRow`.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-int collectLocalAdd(Reducer *r, void *ctx, const RLookupRow *srcrow);
-
-/**
  * Finalizes the shard collect reducer instance result into an `RSValue`.
  *
  * # Safety
@@ -163,16 +217,6 @@ int collectLocalAdd(Reducer *r, void *ctx, const RLookupRow *srcrow);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 RSValue *collectRemoteFinalize(Reducer *r, void *ctx);
-
-/**
- * # Safety
- *
- * 1. `r` must point to a [valid] `LocalCollectReducer` masquerading as a `ffi::Reducer`.
- * 2. `ctx` must point to a [valid] `CoordCollectCtx` masquerading as a void pointer.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-RSValue *collectLocalFinalize(Reducer *r, void *ctx);
 
 /**
  * Frees the provided shard collect reducer (the global struct, not a
@@ -188,70 +232,26 @@ RSValue *collectLocalFinalize(Reducer *r, void *ctx);
 void collectRemoteFree(Reducer *r);
 
 /**
+ * Frees a per-group shard collect reducer instance.
+ *
  * # Safety
  *
- * 1. `r` must point to a [valid] `CoordCollectReducer` masquerading as a `ffi::Reducer`,
- *    originally created by [`CollectReducer_CreateLocal`].
+ * 1. `ctx` must point to a [valid] `ShardCollectCtx` masquerading as a void pointer.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void collectLocalFree(Reducer *r);
+void collectRemoteFreeInstance(Reducer *_r, void *ctx);
 
 /**
+ * Creates a new per-group shard collect reducer instance.
+ *
  * # Safety
  *
- * `r` must point to a valid [`RemoteCollectReducer`] originally created by
- * `CollectReducer_CreateRemote`.
- */
-size_t CollectReducer_GetFieldKeysLen(const Reducer *r);
-
-/**
- * # Safety
+ * 1. `r` must point to a [valid] `ShardCollectReducer` masquerading as a `ffi::Reducer`.
  *
- * `r` must point to a valid [`RemoteCollectReducer`] originally created by
- * `CollectReducer_CreateRemote`.
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-bool CollectReducer_IsLoadAll(const Reducer *r);
-
-/**
- * # Safety
- *
- * `r` must point to a valid [`RemoteCollectReducer`] originally created by
- * `CollectReducer_CreateRemote`.
- */
-size_t CollectReducer_GetSortKeysLen(const Reducer *r);
-
-/**
- * # Safety
- *
- * `r` must point to a valid [`RemoteCollectReducer`] originally created by
- * `CollectReducer_CreateRemote`.
- */
-uint64_t CollectReducer_GetSortAscMap(const Reducer *r);
-
-/**
- * # Safety
- *
- * `r` must point to a valid [`RemoteCollectReducer`] originally created by
- * `CollectReducer_CreateRemote`.
- */
-bool CollectReducer_HasLimit(const Reducer *r);
-
-/**
- * # Safety
- *
- * `r` must point to a valid [`RemoteCollectReducer`] originally created by
- * `CollectReducer_CreateRemote`.
- */
-uint64_t CollectReducer_GetLimitOffset(const Reducer *r);
-
-/**
- * # Safety
- *
- * `r` must point to a valid [`RemoteCollectReducer`] originally created by
- * `CollectReducer_CreateRemote`.
- */
-uint64_t CollectReducer_GetLimitCount(const Reducer *r);
+void *collectRemoteNewInstance(Reducer *r);
 
 #ifdef __cplusplus
 }  // extern "C"

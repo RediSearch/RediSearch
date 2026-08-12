@@ -9,9 +9,10 @@
 
 //! QN_NULL → Empty
 
-use query_eval::{QueryEvalContext, QueryNodeMut, eval, eval::Config};
+use query_eval::{Config, QueryEvalContext, QueryNodeMut, eval_node};
 use query_types::QueryNodeType;
 use rqe_iterators::{IteratorType, RQEIterator};
+use rqe_iterators_test_utils::ContractChecker;
 
 use query::mock::{MockQueryEvalCtx, MockQueryNode};
 
@@ -22,9 +23,11 @@ fn eval_null_returns_empty_iterator() {
     let mock_node = MockQueryNode::new(QueryNodeType::Null);
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, node, Config::default())
-        .expect("should not be None")
-        .into_boxed();
+    let mut it = ContractChecker::new(
+        eval_node(&mut ctx, node, Config::default())
+            .expect("should not be None")
+            .into_boxed(),
+    );
 
     assert_eq!(it.type_(), IteratorType::Empty);
     assert!(it.at_eof());

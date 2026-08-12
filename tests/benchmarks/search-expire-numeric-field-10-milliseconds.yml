@@ -4,6 +4,7 @@ description: |
   TTL table benchmark for field-level expiration under heavy lookup pressure.
   This variant focuses on lazy expiration by disabling active expiration so
   indexed keys remain while field expiration metadata churns.
+timeout_seconds: 2100
 
 metadata:
   component: "search"

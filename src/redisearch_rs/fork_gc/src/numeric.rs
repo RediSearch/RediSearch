@@ -12,12 +12,29 @@
 use std::io::{self, Read, Write};
 
 use field_spec::FieldSpecType;
-use index_spec::IndexSpecReadGuard;
+use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use serde::Serialize as _;
 
-use numeric_range_tree::{Hll, NodeGcDelta};
+use numeric_range_tree::{Hll, NodeGcDelta, NodeIndex, NumericRangeTree};
 
-use crate::Frame;
+use crate::util::SpecWriteAccess;
+use crate::{ForkGC, Frame, GcApplyStats, HandleError, HandleOutcome};
+
+/// A numeric tree error with a message explaining the specific issue.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("{msg}")]
+pub struct TreeError {
+    msg: &'static str,
+}
+
+impl TreeError {
+    /// Build a [`HandleError::Custom`] carrying `msg`.
+    const fn new(msg: &'static str) -> HandleError<Self> {
+        HandleError::Custom(Self { msg })
+    }
+}
+
+pub type FieldHeader = (Box<[u8]>, u32);
 
 /// A single node entry in the numeric GC wire protocol.
 #[derive(Debug, PartialEq, Eq)]
@@ -54,39 +71,136 @@ impl NumericNodeDelta {
     ///
     /// Returns `Ok(None)` when a [`Frame::Terminator`] is received (end of
     /// the node stream), or `Ok(Some(node))` for a valid entry.
-    pub fn decode(reader: &mut impl Read) -> io::Result<Option<Self>> {
+    pub fn decode<R: Read>(reader: &mut R) -> Result<Option<Self>, HandleError<TreeError>> {
+        // The individual body reads are consecutive bytes of one entry we have
+        // already committed to, so a failure in any of them has the same
+        // diagnosis: the entry was truncated. They share one message.
+        let read_body = |reader: &mut R, buffer| {
+            reader
+                .read_exact(buffer)
+                .map_err(|e| HandleError::codec("reading the numeric node entry", e))
+        };
+
         let mut len_bytes = [0u8; size_of::<usize>()];
-        reader.read_exact(&mut len_bytes)?;
+        reader
+            .read_exact(&mut len_bytes)
+            .map_err(|e| HandleError::codec("reading the numeric node length prefix", e))?;
         let node_len = usize::from_ne_bytes(len_bytes);
 
         if node_len == crate::frame::TERMINATOR {
             return Ok(None);
         }
 
-        let delta_data_len = node_len
-            .checked_sub(size_of::<u32>() + size_of::<u32>() + Hll::size() * 2)
-            .ok_or_else(|| io::Error::other("numeric node length too small"))?;
+        let minimum_node_len = size_of::<u32>() + size_of::<u32>() + Hll::size() * 2;
+        let delta_data_len = node_len.checked_sub(minimum_node_len).ok_or_else(|| {
+            HandleError::codec(
+                "numeric node length too small",
+                format!("{node_len} is below the minimum {minimum_node_len}"),
+            )
+        })?;
 
         let mut pos_bytes = [0u8; size_of::<u32>()];
-        reader.read_exact(&mut pos_bytes)?;
+        read_body(reader, &mut pos_bytes)?;
         let mut gen_bytes = [0u8; size_of::<u32>()];
-        reader.read_exact(&mut gen_bytes)?;
+        read_body(reader, &mut gen_bytes)?;
         let mut delta_data = vec![0u8; delta_data_len];
-        reader.read_exact(&mut delta_data)?;
+        read_body(reader, &mut delta_data)?;
         let mut registers_with_last_block = [0u8; Hll::size()];
-        reader.read_exact(&mut registers_with_last_block)?;
+        read_body(reader, &mut registers_with_last_block)?;
         let mut registers_without_last_block = [0u8; Hll::size()];
-        reader.read_exact(&mut registers_without_last_block)?;
+        read_body(reader, &mut registers_without_last_block)?;
 
         Ok(Some(NumericNodeDelta {
             position: u32::from_ne_bytes(pos_bytes),
             generation: u32::from_ne_bytes(gen_bytes),
             delta: NodeGcDelta {
-                delta: rmp_serde::from_slice(&delta_data).map_err(io::Error::other)?,
+                delta: rmp_serde::from_slice(&delta_data)
+                    .map_err(|e| HandleError::codec("decoding the numeric node delta", e))?,
                 registers_with_last_block,
                 registers_without_last_block,
             },
         }))
+    }
+}
+
+/// A numeric tree resolved from a field header.
+///
+/// Resolving a field by name walks the spec's field list, so [`apply_node_stream`]
+/// does it once and reuses the result for the rest of the field's node stream.
+///
+/// The index survives the lock releases between nodes because a spec's field array
+/// is only ever appended to. [`Self::get_mut`] re-checks the tree's unique id
+/// regardless, so a future violation of that invariant surfaces as a [`TreeError`]
+/// instead of applying deltas to an unrelated tree.
+#[derive(Clone, Copy)]
+struct ResolvedTree {
+    field_index: usize,
+    unique_id: u32,
+}
+
+impl ResolvedTree {
+    /// Find the field named `field_name` and resolve it, after checking that its
+    /// numeric tree is the one the child scanned.
+    ///
+    /// Returns [`TreeError`] when no field matches, the field has no tree,
+    /// or the tree's unique id differs from `unique_id`.
+    fn resolve(
+        guard: &mut IndexSpecWriteGuard<'_>,
+        field_name: &[u8],
+        unique_id: u32,
+    ) -> Result<Self, HandleError<TreeError>> {
+        let (field_index, fs) = guard
+            .field_specs_mut()
+            .iter_mut()
+            .enumerate()
+            .find(|(_, fs)| fs.field_name().secret_value().to_bytes() == field_name)
+            .ok_or(TreeError::new(
+                "no field in the spec matches the scanned field name",
+            ))?;
+
+        let tree = fs
+            .tree()
+            .ok_or(TreeError::new("the field has no numeric tree"))?;
+
+        Self::check_unique_id(tree, unique_id)?;
+
+        Ok(Self {
+            field_index,
+            unique_id,
+        })
+    }
+
+    /// Borrow the resolved tree under the write lock, re-checking that the field
+    /// still holds the tree the child scanned.
+    fn get_mut<'g>(
+        &self,
+        guard: &'g mut IndexSpecWriteGuard<'_>,
+    ) -> Result<&'g mut NumericRangeTree, HandleError<TreeError>> {
+        let tree = guard
+            .field_specs_mut()
+            .get_mut(self.field_index)
+            .and_then(|fs| fs.tree_mut())
+            .ok_or(TreeError::new(
+                "the numeric tree was dropped while its deltas were being applied",
+            ))?;
+
+        Self::check_unique_id(tree, self.unique_id)?;
+
+        Ok(tree)
+    }
+
+    /// Confirm `tree` is the one the child scanned.
+    fn check_unique_id(
+        tree: &NumericRangeTree,
+        unique_id: u32,
+    ) -> Result<(), HandleError<TreeError>> {
+        if u32::from(tree.unique_id()) != unique_id {
+            return Err(TreeError::new(
+                "the field's numeric tree is not the one the child scanned",
+            ));
+        }
+
+        Ok(())
     }
 }
 
@@ -95,7 +209,7 @@ impl NumericNodeDelta {
 ///
 /// For each NUMERIC or GEO field whose tree has been initialised, sends:
 ///  1. A [`Frame::Data`] carrying the field name, followed by the field's
-///     unique tree ID as a raw native-endian `u64`.
+///     unique tree ID as a raw native-endian `u32`.
 ///  2. One [`NumericNodeDelta`] per tree node with GC work.
 ///  3. A [`Frame::Terminator`] ending the node stream.
 ///
@@ -112,12 +226,10 @@ pub fn collect_numeric(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io
         })
         .filter_map(|fs| fs.tree().map(|tree| (fs, tree)))
     {
-        // Send field header: Frame::Data(field_name) + raw u64 unique_id.
-        let field_name = fs.field_name().into_secret_value().to_bytes();
+        // Send field header: Frame::Data(field_name) + raw u32 unique_id.
+        let field_name = fs.field_name().secret_value().to_bytes();
         Frame::data(field_name).encode(writer)?;
-        // The C side stores the u32 tree ID in a u64 before sending (zero-extends).
-        let unique_id: u64 = u32::from(tree.unique_id()).into();
-        writer.write_all(&unique_id.to_ne_bytes())?;
+        writer.write_all(&u32::from(tree.unique_id()).to_ne_bytes())?;
 
         for (node_idx, delta) in tree
             .indexed_iter()
@@ -136,4 +248,154 @@ pub fn collect_numeric(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io
 
     // Global terminator: tells the parent no more fields follow.
     Frame::Terminator.encode(writer)
+}
+
+/// Read one field header from `reader`.
+///
+/// Return `None` when the child sent the global terminator instead.
+pub fn receive_field_header(
+    reader: &mut impl Read,
+) -> Result<Option<FieldHeader>, HandleError<TreeError>> {
+    let frame = Frame::decode(reader)
+        .map_err(|e| HandleError::codec("reading the numeric field-name frame", e))?;
+
+    let field_name = match frame {
+        Frame::Terminator => return Ok(None),
+        Frame::Data(name) => name.into_inner(),
+        Frame::Empty => {
+            return Err(HandleError::codec(
+                "expected a field-name or terminator frame for numeric",
+                "got an empty frame",
+            ));
+        }
+    };
+
+    let mut id_bytes = [0u8; size_of::<u32>()];
+    reader
+        .read_exact(&mut id_bytes)
+        .map_err(|e| HandleError::codec("reading the numeric field unique id", e))?;
+
+    Ok(Some((field_name, u32::from_ne_bytes(id_bytes))))
+}
+
+/// Apply one node's delta to `tree`.
+///
+/// Return [`GcApplyStats`] on success or `None` when the node is no longer present in the live tree.
+fn apply_numeric_node(tree: &mut NumericRangeTree, node: NumericNodeDelta) -> Option<GcApplyStats> {
+    let result = tree.apply_gc_to_node(
+        NodeIndex::from_raw_parts(node.position, node.generation),
+        node.delta,
+    )?;
+
+    let info = result.index_gc_info;
+    Some(GcApplyStats {
+        records_removed: info.entries_removed,
+        bytes_collected: info.bytes_freed,
+        bytes_allocated: info.bytes_allocated,
+        block_count_delta: info.block_count_delta,
+        blocks_denied: info.ignored_last_block as u64,
+        numeric_nodes_missed: 0,
+    })
+}
+
+/// Apply every node delta in one field's stream, re-acquiring the spec lock per node.
+///
+/// Return the resolved tree from the first node, or `None` when the stream held no nodes.
+fn apply_node_stream(
+    reader: &mut impl Read,
+    spec: &mut impl SpecWriteAccess,
+    field_name: &[u8],
+    unique_id: u32,
+    stats: &mut GcApplyStats,
+) -> Result<Option<ResolvedTree>, HandleError<TreeError>> {
+    let mut resolved_tree = None;
+
+    while let Some(node) = NumericNodeDelta::decode(reader)? {
+        let node_stats = spec.with_write(|guard| {
+            let resolved_tree = match resolved_tree {
+                Some(resolved_tree) => resolved_tree,
+                None => {
+                    let tree = ResolvedTree::resolve(guard, field_name, unique_id)?;
+                    resolved_tree = Some(tree);
+                    tree
+                }
+            };
+
+            Ok(apply_numeric_node(resolved_tree.get_mut(guard)?, node))
+        })?;
+
+        match node_stats {
+            Some(node_stats) => stats.record(node_stats),
+            None => stats.numeric_nodes_missed += 1,
+        }
+    }
+
+    Ok(resolved_tree)
+}
+
+/// Compact the tree if GC left it sparse, recording what the trim freed into `stats`.
+fn trim_empty_nodes(
+    spec: &mut impl SpecWriteAccess,
+    resolved_tree: ResolvedTree,
+    stats: &mut GcApplyStats,
+) -> Result<(), HandleError<TreeError>> {
+    spec.with_write(|guard| {
+        let result = resolved_tree.get_mut(guard)?.compact_if_sparse();
+
+        stats.record(GcApplyStats {
+            bytes_collected: result.inverted_index_size_delta.min(0).unsigned_abs() as usize,
+            block_count_delta: result.block_count_delta.into(),
+            ..GcApplyStats::default()
+        });
+
+        Ok(())
+    })
+}
+
+/// Receive and apply one field's node deltas, then compact if `clean_numeric_empty_nodes`.
+///
+/// Return [`HandleOutcome::Done`] when the child sent the global terminator instead of a header.
+pub fn handle_numeric_with(
+    reader: &mut impl Read,
+    spec: &mut impl SpecWriteAccess,
+    stats: &mut GcApplyStats,
+    clean_numeric_empty_nodes: bool,
+) -> Result<HandleOutcome, HandleError<TreeError>> {
+    let Some((field_name, unique_id)) = receive_field_header(reader)? else {
+        return Ok(HandleOutcome::Done);
+    };
+
+    let resolved_tree = apply_node_stream(reader, spec, &field_name, unique_id, stats)?;
+
+    if clean_numeric_empty_nodes && let Some(resolved_tree) = resolved_tree {
+        trim_empty_nodes(spec, resolved_tree, stats)?;
+    }
+
+    Ok(HandleOutcome::Collected)
+}
+
+/// Handle one field off `fgc`'s pipe, flushing the tallied [`GcApplyStats`] to the spec and the GC.
+///
+/// Return [`HandleOutcome::Done`] once the child has sent every field.
+pub fn handle_numeric(fgc: &mut ForkGC) -> Result<HandleOutcome, HandleError<TreeError>> {
+    let mut spec = fgc.index_spec();
+    let mut stats = GcApplyStats::default();
+    let clean_numeric_empty_nodes = fgc.clean_numeric_empty_nodes();
+
+    let result = handle_numeric_with(
+        &mut fgc.reader(),
+        &mut spec,
+        &mut stats,
+        clean_numeric_empty_nodes,
+    );
+
+    // No need to lock the spec and update the stats if there are none.
+    if stats != GcApplyStats::default() {
+        spec.with_write(|guard| {
+            stats.apply(fgc, guard);
+            Ok(())
+        })?;
+    }
+
+    result
 }

@@ -1145,3 +1145,69 @@ def test_expire_past_timestamp_removes_doc(env):
 
     env.expect('EXISTS', 'doc:1').equal(0)
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([1, 'doc:2'])
+
+
+@skip(cluster=True, redis_less_than='7.3')
+def test_hexpire_after_indexing_is_respected_by_search(env):
+    # A document indexed while none of its fields had a TTL must still honour a
+    # TTL added afterwards: once the field expires, queries on it stop matching.
+    # MOD-16350 regression, covering text, tag, numeric and geo fields.
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'doc:',
+               'SCHEMA', 't', 'TEXT', 'tg', 'TAG', 'n', 'NUMERIC', 'g', 'GEO').ok()
+    env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'fields')
+
+    # Indexed with no field TTLs at all: every field matches.
+    conn.execute_command('HSET', 'doc:1', 't', 'hello', 'tg', 'red', 'n', '42',
+                         'g', '1.23,4.56')
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx', '@tg:{red}', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx', '@n:[42 42]', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx', '@g:[1.23 4.56 1 km]', 'NOCONTENT').equal([1, 'doc:1'])
+
+    # Every field gets its first TTL, long enough to still be alive: all still match.
+    conn.execute_command('HPEXPIRE', 'doc:1', '5000', 'FIELDS', '4', 't', 'tg', 'n', 'g')
+    waitForIndex(env, 'idx')
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx', '@tg:{red}', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx', '@n:[42 42]', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx', '@g:[1.23 4.56 1 km]', 'NOCONTENT').equal([1, 'doc:1'])
+
+    # Shorten the TTLs, rather than setting a first one, and let them lapse: the
+    # expired fields must no longer match.
+    conn.execute_command('HPEXPIRE', 'doc:1', '50', 'FIELDS', '4', 't', 'tg', 'n', 'g')
+    time.sleep(0.1)
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx', '@tg:{red}', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx', '@n:[42 42]', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx', '@g:[1.23 4.56 1 km]', 'NOCONTENT').equal([0])
+
+
+@skip(cluster=True, redis_less_than='7.3')
+def test_hexpire_on_second_field_is_respected_by_search(env):
+    # As above, but the document already has a TTL on a sibling field when the
+    # queried field gets its first one — the new TTL must still be honoured
+    # per-field, and the sibling's longer TTL must keep matching.
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'doc:',
+               'SCHEMA', 'a', 'TEXT', 'b', 'TEXT').ok()
+    env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'fields')
+
+    conn.execute_command('HSET', 'doc:1', 'a', 'hello', 'b', 'world')
+    # Only `b` gets a (long) TTL; `a` has none.
+    conn.execute_command('HEXPIRE', 'doc:1', '10000', 'FIELDS', '1', 'b')
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([1, 'doc:1'])
+
+    # Now `a` gets its first TTL, also long enough to still be alive.
+    conn.execute_command('HPEXPIRE', 'doc:1', '5000', 'FIELDS', '1', 'a')
+    waitForIndex(env, 'idx')
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([1, 'doc:1'])
+
+    # Shorten `a`'s TTL, rather than setting a first one, and let it lapse.
+    conn.execute_command('HPEXPIRE', 'doc:1', '50', 'FIELDS', '1', 'a')
+    time.sleep(0.1)
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([0])
+    # `b` is still valid (long TTL), so a query on `b` still returns the doc.
+    env.expect('FT.SEARCH', 'idx', 'world', 'NOCONTENT').equal([1, 'doc:1'])

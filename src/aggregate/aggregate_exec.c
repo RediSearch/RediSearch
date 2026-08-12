@@ -24,6 +24,8 @@
 #include "aggregate.h"
 #include "aggregate_exec_common.h"
 #include "cursor.h"
+#include "concurrent_ctx.h"
+#include "rmutil/util.h"
 #include "util/timeout.h"
 #include "util/workers.h"
 #include "score_explain.h"
@@ -45,7 +47,6 @@
 #include "search_disk.h"
 #include "search_disk_utils.h"
 #include "iterators_ffi.h"
-#include "coord/coord_request_ctx.h"
 #include "VecSim/vec_sim_common.h"
 #include "aggregate/aggregate_plan.h"
 #include "config.h"
@@ -81,6 +82,7 @@ typedef struct {
 } blockedClientReqCtx;
 
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
+static void cursorEndOfCycle(AREQ *req, Cursor *cursor, bool free_it);
 static int prepareExecutionPlan(AREQ *req, QueryError *status);
 static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
@@ -1251,19 +1253,21 @@ static void blockedClientReqCtx_setRequest(blockedClientReqCtx *BCRctx, AREQ *re
 }
 
 static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
-  RedisModule_BlockedClientMeasureTimeEnd(BCRctx->blockedClient);
-  void *privdata = RedisModule_BlockClientGetPrivateData(BCRctx->blockedClient);
-  RedisModule_UnblockClient(BCRctx->blockedClient, privdata);
-
   // Release the owned AREQ reference if it has not already been released.
   // On the normal success path, AREQ_Execute() releases the reference and
   // the owner clears it via blockedClientReqCtx_setRequest(BCRctx, NULL),
   // so this conditional avoids a double-decr while still handling error paths
   // where AREQ_Execute() is never called.
+  // Must precede UnblockClient: once unblocked, the main thread may drop the
+  // cycle reference, making this release the final one — off the main thread.
   if (BCRctx->req) {
     AREQ_DecrRef(BCRctx->req);
     BCRctx->req = NULL;
   }
+
+  RedisModule_BlockedClientMeasureTimeEnd(BCRctx->blockedClient);
+  void *privdata = RedisModule_BlockClientGetPrivateData(BCRctx->blockedClient);
+  RedisModule_UnblockClient(BCRctx->blockedClient, privdata);
 
   WeakRef_Release(BCRctx->spec_ref);
   rm_free(BCRctx);
@@ -1539,10 +1543,9 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
   return rc;
 }
 
-static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int type,
-                        QueryError *status, AREQ **r) {
+static int buildRequest(RedisModuleCtx *ctx, int type, QueryError *status, AREQ **r) {
   int rc = REDISMODULE_ERR;
-  const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
+  const char *indexname = RedisModule_StringPtrLen((*r)->brc->argv[1], NULL);
   RedisSearchCtx *sctx = NULL;
   RedisModuleCtx *thctx = NULL;
 
@@ -1555,7 +1558,8 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   AREQ_AddRequestFlags(*r, QEXEC_FORMAT_DEFAULT);
 
-  if (AREQ_Compile(*r, ctx, argv + 2, argc - 2, SearchDisk_IsEnabledForValidation(), status) != REDISMODULE_OK) {
+  if (AREQ_Compile(*r, ctx, 2 /* past the command and index names */,
+                   SearchDisk_IsEnabledForValidation(), status) != REDISMODULE_OK) {
     RS_LOG_ASSERT(QueryError_HasError(status), "Query has error");
     goto done;
   }
@@ -1596,11 +1600,12 @@ done:
   return rc;
 }
 
-static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc, CommandType type, ProfileOptions profileOptions, QueryError *status) {
+static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, CommandType type, ProfileOptions profileOptions, QueryError *status) {
   AREQ *r = *r_ptr;
-  // If we got here, we know `argv[0]` is a valid registered command name.
-  // If it starts with an underscore, it is an internal command.
-  if (RedisModule_StringPtrLen(argv[0], NULL)[0] == '_') {
+  // If we got here, we know the command name (the first held argument) is a
+  // valid registered command. If it starts with an underscore, it is an
+  // internal command.
+  if (RedisModule_StringPtrLen(r->brc->argv[0], NULL)[0] == '_') {
     AREQ_AddRequestFlags(r, QEXEC_F_INTERNAL);
   }
 
@@ -1615,7 +1620,7 @@ static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString *
   // This function also builds the RedisSearchCtx
   // It will search for the spec according to the name given in the argv array,
   // and ensure the spec is valid.
-  if (buildRequest(ctx, argv, argc, type, status, r_ptr) != REDISMODULE_OK) {
+  if (buildRequest(ctx, type, status, r_ptr) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
@@ -1769,12 +1774,10 @@ void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req) {
   // Handle cursor lifecycle now that QEXEC_S_ITERDONE has been set by finishSendChunk.
   // runCursor stored the cursor handle here instead of pausing/freeing it immediately,
   // because finishSendChunk (which sets QEXEC_S_ITERDONE) runs in the reply_callback.
+  // Inside a blocked-client cycle this records the disposition for OnFree;
+  // inline callers execute it immediately.
   if (stored->cursor) {
-    if (req->stateflags & QEXEC_S_ITERDONE) {
-      Cursor_Free(stored->cursor);
-    } else {
-      Cursor_Pause(stored->cursor);
-    }
+    cursorEndOfCycle(req, stored->cursor, req->stateflags & QEXEC_S_ITERDONE);
     stored->cursor = NULL;
   }
 }
@@ -2079,9 +2082,9 @@ int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   }
 
   AREQ *r = AREQ_New();
-  BlockedRequestCtx_NewAREQ(r);
+  BlockedRequestCtx_NewAREQ(r, argv, argc);
 
-  if (prepareRequest(&r, ctx, argv, argc, type, profileOptions, &status) != REDISMODULE_OK) {
+  if (prepareRequest(&r, ctx, type, profileOptions, &status) != REDISMODULE_OK) {
     RS_ASSERT(r == NULL);
     if (QueryError_GetCode(&status) == QUERY_ERROR_CODE_TIMED_OUT) {
       return replyForPreExecutionTimeout(ctx, argv, argc, profileOptions, &status);
@@ -2118,8 +2121,8 @@ int RSExecuteAggregateOrSearch(RedisModuleCtx *ctx, RedisModuleString **argv, in
 char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                           QueryError *status) {
   AREQ *r = AREQ_New();
-  BlockedRequestCtx_NewAREQ(r);
-  if (buildRequest(ctx, argv, argc, COMMAND_EXPLAIN, status, &r) != REDISMODULE_OK) {
+  BlockedRequestCtx_NewAREQ(r, argv, argc);
+  if (buildRequest(ctx, COMMAND_EXPLAIN, status, &r) != REDISMODULE_OK) {
     return NULL;
   }
   RedisSearchCtx *sctx = AREQ_SearchCtx(r);
@@ -2143,7 +2146,7 @@ int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, Quer
   if (cursor == NULL) {
     return REDISMODULE_ERR;
   }
-  cursor->execState = r;
+  cursor->query = r->brc;
   // Cache timeout config on the Cursor so subsequent FT.CURSOR READs use the
   // values from the originating FT.AGGREGATE, regardless of any later
   // `search-on-timeout` config change. Written before the first Cursor_Pause.
@@ -2155,9 +2158,26 @@ int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, Quer
   return REDISMODULE_OK;
 }
 
+/* Dispose of `cursor` at the end of a read/creation cycle: park it back into
+ * the idle list, or free it when the query is exhausted / timed out. Inside a
+ * blocked-client cycle (brc->bc set) the disposition is only recorded here and
+ * executed by BlockedRequestCtx_OnFree on the main thread, so the cursor stays
+ * unreachable to other clients until the cycle fully ended. Outside a cycle
+ * (inline execution) it executes immediately. */
+static void cursorEndOfCycle(AREQ *req, Cursor *cursor, bool free_it) {
+  if (req->brc->bc) {
+    req->brc->cursor = cursor;
+    req->brc->cursor_dispose_free = free_it;
+  } else if (free_it) {
+    Cursor_Free(cursor);
+  } else {
+    Cursor_Pause(cursor);
+  }
+}
+
 // Assumes that the cursor has a strong ref to the relevant spec and that it is already locked.
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
-  AREQ *req = cursor->execState;
+  AREQ *req = Cursor_AREQ(cursor);
   AREQ_ProfilePrinterCtx(req)->cursor_reads++;
   // Re-apply the foreground cap on every READ: the limit / WORKERS knobs may
   // change between cursor creation and this read, and the AREQ's reqConfig is
@@ -2209,41 +2229,35 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
       // cursor 0. Keep cursor ownership consistent with the depleted id already
       // returned to the caller.
       req->brc->reply.cursor = NULL;
-      if ((AREQ_RequestFlags(req) & QEXEC_F_IS_AGGREGATE) ||
-          shouldSetCursorDone(req, RS_RESULT_TIMEDOUT)) {
-        Cursor_Free(cursor);
-      } else {
-        Cursor_Pause(cursor);
-      }
+      cursorEndOfCycle(req, cursor,
+                       (AREQ_RequestFlags(req) & QEXEC_F_IS_AGGREGATE) ||
+                           shouldSetCursorDone(req, RS_RESULT_TIMEDOUT));
       return;
     }
-    // Disposal of the stashed cursor is owned by AREQ_ReplyWithStoredResults.
+    // Disposal of the stashed cursor is owned by AREQ_ReplyWithStoredResults
+    // (only it knows QEXEC_S_ITERDONE, set by finishSendChunk on main) — or by
+    // EndCycle's leftover-stash drain when the timeout replied without it.
     return;
   }
 
-  if (req->stateflags & QEXEC_S_ITERDONE) {
-    Cursor_Free(cursor);
-  } else {
-    // Update the idle timeout
-    Cursor_Pause(cursor);
-  }
+  cursorEndOfCycle(req, cursor, req->stateflags & QEXEC_S_ITERDONE);
 }
 
 static QueryProcessingCtx *prepareForCursorRead(Cursor *cursor, bool *hasLoader, bool *initClock, QEFlags *reqFlags, QueryError *status) {
-  AREQ *req = cursor->execState;
+  AREQ *req = Cursor_AREQ(cursor);
   QueryProcessingCtx *qctx = NULL;
   if (req) {
-    qctx = AREQ_QueryProcessingCtx(cursor->execState);
+    qctx = AREQ_QueryProcessingCtx(req);
     AREQ_RemoveRequestFlags(req, QEXEC_F_IS_AGGREGATE); // Second read was not triggered by FT.AGGREGATE
     *reqFlags = AREQ_RequestFlags(req);
     *hasLoader = HasLoader(req);
     *initClock = IsProfile(req) || !IsInternal(req);
   } else {
     // Single-cursor hybrid fallback: only reachable via
-    // HybridRequest_StartSingleCursor (execState NULL, hybrid_ref set),
-    // i.e. user-facing FT.HYBRID WITHCURSOR — currently not supported
-    // (see cursor.h CursorTimeoutInfo). _FT.HYBRID WITHCURSOR sub-cursors
-    // always carry an execState and take the if branch above.
+    // HybridRequest_StartSingleCursor (no cursor-carried wrapper, hybrid_ref
+    // set), i.e. user-facing FT.HYBRID WITHCURSOR — currently not supported.
+    // _FT.HYBRID WITHCURSOR sub-cursors always carry their sub-AREQ's wrapper
+    // and take the if branch above.
     HybridRequest *hreq = StrongRef_Get(cursor->hybrid_ref);
     *reqFlags = hreq->reqflags;
     qctx = &hreq->tailPipeline->qctx;
@@ -2262,8 +2276,8 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
   QEFlags reqFlags = 0;
   bool hasLoader = false;
   bool initClock = false;
-  AREQ *req = cursor->execState;
-  RS_LOG_ASSERT(req, "cursorRead reached with execState==NULL");
+  AREQ *req = Cursor_AREQ(cursor);
+  RS_LOG_ASSERT(req, "cursorRead reached with no cursor-carried AREQ");
   QueryProcessingCtx *qctx = prepareForCursorRead(cursor, &hasLoader, &initClock, &reqFlags, &status);
   StrongRef execution_ref;
   bool has_spec = cursor_HasSpecWeakRef(cursor);
@@ -2273,11 +2287,11 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
     if (!StrongRef_Get(execution_ref)) {
       QueryError_SetWithoutUserDataFmt(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND,
                                        "The index was dropped while the cursor was idle");
-      // Reply before Free: on non-reqCtx paths the cursor holds the
-      // only AREQ ref, so freeing first would UAF the req->useReplyCallback
-      // read inside AREQ_ReplyOrStoreError.
+      // Reply before disposing: the cursor may hold the only wrapper ref, so
+      // freeing first would UAF the req->useReplyCallback read inside
+      // AREQ_ReplyOrStoreError.
       AREQ_ReplyOrStoreError(req, ctx, &status);
-      Cursor_Free(cursor);
+      cursorEndOfCycle(req, cursor, true);
       return;
     }
 
@@ -2302,9 +2316,9 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
   }
 
   if (req) {
-    // useReplyCallback is authoritative from the caller: RSCursorReadCommand either
-    // attaches a CoordRequestCtx (coord + FAIL path) which propagates the flag,
-    // or clears it before invoking cursorRead.
+    // useReplyCallback is authoritative from the caller: blocking dispatches
+    // set it according to whether a reply callback will serialize stored
+    // results on main; inline paths clear it before invoking cursorRead.
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
     runCursor(reply, cursor, count);
     RedisModule_EndReply(reply);
@@ -2328,7 +2342,7 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   // we were queued, FAIL already replied and can close the cursor immediately.
   // RETURN_STRICT still runs the read so it can store a cursor-shaped timeout
   // reply and park/free the cursor before the timeout callback replies.
-  AREQ *req = cr_ctx->cursor->execState;
+  AREQ *req = Cursor_AREQ(cr_ctx->cursor);
   RS_ASSERT(req);
   // Picked up from the job queue: a timeout from here on is attributed to PIPELINE
   // (no-op if already timed out while queued, via the SetExecutionStage freeze).
@@ -2339,7 +2353,7 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   if (!AREQ_TimedOut(req) || AREQ_RequiresThreadsSyncResults(req)) {
     cursorRead(ctx, cr_ctx->cursor, cr_ctx->count, true);
   } else {
-    Cursor_Free(cr_ctx->cursor);
+    cursorEndOfCycle(req, cr_ctx->cursor, true);
   }
   RedisModule_FreeThreadSafeContext(ctx);
   RedisModule_BlockedClientMeasureTimeEnd(cr_ctx->bc);
@@ -2348,32 +2362,77 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   rm_free(cr_ctx);
 }
 
-// Coord+RETURN_STRICT cursor read: take + reset + publish AREQ under a
-// single setRequestLock window so the timer can't observe a half-installed
-// state. Lock-ordering rule: reqCtx -> cursor table; no other path takes
-// the cursor table while holding reqCtx.
-static inline int coordCursorReadReturnStrict(RedisModuleCtx *ctx, CoordRequestCtx *reqCtx,
-                                              long long cid, long long count) {
-  CoordRequestCtx_LockSetRequest(reqCtx);
-  if (CoordRequestCtx_TimedOut(reqCtx)) {
-    // Timer already fired and replied.
-    CoordRequestCtx_UnlockSetRequest(reqCtx);
-    return REDISMODULE_OK;
+/* Coordinator blocking FT.CURSOR READ job (every timeout policy). Mirrors
+ * cursorRead_ctx, plus the RETURN_STRICT owner latch: the cursor was taken on
+ * the main thread at dispatch, so the timeout callback can win the race for
+ * the read before this job is dequeued. RETURN cycles have no timer and
+ * always run the read, replying inline through the thread-safe ctx. */
+static void coordCursorRead_ctx(void *p) {
+  CursorReadCtx *cr_ctx = p;
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(cr_ctx->bc);
+  Cursor *cursor = cr_ctx->cursor;
+  AREQ *req = Cursor_AREQ(cursor);
+  RS_ASSERT(req);
+  // Picked up from the job queue: a timeout from here on is attributed to
+  // PIPELINE (no-op if already timed out while queued, via the freeze).
+  AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_PIPELINE);
+  // The per-read RETURN_STRICT reset already ran on the main thread at dispatch.
+  if (AREQ_RequiresThreadsSyncResults(req) &&
+      !BlockedRequestCtx_TryOwnStrictRead(req->brc, BRC_READ_OWNER_BG)) {
+    // RETURN_STRICT: the timeout callback fired before this job was dequeued,
+    // won the owner latch, and already replied with a depleted cursor. Free
+    // the taken cursor; store nothing (nobody is waiting).
+    cursorEndOfCycle(req, cursor, true);
+  } else if (!AREQ_TimedOut(req) || AREQ_RequiresThreadsSyncResults(req)) {
+    // RETURN (no timer) always runs the read and replies inline through the
+    // thread-safe ctx; FAIL bails and drops the cursor if the timer already
+    // replied; RETURN_STRICT (latch won) always runs the read so it can store
+    // a cursor-shaped reply, signal a waiting timeout callback, and park/free
+    // the cursor.
+    cursorRead(ctx, cursor, cr_ctx->count, false);
+  } else {
+    cursorEndOfCycle(req, cursor, true);
   }
-  Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
-  if (!cursor) {
-    // Cursor was destroyed between CursorCommand's peek and our take
-    CoordRequestCtx_UnlockSetRequest(reqCtx);
-    QueryError err = QueryError_Default();
-    QueryError_SetWithoutUserDataFmt(&err, QUERY_ERROR_CODE_GENERIC,
-                                     "Cursor not found, id: %lld", cid);
-    CoordRequestCtx_ReplyOrStoreError(reqCtx, ctx, &err);
-    return REDISMODULE_OK;
+  RedisModule_FreeThreadSafeContext(ctx);
+  RedisModule_BlockedClientMeasureTimeEnd(cr_ctx->bc);
+  void *privdata = RedisModule_BlockClientGetPrivateData(cr_ctx->bc);
+  RedisModule_UnblockClient(cr_ctx->bc, privdata);
+  rm_free(cr_ctx);
+}
+
+/* Block the client with the taken cursor's wrapper as privdata and dispatch a
+ * slim coordCursorRead_ctx job to `poolType`. FAIL/RETURN_STRICT pass
+ * reply/timeout callbacks and a timer; RETURN passes none and the BG job
+ * replies inline through a thread-safe ctx. */
+static int cursorReadDispatchTaken(RedisModuleCtx *ctx, Cursor *cursor, long long count,
+                                   RedisModuleCmdFunc reply_cb, RedisModuleCmdFunc timeout_cb,
+                                   rs_wall_clock_ms_t timeout_ms, int poolType) {
+  AREQ *req = Cursor_AREQ(cursor);
+  RS_ASSERT(req);
+  // If a timeout is armed, both callbacks must be provided (mirrors the shard
+  // Block helpers). RETURN passes no callbacks and no timer.
+  RS_ASSERT(timeout_ms == 0 || (timeout_cb != NULL && reply_cb != NULL));
+  // Deferred (callback) reply iff a reply callback will serialize stored
+  // results on main; RETURN replies inline from the BG job.
+  req->useReplyCallback = (reply_cb != NULL);
+  RedisModuleBlockedClient *bc =
+      RedisModule_BlockClient(ctx, reply_cb, timeout_cb, BlockedRequestCtx_OnFree, timeout_ms);
+  // Safe against the just-armed timer: the timeout callback runs on this same
+  // thread.
+  BlockedRequestCtx_BeginCycle(req->brc, bc, reply_cb);
+  // Cursor cycles reuse the wrapper across reads: reset the per-read
+  // RETURN_STRICT claim/latch state so the new cycle starts from a clean
+  // slate — safe because taking the cursor proves the previous read cycle's
+  // BG work is done with it.
+  if (req->brc->requiresAggregateResultsSync) {
+    AREQ_ResetForCursorReadReturnStrict(req);
   }
-  AREQ_ResetForCursorReadReturnStrict(cursor->execState);
-  CoordRequestCtx_SetRequest(reqCtx, cursor->execState);
-  CoordRequestCtx_UnlockSetRequest(reqCtx);
-  cursorRead(ctx, cursor, count, false);
+  RedisModule_BlockedClientMeasureTimeStart(bc);
+  CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
+  cr_ctx->bc = bc;
+  cr_ctx->cursor = cursor;
+  cr_ctx->count = count;
+  ConcurrentSearch_ThreadPoolRun(coordCursorRead_ctx, cr_ctx, poolType);
   return REDISMODULE_OK;
 }
 
@@ -2398,34 +2457,28 @@ static bool cursorIsDiskBacked(const Cursor *cursor) {
   return isDisk;
 }
 
+// Coordinator blocked-client callbacks (coord/dist_aggregate.c), used when the
+// taken cursor is a coordinator (RPNet) cursor.
+int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
+                                              int argc);
+
 /**
  * FT.CURSOR READ {index} {CID} {COUNT} [MAXIDLE]
+ *
+ * The single READ handler for every flow: COUNT is parsed and the cursor taken
+ * on the main thread, then coordinator-list cursors dispatch a slim read job
+ * to the coordinator pool, shard cursors block and dispatch to the workers
+ * pool, and non-blockable / workers-off contexts read inline.
  */
 int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  // Coord+FAIL is the only path that attaches a CoordRequestCtx as privdata
-  // and arms a reply_callback; shard, single-shard and coord+RETURN paths all
-  // see reqCtx == NULL and fall back to the inline Reply API.
-  RedisModuleBlockedClient *upstreamBC = RedisModule_GetBlockedClientHandle(ctx);
-  CoordRequestCtx *reqCtx = upstreamBC
-      ? (CoordRequestCtx *)RedisModule_BlockClientGetPrivateData(upstreamBC)
-      : NULL;
-  // Only the coord+FAIL path meets the precondition for
-  // CoordRequestCtx_ReplyOrStoreError (useReplyCallback == true).
-  RS_ASSERT(!reqCtx || reqCtx->useReplyCallback);
-  // Reused across all coord+FAIL early-error sites below.
-  QueryError err = QueryError_Default();
-
   if (argc < 4) {
-    // Shouldn't happen on the coord path (CursorCommand pre-validates argc on
-    // the main thread)
-    RS_LOG_ASSERT(!reqCtx, "CursorCommand should have validated argc");
     return RedisModule_WrongArity(ctx);
   }
 
   long long cid;
   if (RedisModule_StringToLongLong(argv[3], &cid) != REDISMODULE_OK) {
-    // Unreachable on the coord path (CursorCommand pre-validates the cid)
-    RS_LOG_ASSERT(!reqCtx, "CursorCommand should have validated cursor ID")
     return RedisModule_ReplyWithError(ctx, "Bad cursor ID");
   }
 
@@ -2435,55 +2488,66 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     // Verify that the 4'th argument is `COUNT`.
     const char *count_str = RedisModule_StringPtrLen(argv[4], NULL);
     if (strcasecmp(count_str, "count") != 0) {
-      if (reqCtx) {
-        QueryError_SetWithoutUserDataFmt(&err, QUERY_ERROR_CODE_ARG_UNRECOGNIZED,
-                                         "Unknown argument `%s`", count_str);
-        CoordRequestCtx_ReplyOrStoreError(reqCtx, ctx, &err);
-        return REDISMODULE_OK;
-      }
       return RedisModule_ReplyWithErrorFormat(ctx, "Unknown argument `%s`", count_str);
     }
 
     if (RedisModule_StringToLongLong(argv[5], &count) != REDISMODULE_OK) {
       const char *bad = RedisModule_StringPtrLen(argv[5], NULL);
-      if (reqCtx) {
-        QueryError_SetWithoutUserDataFmt(&err, QUERY_ERROR_CODE_PARSE_ARGS,
-                                         "Bad value for COUNT: `%s`", bad);
-        CoordRequestCtx_ReplyOrStoreError(reqCtx, ctx, &err);
-        return REDISMODULE_OK;
-      }
       return RedisModule_ReplyWithErrorFormat(ctx, "Bad value for COUNT: `%s`", bad);
     }
   }
 
-  // Coord cursor reads (FAIL and RETURN_STRICT) execute from here on; advance the
-  // coord-level marker so a timeout is attributed to PIPELINE. The reused AREQ's
-  // own marker takes over once it is attached to the ctx below (SetRequest seeds
-  // it from this marker).
-  if (reqCtx) {
-    CoordRequestCtx_SetExecutionStage(reqCtx, QUERY_TIMEOUT_STAGE_PIPELINE);
-  }
-
-  if (reqCtx && CoordRequestCtx_IsCursorReadReturnStrict(reqCtx)) {
-    return coordCursorReadReturnStrict(ctx, reqCtx, cid, count);
-  }
-
   Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
   if (cursor == NULL) {
-    if (reqCtx) {
-      QueryError_SetWithoutUserDataFmt(&err, QUERY_ERROR_CODE_GENERIC,
-                                       "Cursor not found, id: %lld", cid);
-      CoordRequestCtx_ReplyOrStoreError(reqCtx, ctx, &err);
-      return REDISMODULE_OK;
-    }
     return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %lld", cid);
   }
 
-  if (RunInThread(ctx) && !upstreamBC) {
+  if (cursor->is_coord &&
+      !(RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_DENY_BLOCKING)) {
+    // Coordinator cursor: the read pulls from the shards over the network, so
+    // it is always dispatched to the coordinator pool, independent of the
+    // WORKERS config. The cursor always carries its request's wrapper — the
+    // only wrapper-less cursors (single-cursor hybrid) are not user-reachable.
+    AREQ *req = Cursor_AREQ(cursor);
+    RS_ASSERT(req != NULL);
+    // Reused cursor AREQ: a prior read left the marker at PIPELINE/REPLY, so
+    // reset it to QUEUE for the queued re-read; the BG job advances it back
+    // to PIPELINE at pickup. (A timed-out RETURN_STRICT read depletes its
+    // cursor, so the freeze cannot swallow this store on a live cursor.)
+    AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_QUEUE);
+    RedisModuleCmdFunc replyCallback = NULL;
+    RedisModuleCmdFunc timeoutCallback = NULL;
+    rs_wall_clock_ms_t timeoutMS = 0;
+    if (cursor->queryTimeoutPolicy != TimeoutPolicy_Return) {
+      // Apply the foreground cap to the blocked-client timer budget. The
+      // cursor cached its queryTimeoutMS at WITHCURSOR time; tightening
+      // search-_max-foreground-timeout-limit (or disabling workers) between
+      // cursor open and this READ must shrink both the execution deadline
+      // (capped in runCursor) and the coordinator-side timer here.
+      long long capped = cursor->queryTimeoutMS > (size_t)LLONG_MAX
+                           ? LLONG_MAX
+                           : (long long)cursor->queryTimeoutMS;
+      if (RSConfig_CapQueryTimeoutToForegroundLimit(&capped)) {
+        RedisModule_Log(ctx, "verbose",
+          "FT.CURSOR READ: coordinator blocked-client timer capped by "
+          "_MAX_FOREGROUND_TIMEOUT_LIMIT (from %zu ms to %lld ms)",
+          cursor->queryTimeoutMS, capped);
+      }
+      replyCallback = DistAggregateReplyCallback;
+      timeoutCallback = (cursor->queryTimeoutPolicy == TimeoutPolicy_Fail)
+          ? DistAggregateTimeoutFailCallback
+          : DistCursorReadTimeoutReturnStrictCallback;
+      timeoutMS = (rs_wall_clock_ms_t)capped;
+    }
+    return cursorReadDispatchTaken(ctx, cursor, count, replyCallback, timeoutCallback, timeoutMS,
+                                   DIST_THREADPOOL);
+  }
+
+  if (RunInThread(ctx)) {
     // Shard/standalone path: block and dispatch to worker. Non-RETURN policies arm
     // the blocked-client timer with reply/timeout callbacks.
-    RS_ASSERT(cursor->execState != NULL);
-    AREQ *req = cursor->execState;
+    AREQ *req = Cursor_AREQ(cursor);
+    RS_ASSERT(req != NULL);
     // Reused cursor AREQ: a prior read left the marker at PIPELINE/REPLY, so reset
     // it to QUEUE for the queued re-read; cursorRead_ctx advances it back to
     // PIPELINE at pickup. (A timed-out RETURN_STRICT read depletes its cursor, so
@@ -2520,16 +2584,13 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     cr_ctx->count = count;
     workersThreadPool_AddWork((redisearch_thpool_proc)cursorRead_ctx, cr_ctx);
   } else {
-    // Inline path. Three sub-cases distinguished by (upstreamBC, privdata):
-    //   (1) Coord+FAIL: upstreamBC != NULL, privdata is a CoordRequestCtx.
-    //   (2) Coord+RETURN: upstreamBC != NULL, privdata is NULL.
-    //   (3) NumShards==1 or !RunInThread(): upstreamBC == NULL.
+    // Inline path: workers disabled, or a context that cannot block
+    // (MULTI/EXEC, Lua).
 
     // Disk (flex) shard cursors must not resume inline: the async-loader
     // pipeline blocks on prefetch completions delivered by the main thread, so
-    // a main-thread read would deadlock. Only sub-case (3) can carry a
-    // disk-backed pipeline; coordinator cursors (1)/(2) have no local spec.
-    if (!upstreamBC && cursor->execState && cursorIsDiskBacked(cursor)) {
+    // a main-thread read would deadlock.
+    if (Cursor_AREQ(cursor) && cursorIsDiskBacked(cursor)) {
       // Keep the cursor valid for a later blockable read; only this read is
       // rejected.
       Cursor_Pause(cursor);
@@ -2539,23 +2600,10 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
           "supported in Redis Flex");
     }
 
-    if (reqCtx) {
-      // Sub-case (1): lock out the main-thread timeout callback while we
-      // read/update the AREQ.
-      CoordRequestCtx_LockSetRequest(reqCtx);
-      if (CoordRequestCtx_TimedOut(reqCtx)) {
-        // Timeout already replied. FAIL policy: free the cursor so a later
-        // read can't mask the timeout by draining buffered rows.
-        CoordRequestCtx_UnlockSetRequest(reqCtx);
-        Cursor_Free(cursor);
-        return REDISMODULE_OK;
-      }
-      // Attach AREQ to the ctx (IncrRefs, propagates useReplyCallback/timedOut/stage).
-      CoordRequestCtx_SetRequest(reqCtx, cursor->execState);
-      CoordRequestCtx_UnlockSetRequest(reqCtx);
-    } else if (cursor->execState) {
-      // Sub-cases (2) and (3): reply inline via ctx; clear stale useReplyCallback.
-      cursor->execState->useReplyCallback = false;
+    AREQ *inline_req = Cursor_AREQ(cursor);
+    if (inline_req) {
+      // Reply inline via ctx; clear stale useReplyCallback.
+      inline_req->useReplyCallback = false;
     }
     cursorRead(ctx, cursor, count, false);
   }
@@ -2582,7 +2630,7 @@ int RSCursorProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %d", cid);
   }
 
-  AREQ *req = cursor->execState;
+  AREQ *req = Cursor_AREQ(cursor);
   if (!IsProfile(req)) {
     Cursor_Pause(cursor); // Pause the cursor again since we are not going to use it, but it's still valid.
     return RedisModule_ReplyWithErrorFormat(ctx, "cursor request is not profile, id: %d", cid);
@@ -2688,9 +2736,10 @@ int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   debug_params = debug_req->debug_params;
 
   debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
-  // Parse the query, not including debug params
+  // Parsing stops before the debug params: the constructor set the wrapper's
+  // `parseArgc` below the debug tail (the holds still cover the full argv).
 
-  if (prepareRequest(&r, ctx, argv, argc - debug_argv_count, type, profileOptions, &status) != REDISMODULE_OK) {
+  if (prepareRequest(&r, ctx, type, profileOptions, &status) != REDISMODULE_OK) {
     RS_ASSERT(r == NULL);
     if (QueryError_GetCode(&status) == QUERY_ERROR_CODE_TIMED_OUT) {
       return replyForPreExecutionTimeout(ctx, argv, argc - debug_argv_count, profileOptions, &status);

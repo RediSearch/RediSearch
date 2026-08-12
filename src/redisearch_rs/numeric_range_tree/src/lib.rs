@@ -75,6 +75,7 @@ mod node;
 mod range;
 mod tree;
 mod unique_id;
+mod window;
 
 pub use arena::NodeIndex;
 pub use index::{NumericIndex, NumericIndexReader, RawNumericIndexReader};
@@ -87,6 +88,7 @@ pub use tree::{
     TrimEmptyLeavesResult,
 };
 pub use unique_id::TreeUniqueId;
+pub use window::RangeWindow;
 
 #[cfg(feature = "test-utils")]
 pub mod test_utils;

@@ -51,7 +51,7 @@ use ttl_table::FieldExpirations;
 
 /// Wrapper around RedisModuleCtx ensuring its resources are properly cleaned up.
 struct ModuleCtx {
-    ctx: ptr::NonNull<ffi::RedisModuleCtx>,
+    ctx: ptr::NonNull<redis_module::RedisModuleCtx>,
 }
 
 impl ModuleCtx {
@@ -60,7 +60,7 @@ impl ModuleCtx {
         redis_mock::init_redis_module_mock();
 
         let ctx = unsafe {
-            let get_thread_safe_context = ffi::RedisModule_GetThreadSafeContext
+            let get_thread_safe_context = redis_module::RedisModule_GetThreadSafeContext
                 .expect("RedisModule_GetThreadSafeContext not implemented");
             get_thread_safe_context(ptr::null_mut())
         };
@@ -76,7 +76,7 @@ impl ModuleCtx {
         }
     }
 
-    const fn as_ptr(&self) -> *mut ffi::RedisModuleCtx {
+    const fn as_ptr(&self) -> *mut redis_module::RedisModuleCtx {
         self.ctx.as_ptr()
     }
 }
@@ -84,7 +84,7 @@ impl ModuleCtx {
 impl Drop for ModuleCtx {
     fn drop(&mut self) {
         unsafe {
-            let free_thread_safe_context = ffi::RedisModule_FreeThreadSafeContext
+            let free_thread_safe_context = redis_module::RedisModule_FreeThreadSafeContext
                 .expect("RedisModule_FreeThreadSafeContext not implemented");
             free_thread_safe_context(self.ctx.as_ptr());
         }
@@ -128,6 +128,12 @@ enum TestContextInner {
         inverted_index: ptr::NonNull<ffi::InvertedIndex>,
     },
     Geometry {
+        field_spec: ptr::NonNull<ffi::FieldSpec>,
+    },
+    /// A text field whose terms trie and per-term inverted indexes are populated
+    /// for prefix/suffix/contains expansion tests. The inverted indexes live in
+    /// the spec's keysDict and are freed with the spec.
+    Prefix {
         field_spec: ptr::NonNull<ffi::FieldSpec>,
     },
 }
@@ -337,10 +343,10 @@ impl TestContext {
         // Add numeric data to the range tree
         for record in records {
             let record_val = record.as_numeric().unwrap();
-            numeric_range_tree.add(record.doc_id as DocId, record_val, false, 0);
+            numeric_range_tree.add(record.doc_id as DocId, record_val, false, false, 0);
 
             if multi {
-                numeric_range_tree.add(record.doc_id as DocId, record_val, true, 0);
+                numeric_range_tree.add(record.doc_id as DocId, record_val, false, true, 0);
             }
         }
 
@@ -406,7 +412,7 @@ impl TestContext {
             let coords = geo::hash::WGS84Coordinates::from_f64(lon, lat)
                 .expect("TestContext::geo given out-of-WGS84-bounds coordinates");
             let score = geo::hash::encode_wgs84(coords, geo::hash::GEO_STEP_MAX).bits as f64;
-            numeric_range_tree.add(doc_id, score, false, 0);
+            numeric_range_tree.add(doc_id, score, false, false, 0);
         }
 
         Self {
@@ -514,9 +520,9 @@ impl TestContext {
 
         // Populate with the records
         for record in records {
-            Self::write_forward_index_entry(inverted_index.as_ptr(), &record);
+            Self::write_forward_index_entry(inverted_index.as_ptr(), &record, &term);
             if multi {
-                Self::write_forward_index_entry(inverted_index.as_ptr(), &record);
+                Self::write_forward_index_entry(inverted_index.as_ptr(), &record, &term);
             }
         }
 
@@ -529,6 +535,115 @@ impl TestContext {
                 field_spec,
                 inverted_index,
             },
+        }
+    }
+
+    /// Create a [`TestContext`] whose terms trie and per-term inverted indexes
+    /// are populated for prefix/suffix/contains expansion tests.
+    ///
+    /// Each `(term, records)` pair inserts `term` into the spec's terms trie —
+    /// so trie iteration can discover it — and creates an inverted index keyed by
+    /// `term`, populated with `records`. The inverted indexes live in the spec's
+    /// keysDict and are freed with the spec on drop.
+    ///
+    /// A term is anything that converts to a byte string, not just a `str`: the
+    /// trie decodes it without validating, so a term key can hold bytes UTF-8
+    /// forbids — notably the three-byte form of a lone surrogate, which is what
+    /// a non-BMP codepoint truncated to a rune round-trips to. Pass a `&[u8]` to
+    /// index such a term.
+    ///
+    /// When `with_suffix_trie` is set, the text field is declared
+    /// `WITHSUFFIXTRIE` and each term is also inserted into the spec's suffix
+    /// trie, exercising the suffix-trie expansion path instead of the brute-force
+    /// terms-trie scan.
+    ///
+    /// The empty term is a special case, and is faithful to the indexer: neither
+    /// trie takes a zero-length key — the terms trie refuses one and the suffix
+    /// trie is gated against it — so an empty term contributes only its inverted
+    /// index, exactly as an `INDEXEMPTY` field's empty value does.
+    pub fn prefix<T, S>(terms: T, with_suffix_trie: bool) -> Self
+    where
+        T: IntoIterator<Item = (S, Vec<RSIndexResult<'static>>)>,
+        S: Into<Vec<u8>>,
+    {
+        // Serialize TestContext creation to avoid concurrent access to C global state
+        let _lock = CONTEXT_MUTEX.lock().unwrap();
+
+        let ctx = ModuleCtx::new();
+        let index_name = unique_index_name("prefix_idx");
+        let schema = if with_suffix_trie {
+            "SCHEMA text_field TEXT WITHSUFFIXTRIE"
+        } else {
+            "SCHEMA text_field TEXT"
+        };
+        let (spec, sctx) = create_spec_sctx(&ctx, schema, &index_name);
+
+        let field_name = CString::new("text_field").unwrap();
+        // SAFETY: `spec` is a valid, non-null `IndexSpec` just returned by
+        // `create_spec_sctx`, and `field_name` is a valid NUL-terminated string
+        // whose byte length matches the pointer passed alongside it.
+        let fs = unsafe {
+            ffi::IndexSpec_GetFieldWithLength(
+                spec,
+                field_name.as_ptr(),
+                field_name.as_bytes().len(),
+            )
+        };
+        let field_spec = ptr::NonNull::new(fs as _).expect("FieldSpec should not be null");
+
+        for (term, records) in terms {
+            let cterm = CString::new(term).expect("term must not contain a NUL byte");
+            // Insert into the terms trie so trie iteration discovers this term.
+            // SAFETY: `spec` is a valid, non-null `IndexSpec` whose terms trie
+            // `create_spec_sctx` initialised, and `cterm` is a valid
+            // NUL-terminated string whose byte length is passed alongside it.
+            unsafe {
+                ffi::IndexSpec_AddTerm(spec, cterm.as_ptr(), cterm.as_bytes().len());
+            }
+            // Mirror the indexer by also feeding the suffix trie when enabled —
+            // including its gate against the empty term, which `addSuffixTrie`
+            // asserts on.
+            if with_suffix_trie && !cterm.as_bytes().is_empty() {
+                // SAFETY: `spec` is a valid, non-null `IndexSpec` just returned
+                // by `create_spec_sctx`.
+                let suffix = unsafe { (*spec).suffix };
+                assert!(
+                    !suffix.is_null(),
+                    "WITHSUFFIXTRIE spec must have a suffix trie"
+                );
+                // SAFETY: a `WITHSUFFIXTRIE` field makes `spec.suffix` a valid
+                // suffix `Trie`, checked non-null above; `cterm` is a valid
+                // NUL-terminated term whose byte length is passed alongside it.
+                unsafe {
+                    ffi::addSuffixTrie(suffix, cterm.as_ptr(), cterm.to_bytes().len() as u32);
+                }
+            }
+            // Create and register the term's inverted index in the spec's keysDict.
+            let mut is_new = false;
+            // SAFETY: `spec` is a valid, non-null `IndexSpec`; `cterm` is a valid
+            // NUL-terminated term whose byte length is passed alongside it; and
+            // `is_new` is a live `bool` the call writes through.
+            let ii = unsafe {
+                ffi::Redis_OpenInvertedIndex(
+                    spec,
+                    cterm.as_ptr(),
+                    cterm.as_bytes().len(),
+                    true, // write mode
+                    &mut is_new,
+                )
+            };
+            let ii = ptr::NonNull::new(ii).expect("InvertedIndex should not be null");
+            for record in records {
+                Self::write_forward_index_entry(ii.as_ptr(), &record, &cterm);
+            }
+        }
+
+        Self {
+            _ctx: ctx,
+            sctx,
+            spec,
+            qctx: OnceCell::new(),
+            inner: TestContextInner::Prefix { field_spec },
         }
     }
 
@@ -740,9 +855,11 @@ impl TestContext {
     }
 
     /// Write a record to an inverted index using the ForwardIndexEntry FFI.
-    fn write_forward_index_entry(idx: *mut ffi::InvertedIndex, record: &RSIndexResult) {
-        let term = CString::new("term").unwrap();
-
+    fn write_forward_index_entry(
+        idx: *mut ffi::InvertedIndex,
+        record: &RSIndexResult,
+        term: &std::ffi::CStr,
+    ) {
         // Create VarintVectorWriter for offsets
         let vw = varint_ffi::NewVarintVectorWriter(16);
         let vw_nonnull = ptr::NonNull::new(vw).expect("VectorWriter should not be null");
@@ -761,7 +878,7 @@ impl TestContext {
             __bindgen_padding_0: 0,
             fieldMask: record.field_mask,
             term: term.as_ptr(),
-            len: term.as_bytes().len() as u32,
+            len: term.to_bytes().len() as u32,
             hash: 0,
             vw: vw.cast(), // Cast varint::VectorWriter* to ffi::VarintVectorWriter*
             staged: false,
@@ -769,7 +886,7 @@ impl TestContext {
 
         // Write the entry to the inverted index
         unsafe {
-            ffi::InvertedIndex_WriteForwardIndexEntry(idx, &mut entry);
+            ffi::InvertedIndex_WriteForwardIndexEntry(idx, &mut entry, false);
         }
 
         varint_ffi::VVW_Free(Some(vw_nonnull));
@@ -807,7 +924,8 @@ impl TestContext {
             | TestContextInner::Term { field_spec, .. }
             | TestContextInner::Missing { field_spec, .. }
             | TestContextInner::Tag { field_spec, .. }
-            | TestContextInner::Geometry { field_spec, .. } => unsafe { field_spec.as_ref() },
+            | TestContextInner::Geometry { field_spec, .. }
+            | TestContextInner::Prefix { field_spec, .. } => unsafe { field_spec.as_ref() },
             TestContextInner::Wildcard { .. } => panic!("Wildcard context has no field spec"),
         }
     }

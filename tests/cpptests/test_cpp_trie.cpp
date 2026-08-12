@@ -14,12 +14,11 @@
 #include "trie/trie.h"
 #include "redismock/redismock.h"
 
-#include <set>
 #include <string>
 #include <memory>
 #include <functional>
-
-typedef std::set<std::string> ElemSet;
+#include <cstdint>
+#include <vector>
 
 class TrieTest : public ::testing::Test {};
 
@@ -44,153 +43,100 @@ static void *triePayload(Trie *t, const char *s, size_t len, bool exact) {
   return TrieNode_GetPayloadData(node);
 }
 
-static int rangeFunc(const rune *u16, size_t nrune, void *ctx, void *payload, size_t numDocsInTerm) {
+static int collectTermFunc(const rune *u16, size_t nrune, void *ctx, void *payload,
+                           size_t numDocsInTerm) {
   size_t n;
   char *s = runesToStr(u16, nrune, &n);
-  std::string xs(s, n);
-  free(s);
-  ElemSet *e = (ElemSet *)ctx;
-  assert(e->end() == e->find(xs));
-  e->insert(xs);
+  ((std::vector<std::string> *)ctx)->emplace_back(s, n);
+  rm_free(s);
   return REDISEARCH_OK;
 }
 
-static ElemSet trieIterRange(Trie *t, const char *begin, size_t nbegin, const char *end,
-                             size_t nend) {
-  rune r1[256] = {0};
-  rune r2[256] = {0};
-  size_t nr1, nr2;
+// Collects every term under `prefix`. Unlike Trie_IterateAll's explicit stack,
+// this descends by recursion, one frame per node.
+static std::vector<std::string> trieIterPrefix(Trie *t, const char *prefix) {
+  runeBuf buf;
+  size_t len = strlen(prefix);
+  rune *runes = runeBufFill(prefix, len, &buf, &len);
 
-  rune *r1Ptr = r1;
-  rune *r2Ptr = r2;
-
-  nr1 = strToRunesN(begin, nbegin, r1);
-  nr2 = strToRunesN(end, nend, r2);
-
-  if (!begin) {
-    r1Ptr = NULL;
-    nr1 = -1;
-  }
-
-  if (!end) {
-    r2Ptr = NULL;
-    nr2 = -1;
-  }
-
-  ElemSet foundElements;
-  Trie_IterateRange(t, r1Ptr, nr1, true, r2Ptr, nr2, false,
-                        rangeFunc, &foundElements);
-  return foundElements;
+  std::vector<std::string> terms;
+  Trie_IterateContains(t, runes, len, true, false, collectTermFunc, &terms, NULL, true);
+  runeBufFree(&buf);
+  return terms;
 }
 
-static ElemSet trieIterRange(Trie *t, const char *begin, const char *end) {
-  return trieIterRange(t, begin, begin ? strlen(begin) : 0, end, end ? strlen(end) : 0);
-}
+// Collects every term the trie emits, preserving emission order so that callers
+// can assert on the sort mode the trie is operating in.
+static std::vector<std::string> trieIterAllTerms(Trie *t) {
+  std::vector<std::string> terms;
+  rune *rstr = NULL;
+  t_len slen = 0;
+  float score = 0;
 
-TEST_F(TrieTest, testBasicRange) {
-  Trie *t = NewTrie(NULL, Trie_Sort_Lex);
-  rune rbuf[TRIE_INITIAL_STRING_LEN + 1];
-  for (size_t ii = 0; ii < 1000; ++ii) {
-    char buf[64];
-    snprintf(buf, sizeof(buf), "%lu", (unsigned long)ii);
-    auto n = trieInsert(t, buf);
-    ASSERT_TRUE(n);
+  TrieIterator *it = Trie_IterateAll(t);
+  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, NULL)) {
+    size_t n;
+    char *s = runesToStr(rstr, slen, &n);
+    terms.emplace_back(s, n);
+    rm_free(s);
   }
-
-  //TrieNode_Print(t->root, 0, 0);
-
-  // Get all numbers within the lexical range of 1 and 1Z
-  auto ret = trieIterRange(t, "1", "1Z");
-  ASSERT_EQ(111, ret.size());
-
-  // What does a NULL range return? the entire trie
-  ret = trieIterRange(t, NULL, NULL);
-  ASSERT_EQ(Trie_Size(t), ret.size());
-
-  // Min and max the same- should return only one value
-  ret = trieIterRange(t, "1", "1");
-  ASSERT_EQ(1, ret.size());
-
-  ret = trieIterRange(t, "10", 2, "11", 2);
-  ASSERT_EQ(11, ret.size());
-
-  // Min and Min+1
-  ret = trieIterRange(t, "10", 2, "10\x01", 3);
-  ASSERT_EQ(1, ret.size());
-
-  // No min, but has a max
-  ret = trieIterRange(t, NULL, "5");
-  ASSERT_EQ(445, ret.size());
-
-  TrieType_Free(t);
+  TrieIterator_Free(it);
+  return terms;
 }
 
-TEST_F(TrieTest, testBasicRangeWithScore) {
+static constexpr rune kPackedChildKeyPrefix = 0x41;
+static constexpr int kPackedChildKeyChildCount = 128;
+
+static uintptr_t trieNodeChildKeyAddress(const TrieNode *n) {
+  return reinterpret_cast<uintptr_t>(n) + sizeof(TrieNode) + (n->len + 1) * sizeof(rune);
+}
+
+static void buildPackedChildKeyScanTrie(Trie **tOut, TrieNode **prefixNodeOut) {
   Trie *t = NewTrie(NULL, Trie_Sort_Score);
-  rune rbuf[TRIE_INITIAL_STRING_LEN + 1];
-  for (size_t ii = 0; ii < 1000; ++ii) {
-    char buf[64];
-    snprintf(buf, sizeof(buf), "%lu", (unsigned long)ii);
-    auto n = trieInsert(t, buf);
-    ASSERT_TRUE(n);
+  *tOut = t;
+  *prefixNodeOut = nullptr;
+
+  ASSERT_EQ(TRIE_OK_NEW,
+            Trie_InsertRune(t, &kPackedChildKeyPrefix, 1, 1.0, 0, NULL, 0));
+
+  for (int i = 0; i < kPackedChildKeyChildCount; ++i) {
+    rune key[] = {kPackedChildKeyPrefix, static_cast<rune>(0x20 + i)};
+    ASSERT_EQ(TRIE_OK_NEW, Trie_InsertRune(t, key, 2, static_cast<double>(i), 0, NULL, 0));
   }
 
-  //TrieNode_Print(t->root, 0, 0);
+  // Regression: child-key storage is packed inside TrieNode and may start at an
+  // odd address. Scanning a wide score-sorted node must not let the compiler use
+  // aligned loads from that packed key array.
+  TrieNode *prefixNode = Trie_GetNode(t, &kPackedChildKeyPrefix, 1, true, NULL);
+  ASSERT_NE(nullptr, prefixNode);
+  ASSERT_EQ(kPackedChildKeyChildCount, TrieNode_NumChildren(prefixNode));
+  ASSERT_NE(0u, trieNodeChildKeyAddress(prefixNode) % alignof(rune));
+  ASSERT_EQ(0u, reinterpret_cast<uintptr_t>(TrieNode_Children(prefixNode)) % alignof(TrieNode *));
+  *prefixNodeOut = prefixNode;
+}
 
-  // Get all numbers within the lexical range of 1 and 1Z
-  auto ret = trieIterRange(t, "1", "1Z");
-  ASSERT_EQ(111, ret.size());
+TEST_F(TrieTest, testGetScansPackedChildKeys) {
+  Trie *t = nullptr;
+  TrieNode *prefixNode = nullptr;
+  buildPackedChildKeyScanTrie(&t, &prefixNode);
+  ASSERT_NE(nullptr, prefixNode);
 
-  // What does a NULL range return? the entire trie
-  ret = trieIterRange(t, NULL, NULL);
-  ASSERT_EQ(Trie_Size(t), ret.size());
-
-  // Min and max the same- should return only one value
-  ret = trieIterRange(t, "1", "1");
-  ASSERT_EQ(1, ret.size());
-
-  ret = trieIterRange(t, "10", 2, "11", 2);
-  ASSERT_EQ(11, ret.size());
-
-  // Min and Min+1
-  ret = trieIterRange(t, "10", 2, "10\x01", 3);
-  ASSERT_EQ(1, ret.size());
-
-  // No min, but has a max
-  ret = trieIterRange(t, NULL, "5");
-  ASSERT_EQ(445, ret.size());
+  rune key[] = {kPackedChildKeyPrefix, 0x20};
+  TrieNode *node = Trie_GetNode(t, key, 2, true, NULL);
+  ASSERT_NE(nullptr, node);
 
   TrieType_Free(t);
 }
 
-// Regression test for `rangeIterate` double-emission when the boundary value
-// is a proper prefix of a child's collapsed label. The fixture uses textual
-// terms (rather than testBasicRange's numeric ones) so that root children
-// like "ban" have multi-character labels — only those expose the bug, because
-// `rsb_gt`/`rsb_lt` treat e.g. "b" < "ban" and thus include the boundary
-// child in the for-loop alongside the dedicated boundary recursion above it.
-// `rangeFunc`'s `assert(e->end() == e->find(xs))` aborts on any duplicate
-// emission, so a clean run is the regression signal.
-TEST_F(TrieTest, testRangeBoundaryPrefix) {
-  Trie *t = NewTrie(NULL, Trie_Sort_Lex);
-  for (const char *term : {"apple", "banana", "band", "bandana", "cherry", "date"}) {
-    ASSERT_TRUE(trieInsert(t, term));
-  }
+TEST_F(TrieTest, testDeleteScansPackedChildKeys) {
+  Trie *t = nullptr;
+  TrieNode *prefixNode = nullptr;
+  buildPackedChildKeyScanTrie(&t, &prefixNode);
+  ASSERT_NE(nullptr, prefixNode);
 
-  // Min-only: [b, +inf). "b" is a proper prefix of the collapsed "ban" label.
-  // Pre-fix: ban-subtree fires once via the boundary recursion and again
-  // via the for-loop (`rsb_gt("b")` returns the same index as `beginEqIdx`).
-  auto retMin = trieIterRange(t, "b", NULL);
-  ElemSet expectedMin{"banana", "band", "bandana", "cherry", "date"};
-  EXPECT_EQ(expectedMin, retMin);
-
-  // Max-only: (-inf, banb). "ban" is a proper prefix of "banb", so
-  // `rsb_lt("banb")` includes the "ban" subtree alongside the boundary
-  // recursion. After the fix only entries strictly less than "banb" surface
-  // ("band"/"bandana" are lex-greater than "banb").
-  auto retMax = trieIterRange(t, NULL, "banb");
-  ElemSet expectedMax{"apple", "banana"};
-  EXPECT_EQ(expectedMax, retMax);
+  rune key[] = {kPackedChildKeyPrefix, 0x20};
+  ASSERT_EQ(1, Trie_DeleteRunes(t, key, 2));
+  ASSERT_EQ(kPackedChildKeyChildCount, Trie_Size(t));
 
   TrieType_Free(t);
 }
@@ -218,8 +164,7 @@ TEST_F(TrieTest, testDeepEntry) {
     // printf("Inserting with len=%u: %d\n", curlen, rc);
   }
 
-  auto ret = trieIterRange(t, "1", "1Z");
-  ASSERT_EQ(maxbuf, ret.size());
+  ASSERT_EQ(maxbuf, trieIterPrefix(t, "1").size());
   TrieType_Free(t);
 }
 
@@ -1083,9 +1028,9 @@ TEST_F(TrieTest, testDecrementNumDocsUnrepresentableLongTerm) {
   EXPECT_EQ(TRIE_DECR_UNSUPPORTED, Trie_DecrementNumDocs(t, cjk256.c_str(), cjk256.size(), 1));
 }
 
-// Regression: TrieType_GenericLoad must preserve sort mode across reload,
-// or Trie_IterateRange's binary search breaks on Lex-sourced tries.
-TEST_F(TrieTest, testRdbSaveLoadLexRangePreservesQueries) {
+// Regression: TrieType_GenericLoad must preserve sort mode across reload, or a
+// Lex-sourced trie comes back score-sorted and emits terms in the wrong order.
+TEST_F(TrieTest, testRdbSaveLoadPreservesLexSortMode) {
   Trie *original = NewTrie(NULL, Trie_Sort_Lex);
   std::unique_ptr<Trie, std::function<void(Trie *)>> originalPtr(
       original, [](Trie *t) { TrieType_Free(t); });
@@ -1103,9 +1048,11 @@ TEST_F(TrieTest, testRdbSaveLoadLexRangePreservesQueries) {
   }
   ASSERT_EQ(13, Trie_Size(original));
 
-  // Ground truth: lex range [d, j) on the original Lex trie.
-  ElemSet expected = trieIterRange(original, "d", "j");
-  ASSERT_EQ((ElemSet{"d", "e", "f", "g", "h", "i"}), expected);
+  // Ground truth: a Lex trie emits lex-ascending, not score-descending.
+  std::vector<std::string> expected = trieIterAllTerms(original);
+  ASSERT_EQ((std::vector<std::string>{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l",
+                                      "m"}),
+            expected);
 
   RedisModuleIO *io = RMCK_CreateRdbIO();
   std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(
@@ -1122,9 +1069,8 @@ TEST_F(TrieTest, testRdbSaveLoadLexRangePreservesQueries) {
   ASSERT_TRUE(loaded != nullptr);
   ASSERT_EQ(Trie_Size(original), Trie_Size(loaded));
 
-  // Same range query on the same data must produce the same result set.
-  ElemSet actual = trieIterRange(loaded, "d", "j");
-  EXPECT_EQ(expected, actual);
+  // Same data, so the reloaded trie must emit in the same order.
+  EXPECT_EQ(expected, trieIterAllTerms(loaded));
 }
 
 TEST_F(TrieTest, testRdbSaveLoadWithNumDocs) {

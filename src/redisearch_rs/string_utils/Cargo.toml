@@ -23,6 +23,7 @@ build_utils.workspace = true
 
 [dependencies]
 ffi.workspace = true
+redis-module.workspace = true
 thiserror.workspace = true
 workspace_hack.workspace = true
 

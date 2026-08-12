@@ -429,7 +429,7 @@ impl<'a> RLookup<'a> {
         dst_row: &mut RLookupRow<'a>,
         index_spec: &'a IndexSpec,
         key_name: &CStr,
-        open_key: Option<&ffi::RedisModuleKey>,
+        open_key: Option<&redis_module::RedisModuleKey>,
     ) -> Result<(), LoadFieldError> {
         // NB: eagerly consume the entire iterator, so the **side-effect-full* `self.keys.push` happens
         // for every key.
@@ -502,8 +502,8 @@ fn create_key_from_data<'a>(
     } else {
         let index = usize::try_from(index).expect("index must be positive and fit into usize");
         let field_spec = &field_specs[index];
-        let field_name = field_spec.field_name().into_secret_value();
-        let path = field_spec.field_path().into_secret_value();
+        let field_name = field_spec.field_name().secret_value();
+        let path = field_spec.field_path().secret_value();
 
         RLookupKey::new_with_path(field_name, path, RLookupKeyFlags::empty())
     }

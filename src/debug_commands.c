@@ -445,14 +445,14 @@ void HybridStoreCursorsDebugCtx_SetPause(bool pause) {
   atomic_store(&globalHybridStoreCursorsDebugCtx.pause, pause);
 }
 
-static atomic_uint_fast64_t g_coordReqCtxFreeCount = 0;
+static atomic_uint_fast64_t g_blockedRequestOnFreeCount = 0;
 
-void CoordReqCtxFreeDebug_Increment(void) {
-  atomic_fetch_add_explicit(&g_coordReqCtxFreeCount, 1, memory_order_relaxed);
+void BlockedRequestOnFreeDebug_Increment(void) {
+  atomic_fetch_add_explicit(&g_blockedRequestOnFreeCount, 1, memory_order_relaxed);
 }
 
-uint64_t CoordReqCtxFreeDebug_GetCount(void) {
-  return atomic_load_explicit(&g_coordReqCtxFreeCount, memory_order_relaxed);
+uint64_t BlockedRequestOnFreeDebug_GetCount(void) {
+  return atomic_load_explicit(&g_blockedRequestOnFreeCount, memory_order_relaxed);
 }
 #endif
 
@@ -1027,6 +1027,13 @@ static int GCForceInvokeReply(RedisModuleCtx *ctx, RedisModuleString **argv, int
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
+  // Replying DONE for a cycle that never started would be indistinguishable from one that
+  // ran and found nothing to collect.
+  const GCForcedRunOutcome *outcome = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (outcome && *outcome == GC_FORCED_RUN_NO_FORK) {
+    return RedisModule_ReplyWithError(
+        ctx, "GC DID NOT RUN: no child process could be created within TIMEOUT");
+  }
   return RedisModule_ReplyWithSimpleString(ctx, "DONE");
 }
 
@@ -1045,16 +1052,19 @@ DEBUG_COMMAND(GCForceInvoke) {
   if (argc < 3 || argc > 4) {
     return RedisModule_WrongArity(ctx);
   }
-  long long timeout = 30000;
-
-  if (argc == 4) {
-    RedisModule_StringToLongLong(argv[3], &timeout);
-  }
   StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
     return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
+  }
+
+  // Disk GC cycles (SpeedB compaction) take longer than fork GC, so disk
+  // indexes get a higher default timeout.
+  long long timeout = sp->diskSpec ? 60000 : 30000;
+  if (argc == 4 &&
+      (RedisModule_StringToLongLong(argv[3], &timeout) != REDISMODULE_OK || timeout < 0)) {
+    return RedisModule_ReplyWithError(ctx, "Invalid TIMEOUT value");
   }
 
   // Indexes normally own a GCContext (`sp->gc`). Routing the forced invoke
@@ -1065,9 +1075,20 @@ DEBUG_COMMAND(GCForceInvoke) {
   // after a forced GC. The fallback below covers the only case where a disk
   // index has no GCContext (GC globally disabled or a temporary index).
   if (sp->gc) {
+    // TIMEOUT bounds the wait for a fork slot as well as the client's patience, less a margin
+    // so this reply wins the race against the block timeout. A short TIMEOUT gets half of it,
+    // since a fixed margin would leave nothing to wait with. 0 stays 0, meaning no limit.
+    long long forkWaitMs = timeout;  // TIMEOUT 0 asks for no limit, and stays that way
+    if (timeout > 2 * GC_FORCED_RUN_REPLY_MARGIN_MS) {
+      forkWaitMs = timeout - GC_FORCED_RUN_REPLY_MARGIN_MS;
+    } else if (timeout > 0) {
+      // Halving rounds down, and 0 here would read as no limit -- the opposite of a 1ms budget.
+      forkWaitMs = timeout / 2 > 0 ? timeout / 2 : 1;
+    }
+    GCForcedRun forced = GCForcedRun_New(forkWaitMs, GC_FORCED_RUN_RETRY_INTERVAL_MS);
     RedisModuleBlockedClient *bc = RedisModule_BlockClient(
-        ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, NULL, timeout);
-    GCContext_ForceInvoke(sp->gc, bc);
+        ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, GCForcedRunOutcomeFree, timeout);
+    GCContext_ForceInvoke(sp->gc, bc, forced);
     return REDISMODULE_OK;
   } else if (sp->diskSpec) {
     // Fallback described above: with no GCContext there is no DiskGC stats
@@ -1105,6 +1126,24 @@ DEBUG_COMMAND(DiskFlush) {
   return REDISMODULE_OK;
 }
 
+// Resolves argv[2] to a spec that owns a GCContext, replying with the error and returning NULL
+// if it names no index or one without a GC (a TEMPORARY index, or any index under NOGC).
+static IndexSpec *debugSpecWithGC(RedisModuleCtx *ctx, RedisModuleString **argv) {
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
+    RedisModule_ReplyWithErrorFormat(ctx, "%s: %s",
+                                     QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
+    return NULL;
+  }
+  if (!sp->gc) {
+    RedisModule_ReplyWithError(ctx, "GC is not available for this index");
+    return NULL;
+  }
+  return sp;
+}
+
 DEBUG_COMMAND(GCForceBGInvoke) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
@@ -1112,13 +1151,14 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
-  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
-  IndexSpec *sp = StrongRef_Get(ref);
+  IndexSpec *sp = debugSpecWithGC(ctx, argv);
   if (!sp) {
-    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
-    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
+    return REDISMODULE_OK;
   }
-  GCContext_ForceBGInvoke(sp->gc);
+  // Nobody is waiting on this one, so it gets the default budget rather than a TIMEOUT.
+  GCForcedRun forced = GCForcedRun_New(GC_FORCED_RUN_DEFAULT_WAIT_MS,
+                                       GC_FORCED_RUN_RETRY_INTERVAL_MS);
+  GCContext_ForceBGInvoke(sp->gc, forced);
   RedisModule_ReplyWithSimpleString(ctx, "OK");
   return REDISMODULE_OK;
 }
@@ -1130,16 +1170,11 @@ DEBUG_COMMAND(GCStopFutureRuns) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
-  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
-  IndexSpec *sp = StrongRef_Get(ref);
+  IndexSpec *sp = debugSpecWithGC(ctx, argv);
   if (!sp) {
-    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
-    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
+    return REDISMODULE_OK;
   }
-  // Make sure there is no pending timer
-  RedisModule_StopTimer(RSDummyContext, sp->gc->timerID, NULL);
-  // mark as stopped. This will prevent the GC from scheduling itself again if it was already running.
-  sp->gc->timerID = 0;
+  GCContext_StopFutureRuns(sp->gc);
   RedisModule_Log(ctx, "verbose", "Stopped GC %p periodic run for index %s", sp->gc, IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
@@ -1151,13 +1186,11 @@ DEBUG_COMMAND(GCContinueFutureRuns) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
-  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
-  IndexSpec *sp = StrongRef_Get(ref);
+  IndexSpec *sp = debugSpecWithGC(ctx, argv);
   if (!sp) {
-    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
-    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
+    return REDISMODULE_OK;
   }
-  if (sp->gc->timerID) {
+  if (GCContext_IsEnabled(sp->gc)) {
     return RedisModule_ReplyWithError(ctx, "GC is already running periodically");
   }
   GCContext_StartNow(sp->gc);
@@ -2563,6 +2596,46 @@ void ResetYieldCounters(void) {
   g_yieldCallHandler.yieldOnBgIndexCounter = 0;
 }
 
+// Both are only ever bumped on the main thread.
+typedef struct {
+  size_t total;
+  size_t fromOneShot;
+} GCTimerArmCounters;
+
+static GCTimerArmCounters g_gcTimerArms = {0};
+
+void IncrementGCTimerArm(void) {
+  g_gcTimerArms.total++;
+}
+
+void IncrementGCTimerArmFromOneShot(void) {
+  g_gcTimerArms.fromOneShot++;
+}
+
+// FT.DEBUG GC_TIMER_ARMS TOTAL|FROM_ONESHOT|RESET
+DEBUG_COMMAND(GCTimerArms) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  size_t len;
+  const char *subCmd = RedisModule_StringPtrLen(argv[2], &len);
+  if (STR_EQCASE(subCmd, len, "RESET")) {
+    g_gcTimerArms = (GCTimerArmCounters){0};
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+  if (STR_EQCASE(subCmd, len, "TOTAL")) {
+    return RedisModule_ReplyWithLongLong(ctx, (long long)g_gcTimerArms.total);
+  }
+  if (STR_EQCASE(subCmd, len, "FROM_ONESHOT")) {
+    return RedisModule_ReplyWithLongLong(ctx, (long long)g_gcTimerArms.fromOneShot);
+  }
+  return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
+}
+
 // Get the current sleep time before yielding (in microseconds)
 unsigned int GetIndexerSleepBeforeYieldMicros(void) {
   return g_yieldCallHandler.indexerSleepBeforeYieldMicros;
@@ -2767,9 +2840,9 @@ DEBUG_COMMAND(getCoordReduceCount) {
 }
 
 /**
- * FT.DEBUG QUERY_CONTROLLER GET_COORD_REQ_CTX_FREE_COUNT
+ * FT.DEBUG QUERY_CONTROLLER GET_BLOCKED_REQUEST_ONFREE_COUNT
  */
-DEBUG_COMMAND(getCoordReqCtxFreeCount) {
+DEBUG_COMMAND(getBlockedRequestOnFreeCount) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
@@ -2777,7 +2850,7 @@ DEBUG_COMMAND(getCoordReqCtxFreeCount) {
     return RedisModule_WrongArity(ctx);
   }
 
-  return RedisModule_ReplyWithLongLong(ctx, (long long)CoordReqCtxFreeDebug_GetCount());
+  return RedisModule_ReplyWithLongLong(ctx, (long long)BlockedRequestOnFreeDebug_GetCount());
 }
 
 /**
@@ -3189,6 +3262,18 @@ DEBUG_COMMAND(bgPendingReplies) {
   return RedisModule_ReplyWithLongLong(ctx, pending);
 }
 
+#ifdef ENABLE_ASSERT
+/**
+ * FT.DEBUG IO_RUNTIME_PENDING_REQUESTS
+ * Returns the number of queued or active coordinator IO requests.
+ */
+DEBUG_COMMAND(ioRuntimePendingRequests) {
+  if (!debugCommandsEnabled(ctx)) return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  if (argc != 2) return RedisModule_WrongArity(ctx);
+  return RedisModule_ReplyWithLongLong(ctx, MR_Debug_GetPendingRequests());
+}
+#endif
+
 /**
  * FT.DEBUG QUERY_CONTROLLER SET_CURSOR_READ_SIZE <N>
  * Override RSGlobalConfig.cursorReadSize at runtime. Returns the previous
@@ -3251,8 +3336,8 @@ DEBUG_COMMAND(queryController) {
   if (!strcmp("GET_COORD_REDUCE_COUNT", op)) {
     return getCoordReduceCount(ctx, argv + 1, argc - 1);
   }
-  if (!strcmp("GET_COORD_REQ_CTX_FREE_COUNT", op)) {
-    return getCoordReqCtxFreeCount(ctx, argv + 1, argc - 1);
+  if (!strcmp("GET_BLOCKED_REQUEST_ONFREE_COUNT", op)) {
+    return getBlockedRequestOnFreeCount(ctx, argv + 1, argc - 1);
   }
   // AggregateResults loop pause commands
   if (!strcmp("SET_PAUSE_AFTER_AGGREGATE_RESULT", op)) {
@@ -3360,6 +3445,38 @@ DEBUG_COMMAND(VecSimMockTimeout) {
   } else {
     return RedisModule_ReplyWithError(ctx, "Invalid command for 'VECSIM_MOCK_TIMEOUT'");
   }
+}
+
+/**
+ * FT.DEBUG MOCK_REVALIDATE_TIMEOUT <enable|disable|status>
+ * Make every iterator revalidation report VALIDATE_TIMEOUT, globally
+ * enable - every revalidation reports a timeout, as if the query ran out of time while re-seeking
+ *          the index after a concurrent change
+ * disable - restore normal behavior
+ * status - show whether the switch is currently on. Nothing resets it, so a test that dies before
+ *          disabling it leaves every later cursor resume reporting a timeout
+ */
+DEBUG_COMMAND(MockRevalidateTimeout) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
+  if (!strcmp("enable", op)) {
+    RQEIterators_SetMockRevalidateTimeout(true);
+  } else if (!strcmp("disable", op)) {
+    RQEIterators_SetMockRevalidateTimeout(false);
+  } else if (!strcmp("status", op)) {
+    return RedisModule_ReplyWithSimpleString(
+        ctx, RQEIterators_GetMockRevalidateTimeout() ? "Mock revalidation timeout: enabled"
+                                                     : "Mock revalidation timeout: disabled");
+  } else {
+    return RedisModule_ReplyWithError(
+        ctx, "Invalid command for 'MOCK_REVALIDATE_TIMEOUT'. Use: enable, disable, or status");
+  }
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
 /**
@@ -3604,10 +3721,12 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"INFO", IndexObfuscatedInfo},
                                {"GET_HIDE_USER_DATA_FROM_LOGS", getHideUserDataFromLogs},
                                {"YIELDS_COUNTER", YieldCounter},
+                               {"GC_TIMER_ARMS", GCTimerArms},
                                {"INDEXER_SLEEP_BEFORE_YIELD_MICROS", IndexerSleepBeforeYieldMicros},
                                {"QUERY_CONTROLLER", queryController},
                                {"DUMP_SCHEMA", DumpSchema},
                                {"VECSIM_MOCK_TIMEOUT", VecSimMockTimeout},
+                               {"MOCK_REVALIDATE_TIMEOUT", MockRevalidateTimeout},
                                {"GET_MAX_DOC_ID", GetMaxDocId},
                                {"DUMP_DELETED_IDS", DumpDeletedIds},
                                {"NUMERIC_BUCKET_MAP", NumericBucketMap},
@@ -3638,6 +3757,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
 static DebugCommandType assertOnlyCommands[] = {
     {"SYNC_POINT", syncPoint},
     {"BG_PENDING_REPLIES", bgPendingReplies},
+    {"IO_RUNTIME_PENDING_REQUESTS", ioRuntimePendingRequests},
     {"SEND_ERROR", sendError},
     {"REPL_COMPACTION_COORDINATOR", replCompactionCoordinator},
     {NULL, NULL}};

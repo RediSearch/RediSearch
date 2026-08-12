@@ -6,7 +6,6 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#define REDISMODULE_MAIN
 
 #include <limits.h>
 #include <stdio.h>
@@ -76,7 +75,6 @@
 #include "rs_wall_clock.h"
 #include "hybrid/hybrid_exec.h"
 #include "hybrid/hybrid_debug.h"
-#include "coord/coord_request_ctx.h"
 #include "coord/hybrid/dist_hybrid.h"
 #include "util/redis_mem_info.h"
 #include "notifications.h"
@@ -2271,8 +2269,7 @@ void setKNNSpecialCase(searchRequestCtx *req, specialCaseCtx *knn_ctx) {
 // Prepare a TOPK special case, return a context with the required KNN fields if query is
 // valid and contains KNN section, NULL otherwise (and set proper error in *status* if error
 // was found).
-specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleString **argv, int argc, uint dialectVersion,
-                                        QueryError *status) {
+specialCaseCtx *prepareOptionalTopKCase(const char *query_string, size_t query_len, RedisModuleString **argv, int argc, uint dialectVersion, QueryError *status) {
 
   // First, parse the query params if exists, to set the params in the query parser ctx.
   dict *params = NULL;
@@ -2288,14 +2285,13 @@ specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleStr
   RedisSearchCtx sctx = {0};
   RSSearchOptions opts = {0};
   opts.params = params;
-  QueryParseCtx qpCtx = {
-      .raw = query_string,
-      .len = strlen(query_string),
-      .sctx = &sctx,
-      .opts = &opts,
-      .status = status,
+  QueryParseCtx qpCtx = {.raw = query_string,
+                         .len = query_len,
+                         .sctx = &sctx,
+                         .opts = &opts,
+                         .status = status,
 #ifdef PARSER_DEBUG
-      .trace_log = NULL
+                         .trace_log = NULL
 #endif
   };
 
@@ -2359,7 +2355,15 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   }
 
   int argvOffset = 2 + req->profileArgs;
-  req->queryString = rm_strdup(RedisModule_StringPtrLen(argv[argvOffset++], NULL));
+  size_t queryLen;
+  const char *queryPtr = RedisModule_StringPtrLen(argv[argvOffset++], &queryLen);
+  // Length-faithful copy: keeps any embedded NULs the client sent, matching
+  // the (buffer, length) parse downstream.
+  req->queryString = rm_strndup(queryPtr, queryLen);
+  // TRANSITIONAL: record the C-string length, truncating at the first NUL, so a query
+  // with embedded NULs behaves as it always has — consistent with AREQ_Query on the shards.
+  // TODO: remove — the true length is queryLen.
+  req->queryStringLen = strlen(req->queryString);
   req->limit = 10;
   req->offset = 0;
   req->specialCases = NULL;
@@ -2437,6 +2441,21 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
     AC_GetLongLong(&limitArgs, &req->limit, 0);
   }
   if (req->limit < 0 || req->offset < 0) {
+    // Report the same error the shard's parser (`handleCommonArgs`) produces for a negative
+    // LIMIT: it reads the values with AC_GetU64, which rejects negatives as non-numeric. Without
+    // setting the error here, `rscParseRequest` returns NULL with an empty status and the caller
+    // replies success for a malformed command.
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "LIMIT needs two numeric arguments");
+    searchRequestCtx_Free(req);
+    return NULL;
+  }
+  if (req->limit == 0 && req->offset != 0) {
+    // `LIMIT <non-zero offset> 0` is rejected here rather than by the shards: the fan-out below
+    // only rewrites the shard LIMIT when `limit > 0`, so this combination would otherwise be sent
+    // verbatim and each shard would reject it with the same error. Failing on the coordinator keeps
+    // the reply identical to standalone (`handleCommonArgs`) without a round trip to the shards.
+    QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT,
+                        "The `offset` of the LIMIT must be 0 when `num` is 0");
     searchRequestCtx_Free(req);
     return NULL;
   }
@@ -2493,7 +2512,8 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   if (dialect >= 2) {
     // Note: currently there is only one single case. For extending those cases we should use a trie here.
     if (strcasestr(req->queryString, "KNN")) {
-      specialCaseCtx *knnCtx = prepareOptionalTopKCase(req->queryString, argv, argc, dialect, status);
+      specialCaseCtx *knnCtx = prepareOptionalTopKCase(req->queryString, req->queryStringLen,
+                                                       argv, argc, dialect, status);
       if (QueryError_HasError(status)) {
         searchRequestCtx_Free(req);
         return NULL;
@@ -3137,10 +3157,21 @@ static void knnPostProcess(searchReducerCtx *rCtx) {
         }
       }
     }
+    // `shouldSort`: ProcessKNNSearchReply never accumulated the shards'
+    // total_results, it only fed the K-bounded knn.pq. rCtx->pq is sized
+    // MAX(K, offset+count) on this path (see setKNNSpecialCase), so the merge
+    // above dropped nothing and its count is exactly the number of matching
+    // documents, min(K, global matches).
+    rCtx->totalReplies = heap_count(rCtx->pq);
+  } else {
+    // SORTBY by the distance field: processSearchReply already summed each
+    // shard's total_results, i.e. sum_i min(K, matches_i). rCtx->pq here is only
+    // a response window sized MIN(K, offset+count), so its count is not a hit
+    // count. Clamping the sum to K is exact: if every shard has at most K
+    // matches the sum *is* the global match count, and otherwise both the sum
+    // and the global match count are >= K.
+    rCtx->totalReplies = MIN(reducerSpecialCaseCtx->knn.k, rCtx->totalReplies);
   }
-  // We can always get at most K results
-  rCtx->totalReplies = heap_count(rCtx->pq);
-
 }
 
 // Atomic (relaxed) access to the FT.SEARCH MR execution-phase marker: the BG
@@ -3756,13 +3787,6 @@ int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-
-// Free privdata callback for distributed aggregate and hybrid query
-static void DistCoordReqFreePrivData(RedisModuleCtx *ctx, void *privdata) {
-  UNUSED(ctx);
-  CoordRequestCtx_Free((CoordRequestCtx *)privdata);
-}
 
 // Forward declaration for initQueryTimeout (defined later in file)
 static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc, QueryError *status);
@@ -3847,7 +3871,26 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
-  CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_AGGREGATE);
+  // Allocate the request shell and its owning wrapper before blocking the
+  // client, so the full context is already installed (as the blocked client's
+  // privdata) once the client is blocked. Parsing happens on the BG thread.
+  AREQ *r;
+  if (isDebug) {
+    AREQ_Debug *debug_req = AREQ_Debug_New(argv, argc, &status);
+    if (!debug_req) {
+      // Malformed debug params: reply inline, nothing was dispatched.
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
+      return QueryError_ReplyAndClear(ctx, &status);
+    }
+    // Already wrapped by AREQ_Debug_New (the wrapper can only be attached
+    // after its rm_realloc).
+    r = &debug_req->r;
+  } else {
+    r = AREQ_New();
+    BlockedRequestCtx_NewAREQ(r, argv, argc);
+  }
+  // Either path took the argv holds here, on the main thread; the BG parse
+  // borrows from them (the job's own argv copies die with the job).
 
   ConcurrentSearchHandlerCtx handlerCtx;
   ConcurrentSearchHandlerCtx_Init(&handlerCtx);
@@ -3856,20 +3899,18 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
   handlerCtx.numShards = NumShards;  // Capture NumShards from main thread for thread-safe access
 
-  handlerCtx.bcCtx.privdata = reqCtx;
-  handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
-
-  // Capture the policy on the main thread so BG and the timeout callback agree
-  // on one value (avoids a TOCTOU against a concurrent FT.CONFIG SET).
-  RSTimeoutPolicy policy = RSGlobalConfig.requestConfigParams.timeoutPolicy;
-  CoordRequestCtx_SetTimeoutPolicy(reqCtx, policy);
+  RSTimeoutPolicy policy = r->reqConfig.timeoutPolicy;
+  handlerCtx.bcCtx.brc = r->brc;
   if (policy == TimeoutPolicy_Fail || policy == TimeoutPolicy_ReturnStrict) {
     handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
     handlerCtx.bcCtx.timeout_callback = (policy == TimeoutPolicy_Fail)
         ? DistAggregateTimeoutFailCallback
         : DistAggregateTimeoutReturnStrictCallback;
     handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
-    CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
+    r->useReplyCallback = true;
+    if (policy == TimeoutPolicy_ReturnStrict) {
+      r->brc->requiresAggregateResultsSync = true;
+    }
   }
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
@@ -3941,12 +3982,21 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
-  CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_HYBRID);
+  // Allocate the hybrid request shell and its owning wrapper before blocking
+  // the client, so the full context is already installed (as the blocked
+  // client's privdata) once the client is blocked. Parsing happens on the BG
+  // thread; the sub-AREQ contexts are detached thread-safe contexts.
+  RedisSearchCtx *sctx = NewSearchCtxC(ctx, idx, true);
+  RS_ASSERT(sctx != NULL);  // the index was validated above in the same GIL window
+  // Construction takes the argv holds here, on the main thread; the BG parse
+  // borrows from them (the job's own argv copies die with the job).
+  HybridRequest *hreq = MakeDefaultHybridRequest(sctx, argv, argc);
+  // The tail sctx aliased this handler's ctx, which dies when the handler
+  // returns. The BG executor re-points it at its own thread-safe ctx.
+  sctx->redisCtx = NULL;
 
-  // Capture the policy on the main thread so BG and the timeout callback agree
-  // on one value (avoids a TOCTOU against a concurrent FT.CONFIG SET).
-  RSTimeoutPolicy policy = RSGlobalConfig.requestConfigParams.timeoutPolicy;
-  CoordRequestCtx_SetTimeoutPolicy(reqCtx, policy);
+  RSTimeoutPolicy policy = hreq->reqConfig.timeoutPolicy;
+  hreq->brc->requiresAggregateResultsSync = (policy == TimeoutPolicy_ReturnStrict);
 
   ConcurrentSearchHandlerCtx handlerCtx;
   ConcurrentSearchHandlerCtx_Init(&handlerCtx);
@@ -3955,8 +4005,7 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
   handlerCtx.numShards = NumShards;  // Capture NumShards from main thread for thread-safe access
 
-  handlerCtx.bcCtx.privdata = reqCtx;
-  handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
+  handlerCtx.bcCtx.brc = hreq->brc;
 
   if (policy != TimeoutPolicy_Return) {
     handlerCtx.bcCtx.reply_callback = DistHybridReplyCallback;
@@ -3964,7 +4013,7 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
         ? DistHybridTimeoutFailCallback
         : DistHybridTimeoutReturnStrictCallback;
     handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
-    CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
+    hreq->useReplyCallback = true;
   }
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
@@ -3993,8 +4042,7 @@ static_assert(sizeof(kCursorSubNames) / sizeof(kCursorSubNames[0]) == CURSOR_SUB
 #endif
 
 static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                                RedisModuleCmdFunc subcmd, ConcurrentCmdHandler dist_callback,
-                                CursorSubcommand sub) {
+                                RedisModuleCmdFunc subcmd, CursorSubcommand sub) {
   if (argc < 4) {
     return RedisModule_WrongArity(ctx);
   } else if (!SearchCluster_Ready()) {
@@ -4008,77 +4056,22 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
 
   VERIFY_ACL(ctx, argv[2])
 
-  if (NumShards == 1) {
-    // There is only one shard in the cluster. We can handle the command locally.
-    return subcmd(ctx, argv, argc);
-  } else if (cannotBlockCtx(ctx)) {
+  // Only a multi-shard READ ever blocks (RSCursorReadCommand parses COUNT and
+  // takes the cursor on the main thread, then dispatches coordinator-list
+  // cursors to the coordinator pool). DEL / GC are cursor-list operations that
+  // run entirely on the main thread — freeing a coordinator cursor posts the
+  // shards' cleanup to the IO runtime asynchronously — so they are served from
+  // any context, like on a single shard.
+  if (sub == CURSOR_SUBCMD_READ && NumShards != 1 && cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
-
-  ConcurrentSearchHandlerCtx handlerCtx;
-  ConcurrentSearchHandlerCtx_Init(&handlerCtx);
-
-  handlerCtx.spec_ref = (WeakRef){0};
-
-  // On coord+READ, peek the cursor's cached timeout config so coord and shard
-  // stay aligned across changes to the `search-on-timeout` config. Reject
-  // malformed/unknown CIDs on the main thread so the RETURN_STRICT timer can
-  // later trust argv[3] without re-peeking.
-  if (sub == CURSOR_SUBCMD_READ) {
-    long long cid;
-    if (RedisModule_StringToLongLong(argv[3], &cid) != REDISMODULE_OK) {
-      return RedisModule_ReplyWithError(ctx, "Bad cursor ID");
-    }
-    CursorTimeoutInfo info =
-        Cursors_PeekTimeoutInfo(GetGlobalCursor((uint64_t)cid), (uint64_t)cid);
-    if (!info.found) {
-      return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %lld", cid);
-    }
-    if (info.queryTimeoutPolicy != TimeoutPolicy_Return) {
-#ifdef ENABLE_ASSERT
-      // _FT.HYBRID WITHCURSOR is read via _FT.CURSOR READ, bypassing CursorCommand.
-      RS_ASSERT(!info.isHybrid);
-#endif
-      // Apply the foreground cap to the blocked-client timer budget. The cursor
-      // cached its queryTimeoutMS at WITHCURSOR time; tightening
-      // search-_max-foreground-timeout-limit (or disabling workers) between
-      // cursor open and this READ must shrink both the execution deadline
-      // (capped in runCursor) and the coordinator-side timer here.
-      long long capped = info.queryTimeoutMS > (size_t)LLONG_MAX
-                           ? LLONG_MAX
-                           : (long long)info.queryTimeoutMS;
-      if (RSConfig_CapQueryTimeoutToForegroundLimit(&capped)) {
-        RedisModule_Log(ctx, "verbose",
-          "FT.CURSOR READ: coordinator blocked-client timer capped by "
-          "_MAX_FOREGROUND_TIMEOUT_LIMIT (from %zu ms to %lld ms)",
-          info.queryTimeoutMS, capped);
-      }
-      CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_AGGREGATE);
-      handlerCtx.bcCtx.privdata = reqCtx;
-      handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
-      handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
-      handlerCtx.bcCtx.timeoutMS = (size_t)capped;
-      CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
-      if (info.queryTimeoutPolicy == TimeoutPolicy_Fail) {
-        handlerCtx.bcCtx.timeout_callback = DistAggregateTimeoutFailCallback;
-      } else {
-        handlerCtx.bcCtx.timeout_callback = DistCursorReadTimeoutReturnStrictCallback;
-        CoordRequestCtx_SetCursorReadReturnStrict(reqCtx, true);
-      }
-    }
-  }
-
-  return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
-                                               &handlerCtx);
+  return subcmd(ctx, argv, argc);
 }
 
 
 #define CURSOR_SUBCOMMAND(name, sub_enum) \
-static void Cursor##name##CommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, struct ConcurrentCmdCtx *cmdCtx) { \
-  RSCursor##name##Command(ctx, argv, argc);                                                                                           \
-}                                                                                                                                     \
-int Cursor##name##Command(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {                                                  \
-  return CursorCommand(ctx, argv, argc, RSCursor##name##Command, Cursor##name##CommandInternal, (sub_enum));                          \
+int Cursor##name##Command(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {   \
+  return CursorCommand(ctx, argv, argc, RSCursor##name##Command, (sub_enum));          \
 }
 
 CURSOR_SUBCOMMAND(Read, CURSOR_SUBCMD_READ)
@@ -4174,7 +4167,7 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   }
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
-  MRCommand_Append(&cmd, WITH_INDEX_ERROR_TIME, strlen(WITH_INDEX_ERROR_TIME));
+  MRCommand_AppendLiteral(&cmd, WITH_INDEX_ERROR_TIME);
   MRCommand_SetProtocol(&cmd, ctx);
   MRCommand_SetPrefix(&cmd, "_FT");
 
@@ -4185,7 +4178,7 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
 void sendRequiredFields(const searchRequestCtx *req, MRCommand *cmd) {
   if(req->requiredFields) {
-    MRCommand_Append(cmd, "_REQUIRED_FIELDS", strlen("_REQUIRED_FIELDS"));
+    MRCommand_AppendLiteral(cmd, "_REQUIRED_FIELDS");
     int numberOfFields = array_len(req->requiredFields);
     char snum[8];
     int len = sprintf(snum, "%d", numberOfFields);
@@ -4252,8 +4245,8 @@ static int prepareCommand(MRCommand *cmd, const searchRequestCtx *req, int proto
     size_t k =0;
     MRCommand_ReplaceArg(cmd, limitIndex + 1, "0", 1);
     char buf[32];
-    snprintf(buf, sizeof(buf), "%lld", req->requestedResultsCount);
-    MRCommand_ReplaceArg(cmd, limitIndex + 2, buf, strlen(buf));
+    int bufLen = snprintf(buf, sizeof(buf), "%lld", req->requestedResultsCount);
+    MRCommand_ReplaceArg(cmd, limitIndex + 2, buf, bufLen);
   }
 
   /* Replace our own FT command with _FT. command */

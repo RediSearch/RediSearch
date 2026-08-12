@@ -646,6 +646,7 @@ dependencies = [
  "enumflags2",
  "query_term",
  "query_types",
+ "redis-module",
  "rqe_core",
  "rqe_iterator_type",
  "workspace_hack",
@@ -758,6 +759,7 @@ dependencies = [
  "fork_gc",
  "index_spec",
  "nul_terminated_bytes",
+ "redis-module",
  "tracing",
  "tracing_log_error",
  "workspace_hack",
@@ -819,9 +821,9 @@ version = "0.0.1"
 dependencies = [
  "cheadergen",
  "decorum",
- "ffi",
  "geo",
  "query_error",
+ "redis-module",
  "tracing",
  "tracing_log_error",
  "workspace_hack",
@@ -1098,6 +1100,7 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "field_spec",
+ "redis-module",
  "rm_array",
  "workspace_hack",
 ]
@@ -1160,7 +1163,6 @@ dependencies = [
  "inverted_index",
  "itertools 0.15.0",
  "query_term",
- "redis-module",
  "redis_mock",
  "rqe_core",
  "workspace_hack",
@@ -1196,6 +1198,7 @@ dependencies = [
  "numeric_range_tree",
  "numeric_range_tree_ffi",
  "query_types",
+ "redis-module",
  "redis_reply",
  "rqe_core",
  "rqe_iterator_type",
@@ -1398,7 +1401,7 @@ dependencies = [
 name = "module_init_ffi"
 version = "0.0.1"
 dependencies = [
- "ffi",
+ "redis-module",
  "tracing",
  "tracing_redismodule",
  "workspace_hack",
@@ -1539,7 +1542,9 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "index_result",
+ "inverted_index",
  "itertools 0.15.0",
+ "numeric_range_tree",
  "numeric_score_source",
  "redis_mock",
  "redisearch_rs",
@@ -1761,6 +1766,7 @@ dependencies = [
  "query_error",
  "query_flags",
  "query_types",
+ "redis-module",
  "redis_mock",
  "redisearch_rs",
  "rlookup",
@@ -1801,7 +1807,6 @@ dependencies = [
  "ffi",
  "field",
  "geo",
- "idf",
  "index_result",
  "inverted_index",
  "proptest",
@@ -1810,6 +1815,7 @@ dependencies = [
  "query_eval",
  "query_term",
  "query_types",
+ "redis-module",
  "redis_mock",
  "redisearch_rs",
  "rqe_core",
@@ -1846,6 +1852,7 @@ name = "query_term"
 version = "0.0.1"
 dependencies = [
  "cheadergen",
+ "idf",
  "nul_terminated_bytes",
  "workspace_hack",
 ]
@@ -2014,7 +2021,7 @@ dependencies = [
 [[package]]
 name = "redis-module"
 version = "2.0.8"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=7fb620f1ef42453dea4e22c9358d0d25d4224710#7fb620f1ef42453dea4e22c9358d0d25d4224710"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=f4d68b97520aafc9baa2a946d42652415c4df002#f4d68b97520aafc9baa2a946d42652415c4df002"
 dependencies = [
  "backtrace",
  "bindgen",
@@ -2037,7 +2044,7 @@ dependencies = [
 [[package]]
 name = "redis-module-common"
 version = "0.1.1"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=7fb620f1ef42453dea4e22c9358d0d25d4224710#7fb620f1ef42453dea4e22c9358d0d25d4224710"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=f4d68b97520aafc9baa2a946d42652415c4df002#f4d68b97520aafc9baa2a946d42652415c4df002"
 dependencies = [
  "serde",
 ]
@@ -2045,7 +2052,7 @@ dependencies = [
 [[package]]
 name = "redis-module-macros-internals"
 version = "2.0.8"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=7fb620f1ef42453dea4e22c9358d0d25d4224710#7fb620f1ef42453dea4e22c9358d0d25d4224710"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=f4d68b97520aafc9baa2a946d42652415c4df002#f4d68b97520aafc9baa2a946d42652415c4df002"
 dependencies = [
  "lazy_static",
  "proc-macro2",
@@ -2081,9 +2088,9 @@ dependencies = [
 name = "redis_reply"
 version = "0.0.1"
 dependencies = [
- "ffi",
  "insta",
  "proptest",
+ "redis-module",
  "redis_mock",
  "workspace_hack",
 ]
@@ -2293,6 +2300,7 @@ dependencies = [
  "ffi",
  "libc",
  "query_error",
+ "redis-module",
  "redis_json_api",
  "redis_mock",
  "redisearch_rs",
@@ -2310,7 +2318,7 @@ dependencies = [
 name = "rm_array"
 version = "0.0.1"
 dependencies = [
- "ffi",
+ "redis-module",
  "workspace_hack",
 ]
 
@@ -2360,7 +2368,6 @@ dependencies = [
  "ffi",
  "field",
  "geo",
- "idf",
  "index_result",
  "index_spec",
  "insta",
@@ -2374,6 +2381,7 @@ dependencies = [
  "query_term",
  "query_term_ffi",
  "query_types",
+ "redis-module",
  "redis_mock",
  "redis_reply",
  "redisearch_rs",
@@ -2412,6 +2420,7 @@ dependencies = [
  "itertools 0.15.0",
  "query_term",
  "rand 0.10.1",
+ "redis-module",
  "redis_mock",
  "redisearch_rs",
  "rqe_core",
@@ -2436,6 +2445,7 @@ dependencies = [
  "numeric_range_tree",
  "numeric_range_tree_ffi",
  "query_error",
+ "redis-module",
  "redis_mock",
  "rqe_core",
  "rqe_iterators",
@@ -2489,8 +2499,10 @@ dependencies = [
  "build_utils",
  "ffi",
  "query_term",
+ "redis-module",
  "redis_mock",
  "redisearch_rs",
+ "rqe_wildcard",
  "rs_token",
  "workspace_hack",
 ]
@@ -2852,7 +2864,6 @@ dependencies = [
  "proptest",
  "rstest",
  "string_utils",
- "strsim",
  "trie_rs",
  "workspace_hack",
 ]
@@ -2871,6 +2882,7 @@ dependencies = [
  "criterion",
  "ffi",
  "proptest",
+ "redis-module",
  "redis_mock",
  "redisearch_rs",
  "string_utils",
@@ -2886,12 +2898,6 @@ checksum = "2a8f8038e7e7969abb3f1b7c2a811225e9296da208539e0f79c5251d6cac0025"
 dependencies = [
  "vte",
 ]
-
-[[package]]
-name = "strsim"
-version = "0.11.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "strum"
@@ -3021,7 +3027,6 @@ dependencies = [
  "ffi",
  "itertools 0.15.0",
  "proptest",
- "rqe_wildcard",
  "rstest",
  "string_utils",
  "trie_rs",
@@ -3032,7 +3037,6 @@ dependencies = [
 name = "term_suffix_index_ffi"
 version = "0.0.1"
 dependencies = [
- "redis-module",
  "redis_mock",
  "redisearch_rs",
  "term_suffix_index",
@@ -3151,7 +3155,9 @@ dependencies = [
  "index_result",
  "index_spec",
  "inverted_index",
+ "itertools 0.15.0",
  "redis_mock",
+ "redis_reply",
  "redisearch_rs",
  "rqe_core",
  "rqe_iterator_type",
@@ -3246,7 +3252,7 @@ name = "tracing_redismodule"
 version = "0.0.1"
 dependencies = [
  "anstyle-query",
- "ffi",
+ "redis-module",
  "tracing",
  "tracing-core",
  "tracing-subscriber",
@@ -3353,7 +3359,6 @@ dependencies = [
  "ffi",
  "field",
  "libc",
- "redis-module",
  "redis_mock",
  "rqe_core",
  "thin_vec",
@@ -3502,6 +3507,7 @@ dependencies = [
  "ffi",
  "libc",
  "query_error",
+ "redis-module",
  "redis_mock",
  "value",
  "workspace_hack",
@@ -3555,7 +3561,9 @@ dependencies = [
  "ffi",
  "index_result",
  "redis_mock",
+ "redis_reply",
  "redisearch_rs",
+ "rlookup",
  "rqe_core",
  "rqe_iterators",
  "rqe_iterators_test_utils",

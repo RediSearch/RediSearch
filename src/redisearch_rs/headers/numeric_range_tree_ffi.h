@@ -13,30 +13,11 @@
 #include "rqe_core.h"
 
 /**
- * Status of a [`NumericRangeTree_ApplyGcEntry`] call.
- */
-typedef enum ApplyGcEntryStatus {
-  /**
-   * The node was found and GC was applied successfully.
-   * `gc_result` contains the result.
-   */
-  Ok,
-  /**
-   * The target node no longer exists in the tree
-   * (e.g. removed between scan and apply).
-   */
-  NodeNotFound,
-  /**
-   * The entry data could not be deserialized.
-   * The child probably crashed or corrupted the pipe.
-   */
-  DeserializationError,
-} ApplyGcEntryStatus;
-
-/**
  * Filter details to apply to numeric values
  */
 typedef struct NumericFilter NumericFilter;
+
+typedef struct RedisModuleCtx RedisModuleCtx;
 
 /**
  * An opaque inverted index reader structure. The actual implementation is determined at runtime
@@ -53,26 +34,6 @@ typedef struct IndexReader IndexReader;
  * freed or mutated while this iterator exists.
  */
 typedef struct ReversePreOrderDfsIterator NumericRangeTreeIterator;
-
-/**
- * Result of [`NumericRangeTree_ApplyGcEntry`].
- *
- * Wraps [`SingleNodeGcResult`] with a [`status`](ApplyGcEntryStatus) field
- * so C callers can distinguish success, node-not-found, and deserialization
- * errors.
- */
-typedef struct ApplyGcEntryResult {
-  /**
-   * The GC result for the node. Only meaningful when `status` is
-   * [`ApplyGcEntryStatus::Ok`].
-   */
-  struct SingleNodeGcResult gc_result;
-  /**
-   * Whether the operation succeeded, the node was missing, or the data
-   * could not be deserialized.
-   */
-  enum ApplyGcEntryStatus status;
-} ApplyGcEntryResult;
 
 /**
  * Result of [`NumericRangeTree_Find`] - an array of range pointers.
@@ -97,32 +58,16 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Get the revision ID of the tree.
+ * Create a new [`NumericRangeTree`].
  *
- * The revision ID changes whenever the tree structure is modified (nodes split, etc.).
- * This is used by iterators to detect concurrent modifications.
+ * Returns an opaque pointer to the newly created tree.
+ * To free the tree, use [`NumericRangeTree_Free`].
  *
- * # Safety
- *
- * - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+ * If `compress_floats` is true, the tree will use float compression which
+ * attempts to store f64 values as f32 when precision loss is acceptable (< 0.01).
+ * This corresponds to the `RSGlobalConfig.numericCompress` setting.
  */
-uint32_t NumericRangeTree_GetRevisionId(const struct NumericRangeTree *t);
-
-/**
- * Create a new iterator over all nodes in the tree.
- *
- * The iterator performs a depth-first traversal, visiting each node exactly once.
- * Use [`NumericRangeTreeIterator_Next`] to advance the iterator.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`NumericRangeTree`] obtained from
- *   [`crate::NewNumericRangeTree`] and cannot be NULL.
- * - `t` must not be freed while the iterator lives.
- * - The tree must not be mutated while the iterator lives.
- */
-NumericRangeTreeIterator *NumericRangeTreeIterator_New(const struct NumericRangeTree *t);
+struct NumericRangeTree *NewNumericRangeTree(bool compress_floats);
 
 /**
  * Get the [`NumericRange`] from a node, if present.
@@ -143,85 +88,45 @@ NumericRangeTreeIterator *NumericRangeTreeIterator_New(const struct NumericRange
 const struct NumericRange *NumericRangeNode_GetRange(const struct NumericRangeNode *node);
 
 /**
- * Reply with a summary of the numeric range tree (for NUMIDX_SUMMARY).
+ * Free a [`NumericRangeTreeFindResult`].
  *
- * This outputs the tree statistics in the format expected by FT.DEBUG NUMIDX_SUMMARY.
- * When `t` is NULL (index not yet created), all values are reported as zero.
- *
- * # Safety
- *
- * - `ctx` must be a valid Redis module context.
- * - `t` must be either NULL or a valid pointer to a [`NumericRangeTree`].
- */
-void NumericRangeTree_DebugSummary(RedisModuleCtx *ctx, const struct NumericRangeTree *t);
-
-/**
- * Conditionally trim empty leaves and compact the node slab.
- *
- * Checks if the number of empty leaves exceeds half the total number of
- * leaves. If so, trims empty leaves, compacts the slab to reclaim freed
- * slots, and returns the number of bytes freed. Returns 0 if no trimming
- * was needed.
+ * This frees the array allocation but NOT the ranges themselves (they are
+ * owned by the tree).
  *
  * # Safety
  *
- * - `t` must point to a valid mutable [`NumericRangeTree`] and cannot be NULL.
- * - No iterators should be active on this tree while calling this function.
+ * - `result` must have been obtained from [`NumericRangeTree_Find`].
+ * - After calling this function, the result must not be used again.
  */
-struct CompactIfSparseResult NumericRangeTree_CompactIfSparse(struct NumericRangeTree *t);
+void NumericRangeTreeFindResult_Free(struct NumericRangeTreeFindResult result);
 
 /**
- * Get the estimated cardinality (number of distinct values) for a range.
- *
- * This uses HyperLogLog estimation and may have some error margin.
+ * Free a [`NumericRangeTreeIterator`].
  *
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `range` must point to a valid [`NumericRange`] obtained from
- *   [`crate::node::NumericRangeNode_GetRange`] and cannot be NULL.
- * - The tree from which this range came must still be valid.
+ * - `it` must point to a valid [`NumericRangeTreeIterator`] obtained from
+ *   [`NumericRangeTreeIterator_New`], or be NULL (in which case this is a no-op).
+ * - After calling this function, `it` must not be used again.
  */
-size_t NumericRange_GetCardinality(const struct NumericRange *range);
+void NumericRangeTreeIterator_Free(NumericRangeTreeIterator *it);
 
 /**
- * Get the minimum value in a range.
+ * Create a new iterator over all nodes in the tree.
+ *
+ * The iterator performs a depth-first traversal, visiting each node exactly once.
+ * Use [`NumericRangeTreeIterator_Next`] to advance the iterator.
  *
  * # Safety
  *
- * - `range` must point to a valid [`NumericRange`] and cannot be NULL.
+ * The following invariants must be upheld when calling this function:
+ * - `t` must point to a valid [`NumericRangeTree`] obtained from
+ *   [`crate::NewNumericRangeTree`] and cannot be NULL.
+ * - `t` must not be freed while the iterator lives.
+ * - The tree must not be mutated while the iterator lives.
  */
-double NumericRange_MinVal(const struct NumericRange *range);
-
-/**
- * Increment the revision ID.
- *
- * This method is never needed in production code: the tree
- * revision ID is automatically incremented when the tree structure changes.
- *
- * This method is provided primarily for testing purposes—e.g. to force the invalidation
- * of an iterator built on top of this tree in GC tests.
- *
- * # Safety
- *
- * - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
- * - The caller must have unique access to `t`.
- */
-uint32_t NumericRangeTree_IncrementRevisionId(struct NumericRangeTree *t);
-
-/**
- * Reply with a dump of the numeric index entries (for DUMP_NUMIDX).
- *
- * This outputs all entries from all ranges in the tree. If `with_headers` is true,
- * each range's entries are prefixed with header information (numDocs, numEntries, etc).
- * When `t` is NULL (index not yet created), an empty array is returned.
- *
- * # Safety
- *
- * - `ctx` must be a valid Redis module context.
- * - `t` must be either NULL or a valid pointer to a [`NumericRangeTree`].
- */
-void NumericRangeTree_DebugDumpIndex(RedisModuleCtx *ctx, const struct NumericRangeTree *t, bool with_headers);
+NumericRangeTreeIterator *NumericRangeTreeIterator_New(const struct NumericRangeTree *t);
 
 /**
  * Advance the iterator and return the next node.
@@ -242,40 +147,25 @@ void NumericRangeTree_DebugDumpIndex(RedisModuleCtx *ctx, const struct NumericRa
 const struct NumericRangeNode *NumericRangeTreeIterator_Next(NumericRangeTreeIterator *it);
 
 /**
- * Get the maximum value in a range.
+ * Get the base size of a NumericRangeTree struct (not including contents).
  *
- * # Safety
- *
- * - `range` must point to a valid [`NumericRange`] and cannot be NULL.
+ * This is used for memory overhead calculations.
  */
-double NumericRange_MaxVal(const struct NumericRange *range);
+size_t NumericRangeTree_BaseSize(void);
 
 /**
- * Get the unique ID of the tree.
+ * Reply with a dump of the numeric index entries (for DUMP_NUMIDX).
+ *
+ * This outputs all entries from all ranges in the tree. If `with_headers` is true,
+ * each range's entries are prefixed with header information (numDocs, numEntries, etc).
+ * When `t` is NULL (index not yet created), an empty array is returned.
  *
  * # Safety
  *
- * - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+ * - `ctx` must be a valid Redis module context.
+ * - `t` must be either NULL or a valid pointer to a [`NumericRangeTree`].
  */
-uint32_t NumericRangeTree_GetUniqueId(const struct NumericRangeTree *t);
-
-/**
- * Get the inverted index size in bytes.
- *
- * # Safety
- *
- * - `range` must point to a valid [`NumericRange`] and cannot be NULL.
- */
-size_t NumericRange_InvertedIndexSize(const struct NumericRange *range);
-
-/**
- * Get the number of entries in the tree.
- *
- * # Safety
- *
- * - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
- */
-size_t NumericRangeTree_GetNumEntries(const struct NumericRangeTree *t);
+void NumericRangeTree_DebugDumpIndex(struct RedisModuleCtx *ctx, const struct NumericRangeTree *t, bool with_headers);
 
 /**
  * Reply with a dump of the numeric index tree structure (for DUMP_NUMIDXTREE).
@@ -289,19 +179,67 @@ size_t NumericRangeTree_GetNumEntries(const struct NumericRangeTree *t);
  * - `ctx` must be a valid Redis module context.
  * - `t` must be either NULL or a valid pointer to a [`NumericRangeTree`].
  */
-void NumericRangeTree_DebugDumpTree(RedisModuleCtx *ctx, const struct NumericRangeTree *t, bool minimal);
+void NumericRangeTree_DebugDumpTree(struct RedisModuleCtx *ctx, const struct NumericRangeTree *t, bool minimal);
 
 /**
- * Free a [`NumericRangeTreeIterator`].
+ * Reply with a summary of the numeric range tree (for NUMIDX_SUMMARY).
+ *
+ * This outputs the tree statistics in the format expected by FT.DEBUG NUMIDX_SUMMARY.
+ * When `t` is NULL (index not yet created), all values are reported as zero.
+ *
+ * # Safety
+ *
+ * - `ctx` must be a valid Redis module context.
+ * - `t` must be either NULL or a valid pointer to a [`NumericRangeTree`].
+ */
+void NumericRangeTree_DebugSummary(struct RedisModuleCtx *ctx, const struct NumericRangeTree *t);
+
+/**
+ * Find all numeric ranges that match the given filter.
+ *
+ * Returns a [`NumericRangeTreeFindResult`] containing pointers to the matching
+ * ranges. The ranges are owned by the tree and must not be freed individually.
+ * The result itself must be freed using [`NumericRangeTreeFindResult_Free`].
  *
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `it` must point to a valid [`NumericRangeTreeIterator`] obtained from
- *   [`NumericRangeTreeIterator_New`], or be NULL (in which case this is a no-op).
- * - After calling this function, `it` must not be used again.
+ * - `t` must point to a valid [`NumericRangeTree`] obtained from
+ *   [`NewNumericRangeTree`] and cannot be NULL.
+ * - `nf` must point to a valid [`NumericFilter`] and cannot be NULL.
  */
-void NumericRangeTreeIterator_Free(NumericRangeTreeIterator *it);
+struct NumericRangeTreeFindResult NumericRangeTree_Find(const struct NumericRangeTree *t, const struct NumericFilter *nf);
+
+/**
+ * Free a [`NumericRangeTree`] and all its contents.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `t` must point to a valid [`NumericRangeTree`] obtained from
+ *   [`NewNumericRangeTree`], or be NULL (in which case this is a no-op).
+ * - After calling this function, `t` must not be used again.
+ * - Any iterators obtained from this tree must be freed before calling this.
+ */
+void NumericRangeTree_Free(struct NumericRangeTree *t);
+
+/**
+ * Get the total size of inverted indexes in the tree.
+ *
+ * # Safety
+ *
+ * - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+ */
+size_t NumericRangeTree_GetInvertedIndexesSize(const struct NumericRangeTree *t);
+
+/**
+ * Get the number of entries in the tree.
+ *
+ * # Safety
+ *
+ * - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+ */
+size_t NumericRangeTree_GetNumEntries(const struct NumericRangeTree *t);
 
 /**
  * Get the number of ranges in the tree.
@@ -311,6 +249,93 @@ void NumericRangeTreeIterator_Free(NumericRangeTreeIterator *it);
  * - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
  */
 size_t NumericRangeTree_GetNumRanges(const struct NumericRangeTree *t);
+
+/**
+ * Get the revision ID of the tree.
+ *
+ * The revision ID changes whenever the tree structure is modified (nodes split, etc.).
+ * This is used by iterators to detect concurrent modifications.
+ *
+ * # Safety
+ *
+ * - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+ */
+uint32_t NumericRangeTree_GetRevisionId(const struct NumericRangeTree *t);
+
+/**
+ * Get the root node of the tree.
+ *
+ * # Safety
+ *
+ * - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+ * - The returned pointer is valid until the tree is modified or freed.
+ */
+const struct NumericRangeNode *NumericRangeTree_GetRoot(const struct NumericRangeTree *t);
+
+/**
+ * Get the unique ID of the tree.
+ *
+ * # Safety
+ *
+ * - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+ */
+uint32_t NumericRangeTree_GetUniqueId(const struct NumericRangeTree *t);
+
+/**
+ * Increment the revision ID.
+ *
+ * This method is never needed in production code: the tree
+ * revision ID is automatically incremented when the tree structure changes.
+ *
+ * This method is provided primarily for testing purposes—e.g. to force the invalidation
+ * of an iterator built on top of this tree in GC tests.
+ *
+ * # Safety
+ *
+ * - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+ * - The caller must have unique access to `t`.
+ */
+uint32_t NumericRangeTree_IncrementRevisionId(struct NumericRangeTree *t);
+
+/**
+ * Get the total memory usage of the tree in bytes.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `t` must point to a valid [`NumericRangeTree`] obtained from
+ *   [`NewNumericRangeTree`] and cannot be NULL.
+ */
+size_t NumericRangeTree_MemUsage(const struct NumericRangeTree *t);
+
+/**
+ * Trim empty leaves from the tree (garbage collection).
+ *
+ * Removes leaf nodes that have no documents and prunes the tree structure
+ * accordingly.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `t` must point to a valid [`NumericRangeTree`] obtained from
+ *   [`NewNumericRangeTree`] and cannot be NULL.
+ * - No iterators should be active on this tree while calling this function.
+ */
+struct TrimEmptyLeavesResult NumericRangeTree_TrimEmptyLeaves(struct NumericRangeTree *t);
+
+/**
+ * Get the estimated cardinality (number of distinct values) for a range.
+ *
+ * This uses HyperLogLog estimation and may have some error margin.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `range` must point to a valid [`NumericRange`] obtained from
+ *   [`crate::node::NumericRangeNode_GetRange`] and cannot be NULL.
+ * - The tree from which this range came must still be valid.
+ */
+size_t NumericRange_GetCardinality(const struct NumericRange *range);
 
 /**
  * Get the inverted index entries from a range.
@@ -326,70 +351,31 @@ size_t NumericRangeTree_GetNumRanges(const struct NumericRangeTree *t);
 const struct InvertedIndexNumeric *NumericRange_GetEntries(const struct NumericRange *range);
 
 /**
- * Create a new [`NumericRangeTree`].
- *
- * Returns an opaque pointer to the newly created tree.
- * To free the tree, use [`NumericRangeTree_Free`].
- *
- * If `compress_floats` is true, the tree will use float compression which
- * attempts to store f64 values as f32 when precision loss is acceptable (< 0.01).
- * This corresponds to the `RSGlobalConfig.numericCompress` setting.
- */
-struct NumericRangeTree *NewNumericRangeTree(bool compress_floats);
-
-/**
- * Parse a serialized GC entry and apply it to the specified node.
- *
- * The entry data must have the wire format produced by the numeric child
- * collector (`fork_gc::numeric::collect_numeric`):
- * ```text
- * [delta_msgpack][64-byte hll_with][64-byte hll_without]
- * ```
- *
- * Returns an [`ApplyGcEntryResult`] whose [`status`](ApplyGcEntryStatus)
- * indicates success, node-not-found, or deserialization error.
+ * Get the inverted index size in bytes.
  *
  * # Safety
  *
- * - `tree` must point to a valid mutable [`NumericRangeTree`] and cannot be NULL.
- * - `entry_data` must point to a valid byte buffer of at least `entry_len` bytes.
+ * - `range` must point to a valid [`NumericRange`] and cannot be NULL.
  */
-struct ApplyGcEntryResult NumericRangeTree_ApplyGcEntry(struct NumericRangeTree *tree, uint32_t node_position, uint32_t node_generation, const uint8_t *entry_data, size_t entry_len);
+size_t NumericRange_InvertedIndexSize(const struct NumericRange *range);
 
 /**
- * Get the total size of inverted indexes in the tree.
+ * Get the maximum value in a range.
  *
  * # Safety
  *
- * - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+ * - `range` must point to a valid [`NumericRange`] and cannot be NULL.
  */
-size_t NumericRangeTree_GetInvertedIndexesSize(const struct NumericRangeTree *t);
+double NumericRange_MaxVal(const struct NumericRange *range);
 
 /**
- * Add a (docId, value) pair to the tree.
- *
- * If `isMulti` is non-zero, duplicate document IDs are allowed.
- * `maxDepthRange` specifies the maximum depth at which to retain ranges on inner nodes.
- *
- * Returns information about what changed during the add operation.
+ * Get the minimum value in a range.
  *
  * # Safety
  *
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`NumericRangeTree`] obtained from
- *   [`NewNumericRangeTree`] and cannot be NULL.
+ * - `range` must point to a valid [`NumericRange`] and cannot be NULL.
  */
-struct AddResult _NumericRangeTree_Add(struct NumericRangeTree *t, t_docId doc_id, double value, int isMulti, size_t maxDepthRange);
-
-/**
- * Get the root node of the tree.
- *
- * # Safety
- *
- * - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
- * - The returned pointer is valid until the tree is modified or freed.
- */
-const struct NumericRangeNode *NumericRangeTree_GetRoot(const struct NumericRangeTree *t);
+double NumericRange_MinVal(const struct NumericRange *range);
 
 /**
  * Create an [`IndexReader`] for iterating over a [`NumericRange`]'s entries.
@@ -413,20 +399,12 @@ const struct NumericRangeNode *NumericRangeTree_GetRoot(const struct NumericRang
 struct IndexReader *NumericRange_NewIndexReader(const struct NumericRange *range, const struct NumericFilter *filter);
 
 /**
- * Free a [`NumericRangeTree`] and all its contents.
+ * Add a (docId, value) pair to the tree.
  *
- * # Safety
+ * If `isMulti` is non-zero, duplicate document IDs are allowed.
+ * `maxDepthRange` specifies the maximum depth at which to retain ranges on inner nodes.
  *
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`NumericRangeTree`] obtained from
- *   [`NewNumericRangeTree`], or be NULL (in which case this is a no-op).
- * - After calling this function, `t` must not be used again.
- * - Any iterators obtained from this tree must be freed before calling this.
- */
-void NumericRangeTree_Free(struct NumericRangeTree *t);
-
-/**
- * Get the total memory usage of the tree in bytes.
+ * Returns information about what changed during the add operation.
  *
  * # Safety
  *
@@ -434,58 +412,7 @@ void NumericRangeTree_Free(struct NumericRangeTree *t);
  * - `t` must point to a valid [`NumericRangeTree`] obtained from
  *   [`NewNumericRangeTree`] and cannot be NULL.
  */
-size_t NumericRangeTree_MemUsage(const struct NumericRangeTree *t);
-
-/**
- * Find all numeric ranges that match the given filter.
- *
- * Returns a [`NumericRangeTreeFindResult`] containing pointers to the matching
- * ranges. The ranges are owned by the tree and must not be freed individually.
- * The result itself must be freed using [`NumericRangeTreeFindResult_Free`].
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`NumericRangeTree`] obtained from
- *   [`NewNumericRangeTree`] and cannot be NULL.
- * - `nf` must point to a valid [`NumericFilter`] and cannot be NULL.
- */
-struct NumericRangeTreeFindResult NumericRangeTree_Find(const struct NumericRangeTree *t, const struct NumericFilter *nf);
-
-/**
- * Free a [`NumericRangeTreeFindResult`].
- *
- * This frees the array allocation but NOT the ranges themselves (they are
- * owned by the tree).
- *
- * # Safety
- *
- * - `result` must have been obtained from [`NumericRangeTree_Find`].
- * - After calling this function, the result must not be used again.
- */
-void NumericRangeTreeFindResult_Free(struct NumericRangeTreeFindResult result);
-
-/**
- * Trim empty leaves from the tree (garbage collection).
- *
- * Removes leaf nodes that have no documents and prunes the tree structure
- * accordingly.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`NumericRangeTree`] obtained from
- *   [`NewNumericRangeTree`] and cannot be NULL.
- * - No iterators should be active on this tree while calling this function.
- */
-struct TrimEmptyLeavesResult NumericRangeTree_TrimEmptyLeaves(struct NumericRangeTree *t);
-
-/**
- * Get the base size of a NumericRangeTree struct (not including contents).
- *
- * This is used for memory overhead calculations.
- */
-size_t NumericRangeTree_BaseSize(void);
+struct AddResult _NumericRangeTree_Add(struct NumericRangeTree *t, t_docId doc_id, double value, bool has_field_expiration, int isMulti, size_t maxDepthRange);
 
 #ifdef __cplusplus
 }  // extern "C"

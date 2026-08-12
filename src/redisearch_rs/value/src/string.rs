@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::RedisModule_Free;
 use nul_terminated_bytes::NulTerminatedBytes;
+use redis_module::RedisModule_Free;
 use std::ffi::c_char;
 use std::fmt;
 

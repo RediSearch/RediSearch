@@ -20,12 +20,10 @@ use std::ffi::CString;
 
 use query::mock::MockQueryNode;
 use query_error::QueryErrorCode;
-use query_eval::{
-    QueryEvalContext, QueryNodeMut,
-    eval::{self, Config, EvalResult},
-};
+use query_eval::{Config, EvalResult, QueryEvalContext, QueryNodeMut, eval_node};
 use query_types::QueryNodeType;
 use rqe_iterators::RQEIterator;
+use rqe_iterators_test_utils::ContractChecker;
 use rqe_iterators_test_utils::{GlobalGuard, TestContext};
 
 /// A well-formed WKT polygon.
@@ -110,7 +108,7 @@ impl GeometryFixture {
         // SAFETY: `GeometryApi_Get` always populates the `addGeomStr` callback.
         let add = unsafe { (*api).addGeomStr }.expect("geometry api `addGeomStr` must be set");
 
-        let mut err: *mut ffi::RedisModuleString = std::ptr::null_mut();
+        let mut err: *mut redis_module::RedisModuleString = std::ptr::null_mut();
         // SAFETY: `index` is valid, `wkt` points to `wkt.as_bytes().len()` bytes,
         // and `err` is a valid out-pointer.
         let rc = unsafe {
@@ -134,12 +132,12 @@ impl GeometryFixture {
     fn eval(&mut self) -> Option<EvalResult<'_>> {
         // SAFETY: `self.node` is a valid, live `RSQueryNode` for the call.
         let node_ref = unsafe { QueryNodeMut::new(self.node.as_non_null()) };
-        eval::eval_node(&mut self.ctx, node_ref, Config::default()).map(|e| e.into_boxed())
+        eval_node(&mut self.ctx, node_ref, Config::default()).map(|e| e.into_boxed())
     }
 }
 
 /// Collect the doc ids the iterator yields, in order.
-fn read_all(it: &mut EvalResult<'_>) -> Vec<u64> {
+fn read_all<'index>(it: &mut impl RQEIterator<'index>) -> Vec<u64> {
     let mut ids = Vec::new();
     while let Some(r) = it.read().expect("read must not error") {
         ids.push(r.doc_id);
@@ -153,9 +151,11 @@ fn eval_geometry_valid_query_on_empty_index_yields_empty_iterator() {
     // yields no documents; this is not an error.
     let mut fixture = GeometryFixture::new(VALID_POLYGON);
     {
-        let mut it = fixture
-            .eval()
-            .expect("a well-formed geometry query must build an iterator");
+        let mut it = ContractChecker::new_with_duplicates(
+            fixture
+                .eval()
+                .expect("a well-formed geometry query must build an iterator"),
+        );
         assert!(
             it.read().expect("read must not error").is_none(),
             "an empty geoshape index must yield no documents"
@@ -173,9 +173,11 @@ fn eval_geometry_matches_contained_geometry() {
     fixture.add_geometry(2, "POLYGON((20 20, 20 24, 24 24, 24 20, 20 20))");
 
     {
-        let mut it = fixture
-            .eval()
-            .expect("a well-formed geometry query must build an iterator");
+        let mut it = ContractChecker::new_with_duplicates(
+            fixture
+                .eval()
+                .expect("a well-formed geometry query must build an iterator"),
+        );
         assert_eq!(
             read_all(&mut it),
             vec![1],

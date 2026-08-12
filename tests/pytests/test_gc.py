@@ -735,3 +735,394 @@ def testForkGCEmptyTextSuffixTrie_emptyValue():
     env.expect('DEL', 'doc1').equal(1)
     forceInvokeGC(env, 'idx')
     env.expect('PING').equal(True)
+
+
+# Periodic-GC scheduling tests. They assert on the per-index gc_stats cycle counter, and the
+# ones that need to act on a run already in flight park it on the GCTaskStart sync point --
+# the only way to hold a GC worker, and so the only way to drive the scheduling guards against
+# a real in-flight run instead of racing one.
+SYNC_POINT_GC_TASK_START = 'GCTaskStart'  # src/debug_commands.h
+SYNC_POINT_GC_BEFORE_REARM_POST = 'GCBeforeRearmPost'  # src/debug_commands.h
+SYNC_POINT_GC_BEFORE_FORK = 'GCBeforeFork'  # src/debug_commands.h
+SYNC_POINT_GC_FORK_SLOT_BUSY = 'GCForkSlotBusy'  # src/debug_commands.h
+
+
+def gcCycles(env, idx):
+    return int(to_dict(index_info(env, idx)['gc_stats'])['total_cycles'])
+
+
+def waitForGCCycles(env, idx, base, count=1, timeout=60):
+    """Wait for `idx` to complete `count` cycles past `base`, returning the counter value that
+    was actually observed. Callers assert on that value rather than re-reading: a re-read can
+    pick up a later timer-driven cycle and turn an exact-count assertion into a flake."""
+    seen = {}
+
+    def check():
+        seen['total_cycles'] = gcCycles(env, idx)
+        return seen['total_cycles'] >= base + count, {'index': idx, 'base': base, **seen}
+
+    wait_for_condition(check, f'GC stopped collecting for {idx}', timeout=timeout)
+    return seen['total_cycles']
+
+
+def armParkedGCRun(env, point=SYNC_POINT_GC_TASK_START):
+    """Park the next periodic GC job on `point`, returning once it is parked -- so the caller
+    knows RUN_PENDING is held and that index has no timer armed. At GCTaskStart the pass has not
+    started yet; at GCBeforeRearmPost it has finished and only its re-arm is still owed."""
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    # Auto-release after 10s: a stalled runner must not leave a GC worker parked for the rest of
+    # the file, since the GC pool has a single thread and every other test here shares it.
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point, 10000).ok()
+    wait_for_condition(
+        lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1, {}),
+        f'Timeout waiting for a GC job to reach {point}')
+
+
+@skip(cluster=True)
+def testGCPeriodicScheduleStopAndResume():
+    """The periodic GC re-arms itself, stops on GC_STOP_SCHEDULE, and resumes on
+    GC_CONTINUE_SCHEDULE. Almost every other GC test drives collection with FORCE_INVOKE,
+    which never re-arms, so nothing else notices if the chain stops after its first pass."""
+    # No garbage on purpose: a GC that finds nothing still has to re-arm. CLEAN_THRESHOLD 0
+    # keeps those empty passes from short-circuiting ahead of the total_cycles counter.
+    env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 1 FORK_GC_CLEAN_THRESHOLD 0')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    # A second index nobody stops, used to time the negative window below instead of sleeping.
+    # It is what keeps that window from passing for the wrong reason: a runner slow enough to
+    # delay 'idx' past a fixed sleep delays 'ctl' just as much, so the window stretches with
+    # the host rather than expiring before the timer it is meant to catch.
+    env.expect('FT.CREATE', 'ctl', 'SCHEMA', 't', 'TEXT').ok()
+
+    # Two cycles, not one: the second is the one that can only come from the chain re-arming.
+    waitForGCCycles(env, 'idx', gcCycles(env, 'idx'), 2)
+
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+    env.cmd(debug_cmd(), 'GC_WAIT_FOR_JOBS')  # let the run already in flight finish
+    stopped_at = gcCycles(env, 'idx')
+    # Two cycles of the control index: direct evidence that GC timers did fire during this
+    # window, so a flat counter on 'idx' can only mean its own scheduling stopped.
+    waitForGCCycles(env, 'ctl', gcCycles(env, 'ctl'), 2)
+    after_stop = gcCycles(env, 'idx')
+    env.assertEqual(after_stop, stopped_at,
+                    message=f'GC ran after GC_STOP_SCHEDULE: {stopped_at} -> {after_stop}')
+
+    env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
+    waitForGCCycles(env, 'idx', stopped_at)
+
+
+@skip(cluster=True)
+def testGCScheduleCommandsOnIndexWithoutGC(env):
+    """A TEMPORARY index gets no GCContext, and the GC commands must reject it rather than
+    dereference the missing context. NOGC reaches the same branch in IndexSpec_StartGC."""
+    env.expect('FT.CREATE', 'tmp_idx', 'TEMPORARY', 3600, 'SCHEMA', 't', 'TEXT').ok()
+
+    for sub in ('GC_STOP_SCHEDULE', 'GC_CONTINUE_SCHEDULE', 'GC_FORCEBGINVOKE',
+                'GC_FORCEINVOKE'):
+        env.expect(debug_cmd(), sub, 'tmp_idx').error().contains(
+            'GC is not available for this index')
+
+    # A normal index in the same server still works, so the guard is not over-broad.
+    env.expect('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx2').ok()
+    env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx2').ok()
+
+
+@skip(cluster=True)
+def testGCStopScheduleDuringRun():
+    """GC_STOP_SCHEDULE while a run is in flight: the completing run's own re-arm has to notice
+    that collection was disabled under it. Nothing disarms a timer armed from there, so the
+    chain would outlive the stop -- and after a drop it would arm one over a freed context."""
+    env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 1 FORK_GC_CLEAN_THRESHOLD 0')
+    skipIfNoEnableAssert(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+    armParkedGCRun(env)
+    before = gcCycles(env, 'idx')
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+
+    # Release the parked run into its re-arm, which now has to decline. SIGNAL also disarms the
+    # sync point, so nothing parks again.
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_TASK_START)
+    stopped_at = waitForGCCycles(env, 'idx', before, timeout=30)
+    env.assertEqual(stopped_at, before + 1,
+                    message=f'more than the parked run completed: {before} -> {stopped_at}')
+
+    # Created after the sync point was disarmed, so this one never parks. Its cycles time the
+    # window below -- evidence that GC timers fired in it while 'idx' stayed flat.
+    env.expect('FT.CREATE', 'ctl', 'SCHEMA', 't', 'TEXT').ok()
+    waitForGCCycles(env, 'ctl', gcCycles(env, 'ctl'), 2)
+    after_stop = gcCycles(env, 'idx')
+    env.assertEqual(after_stop, stopped_at,
+                    message=f'the completing run re-armed despite the stop: '
+                            f'{stopped_at} -> {after_stop}')
+    env.expect('PING').equal(True)
+
+# Regression for MOD-17309: the re-arm moved off the GC thread onto a main-thread one-shot.
+@skip(cluster=True)
+def testGCKeepsReschedulingItself_MOD_17309():
+    """Every arm goes through the main-thread one-shot, and the chain sustains itself."""
+    env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 1')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+    def arms(which):
+        return int(env.cmd(debug_cmd(), 'GC_TIMER_ARMS', which))
+
+    # Reset so the one main-thread arm from GCContext_Start at index creation is not counted.
+    env.expect(debug_cmd(), 'GC_TIMER_ARMS', 'RESET').ok()
+
+    def total():
+        return arms('TOTAL')
+
+    wait_for_condition(lambda: (total() >= 3, {'arms': total()}),
+                       'GC stopped rescheduling itself', timeout=60)
+
+    # Freeze the chain first: the two counters are read in separate round trips, so an arm
+    # landing between them would fail this even though every arm went through the one-shot.
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+    env.cmd(debug_cmd(), 'GC_WAIT_FOR_JOBS')
+    total_arms, oneshot_arms = arms('TOTAL'), arms('FROM_ONESHOT')
+    env.assertEqual(total_arms, oneshot_arms,
+                    message=f'a timer arm bypassed the main-thread one-shot: '
+                            f'{total_arms} total vs {oneshot_arms} from one-shot')
+
+
+@skip(cluster=True)
+def testGCContinueScheduleDuringRun_MOD_17309():
+    """GC_CONTINUE_SCHEDULE must not queue a second run while one is already in flight: two
+    runs behind one RUN_PENDING bit let the first one's tail arm a timer while the second is
+    still queued, and a second run that finds the index dropped then frees the GC under it."""
+    env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 1 FORK_GC_CLEAN_THRESHOLD 0')
+    skipIfNoEnableAssert(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+    armParkedGCRun(env)
+    before = gcCycles(env, 'idx')
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+    env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
+    # Whether CONTINUE queued a duplicate was already decided above. Stopping again before the
+    # parked run is released leaves it unable to re-arm, so no timer can fire during the
+    # assertion below -- a second cycle can then only mean a duplicate run.
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+
+    # Release the parked run. SIGNAL also disarms, so nothing parks again.
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_TASK_START)
+
+    # GC_WAIT_FOR_JOBS queues a marker at the end of the single-threaded pool and blocks until
+    # it runs, so it drains the parked run and any duplicate queued behind it. That is a
+    # barrier rather than a wall-clock window: no poll can be descheduled past a stray cycle.
+    env.cmd(debug_cmd(), 'GC_WAIT_FOR_JOBS')
+    completed = gcCycles(env, 'idx')
+    env.assertEqual(completed, before + 1,
+                    message=f'GC_CONTINUE_SCHEDULE queued a duplicate run: '
+                            f'{before} -> {completed}')
+    env.expect('PING').equal(True)
+
+
+@skip(cluster=True)
+def testGCTerminatesAfterDropWhileStopped(env):
+    """A GC stopped by GC_STOP_SCHEDULE still has to terminate when its index is dropped.
+    IndexSpec_Free does not free the GCContext -- it waits for a run to discover the drop --
+    and a stopped GC has neither a timer nor a queued run, so nothing ever would. The context
+    and its detached thread-safe context would leak for the life of the process.
+
+    onTerm is what returns this index's logically-deleted docs to the global counter, so the
+    counter dropping back to 0 is evidence the GC actually terminated."""
+    logically_deleted = lambda: env.cmd('INFO', 'MODULES')['search_gc_total_docs_not_collected']
+
+    # The GC INFO section is only rendered while at least one index exists, so keep one that is
+    # never dropped -- otherwise the counter we assert on disappears just as it reaches 0. Give
+    # both a prefix so only 'idx' indexes the document, and the count is unambiguously its own.
+    env.expect('FT.CREATE', 'keep', 'PREFIX', 1, 'keep:', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'doc:', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+    env.cmd('HSET', 'doc:1', 't', 'hello')
+    env.expect('DEL', 'doc:1').equal(1)
+    env.assertEqual(logically_deleted(), 1)
+
+    env.expect('FT.DROPINDEX', 'idx').ok()
+    wait_for_condition(lambda: (logically_deleted() == 0, {'not_collected': logically_deleted()}),
+                       'stopped GC never terminated after its index was dropped', timeout=30)
+
+
+# The GC INFO section is suppressed once no index is left, so both tests below keep one index
+# that is never dropped. It is created *after* the park so it cannot be the index that parked --
+# the GC pool has a single thread, and nothing says which context's job reaches a sync point
+# first -- and it is prefixed so the counter stays unambiguously the dropped index's.
+def keepGCInfoSectionAlive(env):
+    env.expect('FT.CREATE', 'keep', 'PREFIX', 1, 'keep:', 'SCHEMA', 't', 'TEXT').ok()
+
+
+def logicallyDeletedDocs(env):
+    return env.cmd('INFO', 'MODULES')['search_gc_total_docs_not_collected']
+
+
+@skip(cluster=True)
+def testGCTeardownAfterContinueAndDrop_MOD_17309():
+    """A stop, a resume and a drop that all land while a run is parked must end in teardown. The
+    drop finds RUN_PENDING held and hands the discovery to that run, so the parked pass is the
+    only thing left that can free the context -- and onTerm returning this index's
+    logically-deleted docs to the global counter is the evidence that it did."""
+    env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 1 FORK_GC_CLEAN_THRESHOLD 0')
+    skipIfNoEnableAssert(env)
+    env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'doc:', 'SCHEMA', 't', 'TEXT').ok()
+
+    armParkedGCRun(env)
+    keepGCInfoSectionAlive(env)
+
+    # Deleted while the pass is parked before its promote, so it cannot be collected: that pass
+    # never reaches the fork, and no other run can start while it holds RUN_PENDING. Only
+    # teardown can return the counter to 0.
+    env.cmd('HSET', 'doc:1', 't', 'hello')
+    env.expect('DEL', 'doc:1').equal(1)
+    env.assertEqual(logicallyDeletedDocs(env), 1)
+
+    # Arranged while the worker is still parked -- not raced against it. GC_CONTINUE_SCHEDULE
+    # must not queue a second run behind the parked one, and the drop must not disarm anything.
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+    env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
+    env.expect('FT.DROPINDEX', 'idx').ok()
+    env.assertEqual(logicallyDeletedDocs(env), 1,
+                    message='the drop returned the docs on its own, so the wait below proves nothing')
+
+    # Release it into a promote that now fails: the pass has to terminate instead of re-arming.
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_TASK_START)
+    wait_for_condition(
+        lambda: (logicallyDeletedDocs(env) == 0, {'not_collected': logicallyDeletedDocs(env)}),
+        'the parked run never tore down its dropped index', timeout=30)
+    env.expect('FT._LIST').equal(['keep'])
+
+
+@skip(cluster=True)
+def testGCTeardownWhenDropOvertakesPendingRearm_MOD_17309():
+    """A stop and a drop that land after the pass finished, while only its re-arm one-shot is
+    still owed, must still end in teardown. GCContext_BeginDrop defers to "a run in flight",
+    which by then is just that pending post -- so the one-shot has to be able to arm the timer
+    that discovers the unlink, which is why the drop re-enables collection before deciding."""
+    env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 1 FORK_GC_CLEAN_THRESHOLD 0')
+    skipIfNoEnableAssert(env)
+    env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'doc:', 'SCHEMA', 't', 'TEXT').ok()
+
+    armParkedGCRun(env, SYNC_POINT_GC_BEFORE_REARM_POST)
+    keepGCInfoSectionAlive(env)
+
+    # Deleted after that pass finished, so this pass cannot have collected it and no other run
+    # can start while it holds RUN_PENDING: only teardown can return the counter to 0.
+    env.cmd('HSET', 'doc:1', 't', 'hello')
+    env.expect('DEL', 'doc:1').equal(1)
+    env.assertEqual(logicallyDeletedDocs(env), 1)
+
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+    env.expect('FT.DROPINDEX', 'idx').ok()
+    env.assertEqual(logicallyDeletedDocs(env), 1,
+                    message='the drop returned the docs on its own, so the wait below proves nothing')
+
+    # Let the post through. It re-arms on the main thread, and that timer's run is what has to
+    # find the index gone and free the context.
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_BEFORE_REARM_POST)
+    wait_for_condition(
+        lambda: (logicallyDeletedDocs(env) == 0, {'not_collected': logicallyDeletedDocs(env)}),
+        'a drop that overtook the pending re-arm never tore the context down', timeout=30)
+    env.expect('FT._LIST').equal(['keep'])
+def waitForSyncPoint(env, name, message, timeout=30):
+    wait_for_condition(
+        lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', name) == 1, {}),
+        message, timeout=timeout)
+
+
+def indexWithCollectableDocs(env):
+    """An index with 50 deleted docs to collect and 50 live keys. The live half is what lets a
+    delayed bgsave keep holding the fork slot, and GC_STOP_SCHEDULE leaves a forced cycle as
+    the only one that can reach the sync points below."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+    for i in range(100):
+        env.expect('HSET', f'doc{i}', 't', 'hello').equal(1)
+    for i in range(50):
+        env.expect('DEL', f'doc{i}').equal(1)
+    waitForRdbSaveToFinish(env)
+
+
+def parkedForcedGC(env, timeout=None):
+    """Start GC_FORCEINVOKE, which blocks, on its own connection, and return once its cycle is
+    parked before the fork -- so the caller can take the slot out from under it. The returned
+    dict gains 'reply' or 'error' once the thread finishes."""
+    conn = env.getConnection()
+    result = {}
+    args = [debug_cmd(), 'GC_FORCEINVOKE', 'idx'] + ([timeout] if timeout is not None else [])
+
+    def run():
+        try:
+            result['reply'] = conn.execute_command(*args)
+        except Exception as e:
+            result['error'] = str(e)
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    waitForSyncPoint(env, SYNC_POINT_GC_BEFORE_FORK,
+                     'Timeout waiting for the forced GC to reach the pre-fork sync point')
+    return thread, result
+
+
+def holdForkSlot(env, key_delay_us):
+    """Take Redis's single child slot with a bgsave slowed to key_delay_us per key saved."""
+    env.expect('CONFIG', 'SET', 'rdb-key-save-delay', str(key_delay_us)).ok()
+    env.cmd('BGSAVE')
+    env.assertEqual(int(env.cmd('INFO', 'Persistence')['rdb_bgsave_in_progress']), 1)
+
+
+@skip(cluster=True)
+def testForcedGCWaitsForForkSlot():
+    """A forced GC replying DONE has to mean it collected. Parking the cycle before its fork lets
+    a bgsave take the only child slot first, and parking it again after the failed fork is what
+    proves the EEXIST retry ran rather than the cycle winning the slot on a lucky schedule."""
+    env = Env()
+    skipIfNoEnableAssert(env)
+    indexWithCollectableDocs(env)
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', SYNC_POINT_GC_BEFORE_FORK, 10000).ok()
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', SYNC_POINT_GC_FORK_SLOT_BUSY, 10000).ok()
+
+    thread, forced = parkedForcedGC(env)
+    try:
+        holdForkSlot(env, 20000)
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_BEFORE_FORK)
+
+        # The cycle only parks here after a fork failed with EEXIST, so arriving is the
+        # assertion that the retry path ran.
+        waitForSyncPoint(env, SYNC_POINT_GC_FORK_SLOT_BUSY,
+                         'forced GC never hit a busy fork slot')
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_FORK_SLOT_BUSY)
+    finally:
+        thread.join(timeout=60)
+        env.cmd('CONFIG', 'SET', 'rdb-key-save-delay', '0')
+
+    env.assertFalse(thread.is_alive(), message='forced GC never returned')
+    env.assertEqual(forced.get('reply'), 'DONE')
+    env.assertGreater(int(to_dict(index_info(env)['gc_stats'])['bytes_collected']), 0)
+
+
+@skip(cluster=True)
+def testForcedGCReportsWhenItCannotFork():
+    """A forced GC that never gets the slot has to say so. Replying DONE would be the original
+    bug at a longer timescale: a collection reported but never made."""
+    env = Env()
+    skipIfNoEnableAssert(env)
+    indexWithCollectableDocs(env)
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', SYNC_POINT_GC_BEFORE_FORK, 10000).ok()
+
+    # The budget is this TIMEOUT less a margin, and both clocks start at submission -- so the
+    # margin, not the timeout, is what this test's own setup races. TIMEOUT has to stay clear of
+    # how long that setup can take on a slow host; the budget then expires while the child below
+    # is still holding the slot.
+    thread, forced = parkedForcedGC(env, timeout=2000)
+    try:
+        holdForkSlot(env, 40000)
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_BEFORE_FORK)
+    finally:
+        thread.join(timeout=60)
+        env.cmd('CONFIG', 'SET', 'rdb-key-save-delay', '0')
+        waitForRdbSaveToFinish(env)
+
+    env.assertContains('GC DID NOT RUN', forced.get('error', ''),
+                       message=f'expected an error, got {forced}')

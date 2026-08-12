@@ -31,11 +31,8 @@ on:
         description: "Branch to use as the comparison baseline. Empty falls back to the PR base branch."
       redis_ref:
         type: string
-        # TEMPORARY default, reset to "" once Redis 8.10 is GA and becomes the
-        # DB hosts' default: pinned to the same redis/redis commit the test CI
-        # uses (get-latest-redis-tag in event-pull_request.yml /
-        # event-merge-to-queue.yml) — keep in sync.
-        default: "3869512c920d4e865b54384bce5fcb6a4e06ae0d"
+        # Keep benchmarks independent of the Redis version preinstalled on the DB hosts.
+        default: "8.10.0"
         description: "redis/redis git ref (sha/branch/tag) to build and run the benchmarks against, instead of the redis preinstalled on the DB hosts. Empty uses the preinstalled default."
   workflow_call:
     inputs:
@@ -59,11 +56,8 @@ on:
         description: "Branch to use as the comparison baseline. Empty falls back to the PR base branch."
       redis_ref:
         type: string
-        # TEMPORARY default, reset to "" once Redis 8.10 is GA and becomes the
-        # DB hosts' default: pinned to the same redis/redis commit the test CI
-        # uses (get-latest-redis-tag in event-pull_request.yml /
-        # event-merge-to-queue.yml) — keep in sync.
-        default: "3869512c920d4e865b54384bce5fcb6a4e06ae0d"
+        # Keep benchmarks independent of the Redis version preinstalled on the DB hosts.
+        default: "8.10.0"
         description: "redis/redis git ref (sha/branch/tag) to build and run the benchmarks against, instead of the redis preinstalled on the DB hosts. Empty uses the preinstalled default."
 
 jobs:
@@ -340,7 +334,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        member_id: [1, 2, 3]
+        member_id: [1, 2, 3, 4]
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:

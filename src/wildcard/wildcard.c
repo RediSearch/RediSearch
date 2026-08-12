@@ -136,6 +136,11 @@ size_t Wildcard_TrimPattern(char *pattern, size_t p_len) {
 }
 
 size_t Wildcard_RemoveEscape(char *str, size_t len) {
+  // The scan below reads str[0] unconditionally, and an empty pattern would leave it
+  // with i == 1 != len, taking the unescape path and writing str[1] past the buffer
+  if (len == 0) {
+    return 0;
+  }
   int i = 0;
   do {
     if (str[i] == '\\') break;

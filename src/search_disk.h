@@ -394,24 +394,6 @@ RedisSearchDiskSnapshot* SearchDisk_CreateSnapshot(RedisSearchDiskIndexSpec *ind
  */
 void SearchDisk_FreeSnapshot(RedisSearchDiskSnapshot *snapshot);
 
-/**
- * @brief Create a numeric range IndexIterator over the disk-backed index
- *
- * Wraps the disk API's per-bucket readers in a union iterator that yields
- * doc-ids matching `filter`'s range. The disk snapshot is taken from
- * `sctx->diskSnapshot` (which must be non-NULL) so the buckets are read at
- * the same point in time as sibling iterators in the same query.
- *
- * @param index Pointer to the index
- * @param sctx Search context whose `diskSnapshot` field selects the read view. The
- *             `diskSnapshot` field is required to be non-NULL.
- * @param filter Pointer to the numeric filter (min, max, inclusivity, field spec)
- * @param fieldIndex Field index for the numeric field
- * @param status QueryError to populate with the cause when creation fails (may be NULL)
- * @return Pointer to the IndexIterator, or NULL if no buckets overlap the filter
- */
-QueryIterator* SearchDisk_NewNumericIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, const NumericFilter *filter, t_fieldIndex fieldIndex, QueryError *status);
-
 // DocTable API wrappers
 
 /**

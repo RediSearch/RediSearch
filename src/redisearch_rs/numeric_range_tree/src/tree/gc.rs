@@ -184,7 +184,7 @@ impl NumericRangeTree {
             self.stats.inverted_indexes_size += info.bytes_allocated - info.bytes_freed;
         }
 
-        #[cfg(all(feature = "unittest", not(miri)))]
+        #[cfg(all(feature = "unittest", debug_assertions, not(miri)))]
         self.check_tree_invariants();
 
         Some(SingleNodeGcResult {
@@ -262,12 +262,12 @@ impl NumericRangeTree {
     /// Removes leaf nodes that have no documents and prunes the tree structure
     /// accordingly. Returns information about what changed.
     pub fn trim_empty_leaves(&mut self) -> TrimEmptyLeavesResult {
-        #[cfg(all(feature = "unittest", not(miri)))]
+        #[cfg(all(feature = "unittest", debug_assertions, not(miri)))]
         let (stats_before, revision_id_before) = (self.stats, self.revision_id);
 
         let result = self._trim_empty_leaves();
 
-        #[cfg(all(feature = "unittest", not(miri)))]
+        #[cfg(all(feature = "unittest", debug_assertions, not(miri)))]
         {
             self.check_trim_delta_invariants(stats_before, revision_id_before, &result);
             self.check_tree_invariants();

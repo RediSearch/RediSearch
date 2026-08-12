@@ -27,7 +27,7 @@ use numeric_range_tree::test_utils::{
 
 fn bench_no_split_small(group: &mut BenchmarkGroup<'_, WallTime>) {
     let setup = || build_single_leaf_tree(10);
-    let measure = |mut tree: NumericRangeTree| tree.add(11, 5.0, false, 0);
+    let measure = |mut tree: NumericRangeTree| tree.add(11, 5.0, false, false, 0);
     let result = measure(setup());
     assert!(
         !result.changed,
@@ -40,7 +40,7 @@ fn bench_no_split_small(group: &mut BenchmarkGroup<'_, WallTime>) {
 
 fn bench_no_split_large(group: &mut BenchmarkGroup<'_, WallTime>) {
     let setup = || build_single_leaf_tree(1000);
-    let measure = |mut tree: NumericRangeTree| tree.add(1001, 5.0, false, 0);
+    let measure = |mut tree: NumericRangeTree| tree.add(1001, 5.0, false, false, 0);
     let result = measure(setup());
     assert!(
         !result.changed,
@@ -55,7 +55,7 @@ fn bench_splits_single(group: &mut BenchmarkGroup<'_, WallTime>) {
     let (_edge_tree, split_doc_id) = build_tree_at_split_edge();
     let setup = move || build_tree(split_doc_id - 1, false, 0);
     let measure = move |mut tree: NumericRangeTree| {
-        let result = tree.add(split_doc_id, split_doc_id as f64, false, 0);
+        let result = tree.add(split_doc_id, split_doc_id as f64, false, false, 0);
         (result, tree)
     };
     let (result, tree) = measure(setup());
@@ -77,7 +77,7 @@ fn bench_retained_ranges(group: &mut BenchmarkGroup<'_, WallTime>) {
         let setup = NumericRangeTree::default;
         let measure = move |mut tree: NumericRangeTree| {
             for i in 1..=n {
-                tree.add(i, i as f64, false, 2);
+                tree.add(i, i as f64, false, false, 2);
             }
             tree
         };

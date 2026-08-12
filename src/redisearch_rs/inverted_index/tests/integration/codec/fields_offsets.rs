@@ -178,12 +178,12 @@ fn test_encode_fields_offsets_output_too_small() {
     let record = index_result::RSIndexResult::build_term().build();
 
     let res = FieldsOffsets::encode(&mut cursor, 0, &record);
-    assert_eq!(res.is_err(), true);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::WriteZero);
 
     let res = FieldsOffsetsWide::encode(&mut cursor, 0, &record);
-    assert_eq!(res.is_err(), true);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::WriteZero);
 }
@@ -195,12 +195,12 @@ fn test_decode_fields_offsets_input_too_small() {
     let mut cursor = Cursor::new(buf.as_ref());
 
     let res = FieldsOffsets::decode_new(&mut cursor, 100);
-    assert_eq!(res.is_err(), true);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 
     let res = FieldsOffsetsWide::decode_new(&mut cursor, 100);
-    assert_eq!(res.is_err(), true);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 }
@@ -212,12 +212,12 @@ fn test_decode_fields_offsets_empty_input() {
     let mut cursor = Cursor::new(buf.as_ref());
 
     let res = FieldsOffsets::decode_new(&mut cursor, 100);
-    assert_eq!(res.is_err(), true);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 
     let res = FieldsOffsetsWide::decode_new(&mut cursor, 100);
-    assert_eq!(res.is_err(), true);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 }
@@ -241,7 +241,7 @@ fn test_seek_fields_offsets() {
 
     let record_expected = TestTermRecord::new(30, 3, 1, &[5u8, 6, 7, 8]);
 
-    assert!(found);
+    assert!(found.is_some());
     assert_eq!(
         TermRecordCompare(&record_decoded),
         TermRecordCompare(&record_expected.record)
@@ -252,7 +252,7 @@ fn test_seek_fields_offsets() {
 
     let record_expected = TestTermRecord::new(55, 9, 1, &[20u8, 21]);
 
-    assert!(found);
+    assert!(found.is_some());
     assert_eq!(
         TermRecordCompare(&record_decoded),
         TermRecordCompare(&record_expected.record)
@@ -261,7 +261,7 @@ fn test_seek_fields_offsets() {
     let found = FieldsOffsets::seek(&mut buf, 55, 70, &mut record_decoded)
         .expect("to decode fields offsets record");
 
-    assert!(!found);
+    assert!(found.is_none());
 }
 
 #[test]
@@ -283,7 +283,7 @@ fn test_seek_fields_offsets_wide() {
 
     let record_expected = TestTermRecord::new(30, 3, 1, &[5u8, 6, 7, 8]);
 
-    assert!(found);
+    assert!(found.is_some());
     assert_eq!(
         TermRecordCompare(&record_decoded),
         TermRecordCompare(&record_expected.record)
@@ -294,7 +294,7 @@ fn test_seek_fields_offsets_wide() {
 
     let record_expected = TestTermRecord::new(55, 9, 1, &[20u8, 21]);
 
-    assert!(found);
+    assert!(found.is_some());
     assert_eq!(
         TermRecordCompare(&record_decoded),
         TermRecordCompare(&record_expected.record)
@@ -303,5 +303,5 @@ fn test_seek_fields_offsets_wide() {
     let found = FieldsOffsetsWide::seek(&mut buf, 55, 70, &mut record_decoded)
         .expect("to decode fields offsets record");
 
-    assert!(!found);
+    assert!(found.is_none());
 }

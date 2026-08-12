@@ -55,6 +55,8 @@ help() {
 		REDIS_SERVER=path     Location of redis-server
 		REDIS_PORT=n          Redis server port
 		CONFIG_FILE=file      Path to config file
+		REDIS_TEST_CONFIG=f   redis-server config for every server started, empty for Redis
+		                      defaults (default: redis-test.conf)
 
 		EXT=1|run             Test on existing env (1=running; run=start redis-server)
 		EXT_HOST=addr         Address of existing env (default: 127.0.0.1)
@@ -141,7 +143,7 @@ setup_rltest() {
 
 #----------------------------------------------------------------------------------------------
 
-setup_clang_sanitizer() {
+setup_sanitizer() {
 	local ignorelist=$ROOT/tests/memcheck/redis.san-ignorelist
 	if ! grep THPIsEnabled $ignorelist &> /dev/null; then
 		echo "fun:THPIsEnabled" >> $ignorelist
@@ -157,20 +159,48 @@ setup_clang_sanitizer() {
 	# --no-output-catch --exit-on-failure --check-exitcode
 	RLTEST_SAN_ARGS="--sanitizer $SAN"
 	if [[ $SAN == addr || $SAN == address ]]; then
+		# Apple's ASan runtime — linked from under an .xctoolchain (any
+		# Xcode bundle, however renamed) or CommandLineTools — has no
+		# LeakSanitizer: with detect_leaks=1 every instrumented process
+		# aborts before main ("detect_leaks is not supported on this
+		# platform"). Other runtimes, like Homebrew LLVM's, support it, so
+		# key off the runtime the module links, not the OS.
+		local detect_leaks=1
+		if otool -l "$MODULE" 2> /dev/null | grep -qE '\.xctoolchain|CommandLineTools'; then
+			detect_leaks=0
+			echo "Disabling ASan leak detection: Apple's runtime does not support it"
+		fi
 		# RLTest places log file details in ASAN_OPTIONS
-		export ASAN_OPTIONS="detect_odr_violation=0:halt_on_error=0:detect_leaks=1:verbosity=0"
+		export ASAN_OPTIONS="detect_odr_violation=0:halt_on_error=0:detect_leaks=${detect_leaks}:verbosity=0"
 		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp:print_suppressions=0:verbosity=0"
 		# :use_tls=0
 
-		# Preload libstdc++ so ASAN resolves __cxa_throw at process init.
-		# redis-server no longer links libstdc++ (upstream 670993a), so the
-		# interceptor captures NULL and the first C++ throw from a module
-		# aborts the process.
-		if [[ $OS != macos ]] && command -v g++ &> /dev/null; then
+		# RediSearch uses C++, but redis-server no longer links libstdc++.
+		# Preload it before Redis starts so ASAN can install its __cxa_throw
+		# interceptor. Non-ASAN runs load libstdc++ when Redis dlopens the module.
+		if [[ $OS != macos && $RLEC != 1 ]] && command -v g++ &> /dev/null; then
 			local libstdcxx
 			libstdcxx=$(g++ -print-file-name=libstdc++.so.6 2> /dev/null)
 			if [[ -n $libstdcxx && -e $libstdcxx ]]; then
 				export LD_PRELOAD="${libstdcxx}${LD_PRELOAD:+:$LD_PRELOAD}"
+
+				local redis_server_path libasan
+				redis_server_path=$(command -v "$REDIS_SERVER")
+
+				# GCC-built sanitizer servers load libasan dynamically. Since
+				# libstdc++ is already preloaded, prepend libasan so the ASAN
+				# runtime remains first. Clang-built servers link ASAN statically,
+				# so ldd finds no libasan entry to add.
+				if command -v ldd &> /dev/null; then
+					libasan=$(ldd "$redis_server_path" 2> /dev/null | awk '
+						$1 ~ /^libasan\.so/ && $2 == "=>" { print $3; exit }
+						$1 ~ /\/libasan\.so/ { print $1; exit }
+					')
+				fi
+
+				if [[ -n $libasan && -e $libasan ]]; then
+					export LD_PRELOAD="${libasan}${LD_PRELOAD:+:$LD_PRELOAD}"
+				fi
 			fi
 		fi
 	fi
@@ -210,6 +240,7 @@ run_env() {
 	cat <<-EOF > $rltest_config
 		--env-only
 		--oss-redis-path=$REDIS_SERVER
+		--redis-config-file=$REDIS_TEST_CONFIG
 		--module $MODULE
 		--module-args '$MODARGS'
 		$RLTEST_ARGS
@@ -266,6 +297,7 @@ run_tests() {
 		if [[ $RLEC != 1 ]]; then
 			cat <<-EOF > $rltest_config
 				--oss-redis-path=$REDIS_SERVER
+				--redis-config-file=$REDIS_TEST_CONFIG
 				--module $MODULE
 				--module-args '$MODARGS'
 				$RLTEST_ARGS
@@ -290,10 +322,14 @@ run_tests() {
 			if [[ $REJSON_MODULE ]]; then
 				XREDIS_REJSON_ARGS="loadmodule $REJSON_MODULE $REJSON_ARGS"
 			fi
+			if [[ -n $REDIS_TEST_CONFIG ]]; then
+				XREDIS_INCLUDE="include $REDIS_TEST_CONFIG"
+			fi
 
 			xredis_conf=$(mktemp "${TMPDIR:-/tmp}/xredis_conf.XXXXXXX")
 			rm -f $xredis_conf
 			cat <<-EOF > $xredis_conf
+				$XREDIS_INCLUDE
 				loadmodule $MODULE $MODARGS
 				$XREDIS_REJSON_ARGS
 				EOF
@@ -382,6 +418,12 @@ RLEC_PORT=${RLEC_PORT:-12000}
 
 EXT_HOST=${EXT_HOST:-127.0.0.1}
 EXT_PORT=${EXT_PORT:-6379}
+
+# Absolute: RLTest starts each server in that test's db directory, not here.
+REDIS_TEST_CONFIG=${REDIS_TEST_CONFIG-$HERE/redis-test.conf}
+if [[ -n $REDIS_TEST_CONFIG ]] && ! is_abspath "$REDIS_TEST_CONFIG"; then
+	REDIS_TEST_CONFIG="$ROOT/$REDIS_TEST_CONFIG"
+fi
 
 PID=$$
 
@@ -517,12 +559,12 @@ fi
 
 setup_rltest
 
-if [[ -n $SAN ]]; then
-	setup_clang_sanitizer
-fi
-
 if [[ $RLEC != 1 ]]; then
 	setup_redis_server
+fi
+
+if [[ -n $SAN ]]; then
+	setup_sanitizer
 fi
 
 #------------------------------------------------------------------------------------- Env only

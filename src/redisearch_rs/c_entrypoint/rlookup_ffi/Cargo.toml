@@ -18,6 +18,7 @@ document_metadata.workspace = true
 document.workspace = true
 ffi.workspace = true
 libc.workspace = true
+redis-module.workspace = true
 rlookup.workspace = true
 search_result.workspace = true
 sorting_vector.workspace = true
