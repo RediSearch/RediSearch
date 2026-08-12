@@ -15,7 +15,9 @@ search_result.workspace = true
 [dev-dependencies]
 # Crate required to invoke C symbols
 result_processor = { path = ".", features = ["unittest"] }
-redisearch_rs = { path = "../c_entrypoint/redisearch_rs" }
+# `mock_allocator` disables the `RedisAlloc` global allocator so the mock's
+# `RedisModule_Alloc` routes to the system allocator instead of recursing.
+redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = ["mock_allocator"] }
 redis_mock.workspace = true
 
 [build-dependencies]
