@@ -191,7 +191,7 @@ void RedisSearchCtx_BorrowSpecReadLock(RedisSearchCtx *ctx) {
   ctx->lock_state = SPEC_LOCK_READ_BORROWED;
 }
 
-void RedisSearchCtx_ReturnSpecReadLock(RedisSearchCtx *ctx) {
+void RedisSearchCtx_ClearBorrowedSpecReadLock(RedisSearchCtx *ctx) {
   RS_ASSERT(ctx->lock_state == SPEC_LOCK_READ_BORROWED);
   ctx->lock_state = SPEC_LOCK_UNSET;
 }
@@ -202,7 +202,7 @@ void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx) {
     return;
   }
   if (sctx->lock_state == SPEC_LOCK_READ_BORROWED) {
-    // Not ours to release. The marker is cleared by RedisSearchCtx_ReturnSpecReadLock.
+    // Not ours to release. The marker is cleared by RedisSearchCtx_ClearBorrowedSpecReadLock.
     return;
   }
   if (sctx->lock_state == SPEC_LOCK_READ) {

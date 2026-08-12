@@ -126,7 +126,7 @@ void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx);
  * is a no-op and its query iterator skips locking and revalidation, so the
  * caller's lock stays held for the whole borrow. Must be paired. */
 void RedisSearchCtx_BorrowSpecReadLock(RedisSearchCtx *sctx);
-void RedisSearchCtx_ReturnSpecReadLock(RedisSearchCtx *sctx);
+void RedisSearchCtx_ClearBorrowedSpecReadLock(RedisSearchCtx *sctx);
 
 /* Debug-only (ENABLE_ASSERT) check that the spec lock is not held. Used at
  * background request-cycle boundaries: the lock must be taken and released
