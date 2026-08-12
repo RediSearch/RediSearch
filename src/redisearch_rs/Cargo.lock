@@ -1823,6 +1823,7 @@ dependencies = [
  "rqe_iterators_test_utils",
  "rs_token",
  "search_disk",
+ "string_utils",
  "thiserror",
  "workspace_hack",
 ]
@@ -2885,6 +2886,7 @@ dependencies = [
  "redis-module",
  "redis_mock",
  "redisearch_rs",
+ "rstest",
  "string_utils",
  "thiserror",
  "workspace_hack",

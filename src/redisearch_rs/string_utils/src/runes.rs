@@ -12,15 +12,40 @@
 //! A rune ([`u16`]) is a UTF-16 code unit; tries store and look up terms as
 //! rune arrays.
 
+use std::ptr::NonNull;
+
 /// Maximum number of runes (lowercased codepoints) allowed in a single conversion.
 pub const MAX_RUNE_STR_LEN: usize = ffi::MAX_RUNE_STR_LEN as usize;
 
-/// Error returned when the lowercased rune sequence exceeds
-/// [`MAX_RUNE_STR_LEN`].
+/// Error returned when a rune sequence exceeds [`MAX_RUNE_STR_LEN`].
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("lowercased rune length {len} exceeds maximum {MAX_RUNE_STR_LEN}")]
+#[error("rune length {len} exceeds maximum {MAX_RUNE_STR_LEN}")]
 pub struct RuneStrTooLong {
     pub len: usize,
+}
+
+/// Convert a rune slice into a byte slice using UFT-8 encoding mechanism
+/// without validating actual unicode code points.
+///
+/// Returns [`Err(`[`RuneStrTooLong`]`)`] if `runes` exceeds
+/// [`MAX_RUNE_STR_LEN`].
+pub fn runes_to_bytes(runes: &[ffi::rune]) -> Result<Vec<u8>, RuneStrTooLong> {
+    let mut len: usize = 0;
+    // SAFETY: `runes` is a valid slice of `runes.len()` runes; `runesToStr`
+    // returns a freshly allocated, NUL-terminated buffer of `len` bytes, or NULL
+    // when the slice exceeds `MAX_RUNE_STR_LEN`.
+    let ptr = unsafe { ffi::runesToStr(runes.as_ptr(), runes.len(), &mut len) };
+    let Some(ptr) = NonNull::new(ptr) else {
+        return Err(RuneStrTooLong { len: runes.len() });
+    };
+    // SAFETY: `ptr` points to `len` valid bytes written by the call above.
+    let bytes = unsafe { std::slice::from_raw_parts(ptr.as_ptr().cast::<u8>(), len) }.to_vec();
+    // SAFETY: `RedisModule_Free` is set during module init and not mutated
+    // afterwards.
+    let rm_free = unsafe { redis_module::RedisModule_Free.expect("Redis allocator not available") };
+    // SAFETY: `ptr` was allocated by the module allocator inside `runesToStr`.
+    unsafe { rm_free(ptr.as_ptr().cast::<std::ffi::c_void>()) };
+    Ok(bytes)
 }
 
 /// Convert a UTF-8 string to a lowercase array of runes ([`u16`]) for trie

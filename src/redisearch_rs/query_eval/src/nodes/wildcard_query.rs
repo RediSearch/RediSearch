@@ -15,10 +15,10 @@ use c_trie::{CTrieRef, LoweredPattern, SuffixWalk};
 use query_error::QueryErrorCode;
 use query_types::QueryNodeType;
 use rqe_iterators::union_opaque::build_union_with_q_str;
+use string_utils::runes::runes_to_bytes;
 
 use crate::{
-    Config, Evaluated, QueryEvalContext, QueryNodeMut,
-    expansion::{Expansion, runes_to_key},
+    Config, Evaluated, QueryEvalContext, QueryNodeMut, expansion::Expansion,
     expansion_needs_offsets,
 };
 
@@ -261,7 +261,7 @@ impl Expansion<'_> {
             if self.cap_reached() {
                 return ControlFlow::Break(());
             }
-            let Some(key) = runes_to_key(runes) else {
+            let Ok(key) = runes_to_bytes(runes) else {
                 // The term key cannot be reconstructed; skip this expansion.
                 return ControlFlow::Continue(());
             };
