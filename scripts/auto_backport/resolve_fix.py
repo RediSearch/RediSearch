@@ -236,7 +236,7 @@ query($owner:String!, $repo:String!, $pr:Int!, $after:String) {
           path
           line
           comments(last:100) {
-            nodes { author { login } authorAssociation body }
+            nodes { author { login } authorAssociation body createdAt }
           }
         }
       }
@@ -347,12 +347,20 @@ def fetch_unresolved_review_threads(pr: int) -> list[dict]:
             bot_replied_last = (
                 ((comments[-1].get("author") or {}).get("login")) == BOT_LOGIN
             )
+            # Newest comment timestamp in this snapshot. The agent re-checks the
+            # thread just before resolving and refuses to resolve if a newer
+            # non-bot comment has appeared since — otherwise a reviewer follow-up
+            # that lands after this snapshot would be auto-closed unseen.
+            latest_comment_at = max(
+                (c.get("createdAt") or "" for c in comments), default=""
+            )
             threads.append({
                 "thread_id": node.get("id"),
                 "path": node.get("path"),
                 "line": node.get("line"),
                 "is_outdated": bool(node.get("isOutdated")),
                 "bot_replied_last": bot_replied_last,
+                "latest_comment_at": latest_comment_at,
                 "comments": bodies,
             })
 
@@ -426,10 +434,17 @@ def fetch_review_bodies(pr: int, acked: dict[str, str]) -> list[dict]:
     alone (review bodies are seldom edited after submission).
 
     `DISMISSED` (and not-yet-submitted `PENDING`) reviews are excluded: a
-    dismissed review is feedback the reviewer explicitly withdrew, so surfacing
-    its body would have the agent act on a correction no longer wanted.
+    dismissed review is feedback the reviewer explicitly withdrew. A review body
+    is also dropped when the same author later submitted an `APPROVED` review
+    (GitHub keeps the superseded record un-dismissed): the approval means the
+    reviewer is satisfied, so an earlier request-changes/comment body is stale
+    and must not be re-applied. A request-changes submitted *after* an approval
+    (a fresh review round) is newer than that approval and is kept.
     """
     repo = os.environ["GITHUB_REPOSITORY"]
+    # Fetch state + submitted_at too, and do NOT drop empty bodies in jq: an
+    # empty-body APPROVED review still supersedes that author's earlier bodies,
+    # so we need to see it here.
     raw = common.gh_paginated_array(
         "api", "-X", "GET", f"repos/{repo}/pulls/{pr}/reviews",
         "--jq",
@@ -438,20 +453,34 @@ def fetch_review_bodies(pr: int, acked: dict[str, str]) -> list[dict]:
         '     or .author_association == "MEMBER" '
         '     or .author_association == "COLLABORATOR") '
         '| select(.state != "DISMISSED" and .state != "PENDING") '
-        "| select((.body // \"\") != \"\") "
-        "| {id: .id, author: .user.login, body: .body} ]",
+        "| {id: .id, author: .user.login, body: (.body // \"\"), "
+        "   state: .state, submitted_at: .submitted_at} ]",
     )
+    rows = [r for r in raw if isinstance(r, dict)]
+
+    # Latest APPROVED submission time per author.
+    approved_at: dict[str, str] = {}
+    for r in rows:
+        if r.get("state") == "APPROVED":
+            author = r.get("author") or ""
+            ts = r.get("submitted_at") or ""
+            if ts > approved_at.get(author, ""):
+                approved_at[author] = ts
+
     out: list[dict] = []
-    for r in raw:
-        if not isinstance(r, dict):
-            continue
+    for r in rows:
         body = r.get("body") or ""
-        if not body or (r.get("author") or "") == BOT_LOGIN:
+        author = r.get("author") or ""
+        if not body or author == BOT_LOGIN:
             continue
         if f"review:{r.get('id')}" in acked:
             continue
+        # Superseded by a later (or same-time) approval from this author.
+        if r.get("state") != "APPROVED" and author in approved_at \
+                and (r.get("submitted_at") or "") <= approved_at[author]:
+            continue
         out.append({"id": r.get("id"), "kind": "review",
-                    "author": r.get("author") or "", "body": body})
+                    "author": author, "body": body})
     return out
 
 

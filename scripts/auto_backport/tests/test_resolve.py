@@ -328,6 +328,21 @@ class ReviewThreadTests(unittest.TestCase):
         got = resolve_fix.fetch_unresolved_review_threads(1)
         self.assertEqual([t["thread_id"] for t in got], ["T1"])
 
+    def test_latest_comment_at_is_max_created(self):
+        self._stub([
+            {
+                "id": "T1", "isResolved": False, "path": "a", "line": 1,
+                "comments": {"nodes": [
+                    {"author": {"login": "alice"}, "authorAssociation": "MEMBER",
+                     "body": "first", "createdAt": "2026-01-01T00:00:00Z"},
+                    {"author": {"login": "alice"}, "authorAssociation": "MEMBER",
+                     "body": "second", "createdAt": "2026-01-04T00:00:00Z"},
+                ]},
+            },
+        ])
+        got = resolve_fix.fetch_unresolved_review_threads(1)
+        self.assertEqual(got[0]["latest_comment_at"], "2026-01-04T00:00:00Z")
+
     def test_none_data_yields_empty(self):
         common.gh_graphql = lambda *a, **k: None
         self.assertEqual(resolve_fix.fetch_unresolved_review_threads(1), [])
@@ -416,6 +431,29 @@ class ReviewBodyTests(unittest.TestCase):
         ])
         got = resolve_fix.fetch_review_bodies(1, {"review:10": "2026-01-02T00:00:00Z"})
         self.assertEqual([r["id"] for r in got], [11])
+
+    def test_body_superseded_by_later_approval_is_dropped(self):
+        # alice requested changes, then approved — the withdrawn request-changes
+        # body must not reach the agent.
+        self._stub([
+            {"id": 20, "author": "alice", "body": "please fix X",
+             "state": "CHANGES_REQUESTED", "submitted_at": "2026-01-01T00:00:00Z"},
+            {"id": 21, "author": "alice", "body": "",
+             "state": "APPROVED", "submitted_at": "2026-01-02T00:00:00Z"},
+        ])
+        self.assertEqual(resolve_fix.fetch_review_bodies(1, {}), [])
+
+    def test_request_changes_after_approval_is_kept(self):
+        # A fresh review round after an approval is newer than the approval and
+        # is genuine open feedback.
+        self._stub([
+            {"id": 20, "author": "alice", "body": "",
+             "state": "APPROVED", "submitted_at": "2026-01-01T00:00:00Z"},
+            {"id": 21, "author": "alice", "body": "actually, fix Y",
+             "state": "CHANGES_REQUESTED", "submitted_at": "2026-01-03T00:00:00Z"},
+        ])
+        got = resolve_fix.fetch_review_bodies(1, {})
+        self.assertEqual([r["id"] for r in got], [21])
 
     def test_query_excludes_dismissed_and_pending_reviews(self):
         # State-based exclusion lives in the jq (stubbed away above), so assert

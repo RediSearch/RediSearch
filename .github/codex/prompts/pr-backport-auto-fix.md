@@ -93,7 +93,10 @@ workflow has already filtered to OWNER/MEMBER/COLLABORATOR authors (same gate as
   `bot_replied_last` is `true` when the newest comment in the thread is the
   bot's own reply — meaning a prior run already addressed it but its resolve
   didn't stick; such a thread is **resolution-only** (retry the resolve, do not
-  reply again — see "Address review comments" below).
+  reply again — see "Address review comments" below). `latest_comment_at` is the
+  timestamp of the newest comment in this snapshot; you re-check it against the
+  live thread before resolving so a reviewer follow-up that arrived after the
+  snapshot is never auto-closed unseen.
 - `pr_comments[]` — general (non-inline) PR comments **and** top-level review
   bodies (e.g. a "Request changes" review with no inline comment). The bot's own
   summaries/replies and `/backport-agent*` command comments are already filtered
@@ -387,7 +390,7 @@ still a new commit, never a force-push).
   rather than as a detached top-level PR comment):
 
   ```bash
-  # THREAD_ID is review_threads[i].thread_id from the context file.
+  # THREAD_ID / SNAPSHOT_TS are review_threads[i].thread_id / .latest_comment_at.
   gh api graphql -f query='
     mutation($threadId:ID!, $body:String!) {
       addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$threadId, body:$body}) {
@@ -395,10 +398,23 @@ still a new commit, never a force-push).
       }
     }' -F threadId="$THREAD_ID" -F body="🤖 Addressed in <short-sha>: <one line on what changed>."
 
-  gh api graphql -f query='
-    mutation($threadId:ID!) {
-      resolveReviewThread(input:{threadId:$threadId}) { thread { isResolved } }
-    }' -F threadId="$THREAD_ID"
+  # Guard against auto-closing feedback you never saw: re-fetch the thread's
+  # newest NON-bot comment and only resolve if nothing newer than the snapshot
+  # arrived. (Your own reply above is by the bot, so it is excluded here.)
+  newest=$(gh api graphql -f query='
+    query($id:ID!) { node(id:$id) { ... on PullRequestReviewThread {
+      comments(last:20) { nodes { createdAt author { login } } } } } }' \
+    -F id="$THREAD_ID" \
+    --jq "[.data.node.comments.nodes[] | select(.author.login != \"redis-pr-app[bot]\") | .createdAt] | max // \"\"")
+  if [ -z "$newest" ] || [ "$newest" \< "$SNAPSHOT_TS" ] || [ "$newest" = "$SNAPSHOT_TS" ]; then
+    gh api graphql -f query='
+      mutation($threadId:ID!) {
+        resolveReviewThread(input:{threadId:$threadId}) { thread { isResolved } }
+      }' -F threadId="$THREAD_ID"
+  else
+    : # a newer reviewer comment landed after the snapshot — leave open and
+      # note in the summary that there is fresh feedback to look at next run.
+  fi
   ```
 
   Only resolve a thread you **actually addressed** in code. Never resolve a
@@ -408,8 +424,10 @@ still a new commit, never a force-push).
   replied "Addressed in …" but the `resolveReviewThread` did not take (the
   thread is still unresolved). Do **not** post another reply and do **not**
   re-edit the code for it — just retry the `resolveReviewThread` mutation with
-  its `thread_id`. If that retry fails again, leave it and note it in the
-  summary; a human can resolve it manually.
+  its `thread_id`, applying the same "newer non-bot comment than
+  `latest_comment_at`" guard shown above (if a reviewer followed up after the
+  snapshot, leave it open). If the retry fails again, leave it and note it in
+  the summary; a human can resolve it manually.
 
 - **General PR comment / review body** — there is no thread to resolve; reply
   once with a normal PR comment noting what you changed, and **end the body with
