@@ -1,0 +1,228 @@
+name: Common Flow for Building RedisJSON
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+#
+# Reusable workflow that produces the RedisJSON module the flow tests load as a
+# side module, and uploads it as a workflow artifact (`rejson.so`).
+# `task-test-flow.yml` downloads it and points REJSON_PATH at it, so no test job
+# clones or builds RedisJSON itself.
+#
+# The actual build is `.github/actions/build-rejson`, cache-keyed on (RedisJSON
+# SHA, platform, arch, sanitizer, coverage, pinned nightly toolchain) — so on the
+# common path this job is a cache restore plus the upload.
+#
+# This runs on the same platform/container and with the same sanitizer flags as
+# `task-build.yml`, so the module is binary-compatible with the redis-server and
+# the RediSearch module it gets loaded next to.
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        description: 'Platform name (e.g., ubuntu:noble, macos-15). Part of the build cache key.'
+        type: string
+        required: true
+      san:
+        type: string
+      coverage:
+        type: boolean
+        default: false
+      rejson-branch:
+        description: 'RedisJSON git ref to build (branch, tag, or 40-char SHA).'
+        type: string
+        default: master
+      artifact-name:
+        description: 'Name of the workflow artifact uploaded with rejson.so.'
+        type: string
+        required: true
+      # Resolved platform config — produced by task-get-config.yml at the
+      # pipeline level so this workflow doesn't redo it. Caller must supply.
+      name:
+        type: string
+        default: ''
+      container:
+        type: string
+        default: ''
+      env:
+        type: string
+        default: ''
+      install-mode:
+        type: string
+        default: ''
+      setup-script:
+        type: string
+        default: ''
+      post-setup-script:
+        type: string
+        default: ''
+      # Prebuilt container image (task-build-cached-container.yml outputs).
+      image:
+        type: string
+        default: ''
+      image-built:
+        description: "'true' when the prebuilt image is available; falls back to inputs.container otherwise."
+        type: string
+        default: 'false'
+    outputs:
+      artifact-name:
+        description: 'Name of the uploaded RedisJSON artifact.'
+        # Reusable-workflow outputs must map from a job output, not directly
+        # from inputs — otherwise validation can reject it / it evaluates empty.
+        value: ${{ jobs.build-rejson.outputs.artifact-name }}
+
+env:
+  RUST_BACKTRACE: "full"
+  SETUP_RETRY_LOOP: |
+    SUCCESS=0
+    for i in 1 2 3 4 5; do
+      echo "Attempt $i of 5"
+      if {0}; then
+        echo "Setup succeeded"
+        SUCCESS=1
+        break
+      fi
+      if [ $i -lt 5 ]; then
+        echo "Setup failed, retrying in 30 seconds..."
+        sleep 30
+      fi
+    done
+    [ $SUCCESS -eq 1 ] || exit 1
+
+jobs:
+  build-rejson:
+    name: Build RedisJSON ${{ inputs.rejson-branch }} on ${{ inputs.name }}
+    outputs:
+      artifact-name: ${{ inputs.artifact-name }}
+    runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    container: ${{
+      inputs.container
+        && fromJSON(
+          format('{{"image":"{0}","options":"--user root -v /usr/share/dotnet:/host_usr/dotnet -v /usr/local/lib/android:/host_usr/android -v /opt/ghc:/host_opt/ghc -v /opt/hostedtoolcache:/host_opt/hostedtoolcache {1}"}}',
+            inputs.image-built == 'true' && inputs.image || inputs.container,
+            startsWith(inputs.container, 'alpine:') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '')
+        )
+      || null }}
+
+    permissions:
+      contents: read  # actions/checkout
+      packages: read  # pull container image from GHCR
+
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    steps:
+      - name: Install bash
+        if: startsWith(inputs.container, 'alpine:')
+        shell: sh -l -eo pipefail {0}
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
+
+      # On a cache miss this job compiles RedisJSON from source (cargo), so it
+      # needs real disk headroom — unlike task-build-redis.yml, which restores or
+      # makes a small C build.
+      - name: Free up disk space (container)
+        if: ${{ inputs.container }}
+        run: |
+          echo "Before cleanup:"
+          df -h
+          rm -rf /host_usr/dotnet/* 2>/dev/null || true
+          rm -rf /host_usr/android/* 2>/dev/null || true
+          rm -rf /host_opt/ghc/* 2>/dev/null || true
+          rm -rf /host_opt/hostedtoolcache/CodeQL/* 2>/dev/null || true
+          echo "After cleanup:"
+          df -h
+      - name: Free up disk space (non-container)
+        if: ${{ !inputs.container && !contains(inputs.env, 'macos') }}
+        run: |
+          echo "Before cleanup:"
+          df -h
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
+          sudo rm -rf /usr/local/share/boost || true
+          docker system prune -af 2>/dev/null || true
+          echo "After cleanup:"
+          df -h
+      - name: Fix HOME Directory
+        if: ${{ inputs.image-built == 'true' && inputs.container }}
+        shell: bash
+        run: |
+          # Issue [HOME is overridden for containers](https://github.com/actions/runner/issues/863)
+          h=$(getent passwd "$(id -un)" | cut -d: -f6)
+          if [ "$h" = "$HOME" ]; then
+            echo "HOME fine: $HOME"
+            exit 0
+          fi
+          echo "HOME=$HOME was broken. Setting it to $h"
+          echo "HOME=$h" >> "$GITHUB_ENV"
+
+      - name: Setup Dependencies
+        # Hoist setup-script into an env var and `eval` it from the loop body
+        # rather than interpolating ${{ inputs.setup-script }} directly into
+        # the run script — avoids ${{ }} expansion injecting shell metachars.
+        if: inputs.image-built != 'true' && inputs.setup-script
+        env:
+          SETUP_SCRIPT: ${{ inputs.setup-script }}
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'eval "$SETUP_SCRIPT"') }}
+
+      - name: Post-setup
+        if: inputs.post-setup-script
+        env:
+          POST_SETUP_SCRIPT: ${{ inputs.post-setup-script }}
+        run: eval "$POST_SETUP_SCRIPT"
+
+      - name: Checkout
+        # Shallow, submodule-free: this job only needs the install scripts,
+        # .rust-nightly and tests/deps/setup_rejson.sh. RedisJSON and its own
+        # submodules are cloned by that script.
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          install-mode: ${{ inputs.install-mode }}
+          image-built: ${{ inputs.image-built }}
+          san: ${{ inputs.san }}
+          install-script: 'true'
+          # RedisJSON's readies-based Makefile drives its build through python3,
+          # which must come from the repo venv (PEP 668 blocks pip on system
+          # interpreters); setup_rejson.sh activates it.
+          python-test-deps: 'true'
+          # Not for the Rust test tooling: this is the only step that installs
+          # the nightly's rust-src component, which a SAN=address RedisJSON
+          # build needs (install_rust.sh provisions the nightly with
+          # rust-docs-json only). Without it, a sanitizer build on a runner
+          # without the prebuilt image — a fork PR, or a failed image build —
+          # fails on a RedisJSON cache miss.
+          rust-test-deps: 'true'
+          github-token: ${{ github.token }}
+          sanitizer-setup: 'true'
+
+      - name: Build RedisJSON (cached)
+        uses: ./.github/actions/build-rejson
+        with:
+          rejson-branch: ${{ inputs.rejson-branch }}
+          san: ${{ inputs.san }}
+          cov: ${{ inputs.coverage && '1' || '0' }}
+          cache_platform_id: ${{ inputs.platform }}
+
+      - name: Package RedisJSON module
+        # tar, not the artifact zip: Redis checks X_OK on a module file before
+        # loading it and rejects a non-executable one ("Module ... failed to
+        # load: It does not have execute permissions"), while the artifact zip
+        # round-trip drops the bit. Set the bit here rather than trusting
+        # RedisJSON's build output, so the consumer's assertion can only fire on
+        # a genuine packaging regression.
+        run: |
+          set -euo pipefail
+          chmod +x bin/rejson.so
+          tar -czf rejson.tar.gz -C bin rejson.so
+          ls -lh rejson.tar.gz
+
+      - name: Upload RedisJSON artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: rejson.tar.gz
+          if-no-files-found: error
+          retention-days: 1
