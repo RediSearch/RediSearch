@@ -488,7 +488,7 @@ static bool serializeAndReplyResults_hybrid(HybridRequest *hreq, RedisModule_Rep
 // (coordinator-dispatched) HybridRequests, and the default (BOTH) applies to all.
 static inline void debugPauseStoreResultsHybrid(HybridRequest *hreq, bool before) {
   // Only pause if we are using reply callback (otherwise we don't store results)
-  if (!hreq->useReplyCallback) {
+  if (!QueryRequest_UsesReplyCallback(&hreq->base)) {
     return;
   }
   bool enabled = before ? StoreResultsDebugCtx_IsPauseBeforeEnabled()
@@ -566,7 +566,7 @@ void HREQ_StoreResults(HybridRequest *hreq, SearchResult **results, int rc, cach
 //   timeout warning when the error is a non-fail-policy timeout (no result set
 //   was produced here), otherwise the error itself.
 void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status) {
-  if (hreq->useReplyCallback) {
+  if (QueryRequest_UsesReplyCallback(&hreq->base)) {
     // Deep copy since QueryError contains heap-allocated strings.
     // reply_callback will clear the stored error after replying.
     QueryError_ClearError(&hreq->base.reply.err);
@@ -623,7 +623,7 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
 
     startPipelineHybrid(hreq, rp, &results, &r, &rc);
 
-    if (hreq->useReplyCallback) {
+    if (QueryRequest_UsesReplyCallback(&hreq->base)) {
       // Store results for reply_callback (includes cv)
       debugPauseStoreResultsHybrid(hreq, true);  // pause before
       HREQ_StoreResults(hreq, results, rc, cv);
@@ -918,7 +918,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     // Pause after store cursors (hybrid cursors only)
     debugPauseHybridStoreCursors(req, false);
 
-    if (!req->useReplyCallback) {
+    if (!QueryRequest_UsesReplyCallback(&req->base)) {
       // If we are not using reply callback, we should reply with the cursors here
       replyWithCursors(replyCtx, req->cursors, req, depletionTimedOut);
       array_free(req->cursors);
@@ -1218,8 +1218,6 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
 
       timeoutMS = hreq->reqConfig.queryTimeoutMS;
       QueryRequest_SetUseReplyCallback(&hreq->base, true);
-      // TODO($$$): Remove the legacy field once consumers use QueryRequest.
-      hreq->useReplyCallback = true;
 
       if (timeoutPolicy == TimeoutPolicy_Fail) {
         timeoutCallback = HybridQueryTimeoutFailCallback;

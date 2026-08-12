@@ -41,8 +41,6 @@ typedef struct HybridRequest {
     // Non-owning back-pointer to the heap wrapper that owns this request.
     BlockedRequestCtx *brc;
 
-    bool useReplyCallback;
-
     // State for reply_callback path (FAIL policy with workers in coordinator mode)
     // Background thread stores results here, then calls UnblockClient.
     // Mutex for synchronizing cursor creation with timeout callback.

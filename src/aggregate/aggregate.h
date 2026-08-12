@@ -234,8 +234,6 @@ typedef struct AREQ {
   // Every AREQ is wrapped at construction (hybrid sub-AREQs included).
   BlockedRequestCtx *brc;
 
-  bool useReplyCallback;
-
 } AREQ;
 
 /* Forward declaration; full type lives in hybrid_request.h. */
