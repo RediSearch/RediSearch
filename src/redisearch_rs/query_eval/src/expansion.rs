@@ -177,31 +177,6 @@ fn open_expanded_term_reader(
     Some(unsafe { CRQEIterator::new(nn) })
 }
 
-/// Encode a rune slice back into the term's stored key bytes, delegating to the
-/// C `runesToStr` so the reconstruction matches how the terms trie encoded the
-/// key at index time — byte for byte, including the WTF-8 form a lone surrogate
-/// takes.
-///
-/// Returns `None` when the slice is longer than
-/// [`MAX_RUNE_STR_LEN`](ffi::MAX_RUNE_STR_LEN) runes, the point at which the
-/// conversion declines and the expansion must be skipped.
-pub(crate) fn runes_to_key(runes: &[ffi::rune]) -> Option<Vec<u8>> {
-    let mut len: usize = 0;
-    // SAFETY: `runes` is a valid slice of `runes.len()` runes; `runesToStr`
-    // returns a freshly allocated, NUL-terminated buffer of `len` bytes, or NULL
-    // when the slice exceeds `MAX_RUNE_STR_LEN`.
-    let ptr = unsafe { ffi::runesToStr(runes.as_ptr(), runes.len(), &mut len) };
-    let ptr = NonNull::new(ptr)?;
-    // SAFETY: `ptr` points to `len` valid bytes written by the call above.
-    let key = unsafe { std::slice::from_raw_parts(ptr.as_ptr().cast::<u8>(), len) }.to_vec();
-    // SAFETY: `RedisModule_Free` is set during module init and not mutated
-    // afterwards.
-    let rm_free = unsafe { redis_module::RedisModule_Free.expect("Redis allocator not available") };
-    // SAFETY: `ptr` was allocated by the module allocator inside `runesToStr`.
-    unsafe { rm_free(ptr.as_ptr().cast::<std::ffi::c_void>()) };
-    Some(key)
-}
-
 /// A single pattern expansion in progress: the inputs every walk shares, the
 /// context they open readers against, and the readers opened so far.
 ///
