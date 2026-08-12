@@ -1853,6 +1853,7 @@ dependencies = [
  "redis-module",
  "redis_mock",
  "redisearch_rs",
+ "rlookup",
  "rqe_core",
  "rqe_iterators",
  "rqe_iterators_test_utils",
