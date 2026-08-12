@@ -13,7 +13,7 @@
     "Why an explicit list rather than deriving it from the remote's branches:",
     "the repo carries `MAJOR.MINOR`-shaped branches that are not release lines",
     "(e.g. `9.6` is a test-dummy branch, `99.88` is an internal version-bump",
-    "branch), plus long-EOL lines (1.x, 2.0-2.8, 4.2, 5.6, 6.4). A pattern sweep",
+    "branch), plus long-EOL lines (1.x, 2.0-2.4, 4.2, 5.6, 6.4). A pattern sweep",
     "would open backport PRs against all of them.",
     "",
     "Keep this current: branching a new release line (see",
@@ -24,6 +24,8 @@
     "`>=` expansion."
   ],
   "release_branches": [
+    "2.6",
+    "2.8",
     "2.10",
     "8.2",
     "8.4",

@@ -247,6 +247,7 @@ class ReviewThreadTests(unittest.TestCase):
         self.assertEqual(got[0]["thread_id"], "T1")
         self.assertEqual(got[0]["path"], "src/foo.c")
         self.assertEqual(got[0]["comments"][0]["author"], "alice")
+        self.assertFalse(got[0]["bot_replied_last"])
 
     def test_drops_resolved_thread(self):
         self._stub([
@@ -259,7 +260,8 @@ class ReviewThreadTests(unittest.TestCase):
         ])
         self.assertEqual(resolve_fix.fetch_unresolved_review_threads(1), [])
 
-    def test_drops_thread_opened_by_non_write_level(self):
+    def test_drops_thread_with_no_trusted_comment(self):
+        # Only an untrusted comment in the thread → nothing actionable → dropped.
         self._stub([
             {
                 "id": "T1", "isResolved": False, "path": "a", "line": 1,
@@ -271,8 +273,28 @@ class ReviewThreadTests(unittest.TestCase):
         ])
         self.assertEqual(resolve_fix.fetch_unresolved_review_threads(1), [])
 
-    def test_skips_thread_bot_replied_last(self):
-        # Bot already replied and is awaiting the reviewer — don't re-surface.
+    def test_keeps_externally_opened_thread_with_trusted_reply(self):
+        # Root is a non-write-level user, but a maintainer replied with actionable
+        # feedback — keep the thread; expose only the trusted comment(s).
+        self._stub([
+            {
+                "id": "T1", "isResolved": False, "path": "a", "line": 1,
+                "comments": {"nodes": [
+                    {"author": {"login": "ext"}, "authorAssociation": "CONTRIBUTOR",
+                     "body": "is this right?"},
+                    {"author": {"login": "alice"}, "authorAssociation": "MEMBER",
+                     "body": "no — restore the guard"},
+                ]},
+            },
+        ])
+        got = resolve_fix.fetch_unresolved_review_threads(1)
+        self.assertEqual(len(got), 1)
+        self.assertEqual([c["author"] for c in got[0]["comments"]], ["alice"])
+        self.assertFalse(got[0]["bot_replied_last"])
+
+    def test_flags_thread_bot_replied_last_as_resolution_only(self):
+        # Bot already replied (resolve didn't stick) — surface it flagged, not
+        # skipped, so the agent can retry the resolve without re-replying.
         self._stub([
             {
                 "id": "T1", "isResolved": False, "path": "a", "line": 1,
@@ -284,7 +306,11 @@ class ReviewThreadTests(unittest.TestCase):
                 ]},
             },
         ])
-        self.assertEqual(resolve_fix.fetch_unresolved_review_threads(1), [])
+        got = resolve_fix.fetch_unresolved_review_threads(1)
+        self.assertEqual(len(got), 1)
+        self.assertTrue(got[0]["bot_replied_last"])
+        # The bot's own reply is not exposed as reviewer feedback.
+        self.assertEqual([c["author"] for c in got[0]["comments"]], ["alice"])
 
     def test_paginates_across_pages(self):
         self._stub(
@@ -385,8 +411,22 @@ class ReviewBodyTests(unittest.TestCase):
         got = resolve_fix.fetch_review_bodies(1, "2026-01-02T00:00:00Z")
         self.assertEqual(got, [{"id": 11, "author": "bob", "body": "new"}])
 
+    def test_query_excludes_dismissed_and_pending_reviews(self):
+        # State-based exclusion lives in the jq (stubbed away above), so assert
+        # the query drops withdrawn (DISMISSED) and not-yet-submitted (PENDING)
+        # reviews rather than surfacing feedback the reviewer no longer wants.
+        captured = {}
 
-class LastFixTimestampTests(unittest.TestCase):
+        def fake(*args, **kwargs):
+            captured["jq"] = args[args.index("--jq") + 1]
+            return []
+        common.gh_paginated_array = fake
+        resolve_fix.fetch_review_bodies(1, None)
+        self.assertIn('.state != "DISMISSED"', captured["jq"])
+        self.assertIn('.state != "PENDING"', captured["jq"])
+
+
+class LastAppliedFixTimestampTests(unittest.TestCase):
     def setUp(self):
         os.environ["GITHUB_REPOSITORY"] = "RediSearch/RediSearch"
         self._orig = common.gh_paginated_array
@@ -394,16 +434,32 @@ class LastFixTimestampTests(unittest.TestCase):
     def tearDown(self):
         common.gh_paginated_array = self._orig
 
-    def test_returns_latest_fix_attempt_stamp(self):
+    def test_returns_latest_applied_fix_stamp(self):
         common.gh_paginated_array = lambda *a, **k: [
             "2026-01-01T00:00:00Z", "2026-01-05T00:00:00Z", "2026-01-03T00:00:00Z",
         ]
         self.assertEqual(
-            resolve_fix.last_fix_attempt_timestamp(1), "2026-01-05T00:00:00Z")
+            resolve_fix.last_applied_fix_timestamp(1), "2026-01-05T00:00:00Z")
 
     def test_none_when_no_prior_fix(self):
         common.gh_paginated_array = lambda *a, **k: []
-        self.assertIsNone(resolve_fix.last_fix_attempt_timestamp(1))
+        self.assertIsNone(resolve_fix.last_applied_fix_timestamp(1))
+
+    def test_cutoff_query_filters_by_bot_login_and_applied_marker(self):
+        # The dedup cutoff is enforced in the jq (stubbed away in the other
+        # tests), so assert the query itself gates on the bot author AND the
+        # exact applied-attempt prefix — a forged marker or a declined summary
+        # must not move the cutoff.
+        captured = {}
+
+        def fake(*args, **kwargs):
+            captured["jq"] = args[args.index("--jq") + 1]
+            return []
+        common.gh_paginated_array = fake
+        resolve_fix.last_applied_fix_timestamp(1)
+        self.assertIn(f'.user.login == "{resolve_fix.BOT_LOGIN}"', captured["jq"])
+        self.assertIn(
+            f'startswith("{resolve_fix.FIX_APPLIED_PREFIX}")', captured["jq"])
 
 
 if __name__ == "__main__":

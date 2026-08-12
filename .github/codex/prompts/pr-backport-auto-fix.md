@@ -90,6 +90,10 @@ workflow has already filtered to OWNER/MEMBER/COLLABORATOR authors (same gate as
   GraphQL node id you pass to `resolveReviewThread` once you address the thread;
   `path`/`line` locate it (`line` may be `null` for an outdated thread);
   `comments[]` are the write-level comments in the thread, oldest first.
+  `bot_replied_last` is `true` when the newest comment in the thread is the
+  bot's own reply — meaning a prior run already addressed it but its resolve
+  didn't stick; such a thread is **resolution-only** (retry the resolve, do not
+  reply again — see "Address review comments" below).
 - `pr_comments[]` — general (non-inline) PR comments **and** top-level review
   bodies (e.g. a "Request changes" review with no inline comment). The bot's own
   summaries/replies and `/backport-agent*` command comments are already filtered
@@ -398,6 +402,13 @@ still a new commit, never a force-push).
 
   Only resolve a thread you **actually addressed** in code. Never resolve a
   thread to silence it — an unaddressed thread stays open for the reviewer.
+
+  **`bot_replied_last: true` threads are resolution-only.** A prior run already
+  replied "Addressed in …" but the `resolveReviewThread` did not take (the
+  thread is still unresolved). Do **not** post another reply and do **not**
+  re-edit the code for it — just retry the `resolveReviewThread` mutation with
+  its `thread_id`. If that retry fails again, leave it and note it in the
+  summary; a human can resolve it manually.
 
 - **General PR comment** — there is no thread to resolve; reply once with a
   normal PR comment noting what you changed:

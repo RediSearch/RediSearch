@@ -42,14 +42,19 @@ LOG_TAIL_LINES = 200
 TRUSTED_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
 
 # The login the workflow gives the bot (git identity + the App token's author).
-# Used to (a) skip general comments / review threads the bot has already
+# Used to (a) flag general comments / review threads the bot has already
 # responded to, so repeated fix runs don't re-reply, and (b) find the timestamp
-# of the last fix attempt to bound which reviewer feedback is "new".
+# of the last *applied* fix to bound which reviewer feedback is "new". Anything
+# keyed off the bot must also verify `.user.login == BOT_LOGIN`: the marker text
+# is public, so an untrusted commenter could otherwise forge it.
 BOT_LOGIN = "redis-pr-app[bot]"
 
-# Prefix of every fix-attempt comment the bot posts (applied and declined
-# templates both start with it — see pr-backport-auto-fix.md).
-FIX_ATTEMPT_PREFIX = "🤖 Auto-backport fix"
+# Prefix of the bot's fix-attempt comment when it actually *pushed* a fix (the
+# "fix applied" template). The "declined" template starts with the longer
+# `🤖 Auto-backport fix declined` instead, so anchoring the cutoff on this exact
+# applied-attempt prefix means a declined run — which addressed nothing — never
+# advances the cutoff and thus never suppresses still-unaddressed feedback.
+FIX_APPLIED_PREFIX = "🤖 Auto-backport fix attempt"
 
 
 # ---- helpers -----------------------------------------------------------------
@@ -209,6 +214,12 @@ _BOT_COMMENT_PREFIXES = ("🤖 Auto-backport", "🤖 Re:", "/backport-agent")
 # `reviewThreads` is paginated (100 per page); a busy PR can exceed one page.
 # `$after` is a nullable cursor — omitted (→ null) on the first call by
 # `gh_graphql`, then set from `pageInfo.endCursor` on subsequent pages.
+#
+# The nested `comments(last:100)` fetches the *most recent* 100 comments of each
+# thread rather than the first 100. On a thread with >100 comments that keeps
+# `comments[-1]` accurate (it is genuinely the latest comment, so the
+# "did the bot already reply?" check below is correct) and keeps the freshest
+# reviewer feedback in view; older buried comments matter less for a fix run.
 REVIEW_THREADS_QUERY = """
 query($owner:String!, $repo:String!, $pr:Int!, $after:String) {
   repository(owner:$owner, name:$repo) {
@@ -221,7 +232,7 @@ query($owner:String!, $repo:String!, $pr:Int!, $after:String) {
           isOutdated
           path
           line
-          comments(first:100) {
+          comments(last:100) {
             nodes { author { login } authorAssociation body }
           }
         }
@@ -239,21 +250,35 @@ def _owner_repo() -> tuple[str, str]:
     return owner, name
 
 
-def last_fix_attempt_timestamp(pr: int) -> str | None:
-    """ISO-8601 `created_at` of the most recent bot fix-attempt comment, or None.
+def last_applied_fix_timestamp(pr: int) -> str | None:
+    """ISO-8601 `created_at` of the most recent bot *applied*-fix comment, or None.
 
     GitHub timestamps are UTC `...Z` strings, so max() by string order == max by
     time. Used to bound which general comments / review bodies count as "new"
     feedback the current run hasn't seen — feedback authored *before* the last
-    fix attempt was already available to that run (and possibly replied to), so
+    applied fix was already available to that run (and possibly replied to), so
     re-surfacing it would make repeated `/backport-agent-fix` runs re-reply to
-    the same comment. Best-effort: [] on gh failure → None (surface everything).
+    the same comment.
+
+    Two guards make the marker trustworthy:
+    - `.user.login == BOT_LOGIN` — the marker text is public, so without this an
+      untrusted commenter could post `🤖 Auto-backport fix attempt ...` right
+      after real review feedback and move the cutoff past it, silently hiding
+      that feedback from the next `/backport-agent-fix` run.
+    - the exact `FIX_APPLIED_PREFIX` (not the shared `🤖 Auto-backport fix`
+      stem) — a *declined* run addressed nothing, so it must not advance the
+      cutoff and drop feedback it never handled.
+
+    Best-effort: [] on gh failure → None (surface everything).
     """
     repo = os.environ["GITHUB_REPOSITORY"]
     stamps = common.gh_paginated_array(
         "api", "-X", "GET", f"repos/{repo}/issues/{pr}/comments",
         "--jq",
-        f'[ .[] | select(.body | startswith("{FIX_ATTEMPT_PREFIX}")) | .created_at ]',
+        '[ .[] '
+        f'| select(.user.login == "{BOT_LOGIN}") '
+        f'| select(.body | startswith("{FIX_APPLIED_PREFIX}")) '
+        "| .created_at ]",
     )
     stamps = [s for s in stamps if isinstance(s, str)]
     return max(stamps) if stamps else None
@@ -270,10 +295,19 @@ def fetch_unresolved_review_threads(pr: int) -> list[dict]:
     started by non-write-level users are dropped here and reach the agent only
     (if at all) as untrusted evidence, never as actionable input.
 
-    Threads whose most recent comment is the bot's own reply are skipped: the
-    bot already responded and is awaiting the reviewer, so re-surfacing them
-    would make a follow-up fix run re-reply. Best-effort: any gh failure returns
-    the pages gathered so far rather than aborting the run.
+    A thread qualifies if it holds **any** trusted (write-level) non-empty
+    comment — not only when its ROOT comment is trusted. That keeps threads a
+    non-write-level user (or a review bot) opened but a maintainer later
+    replied to with actionable feedback; the per-comment trust filter still
+    drops the untrusted comments themselves.
+
+    Each entry carries `bot_replied_last`: true when the thread's most recent
+    comment is the bot's own reply. Such a thread was already addressed by a
+    prior run whose `resolveReviewThread` did not stick (a clean resolve would
+    have flipped `isResolved`), so it is surfaced as **resolution-only** work
+    rather than skipped — the agent retries the resolve without posting a
+    duplicate reply (see pr-backport-auto-fix.md). Best-effort: any gh failure
+    returns the pages gathered so far rather than aborting the run.
     """
     owner, repo = _owner_repo()
     threads: list[dict] = []
@@ -294,13 +328,6 @@ def fetch_unresolved_review_threads(pr: int) -> list[dict]:
             comments = ((node.get("comments") or {}).get("nodes")) or []
             if not comments:
                 continue
-            # Bot already replied and is awaiting the reviewer — don't re-surface.
-            if ((comments[-1].get("author") or {}).get("login")) == BOT_LOGIN:
-                continue
-            # Gate on the ROOT comment's author — the person who opened the thread.
-            root = comments[0]
-            if root.get("authorAssociation") not in TRUSTED_ASSOCIATIONS:
-                continue
             bodies = [
                 {
                     "author": ((c.get("author") or {}).get("login")) or "",
@@ -311,11 +338,15 @@ def fetch_unresolved_review_threads(pr: int) -> list[dict]:
             ]
             if not bodies:
                 continue
+            bot_replied_last = (
+                ((comments[-1].get("author") or {}).get("login")) == BOT_LOGIN
+            )
             threads.append({
                 "thread_id": node.get("id"),
                 "path": node.get("path"),
                 "line": node.get("line"),
                 "is_outdated": bool(node.get("isOutdated")),
+                "bot_replied_last": bot_replied_last,
                 "comments": bodies,
             })
 
@@ -374,6 +405,10 @@ def fetch_review_bodies(pr: int, since: str | None) -> list[dict]:
     dropped both by the author-association gate and the login check. There is no
     thread to resolve — the agent replies via a normal PR comment, exactly as
     for general comments, so entries share the same `{id, author, body}` shape.
+
+    `DISMISSED` (and not-yet-submitted `PENDING`) reviews are excluded: a
+    dismissed review is feedback the reviewer explicitly withdrew, so surfacing
+    its body would have the agent act on a correction no longer wanted.
     """
     repo = os.environ["GITHUB_REPOSITORY"]
     raw = common.gh_paginated_array(
@@ -383,6 +418,7 @@ def fetch_review_bodies(pr: int, since: str | None) -> list[dict]:
         "| select(.author_association == \"OWNER\" "
         '     or .author_association == "MEMBER" '
         '     or .author_association == "COLLABORATOR") '
+        '| select(.state != "DISMISSED" and .state != "PENDING") '
         "| select((.body // \"\") != \"\") "
         "| {id: .id, author: .user.login, body: .body, submitted_at: .submitted_at} ]",
     )
@@ -479,10 +515,10 @@ def main() -> int:
     # CI-failure fix: unresolved inline review threads (which it can mark
     # resolved), plus general PR comments and top-level review bodies (which it
     # can only reply to). Comments/reviews are bounded to those newer than the
-    # last fix attempt so a repeated run doesn't re-reply to already-seen
+    # last *applied* fix so a repeated run doesn't re-reply to already-seen
     # feedback; review threads self-dedup via their resolved state and the
-    # bot-replied-last check.
-    since = last_fix_attempt_timestamp(int(pr))
+    # bot-replied-last flag.
+    since = last_applied_fix_timestamp(int(pr))
     review_threads = fetch_unresolved_review_threads(int(pr))
     pr_comments = fetch_general_pr_comments(int(pr), since) + fetch_review_bodies(int(pr), since)
 
