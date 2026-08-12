@@ -212,6 +212,22 @@ impl MockQueryNode {
         }
     }
 
+    /// Set the `vq` field of the vector-node union variant.
+    ///
+    /// `vq` (and the [`ffi::FieldSpec`] it names) must outlive this
+    /// [`MockQueryNode`]: evaluation reads the field name out of it to derive the
+    /// default score field, and may take ownership of the node's distance field
+    /// by storing it in `vq.scoreField`.
+    pub fn set_vector_query(&mut self, vq: *mut ffi::VectorQuery) {
+        self.debug_assert_type(QueryNodeType::Vector);
+        // SAFETY: `self.node` is valid and exclusively owned; the node type is
+        // Vector, per the assertion above, so the `vn` variant is active.
+        unsafe {
+            let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
+            (*union_ptr.cast::<ffi::QueryVectorNode>()).vq = vq;
+        }
+    }
+
     /// Set the `prefix` and `suffix` fields of the prefix-node union variant.
     pub fn set_prefix_mode(&mut self, prefix: bool, suffix: bool) {
         self.debug_assert_type(QueryNodeType::Prefix);
