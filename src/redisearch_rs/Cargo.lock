@@ -1839,6 +1839,7 @@ dependencies = [
  "ffi",
  "field",
  "geo",
+ "hidden_string",
  "index_result",
  "inverted_index",
  "proptest",
