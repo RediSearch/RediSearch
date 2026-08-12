@@ -1217,6 +1217,8 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
           : HybridQueryReplyCallback;
 
       timeoutMS = hreq->reqConfig.queryTimeoutMS;
+      QueryRequest_SetUseReplyCallback(&hreq->base, true);
+      // TODO($$$): Remove the legacy field once consumers use QueryRequest.
       hreq->useReplyCallback = true;
 
       if (timeoutPolicy == TimeoutPolicy_Fail) {

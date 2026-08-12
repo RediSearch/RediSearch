@@ -3907,6 +3907,8 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         ? DistAggregateTimeoutFailCallback
         : DistAggregateTimeoutReturnStrictCallback;
     handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
+    QueryRequest_SetUseReplyCallback(&r->base, true);
+    // TODO($$$): Remove the legacy field once consumers use QueryRequest.
     r->useReplyCallback = true;
     if (policy == TimeoutPolicy_ReturnStrict) {
       r->base.async.requiresAggregateResultsSync = true;
@@ -4017,6 +4019,8 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
         ? DistHybridTimeoutFailCallback
         : DistHybridTimeoutReturnStrictCallback;
     handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
+    QueryRequest_SetUseReplyCallback(&hreq->base, true);
+    // TODO($$$): Remove the legacy field once consumers use QueryRequest.
     hreq->useReplyCallback = true;
   }
 

@@ -2001,6 +2001,8 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
       }
       replyCallback = QueryReplyCallback;
       timeoutMS = r->reqConfig.queryTimeoutMS;
+      QueryRequest_SetUseReplyCallback(&r->base, true);
+      // TODO($$$): Remove the legacy field once consumers use QueryRequest.
       r->useReplyCallback = true;
     }
 
@@ -2449,6 +2451,8 @@ static int cursorReadDispatchTaken(RedisModuleCtx *ctx, Cursor *cursor, long lon
   RS_ASSERT(timeout_ms == 0 || (timeout_cb != NULL && reply_cb != NULL));
   // Deferred (callback) reply iff a reply callback will serialize stored
   // results on main; RETURN replies inline from the BG job.
+  QueryRequest_SetUseReplyCallback(&req->base, reply_cb != NULL);
+  // TODO($$$): Remove the legacy field once consumers use QueryRequest.
   req->useReplyCallback = (reply_cb != NULL);
   RedisModuleBlockedClient *bc =
       RedisModule_BlockClient(ctx, reply_cb, timeout_cb, BlockedRequestCtx_OnFree, timeout_ms);
@@ -2608,10 +2612,14 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
           cursor->queryTimeoutPolicy == TimeoutPolicy_Fail ? CursorReadTimeoutFailCallback
                                                            : CursorReadTimeoutReturnStrictCallback;
       timeoutMS = (rs_wall_clock_ms_t)cursor->queryTimeoutMS;
+      QueryRequest_SetUseReplyCallback(&req->base, true);
+      // TODO($$$): Remove the legacy field once consumers use QueryRequest.
       req->useReplyCallback = true;
     } else {
       // RETURN: reply written inline; clear any stale useReplyCallback
       // from a prior callback-based cursor read so runCursor doesn't park the cursor.
+      QueryRequest_SetUseReplyCallback(&req->base, false);
+      // TODO($$$): Remove the legacy field once consumers use QueryRequest.
       req->useReplyCallback = false;
     }
     CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
@@ -2640,6 +2648,8 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     AREQ *inline_req = Cursor_AREQ(cursor);
     if (inline_req) {
       // Reply inline via ctx; clear stale useReplyCallback.
+      QueryRequest_SetUseReplyCallback(&inline_req->base, false);
+      // TODO($$$): Remove the legacy field once consumers use QueryRequest.
       inline_req->useReplyCallback = false;
     }
     cursorRead(ctx, cursor, count, false);

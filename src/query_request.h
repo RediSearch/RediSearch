@@ -169,6 +169,7 @@ typedef struct QueryRequest {
   // TODO($$$): Replace the legacy BRC registry node and type flag with this field.
   RegistryInfo registryInfo;
   ChunkReplyState reply;
+  bool useReplyCallback;
   QueryRequestTimeout timeout;
   QueryRequestAsyncState async;
   /**
@@ -187,6 +188,14 @@ static inline void QueryRequest_SetEndProcRef(QueryRequest *request,
 
 static inline ResultProcessor *QueryRequest_GetEndProc(const QueryRequest *request) {
   return request->endProcRef ? *request->endProcRef : NULL;
+}
+
+static inline bool QueryRequest_UsesReplyCallback(const QueryRequest *request) {
+  return request->useReplyCallback;
+}
+
+static inline void QueryRequest_SetUseReplyCallback(QueryRequest *request, bool useReplyCallback) {
+  request->useReplyCallback = useReplyCallback;
 }
 
 static inline int QueryRequest_GetExecutionPhase(const QueryRequest *request) {

@@ -68,6 +68,7 @@ void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind, RedisModule
   request->cursorInfo = (CursorInfo) {0};
   request->registryInfo = (RegistryInfo) {0};
   ChunkReplyState_Init(&request->reply);
+  QueryRequest_SetUseReplyCallback(request, false);
   QueryRequestTimeout_ClearTimedOut(&request->timeout);
   QueryRequestTimeout_SetSkipChecks(&request->timeout, false);
   QueryRequestAsyncState_Init(&request->async);
