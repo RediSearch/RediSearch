@@ -296,7 +296,7 @@ When reviewing pull requests:
 - Do not comment on minor style, formatting, naming, or preference issues by default unless they violate an explicit project rule and would block maintainability.
 - If the review explicitly requests nits, style comments, or `--include-nits`, minor findings may be reported as non-blocking suggestions, but must still avoid duplicates and should be grouped by root cause.
 - State the failure for every finding: the input, state, or thread interleaving that produces the wrong result, and what the wrong result is. A finding you cannot ground that way is a preference — do not post it in a default review. When nits are explicitly requested, the preceding bullet governs instead. A missing test needs no failing input: name the new or changed behavior and what an exercising test would assert, as [/rust-review](.skills/rust-review/SKILL.md) § *Test coverage* and [/adversarial-review](.skills/adversarial-review/SKILL.md) require.
-- Automated review is advisory. A human maintainer's approval is the merge gate, so post findings as comments and do not request changes.
+- Post findings as comments; do not request changes. A human maintainer's approval is the merge gate.
 
 ### Re-reviewing after a push
 
