@@ -40,7 +40,7 @@ typedef struct {
 /**
  * State retained while results wait for the main-thread reply callback.
  *
- * The cursor owns its request through the request wrapper, not vice versa.
+ * The cursor owns a request reference, not vice versa.
  * The cursor pointer stored here is non-owning and exists only so the reply
  * callback can pause or free it after serialization determines whether the
  * cursor is depleted. It must be cleared after the cursor is handled.
@@ -187,8 +187,7 @@ typedef struct QueryRequest {
   QueryRequestArgs args;
   /* A blocked-client cycle is one initial query execution or cursor read.
    * This is set after RedisModule_BlockClient returns and cleared by OnFree;
-   * per-cycle state must not be read while it is false.
-   * TODO($$$): Temporary marker intended to replace BlockedRequestCtx.bc. */
+   * per-cycle state must not be read while it is false. */
   bool blockedClientCycleActive;
   CursorInfo cursorInfo;
   RegistryInfo registryInfo;
@@ -212,8 +211,9 @@ typedef struct QueryRequest {
 
 QueryRequest *QueryRequest_IncrRef(QueryRequest *request);
 
-/* Returns true when the caller released the final reference. */
-bool QueryRequest_DecrRef(QueryRequest *request);
+/* Release one reference. The final release destroys the concrete request
+ * selected by `kind`. */
+void QueryRequest_DecrRef(QueryRequest *request);
 
 static inline void QueryRequest_SetEndProcRef(QueryRequest *request,
                                               ResultProcessor **endProcRef) {

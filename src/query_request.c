@@ -10,7 +10,9 @@
 
 #include <stdatomic.h>
 
+#include "aggregate/aggregate.h"
 #include "coord/rmr/chan.h"
+#include "hybrid/hybrid_request.h"
 #include "query_error_ffi.h"
 #include "redismodule.h"
 #include "rmalloc.h"
@@ -65,8 +67,26 @@ QueryRequest *QueryRequest_IncrRef(QueryRequest *request) {
   return request;
 }
 
-bool QueryRequest_DecrRef(QueryRequest *request) {
-  return atomic_fetch_sub_explicit(&request->refcount, 1, memory_order_acq_rel) == 1;
+void QueryRequest_DecrRef(QueryRequest *request) {
+  if (!request) {
+    return;
+  }
+  int previous = atomic_fetch_sub_explicit(&request->refcount, 1, memory_order_acq_rel);
+  RS_LOG_ASSERT_ALWAYS(previous > 0, "QueryRequest reference count underflow");
+  if (previous != 1) {
+    return;
+  }
+
+  switch (request->kind) {
+    case QUERY_REQUEST_KIND_AREQ:
+      AREQ_Free((AREQ *)request);
+      return;
+    case QUERY_REQUEST_KIND_HYBRID:
+      HybridRequest_Free((HybridRequest *)request);
+      return;
+    default:
+      RS_ABORT_ALWAYS("Invalid query request kind");
+  }
 }
 
 void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind, RedisModuleString **argv,

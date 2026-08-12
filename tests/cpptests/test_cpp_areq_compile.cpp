@@ -132,7 +132,6 @@ TEST_P(AREQBinarySlotRangeTest, testBinarySlotRangeParsing) {
 
     // Test AREQ_Compile
     QueryRequest_HoldArgs(&req->base, argv.data(), argv.size());
-    BlockedRequestCtx_NewAREQ(req);
     int result = AREQ_Compile(req, ctx, 0, false, &status);
 
     EXPECT_EQ(result, REDISMODULE_OK) << "AREQ_Compile should succeed for: " << test_data.description;
@@ -224,7 +223,6 @@ TEST_F(AREQTest, testBinarySlotRangeParsingSingleRange) {
 
     // Test AREQ_Compile
     QueryRequest_HoldArgs(&req->base, argv.data(), argv.size());
-    BlockedRequestCtx_NewAREQ(req);
     int result = AREQ_Compile(req, ctx, 0, false, &status);
 
     EXPECT_EQ(result, REDISMODULE_OK) << "AREQ_Compile should succeed";
@@ -261,7 +259,6 @@ TEST_F(AREQTest, testBinarySlotRangeInsufficientArgs) {
 
     // Test AREQ_Compile - should fail due to insufficient arguments
     QueryRequest_HoldArgs(&req->base, argv.data(), argv.size());
-    BlockedRequestCtx_NewAREQ(req);
     int result = AREQ_Compile(req, ctx, 0, false, &status);
 
     EXPECT_EQ(result, REDISMODULE_ERR) << "AREQ_Compile should fail with insufficient arguments";
@@ -305,7 +302,6 @@ TEST_F(AREQTest, testComplexAggregateWithCursorAndSlotRanges) {
 
     // Test AREQ_Compile
     QueryRequest_HoldArgs(&req->base, argv.data(), argv.size());
-    BlockedRequestCtx_NewAREQ(req);
     int result = AREQ_Compile(req, ctx, 0, false, &status);
 
     EXPECT_EQ(result, REDISMODULE_OK) << "AREQ_Compile should succeed";

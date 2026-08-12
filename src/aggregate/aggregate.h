@@ -132,24 +132,12 @@ typedef enum {
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN, COMMAND_HYBRID } CommandType;
 
-/**
- * Identifies which concrete request type a heap BlockedRequestCtx wrapper owns.
- */
-typedef enum {
-  REQUEST_KIND_AREQ,
-  REQUEST_KIND_HYBRID,
-} RequestKind;
-
 /* Values of QueryRequestAsyncState.strictReadOwner. */
 typedef enum {
-  BRC_READ_OWNER_NONE = 0,
-  BRC_READ_OWNER_BG,
-  BRC_READ_OWNER_TIMEOUT,
-} BrcStrictReadOwner;
-
-/* Heap-allocated owning wrapper around a top-level request. Defined below the
- * AREQ struct (it references AREQ/HybridRequest only by pointer). */
-typedef struct BlockedRequestCtx BlockedRequestCtx;
+  QUERY_REQUEST_READ_OWNER_NONE = 0,
+  QUERY_REQUEST_READ_OWNER_BG,
+  QUERY_REQUEST_READ_OWNER_TIMEOUT,
+} QueryRequestStrictReadOwner;
 
 typedef struct AREQ {
   QueryRequest base;
@@ -229,40 +217,22 @@ typedef struct AREQ {
 
   ProfilePrinterCtx profileCtx;
 
-  // Non-owning back-pointer to the heap wrapper that owns this request.
-  // Every AREQ is wrapped at construction (hybrid sub-AREQs included).
-  BlockedRequestCtx *brc;
-
 } AREQ;
 
 /* Forward declaration; full type lives in hybrid_request.h. */
 struct HybridRequest;
 
-/**
- * Heap-allocated owning wrapper around a top-level request (AREQ or
- * HybridRequest). It is the single owner of the query and holds the remaining
- * blocked-client lifecycle state.
- */
-struct BlockedRequestCtx {
-  RequestKind kind;
-  union {
-    AREQ *areq;
-    struct HybridRequest *hybrid;
-  } query;
+#ifdef __cplusplus
+static_assert(offsetof(AREQ, base) == 0, "QueryRequest must be AREQ's first member");
+#else
+_Static_assert(offsetof(AREQ, base) == 0, "QueryRequest must be AREQ's first member");
+#endif
 
-  /* ===== Per-cycle fields =====
-   * A "cycle" is one blocked-client round trip: the initial query execution or
-   * a single cursor read. Bound on the main thread by
-   * BlockedRequestCtx_BeginCycle (after RedisModule_BlockClient returned `bc`,
-   * before dispatching BG work) and cleared by BlockedRequestCtx_EndCycle
-   * (called from BlockedRequestCtx_OnFree, the free_privdata callback).
-   * Between cycles these are NULL/zeroed and must not be read. */
-  RedisModuleBlockedClient *bc; // Redis-owned; valid for the cycle
-  bool deferred_reply; // false => BG replies inline via a thread-safe ctx;
-                       // true => BG stores results and the reply callback
-                       // registered with RedisModule_BlockClient serializes
-                       // them on main after UnblockClient
-};
+static inline AREQ *QueryRequest_GetAREQ(QueryRequest *request) {
+  RS_ASSERT(request != NULL);
+  RS_ASSERT(request->kind == QUERY_REQUEST_KIND_AREQ);
+  return (AREQ *)request;
+}
 
 /* The request's query string: the first argument of its parse slice, backed
  * by QueryRequest's held argv. A request with no query argument (a hybrid
@@ -282,41 +252,9 @@ static inline const char *AREQ_Query(const AREQ *req, size_t *len) {
   return query;
 }
 
-/* Allocate a heap BlockedRequestCtx owning the request and wire the `brc`
- * back-pointer. */
-BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq);
-BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid);
-
-/* Increment / decrement the owned QueryRequest's reference count. DecrRef
- * triggers BlockedRequestCtx_Free when the count drops to zero. */
-BlockedRequestCtx *BlockedRequestCtx_IncrRef(BlockedRequestCtx *brc);
-void BlockedRequestCtx_DecrRef(BlockedRequestCtx *brc);
-
-/* Free a heap BlockedRequestCtx: destroys the coordination state, frees the owned
- * request (AREQ_Free / HybridRequest_Free), then frees the wrapper itself. */
-void BlockedRequestCtx_Free(BlockedRequestCtx *brc);
-
-/* Kind-checked accessors for the owned request. Callers that know which kind
- * of request their cycle carries (e.g. per-kind reply/timeout callbacks) use
- * these instead of reaching into the union, so a mismatched callback fails
- * loudly in debug builds. */
-static inline AREQ *BlockedRequestCtx_GetAREQ(BlockedRequestCtx *brc) {
-  RS_ASSERT(brc->kind == REQUEST_KIND_AREQ);
-  RS_ASSERT(brc->query.areq != NULL);
-  return brc->query.areq;
-}
-static inline struct HybridRequest *BlockedRequestCtx_GetHybrid(BlockedRequestCtx *brc) {
-  RS_ASSERT(brc->kind == REQUEST_KIND_HYBRID);
-  RS_ASSERT(brc->query.hybrid != NULL);
-  return brc->query.hybrid;
-}
-
-/* Lifecycle helpers for AREQ objects. AREQ_Free destroys the AREQ directly
- * (no wrapper involved).
- * AREQ_IncrRef / AREQ_DecrRef delegate to the QueryRequest refcount through
- * the owning BlockedRequestCtx when one is present (req->brc != NULL);
- * otherwise they call AREQ_Free directly (for unwrapped transient /
- * sub-AREQs). */
+/* Lifecycle helpers for AREQ objects. AREQ_Free is the concrete destructor
+ * selected by the final QueryRequest release; ownership callers use
+ * AREQ_IncrRef / AREQ_DecrRef. */
 void AREQ_Free(AREQ *req);
 AREQ *AREQ_IncrRef(AREQ *req);
 void AREQ_DecrRef(AREQ *req);
@@ -582,9 +520,8 @@ bool AREQ_CheckTimedOut(AREQ *areq);
  * under RETURN_STRICT, and on shard/standalone AREQs for RETURN_STRICT
  * cursor reads; all other paths skip the protocol. */
 static inline bool AREQ_RequiresThreadsSyncResults(const AREQ *req) {
-  // Invariant: every AREQ reaching the strict-sync protocol is wrapped (the
-  // blocked client's privdata is the wrapper). Unwrapped sub-/transient AREQs
-  // never run it.
+  // Invariant: every AREQ reaching the strict-sync protocol is installed as a
+  // blocked client's private data. Sub-/transient AREQs never run it.
   return req->base.async.requiresAggregateResultsSync;
 }
 
@@ -595,12 +532,12 @@ bool AREQ_TryClaimAggregateResults(AREQ *req);
 
 /* CAS QueryRequestAsyncState.strictReadOwner NONE -> `owner`. Returns true if
  * this caller won the latch. */
-bool BlockedRequestCtx_TryOwnStrictRead(BlockedRequestCtx *brc, BrcStrictReadOwner owner);
+bool QueryRequest_TryOwnStrictRead(QueryRequest *request, QueryRequestStrictReadOwner owner);
 void AREQ_SignalAggregateResultsComplete(AREQ *req);
 void AREQ_WaitForAggregateResultsComplete(AREQ *req);
 
 /* RP_SAFE_LOADER GIL handshake (deadlock avoidance for RETURN_STRICT). Reached
- * only on the sync path: the loader links its brc only when
+ * only on the sync path: the loader links its request only when
  * requiresAggregateResultsSync is set, and the Preempt callers are the
  * RETURN_STRICT timeout callbacks, so no in-helper policy gate is needed.
  *
@@ -616,9 +553,9 @@ void AREQ_WaitForAggregateResultsComplete(AREQ *req);
  *   true if the worker is parked at the GIL gate, so the callback replies empty
  *   instead of deadlocking. The shared aggregateResultsLock makes EnterGIL and
  *   this check a race-free Dekker handshake. */
-bool BlockedRequestCtx_SafeLoaderEnterGIL(BlockedRequestCtx *sync);
-void BlockedRequestCtx_SafeLoaderExitGIL(BlockedRequestCtx *sync);
-bool BlockedRequestCtx_TimeoutPreemptSafeLoaderGIL(BlockedRequestCtx *sync);
+bool QueryRequest_SafeLoaderEnterGIL(QueryRequest *request);
+void QueryRequest_SafeLoaderExitGIL(QueryRequest *request);
+bool QueryRequest_TimeoutPreemptSafeLoaderGIL(QueryRequest *request);
 
 /* Reset the per-cursor-read sync state on a coordinator RETURN_STRICT cursor
  * read so the next chunk starts from a clean slate. Resets:

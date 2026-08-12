@@ -37,12 +37,12 @@ typedef struct Cursor {
    */
   StrongRef hybrid_ref;
 
-  /** The parked request's wrapper — the cursor is the request's owner between
-   * cycles, holding one wrapper reference released by Cursor_FreeInternal.
+  /** The parked request — the cursor is its owner between cycles, holding one
+   * QueryRequest reference released by Cursor_FreeInternal.
    * NULL only for the hybrid single-cursor fallback.
    * TRANSITIONAL(MOD-16691): hybrid sub-cursors hold their reference through
    * hybrid_ref instead, until the container-handoff step retires it. */
-  BlockedRequestCtx *query;
+  QueryRequest *query;
 
   /** Time when this cursor will no longer be valid, in nanos */
   uint64_t nextTimeoutNs;
@@ -73,15 +73,14 @@ typedef struct Cursor {
   bool delete_mark;
 } Cursor;
 
-/* The AREQ carried by this cursor's wrapper: the parked request for plain
+/* The AREQ carried by this cursor: the parked request for plain
  * cursors, the sub-AREQ for hybrid sub-cursors. NULL for the hybrid
- * single-cursor fallback (no wrapper). */
+ * single-cursor fallback. */
 static inline AREQ *Cursor_AREQ(const Cursor *cur) {
   if (!cur->query) {
     return NULL;
   }
-  RS_ASSERT(cur->query->kind == REQUEST_KIND_AREQ);
-  return cur->query->query.areq;
+  return QueryRequest_GetAREQ(cur->query);
 }
 
 KHASH_MAP_INIT_INT64(cursors, Cursor *);

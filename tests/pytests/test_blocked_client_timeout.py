@@ -82,7 +82,7 @@ def _setup_return_strict_cursor_state(env, chunk_size=10, agg_steps=None):
     return prev_on_timeout_policy, cursor_id, baseline_cursor_total, before_info, base_warn_coord, res
 
 def _get_blocked_request_onfree_count(env):
-    """Read the coordinator BlockedRequestCtx_OnFree invocation counter (debug builds)."""
+    """Read the coordinator QueryRequest_OnFree invocation counter (debug builds)."""
     return int(env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_BLOCKED_REQUEST_ONFREE_COUNT'))
 
 def _assert_return_strict_cursor_timeout_reply(env, res_pair, expected_cid,
@@ -4710,7 +4710,7 @@ class TestCoordinatorTimeout:
             env, result[0], cursor_id, expected_results=0,
             message_prefix='RETURN_STRICT no-stale-free read 1 timeout')
 
-        # Wait until BlockedRequestCtx_OnFree has fired for read 1's BC privdata.
+        # Wait until QueryRequest_OnFree has fired for read 1's BC private data.
         # The counter is bumped by the BC tear-down on the main thread after
         # the worker job completes; polling avoids a deadlock that a sync-point
         # in the free callback would cause.

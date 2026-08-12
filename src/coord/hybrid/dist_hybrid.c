@@ -1074,7 +1074,7 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
       IndexSpecRef_Release(*strong_ref);
     }
     // Release the execution flow's reference (taken at shell allocation on the
-    // main thread); the cycle's reference is released by BlockedRequestCtx_OnFree.
+    // main thread); the cycle's reference is released by QueryRequest_OnFree.
     HybridRequest_DecrRef(hreq);
 }
 
@@ -1082,12 +1082,11 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
 void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                         struct ConcurrentCmdCtx *cmdCtx) {
 
-    // The hybrid request shell and its wrapper were allocated on the main
-    // thread by the dispatcher; the wrapper is the blocked client's privdata.
-    // This thread parses into the shell in place.
-    BlockedRequestCtx *brc =
+    // The hybrid request shell was allocated on the main thread by the
+    // dispatcher and installed as the blocked client's private data.
+    QueryRequest *request =
         RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
-    HybridRequest *hreq = BlockedRequestCtx_GetHybrid(brc);
+    HybridRequest *hreq = QueryRequest_GetHybrid(request);
     // The tail sctx's redisCtx was cleared at dispatch (it aliased the main
     // thread's command ctx); re-point it at this thread's ctx before any use.
     hreq->sctx->redisCtx = ctx;
@@ -1154,10 +1153,10 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                             struct ConcurrentCmdCtx *cmdCtx) {
 
-    // See RSExecDistHybrid: the shell + wrapper come from the main thread.
-    BlockedRequestCtx *brc =
+    // See RSExecDistHybrid: the shell comes from the main thread.
+    QueryRequest *request =
         RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
-    HybridRequest *hreq = BlockedRequestCtx_GetHybrid(brc);
+    HybridRequest *hreq = QueryRequest_GetHybrid(request);
     hreq->sctx->redisCtx = ctx;
 
     if (HybridRequest_TimedOut(hreq)) {
@@ -1251,13 +1250,11 @@ int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
   UNUSED(argv);
   UNUSED(argc);
 
-  BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
+  QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
   // Installed by BeginCycle on the main thread before the command returned,
   // so no callback can observe missing privdata.
-  RS_ASSERT(brc != NULL);
-
-  RS_ASSERT(brc->kind == REQUEST_KIND_HYBRID);
-  HybridRequest *hreq = BlockedRequestCtx_GetHybrid(brc);
+  RS_ASSERT(request != NULL);
+  HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
   // Signal timeout to the background thread
   HybridRequest_SetTimedOut(hreq);
@@ -1279,13 +1276,11 @@ int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
 // Timeout callback for Coordinator HybridRequest execution
 // Called on the main thread when the blocking client times out (RETURN-STRICT policy only).
 int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
+  QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
   // Installed by BeginCycle on the main thread before the command returned,
   // so no callback can observe missing privdata.
-  RS_ASSERT(brc != NULL);
-
-  RS_ASSERT(brc->kind == REQUEST_KIND_HYBRID);
-  HybridRequest *hreq = BlockedRequestCtx_GetHybrid(brc);
+  RS_ASSERT(request != NULL);
+  HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
   // Signal timeout to the background thread
   HybridRequest_SetTimedOut(hreq);
@@ -1333,11 +1328,9 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   UNUSED(argv);
   UNUSED(argc);
 
-  BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
-  RS_ASSERT(brc != NULL);
-
-  RS_ASSERT(brc->kind == REQUEST_KIND_HYBRID);
-  HybridRequest *hreq = BlockedRequestCtx_GetHybrid(brc);
+  QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
+  RS_ASSERT(request != NULL);
+  HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
   // Check if results were stored (background thread completed successfully)
   if (!hreq->base.reply.hasStoredResults) {
@@ -1356,6 +1349,6 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   serializeStoredResults_hybrid(hreq, reply);
   RedisModule_EndReply(reply);
 
-  // Note: No HybridRequest_DecrRef here - BlockedRequestCtx_OnFree releases the cycle's reference.
+  // QueryRequest_OnFree releases the cycle's request reference.
   return REDISMODULE_OK;
 }

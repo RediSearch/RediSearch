@@ -44,7 +44,6 @@ static void testAverage() {
   );
   AREQ *r = AREQ_New(vv, vv.size());
   QueryError status{QueryErrorCode(0)};
-  BlockedRequestCtx_NewAREQ(r);
   int rc = AREQ_Compile(r, ctx, 0, false, &status);
   if (rc != REDISMODULE_OK) {
     printf("Couldn't compile: %s\n", QueryError_GetUserError(&status));
@@ -104,7 +103,6 @@ static void testCountDistinct() {
   AREQ *r = AREQ_New(vv, vv.size());
   AREQ_AddRequestFlags(r, QEXEC_F_IS_COORDINATOR); // mark for coordinator pipeline
   QueryError status{QueryErrorCode(0)};
-  BlockedRequestCtx_NewAREQ(r);
   int rc = AREQ_Compile(r, ctx, 0, false, &status);
   if (rc != REDISMODULE_OK) {
     printf("Couldn't compile: %s\n", QueryError_GetUserError(&status));
@@ -143,7 +141,6 @@ static void testSplit() {
   AREQ *r = AREQ_New(vv, vv.size());
   AREQ_AddRequestFlags(r, QEXEC_F_IS_COORDINATOR); // mark for coordinator pipeline
   QueryError status{QueryErrorCode(0)};
-  BlockedRequestCtx_NewAREQ(r);
   int rc = AREQ_Compile(r, ctx, 0, false, &status);
   if (rc != REDISMODULE_OK) {
     printf("Couldn't compile: %s\n", QueryError_GetUserError(&status));

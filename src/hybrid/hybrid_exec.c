@@ -260,23 +260,22 @@ static bool hreq_timeout_or_pending_spec_writers(void *arg) {
 #endif
 
 void HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(HybridRequest *hreq) {
-  // The tail and every subquery pipeline link the top-level wrapper: sub-AREQs
-  // have no wrapper of their own, and the GIL-handshake state (a counter, so
-  // concurrent loaders keep it accurate) lives on the hybrid's BlockedRequestCtx.
-  RPSafeLoader_SetSyncCtx(&hreq->tailPipeline->qctx, hreq->brc);
+  // The tail and every subquery pipeline link the top-level request, whose
+  // GIL-handshake state is a counter shared by concurrent loaders.
+  RPSafeLoader_SetSyncCtx(&hreq->tailPipeline->qctx, &hreq->base);
 
   for (size_t i = 0; i < hreq->nrequests; i++) {
     AREQ *subquery = hreq->requests[i];
     if (subquery) {
-      RPSafeLoader_SetSyncCtx(AREQ_QueryProcessingCtx(subquery), hreq->brc);
+      RPSafeLoader_SetSyncCtx(AREQ_QueryProcessingCtx(subquery), &hreq->base);
     }
   }
 }
 
 bool HybridRequest_TimeoutPreemptSafeLoaderGIL(HybridRequest *hreq) {
-  // The tail and all subquery safe loaders share the top-level wrapper, so a
+  // The tail and all subquery safe loaders share the top-level request, so a
   // single check covers every pipeline.
-  return BlockedRequestCtx_TimeoutPreemptSafeLoaderGIL(hreq->brc);
+  return QueryRequest_TimeoutPreemptSafeLoaderGIL(&hreq->base);
 }
 
 static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
@@ -835,12 +834,11 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       if (!cursor) {
         break;
       }
-      // FT.CURSOR READ cycles run against the read sub-AREQ's wrapper.
+      // FT.CURSOR READ cycles run against the read sub-AREQ.
       // TRANSITIONAL(MOD-16691): the cursor's own hold rides hybrid_ref until
       // the container-handoff step.
-      RS_ASSERT(areq->brc != NULL);
       // The cursor lifetime will determine the hybrid request lifetime
-      cursor->query = areq->brc;
+      cursor->query = &areq->base;
       cursor->hybrid_ref = StrongRef_Clone(hybrid_ref);
       cursor->queryTimeoutMS = (size_t)areq->reqConfig.queryTimeoutMS;
       cursor->queryTimeoutPolicy = areq->reqConfig.timeoutPolicy;
@@ -984,12 +982,12 @@ static int HybridQueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString
   UNUSED(argv);
   UNUSED(argc);
 
-  BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
+  QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
   // Installed by BeginCycle on the main thread before the command returned,
   // so no callback can observe missing privdata.
-  RS_ASSERT(brc != NULL);
+  RS_ASSERT(request != NULL);
 
-  HybridRequest *hreq = BlockedRequestCtx_GetHybrid(brc);
+  HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
   // Signal timeout to background thread
   HybridRequest_SetTimedOut(hreq);
@@ -1026,12 +1024,12 @@ static int HybridQueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModu
   UNUSED(argv);
   UNUSED(argc);
 
-  BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
+  QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
   // Installed by BeginCycle on the main thread before the command returned,
   // so no callback can observe missing privdata.
-  RS_ASSERT(brc != NULL);
+  RS_ASSERT(request != NULL);
 
-  HybridRequest *hreq = BlockedRequestCtx_GetHybrid(brc);
+  HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
   // Signal timeout to the worker and to all subquery depleters.
   HybridRequest_SetTimedOut(hreq);
@@ -1071,12 +1069,12 @@ static int HybridQueryCursorTimeoutReturnStrictCallback(RedisModuleCtx *ctx, Red
   UNUSED(argv);
   UNUSED(argc);
 
-  BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
+  QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
   // Installed by BeginCycle on the main thread before the command returned,
   // so no callback can observe missing privdata.
-  RS_ASSERT(brc != NULL);
+  RS_ASSERT(request != NULL);
 
-  HybridRequest *hreq = BlockedRequestCtx_GetHybrid(brc);
+  HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
   // Signal timeout to background thread
   HybridRequest_SetTimedOut(hreq);
@@ -1111,12 +1109,12 @@ static int HybridQueryCursorReplyCallback(RedisModuleCtx *ctx, RedisModuleString
   UNUSED(argv);
   UNUSED(argc);
 
-  BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
+  QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
   // Installed by BeginCycle on the main thread before the command returned,
   // so no callback can observe missing privdata.
-  RS_ASSERT(brc != NULL);
+  RS_ASSERT(request != NULL);
 
-  HybridRequest *req = BlockedRequestCtx_GetHybrid(brc);
+  HybridRequest *req = QueryRequest_GetHybrid(request);
 
   if (QueryError_HasError(&req->base.reply.err)) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->base.reply.err), 1, SHARD_ERR_WARN);
@@ -1142,12 +1140,12 @@ static int HybridQueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **arg
   UNUSED(argv);
   UNUSED(argc);
 
-  BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
+  QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
   // Installed by BeginCycle on the main thread before the command returned,
   // so no callback can observe missing privdata.
-  RS_ASSERT(brc != NULL);
+  RS_ASSERT(request != NULL);
 
-  HybridRequest *req = BlockedRequestCtx_GetHybrid(brc);
+  HybridRequest *req = QueryRequest_GetHybrid(request);
 
   // Check if results were stored (background thread completed successfully)
   if (!req->base.reply.hasStoredResults) {
@@ -1220,7 +1218,7 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
     }
 
     RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(
-        ctx, spec_ref, hreq->brc, replyCallback, timeoutCallback, timeoutMS);
+        ctx, spec_ref, &hreq->base, replyCallback, timeoutCallback, timeoutMS);
 
     blockedClientHybridCtx *BCHCtx = blockedClientHybridCtx_New(StrongRef_Clone(hybrid_ref), hybridParams, blockedClient, spec_ref, internal);
 

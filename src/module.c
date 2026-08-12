@@ -3871,8 +3871,8 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
-  // Allocate the request shell and its owning wrapper before blocking the
-  // client, so the full context is already installed (as the blocked client's
+  // Allocate the request shell before blocking the client, so the full
+  // context is already installed (as the blocked client's
   // privdata) once the client is blocked. Parsing happens on the BG thread.
   AREQ *r;
   if (isDebug) {
@@ -3882,12 +3882,9 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
       QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
       return QueryError_ReplyAndClear(ctx, &status);
     }
-    // Already wrapped by AREQ_Debug_New (the wrapper can only be attached
-    // after its rm_realloc).
     r = &debug_req->r;
   } else {
     r = AREQ_New(argv, argc);
-    BlockedRequestCtx_NewAREQ(r);
   }
   // Either path took the argv holds here, on the main thread; the BG parse
   // borrows from them (the job's own argv copies die with the job).
@@ -3900,7 +3897,7 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   handlerCtx.numShards = NumShards;  // Capture NumShards from main thread for thread-safe access
 
   RSTimeoutPolicy policy = r->reqConfig.timeoutPolicy;
-  handlerCtx.bcCtx.brc = r->brc;
+  handlerCtx.bcCtx.request = &r->base;
   if (policy == TimeoutPolicy_Fail || policy == TimeoutPolicy_ReturnStrict) {
     handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
     handlerCtx.bcCtx.timeout_callback = (policy == TimeoutPolicy_Fail)
@@ -3982,8 +3979,8 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
-  // Allocate the hybrid request shell and its owning wrapper before blocking
-  // the client, so the full context is already installed (as the blocked
+  // Allocate the hybrid request shell before blocking the client, so the full
+  // context is already installed (as the blocked
   // client's privdata) once the client is blocked. Parsing happens on the BG
   // thread; the sub-AREQ contexts are detached thread-safe contexts.
   RedisSearchCtx *sctx = NewSearchCtxC(ctx, idx, true);
@@ -4005,7 +4002,7 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
   handlerCtx.numShards = NumShards;  // Capture NumShards from main thread for thread-safe access
 
-  handlerCtx.bcCtx.brc = hreq->brc;
+  handlerCtx.bcCtx.request = &hreq->base;
 
   if (policy != TimeoutPolicy_Return) {
     handlerCtx.bcCtx.reply_callback = DistHybridReplyCallback;

@@ -917,7 +917,7 @@ cleanup:
   }
   SpecialCaseCtx_Free(knnCtx);
   // Release the execution flow's reference (taken at shell allocation on the
-  // main thread); the cycle's reference is released by BlockedRequestCtx_OnFree.
+  // main thread); the cycle's reference is released by QueryRequest_OnFree.
   AREQ_DecrRef(r);
   RedisModule_EndReply(reply);
   return;
@@ -973,17 +973,16 @@ static int dispatchAggregateDeferred(AREQ *r, struct ConcurrentCmdCtx *cmdCtx,
 void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                          struct ConcurrentCmdCtx *cmdCtx) {
 
-  // The request shell and its wrapper were allocated on the main thread by the
-  // dispatcher; the wrapper is the blocked client's privdata. This thread only
-  // fills the request in place.
-  BlockedRequestCtx *brc =
+  // The request shell was allocated on the main thread by the dispatcher and
+  // installed as the blocked client's private data. This thread fills it in place.
+  QueryRequest *request =
       RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
-  AREQ *r = BlockedRequestCtx_GetAREQ(brc);
+  AREQ *r = QueryRequest_GetAREQ(request);
 
   if (AREQ_TimedOut(r)) {
     // Query timed out while this job was queued; the timeout callback already
     // replied. Release the execution flow's reference (the cycle's reference
-    // is released by BlockedRequestCtx_OnFree after the unblock).
+    // is released by QueryRequest_OnFree after the unblock).
     WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
     AREQ_DecrRef(r);
     return;
@@ -1054,18 +1053,17 @@ int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **ar
   UNUSED(argv);
   UNUSED(argc);
 
-  BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
+  QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
   // Installed by BeginCycle on the main thread before the command returned,
   // so no callback can observe missing privdata.
-  RS_ASSERT(brc != NULL);
-
-  RS_ASSERT(brc->kind == REQUEST_KIND_AREQ);
+  RS_ASSERT(request != NULL);
+  AREQ *req = QueryRequest_GetAREQ(request);
 
   // Signal timeout to the background thread
-  AREQ_SetTimedOut(BlockedRequestCtx_GetAREQ(brc));
+  AREQ_SetTimedOut(req);
 
   // Record the per-stage breakdown at the stage the deadline caught the request.
-  recordCoordAREQTimeoutStage(BlockedRequestCtx_GetAREQ(brc), /*isError=*/true);
+  recordCoordAREQTimeoutStage(req, /*isError=*/true);
 
   // Reply with timeout error
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
@@ -1094,13 +1092,11 @@ static void drainPartialResultsAfterTimeout(AREQ *req) {
 // Called on the main thread when the blocking client times out (RETURN-STRICT policy only).
 int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
-  BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
+  QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
   // Installed by BeginCycle on the main thread before the command returned,
   // so no callback can observe missing privdata.
-  RS_ASSERT(brc != NULL);
-
-  RS_ASSERT(brc->kind == REQUEST_KIND_AREQ);
-  AREQ *req = BlockedRequestCtx_GetAREQ(brc);
+  RS_ASSERT(request != NULL);
+  AREQ *req = QueryRequest_GetAREQ(request);
 
   // Signal timeout to the background thread
   AREQ_SetTimedOut(req);
@@ -1147,11 +1143,9 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
   UNUSED(argv);
   UNUSED(argc);
 
-  BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
-  RS_ASSERT(brc != NULL);
-
-  RS_ASSERT(brc->kind == REQUEST_KIND_AREQ);
-  AREQ *req = BlockedRequestCtx_GetAREQ(brc);
+  QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
+  RS_ASSERT(request != NULL);
+  AREQ *req = QueryRequest_GetAREQ(request);
 
   // Check if results were stored (background thread completed successfully)
   if (!req->base.reply.hasStoredResults) {
@@ -1176,7 +1170,7 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // and the early-error branch above replies with it.
   AREQ_ReplyWithStoredResults(ctx, req);
 
-  // Note: No AREQ_DecrRef here - BlockedRequestCtx_OnFree releases the cycle's reference.
+  // QueryRequest_OnFree releases the cycle's request reference.
   return REDISMODULE_OK;
 }
 
@@ -1187,18 +1181,16 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
 // bails are signaled via AREQ_ReplyOrStoreError. The timer waits and branches
 // on `hasStoredResults`.
 int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
-  RS_ASSERT(brc != NULL);
-  RS_ASSERT(brc->kind == REQUEST_KIND_AREQ);
-
-  AREQ *req = BlockedRequestCtx_GetAREQ(brc);
+  QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
+  RS_ASSERT(request != NULL);
+  AREQ *req = QueryRequest_GetAREQ(request);
   AREQ_SetTimedOut(req);
 
   // Record the per-stage breakdown at the stage the deadline caught the request
   // (QUEUE while BG has not dequeued the read yet).
   recordCoordAREQTimeoutStage(req, /*isError=*/false);
 
-  if (BlockedRequestCtx_TryOwnStrictRead(brc, BRC_READ_OWNER_TIMEOUT)) {
+  if (QueryRequest_TryOwnStrictRead(request, QUERY_REQUEST_READ_OWNER_TIMEOUT)) {
     // The BG worker has not dequeued the read job yet. Waiting here would
     // block the main thread on BG progress (deadlock if the pool is
     // paused/saturated); reply with a depleted cursor instead. The worker
@@ -1238,17 +1230,17 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
 void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                          struct ConcurrentCmdCtx *cmdCtx) {
 
-  // The debug request shell (AREQ_Debug) and its wrapper were allocated on the
-  // main thread by the dispatcher; the wrapper is the blocked client's privdata.
-  BlockedRequestCtx *brc =
+  // The debug request shell (AREQ_Debug) was allocated on the main thread by
+  // the dispatcher and installed as the blocked client's private data.
+  QueryRequest *request =
       RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
-  AREQ *r = BlockedRequestCtx_GetAREQ(brc);
+  AREQ *r = QueryRequest_GetAREQ(request);
   AREQ_Debug *debug_req = (AREQ_Debug *)r;
 
   if (AREQ_TimedOut(r)) {
     // Query timed out while this job was queued; the timeout callback already
     // replied. Release the execution flow's reference (the cycle's reference
-    // is released by BlockedRequestCtx_OnFree after the unblock).
+    // is released by QueryRequest_OnFree after the unblock).
     WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
     AREQ_DecrRef(r);
     return;

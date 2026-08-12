@@ -308,29 +308,20 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     // Initialize pipelines for each individual request
     for (size_t i = 0; i < nrequests; i++) {
         initializeAREQ(requests[i]);
-        // Each sub-AREQ gets its own wrapper, holding the whole command
-        // rather than its own slice: slice boundaries are only discovered
-        // while parsing, and sub pipelines borrow beyond their slice anyway
-        // (distributed tail steps like LOAD, PARAMS).
-        BlockedRequestCtx_NewAREQ(requests[i]);
         hybridReq->errors[i] = QueryError_Default();
         Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &hybridReq->errors[i]);
     }
     hybridReq->profileClocks.initClock = now;
 
-    // Initialize timeout coordination fields (embedded per-request slot only;
-    // the aggregate-coord fields live on the heap BlockedRequestCtx wrapper).
+    // Initialize timeout coordination fields.
     pthread_mutex_init(&hybridReq->cursorMutex, NULL);
 }
 
 HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests, RedisModuleString **argv, uint32_t argc) {
-    // The wrappers hold the full command; each sub takes its own holds — a
+    // The requests hold the full command; each sub takes its own holds — a
     // sub's borrows can outlive the container.
     HybridRequest *hybridReq = rm_calloc(1, sizeof(*hybridReq));
     HybridRequest_Init(hybridReq, sctx, requests, nrequests, argv, argc);
-    // Wrap the top-level hybrid request in its single-owner sync context.
-    // Sets hybridReq->brc; ownership is released via HybridRequest_DecrRef.
-    BlockedRequestCtx_NewHybrid(hybridReq);
     return hybridReq;
 }
 
@@ -430,17 +421,13 @@ void HybridRequest_Free(HybridRequest *req) {
 }
 
 HybridRequest *HybridRequest_IncrRef(HybridRequest *req) {
-  RS_LOG_ASSERT(req->brc != NULL, "HybridRequest_IncrRef called on unwrapped request");
-  BlockedRequestCtx_IncrRef(req->brc);
+  QueryRequest_IncrRef(&req->base);
   return req;
 }
 
 void HybridRequest_DecrRef(HybridRequest *req) {
   if (!req) return;
-  // Delegate to the wrapper: BlockedRequestCtx_DecrRef → 0 → BlockedRequestCtx_Free
-  // → HybridRequest_Free.
-  RS_LOG_ASSERT(req->brc != NULL, "HybridRequest_DecrRef called on unwrapped request");
-  BlockedRequestCtx_DecrRef(req->brc);
+  QueryRequest_DecrRef(&req->base);
 }
 
 static bool isSoftTailPipelineErrorCode(QueryErrorCode code) {

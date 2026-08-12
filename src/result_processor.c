@@ -1165,7 +1165,7 @@ typedef struct RPSafeLoader {
   // Request sync context; non-NULL only for RETURN_STRICT requests that use the
   // aggregate-results sync. When set, the loader performs the GIL deadlock-
   // avoidance handshake around the GIL (see aggregate.h).
-  BlockedRequestCtx *brc;
+  QueryRequest *request;
 } RPSafeLoader;
 
 /************************* Safe Loader private functions *************************/
@@ -1347,10 +1347,10 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   SyncPoint_WaitUntil(SYNC_POINT_BEFORE_SAFE_LOADER_GIL_LOCK, SearchTime_IsTimedOut, &sctx->time);
 #endif
 
-  // Deadlock-avoidance handshake (brc non-NULL only for RETURN_STRICT). Mark
+  // Deadlock-avoidance handshake (request non-NULL only for RETURN_STRICT). Mark
   // that we are about to take the GIL so the timeout callback can preempt us; if
   // it already timed out, bail instead of blocking. See aggregate.h.
-  if (self->brc && !BlockedRequestCtx_SafeLoaderEnterGIL(self->brc)) {
+  if (self->request && !QueryRequest_SafeLoaderEnterGIL(self->request)) {
     return RS_RESULT_TIMEDOUT;
   }
 
@@ -1371,8 +1371,8 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   // closes the race where a timeout landing in the unlock->clear gap sees a
   // stale safeLoadersHoldingGIL count and preempts, dropping already-loaded
   // results. See aggregate.h.
-  if (self->brc) {
-    BlockedRequestCtx_SafeLoaderExitGIL(self->brc);
+  if (self->request) {
+    QueryRequest_SafeLoaderExitGIL(self->request);
   }
 
   // Done loading. Unlock Redis
@@ -1429,7 +1429,7 @@ static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk,
 
   sl->last_buffered_rc = RS_RESULT_OK;
   sl->sctx = sctx;
-  sl->brc = NULL;
+  sl->request = NULL;
 
   sl->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
   sl->base_loader.base.Free = rpSafeLoaderFree;
@@ -1548,7 +1548,7 @@ static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
   sl->curr_result_index = 0;
 
   sl->last_buffered_rc = RS_RESULT_OK;
-  sl->brc = NULL;
+  sl->request = NULL;
 
   sl->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
   sl->base_loader.base.Free = rpSafeLoaderFree;
@@ -1585,13 +1585,13 @@ void SetLoadersForBG(QueryProcessingCtx *qctx) {
 //
 // The disk async loader (Rust `redisearch_disk` crate) uses the same handshake via
 // `SearchDisk_AsyncLoader_SetSyncCtx` (see aggregate.h).
-void RPSafeLoader_SetSyncCtx(QueryProcessingCtx *qctx, struct BlockedRequestCtx *sync) {
+void RPSafeLoader_SetSyncCtx(QueryProcessingCtx *qctx, QueryRequest *request) {
   ResultProcessor *rp = qctx->endProc;
   while (rp) {
     if (rp->type == RP_SAFE_LOADER) {
-      ((RPSafeLoader *)rp)->brc = sync;
+      ((RPSafeLoader *)rp)->request = request;
     } else if (rp->type == RP_DISK_ASYNC_LOADER) {
-      SearchDisk_AsyncLoader_SetSyncCtx(rp, sync);
+      SearchDisk_AsyncLoader_SetSyncCtx(rp, request);
     }
     rp = rp->upstream;
   }

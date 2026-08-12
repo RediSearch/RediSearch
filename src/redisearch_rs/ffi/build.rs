@@ -338,9 +338,8 @@ const HEADERS: &[HeaderAllowlist] = &[
             "AsyncPollResult",
             "AsyncReadResult",
             "BasicDiskAPI",
-            // RETURN_STRICT GIL handshake ctx; kept opaque (forward-declared
-            // here, defined in `aggregate.h`).
-            "BlockedRequestCtx",
+            // RETURN_STRICT GIL handshake context.
+            "QueryRequest",
             "DocTableDiskAPI",
             "IndexDiskAPI",
             "MetricsDiskAPI",
@@ -679,11 +678,6 @@ fn main() {
     // `_GNU_SOURCE` makes `<stdio.h>` declare `asprintf`/`vasprintf`, which
     // `deps/rmalloc/rmalloc.h` uses.
     bindings = bindings.clang_arg("-D_GNU_SOURCE");
-
-    // `BlockedRequestCtx` is only forward-declared in `search_disk_api.h`, but its full
-    // definition (aggregate.h) is pulled in transitively through `AREQ_CheckTimedOut`. Force it
-    // opaque so Rust callers only ever get a pointer, never its (Rust-unsafe-to-model) C internals.
-    bindings = bindings.opaque_type("BlockedRequestCtx");
 
     for ty in BLOCKLIST_TYPES {
         bindings = bindings.blocklist_type(ty);

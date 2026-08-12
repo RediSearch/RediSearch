@@ -32,7 +32,7 @@ typedef struct RLookupKey RLookupKey;
 typedef struct HiddenString HiddenString;
 
 // Forward declaration for the RETURN_STRICT GIL handshake context (aggregate.h).
-typedef struct BlockedRequestCtx BlockedRequestCtx;
+typedef struct QueryRequest QueryRequest;
 
 // Helper opaque types for the disk API
 typedef const void* RedisSearchDisk;
@@ -336,15 +336,15 @@ typedef struct BasicDiskAPI {
   /**
    * Hand the disk async-loader result processor its request sync context, so it can perform
    * the same RETURN_STRICT GIL deadlock-avoidance handshake as RP_SAFE_LOADER (see
-   * `BlockedRequestCtx_SafeLoaderEnterGIL` / `ExitGIL` in aggregate.h).
+   * `QueryRequest_SafeLoaderEnterGIL` / `ExitGIL` in aggregate.h).
    *
    * @param rp  The disk async-loader ResultProcessor, previously returned by
    *            `newAsyncLoaderResultProcessor`.
-   * @param brc `BlockedRequestCtx *`, or NULL to clear.
+   * @param request `QueryRequest *`, or NULL to clear.
    *
    * Note: keep this field last in `BasicDiskAPI` (C and Rust build this struct together).
    */
-  void (*asyncLoaderSetSyncCtx)(ResultProcessor *rp, BlockedRequestCtx *brc);
+  void (*asyncLoaderSetSyncCtx)(ResultProcessor *rp, QueryRequest *request);
 } BasicDiskAPI;
 
 typedef struct IndexDiskAPI {
