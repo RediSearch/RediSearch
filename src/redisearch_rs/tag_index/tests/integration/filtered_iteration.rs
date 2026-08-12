@@ -131,6 +131,32 @@ fn set_timeout_cuts_iteration_short() {
     );
 }
 
+/// The deadline also bounds the entries a suffix walk *skips*, not just the ones
+/// it yields. A trie cannot seek by suffix, so the walk here has to visit hundreds
+/// of non-matching tags before reaching the single match; probing the deadline only
+/// per yielded match would let that whole scan run to completion first.
+#[test]
+#[cfg_attr(miri, ignore)] // probes CLOCK_MONOTONIC_RAW, unimplemented under miri
+fn set_timeout_bounds_the_nonmatches_a_suffix_walk_skips() {
+    // The only match sorts last, behind comfortably more non-matching tags than
+    // the check granularity.
+    let owned: Vec<Vec<u8>> = (0..400)
+        .map(|i| format!("tag{i:04}").into_bytes())
+        .chain(std::iter::once(b"zzzoo".to_vec()))
+        .collect();
+    let tags: Vec<&[u8]> = owned.iter().map(|t| t.as_slice()).collect();
+    let mut tag_index = TagIndex::new(1, None, false);
+    index_mem(&mut tag_index, &tags, 1);
+
+    let mut it = tag_index.value_iter_filtered(b"oo", IterMode::Suffix);
+    it.set_timeout(elapsed_deadline());
+
+    assert!(
+        it.advance().is_none(),
+        "an elapsed deadline must stop the walk before it reaches the match"
+    );
+}
+
 /// An all-zero deadline means "no deadline", so the walk completes. Without the
 /// special case it would read as a deadline in the distant past.
 #[test]

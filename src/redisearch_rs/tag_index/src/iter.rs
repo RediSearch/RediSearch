@@ -18,26 +18,26 @@
 //!
 //! [`TagValueReader`] reads the postings (document ids) of a single tag value.
 
+use std::time::Instant;
+
 use ffi::timespec;
 use index_result::RSIndexResult;
 use inverted_index::{IndexReader, IndexReaderCore, InvertedIndex, doc_ids_only::DocIdsOnly};
 use lending_iterator::LendingIterator as _;
-use lending_iterator::lending_iterator::adapters::Filter;
-use rqe_iterators::utils::TimeoutContext as _;
-use timeout::{AnyTimeoutChecker, NoTimeoutChecker};
+use rqe_iterators::utils::duration_from_redis_timespec;
 use trie_rs::iter::{ContainsLendingIter, LendingIter, WildcardLendingIter, filter::VisitAll};
 
-use crate::{SuffixData, TagIndex, expansion_timeout};
+use crate::{SuffixData, TagIndex};
 
 /// Value type stored in the memory-mode values trie. Boxed so the heap
 /// [`InvertedIndex`] address stays stable across trie restructuring — callers hold
 /// it across mutations.
 type MemValue = Box<InvertedIndex<DocIdsOnly>>;
 
-/// Predicate owned by the suffix-filter variants. A [`Filter`] combinator's
-/// closure type is unnameable, so it is boxed to appear in an enum variant.
-/// This is a boxed *predicate*, not a boxed iterator — dispatch over the
-/// iterator shapes below stays static.
+/// Predicate the suffix variants filter a full trie walk with. It owns a copy of
+/// the queried suffix, so its closure type is unnameable and has to be boxed to
+/// appear in an enum variant. This is a boxed *predicate*, not a boxed iterator —
+/// dispatch over the iterator shapes below stays static.
 type SuffixPredicate<V> = Box<dyn Fn(&(&[u8], &V)) -> bool>;
 
 /// Which subset of tag values a [filtered iterator](TagIndex::value_iter_filtered)
@@ -70,18 +70,43 @@ enum ValueIteratorImpl<'ti> {
     MemContains(ContainsLendingIter<'ti, 'ti, MemValue>),
     /// Memory mode, entries whose key matches a wildcard pattern.
     MemWildcard(WildcardLendingIter<'ti, 'ti, MemValue>),
-    /// Memory mode, entries whose key ends with a suffix.
-    MemSuffix(Filter<LendingIter<'ti, MemValue, VisitAll>, SuffixPredicate<MemValue>>),
+    /// Memory mode, entries whose key ends with a suffix. A trie cannot seek by
+    /// suffix, so this pairs a full walk with the predicate the walk is filtered
+    /// by; see [`advance`](ValueIterator::advance) for why the two are kept
+    /// side by side rather than combined into a filtering adapter.
+    MemSuffix(
+        LendingIter<'ti, MemValue, VisitAll>,
+        SuffixPredicate<MemValue>,
+    ),
     /// Disk mode, full iteration or prefix filter.
     DiskAll(LendingIter<'ti, (), VisitAll>),
     /// Disk mode, entries whose key contains a fragment.
     DiskContains(ContainsLendingIter<'ti, 'ti, ()>),
     /// Disk mode, entries whose key matches a wildcard pattern.
     DiskWildcard(WildcardLendingIter<'ti, 'ti, ()>),
-    /// Disk mode, entries whose key ends with a suffix.
-    DiskSuffix(Filter<LendingIter<'ti, (), VisitAll>, SuffixPredicate<()>>),
+    /// Disk mode, entries whose key ends with a suffix, filtered like
+    /// [`MemSuffix`](Self::MemSuffix).
+    DiskSuffix(LendingIter<'ti, (), VisitAll>, SuffixPredicate<()>),
     /// Suffix-trie entries; the value is opaque bookkeeping.
     SuffixEntries(LendingIter<'ti, SuffixData, VisitAll>),
+}
+
+impl ValueIteratorImpl<'_> {
+    /// Hand `deadline` to the underlying trie iterator, which enforces it inside
+    /// its own traversal loop — see [`ValueIterator::set_timeout`].
+    fn set_timeout(&mut self, deadline: Option<Instant>) {
+        match self {
+            Self::MemAll(it) => it.set_timeout(deadline),
+            Self::MemContains(it) => it.set_timeout(deadline),
+            Self::MemWildcard(it) => it.set_timeout(deadline),
+            Self::MemSuffix(it, _) => it.set_timeout(deadline),
+            Self::DiskAll(it) => it.set_timeout(deadline),
+            Self::DiskContains(it) => it.set_timeout(deadline),
+            Self::DiskWildcard(it) => it.set_timeout(deadline),
+            Self::DiskSuffix(it, _) => it.set_timeout(deadline),
+            Self::SuffixEntries(it) => it.set_timeout(deadline),
+        }
+    }
 }
 
 /// An iterator over the values (tags) stored in a [`TagIndex`], returned by
@@ -95,7 +120,6 @@ enum ValueIteratorImpl<'ti> {
 /// [`set_timeout`](Self::set_timeout).
 pub struct ValueIterator<'ti> {
     iter: ValueIteratorImpl<'ti>,
-    timeout: AnyTimeoutChecker,
 }
 
 impl<'ti> ValueIterator<'ti> {
@@ -111,12 +135,6 @@ impl<'ti> ValueIterator<'ti> {
     /// reached. The key slice is borrowed from trie-internal storage and is
     /// invalidated by the next call.
     pub fn advance(&mut self) -> Option<(&[u8], Option<&InvertedIndex<DocIdsOnly>>)> {
-        // Probe the deadline before advancing (see `expansion_timeout`);
-        // `NoTimeoutChecker` makes this a no-op.
-        if self.timeout.check_timeout().is_err() {
-            return None;
-        }
-
         // The memory-mode value is a `&Box<InvertedIndex>`; callers hold and
         // dereference the heap `InvertedIndex`, so hand out that stable address
         // (the `Box`'s heap content, via deref coercion), not the box slot in
@@ -129,28 +147,47 @@ impl<'ti> ValueIterator<'ti> {
             ValueIteratorImpl::MemAll(it) => it.next().map(|(k, v)| (k, Some(mem_value(v)))),
             ValueIteratorImpl::MemContains(it) => it.next().map(|(k, v)| (k, Some(mem_value(v)))),
             ValueIteratorImpl::MemWildcard(it) => it.next().map(|(k, v)| (k, Some(mem_value(v)))),
-            ValueIteratorImpl::MemSuffix(it) => it.next().map(|(k, v)| (k, Some(mem_value(v)))),
+            // The suffix modes skip the non-matching entries with `find` — inside
+            // the trie's own traversal loop, so the deadline `set_timeout`
+            // installed is probed per *visited* entry. A filtering adapter wrapped
+            // around the trie iterator would instead leave the whole skipped run
+            // unbounded, since the deadline could then only be probed per *yielded*
+            // match.
+            ValueIteratorImpl::MemSuffix(it, matches) => {
+                it.find(&mut *matches).map(|(k, v)| (k, Some(mem_value(v))))
+            }
             ValueIteratorImpl::DiskAll(it) => it.next().map(|(k, ())| (k, None)),
             ValueIteratorImpl::DiskContains(it) => it.next().map(|(k, ())| (k, None)),
             ValueIteratorImpl::DiskWildcard(it) => it.next().map(|(k, ())| (k, None)),
-            ValueIteratorImpl::DiskSuffix(it) => it.next().map(|(k, ())| (k, None)),
+            ValueIteratorImpl::DiskSuffix(it, matches) => {
+                it.find(&mut *matches).map(|(k, ())| (k, None))
+            }
             ValueIteratorImpl::SuffixEntries(it) => it.next().map(|(k, _)| (k, None)),
         }
     }
 
-    /// Set the deadline honored while iterating (affix queries). It is checked in
-    /// [`advance`](Self::advance), which stops once it is reached.
+    /// Set the deadline honored while iterating (affix queries). Iteration ends,
+    /// as if the trie were exhausted, once it is reached.
+    ///
+    /// `timeout` is an absolute `CLOCK_MONOTONIC_RAW` deadline. It is handed to the
+    /// underlying trie iterator, which enforces it inside its traversal loop
+    /// (amortized over a fixed number of steps, like
+    /// [`expansion_timeout`](crate::expansion_timeout) does for suffix-trie
+    /// expansion). That is what bounds a walk whose entries mostly do *not* match:
+    /// the deadline is probed per visited entry, not per yielded match.
     ///
     /// An all-zero `timeout` clears the deadline rather than setting one: taken
     /// literally it is a deadline long past, which would abort the iteration on
     /// the first probe. The Redis "no timeout" sentinel is handled by
-    /// [`expansion_timeout`].
+    /// [`duration_from_redis_timespec`].
     pub fn set_timeout(&mut self, timeout: timespec) {
-        self.timeout = if timeout.tv_sec == 0 && timeout.tv_nsec == 0 {
-            AnyTimeoutChecker::NoTimeout(NoTimeoutChecker)
+        let deadline = if timeout.tv_sec == 0 && timeout.tv_nsec == 0 {
+            None
         } else {
-            expansion_timeout(Some(timeout))
+            duration_from_redis_timespec(timeout).map(|remaining| Instant::now() + remaining)
         };
+
+        self.iter.set_timeout(deadline);
     }
 }
 
@@ -162,10 +199,7 @@ impl TagIndex {
         } else {
             ValueIteratorImpl::MemAll(self.iter_values())
         };
-        ValueIterator {
-            iter,
-            timeout: AnyTimeoutChecker::NoTimeout(NoTimeoutChecker),
-        }
+        ValueIterator { iter }
     }
 
     /// Iterate over the tag values matching `pattern` under `mode`, in
@@ -198,8 +232,8 @@ impl TagIndex {
                     ValueIteratorImpl::DiskContains(self.disk_contains_iter_values(pattern))
                 }
                 IterMode::Suffix => ValueIteratorImpl::DiskSuffix(
-                    self.disk_iter_values()
-                        .filter(suffix_predicate(pattern.to_vec())),
+                    self.disk_iter_values(),
+                    suffix_predicate(pattern.to_vec()),
                 ),
                 IterMode::Wildcard => {
                     ValueIteratorImpl::DiskWildcard(self.disk_wildcard_iter_values(pattern))
@@ -212,8 +246,8 @@ impl TagIndex {
                     ValueIteratorImpl::MemContains(self.contains_iter_values(pattern))
                 }
                 IterMode::Suffix => ValueIteratorImpl::MemSuffix(
-                    self.iter_values()
-                        .filter(suffix_predicate(pattern.to_vec())),
+                    self.iter_values(),
+                    suffix_predicate(pattern.to_vec()),
                 ),
                 IterMode::Wildcard => {
                     ValueIteratorImpl::MemWildcard(self.wildcard_iter_values(pattern))
@@ -221,10 +255,7 @@ impl TagIndex {
             }
         };
 
-        ValueIterator {
-            iter,
-            timeout: AnyTimeoutChecker::NoTimeout(NoTimeoutChecker),
-        }
+        ValueIterator { iter }
     }
 
     /// Iterate over all entries of the suffix index, in lexicographical order,
@@ -236,7 +267,6 @@ impl TagIndex {
         let iter = self.iter_suffix_entries()?;
         Some(ValueIterator {
             iter: ValueIteratorImpl::SuffixEntries(iter),
-            timeout: AnyTimeoutChecker::NoTimeout(NoTimeoutChecker),
         })
     }
 }
