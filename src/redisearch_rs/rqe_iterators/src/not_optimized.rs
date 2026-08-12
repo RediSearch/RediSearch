@@ -357,10 +357,12 @@ where
 
         // 3. If the wildcard moved, sync state.
         if matches!(wcii_status, RQEValidateStatus::Moved { .. }) {
-            // Sync the EOF flag with the wildcard iterator. Latched, never assigned: a
-            // wildcard that has run out means we have too, and clearing the flag would
-            // revive an iterator already reported as exhausted (see
-            // [`RQEIterator::at_eof`]). `OptionalOptimized` latches the same way.
+            // Latched, never assigned. The two flags do not record the same fact: besides
+            // the wildcard running out, `forced_eof` marks this iterator's `max_doc_id`
+            // window closing, which `skip_to` sets with the wildcard still live on a
+            // document. Assigning would clear it there, and the next `read` would resume
+            // an iterator already reported as exhausted — terminal until `rewind`, see
+            // [`RQEIterator::at_eof`]. `OptionalOptimized` latches the same way.
             self.forced_eof |= self.wcii.at_eof();
             // Track whether we land on a valid NOT result. Starts true
             // when wcii is not at EOF (we have a candidate position).
@@ -372,10 +374,10 @@ where
             // its own. Without it, a concurrent index change could hand a native
             // parent `Moved { current: Some(_) }` with an out-of-range id.
             //
-            // `past_end` joins the guard because exhaustion is terminal. `forced_eof`
-            // alone is not enough: [`read`](RQEIterator::read) recomputes `past_end`
-            // from `read_inner`, so a `past_end` set without it would be dropped on the
-            // next read.
+            // `past_end` guards the answer this call gives; the latch above guards the
+            // next [`read`](RQEIterator::read). Neither covers for the other: `past_end`
+            // is not sticky, and it can be set while `forced_eof` is clear — a position
+            // already sitting on `max_doc_id`.
             let mut have_valid_pos =
                 !self.past_end && !self.forced_eof && self.wcii.last_doc_id() <= self.max_doc_id;
             if have_valid_pos {

@@ -604,7 +604,9 @@ where
         let mut any_change = false;
 
         // Revalidate ALL children (including exhausted ones past num_active) and remove aborted ones.
-        // Exhausted children must be revalidated because they may become active again after revalidation.
+        // The exhausted ones still hold index references, and an aborted one has to go either way —
+        // but they cannot come back active, since exhaustion is terminal (see
+        // [`RQEIterator::at_eof`]).
         // We use index-based iteration because we need to remove elements while iterating.
         let mut i = 0;
         while i < self.children.len() {
