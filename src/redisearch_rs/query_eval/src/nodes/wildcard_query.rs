@@ -9,9 +9,9 @@
 
 //! Evaluation of `QN_WILDCARD_QUERY` query nodes.
 
-use std::{ops::ControlFlow, ptr::NonNull};
+use std::ops::ControlFlow;
 
-use c_trie::{CTrieRef, LoweredPattern, SuffixWalk};
+use c_trie::{LoweredPattern, SuffixTrie, SuffixWalk, TermsTrie};
 use query_error::QueryErrorCode;
 use query_types::QueryNodeType;
 use rqe_iterators::union_opaque::build_union_with_q_str;
@@ -84,7 +84,7 @@ pub(crate) fn eval<'index>(
     // Resolved here, with every other read of `ctx`, because `Expansion` borrows
     // it mutably for the rest of the expansion.
     let time = &ctx.sctx().time;
-    let timeout = (!time.skipTimeoutChecks).then(|| NonNull::from(&time.timeout));
+    let timeout = (!time.skipTimeoutChecks).then_some(time.timeout);
 
     let mut expansion = Expansion {
         ctx,
@@ -98,7 +98,7 @@ pub(crate) fn eval<'index>(
     debug_assert!(!terms_trie.is_null(), "terms trie should be initialized");
     // SAFETY: `terms_trie` is the spec's terms `Trie`, valid for and unmutated
     // during the query (`QueryEvalContext` invariants 1/2).
-    let terms = unsafe { CTrieRef::from_raw(terms_trie) };
+    let terms = unsafe { TermsTrie::from_raw(terms_trie) };
 
     // A spec with a suffix trie may only answer a pattern when every queried field
     // is covered by it. An unsupported field set is an error that does *not* fall
@@ -141,19 +141,18 @@ pub(crate) fn eval<'index>(
             // suffix `Trie`, whose nodes carry the suffix-data payload the walk
             // expects; it is valid for and unmutated during the query
             // (`QueryEvalContext` invariants 1/2).
-            let suffix = unsafe { CTrieRef::from_raw(suffix_trie) };
-            brute_force = match expansion
-                .expand_wildcard_via_suffix_trie(&suffix, &terms, pattern, timeout)
-            {
-                // The walk answered the pattern, and consumed it doing so.
-                SuffixWalk::Walked => None,
-                // Nothing to anchor on, so the pattern is still un-walked and the
-                // brute-force scan below has to answer it instead.
-                SuffixWalk::NoAnchor(pattern) => Some(pattern),
-            };
+            let suffix = unsafe { SuffixTrie::from_raw(suffix_trie) };
+            brute_force =
+                match expansion.expand_wildcard_via_suffix_trie(suffix, terms, pattern, timeout) {
+                    // The walk answered the pattern, and consumed it doing so.
+                    SuffixWalk::Walked => None,
+                    // Nothing to anchor on, so the pattern is still un-walked and the
+                    // brute-force scan below has to answer it instead.
+                    SuffixWalk::NoAnchor(pattern) => Some(pattern),
+                };
         }
         if let Some(pattern) = brute_force {
-            expansion.expand_wildcard_via_terms_trie(&terms, &pattern, timeout);
+            expansion.expand_wildcard_via_terms_trie(terms, &pattern, timeout);
         }
     }
     // A pattern `LoweredPattern::new` declines falls through to an empty union.
@@ -203,10 +202,10 @@ impl Expansion<'_> {
     /// results.
     fn expand_wildcard_via_suffix_trie(
         &mut self,
-        suffix: &CTrieRef,
-        terms: &CTrieRef,
+        suffix: &SuffixTrie,
+        terms: &TermsTrie,
         pattern: LoweredPattern,
-        timeout: Option<NonNull<ffi::timespec>>,
+        timeout: Option<ffi::timespec>,
     ) -> SuffixWalk {
         // The suffix trie hands terms back already as stored key bytes but carries
         // no document count, so on the disk path the term's count is looked up in
@@ -229,14 +228,7 @@ impl Expansion<'_> {
             };
             self.push_child(num_docs, term_bytes)
         };
-        // SAFETY: `suffix` wraps the spec's valid suffix `Trie`, whose nodes carry
-        // the suffix-data payload the walk expects (caller contract), and `timeout`,
-        // if set, points to the sctx's live timeout `timespec`. The trie is not
-        // mutated or re-iterated for the duration of the call: `on_term` only opens
-        // per-term readers (which read the spec's inverted indexes) and, on the disk
-        // path, looks up the separate primary terms trie — never the suffix trie
-        // being walked.
-        unsafe { suffix.iterate_suffix_wildcard(pattern, timeout, on_term) }
+        suffix.iterate_wildcard(pattern, timeout, on_term)
     }
 
     /// Brute-force expand a wildcard `pattern` over the primary terms trie,
@@ -246,9 +238,9 @@ impl Expansion<'_> {
     /// (`None` runs it to completion).
     fn expand_wildcard_via_terms_trie(
         &mut self,
-        terms: &CTrieRef,
+        terms: &TermsTrie,
         pattern: &LoweredPattern,
-        timeout: Option<NonNull<ffi::timespec>>,
+        timeout: Option<ffi::timespec>,
     ) {
         // The primary trie hands terms back as runes (with their document count,
         // used for the disk IDF), which must be encoded back into the term's key,
@@ -267,13 +259,6 @@ impl Expansion<'_> {
             };
             self.push_child(num_docs, &key)
         };
-        // SAFETY: `terms` wraps the spec's valid primary terms `Trie`; `timeout`, if
-        // set, points to the sctx's live timeout `timespec`. The trie is not mutated
-        // or re-iterated for the duration of the call: `on_runes` only opens per-term
-        // readers, which read the spec's inverted indexes rather than the terms trie
-        // being walked.
-        unsafe {
-            terms.iterate_wildcard(pattern, timeout, on_runes);
-        }
+        terms.iterate_wildcard(pattern, timeout, on_runes);
     }
 }
