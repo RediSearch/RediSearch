@@ -86,9 +86,6 @@ void BlockedRequestCtx_EndCycle(BlockedRequestCtx *brc) {
   brc->deferred_reply = false;
   request->cursorInfo.cursor = NULL;
   request->cursorInfo.disposition = CURSOR_DISPOSITION_NONE;
-  // TODO($$$): Remove the legacy cursor disposition once consumers use QueryRequest.cursorInfo.
-  brc->cursor = NULL;
-  brc->cursor_dispose_free = false;
 }
 
 void BlockedRequestCtx_OnFree(RedisModuleCtx *ctx, void *privdata) {
@@ -103,13 +100,15 @@ void BlockedRequestCtx_OnFree(RedisModuleCtx *ctx, void *privdata) {
   // what keeps a cycle's cursor unreachable to other clients mid-cycle.
   // Cursor_Pause converts park to free when CURSOR DEL marked the cursor
   // mid-cycle (delete_mark).
-  struct Cursor *cursor = brc->cursor;
-  bool dispose_free = brc->cursor_dispose_free;
+  QueryRequest *request = BlockedRequestCtx_QueryRequest(brc);
+  struct Cursor *cursor = request->cursorInfo.cursor;
+  CursorDisposition disposition = request->cursorInfo.disposition;
   BlockedRequestCtx_EndCycle(brc);
   if (cursor) {
-    if (dispose_free) {
+    if (disposition == CURSOR_DISPOSITION_FREE) {
       Cursor_Free(cursor);
     } else {
+      RS_ASSERT(disposition == CURSOR_DISPOSITION_PAUSE);
       Cursor_Pause(cursor);
     }
   }

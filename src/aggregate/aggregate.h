@@ -262,15 +262,6 @@ struct BlockedRequestCtx {
                        // true => BG stores results and the reply callback
                        // registered with RedisModule_BlockClient serializes
                        // them on main after UnblockClient
-  /* Cursor disposition for this cycle. The point that decides the cursor's
-   * fate (the BG worker at cycle end, or the reply path once finishSendChunk
-   * set QEXEC_S_ITERDONE) records it here; OnFree — the single park-or-free
-   * point — executes it, so a cycle's cursor stays unreachable to other
-   * clients until the cycle fully ended. NULL when the cycle has no cursor;
-   * inline execution (brc->bc == NULL) disposes directly. */
-  struct Cursor *cursor;
-  bool cursor_dispose_free;
-
   /* ===== TRANSITIONAL(MOD-16691) — refactor scaffolding =====
    * Every field below is temporary bloat: each one bridges a gap that a later
    * step of the refactor (or the RETURN_STRICT flip follow-up) closes, and is
