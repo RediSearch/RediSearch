@@ -609,7 +609,13 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> RQEIterat
 
     #[inline(always)]
     fn num_estimated(&self) -> usize {
-        self.k.get().min(self.source.num_estimated())
+        let estimate = self.k.get().min(self.source.num_estimated());
+        // A filtered query yields the intersection, so the child's own upper
+        // bound caps ours: a selective filter must not be masked by a large `k`.
+        match &self.child {
+            Some(child) => estimate.min(child.num_estimated()),
+            None => estimate,
+        }
     }
 
     #[inline(always)]

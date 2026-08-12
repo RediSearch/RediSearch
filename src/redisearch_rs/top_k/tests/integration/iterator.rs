@@ -216,6 +216,24 @@ fn num_estimated_capped_at_k() {
     assert_eq!(it.num_estimated(), 3);
 }
 
+/// A filtered query yields the intersection, so a selective child bounds the
+/// estimate even when `k` and the source estimate are both far larger.
+#[test]
+fn num_estimated_capped_by_child() {
+    let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0), (3, 3.0)]], vec![], |_, _| {
+        BatchStrategy::Continue
+    })
+    .with_num_estimated(100);
+    let it = TopKIterator::new(
+        source,
+        make_child(vec![2]),
+        NonZeroUsize::new(100).unwrap(),
+        asc,
+    );
+
+    assert_eq!(it.num_estimated(), 1);
+}
+
 // ── Unfiltered path ───────────────────────────────────────────────────────────
 
 #[test]
