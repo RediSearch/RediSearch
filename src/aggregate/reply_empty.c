@@ -96,7 +96,10 @@ int coord_aggregate_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **a
     AREQ_QueryProcessingCtx(req)->err = &status;
 
     int profileArgs = parseProfileArgs(argv, argc, req);
-    if (profileArgs == -1) return RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
+    if (profileArgs == -1) {
+        AREQ_DecrRef(req);
+        return QueryError_ReplyAndClear(ctx, &status);
+    }
 
     if (shallow_parse_query_args(argv + profileArgs, argc - profileArgs, req) != REDISMODULE_OK) {
         AREQ_DecrRef(req);
