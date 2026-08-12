@@ -174,6 +174,16 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 // the key inside the async swap window so the callback hits the docid-mismatch / expired-doc path,
 // and lets a test hold the load past the query timeout to exercise the ON_TIMEOUT policy.
 #define SYNC_POINT_AFTER_PREFETCH_ISSUE                 "AfterPrefetchIssue"
+// Foreground (WORKERS 0) FT.HYBRID: parked in buildPipelineAndExecute right after the
+// spec read lock is taken and before the pipeline is built, so a test can hold the
+// build open while fork-GC reaches for the write lock (MOD-16215).
+#define SYNC_POINT_HYBRID_FOREGROUND_BUILD              "HybridForegroundBuild"
+// Fork-GC term apply: parked after the fork, just before the parent takes the spec
+// write lock, and again once it holds it. The pair lets a test line a GC writer up
+// against a query on the main thread, which is exactly the thread that could never
+// serve a SIGNAL in that scenario - both release themselves instead.
+#define SYNC_POINT_GC_BEFORE_SPEC_WRITE_LOCK            "GcBeforeSpecWriteLock"
+#define SYNC_POINT_GC_AFTER_SPEC_WRITE_LOCK             "GcAfterSpecWriteLock"
 
 // SyncPoint API function declarations
 // Arm a sync point - subsequent calls to SyncPoint_Wait will block
@@ -202,6 +212,11 @@ typedef bool (*SyncPointStopFn)(void *arg);
 // Like SyncPoint_Wait, but also exits the wait loop when `stop_fn(arg)` returns
 // true. Lets workers release early when a timeout fires on the main thread.
 void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg);
+// Like SyncPoint_WaitUntil, but also honours the arm's auto-release window, and
+// disarms the point on the way out so later arrivals run straight through. For a
+// rendezvous inside a loop that must park exactly once - fork-GC applies one term at
+// a time - where re-parking would change what the test measures.
+void SyncPoint_WaitUntilOnce(const char *name, SyncPointStopFn stop_fn, void *arg);
 
 // Shard dispatch fault injection (test-only, ENABLE_ASSERT builds): arm the next
 // `count` MRCluster_SendCommand calls to return REDIS_ERR, so DebugSendError_Consume

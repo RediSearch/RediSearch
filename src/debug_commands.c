@@ -365,6 +365,25 @@ void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg) {
   atomic_fetch_sub(&sp->waiting, 1);
 }
 
+void SyncPoint_WaitUntilOnce(const char *name, SyncPointStopFn stop_fn, void *arg) {
+  SyncPointState *sp = SyncPoint_FindByName(name);
+  if (!sp || !atomic_load(&sp->armed)) return;
+
+  long long auto_release_ms = atomic_load(&sp->auto_release_ms);
+  atomic_fetch_add(&sp->waiting, 1);
+  long long waited_ms = 0;
+  while (atomic_load(&sp->armed)) {
+    if (stop_fn && stop_fn(arg)) break;
+    if (auto_release_ms > 0 && waited_ms >= auto_release_ms) break;
+    usleep(1000);
+    waited_ms++;
+  }
+  // Disarm before dropping out of `waiting`: SyncPoint_ClearAll drains on the
+  // waiting count, so this order cannot leave it spinning on a re-armed slot.
+  atomic_store(&sp->armed, false);
+  atomic_fetch_sub(&sp->waiting, 1);
+}
+
 // Shard dispatch fault injection (test-only, see DebugSendError_* in header).
 // Set from the main thread via FT.DEBUG SEND_ERROR, consumed from the IO threads.
 static _Atomic int g_debugSendErrorCount = 0;

@@ -3,23 +3,15 @@ Spec-lock coverage for the single-threaded (WORKERS 0) FT.HYBRID path.
 
 That path takes one spec read lock for the whole execution and lends it to the
 sub-request contexts (SPEC_LOCK_READ_BORROWED) rather than letting their query
-iterators re-acquire it. Two properties of that protocol are pinned here:
+iterators re-acquire it.
 
-  1. The lock is always released - on success, after cursor creation, and on the
-     error exits, including the ones taken after the borrow. A leaked read lock is
-     silent until the next writer, so every case is followed by a forced GC, which
-     needs the write lock and would block forever if the lock or a borrow marker
-     leaked.
-  2. Results stay coherent when GC mutates the index around the query, which is
-     the race the read lock is there to prevent (MOD-16215).
-
-Not covered: the interleaving where a writer queues on the rwlock while the query
-holds the read lock and before a sub-request's first read - the ordering that would
-deadlock if the borrow were dropped and the iterators re-locked. It is not
-deterministically reachable at WORKERS 0: the main thread is inside the query, so
-no other client can be served to drive a sync point, and fork-GC has no sync point
-at its write-lock acquisition to park a writer there. test_hybrid_foreground_gc_churn
-reaches for it opportunistically by forcing GC between queries.
+test_hybrid_foreground_build_excludes_gc_writer is the regression test for
+MOD-16215: it fails if the build stops holding the read lock. The rest pin the
+release protocol - the lock is always given back, on success, after cursor
+creation, and on the error exits including the ones taken after the borrow. A
+leaked read lock is silent until the next writer, so those cases are followed by a
+forced GC: it needs the write lock, and a leaked lock or borrow marker leaves its
+blocked client unable to take it, so it replies with an error instead of DONE.
 """
 
 from common import *
@@ -57,9 +49,86 @@ def _hybrid_cmd(*extra):
 
 def _assert_writer_not_blocked(env, when):
     """A forced GC needs the spec write lock, so it cannot complete while a read
-    lock is still held. Hangs (rather than fails) if the lock leaked."""
-    forceInvokeGC(env, 'idx')
-    env.assertTrue(True, message=f'writer acquired the spec lock after {when}')
+    lock is still held. The blocked client replies DONE once the cycle ran, and
+    INVOCATION FAILED if it could not be scheduled within the timeout - which is
+    what a leaked read lock or borrow marker looks like from here."""
+    waitForRdbSaveToFinish(env)
+    try:
+        reply = env.cmd(debug_cmd(), 'GC_FORCEINVOKE', 'idx')
+    except Exception as e:
+        # A blocked client that never got the write lock replies with an error.
+        reply = str(e)
+    env.assertEqual(reply, 'DONE',
+                    message=f'writer did not acquire the spec lock after {when}')
+
+
+# The park windows below are what the assertion reads. The GC hold has to be the
+# shorter of the two, so that the two outcomes are far apart in wall-clock terms.
+_BUILD_PARK_MS = 3000
+_GC_HOLD_MS = 500
+_GC_ARRIVAL_TIMEOUT_MS = 30000
+
+
+@skip(cluster=True)
+def test_hybrid_foreground_build_excludes_gc_writer():
+    """Regression test for MOD-16215: the foreground build must hold the spec read
+    lock, so a fork-GC writer cannot mutate the trie/stats that QAST_Iterate reads.
+
+    Neither side can be released by a command, because the main thread is parked
+    inside the query for the whole window - so both parks release themselves, and the
+    query's own elapsed time is the oracle:
+
+      * read lock held  -> GC blocks in LockSpecWrite, never reaches its post-lock
+        park, and the build runs out the full _BUILD_PARK_MS.
+      * read lock missing -> GC takes the write lock straight away and parks there;
+        the build sees that and resumes at once, finishing far inside the window
+        (_GC_HOLD_MS only bounds it if the iterators still take the lock themselves).
+
+    Slow is correct here. Reverting the RedisSearchCtx_LockSpecRead call in
+    buildPipelineAndExecute (the sync point sits just after it) turns this red -
+    measured at 3ms against the 3000ms this asserts.
+    """
+    env = Env(moduleArgs='WORKERS 0 DEFAULT_DIALECT 2', enableDebugCommand=True)
+    skipIfNoEnableAssert(env)
+    _create_index(env)
+    _load(env, 20)
+
+    # Deleted docs give the term apply something to collect, which is what takes the
+    # spec write lock (fork_gc/terms.c).
+    conn = getConnectionByEnv(env)
+    for i in range(10):
+        conn.execute_command('DEL', f'doc:{i}')
+
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM',
+               'GcAfterSpecWriteLock', _GC_HOLD_MS).ok()
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM',
+               'GcBeforeSpecWriteLock', _GC_ARRIVAL_TIMEOUT_MS).ok()
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM',
+               'HybridForegroundBuild', _BUILD_PARK_MS).ok()
+
+    # Fork now, while the main thread is idle: the fork needs the GIL, which the query
+    # is about to hold. GC then parks just short of the write lock until the query is
+    # parked, so the two are guaranteed to overlap.
+    forceBGInvokeGC(env, 'idx')
+    wait_for_condition(
+        lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING',
+                         'GcBeforeSpecWriteLock') == 1, {}),
+        'Timeout waiting for GC to park before the spec write lock')
+
+    start = time.time()
+    res = env.cmd(*_hybrid_cmd())
+    elapsed_ms = (time.time() - start) * 1000
+
+    env.assertGreater(len(res), 0)
+    env.assertGreater(elapsed_ms, (_BUILD_PARK_MS + _GC_HOLD_MS) / 2,
+                      message='the foreground build did not hold the spec read lock '
+                              f'against the GC writer (took {elapsed_ms:.0f}ms, '
+                              f'expected about {_BUILD_PARK_MS}ms)')
+
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    env.cmd(debug_cmd(), 'GC_WAIT_FOR_JOBS')
+    # The lock really did come back: the writer completes on its own now.
+    _assert_writer_not_blocked(env, 'the GC-writer exclusion test')
 
 
 def test_hybrid_foreground_releases_spec_lock(env):

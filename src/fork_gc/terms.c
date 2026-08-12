@@ -12,6 +12,7 @@
 #include <sys/uio.h>
 
 #include "pipe.h"
+#include "debug_commands.h"
 #include "inverted_index_ffi.h"
 #include "trie/trie.h"
 #include "trie/trie_node.h"
@@ -57,6 +58,16 @@ void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
   FGC_sendTerminator(gc);
 }
 
+#ifdef ENABLE_ASSERT
+// Releases the pre-write-lock park once a foreground hybrid build is parked, lining
+// the two up without a SIGNAL - the thread that would send one is the main thread,
+// which is parked inside the query being observed.
+static bool hybridForegroundBuildParked(void *arg) {
+  (void)arg;
+  return SyncPoint_IsWaiting(SYNC_POINT_HYBRID_FOREGROUND_BUILD);
+}
+#endif
+
 FGCError FGC_parentHandleTerms(ForkGC *gc) {
   FGCError status = FGC_COLLECTED;
   size_t len = 0;
@@ -97,7 +108,18 @@ FGCError FGC_parentHandleTerms(ForkGC *gc) {
   sctx_ = SEARCH_CTX_STATIC(gc->ctx, sp);
   sctx = &sctx_;
 
+#ifdef ENABLE_ASSERT
+  // Sync points (debug): the fork already happened, so parking here does not hold the
+  // GIL against the main thread. See test_hybrid_foreground_lock.py.
+  SyncPoint_WaitUntilOnce(SYNC_POINT_GC_BEFORE_SPEC_WRITE_LOCK, hybridForegroundBuildParked, NULL);
+#endif
+
   RedisSearchCtx_LockSpecWrite(sctx);
+
+#ifdef ENABLE_ASSERT
+  // Parked holding the write lock - what a query's read lock has to exclude.
+  SyncPoint_WaitUntilOnce(SYNC_POINT_GC_AFTER_SPEC_WRITE_LOCK, NULL, NULL);
+#endif
 
   idx = Redis_OpenInvertedIndex(sctx->spec, term, len, DONT_CREATE_INDEX, NULL);
 

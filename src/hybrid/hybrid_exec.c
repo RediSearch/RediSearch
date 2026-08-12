@@ -915,6 +915,16 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     return REDISMODULE_OK;
 }
 
+#ifdef ENABLE_ASSERT
+// Releases the foreground-build park once fork-GC is parked holding the spec write
+// lock. While the read lock below is held GC never gets there, so the park runs out
+// its full window instead - which is what the regression test measures.
+static bool gcHoldsSpecWriteLock(void *arg) {
+  (void)arg;
+  return SyncPoint_IsWaiting(SYNC_POINT_GC_AFTER_SPEC_WRITE_LOCK);
+}
+#endif
+
 // Clear the borrow markers set for a foreground in-memory execution. The rwlock
 // is released by the scope that took it (see buildPipelineAndExecute).
 static void clearBorrowedSpecReadLocks(HybridRequest *hreq, bool borrowed) {
@@ -957,6 +967,15 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
   // QAST_Iterate reads the trie/stats, which GC can mutate concurrently, so the
   // build runs under the read lock.
   RedisSearchCtx_LockSpecRead(sctx);
+
+#ifdef ENABLE_ASSERT
+  if (!depleteInBackground) {
+    // Sync point (debug): hold the build open, with the read lock taken, so a test
+    // can watch a fork-GC writer fail to get in. Deliberately after the lock and
+    // before the build, so reverting the line above is what turns the test red.
+    SyncPoint_WaitUntilOnce(SYNC_POINT_HYBRID_FOREGROUND_BUILD, gcHoldsSpecWriteLock, NULL);
+  }
+#endif
 
   // Internal commands do not have a hybrid merger and only have a depletion pipeline
   if (internal) {
