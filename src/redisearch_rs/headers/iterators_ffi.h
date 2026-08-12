@@ -184,7 +184,7 @@ void AddIntersectionIteratorChild(QueryIterator *header, QueryIterator *child);
 void GeoFilter_FreeNumericFilters(NumericFilter * *filters);
 
 /**
- * Get a mutable reference to the [`RLookupKey`] stored inside this metric iterator.
+ * Get a pointer to the [`RLookupKey`] slot inside this metric iterator.
  *
  * # Safety
  *
@@ -724,7 +724,7 @@ void RQEIterators_SetMockRevalidateTimeout(bool enabled);
  * 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
  * 3. `key_handle` is either a null pointer or a valid non-null pointer to a [`RLookupKeyHandle`] instance.
  */
-void SetMetricRLookupHandle(QueryIterator *header, RLookupKeyHandle *key_handle);
+void SetMetricRLookupHandle(QueryIterator *header, struct RLookupKeyHandle *key_handle);
 
 /**
  * Trims a union iterator for the LIMIT optimizer, then switches to unsorted

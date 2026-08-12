@@ -300,7 +300,7 @@ fn revalidate() {
 
 mod via_resume {
     use super::*;
-    use ffi::RLookupKeyHandle;
+    use rlookup::RLookupKeyHandle;
     use rqe_iterators::TypeErasedRQEIterator;
     use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
 
@@ -344,7 +344,7 @@ fn key_mut_ref_initially_null() {
 
 #[test]
 fn set_handle_non_null_invalidates_on_drop() {
-    use ffi::RLookupKeyHandle;
+    use rlookup::RLookupKeyHandle;
 
     let mut handle = RLookupKeyHandle {
         key_ptr: std::ptr::null_mut(),
@@ -371,4 +371,173 @@ fn metric_upholds_current_contract() {
     let mut it = ContractChecker::new(MetricSortedById::new(vec![1u64, 3, 5], vec![0.1, 0.3, 0.5]));
     assert_eq!(assert_current_contract(&mut it), [1, 3, 5]);
     assert_current_contract_via_skip_to(&mut it, 6);
+}
+
+/// The header dispatch behind [`own_key_ref`](rqe_iterators::metric::own_key_ref)
+/// and [`set_key_handle`](rqe_iterators::metric::set_key_handle): the four metric
+/// flavours are distinct Rust types behind one C-ABI header, so each has to land
+/// on its own fields.
+mod header_dispatch {
+    use std::ptr::NonNull;
+
+    use ffi::QueryIterator;
+    use rlookup::{RLookupKey, RLookupKeyHandle};
+    use rqe_iterators::{
+        deferred::Producer,
+        interop::RQEIteratorWrapper,
+        metric::{self, MetricSortedById, MetricSortedByScore, MetricType},
+        metric_lazy::{MetricLazySortedById, MetricLazySortedByScore},
+    };
+
+    use crate::utils::Mock;
+
+    /// A producer that must never run: these tests wire keys, they never read.
+    fn unused_producer() -> Producer<'static> {
+        Box::new(|| unreachable!("wiring a key must not read the iterator"))
+    }
+
+    /// A lowered iterator, released through the C-ABI callback `boxed_new`
+    /// populated.
+    ///
+    /// Owning it rather than freeing by hand is what keeps a test that unwinds
+    /// from leaking: `drop` runs during the unwind, which is the safe point a
+    /// panicking dispatch otherwise leaves no room for. Both leak checks in CI
+    /// — miri and the sanitized run — fail on a leak, so a `#[should_panic]`
+    /// test cannot simply abandon its iterator.
+    struct OwnedHeader(Option<NonNull<QueryIterator>>);
+
+    impl OwnedHeader {
+        fn new(raw: *mut QueryIterator) -> Self {
+            Self(Some(
+                NonNull::new(raw).expect("boxed_new returns an owning pointer"),
+            ))
+        }
+
+        fn as_non_null(&self) -> NonNull<QueryIterator> {
+            self.0.expect("iterator has already been released")
+        }
+
+        /// Release now, for a test that has to observe what freeing did — the
+        /// handle invalidation is only visible once the iterator has gone.
+        fn free(&mut self) {
+            let Some(it) = self.0.take() else {
+                return;
+            };
+            // SAFETY: `it` is a live header from `boxed_new`, taken out of the
+            // option so this runs exactly once, and unused afterwards.
+            let free = unsafe { it.as_ref() }.Free.expect("Free must be populated");
+            // SAFETY: `boxed_new` populates every callback, and ownership passes here.
+            unsafe { free(it.as_ptr()) };
+        }
+    }
+
+    impl Drop for OwnedHeader {
+        fn drop(&mut self) {
+            self.free();
+        }
+    }
+
+    /// One lowered iterator per metric flavour, named for the assertion messages.
+    fn headers() -> [(&'static str, OwnedHeader); 4] {
+        let raw = [
+            RQEIteratorWrapper::boxed_new(MetricSortedById::new(vec![1], vec![0.5])),
+            RQEIteratorWrapper::boxed_new(MetricSortedByScore::new(vec![1], vec![0.5])),
+            RQEIteratorWrapper::boxed_new(MetricLazySortedById::new(
+                unused_producer(),
+                1,
+                MetricType::VectorDistance,
+            )),
+            RQEIteratorWrapper::boxed_new(MetricLazySortedByScore::new(
+                unused_producer(),
+                1,
+                MetricType::VectorDistance,
+            )),
+        ];
+        let names = [
+            "sorted by id",
+            "sorted by score",
+            "lazy sorted by id",
+            "lazy sorted by score",
+        ];
+
+        std::array::from_fn(|i| (names[i], OwnedHeader::new(raw[i])))
+    }
+
+    #[test]
+    fn own_key_ref_reaches_each_flavours_own_slot() {
+        let headers = headers();
+        // Stand-ins for the keys the pipeline resolves: distinct, never dereferenced.
+        let mut keys = [0u64; 4];
+
+        for (i, (name, it)) in headers.iter().enumerate() {
+            // SAFETY: `it` is a live metric iterator, held exclusively here.
+            let slot = unsafe { metric::own_key_ref(it.as_non_null()) };
+            // SAFETY: `slot` is that iterator's own key slot, live and initialised.
+            let key = unsafe { &mut *slot };
+            assert!(key.is_null(), "{name}: a fresh iterator has no key yet");
+            *key = (&raw mut keys[i]).cast::<RLookupKey<'_>>();
+        }
+
+        // A second dispatch reads the slot back: it belongs to the iterator rather
+        // than to the call, and no flavour writes into another's.
+        for (i, (name, it)) in headers.iter().enumerate() {
+            // SAFETY: as above.
+            let slot = unsafe { metric::own_key_ref(it.as_non_null()) };
+            // SAFETY: as above.
+            let key = unsafe { &mut *slot };
+            assert_eq!(
+                *key,
+                (&raw mut keys[i]).cast::<RLookupKey<'_>>(),
+                "{name}: dispatched to the wrong iterator's key slot"
+            );
+            // The stand-ins are not real keys: clear them before `headers` drops.
+            *key = std::ptr::null_mut();
+        }
+    }
+
+    #[test]
+    fn set_key_handle_invalidates_each_flavours_own_handle() {
+        let mut headers = headers();
+        let mut handles = [(); 4].map(|()| RLookupKeyHandle {
+            key_ptr: std::ptr::null_mut(),
+            is_valid: true,
+        });
+
+        for ((name, it), handle) in headers.iter().zip(&mut handles) {
+            // SAFETY: `it` is a live metric iterator held exclusively, and `handle`
+            // outlives it — the iterators are freed before `handles` goes out of scope.
+            unsafe { metric::set_key_handle(it.as_non_null(), &raw mut *handle) };
+            assert!(handle.is_valid, "{name}: wiring a handle must not clear it");
+        }
+
+        // Released here rather than left to drop: the invalidation below is only
+        // observable once the iterators have gone.
+        for (_, it) in &mut headers {
+            it.free();
+        }
+
+        // Each iterator must have invalidated the handle it was given — a flavour
+        // dispatched as another would write the handle at the wrong offset, and
+        // this one would still read as valid.
+        for ((name, _), handle) in headers.iter().zip(&handles) {
+            assert!(
+                !handle.is_valid,
+                "{name}: freeing the iterator must invalidate its own handle"
+            );
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "expected a metric iterator")]
+    fn own_key_ref_rejects_a_non_metric_iterator() {
+        let it = OwnedHeader::new(RQEIteratorWrapper::boxed_new(Mock::new([1, 2, 3])));
+
+        // SAFETY: the header is live, which is all the dispatch touches before it
+        // recognises the type as non-metric and panics. It is deliberately not a
+        // metric iterator, so pre-condition 1 does not hold — the panic is the
+        // contract violation being reported rather than acted on. The dispatch
+        // reads the type tag and nothing else, so the iterator is untouched and
+        // `it` can still free it as the unwind passes through.
+        unsafe { metric::own_key_ref(it.as_non_null()) };
+    }
 }
