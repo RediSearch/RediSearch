@@ -42,7 +42,9 @@ use lending_iterator::LendingIterator as _;
 // `ffi` blocklists the Redis module types, so this comes from its owning crate.
 use redis_module::RedisModuleCtx;
 use rqe_core::DocId;
-use tag_index::{IterMode, SuffixWildcardPattern, TagIndex, TagValueReader, ValueIterator};
+use tag_index::{
+    IterMode, SuffixWildcardPattern, TagIndex, TagValueReader, TrieLookup, ValueIterator,
+};
 use trie_rs::iter::{RangeBoundary, RangeFilter};
 use triemap_ffi::{TrieMapRangeCallback, tm_iter_mode, tm_len_t};
 
@@ -132,6 +134,12 @@ pub const unsafe extern "C" fn TagIndex2_NUniqueValues(tag_index: *const TagInde
 ///    revalidation protocol (mutations happen while the query is yielded under
 ///    the write lock, and the iterator's `Revalidate` callback runs before any
 ///    further read).
+///
+///    It must further be the pointer the owning field spec holds in
+///    `tagOpts.tagIndex` — the very one [`TagIndex2_GC`] is called with — and not
+///    a copy derived from a reference to the index. The iterator keeps it for
+///    revalidation, and the collector's `&mut` would revoke anything derived
+///    above it. See [`TrieLookup::new`].
 /// 2. `tag` must point to `len` readable bytes.
 /// 3. In memory mode `ptr`, when non-NULL, must be the `InvertedIndex`
 ///    currently stored in `tag_index`'s values trie for `tag`. In disk mode it
@@ -155,6 +163,15 @@ pub unsafe extern "C" fn TagIndex2_GetIteratorFromTrieMapValue(
     debug_assert!(!tag_index.is_null(), "tag_index must not be null");
     debug_assert!(!sctx.is_null(), "sctx must not be null");
 
+    // Mint the revalidation lookup from the argument itself, before any
+    // reference to the index exists. Copying a raw pointer is not an access, so
+    // the lookup carries the provenance C owns — which is what keeps it alive
+    // across the collector's `&mut`.
+    let owner = NonNull::new(tag_index.cast_mut()).expect("tag_index must not be null");
+    // SAFETY: 1. makes `owner` the pointer the field spec holds, valid for as
+    // long as the iterator holding this lookup.
+    let lookup = unsafe { TrieLookup::new(owner) };
+
     // SAFETY: 1. guarantees tag_index is valid and non-null.
     let tag_index = unsafe { &*tag_index };
     // SAFETY: 2. guarantees tag points to len readable bytes.
@@ -165,9 +182,10 @@ pub unsafe extern "C" fn TagIndex2_GetIteratorFromTrieMapValue(
     // Disk mode: `ptr` is the NULL disk sentinel (the trie holds no in-memory
     // value), so ignore it and open the reader by tag string via the disk API
     // — mirroring master's `tagRangeIterCb`/`TagIndex_OpenReader` disk branch.
+    // The disk reader revalidates through the disk backend, so it drops `lookup`.
     if tag_index.disk_mode() {
         // Safety: status is valid
-        return unsafe { tag_index.open_reader(sctx, tag, weight, field_index, status) }
+        return unsafe { tag_index.open_reader(sctx, tag, weight, field_index, lookup, status) }
             .map_or(std::ptr::null_mut(), NonNull::as_ptr);
     }
 
@@ -179,9 +197,10 @@ pub unsafe extern "C" fn TagIndex2_GetIteratorFromTrieMapValue(
     let ii = unsafe { &*ptr.cast::<InvertedIndex<DocIdsOnly>>() };
 
     // SAFETY: 1., 3. and 4. cover the method's contract (index and sctx/spec
-    // outlive the iterator, ii is the trie's current value for tag); 5. hands
-    // ownership of the result to the caller.
-    unsafe { tag_index.query_iterator_for_value(sctx, tag, ii, weight, field_index) }
+    // outlive the iterator, ii is the trie's current value for tag, and `lookup`
+    // was minted from this very index); 5. hands ownership of the result to the
+    // caller.
+    unsafe { tag_index.query_iterator_for_value(sctx, tag, ii, weight, field_index, lookup) }
         .map_or(std::ptr::null_mut(), NonNull::as_ptr)
 }
 
@@ -874,7 +893,14 @@ pub unsafe extern "C" fn TagIndex2_Commit(
 }
 
 /// # Safety
-/// TODO
+///
+/// `tag_index` must be the pointer the owning field spec holds in
+/// `tagOpts.tagIndex` — the very one [`TagIndex2_GC`] is called with — and not a
+/// copy derived from a reference to the index. The iterator keeps it for
+/// revalidation, and the collector's `&mut` would revoke anything derived above
+/// it. See [`TrieLookup::new`].
+///
+/// TODO: the remaining pre-conditions.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TagIndex2_OpenReader(
     tag_index: *const TagIndex,
@@ -892,13 +918,21 @@ pub unsafe extern "C" fn TagIndex2_OpenReader(
         unsafe { std::slice::from_raw_parts(value.cast(), len) }
     };
 
+    // Mint the revalidation lookup from the argument itself, before any
+    // reference to the index exists — see `TagIndex2_GetIteratorFromTrieMapValue`
+    // for why the provenance matters.
+    let owner = NonNull::new(tag_index.cast_mut()).expect("tag_index must not be null");
+    // SAFETY: `owner` is the pointer the field spec holds, and it outlives the
+    // iterator holding this lookup.
+    let lookup = unsafe { TrieLookup::new(owner) };
+
     // Safety: TODO
     let tag_index = unsafe { &*tag_index };
 
     let sctx = NonNull::new(sctx).expect("msg");
 
     // Safety: status is valid
-    let iter = unsafe { tag_index.open_reader(sctx, tag, weight, field_index, status) };
+    let iter = unsafe { tag_index.open_reader(sctx, tag, weight, field_index, lookup, status) };
     match iter.map(|p| p.as_ptr()) {
         None => std::ptr::null_mut(),
         Some(ptr) => ptr,

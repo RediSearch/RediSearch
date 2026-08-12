@@ -184,6 +184,12 @@ uint32_t TagIndex2_GetId(const struct TagIndex *tag_index);
  *    revalidation protocol (mutations happen while the query is yielded under
  *    the write lock, and the iterator's `Revalidate` callback runs before any
  *    further read).
+ *
+ *    It must further be the pointer the owning field spec holds in
+ *    `tagOpts.tagIndex` — the very one [`TagIndex2_GC`] is called with — and not
+ *    a copy derived from a reference to the index. The iterator keeps it for
+ *    revalidation, and the collector's `&mut` would revoke anything derived
+ *    above it. See [`TrieLookup::new`].
  * 2. `tag` must point to `len` readable bytes.
  * 3. In memory mode `ptr`, when non-NULL, must be the `InvertedIndex`
  *    currently stored in `tag_index`'s values trie for `tag`. In disk mode it
@@ -379,7 +385,14 @@ struct TagIndex *TagIndex2_New(uint32_t id, RedisSearchDiskIndexSpec *disk_spec,
 
 /**
  * # Safety
- * TODO
+ *
+ * `tag_index` must be the pointer the owning field spec holds in
+ * `tagOpts.tagIndex` — the very one [`TagIndex2_GC`] is called with — and not a
+ * copy derived from a reference to the index. The iterator keeps it for
+ * revalidation, and the collector's `&mut` would revoke anything derived above
+ * it. See [`TrieLookup::new`].
+ *
+ * TODO: the remaining pre-conditions.
  */
 QueryIterator *TagIndex2_OpenReader(const struct TagIndex *tag_index, RedisSearchCtx *sctx, const char *value, size_t len, double weight, t_fieldIndex field_index, QueryError *status);
 
