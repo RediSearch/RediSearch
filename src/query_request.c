@@ -106,23 +106,23 @@ void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind, RedisModule
   QueryRequestAsyncState_Init(&request->async);
   QueryRequest_SetEndProcRef(request, NULL);
   if (argv) {
-    QueryRequest_HoldArgs(request, argv, argc);
+    QueryRequest_HoldArgs(&request->args, argv, argc);
   } else {
     RS_ASSERT(argc == 0);
   }
 }
 
-void QueryRequest_HoldArgs(QueryRequest *request, RedisModuleString **argv, uint32_t argc) {
+void QueryRequest_HoldArgs(QueryRequestArgs *args, RedisModuleString **argv, uint32_t argc) {
   RS_ASSERT(argv != NULL);
-  RS_ASSERT(request->args.argv == NULL);
-  request->args.argv = rm_malloc(argc * sizeof(*request->args.argv));
-  request->args.argc = argc;
-  request->args.parseArgc = argc;
+  RS_ASSERT(args->argv == NULL);
+  args->argv = rm_malloc(argc * sizeof(*args->argv));
+  args->argc = argc;
+  args->parseArgc = argc;
   for (uint32_t ii = 0; ii < argc; ++ii) {
-    request->args.argv[ii] = RedisModule_HoldString(NULL, argv[ii]);
+    args->argv[ii] = RedisModule_HoldString(NULL, argv[ii]);
     // Redis auto-trims retained argv after the command callback returns. Trim
     // before a worker can borrow the string storage.
-    RedisModule_TrimStringAllocation(request->args.argv[ii]);
+    RedisModule_TrimStringAllocation(args->argv[ii]);
   }
 }
 

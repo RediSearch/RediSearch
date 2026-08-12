@@ -245,7 +245,7 @@ static inline void QueryRequest_SetExecutionPhase(QueryRequest *request, int pha
 
 void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind, RedisModuleString **argv,
                        uint32_t argc);
-void QueryRequest_HoldArgs(QueryRequest *request, RedisModuleString **argv, uint32_t argc);
+void QueryRequest_HoldArgs(QueryRequestArgs *args, RedisModuleString **argv, uint32_t argc);
 void QueryRequest_ResetReply(QueryRequest *request);
 void QueryRequest_Destroy(QueryRequest *request);
 
