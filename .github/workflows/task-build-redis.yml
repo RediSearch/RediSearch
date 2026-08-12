@@ -1,0 +1,179 @@
+name: Common Flow for Building Redis
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+#
+# Reusable workflow that produces the redis-server the flow tests run against and
+# uploads its install tree as a workflow artifact (`redis-install.tar.gz`).
+# `task-test-flow.yml` downloads and unpacks it; no test job builds Redis itself.
+#
+# The actual build is `.github/actions/build-redis`, cache-keyed on (Redis SHA,
+# platform, arch, sanitizer, coverage, TLS, compiler) — so on the common path
+# this job is a cache restore plus tar + upload.
+#
+# This runs on the same platform/container and with the same sanitizer/coverage
+# flags as `task-build.yml`, which is what keeps the server ABI-compatible with
+# the module under test: a gcc-built sanitizer redis-server aborts at startup
+# ("ASan runtime does not come first in initial library list"), so the toolchain
+# here must match the one that builds the module.
+
+on:
+  workflow_call:
+    inputs:
+      redis-ref:
+        description: 'Redis version to build (e.g. "7.2.3", "unstable", or a commit sha)'
+        type: string
+        default: '8.10.0'
+      san:
+        type: string
+      coverage:
+        type: boolean
+        default: false
+      artifact-name:
+        description: 'Name of the workflow artifact uploaded with redis-install.tar.gz.'
+        type: string
+        required: true
+      # Resolved platform config — produced by task-get-config.yml at the
+      # pipeline level so this workflow doesn't redo it. Caller must supply.
+      name:
+        type: string
+        default: ''
+      container:
+        type: string
+        default: ''
+      env:
+        type: string
+        default: ''
+      install-mode:
+        type: string
+        default: ''
+      setup-script:
+        type: string
+        default: ''
+      post-setup-script:
+        type: string
+        default: ''
+      # Prebuilt container image (task-build-cached-container.yml outputs).
+      image:
+        type: string
+        default: ''
+      image-built:
+        description: "'true' when the prebuilt image is available; falls back to inputs.container otherwise."
+        type: string
+        default: 'false'
+    outputs:
+      artifact-name:
+        description: 'Name of the uploaded Redis artifact.'
+        # Reusable-workflow outputs must map from a job output, not directly
+        # from inputs — otherwise validation can reject it / it evaluates empty.
+        value: ${{ jobs.build-redis.outputs.artifact-name }}
+
+env:
+  SETUP_RETRY_LOOP: |
+    SUCCESS=0
+    for i in 1 2 3 4 5; do
+      echo "Attempt $i of 5"
+      if {0}; then
+        echo "Setup succeeded"
+        SUCCESS=1
+        break
+      fi
+      if [ $i -lt 5 ]; then
+        echo "Setup failed, retrying in 30 seconds..."
+        sleep 30
+      fi
+    done
+    [ $SUCCESS -eq 1 ] || exit 1
+
+jobs:
+  build-redis:
+    name: Build Redis ${{ inputs.redis-ref }} on ${{ inputs.name }}
+    outputs:
+      artifact-name: ${{ inputs.artifact-name }}
+    runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    container: ${{
+      inputs.container
+        && fromJSON(
+          format('{{"image":"{0}","options":"--user root -v /usr/share/dotnet:/host_usr/dotnet -v /usr/local/lib/android:/host_usr/android -v /opt/ghc:/host_opt/ghc -v /opt/hostedtoolcache:/host_opt/hostedtoolcache {1}"}}',
+            inputs.image-built == 'true' && inputs.image || inputs.container,
+            startsWith(inputs.container, 'alpine:') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '')
+        )
+      || null }}
+
+    permissions:
+      contents: read  # actions/checkout
+      packages: read  # pull container image from GHCR
+
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    steps:
+      - name: Install bash
+        if: startsWith(inputs.container, 'alpine:')
+        shell: sh -l -eo pipefail {0}
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
+
+      - name: Fix HOME Directory
+        if: ${{ inputs.image-built == 'true' && inputs.container }}
+        shell: bash
+        run: |
+          # Issue [HOME is overridden for containers](https://github.com/actions/runner/issues/863)
+          h=$(getent passwd "$(id -un)" | cut -d: -f6)
+          if [ "$h" = "$HOME" ]; then
+            echo "HOME fine: $HOME"
+            exit 0
+          fi
+          echo "HOME=$HOME was broken. Setting it to $h"
+          echo "HOME=$h" >> "$GITHUB_ENV"
+
+      - name: Setup Dependencies
+        # Hoist setup-script into an env var and `eval` it from the loop body
+        # rather than interpolating ${{ inputs.setup-script }} directly into
+        # the run script — avoids ${{ }} expansion injecting shell metachars.
+        if: inputs.image-built != 'true' && inputs.setup-script
+        env:
+          SETUP_SCRIPT: ${{ inputs.setup-script }}
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'eval "$SETUP_SCRIPT"') }}
+
+      - name: Post-setup
+        if: inputs.post-setup-script
+        env:
+          POST_SETUP_SCRIPT: ${{ inputs.post-setup-script }}
+        run: eval "$POST_SETUP_SCRIPT"
+
+      - name: Checkout
+        # Shallow, submodule-free: this job only needs the install scripts and
+        # the two local actions below. Redis itself is cloned by build-redis.
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          install-mode: ${{ inputs.install-mode }}
+          image-built: ${{ inputs.image-built }}
+          san: ${{ inputs.san }}
+          install-script: 'true'
+          # A sanitizer redis-server must be built by the same clang that builds
+          # the module, so the LLVM setup has to run here too — build-redis
+          # refuses to build SAN=address with a non-clang CC.
+          sanitizer-setup: 'true'
+          build-redis: 'true'
+          redis-ref: ${{ inputs.redis-ref }}
+          coverage: ${{ inputs.coverage }}
+          redis-cache-platform-id: ${{ inputs.container || inputs.env }}
+
+      # tar (not the artifact zip) to preserve the executable bits on
+      # redis-server / redis-cli.
+      - name: Package Redis install tree
+        run: |
+          set -euo pipefail
+          tar -czf redis-install.tar.gz redis-install
+          echo "Redis tarball size:"
+          ls -lh redis-install.tar.gz
+
+      - name: Upload Redis artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: redis-install.tar.gz
+          if-no-files-found: error
+          retention-days: 1

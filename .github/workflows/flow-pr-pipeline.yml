@@ -9,6 +9,11 @@ name: PR Pipeline (one job-type)
 # here (get-config + build-image) and passed down to the build / test-unit /
 # test-flow jobs as inputs — so the per-task workflows don't redo that setup.
 #
+# The three binaries the flow tests need are produced by three concurrent jobs —
+# the RediSearch module (build), redis-server (build-redis) and the RedisJSON
+# module (build-rejson) — each uploading its own artifact. The unit tests need
+# only the first, so they start as soon as it lands.
+#
 # MIRI is NOT part of this pipeline. It's dispatched as its own top-level job
 # (task-miri.yml) from event-pull_request.yml because it can't share the
 # nextest archive and would otherwise gate the other test jobs.
@@ -86,10 +91,8 @@ jobs:
     with:
       platform: ${{ inputs.platform }}
       architecture: ${{ inputs.architecture }}
-      redis-ref: ${{ inputs.redis-ref }}
       coverage: ${{ inputs.job-type == 'coverage' }}
       san: ${{ inputs.job-type == 'sanitize' && 'address' || '' }}
-      rejson-branch: ${{ inputs.rejson-branch }}
       # run_attempt keeps the name unique on a *full* re-run (where build does
       # rerun and would otherwise collide with the existing artifact). Test
       # jobs below consume needs.build.outputs.artifact-name, not this literal.
@@ -102,6 +105,59 @@ jobs:
       setup-script: ${{ needs.get-config.outputs.setup_script }}
       post-setup-script: ${{ needs.get-config.outputs.post_setup_script }}
       enable-lto: ${{ inputs.enable-lto != '' && inputs.enable-lto || needs.get-config.outputs.enable_lto }}
+      image: ${{ needs.build-image.outputs.image }}
+      image-built: ${{ needs.build-image.outputs.succeeded }}
+
+  # redis-server and RedisJSON are external to this repo but must be built with
+  # the same toolchain as the module (sanitizer builds in particular). They are
+  # independent of the module build, so they run concurrently with it rather than
+  # inside it; both are cache-restored on the common path.
+  build-redis:
+    name: Build Redis (${{ inputs.job-type }})
+    needs: [get-config, build-image]
+    # Same build-image guard as `build` above.
+    if: ${{ !cancelled() && needs.get-config.result == 'success' && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') }}
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/task-build-redis.yml
+    with:
+      redis-ref: ${{ inputs.redis-ref }}
+      coverage: ${{ inputs.job-type == 'coverage' }}
+      san: ${{ inputs.job-type == 'sanitize' && 'address' || '' }}
+      artifact-name: pr-redis-${{ inputs.job-type }}-${{ github.run_id }}-${{ github.run_attempt }}
+      # Resolved platform config — task-build-redis.yml doesn't rerun get-config.
+      name: ${{ needs.get-config.outputs.name }}
+      container: ${{ needs.get-config.outputs.container }}
+      env: ${{ needs.get-config.outputs.env }}
+      install-mode: ${{ needs.get-config.outputs.install_mode }}
+      setup-script: ${{ needs.get-config.outputs.setup_script }}
+      post-setup-script: ${{ needs.get-config.outputs.post_setup_script }}
+      image: ${{ needs.build-image.outputs.image }}
+      image-built: ${{ needs.build-image.outputs.succeeded }}
+
+  build-rejson:
+    name: Build RedisJSON (${{ inputs.job-type }})
+    needs: [get-config, build-image]
+    # Same build-image guard as `build` above.
+    if: ${{ !cancelled() && needs.get-config.result == 'success' && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') }}
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/task-build-rejson.yml
+    with:
+      platform: ${{ inputs.platform }}
+      coverage: ${{ inputs.job-type == 'coverage' }}
+      san: ${{ inputs.job-type == 'sanitize' && 'address' || '' }}
+      rejson-branch: ${{ inputs.rejson-branch }}
+      artifact-name: pr-rejson-${{ inputs.job-type }}-${{ github.run_id }}-${{ github.run_attempt }}
+      # Resolved platform config — task-build-rejson.yml doesn't rerun get-config.
+      name: ${{ needs.get-config.outputs.name }}
+      container: ${{ needs.get-config.outputs.container }}
+      env: ${{ needs.get-config.outputs.env }}
+      install-mode: ${{ needs.get-config.outputs.install_mode }}
+      setup-script: ${{ needs.get-config.outputs.setup_script }}
+      post-setup-script: ${{ needs.get-config.outputs.post_setup_script }}
       image: ${{ needs.build-image.outputs.image }}
       image-built: ${{ needs.build-image.outputs.succeeded }}
 
@@ -140,8 +196,8 @@ jobs:
 
   test-flow-standalone:
     name: ${{ inputs.job-type }} (Standalone)
-    needs: [get-config, build-image, build]
-    if: ${{ !cancelled() && needs.build.result == 'success' && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') }}
+    needs: [get-config, build-image, build, build-redis, build-rejson]
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.build-redis.result == 'success' && needs.build-rejson.result == 'success' && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') }}
     permissions:
       contents: read
       packages: write
@@ -165,6 +221,8 @@ jobs:
       # artifact keeps the original attempt's name. Reconstructing here would
       # look for an artifact that was never produced.
       artifact-name: ${{ needs.build.outputs.artifact-name }}
+      redis-artifact-name: ${{ needs.build-redis.outputs.artifact-name }}
+      rejson-artifact-name: ${{ needs.build-rejson.outputs.artifact-name }}
       name: ${{ needs.get-config.outputs.name }}
       container: ${{ needs.get-config.outputs.container }}
       env: ${{ needs.get-config.outputs.env }}
@@ -176,8 +234,8 @@ jobs:
 
   test-flow-coordinator:
     name: ${{ inputs.job-type }} (Coordinator ${{ matrix.shard }}/${{ strategy.job-total }})
-    needs: [get-config, build-image, build]
-    if: ${{ !cancelled() && needs.build.result == 'success' && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') }}
+    needs: [get-config, build-image, build, build-redis, build-rejson]
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.build-redis.result == 'success' && needs.build-rejson.result == 'success' && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') }}
     # Coordinator tests are the slowest flow suite (cluster setup, inter-shard
     # PINGs, 5-min timeouts), so split them across file-level shards. The
     # instrumented builds (coverage, sanitize) run noticeably slower, so give
@@ -213,6 +271,8 @@ jobs:
       # artifact keeps the original attempt's name. Reconstructing here would
       # look for an artifact that was never produced.
       artifact-name: ${{ needs.build.outputs.artifact-name }}
+      redis-artifact-name: ${{ needs.build-redis.outputs.artifact-name }}
+      rejson-artifact-name: ${{ needs.build-rejson.outputs.artifact-name }}
       name: ${{ needs.get-config.outputs.name }}
       container: ${{ needs.get-config.outputs.container }}
       env: ${{ needs.get-config.outputs.env }}
