@@ -344,35 +344,47 @@ class GeneralCommentTests(unittest.TestCase):
     def _stub(self, comments):
         common.gh_paginated_array = lambda *a, **k: comments
 
-    def test_excludes_bot_and_command_comments(self):
-        # gh_paginated_array already applied the author_association --jq filter,
-        # so the stub returns only write-level rows; fetch_general_pr_comments
-        # then drops the bot/command bodies and tags each survivor kind=comment.
+    def _c(self, id, author, body, updated_at="2026-01-01T00:00:00Z"):
+        return {"id": id, "author": author, "body": body, "updated_at": updated_at}
+
+    def test_excludes_bot_by_author_not_prose(self):
+        # The bot (id=2) is dropped by AUTHOR; the `/backport-agent*` commands
+        # (3,4) by prefix. dave (5) quotes the bot's `🤖 Re:` heading but is a
+        # maintainer — it must be KEPT (content-based bot filtering would wrongly
+        # drop it).
         self._stub([
-            {"id": 1, "author": "alice", "body": "needs the header include"},
-            {"id": 2, "author": "redis-pr-app[bot]", "body": "🤖 Auto-backport summary\n..."},
-            {"id": 3, "author": "bob", "body": "/backport-agent-context extra hint"},
-            {"id": 4, "author": "carol", "body": "/backport-agent-fix"},
-            {"id": 5, "author": "dave", "body": "🤖 Re: @alice — addressed"},
+            self._c(1, "alice", "needs the header include"),
+            self._c(2, "redis-pr-app[bot]", "🤖 Auto-backport summary\n..."),
+            self._c(3, "bob", "/backport-agent-context extra hint"),
+            self._c(4, "carol", "/backport-agent-fix"),
+            self._c(5, "dave", "🤖 Re: as you noted, this still drops the guard"),
         ])
-        got = resolve_fix.fetch_general_pr_comments(1, set())
-        self.assertEqual(got, [
-            {"id": 1, "kind": "comment", "author": "alice",
-             "body": "needs the header include"}])
+        got = resolve_fix.fetch_general_pr_comments(1, {})
+        self.assertEqual([c["id"] for c in got], [1, 5])
+        self.assertTrue(all(c["kind"] == "comment" for c in got))
 
     def test_addressed_ids_are_dropped(self):
-        # comment:1 was already replied to (marker present in a prior bot reply);
-        # comment:2 is still open and must survive.
+        # comment:1 was already replied to (and not edited since); comment:2 is
+        # still open and must survive.
         self._stub([
-            {"id": 1, "author": "alice", "body": "already handled"},
-            {"id": 2, "author": "bob", "body": "still open"},
+            self._c(1, "alice", "already handled", updated_at="2026-01-01T00:00:00Z"),
+            self._c(2, "bob", "still open"),
         ])
-        got = resolve_fix.fetch_general_pr_comments(1, {"comment:1"})
+        got = resolve_fix.fetch_general_pr_comments(1, {"comment:1": "2026-01-02T00:00:00Z"})
         self.assertEqual([c["id"] for c in got], [2])
+
+    def test_comment_edited_after_ack_is_resurfaced(self):
+        # comment:1 was acked at T, then edited at T+1 → its revised feedback
+        # must reappear rather than stay hidden behind the stale marker.
+        self._stub([
+            self._c(1, "alice", "revised: also fix the sibling", updated_at="2026-01-03T00:00:00Z"),
+        ])
+        got = resolve_fix.fetch_general_pr_comments(1, {"comment:1": "2026-01-02T00:00:00Z"})
+        self.assertEqual([c["id"] for c in got], [1])
 
     def test_empty_when_none(self):
         self._stub([])
-        self.assertEqual(resolve_fix.fetch_general_pr_comments(1, set()), [])
+        self.assertEqual(resolve_fix.fetch_general_pr_comments(1, {}), [])
 
 
 class ReviewBodyTests(unittest.TestCase):
@@ -392,7 +404,7 @@ class ReviewBodyTests(unittest.TestCase):
             {"id": 11, "author": "bob", "body": ""},  # approval with no text
             {"id": 12, "author": resolve_fix.BOT_LOGIN, "body": "🤖 something"},
         ])
-        got = resolve_fix.fetch_review_bodies(1, set())
+        got = resolve_fix.fetch_review_bodies(1, {})
         self.assertEqual(got, [
             {"id": 10, "kind": "review", "author": "alice",
              "body": "Please restore the guard."}])
@@ -402,7 +414,7 @@ class ReviewBodyTests(unittest.TestCase):
             {"id": 10, "author": "alice", "body": "already handled"},
             {"id": 11, "author": "bob", "body": "still open"},
         ])
-        got = resolve_fix.fetch_review_bodies(1, {"review:10"})
+        got = resolve_fix.fetch_review_bodies(1, {"review:10": "2026-01-02T00:00:00Z"})
         self.assertEqual([r["id"] for r in got], [11])
 
     def test_query_excludes_dismissed_and_pending_reviews(self):
@@ -415,12 +427,12 @@ class ReviewBodyTests(unittest.TestCase):
             captured["jq"] = args[args.index("--jq") + 1]
             return []
         common.gh_paginated_array = fake
-        resolve_fix.fetch_review_bodies(1, set())
+        resolve_fix.fetch_review_bodies(1, {})
         self.assertIn('.state != "DISMISSED"', captured["jq"])
         self.assertIn('.state != "PENDING"', captured["jq"])
 
 
-class AddressedFeedbackIdsTests(unittest.TestCase):
+class AddressedFeedbackTests(unittest.TestCase):
     def setUp(self):
         os.environ["GITHUB_REPOSITORY"] = "RediSearch/RediSearch"
         self._orig = common.gh_paginated_array
@@ -428,17 +440,22 @@ class AddressedFeedbackIdsTests(unittest.TestCase):
     def tearDown(self):
         common.gh_paginated_array = self._orig
 
-    def test_parses_markers_from_bot_replies(self):
-        # The jq (stubbed) already restricts to bot-authored bodies; the parser
-        # extracts every `<kind>:<id>` acknowledgement marker across them.
+    def test_maps_markers_to_latest_ack_timestamp(self):
+        # The jq (stubbed) restricts to bot-authored comments; the parser maps
+        # each `<kind>:<id>` marker to the newest reply that carried it.
         common.gh_paginated_array = lambda *a, **k: [
-            "🤖 Re: @alice — addressed in abc123.\n\n"
-            "<!-- backport-agent-addressed: comment:123 -->",
-            "🤖 Re: @bob — addressed.\n<!-- backport-agent-addressed: review:456 -->",
-            "🤖 Auto-backport fix attempt\n...no marker here...",
+            {"created_at": "2026-01-01T00:00:00Z",
+             "body": "🤖 Re: @alice.\n<!-- backport-agent-addressed: comment:123 -->"},
+            {"created_at": "2026-01-05T00:00:00Z",  # a later re-ack of the same item
+             "body": "🤖 Re: @alice again.\n<!-- backport-agent-addressed: comment:123 -->"},
+            {"created_at": "2026-01-02T00:00:00Z",
+             "body": "🤖 Re: @bob.\n<!-- backport-agent-addressed: review:456 -->"},
+            {"created_at": "2026-01-03T00:00:00Z", "body": "🤖 no marker here"},
         ]
-        self.assertEqual(
-            resolve_fix.addressed_feedback_ids(1), {"comment:123", "review:456"})
+        self.assertEqual(resolve_fix.addressed_feedback(1), {
+            "comment:123": "2026-01-05T00:00:00Z",
+            "review:456": "2026-01-02T00:00:00Z",
+        })
 
     def test_query_gates_on_bot_login(self):
         # A forged marker only counts if the comment is bot-authored, so the
@@ -449,7 +466,7 @@ class AddressedFeedbackIdsTests(unittest.TestCase):
             captured["jq"] = args[args.index("--jq") + 1]
             return []
         common.gh_paginated_array = fake
-        self.assertEqual(resolve_fix.addressed_feedback_ids(1), set())
+        self.assertEqual(resolve_fix.addressed_feedback(1), {})
         self.assertIn(f'.user.login == "{resolve_fix.BOT_LOGIN}"', captured["jq"])
 
 
