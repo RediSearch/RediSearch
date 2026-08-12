@@ -213,6 +213,21 @@ def fetch_trusted_context_comments(pr: int) -> list[str]:
 # comment that happens to quote the bot's heading.
 _COMMAND_PREFIX = "/backport-agent"
 
+# Bound the reviewer feedback handed to the agent so a PR with many or very
+# large trusted comments (e.g. a pasted CI log in a review comment) can't bloat
+# the context JSON past the Codex step's input limit before it even attempts the
+# CI fix. Each body is clipped; each list keeps only its newest entries.
+MAX_FEEDBACK_ITEMS = 40
+MAX_FEEDBACK_BODY_CHARS = 4000
+_TRUNCATION_NOTE = "\n… [truncated by auto-backport-fix]"
+
+
+def _clip_body(body: str) -> str:
+    """Clip an over-long feedback body, leaving a visible truncation marker."""
+    if len(body) <= MAX_FEEDBACK_BODY_CHARS:
+        return body
+    return body[:MAX_FEEDBACK_BODY_CHARS] + _TRUNCATION_NOTE
+
 
 # `reviewThreads` is paginated (100 per page); a busy PR can exceed one page.
 # `$after` is a nullable cursor — omitted (→ null) on the first call by
@@ -307,10 +322,11 @@ def fetch_unresolved_review_threads(pr: int) -> list[dict]:
     replied to with actionable feedback; the per-comment trust filter still
     drops the untrusted comments themselves.
 
-    Each entry carries `bot_replied_last`: true when the thread's most recent
-    comment is the bot's own reply. Such a thread was already addressed by a
-    prior run whose `resolveReviewThread` did not stick (a clean resolve would
-    have flipped `isResolved`), so it is surfaced as **resolution-only** work
+    Each entry carries `bot_replied_last`: true when the bot has replied *after
+    the latest trusted comment* (not necessarily as the thread's final
+    commenter). Such a thread was already addressed by a prior run whose
+    `resolveReviewThread` did not stick (a clean resolve would have flipped
+    `isResolved`), so it is surfaced as **resolution-only** work
     rather than skipped — the agent retries the resolve without posting a
     duplicate reply (see pr-backport-auto-fix.md). Best-effort: any gh failure
     returns the pages gathered so far rather than aborting the run.
@@ -337,16 +353,33 @@ def fetch_unresolved_review_threads(pr: int) -> list[dict]:
             bodies = [
                 {
                     "author": ((c.get("author") or {}).get("login")) or "",
-                    "body": c.get("body") or "",
+                    "body": _clip_body(c.get("body") or ""),
                 }
                 for c in comments
                 if c.get("authorAssociation") in TRUSTED_ASSOCIATIONS and c.get("body")
             ]
             if not bodies:
                 continue
-            bot_replied_last = (
-                ((comments[-1].get("author") or {}).get("login")) == BOT_LOGIN
+            # Keep the newest trusted comments if a thread is enormous.
+            bodies = bodies[-MAX_FEEDBACK_ITEMS:]
+            # "The bot already handled the current feedback" means the bot
+            # replied *after the latest trusted comment* — not that the bot is
+            # the thread's absolute final commenter. Otherwise an untrusted
+            # contributor or unrelated bot commenting after the bot's reply would
+            # flip this off and make the next run re-address and re-reply. If a
+            # NEW trusted comment lands after the bot's reply, this is False and
+            # the feedback is treated as actionable again.
+            last_trusted_idx = max(
+                (i for i, c in enumerate(comments)
+                 if c.get("authorAssociation") in TRUSTED_ASSOCIATIONS and c.get("body")),
+                default=-1,
             )
+            last_bot_idx = max(
+                (i for i, c in enumerate(comments)
+                 if ((c.get("author") or {}).get("login")) == BOT_LOGIN),
+                default=-1,
+            )
+            bot_replied_last = last_bot_idx > last_trusted_idx
             # Newest comment timestamp in this snapshot. The agent re-checks the
             # thread just before resolving and refuses to resolve if a newer
             # non-bot comment has appeared since — otherwise a reviewer follow-up
@@ -370,6 +403,11 @@ def fetch_unresolved_review_threads(pr: int) -> list[dict]:
         after = page.get("endCursor")
         if not after:
             break
+    # Cap the number of threads, keeping those with the most recent activity, so
+    # an unusually busy PR can't blow the agent's context budget.
+    if len(threads) > MAX_FEEDBACK_ITEMS:
+        threads.sort(key=lambda t: t.get("latest_comment_at") or "")
+        threads = threads[-MAX_FEEDBACK_ITEMS:]
     return threads
 
 
@@ -414,8 +452,9 @@ def fetch_general_pr_comments(pr: int, acked: dict[str, str]) -> list[dict]:
         if ack_ts is not None and (c.get("updated_at") or "") <= ack_ts:
             continue
         out.append({"id": c.get("id"), "kind": "comment",
-                    "author": c.get("author") or "", "body": body})
-    return out
+                    "author": c.get("author") or "", "body": _clip_body(body)})
+    # Keep the newest items (the API returns comments oldest-first).
+    return out[-MAX_FEEDBACK_ITEMS:]
 
 
 def fetch_review_bodies(pr: int, acked: dict[str, str]) -> list[dict]:
@@ -480,8 +519,9 @@ def fetch_review_bodies(pr: int, acked: dict[str, str]) -> list[dict]:
                 and (r.get("submitted_at") or "") <= approved_at[author]:
             continue
         out.append({"id": r.get("id"), "kind": "review",
-                    "author": author, "body": body})
-    return out
+                    "author": author, "body": _clip_body(body)})
+    # Keep the newest items (the API returns reviews oldest-first).
+    return out[-MAX_FEEDBACK_ITEMS:]
 
 
 # ---- main --------------------------------------------------------------------

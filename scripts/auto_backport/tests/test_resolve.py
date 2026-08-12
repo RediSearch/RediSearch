@@ -169,6 +169,13 @@ class VersionFloorTests(unittest.TestCase):
     def test_malformed_floor_does_not_drop_valid_siblings(self):
         self.assertEqual(self._targets("/backport-agent >= foo 8.4"), ["8.4"])
 
+    def test_oversized_floor_is_dropped_without_crashing(self):
+        # A floor with a giant component would trip int()'s digit limit in
+        # version_key; it must be rejected as malformed, not abort the run, and
+        # valid siblings must survive.
+        huge = "9" * 5000
+        self.assertEqual(self._targets(f"/backport-agent >= {huge}.1 8.4"), ["8.4"])
+
     def test_unavailable_registry_drops_the_floor_only(self):
         resolve_create.load_release_branches = lambda: []
         self.assertEqual(self._targets("/backport-agent >= 2.10 8.4"), ["8.4"])
@@ -312,6 +319,43 @@ class ReviewThreadTests(unittest.TestCase):
         # The bot's own reply is not exposed as reviewer feedback.
         self.assertEqual([c["author"] for c in got[0]["comments"]], ["alice"])
 
+    def test_bot_replied_last_survives_trailing_untrusted_comment(self):
+        # A non-bot comment after the bot's reply must NOT flip the flag off, as
+        # long as no new *trusted* feedback arrived — else the next run re-does it.
+        self._stub([
+            {
+                "id": "T1", "isResolved": False, "path": "a", "line": 1,
+                "comments": {"nodes": [
+                    {"author": {"login": "alice"}, "authorAssociation": "MEMBER",
+                     "body": "fix this"},
+                    {"author": {"login": resolve_fix.BOT_LOGIN},
+                     "authorAssociation": "NONE", "body": "🤖 Addressed."},
+                    {"author": {"login": "ext"}, "authorAssociation": "CONTRIBUTOR",
+                     "body": "thanks!"},
+                ]},
+            },
+        ])
+        got = resolve_fix.fetch_unresolved_review_threads(1)
+        self.assertTrue(got[0]["bot_replied_last"])
+
+    def test_new_trusted_comment_after_bot_reply_reopens(self):
+        # Fresh trusted feedback after the bot's reply → actionable again.
+        self._stub([
+            {
+                "id": "T1", "isResolved": False, "path": "a", "line": 1,
+                "comments": {"nodes": [
+                    {"author": {"login": "alice"}, "authorAssociation": "MEMBER",
+                     "body": "fix this"},
+                    {"author": {"login": resolve_fix.BOT_LOGIN},
+                     "authorAssociation": "NONE", "body": "🤖 Addressed."},
+                    {"author": {"login": "alice"}, "authorAssociation": "MEMBER",
+                     "body": "still broken, also handle NULL"},
+                ]},
+            },
+        ])
+        got = resolve_fix.fetch_unresolved_review_threads(1)
+        self.assertFalse(got[0]["bot_replied_last"])
+
     def test_paginates_across_pages(self):
         self._stub(
             [
@@ -396,6 +440,20 @@ class GeneralCommentTests(unittest.TestCase):
         ])
         got = resolve_fix.fetch_general_pr_comments(1, {"comment:1": "2026-01-02T00:00:00Z"})
         self.assertEqual([c["id"] for c in got], [1])
+
+    def test_long_body_is_clipped(self):
+        big = "x" * (resolve_fix.MAX_FEEDBACK_BODY_CHARS + 500)
+        self._stub([self._c(1, "alice", big)])
+        got = resolve_fix.fetch_general_pr_comments(1, {})
+        self.assertLess(len(got[0]["body"]), len(big))
+        self.assertTrue(got[0]["body"].endswith(resolve_fix._TRUNCATION_NOTE))
+
+    def test_caps_number_of_items_keeping_newest(self):
+        n = resolve_fix.MAX_FEEDBACK_ITEMS + 5
+        self._stub([self._c(i, "alice", f"c{i}") for i in range(n)])  # oldest-first
+        got = resolve_fix.fetch_general_pr_comments(1, {})
+        self.assertEqual(len(got), resolve_fix.MAX_FEEDBACK_ITEMS)
+        self.assertEqual(got[-1]["id"], n - 1)  # newest retained
 
     def test_empty_when_none(self):
         self._stub([])

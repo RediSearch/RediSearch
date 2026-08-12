@@ -52,7 +52,14 @@ LABEL_RE = re.compile(r"^backport-(.+)-agent$")
 # that simply doesn't exist as a branch is still caught later by the agent's
 # per-target `git ls-remote` pre-flight; this only rejects things that could
 # never be a branch, before they reach branch-name construction.
-TARGET_RE = re.compile(r"^\d+\.\d+(?:-[A-Za-z0-9._-]+)?$")
+# The `{1,4}` digit bounds cap each version component: no real release line has
+# a 5-digit major/minor, and leaving `\d+` unbounded lets a pathological floor
+# (e.g. `>=` followed by thousands of digits, which fits in a GitHub comment)
+# reach `version_key`'s `int()` and trip Python's integer-string-conversion
+# limit — a ValueError that would abort the whole resolve step and drop every
+# valid sibling target. Bounding here makes such input simply fail to match, so
+# it is dropped as malformed like any other bad token.
+TARGET_RE = re.compile(r"^\d{1,4}\.\d{1,4}(?:-[A-Za-z0-9._-]{1,64})?$")
 
 # The command token must be exactly `/backport-agent`, optionally followed by
 # whitespace and a target list. Anchored with a trailing boundary so mistyped
@@ -65,7 +72,7 @@ COMMENT_COMMAND_RE = re.compile(r"^/backport-agent(\s|$)")
 # A `>=<version>` token in the comment args: backport to that release line and
 # every newer one. `>= 2.10` is normalized to `>=2.10` before splitting (see
 # parse_comment_args), so only the no-space form needs matching here.
-FLOOR_RE = re.compile(r"^>=(\d+\.\d+(?:-[A-Za-z0-9._-]+)?)$")
+FLOOR_RE = re.compile(r"^>=(\d{1,4}\.\d{1,4}(?:-[A-Za-z0-9._-]{1,64})?)$")
 
 # The registry of currently-active release branches that `>=` expands over.
 RELEASE_BRANCHES_FILE = (
