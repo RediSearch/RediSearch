@@ -41,9 +41,6 @@ typedef struct HybridRequest {
     // Non-owning back-pointer to the heap wrapper that owns this request.
     BlockedRequestCtx *brc;
 
-    // Flag to indicate whether to skip timeout checks using clock checks
-    bool skipTimeoutChecks;
-
     bool useReplyCallback;
 
     // State for reply_callback path (FAIL policy with workers in coordinator mode)
@@ -104,13 +101,11 @@ static inline void HybridRequest_UnlockCursors(HybridRequest *req) {
 }
 
 static inline bool HybridRequest_ShouldCheckTimeout(HybridRequest *req) {
-  return !req->skipTimeoutChecks;
+  return QueryRequestTimeout_ShouldCheck(&req->base.timeout);
 }
 
 static inline void HybridRequest_SetSkipTimeoutChecks(HybridRequest *req, bool skipTimeoutChecks) {
-  req->base.timeout.skipTimeoutChecks = skipTimeoutChecks;
-  // TODO($$$): Remove the legacy field once consumers use QueryRequest.timeout.
-  req->skipTimeoutChecks = skipTimeoutChecks;
+  QueryRequestTimeout_SetSkipChecks(&req->base.timeout, skipTimeoutChecks);
   // TODO($$$): Remove the SearchTime mirror once consumers use QueryRequest.timeout.
   if (req->sctx) {
     req->sctx->time.skipTimeoutChecks = skipTimeoutChecks;

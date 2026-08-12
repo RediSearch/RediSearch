@@ -234,9 +234,6 @@ typedef struct AREQ {
   // Every AREQ is wrapped at construction (hybrid sub-AREQs included).
   BlockedRequestCtx *brc;
 
-  // Flag to indicate whether to skip timeout checks using clock checks
-  bool skipTimeoutChecks;
-
   bool useReplyCallback;
 
 } AREQ;
@@ -716,13 +713,11 @@ bool BlockedRequestCtx_TimeoutPreemptSafeLoaderGIL(BlockedRequestCtx *sync);
 void AREQ_ResetForCursorReadReturnStrict(AREQ *req);
 
 static inline bool AREQ_ShouldCheckTimeout(AREQ *req) {
-  return !req->skipTimeoutChecks;
+  return QueryRequestTimeout_ShouldCheck(&req->base.timeout);
 }
 
 static inline void AREQ_SetSkipTimeoutChecks(AREQ *req, bool skipTimeoutChecks) {
-  req->base.timeout.skipTimeoutChecks = skipTimeoutChecks;
-  // TODO($$$): Remove the legacy field once consumers use QueryRequest.timeout.
-  req->skipTimeoutChecks = skipTimeoutChecks;
+  QueryRequestTimeout_SetSkipChecks(&req->base.timeout, skipTimeoutChecks);
   // TODO($$$): Remove the SearchTime mirror once consumers use QueryRequest.timeout.
   if (req->sctx) {
     req->sctx->time.skipTimeoutChecks = skipTimeoutChecks;
@@ -734,7 +729,7 @@ static inline void AREQ_SetSkipTimeoutChecks(AREQ *req, bool skipTimeoutChecks) 
 // in-pipeline clock-based timeout. `skipTimeoutChecks` is set by
 // `AREQ_ApplyContext` exactly when the BC callback is the active source.
 static inline AREQ *AREQ_TimeoutAreqOrNull(AREQ *req) {
-  return (req && req->skipTimeoutChecks) ? req : NULL;
+  return (req && !QueryRequestTimeout_ShouldCheck(&req->base.timeout)) ? req : NULL;
 }
 
 static inline bool RequestConfig_ApplyCoordinatorElapsedTime(RequestConfig *reqConfig,

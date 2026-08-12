@@ -117,6 +117,15 @@ static inline void QueryRequestTimeout_ClearTimedOut(QueryRequestTimeout *timeou
   RS_AtomicBoolStoreRelaxed(&timeout->timedOut, false);
 }
 
+static inline bool QueryRequestTimeout_ShouldCheck(const QueryRequestTimeout *timeout) {
+  return !timeout->skipTimeoutChecks;
+}
+
+static inline void QueryRequestTimeout_SetSkipChecks(QueryRequestTimeout *timeout,
+                                                     bool skipTimeoutChecks) {
+  timeout->skipTimeoutChecks = skipTimeoutChecks;
+}
+
 /**
  * Timeout-only synchronization between query workers and main-thread callbacks.
  * TODO($$$): Remove this temporary state after MOD-17486 is merged.

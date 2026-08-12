@@ -241,7 +241,9 @@ pub unsafe extern "C" fn QAST_Iterate(
     // the clock-based timeout instead.
     // SAFETY: `areq`, when non-null (checked first), is a valid `AREQ`
     // (precondition 5).
-    let bc_timeout_areq = if !areq.is_null() && unsafe { (*areq).skipTimeoutChecks } {
+    let bc_timeout_areq = if !areq.is_null()
+        && unsafe { !QueryRequestTimeout_ShouldCheck(&raw const (*areq).base.timeout) }
+    {
         areq
     } else {
         std::ptr::null_mut()
