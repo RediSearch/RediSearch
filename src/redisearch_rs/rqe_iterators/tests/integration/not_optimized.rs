@@ -848,6 +848,51 @@ mod revalidate {
         assert!(it.at_eof());
     }
 
+    /// The latch is a fix, not hardening: a *conforming* wildcard reaches it.
+    ///
+    /// `skip_to` past `max_doc_id` ends this iterator without touching the wildcard,
+    /// which is left live on a document. The wildcard then moving forward under GC is
+    /// what any conforming iterator does — but assigning `forced_eof` from
+    /// `wcii.at_eof()` would read that as "not at EOF" and clear a flag set for an
+    /// unrelated reason, handing the next `read` an iterator that already reported it
+    /// had nothing left.
+    #[test]
+    fn revalidate_after_skip_past_max_doc_id_does_not_revive_the_iterator() {
+        let (_guard, context) = make_revalidate_context();
+
+        let wcii = Mock::new([5, 10, 50, 60]);
+        let mut wc_data = wcii.data();
+        // Out of range of the wildcard, so every wildcard document is a NOT result.
+        let child = Mock::new([1000]);
+        let mut it =
+            ContractChecker::new(NotOptimized::new(wcii, child, 100, 1.0, NoTimeoutChecker));
+
+        assert_eq!(it.read().unwrap().unwrap().doc_id, 5);
+        assert_eq!(it.read().unwrap().unwrap().doc_id, 10);
+
+        // Past the bound: this ends the iterator, and returns before the wildcard is
+        // asked anything — so the wildcard is still sitting on doc 10, not at EOF.
+        assert!(it.skip_to(101).unwrap().is_none());
+        assert!(it.at_eof());
+
+        // GC drops doc 10; the wildcard moves forward onto 50. Forward is the only
+        // direction it may move, so nothing about this breaks the contract.
+        wc_data.set_revalidate_result(MockRevalidateResult::Move);
+
+        let status = it.revalidate(&*context.spec_read()).unwrap();
+        assert!(matches!(status, RQEValidateStatus::Moved { current: None }));
+        assert!(it.at_eof());
+
+        // 60 is still in range and absent from the child, so it is only the latch that
+        // keeps it from being yielded by an iterator that is done.
+        assert!(
+            it.read().unwrap().is_none(),
+            "a skip past max_doc_id ends the iterator for good, whatever the wildcard \
+             recovers afterwards",
+        );
+        assert!(it.at_eof());
+    }
+
     /// Wildcard moves to the same position as child after revalidation.
     #[test]
     fn revalidate_wc_moves_to_same_id_as_child() {
