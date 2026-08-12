@@ -1155,7 +1155,6 @@ static BlockedRequestCtx *BlockedRequestCtx_NewCommon(RequestKind kind) {
   BlockedRequestCtx *brc = rm_calloc(1, sizeof(BlockedRequestCtx));
   brc->kind = kind;
   brc->refcount = 1;
-  brc->reply.err = QueryError_Default();
   return brc;
 }
 
@@ -1197,7 +1196,6 @@ void BlockedRequestCtx_Free(BlockedRequestCtx *brc) {
   // Idempotent after EndCycle; kept as a safety net for wrappers freed
   // outside a cycle. Must run while the owned request is alive: disposing a
   // stashed cursor clears its wrapper handle.
-  ChunkReplyState_Destroy(&brc->reply);
 
   if (brc->kind == REQUEST_KIND_AREQ) {
     AREQ_Free(brc->query.areq);
@@ -1906,11 +1904,9 @@ void AREQ_Free(AREQ *req) {
 }
 
 void AREQ_CleanUpStoredCursor(AREQ *req) {
-  if (req->brc->reply.cursor) {
-    Cursor *cursor = req->brc->reply.cursor;
+  if (req->base.reply.cursor) {
+    Cursor *cursor = req->base.reply.cursor;
     req->base.reply.cursor = NULL;
-    // TODO($$$): Remove the legacy reply state once all consumers use QueryRequest.reply.
-    req->brc->reply.cursor = NULL;
     Cursor_Free(cursor);
   }
 }

@@ -1311,13 +1311,13 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
   }
 
   // Losing TryClaim means BG owns the claim; wait for it to finish writing
-  // `brc->reply` (the abort-channel wakes above let it exit promptly).
+  // `base.reply` (the abort-channel wakes above let it exit promptly).
   HybridRequest_WaitForAggregateResultsComplete(hreq);
 
   // The coordinator hybrid pipeline is not drainable: the tail merger and the
   // per-subquery depleters run on separate coord-pool threads, so a main-thread
   // drain would re-enter live upstream processors. Reply only with whatever the
-  // tail already accumulated into `brc->reply.results` before the deadline.
+  // tail already accumulated into `base.reply.results` before the deadline.
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   serializeStoredResults_hybrid(hreq, reply);
   RedisModule_EndReply(reply);
@@ -1327,7 +1327,7 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
 
 // Reply callback for Coordinator HybridRequest execution (FAIL policy).
 // Called on the main thread when the background thread calls UnblockClient.
-// The background thread stored results in hreq->brc->reply, which we use to build the reply.
+// The background thread stored results in hreq->base.reply, which we use to build the reply.
 // Note: This callback is NOT called if timeout fired first (bc->client becomes NULL).
 int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
@@ -1340,11 +1340,11 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   HybridRequest *hreq = BlockedRequestCtx_GetHybrid(brc);
 
   // Check if results were stored (background thread completed successfully)
-  if (!hreq->brc->reply.hasStoredResults) {
+  if (!hreq->base.reply.hasStoredResults) {
     // Background thread didn't store results - some early error occurred.
-    if (QueryError_HasError(&hreq->brc->reply.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&hreq->brc->reply.err), 1, COORD_ERR_WARN);
-      QueryError_ReplyAndClear(ctx, &hreq->brc->reply.err);
+    if (QueryError_HasError(&hreq->base.reply.err)) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&hreq->base.reply.err), 1, COORD_ERR_WARN);
+      QueryError_ReplyAndClear(ctx, &hreq->base.reply.err);
     } else {
       RedisModule_ReplyWithError(ctx, "Internal error: no results stored");
     }

@@ -201,7 +201,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
  }
 
  /**
-  * Drain results buffered post-timeout into `req->brc->reply.results`.
+  * Drain results buffered post-timeout into `req->base.reply.results`.
   * Only safe for pipelines classified as yielding partial results -- caller
   * must gate on `qctx->canYieldPartialResults` and perform any root-specific
   * pre-drain setup (such as flipping RPNet's `drainOnly` mode on the
@@ -231,8 +231,6 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
  }
 
  void AREQ_DrainStoredResultsAfterTimeout(AREQ *req) {
-   // TODO($$$): Remove the legacy reply state once all consumers use QueryRequest.reply.
    Pipeline_DrainStoredResultsAfterTimeout(AREQ_QueryProcessingCtx(req),
-                                           &req->brc->reply);
-   req->base.reply.results = req->brc->reply.results;
+                                           &req->base.reply);
  }

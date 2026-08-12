@@ -262,12 +262,6 @@ struct BlockedRequestCtx {
                        // true => BG stores results and the reply callback
                        // registered with RedisModule_BlockClient serializes
                        // them on main after UnblockClient
-  // Stored-reply slot for deferred (deferred_reply) cycles: the BG thread
-  // stores results/error here before UnblockClient; the reply or timeout
-  // callback reads it on main. One slot serves AREQ and hybrid cycles.
-  // Destroyed at EndCycle (per cycle) and, idempotently, in
-  // BlockedRequestCtx_Free as a safety net.
-  ChunkReplyState reply;
   /* Cursor disposition for this cycle. The point that decides the cursor's
    * fate (the BG worker at cycle end, or the reply path once finishSendChunk
    * set QEXEC_S_ITERDONE) records it here; OnFree — the single park-or-free
@@ -534,11 +528,11 @@ void sendChunk_ReplyOnly_EmptyResults(RedisModuleCtx *ctx, AREQ *req);
 
 
 /**
- * Free a cursor parked in `req->brc->reply.cursor`, if any.
+ * Free a cursor parked in `req->base.reply.cursor`, if any.
  * Used by cleanup paths to release a cursor left behind when the
  * blocked-client timeout fires before the reply callback runs and
  * drains it via `AREQ_ReplyWithStoredResults`.
- * No-op when `brc->reply.cursor` is NULL.
+ * No-op when `req->base.reply.cursor` is NULL.
  */
 void AREQ_CleanUpStoredCursor(AREQ *req);
 

@@ -80,10 +80,6 @@ void BlockedRequestCtx_EndCycle(BlockedRequestCtx *brc) {
   // Idempotent; also runs in BlockedRequestCtx_Free as a safety net.
   QueryRequest_ResetReply(request);
 
-  // TODO($$$): Remove the legacy reply state once all consumers use QueryRequest.reply.
-  ChunkReplyState_Destroy(&brc->reply);
-  // TODO($$$): Remove the legacy reply state once all consumers use QueryRequest.reply.
-  brc->reply.hasStoredResults = false;
   request->blockedClientCycleActive = false;
   // TODO($$$): Remove the legacy cycle marker once consumers use QueryRequest.blockedClientCycleActive.
   brc->bc = NULL;
