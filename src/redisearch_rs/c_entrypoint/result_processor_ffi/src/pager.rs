@@ -24,7 +24,7 @@ pub unsafe extern "C" fn RPPager_New(offset: usize, limit: usize) -> *mut ffi::R
         limit as u32,
     )));
 
-    // Safety: The safety contract requires the caller to treat the returned pointer as pinned
+    // SAFETY: The safety contract requires the caller to treat the returned pointer as pinned
     unsafe { ResultProcessorWrapper::into_ptr(rp) }
         .cast()
         .as_ptr()

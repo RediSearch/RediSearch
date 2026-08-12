@@ -152,10 +152,10 @@ impl Context<'_> {
     /// Kept private: the narrow accessors below are the supported way for a processor to mutate
     /// pipeline-wide state, so a processor cannot reach the `rootProc`/`endProc` links through here.
     const fn parent_mut(&mut self) -> Option<&mut ffi::QueryProcessingCtx> {
-        // Safety: We trust that this result processor's pointer is valid.
+        // SAFETY: We trust that this result processor's pointer is valid.
         let parent = unsafe { self.ptr.as_ref() }.parent.cast_mut();
 
-        // Safety: the parent pointer, if non-null, is the `QueryProcessingCtx` the C pipeline
+        // SAFETY: the parent pointer, if non-null, is the `QueryProcessingCtx` the C pipeline
         // installed on this result processor; it outlives the processor, the chain runs on a single
         // thread, and the C pipeline mutates these same fields. Provenance comes from the raw
         // pointer C provided, so writing through it is sound. The returned borrow is tied to
@@ -181,8 +181,11 @@ impl Context<'_> {
     /// The number of results the pipeline is currently allowed to produce for this chunk
     /// (`QueryProcessingCtx::resultLimit`).
     ///
-    /// A processor may lower this to cap how much its *upstream* produces, but must restore the
-    /// original value before returning, so the limit looks untouched to everything downstream.
+    /// A processor may lower this to cap how much its *upstream* produces. If it goes on to yield a
+    /// result, it must restore the original value first, so the limit looks untouched to everything
+    /// downstream. A processor that instead ends iteration — returning EOF or an error — may leave
+    /// the lowered value in place, because nothing downstream will read it again;
+    /// [`crate::pager::Pager`] does exactly that.
     ///
     /// Returns `None` when the processor has no parent.
     pub fn result_limit(&mut self) -> Option<u32> {
