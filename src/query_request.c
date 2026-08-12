@@ -61,6 +61,7 @@ static inline void QueryRequestAsyncState_Destroy(QueryRequestAsyncState *state)
 void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind, RedisModuleString **argv,
                        uint32_t argc) {
   request->kind = kind;
+  RS_AtomicIntStoreRelaxed(&request->refcount, 1);
   request->args = (QueryRequestArgs) {
     .queryOffset = QUERY_OFFSET_NONE,
   };

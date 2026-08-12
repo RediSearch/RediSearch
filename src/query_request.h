@@ -181,6 +181,12 @@ void QueryRequestAsyncState_WakeAbortChannel(QueryRequestAsyncState *state);
 
 typedef struct QueryRequest {
   QueryRequestKind kind;
+  /* TRANSITIONAL(MOD-16691): reference count copied from BlockedRequestCtx
+   * while ownership moves onto QueryRequest. Starts at 1; ACQ_REL on the final
+   * decrement ensures destruction observes prior writes.
+   * TODO($$$): Remove the legacy BlockedRequestCtx refcount after all consumers
+   * use this field. */
+  RS_Atomic(int) refcount;
   QueryRequestArgs args;
   /* A blocked-client cycle is one initial query execution or cursor read.
    * This is set after RedisModule_BlockClient returns and cleared by OnFree;
