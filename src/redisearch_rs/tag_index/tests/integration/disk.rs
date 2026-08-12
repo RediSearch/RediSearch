@@ -20,7 +20,6 @@
 
 use std::ptr::NonNull;
 
-use ffi::RedisSearchDiskIndexSpec;
 use lending_iterator::LendingIterator;
 use tag_index::{IterMode, TagIndex, ValueIterator};
 use trie_rs::iter::{RangeBoundary, RangeFilter};
@@ -48,24 +47,26 @@ fn value_iter_keys(mut it: ValueIterator<'_>) -> Vec<Vec<u8>> {
     keys
 }
 
-/// A dangling but non-null, well-aligned disk-spec pointer. Sound to store
-/// because these tests only drive paths that never dereference it.
-const fn fake_disk_spec() -> NonNull<RedisSearchDiskIndexSpec> {
-    NonNull::dangling()
+/// Build a disk-mode index over a dangling spec pointer, the single place these
+/// tests discharge [`TagIndex::new_on_disk`]'s contract.
+fn fake_disk_index(with_suffix: bool) -> TagIndex {
+    // SAFETY: these tests drive only the paths that never dereference the spec
+    // (see the module docs), so a dangling but well-aligned pointer is enough.
+    unsafe { TagIndex::new_on_disk(1, NonNull::dangling(), 0, with_suffix) }
 }
 
 /// Build a disk-mode index and register `tags` through `commit` (the phase-3
 /// path).
 fn disk_index_with_tags(tags: &[&[u8]], with_suffix: bool) -> TagIndex {
-    let mut idx = TagIndex::new(1, Some((fake_disk_spec(), 0)), with_suffix);
+    let mut idx = fake_disk_index(with_suffix);
     commit(&mut idx, tags);
     idx
 }
 
-/// A disk spec selects disk mode.
+/// `new_on_disk` selects disk mode.
 #[test]
-fn disk_spec_means_disk_mode() {
-    let idx = TagIndex::new(1, Some((fake_disk_spec(), 0)), false);
+fn new_on_disk_means_disk_mode() {
+    let idx = fake_disk_index(false);
     assert!(idx.disk_mode());
 }
 
@@ -74,7 +75,7 @@ fn disk_spec_means_disk_mode() {
 /// NUL-free like the tags queries look up.
 #[test]
 fn commit_counts_records_and_registers_presence() {
-    let mut idx = TagIndex::new(1, Some((fake_disk_spec(), 0)), false);
+    let mut idx = fake_disk_index(false);
 
     let n = commit(&mut idx, &[b"foo", b"bar", b"foo"]);
     assert_eq!(n, 3, "disk commit counts every committed tag value");
@@ -94,7 +95,7 @@ fn commit_counts_records_and_registers_presence() {
 /// The empty tag (INDEXEMPTY) commits to an empty key.
 #[test]
 fn commit_indexes_the_empty_tag() {
-    let mut idx = TagIndex::new(1, Some((fake_disk_spec(), 0)), false);
+    let mut idx = fake_disk_index(false);
     let n = commit(&mut idx, &[b""]);
     assert_eq!(n, 1);
     let values = value_iter_keys(idx.value_iter());
@@ -104,7 +105,7 @@ fn commit_indexes_the_empty_tag() {
 /// In memory mode `commit` reports no records — they are counted at index time.
 #[test]
 fn memory_commit_reports_no_records() {
-    let mut idx = TagIndex::new(1, None, false);
+    let mut idx = TagIndex::new_in_memory(1, false);
     assert_eq!(commit(&mut idx, &[b"foo", b"bar"]), 0);
 }
 

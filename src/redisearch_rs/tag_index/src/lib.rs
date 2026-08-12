@@ -9,8 +9,8 @@
 
 //! [`TagIndex`] is an index that indexes textual tags for documents.
 //!
-//! It supports two storage modes, chosen at construction by whether a
-//! [`RedisSearchDiskIndexSpec`] is supplied (see [`TagIndex::new`]):
+//! It supports two storage modes, chosen by the constructor used
+//! ([`TagIndex::new_in_memory`] or [`TagIndex::new_on_disk`]):
 //!
 //! - **Memory mode** keeps the per-tag posting lists (document ids) inline in
 //!   the values trie.
@@ -184,7 +184,8 @@ enum TagIndexMode {
         values: TrieMap<()>,
         /// Field id
         field_id: t_fieldIndex,
-        /// Disk Index spec
+        /// Disk Index spec, valid for as long as this index lives — the
+        /// invariant [`TagIndex::new_on_disk`] establishes.
         disk_index_spec: NonNull<RedisSearchDiskIndexSpec>,
     },
 }
@@ -202,32 +203,52 @@ pub struct TagIndex {
 }
 
 impl TagIndex {
-    /// Create a new, empty index.
+    /// Create a new, empty index keeping its postings in memory.
     ///
     /// - `id` uniquely identifies this index.
-    /// - `disk` selects the storage mode: `None` keeps the postings in
-    ///   memory, `Some` stores them on disk and pairs the disk index spec
-    ///   with the field index the disk API calls need.
     /// - `with_suffix` enables the [suffix index](TagSuffixIndex)
     ///   (`WITHSUFFIXTRIE`), so suffix (`*foo`) and contains (`*foo*`)
     ///   queries don't have to scan the whole tag trie.
-    pub fn new(
+    pub fn new_in_memory(id: u32, with_suffix: bool) -> Self {
+        Self::with_mode(
+            id,
+            with_suffix,
+            TagIndexMode::InMemory {
+                values: TrieMap::new(),
+            },
+        )
+    }
+
+    /// Create a new, empty index keeping its postings on disk.
+    ///
+    /// `disk_spec` is paired with `field_id`, the field index the disk API
+    /// calls need. `id` and `with_suffix` are as in
+    /// [`new_in_memory`](Self::new_in_memory).
+    ///
+    /// # Safety
+    ///
+    /// `disk_spec` must point to a [valid] [`RedisSearchDiskIndexSpec`] that
+    /// remains valid for the lifetime of the returned [`TagIndex`]: the disk
+    /// paths hand it to the `SearchDisk_*` API, which dereferences it.
+    pub unsafe fn new_on_disk(
         id: u32,
-        disk: Option<(NonNull<RedisSearchDiskIndexSpec>, t_fieldIndex)>,
+        disk_spec: NonNull<RedisSearchDiskIndexSpec>,
+        field_id: t_fieldIndex,
         with_suffix: bool,
     ) -> Self {
-        let mode = if let Some((spec, field_id)) = disk {
+        Self::with_mode(
+            id,
+            with_suffix,
             TagIndexMode::Disk {
                 values: TrieMap::new(),
                 field_id,
-                disk_index_spec: spec,
-            }
-        } else {
-            TagIndexMode::InMemory {
-                values: TrieMap::new(),
-            }
-        };
+                disk_index_spec: disk_spec,
+            },
+        )
+    }
 
+    /// The part of construction both constructors share.
+    fn with_mode(id: u32, with_suffix: bool, mode: TagIndexMode) -> Self {
         Self {
             unique_id: id,
             suffix: with_suffix.then(TagSuffixIndex::new),
@@ -329,8 +350,8 @@ impl TagIndex {
                 let mut value_ptrs: Vec<*const c_char> =
                     tags.iter().map(|tag| tag.as_ptr().cast()).collect();
                 // SAFETY: `disk_index_spec` is a valid `RedisSearchDiskIndexSpec`
-                // (invariant from `new`); contract 1 covers `ctx`/`batch`; and by
-                // contract 2 every pointer in `value_ptrs` addresses a
+                // (invariant from `new_on_disk`); contract 1 covers `ctx`/`batch`;
+                // and by contract 2 every pointer in `value_ptrs` addresses a
                 // NUL-terminated string that outlives the call.
                 let ok = unsafe {
                     ffi::SearchDisk_IndexTags(
@@ -693,7 +714,7 @@ impl TagIndex {
                 tok.str_ = tag.as_ptr().cast::<c_char>().cast_mut();
                 tok.len = tag.len();
                 // SAFETY: `disk_index_spec` is a valid `RedisSearchDiskIndexSpec`
-                // (invariant from `new`); `sctx` is valid for the call
+                // (invariant from `new_on_disk`); `sctx` is valid for the call
                 // (contract 2); `tok` borrows `tag` for the duration of the
                 // call; `status` is null or valid (contract 3). The disk backend
                 // owns the returned iterator, which C frees through its `Free`
@@ -1147,7 +1168,7 @@ mod tests {
     #[test]
     fn revalidate_aborts_after_tag_removed() {
         let mock = MockContext::new(3, 3);
-        let mut idx = TagIndex::new(1, None, false);
+        let mut idx = TagIndex::new_in_memory(1, false);
         let tags: &[&[u8]] = &[b"team"];
         for doc_id in 1..=3 {
             // SAFETY: memory mode, so neither disk-mode condition of `index` applies.
@@ -1204,7 +1225,7 @@ mod suffix_wildcard_tests {
 
     /// Build an in-memory index with a suffix trie and commit `tags`.
     fn indexed(tags: &[&[u8]]) -> TagIndex {
-        let mut idx = TagIndex::new(1, None, true);
+        let mut idx = TagIndex::new_in_memory(1, true);
         // SAFETY: every tag these tests pass is a NUL-free literal, which is all
         // `commit` requires.
         unsafe { idx.commit(tags) };
@@ -1391,7 +1412,7 @@ mod expansion_timeout_tests {
             .map(|i| format!("he{i:05}").into_bytes())
             .collect();
         let tags: Vec<&[u8]> = owned.iter().map(|t| t.as_slice()).collect();
-        let mut idx = TagIndex::new(1, None, true);
+        let mut idx = TagIndex::new_in_memory(1, true);
         // SAFETY: the generated tags are ASCII, hence NUL-free.
         unsafe { idx.commit(&tags) };
         (idx, owned.len())

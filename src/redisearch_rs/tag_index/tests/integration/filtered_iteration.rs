@@ -45,7 +45,7 @@ fn value_iter_keys(mut it: ValueIterator<'_>) -> Vec<Vec<u8>> {
 
 /// Build an in-memory index holding `tags`, each with one document.
 fn index_with_tags(tags: &[&[u8]]) -> TagIndex {
-    let mut tag_index = TagIndex::new(1, None, false);
+    let mut tag_index = TagIndex::new_in_memory(1, false);
     index_mem(&mut tag_index, tags, 1);
     tag_index
 }
@@ -117,7 +117,7 @@ fn set_timeout_cuts_iteration_short() {
         .map(|i| format!("tag{i:04}").into_bytes())
         .collect();
     let tags: Vec<&[u8]> = owned.iter().map(|t| t.as_slice()).collect();
-    let mut tag_index = TagIndex::new(1, None, false);
+    let mut tag_index = TagIndex::new_in_memory(1, false);
     index_mem(&mut tag_index, &tags, 1);
 
     let mut it = tag_index.value_iter();
@@ -145,7 +145,7 @@ fn set_timeout_bounds_the_nonmatches_a_suffix_walk_skips() {
         .chain(std::iter::once(b"zzzoo".to_vec()))
         .collect();
     let tags: Vec<&[u8]> = owned.iter().map(|t| t.as_slice()).collect();
-    let mut tag_index = TagIndex::new(1, None, false);
+    let mut tag_index = TagIndex::new_in_memory(1, false);
     index_mem(&mut tag_index, &tags, 1);
 
     let mut it = tag_index.value_iter_filtered(b"oo", IterMode::Suffix);
@@ -177,7 +177,7 @@ fn zero_timeout_clears_the_deadline() {
 /// every tag it is a proper suffix of.
 #[test]
 fn suffix_query_exact_node_yields_every_member() {
-    let mut tag_index = TagIndex::new(1, None, true);
+    let mut tag_index = TagIndex::new_in_memory(1, true);
     let tags: &[&[u8]] = &[b"eat", b"beat", b"heat", b"bean"];
     index_mem(&mut tag_index, tags, 1);
     commit(&mut tag_index, tags);
@@ -224,7 +224,7 @@ fn wildcard_iter_values_matches_metacharacters() {
 /// document, so any tag value shared by two documents takes this path.
 #[test]
 fn recommitting_a_tag_keeps_its_suffix_terms_readable() {
-    let mut tag_index = TagIndex::new(1, None, true);
+    let mut tag_index = TagIndex::new_in_memory(1, true);
     let tags: &[&[u8]] = &[b"cat"];
 
     for doc_id in 1..=2 {
@@ -269,7 +269,7 @@ fn range_iter_values_respects_boundaries() {
 /// Without `WITHSUFFIXTRIE` there is no suffix index to iterate.
 #[test]
 fn iter_suffix_entries_is_none_without_suffix_trie() {
-    let tag_index = TagIndex::new(1, None, false);
+    let tag_index = TagIndex::new_in_memory(1, false);
     assert!(tag_index.suffix_value_iter().is_none());
 }
 
@@ -277,7 +277,7 @@ fn iter_suffix_entries_is_none_without_suffix_trie() {
 /// its suffixes in the suffix index.
 #[test]
 fn iter_suffix_entries_lists_every_suffix() {
-    let mut tag_index = TagIndex::new(1, None, true);
+    let mut tag_index = TagIndex::new_in_memory(1, true);
     index_mem(&mut tag_index, &[b"foo"], 1);
     commit(&mut tag_index, &[b"foo"]);
 

@@ -29,7 +29,7 @@ fn value_iter_keys(mut it: ValueIterator<'_>) -> Vec<Vec<u8>> {
 /// Indexing a document registers each of its tags.
 #[test]
 fn indexing_registers_every_tag() {
-    let mut tag_index = TagIndex::new(1, None, false);
+    let mut tag_index = TagIndex::new_in_memory(1, false);
 
     let tags: &[&[u8]] = &[b"tag-1", b"tag-2"];
 
@@ -48,7 +48,7 @@ fn indexing_registers_every_tag() {
 /// between them could go unnoticed.
 #[test]
 fn index_and_commit_agree_on_the_key() {
-    let mut tag_index = TagIndex::new(1, None, true);
+    let mut tag_index = TagIndex::new_in_memory(1, true);
     let tags: &[&[u8]] = &[b"foo"];
 
     index_mem(&mut tag_index, tags, 1);
@@ -76,7 +76,7 @@ fn tag_value_reader_reads_every_posting_in_order() {
     // the reader cross a block boundary.
     const N: u64 = 1500;
 
-    let mut tag_index = TagIndex::new(1, None, false);
+    let mut tag_index = TagIndex::new_in_memory(1, false);
     for doc_id in 1..=N {
         index_mem(&mut tag_index, &[b"team"], doc_id);
     }
@@ -105,7 +105,7 @@ fn tag_value_reader_reads_every_posting_in_order() {
 /// through a tag query.
 #[test]
 fn field_expiration_flag_round_trips() {
-    let mut tag_index = TagIndex::new(1, None, false);
+    let mut tag_index = TagIndex::new_in_memory(1, false);
     let tags: &[&[u8]] = &[b"team"];
 
     // Doc 1 has no TTL on this field; doc 2 does.
@@ -131,7 +131,7 @@ fn field_expiration_flag_round_trips() {
 /// Tags are yielded in lexicographical order, whatever the insertion order.
 #[test]
 fn iterate_values_is_lexicographically_ordered() {
-    let mut tag_index = TagIndex::new(1, None, false);
+    let mut tag_index = TagIndex::new_in_memory(1, false);
 
     let tags: &mut [&[u8]] = &mut [b"z", b"r", b"t", b"d", b"m", b"a"];
 
@@ -147,7 +147,7 @@ fn iterate_values_is_lexicographically_ordered() {
 /// order, and each yielded index is the one stored in the trie.
 #[test]
 fn iter_values_yields_the_stored_entries_in_order() {
-    let mut tag_index = TagIndex::new(1, None, false);
+    let mut tag_index = TagIndex::new_in_memory(1, false);
 
     let tags: &mut [&[u8]] = &mut [b"z", b"r", b"t", b"d", b"m", b"a"];
 
@@ -175,7 +175,7 @@ fn iter_values_yields_the_stored_entries_in_order() {
 /// An empty index yields no entries.
 #[test]
 fn iter_values_on_empty_index_yields_nothing() {
-    let tag_index = TagIndex::new(1, None, false);
+    let tag_index = TagIndex::new_in_memory(1, false);
     assert!(tag_index.value_iter().advance().is_none());
 }
 
@@ -184,7 +184,7 @@ fn iter_values_on_empty_index_yields_nothing() {
 /// bytes.
 #[test]
 fn reindexing_the_same_document_is_a_no_op() {
-    let mut tag_index = TagIndex::new(1, None, false);
+    let mut tag_index = TagIndex::new_in_memory(1, false);
     let tags: &[&[u8]] = &[b"hello", b"world", b"foo"];
 
     let first = index_mem(&mut tag_index, tags, 1).expect("memory-mode indexing is infallible");
@@ -204,7 +204,7 @@ fn reindexing_the_same_document_is_a_no_op() {
 fn unique_values_and_record_count_track_the_writes() {
     const N: u64 = 500;
 
-    let mut tag_index = TagIndex::new(1, None, false);
+    let mut tag_index = TagIndex::new_in_memory(1, false);
     let tags: &[&[u8]] = &[b"hello", b"world", b"foo"];
 
     let mut total_records = 0u32;
@@ -222,7 +222,7 @@ fn unique_values_and_record_count_track_the_writes() {
 /// `["foo", "foo", "bar"]` yields two records and two unique values.
 #[test]
 fn intra_document_duplicate_tag_counted_once() {
-    let mut tag_index = TagIndex::new(1, None, false);
+    let mut tag_index = TagIndex::new_in_memory(1, false);
     let tags: &[&[u8]] = &[b"foo", b"foo", b"bar"];
 
     let delta = index_mem(&mut tag_index, tags, 1).expect("memory-mode indexing is infallible");
@@ -243,7 +243,7 @@ fn size_and_block_accounting_matches_reported_memory() {
     // each tag's posting list spill into more than one block.
     const N: u64 = 2500;
 
-    let mut tag_index = TagIndex::new(1, None, false);
+    let mut tag_index = TagIndex::new_in_memory(1, false);
     let tags: &[&[u8]] = &[b"hello", b"world", b"foo"];
 
     let first = index_mem(&mut tag_index, tags, 1).expect("memory-mode indexing is infallible");

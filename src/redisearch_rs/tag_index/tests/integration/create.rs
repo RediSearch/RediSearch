@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Tests for `TagIndex::new` and for `TagIndex::open_index`, the path creating
-//! per-tag posting lists.
+//! Tests for the `TagIndex` constructors and for `TagIndex::open_index`, the
+//! path creating per-tag posting lists.
 
 use std::ptr::NonNull;
 
@@ -19,24 +19,24 @@ use crate::util::commit;
 /// A tag index reports the id it was created with.
 #[test]
 fn reports_the_creation_id() {
-    let tag_index = TagIndex::new(1, None, false);
+    let tag_index = TagIndex::new_in_memory(1, false);
     assert_eq!(tag_index.id(), 1);
 }
 
 /// `with_suffix` toggles suffix support.
 #[test]
 fn suffix_support_follows_the_creation_flag() {
-    let tag_index = TagIndex::new(1, None, false);
+    let tag_index = TagIndex::new_in_memory(1, false);
     assert!(!tag_index.has_suffix());
 
-    let tag_index = TagIndex::new(1, None, true);
+    let tag_index = TagIndex::new_in_memory(1, true);
     assert!(tag_index.has_suffix());
 }
 
-/// Without a disk spec the index is in memory mode.
+/// `new_in_memory` selects the memory mode.
 #[test]
-fn no_disk_spec_means_memory_mode() {
-    let tag_index = TagIndex::new(1, None, false);
+fn new_in_memory_means_memory_mode() {
+    let tag_index = TagIndex::new_in_memory(1, false);
     assert!(!tag_index.disk_mode());
 }
 
@@ -44,7 +44,7 @@ fn no_disk_spec_means_memory_mode() {
 /// nothing, and a read-only open does not create the posting list.
 #[test]
 fn new_index_holds_no_tags() {
-    let mut tag_index = TagIndex::new(1, None, false);
+    let mut tag_index = TagIndex::new_in_memory(1, false);
 
     assert!(tag_index.find_value(b"missing").is_none());
     assert!(
@@ -62,7 +62,7 @@ fn new_index_holds_no_tags() {
 /// replacing it.
 #[test]
 fn open_index_creates_the_posting_list_once() {
-    let mut tag_index = TagIndex::new(1, None, false);
+    let mut tag_index = TagIndex::new_in_memory(1, false);
 
     let created: *const _ = tag_index
         .open_index(b"team", true)
@@ -86,7 +86,7 @@ fn open_index_creates_the_posting_list_once() {
 /// hence no record — is created.
 #[test]
 fn commit_indexes_no_documents() {
-    let mut tag_index = TagIndex::new(1, None, true);
+    let mut tag_index = TagIndex::new_in_memory(1, true);
     commit(&mut tag_index, &[b"hello", b"world"]);
 
     assert_eq!(tag_index.unique_values(), 0, "commit creates no postings");
@@ -104,14 +104,14 @@ fn commit_indexes_no_documents() {
 fn get_overhead_accounts_for_the_suffix_trie() {
     let tags: &[&[u8]] = &[b"hello", b"world"];
 
-    let mut with_suffix = TagIndex::new(1, None, true);
+    let mut with_suffix = TagIndex::new_in_memory(1, true);
     commit(&mut with_suffix, tags);
     assert!(
         with_suffix.get_overhead() > 0,
         "a populated suffix trie contributes overhead"
     );
 
-    let mut without_suffix = TagIndex::new(1, None, false);
+    let mut without_suffix = TagIndex::new_in_memory(1, false);
     commit(&mut without_suffix, tags);
 
     assert!(
@@ -120,15 +120,15 @@ fn get_overhead_accounts_for_the_suffix_trie() {
     );
 }
 
-/// A disk spec selects the disk-backed mode, where the memory-mode-only accessors
+/// `new_on_disk` selects the disk-backed mode, where the memory-mode-only accessors
 /// abort with `unimplemented!` instead of silently operating on in-memory postings
 /// that don't exist.
 #[test]
 #[should_panic(expected = "not implemented")]
-fn disk_spec_selects_the_disk_mode() {
-    // This path only stores the spec pointer, never dereferences it, so a dangling
-    // pointer is enough (see the `disk` module docs).
-    let tag_index = TagIndex::new(1, Some((NonNull::dangling(), 0)), false);
+fn new_on_disk_means_disk_mode() {
+    // SAFETY: this test only drives paths that never dereference the spec, so a
+    // dangling pointer satisfies `new_on_disk` here (see the `disk` module docs).
+    let tag_index = unsafe { TagIndex::new_on_disk(1, NonNull::dangling(), 0, false) };
 
     let _ = tag_index.find_value(b"team");
 }

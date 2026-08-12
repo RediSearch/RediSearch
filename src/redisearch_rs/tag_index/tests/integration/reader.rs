@@ -87,7 +87,7 @@ fn open_reader_reads_all_ids_in_order() {
     const N: ffi::t_docId = 300;
 
     let mock = MockContext::new(N, N as usize);
-    let (tag_index, lookup) = allocate(TagIndex::new(1, None, false));
+    let (tag_index, lookup) = allocate(TagIndex::new_in_memory(1, false));
     let tags: &[&[u8]] = &[b"hello"];
     for doc_id in 1..=N {
         // SAFETY: `tag_index` was just allocated and is not yet aliased.
@@ -116,7 +116,7 @@ fn open_reader_reads_all_ids_in_order() {
 #[test]
 fn skip_to_past_last_id_yields_eof() {
     let mock = MockContext::new(1, 1);
-    let (tag_index, lookup) = allocate(TagIndex::new(1, None, false));
+    let (tag_index, lookup) = allocate(TagIndex::new_in_memory(1, false));
     let doc_id: ffi::t_docId = 1;
     // SAFETY: `tag_index` was just allocated and is not yet aliased.
     index_mem(unsafe { &mut *tag_index }, &[b"hello"], doc_id);
@@ -155,7 +155,7 @@ fn skip_to_past_last_id_yields_eof() {
 /// NULL-index case is a C-ABI concern and stays in the C++ suite.
 #[test]
 fn open_reader_absent_tag_returns_none() {
-    let (tag_index, lookup) = allocate(TagIndex::new(1, None, false));
+    let (tag_index, lookup) = allocate(TagIndex::new_in_memory(1, false));
     // SAFETY: `tag_index` was just allocated and is not yet aliased.
     index_mem(unsafe { &mut *tag_index }, &[b"hello"], 1);
 
@@ -185,7 +185,7 @@ fn open_reader_absent_tag_returns_none() {
 #[test]
 fn value_path_reads_all_matching_docs_via_c_vtable() {
     let mock = MockContext::new(3, 3);
-    let (tag_index, lookup) = allocate(TagIndex::new(1, None, false));
+    let (tag_index, lookup) = allocate(TagIndex::new_in_memory(1, false));
     let tags: &[&[u8]] = &[b"team"];
     for doc_id in 1..=3 {
         // SAFETY: `tag_index` was just allocated and is not yet aliased.
@@ -228,7 +228,7 @@ fn revalidate_aborts_after_gc_via_c_vtable() {
     let tags: &[&[u8]] = &[b"team"];
     // `allocate` reaches the index through a raw pointer, so it can be mutated while
     // the iterator holds its back-pointer — as the query layer does across GC cycles.
-    let (tag_index, lookup) = allocate(TagIndex::new(1, None, false));
+    let (tag_index, lookup) = allocate(TagIndex::new_in_memory(1, false));
     for doc_id in 1..=3 {
         // SAFETY: `tag_index` was just allocated and is not yet aliased.
         index_mem(unsafe { &mut *tag_index }, tags, doc_id);
@@ -278,7 +278,7 @@ fn revalidate_aborts_after_gc_via_c_vtable() {
 /// a NULL pointer rather than a reader that would immediately hit EOF.
 #[test]
 fn value_path_returns_null_for_empty_inverted_index() {
-    let (tag_index, lookup) = allocate(TagIndex::new(1, None, false));
+    let (tag_index, lookup) = allocate(TagIndex::new_in_memory(1, false));
     // Register the tag with a fresh, empty posting list (no documents indexed).
     // SAFETY: `tag_index` was just allocated and is not yet aliased.
     unsafe { &mut *tag_index }

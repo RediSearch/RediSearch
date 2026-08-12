@@ -30,7 +30,7 @@ use crate::util::{commit, index_mem};
 /// `with_suffix` mirrors `WITHSUFFIXTRIE`, and commits the tags so the suffix
 /// trie is populated too.
 fn indexed(tags: &[&[u8]], n: DocId, with_suffix: bool) -> TagIndex {
-    let mut idx = TagIndex::new(1, None, with_suffix);
+    let mut idx = TagIndex::new_in_memory(1, with_suffix);
     for doc_id in 1..=n {
         index_mem(&mut idx, tags, doc_id);
     }
