@@ -9,7 +9,9 @@
 
 //! Supporting types for [`Missing`], [`Numeric`], [`Term`], and [`Wildcard`].
 
-mod core;
+// `pub(crate)` so the top-level `OptimizedWildcard` wrapper can name
+// `core::ResumeStatus` when driving its inline variants' in-place resume.
+pub(crate) mod core;
 mod geo;
 mod missing;
 mod numeric;
@@ -29,4 +31,4 @@ pub use numeric::{
 
 pub use tag::{Tag, TagLookup};
 pub use term::{Term, TermIndexReader, build_term_iterator};
-pub use wildcard::Wildcard;
+pub use wildcard::{RawWildcard, Wildcard};

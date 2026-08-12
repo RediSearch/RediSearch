@@ -19,6 +19,7 @@ use ref_mode::{Active, Ref, Suspended};
 
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
+use crate::inverted_index::core::ResumeStatus;
 use crate::{
     Empty, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
     RQEValidateStatus, ResumeOutcome, SEARCH_ENTERPRISE_ITERATORS, SkipToOutcome,
@@ -289,6 +290,16 @@ pub enum NewWildcardIterator<'index> {
 ///
 /// The encoding may be either [`DocIdsOnly`] or [`RawDocIdsOnly`], depending on
 /// the index configuration.
+///
+/// `#[repr(C, u8)]` is load-bearing, not decorative: [`suspend`](RQEIteratorBoxed::suspend)
+/// and [`OptimizedWildcardSuspended::resume`](RQESuspendedIterator::resume)
+/// reinterpret the owning `Box` between this enum and
+/// [`OptimizedWildcardSuspended`], which is only sound if the two agree on the
+/// tag encoding *and* the payload offsets. Under the default `repr(Rust)` both
+/// are unspecified — the tag may be niche-encoded into one of the payload's
+/// [`NonNull`] fields, and the two enums are free to choose differently — so
+/// the attribute must be present on both. The proof below pins the result down.
+#[repr(C, u8)]
 pub enum OptimizedWildcard<'index> {
     /// Optimized wildcard with [`DocIdsOnly`] encoding.
     DocIdsOnly(crate::inverted_index::Wildcard<'index, DocIdsOnly>),
@@ -367,6 +378,130 @@ impl crate::profile_print::ProfilePrint for OptimizedWildcard<'_> {
         match self {
             Self::DocIdsOnly(it) => it.print_profile(map, ctx),
             Self::RawDocIdsOnly(it) => it.print_profile(map, ctx),
+        }
+    }
+}
+
+/// [`Suspended`]-mode counterpart of [`OptimizedWildcard`] used as its
+/// `RQEIteratorBoxed::Suspended` type. Each variant holds the `Suspended`
+/// form of the corresponding inverted-index wildcard reader, retaining the
+/// `'query` lifetime so query-attached borrows stay valid across the
+/// suspend/resume cycle.
+///
+/// Both this enum and [`OptimizedWildcard`] are `#[repr(C, u8)]`, which is what
+/// makes the whole-box reinterpretation between them well-defined — see
+/// [`OptimizedWildcard`] for why the attribute is required on the pair.
+#[repr(C, u8)]
+pub enum OptimizedWildcardSuspended<'query> {
+    /// Suspended counterpart of [`OptimizedWildcard::DocIdsOnly`].
+    DocIdsOnly(crate::inverted_index::RawWildcard<'query, Suspended, DocIdsOnly>),
+    /// Suspended counterpart of [`OptimizedWildcard::RawDocIdsOnly`].
+    RawDocIdsOnly(crate::inverted_index::RawWildcard<'query, Suspended, RawDocIdsOnly>),
+}
+
+// Compile-time proof of invariant 1 on the `OptimizedWildcard` /
+// `OptimizedWildcardSuspended` pair, which the whole-box casts in `suspend` and
+// `resume` rely on. Per-variant payload equality plus the shared `#[repr(C, u8)]`
+// is what fixes the tag encoding and the payload offsets; the enum-level
+// size/align asserts pin the resulting layout — and, because the box is freed
+// through the *other* type, the deallocation layout too.
+//
+// Unlike the struct proofs elsewhere in the crate there is no per-field
+// `offset_of!`: naming an enum variant's field in `offset_of!` is still
+// unstable. A module-level `const _` is evaluated even though neither type is
+// ever instantiated here, which a `const {}` inside a generic function would
+// not be.
+const _: () = {
+    use std::mem::{align_of, size_of};
+    type ADocIds<'a> = crate::inverted_index::Wildcard<'a, DocIdsOnly>;
+    type SDocIds<'a> = crate::inverted_index::RawWildcard<'a, Suspended, DocIdsOnly>;
+    type ARawDocIds<'a> = crate::inverted_index::Wildcard<'a, RawDocIdsOnly>;
+    type SRawDocIds<'a> = crate::inverted_index::RawWildcard<'a, Suspended, RawDocIdsOnly>;
+    assert!(size_of::<ADocIds<'static>>() == size_of::<SDocIds<'static>>());
+    assert!(align_of::<ADocIds<'static>>() == align_of::<SDocIds<'static>>());
+    assert!(size_of::<ARawDocIds<'static>>() == size_of::<SRawDocIds<'static>>());
+    assert!(align_of::<ARawDocIds<'static>>() == align_of::<SRawDocIds<'static>>());
+    assert!(
+        size_of::<OptimizedWildcard<'static>>() == size_of::<OptimizedWildcardSuspended<'static>>()
+    );
+    assert!(
+        align_of::<OptimizedWildcard<'static>>()
+            == align_of::<OptimizedWildcardSuspended<'static>>()
+    );
+};
+
+impl<'index> RQEIteratorBoxed<'index> for OptimizedWildcard<'index> {
+    type Suspended = OptimizedWildcardSuspended<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: layout-identical by invariant 1 on the
+        // `OptimizedWildcard`/`OptimizedWildcardSuspended` pair (const proof
+        // above): both enums are `#[repr(C, u8)]` and corresponding variants
+        // hold the `Active`/`Suspended` instantiations of the same
+        // `inverted_index::RawWildcard`. `Box::from_raw` reuses the same heap
+        // allocation.
+        unsafe { Box::from_raw(raw as *mut OptimizedWildcardSuspended<'index>) }
+    }
+}
+
+impl<'query> RQESuspendedIterator<'query> for OptimizedWildcardSuspended<'query> {
+    type Resumed<'a>
+        = OptimizedWildcard<'a>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        mut self: Box<Self>,
+        spec: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        // Step 1: per-variant identity check + the shared in-place resume
+        // transition on the inner inverted-index wildcard, still on the
+        // suspended form. Preserves the heap allocation across the cycle so
+        // external borrows into the iterator's interior (FFI wrapper's
+        // `header.current`) stay valid.
+        let status = match &mut *self {
+            OptimizedWildcardSuspended::DocIdsOnly(w) => {
+                if w.should_abort(spec) {
+                    return Ok(ResumeOutcome::Aborted);
+                }
+                w.it.resume_in_place(spec)?
+            }
+            OptimizedWildcardSuspended::RawDocIdsOnly(w) => {
+                if w.should_abort(spec) {
+                    return Ok(ResumeOutcome::Aborted);
+                }
+                w.it.resume_in_place(spec)?
+            }
+        };
+
+        // Step 2: whole-box cast to the active form.
+        let raw = Box::into_raw(self);
+        // SAFETY: layout-compatible — see `suspend`.
+        let active = unsafe { Box::from_raw(raw as *mut OptimizedWildcard<'a>) };
+
+        Ok(match status {
+            ResumeStatus::Unchanged => ResumeOutcome::Ok(active),
+            ResumeStatus::Moved => ResumeOutcome::Moved(active),
+        })
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        match self {
+            OptimizedWildcardSuspended::DocIdsOnly(it) => RQESuspendedIterator::last_doc_id(it),
+            OptimizedWildcardSuspended::RawDocIdsOnly(it) => RQESuspendedIterator::last_doc_id(it),
+        }
+    }
+
+    fn num_estimated(&self) -> usize {
+        match self {
+            OptimizedWildcardSuspended::DocIdsOnly(it) => RQESuspendedIterator::num_estimated(it),
+            OptimizedWildcardSuspended::RawDocIdsOnly(it) => {
+                RQESuspendedIterator::num_estimated(it)
+            }
         }
     }
 }
