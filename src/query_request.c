@@ -127,12 +127,12 @@ void QueryRequest_HoldArgs(QueryRequest *request, RedisModuleString **argv, uint
 }
 
 void QueryRequest_ResetReply(QueryRequest *request) {
-  QueryError_ClearError(&request->reply.err);
+  ChunkReplyState_Destroy(&request->reply);
   ChunkReplyState_Init(&request->reply);
 }
 
 void QueryRequest_Destroy(QueryRequest *request) {
-  QueryError_ClearError(&request->reply.err);
+  QueryRequest_ResetReply(request);
   QueryRequestAsyncState_Destroy(&request->async);
   QueryRequest_SetEndProcRef(request, NULL);
   if (request->args.argv) {
