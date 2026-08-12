@@ -277,6 +277,7 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
 // present) counted inside the block, so shards of any version parse it and never
 // fall back on their own (possibly different) defaults.
 static void MRCommand_appendCombine(MRCommand *xcmd, const HybridCombineWireParams *cp) {
+  RS_ASSERT(cp != NULL);
   if (!cp->scoringCtx) {
     return;
   }
@@ -420,9 +421,6 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
     int len = snprintf(numBuf, sizeof(numBuf), "%lld", shardWireParams->timeoutMS);
     MRCommand_Append(xcmd, numBuf, len);
   }
-
-  // DIALECT is deliberately not forwarded: FT.HYBRID rejects it at parse time,
-  // so a valid command never carries one and there is nothing to relay.
 
   // Forward EXPLAINSCORE so the shard's text scorer produces an RSScoreExplain
   // tree and the shard's merger wraps it.
