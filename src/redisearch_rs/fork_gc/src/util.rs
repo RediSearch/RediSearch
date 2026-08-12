@@ -13,12 +13,36 @@ use std::{
     time::Duration,
 };
 
-use index_spec::IndexSpecWriteGuard;
+use index_spec::{IndexSpecWeakRef, IndexSpecWriteGuard};
 use nix::poll::{PollFd, PollFlags};
 use redis_module::raw::RedisModule_ExitFromChild;
 
 use crate::fork_gc::ForkGCPipeReader;
 use crate::{ForkGC, GcApplyStats, HandleError, HandleOutcome};
+
+/// Provides closure-scoped access to a live, write-locked [`IndexSpec`](index_spec::IndexSpec).
+///
+/// The closure prevents the [`IndexSpecWriteGuard`] from outliving the strong
+/// reference that keeps the spec alive. Test implementations can provide the
+/// same scope over an exclusively owned synthetic spec.
+pub trait SpecWriteAccess {
+    /// Promote and write-lock the spec, then run `apply` under the lock.
+    fn with_write<T, C>(
+        &mut self,
+        apply: impl FnOnce(&mut IndexSpecWriteGuard<'_>) -> Result<T, HandleError<C>>,
+    ) -> Result<T, HandleError<C>>;
+}
+
+impl SpecWriteAccess for IndexSpecWeakRef {
+    fn with_write<T, C>(
+        &mut self,
+        apply: impl FnOnce(&mut IndexSpecWriteGuard<'_>) -> Result<T, HandleError<C>>,
+    ) -> Result<T, HandleError<C>> {
+        let mut spec_ref = self.promote().ok_or(HandleError::SpecDeleted)?;
+        let mut guard = spec_ref.write();
+        apply(&mut guard)
+    }
+}
 
 /// Run the single-shot GC handler protocol shared by the per-index scanners
 /// that apply one message per call (existing-docs, missing-docs):

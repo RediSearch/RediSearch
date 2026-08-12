@@ -13,27 +13,6 @@
 #include "rqe_core.h"
 
 /**
- * Status of a [`NumericRangeTree_ApplyGcEntry`] call.
- */
-typedef enum ApplyGcEntryStatus {
-  /**
-   * The node was found and GC was applied successfully.
-   * `gc_result` contains the result.
-   */
-  Ok,
-  /**
-   * The target node no longer exists in the tree
-   * (e.g. removed between scan and apply).
-   */
-  NodeNotFound,
-  /**
-   * The entry data could not be deserialized.
-   * The child probably crashed or corrupted the pipe.
-   */
-  DeserializationError,
-} ApplyGcEntryStatus;
-
-/**
  * Filter details to apply to numeric values
  */
 typedef struct NumericFilter NumericFilter;
@@ -55,26 +34,6 @@ typedef struct IndexReader IndexReader;
  * freed or mutated while this iterator exists.
  */
 typedef struct ReversePreOrderDfsIterator NumericRangeTreeIterator;
-
-/**
- * Result of [`NumericRangeTree_ApplyGcEntry`].
- *
- * Wraps [`SingleNodeGcResult`] with a [`status`](ApplyGcEntryStatus) field
- * so C callers can distinguish success, node-not-found, and deserialization
- * errors.
- */
-typedef struct ApplyGcEntryResult {
-  /**
-   * The GC result for the node. Only meaningful when `status` is
-   * [`ApplyGcEntryStatus::Ok`].
-   */
-  struct SingleNodeGcResult gc_result;
-  /**
-   * Whether the operation succeeded, the node was missing, or the data
-   * could not be deserialized.
-   */
-  enum ApplyGcEntryStatus status;
-} ApplyGcEntryResult;
 
 /**
  * Result of [`NumericRangeTree_Find`] - an array of range pointers.
@@ -188,45 +147,11 @@ NumericRangeTreeIterator *NumericRangeTreeIterator_New(const struct NumericRange
 const struct NumericRangeNode *NumericRangeTreeIterator_Next(NumericRangeTreeIterator *it);
 
 /**
- * Parse a serialized GC entry and apply it to the specified node.
- *
- * The entry data must have the wire format produced by the numeric child
- * collector (`fork_gc::numeric::collect_numeric`):
- * ```text
- * [delta_msgpack][64-byte hll_with][64-byte hll_without]
- * ```
- *
- * Returns an [`ApplyGcEntryResult`] whose [`status`](ApplyGcEntryStatus)
- * indicates success, node-not-found, or deserialization error.
- *
- * # Safety
- *
- * - `tree` must point to a valid mutable [`NumericRangeTree`] and cannot be NULL.
- * - `entry_data` must point to a valid byte buffer of at least `entry_len` bytes.
- */
-struct ApplyGcEntryResult NumericRangeTree_ApplyGcEntry(struct NumericRangeTree *tree, uint32_t node_position, uint32_t node_generation, const uint8_t *entry_data, size_t entry_len);
-
-/**
  * Get the base size of a NumericRangeTree struct (not including contents).
  *
  * This is used for memory overhead calculations.
  */
 size_t NumericRangeTree_BaseSize(void);
-
-/**
- * Conditionally trim empty leaves and compact the node slab.
- *
- * Checks if the number of empty leaves exceeds half the total number of
- * leaves. If so, trims empty leaves, compacts the slab to reclaim freed
- * slots, and returns the number of bytes freed. Returns 0 if no trimming
- * was needed.
- *
- * # Safety
- *
- * - `t` must point to a valid mutable [`NumericRangeTree`] and cannot be NULL.
- * - No iterators should be active on this tree while calling this function.
- */
-struct CompactIfSparseResult NumericRangeTree_CompactIfSparse(struct NumericRangeTree *t);
 
 /**
  * Reply with a dump of the numeric index entries (for DUMP_NUMIDX).
