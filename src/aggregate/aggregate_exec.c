@@ -688,7 +688,7 @@ static void finishSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply, bool
         req->profile(reply, req);
       }
     } else {
-      RedisModule_Reply_LongLong(reply, req->cursor_id);
+      RedisModule_Reply_LongLong(reply, req->base.cursorInfo.id);
       if (IsProfile(req)) {
         // If the cursor is still alive, don't print profile info to save bandwidth
         RedisModule_Reply_Null(reply);
@@ -946,7 +946,7 @@ static void finishSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply,
     if (cursor_done) {
       RedisModule_Reply_LongLong(reply, 0);
     } else {
-      RedisModule_Reply_LongLong(reply, req->cursor_id);
+      RedisModule_Reply_LongLong(reply, req->base.cursorInfo.id);
     }
     RedisModule_Reply_ArrayEnd(reply);
   }
@@ -1164,7 +1164,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     RedisModule_Reply_MapEnd(reply);
 
     if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-      RedisModule_Reply_LongLong(reply, req->cursor_id);
+      RedisModule_Reply_LongLong(reply, req->base.cursorInfo.id);
       RedisModule_Reply_ArrayEnd(reply);
     }
   } else {
@@ -1208,7 +1208,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     }
 
     if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-      RedisModule_Reply_LongLong(reply, req->cursor_id);
+      RedisModule_Reply_LongLong(reply, req->base.cursorInfo.id);
       if (IsProfile(req)) {
         req->profile(reply, req);
       }
@@ -2149,8 +2149,6 @@ int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, Quer
   RS_ASSERT(cursor->hybrid_ref.rm == NULL); // assuming hybrid cursors don't reach here
   cursor->queryTimeoutMS = (size_t)r->reqConfig.queryTimeoutMS;
   cursor->queryTimeoutPolicy = r->reqConfig.timeoutPolicy;
-  // TODO($$$): Remove the legacy cursor fields once all consumers use QueryRequest.cursorInfo.
-  r->cursor_id = cursor->id;
   r->base.cursorInfo.id = cursor->id;
   runCursor(reply, cursor, 0);
   return REDISMODULE_OK;
@@ -2648,8 +2646,6 @@ int RSCursorProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     QueryError status = QueryError_Default();
     AREQ_QueryProcessingCtx(req)->err = &status;
     // Cursor is freed below; signal cursor exhaustion to the client.
-    // TODO($$$): Remove the legacy cursor fields once all consumers use QueryRequest.cursorInfo.
-    req->cursor_id = 0;
     req->base.cursorInfo.id = 0;
     sendChunk_ReplyOnly_EmptyResults(ctx, req);
     IndexSpecRef_Release(execution_ref);

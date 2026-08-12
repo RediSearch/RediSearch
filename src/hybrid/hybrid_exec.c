@@ -842,8 +842,6 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       cursor->hybrid_ref = StrongRef_Clone(hybrid_ref);
       cursor->queryTimeoutMS = (size_t)areq->reqConfig.queryTimeoutMS;
       cursor->queryTimeoutPolicy = areq->reqConfig.timeoutPolicy;
-      // TODO($$$): Remove the legacy cursor fields once all consumers use QueryRequest.cursorInfo.
-      areq->cursor_id = cursor->id;
       areq->base.cursorInfo.id = cursor->id;
       array_ensure_append_1(cursors, cursor);
     }
