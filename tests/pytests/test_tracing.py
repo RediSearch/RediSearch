@@ -11,7 +11,7 @@ def _log_has_init_message(env):
     logFileName = env.cmd("CONFIG", "GET", "logfile")[1]
     logFilePath = os.path.join(logDir, logFileName)
     try:
-        with open(logFilePath) as f:
+        with open(logFilePath, encoding="utf-8", errors="replace") as f:
             return any(INIT_MESSAGE in line for line in f)
     except FileNotFoundError:
         return False
