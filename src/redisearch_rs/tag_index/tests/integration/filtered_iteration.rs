@@ -121,7 +121,7 @@ fn set_timeout_cuts_iteration_short() {
     index_mem(&mut tag_index, &tags, 1);
 
     let mut it = tag_index.value_iter();
-    it.set_timeout(elapsed_deadline());
+    it.set_timeout(Some(elapsed_deadline()));
     let seen = value_iter_keys(it).len();
 
     assert!(seen > 0, "the entries before the first probe are yielded");
@@ -149,7 +149,7 @@ fn set_timeout_bounds_the_nonmatches_a_suffix_walk_skips() {
     index_mem(&mut tag_index, &tags, 1);
 
     let mut it = tag_index.value_iter_filtered(b"oo", IterMode::Suffix);
-    it.set_timeout(elapsed_deadline());
+    it.set_timeout(Some(elapsed_deadline()));
 
     assert!(
         it.advance().is_none(),
@@ -157,17 +157,13 @@ fn set_timeout_bounds_the_nonmatches_a_suffix_walk_skips() {
     );
 }
 
-/// An all-zero deadline means "no deadline", so the walk completes. Without the
-/// special case it would read as a deadline in the distant past.
+/// `None` means "no deadline", so the walk completes.
 #[test]
-fn zero_timeout_clears_the_deadline() {
+fn no_timeout_lets_iteration_complete() {
     let tag_index = index_with_tags(&[b"a", b"b", b"c"]);
 
     let mut it = tag_index.value_iter();
-    it.set_timeout(timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    });
+    it.set_timeout(None);
 
     assert_eq!(value_iter_keys(it).len(), 3);
 }

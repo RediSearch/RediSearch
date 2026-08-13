@@ -1047,7 +1047,7 @@ pub enum SuffixQuery<'a> {
     },
 }
 
-fn expansion_deadline(timeout: Option<timespec>) -> Option<Instant> {
+pub(crate) fn expansion_deadline(timeout: Option<timespec>) -> Option<Instant> {
     let remaining = timeout.and_then(duration_from_redis_timespec)?;
     Some(Instant::now() + remaining)
 }

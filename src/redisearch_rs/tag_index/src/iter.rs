@@ -24,7 +24,6 @@ use ffi::timespec;
 use index_result::RSIndexResult;
 use inverted_index::{IndexReader, IndexReaderCore, InvertedIndex, doc_ids_only::DocIdsOnly};
 use lending_iterator::LendingIterator as _;
-use rqe_iterators::utils::duration_from_redis_timespec;
 use trie_rs::iter::{ContainsLendingIter, LendingIter, WildcardLendingIter, filter::VisitAll};
 
 use crate::{SuffixData, TagIndex};
@@ -153,17 +152,10 @@ impl<'ti> ValueIterator<'ti> {
         }
     }
 
-    /// Set the deadline honored while iterating.
-    ///
-    /// An all-zero `timeout` clears the deadline rather than setting one.
-    pub fn set_timeout(&mut self, timeout: timespec) {
-        let deadline = if timeout.tv_sec == 0 && timeout.tv_nsec == 0 {
-            None
-        } else {
-            duration_from_redis_timespec(timeout).map(|remaining| Instant::now() + remaining)
-        };
-
-        self.iter.set_timeout(deadline);
+    /// Set the deadline honored while iterating, or clear it with `None` —
+    /// matching [`TagIndex::suffix_expand`](crate::TagIndex::suffix_expand).
+    pub fn set_timeout(&mut self, timeout: Option<timespec>) {
+        self.iter.set_timeout(crate::expansion_deadline(timeout));
     }
 }
 
