@@ -3009,7 +3009,6 @@ dependencies = [
  "rqe_wildcard",
  "tag_index",
  "thin_vec",
- "timeout",
  "trie_rs",
  "workspace_hack",
 ]

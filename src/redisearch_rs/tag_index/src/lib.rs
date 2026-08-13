@@ -333,6 +333,9 @@ impl TagIndex {
                 disk_index_spec,
                 ..
             } => {
+                // Reachable: a document whose tag field preprocesses to zero tokens (e.g. an
+                // empty or all-separator value) still reaches `document.c`'s `tagIndexer`, which
+                // calls `TagIndex_Index` unconditionally on `array_len(fdata->tags)`.
                 if tags.is_empty() {
                     return Some(WritePostingsDelta::default());
                 }
