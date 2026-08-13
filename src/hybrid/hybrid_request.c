@@ -339,32 +339,34 @@ void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, uint32_t a
 void HybridRequest_Free(HybridRequest *req) {
     if (!req) return;
 
-    // Cycle-end disposition of the published sub-cursors: the container dies
-    // on the main thread at the end of the initial cursor cycle, so park them
-    // for reads — or drop them when the cycle timed out, since the timeout
-    // reply exposes no IDs. Published cursors own their subs (the handoff),
-    // so each sub is left to its cursor, like any parked request.
-    if (req->cursors) {
-      const bool timedOut = HybridRequest_TimedOut(req);
-      for (size_t i = 0; i < array_len(req->cursors); i++) {
+    // Cycle-end disposition of the sub-cursors: the container dies on the
+    // main thread at the end of the initial cursor cycle, and each sub-cursor
+    // has owned its sub since reservation, so execute the disposition the
+    // cycle recorded — pause published cursors for reads, free the rest
+    // (never published, or published in a cycle whose timeout reply exposed
+    // no IDs). Subs without a cursor are the container's to release: AREQ_Free
+    // tears down the pipeline (and its disk-iterator borrows) before
+    // releasing the sctx and its diskSnapshot, and the subs own no
+    // RedisModuleCtx — each cycle lends and reclaims its own.
+    const bool timedOut = HybridRequest_TimedOut(req);
+    for (size_t i = 0; i < req->nrequests; i++) {
+      AREQ *sub = req->requests[i];
+      struct Cursor *cursor = sub->base.cursorInfo.cursor;
+      if (cursor) {
         // A parked sub never touches a ctx again; drop any foreground-cycle
         // borrow before the cursor takes over.
-        AREQ_SearchCtx(req->requests[i])->redisCtx = NULL;
-        if (timedOut) {
-          Cursor_Free(req->cursors[i]);
+        AREQ_SearchCtx(sub)->redisCtx = NULL;
+        const bool publish =
+            sub->base.cursorInfo.disposition == CURSOR_DISPOSITION_PAUSE && !timedOut;
+        sub->base.cursorInfo.cursor = NULL;
+        sub->base.cursorInfo.disposition = CURSOR_DISPOSITION_NONE;
+        if (publish) {
+          Cursor_Pause(cursor);
         } else {
-          Cursor_Pause(req->cursors[i]);
+          Cursor_Free(cursor);
         }
-      }
-      array_free(req->cursors);
-      req->cursors = NULL;
-    } else {
-      // No handoff happened, so the container still owns its subs. AREQ_Free
-      // tears down the pipeline (and its disk-iterator borrows) before
-      // releasing the sctx and its diskSnapshot, and the subs own no
-      // RedisModuleCtx — each cycle lends and reclaims its own.
-      for (size_t i = 0; i < req->nrequests; i++) {
-        AREQ_DecrRef(req->requests[i]);
+      } else {
+        AREQ_DecrRef(sub);
       }
     }
     array_free(req->requests);

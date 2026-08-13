@@ -740,18 +740,17 @@ static void FreeHybridRequest(void *ptr) {
   HybridRequest_DecrRef((HybridRequest *)ptr);
 }
 
-static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) cursors,
-                                     HybridRequest *hreq, bool timedOut) {
+static inline void replyWithCursors(RedisModuleCtx *replyCtx, HybridRequest *hreq,
+                                     bool timedOut) {
     RedisModule_Reply _reply = RedisModule_NewReply(replyCtx), *reply = &_reply;
     // Send map of cursor IDs as response
     RedisModule_Reply_Map(reply);
-    for (size_t i = 0; i < array_len(cursors); i++) {
-      Cursor *cursor = cursors[i];
-      AREQ *areq = Cursor_AREQ(cursor);
+    for (size_t i = 0; i < hreq->nrequests; i++) {
+      AREQ *areq = hreq->requests[i];
       if (IsHybridSearchSubquery(areq)) {
-        RedisModule_ReplyKV_LongLong(reply, "SEARCH", cursor->id);
+        RedisModule_ReplyKV_LongLong(reply, "SEARCH", areq->base.cursorInfo.id);
       } else if (IsHybridVectorSubquery(areq)) {
-        RedisModule_ReplyKV_LongLong(reply, "VSIM", cursor->id);
+        RedisModule_ReplyKV_LongLong(reply, "VSIM", areq->base.cursorInfo.id);
       } else {
         RS_ABORT_ALWAYS("Unknown subquery type");
       }
@@ -800,52 +799,48 @@ static arrayof(ResultProcessor*) collectDepleters(const HybridRequest *req,
     return depleters;
 }
 
+// Reserve each subquery's cursor and hand it its sub-request at birth: the
+// cursor owns its sub from creation (the container's reference transfers to
+// cursor->query), and the container's teardown executes the disposition the
+// cycle records — so every failure from here on, including a reservation that
+// fails part-way, frees never-published cursors through the same path.
+int HybridRequest_ReserveSubCursors(HybridRequest *req, QueryError *status) {
+    for (size_t i = 0; i < req->nrequests; i++) {
+      AREQ *areq = req->requests[i];
+      Cursor *cursor = Cursors_Reserve(getCursorList(false), areq->sctx->spec->own_ref, areq->cursorConfig.maxIdle, status);
+      if (!cursor) {
+        RS_ASSERT(QueryError_HasError(status));
+        return REDISMODULE_ERR;
+      }
+      cursor->queryTimeoutMS = (size_t)areq->reqConfig.queryTimeoutMS;
+      cursor->queryTimeoutPolicy = areq->reqConfig.timeoutPolicy;
+      cursor->query = &areq->base;
+      areq->base.cursorInfo.id = cursor->id;
+      areq->base.cursorInfo.cursor = cursor;
+    }
+    return REDISMODULE_OK;
+}
+
 int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, QueryError *status, bool backgroundDepletion) {
     HybridRequest *req = StrongRef_Get(hybrid_ref);
     if (req->nrequests == 0) {
       QueryError_SetError(&req->tailPipelineError, QUERY_ERROR_CODE_GENERIC, "No subqueries in hybrid request");
       return REDISMODULE_ERR;
     }
-    // The cursor array remains local until depletion completes; hreq->cursors
-    // means "safe to publish".
-    arrayof(Cursor*) cursors = NULL;
     arrayof(ResultProcessor*) depleters =
         collectDepleters(req, backgroundDepletion ? RP_SAFE_DEPLETER : RP_DEPLETER, status);
     if (!depleters) {
       return REDISMODULE_ERR;
     }
 
-    // Pause before store cursors (hybrid cursors only)
+    // Pause before depletion and publication (hybrid cursors only)
     debugPauseHybridStoreCursors(req, true);
 
-    // Check if we timed out before creating cursors
+    // Check if we timed out before depleting. Error returns leave the
+    // sub-cursors unpublished; the container's teardown frees them.
     if (HybridRequest_TimedOut(req)) {
       array_free(depleters);
       QueryError_SetError(status, QUERY_ERROR_CODE_TIMED_OUT, NULL);
-      return REDISMODULE_ERR;
-    }
-
-    cursors = array_new(Cursor*, req->nrequests);
-    for (size_t i = 0; i < req->nrequests; i++) {
-      AREQ *areq = req->requests[i];
-      Cursor *cursor = Cursors_Reserve(getCursorList(false), areq->sctx->spec->own_ref, areq->cursorConfig.maxIdle, status);
-      if (!cursor) {
-        break;
-      }
-      // cursor->query stays NULL until the handoff at publish time: a cursor
-      // freed on the error paths below is a bare handle, and the sub-AREQ is
-      // still owned by the container.
-      cursor->queryTimeoutMS = (size_t)areq->reqConfig.queryTimeoutMS;
-      cursor->queryTimeoutPolicy = areq->reqConfig.timeoutPolicy;
-      areq->base.cursorInfo.id = cursor->id;
-      array_ensure_append_1(cursors, cursor);
-    }
-
-    if (array_len(cursors) != req->nrequests) {
-      array_free_ex(cursors, Cursor_Free(*(Cursor**)ptr));
-      array_free(depleters);
-      // verify error exists
-      RS_ASSERT(QueryError_HasError(status));
       return REDISMODULE_ERR;
     }
 
@@ -859,6 +854,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       // Trigger synchronous depletion to read and buffer all results while the spec lock is held.
       rc = RPDepleter_DepleteAll(depleters);
     }
+    array_free(depleters);
 
     bool depletionTimedOut = false;
     if (rc != RS_RESULT_OK) {
@@ -866,9 +862,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
         // RETURN policy: keep cursors with partial results, emit warning in reply
         depletionTimedOut = true;
       } else {
-        // Fatal error or FAIL policy — free everything
-        array_free(depleters);
-        array_free_ex(cursors, Cursor_Free(*(Cursor**)ptr));
+        // Fatal error or FAIL policy
         if (!QueryError_HasError(status)) {
           if (rc == RS_RESULT_TIMEDOUT) {
             QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_TIMED_OUT, "Depleting timed out");
@@ -882,36 +876,31 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
 
     // Only publish cursors after depletion has completed. A timeout that
     // races past this check is benign: the timeout reply exposes no IDs, and
-    // the container's teardown drops a timed-out cycle's cursors.
+    // the container's teardown frees a timed-out cycle's cursors whatever
+    // their disposition.
     if (HybridRequest_TimedOut(req)) {
-      array_free(depleters);
-      array_free_ex(cursors, Cursor_Free(*(Cursor**)ptr));
       QueryError_SetError(status, QUERY_ERROR_CODE_TIMED_OUT, NULL);
       return REDISMODULE_ERR;
     }
-    // The handoff: each cursor takes ownership of its sub-AREQ through the
-    // sub's wrapper, and the container dies at the end of the initial cycle —
-    // after the cursor IDs were replied, so the client cannot read a cursor
-    // before receiving them.
+    // Publication: each sub records the pause its container's teardown
+    // executes — after the cursor IDs were replied, so the client cannot read
+    // a cursor before receiving them (blocked-client callbacks run
+    // back-to-back on the main thread).
     for (size_t i = 0; i < req->nrequests; i++) {
-      cursors[i]->query = &req->requests[i]->base;
+      req->requests[i]->base.cursorInfo.disposition = CURSOR_DISPOSITION_PAUSE;
     }
-    req->cursors = cursors;
-    cursors = NULL;
     // Cursors are published: the remaining work is handing off the mapping reply,
     // so a timeout from here on is attributed to the REPLY stage (no-op if the
     // timeout already fired, via the SetExecutionStage freeze).
     HybridRequest_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_REPLY);
-    array_free(depleters);
 
-    // Pause after store cursors (hybrid cursors only)
+    // Pause after publication (hybrid cursors only)
     debugPauseHybridStoreCursors(req, false);
 
     if (!QueryRequest_UsesReplyCallback(&req->base)) {
       // If we are not using reply callback, we should reply with the cursors here
-      replyWithCursors(replyCtx, req->cursors, req, depletionTimedOut);
+      replyWithCursors(replyCtx, req, depletionTimedOut);
     } // else the reply callback replies
-    // The cursors stay published; the container parks them at its teardown.
 
     return REDISMODULE_OK;
 }
@@ -1159,13 +1148,16 @@ static int HybridQueryCursorReplyCallback(RedisModuleCtx *ctx, RedisModuleString
     return REDISMODULE_OK;
   }
 
-  if (!req->cursors) {
+  // Publication recorded PAUSE on every sub before the BG cycle unblocked;
+  // its absence means the cycle failed without storing an error.
+  if (req->nrequests == 0 ||
+      req->requests[0]->base.cursorInfo.disposition != CURSOR_DISPOSITION_PAUSE) {
     RedisModule_ReplyWithError(ctx, "ERR Internal error: no cursors stored");
     return REDISMODULE_OK;
   }
 
   // Reply only; the container parks the cursors at its teardown.
-  replyWithCursors(ctx, req->cursors, req, false);
+  replyWithCursors(ctx, req, false);
   return REDISMODULE_OK;
 }
 
@@ -1224,7 +1216,6 @@ static blockedClientHybridCtx *blockedClientHybridCtx_New(StrongRef hybrid_ref,
 static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *hybridParams, RedisModuleCtx *ctx,
                     RedisSearchCtx *sctx, QueryError* status, bool internal) {
   HybridRequest *hreq = StrongRef_Get(hybrid_ref);
-  hreq->reqflags = hybridParams->aggregationParams.common.reqflags;
   if (RunInThread(ctx)) {
     // Multi-threaded execution path
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
@@ -1406,6 +1397,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (parseHybridCommand(ctx, &ac, sctx, &cmd, &status, internal, profileOptions) != REDISMODULE_OK) {
     return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status, internal);
   }
+  hybridRequest->reqflags = cmd.hybridParams->aggregationParams.common.reqflags;
 
   if (internal) {
     if (RequestConfig_ApplyCoordinatorElapsedTime(
@@ -1438,6 +1430,13 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     SearchCtx_UpdateTime(AREQ_SearchCtx(subquery), hybridRequest->reqConfig.queryTimeoutMS);
   }
   SearchCtx_UpdateTime(hybridRequest->sctx, hybridRequest->reqConfig.queryTimeoutMS);
+
+  // WITHCURSOR: reserve each sub's cursor up front, on the main thread —
+  // limit failures surface before any background work is dispatched.
+  if ((hybridRequest->reqflags & QEXEC_F_IS_CURSOR) &&
+      HybridRequest_ReserveSubCursors(hybridRequest, &status) != REDISMODULE_OK) {
+    return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status, internal);
+  }
 
   if (HybridRequest_BuildPipelineAndExecute(hybrid_ref, cmd.hybridParams, ctx, hybridRequest->sctx, &status, internal) != REDISMODULE_OK) {
     HybridRequest_GetError(hybridRequest, &status);

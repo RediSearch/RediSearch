@@ -37,13 +37,6 @@ typedef struct HybridRequest {
     profiler_func profile;
     ProfilePrinterCtx profileCtx;
 
-    // Sub-cursors of the initial WITHCURSOR cycle (shard-internal hybrid),
-    // published once depletion completed. Publication is the handoff: each
-    // cursor owns its sub-AREQ. Consumed only by HybridRequest_Free — parked
-    // for reads, or dropped when the cycle timed out (the timeout reply
-    // exposes no IDs).
-    arrayof(struct Cursor*) cursors;
-
     // Optional debug parameters for _FT.DEBUG FT.HYBRID.
     // When non-NULL, debug timeouts are applied after pipeline building.
     // Heap-allocated and owned by HybridRequest — freed in HybridRequest_Free.
