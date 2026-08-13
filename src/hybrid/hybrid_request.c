@@ -99,7 +99,7 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
         if (depleteInBackground) {
           // Create a safe depleter processor to extract results from this pipeline
           // The safe depleter will feed results to the hybrid merger
-          RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
+          RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq);
           ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread, depleterPool);
           QITR_PushRP(qctx, depleter);
         } else {
@@ -348,6 +348,9 @@ void HybridRequest_Free(HybridRequest *req) {
     if (req->cursors) {
       const bool timedOut = HybridRequest_TimedOut(req);
       for (size_t i = 0; i < array_len(req->cursors); i++) {
+        // A parked sub never touches a ctx again; drop any foreground-cycle
+        // borrow before the cursor takes over.
+        AREQ_SearchCtx(req->requests[i])->redisCtx = NULL;
         if (timedOut) {
           Cursor_Free(req->cursors[i]);
         } else {
@@ -360,44 +363,12 @@ void HybridRequest_Free(HybridRequest *req) {
 
     // Free all individual AREQ requests and their pipelines — unless the
     // handoff transferred them to their cursors (each sub is then freed by
-    // its cursor, like any parked request).
-    //
-    // Order matters: AREQ_DecrRef → AREQ_Free → Pipeline_Clean must tear down
-    // the subquery's iterators before SearchCtx_Free releases sctx->diskSnapshot,
-    // because disk iterators (term/tag/wildcard) borrow the snapshot pointer at
-    // construction time. Freeing sctx first would dangle those borrows during
-    // iterator teardown. Detach areq->sctx so AREQ_Free leaves it alone, decref
-    // to tear down iterators, then free sctx + thctx ourselves.
+    // its cursor, like any parked request). AREQ_Free tears down the pipeline
+    // (and its disk-iterator borrows) before releasing the sctx and its
+    // diskSnapshot, and the subs own no RedisModuleCtx — each cycle lends and
+    // reclaims its own.
     for (size_t i = 0; !cursorsOwnSubqueries && i < req->nrequests; i++) {
-      AREQ *areq = req->requests[i];
-      RedisModuleCtx *thctx = NULL;
-      RedisSearchCtx *sctx = NULL;
-      uint32_t reqflags = 0;
-
-      if (areq && areq->sctx && areq->sctx->redisCtx) {
-        thctx = areq->sctx->redisCtx;
-        sctx = areq->sctx;
-        reqflags = areq->reqflags;
-        areq->sctx = NULL;
-      }
-
       AREQ_DecrRef(req->requests[i]);
-
-      if (sctx) {
-        if (reqflags & QEXEC_F_RUN_IN_BACKGROUND) {
-          // Background thread: schedule async cleanup. The scheduled callback
-          // runs after the current command completes, so iterator teardown
-          // (which happened inside AREQ_DecrRef above) is already done.
-          ScheduleContextCleanup(thctx, sctx);
-        } else {
-          // Main thread: iterators are already torn down by the AREQ_DecrRef
-          // above, safe to release the snapshot now.
-          SearchCtx_Free(sctx);
-          if (thctx) {
-            RedisModule_FreeThreadSafeContext(thctx);
-          }
-        }
-      }
     }
     array_free(req->requests);
 
@@ -482,22 +453,16 @@ void HybridRequest_ClearErrors(HybridRequest *req) {
   }
 }
 
-/**
- * Create a search context with a thread-safe redis module context.
- */
-static RedisSearchCtx* createThreadSafeSearchContext(RedisModuleCtx *ctx, const char *indexname) {
-  RedisModuleCtx *detachedCtx = RedisModule_GetDetachedThreadSafeContext(ctx);
-  RedisModule_SelectDb(detachedCtx, RedisModule_GetSelectedDb(ctx));
-  return NewSearchCtxC(detachedCtx, indexname, true);
-}
-
 HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx, RedisModuleString **argv, uint32_t argc) {
   extern size_t NumShards;  // Declared in module.c
   AREQ *search = AREQ_New(argv, argc);
   AREQ *vector = AREQ_New(argv, argc);
   const char *indexName = HiddenString_GetUnsafe(sctx->spec->specName, NULL);
-  search->sctx = createThreadSafeSearchContext(sctx->redisCtx, indexName);
-  vector->sctx = createThreadSafeSearchContext(sctx->redisCtx, indexName);
+  // The subs borrow the handler's ctx, like the tail: whoever runs a cycle
+  // lends each sub a ctx valid for that cycle and reclaims it at cycle end
+  // (a background cycle's depleting threads each need a private one).
+  search->sctx = NewSearchCtxC(sctx->redisCtx, indexName, true);
+  vector->sctx = NewSearchCtxC(sctx->redisCtx, indexName, true);
   arrayof(AREQ*) requests = array_new(AREQ*, HYBRID_REQUEST_NUM_SUBQUERIES);
   requests = array_ensure_append_1(requests, search);
   requests = array_ensure_append_1(requests, vector);

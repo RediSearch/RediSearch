@@ -400,11 +400,12 @@ static void executeAggregateDeferred(void *arg) {
   if (sp && !timedOut) {
     // Dedicated thread-safe context for this worker. Aliased into sctx->redisCtx
     // so any pipeline step that reads it sees a live ctx on this thread. For
-    // cursors the AREQ takes ownership of this ctx (AREQ_Free releases it via
-    // the QEXEC_F_IS_CURSOR branch); for non-cursor requests we free it locally
-    // after executePlan returns.
+    // cursors the AREQ takes ownership of this ctx (ownRedisCtx: AREQ_Free
+    // releases it); for non-cursor requests we free it locally after
+    // executePlan returns.
     RedisModuleCtx *replyCtx = RedisModule_GetThreadSafeContext(bc);
     r->sctx->redisCtx = replyCtx;
+    r->sctx->ownRedisCtx = (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) != 0;
 
     RedisModule_Reply _reply = RedisModule_NewReply(replyCtx), *reply = &_reply;
     QueryError status = QueryError_Default();
@@ -878,8 +879,10 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
 
 static int executePlan(AREQ *r, struct ConcurrentCmdCtx *cmdCtx, RedisModule_Reply *reply, QueryError *status) {
   if (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) {
-    // Keep the original concurrent context
+    // Keep the original concurrent context; it is the cursor's to free with
+    // its sctx from here on.
     ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
+    r->sctx->ownRedisCtx = true;
 
     StrongRef dummy_spec_ref = {.rm = NULL};
 

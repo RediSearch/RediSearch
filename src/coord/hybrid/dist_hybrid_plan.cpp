@@ -67,7 +67,7 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req) {
       }
       // Create a depleter processor to extract results from this pipeline
       // The depleter will feed results to the hybrid merger
-      RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
+      RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq);
       ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread,
                                                      ConcurrentSearch_GetPool(req->poolId));
       pushResultProcessor(qctx, depleter);

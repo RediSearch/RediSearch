@@ -1267,6 +1267,8 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
     for (size_t i = 0; i < hreq->nrequests; i++) {
       AREQ_AddRequestFlags(hreq->requests[i], QEXEC_F_RUN_IN_BACKGROUND);
       AREQ_QueryProcessingCtx(hreq->requests[i])->queryGILTime = hreq->tailPipeline->qctx.queryGILTime;
+      // The construction borrow dies with this handler; the BG cycle lends its own.
+      AREQ_SearchCtx(hreq->requests[i])->redisCtx = NULL;
     }
 
     const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)HREQ_Execute_Callback, BCHCtx);
@@ -1501,6 +1503,15 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     sctx->redisCtx = outctx;
   }
 
+  // Lend each sub a private thread-safe ctx for this cycle: the depleting
+  // threads run concurrently, and a loader's GIL lock and key opens go through
+  // the sub's own ctx. Reclaimed below once the cycle's pipeline work is done.
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    RedisModuleCtx *subctx = RedisModule_GetDetachedThreadSafeContext(outctx);
+    RedisModule_SelectDb(subctx, RedisModule_GetSelectedDb(outctx));
+    AREQ_SearchCtx(hreq->requests[i])->redisCtx = subctx;
+  }
+
   if (buildPipelineAndExecute(hybrid_ref, hybridParams, outctx, sctx, &status, BCHCtx->internal, true) == REDISMODULE_OK) {
     // Set hybridParams to NULL so they won't be freed in destroy
     BCHCtx->hybridParams = NULL;
@@ -1511,6 +1522,14 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
       HybridRequest_ClearErrors(hreq);
     }
     HREQ_ReplyOrStoreError(hreq, outctx, &status);
+  }
+
+  // Reclaim the cycle's loans on every path — depletion has finished (or never
+  // started), and parked subs must not carry a dead ctx into their cursors.
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    RedisSearchCtx *subSctx = AREQ_SearchCtx(hreq->requests[i]);
+    RedisModule_FreeThreadSafeContext(subSctx->redisCtx);
+    subSctx->redisCtx = NULL;
   }
 
   RedisModule_FreeThreadSafeContext(outctx);

@@ -1785,12 +1785,12 @@ void AREQ_Free(AREQ *req) {
   }
   rm_free((void *)req->querySlots);
 
-  // Finally, free the context. If we are a cursor or have multi workers threads,
-  // we need also to detach the ("Thread Safe") context.
+  // Finally, free the context, along with the detached ("Thread Safe")
+  // redisCtx when the sctx owns one.
   RedisModuleCtx *thctx = NULL;
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
   if (sctx) {
-    if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
+    if (sctx->ownRedisCtx) {
       thctx = sctx->redisCtx;
       sctx->redisCtx = NULL;
     }

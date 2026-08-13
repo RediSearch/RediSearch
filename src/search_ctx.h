@@ -64,6 +64,11 @@ typedef struct RedisSearchCtx {
   SearchTime time;
   unsigned int apiVersion; // API Version to allow for backward compatibility / alternative functionality
   unsigned int expanded; // Reply format
+  // True when a detached thread-safe redisCtx was handed over at construction
+  // (classic cursor requests) and must be freed with this sctx; false for the
+  // common case of borrowing the running cycle's ctx. Gates the release in
+  // AREQ_Free.
+  bool ownRedisCtx;
   SpecLockState lock_state;
   // Per-query disk snapshot (optional, NULL when no snapshot has been taken or when the
   // backing index has no disk component). Used by the disk-iterator construction paths

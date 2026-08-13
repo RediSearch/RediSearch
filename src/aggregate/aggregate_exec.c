@@ -1577,6 +1577,8 @@ static int buildRequest(RedisModuleCtx *ctx, int type, QueryError *status, AREQ 
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NO_INDEX, "Index not found", ": %s", indexname);
     goto done;
   }
+  // The cursor's detached ctx is handed over to the sctx; AREQ_Free releases it.
+  sctx->ownRedisCtx = thctx != NULL;
 
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
 
