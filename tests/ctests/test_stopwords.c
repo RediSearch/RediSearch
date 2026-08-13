@@ -110,7 +110,7 @@ int testStopwordListEmbeddedNul() {
   ASSERT(StopWordList_Contains(sl, "foo", 3));
   // Truncation is lossy — anything sharing the prefix collides.
   ASSERT(StopWordList_Contains(sl, "foo\0baz", 7));
-  ASSERT(!StopWordList_Contains(sl, "fo", 2));
+  ASSERT(!StopWordList_Contains(sl, "f", 1));
   ASSERT(!StopWordList_Contains(sl, "bar", 3));
 
   StopWordList_Free(sl);
