@@ -1818,7 +1818,7 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
 }
 
 // Shard FT.CURSOR READ FAIL-path timeout callback. Mirrors
-// QueryTimeoutFailCallback but uses a different privdata type (BlockedCursorNode).
+// QueryTimeoutFailCallback but runs a cursor cycle.
 // Can be consolidated with QueryTimeoutFailCallback - See MOD-15038.
 static int CursorReadTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
@@ -1978,7 +1978,7 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     }
 
     RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(
-        ctx, spec_ref, &r->base, replyCallback, timeoutCallback, timeoutMS);
+        ctx, &r->base, replyCallback, timeoutCallback, timeoutMS);
     blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
     // Mark the request as thread safe, so that the pipeline will be built in a thread safe manner
     AREQ_AddRequestFlags(r, QEXEC_F_RUN_IN_BACKGROUND);
@@ -2416,7 +2416,7 @@ static int cursorReadDispatchTaken(RedisModuleCtx *ctx, Cursor *cursor, long lon
       RedisModule_BlockClient(ctx, reply_cb, timeout_cb, QueryRequest_OnFree, timeout_ms);
   // Safe against the just-armed timer: the timeout callback runs on this same
   // thread.
-  QueryRequest_BeginCycle(&req->base, bc, reply_cb);
+  QueryRequest_BeginCursorCycle(&req->base, bc, reply_cb);
   // Cursor cycles reuse the request across reads: reset the per-read
   // RETURN_STRICT claim/latch state so the new cycle starts from a clean
   // slate — safe because taking the cursor proves the previous read cycle's
@@ -2575,7 +2575,7 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
       QueryRequest_SetUseReplyCallback(&req->base, false);
     }
     CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
-    cr_ctx->bc = BlockCursorClientWithTimeout(ctx, cursor, count, &req->base, replyCallback,
+    cr_ctx->bc = BlockCursorClientWithTimeout(ctx, cursor, &req->base, replyCallback,
                                               timeoutCallback, timeoutMS);
     cr_ctx->cursor = cursor;
     cr_ctx->count = count;

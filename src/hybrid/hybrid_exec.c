@@ -1216,7 +1216,7 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
     }
 
     RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(
-        ctx, spec_ref, &hreq->base, replyCallback, timeoutCallback, timeoutMS);
+        ctx, &hreq->base, replyCallback, timeoutCallback, timeoutMS);
 
     blockedClientHybridCtx *BCHCtx = blockedClientHybridCtx_New(StrongRef_Clone(hybrid_ref), hybridParams, blockedClient, spec_ref, internal);
 

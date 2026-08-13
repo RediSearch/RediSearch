@@ -15,6 +15,7 @@
 #include <stdint.h>
 
 #include "query_error.h"
+#include "util/dllist.h"
 #include "util/rs_atomic.h"
 
 #ifdef __cplusplus
@@ -76,19 +77,21 @@ typedef struct {
   CursorDisposition disposition;
 } CursorInfo;
 
-typedef enum {
-  REGISTRY_ENTRY_NONE,    // The request has no active registry entry.
-  REGISTRY_ENTRY_QUERY,   // The node belongs to the blocked-query registry.
-  REGISTRY_ENTRY_CURSOR,  // The node belongs to the blocked-cursor registry.
-} RegistryEntryKind;
-
+/* The request's embedded entry in the BlockedQueries registry (crash reports),
+ * linked by BeginCycle and unlinked by EndCycle. Main-thread only. The
+ * registry holds nothing else: the walkers read everything they report
+ * through the request (index name from the held argv, cursor id from
+ * cursorInfo), so a registered cycle never delays index teardown. */
 typedef struct {
-  /* TRANSITIONAL(MOD-16691): per-cycle registry bridge, until the request is
-   * linked directly into BlockedQueries. The node is unlinked and freed at the
-   * end of the cycle; its kind identifies the registry list that owns it. */
-  void *node;
-  RegistryEntryKind kind;
+  DLLIST_node node;
+  time_t cycle_start;
 } RegistryInfo;
+
+/* dllist_delete NULLs the removed node's links, so a non-NULL next means the
+ * request is linked into the registry. */
+static inline bool RegistryInfo_IsLinked(const RegistryInfo *info) {
+  return info->node.next != NULL;
+}
 
 typedef struct {
   // Held command arguments borrowed by the request plan. QueryRequest retains

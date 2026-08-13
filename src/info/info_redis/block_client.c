@@ -10,7 +10,8 @@
 #include <stdatomic.h>
 
 #include "redismodule.h"
-#include "util/references.h"
+#include "config.h"
+#include "obfuscation/obfuscation_api.h"
 #include "info/info_redis/types/blocked_queries.h"
 #include "threads/main_thread.h"
 #include "cursor.h"
@@ -21,15 +22,22 @@
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 
-void QueryRequest_BeginCycle(QueryRequest *request, RedisModuleBlockedClient *bc,
-                             RedisModuleCmdFunc reply_cb) {
+// The registry list every main-thread cycle links into. Asserts main-thread
+// use: the registry is single-threaded by design.
+static BlockedQueries *getBlockedQueries(void) {
+  BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
+  RS_LOG_ASSERT(blockedQueries, "MainThread_InitBlockedQueries was not called, or function not called from main thread");
+  return blockedQueries;
+}
+
+static void beginCycleCommon(QueryRequest *request, RedisModuleBlockedClient *bc,
+                             RedisModuleCmdFunc reply_cb, DLLIST *list) {
   // No overlapping cycles: the previous cycle's OnFree must have run before a
   // new cycle may begin on the same request. This holds structurally for
   // blocked cursor cycles — the cursor is only parked back into the idle list
   // by OnFree (cursorEndOfCycle records the disposition; OnFree executes it),
   // so no other client can take it before the cycle fully ended.
-  RS_ASSERT(!request->blockedClientCycleActive && request->registryInfo.node == NULL &&
-            request->registryInfo.kind == REGISTRY_ENTRY_NONE);
+  RS_ASSERT(!request->blockedClientCycleActive && !RegistryInfo_IsLinked(&request->registryInfo));
   // The cycle's hold keeps the request alive until OnFree, so the reply/timeout
   // callbacks may dereference the privdata even if the BG worker released its
   // own hold (e.g. a cursor freed on ITERDONE) before the client was unblocked.
@@ -37,21 +45,26 @@ void QueryRequest_BeginCycle(QueryRequest *request, RedisModuleBlockedClient *bc
   request->blockedClientCycleActive = true;
   QueryRequest_SetUseReplyCallback(request, reply_cb != NULL);
   RS_AtomicIntStoreRelaxed(&request->async.strictReadOwner, QUERY_REQUEST_READ_OWNER_NONE);
+  request->registryInfo.cycle_start = time(NULL);
+  dllist_prepend(list, &request->registryInfo.node);
   RedisModule_BlockClientSetPrivateData(bc, request);
 }
 
+void QueryRequest_BeginCycle(QueryRequest *request, RedisModuleBlockedClient *bc,
+                             RedisModuleCmdFunc reply_cb) {
+  beginCycleCommon(request, bc, reply_cb, &getBlockedQueries()->queries);
+}
+
+void QueryRequest_BeginCursorCycle(QueryRequest *request, RedisModuleBlockedClient *bc,
+                                   RedisModuleCmdFunc reply_cb) {
+  beginCycleCommon(request, bc, reply_cb, &getBlockedQueries()->cursors);
+}
+
 void QueryRequest_EndCycle(QueryRequest *request) {
-  if (request->registryInfo.node) {
-    if (request->registryInfo.kind == REGISTRY_ENTRY_CURSOR) {
-      BlockedQueries_RemoveCursor(request->registryInfo.node);
-    } else {
-      RS_ASSERT(request->registryInfo.kind == REGISTRY_ENTRY_QUERY);
-      BlockedQueries_RemoveQuery(request->registryInfo.node);
-    }
-    rm_free(request->registryInfo.node);
+  if (RegistryInfo_IsLinked(&request->registryInfo)) {
+    dllist_delete(&request->registryInfo.node);
+    request->registryInfo.cycle_start = 0;
   }
-  request->registryInfo.node = NULL;
-  request->registryInfo.kind = REGISTRY_ENTRY_NONE;
   // Dispose a stashed cursor reference-releasingly BEFORE the generic destroy:
   // AREQ_CleanUpStoredCursor frees the cursor with its request handle intact,
   // so Cursor_FreeInternal releases the cursor's request reference. Skipping
@@ -99,7 +112,7 @@ void QueryRequest_OnFree(RedisModuleCtx *ctx, void *privdata) {
   QueryRequest_DecrRef(request);
 }
 
-RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, StrongRef spec_ref,
+RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx,
                                                       QueryRequest *request,
                                                       RedisModuleCmdFunc reply_cb,
                                                       RedisModuleCmdFunc timeout_cb,
@@ -107,28 +120,15 @@ RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, Stron
   // If a timeout is armed, both callbacks must be provided.
   RS_ASSERT(timeout_ms == 0 || (timeout_cb != NULL && reply_cb != NULL));
 
-  BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
-  RS_LOG_ASSERT(blockedQueries, "MainThread_InitBlockedQueries was not called, or function not called from main thread");
-  // Registry bookkeeping only (FT.INFO / crash reports). The callbacks reach
-  // the request through the blocked client's private data,
-  // so the node carries no privdata and holds no reference. Unlinked in
-  // EndCycle; TRANSITIONAL(MOD-16691): link the request itself instead.
-  BlockedQueryNode *node = BlockedQueries_AddQuery(blockedQueries, spec_ref, NULL, NULL);
-
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, reply_cb, timeout_cb,
                                                          QueryRequest_OnFree, timeout_ms);
   QueryRequest_BeginCycle(request, bc, reply_cb);
-  request->registryInfo = (RegistryInfo) {
-    .node = node,
-    .kind = REGISTRY_ENTRY_QUERY,
-  };
   // report block client start time
   RedisModule_BlockedClientMeasureTimeStart(bc);
   return bc;
 }
 
 RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Cursor *cursor,
-                                                       size_t count,
                                                        QueryRequest *request,
                                                        RedisModuleCmdFunc reply_cb,
                                                        RedisModuleCmdFunc timeout_cb,
@@ -136,27 +136,38 @@ RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Curs
   RS_ASSERT(cursor->query == request);
   RS_ASSERT(timeout_ms == 0 || (timeout_cb != NULL && reply_cb != NULL));
 
-  BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
-  RS_LOG_ASSERT(blockedQueries, "MainThread_InitBlockedQueries was not called, or function not called from main thread");
-
-  // Registry bookkeeping only; see BlockQueryClientWithTimeout.
-  BlockedCursorNode *node = BlockedQueries_AddCursor(blockedQueries, cursor->spec_ref,
-                                                     cursor->id, count, NULL, NULL);
-
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, reply_cb, timeout_cb,
                                                          QueryRequest_OnFree, timeout_ms);
-  QueryRequest_BeginCycle(request, bc, reply_cb);
+  QueryRequest_BeginCursorCycle(request, bc, reply_cb);
   // Cursor cycles reuse the request across reads: reset the per-read
   // RETURN_STRICT claim/latch state so the new cycle starts from a clean
   // slate.
   if (request->async.requiresAggregateResultsSync) {
     AREQ_ResetForCursorReadReturnStrict(QueryRequest_GetAREQ(request));
   }
-  request->registryInfo = (RegistryInfo) {
-    .node = node,
-    .kind = REGISTRY_ENTRY_CURSOR,
-  };
   // report block client start time
   RedisModule_BlockedClientMeasureTimeStart(bc);
   return bc;
+}
+
+const char *QueryRequest_ReportIndexName(const QueryRequest *request, char *obfuscated_buffer) {
+  if (request->args.argc < 2) {
+    return "n/a";
+  }
+  // The request's held argv mirrors the logical command — argv[0] is the
+  // command, argv[1] the index as the caller addressed it (an alias included).
+  // Plain reads and pure hashing only: this also runs in the crash handler's
+  // signal context.
+  size_t len;
+  const char *name = RedisModule_StringPtrLen(request->args.argv[1], &len);
+  if (!RSGlobalConfig.hideUserDataFromLog) {
+    return name;
+  }
+  // Same derivation as the spec's own obfuscated name (sha1 of the name), so
+  // crash entries correlate with the rest of the log unless addressed by
+  // alias.
+  Sha1 sha1;
+  Sha1_Compute(name, len, &sha1);
+  Obfuscate_Index(&sha1, obfuscated_buffer);
+  return obfuscated_buffer;
 }

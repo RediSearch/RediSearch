@@ -132,6 +132,9 @@ void QueryRequest_ResetReply(QueryRequest *request) {
 }
 
 void QueryRequest_Destroy(QueryRequest *request) {
+  // Registration is strictly per-cycle; a request still linked here would
+  // leave a dangling registry entry.
+  RS_ASSERT(!RegistryInfo_IsLinked(&request->registryInfo));
   QueryRequest_ResetReply(request);
   QueryRequestAsyncState_Destroy(&request->async);
   QueryRequest_SetEndProcRef(request, NULL);
