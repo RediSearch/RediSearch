@@ -221,56 +221,18 @@ pub enum FuzzyWalk {
     PatternRejected,
 }
 
-/// An edit distance a [`TermsTrie::iterate_fuzzy`] walk can be asked for.
+/// Error returned by [`TermsTrie::iterate_fuzzy`] when the distance it was asked
+/// for is outside `0..=`[`MAX_LEV_DISTANCE`](ffi::MAX_LEV_DISTANCE).
 ///
 /// The distance reaches C as the size of a stack variable-length array, so a
 /// negative one is a negative-length allocation and a large one exhausts the
 /// stack before the walk begins — both before any bound the caller could apply
-/// afterwards. Making those unrepresentable is what this type is for: every
-/// value that can be constructed is one the automaton can be built for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct FuzzyDistance(u8);
-
-impl FuzzyDistance {
-    /// The largest distance that can be constructed, which is the largest one
-    /// the automaton may be built for — see
-    /// [`MAX_LEV_DISTANCE`](ffi::MAX_LEV_DISTANCE) for why it stops there.
-    pub const MAX: i32 = ffi::MAX_LEV_DISTANCE as i32;
-
-    /// Wrap `distance`.
-    ///
-    /// Takes an [`i32`] because that is the width the distance travels at in a
-    /// parsed query, so a caller checks the range here rather than twice.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`InvalidFuzzyDistance`] if `distance` is negative or above
-    /// [`MAX`](Self::MAX).
-    pub const fn new(distance: i32) -> Result<Self, InvalidFuzzyDistance> {
-        if distance < 0 || distance > Self::MAX {
-            return Err(InvalidFuzzyDistance(distance));
-        }
-        Ok(Self(distance as u8))
-    }
-
-    /// The wrapped distance.
-    pub const fn get(self) -> i32 {
-        self.0 as i32
-    }
-}
-
-impl TryFrom<i32> for FuzzyDistance {
-    type Error = InvalidFuzzyDistance;
-
-    fn try_from(distance: i32) -> Result<Self, Self::Error> {
-        Self::new(distance)
-    }
-}
-
-/// Error returned by [`FuzzyDistance::new`] when the value is outside
-/// `0..=`[`FuzzyDistance::MAX`].
+/// afterwards. Refusing them up front is what keeps the walk from being asked
+/// for an automaton that cannot be built.
+///
+/// The offending value is carried so a caller can name it when reporting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("fuzzy distance must be in 0..={max}, got {value}", value = .0, max = FuzzyDistance::MAX)]
+#[error("fuzzy distance must be in 0..={max}, got {value}", value = .0, max = ffi::MAX_LEV_DISTANCE)]
 pub struct InvalidFuzzyDistance(i32);
 
 /// Outcome of [`TermsTrie::decrement_num_docs`].
@@ -509,6 +471,15 @@ impl TermsTrie {
     /// insertion, so it exists only as an inverted index and a caller that wants
     /// it has to open that index itself.
     ///
+    /// `max_dist` is taken as an [`i32`] because that is the width it travels at
+    /// in a parsed query, so the range is checked once, here, rather than at
+    /// every call site.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidFuzzyDistance`], having walked nothing, if `max_dist` is
+    /// negative or above [`MAX_LEV_DISTANCE`](ffi::MAX_LEV_DISTANCE).
+    ///
     /// # Safety
     ///
     /// The wrapped trie must not be mutated, freed, or iterated again for the
@@ -519,18 +490,24 @@ impl TermsTrie {
     pub unsafe fn iterate_fuzzy<F>(
         &self,
         pattern: &[u8],
-        max_dist: FuzzyDistance,
+        max_dist: i32,
         mut callback: F,
-    ) -> FuzzyWalk
+    ) -> Result<FuzzyWalk, InvalidFuzzyDistance>
     where
         F: FnMut(&[ffi::rune], usize) -> ControlFlow<()>,
     {
+        // Checked before anything else: an out-of-range distance is a stack VLA
+        // C cannot allocate, so it must not reach the automaton at all.
+        if max_dist < 0 || max_dist > ffi::MAX_LEV_DISTANCE as i32 {
+            return Err(InvalidFuzzyDistance(max_dist));
+        }
+
         // Reject an over-long pattern before copying it. This bounds the padded
         // copy below, which would otherwise duplicate the whole token before C
         // had looked at its length.
         const MAX_UTF8_SEQUENCE_LEN: usize = 4;
         if pattern.len() > ffi::TRIE_MAX_PREFIX as usize * MAX_UTF8_SEQUENCE_LEN {
-            return FuzzyWalk::PatternRejected;
+            return Ok(FuzzyWalk::PatternRejected);
         }
 
         // The trie lowercases the pattern with `strToLowerRunes`, whose decoder
@@ -576,7 +553,7 @@ impl TermsTrie {
                 self.as_ptr().cast_mut(),
                 pattern_ptr.cast::<c_char>(),
                 pattern.len(),
-                max_dist.get(),
+                max_dist,
                 ffi::TrieMatchMode_TRIE_MATCH_EDIT_DISTANCE,
             )
         };
@@ -584,7 +561,7 @@ impl TermsTrie {
         // referenced afterwards, so the copy has served its purpose here.
         drop(padded);
         let Some(it) = NonNull::new(it) else {
-            return FuzzyWalk::PatternRejected;
+            return Ok(FuzzyWalk::PatternRejected);
         };
         // The loop below is driven from Rust rather than from a C trampoline, so
         // an unwinding panic in `callback` would otherwise skip the free and leak
@@ -641,7 +618,7 @@ impl TermsTrie {
         }
 
         drop(it);
-        FuzzyWalk::Walked
+        Ok(FuzzyWalk::Walked)
     }
 }
 

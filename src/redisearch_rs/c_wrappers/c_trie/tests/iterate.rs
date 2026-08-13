@@ -26,9 +26,7 @@ use std::{
     ptr,
 };
 
-use c_trie::{
-    FuzzyDistance, FuzzyWalk, LoweredPattern, SuffixMode, SuffixTrie, SuffixWalk, TermsTrie,
-};
+use c_trie::{FuzzyWalk, LoweredPattern, SuffixMode, SuffixTrie, SuffixWalk, TermsTrie};
 use ffi::{SuffixType, SuffixType_SUFFIX_TYPE_CONTAINS, SuffixType_SUFFIX_TYPE_SUFFIX};
 
 /// Convert an ASCII/UTF-8 string to the trie's rune (`u16`) key.
@@ -282,37 +280,6 @@ fn iterate_contains_some_and_none_timeout_agree() {
     });
 }
 
-// --- `FuzzyDistance` --------------------------------------------------------
-
-#[test]
-fn fuzzy_distance_admits_exactly_the_representable_range() {
-    // Both ends reach C as the size of a stack VLA, so what this type refuses is
-    // what the automaton could not be built for: below zero it is a
-    // negative-length allocation, above the cap it exhausts the stack.
-    for d in [-1, i32::MIN, FuzzyDistance::MAX + 1, i32::MAX] {
-        assert!(FuzzyDistance::new(d).is_err(), "{d} is out of range");
-        assert!(FuzzyDistance::try_from(d).is_err(), "{d} is out of range");
-    }
-
-    for d in 0..=FuzzyDistance::MAX {
-        assert_eq!(
-            FuzzyDistance::new(d).map(FuzzyDistance::get),
-            Ok(d),
-            "an in-range distance round-trips unchanged"
-        );
-        assert_eq!(FuzzyDistance::try_from(d), FuzzyDistance::new(d));
-    }
-
-    // The rejected value is carried, so a caller can name it when reporting.
-    assert_eq!(
-        FuzzyDistance::new(9).unwrap_err().to_string(),
-        format!(
-            "fuzzy distance must be in 0..={}, got 9",
-            FuzzyDistance::MAX
-        )
-    );
-}
-
 // --- `iterate_fuzzy` (terms trie) -------------------------------------------
 
 /// Corpus for the edit-distance walks: `map`, `maps` and `mop` all sit within
@@ -320,15 +287,9 @@ fn fuzzy_distance_admits_exactly_the_representable_range() {
 /// distance by one changes the answer.
 const FUZZY_CORPUS: &[&str] = &["map", "maps", "mop", "grape"];
 
-/// Wrap a distance the test knows is in range.
-fn dist(d: i32) -> FuzzyDistance {
-    FuzzyDistance::new(d).expect("test distance is in range")
-}
-
 /// Collect every term `iterate_fuzzy` yields for `pattern` at `max_dist`,
-/// asserting the walk was not rejected.
+/// asserting the distance was accepted and the walk was not rejected.
 fn fuzzy_terms(trie: &TermsTrie, pattern: &[u8], max_dist: i32) -> HashSet<String> {
-    let max_dist = dist(max_dist);
     let mut got = HashSet::new();
     // SAFETY: `trie` wraps a live terms trie that is not mutated during the
     // walk; the closure only collects the terms it is handed.
@@ -337,7 +298,8 @@ fn fuzzy_terms(trie: &TermsTrie, pattern: &[u8], max_dist: i32) -> HashSet<Strin
             got.insert(runes_to_string(term));
             ControlFlow::Continue(())
         })
-    };
+    }
+    .expect("test distance is in range");
     assert!(
         matches!(walk, FuzzyWalk::Walked),
         "the pattern must be short enough to walk"
@@ -350,17 +312,59 @@ fn fuzzy_terms(trie: &TermsTrie, pattern: &[u8], max_dist: i32) -> HashSet<Strin
     miri,
     ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
 )]
+fn iterate_fuzzy_admits_exactly_the_distances_the_automaton_can_be_built_for() {
+    let max = ffi::MAX_LEV_DISTANCE as i32;
+    with_terms_trie(FUZZY_CORPUS, |trie| {
+        // Both ends reach C as the size of a stack VLA, so what the walk refuses
+        // is what the automaton could not be built for: below zero it is a
+        // negative-length allocation, above the cap it exhausts the stack. The
+        // refusal has to come before the walk, so nothing is visited either.
+        for d in [-1, i32::MIN, max + 1, i32::MAX] {
+            let mut visited = false;
+            // SAFETY: live, un-mutated terms trie; the closure only records.
+            let walk = unsafe {
+                trie.iterate_fuzzy(b"map", d, |_, _| {
+                    visited = true;
+                    ControlFlow::Continue(())
+                })
+            };
+            assert_eq!(
+                walk.unwrap_err().to_string(),
+                format!("fuzzy distance must be in 0..={max}, got {d}"),
+                "{d} is out of range, and the error must name it"
+            );
+            assert!(!visited, "a refused distance visits nothing");
+        }
+
+        // Every distance in range is walked rather than refused — the cap is an
+        // inclusive bound and not an off-by-one that rejects the widest one.
+        for d in 0..=max {
+            // SAFETY: as above.
+            let walk = unsafe { trie.iterate_fuzzy(b"map", d, |_, _| ControlFlow::Continue(())) };
+            assert!(
+                matches!(walk, Ok(FuzzyWalk::Walked)),
+                "{d} is in range and must be walked"
+            );
+        }
+    });
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn iterate_fuzzy_reports_terms_within_the_distance_and_num_docs() {
     with_terms_trie(FUZZY_CORPUS, |trie| {
         let mut got: HashSet<(String, usize)> = HashSet::new();
         // SAFETY: live, un-mutated terms trie; the closure only collects.
         let walk = unsafe {
-            trie.iterate_fuzzy(b"map", dist(1), |term, num_docs| {
+            trie.iterate_fuzzy(b"map", 1, |term, num_docs| {
                 got.insert((runes_to_string(term), num_docs));
                 ControlFlow::Continue(())
             })
         };
-        assert!(matches!(walk, FuzzyWalk::Walked));
+        assert!(matches!(walk, Ok(FuzzyWalk::Walked)));
         // One edit from `map`: itself, `maps` (insert) and `mop` (substitute);
         // `grape` is far outside. `numDocs` is the term's char length.
         let expected: HashSet<(String, usize)> = [
@@ -427,7 +431,7 @@ fn iterate_fuzzy_empty_pattern_walks_every_term_within_the_distance_of_nothing()
         // insertions matches — that is, every term no longer than the distance.
         assert_eq!(fuzzy_terms(trie, b"", 3), set(&["map", "mop"]));
         assert_eq!(
-            fuzzy_terms(trie, b"", FuzzyDistance::MAX),
+            fuzzy_terms(trie, b"", ffi::MAX_LEV_DISTANCE as i32),
             set(&["map", "maps", "mop"])
         );
 
@@ -448,13 +452,13 @@ fn iterate_fuzzy_break_stops_walk_early() {
         let mut count = 0_usize;
         // SAFETY: live, un-mutated terms trie; the closure only counts.
         let walk = unsafe {
-            trie.iterate_fuzzy(b"map", dist(1), |_, _| {
+            trie.iterate_fuzzy(b"map", 1, |_, _| {
                 count += 1;
                 // Stop at the first match even though three would match.
                 ControlFlow::Break(())
             })
         };
-        assert!(matches!(walk, FuzzyWalk::Walked));
+        assert!(matches!(walk, Ok(FuzzyWalk::Walked)));
         assert_eq!(count, 1, "Break must stop the walk at the first match");
     });
 }
@@ -470,13 +474,13 @@ fn iterate_fuzzy_rejects_a_pattern_over_the_rune_limit() {
         let mut visited = false;
         // SAFETY: live, un-mutated terms trie; the closure only records.
         let walk = unsafe {
-            trie.iterate_fuzzy(&b"a".repeat(limit + 1), dist(1), |_, _| {
+            trie.iterate_fuzzy(&b"a".repeat(limit + 1), 1, |_, _| {
                 visited = true;
                 ControlFlow::Continue(())
             })
         };
         assert!(
-            matches!(walk, FuzzyWalk::PatternRejected),
+            matches!(walk, Ok(FuzzyWalk::PatternRejected)),
             "a pattern over the rune limit starts no walk"
         );
         assert!(!visited, "a rejected pattern visits nothing");
@@ -484,10 +488,9 @@ fn iterate_fuzzy_rejects_a_pattern_over_the_rune_limit() {
         // One rune shorter, the walk does run: the limit is an inclusive bound
         // and not an off-by-one that rejects the longest accepted pattern.
         // SAFETY: as above.
-        let walk = unsafe {
-            trie.iterate_fuzzy(&b"a".repeat(limit), dist(1), |_, _| ControlFlow::Break(()))
-        };
-        assert!(matches!(walk, FuzzyWalk::Walked));
+        let walk =
+            unsafe { trie.iterate_fuzzy(&b"a".repeat(limit), 1, |_, _| ControlFlow::Break(())) };
+        assert!(matches!(walk, Ok(FuzzyWalk::Walked)));
     });
 }
 
@@ -504,14 +507,9 @@ fn iterate_fuzzy_measures_the_limit_in_runes_not_bytes() {
         let pattern = "é".repeat(ffi::TRIE_MAX_PREFIX as usize / 2 + 1);
         assert!(pattern.len() > ffi::TRIE_MAX_PREFIX as usize);
         // SAFETY: live, un-mutated terms trie; the closure does nothing.
-        let walk = unsafe {
-            trie.iterate_fuzzy(
-                pattern.as_bytes(),
-                dist(1),
-                |_, _| ControlFlow::Continue(()),
-            )
-        };
-        assert!(matches!(walk, FuzzyWalk::Walked));
+        let walk =
+            unsafe { trie.iterate_fuzzy(pattern.as_bytes(), 1, |_, _| ControlFlow::Continue(())) };
+        assert!(matches!(walk, Ok(FuzzyWalk::Walked)));
     });
 }
 
@@ -566,15 +564,10 @@ fn iterate_fuzzy_byte_cap_admits_the_longest_pattern_that_fits_in_runes() {
         let pattern = "\u{1D11E}".repeat(ffi::TRIE_MAX_PREFIX as usize);
         assert_eq!(pattern.len(), ffi::TRIE_MAX_PREFIX as usize * 4);
         // SAFETY: live, un-mutated terms trie; the closure does nothing.
-        let walk = unsafe {
-            trie.iterate_fuzzy(
-                pattern.as_bytes(),
-                dist(1),
-                |_, _| ControlFlow::Continue(()),
-            )
-        };
+        let walk =
+            unsafe { trie.iterate_fuzzy(pattern.as_bytes(), 1, |_, _| ControlFlow::Continue(())) };
         assert!(
-            matches!(walk, FuzzyWalk::Walked),
+            matches!(walk, Ok(FuzzyWalk::Walked)),
             "the byte cap must not refuse a pattern the rune limit admits"
         );
     });
@@ -596,12 +589,12 @@ fn iterate_fuzzy_refuses_an_over_long_truncated_tail_before_padding_it() {
         let mut visited = false;
         // SAFETY: live, un-mutated terms trie; the closure only records.
         let walk = unsafe {
-            trie.iterate_fuzzy(&pattern, dist(1), |_, _| {
+            trie.iterate_fuzzy(&pattern, 1, |_, _| {
                 visited = true;
                 ControlFlow::Continue(())
             })
         };
-        assert!(matches!(walk, FuzzyWalk::PatternRejected));
+        assert!(matches!(walk, Ok(FuzzyWalk::PatternRejected)));
         assert!(!visited, "a refused pattern visits nothing");
     });
 }
