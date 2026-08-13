@@ -818,14 +818,17 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     ResultProcessorType expectedDepleterType = backgroundDepletion ? RP_SAFE_DEPLETER : RP_DEPLETER;
     for (size_t i = 0; i < req->nrequests; i++) {
       AREQ *areq = req->requests[i];
+      // PROTOTYPE(loader-swap): the depleter is no longer at endProc — the loaders sit
+      // downstream of it now — so walk up to it instead. This also subsumes the
+      // RP_PROFILE hop that used to be handled explicitly.
       ResultProcessor *depleter = areq->pipeline.qctx.endProc;
-      if (IsProfile(req) && depleter->type == RP_PROFILE) {
+      while (depleter && depleter->type != expectedDepleterType) {
         depleter = depleter->upstream;
       }
-      if (depleter->type != expectedDepleterType) {
+      if (!depleter) {
         QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC,
-          "Unexpected depleter type: expected %s, got %s",
-          RPTypeToString(expectedDepleterType), RPTypeToString(depleter->type));
+          "No %s found in the sub-request pipeline",
+          RPTypeToString(expectedDepleterType));
         break;
       }
       array_ensure_append_1(depleters, depleter);
@@ -934,6 +937,33 @@ static void clearBorrowedSpecReadLocks(HybridRequest *hreq, bool borrowed) {
   }
 }
 
+// PROTOTYPE(loader-swap): drain every sub-request's depleter before the read lock is
+// given back, so nothing downstream of a depleter (the loaders) runs while this thread
+// holds it. The cursor path does the same thing inside HybridRequest_StartCursors.
+//
+// The result code is deliberately dropped: each depleter records its own status, and
+// the merger reports it when it reads them, which is how depletion failures and
+// timeouts already surface on this path.
+static void depleteHybridSubqueriesEagerly(HybridRequest *hreq, QueryError *status,
+                                           bool depleteInBackground) {
+  const ResultProcessorType expected = depleteInBackground ? RP_SAFE_DEPLETER : RP_DEPLETER;
+  arrayof(ResultProcessor *) depleters = array_new(ResultProcessor *, hreq->nrequests);
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    ResultProcessor *rp = AREQ_QueryProcessingCtx(hreq->requests[i])->endProc;
+    while (rp && rp->type != expected) {
+      rp = rp->upstream;
+    }
+    RS_LOG_ASSERT(rp, "sub-request pipeline has no depleter");
+    array_ensure_append_1(depleters, rp);
+  }
+  if (depleteInBackground) {
+    RPSafeDepleter_DepleteAll(depleters, status);
+  } else {
+    RPDepleter_DepleteAll(depleters);
+  }
+  array_free(depleters);
+}
+
 /*
  * Internal function to build the pipeline and execute the hybrid request.
  * This function is used by both the foreground and background execution paths.
@@ -1000,23 +1030,34 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
   // Carry that one read lock into depletion. The sub-requests have their own
   // contexts but share this writer-preferring, non-recursive rwlock, so a second
   // read lock on this thread would deadlock against a queued writer (fork-GC).
-  // Background hands the lock off to its workers (RPSafeDepleter); foreground
-  // in-memory lets the sub-requests borrow it across the inline depletion; a disk
-  // spec releases it and reads from the snapshot taken during the build.
-  if (!depleteInBackground) {
-    if (sctx->spec->diskSpec) {
-      RedisSearchCtx_UnlockSpec(sctx);
-    } else {
-      for (size_t i = 0; i < hreq->nrequests; i++) {
-        RedisSearchCtx_BorrowSpecReadLock(AREQ_SearchCtx(hreq->requests[i]));
-      }
-      borrowedByRequests = true;
+  //
+  // PROTOTYPE(loader-swap): both paths now borrow, not just the foreground one. The
+  // depleters read under this single lock and never touch the rwlock themselves, so a
+  // writer arriving mid-query can no longer fail the query. A disk spec still releases
+  // early and reads from the snapshot taken during the build.
+  if (sctx->spec->diskSpec) {
+    RedisSearchCtx_UnlockSpec(sctx);
+  } else {
+    for (size_t i = 0; i < hreq->nrequests; i++) {
+      RedisSearchCtx_BorrowSpecReadLock(AREQ_SearchCtx(hreq->requests[i]));
     }
+    borrowedByRequests = true;
   }
 
   if (!isCursor) {
+    // PROTOTYPE(loader-swap): deplete everything up front, then hand the read lock
+    // back, and only then run the pipeline. The loaders now sit downstream of the
+    // depleters, so pulling the merger takes the GIL — which is unsafe while this
+    // thread still holds the read lock. Depletion itself never touches the GIL.
+    depleteHybridSubqueriesEagerly(hreq, status, depleteInBackground);
+    clearBorrowedSpecReadLocks(hreq, borrowedByRequests);
+    borrowedByRequests = false;
+    RedisSearchCtx_UnlockSpec(sctx);
+
     HybridRequest_Execute(hreq, ctx, sctx);
   } else if (HybridRequest_StartCursors(hybrid_ref, ctx, status, depleteInBackground) != REDISMODULE_OK) {
+    // The cursor path depletes inside StartCursors and never pulls the loaders, so the
+    // borrow stays live until the unlock below.
     goto error;
   }
 

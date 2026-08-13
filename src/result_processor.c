@@ -2071,9 +2071,24 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
  * handled by the upstream's own checks) so the background thread exits promptly.
  * Signals completion by setting done_depleting to `true` and broadcasting to condition variable.
  */
+#ifdef ENABLE_ASSERT
+static bool specWritersPending(void *arg) {
+  (void)arg;
+  return PendingSpecWriters_Get() > 0;
+}
+#endif
+
 static void RPSafeDepleter_Deplete(void *arg) {
   RPSafeDepleter *self = (RPSafeDepleter *)arg;
   DepleterSync *sync = (DepleterSync *)StrongRef_Get(self->sync_ref);
+
+#ifdef ENABLE_ASSERT
+  // Sync point (debug): park before touching the index, so a test can queue a writer
+  // while the execution thread still holds the read lock this depleter reads under.
+  // Releases itself once a writer is queued: the thread that would send a SIGNAL is
+  // the main thread, and that is the thread issuing the write.
+  SyncPoint_WaitUntil(SYNC_POINT_DEPLETER_BEFORE_INDEX_READ, specWritersPending, NULL);
+#endif
 
   // Start timing the depletion
   rs_wall_clock depletionStart;
@@ -2375,9 +2390,14 @@ int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryErro
       }
     }
     pthread_mutex_unlock(&sync->mutex);
-    // Only sleep if we haven't completed all safe depleters
+    // Only sleep if we haven't completed all safe depleters.
+    //
+    // PROTOTYPE(loader-swap): 1ms was free when the only caller was cursor creation,
+    // but this now runs on the merger's hot path, where a whole hybrid query can be
+    // faster than one tick of it. A depleter that signals while this thread holds no
+    // wait costs a full sleep, so short queries paid ~2ms of pure sleep.
     if (numDone < count) {
-      usleep(1000);
+      usleep(50);
     }
   }
 
