@@ -12,15 +12,22 @@
 
 /// Copies the process-wide configuration.
 ///
-/// A copy rather than a `&'static ffi::RSConfig`, which would assert that nothing writes the
-/// static while it lives — `FT.CONFIG SET` does, from client threads. The read is
-/// unsynchronised, as it is on the C side, so it can tear against a concurrent write, and any
-/// pointer field can be freed by a later one.
+/// A copy rather than a `&'static `[`ffi::RSConfig`], which would assert that nothing writes
+/// the static while it lives — `CONFIG SET` does, from client threads. Any pointer field can
+/// also be freed by a later write.
 ///
-/// Take one snapshot per operation rather than one per field, so that an operation cannot
-/// observe a setting changing halfway through.
+/// Take one snapshot per operation rather than one per field: a struct copy is not atomic, so
+/// this narrows the window in which an operation sees a setting change halfway through, but
+/// does not close it.
+#[inline]
 pub fn get() -> ffi::RSConfig {
     // SAFETY: `RSGlobalConfig` is a statically initialised C global that lives for the whole
     // process, and `RSConfig` is `Copy`, so the value is read out without forming a reference.
+    //
+    // The read is deliberately unsynchronised, which is the one precondition this argument
+    // does not establish: `CONFIG SET` writes these fields from client threads, so the copy
+    // can race and tear. That is the behaviour of the C readers of the same fields, which
+    // this wrapper exists to replace rather than to change; removing the race needs the C
+    // side to store the fields atomically.
     unsafe { ffi::RSGlobalConfig }
 }

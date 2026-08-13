@@ -29,13 +29,13 @@ use rqe_iterators::IteratorsConfig;
 /// Snapshot the evaluator's configuration.
 ///
 /// Fields that have no per-query snapshot are read from the process-wide config, in a
-/// single [`global_config::get`] so that they are consistent with one another. Anything
-/// covered by [`IteratorsConfig`] is instead taken from `iterators` rather than the live
-/// global.
+/// single [`global_config::get`] rather than one read per field. Anything covered by
+/// [`IteratorsConfig`] is instead taken from `iterators` rather than the live global.
 ///
-/// This is the single point where the query evaluator reads the global config;
-/// the resulting [`Config`] is threaded through evaluation as a parameter, so a
-/// query cannot observe a setting changing underneath it.
+/// The resulting [`Config`] is threaded through evaluation as a parameter, so evaluation
+/// itself never re-reads the global. [`resolve_scorer`] does, on the path that decides
+/// whether a query needs term offsets, so a `CONFIG SET` landing between the two can still
+/// leave that decision and this snapshot disagreeing.
 fn eval_config(iterators: &IteratorsConfig) -> Config {
     let global = global_config::get();
 
