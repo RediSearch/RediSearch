@@ -28,18 +28,25 @@ If you are unsure, open a GitHub issue and ask. A one-line answer from a maintai
 
 ## The flag
 
-One boolean, `RSGlobalConfig.enableUnstableFeatures` (`src/config.h`), default `false`. It is reachable through two equivalent surfaces that read and write the same field:
+One boolean, `RSGlobalConfig.enableUnstableFeatures` (`src/config.h`), default `false`. Several surfaces read and write that same field, but they are not interchangeable — use the Redis configuration parameter:
 
-| Surface | Name | Example |
-| --- | --- | --- |
-| Redis config | `search-enable-unstable-features` | `CONFIG SET search-enable-unstable-features yes` |
-| `FT.CONFIG` | `ENABLE_UNSTABLE_FEATURES` | `FT.CONFIG SET ENABLE_UNSTABLE_FEATURES true` |
+```
+CONFIG SET search-enable-unstable-features yes   # at runtime
+search-enable-unstable-features yes              # in redis.conf, on from startup
+```
 
-It can also be set at startup, in `redis.conf` as `search-enable-unstable-features yes`, or as a module argument: `loadmodule redisearch.so ENABLE_UNSTABLE_FEATURES TRUE`.
+Two older surfaces set the same field and still work, but both log a deprecation warning steering the caller to that parameter: `FT.CONFIG` via `LogWarningDeprecatedFTConfig`, and module arguments via `LogWarningDeprecatedModuleArgs`, which fires for *every* module argument rather than this one specifically.
+
+| Legacy surface | Example |
+| --- | --- |
+| `FT.CONFIG` | `FT.CONFIG SET ENABLE_UNSTABLE_FEATURES true` |
+| Module argument | `loadmodule redisearch.so ENABLE_UNSTABLE_FEATURES TRUE` |
+
+Recognize these in existing tests and older issues, but do not use them in a new feature's tests, reproduction steps, or deployment instructions.
 
 Four properties of the flag matter when you design against it:
 
-**It is mutable at runtime.** Neither registration marks it immutable, so a user can flip it without restarting, and the change takes effect on the next command. Your gate check therefore has to be evaluated per request, not cached at load time.
+**It is mutable at runtime.** Neither the Redis-config registration nor the `FT.CONFIG` variable marks it immutable, so a user can flip it without restarting, and the change takes effect on the next command. Your gate check therefore has to be evaluated per request, not cached at load time.
 
 **It is process-scoped, not database-scoped.** `RSGlobalConfig` is a single global per `redis-server` process. It is not per logical DB (`SELECT` changes nothing), not per index, and not per connection. In a cluster it must be in effect on **every shard** — `FT.CONFIG SET` is handled locally and is not fanned out, so in Open Source cluster mode the operator issues it per shard, while in Redis Enterprise and Redis Cloud the database configuration mechanism applies it to all of the database's shards. A half-configured cluster will behave inconsistently, and that is the operator's problem, not something your code should try to paper over.
 
@@ -56,9 +63,11 @@ This matters when you write reproduction steps or test instructions for your fea
 
 These are the conditions that let a maintainer approve your PR without a product review. Each one exists so that a user who leaves the flag off is provably unaffected.
 
-### 1. Off by default, with zero observable difference when off
+### 1. Off by default, with no behavior difference when off
 
-Do not change the default. With the flag off, your change must be undetectable: same results, same errors, same `FT.INFO` output, same `COMMAND DOCS`-visible behavior for existing commands, same profile output. If a reviewer can tell your PR is present without enabling the flag, the gate is in the wrong place.
+Do not change the default. With the flag off, your feature must not *do* anything: existing queries return the same results and errors, `FT.INFO` and profile output are unchanged, published `COMMAND DOCS` metadata for existing commands is unchanged, and your new surface refuses every request (Requirement 7). If a reviewer can get different *behavior* out of the module without enabling the flag, the gate is in the wrong place.
+
+One trace is permitted: a command's existence. A new `FT.*` command is registered unconditionally, so it appears in `COMMAND` output, and the counts derived from it, even with the flag off — registration happens once at module load and cannot follow a runtime-mutable flag. Existence is exempt; argument metadata is not, which is why a gated command is registered with no command-info callback. See [A new `FT.*` command](#a-new-ft-command).
 
 ### 2. Runtime gate, not a compile-time one
 
@@ -94,7 +103,7 @@ The gate lowers the bar for *product* review, not for engineering review. Your c
 
 ### A new option, argument, reducer, or function
 
-Check at **parse time**, as early as possible, before you allocate or open keys. This is how the `COLLECT` reducer was gated for its first two releases:
+Check at **parse time**, as early as possible, before you allocate or open keys. This is where the `COLLECT` reducer's gate lived until it graduated:
 
 ```c
 bool CollectArgs_Parse(const ReducerOptions *options, CollectArgs *out) {
@@ -178,7 +187,7 @@ While your feature is gated, it is **not** part of the public API, and it should
 
 - Do not add it to the redis.io documentation. That happens at graduation.
 - Do document it in your PR description and in code comments: what it does, why the design is what it is, what you know is incomplete, and what you would want to change before it graduates. The next person to touch this will be reading that, possibly a year later.
-- Choose the release-notes checkbox that matches. A gated feature is generally not a user-facing release note; if you are unsure, check the box that produces no note and say in the PR that the feature is gated. A maintainer will correct it if needed.
+- Tick "This PR does not require release notes", and say in the PR description that the feature is gated. A flag-off user cannot reach your feature, so it is internal-only for release-note purposes no matter what surface it adds.
 - State the limited-support status plainly wherever you *do* describe it — including in any blog post, issue comment, or example you publish. Unstable means: off by default, no compatibility guarantee, may change shape or be removed in any release, and not covered by Redis support commitments.
 
 ## PR checklist
@@ -187,7 +196,7 @@ Copy this into your pull-request description and tick it honestly. It is what a 
 
 ```
 Unstable-feature gate
-- [ ] Flag default is unchanged (off); no observable difference with the flag off
+- [ ] Flag default is unchanged (off); no behavior difference with the flag off (a gated command may still appear in COMMAND output)
 - [ ] Gate is a runtime check on RSGlobalConfig.enableUnstableFeatures, not a compile-time or registration-time gate
 - [ ] No new persisted, replicated, or on-disk state
 - [ ] No unconditional allocation, callback registration, locking, or hot-path cost
@@ -224,4 +233,4 @@ Some gated features will not graduate, and that is a normal outcome rather than 
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md) — setup, coding standards, PR workflow, how to run the test suites.
 - [`CONTRIBUTING-specs.md`](CONTRIBUTING-specs.md) — the spec-driven workflow, required for graduation and for anything this path excludes.
 - `src/config.c`, `src/config.h` — the flag's registration and definition.
-- `git show 910e9c4e48` and `git show 66978e2386` — the `COLLECT` reducer arriving behind the gate, and graduating out of it.
+- `git show 910e9c4e48` and `git show 66978e2386` — the `COLLECT` reducer with the gate, and without it.
