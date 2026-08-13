@@ -342,9 +342,8 @@ void HybridRequest_Free(HybridRequest *req) {
     // Cycle-end disposition of the published sub-cursors: the container dies
     // on the main thread at the end of the initial cursor cycle, so park them
     // for reads — or drop them when the cycle timed out, since the timeout
-    // reply exposes no IDs. Published cursors own their subs (the handoff);
-    // the teardown below then leaves the subs to their cursors.
-    const bool cursorsOwnSubqueries = req->cursors != NULL;
+    // reply exposes no IDs. Published cursors own their subs (the handoff),
+    // so each sub is left to its cursor, like any parked request.
     if (req->cursors) {
       const bool timedOut = HybridRequest_TimedOut(req);
       for (size_t i = 0; i < array_len(req->cursors); i++) {
@@ -359,16 +358,14 @@ void HybridRequest_Free(HybridRequest *req) {
       }
       array_free(req->cursors);
       req->cursors = NULL;
-    }
-
-    // Free all individual AREQ requests and their pipelines — unless the
-    // handoff transferred them to their cursors (each sub is then freed by
-    // its cursor, like any parked request). AREQ_Free tears down the pipeline
-    // (and its disk-iterator borrows) before releasing the sctx and its
-    // diskSnapshot, and the subs own no RedisModuleCtx — each cycle lends and
-    // reclaims its own.
-    for (size_t i = 0; !cursorsOwnSubqueries && i < req->nrequests; i++) {
-      AREQ_DecrRef(req->requests[i]);
+    } else {
+      // No handoff happened, so the container still owns its subs. AREQ_Free
+      // tears down the pipeline (and its disk-iterator borrows) before
+      // releasing the sctx and its diskSnapshot, and the subs own no
+      // RedisModuleCtx — each cycle lends and reclaims its own.
+      for (size_t i = 0; i < req->nrequests; i++) {
+        AREQ_DecrRef(req->requests[i]);
+      }
     }
     array_free(req->requests);
 
