@@ -129,6 +129,16 @@ void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx);
 void RedisSearchCtx_BorrowSpecReadLock(RedisSearchCtx *sctx);
 void RedisSearchCtx_ClearBorrowedSpecReadLock(RedisSearchCtx *sctx);
 
+/* Debug-only (ENABLE_ASSERT) check that no writer could take the spec lock at this
+ * point, whether this thread holds it for read or another thread holds it at all.
+ * Non-blocking, and tests the rwlock rather than our own `lock_state` bookkeeping, so a
+ * lock that was never taken cannot pass. */
+#ifdef ENABLE_ASSERT
+void RedisSearchCtx_AssertWritersExcluded(RedisSearchCtx *sctx);
+#else
+#define RedisSearchCtx_AssertWritersExcluded(sctx) ((void)0)
+#endif
+
 /* Debug-only (ENABLE_ASSERT) check that the spec lock is not held. Used at
  * background request-cycle boundaries: the lock must be taken and released
  * within a single cycle, on the same worker thread — a later release (request

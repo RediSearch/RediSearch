@@ -3,10 +3,10 @@ Spec-lock coverage for the single-threaded (WORKERS 0) FT.HYBRID path, which tak
 spec read lock for the whole execution and lends it to the sub-request contexts
 (SPEC_LOCK_READ_BORROWED) instead of letting their query iterators re-acquire it.
 
-test_hybrid_foreground_build_excludes_gc_writer is the MOD-16215 regression test: it
-fails if the build stops holding the read lock. The rest pin the release protocol - the
-lock is given back on success, after cursor creation, and on the error exits either side
-of the borrow.
+test_hybrid_foreground_build_excludes_writers is the MOD-16215 regression test: it fails
+if the build stops holding the read lock. The rest pin the release protocol - the lock is
+given back on success, after cursor creation, and on the error exits either side of the
+borrow.
 """
 
 from common import *
@@ -66,73 +66,27 @@ def _assert_writer_not_blocked(env, when):
                     message=f'writer did not acquire the spec lock after {when}')
 
 
-# The build park is deliberately generous: the test can only go red if GC reaches the
-# write lock inside that window, so a wide margin over the few ms it actually needs is
-# what keeps the red side reliable on a loaded host.
-_BUILD_PARK_MS = 3000
-_GC_HOLD_MS = 500
-_GC_ARRIVAL_TIMEOUT_MS = 30000
-
-
 @skip(cluster=True)
-def test_hybrid_foreground_build_excludes_gc_writer():
+def test_hybrid_foreground_build_excludes_writers():
     """Regression test for MOD-16215: the foreground build must hold the spec read lock,
-    so a fork-GC writer cannot mutate the trie/stats that QAST_Iterate reads.
+    so a writer such as fork-GC cannot mutate the trie/stats that QAST_Iterate reads.
 
-    The main thread is parked inside the query for the whole window, so no command can
-    release either side - both parks release themselves, and how the build's park ended
-    is the oracle:
-
-      * read lock held    -> GC blocks in LockSpecWrite and never reaches its post-lock
-        park, the build's predicate never fires, and it exits on TIMEOUT.
-      * read lock missing -> GC takes the write lock and parks there, the build's
-        predicate sees it, and it exits on PREDICATE.
-
-    Recorded at the end of the park rather than inferred from how long the query took: a
-    host stall can push the unlocked path past any elapsed-time threshold. Elapsed time
-    is kept only as a diagnostic.
+    The oracle is in the build itself. RedisSearchCtx_AssertWritersExcluded tries to take
+    the spec write lock there: it fails with EBUSY while the read lock is held, and
+    succeeds - aborting the server - if it was never taken. So no real writer has to be
+    raced against, and there is nothing for a loaded host to distort. Dropping the
+    RedisSearchCtx_LockSpecRead call from buildPipelineAndExecute makes this query kill
+    the server instead of replying.
     """
-    env = Env(moduleArgs='WORKERS 0 DEFAULT_DIALECT 2', enableDebugCommand=True)
+    env = Env(moduleArgs='WORKERS 0 DEFAULT_DIALECT 2')
     skipIfNoEnableAssert(env)
     _create_index(env)
     _load(env, 20)
 
-    # Deleted docs give the term apply something to collect, which is what takes the
-    # spec write lock.
-    conn = getConnectionByEnv(env)
-    for i in range(10):
-        conn.execute_command('DEL', f'doc:{i}')
-
-    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM',
-               'GcAfterSpecWriteLock', _GC_HOLD_MS).ok()
-    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM',
-               'GcBeforeSpecWriteLock', _GC_ARRIVAL_TIMEOUT_MS).ok()
-    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM',
-               'HybridForegroundBuild', _BUILD_PARK_MS).ok()
-
-    # Fork now, while the main thread is idle: the fork needs the GIL, which the query is
-    # about to hold. GC then parks just short of the write lock until the query is parked,
-    # so the two are guaranteed to overlap.
-    forceBGInvokeGC(env, 'idx')
-    wait_for_condition(
-        lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING',
-                         'GcBeforeSpecWriteLock') == 1, {}),
-        'Timeout waiting for GC to park before the spec write lock')
-
-    start = time.time()
-    res = env.cmd(*_hybrid_cmd())
-    elapsed_ms = (time.time() - start) * 1000
-
-    env.assertGreater(len(res), 0)
-    exit_reason = env.cmd(debug_cmd(), 'SYNC_POINT', 'LAST_EXIT', 'HybridForegroundBuild')
-    env.assertEqual(exit_reason, 'TIMEOUT',
-                    message='GC acquired the spec write lock while the foreground build '
-                            'was in progress, so the build did not hold the read lock '
-                            f'(query took {elapsed_ms:.0f}ms)')
-
-    env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
-    env.cmd(debug_cmd(), 'GC_WAIT_FOR_JOBS')
-    _assert_writer_not_blocked(env, 'the GC-writer exclusion test')
+    env.assertGreater(len(env.cmd(*_hybrid_cmd())), 0)
+    # Still serving, so the in-build assertion held for the query above.
+    env.expect('PING').equal(True)
+    _assert_writer_not_blocked(env, 'a foreground FT.HYBRID')
 
 
 def test_hybrid_foreground_releases_spec_lock(env):

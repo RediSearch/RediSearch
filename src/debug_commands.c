@@ -228,7 +228,6 @@ typedef struct SyncPointState {
   _Atomic uint32_t waiting;             // Number of threads currently waiting at this point
   _Atomic long long auto_release_ms;    // >0: a parked SyncPoint_Wait self-releases after
                                         // this many ms even without a SIGNAL; 0: wait for SIGNAL.
-  atomic_int last_exit;                 // SyncPointExit: how the last WaitUntilOnce park ended
 } SyncPointState;
 
 // Container for all sync point states
@@ -260,7 +259,6 @@ static bool SyncPoint_ArmInternal(const char *name, long long auto_release_ms) {
     // Publish the timeout before re-arming so a Wait that observes `armed`
     // reads the intended auto-release window (seq_cst stores order the two).
     atomic_store(&existing->auto_release_ms, auto_release_ms);
-    atomic_store(&existing->last_exit, SYNC_POINT_EXIT_NONE);
     atomic_store(&existing->armed, true);
     return true;
   }
@@ -277,7 +275,6 @@ static bool SyncPoint_ArmInternal(const char *name, long long auto_release_ms) {
   strncpy(sp->name, name, SYNC_POINT_NAME_MAX_LEN - 1);
   sp->name[SYNC_POINT_NAME_MAX_LEN - 1] = '\0';
   atomic_store(&sp->auto_release_ms, auto_release_ms);
-  atomic_store(&sp->last_exit, SYNC_POINT_EXIT_NONE);
   atomic_store(&sp->armed, true);
   // Note: We intentionally do NOT reset sp->waiting here.
   // The slot is either newly allocated (waiting is 0 from static init) or
@@ -336,64 +333,36 @@ void SyncPoint_ClearAll(void) {
   atomic_store(&globalSyncPointCtx.count, 0);
 }
 
-// Park until the point is disarmed, `stop_fn` fires, or the arm's auto-release window
-// runs out, recording which of the three ended the park (see SyncPoint_LastExit).
-//
-// The auto-release window is what lets a test park a thread that no SIGNAL can ever
-// reach, because the main thread that would send it is itself blocked behind the parked
-// one. `disarm` additionally disarms on the way out, for a rendezvous inside a loop that
-// must park exactly once.
-static void SyncPoint_Park(SyncPointState *sp, SyncPointStopFn stop_fn, void *arg,
-                           bool disarm) {
+void SyncPoint_Wait(const char *name) {
+  SyncPointState *sp = SyncPoint_FindByName(name);
+  if (!sp || !atomic_load(&sp->armed)) return;
+
+  // Read the auto-release window once; >0 caps the park so it self-releases
+  // even without a SIGNAL. This is what lets a test hold a background apply
+  // while the main thread blocks in disable_compactions() (which waits for the
+  // in-flight compaction) — a SIGNAL could never be processed by the frozen
+  // main thread, so the timeout is the only way out.
   long long auto_release_ms = atomic_load(&sp->auto_release_ms);
-  atomic_fetch_add(&sp->waiting, 1);
+  atomic_fetch_add(&sp->waiting, 1);  // Increment waiting counter
   long long waited_ms = 0;
-  int exit_reason = SYNC_POINT_EXIT_SIGNAL;
   while (atomic_load(&sp->armed)) {
-    if (stop_fn && stop_fn(arg)) {
-      exit_reason = SYNC_POINT_EXIT_PREDICATE;
-      break;
-    }
-    if (auto_release_ms > 0 && waited_ms >= auto_release_ms) {
-      exit_reason = SYNC_POINT_EXIT_TIMEOUT;
-      break;
-    }
-    usleep(1000);
+    if (auto_release_ms > 0 && waited_ms >= auto_release_ms) break;  // self-release
+    usleep(1000);  // Spin-wait with 1ms sleep (matches existing pattern)
     waited_ms++;
   }
-  atomic_store(&sp->last_exit, exit_reason);
-  if (disarm) {
-    // Disarm before dropping out of `waiting`: SyncPoint_ClearAll drains on the
-    // waiting count, so this order cannot leave it spinning on a re-armed slot.
-    atomic_store(&sp->armed, false);
-  }
-  atomic_fetch_sub(&sp->waiting, 1);
-}
-
-// The armed slot for `name`, or NULL if there is nothing to park on.
-static SyncPointState *SyncPoint_FindArmed(const char *name) {
-  SyncPointState *sp = SyncPoint_FindByName(name);
-  return (sp && atomic_load(&sp->armed)) ? sp : NULL;
-}
-
-void SyncPoint_Wait(const char *name) {
-  SyncPointState *sp = SyncPoint_FindArmed(name);
-  if (sp) SyncPoint_Park(sp, NULL, NULL, false);
+  atomic_fetch_sub(&sp->waiting, 1);  // Decrement waiting counter
 }
 
 void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg) {
-  SyncPointState *sp = SyncPoint_FindArmed(name);
-  if (sp) SyncPoint_Park(sp, stop_fn, arg, false);
-}
-
-void SyncPoint_WaitUntilOnce(const char *name, SyncPointStopFn stop_fn, void *arg) {
-  SyncPointState *sp = SyncPoint_FindArmed(name);
-  if (sp) SyncPoint_Park(sp, stop_fn, arg, true);
-}
-
-int SyncPoint_LastExit(const char *name) {
   SyncPointState *sp = SyncPoint_FindByName(name);
-  return sp ? atomic_load(&sp->last_exit) : SYNC_POINT_EXIT_NONE;
+  if (!sp || !atomic_load(&sp->armed)) return;
+
+  atomic_fetch_add(&sp->waiting, 1);
+  while (atomic_load(&sp->armed)) {
+    if (stop_fn && stop_fn(arg)) break;
+    usleep(1000);
+  }
+  atomic_fetch_sub(&sp->waiting, 1);
 }
 
 // Shard dispatch fault injection (test-only, see DebugSendError_* in header).
@@ -3176,7 +3145,6 @@ DEBUG_COMMAND(printRPStream) {
 #define SYNC_POINT_SUBCMD_IS_WAITING "IS_WAITING"
 #define SYNC_POINT_SUBCMD_IS_ARMED   "IS_ARMED"
 #define SYNC_POINT_SUBCMD_CLEAR      "CLEAR"
-#define SYNC_POINT_SUBCMD_LAST_EXIT  "LAST_EXIT"
 
 /**
  * FT.DEBUG SYNC_POINT <subcommand> [point_name]
@@ -3189,8 +3157,6 @@ DEBUG_COMMAND(printRPStream) {
  *   IS_WAITING <name> - Check if a query is paused at a sync point
  *   IS_ARMED <name>   - Check if a sync point is armed
  *   CLEAR             - Reset all sync points
- *   LAST_EXIT <name>  - How the last WaitUntilOnce park there ended: NONE, SIGNAL,
- *                       PREDICATE or TIMEOUT
  */
 DEBUG_COMMAND(syncPoint) {
   if (!debugCommandsEnabled(ctx)) return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
@@ -3240,19 +3206,7 @@ DEBUG_COMMAND(syncPoint) {
     SyncPoint_ClearAll();
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
-  if (!strcmp(SYNC_POINT_SUBCMD_LAST_EXIT, subOp)) {
-    if (argc != 4) return RedisModule_WrongArity(ctx);
-    const char *name = RedisModule_StringPtrLen(argv[3], NULL);
-    const char *reason;
-    switch (SyncPoint_LastExit(name)) {
-      case SYNC_POINT_EXIT_SIGNAL:    reason = "SIGNAL"; break;
-      case SYNC_POINT_EXIT_PREDICATE: reason = "PREDICATE"; break;
-      case SYNC_POINT_EXIT_TIMEOUT:   reason = "TIMEOUT"; break;
-      default:                        reason = "NONE"; break;
-    }
-    return RedisModule_ReplyWithSimpleString(ctx, reason);
-  }
-  return RedisModule_ReplyWithError(ctx, "Unknown SYNC_POINT subcommand. Valid: ARM, SIGNAL, IS_WAITING, IS_ARMED, CLEAR, LAST_EXIT");
+  return RedisModule_ReplyWithError(ctx, "Unknown SYNC_POINT subcommand. Valid: ARM, SIGNAL, IS_WAITING, IS_ARMED, CLEAR");
 }
 
 /**
