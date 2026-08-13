@@ -10,6 +10,9 @@ on:
       RUST_CODE_CHANGED:
         description: "Indicates if Rust code files were modified"
         value: ${{ jobs.change-checks.outputs.RUST_CODE_CHANGED }}
+      SWAMP_CHANGED:
+        description: "Indicates if swamp extension models or definitions were modified"
+        value: ${{ jobs.change-checks.outputs.SWAMP_CHANGED }}
       TESTS_CHANGED:
         description: "Indicates if tests were modified"
         value: ${{ jobs.change-checks.outputs.TESTS_CHANGED }}
@@ -21,6 +24,7 @@ jobs:
       CODE_CHANGED: ${{ steps.check-code.outputs.any_modified == 'true' || steps.check-cmake.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
       BENCHMARK_CHANGED: ${{ steps.check-code.outputs.any_modified == 'true' || steps.check-cmake.outputs.any_modified == 'true' || steps.check-benchmarks.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
       RUST_CODE_CHANGED: ${{ steps.check-micro-benchmarks.outputs.any_modified == 'true' || steps.check-rust-cmake.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
+      SWAMP_CHANGED: ${{ steps.check-swamp.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
       TESTS_CHANGED: ${{ steps.check-tests.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
     steps:
       - name: Checkout
@@ -35,6 +39,21 @@ jobs:
           files: |
                 .github/workflows/**
                 .github/actions/**
+      # extensions/, models/ and workflows/ hold the swamp extension models and
+      # reports and the definitions referencing them. They get their own output
+      # rather than counting as code: the lint job runs `make swamp-tests` and
+      # has to see them, but CODE_CHANGED also starts the build, coverage,
+      # sanitizer and benchmark pipelines, and a TypeScript-only change has
+      # nothing to say to any of those. Note `*` in check-code matches only
+      # top-level entries, so these paths are not picked up there either way.
+      - name: Check if swamp models or definitions were changed
+        id: check-swamp
+        uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
+        with:
+          files: |
+                extensions/**
+                models/**
+                workflows/**
       - name: Check if code was changed
         id: check-code
         uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
