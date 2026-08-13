@@ -62,10 +62,11 @@ typedef struct RedisSearchCtx {
   IndexSpec *spec;
   SearchTime time;
   uint8_t apiVersion; // API Version to allow for backward compatibility / alternative functionality
-  // True when a detached thread-safe redisCtx was handed over at construction
-  // (classic cursor requests) and must be freed with this sctx; false for the
-  // common case of borrowing the running cycle's ctx. Gates the release in
-  // AREQ_Free.
+  // TRANSITIONAL: true when a detached thread-safe redisCtx was handed over at
+  // construction (classic cursor requests — the last owned-ctx users) and must
+  // be freed with this sctx; false for the common case of borrowing the
+  // running cycle's ctx. Gates the release in AREQ_Free. Retired, along with
+  // the handover itself, once cursor reads install a per-read ctx instead.
   bool ownRedisCtx;
   SpecLockState lock_state;
   // Per-query disk snapshot (optional, NULL when no snapshot has been taken or when the

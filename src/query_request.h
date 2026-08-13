@@ -49,11 +49,11 @@ typedef struct {
   SearchResult **results;  // Aggregated results array (NULL if not stored)
   int rc;                  // Pipeline return code (RS_RESULT_OK, RS_RESULT_EOF, etc.)
   bool hasStoredResults;   // Whether results are available to the reply callback
-  /* The cycle's error and warnings. Parents clone the pipeline's stack-local
-   * QueryError into it at publication; hybrid sub-pipelines report into it
-   * directly (a sub's results are published by the parent's reply). The
-   * RETURN_STRICT flip (MOD-17486) makes direct wiring the rule for all
-   * pipelines. */
+  /* The cycle's error and warnings — the request's single error slot. Hybrid
+   * sub-pipelines report into it directly (a sub's results are published by
+   * the parent's reply). TRANSITIONAL(MOD-17486): parents still clone the
+   * pipeline's stack-local QueryError into it at publication; the
+   * RETURN_STRICT flip wires every pipeline directly. */
   QueryError err;
   cachedVars cv;           // Cached lookup variables used during serialization
   struct Cursor *cursor;   // Non-owning cursor handle for the reply callback
