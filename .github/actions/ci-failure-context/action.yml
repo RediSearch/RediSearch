@@ -26,9 +26,12 @@ inputs:
       traceback or an RLTest `[FAIL]` summary far above the tail) survives
       truncation. The default targets common RediSearch CI failure signatures;
       pass an empty string to disable. Note that Rust panics need both
-      `panicked at` (std's default hook, used by test binaries) and
-      `A panic occurred in the Rust code` (the module's replacement hook
-      installed by `RustPanicHook_Init`, which is what a loaded module emits).
+      spellings. `RustPanicHook_Init` chains a `tracing` hook ahead of std's,
+      so a panic inside a loaded module emits both — but only the `tracing`
+      one, `A panic occurred in the Rust code`, routes through
+      `RedisModule_Log` into the redis logfile these patterns are applied to.
+      std's `panicked at` goes to stderr, which RLTest pipes and never reads,
+      and so only ever shows up for test binaries that log to the console.
     required: false
     default: |
       Traceback \(most recent call last\):
@@ -214,7 +217,10 @@ runs:
           # prefix, GH-Actions/Python-logger/redis-server timestamps and hex
           # addresses, so a message repeated on many lines collapses to one entry
           # even when each repetition carries a different pid, clock reading or
-          # pointer value; head: bound total volume.
+          # pointer value; head: bound total volume. The redis-server prefix is
+          # matched unanchored because the console copy of a line carries an
+          # ANSI colour escape ahead of it, and spelled out to the month name so
+          # an unanchored match cannot land mid-message.
           grep -nE -f "$PAT_FILE" failed-logs.txt 2>/dev/null \
             | cut -c1-500 \
             | awk '{
@@ -222,7 +228,7 @@ runs:
                 sub(/^[0-9]+:/, "", key)
                 gsub(/[0-9]+-[0-9]+-[0-9]+T[0-9:.]+Z/, "", key)
                 gsub(/[0-9]+-[0-9]+-[0-9]+ [0-9]+:[0-9]+:[0-9]+,[0-9]+/, "", key)
-                gsub(/[0-9]+:[A-Za-z] [0-9]+ [A-Za-z]+ [0-9]+ [0-9:.]+/, "", key)
+                gsub(/[0-9]+:[A-Za-z] [0-9]+ (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) [0-9]+ [0-9]+:[0-9]+:[0-9]+\.[0-9]+/, "", key)
                 gsub(/0x[0-9a-fA-F]+/, "", key)
                 if (!seen[key]++) print
               }' \
