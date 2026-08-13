@@ -66,8 +66,12 @@ or with content that should not remain visible in the PR diff or metadata.
    to a harmless commit first. Usually this is the base branch tip.
 6. Verify in GitHub that the PR diff is empty or otherwise no longer shows the unwanted
    content.
-7. Only after that verification, close the PR and sanitize title, body, or comments if
-   needed.
+7. Only after that verification, close the PR. Sanitize title, body, or comments only when
+   the current user owns that metadata or has permission to edit it. After editing, verify
+   the unwanted text is no longer visible in the PR title, body, comments, timeline, and
+   edit history available to normal viewers. If someone else's comment, edit history,
+   cached view, or timeline event still exposes the material, escalate to repository admins
+   or GitHub Support for deletion or purge.
 8. Delete the branch only after verifying the PR no longer shows the unwanted diff.
 9. If the PR was already closed and GitHub still shows the old diff, do not assume a normal
    force-push can fix it. Hidden `refs/pull/*` refs are generally read-only to normal users;
