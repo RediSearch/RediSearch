@@ -11,12 +11,16 @@
 //! `TagIndex::iterator_for_tag` build, through the `RQEIterator` trait
 //! directly. Wrapping them for the C vtable is the FFI crate's job, not this
 //! crate's, so these tests stop at the Rust boundary.
+//!
+//! `open_reader` returns a `NewTagIterator`, which is a plain enum: these tests
+//! match out the `Mem` variant — the only one a memory-mode index yields — and
+//! drive the iterator inside it.
 
 use std::ptr::NonNull;
 
 use rqe_iterators::{RQEIterator, RQEValidateStatus};
 use rqe_iterators_test_utils::MockContext;
-use tag_index::{TagIndex, TrieLookup};
+use tag_index::{NewTagIterator, TagIndex, TrieLookup};
 
 use crate::util::index_mem;
 
@@ -73,6 +77,9 @@ fn open_reader_reads_all_ids_in_order() {
     let it = unsafe { (*tag_index).open_reader(mock.sctx(), b"hello", 1.0, FIELD_INDEX, lookup) }
         .expect("memory mode never errors")
         .expect("the tag is indexed");
+    let NewTagIterator::Mem(it) = it else {
+        panic!("a memory-mode index returns the Mem variant")
+    };
 
     let doc_ids = drain(it);
     assert_eq!(doc_ids, (1..=N).collect::<Vec<_>>());
@@ -93,10 +100,12 @@ fn skip_to_past_last_id_yields_eof() {
 
     // SAFETY: `tag_index` and `mock` outlive the iterator, and `lookup` resolves
     // `tag_index`.
-    let mut it =
-        unsafe { (*tag_index).open_reader(mock.sctx(), b"hello", 1.0, FIELD_INDEX, lookup) }
-            .expect("memory mode never errors")
-            .expect("the tag is indexed");
+    let it = unsafe { (*tag_index).open_reader(mock.sctx(), b"hello", 1.0, FIELD_INDEX, lookup) }
+        .expect("memory mode never errors")
+        .expect("the tag is indexed");
+    let NewTagIterator::Mem(mut it) = it else {
+        panic!("a memory-mode index returns the Mem variant")
+    };
 
     it.read().expect("read must not error");
     assert_eq!(it.last_doc_id(), doc_id);

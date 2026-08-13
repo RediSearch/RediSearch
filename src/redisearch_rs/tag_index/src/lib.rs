@@ -168,17 +168,14 @@ use ffi::{
 };
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use index_result::RSIndexResult;
-use index_spec::IndexSpecReadGuard;
 use inverted_index::{
     DocId, GcApplyInfo, GcScanDelta, IndexReader, InvertedIndex, doc_ids_only::DocIdsOnly,
 };
 use query_term::RSQueryTerm;
 use redis_module::RedisModuleCtx;
 use rqe_iterators::{
-    FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorError, RQEIteratorPrintable,
-    RQEValidateStatus, SEARCH_ENTERPRISE_ITERATORS, SkipToOutcome,
+    FieldExpirationChecker, RQEIteratorPrintable, SEARCH_ENTERPRISE_ITERATORS,
     inverted_index::{Tag, TagLookup},
-    profile_print::{ProfileMapBuilder, ProfilePrint, ProfilePrintCtx},
     utils::duration_from_redis_timespec,
 };
 use rqe_wildcard::{MatchOutcome, WildcardPattern};
@@ -980,95 +977,15 @@ impl TagIndex {
 }
 
 /// The iterator [`TagIndex::open_reader`] returns, one variant per storage mode.
-///
-/// Both variants implement [`RQEIterator`]/[`ProfilePrint`] directly, so the
-/// conversion to a C-callable `*mut QueryIterator` — via
-/// [`RQEIteratorWrapper::boxed_new`](rqe_iterators::interop::RQEIteratorWrapper::boxed_new) —
-/// stays at the FFI boundary rather than inside this crate.
 pub enum NewTagIterator<'index> {
     /// Memory mode: reads the tag's postings inline from the values trie.
     Mem(Box<Tag<'index, DocIdsOnly, TrieLookup, FieldExpirationChecker>>),
     /// Disk mode: delegates to the enterprise disk index iterator.
     ///
-    /// `Box<dyn _>` because the enterprise implementation is closed-source and
-    /// type-erased behind
-    /// [SearchEnterpriseIterators::new_tag_on_disk](rqe_iterators::SearchEnterpriseIterators::new_tag_on_disk);
-    /// there is no concrete type to name on this side. Same shape, same reason,
-    /// as [`rqe_iterators::NewWildcardIterator::Disk`].
+    /// `Box<dyn _>` is what
+    /// [SearchEnterpriseIterators::new_tag_on_disk](rqe_iterators::SearchEnterpriseIterators::new_tag_on_disk)
+    /// returns.
     Disk(Box<dyn RQEIteratorPrintable<'index> + 'index>),
-}
-
-macro_rules! delegate_new_tag_iterator {
-    ($self:ident, $method:ident $(, $arg:ident)*) => {
-        match $self {
-            Self::Mem(it) => it.$method($($arg),*),
-            Self::Disk(it) => it.$method($($arg),*),
-        }
-    };
-}
-
-// Exercised directly by `tests/integration/reader.rs` (via a generic
-// `impl RQEIterator` helper), and the precondition for the future FFI crate's
-// `RQEIteratorWrapper::boxed_new(it)`, which requires this bound.
-impl<'index> RQEIterator<'index> for NewTagIterator<'index> {
-    #[inline(always)]
-    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
-        delegate_new_tag_iterator!(self, current)
-    }
-
-    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        delegate_new_tag_iterator!(self, read)
-    }
-
-    fn skip_to(
-        &mut self,
-        doc_id: DocId,
-    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        delegate_new_tag_iterator!(self, skip_to, doc_id)
-    }
-
-    fn rewind(&mut self) {
-        delegate_new_tag_iterator!(self, rewind)
-    }
-
-    fn num_estimated(&self) -> usize {
-        delegate_new_tag_iterator!(self, num_estimated)
-    }
-
-    fn last_doc_id(&self) -> DocId {
-        delegate_new_tag_iterator!(self, last_doc_id)
-    }
-
-    fn at_eof(&self) -> bool {
-        delegate_new_tag_iterator!(self, at_eof)
-    }
-
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        delegate_new_tag_iterator!(self, revalidate, spec)
-    }
-
-    #[inline(always)]
-    fn type_(&self) -> IteratorType {
-        delegate_new_tag_iterator!(self, type_)
-    }
-
-    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
-        delegate_new_tag_iterator!(self, intersection_sort_weight, prioritize_union_children)
-    }
-}
-
-// `RQEIteratorPrintable: RQEIterator + ProfilePrint`, so this is required by
-// the same `boxed_new` bound as the impl above, not exercised on its own here —
-// matching `rqe_iterators::NewWildcardIterator`'s own `ProfilePrint` impl,
-// which has no direct caller in that crate's tests either; `FT.PROFILE`
-// printing happens above the FFI boundary in both cases.
-impl ProfilePrint for NewTagIterator<'_> {
-    fn print_profile(&self, map: &mut ProfileMapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
-        delegate_new_tag_iterator!(self, print_profile, map, ctx)
-    }
 }
 
 // Handles tests reach the index internals through, kept apart from the production
