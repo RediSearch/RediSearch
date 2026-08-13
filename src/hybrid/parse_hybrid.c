@@ -833,6 +833,12 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
     goto error;
   }
 
+  // Record whether TIMEOUT was explicitly given, and capture the client's value,
+  // so the coordinator can forward the exact client timeout to shards without
+  // re-scanning argv.
+  parsedCmdCtx->timeoutSpecified = (hybridParseCtx.specifiedArgs & SPECIFIED_ARG_TIMEOUT) != 0;
+  parsedCmdCtx->clientTimeoutMS = parsedCmdCtx->reqConfig->queryTimeoutMS;
+
   // Set slots info in both subqueries
   if (internal) {
     if (!requestSlotRanges) {
