@@ -1054,7 +1054,7 @@ fn expansion_deadline(timeout: Option<timespec>) -> Option<Instant> {
 
 /// Penalty applied when an anchor token is immediately followed by `*`:
 /// iterating all of a node's children is expensive.
-const SUFFIX_STARRED_ANCHOR_PENALTY: i32 = 5;
+const SUFFIX_STARRED_ANCHOR_PENALTY: i32 = ffi::SUFFIX_STARRED_ANCHOR_PENALTY as i32;
 
 /// Split `pattern` on `*` into literal tokens and return the `(offset, len)` of
 /// the most selective one, or `None` when there is no usable literal token
