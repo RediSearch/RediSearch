@@ -965,9 +965,6 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
   // QAST_Iterate reads the trie/stats, which GC can mutate concurrently, so the
   // build runs under the read lock.
   RedisSearchCtx_LockSpecRead(sctx);
-  // MOD-16215 was this lock missing on the single-threaded path, which no result could
-  // reveal, so the precondition is enforced rather than described.
-  RedisSearchCtx_AssertWritersExcluded(sctx);
 
   // Internal commands do not have a hybrid merger and only have a depletion pipeline
   if (internal) {

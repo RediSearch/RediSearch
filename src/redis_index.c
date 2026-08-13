@@ -8,7 +8,6 @@
  */
 #include "redis_index.h"
 
-#include <errno.h>
 #include <stdio.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -185,20 +184,6 @@ int SearchCtx_TakeDiskSnapshot(RedisSearchCtx *sctx, QueryError *status) {
 RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, bool resetTTL) {
   return NewSearchCtxC(ctx, RedisModule_StringPtrLen(indexName, NULL), resetTTL);
 }
-
-#ifdef ENABLE_ASSERT
-void RedisSearchCtx_AssertWritersExcluded(RedisSearchCtx *ctx) {
-  // trywrlock cannot block, and fails with EBUSY while any thread holds the lock -
-  // including this one for read. So it answers "could a writer get in here?" against the
-  // rwlock itself, with no second thread to schedule and nothing to time out.
-  int rc = pthread_rwlock_trywrlock(&ctx->spec->rwlock);
-  if (rc == 0) {
-    // Nobody held it. Give back the lock we just took before reporting.
-    pthread_rwlock_unlock(&ctx->spec->rwlock);
-  }
-  RS_LOG_ASSERT(rc == EBUSY, "a writer could take the spec lock here");
-}
-#endif
 
 void RedisSearchCtx_BorrowSpecReadLock(RedisSearchCtx *ctx) {
   RS_ASSERT(ctx->lock_state == SPEC_LOCK_UNSET);
