@@ -160,10 +160,7 @@ use inverted_index::{
 use query_term::RSQueryTerm;
 use redis_module::RedisModuleCtx;
 use rqe_iterators::{
-    FieldExpirationChecker,
-    interop::RQEIteratorWrapper,
-    inverted_index::{Tag, TagLookup},
-    utils::duration_from_redis_timespec,
+    FieldExpirationChecker, SEARCH_ENTERPRISE_ITERATORS, SearchEnterpriseIterators, interop::RQEIteratorWrapper, inverted_index::{Tag, TagLookup}, utils::duration_from_redis_timespec,
 };
 use rqe_wildcard::{MatchOutcome, WildcardPattern};
 pub(crate) use suffix::{SuffixData, TagSuffixIndex};
@@ -857,14 +854,17 @@ impl TagIndex {
         };
 
         match query {
-            SuffixQuery::Suffix(tag) => Box::new(
-                // Exact node lookup, so nothing to bound: a single node yields all
-                // its members.
-                suffix
-                    .find(tag)
-                    .into_iter()
-                    .flat_map(move |data| data.members().map(materialize)),
-            ),
+            // Exact node lookup, so nothing to bound: a single node yields all its
+            // members. Matched rather than `flat_map`ped over the `Option` because
+            // one node has nothing to flatten, and `FlatMap::next` has to re-check
+            // the outer iterator on every item to discover that.
+            //
+            // [`Self::suffix_exact`] serves this same form without the trait
+            // object; this arm exists for callers that take all three uniformly.
+            SuffixQuery::Suffix(tag) => match suffix.find(tag) {
+                Some(data) => Box::new(data.members().map(materialize)),
+                None => Box::new(std::iter::empty()),
+            },
             SuffixQuery::Contains(tag) => {
                 let mut entries = suffix.prefixed_iter(tag);
                 entries.set_timeout(deadline);
@@ -892,6 +892,40 @@ impl TagIndex {
                 )
             }
         }
+    }
+
+    /// Expand a suffix query `*foo` without a trait object: the matched terms come
+    /// back as a concrete, exactly-sized iterator the caller can inline.
+    ///
+    /// This is the form C is fastest at, and for the same reason — its
+    /// `GetList_SuffixTrieMap` hands back the node's membership array and lets the
+    /// caller walk it. [`Self::suffix_expand`] has to box its iterator to serve
+    /// three query shapes from one signature, which costs a virtual call per
+    /// delivered term; an exact lookup needs none of that, because a single node's
+    /// members are already a contiguous slice.
+    ///
+    /// Prefer this over [`SuffixQuery::Suffix`] wherever the query form is known
+    /// statically. The two yield the same terms, each including its trailing NUL.
+    ///
+    /// # Panics
+    /// Panics if this index was created without `WITHSUFFIXTRIE`.
+    pub fn suffix_exact<'a>(&'a self, tag: &[u8]) -> impl ExactSizeIterator<Item = &'a [u8]> + 'a {
+        let suffix = self.suffix.as_ref().expect("suffix trie must exist");
+
+        // An absent node is an empty slice rather than an `Option`, so the caller's
+        // loop has one shape and no branch of its own.
+        let members = suffix
+            .find(tag)
+            .map_or(&[][..], |data| data.members_slice());
+
+        members.iter().map(|p| {
+            // SAFETY: `p` is a live `TermPtr` owned by this suffix trie, pointing
+            // to `alloc_size` initialized bytes borrowed for the lifetime of
+            // `&self` — the same contract `suffix_expand`'s `materialize` relies on.
+            let len = unsafe { p.alloc_size() };
+            // SAFETY: as above — `suffix` stores valid pointers.
+            unsafe { std::slice::from_raw_parts(p.as_ptr(), len) }
+        })
     }
 }
 
