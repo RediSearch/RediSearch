@@ -725,6 +725,18 @@ impl SuffixFixture {
         visited
     }
 
+    /// Drive [`TagIndex::suffix_exact`] to exhaustion: the same terms as
+    /// [`Self::rust_expand_and_walk`] with [`SuffixQuery::Suffix`], delivered
+    /// without a trait object.
+    pub fn rust_exact_and_walk(&self, tag: &[u8]) -> usize {
+        let mut visited = 0;
+        for term in self.rust_index.suffix_exact(tag) {
+            std::hint::black_box(term);
+            visited += 1;
+        }
+        visited
+    }
+
     /// Collect what the port yields for `query`.
     ///
     /// Used to establish how many terms a configuration actually delivers — the

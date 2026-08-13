@@ -156,6 +156,7 @@ fn dissect(unique_tags: usize, tag_len: usize, selectivity: Selectivity) {
     let c_only = ns_per_call(MEASURE_FOR, || fixture.c_expand_only(&pattern, false));
     let c_full = ns_per_call(MEASURE_FOR, || fixture.c_expand_and_walk(&pattern, false));
     let rust_full = ns_per_call(MEASURE_FOR, || fixture.rust_expand_and_walk(query));
+    let rust_exact = ns_per_call(MEASURE_FOR, || fixture.rust_exact_and_walk(&pattern));
 
     // The `strlen` both arms pay per term: C's caller does it while walking the
     // array, the port does it while rebuilding each slice.
@@ -184,6 +185,7 @@ fn dissect(unique_tags: usize, tag_len: usize, selectivity: Selectivity) {
         ("c: expand only (borrows the array)", c_only),
         ("c: expand + walk  [bench arm]", c_full),
         ("rust: expand + walk  [bench arm]", rust_full),
+        ("rust: suffix_exact (no trait object)", rust_exact),
         ("floor: strlen over the same terms", strlen_floor),
         ("floor: touch pre-collected slices", touch_floor),
     ] {
@@ -214,9 +216,16 @@ fn dissect(unique_tags: usize, tag_len: usize, selectivity: Selectivity) {
         );
     }
     println!(
-        "  bench arm ratio: rust/c = {:.2}x  ({})",
+        "  bench arm ratio: rust/c = {:.2}x  ({})\n  \
+         suffix_exact:    rust/c = {:.2}x  ({})",
         rust_full / c_full,
         if rust_full > c_full {
+            "c wins"
+        } else {
+            "rust wins"
+        },
+        rust_exact / c_full,
+        if rust_exact > c_full {
             "c wins"
         } else {
             "rust wins"

@@ -151,25 +151,39 @@ impl TermPtr {
 }
 
 /// Payload of one trie entry.
+///
+/// The split between the two fields mirrors C's `suffixData`, which keeps a
+/// `term` pointer for ownership *and* appends that same pointer into `array`:
+/// [`full_term`](Self::full_term) is the owning handle, and
+/// [`refs`](Self::refs) is the flat membership list every reader walks.
 #[derive(Debug, Default)]
 pub(crate) struct SuffixData {
     /// `Some` iff this entry's key is itself a member: the owning handle of
     /// that member's tag term allocation.
+    ///
+    /// Ownership only. The same pointer also appears in [`Self::refs`], which is
+    /// what [`Self::members`] reads.
     full_term: Option<OwnedTerm>,
-    /// Every member this entry's key is a suffix of.
+    /// Every member this entry's key is a suffix of, the key itself included when
+    /// it is a full term.
     pub(crate) refs: ThinVec<TermPtr, AlignedU32>,
 }
 
 impl SuffixData {
-    /// Every member term this entry's key belongs to: the term itself when the
-    /// key is a full term (stored separately in [`Self::full_term`]) followed by
-    /// every term the key is a *proper* suffix of ([`Self::refs`]).
-    pub fn members(&self) -> impl Iterator<Item = TermPtr> + '_ {
-        self.full_term
-            .as_ref()
-            .map(OwnedTerm::borrowed)
-            .into_iter()
-            .chain(self.refs.iter().copied())
+    /// Every member term this entry's key belongs to.
+    ///
+    /// A bare slice iterator, which is the point: this runs once per delivered
+    /// term behind a trait object, so keeping the entry's own term in
+    /// [`Self::refs`] rather than chaining it in from
+    /// [`Self::full_term`] removes a per-item branch from the hot path.
+    pub fn members(&self) -> impl ExactSizeIterator<Item = TermPtr> + '_ {
+        self.refs.iter().copied()
+    }
+
+    /// The membership list as a slice, for callers that can consume it without an
+    /// iterator at all — see [`TagIndex::suffix_exact`](crate::TagIndex::suffix_exact).
+    pub fn members_slice(&self) -> &[TermPtr] {
+        &self.refs
     }
 }
 
@@ -221,6 +235,10 @@ impl TagSuffixIndex {
             });
             // Keep "alive" the owned term
             data.full_term = Some(owned);
+            // And register it as a member like any other, so `members` stays a
+            // plain slice walk. The early return above guarantees this runs at
+            // most once per term, so it cannot duplicate the reference.
+            data.refs.push(ptr);
 
             data
         });
@@ -286,9 +304,11 @@ impl TagSuffixIndex {
             }
 
             // Drop the references pointing at the term being deleted, keeping
-            // every reference that belongs to a different term. With no term to
-            // delete there is nothing to match: every `refs` entry reachable here
-            // belongs to a strictly longer term.
+            // every reference that belongs to a different term. On the first
+            // iteration that includes the entry's reference to its *own* term,
+            // which `add` registers alongside `full_term`. With no term to delete
+            // there is nothing to match: every `refs` entry reachable here belongs
+            // to a strictly longer term.
             if let Some(deleted) = &deleted_term {
                 data.refs.retain(|b| !b.belong_to(deleted));
             }

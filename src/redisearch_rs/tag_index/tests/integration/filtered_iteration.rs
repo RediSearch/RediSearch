@@ -196,6 +196,38 @@ fn suffix_query_exact_node_yields_every_member() {
     );
 }
 
+/// `suffix_exact` is an alternative spelling of [`SuffixQuery::Suffix`] that skips
+/// the trait object, so the two must be indistinguishable in what they yield —
+/// including yield *order*, since either may serve a caller that expects the
+/// other's.
+#[test]
+fn suffix_exact_matches_the_boxed_suffix_query() {
+    let mut tag_index = TagIndex::new_in_memory(1, true);
+    let tags: &[&[u8]] = &[b"eat", b"beat", b"heat", b"bean"];
+    index_mem(&mut tag_index, tags, 1);
+    commit(&mut tag_index, tags);
+
+    for probe in [b"eat".as_slice(), b"t", b"bean", b"nomatch", b""] {
+        let boxed: Vec<&[u8]> = tag_index
+            .suffix_expand(SuffixQuery::Suffix(probe), None)
+            .collect();
+        let exact: Vec<&[u8]> = tag_index.suffix_exact(probe).collect();
+
+        assert_eq!(
+            exact,
+            boxed,
+            "`{}` must expand identically through both entry points",
+            String::from_utf8_lossy(probe)
+        );
+        assert_eq!(
+            tag_index.suffix_exact(probe).len(),
+            boxed.len(),
+            "`{}`: the reported length must match what iteration delivers",
+            String::from_utf8_lossy(probe)
+        );
+    }
+}
+
 /// The `Wildcard` mode supports the `*` and `?` metacharacters.
 #[test]
 fn wildcard_iter_values_matches_metacharacters() {
