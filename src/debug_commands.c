@@ -336,47 +336,18 @@ void SyncPoint_ClearAll(void) {
   atomic_store(&globalSyncPointCtx.count, 0);
 }
 
-void SyncPoint_Wait(const char *name) {
-  SyncPointState *sp = SyncPoint_FindByName(name);
-  if (!sp || !atomic_load(&sp->armed)) return;
-
-  // Read the auto-release window once; >0 caps the park so it self-releases
-  // even without a SIGNAL. This is what lets a test hold a background apply
-  // while the main thread blocks in disable_compactions() (which waits for the
-  // in-flight compaction) — a SIGNAL could never be processed by the frozen
-  // main thread, so the timeout is the only way out.
-  long long auto_release_ms = atomic_load(&sp->auto_release_ms);
-  atomic_fetch_add(&sp->waiting, 1);  // Increment waiting counter
-  long long waited_ms = 0;
-  while (atomic_load(&sp->armed)) {
-    if (auto_release_ms > 0 && waited_ms >= auto_release_ms) break;  // self-release
-    usleep(1000);  // Spin-wait with 1ms sleep (matches existing pattern)
-    waited_ms++;
-  }
-  atomic_fetch_sub(&sp->waiting, 1);  // Decrement waiting counter
-}
-
-void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg) {
-  SyncPointState *sp = SyncPoint_FindByName(name);
-  if (!sp || !atomic_load(&sp->armed)) return;
-
-  atomic_fetch_add(&sp->waiting, 1);
-  while (atomic_load(&sp->armed)) {
-    if (stop_fn && stop_fn(arg)) break;
-    usleep(1000);
-  }
-  atomic_fetch_sub(&sp->waiting, 1);
-}
-
-void SyncPoint_WaitUntilOnce(const char *name, SyncPointStopFn stop_fn, void *arg) {
-  SyncPointState *sp = SyncPoint_FindByName(name);
-  if (!sp || !atomic_load(&sp->armed)) return;
-
+// Park until the point is disarmed, `stop_fn` fires, or the arm's auto-release window
+// runs out, recording which of the three ended the park (see SyncPoint_LastExit).
+//
+// The auto-release window is what lets a test park a thread that no SIGNAL can ever
+// reach, because the main thread that would send it is itself blocked behind the parked
+// one. `disarm` additionally disarms on the way out, for a rendezvous inside a loop that
+// must park exactly once.
+static void SyncPoint_Park(SyncPointState *sp, SyncPointStopFn stop_fn, void *arg,
+                           bool disarm) {
   long long auto_release_ms = atomic_load(&sp->auto_release_ms);
   atomic_fetch_add(&sp->waiting, 1);
   long long waited_ms = 0;
-  // Recorded rather than inferred from wall-clock: a test asserting on how the park
-  // ended is immune to a host stall that would blur the two outcomes together.
   int exit_reason = SYNC_POINT_EXIT_SIGNAL;
   while (atomic_load(&sp->armed)) {
     if (stop_fn && stop_fn(arg)) {
@@ -391,10 +362,33 @@ void SyncPoint_WaitUntilOnce(const char *name, SyncPointStopFn stop_fn, void *ar
     waited_ms++;
   }
   atomic_store(&sp->last_exit, exit_reason);
-  // Disarm before dropping out of `waiting`: SyncPoint_ClearAll drains on the
-  // waiting count, so this order cannot leave it spinning on a re-armed slot.
-  atomic_store(&sp->armed, false);
+  if (disarm) {
+    // Disarm before dropping out of `waiting`: SyncPoint_ClearAll drains on the
+    // waiting count, so this order cannot leave it spinning on a re-armed slot.
+    atomic_store(&sp->armed, false);
+  }
   atomic_fetch_sub(&sp->waiting, 1);
+}
+
+// The armed slot for `name`, or NULL if there is nothing to park on.
+static SyncPointState *SyncPoint_FindArmed(const char *name) {
+  SyncPointState *sp = SyncPoint_FindByName(name);
+  return (sp && atomic_load(&sp->armed)) ? sp : NULL;
+}
+
+void SyncPoint_Wait(const char *name) {
+  SyncPointState *sp = SyncPoint_FindArmed(name);
+  if (sp) SyncPoint_Park(sp, NULL, NULL, false);
+}
+
+void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg) {
+  SyncPointState *sp = SyncPoint_FindArmed(name);
+  if (sp) SyncPoint_Park(sp, stop_fn, arg, false);
+}
+
+void SyncPoint_WaitUntilOnce(const char *name, SyncPointStopFn stop_fn, void *arg) {
+  SyncPointState *sp = SyncPoint_FindArmed(name);
+  if (sp) SyncPoint_Park(sp, stop_fn, arg, true);
 }
 
 int SyncPoint_LastExit(const char *name) {

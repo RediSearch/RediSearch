@@ -190,14 +190,13 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 // the GIL released. Reaching it is the only proof, independent of host scheduling, that a cycle
 // really did hit EEXIST rather than winning the slot outright.
 #define SYNC_POINT_GC_FORK_SLOT_BUSY                    "GCForkSlotBusy"
-// Foreground (WORKERS 0) FT.HYBRID: parked in buildPipelineAndExecute right after the
-// spec read lock is taken and before the pipeline is built, so a test can hold the
-// build open while fork-GC reaches for the write lock (MOD-16215).
+// Foreground (WORKERS 0) FT.HYBRID: parked with the spec read lock taken, before the
+// pipeline is built, so a test can hold the build open while fork-GC reaches for the
+// write lock (MOD-16215).
 #define SYNC_POINT_HYBRID_FOREGROUND_BUILD              "HybridForegroundBuild"
-// Fork-GC term apply: parked after the fork, just before the parent takes the spec
-// write lock, and again once it holds it. The pair lets a test line a GC writer up
-// against a query on the main thread, which is exactly the thread that could never
-// serve a SIGNAL in that scenario - both release themselves instead.
+// Fork-GC term apply: parked just before the parent takes the spec write lock, and again
+// once it holds it. Together with the point above they line a GC writer up against a
+// query on the main thread; see test_hybrid_foreground_lock.py.
 #define SYNC_POINT_GC_BEFORE_SPEC_WRITE_LOCK            "GcBeforeSpecWriteLock"
 #define SYNC_POINT_GC_AFTER_SPEC_WRITE_LOCK             "GcAfterSpecWriteLock"
 
@@ -206,10 +205,10 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 // Returns true on success, false if max sync points reached
 // NOTE: Not thread-safe. Must only be called from the main thread.
 bool SyncPoint_Arm(const char *name);
-// Like SyncPoint_Arm, but a parked SyncPoint_Wait self-releases after
-// `auto_release_ms` even without a SIGNAL (0 = wait for SIGNAL, as SyncPoint_Arm).
-// For tests where the thread that would SIGNAL is itself blocked waiting on the
-// parked work (e.g. disable_compactions() during FT.DROPINDEX).
+// Like SyncPoint_Arm, but a parked waiter self-releases after `auto_release_ms` even
+// without a SIGNAL (0 = wait for SIGNAL, as SyncPoint_Arm). For tests where the thread
+// that would SIGNAL is itself blocked waiting on the parked work (e.g.
+// disable_compactions() during FT.DROPINDEX).
 bool SyncPoint_ArmWithTimeout(const char *name, long long auto_release_ms);
 // Signal a waiting thread at the named sync point to continue (also disarms it)
 void SyncPoint_Signal(const char *name);
@@ -228,15 +227,13 @@ typedef bool (*SyncPointStopFn)(void *arg);
 // Like SyncPoint_Wait, but also exits the wait loop when `stop_fn(arg)` returns
 // true. Lets workers release early when a timeout fires on the main thread.
 void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg);
-// Like SyncPoint_WaitUntil, but also honours the arm's auto-release window, and
-// disarms the point on the way out so later arrivals run straight through. For a
-// rendezvous inside a loop that must park exactly once - fork-GC applies one term at
-// a time - where re-parking would change what the test measures.
+// Like SyncPoint_WaitUntil, but disarms the point on the way out so later arrivals run
+// straight through. For a rendezvous inside a loop that must park exactly once - fork-GC
+// applies one term at a time - where re-parking would change what the test measures.
 void SyncPoint_WaitUntilOnce(const char *name, SyncPointStopFn stop_fn, void *arg);
 
-// How the last SyncPoint_WaitUntilOnce park at a point ended. Lets a test assert on
-// recorded state instead of on how long a command took, which a stalled host can
-// distort past any threshold.
+// How the last park at a point ended. Lets a test assert on recorded state instead of on
+// how long a command took, which a stalled host can distort past any threshold.
 typedef enum {
   SYNC_POINT_EXIT_NONE = 0,   // never parked since it was armed
   SYNC_POINT_EXIT_SIGNAL,     // released by SIGNAL or CLEAR
