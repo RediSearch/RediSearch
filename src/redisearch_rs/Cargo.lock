@@ -879,6 +879,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
+name = "global_config"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "workspace_hack",
+]
+
+[[package]]
 name = "half"
 version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1192,6 +1200,7 @@ dependencies = [
  "cheadergen",
  "ffi",
  "field",
+ "global_config",
  "index_result",
  "index_spec",
  "inverted_index",
@@ -1835,6 +1844,7 @@ name = "query_eval_ffi"
 version = "0.0.1"
 dependencies = [
  "ffi",
+ "global_config",
  "query_eval",
  "query_types",
  "rqe_iterators",
@@ -2080,6 +2090,7 @@ name = "redis_mock"
 version = "0.0.1"
 dependencies = [
  "ffi",
+ "global_config",
  "libc",
  "redis-module",
  "tracing",
@@ -2143,6 +2154,7 @@ dependencies = [
  "build_utils",
  "bumpalo",
  "ffi",
+ "global_config",
  "indexmap",
  "itertools 0.15.0",
  "min-max-heap",

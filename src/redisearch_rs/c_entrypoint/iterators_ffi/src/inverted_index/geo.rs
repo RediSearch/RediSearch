@@ -9,7 +9,7 @@
 
 use std::ptr::{self, NonNull};
 
-use ffi::{GeoFilter, RSGlobalConfig};
+use ffi::GeoFilter;
 use rqe_iterators::{IteratorsConfig, build_geo_range_iterator, free_geo_numeric_filters};
 
 /// Creates an iterator over all geo-encoded index entries within the radius specified by `gf`.
@@ -41,8 +41,7 @@ pub unsafe extern "C" fn NewGeoRangeIterator(
     let sctx = unsafe { NonNull::new_unchecked(ctx as *mut ffi::RedisSearchCtx) };
     // SAFETY: 4. guarantees config is valid and non-null.
     let min_union_iter_heap = unsafe { (*config).min_union_iter_heap } as usize;
-    // SAFETY: `RSGlobalConfig` is initialised by the time any index is created.
-    let compress = unsafe { RSGlobalConfig.numericCompress };
+    let compress = global_config::get().numericCompress;
 
     // SAFETY: preconditions 1–3 map directly to those of `build_geo_range_iterator`.
     unsafe { build_geo_range_iterator(sctx, geo, min_union_iter_heap, compress) }

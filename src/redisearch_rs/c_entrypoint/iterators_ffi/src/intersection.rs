@@ -93,8 +93,7 @@ pub unsafe extern "C" fn NewIntersectionIterator(
     } else {
         Some(max_slop as u32)
     };
-    // SAFETY: `ffi::RSGlobalConfig` is the global config instance, read-only here.
-    let prioritize_union_children = unsafe { ffi::RSGlobalConfig.prioritizeIntersectUnionChildren };
+    let prioritize_union_children = global_config::get().prioritizeIntersectUnionChildren;
     let wrapper = match new_intersection_iterator(children) {
         NewIntersectionIterator::Empty => NewEmptyIterator(),
         NewIntersectionIterator::Single(child) => child.into_raw().as_ptr(),

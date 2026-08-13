@@ -115,9 +115,7 @@ impl<D: Ord> Storage<D> {
             (_, Some((o, c))) => (o as usize, c as usize),
             // Without an explicit LIMIT the unranked path falls back to the
             // global cap, the ranked path to DEFAULT_LIMIT.
-            // SAFETY: `RSGlobalConfig` is the module-global config initialised
-            // once at load; we only read a single `usize` field.
-            (false, None) => (0, unsafe { ffi::RSGlobalConfig.maxAggregateResults }),
+            (false, None) => (0, global_config::get().maxAggregateResults),
             (true, None) => (0, DEFAULT_LIMIT as usize),
         };
         if sortby {

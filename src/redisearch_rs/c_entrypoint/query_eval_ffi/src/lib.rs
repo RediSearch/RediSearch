@@ -28,26 +28,20 @@ use rqe_iterators::IteratorsConfig;
 
 /// Snapshot the evaluator's configuration.
 ///
-/// Fields that have no per-query snapshot are read from the process-wide
-/// [`ffi::RSGlobalConfig`]. Anything covered by [`IteratorsConfig`] is instead
-/// taken from `iterators` rather than the live global.
+/// Fields that have no per-query snapshot are read from the process-wide config, in a
+/// single [`global_config::get`] so that they are consistent with one another. Anything
+/// covered by [`IteratorsConfig`] is instead taken from `iterators` rather than the live
+/// global.
 ///
 /// This is the single point where the query evaluator reads the global config;
-/// the resulting [`Config`] is threaded through evaluation as a parameter.
+/// the resulting [`Config`] is threaded through evaluation as a parameter, so a
+/// query cannot observe a setting changing underneath it.
 fn eval_config(iterators: &IteratorsConfig) -> Config {
-    // SAFETY: `RSGlobalConfig` is the process-wide config instance, fully
-    // initialised before any query is evaluated, and read-only here. Each field
-    // is a `Copy` scalar read directly out of the static, without forming a
-    // reference to it.
-    let numeric_compress = unsafe { ffi::RSGlobalConfig.numericCompress };
-    // SAFETY: as above.
-    let prioritize_intersect_union_children =
-        unsafe { ffi::RSGlobalConfig.prioritizeIntersectUnionChildren };
-    // SAFETY: as above. `defaultScorer` is a `Copy` pointer to the process-wide
-    // default scorer name, null when unset. It is read (not retained) here to
-    // resolve the built-in `Scorer` once, so `Config` carries no raw pointer.
-    let default_scorer_ptr = unsafe { ffi::RSGlobalConfig.defaultScorer };
-    let default_scorer = NonNull::new(default_scorer_ptr.cast_mut()).and_then(|ptr| {
+    let global = global_config::get();
+
+    // `defaultScorer` names the process-wide default scorer, and is null when unset. It is
+    // resolved (not retained) here, so `Config` carries no raw pointer.
+    let default_scorer = NonNull::new(global.defaultScorer.cast_mut()).and_then(|ptr| {
         // SAFETY: `defaultScorer` is non-null here and points to a valid
         // NUL-terminated C string owned by the process-wide config.
         let name = unsafe { CStr::from_ptr(ptr.as_ptr()) };
@@ -57,8 +51,8 @@ fn eval_config(iterators: &IteratorsConfig) -> Config {
     });
 
     Config {
-        numeric_compress,
-        prioritize_intersect_union_children,
+        numeric_compress: global.numericCompress,
+        prioritize_intersect_union_children: global.prioritizeIntersectUnionChildren,
         default_scorer,
         min_term_prefix: iterators.min_term_prefix,
         max_prefix_expansions: iterators.max_prefix_expansions as usize,
@@ -79,9 +73,7 @@ fn eval_config(iterators: &IteratorsConfig) -> Config {
 unsafe fn resolve_scorer(scorer_name: *const c_char) -> Option<BuiltInScorer> {
     // A null scorer name means "use the configured default scorer".
     let name = if scorer_name.is_null() {
-        // SAFETY: `RSGlobalConfig` is the process-wide config, read-only here;
-        // `defaultScorer` is a `Copy` pointer read directly out of the static.
-        unsafe { ffi::RSGlobalConfig.defaultScorer }
+        global_config::get().defaultScorer
     } else {
         scorer_name
     };
