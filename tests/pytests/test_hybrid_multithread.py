@@ -99,19 +99,25 @@ def test_hybrid_multithread():
     env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], 1)
 
 
-# Skipped on musl, which admits a reader past a queued writer, so the try-lock
-# never fails there.
+# Skipped on musl, which admits a reader past a queued writer, so the writer never
+# actually contends there and the test would pass whatever the locking does.
 @skip(cluster=True, musl=True)
-def test_hybrid_depleter_lock_failure_replies_error():
-    """A depleter that loses the spec try-lock to a queued writer must reply
-    SEARCH_SAFE_DEPLETER_FAILURE.
+def test_hybrid_survives_writer_during_depletion():
+    """A writer arriving while the depleters are reading the index must delay the
+    query, not abort it.
+
+    The execution thread takes one read lock and lends it to the sub-requests, so there
+    is no per-depleter try-lock left for a queued writer to win. The park is placed
+    before a depleter touches the index, which is the only window where the two designs
+    differ: with a per-depleter try-lock the query fails there, with a borrowed lock the
+    writer waits for depletion to finish instead.
     """
     env = Env(moduleArgs='WORKERS 2 DEFAULT_DIALECT 2', enableDebugCommand=True)
     skipIfNoEnableAssert(env)
     setup_basic_index(env)
     query_vector = np.array([1.3, 0.0]).astype(np.float32).tobytes()
 
-    sync_point = 'BeforeHybridResultsClaim'
+    sync_point = 'DepleterBeforeIndexRead'
     env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
 
     outcome = []
@@ -134,9 +140,10 @@ def test_hybrid_depleter_lock_failure_replies_error():
         lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
         f'Timeout waiting for {sync_point} sync point')
 
-    # Indexing this parks on the spec write lock behind the query's read lock, which
-    # both releases the sync point and makes the depleters' try-lock fail. It returns
-    # once the query has finished and dropped its read lock.
+    # Indexing this queues a writer on the spec write lock behind the read lock the
+    # depleters are reading under. The counter is bumped before the blocking acquire,
+    # so it releases the parked depleters; it returns once the query has finished and
+    # the read lock is dropped.
     env.cmd('HSET', 'text:99', 'text', 'hello queued writer', 'type', 'text')
 
     query_thread.join(timeout=30)
@@ -145,7 +152,9 @@ def test_hybrid_depleter_lock_failure_replies_error():
         return  # still parked; the assertion above is the diagnostic
 
     kind, payload = outcome[0]
-    # TODO(MOD-16487): once a queued writer no longer aborts hybrid depletion, this
-    # expectation flips — the query should be served instead of erroring.
-    env.assertEqual(kind, 'err', message=f'expected the query to be aborted, got: {payload}')
-    env.assertContains('Failed to acquire index lock for background depletion', str(payload))
+    env.assertEqual(kind, 'ok',
+                    message=f'a queued writer aborted the query instead of waiting: {payload}')
+    env.assertGreater(len(payload), 0, message='query returned no results')
+
+    # The writer really did get through, so nothing leaked the read lock.
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'extra', 'TEXT').ok()

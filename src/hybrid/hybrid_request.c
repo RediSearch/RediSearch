@@ -34,13 +34,62 @@
 extern "C" {
 #endif
 
+// PROTOTYPE(loader-swap): RP types that read field values out of the keyspace, and so
+// need the GIL.
+static bool isLoaderRPType(ResultProcessorType type) {
+  return type == RP_LOADER || type == RP_SAFE_LOADER || type == RP_KEY_NAME_LOADER ||
+         type == RP_DISK_ASYNC_LOADER;
+}
+
+// A subquery gets one loader per LOAD step, and the tail clones all of its LOAD steps
+// into both subqueries (handleLoadStepForHybridPipelines), so more than one is normal.
+#define MAX_SPLICED_LOADERS 8
+
+// Detach the loader RPs from the downstream end of `qctx`, most-downstream first, so
+// the depleter can be pushed beneath them. Returns how many were taken.
+//
+// The point of the swap: a loader takes the GIL, and after this change the depleter
+// thread reads under a read lock borrowed from the execution thread — a lock it cannot
+// release, since only the owning thread may. A loader left inside the depleted region
+// would therefore hold the read lock and reach for the GIL, which deadlocks against a
+// writer holding the GIL and waiting for the write lock.
+static size_t popTrailingLoaders(QueryProcessingCtx *qctx, ResultProcessor **out) {
+  size_t n = 0;
+  while (qctx->endProc && isLoaderRPType(qctx->endProc->type)) {
+    RS_ASSERT(n < MAX_SPLICED_LOADERS);
+    ResultProcessor *rp = qctx->endProc;
+    qctx->endProc = rp->upstream;
+    rp->upstream = NULL;
+    out[n++] = rp;
+  }
+  // A subquery whose loaders are not contiguous at the downstream end would leave one
+  // behind, silently keeping a GIL taker in the depleted region.
+  for (ResultProcessor *rp = qctx->endProc; rp; rp = rp->upstream) {
+    RS_ASSERT(!isLoaderRPType(rp->type));
+  }
+  return n;
+}
+
+// Re-attach in reverse of the order they were taken, which restores their relative
+// order with the depleter now upstream of all of them.
+static void pushLoadersBack(QueryProcessingCtx *qctx, ResultProcessor **loaders, size_t n) {
+  while (n > 0) {
+    QITR_PushRP(qctx, loaders[--n]);
+  }
+}
+
 int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params, bool depleteInBackground) {
     // Create synchronization context for coordinating depleter processors
     // This ensures thread-safe access when multiple depleters read from their pipelines
     StrongRef sync_ref = {0};
     int rc = REDISMODULE_OK;
     if (depleteInBackground) {
-      sync_ref = DepleterSync_New(req->nrequests, true);
+      // PROTOTYPE(loader-swap): take_index_lock = false. The depleters no longer take
+      // the spec read lock themselves; they read under the one the execution thread
+      // holds and lends them (SPEC_LOCK_READ_BORROWED). That also stops
+      // WaitForDepletionToStart releasing the execution thread's lock early, which it
+      // must not do while the borrow is live.
+      sync_ref = DepleterSync_New(req->nrequests, false);
     }
 
     // Build individual pipelines for each search request
@@ -95,6 +144,13 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
         } else if (IsHybridSearchSubquery(areq)) {
           qctx->resultLimit = areq->maxSearchResults;
         }
+        // PROTOTYPE(loader-swap): lift the loaders out, push the depleter, put them
+        // back on top — so the chain becomes LOADER <- DEPLETER <- SORTER <- ... and
+        // the loading happens on whichever thread pulls the depleter, with no spec
+        // lock held, instead of on the depleter thread.
+        ResultProcessor *splicedLoaders[MAX_SPLICED_LOADERS];
+        const size_t nSplicedLoaders = popTrailingLoaders(qctx, splicedLoaders);
+
         if (depleteInBackground) {
           // Create a safe depleter processor to extract results from this pipeline
           // The safe depleter will feed results to the hybrid merger
@@ -110,6 +166,7 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
           ResultProcessor *depleter = RPDepleter_New();
           QITR_PushRP(qctx, depleter);
         }
+        pushLoadersBack(qctx, splicedLoaders, nSplicedLoaders);
         if (isProfile) {
           // Wrap the depleter with a Profile RP to match the expected end processor type
           ResultProcessor *profileRP = RPProfile_New(qctx->endProc, qctx);
