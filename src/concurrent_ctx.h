@@ -50,7 +50,7 @@ typedef void (*ConcurrentCmdHandler)(RedisModuleCtx *, RedisModuleString **, int
 
 // Context for concurrent search handler
 // Contains additional parameters passed to ConcurrentSearch_HandleRedisCommandEx
-struct BlockedRequestCtx;  // Forward declaration
+struct QueryRequest;       // Forward declaration
 struct Cursor;             // Forward declaration
 
 // Context for blocking client
@@ -58,11 +58,11 @@ typedef struct ConcurrentSearchBlockClientCtx {
   RedisModuleCmdFunc reply_callback;      // Callback when UnblockClient is called (FAIL policy)
   RedisModuleCmdFunc timeout_callback;    // Callback when timeout fires (FAIL policy)
   rs_wall_clock_ms_t timeoutMS;           // Timeout value in milliseconds (0 if no timeout)
-  // Wrapper owning the request executed by this command. Allocated on the main
-  // thread before blocking; becomes the blocked client's privdata (freed via
-  // BlockedRequestCtx_OnFree). ConcurrentSearch_HandleRedisCommandEx runs
-  // BlockedRequestCtx_BeginCycle on it right after blocking the client.
-  struct BlockedRequestCtx *brc;
+  // Request executed by this command. Allocated on the main thread before
+  // blocking and installed as the blocked client's private data.
+  // ConcurrentSearch_HandleRedisCommandEx begins its cycle immediately after
+  // blocking the client.
+  struct QueryRequest *request;
 } ConcurrentSearchBlockClientCtx;
 
 typedef struct ConcurrentSearchHandlerCtx {

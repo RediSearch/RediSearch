@@ -868,7 +868,8 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
     // DistHybridCleanups can reply with them.
     if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, knnCtx, status,
                                      oomPolicy, timeoutPolicy, &maxPrefixSearch, &maxPrefixVsim,
-                                     &shardTimedOutWarning, deadline, &hreq->syncState)) {
+                                     &shardTimedOutWarning, deadline, &hreq->base.timeout,
+                                     &hreq->base.async)) {
         // Handle error
         StrongRef_Release(searchMappingsRef);
         StrongRef_Release(vsimMappingsRef);
@@ -1073,7 +1074,7 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
       IndexSpecRef_Release(*strong_ref);
     }
     // Release the execution flow's reference (taken at shell allocation on the
-    // main thread); the cycle's reference is released by BlockedRequestCtx_OnFree.
+    // main thread); the cycle's reference is released by QueryRequest_OnFree.
     HybridRequest_DecrRef(hreq);
 }
 
@@ -1081,12 +1082,11 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
 void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                         struct ConcurrentCmdCtx *cmdCtx) {
 
-    // The hybrid request shell and its wrapper were allocated on the main
-    // thread by the dispatcher; the wrapper is the blocked client's privdata.
-    // This thread parses into the shell in place.
-    BlockedRequestCtx *brc =
+    // The hybrid request shell was allocated on the main thread by the
+    // dispatcher and installed as the blocked client's private data.
+    QueryRequest *request =
         RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
-    HybridRequest *hreq = BlockedRequestCtx_GetHybrid(brc);
+    HybridRequest *hreq = QueryRequest_GetHybrid(request);
     // The tail sctx's redisCtx was cleared at dispatch (it aliased the main
     // thread's command ctx); re-point it at this thread's ctx before any use.
     hreq->sctx->redisCtx = ctx;
@@ -1153,10 +1153,10 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                             struct ConcurrentCmdCtx *cmdCtx) {
 
-    // See RSExecDistHybrid: the shell + wrapper come from the main thread.
-    BlockedRequestCtx *brc =
+    // See RSExecDistHybrid: the shell comes from the main thread.
+    QueryRequest *request =
         RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
-    HybridRequest *hreq = BlockedRequestCtx_GetHybrid(brc);
+    HybridRequest *hreq = QueryRequest_GetHybrid(request);
     hreq->sctx->redisCtx = ctx;
 
     if (HybridRequest_TimedOut(hreq)) {
@@ -1229,10 +1229,10 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 // phase) or a subquery's channel (read phase); wake all of them.
 static void wakeHybridAbortChannels(HybridRequest *hreq) {
   if (!hreq) return;
-  RequestSyncState_WakeAbortChannel(&hreq->syncState);
+  QueryRequestAsyncState_WakeAbortChannel(&hreq->base.async);
   for (size_t i = 0; i < hreq->nrequests; i++) {
     if (hreq->requests[i]) {
-      RequestSyncState_WakeAbortChannel(&hreq->requests[i]->syncState);
+      QueryRequestAsyncState_WakeAbortChannel(&hreq->requests[i]->base.async);
     }
   }
 }
@@ -1250,13 +1250,11 @@ int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
   UNUSED(argv);
   UNUSED(argc);
 
-  BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
+  QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
   // Installed by BeginCycle on the main thread before the command returned,
   // so no callback can observe missing privdata.
-  RS_ASSERT(brc != NULL);
-
-  RS_ASSERT(brc->kind == REQUEST_KIND_HYBRID);
-  HybridRequest *hreq = BlockedRequestCtx_GetHybrid(brc);
+  RS_ASSERT(request != NULL);
+  HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
   // Signal timeout to the background thread
   HybridRequest_SetTimedOut(hreq);
@@ -1278,13 +1276,11 @@ int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
 // Timeout callback for Coordinator HybridRequest execution
 // Called on the main thread when the blocking client times out (RETURN-STRICT policy only).
 int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
+  QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
   // Installed by BeginCycle on the main thread before the command returned,
   // so no callback can observe missing privdata.
-  RS_ASSERT(brc != NULL);
-
-  RS_ASSERT(brc->kind == REQUEST_KIND_HYBRID);
-  HybridRequest *hreq = BlockedRequestCtx_GetHybrid(brc);
+  RS_ASSERT(request != NULL);
+  HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
   // Signal timeout to the background thread
   HybridRequest_SetTimedOut(hreq);
@@ -1310,13 +1306,13 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
   }
 
   // Losing TryClaim means BG owns the claim; wait for it to finish writing
-  // `brc->reply` (the abort-channel wakes above let it exit promptly).
+  // `base.reply` (the abort-channel wakes above let it exit promptly).
   HybridRequest_WaitForAggregateResultsComplete(hreq);
 
   // The coordinator hybrid pipeline is not drainable: the tail merger and the
   // per-subquery depleters run on separate coord-pool threads, so a main-thread
   // drain would re-enter live upstream processors. Reply only with whatever the
-  // tail already accumulated into `brc->reply.results` before the deadline.
+  // tail already accumulated into `base.reply.results` before the deadline.
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   serializeStoredResults_hybrid(hreq, reply);
   RedisModule_EndReply(reply);
@@ -1326,24 +1322,22 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
 
 // Reply callback for Coordinator HybridRequest execution (FAIL policy).
 // Called on the main thread when the background thread calls UnblockClient.
-// The background thread stored results in hreq->brc->reply, which we use to build the reply.
+// The background thread stored results in hreq->base.reply, which we use to build the reply.
 // Note: This callback is NOT called if timeout fired first (bc->client becomes NULL).
 int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);
 
-  BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
-  RS_ASSERT(brc != NULL);
-
-  RS_ASSERT(brc->kind == REQUEST_KIND_HYBRID);
-  HybridRequest *hreq = BlockedRequestCtx_GetHybrid(brc);
+  QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
+  RS_ASSERT(request != NULL);
+  HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
   // Check if results were stored (background thread completed successfully)
-  if (!hreq->brc->reply.hasStoredResults) {
+  if (!hreq->base.reply.hasStoredResults) {
     // Background thread didn't store results - some early error occurred.
-    if (QueryError_HasError(&hreq->brc->reply.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&hreq->brc->reply.err), 1, COORD_ERR_WARN);
-      QueryError_ReplyAndClear(ctx, &hreq->brc->reply.err);
+    if (QueryError_HasError(&hreq->base.reply.err)) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&hreq->base.reply.err), 1, COORD_ERR_WARN);
+      QueryError_ReplyAndClear(ctx, &hreq->base.reply.err);
     } else {
       RedisModule_ReplyWithError(ctx, "Internal error: no results stored");
     }
@@ -1355,6 +1349,6 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   serializeStoredResults_hybrid(hreq, reply);
   RedisModule_EndReply(reply);
 
-  // Note: No HybridRequest_DecrRef here - BlockedRequestCtx_OnFree releases the cycle's reference.
+  // QueryRequest_OnFree releases the cycle's request reference.
   return REDISMODULE_OK;
 }

@@ -3871,8 +3871,8 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
-  // Allocate the request shell and its owning wrapper before blocking the
-  // client, so the full context is already installed (as the blocked client's
+  // Allocate the request shell before blocking the client, so the full
+  // context is already installed (as the blocked client's
   // privdata) once the client is blocked. Parsing happens on the BG thread.
   AREQ *r;
   if (isDebug) {
@@ -3882,12 +3882,9 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
       QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
       return QueryError_ReplyAndClear(ctx, &status);
     }
-    // Already wrapped by AREQ_Debug_New (the wrapper can only be attached
-    // after its rm_realloc).
     r = &debug_req->r;
   } else {
-    r = AREQ_New();
-    BlockedRequestCtx_NewAREQ(r, argv, argc);
+    r = AREQ_New(argv, argc);
   }
   // Either path took the argv holds here, on the main thread; the BG parse
   // borrows from them (the job's own argv copies die with the job).
@@ -3900,16 +3897,16 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   handlerCtx.numShards = NumShards;  // Capture NumShards from main thread for thread-safe access
 
   RSTimeoutPolicy policy = r->reqConfig.timeoutPolicy;
-  handlerCtx.bcCtx.brc = r->brc;
+  handlerCtx.bcCtx.request = &r->base;
   if (policy == TimeoutPolicy_Fail || policy == TimeoutPolicy_ReturnStrict) {
     handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
     handlerCtx.bcCtx.timeout_callback = (policy == TimeoutPolicy_Fail)
         ? DistAggregateTimeoutFailCallback
         : DistAggregateTimeoutReturnStrictCallback;
     handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
-    r->useReplyCallback = true;
+    QueryRequest_SetUseReplyCallback(&r->base, true);
     if (policy == TimeoutPolicy_ReturnStrict) {
-      r->brc->requiresAggregateResultsSync = true;
+      r->base.async.requiresAggregateResultsSync = true;
     }
   }
 
@@ -3982,8 +3979,8 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
-  // Allocate the hybrid request shell and its owning wrapper before blocking
-  // the client, so the full context is already installed (as the blocked
+  // Allocate the hybrid request shell before blocking the client, so the full
+  // context is already installed (as the blocked
   // client's privdata) once the client is blocked. Parsing happens on the BG
   // thread; the sub-AREQ contexts are detached thread-safe contexts.
   RedisSearchCtx *sctx = NewSearchCtxC(ctx, idx, true);
@@ -3996,7 +3993,7 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   sctx->redisCtx = NULL;
 
   RSTimeoutPolicy policy = hreq->reqConfig.timeoutPolicy;
-  hreq->brc->requiresAggregateResultsSync = (policy == TimeoutPolicy_ReturnStrict);
+  hreq->base.async.requiresAggregateResultsSync = (policy == TimeoutPolicy_ReturnStrict);
 
   ConcurrentSearchHandlerCtx handlerCtx;
   ConcurrentSearchHandlerCtx_Init(&handlerCtx);
@@ -4005,7 +4002,7 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
   handlerCtx.numShards = NumShards;  // Capture NumShards from main thread for thread-safe access
 
-  handlerCtx.bcCtx.brc = hreq->brc;
+  handlerCtx.bcCtx.request = &hreq->base;
 
   if (policy != TimeoutPolicy_Return) {
     handlerCtx.bcCtx.reply_callback = DistHybridReplyCallback;
@@ -4013,7 +4010,7 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
         ? DistHybridTimeoutFailCallback
         : DistHybridTimeoutReturnStrictCallback;
     handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
-    hreq->useReplyCallback = true;
+    QueryRequest_SetUseReplyCallback(&hreq->base, true);
   }
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
@@ -4347,7 +4344,7 @@ static void DistSearchCommandHandler(void* pd) {
     sCmdCtx->handlerCtx.coordQueueTime = rs_wall_clock_now_ns() - sCmdCtx->handlerCtx.coordStartTime;
   }
   // Dequeued by the coord: advance to PIPELINE (fan-out/reduce). Skipped once timed
-  // out while queued (freeze, mirroring RequestSyncState_SetExecutionStage).
+  // out while queued, preserving the phase where the timeout was observed.
   searchRequestCtx *sReq = MRCtx_GetPrivData(sCmdCtx->mrctx);
   if (sReq && !MRCtx_IsTimedOut(sCmdCtx->mrctx)) {
     searchReqCtx_SetExecutionStage(sReq, QUERY_TIMEOUT_STAGE_PIPELINE);
@@ -5135,7 +5132,7 @@ static void DEBUG_DistSearchCommandHandler(void* pd) {
     sCmdCtx->handlerCtx.coordQueueTime = rs_wall_clock_now_ns() - sCmdCtx->handlerCtx.coordStartTime;
   }
   // Dequeued by the coord: advance to PIPELINE (fan-out/reduce). Skipped once timed
-  // out while queued (freeze, mirroring RequestSyncState_SetExecutionStage).
+  // out while queued, preserving the phase where the timeout was observed.
   searchRequestCtx *sReq = MRCtx_GetPrivData(sCmdCtx->mrctx);
   if (sReq && !MRCtx_IsTimedOut(sCmdCtx->mrctx)) {
     searchReqCtx_SetExecutionStage(sReq, QUERY_TIMEOUT_STAGE_PIPELINE);

@@ -96,7 +96,7 @@ typedef struct {
   t_fieldMask fieldmask;
   int slop;
 
-  /* Borrowed from the request's held argv (see BlockedRequestCtx.argv) */
+  /* Borrowed from the request's held argv (see QueryRequestArgs.argv) */
   RedisModuleString **inkeys;
   size_t ninkeys;
 
@@ -107,7 +107,7 @@ typedef struct {
   struct {
     LegacyNumericFilter **filters;
     LegacyGeoFilter **geo_filters;
-    /* Borrowed from the request's held argv (see BlockedRequestCtx.argv) */
+    /* Borrowed from the request's held argv (see QueryRequestArgs.argv) */
     RedisModuleString **infields;
     size_t ninfields;
   } legacy;
