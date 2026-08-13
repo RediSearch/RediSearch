@@ -404,7 +404,7 @@ const HEADERS: &[HeaderAllowlist] = &[
         path: "src/trie/levenshtein.h",
         fns: &[],
         types: &["TrieMatchMode"],
-        vars: &[],
+        vars: &["MAX_LEV_DISTANCE"],
     },
     HeaderAllowlist {
         path: "src/trie/rune_util.h",

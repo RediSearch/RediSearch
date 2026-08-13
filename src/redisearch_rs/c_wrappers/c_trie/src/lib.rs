@@ -228,18 +228,14 @@ pub enum FuzzyWalk {
 /// stack before the walk begins — both before any bound the caller could apply
 /// afterwards. Making those unrepresentable is what this type is for: every
 /// value that can be constructed is one the automaton can be built for.
-///
-/// [`MAX`](Self::MAX) is the widest distance any command accepts, not a limit of
-/// the walk itself: `FT.SPELLCHECK`'s `DISTANCE` argument is checked against it
-/// when the command is parsed, and the query grammar stops lower still — it
-/// spells the distance as the number of `%` delimiters and has productions for
-/// only one, two and three.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FuzzyDistance(u8);
 
 impl FuzzyDistance {
-    /// The largest distance that can be constructed.
-    pub const MAX: i32 = 4;
+    /// The largest distance that can be constructed, which is the largest one
+    /// the automaton may be built for — see
+    /// [`MAX_LEV_DISTANCE`](ffi::MAX_LEV_DISTANCE) for why it stops there.
+    pub const MAX: i32 = ffi::MAX_LEV_DISTANCE as i32;
 
     /// Wrap `distance`.
     ///
