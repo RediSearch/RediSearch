@@ -15,13 +15,14 @@ use std::{
     ffi::{c_char, c_int, c_void},
     marker::PhantomData,
     ops::ControlFlow,
-    ptr,
+    ptr::{self, NonNull},
 };
 
 use ffi::{
     SuffixCtx, SuffixType, SuffixType_SUFFIX_TYPE_CONTAINS, SuffixType_SUFFIX_TYPE_SUFFIX,
     SuffixType_SUFFIX_TYPE_WILDCARD,
 };
+use string_utils::libnu::{NU_MAX_READAHEAD, tail_may_overread};
 
 /// Which side(s) of a term a [`SuffixTrie::iterate_contains`] walk anchors on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -201,6 +202,38 @@ pub enum SuffixWalk {
     /// trie with [`TermsTrie::iterate_wildcard`].
     NoAnchor(LoweredPattern),
 }
+
+/// Outcome of [`TermsTrie::iterate_fuzzy`].
+///
+/// Neither variant is a failure: a pattern the trie will not walk is a routine
+/// answer, not an error. The distinction matters to the caller because the two
+/// are not interchangeable — a walk that visited nothing has *answered* the
+/// pattern (no term is within the distance), while a rejected one never asked.
+#[derive(Debug)]
+#[must_use = "a rejected pattern was never walked, and treating it as an empty \
+              walk claims the index holds no term within the distance"]
+pub enum FuzzyWalk {
+    /// The walk ran and every term within the distance was delivered to the
+    /// callback (up to an early [`ControlFlow::Break`]).
+    Walked,
+    /// The pattern could not start a walk and nothing was visited, because it
+    /// exceeds [`TRIE_MAX_PREFIX`](ffi::TRIE_MAX_PREFIX) runes once decoded.
+    PatternRejected,
+}
+
+/// Error returned by [`TermsTrie::iterate_fuzzy`] when the distance it was asked
+/// for is outside `0..=`[`MAX_LEV_DISTANCE`](ffi::MAX_LEV_DISTANCE).
+///
+/// The distance reaches C as the size of a stack variable-length array, so a
+/// negative one is a negative-length allocation and a large one exhausts the
+/// stack before the walk begins — both before any bound the caller could apply
+/// afterwards. Refusing them up front is what keeps the walk from being asked
+/// for an automaton that cannot be built.
+///
+/// The offending value is carried so a caller can name it when reporting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("fuzzy distance must be in 0..={max}, got {value}", value = .0, max = ffi::MAX_LEV_DISTANCE)]
+pub struct InvalidFuzzyDistance(i32);
 
 /// Outcome of [`TermsTrie::decrement_num_docs`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::FromRepr)]
@@ -416,6 +449,176 @@ impl TermsTrie {
                 skip_timeout_checks,
             );
         }
+    }
+
+    /// Visit every term within `max_dist` edits of `pattern`, in the trie's
+    /// iteration order.
+    ///
+    /// `pattern` is the raw token bytes — it need not be valid UTF-8: unlike the
+    /// rune-keyed walks above, the trie decodes and lowercases them itself, the
+    /// same way the indexer stored the terms, and it is also there that the
+    /// length limit is applied — a pattern longer than
+    /// [`TRIE_MAX_PREFIX`](ffi::TRIE_MAX_PREFIX) runes yields
+    /// [`FuzzyWalk::PatternRejected`] and visits nothing. The distance is a
+    /// Levenshtein distance counted in runes, so a multibyte pattern is measured
+    /// by what it decodes to rather than by its byte length.
+    ///
+    /// For each match the callback receives the term's runes and the number of
+    /// documents indexed under it, and returns [`ControlFlow`] to continue or
+    /// stop the walk early (e.g. once an expansion cap is reached).
+    ///
+    /// The walk never yields the empty term: a zero-length key is refused on
+    /// insertion, so it exists only as an inverted index and a caller that wants
+    /// it has to open that index itself.
+    ///
+    /// `max_dist` is taken as an [`i32`] because that is the width it travels at
+    /// in a parsed query, so the range is checked once, here, rather than at
+    /// every call site.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidFuzzyDistance`], having walked nothing, if `max_dist` is
+    /// negative or above [`MAX_LEV_DISTANCE`](ffi::MAX_LEV_DISTANCE).
+    ///
+    /// # Safety
+    ///
+    /// The wrapped trie must not be mutated, freed, or iterated again for the
+    /// duration of the call — including from within `callback`. The walk holds a
+    /// stack of raw node pointers across callback invocations, so mutating the
+    /// trie (e.g. deleting a term, or decrementing one to zero, through another
+    /// handle) can free a node mid-walk and leave those pointers dangling.
+    pub unsafe fn iterate_fuzzy<F>(
+        &self,
+        pattern: &[u8],
+        max_dist: i32,
+        mut callback: F,
+    ) -> Result<FuzzyWalk, InvalidFuzzyDistance>
+    where
+        F: FnMut(&[ffi::rune], usize) -> ControlFlow<()>,
+    {
+        // Checked before anything else: an out-of-range distance is a stack VLA
+        // C cannot allocate, so it must not reach the automaton at all.
+        if max_dist < 0 || max_dist > ffi::MAX_LEV_DISTANCE as i32 {
+            return Err(InvalidFuzzyDistance(max_dist));
+        }
+
+        // Reject an over-long pattern before copying it. This bounds the padded
+        // copy below, which would otherwise duplicate the whole token before C
+        // had looked at its length.
+        const MAX_UTF8_SEQUENCE_LEN: usize = 4;
+        if pattern.len() > ffi::TRIE_MAX_PREFIX as usize * MAX_UTF8_SEQUENCE_LEN {
+            return Ok(FuzzyWalk::PatternRejected);
+        }
+
+        // The trie lowercases the pattern with `strToLowerRunes`, whose decoder
+        // (`nu_utf8_read`) reads a fixed 2–4 bytes from a multibyte lead byte
+        // with no bounds check — so a pattern ending in a truncated sequence
+        // (e.g. a lone `0xF0`) would read past the end. A token is a byte string
+        // that nothing validates as UTF-8, so that is reachable input. Where it
+        // can happen, hand C a private copy padded with `NU_MAX_READAHEAD`
+        // trailing zero bytes instead; the length passed stays the pattern's own,
+        // so the decode, and with it the rune-length threshold, is unchanged.
+        //
+        // The common case needs no copy: `tail_may_overread` is exact, so every
+        // well-formed pattern is decoded in place.
+        let padded = tail_may_overread(pattern).then(|| {
+            let mut buf = Vec::with_capacity(pattern.len() + NU_MAX_READAHEAD);
+            buf.extend_from_slice(pattern);
+            buf.resize(pattern.len() + NU_MAX_READAHEAD, 0);
+            buf
+        });
+        // An empty slice carries no allocation, so its pointer is a well-aligned
+        // dangling address rather than one into an object. C forms `str + len`
+        // to bound its decode loops before testing that the loop is empty, and
+        // that arithmetic is only defined on a pointer into an object — so hand
+        // it a real one. Nothing is read through it: the length passed is still
+        // zero, so every such loop compares equal at the first test.
+        static EMPTY_PATTERN: [u8; 1] = [0];
+        let pattern_ptr = if pattern.is_empty() {
+            EMPTY_PATTERN.as_ptr()
+        } else {
+            padded.as_deref().unwrap_or(pattern).as_ptr()
+        };
+
+        // SAFETY: `self` borrows a valid `ffi::Trie` and
+        // `pattern_ptr`/`pattern.len()` describe a live byte slice, which the
+        // call only reads (it decodes it into an owned filter). Its decoder can
+        // read up to `NU_MAX_READAHEAD` bytes past a truncated trailing sequence,
+        // which the padding above put inside the allocation. The returned
+        // iterator is owned by us and freed below. `Trie_IterateFuzzy` takes a
+        // non-const `Trie *` but only traverses it, so nothing is written
+        // through the shared pointer.
+        let it = unsafe {
+            ffi::Trie_IterateFuzzy(
+                self.as_ptr().cast_mut(),
+                pattern_ptr.cast::<c_char>(),
+                pattern.len(),
+                max_dist,
+                ffi::TrieMatchMode_TRIE_MATCH_EDIT_DISTANCE,
+            )
+        };
+        // The pattern is decoded into the filter during the call above and not
+        // referenced afterwards, so the copy has served its purpose here.
+        drop(padded);
+        let Some(it) = NonNull::new(it) else {
+            return Ok(FuzzyWalk::PatternRejected);
+        };
+        // The loop below is driven from Rust rather than from a C trampoline, so
+        // an unwinding panic in `callback` would otherwise skip the free and leak
+        // the iterator together with its edit-distance filter.
+        struct OwnedIterator(NonNull<ffi::TrieIterator>);
+        impl Drop for OwnedIterator {
+            fn drop(&mut self) {
+                // SAFETY: we own the iterator returned by `Trie_IterateFuzzy`,
+                // it is freed exactly once here and not used afterwards.
+                unsafe { ffi::TrieIterator_Free(self.0.as_ptr()) };
+            }
+        }
+        let it = OwnedIterator(it);
+
+        let mut runes: *mut ffi::rune = std::ptr::null_mut();
+        let mut len: ffi::t_len = 0;
+        // Written on every match whether or not anyone wants it, so it needs a
+        // slot; a fuzzy expansion scores its terms through their readers, not
+        // through the trie, so the value is dropped.
+        let mut score: f32 = 0.0;
+        let mut num_docs: usize = 0;
+
+        loop {
+            // SAFETY: `it` is the live iterator returned above; the out-params
+            // are valid, exclusively borrowed slots. The payload and the
+            // per-match context are optional and passed as null, which the
+            // iterator and the edit-distance filter both check for before
+            // writing.
+            let has_match = unsafe {
+                ffi::TrieIterator_Next(
+                    it.0.as_ptr(),
+                    &mut runes,
+                    &mut len,
+                    std::ptr::null_mut(),
+                    &mut score,
+                    &mut num_docs,
+                    std::ptr::null_mut(),
+                )
+            };
+            if has_match == 0 {
+                break;
+            }
+            let matched = if len == 0 {
+                // The pointer may be dangling for a zero-length key.
+                &[][..]
+            } else {
+                // SAFETY: a match writes `runes`/`len` as the iterator's buffer
+                // and the number of valid runes in it.
+                unsafe { std::slice::from_raw_parts(runes, len as usize) }
+            };
+            if callback(matched, num_docs).is_break() {
+                break;
+            }
+        }
+
+        drop(it);
+        Ok(FuzzyWalk::Walked)
     }
 }
 
