@@ -2390,9 +2390,14 @@ int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryErro
       }
     }
     pthread_mutex_unlock(&sync->mutex);
-    // Only sleep if we haven't completed all safe depleters
+    // Only sleep if we haven't completed all safe depleters.
+    //
+    // PROTOTYPE(loader-swap): 1ms was free when the only caller was cursor creation,
+    // but this now runs on the merger's hot path, where a whole hybrid query can be
+    // faster than one tick of it. A depleter that signals while this thread holds no
+    // wait costs a full sleep, so short queries paid ~2ms of pure sleep.
     if (numDone < count) {
-      usleep(1000);
+      usleep(50);
     }
   }
 
