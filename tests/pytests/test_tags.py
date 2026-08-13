@@ -175,6 +175,28 @@ def testSearchNotExistsTagValue(env):
     env.expect('FT.CREATE idx ON HASH SCHEMA t TAG SORTABLE').ok()
     env.expect('FT.SEARCH idx @t:{val}').equal([0])
 
+def testEmptyTagValue(env):
+    """Checks whether a TAG field can hold and be queried for an empty string
+    value: rejected by default, allowed with INDEXEMPTY."""
+
+    conn = getConnectionByEnv(env)
+
+    # Without INDEXEMPTY: an empty value can still be HSET, but querying for it
+    # explicitly is rejected.
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
+    conn.execute_command('HSET', 'doc1', 't', '')
+    env.expect('FT.SEARCH', 'idx', '@t:{""}').error().contains(
+        'Use `INDEXEMPTY` in field creation in order to index and query for empty strings')
+
+    # Clean up before testing INDEXEMPTY behavior (to avoid doc1 being auto-indexed by idx_empty)
+    conn.execute_command('DEL', 'doc1')
+
+    # With INDEXEMPTY: the empty value is indexed and comes back on query.
+    env.expect('FT.CREATE', 'idx_empty', 'SCHEMA', 't', 'TAG', 'INDEXEMPTY').ok()
+    conn.execute_command('HSET', 'doc2', 't', '')
+    res = env.cmd('FT.SEARCH', 'idx_empty', '@t:{""}')
+    env.assertEqual(res, [1, 'doc2', ['t', '']])
+
 def testIssue1305(env):
     env.expect('FT.CREATE myIdx ON HASH SCHEMA title TAG').ok()
     con = env.getClusterConnectionIfNeeded()

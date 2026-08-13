@@ -199,6 +199,12 @@ impl<'a> TagValue<'a> {
     }
 
     /// `None` if `s` contains an interior NUL byte.
+    // Not `FromStr`: that trait's `Err` association would have to be `Infallible`
+    // in spirit but `()` in practice, which is a worse signature than `Option`.
+    #[expect(
+        clippy::should_implement_trait,
+        reason = "deliberately not FromStr — see above"
+    )]
     pub fn from_str(s: &'a str) -> Option<Self> {
         Self::new(s.as_bytes())
     }
@@ -238,6 +244,60 @@ pub struct TagIndex {
 
     /// The mode: in memory / disk
     mode: TagIndexMode,
+}
+
+/// Deltas produced by writing a document's tag postings, to fold into the
+/// spec statistics.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WritePostingsDelta {
+    /// Bytes by which the inverted-index memory grew.
+    pub size_delta: usize,
+    /// Number of new (tag, doc) postings — counted only when the write added a
+    /// document not already present in the tag's posting list, so a value
+    /// repeated within a multi-value document is counted once.
+    pub num_records: u32,
+    /// Number of inverted-index blocks allocated.
+    pub blocks_added: u32,
+}
+
+fn write_postings(
+    values: &mut TrieMap<Box<InvertedIndex<DocIdsOnly>>>,
+    tags: &[TagValue<'_>],
+    doc_id: DocId,
+    has_field_expiration: bool,
+) -> WritePostingsDelta {
+    let mut delta = WritePostingsDelta::default();
+
+    let mut record = RSIndexResult::build_virt().doc_id(doc_id).build();
+    // The builder always clears this, so set it explicitly: `add_record` reads it
+    // off the record to write the posting's expiration bit.
+    record.has_field_expiration = has_field_expiration;
+    for tag in tags {
+        values.insert_with(tag.as_bytes(), |slot| {
+            let mut ii = slot.unwrap_or_else(|| {
+                let ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
+
+                delta.size_delta += ii.memory_usage();
+
+                Box::new(ii)
+            });
+
+            let docs_before = ii.unique_docs();
+            let outcome = ii.add_record(&record).unwrap();
+            // Count a record only when a new unique document was appended; a
+            // duplicate doc id (e.g. a tag repeated in a multi-value field) is
+            // skipped by `add_record` and must not be counted.
+            if ii.unique_docs() > docs_before {
+                delta.num_records += 1;
+            }
+            delta.blocks_added += outcome.blocks_added;
+            delta.size_delta += outcome.mem_growth as usize;
+
+            ii
+        });
+    }
+
+    delta
 }
 
 impl TagIndex {
@@ -1271,6 +1331,13 @@ impl TagLookup<DocIdsOnly> for TrieLookup {
     }
 }
 
+// The three test modules below stay as crate-internal unit tests rather than
+// moving to `tests/integration/`, because each reaches a crate-private item an
+// integration test — compiled against the public API only — cannot reach:
+// `tests` constructs `TrieLookup` through its private tuple field,
+// `suffix_wildcard_tests` reads `SuffixWildcardPattern::anchor` (`#[cfg(test)]
+// pub(crate)`), and `expansion_timeout_tests` calls the private
+// `expansion_deadline` directly.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1625,81 +1692,4 @@ mod expansion_timeout_tests {
             "an elapsed deadline must stop the walk on its first clock probe"
         );
     }
-}
-
-#[cfg(test)]
-mod tag_value_tests {
-    use super::*;
-
-    #[test]
-    fn rejects_an_interior_nul() {
-        assert!(TagValue::new(b"foo\0bar").is_none());
-    }
-
-    #[test]
-    fn accepts_nul_free_bytes() {
-        assert_eq!(
-            TagValue::new(b"foo").map(TagValue::as_bytes),
-            Some(&b"foo"[..])
-        );
-    }
-
-    #[test]
-    fn from_str_rejects_an_interior_nul() {
-        assert!(TagValue::from_str("foo\0bar").is_none());
-    }
-}
-
-/// Deltas produced by writing a document's tag postings, to fold into the
-/// spec statistics.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct WritePostingsDelta {
-    /// Bytes by which the inverted-index memory grew.
-    pub size_delta: usize,
-    /// Number of new (tag, doc) postings — counted only when the write added a
-    /// document not already present in the tag's posting list, so a value
-    /// repeated within a multi-value document is counted once.
-    pub num_records: u32,
-    /// Number of inverted-index blocks allocated.
-    pub blocks_added: u32,
-}
-
-fn write_postings(
-    values: &mut TrieMap<Box<InvertedIndex<DocIdsOnly>>>,
-    tags: &[TagValue<'_>],
-    doc_id: DocId,
-    has_field_expiration: bool,
-) -> WritePostingsDelta {
-    let mut delta = WritePostingsDelta::default();
-
-    let mut record = RSIndexResult::build_virt().doc_id(doc_id).build();
-    // The builder always clears this, so set it explicitly: `add_record` reads it
-    // off the record to write the posting's expiration bit.
-    record.has_field_expiration = has_field_expiration;
-    for tag in tags {
-        values.insert_with(tag.as_bytes(), |slot| {
-            let mut ii = slot.unwrap_or_else(|| {
-                let ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
-
-                delta.size_delta += ii.memory_usage();
-
-                Box::new(ii)
-            });
-
-            let docs_before = ii.unique_docs();
-            let outcome = ii.add_record(&record).unwrap();
-            // Count a record only when a new unique document was appended; a
-            // duplicate doc id (e.g. a tag repeated in a multi-value field) is
-            // skipped by `add_record` and must not be counted.
-            if ii.unique_docs() > docs_before {
-                delta.num_records += 1;
-            }
-            delta.blocks_added += outcome.blocks_added;
-            delta.size_delta += outcome.mem_growth as usize;
-
-            ii
-        });
-    }
-
-    delta
 }

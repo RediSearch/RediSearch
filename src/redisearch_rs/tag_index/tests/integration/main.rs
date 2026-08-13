@@ -21,4 +21,5 @@ mod filtered_iteration;
 mod gc;
 mod indexing;
 mod reader;
+mod tag_value;
 mod util;
