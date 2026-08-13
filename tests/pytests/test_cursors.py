@@ -715,3 +715,66 @@ def testCountArgValidation(env):
     res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', str(cid), 'COUNT', '2')
     env.assertEqual(cid, 0)
     env.assertEqual(res, [0])
+
+
+@skip(cluster=False)
+def test_cursor_gc_reschedules_sweep_on_main_thread():
+    """
+    `FT.CURSOR GC` can re-arm the cursor idle-sweep timer, so that re-arming
+    must happen on the main thread.
+
+    `Cursors_CollectIdle` re-arms the timer, and re-arming calls
+    `RedisModule_StopTimer` / `RedisModule_CreateTimer`, which mutate the
+    server's event-loop timer state. That is main-thread-only work: a caller
+    that may run elsewhere has to post `Cursors_RequestRescheduleSweep` instead
+    of re-arming inline.
+
+    This test drives the user-facing `FT.CURSOR GC` on a multi-shard cluster,
+    the configuration in which the coordinator may serve that command from a
+    worker pool rather than on the main thread. Whether it actually does so is
+    an implementation detail that differs between branches; what must hold
+    everywhere is that the timer is only ever re-armed from the main thread. In
+    `ENABLE_ASSERT` builds the assertion in `Cursors_RescheduleSweepLocked`
+    makes a violation a hard failure here instead of a silent data race.
+
+    """
+    env = Env(shardsCount=3)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    with env.getClusterConnectionIfNeeded() as con:
+        for i in range(100 * env.shardsCount):
+            con.execute_command('HSET', f'doc{i}', 't', 'hello')
+
+    # Phase 1 — drive the GC path while a cursor is definitely idle, so the sweep
+    # timer is armed and every GC below has a reason to re-arm it. MAXIDLE is far
+    # longer than the whole test, so the cursor cannot expire mid-loop on any
+    # host: nothing here depends on how fast the loop runs.
+    _, cid = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '1',
+                     'MAXIDLE', '60000')
+    # Fail here rather than timing out below if the cursor was never created.
+    env.assertNotEqual(0, cid)
+    with TimeLimit(10, "cursors were not created"):
+        while getCursorStats(env)['global_total'] < 1:
+            sleep(0.01)
+
+    for _ in range(30):
+        env.cmd('FT.CURSOR', 'GC', 'idx', '0')
+
+    # Holds on every host, fast or slow: MAXIDLE is 60s, so the cursor is still
+    # registered and the GC calls above provably ran against an armed timer.
+    env.assertNotEqual(0, getCursorStats(env)['global_total'])
+
+    # Phase 2 — the sweep timer must still fire after all that re-arming. Release
+    # the long-lived cursor, then let a short-MAXIDLE one expire on its own with
+    # no further traffic. Both waits below only require "eventually, within a
+    # generous bound", so a slow host is slower but never wrong.
+    env.cmd('FT.CURSOR', 'DEL', 'idx', cid)
+    with TimeLimit(10, "FT.CURSOR DEL did not release the cursor"):
+        while getCursorStats(env)['global_total']:
+            sleep(0.05)
+
+    _, cid2 = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '1',
+                      'MAXIDLE', '200')
+    env.assertNotEqual(0, cid2)
+    with TimeLimit(10, "idle cursor was not reaped at MAXIDLE after cluster FT.CURSOR GC"):
+        while getCursorStats(env)['global_total']:
+            sleep(0.05)
