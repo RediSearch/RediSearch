@@ -7,10 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Integration tests for the trie-iteration API of [`CTrieRef`].
+//! Integration tests for the trie-iteration APIs of [`TermsTrie`] and
+//! [`SuffixTrie`].
 //!
 //! Each test builds a live C trie through the linked static library, wraps it in
-//! a [`CTrieRef`], and exercises one of the iteration methods.
+//! a [`TermsTrie`] or [`SuffixTrie`], and exercises one of the iteration methods.
 
 // Links the Rust-provided and C-provided symbols of the whole module.
 extern crate redisearch_rs;
@@ -22,10 +23,10 @@ use std::{
     ffi::{c_char, c_void},
     mem,
     ops::ControlFlow,
-    ptr::{self, NonNull},
+    ptr,
 };
 
-use c_trie::{CTrieRef, LoweredPattern, SuffixMode, SuffixWalk};
+use c_trie::{LoweredPattern, SuffixMode, SuffixTrie, SuffixWalk, TermsTrie};
 use ffi::{SuffixType, SuffixType_SUFFIX_TYPE_CONTAINS, SuffixType_SUFFIX_TYPE_SUFFIX};
 
 /// Convert an ASCII/UTF-8 string to the trie's rune (`u16`) key.
@@ -55,17 +56,17 @@ fn runes_to_string(runes: &[ffi::rune]) -> String {
 
 /// Build a terms trie holding `terms`, each keyed with `numDocs == term length`
 /// (so tests can assert the document count flows through), run `f`, then free it.
-fn with_terms_trie(terms: &[&str], f: impl FnOnce(&CTrieRef)) {
+fn with_terms_trie(terms: &[&str], f: impl FnOnce(&TermsTrie)) {
     // SAFETY: `NewTrie` returns a fresh, valid, empty terms trie; a terms trie
     // stores no payload, so a null free callback is correct.
-    let ptr = unsafe { ffi::NewTrie(None, ffi::TrieSortMode_Trie_Sort_Lex) };
-    assert!(!ptr.is_null(), "NewTrie returned null");
+    let trie_ptr = unsafe { ffi::NewTrie(None, ffi::TrieSortMode_Trie_Sort_Lex) };
+    assert!(!trie_ptr.is_null(), "NewTrie returned null");
     for term in terms {
-        // SAFETY: `ptr` is the live trie just created; `term` points to
+        // SAFETY: `trie_ptr` is the live trie just created; `term` points to
         // `term.len()` valid UTF-8 bytes; a null payload is accepted.
         unsafe {
             ffi::Trie_InsertStringBuffer(
-                ptr,
+                trie_ptr,
                 term.as_ptr().cast::<c_char>(),
                 term.len(),
                 1.0,
@@ -75,38 +76,39 @@ fn with_terms_trie(terms: &[&str], f: impl FnOnce(&CTrieRef)) {
             );
         }
     }
-    // SAFETY: `ptr` is a valid trie that stays alive for the whole closure and
-    // is not freed until after it returns.
-    let trie = unsafe { CTrieRef::from_raw(ptr) };
-    f(&trie);
-    // SAFETY: `ptr` was produced by `NewTrie` and is freed exactly once here,
-    // after the last use of `trie`.
-    unsafe { ffi::TrieType_Free(ptr.cast::<c_void>()) };
+    // SAFETY: `trie_ptr` is a valid trie that stays alive for the whole closure
+    // and is not freed until after it returns. No other handle to it exists.
+    let trie = unsafe { TermsTrie::from_raw(trie_ptr) };
+    f(trie);
+    // SAFETY: `trie_ptr` was produced by `NewTrie` and is freed exactly once
+    // here, after the last use of `trie`.
+    unsafe { ffi::TrieType_Free(trie_ptr.cast::<c_void>()) };
 }
 
 /// Build a *suffix* trie holding `terms` (and all their suffixes), run `f`, then
 /// free it. `terms` must be non-empty strings — `addSuffixTrie` asserts on empty.
-fn with_suffix_trie(terms: &[&str], f: impl FnOnce(&CTrieRef)) {
+fn with_suffix_trie(terms: &[&str], f: impl FnOnce(&SuffixTrie)) {
     // SAFETY: `NewTrie` returns a fresh, valid trie; `suffixTrie_freeCallback` is
     // the matching free callback for the payloads `addSuffixTrie` inserts.
-    let ptr = unsafe {
+    let trie_ptr = unsafe {
         ffi::NewTrie(
             Some(ffi::suffixTrie_freeCallback),
             ffi::TrieSortMode_Trie_Sort_Lex,
         )
     };
-    assert!(!ptr.is_null(), "NewTrie returned null");
+    assert!(!trie_ptr.is_null(), "NewTrie returned null");
     for term in terms {
         assert!(!term.is_empty(), "addSuffixTrie rejects empty strings");
-        // SAFETY: `ptr` is the live suffix trie; `term` points to `term.len()`
-        // valid, non-empty UTF-8 bytes.
-        unsafe { ffi::addSuffixTrie(ptr, term.as_ptr().cast::<c_char>(), term.len() as u32) };
+        // SAFETY: `trie_ptr` is the live suffix trie; `term` points to
+        // `term.len()` valid, non-empty UTF-8 bytes.
+        unsafe { ffi::addSuffixTrie(trie_ptr, term.as_ptr().cast::<c_char>(), term.len() as u32) };
     }
-    // SAFETY: as in `with_terms_trie` — `ptr` outlives the closure.
-    let trie = unsafe { CTrieRef::from_raw(ptr) };
-    f(&trie);
+    // SAFETY: `trie_ptr` is a valid trie that stays alive for the whole closure
+    // and is not freed until after it returns. No other handle to it exists.
+    let trie = unsafe { SuffixTrie::from_raw(trie_ptr) };
+    f(trie);
     // SAFETY: freed exactly once after the last use of `trie`.
-    unsafe { ffi::TrieType_Free(ptr.cast::<c_void>()) };
+    unsafe { ffi::TrieType_Free(trie_ptr.cast::<c_void>()) };
 }
 
 /// Render a rune slice as text, for corpora that are not pure ASCII. Runes are
@@ -119,7 +121,7 @@ fn runes_to_text(runes: &[ffi::rune]) -> String {
         .collect()
 }
 
-/// Build a wildcard pattern from an ASCII/UTF-8 string. Every corpus here is
+/// Build a wildcard pattern from an ASCII/UTF-8 string. Every pattern here is
 /// lowercase already, so no case folding is needed on the way in.
 fn pattern(s: &str) -> LoweredPattern {
     LoweredPattern::new(&to_runes(s)).expect("pattern is short enough to convert")
@@ -158,14 +160,10 @@ fn iterate_contains_prefix_anchor_reports_terms_and_num_docs() {
     with_terms_trie(CORPUS, |trie| {
         let runes = to_runes("ap");
         let mut got: HashSet<(String, usize)> = HashSet::new();
-        // SAFETY: `trie` wraps a live terms trie that is not mutated during the
-        // walk; the timeout is `None`; the closure does not touch the trie.
-        unsafe {
-            trie.iterate_contains(&runes, true, false, None, |term, num_docs| {
-                got.insert((runes_to_string(term), num_docs));
-                ControlFlow::Continue(())
-            });
-        }
+        trie.iterate_contains(&runes, true, false, None, |term, num_docs| {
+            got.insert((runes_to_string(term), num_docs));
+            ControlFlow::Continue(())
+        });
         // Prefix `ap`: only terms starting with it, and `numDocs` == char length.
         let expected: HashSet<(String, usize)> =
             [("apple".to_owned(), 5), ("apricot".to_owned(), 7)]
@@ -184,13 +182,10 @@ fn iterate_contains_suffix_anchor() {
     with_terms_trie(CORPUS, |trie| {
         let runes = to_runes("ple");
         let mut got = HashSet::new();
-        // SAFETY: live, un-mutated terms trie; `None` timeout.
-        unsafe {
-            trie.iterate_contains(&runes, false, true, None, |term, _| {
-                got.insert(runes_to_string(term));
-                ControlFlow::Continue(())
-            });
-        }
+        trie.iterate_contains(&runes, false, true, None, |term, _| {
+            got.insert(runes_to_string(term));
+            ControlFlow::Continue(())
+        });
         assert_eq!(got, set(&["apple", "maple"]));
     });
 }
@@ -204,13 +199,10 @@ fn iterate_contains_contains_anchor() {
     with_terms_trie(CORPUS, |trie| {
         let runes = to_runes("ap");
         let mut got = HashSet::new();
-        // SAFETY: live, un-mutated terms trie; `None` timeout.
-        unsafe {
-            trie.iterate_contains(&runes, true, true, None, |term, _| {
-                got.insert(runes_to_string(term));
-                ControlFlow::Continue(())
-            });
-        }
+        trie.iterate_contains(&runes, true, true, None, |term, _| {
+            got.insert(runes_to_string(term));
+            ControlFlow::Continue(())
+        });
         // Every corpus term contains `ap`.
         assert_eq!(got, set(CORPUS));
     });
@@ -225,18 +217,15 @@ fn iterate_contains_break_stops_walk_early() {
     with_terms_trie(CORPUS, |trie| {
         let runes = to_runes("ap");
         let mut count = 0_usize;
-        // SAFETY: live, un-mutated terms trie; `None` timeout.
-        unsafe {
-            trie.iterate_contains(&runes, true, true, None, |_, _| {
-                count += 1;
-                // Stop after the second match even though five would match.
-                if count >= 2 {
-                    ControlFlow::Break(())
-                } else {
-                    ControlFlow::Continue(())
-                }
-            });
-        }
+        trie.iterate_contains(&runes, true, true, None, |_, _| {
+            count += 1;
+            // Stop after the second match even though five would match.
+            if count >= 2 {
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(())
+            }
+        });
         assert_eq!(count, 2, "Break must stop the walk at the second match");
     });
 }
@@ -249,13 +238,10 @@ fn iterate_contains_break_stops_walk_early() {
 fn iterate_contains_empty_pattern_in_suffix_mode_visits_nothing() {
     with_terms_trie(CORPUS, |trie| {
         let mut count = 0_usize;
-        // SAFETY: live, un-mutated terms trie; `None` timeout; empty pattern.
-        unsafe {
-            trie.iterate_contains(&[], false, true, None, |_, _| {
-                count += 1;
-                ControlFlow::Continue(())
-            });
-        }
+        trie.iterate_contains(&[], false, true, None, |_, _| {
+            count += 1;
+            ControlFlow::Continue(())
+        });
         assert_eq!(count, 0);
     });
 }
@@ -269,45 +255,32 @@ fn iterate_contains_some_and_none_timeout_agree() {
     // `RS_IsMock` is true in this test binary (`RedisModule_CreateTimer` is
     // unbound), so an actual deadline never fires — deadline *enforcement* is
     // covered by the C and Python suites. This exercises both branches of the
-    // wrapper's timeout mapping (`None` → skip checks; `Some` → a valid, live
-    // deadline pointer) and confirms they accept input and return the same set.
+    // wrapper's timeout mapping (`None` → skip checks; `Some` → a deadline the
+    // walk copies in) and confirms they accept input and return the same set.
     with_terms_trie(CORPUS, |trie| {
         let runes = to_runes("ap");
 
         let mut none_hits = HashSet::new();
-        // SAFETY: live, un-mutated terms trie; `None` timeout.
-        unsafe {
-            trie.iterate_contains(&runes, true, true, None, |term, _| {
-                none_hits.insert(runes_to_string(term));
-                ControlFlow::Continue(())
-            });
-        }
+        trie.iterate_contains(&runes, true, true, None, |term, _| {
+            none_hits.insert(runes_to_string(term));
+            ControlFlow::Continue(())
+        });
 
         // SAFETY: `timespec` is a plain-old-data struct; an all-zero value is valid.
         let mut deadline: ffi::timespec = unsafe { mem::zeroed() };
         deadline.tv_sec = 1_i64 << 40; // far in the future
         let mut some_hits = HashSet::new();
-        // SAFETY: live, un-mutated terms trie; `deadline` is a valid `timespec`
-        // that outlives the call.
-        unsafe {
-            trie.iterate_contains(
-                &runes,
-                true,
-                true,
-                Some(NonNull::from(&mut deadline)),
-                |term, _| {
-                    some_hits.insert(runes_to_string(term));
-                    ControlFlow::Continue(())
-                },
-            );
-        }
+        trie.iterate_contains(&runes, true, true, Some(deadline), |term, _| {
+            some_hits.insert(runes_to_string(term));
+            ControlFlow::Continue(())
+        });
 
         assert_eq!(none_hits, set(CORPUS));
         assert_eq!(some_hits, none_hits);
     });
 }
 
-// --- `iterate_suffix` (suffix trie) -----------------------------------------
+// --- `iterate_contains` (suffix trie) ---------------------------------------
 
 #[test]
 #[cfg_attr(
@@ -318,14 +291,10 @@ fn iterate_suffix_suffix_anchor() {
     with_suffix_trie(CORPUS, |trie| {
         let runes = to_runes("ple");
         let mut got = HashSet::new();
-        // SAFETY: `trie` wraps a live suffix trie (matching payload/free
-        // callback) that is not mutated during the walk.
-        unsafe {
-            trie.iterate_suffix(&runes, SuffixMode::Suffix, |bytes| {
-                got.insert(String::from_utf8_lossy(bytes).into_owned());
-                ControlFlow::Continue(())
-            });
-        }
+        trie.iterate_contains(&runes, SuffixMode::Suffix, |bytes| {
+            got.insert(String::from_utf8_lossy(bytes).into_owned());
+            ControlFlow::Continue(())
+        });
         assert_eq!(got, set(&["apple", "maple"]));
     });
 }
@@ -339,13 +308,10 @@ fn iterate_suffix_contains_anchor() {
     with_suffix_trie(CORPUS, |trie| {
         let runes = to_runes("ap");
         let mut got = HashSet::new();
-        // SAFETY: live, un-mutated suffix trie.
-        unsafe {
-            trie.iterate_suffix(&runes, SuffixMode::Contains, |bytes| {
-                got.insert(String::from_utf8_lossy(bytes).into_owned());
-                ControlFlow::Continue(())
-            });
-        }
+        trie.iterate_contains(&runes, SuffixMode::Contains, |bytes| {
+            got.insert(String::from_utf8_lossy(bytes).into_owned());
+            ControlFlow::Continue(())
+        });
         assert_eq!(got, set(CORPUS));
     });
 }
@@ -359,13 +325,10 @@ fn iterate_suffix_break_stops_walk_early() {
     with_suffix_trie(CORPUS, |trie| {
         let runes = to_runes("ap");
         let mut count = 0_usize;
-        // SAFETY: live, un-mutated suffix trie.
-        unsafe {
-            trie.iterate_suffix(&runes, SuffixMode::Contains, |_| {
-                count += 1;
-                ControlFlow::Break(())
-            });
-        }
+        trie.iterate_contains(&runes, SuffixMode::Contains, |_| {
+            count += 1;
+            ControlFlow::Break(())
+        });
         assert_eq!(count, 1, "Break must stop after the first match");
     });
 }
@@ -378,13 +341,10 @@ fn iterate_suffix_break_stops_walk_early() {
 fn iterate_suffix_empty_pattern_visits_nothing() {
     with_suffix_trie(CORPUS, |trie| {
         let mut count = 0_usize;
-        // SAFETY: live, un-mutated suffix trie; empty pattern.
-        unsafe {
-            trie.iterate_suffix(&[], SuffixMode::Contains, |_| {
-                count += 1;
-                ControlFlow::Continue(())
-            });
-        }
+        trie.iterate_contains(&[], SuffixMode::Contains, |_| {
+            count += 1;
+            ControlFlow::Continue(())
+        });
         assert_eq!(count, 0);
     });
 }
@@ -461,14 +421,10 @@ fn lowered_pattern_declines_a_pattern_holding_a_zero_rune() {
 fn iterate_wildcard_reports_terms_and_num_docs() {
     with_terms_trie(CORPUS, |trie| {
         let mut got: HashSet<(String, usize)> = HashSet::new();
-        // SAFETY: `trie` wraps a live terms trie that is not mutated during the
-        // walk; the timeout is `None`; the closure does not touch the trie.
-        unsafe {
-            trie.iterate_wildcard(&pattern("ap*"), None, |term, num_docs| {
-                got.insert((runes_to_string(term), num_docs));
-                ControlFlow::Continue(())
-            });
-        }
+        trie.iterate_wildcard(&pattern("ap*"), None, |term, num_docs| {
+            got.insert((runes_to_string(term), num_docs));
+            ControlFlow::Continue(())
+        });
         // `numDocs` == char length, as inserted by `with_terms_trie`.
         let expected: HashSet<(String, usize)> =
             [("apple".to_owned(), 5), ("apricot".to_owned(), 7)]
@@ -486,13 +442,10 @@ fn iterate_wildcard_reports_terms_and_num_docs() {
 fn iterate_wildcard_matches_a_star_that_is_not_front_anchored() {
     with_terms_trie(CORPUS, |trie| {
         let mut got = HashSet::new();
-        // SAFETY: live, un-mutated terms trie; `None` timeout.
-        unsafe {
-            trie.iterate_wildcard(&pattern("*ple"), None, |term, _| {
-                got.insert(runes_to_string(term));
-                ControlFlow::Continue(())
-            });
-        }
+        trie.iterate_wildcard(&pattern("*ple"), None, |term, _| {
+            got.insert(runes_to_string(term));
+            ControlFlow::Continue(())
+        });
         assert_eq!(got, set(&["apple", "maple"]));
     });
 }
@@ -505,13 +458,10 @@ fn iterate_wildcard_matches_a_star_that_is_not_front_anchored() {
 fn iterate_wildcard_question_mark_matches_exactly_one_rune() {
     with_terms_trie(CORPUS, |trie| {
         let mut got = HashSet::new();
-        // SAFETY: live, un-mutated terms trie; `None` timeout.
-        unsafe {
-            trie.iterate_wildcard(&pattern("m?p"), None, |term, _| {
-                got.insert(runes_to_string(term));
-                ControlFlow::Continue(())
-            });
-        }
+        trie.iterate_wildcard(&pattern("m?p"), None, |term, _| {
+            got.insert(runes_to_string(term));
+            ControlFlow::Continue(())
+        });
         // `map` only: `maple` is longer, and `?` does not span two runes.
         assert_eq!(got, set(&["map"]));
     });
@@ -527,13 +477,10 @@ fn iterate_wildcard_matches_a_multibyte_pattern() {
     // hides. `?` here is one *rune*, so it spans the two-byte `é`.
     with_terms_trie(&["héllo", "hallo", "hxyllo"], |trie| {
         let mut got = HashSet::new();
-        // SAFETY: live, un-mutated terms trie; `None` timeout.
-        unsafe {
-            trie.iterate_wildcard(&pattern("h?llo"), None, |term, _| {
-                got.insert(runes_to_text(term));
-                ControlFlow::Continue(())
-            });
-        }
+        trie.iterate_wildcard(&pattern("h?llo"), None, |term, _| {
+            got.insert(runes_to_text(term));
+            ControlFlow::Continue(())
+        });
         assert_eq!(got, set(&["héllo", "hallo"]));
     });
 }
@@ -547,13 +494,10 @@ fn iterate_wildcard_empty_pattern_visits_nothing() {
     with_terms_trie(CORPUS, |trie| {
         let empty = LoweredPattern::new(&[]).expect("an empty pattern converts");
         let mut count = 0_usize;
-        // SAFETY: live, un-mutated terms trie; `None` timeout; empty pattern.
-        unsafe {
-            trie.iterate_wildcard(&empty, None, |_, _| {
-                count += 1;
-                ControlFlow::Continue(())
-            });
-        }
+        trie.iterate_wildcard(&empty, None, |_, _| {
+            count += 1;
+            ControlFlow::Continue(())
+        });
         // The walk underneath would read the byte before the pattern to decide
         // whether it ends in `*`, so this must not reach it.
         assert_eq!(count, 0);
@@ -568,13 +512,10 @@ fn iterate_wildcard_empty_pattern_visits_nothing() {
 fn iterate_wildcard_break_stops_a_trailing_star_walk_early() {
     with_terms_trie(CORPUS, |trie| {
         let mut count = 0_usize;
-        // SAFETY: live, un-mutated terms trie; `None` timeout.
-        unsafe {
-            trie.iterate_wildcard(&pattern("ap*"), None, |_, _| {
-                count += 1;
-                ControlFlow::Break(())
-            });
-        }
+        trie.iterate_wildcard(&pattern("ap*"), None, |_, _| {
+            count += 1;
+            ControlFlow::Break(())
+        });
         assert_eq!(count, 1, "Break must stop after the first match");
     });
 }
@@ -590,13 +531,10 @@ fn iterate_wildcard_break_is_ignored_without_a_trailing_star() {
     // the caller must make every further callback a no-op itself.
     with_terms_trie(CORPUS, |trie| {
         let mut count = 0_usize;
-        // SAFETY: live, un-mutated terms trie; `None` timeout.
-        unsafe {
-            trie.iterate_wildcard(&pattern("*ple"), None, |_, _| {
-                count += 1;
-                ControlFlow::Break(())
-            });
-        }
+        trie.iterate_wildcard(&pattern("*ple"), None, |_, _| {
+            count += 1;
+            ControlFlow::Break(())
+        });
         assert_eq!(count, 2, "both matches are still delivered");
     });
 }
@@ -612,54 +550,39 @@ fn iterate_wildcard_some_and_none_timeout_agree() {
     // than deadline enforcement.
     with_terms_trie(CORPUS, |trie| {
         let mut none_hits = HashSet::new();
-        // SAFETY: live, un-mutated terms trie; `None` timeout.
-        unsafe {
-            trie.iterate_wildcard(&pattern("ap*"), None, |term, _| {
-                none_hits.insert(runes_to_string(term));
-                ControlFlow::Continue(())
-            });
-        }
+        trie.iterate_wildcard(&pattern("ap*"), None, |term, _| {
+            none_hits.insert(runes_to_string(term));
+            ControlFlow::Continue(())
+        });
 
         // SAFETY: `timespec` is a plain-old-data struct; an all-zero value is valid.
         let mut deadline: ffi::timespec = unsafe { mem::zeroed() };
         deadline.tv_sec = 1_i64 << 40; // far in the future
         let mut some_hits = HashSet::new();
-        // SAFETY: live, un-mutated terms trie; `deadline` is a valid `timespec`
-        // that outlives the call.
-        unsafe {
-            trie.iterate_wildcard(
-                &pattern("ap*"),
-                Some(NonNull::from(&mut deadline)),
-                |term, _| {
-                    some_hits.insert(runes_to_string(term));
-                    ControlFlow::Continue(())
-                },
-            );
-        }
+        trie.iterate_wildcard(&pattern("ap*"), Some(deadline), |term, _| {
+            some_hits.insert(runes_to_string(term));
+            ControlFlow::Continue(())
+        });
 
         assert_eq!(none_hits, set(&["apple", "apricot"]));
         assert_eq!(some_hits, none_hits);
     });
 }
 
-// --- `iterate_suffix_wildcard` (suffix trie) --------------------------------
+// --- `iterate_wildcard` (suffix trie) ---------------------------------------
 
 #[test]
 #[cfg_attr(
     miri,
     ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
 )]
-fn iterate_suffix_wildcard_anchors_on_the_pattern_literal() {
+fn suffix_iterate_wildcard_anchors_on_the_pattern_literal() {
     with_suffix_trie(CORPUS, |trie| {
         let mut got = HashSet::new();
-        // SAFETY: `trie` wraps a live suffix trie (matching payload/free
-        // callback) that is not mutated during the walk; `None` timeout.
-        let outcome = unsafe {
-            trie.iterate_suffix_wildcard(pattern("*ple"), None, |bytes| {
-                got.insert(String::from_utf8_lossy(bytes).into_owned());
-                ControlFlow::Continue(())
-            })
-        };
+        let outcome = trie.iterate_wildcard(pattern("*ple"), None, |bytes| {
+            got.insert(String::from_utf8_lossy(bytes).into_owned());
+            ControlFlow::Continue(())
+        });
         assert!(
             matches!(outcome, SuffixWalk::Walked),
             "`ple` is a literal the suffix trie can use"
@@ -673,19 +596,16 @@ fn iterate_suffix_wildcard_anchors_on_the_pattern_literal() {
     miri,
     ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
 )]
-fn iterate_suffix_wildcard_anchor_token_may_absorb_a_trailing_star() {
+fn suffix_iterate_wildcard_anchor_token_may_absorb_a_trailing_star() {
     // The chosen anchor token `ma` is followed by `*`, so the walk extends the
     // token to cover it and scans the whole sub-tree under `ma` — the only walk
     // shape that honours an early stop.
     with_suffix_trie(CORPUS, |trie| {
         let mut got = HashSet::new();
-        // SAFETY: live, un-mutated suffix trie; `None` timeout.
-        let outcome = unsafe {
-            trie.iterate_suffix_wildcard(pattern("ma*"), None, |bytes| {
-                got.insert(String::from_utf8_lossy(bytes).into_owned());
-                ControlFlow::Continue(())
-            })
-        };
+        let outcome = trie.iterate_wildcard(pattern("ma*"), None, |bytes| {
+            got.insert(String::from_utf8_lossy(bytes).into_owned());
+            ControlFlow::Continue(())
+        });
         assert!(matches!(outcome, SuffixWalk::Walked));
         assert_eq!(got, set(&["maple", "map"]));
     });
@@ -696,19 +616,16 @@ fn iterate_suffix_wildcard_anchor_token_may_absorb_a_trailing_star() {
     miri,
     ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
 )]
-fn iterate_suffix_wildcard_matches_a_multibyte_pattern() {
+fn suffix_iterate_wildcard_matches_a_multibyte_pattern() {
     // A multibyte pattern separates rune count from byte count; the walk operates
     // rune-wise throughout, and every ASCII pattern leaves the two equal and so
     // could not tell.
     with_suffix_trie(&["héllo", "hallo"], |trie| {
         let mut got = HashSet::new();
-        // SAFETY: live, un-mutated suffix trie; `None` timeout.
-        let outcome = unsafe {
-            trie.iterate_suffix_wildcard(pattern("*éllo"), None, |bytes| {
-                got.insert(String::from_utf8_lossy(bytes).into_owned());
-                ControlFlow::Continue(())
-            })
-        };
+        let outcome = trie.iterate_wildcard(pattern("*éllo"), None, |bytes| {
+            got.insert(String::from_utf8_lossy(bytes).into_owned());
+            ControlFlow::Continue(())
+        });
         assert!(matches!(outcome, SuffixWalk::Walked));
         assert_eq!(got, set(&["héllo"]));
     });
@@ -719,16 +636,13 @@ fn iterate_suffix_wildcard_matches_a_multibyte_pattern() {
     miri,
     ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
 )]
-fn iterate_suffix_wildcard_declines_a_pattern_with_no_literal_to_anchor_on() {
+fn suffix_iterate_wildcard_declines_a_pattern_with_no_literal_to_anchor_on() {
     with_suffix_trie(CORPUS, |trie| {
         let mut count = 0_usize;
-        // SAFETY: live, un-mutated suffix trie; `None` timeout.
-        let outcome = unsafe {
-            trie.iterate_suffix_wildcard(pattern("**"), None, |_| {
-                count += 1;
-                ControlFlow::Continue(())
-            })
-        };
+        let outcome = trie.iterate_wildcard(pattern("**"), None, |_| {
+            count += 1;
+            ControlFlow::Continue(())
+        });
         let SuffixWalk::NoAnchor(returned) = outcome else {
             panic!("a pattern of only `*` has no token to anchor on");
         };
@@ -744,17 +658,14 @@ fn iterate_suffix_wildcard_declines_a_pattern_with_no_literal_to_anchor_on() {
     miri,
     ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
 )]
-fn iterate_suffix_wildcard_declines_an_empty_pattern() {
+fn suffix_iterate_wildcard_declines_an_empty_pattern() {
     with_suffix_trie(CORPUS, |trie| {
         let empty = LoweredPattern::new(&[]).expect("an empty pattern converts");
         let mut count = 0_usize;
-        // SAFETY: live, un-mutated suffix trie; `None` timeout; empty pattern.
-        let outcome = unsafe {
-            trie.iterate_suffix_wildcard(empty, None, |_| {
-                count += 1;
-                ControlFlow::Continue(())
-            })
-        };
+        let outcome = trie.iterate_wildcard(empty, None, |_| {
+            count += 1;
+            ControlFlow::Continue(())
+        });
         let SuffixWalk::NoAnchor(returned) = outcome else {
             panic!("an empty pattern has no token to anchor on");
         };
@@ -768,18 +679,15 @@ fn iterate_suffix_wildcard_declines_an_empty_pattern() {
     miri,
     ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
 )]
-fn iterate_suffix_wildcard_break_stops_a_star_terminated_anchor_early() {
+fn suffix_iterate_wildcard_break_stops_a_star_terminated_anchor_early() {
     // `ma*` extends its anchor token to include the `*`, which is what puts the
     // walk on the sub-tree path — the only path that honours a stop request.
     with_suffix_trie(CORPUS, |trie| {
         let mut count = 0_usize;
-        // SAFETY: live, un-mutated suffix trie; `None` timeout.
-        let outcome = unsafe {
-            trie.iterate_suffix_wildcard(pattern("ma*"), None, |_| {
-                count += 1;
-                ControlFlow::Break(())
-            })
-        };
+        let outcome = trie.iterate_wildcard(pattern("ma*"), None, |_| {
+            count += 1;
+            ControlFlow::Break(())
+        });
         assert!(matches!(outcome, SuffixWalk::Walked));
         assert_eq!(count, 1, "Break must stop after the first match");
     });
@@ -790,7 +698,7 @@ fn iterate_suffix_wildcard_break_stops_a_star_terminated_anchor_early() {
     miri,
     ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
 )]
-fn iterate_suffix_wildcard_break_is_ignored_for_an_anchor_without_a_trailing_star() {
+fn suffix_iterate_wildcard_break_is_ignored_for_an_anchor_without_a_trailing_star() {
     // The documented caveat, pinned. `*p?e` anchors on `p?e`, which is not
     // `*`-terminated, so the walk is not on the sub-tree path and discards the
     // stop request — it only truncates the matches under the node it is on, then
@@ -800,13 +708,10 @@ fn iterate_suffix_wildcard_break_is_ignored_for_an_anchor_without_a_trailing_sta
     // matching key would hide this, since `Break` does end that key's own list.
     with_suffix_trie(&["apple", "pie"], |trie| {
         let mut count = 0_usize;
-        // SAFETY: live, un-mutated suffix trie; `None` timeout.
-        let outcome = unsafe {
-            trie.iterate_suffix_wildcard(pattern("*p?e"), None, |_| {
-                count += 1;
-                ControlFlow::Break(())
-            })
-        };
+        let outcome = trie.iterate_wildcard(pattern("*p?e"), None, |_| {
+            count += 1;
+            ControlFlow::Break(())
+        });
         assert!(matches!(outcome, SuffixWalk::Walked));
         assert_eq!(
             count, 2,
