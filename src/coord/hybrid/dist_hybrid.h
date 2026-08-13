@@ -39,11 +39,36 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 int DistHybridTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
-// For testing purposes
+struct dict;  // forward decl (see util/dict/dict.h): the resolved PARAMS dict
+
+// Coordinator-resolved state that HybridRequest_buildMRCommand forwards to the
+// shards.
+typedef struct {
+  ProfileOptions profileOptions;
+  HybridCombineWireParams combine;
+  // Resolved parameter dictionary, or NULL when the client supplied no PARAMS.
+  struct dict *params;
+  // TIMEOUT forwarding: when forwardTimeout is true, TIMEOUT <timeoutMS> is
+  // appended.
+  bool forwardTimeout;
+  long long timeoutMS;
+} HybridShardWireParams;
+
+// Builds the per-shard MR command from the coordinator's parsed hybrid request.
+// The function transforms
+//   FT.HYBRID index SEARCH query VSIM field vector
+// into
+//   _FT.HYBRID index SEARCH query VSIM field vector WITHCURSOR _NUM_SSTRING
+//   _INDEX_PREFIXES ...
+//
+// argv/argc are the raw client command; `shardWireParams` (required, non-NULL) carries the
+// parsed state to forward. DIALECT is never forwarded (FT.HYBRID rejects it at
+// parse time).
+//
+// Exposed for testing.
 // numShards is passed from the main thread to ensure thread-safe access
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
-                            ProfileOptions profileOptions,
-                            const HybridCombineWireParams *combineParams,
+                            const HybridShardWireParams *shardWireParams,
                             MRCommand *xcmd, arrayof(char*) serialized,
                             IndexSpec *sp,
                             const VectorQuery *vq,
