@@ -126,12 +126,6 @@ impl<'ti> TagIndexIterator<'ti> {
     /// Returns `None` at the end of the iteration, or when the timeout is
     /// reached. The key slice is borrowed from trie-internal storage and is
     /// invalidated by the next call.
-    ///
-    /// This is `advance`, not `next`, because the yielded key borrows from
-    /// `self` for as long as the caller holds it — a lending iterator, which
-    /// `std::iter::Iterator::next`'s by-value, unbounded-lifetime return can't
-    /// express. The underlying `trie_rs` iterators are all
-    /// [`lending_iterator::LendingIterator`]s for the same reason.
     pub fn advance(&mut self) -> Option<(&[u8], Option<&InvertedIndex<DocIdsOnly>>)> {
         // The memory-mode value is a `&Box<InvertedIndex>`; callers hold and
         // dereference the heap `InvertedIndex`, so hand out that stable address
@@ -256,12 +250,6 @@ impl<'trie> TagValueReader<'trie> {
 
     /// Read the next record into `res`, returning `true` when a record was
     /// written and `false` at the end of the postings.
-    ///
-    /// Takes `res` by `&mut` rather than returning a new record each call so
-    /// the caller can reuse the same `RSIndexResult` across the whole read —
-    /// the buffer-reuse convention `RQEIterator::read` follows throughout this
-    /// codebase. `std::iter::Iterator::next` returns by value, which would
-    /// force a fresh result per record instead.
     pub fn next_record(&mut self, res: &mut RSIndexResult<'trie>) -> bool {
         self.reader.next_record(res).unwrap_or_default()
     }

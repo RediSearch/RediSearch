@@ -29,10 +29,14 @@
 //!
 //! Disk-mode [`TagIndex::index`] additionally requires a *trailing* NUL: the
 //! byte one past each tag must be readable and zero, so the tag pointer is
-//! directly usable as the disk API's `const char *`. That is a property of the
-//! surrounding C buffer, not of the tag bytes themselves — no borrowed-slice
-//! type can express it — so it stays a documented `unsafe` precondition on
-//! `index` alone, checked by a `debug_assert!` rather than by the type system.
+//! directly usable as the disk API's `const char *`. This is a real requirement,
+//! not an overcautious one: `SearchDisk_IndexTags` takes `const char **values`
+//! and a count, with no per-string length array, so `strlen` is the only way its
+//! (closed-source) implementation can find where each tag ends. That NUL is a
+//! property of the surrounding C buffer, not of the tag bytes themselves — no
+//! borrowed-slice type can express it — so it stays a documented `unsafe`
+//! precondition on `index` alone, checked by a `debug_assert!` rather than by
+//! the type system.
 //!
 //! The one place a terminator is visible in the other direction: the terms
 //! yielded by [`TagIndex::suffix_expand`] carry theirs, so their pointers are
@@ -198,20 +202,14 @@ impl<'a> TagValue<'a> {
         (!bytes.contains(&0)).then_some(Self(bytes))
     }
 
-    /// `None` if `s` contains an interior NUL byte.
-    // Not `FromStr`: that trait's `Err` association would have to be `Infallible`
-    // in spirit but `()` in practice, which is a worse signature than `Option`.
-    #[expect(
-        clippy::should_implement_trait,
-        reason = "deliberately not FromStr — see above"
-    )]
-    pub fn from_str(s: &'a str) -> Option<Self> {
-        Self::new(s.as_bytes())
-    }
-
     /// The underlying NUL-free bytes.
     pub const fn as_bytes(self) -> &'a [u8] {
         self.0
+    }
+
+    /// Pointer to the underlying NUL-free bytes.
+    pub const fn as_ptr(self) -> *const u8 {
+        self.0.as_ptr()
     }
 }
 
@@ -446,10 +444,8 @@ impl TagIndex {
                 );
                 // Contract 2 puts a NUL just past each tag, so the tag pointer is
                 // directly usable as the `const char *` the disk API expects.
-                let mut value_ptrs: Vec<*const c_char> = tags
-                    .iter()
-                    .map(|tag| tag.as_bytes().as_ptr().cast())
-                    .collect();
+                let mut value_ptrs: Vec<*const c_char> =
+                    tags.iter().map(|tag| tag.as_ptr().cast()).collect();
                 // SAFETY: `disk_index_spec` is a valid `RedisSearchDiskIndexSpec`
                 // (invariant from `new_on_disk`); contract 1 covers `ctx`/`batch`;
                 // and by contract 2 every pointer in `value_ptrs` addresses a
@@ -770,9 +766,11 @@ impl TagIndex {
     /// re-resolving the tag in the values trie. The disk backend owns its reader
     /// and revalidates it itself, so the disk branch drops `lookup` unused.
     ///
-    /// Returns `Err` when the disk backend fails to build its iterator; the
-    /// error carries the cause instead of populating a `QueryError` out
-    /// parameter.
+    /// Returns `Err` when the disk backend fails to build its iterator.
+    ///
+    /// # Panics
+    ///
+    /// In disk mode, if [`SEARCH_ENTERPRISE_ITERATORS`] is not initialized.
     ///
     /// # Safety
     ///
@@ -789,7 +787,6 @@ impl TagIndex {
     ///    this index's disk spec, valid for the duration of the call:
     ///    [SearchEnterpriseIterators::new_tag_on_disk](rqe_iterators::SearchEnterpriseIterators::new_tag_on_disk) reads it off `sctx` and
     ///    hands it to the disk backend.
-    /// 5. In disk mode, [`SEARCH_ENTERPRISE_ITERATORS`] must be initialized.
     pub unsafe fn open_reader(
         &self,
         sctx: NonNull<RedisSearchCtx>,
@@ -803,8 +800,14 @@ impl TagIndex {
                 disk_index_spec, ..
             } => {
                 // SAFETY: `sctx` is valid (contract 2).
-                let snapshot = NonNull::new(unsafe { sctx.as_ref() }.diskSnapshot)
-                    .expect("disk-mode reads need a snapshot on the search context");
+                let disk_snapshot = unsafe { sctx.as_ref() }.diskSnapshot;
+                debug_assert!(
+                    !disk_snapshot.is_null(),
+                    "disk-mode reads need a snapshot on the search context"
+                );
+                // SAFETY: contract 4 guarantees `sctx.diskSnapshot` is
+                // non-null, checked above in debug builds.
+                let snapshot = unsafe { NonNull::new_unchecked(disk_snapshot) };
 
                 // Postings live on disk: build the reader through the disk API,
                 // keyed by the tag string.
@@ -988,6 +991,12 @@ pub enum NewTagIterator<'index> {
     /// Memory mode: reads the tag's postings inline from the values trie.
     Mem(Box<Tag<'index, DocIdsOnly, TrieLookup, FieldExpirationChecker>>),
     /// Disk mode: delegates to the enterprise disk index iterator.
+    ///
+    /// `Box<dyn _>` because the enterprise implementation is closed-source and
+    /// type-erased behind
+    /// [SearchEnterpriseIterators::new_tag_on_disk](rqe_iterators::SearchEnterpriseIterators::new_tag_on_disk);
+    /// there is no concrete type to name on this side. Same shape, same reason,
+    /// as [`rqe_iterators::NewWildcardIterator::Disk`].
     Disk(Box<dyn RQEIteratorPrintable<'index> + 'index>),
 }
 
@@ -1000,6 +1009,9 @@ macro_rules! delegate_new_tag_iterator {
     };
 }
 
+// Exercised directly by `tests/integration/reader.rs` (via a generic
+// `impl RQEIterator` helper), and the precondition for the future FFI crate's
+// `RQEIteratorWrapper::boxed_new(it)`, which requires this bound.
 impl<'index> RQEIterator<'index> for NewTagIterator<'index> {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
@@ -1050,6 +1062,11 @@ impl<'index> RQEIterator<'index> for NewTagIterator<'index> {
     }
 }
 
+// `RQEIteratorPrintable: RQEIterator + ProfilePrint`, so this is required by
+// the same `boxed_new` bound as the impl above, not exercised on its own here —
+// matching `rqe_iterators::NewWildcardIterator`'s own `ProfilePrint` impl,
+// which has no direct caller in that crate's tests either; `FT.PROFILE`
+// printing happens above the FFI boundary in both cases.
 impl ProfilePrint for NewTagIterator<'_> {
     fn print_profile(&self, map: &mut ProfileMapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         delegate_new_tag_iterator!(self, print_profile, map, ctx)
@@ -1331,13 +1348,6 @@ impl TagLookup<DocIdsOnly> for TrieLookup {
     }
 }
 
-// The three test modules below stay as crate-internal unit tests rather than
-// moving to `tests/integration/`, because each reaches a crate-private item an
-// integration test — compiled against the public API only — cannot reach:
-// `tests` constructs `TrieLookup` through its private tuple field,
-// `suffix_wildcard_tests` reads `SuffixWildcardPattern::anchor` (`#[cfg(test)]
-// pub(crate)`), and `expansion_timeout_tests` calls the private
-// `expansion_deadline` directly.
 #[cfg(test)]
 mod tests {
     use super::*;

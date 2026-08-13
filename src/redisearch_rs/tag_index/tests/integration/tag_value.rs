@@ -25,6 +25,7 @@ fn accepts_nul_free_bytes() {
 }
 
 #[test]
-fn from_str_rejects_an_interior_nul() {
-    assert!(TagValue::from_str("foo\0bar").is_none());
+fn as_ptr_points_at_the_underlying_bytes() {
+    let tag = TagValue::new(b"foo").unwrap();
+    assert_eq!(tag.as_ptr(), tag.as_bytes().as_ptr());
 }
