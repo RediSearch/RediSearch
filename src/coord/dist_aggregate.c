@@ -372,8 +372,7 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
 // Deferred execution of the distributed FT.AGGREGATE with WITHCOUNT. Runs on a
 // worker thread from the coordinator pool after the first-reply collection
 // step has gathered each shard's total_results.
-static int executePlan(AREQ *r, struct ConcurrentCmdCtx *cmdCtx, RedisModule_Reply *reply,
-                       QueryError *status);
+static int executePlan(AREQ *r, RedisModule_Reply *reply, QueryError *status);
 
 static void executeAggregateDeferred(void *arg) {
   AggregateIteratorContext *iterCtx = (AggregateIteratorContext *)arg;
@@ -398,14 +397,13 @@ static void executeAggregateDeferred(void *arg) {
   bool timedOut = AREQ_TimedOut(r);
 
   if (sp && !timedOut) {
-    // Dedicated thread-safe context for this worker. Aliased into sctx->redisCtx
-    // so any pipeline step that reads it sees a live ctx on this thread. For
-    // cursors the AREQ takes ownership of this ctx (ownRedisCtx: AREQ_Free
-    // releases it); for non-cursor requests we free it locally after
-    // executePlan returns.
+    // Dedicated thread-safe context for this worker, lent to sctx->redisCtx
+    // so any pipeline step that reads it sees a live ctx on this thread. The
+    // loan ends with this cycle (runCursor returns it for cursors; non-cursor
+    // requests are released inside executePlan) and the ctx is freed below.
     RedisModuleCtx *replyCtx = RedisModule_GetThreadSafeContext(bc);
+    RS_ASSERT(r->sctx->redisCtx == NULL); // the dispatch returned its loan
     r->sctx->redisCtx = replyCtx;
-    r->sctx->ownRedisCtx = (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) != 0;
 
     RedisModule_Reply _reply = RedisModule_NewReply(replyCtx), *reply = &_reply;
     QueryError status = QueryError_Default();
@@ -422,25 +420,23 @@ static void executeAggregateDeferred(void *arg) {
 
     if (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) {
       // Cursor path: AREQ_StartCursor stashes the AREQ on the new Cursor and
-      // emits the first chunk via runCursor. We cannot reuse executePlan here
-      // because its cursor branch calls ConcurrentCmdCtx_KeepRedisCtx, and we
-      // have no ConcurrentCmdCtx (the dispatcher already returned).
-      // Cursor ownership of replyCtx: on success the AREQ outlives this
-      // function and AREQ_Free frees replyCtx; on failure AREQ_DecrRef below
-      // triggers the same AREQ_Free path. Either way, do not free replyCtx locally.
+      // emits the first chunk via runCursor. Not routed through executePlan
+      // because we have no ConcurrentCmdCtx (the dispatcher already returned).
       StrongRef dummy_spec_ref = {.rm = NULL};
       if (AREQ_StartCursor(r, reply, dummy_spec_ref, &status, true) != REDISMODULE_OK) {
         AREQ_ReplyOrStoreError(r, replyCtx, &status);
+        // Cursor reservation failed before runCursor could return the loan.
+        r->sctx->redisCtx = NULL;
         AREQ_DecrRef(r);
       }
     } else {
       // Converge on the existing non-cursor path: sendChunk + AREQ_DecrRef.
       // executePlan always returns REDISMODULE_OK in the non-cursor branch.
-      executePlan(r, NULL, reply, &status);
+      executePlan(r, reply, &status);
       // r is freed by AREQ_DecrRef inside executePlan; do not access r after this.
-      RedisModule_FreeThreadSafeContext(replyCtx);
     }
     RedisModule_EndReply(reply);
+    RedisModule_FreeThreadSafeContext(replyCtx);
   } else if (!sp && !timedOut) {
     // Spec dropped between first-reply collection and deferred execution. Reply
     // DROPPED_BACKGROUND and release the AREQ so rpnetFree drops the iterator's
@@ -860,7 +856,6 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   if (IsProfile(r)) r->profileClocks.profileParseTime = rs_wall_clock_elapsed_ns(&r->profileClocks.initClock);
 
   // Create the Search context
-  // (notice with cursor, we rely on the existing mechanism of AREQ to free the ctx object when the cursor is exhausted)
   r->sctx = rm_new(RedisSearchCtx);
   *r->sctx = SEARCH_CTX_STATIC(ctx, NULL);
   r->sctx->apiVersion = dialect;
@@ -876,16 +871,13 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   return REDISMODULE_OK;
 }
 
-static int executePlan(AREQ *r, struct ConcurrentCmdCtx *cmdCtx, RedisModule_Reply *reply, QueryError *status) {
+static int executePlan(AREQ *r, RedisModule_Reply *reply, QueryError *status) {
   if (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) {
-    // Keep the original concurrent context; it is the cursor's to free with
-    // its sctx from here on.
-    ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
-    r->sctx->ownRedisCtx = true;
-
     StrongRef dummy_spec_ref = {.rm = NULL};
 
     if (AREQ_StartCursor(r, reply, dummy_spec_ref, status, true) != REDISMODULE_OK) {
+      // Reservation failed before runCursor could return the ctx loan.
+      r->sctx->redisCtx = NULL;
       return REDISMODULE_ERR;
     }
   } else {
@@ -913,6 +905,12 @@ static void DistAggregateCleanups(RedisModuleCtx *ctx, struct ConcurrentCmdCtx *
   AREQ_ReplyOrStoreError(r, ctx, status);
 
 cleanup:
+  // Return the ctx loan on every error path — the cycle's reference may keep
+  // the request alive past the dispatcher's ctx (some paths bail before their
+  // own return of the loan, e.g. a dispatchAggregateDeferred failure).
+  if (r->sctx) {
+    r->sctx->redisCtx = NULL;
+  }
   WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
   if (sp) {
     IndexSpecRef_Release(*strong_ref);
@@ -1026,7 +1024,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return;
   }
 
-  if (executePlan(r, cmdCtx, reply, &status) != REDISMODULE_OK) {
+  if (executePlan(r, reply, &status) != REDISMODULE_OK) {
     goto err;
   }
 
@@ -1310,7 +1308,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return;
   }
 
-  if (executePlan(r, cmdCtx, reply, &status) != REDISMODULE_OK) {
+  if (executePlan(r, reply, &status) != REDISMODULE_OK) {
     goto err;
   }
 

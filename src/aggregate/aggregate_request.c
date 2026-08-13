@@ -1784,15 +1784,10 @@ void AREQ_Free(AREQ *req) {
   }
   rm_free((void *)req->querySlots);
 
-  // Finally, free the context, along with the detached ("Thread Safe")
-  // redisCtx when the sctx owns one.
-  RedisModuleCtx *thctx = NULL;
+  // Finally, free the context. Its redisCtx is a cycle-scoped borrow, never
+  // owned, so there is nothing to release here.
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
   if (sctx) {
-    if (sctx->ownRedisCtx) {
-      thctx = sctx->redisCtx;
-      sctx->redisCtx = NULL;
-    }
     // Here we unlock the spec
     SearchCtx_Free(sctx);
   }
@@ -1814,9 +1809,6 @@ void AREQ_Free(AREQ *req) {
     Param_DictFree(req->searchopts.params);
   }
   FieldList_Free(&req->outFields);
-  if (thctx) {
-    RedisModule_FreeThreadSafeContext(thctx);
-  }
   if(req->requiredFields) {
     array_free(req->requiredFields);
   }
