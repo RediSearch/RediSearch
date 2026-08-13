@@ -53,8 +53,12 @@ unsafe impl GlobalAlloc for AlignedRedisAlloc {
         // SAFETY: `RedisAlloc::alloc` has no precondition beyond a non-zero-sized
         // layout, which `alloc_with` only ever hands it if it was given one itself.
         let alloc = |layout| unsafe { RedisAlloc.alloc(layout) };
-        // SAFETY: `RedisAlloc` is a sound `GlobalAlloc`, so it upholds the contract
-        // `alloc_with` requires of its closure.
+        // SAFETY: `RedisAlloc::alloc` meets `alloc_with`'s requirement for the layouts
+        // it is handed here. It rounds the request size up to the layout's alignment
+        // before calling `RedisModule_Alloc`, which is what keeps that true for a
+        // request smaller than its own alignment; beyond `MIN_ALIGN` it cannot meet it
+        // at all — the reason this wrapper exists — and there it is only ever given an
+        // alignment-1 layout.
         unsafe { alloc_with(layout, alloc) }
     }
 
@@ -79,9 +83,11 @@ unsafe impl GlobalAlloc for AlignedRedisAlloc {
 ///
 /// # Safety
 ///
-/// `alloc` must behave like [`GlobalAlloc::alloc`], and additionally return blocks
-/// aligned to at least [`MIN_ALIGN`] regardless of the alignment its layout asks
-/// for — which is what makes over-allocating here sufficient.
+/// `alloc` must uphold [`GlobalAlloc::alloc`]'s contract for the layout it is
+/// handed — the caller's own layout when that asks for at most [`MIN_ALIGN`], and an
+/// alignment-1 padded layout otherwise. Nothing beyond that contract is required of
+/// it: the over-aligned path derives its offset from the address actually returned,
+/// so it needs no alignment guarantee to work from.
 unsafe fn alloc_with(layout: Layout, alloc: impl FnOnce(Layout) -> *mut u8) -> *mut u8 {
     if layout.align() <= MIN_ALIGN {
         return alloc(layout);
@@ -92,8 +98,9 @@ unsafe fn alloc_with(layout: Layout, alloc: impl FnOnce(Layout) -> *mut u8) -> *
     let Some(size) = layout.size().checked_add(layout.align() + HEADER) else {
         return ptr::null_mut();
     };
-    // Alignment 1 keeps the underlying allocator out of the alignment business; it
-    // still owes `MIN_ALIGN`, and everything beyond that is provided here.
+    // Alignment 1 keeps the underlying allocator out of the alignment business
+    // entirely: the offset below is measured from whatever address it returns, so no
+    // guarantee is asked of it here and none is relied upon.
     let Ok(padded) = Layout::from_size_align(size, 1) else {
         return ptr::null_mut();
     };
@@ -162,7 +169,7 @@ mod tests {
             let layout = Layout::from_size_align(24, align).unwrap();
             let seen = Cell::new(None);
 
-            // SAFETY: `System` is a sound `GlobalAlloc` returning `MIN_ALIGN`-aligned blocks.
+            // SAFETY: `System` is a sound `GlobalAlloc`, which is all `alloc_with` asks for.
             let ptr = unsafe {
                 alloc_with(layout, |l| {
                     seen.set(Some(l));
@@ -181,7 +188,10 @@ mod tests {
     #[test]
     fn over_aligned_blocks_are_aligned_and_usable() {
         for align in OVER_ALIGNED {
-            for size in [align, 3 * align, 7 * align] {
+            // A size below the alignment is included because `Layout` permits it even
+            // though no Rust type produces one, and it is the case where the header and
+            // the padding dominate the block.
+            for size in [1, align, 3 * align, 7 * align] {
                 let layout = Layout::from_size_align(size, align).unwrap();
 
                 // SAFETY: as above.
