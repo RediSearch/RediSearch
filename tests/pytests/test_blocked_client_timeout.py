@@ -2299,7 +2299,19 @@ class TestCoordinatorTimeout:
         def shard_cursor_total():
             info = target_shard.execute_command('INFO', 'MODULES')
             return info['search_global_total_user'] + info['search_global_total_internal']
-        wait_for_condition(lambda: (shard_cursor_total() == 0, {}),
+        def per_index_cursors():
+            stats = {}
+            for idx_name in ('idx', 'hybrid_idx'):
+                try:
+                    info = to_dict(target_shard.execute_command('FT.INFO', idx_name))
+                    stats[idx_name] = to_dict(info.get('cursor_stats', []))
+                except Exception as e:
+                    stats[idx_name] = str(e)
+            return stats
+        def cursors_drained():
+            total = shard_cursor_total()
+            return total == 0, {'user+internal': total, 'per_index': per_index_cursors()}
+        wait_for_condition(cursors_drained,
                            'strict-timed-out cycle did not drop its published cursors')
 
     def test_return_strict_hybrid_cursor_mapping_timeout_during_depletion(self):
