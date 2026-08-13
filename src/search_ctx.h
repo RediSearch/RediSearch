@@ -124,7 +124,8 @@ void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx);
 /* Mark `sctx` as borrowing a read lock that the caller holds on the same spec.
  * Neither function touches the rwlock: while borrowed, UnlockSpec on this context
  * is a no-op and its query iterator skips locking and revalidation, so the
- * caller's lock stays held for the whole borrow. Must be paired. */
+ * caller's lock stays held for the whole borrow. Clearing a context that never
+ * borrowed is a no-op, so a caller can clean up unconditionally. */
 void RedisSearchCtx_BorrowSpecReadLock(RedisSearchCtx *sctx);
 void RedisSearchCtx_ClearBorrowedSpecReadLock(RedisSearchCtx *sctx);
 

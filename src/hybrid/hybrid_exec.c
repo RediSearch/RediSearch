@@ -915,20 +915,24 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
 
 #ifdef ENABLE_ASSERT
 // Releases the foreground-build park once fork-GC is parked holding the spec write
-// lock. While the read lock below is held GC never gets there, so the park runs out
-// its full window instead - which is what the regression test measures.
+// lock. While the read lock is held GC never gets there, so the park runs out its
+// full window instead - which is what the regression test measures.
 static bool gcHoldsSpecWriteLock(void *arg) {
   (void)arg;
   return SyncPoint_IsWaiting(SYNC_POINT_GC_AFTER_SPEC_WRITE_LOCK);
 }
 #endif
 
-// Clear the borrow markers set for a foreground in-memory execution. The rwlock
-// is released by the scope that took it (see buildPipelineAndExecute).
-static void clearBorrowedSpecReadLocks(HybridRequest *hreq, bool borrowed) {
-  if (!borrowed) {
-    return;
+// Lend the read lock held by buildPipelineAndExecute to every sub-request context, and
+// take the markers back once its depletion is done. The rwlock itself is only ever
+// touched by the scope that took it.
+static void borrowSpecReadLocks(HybridRequest *hreq) {
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    RedisSearchCtx_BorrowSpecReadLock(AREQ_SearchCtx(hreq->requests[i]));
   }
+}
+
+static void returnSpecReadLocks(HybridRequest *hreq) {
   for (size_t i = 0; i < hreq->nrequests; i++) {
     RedisSearchCtx_ClearBorrowedSpecReadLock(AREQ_SearchCtx(hreq->requests[i]));
   }
@@ -952,6 +956,7 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
   // Build the pipeline and execute
   HybridRequest *hreq = StrongRef_Get(hybrid_ref);
   bool isCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
+  int rc = REDISMODULE_ERR;
 
   // Start measuring pipeline build time if profiling is enabled
   rs_wall_clock pipelineClock;
@@ -960,7 +965,12 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
     rs_wall_clock_init(&pipelineClock);
   }
 
-  bool borrowedByRequests = false;
+  // Who holds the one read lock across depletion. Background hands it off to its workers
+  // (RPSafeDepleter); foreground in-memory lends it to the sub-requests, which share this
+  // writer-preferring, non-recursive rwlock and would deadlock against a queued writer
+  // (fork-GC) if they re-acquired it on this thread; a disk spec drops it instead, since
+  // its iterators read from the snapshot taken during the build.
+  const bool lendLockToRequests = !depleteInBackground && !sctx->spec->diskSpec;
 
   // QAST_Iterate reads the trie/stats, which GC can mutate concurrently, so the
   // build runs under the read lock.
@@ -968,9 +978,9 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
 
 #ifdef ENABLE_ASSERT
   if (!depleteInBackground) {
-    // Sync point (debug): hold the build open, with the read lock taken, so a test
-    // can watch a fork-GC writer fail to get in. Deliberately after the lock and
-    // before the build, so reverting the line above is what turns the test red.
+    // Sync point (debug): hold the build open with the read lock taken, so a test can
+    // watch a fork-GC writer fail to get in. Sits between the RedisSearchCtx_LockSpecRead
+    // call and the build, so dropping that call is what turns the test red.
     SyncPoint_WaitUntilOnce(SYNC_POINT_HYBRID_FOREGROUND_BUILD, gcHoldsSpecWriteLock, NULL);
   }
 #endif
@@ -980,10 +990,10 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
     RS_LOG_ASSERT(isCursor, "Internal hybrid command must be a cursor request from a coordinator");
     isCursor = true;
     if (HybridRequest_BuildDepletionPipeline(hreq, hybridParams, depleteInBackground) != REDISMODULE_OK) {
-      goto error;
+      goto done;
     }
   } else if (HybridRequest_BuildPipeline(hreq, hybridParams, depleteInBackground, status) != REDISMODULE_OK) {
-    goto error;
+    goto done;
   }
 
   // Record pipeline build time if profiling is enabled
@@ -994,43 +1004,34 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
   // Apply debug timeouts after pipeline is built (for _FT.DEBUG FT.HYBRID)
   if (hreq->debugParams && applyHybridDebugTimeout(hreq, hreq->debugParams) != REDISMODULE_OK) {
       QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, "Failed to apply debug timeouts");
-      goto error;
+      goto done;
   }
 
-  // Carry that one read lock into depletion. The sub-requests have their own
-  // contexts but share this writer-preferring, non-recursive rwlock, so a second
-  // read lock on this thread would deadlock against a queued writer (fork-GC).
-  // Background hands the lock off to its workers (RPSafeDepleter); foreground
-  // in-memory lets the sub-requests borrow it across the inline depletion; a disk
-  // spec releases it and reads from the snapshot taken during the build.
-  if (!depleteInBackground) {
-    if (sctx->spec->diskSpec) {
-      RedisSearchCtx_UnlockSpec(sctx);
-    } else {
-      for (size_t i = 0; i < hreq->nrequests; i++) {
-        RedisSearchCtx_BorrowSpecReadLock(AREQ_SearchCtx(hreq->requests[i]));
-      }
-      borrowedByRequests = true;
-    }
+  // Carry that one read lock into depletion.
+  if (lendLockToRequests) {
+    borrowSpecReadLocks(hreq);
+  } else if (!depleteInBackground) {
+    RedisSearchCtx_UnlockSpec(sctx);
   }
 
   if (!isCursor) {
     HybridRequest_Execute(hreq, ctx, sctx);
   } else if (HybridRequest_StartCursors(hybrid_ref, ctx, status, depleteInBackground) != REDISMODULE_OK) {
-    goto error;
+    goto done;
   }
+  rc = REDISMODULE_OK;
 
-  clearBorrowedSpecReadLocks(hreq, borrowedByRequests);
+done:
+  if (lendLockToRequests) {
+    returnSpecReadLocks(hreq);
+  }
   // Idempotent: a no-op if the lock was already released above or by the
   // background handoff.
   RedisSearchCtx_UnlockSpec(sctx);
-  freeHybridParams(hybridParams);
-  return REDISMODULE_OK;
-
-error:
-  clearBorrowedSpecReadLocks(hreq, borrowedByRequests);
-  RedisSearchCtx_UnlockSpec(sctx);
-  return REDISMODULE_ERR;
+  if (rc == REDISMODULE_OK) {
+    freeHybridParams(hybridParams);
+  }
+  return rc;
 }
 
 // Timeout callback for HybridRequest execution in Run in Threads mode.

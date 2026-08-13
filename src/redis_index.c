@@ -192,7 +192,8 @@ void RedisSearchCtx_BorrowSpecReadLock(RedisSearchCtx *ctx) {
 }
 
 void RedisSearchCtx_ClearBorrowedSpecReadLock(RedisSearchCtx *ctx) {
-  RS_ASSERT(ctx->lock_state == SPEC_LOCK_READ_BORROWED);
+  // A lock this context actually owns must go through RedisSearchCtx_UnlockSpec.
+  RS_ASSERT(ctx->lock_state == SPEC_LOCK_READ_BORROWED || ctx->lock_state == SPEC_LOCK_UNSET);
   ctx->lock_state = SPEC_LOCK_UNSET;
 }
 
