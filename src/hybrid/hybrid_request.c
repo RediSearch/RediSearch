@@ -60,13 +60,13 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
         // Aborts the hybrid pipeline if any subquery on a disk index can't take a
         // snapshot — falling back to live reads is unsafe because the parent unlock
         // is unconditional and subsequent depleter / cursor reads would race with GC.
-        if (SearchCtx_TakeDiskSnapshot(AREQ_SearchCtx(areq), &areq->base.err) != REDISMODULE_OK) {
+        if (SearchCtx_TakeDiskSnapshot(AREQ_SearchCtx(areq), &areq->base.reply.err) != REDISMODULE_OK) {
             rc = REDISMODULE_ERR;
             break;
         }
 
         // Parse subquery: Convert AST to iterator tree
-        areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq), areq->reqflags, areq, &areq->base.err);
+        areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq), areq->reqflags, areq, &areq->base.reply.err);
 
         rs_wall_clock parseClock;
         if (isProfile) {
@@ -80,7 +80,7 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
 
         // Build the complete pipeline for this individual search request
         // This includes indexing (search/scoring) and any request-specific aggregation
-        rc = AREQ_BuildPipeline(areq, &areq->base.err);
+        rc = AREQ_BuildPipeline(areq, &areq->base.reply.err);
         if (isProfile) {
           areq->profileClocks.profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&parseClock);
         }
@@ -228,7 +228,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
     // Build the depletion pipeline for extracting results from individual search requests
     if (HybridRequest_BuildDepletionPipeline(req, depleteInBackground) != REDISMODULE_OK) {
       for (size_t i = 0; i < req->nrequests; i++) {
-        QueryError *subErr = &req->requests[i]->base.err;
+        QueryError *subErr = &req->requests[i]->base.reply.err;
         if (QueryError_HasError(subErr)) {
           QueryError_CloneFrom(subErr, status);
           break;
@@ -305,7 +305,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     // Initialize pipelines for each individual request
     for (size_t i = 0; i < nrequests; i++) {
         initializeAREQ(requests[i]);
-        Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &requests[i]->base.err);
+        Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &requests[i]->base.reply.err);
     }
     hybridReq->profileClocks.initClock = now;
 
@@ -435,7 +435,7 @@ int HybridRequest_GetError(HybridRequest *hreq, QueryError *status) {
 
     // Priority 2: Individual AREQ errors (sub-query failures)
     for (size_t i = 0; i < hreq->nrequests; i++) {
-        QueryError *subErr = &hreq->requests[i]->base.err;
+        QueryError *subErr = &hreq->requests[i]->base.reply.err;
         if (QueryError_HasError(subErr)) {
             QueryError_CloneFrom(subErr, status);
             return REDISMODULE_ERR;
@@ -449,7 +449,7 @@ int HybridRequest_GetError(HybridRequest *hreq, QueryError *status) {
 void HybridRequest_ClearErrors(HybridRequest *req) {
   QueryError_ClearError(&req->tailPipelineError);
   for (size_t i = 0; i < req->nrequests; i++) {
-    QueryError_ClearError(&req->requests[i]->base.err);
+    QueryError_ClearError(&req->requests[i]->base.reply.err);
   }
 }
 

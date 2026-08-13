@@ -49,7 +49,12 @@ typedef struct {
   SearchResult **results;  // Aggregated results array (NULL if not stored)
   int rc;                  // Pipeline return code (RS_RESULT_OK, RS_RESULT_EOF, etc.)
   bool hasStoredResults;   // Whether results are available to the reply callback
-  QueryError err;          // Error copied from the pipeline's temporary QueryError
+  /* The cycle's error and warnings. Parents clone the pipeline's stack-local
+   * QueryError into it at publication; hybrid sub-pipelines report into it
+   * directly (a sub's results are published by the parent's reply). The
+   * RETURN_STRICT flip (MOD-17486) makes direct wiring the rule for all
+   * pipelines. */
+  QueryError err;
   cachedVars cv;           // Cached lookup variables used during serialization
   struct Cursor *cursor;   // Non-owning cursor handle for the reply callback
   size_t limit;            // Original limit, used to calculate the RESP2 result length
@@ -195,11 +200,6 @@ typedef struct QueryRequest {
    * by the main-thread reply or timeout callback. Reset at the end of each
    * cycle and again during request destruction as a safety net. */
   ChunkReplyState reply;
-  /* The request's execution error, consumed together with `reply` when the
-   * cycle replies. The request's pipeline reports into this slot (cursor
-   * reads repoint the pipeline's error pointer per read). Cleared with the
-   * request. */
-  QueryError err;
   /* false: BG replies inline through a thread-safe context; true: BG stores
    * results and the Redis reply callback serializes them on the main thread. */
   bool useReplyCallback;

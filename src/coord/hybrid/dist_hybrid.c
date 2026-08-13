@@ -898,10 +898,10 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
 
     // Propagate max-prefix-expansion warning to the specific subquery that triggered it.
     if (maxPrefixSearch) {
-        QueryError_SetReachedMaxPrefixExpansionsWarning(&hreq->requests[SEARCH_INDEX]->base.err);
+        QueryError_SetReachedMaxPrefixExpansionsWarning(&hreq->requests[SEARCH_INDEX]->base.reply.err);
     }
     if (maxPrefixVsim) {
-        QueryError_SetReachedMaxPrefixExpansionsWarning(&hreq->requests[VECTOR_INDEX]->base.err);
+        QueryError_SetReachedMaxPrefixExpansionsWarning(&hreq->requests[VECTOR_INDEX]->base.reply.err);
     }
 
     RS_ASSERT(array_len(search->mappings) == array_len(vsim->mappings));

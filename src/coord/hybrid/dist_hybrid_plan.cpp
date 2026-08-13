@@ -50,7 +50,7 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req) {
 
       AREQ_AddRequestFlags(areq, QEXEC_F_IS_COORDINATOR);
 
-      int rc = AREQ_BuildPipeline(areq, &areq->base.err);
+      int rc = AREQ_BuildPipeline(areq, &areq->base.reply.err);
       if (rc != REDISMODULE_OK) {
           StrongRef_Release(sync_ref);
           return REDISMODULE_ERR;
