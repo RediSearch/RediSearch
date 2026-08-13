@@ -2998,6 +2998,7 @@ dependencies = [
  "ffi",
  "field",
  "index_result",
+ "index_spec",
  "inverted_index",
  "lending-iterator",
  "query_term",

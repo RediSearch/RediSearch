@@ -149,20 +149,22 @@ use std::ptr::NonNull;
 use std::time::Instant;
 
 use ffi::{
-    IndexFlags_Index_DocIdsOnly, QueryError, QueryIterator, RSToken, RedisSearchCtx,
-    RedisSearchDiskIndexSpec, SearchDiskWriteBatchHandle, t_fieldIndex, timespec,
+    IndexFlags_Index_DocIdsOnly, RSToken, RedisSearchCtx, RedisSearchDiskIndexSpec,
+    SearchDiskWriteBatchHandle, t_fieldIndex, timespec,
 };
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use index_result::RSIndexResult;
+use index_spec::IndexSpecReadGuard;
 use inverted_index::{
     DocId, GcApplyInfo, GcScanDelta, IndexReader, InvertedIndex, doc_ids_only::DocIdsOnly,
 };
 use query_term::RSQueryTerm;
 use redis_module::RedisModuleCtx;
 use rqe_iterators::{
-    FieldExpirationChecker,
-    interop::RQEIteratorWrapper,
+    FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorError, RQEIteratorPrintable,
+    RQEValidateStatus, SEARCH_ENTERPRISE_ITERATORS, SkipToOutcome,
     inverted_index::{Tag, TagLookup},
+    profile_print::{ProfileMapBuilder, ProfilePrint, ProfilePrintCtx},
     utils::duration_from_redis_timespec,
 };
 use rqe_wildcard::{MatchOutcome, WildcardPattern};
@@ -411,7 +413,7 @@ impl TagIndex {
         if disk { tags.len() as u32 } else { 0 }
     }
 
-    /// Create a [`QueryIterator`] over the documents matching the given tag,
+    /// Create a [`Tag`] iterator over the documents matching the given tag,
     /// reading from `ii`.
     ///
     /// `ii` is the inverted index already resolved for `tag` (e.g. while
@@ -421,7 +423,7 @@ impl TagIndex {
     ///
     /// `lookup` is the handle the iterator revalidates through;
     ///
-    /// Returns a null pointer when `ii` holds no documents.
+    /// Returns `None` when `ii` holds no documents.
     ///
     /// # Panics
     /// Panics on a disk-mode index: the postings live on disk, so there is no
@@ -437,22 +439,21 @@ impl TagIndex {
     /// 3. `sctx` and `sctx.spec` must be valid and outlive the returned
     ///    iterator.
     /// 4. `lookup` must hold a `self` reference.
-    /// 5. The caller owns the returned iterator and must free it. (`it->Free(it)`).
-    pub unsafe fn query_iterator_for_value(
+    pub unsafe fn query_iterator_for_value<'ii>(
         &self,
         sctx: NonNull<RedisSearchCtx>,
         tag: &[u8],
-        ii: &InvertedIndex<DocIdsOnly>,
+        ii: &'ii InvertedIndex<DocIdsOnly>,
         weight: f64,
         field_index: t_fieldIndex,
         lookup: TrieLookup,
-    ) -> *mut QueryIterator {
+    ) -> Option<Tag<'ii, DocIdsOnly, TrieLookup, FieldExpirationChecker>> {
         let TagIndexMode::InMemory { values } = &self.mode else {
             unimplemented!()
         };
 
         if ii.unique_docs() == 0 {
-            return std::ptr::null_mut();
+            return None;
         }
 
         // Same identity check as `gc`: the caller must hand us the trie's
@@ -467,7 +468,7 @@ impl TagIndex {
 
         // SAFETY: contracts 1 to 4 are exactly `get_reader`'s four
         // pre-conditions, and this function's caller upholds them.
-        unsafe { self.get_reader(sctx, ii, tag, weight, field_index, lookup) }.as_ptr()
+        Some(unsafe { self.get_reader(sctx, ii, tag, weight, field_index, lookup) })
     }
 
     /// Iterate over all `(tag, inverted index)` entries, in lexicographical
@@ -675,7 +676,7 @@ impl TagIndex {
         values.remove(tag);
     }
 
-    /// Create a [`QueryIterator`] over the documents matching `tag`, or `None`
+    /// Create a [`NewTagIterator`] over the documents matching `tag`, or `None`
     /// when the tag is absent or holds no documents.
     ///
     /// In memory mode the tag is resolved in the values trie and the postings are
@@ -687,6 +688,10 @@ impl TagIndex {
     /// re-resolving the tag in the values trie. The disk backend owns its reader
     /// and revalidates it itself, so the disk branch drops `lookup` unused.
     ///
+    /// Returns `Err` when the disk backend fails to build its iterator; the
+    /// error carries the cause instead of populating a `QueryError` out
+    /// parameter.
+    ///
     /// # Safety
     ///
     /// 1. `self` must outlive the returned iterator, and must not be mutated
@@ -695,16 +700,14 @@ impl TagIndex {
     ///    [`query_iterator_for_value`](Self::query_iterator_for_value) builds and
     ///    shares its contract;
     /// 2. `sctx` and `sctx.spec` must be valid and outlive the returned iterator.
-    /// 3. `status` must be null or point to a valid [`QueryError`]. Only the disk
-    ///    branch writes it; memory mode leaves it untouched.
-    /// 4. `lookup` must resolve `self`, checked by a `debug_assert!` in
+    /// 3. `lookup` must resolve `self`, checked by a `debug_assert!` in
     ///    [`get_reader`](Self::get_reader).
-    /// 5. The caller owns the returned iterator and must free it.
-    /// 6. In disk mode, `sctx.diskSnapshot` must be a non-null
+    /// 4. In disk mode, `sctx.diskSnapshot` must be a non-null
     ///    [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot) handle for
     ///    this index's disk spec, valid for the duration of the call:
-    ///    `SearchDisk_NewTagIterator` reads it off `sctx` and hands it to the
-    ///    disk backend.
+    ///    [`SearchEnterpriseIterators::new_tag_on_disk`] reads it off `sctx` and
+    ///    hands it to the disk backend.
+    /// 5. In disk mode, [`SEARCH_ENTERPRISE_ITERATORS`] must be initialized.
     pub unsafe fn open_reader(
         &self,
         sctx: NonNull<RedisSearchCtx>,
@@ -712,17 +715,14 @@ impl TagIndex {
         weight: f64,
         field_index: t_fieldIndex,
         lookup: TrieLookup,
-        status: *mut QueryError,
-    ) -> Option<NonNull<QueryIterator>> {
+    ) -> Result<Option<NewTagIterator<'_>>, Box<dyn std::error::Error>> {
         match &self.mode {
             TagIndexMode::Disk {
                 disk_index_spec, ..
             } => {
-                debug_assert!(
-                    // SAFETY: `sctx` is valid (contract 2).
-                    !unsafe { sctx.as_ref() }.diskSnapshot.is_null(),
-                    "disk-mode reads need a snapshot on the search context"
-                );
+                // SAFETY: `sctx` is valid (contract 2).
+                let snapshot = NonNull::new(unsafe { sctx.as_ref() }.diskSnapshot)
+                    .expect("disk-mode reads need a snapshot on the search context");
 
                 // Postings live on disk: build the reader through the disk API,
                 // keyed by the tag string.
@@ -733,41 +733,41 @@ impl TagIndex {
                 let mut tok: RSToken = unsafe { std::mem::zeroed() };
                 tok.str_ = tag.as_ptr().cast::<c_char>().cast_mut();
                 tok.len = tag.len();
+
+                // SAFETY: caller guarantees `SEARCH_ENTERPRISE_ITERATORS` is
+                // initialized in disk mode (contract 5).
+                let enterprise_iters = SEARCH_ENTERPRISE_ITERATORS
+                    .get()
+                    .expect("SEARCH_ENTERPRISE_ITERATORS not initialized");
                 // SAFETY: `disk_index_spec` is a valid `RedisSearchDiskIndexSpec`
-                // (invariant from `new_on_disk`); `sctx` is valid for the call
-                // and carries the snapshot the call reads off it (contracts 2
-                // and 6); `tok` borrows `tag` for the duration of the call;
-                // `status` is null or valid (contract 3). The disk backend owns
-                // the returned iterator, which C frees through its `Free`
-                // callback.
-                let it = unsafe {
-                    ffi::SearchDisk_NewTagIterator(
-                        disk_index_spec.as_ptr(),
-                        sctx.as_ptr().cast_const(),
-                        &tok,
-                        field_index,
-                        weight,
-                        status,
-                    )
-                };
-                NonNull::new(it)
+                // (invariant from `new_on_disk`); `tok` borrows `tag` for the
+                // duration of the call; `snapshot` is the snapshot contract 4
+                // requires.
+                let disk_index_spec = unsafe { &mut *disk_index_spec.as_ptr() };
+                let it = enterprise_iters.new_tag_on_disk(
+                    disk_index_spec,
+                    &tok,
+                    field_index,
+                    weight,
+                    snapshot,
+                )?;
+                Ok(Some(NewTagIterator::Disk(it)))
             }
-            TagIndexMode::InMemory { values } => {
-                let a = values.find(tag);
-                match a {
-                    None => None,
-                    Some(ii) if ii.unique_docs() == 0 => None,
-                    Some(ii) => Some(
-                        // SAFETY: `get_reader`'s contracts is this function's
-                        // contracts
-                        unsafe { self.get_reader(sctx, ii, tag, weight, field_index, lookup) },
-                    ),
+            TagIndexMode::InMemory { values } => match values.find(tag) {
+                None => Ok(None),
+                Some(ii) if ii.unique_docs() == 0 => Ok(None),
+                Some(ii) => {
+                    // SAFETY: `get_reader`'s contracts are this function's
+                    // contracts.
+                    let reader =
+                        unsafe { self.get_reader(sctx, ii, tag, weight, field_index, lookup) };
+                    Ok(Some(NewTagIterator::Mem(Box::new(reader))))
                 }
-            }
+            },
         }
     }
 
-    /// Build the [`QueryIterator`] reading `ii`'s postings for `tag`.
+    /// Build the [`Tag`] iterator reading `ii`'s postings for `tag`.
     ///
     /// # Safety
     ///
@@ -777,15 +777,15 @@ impl TagIndex {
     /// 2. `ii` must be the inverted index this index currently stores for `tag`.
     /// 3. `sctx` and `sctx.spec` must be valid and outlive the returned iterator.
     /// 4. `lookup` must resolve `self`.
-    unsafe fn get_reader(
+    unsafe fn get_reader<'ii>(
         &self,
         sctx: NonNull<RedisSearchCtx>,
-        ii: &InvertedIndex<DocIdsOnly>,
+        ii: &'ii InvertedIndex<DocIdsOnly>,
         tag: &[u8],
         weight: f64,
         field_index: t_fieldIndex,
         lookup: TrieLookup,
-    ) -> NonNull<QueryIterator> {
+    ) -> Tag<'ii, DocIdsOnly, TrieLookup, FieldExpirationChecker> {
         let term = RSQueryTerm::new_bytes(tag, 0, 0);
 
         let filter_ctx = FieldFilterContext {
@@ -809,9 +809,7 @@ impl TagIndex {
         // SAFETY: contract 2 makes `reader` the current reader for `tag`,
         // contract 3 guarantees `sctx` and `sctx.spec` are valid, and contract 4
         // is `Tag::new`'s own requirement on `lookup`.
-        let iterator = unsafe { Tag::new(reader, sctx, lookup, term, weight, checker) };
-        NonNull::new(RQEIteratorWrapper::boxed_new(iterator))
-            .expect("RQEIteratorWrapper::boxed_new never returns NULL pointer")
+        unsafe { Tag::new(reader, sctx, lookup, term, weight, checker) }
     }
 
     /// Bytes the index's tries occupy, as reported by `FT.INFO`: the values trie
@@ -895,6 +893,84 @@ impl TagIndex {
                 )
             }
         }
+    }
+}
+
+/// The iterator [`TagIndex::open_reader`] returns, one variant per storage mode.
+///
+/// Both variants implement [`RQEIterator`]/[`ProfilePrint`] directly, so the
+/// conversion to a C-callable `*mut QueryIterator` — via
+/// [`RQEIteratorWrapper::boxed_new`](rqe_iterators::interop::RQEIteratorWrapper::boxed_new) —
+/// stays at the FFI boundary rather than inside this crate.
+pub enum NewTagIterator<'index> {
+    /// Memory mode: reads the tag's postings inline from the values trie.
+    Mem(Box<Tag<'index, DocIdsOnly, TrieLookup, FieldExpirationChecker>>),
+    /// Disk mode: delegates to the enterprise disk index iterator.
+    Disk(Box<dyn RQEIteratorPrintable<'index> + 'index>),
+}
+
+macro_rules! delegate_new_tag_iterator {
+    ($self:ident, $method:ident $(, $arg:ident)*) => {
+        match $self {
+            Self::Mem(it) => it.$method($($arg),*),
+            Self::Disk(it) => it.$method($($arg),*),
+        }
+    };
+}
+
+impl<'index> RQEIterator<'index> for NewTagIterator<'index> {
+    #[inline(always)]
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        delegate_new_tag_iterator!(self, current)
+    }
+
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        delegate_new_tag_iterator!(self, read)
+    }
+
+    fn skip_to(
+        &mut self,
+        doc_id: DocId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        delegate_new_tag_iterator!(self, skip_to, doc_id)
+    }
+
+    fn rewind(&mut self) {
+        delegate_new_tag_iterator!(self, rewind)
+    }
+
+    fn num_estimated(&self) -> usize {
+        delegate_new_tag_iterator!(self, num_estimated)
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        delegate_new_tag_iterator!(self, last_doc_id)
+    }
+
+    fn at_eof(&self) -> bool {
+        delegate_new_tag_iterator!(self, at_eof)
+    }
+
+    fn revalidate(
+        &mut self,
+        spec: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        delegate_new_tag_iterator!(self, revalidate, spec)
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        delegate_new_tag_iterator!(self, type_)
+    }
+
+    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
+        delegate_new_tag_iterator!(self, intersection_sort_weight, prioritize_union_children)
+    }
+}
+
+impl ProfilePrint for NewTagIterator<'_> {
+    fn print_profile(&self, map: &mut ProfileMapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        delegate_new_tag_iterator!(self, print_profile, map, ctx)
     }
 }
 
