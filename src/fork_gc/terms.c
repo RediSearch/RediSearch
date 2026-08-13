@@ -59,9 +59,9 @@ void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
 }
 
 #ifdef ENABLE_ASSERT
-// Releases the pre-write-lock park once a foreground hybrid build is parked, lining
-// the two up without a SIGNAL - the thread that would send one is the main thread,
-// which is parked inside the query being observed.
+// Releases the pre-write-lock park once a foreground hybrid build is parked. No SIGNAL
+// could do it: the thread that would send one is the main thread, which is parked inside
+// the query being observed.
 static bool hybridForegroundBuildParked(void *arg) {
   (void)arg;
   return SyncPoint_IsWaiting(SYNC_POINT_HYBRID_FOREGROUND_BUILD);
@@ -109,8 +109,8 @@ FGCError FGC_parentHandleTerms(ForkGC *gc) {
   sctx = &sctx_;
 
 #ifdef ENABLE_ASSERT
-  // Sync points (debug): the fork already happened, so parking here does not hold the
-  // GIL against the main thread. See test_hybrid_foreground_lock.py.
+  // The fork already happened, so parking here does not hold the GIL against the main
+  // thread.
   SyncPoint_WaitUntilOnce(SYNC_POINT_GC_BEFORE_SPEC_WRITE_LOCK, hybridForegroundBuildParked, NULL);
 #endif
 
