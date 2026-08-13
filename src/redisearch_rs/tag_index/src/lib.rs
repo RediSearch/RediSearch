@@ -24,7 +24,7 @@
 //!
 //! Every tag value taken or produced here is [`TagValue`], which carries exactly
 //! one guarantee: no *interior* NUL byte. [`TagValue::new`] enforces it, so the
-//! interior-NUL case the [`TagSuffixIndex::add`]/[`OwnedTerm::new`] allocation
+//! interior-NUL case the [`TagSuffixIndex::add`]/`OwnedTerm::new` allocation
 //! math depends on is unrepresentable rather than merely `debug_assert`ed.
 //!
 //! Disk-mode [`TagIndex::index`] additionally requires a *trailing* NUL: the
@@ -727,7 +727,7 @@ impl TagIndex {
     /// 4. In disk mode, `sctx.diskSnapshot` must be a non-null
     ///    [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot) handle for
     ///    this index's disk spec, valid for the duration of the call:
-    ///    [`SearchEnterpriseIterators::new_tag_on_disk`] reads it off `sctx` and
+    ///    [SearchEnterpriseIterators::new_tag_on_disk](rqe_iterators::SearchEnterpriseIterators::new_tag_on_disk) reads it off `sctx` and
     ///    hands it to the disk backend.
     /// 5. In disk mode, [`SEARCH_ENTERPRISE_ITERATORS`] must be initialized.
     pub unsafe fn open_reader(
