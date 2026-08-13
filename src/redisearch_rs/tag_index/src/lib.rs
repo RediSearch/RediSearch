@@ -22,12 +22,22 @@
 //!
 //! ## Tag bytes
 //!
-//! Every method here takes **NUL-free** tag bytes.
+//! Every tag value taken or produced here is [`TagValue`], which carries exactly
+//! one guarantee: no *interior* NUL byte. [`TagValue::new`] enforces it, so the
+//! interior-NUL case the [`TagSuffixIndex::add`]/[`OwnedTerm::new`] allocation
+//! math depends on is unrepresentable rather than merely `debug_assert`ed.
 //!
-//! The one place a terminator is visible is the other direction: the terms yielded
-//! by [`TagIndex::suffix_expand`] carry theirs, so their pointers are usable as a
-//! C `char *`. [`TagSuffixIndex`] owns that terminator and documents where it
-//! comes from.
+//! Disk-mode [`TagIndex::index`] additionally requires a *trailing* NUL: the
+//! byte one past each tag must be readable and zero, so the tag pointer is
+//! directly usable as the disk API's `const char *`. That is a property of the
+//! surrounding C buffer, not of the tag bytes themselves — no borrowed-slice
+//! type can express it — so it stays a documented `unsafe` precondition on
+//! `index` alone, checked by a `debug_assert!` rather than by the type system.
+//!
+//! The one place a terminator is visible in the other direction: the terms
+//! yielded by [`TagIndex::suffix_expand`] carry theirs, so their pointers are
+//! usable as a C `char *`. [`TagSuffixIndex`] owns that terminator and
+//! documents where it comes from.
 //!
 //! [`TagIndex`] uses the same indexes as the full text but in a simpler manner. In fact:
 //!
@@ -177,6 +187,28 @@ use trie_rs::{
     },
 };
 
+/// A tag value: borrowed bytes guaranteed to contain no interior NUL byte — see
+/// the crate-level "Tag bytes" docs for exactly what that does and doesn't cover.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TagValue<'a>(&'a [u8]);
+
+impl<'a> TagValue<'a> {
+    /// `None` if `bytes` contains an interior NUL byte.
+    pub fn new(bytes: &'a [u8]) -> Option<Self> {
+        (!bytes.contains(&0)).then_some(Self(bytes))
+    }
+
+    /// `None` if `s` contains an interior NUL byte.
+    pub fn from_str(s: &'a str) -> Option<Self> {
+        Self::new(s.as_bytes())
+    }
+
+    /// The underlying NUL-free bytes.
+    pub const fn as_bytes(self) -> &'a [u8] {
+        self.0
+    }
+}
+
 /// Identifies the way the data is stored
 enum TagIndexMode {
     /// If the postings (doc_ids) are kept in memory
@@ -306,9 +338,7 @@ impl TagIndex {
     ///
     /// # Safety
     ///
-    /// Each tag must be NUL-free, in both modes.
-    ///
-    /// The two conditions below apply to disk mode only: memory mode places no
+    /// The condition below applies to disk mode only: memory mode places no
     /// requirement on `ctx`, `batch`, or the bytes past each tag.
     ///
     /// 1. `ctx` and `batch` must be the valid disk write context and batch handle
@@ -316,19 +346,16 @@ impl TagIndex {
     /// 2. Each tag must borrow from a NUL-terminated buffer: the byte at
     ///    `tag.as_ptr().add(tag.len())` must be readable and zero, so the pointer
     ///    is usable as the `const char *` the disk API expects. Note this is a
-    ///    property of the surrounding buffer, not of the tag bytes.
+    ///    property of the surrounding buffer, not of the tag bytes — see the
+    ///    crate-level "Tag bytes" docs.
     pub unsafe fn index(
         &mut self,
         ctx: *const RedisModuleCtx,
         batch: *const SearchDiskWriteBatchHandle,
-        tags: &[&[u8]],
+        tags: &[TagValue<'_>],
         doc_id: DocId,
         has_field_expiration: bool,
     ) -> Option<WritePostingsDelta> {
-        debug_assert!(
-            tags.iter().all(|tag| !tag.contains(&0)),
-            "tag bytes are NUL-free"
-        );
         match &mut self.mode {
             TagIndexMode::Disk {
                 field_id,
@@ -348,6 +375,7 @@ impl TagIndex {
                 );
                 debug_assert!(
                     tags.iter().all(|tag| {
+                        let tag = tag.as_bytes();
                         // SAFETY: contract 2 promises the byte just past the tag
                         // is inside the buffer the tag borrows from.
                         let terminator = unsafe { tag.as_ptr().add(tag.len()) };
@@ -358,8 +386,10 @@ impl TagIndex {
                 );
                 // Contract 2 puts a NUL just past each tag, so the tag pointer is
                 // directly usable as the `const char *` the disk API expects.
-                let mut value_ptrs: Vec<*const c_char> =
-                    tags.iter().map(|tag| tag.as_ptr().cast()).collect();
+                let mut value_ptrs: Vec<*const c_char> = tags
+                    .iter()
+                    .map(|tag| tag.as_bytes().as_ptr().cast())
+                    .collect();
                 // SAFETY: `disk_index_spec` is a valid `RedisSearchDiskIndexSpec`
                 // (invariant from `new_on_disk`); contract 1 covers `ctx`/`batch`;
                 // and by contract 2 every pointer in `value_ptrs` addresses a
@@ -392,22 +422,14 @@ impl TagIndex {
     /// mode the postings are written to disk during this phase, so the
     /// committed tag values are counted here; in memory mode they were already
     /// counted by [`index`](Self::index), so `0` is returned.
-    ///
-    /// # Safety
-    ///
-    /// Each tag must be NUL-free. Here that is a
-    /// safety requirement rather than a convention, because a `WITHSUFFIXTRIE`
-    /// field feeds the tags to [`TagSuffixIndex::add`]; see there for why an
-    /// interior NUL is undefined behaviour.
-    pub unsafe fn commit(&mut self, tags: &[&[u8]]) -> u32 {
+    pub fn commit(&mut self, tags: &[TagValue<'_>]) -> u32 {
         let disk = self.disk_mode();
         for tag in tags {
             if let TagIndexMode::Disk { values, .. } = &mut self.mode {
-                values.insert(tag, ());
+                values.insert(tag.as_bytes(), ());
             }
             if let Some(suffix) = &mut self.suffix {
-                // SAFETY: this method's contract is `TagSuffixIndex::add`'s.
-                unsafe { suffix.add(tag) };
+                suffix.add(*tag);
             }
         }
         if disk { tags.len() as u32 } else { 0 }
@@ -862,12 +884,12 @@ impl TagIndex {
                 // Exact node lookup, so nothing to bound: a single node yields all
                 // its members.
                 suffix
-                    .find(tag)
+                    .find(tag.as_bytes())
                     .into_iter()
                     .flat_map(move |data| data.members().map(materialize)),
             ),
             SuffixQuery::Contains(tag) => {
-                let mut entries = suffix.prefixed_iter(tag);
+                let mut entries = suffix.prefixed_iter(tag.as_bytes());
                 entries.set_timeout(deadline);
                 Box::new(entries.flat_map(move |(_key, data)| data.members().map(materialize)))
             }
@@ -1093,15 +1115,15 @@ impl<'p> SuffixWildcardPattern<'p> {
 }
 
 /// Which query form [`TagIndex::suffix_expand`] expands, carrying the bytes it
-/// expands. Tag bytes are NUL-free, as everywhere else here.
+/// expands.
 #[derive(Debug, Clone, Copy)]
 pub enum SuffixQuery<'a> {
     /// Suffix query `*foo`: exact lookup of the suffix-trie node `foo`, returning
     /// every term that node belongs to.
-    Suffix(&'a [u8]),
+    Suffix(TagValue<'a>),
     /// Contains query `*foo*`: prefix-iterate every suffix-trie node whose key
     /// starts with `foo`, unioning the terms they belong to.
-    Contains(&'a [u8]),
+    Contains(TagValue<'a>),
     /// Wildcard query (`*` and `?` metacharacters): walk the suffix trie with the
     /// pattern's anchor sub-pattern, then re-check the whole pattern against each
     /// candidate term.
@@ -1266,7 +1288,7 @@ mod tests {
     fn revalidate_aborts_after_tag_removed() {
         let mock = MockContext::new(3, 3);
         let mut idx = TagIndex::new_in_memory(1, false);
-        let tags: &[&[u8]] = &[b"team"];
+        let tags = &[TagValue::new(b"team").unwrap()];
         for doc_id in 1..=3 {
             // SAFETY: memory mode, so neither disk-mode condition of `index` applies.
             unsafe { idx.index(std::ptr::null(), std::ptr::null(), tags, doc_id, false) };
@@ -1323,9 +1345,11 @@ mod suffix_wildcard_tests {
     /// Build an in-memory index with a suffix trie and commit `tags`.
     fn indexed(tags: &[&[u8]]) -> TagIndex {
         let mut idx = TagIndex::new_in_memory(1, true);
-        // SAFETY: every tag these tests pass is a NUL-free literal, which is all
-        // `commit` requires.
-        unsafe { idx.commit(tags) };
+        let tags: Vec<TagValue<'_>> = tags
+            .iter()
+            .map(|t| TagValue::new(t).expect("test literal is NUL-free"))
+            .collect();
+        idx.commit(&tags);
         idx
     }
 
@@ -1517,10 +1541,13 @@ mod expansion_timeout_tests {
         let owned: Vec<Vec<u8>> = (0..CORPUS)
             .map(|i| format!("he{i:05}").into_bytes())
             .collect();
-        let tags: Vec<&[u8]> = owned.iter().map(|t| t.as_slice()).collect();
+        // The generated tags are ASCII, hence NUL-free.
+        let tags: Vec<TagValue<'_>> = owned
+            .iter()
+            .map(|t| TagValue::new(t).expect("generated tag is ASCII, hence NUL-free"))
+            .collect();
         let mut idx = TagIndex::new_in_memory(1, true);
-        // SAFETY: the generated tags are ASCII, hence NUL-free.
-        unsafe { idx.commit(&tags) };
+        idx.commit(&tags);
         (idx, owned.len())
     }
 
@@ -1560,7 +1587,9 @@ mod expansion_timeout_tests {
     #[test]
     fn contains_no_timeout_returns_all() {
         let (idx, total) = big_index();
-        let got = idx.suffix_expand(SuffixQuery::Contains(b"e"), None).count();
+        let got = idx
+            .suffix_expand(SuffixQuery::Contains(TagValue::new(b"e").unwrap()), None)
+            .count();
         assert_eq!(got, total, "every term containing `e` must be expanded");
     }
 
@@ -1569,7 +1598,10 @@ mod expansion_timeout_tests {
     fn contains_times_out_with_partial_results() {
         let (idx, total) = big_index();
         let got = idx
-            .suffix_expand(SuffixQuery::Contains(b"e"), Some(expired()))
+            .suffix_expand(
+                SuffixQuery::Contains(TagValue::new(b"e").unwrap()),
+                Some(expired()),
+            )
             .count();
         assert!(got > 0, "the first granularity-1 entries are collected");
         assert!(got < total, "timeout must stop before the full expansion");
@@ -1595,6 +1627,29 @@ mod expansion_timeout_tests {
     }
 }
 
+#[cfg(test)]
+mod tag_value_tests {
+    use super::*;
+
+    #[test]
+    fn rejects_an_interior_nul() {
+        assert!(TagValue::new(b"foo\0bar").is_none());
+    }
+
+    #[test]
+    fn accepts_nul_free_bytes() {
+        assert_eq!(
+            TagValue::new(b"foo").map(TagValue::as_bytes),
+            Some(&b"foo"[..])
+        );
+    }
+
+    #[test]
+    fn from_str_rejects_an_interior_nul() {
+        assert!(TagValue::from_str("foo\0bar").is_none());
+    }
+}
+
 /// Deltas produced by writing a document's tag postings, to fold into the
 /// spec statistics.
 #[derive(Debug, Clone, Copy, Default)]
@@ -1611,7 +1666,7 @@ pub struct WritePostingsDelta {
 
 fn write_postings(
     values: &mut TrieMap<Box<InvertedIndex<DocIdsOnly>>>,
-    tags: &[&[u8]],
+    tags: &[TagValue<'_>],
     doc_id: DocId,
     has_field_expiration: bool,
 ) -> WritePostingsDelta {
@@ -1622,7 +1677,7 @@ fn write_postings(
     // off the record to write the posting's expiration bit.
     record.has_field_expiration = has_field_expiration;
     for tag in tags {
-        values.insert_with(tag, |slot| {
+        values.insert_with(tag.as_bytes(), |slot| {
             let mut ii = slot.unwrap_or_else(|| {
                 let ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
 

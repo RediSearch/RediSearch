@@ -17,7 +17,7 @@
 
 use ffi::timespec;
 use lending_iterator::LendingIterator;
-use tag_index::{IterMode, SuffixQuery, TagIndex, TagIndexIterator};
+use tag_index::{IterMode, SuffixQuery, TagIndex, TagIndexIterator, TagValue};
 use trie_rs::iter::{RangeBoundary, RangeFilter};
 
 use crate::util::{commit, index_mem};
@@ -179,7 +179,7 @@ fn suffix_query_exact_node_yields_every_member() {
     commit(&mut tag_index, tags);
 
     let mut terms: Vec<Vec<u8>> = tag_index
-        .suffix_expand(SuffixQuery::Suffix(b"eat"), None)
+        .suffix_expand(SuffixQuery::Suffix(TagValue::new(b"eat").unwrap()), None)
         // The yielded terms carry their terminator; compare without it.
         .map(|term| term[..term.len() - 1].to_vec())
         .collect();
@@ -232,7 +232,7 @@ fn recommitting_a_tag_keeps_its_suffix_terms_readable() {
     // pointer, so a freed allocation surfaces here (as garbage, or as a miri
     // error) rather than staying latent.
     let terms: Vec<Vec<u8>> = tag_index
-        .suffix_expand(SuffixQuery::Suffix(b"at"), None)
+        .suffix_expand(SuffixQuery::Suffix(TagValue::new(b"at").unwrap()), None)
         .map(|term| term[..term.len() - 1].to_vec())
         .collect();
 

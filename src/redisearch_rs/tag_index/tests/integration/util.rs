@@ -10,7 +10,14 @@
 //! Helpers shared by the integration test modules.
 
 use inverted_index::DocId;
-use tag_index::{TagIndex, WritePostingsDelta};
+use tag_index::{TagIndex, TagValue, WritePostingsDelta};
+
+/// Wrap every NUL-free literal `tags` passes as a test fixture into a [`TagValue`].
+fn tag_values<'a>(tags: &[&'a [u8]]) -> Vec<TagValue<'a>> {
+    tags.iter()
+        .map(|t| TagValue::new(t).expect("test literal is NUL-free"))
+        .collect()
+}
 
 /// Index `doc_id` under `tags` in a memory-mode index, with no field expiration.
 ///
@@ -20,16 +27,12 @@ use tag_index::{TagIndex, WritePostingsDelta};
 /// out of every memory-mode test. Tests that care about the expiration flag call
 /// [`TagIndex::index`] directly.
 pub fn index_mem(idx: &mut TagIndex, tags: &[&[u8]], doc_id: DocId) -> Option<WritePostingsDelta> {
+    let tags = tag_values(tags);
     // SAFETY: memory mode, so neither disk-mode condition applies.
-    unsafe { idx.index(std::ptr::null(), std::ptr::null(), tags, doc_id, false) }
+    unsafe { idx.index(std::ptr::null(), std::ptr::null(), &tags, doc_id, false) }
 }
 
 /// Run the post-indexing commit phase for `tags`.
-///
-/// [`TagIndex::commit`] is `unsafe` because the tags must be NUL-free; every tag
-/// the tests pass is a NUL-free literal, so discharging that once here keeps the
-/// obligation out of every test.
 pub fn commit(idx: &mut TagIndex, tags: &[&[u8]]) -> u32 {
-    // SAFETY: as above — the tags are NUL-free.
-    unsafe { idx.commit(tags) }
+    idx.commit(&tag_values(tags))
 }

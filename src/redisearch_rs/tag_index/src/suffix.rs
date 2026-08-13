@@ -44,6 +44,8 @@ use trie_rs::{
     iter::{LendingIter, WildcardIter, filter::VisitAll},
 };
 
+use crate::TagValue;
+
 /// Layout of a tag term allocation.
 fn tag_term_layout(size: usize) -> Layout {
     // A term is a plain byte buffer, so it needs no alignment beyond 1.
@@ -63,17 +65,11 @@ impl OwnedTerm {
     /// Copy `term` into a fresh, NUL-terminated allocation.
     ///
     /// The allocation is one byte longer than `term`, and its last byte is the
-    /// terminator written here.
-    ///
-    /// # Safety
-    ///
-    /// - `term` must be NUL-free.
-    unsafe fn new(term: &[u8]) -> Self {
-        debug_assert!(
-            !term.contains(&0),
-            "tag terms are NUL-free; an interior NUL would make `alloc_size` report a short allocation"
-        );
-
+    /// terminator written here. `term` being a [`TagValue`] — interior-NUL-free
+    /// by construction — is what makes [`alloc_size`](Self::alloc_size) report
+    /// the true allocation length rather than a short one.
+    fn new(term: TagValue<'_>) -> Self {
+        let term = term.as_bytes();
         let layout = tag_term_layout(term.len() + 1);
 
         // SAFETY: `layout` has non-zero size — it is `term.len() + 1`.
@@ -191,30 +187,26 @@ impl TagSuffixIndex {
     ///
     /// `term` is the tag value. The empty tag (`INDEXEMPTY`) is never indexed: it
     /// has no suffixes to look up.
-    ///
-    /// # Safety
-    ///
-    /// `term` must be NUL-free, for the reason [`OwnedTerm::new`] gives.
-    pub unsafe fn add(&mut self, term: &[u8]) {
-        if term.is_empty() {
+    pub fn add(&mut self, term: TagValue<'_>) {
+        let bytes = term.as_bytes();
+        if bytes.is_empty() {
             return;
         }
 
         // Don't store duplicates
         if self
             .entries
-            .find(term)
+            .find(bytes)
             .is_some_and(|data| data.full_term.is_some())
         {
             return;
         }
 
-        // SAFETY: this method's contract is `OwnedTerm::new`'s.
-        let owned = unsafe { OwnedTerm::new(term) };
+        let owned = OwnedTerm::new(term);
         let ptr = owned.borrowed();
 
         // Store the OwnedTerm into the full tag term
-        self.entries.insert_with(term, |slot| {
+        self.entries.insert_with(bytes, |slot| {
             let mut data = slot.unwrap_or_else(|| SuffixData {
                 full_term: None,
                 refs: ThinVec::with_capacity(2),
@@ -226,8 +218,8 @@ impl TagSuffixIndex {
         });
 
         // Process the suffixes as TermPtr
-        for start in 1..term.len() {
-            self.entries.insert_with(&term[start..], |slot| {
+        for start in 1..bytes.len() {
+            self.entries.insert_with(&bytes[start..], |slot| {
                 let mut data = slot.unwrap_or_else(|| SuffixData {
                     full_term: None,
                     refs: ThinVec::with_capacity(2),
@@ -315,17 +307,15 @@ impl TagSuffixIndex {
 mod tests {
     use super::*;
 
-    /// [`OwnedTerm::new`], with its NUL-free contract discharged once for all the
-    /// tests below: every term they pass is a NUL-free literal.
+    /// [`OwnedTerm::new`], wrapping the NUL-free literals every test below
+    /// passes into a [`TagValue`].
     fn owned_term(term: &[u8]) -> OwnedTerm {
-        // SAFETY: as above — the term is NUL-free.
-        unsafe { OwnedTerm::new(term) }
+        OwnedTerm::new(TagValue::new(term).expect("test literal is NUL-free"))
     }
 
-    /// [`TagSuffixIndex::add`], with the same contract discharged the same way.
+    /// [`TagSuffixIndex::add`], with the same wrapping.
     fn add(idx: &mut TagSuffixIndex, term: &[u8]) {
-        // SAFETY: as above — the term is NUL-free.
-        unsafe { idx.add(term) }
+        idx.add(TagValue::new(term).expect("test literal is NUL-free"))
     }
 
     /// Read back the bytes stored in an [`OwnedTerm`], terminator included.

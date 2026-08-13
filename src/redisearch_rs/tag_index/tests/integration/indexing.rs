@@ -13,7 +13,7 @@
 use std::ptr::null;
 
 use index_result::RSIndexResult;
-use tag_index::{SuffixQuery, TagIndex, TagIndexIterator, TagValueReader};
+use tag_index::{SuffixQuery, TagIndex, TagIndexIterator, TagValue, TagValueReader};
 
 use crate::util::{commit, index_mem};
 
@@ -61,7 +61,7 @@ fn index_and_commit_agree_on_the_key() {
     assert_eq!(value_iter_keys(tag_index.value_iter()), [b"foo".to_vec()]);
     assert!(
         tag_index
-            .suffix_expand(SuffixQuery::Suffix(b"oo"), None)
+            .suffix_expand(SuffixQuery::Suffix(TagValue::new(b"oo").unwrap()), None)
             .next()
             .is_some(),
         "the suffix trie must resolve the same tag through one of its suffixes"
@@ -112,7 +112,7 @@ fn tag_value_reader_reads_every_posting_in_order() {
 #[test]
 fn field_expiration_flag_round_trips() {
     let mut tag_index = TagIndex::new_in_memory(1, false);
-    let tags: &[&[u8]] = &[b"team"];
+    let tags = &[TagValue::new(b"team").unwrap()];
 
     // Doc 1 has no TTL on this field; doc 2 does.
     for (doc_id, has_field_expiration) in [(1, false), (2, true)] {
