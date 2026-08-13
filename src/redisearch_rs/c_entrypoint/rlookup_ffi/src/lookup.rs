@@ -752,7 +752,7 @@ pub unsafe extern "C" fn RLookup_LoadDocumentAll(
                 return redis_module::REDISMODULE_ERR as i32;
             };
 
-            let format = JsonDocumentFormat::new(ctx, &japi, search_ctx.apiVersion.into());
+            let format = JsonDocumentFormat::new(ctx, &japi, search_ctx.apiVersion);
 
             DocumentLoader::new(dst_row, ctx, dmd, format).load_all(lookup)
         }
@@ -875,7 +875,7 @@ pub unsafe extern "C" fn RLookup_LoadDocumentIndividual(
                 return redis_module::REDISMODULE_ERR as i32;
             };
 
-            let format = JsonDocumentFormat::new(ctx, &japi, search_ctx.apiVersion.into());
+            let format = JsonDocumentFormat::new(ctx, &japi, search_ctx.apiVersion);
 
             DocumentLoader::new(dst_row, ctx, dmd, format)
                 .force_load(opts.force_load)
