@@ -25,7 +25,10 @@ inputs:
       a `KEY FAILURE LINES` banner, so a root cause buried mid-log (e.g. a Python
       traceback or an RLTest `[FAIL]` summary far above the tail) survives
       truncation. The default targets common RediSearch CI failure signatures;
-      pass an empty string to disable.
+      pass an empty string to disable. Note that Rust panics need both
+      `panicked at` (std's default hook, used by test binaries) and
+      `A panic occurred in the Rust code` (the module's replacement hook
+      installed by `RustPanicHook_Init`, which is what a loaded module emits).
     required: false
     default: |
       Traceback \(most recent call last\):
@@ -40,6 +43,8 @@ inputs:
       Segmentation fault
       SUMMARY: .*Sanitizer
       panicked at
+      A panic occurred in the Rust code
+      crashed by signal:
       RDB CHECKSUM ERROR
   max-key-lines:
     description: >
@@ -206,8 +211,10 @@ runs:
           KEY_FILE="$(mktemp)"
           # -n: keep line numbers for locatability; cut: bound pathological long
           # lines; awk: dedupe preserving order after stripping the line-number
-          # prefix and GH-Actions/Python-logger timestamps, so a message repeated
-          # on many lines collapses to one entry; head: bound total volume.
+          # prefix, GH-Actions/Python-logger/redis-server timestamps and hex
+          # addresses, so a message repeated on many lines collapses to one entry
+          # even when each repetition carries a different pid, clock reading or
+          # pointer value; head: bound total volume.
           grep -nE -f "$PAT_FILE" failed-logs.txt 2>/dev/null \
             | cut -c1-500 \
             | awk '{
@@ -215,6 +222,8 @@ runs:
                 sub(/^[0-9]+:/, "", key)
                 gsub(/[0-9]+-[0-9]+-[0-9]+T[0-9:.]+Z/, "", key)
                 gsub(/[0-9]+-[0-9]+-[0-9]+ [0-9]+:[0-9]+:[0-9]+,[0-9]+/, "", key)
+                gsub(/[0-9]+:[A-Za-z] [0-9]+ [A-Za-z]+ [0-9]+ [0-9:.]+/, "", key)
+                gsub(/0x[0-9a-fA-F]+/, "", key)
                 if (!seen[key]++) print
               }' \
             | head -n "$MAX_KEY_LINES" > "$KEY_FILE"
