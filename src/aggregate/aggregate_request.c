@@ -290,7 +290,6 @@ int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *sta
 
 void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req) {
   if (AREQ_RequestFlags(req) & QEXEC_FORMAT_EXPAND) {
-    sctx->expanded = 1;
     sctx->apiVersion = MAX(APIVERSION_RETURN_MULTI_CMP_FIRST, req->reqConfig.dialectVersion);
   } else {
     sctx->apiVersion = req->reqConfig.dialectVersion;

@@ -462,7 +462,7 @@ impl<'a> RLookup<'a> {
                 let format = JsonDocumentFormat::new(
                     NonNull::new(search_ctx.redisCtx).unwrap(),
                     &japi,
-                    search_ctx.apiVersion,
+                    search_ctx.apiVersion.into(),
                 );
 
                 load_document::load_specific_keys(

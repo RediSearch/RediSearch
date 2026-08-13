@@ -870,7 +870,6 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   // AREQ_Compile set the request flag before sctx existed, so the flag
   // was not propagated. RPNet and startPipeline read from sctx->time.skipTimeoutChecks.
   r->sctx->time.skipTimeoutChecks = !QueryRequestTimeout_ShouldCheck(&r->base.timeout);
-  // r->sctx->expanded should be received from shards
 
   AREQ_SetSkipTimeoutChecks(r, !shouldCheckInPipelineTimeoutCoord(r));
 
