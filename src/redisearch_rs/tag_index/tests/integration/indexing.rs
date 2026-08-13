@@ -7,10 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Tests for indexing documents under tags (`TagIndex::index`) and iterating
-//! the indexed tags.
-
-use std::ptr::null;
+//! Tests for indexing documents under tags (`TagIndex::index_in_memory`) and
+//! iterating the indexed tags.
 
 use index_result::RSIndexResult;
 use tag_index::{SuffixQuery, TagIndex, TagIndexIterator, TagValue, TagValueReader};
@@ -40,7 +38,7 @@ fn indexing_registers_every_tag() {
     assert_eq!(tags, values.as_slice());
 }
 
-/// A document write drives `index` and `commit` from the same tag buffers, so
+/// A document write drives `index_in_memory` and `commit` from the same tag buffers, so
 /// both must key on those bytes verbatim: the tag stays resolvable afterwards and
 /// the values trie, the suffix trie and iteration all agree on the key.
 ///
@@ -103,7 +101,7 @@ fn tag_value_reader_reads_every_posting_in_order() {
     );
 }
 
-/// The per-posting expiration bit round-trips: `index` records
+/// The per-posting expiration bit round-trips: `index_in_memory` records
 /// `has_field_expiration` for each document and the reader hands it back.
 ///
 /// That bit is what gates the TTL re-check on read — a clear bit means "no field
@@ -116,10 +114,7 @@ fn field_expiration_flag_round_trips() {
 
     // Doc 1 has no TTL on this field; doc 2 does.
     for (doc_id, has_field_expiration) in [(1, false), (2, true)] {
-        // SAFETY: memory mode, so neither disk-mode condition of `index` applies.
-        unsafe {
-            tag_index.index(null(), null(), tags, doc_id, has_field_expiration);
-        }
+        tag_index.index_in_memory(tags, doc_id, has_field_expiration);
     }
 
     let ii = tag_index.find_value(b"team").expect("tag was indexed");
@@ -193,11 +188,11 @@ fn reindexing_the_same_document_is_a_no_op() {
     let mut tag_index = TagIndex::new_in_memory(1, false);
     let tags: &[&[u8]] = &[b"hello", b"world", b"foo"];
 
-    let first = index_mem(&mut tag_index, tags, 1).expect("memory-mode indexing is infallible");
+    let first = index_mem(&mut tag_index, tags, 1);
     assert!(first.size_delta > 0, "the first insert allocates postings");
     assert_eq!(first.num_records, tags.len() as u32);
 
-    let second = index_mem(&mut tag_index, tags, 1).expect("memory-mode indexing is infallible");
+    let second = index_mem(&mut tag_index, tags, 1);
     assert_eq!(second.size_delta, 0, "re-indexing must not grow the index");
     assert_eq!(second.num_records, 0, "no new records for a duplicate doc");
     assert_eq!(second.blocks_added, 0, "no new blocks for a duplicate doc");
@@ -220,9 +215,7 @@ fn n_tags_and_record_count_track_the_writes() {
 
     let mut total_records = 0u32;
     for doc_id in 1..=N {
-        total_records += index_mem(&mut tag_index, tags, doc_id)
-            .expect("memory-mode indexing is infallible")
-            .num_records;
+        total_records += index_mem(&mut tag_index, tags, doc_id).num_records;
     }
 
     assert_eq!(tag_index.n_tags(), tags.len());
@@ -236,7 +229,7 @@ fn intra_document_duplicate_tag_counted_once() {
     let mut tag_index = TagIndex::new_in_memory(1, false);
     let tags: &[&[u8]] = &[b"foo", b"foo", b"bar"];
 
-    let delta = index_mem(&mut tag_index, tags, 1).expect("memory-mode indexing is infallible");
+    let delta = index_mem(&mut tag_index, tags, 1);
     commit(&mut tag_index, tags);
 
     assert_eq!(delta.num_records, 2, "the duplicate `foo` is counted once");
@@ -261,7 +254,7 @@ fn size_and_block_accounting_matches_reported_memory() {
     let mut tag_index = TagIndex::new_in_memory(1, false);
     let tags: &[&[u8]] = &[b"hello", b"world", b"foo"];
 
-    let first = index_mem(&mut tag_index, tags, 1).expect("memory-mode indexing is infallible");
+    let first = index_mem(&mut tag_index, tags, 1);
     assert!(
         first.size_delta > 0,
         "the first insert allocates the index and its first block"
@@ -275,8 +268,7 @@ fn size_and_block_accounting_matches_reported_memory() {
     let mut total_size = first.size_delta;
     let mut total_blocks = first.blocks_added;
     for doc_id in 2..=N {
-        let delta =
-            index_mem(&mut tag_index, tags, doc_id).expect("memory-mode indexing is infallible");
+        let delta = index_mem(&mut tag_index, tags, doc_id);
         total_size += delta.size_delta;
         total_blocks += delta.blocks_added;
     }

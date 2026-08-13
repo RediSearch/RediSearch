@@ -16,27 +16,27 @@
 //!   the values trie.
 //! - **Disk mode** keeps the postings on disk behind the
 //!   `SearchDisk_*` API; the values trie holds only tag *presence* sentinels.
-//!   Writes stage onto a disk write batch ([`TagIndex::index`]), reads open a
+//!   Writes stage onto a disk write batch ([`TagIndex::index_on_disk`]), reads open a
 //!   disk iterator ([`TagIndex::open_reader`]), and query expansion still walks
 //!   the presence trie for matching keys before opening each reader by string.
 //!
 //! ## Tag bytes
 //!
-//! Every tag value taken or produced here is [`TagValue`], which carries exactly
-//! one guarantee: no *interior* NUL byte. [`TagValue::new`] enforces it, so the
-//! interior-NUL case the [`TagSuffixIndex::add`]/`OwnedTerm::new` allocation
-//! math depends on is unrepresentable rather than merely `debug_assert`ed.
+//! Tag values are [`TagValue`], which carries exactly one guarantee: no
+//! *interior* NUL byte. [`TagValue::new`] enforces it, so the interior-NUL case
+//! the [`TagSuffixIndex::add`]/`OwnedTerm::new` allocation math depends on is
+//! unrepresentable rather than merely `debug_assert`ed. Every path that keys a
+//! trie — [`commit`](TagIndex::commit), [`suffix_expand`](TagIndex::suffix_expand),
+//! the readers and the value iterators — works off the length, so that is all
+//! they need.
 //!
-//! Disk-mode [`TagIndex::index`] additionally requires a *trailing* NUL: the
-//! byte one past each tag must be readable and zero, so the tag pointer is
-//! directly usable as the disk API's `const char *`. This is a real requirement,
-//! not an overcautious one: `SearchDisk_IndexTags` takes `const char **values`
-//! and a count, with no per-string length array, so `strlen` is the only way its
-//! (closed-source) implementation can find where each tag ends. That NUL is a
-//! property of the surrounding C buffer, not of the tag bytes themselves — no
-//! borrowed-slice type can express it — so it stays a documented `unsafe`
-//! precondition on `index` alone, checked by a `debug_assert!` rather than by
-//! the type system.
+//! [`TagIndex::index_on_disk`] is the one exception, and takes `&CStr` instead:
+//! `SearchDisk_IndexTags` receives the tags as a `const char **` with a count
+//! and no per-string length array, so `strlen` is the only way its
+//! (closed-source) implementation can find where each tag ends. `&CStr` is
+//! exactly that guarantee — NUL-terminated, no interior NUL — so the disk write
+//! path states the requirement in its signature rather than as a precondition
+//! prose can only ask for.
 //!
 //! The one place a terminator is visible in the other direction: the terms
 //! yielded by [`TagIndex::suffix_expand`] carry theirs, so their pointers are
@@ -158,7 +158,7 @@ extern crate redisearch_rs;
 #[cfg(test)]
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
-use std::ffi::c_char;
+use std::ffi::{CStr, c_char};
 use std::ptr::NonNull;
 use std::time::Instant;
 
@@ -377,99 +377,97 @@ impl TagIndex {
         }
     }
 
-    /// Index `doc_id` under each tag in `tags`.
+    /// Index `doc_id` under each tag in `tags`, writing the postings inline into
+    /// the per-tag inverted index.
     ///
     /// Returns the [`WritePostingsDelta`] the caller folds into the spec
-    /// statistics (records, memory, blocks), or `None` when a disk-mode write
-    /// fails.
-    ///
-    /// In memory mode the postings are written inline into the per-tag
-    /// inverted index and `ctx`/`batch` are ignored; this always succeeds. In
-    /// disk mode the postings are staged onto `batch` (committed later by
-    /// `commitDocument`) and the returned delta is zero — the record count is
-    /// tallied in [`commit`](Self::commit).
+    /// statistics (records, memory, blocks). This always succeeds.
     ///
     /// `has_field_expiration` records whether this document carries a TTL on the
     /// field being indexed. It is stored per posting as
     /// [`RSIndexResult::has_field_expiration`] and gates the TTL re-check
     /// performed on read.
     ///
-    /// # Safety
-    ///
-    /// The condition below applies to disk mode only: memory mode places no
-    /// requirement on `ctx`, `batch`, or the bytes past each tag.
-    ///
-    /// 1. `ctx` and `batch` must be the valid disk write context and batch handle
-    ///    for the ongoing document write.
-    /// 2. Each tag must borrow from a NUL-terminated buffer: the byte at
-    ///    `tag.as_ptr().add(tag.len())` must be readable and zero, so the pointer
-    ///    is usable as the `const char *` the disk API expects. Note this is a
-    ///    property of the surrounding buffer, not of the tag bytes — see the
-    ///    crate-level "Tag bytes" docs.
-    pub unsafe fn index(
+    /// # Panics
+    /// Panics on a disk-mode index; use [`index_on_disk`](Self::index_on_disk).
+    pub fn index_in_memory(
         &mut self,
-        ctx: *const RedisModuleCtx,
-        batch: *const SearchDiskWriteBatchHandle,
         tags: &[TagValue<'_>],
         doc_id: DocId,
         has_field_expiration: bool,
-    ) -> Option<WritePostingsDelta> {
-        match &mut self.mode {
-            TagIndexMode::Disk {
-                field_id,
-                disk_index_spec,
-                ..
-            } => {
-                // Reachable: a document whose tag field preprocesses to zero tokens (e.g. an
-                // empty or all-separator value) still reaches `document.c`'s `tagIndexer`, which
-                // calls `TagIndex_Index` unconditionally on `array_len(fdata->tags)`.
-                if tags.is_empty() {
-                    return Some(WritePostingsDelta::default());
-                }
-                debug_assert!(!ctx.is_null(), "disk-mode indexing needs a write context");
-                debug_assert!(
-                    !batch.is_null(),
-                    "disk-mode indexing needs a disk write batch"
-                );
-                debug_assert!(
-                    tags.iter().all(|tag| {
-                        let tag = tag.as_bytes();
-                        // SAFETY: contract 2 promises the byte just past the tag
-                        // is inside the buffer the tag borrows from.
-                        let terminator = unsafe { tag.as_ptr().add(tag.len()) };
-                        // SAFETY: as above — that byte is readable.
-                        unsafe { *terminator == 0 }
-                    }),
-                    "every tag must borrow from a NUL-terminated buffer"
-                );
-                // Contract 2 puts a NUL just past each tag, so the tag pointer is
-                // directly usable as the `const char *` the disk API expects.
-                let mut value_ptrs: Vec<*const c_char> =
-                    tags.iter().map(|tag| tag.as_ptr().cast()).collect();
-                // SAFETY: `disk_index_spec` is a valid `RedisSearchDiskIndexSpec`
-                // (invariant from `new_on_disk`); contract 1 covers `ctx`/`batch`;
-                // and by contract 2 every pointer in `value_ptrs` addresses a
-                // NUL-terminated string that outlives the call.
-                let ok = unsafe {
-                    ffi::SearchDisk_IndexTags(
-                        ctx.cast_mut(),
-                        disk_index_spec.as_ptr(),
-                        batch.cast_mut(),
-                        value_ptrs.as_mut_ptr(),
-                        value_ptrs.len(),
-                        doc_id,
-                        *field_id,
-                    )
-                };
-                ok.then(WritePostingsDelta::default)
-            }
-            TagIndexMode::InMemory { values } => {
-                Some(write_postings(values, tags, doc_id, has_field_expiration))
-            }
+    ) -> WritePostingsDelta {
+        let TagIndexMode::InMemory { values } = &mut self.mode else {
+            unimplemented!("index_in_memory requires memory mode: use index_on_disk in disk mode")
+        };
+
+        write_postings(values, tags, doc_id, has_field_expiration)
+    }
+
+    /// Stage `doc_id`'s postings for each tag in `tags` onto `batch`, committed
+    /// later by `commitDocument`.
+    ///
+    /// Returns whether the disk write succeeded. There is no delta to fold into
+    /// the spec statistics: the record count is tallied in
+    /// [`commit`](Self::commit).
+    ///
+    /// Takes `&CStr` rather than [`TagValue`] because the disk API is given the
+    /// tags as a `const char **` with no length array, so each one has to be a
+    /// real C string — see the crate-level "Tag bytes" docs. There is no
+    /// `has_field_expiration` counterpart to the memory-mode write: the disk
+    /// backend takes no such flag.
+    ///
+    /// # Panics
+    /// Panics on a memory-mode index; use
+    /// [`index_in_memory`](Self::index_in_memory).
+    ///
+    /// # Safety
+    ///
+    /// `ctx` and `batch` must be the valid disk write context and batch handle
+    /// for the ongoing document write.
+    pub unsafe fn index_on_disk(
+        &mut self,
+        ctx: *const RedisModuleCtx,
+        batch: *const SearchDiskWriteBatchHandle,
+        tags: &[&CStr],
+        doc_id: DocId,
+    ) -> bool {
+        let TagIndexMode::Disk {
+            field_id,
+            disk_index_spec,
+            ..
+        } = &mut self.mode
+        else {
+            unimplemented!("index_on_disk requires disk mode: use index_in_memory in memory mode")
+        };
+
+        if tags.is_empty() {
+            return true;
+        }
+        debug_assert!(!ctx.is_null(), "disk-mode indexing needs a write context");
+        debug_assert!(
+            !batch.is_null(),
+            "disk-mode indexing needs a disk write batch"
+        );
+
+        let mut value_ptrs: Vec<*const c_char> = tags.iter().map(|tag| tag.as_ptr()).collect();
+        // SAFETY: `disk_index_spec` is a valid `RedisSearchDiskIndexSpec`
+        // (invariant from `new_on_disk`); the caller's contract covers
+        // `ctx`/`batch`; and every pointer in `value_ptrs` addresses a
+        // NUL-terminated string, borrowed for the duration of the call.
+        unsafe {
+            ffi::SearchDisk_IndexTags(
+                ctx.cast_mut(),
+                disk_index_spec.as_ptr(),
+                batch.cast_mut(),
+                value_ptrs.as_mut_ptr(),
+                value_ptrs.len(),
+                doc_id,
+                *field_id,
+            )
         }
     }
 
-    /// Apply the per-tag metadata updates after [`TagIndex::index`]
+    /// Apply the per-tag metadata updates after the indexing phase
     /// of a document write: register the tags in the values trie (disk mode
     /// only) and in the
     /// [suffix index](TagSuffixIndex), when enabled.
@@ -477,7 +475,7 @@ impl TagIndex {
     /// Returns the number of records to fold into the spec statistics: in disk
     /// mode the postings are written to disk during this phase, so the
     /// committed tag values are counted here; in memory mode they were already
-    /// counted by [`index`](Self::index), so `0` is returned.
+    /// counted by [`index_in_memory`](Self::index_in_memory), so `0` is returned.
     pub fn commit(&mut self, tags: &[TagValue<'_>]) -> u32 {
         let disk = self.disk_mode();
         for tag in tags {
@@ -1367,8 +1365,7 @@ mod tests {
         let mut idx = TagIndex::new_in_memory(1, false);
         let tags = &[TagValue::new(b"team").unwrap()];
         for doc_id in 1..=3 {
-            // SAFETY: memory mode, so neither disk-mode condition of `index` applies.
-            unsafe { idx.index(std::ptr::null(), std::ptr::null(), tags, doc_id, false) };
+            idx.index_in_memory(tags, doc_id, false);
         }
         // Heap-allocate the index and go through raw pointers so it can be
         // mutated while the iterator holds a lookup back-pointer, as the query

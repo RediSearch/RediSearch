@@ -14,7 +14,7 @@
 //! disk path that does **not** dereference the disk index spec — `commit`
 //! (presence + record accounting), the value-trie iterators used by query
 //! expansion and `FT.TAGVALS`, `mem_usage`, and mode detection. The paths
-//! that call into `SearchDisk_*` (`index`, `open_reader`) need a real disk
+//! that call into `SearchDisk_*` (`index_on_disk`, `open_reader`) need a real disk
 //! backend and are covered end-to-end elsewhere, so here the spec pointer is a
 //! dangling-but-non-null placeholder that is never read.
 

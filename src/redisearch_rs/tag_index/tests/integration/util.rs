@@ -21,15 +21,10 @@ fn tag_values<'a>(tags: &[&'a [u8]]) -> Vec<TagValue<'a>> {
 
 /// Index `doc_id` under `tags` in a memory-mode index, with no field expiration.
 ///
-/// [`TagIndex::index`] is `unsafe` only because of its disk-mode contract, which
-/// memory mode cannot violate: `ctx`/`batch` are ignored and the tag bytes are
-/// never read past their length. Discharging that once here keeps the obligation
-/// out of every memory-mode test. Tests that care about the expiration flag call
-/// [`TagIndex::index`] directly.
-pub fn index_mem(idx: &mut TagIndex, tags: &[&[u8]], doc_id: DocId) -> Option<WritePostingsDelta> {
-    let tags = tag_values(tags);
-    // SAFETY: memory mode, so neither disk-mode condition applies.
-    unsafe { idx.index(std::ptr::null(), std::ptr::null(), &tags, doc_id, false) }
+/// Tests that care about the expiration flag call
+/// [`TagIndex::index_in_memory`] directly.
+pub fn index_mem(idx: &mut TagIndex, tags: &[&[u8]], doc_id: DocId) -> WritePostingsDelta {
+    idx.index_in_memory(&tag_values(tags), doc_id, false)
 }
 
 /// Run the post-indexing commit phase for `tags`.
