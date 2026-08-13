@@ -154,9 +154,6 @@ fn bench_mode(c: &mut Criterion, mode: ExpandMode) {
                     |b| {
                         b.iter(|| match mode {
                             ExpandMode::Suffix | ExpandMode::Contains => {
-                                // `prefix = true` is C's contains form: it
-                                // prefix-iterates the suffix trie instead of
-                                // looking up one node.
                                 let prefix = matches!(mode, ExpandMode::Contains);
                                 // SAFETY: the index is alive for the whole
                                 // benchmark, `pattern` outlives the call, and the

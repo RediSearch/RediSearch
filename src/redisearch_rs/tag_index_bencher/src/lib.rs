@@ -22,11 +22,12 @@ use std::{
     collections::HashSet,
     ffi::{CStr, CString, c_char, c_void},
     ptr,
+    time::{Duration, Instant},
 };
 
-use rand::RngExt;
+use rand::{RngExt, SeedableRng as _};
 use rqe_core::DocId;
-use tag_index::{TagIndex, WritePostingsDelta};
+use tag_index::{SuffixQuery, TagIndex, WritePostingsDelta};
 
 // Force-link the umbrella `redisearch_rs` crate so its `#[used]` symbol table keeps
 // the Rust FFI functions the linked C code calls back into — `TrieMap_*`,
@@ -43,15 +44,7 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 /// factor.
 const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
 
-/// Cap on the terms a wildcard expansion is allowed to yield, mirroring
-/// `RSGlobalConfig.iteratorsConfigParams.maxPrefixExpansions`
-/// (`DEFAULT_MAX_PREFIX_EXPANSIONS` in `src/config.h`).
-///
-/// Only the wildcard form is capped during expansion, and both implementations do
-/// it there: C inside `_getWildcardArray`, Rust inside
-/// [`TagIndex::suffix_expand`]. The suffix and contains forms leave the cap to
-/// their caller, so it is deliberately *not* applied to them here — see
-/// [`consume_suffix_matches`].
+/// Cap the terms for the wildcard expansion.
 pub const MAX_PREFIX_EXPANSIONS: usize = 200;
 
 /// The field the benches index into. They only ever use one, so any value works
@@ -609,3 +602,166 @@ pub const NO_TIMEOUT: ffi::timespec = ffi::timespec {
     tv_sec: 0,
     tv_nsec: 0,
 };
+
+/// A committed pair of suffix-trie-backed indexes over one corpus, plus the
+/// affix calls the `examples/` binaries time.
+///
+/// The examples dissect what `benches/suffix_expand.rs` measures, so this builds
+/// the same fixture that bench does, from the same seed. It lives here rather
+/// than in one example so both can share it — and so the arm helpers below,
+/// which are what the two implementations are actually being compared *on*, are
+/// defined once.
+///
+/// Only `commit` is needed to set up: affix expansion reads the suffix trie,
+/// which `commit` alone fills.
+pub struct SuffixFixture {
+    corpus: TagCorpus,
+    rust_index: TagIndex,
+    c_index: CTagIndex,
+}
+
+impl SuffixFixture {
+    /// Build and commit both indexes over a freshly generated corpus.
+    ///
+    /// `seed` is a parameter so an example can confirm a finding is not an
+    /// artifact of one corpus; pass the benches' seed to dissect the tries they
+    /// measured.
+    pub fn new(unique_tags: usize, tag_len: usize, seed: u64) -> Self {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+        let corpus = TagCorpus::generate(
+            TagCorpusInput {
+                unique_tags,
+                tag_len_mean: tag_len,
+                tag_len_variation: 2,
+                shared_prefix_depth: 4,
+                prefix_pool: 16,
+                alphabet: 26,
+            },
+            &mut rng,
+        );
+
+        let mut rust_index = build_rust(true);
+        commit_rust(&mut rust_index, &corpus.rust_tags());
+
+        let c_index = build_c(true);
+        let mut stats = zeroed_stats();
+        // SAFETY: `c_tags` holds NUL-terminated tags owned by `corpus`, which
+        // outlives this call, and `stats` is a live local. (The suffix trie keeps
+        // its own copies of the terms, so nothing borrows from `corpus`
+        // afterwards.)
+        unsafe { commit_c(&c_index, &corpus.c_tags(), &mut stats) };
+
+        Self {
+            corpus,
+            rust_index,
+            c_index,
+        }
+    }
+
+    /// A pattern for `mode` at `selectivity`, guaranteed to match: see
+    /// [`TagCorpus::pattern_for`].
+    pub fn pattern(&self, mode: ExpandMode, selectivity: Selectivity) -> Vec<u8> {
+        self.corpus.pattern_for(mode, selectivity)
+    }
+
+    /// Expand `pattern` through C and walk the returned array as `src/query.c`
+    /// does, returning the terms visited.
+    ///
+    /// `prefix` selects the branch inside `GetList_SuffixTrieMap`: `false` is the
+    /// exact-node lookup behind a `*foo` query, `true` the prefix walk behind
+    /// `*foo*`.
+    pub fn c_expand_and_walk(&self, pattern: &[u8], prefix: bool) -> usize {
+        // SAFETY: the array `c_expand` returns is not freed anywhere else, and the
+        // suffix trie its terms borrow from is alive for the borrow of `self`.
+        unsafe { consume_suffix_matches(self.c_expand(pattern, prefix)) }
+    }
+
+    /// Expand `pattern` through C but free the array without reading a term,
+    /// pricing expansion on its own. Returns the outer array's length.
+    ///
+    /// The two branches differ sharply here, which is the point of measuring it:
+    /// the exact-node branch appends one borrowed pointer, while the prefix
+    /// branch appends one per visited node.
+    pub fn c_expand_only(&self, pattern: &[u8], prefix: bool) -> usize {
+        let arr = self.c_expand(pattern, prefix);
+        if arr.is_null() {
+            return 0;
+        }
+
+        // SAFETY: `arr` is the array `c_expand` just returned, and is not null.
+        let outer = unsafe { ffi::array_len_func(arr.cast()) } as usize;
+        // SAFETY: as above, and not freed anywhere else. Its inner arrays are
+        // borrowed from the trie, so freeing the outer one is the whole cleanup.
+        unsafe { ffi::array_free(arr.cast()) };
+
+        outer
+    }
+
+    /// The raw expansion both C stages share, returning the `arrayof(char **)`
+    /// the caller then owns.
+    fn c_expand(&self, pattern: &[u8], prefix: bool) -> *mut *mut *mut c_char {
+        // SAFETY: the index outlives the call and `pattern` is a live slice, so
+        // the pointer and length passed for it are valid for the read.
+        unsafe {
+            ffi::TagIndex_GetSuffixMatches(
+                self.c_index.as_ptr(),
+                pattern.as_ptr().cast(),
+                pattern.len() as u32,
+                prefix,
+                NO_TIMEOUT,
+                true,
+            )
+        }
+    }
+
+    /// Drive the port's iterator to exhaustion, as the bench arm does, returning
+    /// the terms visited.
+    pub fn rust_expand_and_walk(&self, query: SuffixQuery<'_>) -> usize {
+        let mut visited = 0;
+        for term in self.rust_index.suffix_expand(query, None) {
+            std::hint::black_box(term);
+            visited += 1;
+        }
+        visited
+    }
+
+    /// Collect what the port yields for `query`.
+    ///
+    /// Used to establish how many terms a configuration actually delivers — the
+    /// benches never report it, and every per-term figure divides by it — and to
+    /// feed the floor measurements, which walk these terms without expanding.
+    pub fn rust_terms<'a>(&'a self, query: SuffixQuery<'a>) -> Vec<&'a [u8]> {
+        self.rust_index.suffix_expand(query, None).collect()
+    }
+}
+
+/// Calls per clock read in [`ns_per_call`]. The configurations these examples
+/// care about run in a few hundred nanoseconds, where an `Instant::now()` per
+/// call would be a visible share of the measurement.
+const BATCH: u64 = 256;
+
+/// Mean nanoseconds per call to `op`, measured in batches over `measure_for`.
+///
+/// Deliberately not Criterion: these examples price stages *within* one call —
+/// including stages that are not a fair comparison of anything, only a floor —
+/// and want a plain number per stage rather than a sampled distribution and a
+/// saved baseline. The benches remain the source of truth for the comparison
+/// itself.
+pub fn ns_per_call(measure_for: Duration, mut op: impl FnMut() -> usize) -> f64 {
+    // Warm the caches and branch predictors before the clock starts; the first
+    // pass over a 100k-tag trie is not what any of these stages is about.
+    for _ in 0..BATCH {
+        std::hint::black_box(op());
+    }
+
+    let mut calls = 0u64;
+    let start = Instant::now();
+    while start.elapsed() < measure_for {
+        for _ in 0..BATCH {
+            std::hint::black_box(op());
+        }
+        calls += BATCH;
+    }
+
+    start.elapsed().as_nanos() as f64 / calls as f64
+}

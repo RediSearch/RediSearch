@@ -160,10 +160,7 @@ use inverted_index::{
 use query_term::RSQueryTerm;
 use redis_module::RedisModuleCtx;
 use rqe_iterators::{
-    FieldExpirationChecker,
-    interop::RQEIteratorWrapper,
-    inverted_index::{Tag, TagLookup},
-    utils::duration_from_redis_timespec,
+    FieldExpirationChecker, SEARCH_ENTERPRISE_ITERATORS, SearchEnterpriseIterators, interop::RQEIteratorWrapper, inverted_index::{Tag, TagLookup}, utils::duration_from_redis_timespec,
 };
 use rqe_wildcard::{MatchOutcome, WildcardPattern};
 pub(crate) use suffix::{SuffixData, TagSuffixIndex};
