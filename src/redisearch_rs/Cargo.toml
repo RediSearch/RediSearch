@@ -22,6 +22,7 @@ members = [
     "query_flags",
     "query_term",
     "rdb_io",
+    "redis_alloc",
     "redis_json_api",
     "redis_mock",
     "redis_reply",
@@ -140,6 +141,7 @@ query_error = { path = "./query_error" }
 query_eval = { path = "./query_eval" }
 query_flags = { path = "./query_flags" }
 query_term = { path = "./query_term" }
+redis_alloc = { path = "./redis_alloc" }
 redis_json_api = { path = "./redis_json_api" }
 redis_mock = { path = "./redis_mock" }
 redisearch_rs = { path = "./c_entrypoint/redisearch_rs" }

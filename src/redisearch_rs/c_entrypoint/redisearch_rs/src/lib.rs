@@ -15,7 +15,7 @@
 /// Registers the Redis module allocator as the global allocator for the application.
 #[cfg(not(feature = "mock_allocator"))]
 #[global_allocator]
-static REDIS_MODULE_ALLOCATOR: redis_module::alloc::RedisAlloc = redis_module::alloc::RedisAlloc;
+static REDIS_MODULE_ALLOCATOR: redis_alloc::AlignedRedisAlloc = redis_alloc::AlignedRedisAlloc;
 
 pub use fnv_ffi as fnv;
 pub use fork_gc_ffi as fork_gc;

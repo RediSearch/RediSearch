@@ -33,6 +33,7 @@ walkdir.workspace = true
 
 [dependencies]
 buffer = { workspace = true }
+redis_alloc = { workspace = true }
 fnv_ffi = { path = "../fnv_ffi" }
 fork_gc_ffi = { path = "../fork_gc_ffi" }
 geo_ffi = { path = "../geo_ffi" }

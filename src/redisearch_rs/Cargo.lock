@@ -2064,6 +2064,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "redis_alloc"
+version = "0.0.1"
+dependencies = [
+ "redis-module",
+ "workspace_hack",
+]
+
+[[package]]
 name = "redis_json_api"
 version = "0.0.1"
 dependencies = [
@@ -2118,6 +2126,7 @@ dependencies = [
  "query_term_ffi",
  "quote 1.0.46",
  "redis-module",
+ "redis_alloc",
  "reducers_ffi",
  "result_processor_ffi",
  "rlookup_ffi",
