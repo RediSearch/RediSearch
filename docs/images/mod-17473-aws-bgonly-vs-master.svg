@@ -1,0 +1,202 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1100" viewBox="0 0 1600 1100" role="img" aria-labelledby="chart-title chart-desc">
+<title id="chart-title">MOD-17473 BG-only serialization versus master</title>
+<desc id="chart-desc">Six AWS benchmark cases. Each has ten adjacent pairs, balanced five master-first and five BG-only-first. Raw paired percentage changes are shown as opaque dots and triangles. Diamonds are geometric means and bars are order-stratified bootstrap 95 percent confidence intervals.</desc>
+<rect width="1600" height="1100" fill="#FFFFFF"/>
+<text x="54.0" y="62.0" font-family="DejaVu Sans, sans-serif" font-size="32" font-weight="700" fill="#17202A" text-anchor="start">MOD-17473: BG-only serialization vs master</text>
+<text x="54.0" y="96.0" font-family="DejaVu Sans, sans-serif" font-size="18" font-weight="400" fill="#52616B" text-anchor="start">10 adjacent pairs / 20 observations per case · 5 master-first / 5 BG-first · 10,000 rows/reply</text>
+<rect x="38" y="209" width="1524" height="213" rx="14" fill="#F5F9FC"/>
+<rect x="38" y="490" width="1524" height="402" rx="14" fill="#FCF7F3"/>
+<text x="54.0" y="193.0" font-family="DejaVu Sans, sans-serif" font-size="15" font-weight="700" fill="#0072B2" text-anchor="start">STANDALONE</text>
+<text x="54.0" y="457.0" font-family="DejaVu Sans, sans-serif" font-size="15" font-weight="700" fill="#D55E00" text-anchor="start">NATIVE TWO-PRIMARY CLUSTER  ·  SEARCH_THREADS=1</text>
+<text x="54.0" y="480.0" font-family="DejaVu Sans, sans-serif" font-size="14" font-weight="400" fill="#52616B" text-anchor="start">WORKERS is per shard; the public coordinator serializes on a BG thread in every cluster case.</text>
+<text x="670.0" y="150.0" font-family="DejaVu Sans, sans-serif" font-size="22" font-weight="700" fill="#17202A" text-anchor="middle">Throughput change</text>
+<text x="670.0" y="177.0" font-family="DejaVu Sans, sans-serif" font-size="15" font-weight="400" fill="#52616B" text-anchor="middle">positive is better →</text>
+<line x1="471.2" y1="215" x2="471.2" y2="892" stroke="#D7DEE3" stroke-width="1"/>
+<text x="471.2" y="928.0" font-family="DejaVu Sans, sans-serif" font-size="14" font-weight="400" fill="#52616B" text-anchor="middle">-30%</text>
+<line x1="603.8" y1="215" x2="603.8" y2="892" stroke="#D7DEE3" stroke-width="1"/>
+<text x="603.8" y="928.0" font-family="DejaVu Sans, sans-serif" font-size="14" font-weight="400" fill="#52616B" text-anchor="middle">-20%</text>
+<line x1="736.2" y1="215" x2="736.2" y2="892" stroke="#D7DEE3" stroke-width="1"/>
+<text x="736.2" y="928.0" font-family="DejaVu Sans, sans-serif" font-size="14" font-weight="400" fill="#52616B" text-anchor="middle">-10%</text>
+<line x1="868.8" y1="215" x2="868.8" y2="892" stroke="#65737E" stroke-width="2"/>
+<text x="868.8" y="928.0" font-family="DejaVu Sans, sans-serif" font-size="14" font-weight="400" fill="#52616B" text-anchor="middle">+0%</text>
+<text x="1280.0" y="150.0" font-family="DejaVu Sans, sans-serif" font-size="22" font-weight="700" fill="#17202A" text-anchor="middle">p95 latency change</text>
+<text x="1280.0" y="177.0" font-family="DejaVu Sans, sans-serif" font-size="15" font-weight="400" fill="#52616B" text-anchor="middle">positive is worse →</text>
+<line x1="1015.0" y1="215" x2="1015.0" y2="892" stroke="#D7DEE3" stroke-width="1"/>
+<text x="1015.0" y="928.0" font-family="DejaVu Sans, sans-serif" font-size="14" font-weight="400" fill="#52616B" text-anchor="middle">-10%</text>
+<line x1="1096.5" y1="215" x2="1096.5" y2="892" stroke="#65737E" stroke-width="2"/>
+<text x="1096.5" y="928.0" font-family="DejaVu Sans, sans-serif" font-size="14" font-weight="400" fill="#52616B" text-anchor="middle">+0%</text>
+<line x1="1178.1" y1="215" x2="1178.1" y2="892" stroke="#D7DEE3" stroke-width="1"/>
+<text x="1178.1" y="928.0" font-family="DejaVu Sans, sans-serif" font-size="14" font-weight="400" fill="#52616B" text-anchor="middle">+10%</text>
+<line x1="1259.6" y1="215" x2="1259.6" y2="892" stroke="#D7DEE3" stroke-width="1"/>
+<text x="1259.6" y="928.0" font-family="DejaVu Sans, sans-serif" font-size="14" font-weight="400" fill="#52616B" text-anchor="middle">+20%</text>
+<line x1="1341.2" y1="215" x2="1341.2" y2="892" stroke="#D7DEE3" stroke-width="1"/>
+<text x="1341.2" y="928.0" font-family="DejaVu Sans, sans-serif" font-size="14" font-weight="400" fill="#52616B" text-anchor="middle">+30%</text>
+<line x1="1422.7" y1="215" x2="1422.7" y2="892" stroke="#D7DEE3" stroke-width="1"/>
+<text x="1422.7" y="928.0" font-family="DejaVu Sans, sans-serif" font-size="14" font-weight="400" fill="#52616B" text-anchor="middle">+40%</text>
+<line x1="1504.2" y1="215" x2="1504.2" y2="892" stroke="#D7DEE3" stroke-width="1"/>
+<text x="1504.2" y="928.0" font-family="DejaVu Sans, sans-serif" font-size="14" font-weight="400" fill="#52616B" text-anchor="middle">+50%</text>
+<text x="54.0" y="270.0" font-family="DejaVu Sans, sans-serif" font-size="20" font-weight="700" fill="#17202A" text-anchor="start">RESP2  ·  WORKERS=1</text>
+<text x="54.0" y="296.0" font-family="DejaVu Sans, sans-serif" font-size="14" font-weight="400" fill="#52616B" text-anchor="start">N=10 pairs  ·  20 observations</text>
+<line x1="847.5" y1="275" x2="870.7" y2="275" stroke="#111111" stroke-width="5" stroke-linecap="round"/>
+<circle cx="808.0" cy="261.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="862.6,259.0 856.8,270.0 868.4,270.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="850.2" cy="269.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="894.6,267.0 888.8,278.0 900.4,278.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="864.8" cy="277.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="866.3,275.0 860.5,286.0 872.1,286.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="873.8" cy="285.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="865.1,283.0 859.3,294.0 870.9,294.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="860.9" cy="267.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="854.7,277.0 848.9,288.0 860.5,288.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<polygon points="859.9,267 867.9,275 859.9,283 851.9,275" fill="white" stroke="#111111" stroke-width="3"/>
+<line x1="1114.6" y1="275" x2="1126.3" y2="275" stroke="#111111" stroke-width="5" stroke-linecap="round"/>
+<circle cx="1112.9" cy="261.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="1129.6,259.0 1123.8,270.0 1135.4,270.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="1121.2" cy="269.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="1146.7,267.0 1140.9,278.0 1152.5,278.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="1096.5" cy="277.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="1121.2,275.0 1115.4,286.0 1127.0,286.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="1096.5" cy="285.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="1138.1,283.0 1132.3,294.0 1143.9,294.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="1112.9" cy="267.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="1129.6,277.0 1123.8,288.0 1135.4,288.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<polygon points="1120.4,267 1128.4,275 1120.4,283 1112.4,275" fill="white" stroke="#111111" stroke-width="3"/>
+<text x="54.0" y="365.0" font-family="DejaVu Sans, sans-serif" font-size="20" font-weight="700" fill="#17202A" text-anchor="start">RESP3  ·  WORKERS=1</text>
+<text x="54.0" y="391.0" font-family="DejaVu Sans, sans-serif" font-size="14" font-weight="400" fill="#52616B" text-anchor="start">N=10 pairs  ·  20 observations</text>
+<line x1="847.4" y1="370" x2="863.3" y2="370" stroke="#111111" stroke-width="5" stroke-linecap="round"/>
+<polygon points="871.7,350.0 865.9,361.0 877.5,361.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="821.0" cy="360.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="876.7,358.0 870.9,369.0 882.5,369.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="849.1" cy="368.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="861.3,366.0 855.5,377.0 867.1,377.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="865.6" cy="376.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="848.3,374.0 842.5,385.0 854.1,385.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="854.4" cy="384.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="853.5,356.0 847.7,367.0 859.3,367.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="857.3" cy="378.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="855.8,362 863.8,370 855.8,378 847.8,370" fill="white" stroke="#111111" stroke-width="3"/>
+<line x1="1098.2" y1="370" x2="1128.8" y2="370" stroke="#111111" stroke-width="5" stroke-linecap="round"/>
+<polygon points="1121.2,350.0 1115.4,361.0 1127.0,361.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="1129.6" cy="360.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="1155.4,358.0 1149.6,369.0 1161.2,369.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="1146.7" cy="368.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="1096.5,366.0 1090.7,377.0 1102.3,377.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="1072.6" cy="376.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="1096.5,374.0 1090.7,385.0 1102.3,385.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="1121.2" cy="384.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="1088.5,356.0 1082.7,367.0 1094.3,367.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="1112.9" cy="378.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="1113.8,362 1121.8,370 1113.8,378 1105.8,370" fill="white" stroke="#111111" stroke-width="3"/>
+<text x="54.0" y="545.0" font-family="DejaVu Sans, sans-serif" font-size="20" font-weight="700" fill="#17202A" text-anchor="start">RESP2  ·  WORKERS=0</text>
+<text x="54.0" y="571.0" font-family="DejaVu Sans, sans-serif" font-size="14" font-weight="400" fill="#52616B" text-anchor="start">N=10 pairs  ·  20 observations</text>
+<line x1="483.5" y1="550" x2="616.9" y2="550" stroke="#111111" stroke-width="5" stroke-linecap="round"/>
+<circle cx="480.1" cy="536.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="502.0,534.0 496.2,545.0 507.8,545.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="807.1" cy="544.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="466.2,542.0 460.4,553.0 472.0,553.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="483.6" cy="552.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="731.0,550.0 725.2,561.0 736.8,561.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="530.5" cy="560.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="553.5,558.0 547.7,569.0 559.3,569.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="447.8" cy="542.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="467.4,552.0 461.6,563.0 473.2,563.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<polygon points="540.8,542 548.8,550 540.8,558 532.8,550" fill="white" stroke="#111111" stroke-width="3"/>
+<line x1="1280.7" y1="550" x2="1446.5" y2="550" stroke="#111111" stroke-width="5" stroke-linecap="round"/>
+<circle cx="1438.1" cy="536.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="1425.4,534.0 1419.6,545.0 1431.2,545.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="1119.7" cy="544.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="1461.2,542.0 1455.4,553.0 1467.0,553.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="1460.3" cy="552.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="1159.6,550.0 1153.8,561.0 1165.4,561.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="1378.8" cy="560.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="1360.8,558.0 1355.0,569.0 1366.6,569.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="1496.9" cy="542.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="1480.7,552.0 1474.9,563.0 1486.5,563.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<polygon points="1370.1,542 1378.1,550 1370.1,558 1362.1,550" fill="white" stroke="#111111" stroke-width="3"/>
+<text x="54.0" y="640.0" font-family="DejaVu Sans, sans-serif" font-size="20" font-weight="700" fill="#17202A" text-anchor="start">RESP2  ·  WORKERS=1</text>
+<text x="54.0" y="666.0" font-family="DejaVu Sans, sans-serif" font-size="14" font-weight="400" fill="#52616B" text-anchor="start">N=10 pairs  ·  20 observations</text>
+<line x1="552.9" y1="645" x2="677.4" y2="645" stroke="#111111" stroke-width="5" stroke-linecap="round"/>
+<polygon points="612.6,625.0 606.8,636.0 618.4,636.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="495.6" cy="635.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="798.4,633.0 792.6,644.0 804.2,644.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="710.5" cy="643.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="574.9,641.0 569.1,652.0 580.7,652.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="616.7" cy="651.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="557.6,649.0 551.8,660.0 563.4,660.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="750.8" cy="659.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="457.4,631.0 451.6,642.0 463.2,642.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="594.6" cy="653.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="612.0,637 620.0,645 612.0,653 604.0,645" fill="white" stroke="#111111" stroke-width="3"/>
+<line x1="1226.6" y1="645" x2="1359.0" y2="645" stroke="#111111" stroke-width="5" stroke-linecap="round"/>
+<polygon points="1246.0,625.0 1240.2,636.0 1251.8,636.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="1492.1" cy="635.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="1128.7,633.0 1122.9,644.0 1134.5,644.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="1225.0" cy="643.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="1326.7,641.0 1320.9,652.0 1332.5,652.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="1257.3" cy="651.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="1367.4,649.0 1361.6,660.0 1373.2,660.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="1168.7" cy="659.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="1449.2,631.0 1443.4,642.0 1455.0,642.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="1292.7" cy="653.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="1289.5,637 1297.5,645 1289.5,653 1281.5,645" fill="white" stroke="#111111" stroke-width="3"/>
+<text x="54.0" y="735.0" font-family="DejaVu Sans, sans-serif" font-size="20" font-weight="700" fill="#17202A" text-anchor="start">RESP3  ·  WORKERS=0</text>
+<text x="54.0" y="761.0" font-family="DejaVu Sans, sans-serif" font-size="14" font-weight="400" fill="#52616B" text-anchor="start">N=10 pairs  ·  20 observations</text>
+<line x1="737.4" y1="740" x2="803.8" y2="740" stroke="#111111" stroke-width="5" stroke-linecap="round"/>
+<circle cx="679.9" cy="726.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="714.2,724.0 708.4,735.0 720.0,735.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="755.9" cy="734.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="844.9,732.0 839.1,743.0 850.7,743.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="768.7" cy="742.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="821.3,740.0 815.5,751.0 827.1,751.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="728.6" cy="750.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="830.2,748.0 824.4,759.0 836.0,759.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="841.4" cy="732.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="736.3,742.0 730.5,753.0 742.1,753.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<polygon points="770.9,732 778.9,740 770.9,748 762.9,740" fill="white" stroke="#111111" stroke-width="3"/>
+<line x1="1137.9" y1="740" x2="1184.6" y2="740" stroke="#111111" stroke-width="5" stroke-linecap="round"/>
+<circle cx="1233.8" cy="726.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="1205.4,724.0 1199.6,735.0 1211.2,735.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="1174.1" cy="734.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="1119.9,732.0 1114.1,743.0 1125.7,743.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="1157.4" cy="742.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="1137.4,740.0 1131.6,751.0 1143.2,751.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="1189.7" cy="750.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="1116.6,748.0 1110.8,759.0 1122.4,759.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="1106.2" cy="732.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="1175.8,742.0 1170.0,753.0 1181.6,753.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<polygon points="1160.8,732 1168.8,740 1160.8,748 1152.8,740" fill="white" stroke="#111111" stroke-width="3"/>
+<text x="54.0" y="830.0" font-family="DejaVu Sans, sans-serif" font-size="20" font-weight="700" fill="#17202A" text-anchor="start">RESP3  ·  WORKERS=1</text>
+<text x="54.0" y="856.0" font-family="DejaVu Sans, sans-serif" font-size="14" font-weight="400" fill="#52616B" text-anchor="start">N=10 pairs  ·  20 observations</text>
+<line x1="803.6" y1="835" x2="851.9" y2="835" stroke="#111111" stroke-width="5" stroke-linecap="round"/>
+<polygon points="898.0,815.0 892.2,826.0 903.8,826.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="830.0" cy="825.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="838.5,823.0 832.7,834.0 844.3,834.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="779.7" cy="833.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="834.5,831.0 828.7,842.0 840.3,842.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="849.5" cy="841.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="860.7,839.0 854.9,850.0 866.5,850.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="852.8" cy="849.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="819.0,821.0 813.2,832.0 824.8,832.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="730.6" cy="843.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="828.6,827 836.6,835 828.6,843 820.6,835" fill="white" stroke="#111111" stroke-width="3"/>
+<line x1="1101.3" y1="835" x2="1138.2" y2="835" stroke="#111111" stroke-width="5" stroke-linecap="round"/>
+<polygon points="1065.0,815.0 1059.2,826.0 1070.8,826.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="1109.1" cy="825.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="1129.0,823.0 1123.2,834.0 1134.8,834.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="1152.2" cy="833.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="1103.2,831.0 1097.4,842.0 1109.0,842.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="1102.4" cy="841.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="1088.0,839.0 1082.2,850.0 1093.8,850.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="1115.8" cy="849.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="1133.7,821.0 1127.9,832.0 1139.5,832.0" fill="#D55E00" stroke="white" stroke-width="1"/>
+<circle cx="1195.3" cy="843.0" r="5.2" fill="#0072B2" stroke="white" stroke-width="1"/>
+<polygon points="1118.7,827 1126.7,835 1118.7,843 1110.7,835" fill="white" stroke="#111111" stroke-width="3"/>
+<circle cx="60" cy="978" r="6" fill="#0072B2"/>
+<text x="76.0" y="983.0" font-family="DejaVu Sans, sans-serif" font-size="15" font-weight="400" fill="#17202A" text-anchor="start">master-first, 5 pairs</text>
+<polygon points="267,971 260,984 274,984" fill="#D55E00"/>
+<text x="286.0" y="983.0" font-family="DejaVu Sans, sans-serif" font-size="15" font-weight="400" fill="#17202A" text-anchor="start">BG-first, 5 pairs</text>
+<line x1="480" y1="978" x2="535" y2="978" stroke="#111111" stroke-width="5" stroke-linecap="round"/>
+<polygon points="507,970 515,978 507,986 499,978" fill="white" stroke="#111111" stroke-width="3"/>
+<text x="549.0" y="983.0" font-family="DejaVu Sans, sans-serif" font-size="15" font-weight="400" fill="#17202A" text-anchor="start">geometric mean + order-stratified bootstrap 95% CI</text>
+<text x="54.0" y="1030.0" font-family="DejaVu Sans, sans-serif" font-size="15" font-weight="400" fill="#52616B" text-anchor="start">Each marker is (BG-only / master − 1) × 100 for one adjacent pair. Opaque shape and color both encode order.</text>
+</svg>

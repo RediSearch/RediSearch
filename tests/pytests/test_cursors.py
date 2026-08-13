@@ -59,6 +59,107 @@ def testCursorsBG():
     env = Env(moduleArgs='WORKERS 1 _PRINT_PROFILE_CLOCK FALSE')
     testCursors(env)
 
+
+def _testReturnCursorSerializesOnExecutionThread(protocol):
+    env = Env(protocol=protocol, enableDebugCommand=True,
+              moduleArgs='WORKERS 1 ON_TIMEOUT RETURN')
+    skipIfNoEnableAssert(env)
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+    for i in range(5):
+        conn.execute_command('HSET', f'doc:{i}', 'n', i)
+    waitForIndex(env, 'idx')
+
+    background_replies = int(conn.execute_command(
+        debug_cmd(), 'QUERY_CONTROLLER', 'GET_BACKGROUND_REPLY_SERIALIZATION_COUNT'))
+    chunks = []
+
+    reply, cursor = conn.execute_command(
+        'FT.AGGREGATE', 'idx', '*',
+        'LOAD', '1', '@n',
+        'WITHCURSOR', 'COUNT', '2',
+    )
+    chunks.append(reply)
+    env.assertEqual(conn.execute_command('PING'), True)
+
+    while cursor:
+        reply, cursor = conn.execute_command('FT.CURSOR', 'READ', 'idx', cursor, 'COUNT', '2')
+        chunks.append(reply)
+        env.assertEqual(conn.execute_command('PING'), True)
+
+    env.assertEqual(int(conn.execute_command(
+        debug_cmd(), 'QUERY_CONTROLLER', 'GET_BACKGROUND_REPLY_SERIALIZATION_COUNT')),
+        background_replies + len(chunks))
+
+    if protocol == 2:
+        env.assertEqual([len(chunk) - 1 for chunk in chunks], [2, 2, 1])
+        env.assertEqual([chunk[0] for chunk in chunks], [2, 2, 1])
+    else:
+        env.assertEqual([len(chunk['results']) for chunk in chunks], [2, 2, 1])
+        env.assertEqual([chunk['total_results'] for chunk in chunks], [2, 2, 1])
+
+
+@skip(cluster=True)
+def testReturnCursorSerializesOnExecutionThreadResp2():
+    _testReturnCursorSerializesOnExecutionThread(2)
+
+
+@skip(cluster=True)
+def testReturnCursorSerializesOnExecutionThreadResp3():
+    _testReturnCursorSerializesOnExecutionThread(3)
+
+
+@skip(cluster=True)
+def testInlineCursorChunksUseTerminalArray():
+    """Every WORKERS=0 cursor chunk is accumulated before it is serialized."""
+    env = Env(enableDebugCommand=True, moduleArgs='WORKERS 0')
+    skipIfNoEnableAssert(env)
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+    for i in range(5):
+        conn.execute_command('HSET', f'doc:{i}', 'n', i)
+    waitForIndex(env, 'idx')
+
+    def run_chunk(command, expected_rows):
+        # Re-arming resets the global counter, proving each chunk independently.
+        setPauseAfterAggregateResult(env, 100)
+        try:
+            reply = env.cmd(*command)
+            env.assertEqual(
+                getAggregateResultsCount(env), expected_rows,
+                message='Cursor chunk did not accumulate its terminal rows',
+            )
+            return reply
+        finally:
+            resetAggregateResultsDebug(env)
+
+    rows, cursor = run_chunk(
+        ['FT.AGGREGATE', 'idx', '*',
+         'SORTBY', '2', '@n', 'ASC',
+         'LOAD', '1', '@n',
+         'WITHCURSOR', 'COUNT', '2'],
+        expected_rows=2,
+    )
+    env.assertEqual([row[1] for row in rows[1:]], ['0', '1'])
+    env.assertNotEqual(cursor, 0)
+
+    rows, cursor = run_chunk(
+        ['FT.CURSOR', 'READ', 'idx', cursor, 'COUNT', '2'],
+        expected_rows=2,
+    )
+    env.assertEqual([row[1] for row in rows[1:]], ['2', '3'])
+    env.assertNotEqual(cursor, 0)
+
+    rows, cursor = run_chunk(
+        ['FT.CURSOR', 'READ', 'idx', cursor, 'COUNT', '2'],
+        expected_rows=1,
+    )
+    env.assertEqual([row[1] for row in rows[1:]], ['4'])
+    env.assertEqual(cursor, 0)
+
+
 @skip(cluster=True)
 def testCursorsBGEdgeCasesSanity():
     env = Env(moduleArgs='WORKERS 1')
@@ -457,7 +558,7 @@ def CursorOnCoordinator(env: Env):
 # commands to always return empty results without depleting the cursor.
 # After the fix, the accumulated results until the timeout are returned, and the cursor is properly depleted.
 def testCursorDepletionNonStrictTimeoutPolicySortby():
-    env = Env(protocol=3, moduleArgs='ON_TIMEOUT RETURN')
+    env = Env(protocol=3, moduleArgs='ON_TIMEOUT RETURN WORKERS 1')
     conn = getConnectionByEnv(env)
 
     # Create the index
@@ -496,7 +597,7 @@ def testCursorDepletionNonStrictTimeoutPolicySortby():
 def testCursorDepletionNonStrictTimeoutPolicy(env):
     """Tests that the cursor id is returned in case the timeout policy is
     non-strict (i.e., the `RETURN` timeout policy), even when a timeout is experienced"""
-    env = Env(protocol=3, moduleArgs='ON_TIMEOUT RETURN')
+    env = Env(protocol=3, moduleArgs='ON_TIMEOUT RETURN WORKERS 1')
     conn = getConnectionByEnv(env)
 
     # Create the index

@@ -1,8 +1,139 @@
 from common import *
 
+
 def verifyTimeoutResultsResp3(env, res, expected_results_count, message="", depth=0):
     env.assertEqual(len(res["results"]), expected_results_count, depth=depth+1, message=message + " unexpected results count")
     VerifyTimeoutWarningResp3(env, res, depth=depth+1, message=message + " unexpected results count")
+
+
+def _blocked_onfree_count(env):
+    return int(env.cmd(debug_cmd(), 'QUERY_CONTROLLER',
+                       'GET_BLOCKED_REQUEST_ONFREE_COUNT'))
+
+
+def _background_reply_serialization_count(env):
+    return int(env.cmd(debug_cmd(), 'QUERY_CONTROLLER',
+                       'GET_BACKGROUND_REPLY_SERIALIZATION_COUNT'))
+
+
+def _test_return_background_stages_partial_results(protocol):
+    """RETURN accumulates rows and stages the encoded reply on its worker."""
+    env = Env(protocol=protocol, enableDebugCommand=True,
+              moduleArgs='WORKERS 1 ON_TIMEOUT RETURN')
+    skipIfNoEnableAssert(env)
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+    for i in range(5):
+        conn.execute_command('HSET', f'doc:{i}', 'n', i)
+    waitForIndex(env, 'idx')
+
+    onfree_before = _blocked_onfree_count(env)
+    background_replies_before = _background_reply_serialization_count(env)
+    setPauseAfterAggregateResult(env, 100)
+    try:
+        result = runDebugQueryCommandTimeoutAfterN(
+            env,
+            ['FT.AGGREGATE', 'idx', '*',
+             'SORTBY', '2', '@n', 'ASC', 'LOAD', '1', '@n'],
+            2,
+        )
+        env.assertEqual(getAggregateResultsCount(env), 2,
+                        message='Background RETURN did not accumulate its partial rows')
+    finally:
+        resetAggregateResultsDebug(env)
+
+    # A duplicate callback reply would remain queued as a ghost response.
+    env.assertEqual(conn.execute_command('PING'), True)
+    env.assertEqual(_blocked_onfree_count(env), onfree_before + 1)
+    env.assertEqual(_background_reply_serialization_count(env),
+                    background_replies_before + 1)
+
+    if protocol == 2:
+        env.assertEqual(result, [2, ['n', '0'], ['n', '1']])
+    else:
+        env.assertEqual(result, {
+            'attributes': [],
+            'warning': ['Timeout limit was reached'],
+            'total_results': 2,
+            'format': 'STRING',
+            'results': [
+                {'extra_attributes': {'n': '0'}, 'values': []},
+                {'extra_attributes': {'n': '1'}, 'values': []},
+            ],
+        })
+
+
+def _test_return_inline_aggregates_partial_results(protocol):
+    """RETURN with WORKERS=0 accumulates partial rows through AggregateResults."""
+    env = Env(protocol=protocol, enableDebugCommand=True,
+              moduleArgs='WORKERS 0 ON_TIMEOUT RETURN')
+    skipIfNoEnableAssert(env)
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+    for i in range(5):
+        conn.execute_command('HSET', f'doc:{i}', 'n', i)
+    waitForIndex(env, 'idx')
+
+    background_replies_before = _background_reply_serialization_count(env)
+
+    # The counter is incremented only by AggregateResults. Set an unreachable
+    # pause point so it counts rows without blocking the main-thread query.
+    setPauseAfterAggregateResult(env, 100)
+    try:
+        result = runDebugQueryCommandTimeoutAfterN(
+            env,
+            ['FT.AGGREGATE', 'idx', '*',
+             'SORTBY', '2', '@n', 'ASC', 'LOAD', '1', '@n'],
+            2,
+        )
+        env.assertEqual(getAggregateResultsCount(env), 2,
+                        message='Inline RETURN did not aggregate its partial rows')
+    finally:
+        resetAggregateResultsDebug(env)
+
+    env.assertEqual(_background_reply_serialization_count(env),
+                    background_replies_before,
+                    message='WORKERS=0 unexpectedly serialized off the Redis main thread')
+
+    if protocol == 2:
+        env.assertEqual(result, [2, ['n', '0'], ['n', '1']])
+    else:
+        env.assertEqual(result, {
+            'attributes': [],
+            'warning': ['Timeout limit was reached'],
+            'total_results': 2,
+            'format': 'STRING',
+            'results': [
+                {'extra_attributes': {'n': '0'}, 'values': []},
+                {'extra_attributes': {'n': '1'}, 'values': []},
+            ],
+        })
+
+
+@skip(cluster=True)
+def test_return_background_stages_partial_results_resp2():
+    """Exercise array-backed worker staging under RESP2."""
+    _test_return_background_stages_partial_results(2)
+
+
+@skip(cluster=True)
+def test_return_background_stages_partial_results_resp3():
+    """Exercise array-backed worker staging under RESP3."""
+    _test_return_background_stages_partial_results(3)
+
+
+@skip(cluster=True)
+def test_return_inline_aggregates_partial_results_resp2():
+    """Exercise the inline array-backed RETURN timeout reply under RESP2."""
+    _test_return_inline_aggregates_partial_results(2)
+
+
+@skip(cluster=True)
+def test_return_inline_aggregates_partial_results_resp3():
+    """Exercise the inline array-backed RETURN timeout reply under RESP3."""
+    _test_return_inline_aggregates_partial_results(3)
 
 # skip on cluster since there might not be enough documents in each shard to reach the RP_INDEX timeout limit counter.
 @skip(cluster=True)

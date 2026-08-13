@@ -1,0 +1,810 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1680" height="1410" viewBox="0 0 1680 1410" role="img" aria-labelledby="svg-title svg-desc">
+<title id="svg-title">MOD-17473 · Native OSS cluster · full-result performance</title>
+<desc id="svg-desc">Paired throughput and p50/p95/p99 latency effects for equal-row-work cluster replies, faceted by per-primary SEARCH_THREADS.</desc>
+<rect width="1680" height="1410" fill="#f5f7fa"/>
+<text x="54.00" y="44.00" fill="#17212b" font-size="26" font-family="DejaVu Sans,Arial,sans-serif" font-weight="700" text-anchor="start" dominant-baseline="middle">MOD-17473 · Native OSS cluster · full-result performance</text>
+<text x="54.00" y="78.00" fill="#5c6b7a" font-size="16" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">Geomean of per-pair PR/baseline ratios, shown as (PR/baseline − 1) × 100%; equal 10k-row work and complete-reply hiredis timing.</text>
+<text x="54.00" y="104.00" fill="#5c6b7a" font-size="15" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">Per case: 10 baseline/PR pairs = 20 fresh two-primary topology observations = 40 Redis process executions.</text>
+<text x="54.00" y="126.00" fill="#5c6b7a" font-size="15" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">This figure: 120 pairs / 240 topology observations / 480 Redis processes. Whole campaign: 180 pairs / 360 topology observations / 720 Redis processes.</text>
+<circle cx="54.00" cy="152.00" r="5.00" fill="#8a3f00" opacity="1.00"/>
+<text x="66.00" y="152.00" fill="#5c6b7a" font-size="15" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">AB = baseline first</text>
+<rect x="227.00" y="147.00" width="10.00" height="10.00" fill="#1677c8" opacity="1.00"/>
+<text x="244.00" y="152.00" fill="#5c6b7a" font-size="15" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">BA = PR first</text>
+<line x1="384.00" y1="152.00" x2="424.00" y2="152.00" stroke="#344454" stroke-width="2.00"/>
+<polygon points="404.00,146.00 410.00,152.00 404.00,158.00 398.00,152.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="436.00" y="152.00" fill="#5c6b7a" font-size="15" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">paired effect + 95% order-stratified whole-pair bootstrap CI</text>
+<text x="54.00" y="190.00" fill="#17212b" font-size="17" font-family="DejaVu Sans,Arial,sans-serif" font-weight="700" text-anchor="start" dominant-baseline="middle">Complete-reply throughput · positive = faster</text>
+<rect x="54.00" y="208.00" width="772.00" height="232.00" fill="#ffffff" stroke="#d9e2ec" stroke-width="1" rx="7.00"/>
+<text x="440.00" y="228.00" fill="#17212b" font-size="16" font-family="DejaVu Sans,Arial,sans-serif" font-weight="700" text-anchor="middle" dominant-baseline="middle">SEARCH_THREADS=1 per primary · n=10 pairs/row (5 AB, 5 BA)</text>
+<line x1="264.00" y1="248.00" x2="264.00" y2="404.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="264.00" y="422.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">-40 %</text>
+<line x1="352.00" y1="248.00" x2="352.00" y2="404.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="352.00" y="422.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">-30 %</text>
+<line x1="440.00" y1="248.00" x2="440.00" y2="404.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="440.00" y="422.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">-20 %</text>
+<line x1="528.00" y1="248.00" x2="528.00" y2="404.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="528.00" y="422.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">-10 %</text>
+<line x1="616.00" y1="248.00" x2="616.00" y2="404.00" stroke="#6f7d89" stroke-width="1.40"/>
+<text x="616.00" y="422.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">0 %</text>
+<line x1="704.00" y1="248.00" x2="704.00" y2="404.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="704.00" y="422.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">10 %</text>
+<line x1="792.00" y1="248.00" x2="792.00" y2="404.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="792.00" y="422.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">20 %</text>
+<text x="64.00" y="261.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP2 · W0 shard-inline</text>
+<circle cx="357.42" cy="253.20" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="350.96" y="250.73" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="506.28" cy="256.67" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="302.34" y="254.20" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="397.29" cy="260.13" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="316.71" y="257.67" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="293.26" cy="263.60" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="291.15" y="261.13" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="553.65" cy="267.07" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="312.61" y="264.60" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<line x1="327.21" y1="261.00" x2="404.88" y2="261.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="364.92,254.80 371.12,261.00 364.92,267.20 358.72,261.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="373.92" y="252.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">−28.5%</text>
+<text x="64.00" y="287.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP2 · W1 shard-deferred</text>
+<circle cx="351.43" cy="279.20" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="369.43" y="276.73" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="491.69" cy="282.67" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="367.70" y="280.20" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="381.47" cy="286.13" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="478.35" y="283.67" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="347.60" cy="289.60" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="499.26" y="287.13" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="350.17" cy="293.07" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="409.48" y="290.60" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<line x1="374.65" y1="287.00" x2="439.64" y2="287.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="404.23,280.80 410.43,287.00 404.23,293.20 398.03,287.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="413.23" y="278.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">−24.1%</text>
+<text x="64.00" y="313.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP2 · W4 shard-deferred</text>
+<circle cx="465.93" cy="305.20" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="452.50" y="302.73" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="393.39" cy="308.67" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="423.56" y="306.20" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="375.56" cy="312.13" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="488.21" y="309.67" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="388.06" cy="315.60" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="341.66" y="313.13" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="403.31" cy="319.07" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="468.29" y="316.60" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<line x1="393.49" y1="313.00" x2="446.36" y2="313.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="420.62,306.80 426.82,313.00 420.62,319.20 414.42,313.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="429.62" y="304.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">−22.2%</text>
+<text x="64.00" y="339.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP3 · W0 shard-inline</text>
+<circle cx="583.26" cy="331.20" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="577.16" y="328.73" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="633.03" cy="334.67" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="658.21" y="332.20" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="568.93" cy="338.13" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="581.48" y="335.67" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="629.10" cy="341.60" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="620.19" y="339.13" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="674.68" cy="345.07" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="560.40" y="342.60" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<line x1="588.22" y1="339.00" x2="633.18" y2="339.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="609.96,332.80 616.16,339.00 609.96,345.20 603.76,339.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="600.96" y="330.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="end" dominant-baseline="middle">−0.7%</text>
+<text x="64.00" y="365.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP3 · W1 shard-deferred</text>
+<circle cx="601.86" cy="357.20" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="482.10" y="354.73" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="582.01" cy="360.67" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="540.52" y="358.20" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="543.30" cy="364.13" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="642.60" y="361.67" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="519.22" cy="367.60" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="601.56" y="365.13" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="568.10" cy="371.07" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="510.19" y="368.60" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<line x1="532.16" y1="365.00" x2="589.00" y2="365.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="559.94,358.80 566.14,365.00 559.94,371.20 553.74,365.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="550.94" y="356.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="end" dominant-baseline="middle">−6.4%</text>
+<text x="64.00" y="391.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP3 · W4 shard-deferred</text>
+<circle cx="596.63" cy="383.20" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="587.81" y="380.73" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="550.13" cy="386.67" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="521.80" y="384.20" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="580.51" cy="390.13" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="571.42" y="387.67" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="631.43" cy="393.60" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="581.91" y="391.13" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="550.68" cy="397.07" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="544.42" y="394.60" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<line x1="556.39" y1="391.00" x2="590.80" y2="391.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="573.27,384.80 579.47,391.00 573.27,397.20 567.07,391.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="564.27" y="382.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="end" dominant-baseline="middle">−4.9%</text>
+<rect x="860.00" y="208.00" width="772.00" height="232.00" fill="#ffffff" stroke="#d9e2ec" stroke-width="1" rx="7.00"/>
+<text x="1246.00" y="228.00" fill="#17212b" font-size="16" font-family="DejaVu Sans,Arial,sans-serif" font-weight="700" text-anchor="middle" dominant-baseline="middle">SEARCH_THREADS=4 per primary · n=10 pairs/row (5 AB, 5 BA)</text>
+<line x1="1070.00" y1="248.00" x2="1070.00" y2="404.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="1070.00" y="422.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">-40 %</text>
+<line x1="1158.00" y1="248.00" x2="1158.00" y2="404.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="1158.00" y="422.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">-30 %</text>
+<line x1="1246.00" y1="248.00" x2="1246.00" y2="404.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="1246.00" y="422.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">-20 %</text>
+<line x1="1334.00" y1="248.00" x2="1334.00" y2="404.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="1334.00" y="422.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">-10 %</text>
+<line x1="1422.00" y1="248.00" x2="1422.00" y2="404.00" stroke="#6f7d89" stroke-width="1.40"/>
+<text x="1422.00" y="422.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">0 %</text>
+<line x1="1510.00" y1="248.00" x2="1510.00" y2="404.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="1510.00" y="422.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">10 %</text>
+<line x1="1598.00" y1="248.00" x2="1598.00" y2="404.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="1598.00" y="422.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">20 %</text>
+<text x="870.00" y="261.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP2 · W0 shard-inline</text>
+<rect x="1187.56" y="249.00" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1244.06" cy="254.93" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1217.70" y="252.47" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1247.36" cy="258.40" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1182.50" y="255.93" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1259.67" cy="261.87" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1272.57" y="259.40" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1289.41" cy="265.33" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1250.28" y="262.87" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1274.19" cy="268.80" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<line x1="1227.50" y1="261.00" x2="1261.10" y2="261.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="1243.84,254.80 1250.04,261.00 1243.84,267.20 1237.64,261.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="1252.84" y="252.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">−20.2%</text>
+<text x="870.00" y="287.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP2 · W1 shard-deferred</text>
+<rect x="1347.80" y="275.00" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1327.75" cy="280.93" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1305.99" y="278.47" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1332.29" cy="284.40" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1335.01" y="281.93" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1311.29" cy="287.87" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1344.96" y="285.40" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1314.06" cy="291.33" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1323.41" y="288.87" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1347.41" cy="294.80" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<line x1="1322.05" y1="287.00" x2="1339.51" y2="287.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="1330.95,280.80 1337.15,287.00 1330.95,293.20 1324.75,287.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="1339.95" y="278.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">−10.3%</text>
+<text x="870.00" y="313.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP2 · W4 shard-deferred</text>
+<rect x="1241.93" y="301.00" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1265.47" cy="306.93" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1244.87" y="304.47" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1234.24" cy="310.40" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1269.53" y="307.93" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1232.46" cy="313.87" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1245.19" y="311.40" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1241.59" cy="317.33" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1242.61" y="314.87" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1233.05" cy="320.80" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<line x1="1240.88" y1="313.00" x2="1255.23" y2="313.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="1247.08,306.80 1253.28,313.00 1247.08,319.20 1240.88,313.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="1256.08" y="304.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">−19.9%</text>
+<text x="870.00" y="339.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP3 · W0 shard-inline</text>
+<rect x="1321.52" y="327.00" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1338.03" cy="332.93" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1346.72" y="330.47" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1332.53" cy="336.40" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1361.80" y="333.93" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1316.51" cy="339.87" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1351.99" y="337.40" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1297.52" cy="343.33" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1349.83" y="340.87" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1326.56" cy="346.80" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<line x1="1327.03" y1="339.00" x2="1344.21" y2="339.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="1336.15,332.80 1342.35,339.00 1336.15,345.20 1329.95,339.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="1327.15" y="330.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="end" dominant-baseline="middle">−9.8%</text>
+<text x="870.00" y="365.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP3 · W1 shard-deferred</text>
+<rect x="1498.88" y="353.00" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1460.79" cy="358.93" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1451.56" y="356.47" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1477.88" cy="362.40" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1504.25" y="359.93" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1487.97" cy="365.87" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1481.71" y="363.40" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1497.28" cy="369.33" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1508.21" y="366.87" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1484.77" cy="372.80" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<line x1="1476.25" y1="365.00" x2="1496.98" y2="365.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="1487.26,358.80 1493.46,365.00 1487.26,371.20 1481.06,365.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="1478.26" y="356.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="end" dominant-baseline="middle">+7.4%</text>
+<text x="870.00" y="391.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP3 · W4 shard-deferred</text>
+<rect x="1328.75" y="379.00" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1382.26" cy="384.93" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1339.07" y="382.47" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1344.95" cy="388.40" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1332.37" y="385.93" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1392.87" cy="391.87" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1327.30" y="389.40" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1411.82" cy="395.33" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1419.01" y="392.87" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1400.10" cy="398.80" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<line x1="1352.83" y1="391.00" x2="1388.60" y2="391.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="1369.26,384.80 1375.46,391.00 1369.26,397.20 1363.06,391.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="1360.26" y="382.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="end" dominant-baseline="middle">−6.0%</text>
+<text x="54.00" y="470.00" fill="#17212b" font-size="17" font-family="DejaVu Sans,Arial,sans-serif" font-weight="700" text-anchor="start" dominant-baseline="middle">Complete-reply p50 latency · positive = slower</text>
+<rect x="54.00" y="488.00" width="772.00" height="232.00" fill="#ffffff" stroke="#d9e2ec" stroke-width="1" rx="7.00"/>
+<text x="440.00" y="508.00" fill="#17212b" font-size="16" font-family="DejaVu Sans,Arial,sans-serif" font-weight="700" text-anchor="middle" dominant-baseline="middle">SEARCH_THREADS=1 per primary · n=10 pairs/row (5 AB, 5 BA)</text>
+<line x1="264.00" y1="528.00" x2="264.00" y2="684.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="264.00" y="702.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">-20 %</text>
+<line x1="369.60" y1="528.00" x2="369.60" y2="684.00" stroke="#6f7d89" stroke-width="1.40"/>
+<text x="369.60" y="702.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">0 %</text>
+<line x1="475.20" y1="528.00" x2="475.20" y2="684.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="475.20" y="702.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">20 %</text>
+<line x1="580.80" y1="528.00" x2="580.80" y2="684.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="580.80" y="702.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">40 %</text>
+<line x1="686.40" y1="528.00" x2="686.40" y2="684.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="686.40" y="702.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">60 %</text>
+<line x1="792.00" y1="528.00" x2="792.00" y2="684.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="792.00" y="702.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">80 %</text>
+<text x="64.00" y="541.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP2 · W0 shard-inline</text>
+<circle cx="594.36" cy="533.20" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="654.58" y="530.73" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="473.40" cy="536.67" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="665.40" y="534.20" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="548.02" cy="540.13" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="632.60" y="537.67" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="689.87" cy="543.60" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="673.16" y="541.13" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="428.33" cy="547.07" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="641.24" y="544.60" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<line x1="555.00" y1="541.00" x2="641.20" y2="541.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="596.92,534.80 603.12,541.00 596.92,547.20 590.72,541.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="587.92" y="532.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="end" dominant-baseline="middle">+43.1%</text>
+<text x="64.00" y="567.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP2 · W1 shard-deferred</text>
+<circle cx="587.34" cy="559.20" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="596.01" y="556.73" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="507.23" cy="562.67" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="591.36" y="560.20" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="565.13" cy="566.13" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="459.17" y="563.67" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="618.40" cy="569.60" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="443.76" y="567.13" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="607.15" cy="573.07" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="532.67" y="570.60" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<line x1="516.61" y1="567.00" x2="583.92" y2="567.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="550.43,560.80 556.63,567.00 550.43,573.20 544.23,567.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="541.43" y="558.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="end" dominant-baseline="middle">+34.2%</text>
+<text x="64.00" y="593.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP2 · W4 shard-deferred</text>
+<circle cx="483.01" cy="585.20" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="494.92" y="582.73" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="558.04" cy="588.67" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="528.30" y="586.20" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="554.22" cy="592.13" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="458.18" y="589.67" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="548.53" cy="595.60" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="607.16" y="593.13" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="543.97" cy="599.07" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="467.82" y="596.60" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<line x1="500.69" y1="593.00" x2="552.58" y2="593.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="525.10,586.80 531.30,593.00 525.10,599.20 518.90,593.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="534.10" y="584.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">+29.5%</text>
+<text x="64.00" y="619.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP3 · W0 shard-inline</text>
+<circle cx="391.10" cy="611.20" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="388.27" y="608.73" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="351.47" cy="614.67" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="341.97" y="612.20" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="403.74" cy="618.13" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="385.81" y="615.67" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="372.50" cy="621.60" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="363.26" y="619.13" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="334.93" cy="625.07" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="404.57" y="622.60" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<line x1="360.51" y1="619.00" x2="389.88" y2="619.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="375.31,612.80 381.51,619.00 375.31,625.20 369.11,619.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="384.31" y="610.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">+1.1%</text>
+<text x="64.00" y="645.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP3 · W1 shard-deferred</text>
+<circle cx="383.54" cy="637.20" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="457.47" y="634.73" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="411.45" cy="640.67" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="427.13" y="638.20" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="441.70" cy="644.13" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="355.24" y="641.67" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="443.56" cy="647.60" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="370.82" y="645.13" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="427.37" cy="651.07" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="470.01" y="648.60" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<line x1="397.72" y1="645.00" x2="441.69" y2="645.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="419.79,638.80 425.99,645.00 419.79,651.20 413.59,645.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="428.79" y="636.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">+9.5%</text>
+<text x="64.00" y="671.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP3 · W4 shard-deferred</text>
+<circle cx="389.63" cy="663.20" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="400.10" y="660.73" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="431.51" cy="666.67" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="443.64" y="664.20" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="394.95" cy="670.13" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="379.99" y="667.67" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="374.08" cy="673.60" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="388.54" y="671.13" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="417.92" cy="677.07" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="413.69" y="674.60" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<line x1="392.36" y1="671.00" x2="418.89" y2="671.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="405.09,664.80 411.29,671.00 405.09,677.20 398.89,671.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="414.09" y="662.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">+6.7%</text>
+<rect x="860.00" y="488.00" width="772.00" height="232.00" fill="#ffffff" stroke="#d9e2ec" stroke-width="1" rx="7.00"/>
+<text x="1246.00" y="508.00" fill="#17212b" font-size="16" font-family="DejaVu Sans,Arial,sans-serif" font-weight="700" text-anchor="middle" dominant-baseline="middle">SEARCH_THREADS=4 per primary · n=10 pairs/row (5 AB, 5 BA)</text>
+<line x1="1070.00" y1="528.00" x2="1070.00" y2="684.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="1070.00" y="702.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">-20 %</text>
+<line x1="1175.60" y1="528.00" x2="1175.60" y2="684.00" stroke="#6f7d89" stroke-width="1.40"/>
+<text x="1175.60" y="702.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">0 %</text>
+<line x1="1281.20" y1="528.00" x2="1281.20" y2="684.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="1281.20" y="702.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">20 %</text>
+<line x1="1386.80" y1="528.00" x2="1386.80" y2="684.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="1386.80" y="702.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">40 %</text>
+<line x1="1492.40" y1="528.00" x2="1492.40" y2="684.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="1492.40" y="702.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">60 %</text>
+<line x1="1598.00" y1="528.00" x2="1598.00" y2="684.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="1598.00" y="702.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">80 %</text>
+<text x="870.00" y="541.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP2 · W0 shard-inline</text>
+<rect x="1356.18" y="529.00" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1301.36" cy="534.93" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1330.39" y="532.47" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1275.86" cy="538.40" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1368.02" y="535.93" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1290.46" cy="541.87" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1260.16" y="539.40" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1265.85" cy="545.33" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1284.84" y="542.87" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1253.65" cy="548.80" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<line x1="1280.44" y1="541.00" x2="1318.35" y2="541.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="1299.62,534.80 1305.82,541.00 1299.62,547.20 1293.42,541.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="1308.62" y="532.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">+23.5%</text>
+<text x="870.00" y="567.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP2 · W1 shard-deferred</text>
+<rect x="1213.50" y="555.00" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1239.42" cy="560.93" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1264.40" y="558.47" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1213.32" cy="564.40" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1231.81" y="561.93" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1240.42" cy="567.87" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1211.49" y="565.40" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1229.73" cy="571.33" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1219.16" y="568.87" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1216.56" cy="574.80" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<line x1="1221.11" y1="567.00" x2="1240.50" y2="567.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="1229.86,560.80 1236.06,567.00 1229.86,573.20 1223.66,567.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="1238.86" y="558.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">+10.3%</text>
+<text x="870.00" y="593.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP2 · W4 shard-deferred</text>
+<rect x="1272.49" y="581.00" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1306.07" cy="586.93" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1295.94" y="584.47" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1303.56" cy="590.40" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1262.87" y="587.93" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1290.30" cy="593.87" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1279.22" y="591.40" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1306.84" cy="597.33" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1296.77" y="594.87" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1331.37" cy="600.80" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<line x1="1288.50" y1="593.00" x2="1304.71" y2="593.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="1296.41,586.80 1302.61,593.00 1296.41,599.20 1290.21,593.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="1305.41" y="584.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">+22.9%</text>
+<text x="870.00" y="619.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP3 · W0 shard-inline</text>
+<rect x="1217.86" y="607.00" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1219.48" cy="612.93" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1214.99" y="610.47" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1230.32" cy="616.40" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1200.06" y="613.93" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1260.29" cy="619.87" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1219.51" y="617.40" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1255.51" cy="623.33" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1216.33" y="620.87" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1221.00" cy="626.80" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<line x1="1219.45" y1="619.00" x2="1235.45" y2="619.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="1227.41,612.80 1233.61,619.00 1227.41,625.20 1221.21,619.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="1236.41" y="610.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">+9.8%</text>
+<text x="870.00" y="645.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP3 · W1 shard-deferred</text>
+<rect x="1115.93" y="633.00" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1126.61" cy="638.93" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1134.81" y="636.47" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1121.76" cy="642.40" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1116.03" y="639.93" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1118.07" cy="645.87" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1118.58" y="643.40" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1095.01" cy="649.33" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1112.91" y="646.87" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1126.63" cy="652.80" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<line x1="1114.11" y1="645.00" x2="1126.47" y2="645.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="1120.62,638.80 1126.82,645.00 1120.62,651.20 1114.42,645.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="1129.62" y="636.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">−10.4%</text>
+<text x="870.00" y="671.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP3 · W4 shard-deferred</text>
+<rect x="1215.41" y="659.00" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1179.77" cy="664.93" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1201.67" y="662.47" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1216.78" cy="668.40" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1205.04" y="665.93" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1188.81" cy="671.87" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1221.23" y="669.40" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1186.04" cy="675.33" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1148.07" y="672.87" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1173.70" cy="678.80" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<line x1="1181.49" y1="671.00" x2="1207.53" y2="671.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="1195.29,664.80 1201.49,671.00 1195.29,677.20 1189.09,671.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="1204.29" y="662.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">+3.7%</text>
+<text x="54.00" y="750.00" fill="#17212b" font-size="17" font-family="DejaVu Sans,Arial,sans-serif" font-weight="700" text-anchor="start" dominant-baseline="middle">Complete-reply p95 latency · positive = slower</text>
+<rect x="54.00" y="768.00" width="772.00" height="232.00" fill="#ffffff" stroke="#d9e2ec" stroke-width="1" rx="7.00"/>
+<text x="440.00" y="788.00" fill="#17212b" font-size="16" font-family="DejaVu Sans,Arial,sans-serif" font-weight="700" text-anchor="middle" dominant-baseline="middle">SEARCH_THREADS=1 per primary · n=10 pairs/row (5 AB, 5 BA)</text>
+<line x1="264.00" y1="808.00" x2="264.00" y2="964.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="264.00" y="982.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">-20 %</text>
+<line x1="369.60" y1="808.00" x2="369.60" y2="964.00" stroke="#6f7d89" stroke-width="1.40"/>
+<text x="369.60" y="982.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">0 %</text>
+<line x1="475.20" y1="808.00" x2="475.20" y2="964.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="475.20" y="982.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">20 %</text>
+<line x1="580.80" y1="808.00" x2="580.80" y2="964.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="580.80" y="982.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">40 %</text>
+<line x1="686.40" y1="808.00" x2="686.40" y2="964.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="686.40" y="982.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">60 %</text>
+<line x1="792.00" y1="808.00" x2="792.00" y2="964.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="792.00" y="982.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">80 %</text>
+<text x="64.00" y="821.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP2 · W0 shard-inline</text>
+<circle cx="599.45" cy="813.20" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="554.48" y="810.73" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="388.73" cy="816.67" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="658.24" y="814.20" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="547.68" cy="820.13" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="638.72" y="817.67" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="697.68" cy="823.60" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="676.17" y="821.13" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="388.57" cy="827.07" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="643.33" y="824.60" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<line x1="515.90" y1="821.00" x2="632.97" y2="821.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="572.84,814.80 579.04,821.00 572.84,827.20 566.64,821.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="563.84" y="812.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="end" dominant-baseline="middle">+38.5%</text>
+<text x="64.00" y="847.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP2 · W1 shard-deferred</text>
+<circle cx="625.31" cy="839.20" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="567.06" y="836.73" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="418.42" cy="842.67" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="556.49" y="840.20" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="558.22" cy="846.13" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="467.15" y="843.67" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="596.57" cy="849.60" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="449.74" y="847.13" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="597.60" cy="853.07" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="560.66" y="850.60" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<line x1="494.83" y1="847.00" x2="576.82" y2="847.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="538.59,840.80 544.79,847.00 538.59,853.20 532.39,847.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="529.59" y="838.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="end" dominant-baseline="middle">+32.0%</text>
+<text x="64.00" y="873.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP2 · W4 shard-deferred</text>
+<circle cx="481.64" cy="865.20" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="459.64" y="862.73" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="554.35" cy="868.67" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="490.31" y="866.20" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="581.12" cy="872.13" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="449.07" y="869.67" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="569.75" cy="875.60" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="613.31" y="873.13" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="556.07" cy="879.07" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="472.11" y="876.60" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<line x1="495.54" y1="873.00" x2="555.73" y2="873.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="522.68,866.80 528.88,873.00 522.68,879.20 516.48,873.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="531.68" y="864.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">+29.0%</text>
+<text x="64.00" y="899.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP3 · W0 shard-inline</text>
+<circle cx="387.64" cy="891.20" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="394.26" y="888.73" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="377.71" cy="894.67" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="347.91" y="892.20" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="402.40" cy="898.13" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="384.02" y="895.67" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="358.85" cy="901.60" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="367.13" y="899.13" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="343.67" cy="905.07" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="402.65" y="902.60" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<line x1="365.66" y1="899.00" x2="390.69" y2="899.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="378.32,892.80 384.52,899.00 378.32,905.20 372.12,899.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="387.32" y="890.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">+1.7%</text>
+<text x="64.00" y="925.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP3 · W1 shard-deferred</text>
+<circle cx="387.89" cy="917.20" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="479.39" y="914.73" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="376.14" cy="920.67" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="425.90" y="918.20" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="414.00" cy="924.13" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="342.77" y="921.67" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="428.59" cy="927.60" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="371.92" y="925.13" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="381.97" cy="931.07" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="424.77" y="928.60" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<line x1="382.28" y1="925.00" x2="426.67" y2="925.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="404.22,918.80 410.42,925.00 404.22,931.20 398.02,925.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="413.22" y="916.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">+6.6%</text>
+<text x="64.00" y="951.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP3 · W4 shard-deferred</text>
+<circle cx="374.37" cy="943.20" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="371.66" y="940.73" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="412.14" cy="946.67" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="421.93" y="944.20" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="401.53" cy="950.13" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="403.01" y="947.67" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="350.25" cy="953.60" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="387.82" y="951.13" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="417.30" cy="957.07" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="403.14" y="954.60" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<line x1="382.12" y1="951.00" x2="408.96" y2="951.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="395.96,944.80 402.16,951.00 395.96,957.20 389.76,951.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="404.96" y="942.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">+5.0%</text>
+<rect x="860.00" y="768.00" width="772.00" height="232.00" fill="#ffffff" stroke="#d9e2ec" stroke-width="1" rx="7.00"/>
+<text x="1246.00" y="788.00" fill="#17212b" font-size="16" font-family="DejaVu Sans,Arial,sans-serif" font-weight="700" text-anchor="middle" dominant-baseline="middle">SEARCH_THREADS=4 per primary · n=10 pairs/row (5 AB, 5 BA)</text>
+<line x1="1070.00" y1="808.00" x2="1070.00" y2="964.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="1070.00" y="982.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">-20 %</text>
+<line x1="1175.60" y1="808.00" x2="1175.60" y2="964.00" stroke="#6f7d89" stroke-width="1.40"/>
+<text x="1175.60" y="982.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">0 %</text>
+<line x1="1281.20" y1="808.00" x2="1281.20" y2="964.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="1281.20" y="982.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">20 %</text>
+<line x1="1386.80" y1="808.00" x2="1386.80" y2="964.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="1386.80" y="982.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">40 %</text>
+<line x1="1492.40" y1="808.00" x2="1492.40" y2="964.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="1492.40" y="982.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">60 %</text>
+<line x1="1598.00" y1="808.00" x2="1598.00" y2="964.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="1598.00" y="982.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">80 %</text>
+<text x="870.00" y="821.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP2 · W0 shard-inline</text>
+<rect x="1447.59" y="809.00" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1389.69" cy="814.93" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1353.54" y="812.47" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1348.63" cy="818.40" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1428.98" y="815.93" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1317.12" cy="821.87" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1280.44" y="819.40" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1305.05" cy="825.33" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1325.22" y="822.87" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1348.33" cy="828.80" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<line x1="1325.61" y1="821.00" x2="1384.68" y2="821.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="1354.75,814.80 1360.95,821.00 1354.75,827.20 1348.55,821.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="1345.75" y="812.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="end" dominant-baseline="middle">+33.9%</text>
+<text x="870.00" y="847.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP2 · W1 shard-deferred</text>
+<rect x="1227.35" y="835.00" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1247.11" cy="840.93" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1256.53" y="838.47" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1214.95" cy="844.40" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1228.33" y="841.93" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1238.01" cy="847.87" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1209.71" y="845.40" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1259.30" cy="851.33" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1232.11" y="848.87" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1221.56" cy="854.80" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<line x1="1225.90" y1="847.00" x2="1245.06" y2="847.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="1235.39,840.80 1241.59,847.00 1235.39,853.20 1229.19,847.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="1244.39" y="838.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">+11.3%</text>
+<text x="870.00" y="873.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP2 · W4 shard-deferred</text>
+<rect x="1311.42" y="861.00" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1288.23" cy="866.93" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1290.79" y="864.47" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1293.49" cy="870.40" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1276.84" y="867.93" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1313.84" cy="873.87" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1291.07" y="871.40" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1325.01" cy="877.33" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1312.87" y="874.87" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1322.94" cy="880.80" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<line x1="1295.62" y1="873.00" x2="1313.37" y2="873.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="1304.58,866.80 1310.78,873.00 1304.58,879.20 1298.38,873.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="1313.58" y="864.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">+24.4%</text>
+<text x="870.00" y="899.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP3 · W0 shard-inline</text>
+<rect x="1315.48" y="887.00" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1304.09" cy="892.93" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1306.26" y="890.47" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1319.01" cy="896.40" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1291.18" y="893.93" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1346.50" cy="899.87" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1294.84" y="897.40" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1331.78" cy="903.33" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1288.22" y="900.87" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1325.29" cy="906.80" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<line x1="1306.69" y1="899.00" x2="1321.76" y2="899.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="1314.16,892.80 1320.36,899.00 1314.16,905.20 1307.96,899.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="1323.16" y="890.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">+26.2%</text>
+<text x="870.00" y="925.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP3 · W1 shard-deferred</text>
+<rect x="1110.86" y="913.00" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1142.46" cy="918.93" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1138.88" y="916.47" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1138.75" cy="922.40" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1114.08" y="919.93" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1133.09" cy="925.87" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1115.89" y="923.40" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1117.94" cy="929.33" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1104.42" y="926.87" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1141.75" cy="932.80" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<line x1="1121.44" y1="925.00" x2="1134.28" y2="925.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="1127.75,918.80 1133.95,925.00 1127.75,931.20 1121.55,925.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="1136.75" y="916.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">−9.1%</text>
+<text x="870.00" y="951.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP3 · W4 shard-deferred</text>
+<rect x="1243.75" y="939.00" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1197.34" cy="944.93" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1211.86" y="942.47" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1219.44" cy="948.40" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1207.19" y="945.93" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1186.80" cy="951.87" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1231.16" y="949.40" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1161.05" cy="955.33" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1167.57" y="952.87" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1180.31" cy="958.80" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<line x1="1187.52" y1="951.00" x2="1215.89" y2="951.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="1202.11,944.80 1208.31,951.00 1202.11,957.20 1195.91,951.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="1211.11" y="942.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">+5.0%</text>
+<text x="54.00" y="1030.00" fill="#17212b" font-size="17" font-family="DejaVu Sans,Arial,sans-serif" font-weight="700" text-anchor="start" dominant-baseline="middle">Complete-reply p99 latency · positive = slower</text>
+<rect x="54.00" y="1048.00" width="772.00" height="232.00" fill="#ffffff" stroke="#d9e2ec" stroke-width="1" rx="7.00"/>
+<text x="440.00" y="1068.00" fill="#17212b" font-size="16" font-family="DejaVu Sans,Arial,sans-serif" font-weight="700" text-anchor="middle" dominant-baseline="middle">SEARCH_THREADS=1 per primary · n=10 pairs/row (5 AB, 5 BA)</text>
+<line x1="264.00" y1="1088.00" x2="264.00" y2="1244.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="264.00" y="1262.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">-20 %</text>
+<line x1="369.60" y1="1088.00" x2="369.60" y2="1244.00" stroke="#6f7d89" stroke-width="1.40"/>
+<text x="369.60" y="1262.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">0 %</text>
+<line x1="475.20" y1="1088.00" x2="475.20" y2="1244.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="475.20" y="1262.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">20 %</text>
+<line x1="580.80" y1="1088.00" x2="580.80" y2="1244.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="580.80" y="1262.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">40 %</text>
+<line x1="686.40" y1="1088.00" x2="686.40" y2="1244.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="686.40" y="1262.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">60 %</text>
+<line x1="792.00" y1="1088.00" x2="792.00" y2="1244.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="792.00" y="1262.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">80 %</text>
+<text x="64.00" y="1101.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP2 · W0 shard-inline</text>
+<circle cx="585.42" cy="1093.20" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="537.61" y="1090.73" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="392.96" cy="1096.67" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="652.63" y="1094.20" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="547.13" cy="1100.13" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="648.68" y="1097.67" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="671.09" cy="1103.60" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="665.74" y="1101.13" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="390.75" cy="1107.07" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="629.34" y="1104.60" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<line x1="511.93" y1="1101.00" x2="623.29" y2="1101.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="566.45,1094.80 572.65,1101.00 566.45,1107.20 560.25,1101.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="557.45" y="1092.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="end" dominant-baseline="middle">+37.3%</text>
+<text x="64.00" y="1127.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP2 · W1 shard-deferred</text>
+<circle cx="640.40" cy="1119.20" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="554.97" y="1116.73" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="412.76" cy="1122.67" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="538.72" y="1120.20" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="538.99" cy="1126.13" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="459.65" y="1123.67" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="596.51" cy="1129.60" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="440.83" y="1127.13" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="579.72" cy="1133.07" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="553.94" y="1130.60" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<line x1="487.50" y1="1127.00" x2="569.29" y2="1127.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="530.30,1120.80 536.50,1127.00 530.30,1133.20 524.10,1127.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="521.30" y="1118.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="end" dominant-baseline="middle">+30.4%</text>
+<text x="64.00" y="1153.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP2 · W4 shard-deferred</text>
+<circle cx="480.14" cy="1145.20" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="449.56" y="1142.73" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="539.98" cy="1148.67" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="475.87" y="1146.20" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="583.83" cy="1152.13" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="450.09" y="1149.67" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="547.33" cy="1155.60" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="612.57" y="1153.13" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="548.10" cy="1159.07" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="466.25" y="1156.60" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<line x1="488.91" y1="1153.00" x2="548.64" y2="1153.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="515.31,1146.80 521.51,1153.00 515.31,1159.20 509.11,1153.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="524.31" y="1144.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">+27.6%</text>
+<text x="64.00" y="1179.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP3 · W0 shard-inline</text>
+<circle cx="397.82" cy="1171.20" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="394.46" y="1168.73" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="381.98" cy="1174.67" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="335.23" y="1172.20" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="401.11" cy="1178.13" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="378.20" y="1175.67" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="361.54" cy="1181.60" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="353.69" y="1179.13" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="334.32" cy="1185.07" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="389.78" y="1182.60" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<line x1="359.69" y1="1179.00" x2="388.62" y2="1179.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="374.38,1172.80 380.58,1179.00 374.38,1185.20 368.18,1179.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="383.38" y="1170.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">+0.9%</text>
+<text x="64.00" y="1205.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP3 · W1 shard-deferred</text>
+<circle cx="380.62" cy="1197.20" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="482.50" y="1194.73" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="383.43" cy="1200.67" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="424.39" y="1198.20" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="404.51" cy="1204.13" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="349.55" y="1201.67" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="438.08" cy="1207.60" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="375.46" y="1205.13" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="378.86" cy="1211.07" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="420.33" y="1208.60" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<line x1="383.72" y1="1205.00" x2="426.74" y2="1205.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="404.69,1198.80 410.89,1205.00 404.69,1211.20 398.49,1205.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="413.69" y="1196.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">+6.6%</text>
+<text x="64.00" y="1231.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP3 · W4 shard-deferred</text>
+<circle cx="391.54" cy="1223.20" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="382.89" y="1220.73" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="403.73" cy="1226.67" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="414.31" y="1224.20" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="402.79" cy="1230.13" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="410.20" y="1227.67" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="358.34" cy="1233.60" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="386.76" y="1231.13" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="409.11" cy="1237.07" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="414.63" y="1234.60" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<line x1="388.47" y1="1231.00" x2="408.55" y2="1231.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="399.25,1224.80 405.45,1231.00 399.25,1237.20 393.05,1231.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="408.25" y="1222.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">+5.6%</text>
+<rect x="860.00" y="1048.00" width="772.00" height="232.00" fill="#ffffff" stroke="#d9e2ec" stroke-width="1" rx="7.00"/>
+<text x="1246.00" y="1068.00" fill="#17212b" font-size="16" font-family="DejaVu Sans,Arial,sans-serif" font-weight="700" text-anchor="middle" dominant-baseline="middle">SEARCH_THREADS=4 per primary · n=10 pairs/row (5 AB, 5 BA)</text>
+<line x1="1070.00" y1="1088.00" x2="1070.00" y2="1244.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="1070.00" y="1262.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">-20 %</text>
+<line x1="1175.60" y1="1088.00" x2="1175.60" y2="1244.00" stroke="#6f7d89" stroke-width="1.40"/>
+<text x="1175.60" y="1262.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">0 %</text>
+<line x1="1281.20" y1="1088.00" x2="1281.20" y2="1244.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="1281.20" y="1262.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">20 %</text>
+<line x1="1386.80" y1="1088.00" x2="1386.80" y2="1244.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="1386.80" y="1262.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">40 %</text>
+<line x1="1492.40" y1="1088.00" x2="1492.40" y2="1244.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="1492.40" y="1262.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">60 %</text>
+<line x1="1598.00" y1="1088.00" x2="1598.00" y2="1244.00" stroke="#d9e2ec" stroke-width="1.00"/>
+<text x="1598.00" y="1262.00" fill="#5c6b7a" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="middle" dominant-baseline="middle">80 %</text>
+<text x="870.00" y="1101.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP2 · W0 shard-inline</text>
+<rect x="1448.66" y="1089.00" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1383.04" cy="1094.93" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1323.84" y="1092.47" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1305.60" cy="1098.40" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1464.96" y="1095.93" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1310.35" cy="1101.87" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1274.25" y="1099.40" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1288.08" cy="1105.33" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1294.05" y="1102.87" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1348.32" cy="1108.80" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<line x1="1308.79" y1="1101.00" x2="1382.63" y2="1101.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="1343.40,1094.80 1349.60,1101.00 1343.40,1107.20 1337.20,1101.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="1334.40" y="1092.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="end" dominant-baseline="middle">+31.8%</text>
+<text x="870.00" y="1127.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP2 · W1 shard-deferred</text>
+<rect x="1224.19" y="1115.00" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1224.53" cy="1120.93" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1256.38" y="1118.47" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1216.22" cy="1124.40" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1214.74" y="1121.93" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1267.77" cy="1127.87" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1206.18" y="1125.40" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1270.88" cy="1131.33" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1236.99" y="1128.87" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1223.56" cy="1134.80" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<line x1="1223.53" y1="1127.00" x2="1249.21" y2="1127.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="1235.86,1120.80 1242.06,1127.00 1235.86,1133.20 1229.66,1127.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="1244.86" y="1118.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">+11.4%</text>
+<text x="870.00" y="1153.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP2 · W4 shard-deferred</text>
+<rect x="1308.44" y="1141.00" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1293.99" cy="1146.93" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1273.15" y="1144.47" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1279.75" cy="1150.40" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1260.27" y="1147.93" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1319.11" cy="1153.87" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1305.07" y="1151.40" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1321.86" cy="1157.33" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1310.56" y="1154.87" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1341.21" cy="1160.80" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<line x1="1289.73" y1="1153.00" x2="1315.99" y2="1153.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="1303.05,1146.80 1309.25,1153.00 1303.05,1159.20 1296.85,1153.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="1312.05" y="1144.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">+24.1%</text>
+<text x="870.00" y="1179.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP3 · W0 shard-inline</text>
+<rect x="1311.07" y="1167.00" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1292.99" cy="1172.93" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1298.00" y="1170.47" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1300.65" cy="1176.40" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1285.93" y="1173.93" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1310.69" cy="1179.87" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1261.22" y="1177.40" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1328.29" cy="1183.33" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1272.78" y="1180.87" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1314.51" cy="1186.80" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<line x1="1290.13" y1="1179.00" x2="1308.70" y2="1179.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="1299.46,1172.80 1305.66,1179.00 1299.46,1185.20 1293.26,1179.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="1308.46" y="1170.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">+23.5%</text>
+<text x="870.00" y="1205.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP3 · W1 shard-deferred</text>
+<rect x="1127.63" y="1193.00" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1174.38" cy="1198.93" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1162.28" y="1196.47" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1150.29" cy="1202.40" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1123.12" y="1199.93" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1156.87" cy="1205.87" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1147.73" y="1203.40" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1132.51" cy="1209.33" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1132.75" y="1206.87" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1154.65" cy="1212.80" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<line x1="1139.77" y1="1205.00" x2="1157.10" y2="1205.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="1148.10,1198.80 1154.30,1205.00 1148.10,1211.20 1141.90,1205.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="1157.10" y="1196.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">−5.2%</text>
+<text x="870.00" y="1231.00" fill="#17212b" font-size="14" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">RESP3 · W4 shard-deferred</text>
+<rect x="1250.62" y="1219.00" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1210.54" cy="1224.93" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1221.96" y="1222.47" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1213.94" cy="1228.40" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1200.95" y="1225.93" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1195.75" cy="1231.87" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1242.99" y="1229.40" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1168.36" cy="1235.33" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<rect x="1182.95" y="1232.87" width="8.40" height="8.40" fill="#1677c8" opacity="1.00"/>
+<circle cx="1198.53" cy="1238.80" r="4.20" fill="#8a3f00" opacity="1.00"/>
+<line x1="1196.81" y1="1231.00" x2="1223.03" y2="1231.00" stroke="#344454" stroke-width="2.20"/>
+<polygon points="1210.21,1224.80 1216.41,1231.00 1210.21,1237.20 1204.01,1231.00" fill="#151b23" stroke="#ffffff" stroke-width="1"/>
+<text x="1219.21" y="1222.00" fill="#17212b" font-size="13" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">+6.6%</text>
+<text x="54.00" y="1360.00" fill="#5c6b7a" font-size="15" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">Public requests are coordinator-async/blocked in every case; W0 is shard-inline and W1/W4 are shard-deferred.</text>
+<text x="54.00" y="1383.00" fill="#5c6b7a" font-size="15" font-family="DejaVu Sans,Arial,sans-serif" font-weight="400" text-anchor="start" dominant-baseline="middle">CIs: 10,000 order-stratified whole-pair resamples, seed 17473; resamples are not benchmark runs.</text>
+</svg>

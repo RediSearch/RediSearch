@@ -189,6 +189,54 @@ def testSearch(env):
         env.assertTrue(float(res[2]) > 0)
         env.assertTrue(float(res[4]) > 0)
 
+
+@skip(cluster=True)
+def testInlineSearchAndAggregateUseTerminalArrayResp2():
+    """Normal inline SEARCH and AGGREGATE replies are populated from result arrays."""
+    env = Env(protocol=2, enableDebugCommand=True, moduleArgs='WORKERS 0')
+    skipIfNoEnableAssert(env)
+    conn = getConnectionByEnv(env)
+
+    env.expect(
+        'FT.CREATE', 'idx', 'ON', 'HASH',
+        'SCHEMA', 'title', 'TEXT', 'n', 'NUMERIC', 'SORTABLE',
+    ).ok()
+    for i in range(4):
+        conn.execute_command('HSET', f'doc:{i}', 'title', f'hello {i}', 'n', i)
+    waitForIndex(env, 'idx')
+
+    def run_and_assert_aggregated(command, expected_rows):
+        # Keep the pause point unreachable: only the counter side effect is needed.
+        setPauseAfterAggregateResult(env, 100)
+        try:
+            result = env.cmd(*command)
+            env.assertEqual(
+                getAggregateResultsCount(env), expected_rows,
+                message=f'{command[0]} did not accumulate its terminal rows',
+            )
+            return result
+        finally:
+            resetAggregateResultsDebug(env)
+
+    # Three rows fill LIMIT. WITHSCORES plus implicit content makes each RESP2
+    # search row occupy three reply elements, exercising result-element accounting.
+    search_result = run_and_assert_aggregated(
+        ['FT.SEARCH', 'idx', 'hello', 'WITHSCORES', 'LIMIT', '0', '3'],
+        expected_rows=3,
+    )
+    env.assertEqual(search_result[0], 4)
+    env.assertEqual(len(search_result), 10)
+
+    aggregate_result = run_and_assert_aggregated(
+        ['FT.AGGREGATE', 'idx', '*',
+         'LOAD', '2', '@title', '@n',
+         'SORTBY', '2', '@n', 'ASC',
+         'LIMIT', '0', '3'],
+        expected_rows=3,
+    )
+    env.assertEqual(len(aggregate_result) - 1, 3)
+
+
 @skip(cluster=True)
 def testGet(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'foo', 'text', 'bar', 'text').ok()
@@ -3328,6 +3376,35 @@ def testMatchedTerms(env):
     env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'matched_terms(-100)', 'as', 'a').equal([1, ['test', 'foo', 'a', ['foo']]])
     env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'matched_terms("test")', 'as', 'a').equal([1, ['test', 'foo', 'a', ['foo']]])
 
+@skip(cluster=True)
+def testMatchedTermsInTerminalArray():
+    """Each unsorted result keeps its own matched terms in the terminal array."""
+    env = Env(moduleArgs='WORKERS 0')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').ok()
+    conn.execute_command('HSET', 'doc:alpha', 'test', 'alpha')
+    conn.execute_command('HSET', 'doc:beta', 'test', 'beta')
+    waitForIndex(env, 'idx')
+
+    # Deliberately omit SORTBY: the only buffering boundary is the terminal
+    # result array used to build the reply.
+    result = env.cmd(
+        'FT.AGGREGATE', 'idx', 'alpha|beta',
+        'LOAD', '1', '@test',
+        'APPLY', 'matched_terms()', 'AS', 'terms',
+    )
+
+    env.assertEqual(result[0], 2)
+    terms_by_text = {}
+    for raw_row in result[1:]:
+        row = to_dict(raw_row)
+        terms_by_text[row['test']] = row['terms']
+    env.assertEqual(terms_by_text, {
+        'alpha': ['alpha'],
+        'beta': ['beta'],
+    })
+
 def testMatchedTermsAfterSort(env):
     # matched_terms() reads the index result. When it runs after a buffering step
     # (SORTBY/GROUPBY) the buffering RP must keep the index result alive, even
@@ -3738,11 +3815,11 @@ def testFieldsCaseSensetive(env):
     env.expect('ft.search', 'idx', '@n:[0 2]', 'SORTBY', 'N').error().contains('not loaded nor in schema')
 
     # make sure aggregation load are case sensitive
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n').equal([1, ['n', '1'], ['n', '1.1']])
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@N').equal([1, [], []])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n').equal([2, ['n', '1'], ['n', '1.1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@N').equal([2, [], []])
 
     # make sure aggregation apply are case sensitive
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'apply', '@n', 'as', 'r').equal([1, ['n', '1', 'r', '1'], ['n', '1.1', 'r', '1.1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'apply', '@n', 'as', 'r').equal([2, ['n', '1', 'r', '1'], ['n', '1.1', 'r', '1.1']])
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'apply', '@N', 'as', 'r').error().contains('SEARCH_PROP_NOT_FOUND Property not loaded nor in pipeline')
 
     # make sure aggregation filter are case sensitive
@@ -3819,7 +3896,7 @@ def testSortedFieldsCaseSensetive(env):
     env.expect('ft.search', 'idx', '@n:[0 2]', 'SORTBY', 'N').error().contains('not loaded nor in schema')
 
     # make sure aggregation apply are case sensitive
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'apply', '@n', 'as', 'r').equal([1, ['n', '1', 'r', '1'], ['n', '1.1', 'r', '1.1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'apply', '@n', 'as', 'r').equal([2, ['n', '1', 'r', '1'], ['n', '1.1', 'r', '1.1']])
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'apply', '@N', 'as', 'r').error().contains('SEARCH_PROP_NOT_FOUND Property not loaded nor in pipeline')
 
     # make sure aggregation filter are case sensitive

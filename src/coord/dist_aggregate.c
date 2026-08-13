@@ -418,7 +418,8 @@ static void executeAggregateDeferred(void *arg) {
       qctx->totalResults = totalResults;
     }
 
-    if (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) {
+    const bool isCursor = AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR;
+    if (isCursor) {
       // Cursor path: AREQ_StartCursor stashes the AREQ on the new Cursor and
       // emits the first chunk via runCursor. We cannot reuse executePlan here
       // because its cursor branch calls ConcurrentCmdCtx_KeepRedisCtx, and we
@@ -429,16 +430,19 @@ static void executeAggregateDeferred(void *arg) {
       StrongRef dummy_spec_ref = {.rm = NULL};
       if (AREQ_StartCursor(r, reply, dummy_spec_ref, &status, true) != REDISMODULE_OK) {
         AREQ_ReplyOrStoreError(r, replyCtx, &status);
+        RedisModule_EndReply(reply);
         AREQ_DecrRef(r);
+      } else {
+        RedisModule_EndReply(reply);
       }
     } else {
       // Converge on the existing non-cursor path: sendChunk + AREQ_DecrRef.
       // executePlan always returns REDISMODULE_OK in the non-cursor branch.
       executePlan(r, NULL, reply, &status);
       // r is freed by AREQ_DecrRef inside executePlan; do not access r after this.
+      RedisModule_EndReply(reply);
       RedisModule_FreeThreadSafeContext(replyCtx);
     }
-    RedisModule_EndReply(reply);
   } else if (!sp && !timedOut) {
     // Spec dropped between first-reply collection and deferred execution. Reply
     // DROPPED_BACKGROUND and release the AREQ so rpnetFree drops the iterator's
@@ -703,8 +707,7 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
 
 void PrintShardProfile(RedisModule_Reply *reply, void *ctx);
 
-void printAggProfile(RedisModule_Reply *reply, void *ctx) {
-  // profileRP replace netRP as end PR
+static void collectAggProfile(void *ctx) {
   AREQ *req = ctx;
   RPNet *rpnet = (RPNet *)AREQ_QueryProcessingCtx(req)->rootProc;
   // Calling getNextReply alone is insufficient here, as we might have already encountered EOF from the shards,
@@ -715,11 +718,39 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   // Pending might be zero, but there might still be replies in the channel to read.
   // We may have pulled all the replies from the channel and arrived here due to a timeout,
   // and now we're waiting for the profile results.
-  if (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it)) {
-    do {
-      MRReply_Free(rpnet->current.root);
-    } while (getNextReply(rpnet) != RS_RESULT_EOF);
+  while (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it)) {
+    // If the blocked-client deadline fired, leave the current/queued result
+    // replies for the main-thread partial-result drain. The timeout callback
+    // sets drainOnly and invokes us again after harvesting those rows.
+    if (AREQ_TimedOut(req) && !rpnet->drainOnly) {
+      return;
+    }
+    MRReply_Free(rpnet->current.root);
+    if (getNextReply(rpnet) != RS_RESULT_OK) {
+      return;
+    }
   }
+}
+
+static void collectAggProfileAfterTimeout(AREQ *req) {
+  if (!IsProfile(req)) {
+    return;
+  }
+
+  RPNet *rpnet = (RPNet *)AREQ_QueryProcessingCtx(req)->rootProc;
+  // The timeout callback holds Redis's main thread. Never wait here for late
+  // shard replies; collect only profile envelopes already admitted to the
+  // channel after the partial-result drain.
+  rpnet->drainOnly = true;
+  collectAggProfile(req);
+}
+
+void printAggProfile(RedisModule_Reply *reply, void *ctx) {
+  // Profile replies are rendered on the Redis main thread for deferred
+  // execution. collectAggProfile already drained the blocking RMR channel on
+  // the execution thread, so this function only serializes stored data.
+  AREQ *req = ctx;
+  RPNet *rpnet = (RPNet *)AREQ_QueryProcessingCtx(req)->rootProc;
 
   size_t num_shards = MRIterator_GetNumShards(rpnet->it);
   size_t profile_count = array_len(rpnet->shardsProfile);
@@ -801,6 +832,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   }
 
   r->profile = printAggProfile;
+  r->profileCollect = collectAggProfile;
 
   unsigned int dialect = r->reqConfig.dialectVersion;
   specialCaseCtx *knnCtx = NULL;
@@ -1133,14 +1165,15 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
   // Harvest any shard replies that landed in the channel before the deadline.
   // No-op for already-complete runs.
   drainPartialResultsAfterTimeout(req);
+  collectAggProfileAfterTimeout(req);
 
   AREQ_ReplyWithStoredResults(ctx, req);
 
   return REDISMODULE_OK;
 }
 
-// Main-thread reply callback for coord AREQ (FAIL / RETURN-STRICT). Reads results
-// stored by the BG thread in req->brc->reply. NOT called if timeout fired
+// Main-thread reply callback for coord AREQ. Reads results stored by the BG
+// thread in req->brc->reply. NOT called if a blocked-client timeout fired.
 int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);
@@ -1219,6 +1252,7 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
     // AREQ_ReplyWithStoredResults.
     req->brc->reply.rc = RS_RESULT_TIMEDOUT;
     drainPartialResultsAfterTimeout(req);
+    collectAggProfileAfterTimeout(req);
     AREQ_ReplyWithStoredResults(ctx, req);
   } else {
     // Pre-pipeline bail through AREQ_ReplyOrStoreError. Currently unreachable

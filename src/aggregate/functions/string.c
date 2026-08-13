@@ -47,7 +47,9 @@ static int func_matchedTerms(ExprEval *ctx, RSValue **argv, size_t argc, RSValue
         size_t len;
         const char *str = QueryTerm_GetStrAndLen(terms[i], &len);
         RS_ASSERT(len <= UINT32_MAX);
-        arr[i] = RSValue_NewBorrowedString(str, len);
+        // Results are accumulated before reply serialization, so each value
+        // must outlive the source iterator's current RSIndexResult.
+        arr[i] = RSValue_NewCopiedString(str, len);
       }
       RSValue *v = RSValue_NewArrayFromBuilder(arr, n);
       RSValue_MakeOwnReference(result, v);

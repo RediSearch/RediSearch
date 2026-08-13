@@ -44,7 +44,8 @@ typedef struct CommonPipelineCtx {
   struct AREQ *areq;
 } CommonPipelineCtx;
 
-void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc);
+void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results,
+                         int *rc);
 
 /**
  * True iff draining `endProc->Next` after a RETURN-STRICT timeout produces a

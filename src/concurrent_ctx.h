@@ -55,8 +55,8 @@ struct Cursor;             // Forward declaration
 
 // Context for blocking client
 typedef struct ConcurrentSearchBlockClientCtx {
-  RedisModuleCmdFunc reply_callback;      // Callback when UnblockClient is called (FAIL policy)
-  RedisModuleCmdFunc timeout_callback;    // Callback when timeout fires (FAIL policy)
+  RedisModuleCmdFunc reply_callback;      // Callback when UnblockClient is called
+  RedisModuleCmdFunc timeout_callback;    // Optional callback when timeout fires
   rs_wall_clock_ms_t timeoutMS;           // Timeout value in milliseconds (0 if no timeout)
   // Wrapper owning the request executed by this command. Allocated on the main
   // thread before blocking; becomes the blocked client's privdata (freed via

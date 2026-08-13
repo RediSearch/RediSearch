@@ -59,7 +59,7 @@ void BlockedRequestCtx_OnFree(RedisModuleCtx *ctx, void *privdata);
 /* Block `ctx` for one query cycle of `brc`. Registers the cycle in
  * BlockedQueries, calls RedisModule_BlockClient(reply_cb, timeout_cb,
  * BlockedRequestCtx_OnFree, timeout_ms) and BeginCycle. `reply_cb`/`timeout_cb`
- * may both be NULL (inline reply mode) but must be provided together with a
+ * may both be NULL (worker-staged reply mode) but must be provided together with a
  * non-zero `timeout_ms`. */
 RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, StrongRef spec_ref,
                                                       struct BlockedRequestCtx *brc,
