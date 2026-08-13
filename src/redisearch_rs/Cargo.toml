@@ -41,6 +41,7 @@ members = [
     "spellcheck_dictionary",
     "string_utils",
     "tag_index",
+    "tag_index_bencher",
     "term_suffix_index",
     "timeout",
     "tools/license_header_linter",

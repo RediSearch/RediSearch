@@ -400,8 +400,22 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/tag_index.h",
-        fns: &["TagIndex_Ensure", "TagIndex_OpenIndex"],
-        types: &[],
+        // Everything past `TagIndex_Ensure`/`TagIndex_OpenIndex` is reached only by
+        // `tag_index_bencher`, which benchmarks the C implementation against the
+        // `tag_index` crate that replaces it.
+        fns: &[
+            "NewTagIndex",
+            "TagIndex_Commit",
+            "TagIndex_Ensure",
+            "TagIndex_Free",
+            "TagIndex_GetSuffixMatches",
+            "TagIndex_GetSuffixWildcardMatches",
+            "TagIndex_HasSuffix",
+            "TagIndex_Index",
+            "TagIndex_NUniqueValues",
+            "TagIndex_OpenIndex",
+        ],
+        types: &["TagIndexIndexCtx"],
         vars: &[],
     },
     HeaderAllowlist {
