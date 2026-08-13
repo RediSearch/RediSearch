@@ -13,7 +13,7 @@
 //! values trie holds only tag *presence* sentinels. These tests exercise every
 //! disk path that does **not** dereference the disk index spec — `commit`
 //! (presence + record accounting), the value-trie iterators used by query
-//! expansion and `FT.TAGVALS`, `get_overhead`, and mode detection. The paths
+//! expansion and `FT.TAGVALS`, `mem_usage`, and mode detection. The paths
 //! that call into `SearchDisk_*` (`index`, `open_reader`) need a real disk
 //! backend and are covered end-to-end elsewhere, so here the spec pointer is a
 //! dangling-but-non-null placeholder that is never read.
@@ -21,7 +21,7 @@
 use std::ptr::NonNull;
 
 use lending_iterator::LendingIterator;
-use tag_index::{IterMode, TagIndex, ValueIterator};
+use tag_index::{IterMode, TagIndex, TagIndexIterator};
 use trie_rs::iter::{RangeBoundary, RangeFilter};
 
 use crate::util::commit;
@@ -38,8 +38,8 @@ macro_rules! collect_keys {
     }};
 }
 
-/// Drain a [`ValueIterator`] into its yielded keys, in iteration order.
-fn value_iter_keys(mut it: ValueIterator<'_>) -> Vec<Vec<u8>> {
+/// Drain a [`TagIndexIterator`] into its yielded keys, in iteration order.
+fn value_iter_keys(mut it: TagIndexIterator<'_>) -> Vec<Vec<u8>> {
     let mut keys: Vec<Vec<u8>> = Vec::new();
     while let Some((key, _)) = it.advance() {
         keys.push(key.to_vec());
@@ -81,7 +81,7 @@ fn commit_counts_records_and_registers_presence() {
     assert_eq!(n, 3, "disk commit counts every committed tag value");
 
     // The duplicate `foo` collapses to a single trie entry.
-    assert_eq!(idx.unique_values(), 2);
+    assert_eq!(idx.n_tags(), 2);
 
     let mut values = value_iter_keys(idx.value_iter());
     values.sort();
@@ -180,13 +180,13 @@ fn disk_iter_values_yields_every_key_in_order() {
     assert_eq!(keys, [b"a".to_vec(), b"m".to_vec(), b"z".to_vec()]);
 }
 
-/// `get_overhead` counts the values trie in disk mode too, even though the
+/// `mem_usage` counts the values trie in disk mode too, even though the
 /// postings it would otherwise account for live on disk.
 #[test]
-fn get_overhead_accounts_for_the_values_trie() {
+fn mem_usage_accounts_for_the_values_trie() {
     let idx = disk_index_with_tags(&[b"foo", b"bar", b"baz"], false);
     assert!(
-        idx.get_overhead() > 0,
+        idx.mem_usage() > 0,
         "the values trie holding the tag keys is counted"
     );
 }

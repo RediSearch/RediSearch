@@ -17,7 +17,7 @@
 
 use ffi::timespec;
 use lending_iterator::LendingIterator;
-use tag_index::{IterMode, SuffixQuery, TagIndex, ValueIterator};
+use tag_index::{IterMode, SuffixQuery, TagIndex, TagIndexIterator};
 use trie_rs::iter::{RangeBoundary, RangeFilter};
 
 use crate::util::{commit, index_mem};
@@ -34,8 +34,8 @@ macro_rules! collect_keys {
     }};
 }
 
-/// Drain a [`ValueIterator`] into its yielded keys, in iteration order.
-fn value_iter_keys(mut it: ValueIterator<'_>) -> Vec<Vec<u8>> {
+/// Drain a [`TagIndexIterator`] into its yielded keys, in iteration order.
+fn value_iter_keys(mut it: TagIndexIterator<'_>) -> Vec<Vec<u8>> {
     let mut keys: Vec<Vec<u8>> = Vec::new();
     while let Some((key, _)) = it.advance() {
         keys.push(key.to_vec());

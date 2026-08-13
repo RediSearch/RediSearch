@@ -9,9 +9,9 @@
 
 //! Iterators over the contents of a [`TagIndex`].
 //!
-//! [`ValueIterator`] walks the tag *values* (the keys of the values trie, or
+//! [`TagIndexIterator`] walks the tag *values* (the keys of the values trie, or
 //! the suffix trie), optionally filtered by a pattern and bounded by a timeout.
-//! Its [`advance`](ValueIterator::advance) yields, for each tag, the borrowed key
+//! Its [`advance`](TagIndexIterator::advance) yields, for each tag, the borrowed key
 //! together with the tag's [`InvertedIndex<DocIdsOnly>`] in memory mode (`None` in
 //! disk mode or when walking the suffix trie, where the trie holds no in-memory
 //! postings).
@@ -31,7 +31,7 @@ use crate::{SuffixData, TagIndex};
 /// Value type stored in the memory-mode values trie. Boxed so the heap
 /// [`InvertedIndex`] address stays stable across trie restructuring — callers hold
 /// it across mutations.
-type MemValue = Box<InvertedIndex<DocIdsOnly>>;
+type BoxedInvertedIndex = Box<InvertedIndex<DocIdsOnly>>;
 
 /// Predicate the suffix variants filter a full trie walk with. It owns a copy of
 /// the queried suffix, so its closure type is unnameable and has to be boxed to
@@ -58,24 +58,24 @@ pub enum IterMode {
 /// iterator shape, in both storage modes. Kept as an enum (rather than a
 /// `Box<dyn>` trait object) so iteration dispatches statically.
 ///
-/// Memory-mode variants carry [`MemValue`] values whose stable heap address is
+/// Memory-mode variants carry [`BoxedInvertedIndex`] values whose stable heap address is
 /// exposed to callers; disk-mode variants carry `()` (the trie holds only tag
 /// presence, postings live on disk) and the suffix-trie variant carries opaque
 /// [`SuffixData`] — both yield no value.
-enum ValueIteratorImpl<'ti> {
+enum TagIndexIteratorImpl<'ti> {
     /// Memory mode, full iteration or prefix filter.
-    MemAll(LendingIter<'ti, MemValue, VisitAll>),
+    MemAll(LendingIter<'ti, BoxedInvertedIndex, VisitAll>),
     /// Memory mode, entries whose key contains a fragment.
-    MemContains(ContainsLendingIter<'ti, 'ti, MemValue>),
+    MemContains(ContainsLendingIter<'ti, 'ti, BoxedInvertedIndex>),
     /// Memory mode, entries whose key matches a wildcard pattern.
-    MemWildcard(WildcardLendingIter<'ti, 'ti, MemValue>),
+    MemWildcard(WildcardLendingIter<'ti, 'ti, BoxedInvertedIndex>),
     /// Memory mode, entries whose key ends with a suffix. A trie cannot seek by
     /// suffix, so this pairs a full walk with the predicate the walk is filtered
-    /// by; see [`advance`](ValueIterator::advance) for why the two are kept
+    /// by; see [`advance`](TagIndexIterator::advance) for why the two are kept
     /// side by side rather than combined into a filtering adapter.
     MemSuffix(
-        LendingIter<'ti, MemValue, VisitAll>,
-        SuffixPredicate<MemValue>,
+        LendingIter<'ti, BoxedInvertedIndex, VisitAll>,
+        SuffixPredicate<BoxedInvertedIndex>,
     ),
     /// Disk mode, full iteration or prefix filter.
     DiskAll(LendingIter<'ti, (), VisitAll>),
@@ -90,7 +90,7 @@ enum ValueIteratorImpl<'ti> {
     SuffixEntries(LendingIter<'ti, SuffixData, VisitAll>),
 }
 
-impl ValueIteratorImpl<'_> {
+impl TagIndexIteratorImpl<'_> {
     /// Forward deadline to the behind iterator.
     fn set_timeout(&mut self, deadline: Option<Instant>) {
         match self {
@@ -116,11 +116,11 @@ impl ValueIteratorImpl<'_> {
 /// stored in the values trie, otherwise `None` (disk entries and suffix-trie
 /// entries carry no in-memory value). Long affix expansions can be bounded with
 /// [`set_timeout`](Self::set_timeout).
-pub struct ValueIterator<'ti> {
-    iter: ValueIteratorImpl<'ti>,
+pub struct TagIndexIterator<'ti> {
+    iter: TagIndexIteratorImpl<'ti>,
 }
 
-impl<'ti> ValueIterator<'ti> {
+impl<'ti> TagIndexIterator<'ti> {
     /// Advance to the next entry, honoring the optional timeout, and return the
     /// key together with the value (when provided).
     /// Returns `None` at the end of the iteration, or when the timeout is
@@ -131,24 +131,28 @@ impl<'ti> ValueIterator<'ti> {
         // dereference the heap `InvertedIndex`, so hand out that stable address
         // (the `Box`'s heap content, via deref coercion), not the box slot in
         // the trie node.
-        fn mem_value(v: &MemValue) -> &InvertedIndex<DocIdsOnly> {
+        fn mem_value(v: &BoxedInvertedIndex) -> &InvertedIndex<DocIdsOnly> {
             v
         }
 
         match &mut self.iter {
-            ValueIteratorImpl::MemAll(it) => it.next().map(|(k, v)| (k, Some(mem_value(v)))),
-            ValueIteratorImpl::MemContains(it) => it.next().map(|(k, v)| (k, Some(mem_value(v)))),
-            ValueIteratorImpl::MemWildcard(it) => it.next().map(|(k, v)| (k, Some(mem_value(v)))),
-            ValueIteratorImpl::MemSuffix(it, matches) => {
+            TagIndexIteratorImpl::MemAll(it) => it.next().map(|(k, v)| (k, Some(mem_value(v)))),
+            TagIndexIteratorImpl::MemContains(it) => {
+                it.next().map(|(k, v)| (k, Some(mem_value(v))))
+            }
+            TagIndexIteratorImpl::MemWildcard(it) => {
+                it.next().map(|(k, v)| (k, Some(mem_value(v))))
+            }
+            TagIndexIteratorImpl::MemSuffix(it, matches) => {
                 it.find(&mut *matches).map(|(k, v)| (k, Some(mem_value(v))))
             }
-            ValueIteratorImpl::DiskAll(it) => it.next().map(|(k, ())| (k, None)),
-            ValueIteratorImpl::DiskContains(it) => it.next().map(|(k, ())| (k, None)),
-            ValueIteratorImpl::DiskWildcard(it) => it.next().map(|(k, ())| (k, None)),
-            ValueIteratorImpl::DiskSuffix(it, matches) => {
+            TagIndexIteratorImpl::DiskAll(it) => it.next().map(|(k, ())| (k, None)),
+            TagIndexIteratorImpl::DiskContains(it) => it.next().map(|(k, ())| (k, None)),
+            TagIndexIteratorImpl::DiskWildcard(it) => it.next().map(|(k, ())| (k, None)),
+            TagIndexIteratorImpl::DiskSuffix(it, matches) => {
                 it.find(&mut *matches).map(|(k, ())| (k, None))
             }
-            ValueIteratorImpl::SuffixEntries(it) => it.next().map(|(k, _)| (k, None)),
+            TagIndexIteratorImpl::SuffixEntries(it) => it.next().map(|(k, _)| (k, None)),
         }
     }
 
@@ -161,13 +165,13 @@ impl<'ti> ValueIterator<'ti> {
 
 impl TagIndex {
     /// Iterate over all tag values, in lexicographical order.
-    pub fn value_iter(&self) -> ValueIterator<'_> {
+    pub fn value_iter(&self) -> TagIndexIterator<'_> {
         let iter = if self.disk_mode() {
-            ValueIteratorImpl::DiskAll(self.disk_iter_values())
+            TagIndexIteratorImpl::DiskAll(self.disk_iter_values())
         } else {
-            ValueIteratorImpl::MemAll(self.iter_values())
+            TagIndexIteratorImpl::MemAll(self.iter())
         };
-        ValueIterator { iter }
+        TagIndexIterator { iter }
     }
 
     /// Iterate over the tag values matching `pattern` under `mode`, in
@@ -175,7 +179,7 @@ impl TagIndex {
     ///
     /// In disk mode the values trie holds only tag presence, so callers resolve
     /// each reader by tag string; in memory mode the yielded value is still
-    /// exposed by [`advance`](ValueIterator::advance).
+    /// exposed by [`advance`](TagIndexIterator::advance).
     ///
     /// `pattern` is borrowed for the iterator's lifetime by the prefix,
     /// contains, and wildcard modes (the suffix mode copies it).
@@ -183,7 +187,7 @@ impl TagIndex {
         &'a self,
         pattern: &'a [u8],
         iter_mode: IterMode,
-    ) -> ValueIterator<'a> {
+    ) -> TagIndexIterator<'a> {
         // The suffix mode filters a full trie walk by an owned copy of the
         // pattern; the boxed predicate keeps the `Vec` alive for the iterator's
         // lifetime.
@@ -193,41 +197,39 @@ impl TagIndex {
 
         let iter = match (self.disk_mode(), iter_mode) {
             (true, IterMode::Prefix) => {
-                ValueIteratorImpl::DiskAll(self.disk_prefixed_iter_values(pattern))
+                TagIndexIteratorImpl::DiskAll(self.disk_prefixed_iter_values(pattern))
             }
             (true, IterMode::Contains) => {
-                ValueIteratorImpl::DiskContains(self.disk_contains_iter_values(pattern))
+                TagIndexIteratorImpl::DiskContains(self.disk_contains_iter_values(pattern))
             }
-            (true, IterMode::Suffix) => ValueIteratorImpl::DiskSuffix(
+            (true, IterMode::Suffix) => TagIndexIteratorImpl::DiskSuffix(
                 self.disk_iter_values(),
                 suffix_predicate(pattern.to_vec()),
             ),
             (true, IterMode::Wildcard) => {
-                ValueIteratorImpl::DiskWildcard(self.disk_wildcard_iter_values(pattern))
+                TagIndexIteratorImpl::DiskWildcard(self.disk_wildcard_iter_values(pattern))
             }
-            (false, IterMode::Prefix) => {
-                ValueIteratorImpl::MemAll(self.prefixed_iter_values(pattern))
-            }
+            (false, IterMode::Prefix) => TagIndexIteratorImpl::MemAll(self.iter_prefix(pattern)),
             (false, IterMode::Contains) => {
-                ValueIteratorImpl::MemContains(self.contains_iter_values(pattern))
+                TagIndexIteratorImpl::MemContains(self.contains_iter_values(pattern))
             }
             (false, IterMode::Suffix) => {
-                ValueIteratorImpl::MemSuffix(self.iter_values(), suffix_predicate(pattern.to_vec()))
+                TagIndexIteratorImpl::MemSuffix(self.iter(), suffix_predicate(pattern.to_vec()))
             }
             (false, IterMode::Wildcard) => {
-                ValueIteratorImpl::MemWildcard(self.wildcard_iter_values(pattern))
+                TagIndexIteratorImpl::MemWildcard(self.wildcard_iter_values(pattern))
             }
         };
 
-        ValueIterator { iter }
+        TagIndexIterator { iter }
     }
 
     /// Iterate over all entries of the suffix index, in lexicographical order,
     /// or `None` when the index was created without `WITHSUFFIXTRIE`.
-    pub fn suffix_value_iter(&self) -> Option<ValueIterator<'_>> {
+    pub fn suffix_value_iter(&self) -> Option<TagIndexIterator<'_>> {
         let iter = self.iter_suffix_entries()?;
-        Some(ValueIterator {
-            iter: ValueIteratorImpl::SuffixEntries(iter),
+        Some(TagIndexIterator {
+            iter: TagIndexIteratorImpl::SuffixEntries(iter),
         })
     }
 }

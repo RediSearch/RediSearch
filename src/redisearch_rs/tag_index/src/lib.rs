@@ -127,7 +127,7 @@
 mod iter;
 mod suffix;
 
-pub use iter::{IterMode, TagValueReader, ValueIterator};
+pub use iter::{IterMode, TagIndexIterator, TagValueReader};
 
 // Force-link the umbrella `redisearch_rs` crate so its `#[used]` symbol table keeps the
 // Rust FFI functions that the linked C code (`libredisearch_c_bundle`) calls back into, and
@@ -280,7 +280,7 @@ impl TagIndex {
     }
 
     /// How many distinct tags the index holds.
-    pub const fn unique_values(&self) -> usize {
+    pub const fn n_tags(&self) -> usize {
         match &self.mode {
             TagIndexMode::InMemory { values } => values.n_unique_keys(),
             TagIndexMode::Disk { values, .. } => values.n_unique_keys(),
@@ -439,7 +439,7 @@ impl TagIndex {
     /// 3. `sctx` and `sctx.spec` must be valid and outlive the returned
     ///    iterator.
     /// 4. `lookup` must hold a `self` reference.
-    pub unsafe fn query_iterator_for_value<'ii>(
+    pub unsafe fn iterator_for_tag<'ii>(
         &self,
         sctx: NonNull<RedisSearchCtx>,
         tag: &[u8],
@@ -473,7 +473,7 @@ impl TagIndex {
 
     /// Iterate over all `(tag, inverted index)` entries, in lexicographical
     /// order of the tag.
-    pub(crate) fn iter_values(&self) -> LendingIter<'_, Box<InvertedIndex<DocIdsOnly>>, VisitAll> {
+    pub(crate) fn iter(&self) -> LendingIter<'_, Box<InvertedIndex<DocIdsOnly>>, VisitAll> {
         let TagIndexMode::InMemory { values } = &self.mode else {
             unimplemented!()
         };
@@ -482,7 +482,7 @@ impl TagIndex {
 
     /// Iterate over the `(tag, inverted index)` entries whose tag starts with
     /// `prefix`, in lexicographical order of the tag.
-    pub(crate) fn prefixed_iter_values(
+    pub(crate) fn iter_prefix(
         &self,
         prefix: &[u8],
     ) -> LendingIter<'_, Box<InvertedIndex<DocIdsOnly>>, VisitAll> {
@@ -540,7 +540,7 @@ impl TagIndex {
     // matching tag *keys*, then open each reader by tag string via the disk
     // API.
 
-    /// Disk-mode counterpart of [`iter_values`](Self::iter_values).
+    /// Disk-mode counterpart of [`iter`](Self::iter).
     ///
     /// # Panics
     /// Panics on a memory-mode index;
@@ -552,7 +552,7 @@ impl TagIndex {
     }
 
     /// Disk-mode counterpart of
-    /// [`prefixed_iter_values`](Self::prefixed_iter_values).
+    /// [`iter_prefix`](Self::iter_prefix).
     ///
     /// # Panics
     /// Panics on a memory-mode index;
@@ -697,7 +697,7 @@ impl TagIndex {
     /// 1. `self` must outlive the returned iterator, and must not be mutated
     ///    while it is in use except under the standard revalidation protocol.
     ///    The memory-mode iterator is the one
-    ///    [`query_iterator_for_value`](Self::query_iterator_for_value) builds and
+    ///    [`iterator_for_tag`](Self::iterator_for_tag) builds and
     ///    shares its contract;
     /// 2. `sctx` and `sctx.spec` must be valid and outlive the returned iterator.
     /// 3. `lookup` must resolve `self`, checked by a `debug_assert!` in
@@ -773,7 +773,7 @@ impl TagIndex {
     ///
     /// 1. `self` must outlive the returned iterator, and may be mutated while it
     ///    is alive only under the revalidation protocol described on
-    ///    [`query_iterator_for_value`](Self::query_iterator_for_value).
+    ///    [`iterator_for_tag`](Self::iterator_for_tag).
     /// 2. `ii` must be the inverted index this index currently stores for `tag`.
     /// 3. `sctx` and `sctx.spec` must be valid and outlive the returned iterator.
     /// 4. `lookup` must resolve `self`.
@@ -814,7 +814,7 @@ impl TagIndex {
 
     /// Bytes the index's tries occupy, as reported by `FT.INFO`: the values trie
     /// plus the suffix trie, in both modes.
-    pub const fn get_overhead(&self) -> usize {
+    pub const fn mem_usage(&self) -> usize {
         let mut size = match &self.mode {
             TagIndexMode::InMemory { values } => values.mem_usage(),
             TagIndexMode::Disk { values, .. } => values.mem_usage(),
@@ -1187,7 +1187,7 @@ fn choose_token(pattern: &[u8]) -> Option<(usize, usize)> {
 }
 
 /// [`TagLookup`] over this crate's typed values trie, used by the iterators
-/// returned from [`TagIndex::query_iterator_for_value`] to detect during
+/// returned from [`TagIndex::iterator_for_tag`] to detect during
 /// revalidation that the garbage collector removed or replaced a tag's
 /// inverted index.
 pub struct TrieLookup(NonNull<TagIndex>);
@@ -1220,7 +1220,7 @@ impl TrieLookup {
     ///    standard revalidation protocol — i.e. between
     ///    [`revalidate`](rqe_iterators::RQEIterator::revalidate) calls, never
     ///    concurrently with a read — mirroring the contract of
-    ///    [`TagIndex::query_iterator_for_value`].
+    ///    [`TagIndex::iterator_for_tag`].
     pub const unsafe fn new(idx: NonNull<TagIndex>) -> Self {
         Self(idx)
     }
@@ -1255,7 +1255,7 @@ mod tests {
     use rqe_iterators::{NoOpChecker, RQEIterator, RQEValidateStatus};
     use rqe_iterators_test_utils::MockContext;
 
-    /// The iterator built by [`TagIndex::query_iterator_for_value`] must abort
+    /// The iterator built by [`TagIndex::iterator_for_tag`] must abort
     /// revalidation once the garbage collector removed the tag's postings —
     /// [`TrieLookup`] no longer resolves the tag, so the reader is stale.
     ///

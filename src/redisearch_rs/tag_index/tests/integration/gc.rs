@@ -119,7 +119,7 @@ fn gc_drops_a_tag_that_lost_every_document() {
     let info = idx.gc(b"team", ptr, delta).expect("the delta is current");
 
     assert!(idx.find_value(b"team").is_none(), "the tag is dropped");
-    assert_eq!(idx.unique_values(), 0);
+    assert_eq!(idx.n_tags(), 0);
     assert!(
         suffix_keys(&idx).is_empty(),
         "the suffix trie drops the tag and all of its suffixes"
@@ -187,5 +187,5 @@ fn gc_rejects_a_delta_for_a_tag_that_is_gone() {
     idx.delete_tag_value(b"team");
 
     assert!(idx.gc(b"team", ptr, delta).is_none());
-    assert_eq!(idx.unique_values(), 0);
+    assert_eq!(idx.n_tags(), 0);
 }

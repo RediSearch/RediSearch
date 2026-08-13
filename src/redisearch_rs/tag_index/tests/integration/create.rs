@@ -89,25 +89,25 @@ fn commit_indexes_no_documents() {
     let mut tag_index = TagIndex::new_in_memory(1, true);
     commit(&mut tag_index, &[b"hello", b"world"]);
 
-    assert_eq!(tag_index.unique_values(), 0, "commit creates no postings");
+    assert_eq!(tag_index.n_tags(), 0, "commit creates no postings");
     assert!(
         tag_index.find_value(b"hello").is_none(),
         "no posting list is registered for a committed-but-unindexed tag"
     );
 }
 
-/// `get_overhead` accounts for the suffix trie: an index built
+/// `mem_usage` accounts for the suffix trie: an index built
 /// `WITHSUFFIXTRIE` reports strictly more overhead than one without, once the
 /// suffix trie has been populated. Asserted as a comparison so it does not depend
 /// on the trie's absolute byte size.
 #[test]
-fn get_overhead_accounts_for_the_suffix_trie() {
+fn mem_usage_accounts_for_the_suffix_trie() {
     let tags: &[&[u8]] = &[b"hello", b"world"];
 
     let mut with_suffix = TagIndex::new_in_memory(1, true);
     commit(&mut with_suffix, tags);
     assert!(
-        with_suffix.get_overhead() > 0,
+        with_suffix.mem_usage() > 0,
         "a populated suffix trie contributes overhead"
     );
 
@@ -115,7 +115,7 @@ fn get_overhead_accounts_for_the_suffix_trie() {
     commit(&mut without_suffix, tags);
 
     assert!(
-        with_suffix.get_overhead() > without_suffix.get_overhead(),
+        with_suffix.mem_usage() > without_suffix.mem_usage(),
         "the suffix trie must add to the reported overhead"
     );
 }

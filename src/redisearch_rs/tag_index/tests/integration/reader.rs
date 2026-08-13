@@ -8,7 +8,7 @@
 */
 
 //! Tests driving the Rust iterators `TagIndex::open_reader` and
-//! `TagIndex::query_iterator_for_value` build, through the `RQEIterator` trait
+//! `TagIndex::iterator_for_tag` build, through the `RQEIterator` trait
 //! directly. Wrapping them for the C vtable is the FFI crate's job, not this
 //! crate's, so these tests stop at the Rust boundary.
 
@@ -132,7 +132,7 @@ fn open_reader_absent_tag_returns_none() {
 }
 
 /// Driving the iterator built from an already-resolved inverted index
-/// (`query_iterator_for_value`) yields exactly the indexed document ids.
+/// (`iterator_for_tag`) yields exactly the indexed document ids.
 #[test]
 fn value_path_reads_all_matching_docs() {
     let mock = MockContext::new(3, 3);
@@ -150,7 +150,7 @@ fn value_path_reads_all_matching_docs() {
     // SAFETY: `tag_index` and `mock` outlive the iterator, `ii` is the trie's
     // current value for the tag, and `lookup` resolves `tag_index`.
     let it = unsafe {
-        (*tag_index).query_iterator_for_value(mock.sctx(), b"team", ii, 1.0, FIELD_INDEX, lookup)
+        (*tag_index).iterator_for_tag(mock.sctx(), b"team", ii, 1.0, FIELD_INDEX, lookup)
     }
     .expect("ii holds documents");
 
@@ -165,7 +165,7 @@ fn value_path_reads_all_matching_docs() {
 /// postings — the lookup no longer resolves the tag, so the reader is stale.
 ///
 /// The lib-level test of this covers a hand-built lookup; this one goes through
-/// `query_iterator_for_value`, so it exercises the lookup all the way through the
+/// `iterator_for_tag`, so it exercises the lookup all the way through the
 /// reader construction path.
 #[test]
 fn revalidate_aborts_after_gc() {
@@ -186,7 +186,7 @@ fn revalidate_aborts_after_gc() {
     // SAFETY: `tag_index` and `mock` outlive the iterator, `ii` is the trie's
     // current value for the tag, and `lookup` resolves `tag_index`.
     let mut it = unsafe {
-        (*tag_index).query_iterator_for_value(mock.sctx(), b"team", ii, 1.0, FIELD_INDEX, lookup)
+        (*tag_index).iterator_for_tag(mock.sctx(), b"team", ii, 1.0, FIELD_INDEX, lookup)
     }
     .expect("ii holds documents");
 
@@ -233,7 +233,7 @@ fn value_path_returns_none_for_empty_inverted_index() {
     // SAFETY: `tag_index` and `mock` outlive the (never created) iterator, `ii` is
     // the trie's current value for the tag, and `lookup` resolves `tag_index`.
     let it = unsafe {
-        (*tag_index).query_iterator_for_value(mock.sctx(), b"empty", ii, 1.0, FIELD_INDEX, lookup)
+        (*tag_index).iterator_for_tag(mock.sctx(), b"empty", ii, 1.0, FIELD_INDEX, lookup)
     };
     assert!(it.is_none());
 

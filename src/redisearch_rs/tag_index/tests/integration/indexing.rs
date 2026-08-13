@@ -13,12 +13,12 @@
 use std::ptr::null;
 
 use index_result::RSIndexResult;
-use tag_index::{SuffixQuery, TagIndex, TagValueReader, ValueIterator};
+use tag_index::{SuffixQuery, TagIndex, TagIndexIterator, TagValueReader};
 
 use crate::util::{commit, index_mem};
 
-/// Drain a [`ValueIterator`] into its yielded keys, in iteration order.
-fn value_iter_keys(mut it: ValueIterator<'_>) -> Vec<Vec<u8>> {
+/// Drain a [`TagIndexIterator`] into its yielded keys, in iteration order.
+fn value_iter_keys(mut it: TagIndexIterator<'_>) -> Vec<Vec<u8>> {
     let mut keys: Vec<Vec<u8>> = Vec::new();
     while let Some((key, _)) = it.advance() {
         keys.push(key.to_vec());
@@ -206,7 +206,7 @@ fn reindexing_the_same_document_is_a_no_op() {
 /// Indexing N documents over a fixed tag set leaves one posting list per
 /// distinct tag and accumulates one record per (tag, doc) pair.
 #[test]
-fn unique_values_and_record_count_track_the_writes() {
+fn n_tags_and_record_count_track_the_writes() {
     // Both counts are linear in N, so the assertions hold at any size; a few hundred
     // documents just exercises the accumulation over many writes.
     #[cfg(not(miri))]
@@ -225,7 +225,7 @@ fn unique_values_and_record_count_track_the_writes() {
             .num_records;
     }
 
-    assert_eq!(tag_index.unique_values(), tags.len());
+    assert_eq!(tag_index.n_tags(), tags.len());
     assert_eq!(total_records, N as u32 * tags.len() as u32);
 }
 
@@ -240,7 +240,7 @@ fn intra_document_duplicate_tag_counted_once() {
     commit(&mut tag_index, tags);
 
     assert_eq!(delta.num_records, 2, "the duplicate `foo` is counted once");
-    assert_eq!(tag_index.unique_values(), 2);
+    assert_eq!(tag_index.n_tags(), 2);
 }
 
 /// The accumulated `WritePostingsDelta` accounting matches the crate's own

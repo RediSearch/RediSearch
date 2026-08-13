@@ -305,7 +305,7 @@ impl TagSuffixIndex {
     }
 
     /// Bytes the suffix trie occupies, counted into
-    /// [`TagIndex::get_overhead`](crate::TagIndex::get_overhead).
+    /// [`TagIndex::mem_usage`](crate::TagIndex::mem_usage).
     pub const fn mem_usage(&self) -> usize {
         self.entries.mem_usage()
     }
