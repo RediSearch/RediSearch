@@ -26,6 +26,36 @@ typedef enum RSValueType {
   RSValueType_Map = 8,
 } RSValueType;
 
+/**
+ * Discriminant of [`RSValueView`], selecting which payload fields are
+ * meaningful.
+ */
+typedef enum RSValueViewType {
+  /**
+   * No payload. Covers both null and undefined values.
+   */
+  RSValueViewType_Null = 0,
+  /**
+   * [`RSValueView::num`] holds the payload.
+   */
+  RSValueViewType_Number = 1,
+  /**
+   * [`RSValueView::str_ptr`] / [`RSValueView::str_len`] hold the payload.
+   * Covers both owned and Redis-backed strings.
+   */
+  RSValueViewType_String = 2,
+  /**
+   * [`RSValueView::resolved`] is a container of [`RSValueView::len`]
+   * elements, addressable with [`RSValue_ArrayItem`](crate::array::RSValue_ArrayItem).
+   */
+  RSValueViewType_Array = 3,
+  /**
+   * [`RSValueView::resolved`] is a map of [`RSValueView::len`] entries,
+   * addressable with [`RSValue_Map_GetEntry`](crate::map::RSValue_Map_GetEntry).
+   */
+  RSValueViewType_Map = 4,
+} RSValueViewType;
+
 typedef struct QueryError QueryError;
 
 /**
@@ -41,6 +71,41 @@ typedef struct RSValue RSValue;
 typedef struct RSValueMapBuilder RSValueMapBuilder;
 
 typedef struct RedisModuleString RedisModuleString;
+
+/**
+ * The reply-side view of an [`RSValue`], returned by value from
+ * [`RSValue_GetReplyView`].
+ */
+typedef struct RSValueView {
+  /**
+   * The fully resolved value this view describes: references followed,
+   * trios collapsed to their middle element. Borrows from the input value.
+   */
+  const struct RSValue *resolved;
+  /**
+   * String payload. Not NUL-terminated; may contain embedded NUL bytes.
+   * Borrows from the input value.
+   */
+  const char *str_ptr;
+  /**
+   * Number payload.
+   */
+  double num;
+  /**
+   * Length of [`RSValueView::str_ptr`] in bytes. `usize` because
+   * Redis-backed strings carry `size_t` lengths; capping at `u32` would
+   * turn an oversized value into a reply-time abort.
+   */
+  size_t str_len;
+  /**
+   * Which payload fields are meaningful.
+   */
+  enum RSValueViewType view_type;
+  /**
+   * Element count of an array or entry count of a map.
+   */
+  uint32_t len;
+} RSValueView;
 
 #ifdef __cplusplus
 extern "C" {
@@ -192,6 +257,24 @@ sds RSValue_DumpSds(const struct RSValue *value, sds sds, bool obfuscate);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 bool RSValue_Equal(const struct RSValue *v1, const struct RSValue *v2, struct QueryError *_status);
+
+/**
+ * Returns the reply-side view of `value` in a single call.
+ *
+ * The value is resolved the way `RedisModule_Reply_RSValue` historically
+ * resolved it: references are followed, and a trio reached during resolution
+ * collapses to its middle element (format-driven trio selection is the
+ * caller's concern and must happen before this call).
+ *
+ * # Safety
+ *
+ * 1. `value` must be a [valid], non-null pointer to an [`RSValue`].
+ * 2. The pointers in the returned view borrow from `value` and must not
+ *    outlive it.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+struct RSValueView RSValue_GetReplyView(const struct RSValue *value);
 
 /**
  * Computes a HashDoS-resistant 64-bit hash of an [`RSValue`], mixing in `hval` so that
