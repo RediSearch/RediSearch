@@ -26,7 +26,8 @@
 //! The reads are unsynchronised, which is the one thing that argument does not establish:
 //! `CONFIG SET` writes these fields from client threads, so a read can race with a write.
 //! This crate exists to replace the C readers of the same fields rather than to change what
-//! they do; closing the race needs the C side to store the fields atomically.
+//! they do; closing the race needs the C side to store the fields atomically and both the C
+//! and Rust side to load them atomically.
 
 use std::{
     ffi::{c_char, c_int},
