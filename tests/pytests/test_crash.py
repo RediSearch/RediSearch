@@ -1,3 +1,4 @@
+import hashlib
 import threading
 
 from common import *
@@ -236,6 +237,70 @@ def test_main_thread_crash_reports_blocked_queries():
     for fragment, value in results.items():
         env.assertIsNotNone(value, message=f"Fragment '{fragment}' not found in crash log")
     env.assertGreater(int(results['search_idx:started_at=']), 0)
+
+
+# under hideUserDataFromLog the blocked-queries walkers must report the
+# obfuscated index name (the spec's own sha1 derivation) and never the raw one.
+# Enterprise skip: 'hide-user-data-from-log' is a server-level config whose
+# presence depends on the enterprise server build (see test_hideUserDataFromLogs).
+@skip(cluster=True, enterprise=True)
+def test_main_thread_crash_reports_blocked_queries_obfuscated():
+    # WORKERS 1 forces the blocked-client path; the CI runner disables workers
+    # by default, which would run the queries inline, unregistered.
+    env = CrashingEnv(testName="test_main_thread_crash_reports_blocked_queries_obfuscated",
+                      moduleArgs='WORKERS 1', freshEnv=True)
+    prepare_index(env)
+
+    # The cursor to read from; its initial cycle must complete before the pool
+    # is paused.
+    _, cursor_id = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@text',
+                           'WITHCURSOR', 'COUNT', '2')
+    env.assertNotEqual(cursor_id, 0)
+
+    env.expect('CONFIG', 'SET', 'hide-user-data-from-log', 'yes').ok()
+
+    logFilePath = get_log_file_path(env)
+
+    env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
+
+    def run_ignoring_errors(*cmd):
+        try:
+            env.getConnection().execute_command(*cmd)
+        except Exception:
+            pass  # the server crashes while the command is blocked, by design
+
+    threading.Thread(target=run_ignoring_errors,
+                     args=('FT.SEARCH', 'idx', '*'), daemon=True).start()
+    threading.Thread(target=run_ignoring_errors,
+                     args=('FT.CURSOR', 'READ', 'idx', cursor_id),
+                     daemon=True).start()
+
+    # A client observed blocked proves its cycle is registered: registration
+    # runs inside the command handler, before the handler returns.
+    wait_for_blocked_query_client(env, 'FT.SEARCH')
+    wait_for_blocked_query_client(env, 'FT.CURSOR|READ')
+
+    try:
+        env.cmd('DEBUG', 'SEGFAULT')  # crash the main thread
+    except Exception:
+        pass
+
+    # Same derivation as the spec's own obfuscated name: sha1 of the name.
+    obfuscated = 'Index@' + hashlib.sha1(b'idx').hexdigest()
+    results = scan_log_fragments(logFilePath, [
+        '# search_blocked_queries',
+        f'search_{obfuscated}:started_at=',
+        '# search_blocked_cursors',
+        f'search_{cursor_id}:index={obfuscated},started_at=',
+    ])
+    for fragment, value in results.items():
+        env.assertIsNotNone(value, message=f"Fragment '{fragment}' not found in crash log")
+
+    # The raw index name must not leak into the blocked-query entries.
+    with open(logFilePath) as logFile:
+        log = logFile.read()
+    env.assertNotIn('search_idx:started_at=', log)
+    env.assertNotIn('index=idx,', log)
 
 
 # the coordinator's blocked cycles register too: a coordinator main-thread
