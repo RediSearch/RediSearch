@@ -21,7 +21,7 @@ use string_utils::{
     runes::runes_to_bytes,
 };
 
-use crate::LoweredPattern;
+use crate::{LoweredPattern, TrieTerm};
 
 /// Adapts a [`ffi::TrieRangeCallback`] to a Rust closure handed back through
 /// the opaque `ctx` pointer for every matching term.
@@ -563,16 +563,11 @@ impl TermsTrie {
     /// Remove `term` from the trie.
     ///
     /// Returns whether an entry was actually removed.
-    pub fn delete(&mut self, term: &[u8]) -> bool {
-        // Terms longer than the trie can store are never present, so report a
-        // miss without a lookup. The C function applies the same cap, but only
-        // after the rune conversion below has already run.
-        if term.len() > ffi::TRIE_INITIAL_STRING_LEN as usize * std::mem::size_of::<ffi::rune>() {
-            return false;
-        }
-
-        // SAFETY: `self` borrows a valid `ffi::Trie`, and `term`/`term.len()`
-        // describe a readable byte slice for the duration of the call.
+    pub fn delete(&mut self, term: &TrieTerm) -> bool {
+        let term = term.as_bytes();
+        // SAFETY: `self` borrows a valid `ffi::Trie`; `TrieTerm` guarantees that
+        // the C decoder can consume `term` without reading beyond the slice or
+        // treating an interior zero codepoint as its end.
         let removed = unsafe {
             ffi::Trie_Delete(
                 self.as_mut_ptr(),
@@ -642,7 +637,7 @@ impl<'a> TermsTrieAllIterator<'a> {
 }
 
 impl Iterator for TermsTrieAllIterator<'_> {
-    type Item = Vec<u8>;
+    type Item = TrieTerm;
 
     fn next(&mut self) -> Option<Self::Item> {
         let runes = self.advance()?;
@@ -650,12 +645,15 @@ impl Iterator for TermsTrieAllIterator<'_> {
         // runes, well inside the `MAX_RUNE_STR_LEN` which `runes_to_bytes`
         // requires, so every key this iterator yields converts.
         let bytes = runes_to_bytes(runes).expect("a stored trie key fits within MAX_RUNE_STR_LEN");
-        Some(bytes)
+        // SAFETY: the iterator only yields non-empty keys accepted by the terms
+        // trie. `runes_to_bytes` emits a complete encoding of every rune, with
+        // no zero rune, and the key is shorter than `TRIE_INITIAL_STRING_LEN`.
+        Some(unsafe { TrieTerm::from_bytes_unchecked(bytes.into_boxed_slice()) })
     }
 }
 
 impl<'a> IntoIterator for &'a TermsTrie {
-    type Item = Vec<u8>;
+    type Item = TrieTerm;
     type IntoIter = TermsTrieAllIterator<'a>;
 
     fn into_iter(self) -> Self::IntoIter {

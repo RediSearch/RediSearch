@@ -23,8 +23,14 @@ use std::{
     ops::ControlFlow,
 };
 
-use c_trie::{LoweredPattern, SuffixMode, SuffixTrie, SuffixWalk};
+use c_trie::{LoweredPattern, SuffixMode, SuffixTrie, SuffixWalk, TrieTerm};
 use ffi::{SuffixType, SuffixType_SUFFIX_TYPE_CONTAINS, SuffixType_SUFFIX_TYPE_SUFFIX};
+
+fn trie_term(term: &str) -> TrieTerm {
+    // SAFETY: every test input is the complete byte representation of a
+    // non-empty key accepted by the primary terms trie.
+    unsafe { TrieTerm::from_bytes_unchecked(Box::from(term.as_bytes())) }
+}
 
 /// Convert an ASCII/UTF-8 string to the trie's rune (`u16`) key.
 fn to_runes(s: &str) -> Vec<ffi::rune> {
@@ -346,7 +352,7 @@ fn suffix_delete_removes_the_term_from_every_suffix_it_registered() {
             "both terms end in `ple` to start with"
         );
 
-        trie.delete(b"apple");
+        trie.delete(&trie_term("apple"));
 
         assert_eq!(
             suffix_matches(trie, "ple", SuffixMode::Suffix),
@@ -370,7 +376,7 @@ fn suffix_delete_ignores_an_absent_term() {
     // The suffix trie is shared by every TEXT field in an index, including those
     // that never contributed to it, so a miss is expected rather than an error.
     with_suffix_trie(&["apple"], |trie| {
-        trie.delete(b"grape");
+        trie.delete(&trie_term("grape"));
         assert_eq!(
             suffix_matches(trie, "ple", SuffixMode::Suffix),
             set(&["apple"]),

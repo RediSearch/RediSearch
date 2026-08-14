@@ -7,6 +7,37 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+/// An owned byte sequence that is valid input to the trie wrapper.
+///
+/// # Validity invariants
+///
+/// Validity is about whether the legacy C trie functions can safely consume the
+/// bytes. The bytes must encode a non-empty key, the decoder must not read beyond
+/// the initialized byte sequence or stop at an interior zero codepoint, and the
+/// decoded key must fit the primary trie. This permits invalid UTF-8 encodings
+/// that the trie accepts.
+#[derive(Clone, Debug)]
+pub struct TrieTerm {
+    bytes: Box<[u8]>,
+}
+
+impl TrieTerm {
+    /// Construct a term without validating `bytes`.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure `bytes` satisfies the
+    /// [validity invariants](Self#validity-invariants).
+    pub const unsafe fn from_bytes_unchecked(bytes: Box<[u8]>) -> Self {
+        Self { bytes }
+    }
+
+    /// Return the term's byte representation.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
 /// A lowercased wildcard pattern, in both encodings the wildcard walks need.
 ///
 /// The lowercasing is the *caller's* job and is not checked here. A pattern

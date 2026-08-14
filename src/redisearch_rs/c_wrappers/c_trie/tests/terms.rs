@@ -25,7 +25,13 @@ use std::{
     ptr,
 };
 
-use c_trie::{FuzzyWalk, LoweredPattern, TermsTrie};
+use c_trie::{FuzzyWalk, LoweredPattern, TermsTrie, TrieTerm};
+
+fn trie_term(term: &str) -> TrieTerm {
+    // SAFETY: every test input is the complete byte representation of a
+    // non-empty key accepted by the primary terms trie.
+    unsafe { TrieTerm::from_bytes_unchecked(Box::from(term.as_bytes())) }
+}
 
 /// Convert an ASCII/UTF-8 string to the trie's rune (`u16`) key.
 fn to_runes(s: &str) -> Vec<ffi::rune> {
@@ -103,7 +109,7 @@ fn with_terms_trie(terms: &[&str], f: impl FnOnce(&mut TermsTrie)) {
 /// Every term currently stored in a terms trie.
 fn terms_of(trie: &TermsTrie) -> HashSet<String> {
     trie.iterate_all()
-        .map(|term| String::from_utf8(term).expect("term is valid UTF-8"))
+        .map(|term| String::from_utf8(term.as_bytes().to_vec()).expect("term is valid UTF-8"))
         .collect()
 }
 
@@ -610,7 +616,7 @@ fn iterate_all_visits_every_term() {
     with_terms_trie(CORPUS, |trie| {
         let got: HashSet<String> = trie
             .iterate_all()
-            .map(|term| String::from_utf8(term).expect("terms are ASCII"))
+            .map(|term| String::from_utf8(term.as_bytes().to_vec()).expect("terms are ASCII"))
             .collect();
         assert_eq!(got, set(CORPUS));
     });
@@ -637,7 +643,7 @@ fn into_iter_visits_every_term() {
     with_terms_trie(CORPUS, |trie| {
         let mut got = HashSet::new();
         for term in &*trie {
-            got.insert(String::from_utf8(term).expect("terms are ASCII"));
+            got.insert(String::from_utf8(term.as_bytes().to_vec()).expect("terms are ASCII"));
         }
         assert_eq!(got, set(CORPUS));
     });
@@ -810,7 +816,7 @@ fn iterate_wildcard_some_and_none_timeout_agree() {
 )]
 fn delete_removes_a_stored_term() {
     with_terms_trie(&["apple", "maple", "grape"], |trie| {
-        assert!(trie.delete(b"maple"), "a stored term is removed");
+        assert!(trie.delete(&trie_term("maple")), "a stored term is removed");
         assert_eq!(terms_of(trie), set(&["apple", "grape"]));
         assert_eq!(trie.num_docs(b"maple"), 0);
     });
@@ -826,7 +832,7 @@ fn delete_removes_a_term_that_still_has_documents() {
     // the term goes away in one step.
     with_terms_trie(&["apple"], |trie| {
         assert_eq!(trie.num_docs(b"apple"), 5, "inserted with numDocs == 5");
-        assert!(trie.delete(b"apple"));
+        assert!(trie.delete(&trie_term("apple")));
         assert_eq!(terms_of(trie), HashSet::new());
     });
 }
@@ -838,7 +844,7 @@ fn delete_removes_a_term_that_still_has_documents() {
 )]
 fn delete_reports_a_miss_for_an_absent_term() {
     with_terms_trie(&["apple"], |trie| {
-        let removed = trie.delete(b"apricot");
+        let removed = trie.delete(&trie_term("apricot"));
         assert!(!removed, "term was never inserted");
         assert_eq!(terms_of(trie), set(&["apple"]), "trie is left untouched");
     });
@@ -851,35 +857,8 @@ fn delete_reports_a_miss_for_an_absent_term() {
 )]
 fn delete_reports_a_miss_for_a_prefix_of_a_stored_term() {
     with_terms_trie(&["apple"], |trie| {
-        let removed = trie.delete(b"app");
+        let removed = trie.delete(&trie_term("app"));
         assert!(!removed, "a prefix is not an exact match");
-        assert_eq!(terms_of(trie), set(&["apple"]));
-    });
-}
-
-#[test]
-#[cfg_attr(
-    miri,
-    ignore = "calling the C trie's foreign functions is not supported by Miri"
-)]
-fn delete_reports_a_miss_for_an_empty_term() {
-    // `TrieNode_Add` no-ops on a zero-length key, so the trie can never hold one.
-    with_terms_trie(&["apple"], |trie| {
-        assert!(!trie.delete(b""));
-        assert_eq!(terms_of(trie), set(&["apple"]));
-    });
-}
-
-#[test]
-#[cfg_attr(
-    miri,
-    ignore = "calling the C trie's foreign functions is not supported by Miri"
-)]
-fn delete_reports_a_miss_for_an_over_long_term() {
-    let too_long = "a".repeat(ffi::TRIE_INITIAL_STRING_LEN as usize * size_of::<ffi::rune>() + 1);
-    with_terms_trie(&["apple"], |trie| {
-        let removed = trie.delete(too_long.as_bytes());
-        assert!(!removed, "longer than the trie holds");
         assert_eq!(terms_of(trie), set(&["apple"]));
     });
 }
@@ -891,7 +870,7 @@ fn delete_reports_a_miss_for_an_over_long_term() {
 )]
 fn delete_of_a_multibyte_term_round_trips() {
     with_terms_trie(&["héllo", "wörld"], |trie| {
-        assert!(trie.delete("héllo".as_bytes()));
+        assert!(trie.delete(&trie_term("héllo")));
         assert_eq!(terms_of(trie), set(&["wörld"]));
     });
 }

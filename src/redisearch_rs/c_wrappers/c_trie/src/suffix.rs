@@ -22,7 +22,7 @@ use ffi::{
     SuffixType_SUFFIX_TYPE_WILDCARD,
 };
 
-use crate::LoweredPattern;
+use crate::{LoweredPattern, TrieTerm};
 
 /// Which side(s) of a term a [`SuffixTrie::iterate_contains`] walk anchors on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -268,18 +268,18 @@ impl SuffixTrie {
         }
     }
 
-    /// Remove `term` and all of its suffixes from the suffix trie.
-    pub fn delete(&mut self, term: &[u8]) {
-        let Ok(term_len) = u32::try_from(term.len()) else {
-            // The C API takes a `uint32_t` length. A term this long was never
-            // inserted, and truncating would delete an unrelated entry.
-            return;
-        };
+    /// Remove `term` and all of its registered suffixes.
+    pub fn delete(&mut self, term: &TrieTerm) {
+        let term = term.as_bytes();
+        // A valid `TrieTerm` decodes to fewer than
+        // `TRIE_INITIAL_STRING_LEN` runes, each consuming at most four bytes.
+        let term_len = u32::try_from(term.len()).expect("a valid trie term length fits in u32");
 
         // SAFETY: `self` borrows a valid `ffi::Trie` whose payloads are `suffixData`
         // and whose free callback releases them, so unregistering the term and
-        // freeing the nodes it empties is sound. `term`/`term_len` describe a
-        // readable byte slice for the call.
+        // freeing the nodes it empties is sound. `TrieTerm` guarantees that the
+        // C decoder can consume `term` without reading beyond the slice or
+        // treating an interior zero codepoint as its end.
         unsafe {
             ffi::deleteSuffixTrie(self.as_mut_ptr(), term.as_ptr() as *const c_char, term_len);
         }
