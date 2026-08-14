@@ -272,55 +272,20 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
     if (SearchResult_GetFlags(r) & Result_ExpiredDoc) {
       RedisModule_Reply_Null(reply);
     } else {
-      // Get the number of fields in the reply.
       // Excludes hidden fields and fields not included in RETURN. The schema
       // rule's special fields (score/language/payload) are hidden from
       // creation (see the spec cache's rule names), so this path never touches
       // the spec — it may already be gone by reply time.
-      uint32_t excludeFlags = RLOOKUP_F_HIDDEN;
       uint32_t requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
-      size_t skipFieldIndex_len = RLookup_GetRowLen(lk);
-      bool skipFieldIndex[skipFieldIndex_len]; // After calling `RLookup_GetLength` will contain `false` for fields which we should skip below
-      memset(skipFieldIndex, 0, skipFieldIndex_len * sizeof(*skipFieldIndex));
-      size_t nfields = RLookup_GetLength(lk, SearchResult_GetRowData(r), skipFieldIndex, skipFieldIndex_len, requiredFlags, excludeFlags);
+      SendReplyFlags flags = (options & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
+      flags |= (options & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
 
       RedisModule_Reply_Map(reply);
-      int i = 0;
-      RLOOKUP_FOREACH(kk, lk, {
-        if (!RLookupKey_GetName(kk) || !skipFieldIndex[i++]) {
-          continue;
-        }
-        const RSValue *v = RLookupRow_Get(kk, SearchResult_GetRowData(r));
-        RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
-
-        RedisModule_Reply_StringBuffer(reply, RLookupKey_GetName(kk), RLookupKey_GetNameLen(kk));
-
-        QEFlags reqFlags = AREQ_RequestFlags(req);
-        SendReplyFlags flags = (reqFlags & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
-        flags |= (reqFlags & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
-
-        unsigned int apiVersion = AREQ_SearchCtx(req)->apiVersion;
-        if (RSValue_IsTrio(v)) {
-        // Which value to use for duo value
-        if (!(flags & SENDREPLY_FLAG_EXPAND)) {
-          // STRING
-          if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
-            // Multi
-            v = RSValue_Trio_GetMiddle(v);
-          } else {
-            // Single
-            v = RSValue_Trio_GetLeft(v);
-          }
-        } else {
-          // EXPAND
-          v = RSValue_Trio_GetRight(v);
-        }
-      }
-      RedisModule_Reply_RSValue(reply, v, flags);
-    });
-    RedisModule_Reply_MapEnd(reply);
+      RedisModule_Reply_RLookupRow(reply, lk, SearchResult_GetRowData(r), requiredFlags,
+                                   RLOOKUP_F_HIDDEN, flags, AREQ_SearchCtx(req)->apiVersion);
+      RedisModule_Reply_MapEnd(reply);
+    }
   }
-}
 
   if (has_map) {
     // placeholder for fields_values. (possible optimization)
