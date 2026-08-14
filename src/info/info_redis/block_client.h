@@ -54,14 +54,6 @@ void QueryRequest_BeginCursorCycle(struct QueryRequest *request, RedisModuleBloc
  * from OnFree; callable directly only in tests. */
 void QueryRequest_EndCycle(struct QueryRequest *request);
 
-/* The index name for crash-report/INFO walkers, read from the request's held
- * argv (argv[1], as the caller addressed it). Under hideUserDataFromLog the
- * name is obfuscated into `obfuscated_buffer` (at least
- * MAX_OBFUSCATED_INDEX_NAME bytes). Plain reads and pure hashing only —
- * crash-handler (signal-context) safe. */
-const char *QueryRequest_ReportIndexName(const struct QueryRequest *request,
-                                         char *obfuscated_buffer);
-
 /* The free_privdata callback registered with RedisModule_BlockClient. Runs on
  * the main thread after the reply or timeout callback, before the blocked
  * client is destroyed. Ends the cycle and releases the cycle's request hold. */

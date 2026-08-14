@@ -10,8 +10,6 @@
 #include <stdatomic.h>
 
 #include "redismodule.h"
-#include "config.h"
-#include "obfuscation/obfuscation_api.h"
 #include "info/info_redis/types/blocked_queries.h"
 #include "threads/main_thread.h"
 #include "cursor.h"
@@ -148,26 +146,4 @@ RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Curs
   // report block client start time
   RedisModule_BlockedClientMeasureTimeStart(bc);
   return bc;
-}
-
-const char *QueryRequest_ReportIndexName(const QueryRequest *request, char *obfuscated_buffer) {
-  if (request->args.argc < 2) {
-    return "n/a";
-  }
-  // The request's held argv mirrors the logical command — argv[0] is the
-  // command, argv[1] the index as the caller addressed it (an alias included).
-  // Plain reads and pure hashing only: this also runs in the crash handler's
-  // signal context.
-  size_t len;
-  const char *name = RedisModule_StringPtrLen(request->args.argv[1], &len);
-  if (!RSGlobalConfig.hideUserDataFromLog) {
-    return name;
-  }
-  // Same derivation as the spec's own obfuscated name (sha1 of the name), so
-  // crash entries correlate with the rest of the log unless addressed by
-  // alias.
-  Sha1 sha1;
-  Sha1_Compute(name, len, &sha1);
-  Obfuscate_Index(&sha1, obfuscated_buffer);
-  return obfuscated_buffer;
 }

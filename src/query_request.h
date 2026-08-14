@@ -251,6 +251,13 @@ void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind, RedisModule
 void QueryRequest_ResetReply(QueryRequest *request);
 void QueryRequest_Destroy(QueryRequest *request);
 
+/* The index name for crash-report/INFO walkers, read from the request's held
+ * argv (argv[1], as the caller addressed it). Under hideUserDataFromLog the
+ * name is obfuscated into `obfuscated_buffer` (at least
+ * MAX_OBFUSCATED_INDEX_NAME bytes). Plain reads and pure hashing only —
+ * crash-handler (signal-context) safe. */
+const char *QueryRequest_ReportIndexName(const QueryRequest *request, char *obfuscated_buffer);
+
 #ifdef __cplusplus
 }
 #endif
