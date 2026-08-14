@@ -1083,6 +1083,7 @@ dependencies = [
 name = "index_spec"
 version = "0.0.1"
 dependencies = [
+ "c_trie",
  "dict",
  "document",
  "ffi",
