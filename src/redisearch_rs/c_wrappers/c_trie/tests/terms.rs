@@ -109,7 +109,7 @@ fn with_terms_trie(terms: &[&str], f: impl FnOnce(&mut TermsTrie)) {
 /// Every term currently stored in a terms trie.
 fn terms_of(trie: &TermsTrie) -> HashSet<String> {
     trie.iterate_all()
-        .map(|term| String::from_utf8(term.as_bytes().to_vec()).expect("term is valid UTF-8"))
+        .map(|term| String::from_utf8(term.into_bytes().into_vec()).expect("term is valid UTF-8"))
         .collect()
 }
 
@@ -616,7 +616,7 @@ fn iterate_all_visits_every_term() {
     with_terms_trie(CORPUS, |trie| {
         let got: HashSet<String> = trie
             .iterate_all()
-            .map(|term| String::from_utf8(term.as_bytes().to_vec()).expect("terms are ASCII"))
+            .map(|term| String::from_utf8(term.into_bytes().into_vec()).expect("terms are ASCII"))
             .collect();
         assert_eq!(got, set(CORPUS));
     });
@@ -643,7 +643,7 @@ fn into_iter_visits_every_term() {
     with_terms_trie(CORPUS, |trie| {
         let mut got = HashSet::new();
         for term in &*trie {
-            got.insert(String::from_utf8(term.as_bytes().to_vec()).expect("terms are ASCII"));
+            got.insert(String::from_utf8(term.into_bytes().into_vec()).expect("terms are ASCII"));
         }
         assert_eq!(got, set(CORPUS));
     });

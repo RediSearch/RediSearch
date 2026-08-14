@@ -564,7 +564,6 @@ impl TermsTrie {
     ///
     /// Returns whether an entry was actually removed.
     pub fn delete(&mut self, term: &TrieTerm) -> bool {
-        let term = term.as_bytes();
         // SAFETY: `self` borrows a valid `ffi::Trie`; `TrieTerm` guarantees that
         // the C decoder can consume `term` without reading beyond the slice or
         // treating an interior zero codepoint as its end.

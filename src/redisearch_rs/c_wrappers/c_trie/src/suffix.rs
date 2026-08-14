@@ -270,7 +270,6 @@ impl SuffixTrie {
 
     /// Remove `term` and all of its registered suffixes.
     pub fn delete(&mut self, term: &TrieTerm) {
-        let term = term.as_bytes();
         // A valid `TrieTerm` decodes to fewer than
         // `TRIE_INITIAL_STRING_LEN` runes, each consuming at most four bytes.
         let term_len = u32::try_from(term.len()).expect("a valid trie term length fits in u32");

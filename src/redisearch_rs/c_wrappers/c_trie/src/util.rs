@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::ops::Deref;
+
 /// An owned byte sequence that is valid input to the trie wrapper.
 ///
 /// # Validity invariants
@@ -32,9 +34,22 @@ impl TrieTerm {
         Self { bytes }
     }
 
+    /// Consume the term, returning the buffer it owns.
+    pub fn into_bytes(self) -> Box<[u8]> {
+        self.bytes
+    }
+
     /// Return the term's byte representation.
     pub fn as_bytes(&self) -> &[u8] {
         &self.bytes
+    }
+}
+
+impl Deref for TrieTerm {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_bytes()
     }
 }
 
