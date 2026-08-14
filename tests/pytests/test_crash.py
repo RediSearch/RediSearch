@@ -186,14 +186,10 @@ def test_query_thread_crash_with_rust_panic():
     env.assertIn("search_rust_backtrace", results["# search_rust_backtrace"])
 
 
-# a main-thread crash must report the in-flight blocked queries and cursors,
-# read through each request wrapper's registry entry
-@skip(cluster=True)
-def test_main_thread_crash_reports_blocked_queries():
-    # WORKERS 1 forces the blocked-client path; the CI runner disables workers
-    # by default, which would run the queries inline, unregistered.
-    env = CrashingEnv(testName="test_main_thread_crash_reports_blocked_queries",
-                      moduleArgs='WORKERS 1', freshEnv=True)
+def crash_main_thread_with_blocked_queries(env, hide_user_data=False):
+    """Block an FT.SEARCH and an FT.CURSOR READ on a paused worker pool, then
+    crash the main thread. Returns (logFilePath, cursor_id) for scanning the
+    crash report."""
     prepare_index(env)
 
     # The cursor to read from; its initial cycle must complete before the pool
@@ -201,6 +197,9 @@ def test_main_thread_crash_reports_blocked_queries():
     _, cursor_id = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@text',
                            'WITHCURSOR', 'COUNT', '2')
     env.assertNotEqual(cursor_id, 0)
+
+    if hide_user_data:
+        env.expect('CONFIG', 'SET', 'hide-user-data-from-log', 'yes').ok()
 
     logFilePath = get_log_file_path(env)
 
@@ -227,6 +226,19 @@ def test_main_thread_crash_reports_blocked_queries():
         env.cmd('DEBUG', 'SEGFAULT')  # crash the main thread
     except Exception:
         pass
+
+    return logFilePath, cursor_id
+
+
+# a main-thread crash must report the in-flight blocked queries and cursors,
+# read through each request wrapper's registry entry
+@skip(cluster=True)
+def test_main_thread_crash_reports_blocked_queries():
+    # WORKERS 1 forces the blocked-client path; the CI runner disables workers
+    # by default, which would run the queries inline, unregistered.
+    env = CrashingEnv(testName="test_main_thread_crash_reports_blocked_queries",
+                      moduleArgs='WORKERS 1', freshEnv=True)
+    logFilePath, cursor_id = crash_main_thread_with_blocked_queries(env)
 
     results = scan_log_fragments(logFilePath, [
         '# search_blocked_queries',
@@ -249,41 +261,7 @@ def test_main_thread_crash_reports_blocked_queries_obfuscated():
     # by default, which would run the queries inline, unregistered.
     env = CrashingEnv(testName="test_main_thread_crash_reports_blocked_queries_obfuscated",
                       moduleArgs='WORKERS 1', freshEnv=True)
-    prepare_index(env)
-
-    # The cursor to read from; its initial cycle must complete before the pool
-    # is paused.
-    _, cursor_id = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@text',
-                           'WITHCURSOR', 'COUNT', '2')
-    env.assertNotEqual(cursor_id, 0)
-
-    env.expect('CONFIG', 'SET', 'hide-user-data-from-log', 'yes').ok()
-
-    logFilePath = get_log_file_path(env)
-
-    env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
-
-    def run_ignoring_errors(*cmd):
-        try:
-            env.getConnection().execute_command(*cmd)
-        except Exception:
-            pass  # the server crashes while the command is blocked, by design
-
-    threading.Thread(target=run_ignoring_errors,
-                     args=('FT.SEARCH', 'idx', '*'), daemon=True).start()
-    threading.Thread(target=run_ignoring_errors,
-                     args=('FT.CURSOR', 'READ', 'idx', cursor_id),
-                     daemon=True).start()
-
-    # A client observed blocked proves its cycle is registered: registration
-    # runs inside the command handler, before the handler returns.
-    wait_for_blocked_query_client(env, 'FT.SEARCH')
-    wait_for_blocked_query_client(env, 'FT.CURSOR|READ')
-
-    try:
-        env.cmd('DEBUG', 'SEGFAULT')  # crash the main thread
-    except Exception:
-        pass
+    logFilePath, cursor_id = crash_main_thread_with_blocked_queries(env, hide_user_data=True)
 
     # Same derivation as the spec's own obfuscated name: sha1 of the name.
     obfuscated = 'Index@' + hashlib.sha1(b'idx').hexdigest()
