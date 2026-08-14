@@ -364,7 +364,7 @@ impl<'lock> IndexSpecReadGuard<'lock> {
         unsafe { Dict::from_raw(self.0.missingFieldDict) }
     }
 
-    /// Returns the trie of all TEXT terms.
+    /// Returns the terms trie.
     pub fn terms(&self) -> &TermsTrie {
         debug_assert!(!self.0.terms.is_null(), "terms trie must not be null");
         // SAFETY: `terms` is a valid, non-null `Trie` for a properly initialised IndexSpec,
