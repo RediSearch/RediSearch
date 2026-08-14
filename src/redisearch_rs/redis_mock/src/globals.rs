@@ -18,7 +18,7 @@ pub fn is_crdt() -> bool {
 
 /// Returns the Redis server version as an integer.
 pub fn get_server_version() -> i32 {
-    global_config::get().serverVersion
+    global_config::server_version()
 }
 
 /// Returns true if the Redis server has the Scan Key API feature.

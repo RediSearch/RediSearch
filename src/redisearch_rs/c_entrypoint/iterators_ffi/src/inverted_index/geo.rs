@@ -41,7 +41,7 @@ pub unsafe extern "C" fn NewGeoRangeIterator(
     let sctx = unsafe { NonNull::new_unchecked(ctx as *mut ffi::RedisSearchCtx) };
     // SAFETY: 4. guarantees config is valid and non-null.
     let min_union_iter_heap = unsafe { (*config).min_union_iter_heap } as usize;
-    let compress = global_config::get().numericCompress;
+    let compress = global_config::numeric_compress();
 
     // SAFETY: preconditions 1–3 map directly to those of `build_geo_range_iterator`.
     unsafe { build_geo_range_iterator(sctx, geo, min_union_iter_heap, compress) }

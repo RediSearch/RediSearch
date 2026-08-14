@@ -93,7 +93,7 @@ pub unsafe extern "C" fn NewIntersectionIterator(
     } else {
         Some(max_slop as u32)
     };
-    let prioritize_union_children = global_config::get().prioritizeIntersectUnionChildren;
+    let prioritize_union_children = global_config::prioritize_intersect_union_children();
     let wrapper = match new_intersection_iterator(children) {
         NewIntersectionIterator::Empty => NewEmptyIterator(),
         NewIntersectionIterator::Single(child) => child.into_raw().as_ptr(),

@@ -115,7 +115,7 @@ impl<D: Ord> Storage<D> {
             (_, Some((o, c))) => (o as usize, c as usize),
             // Without an explicit LIMIT the unranked path falls back to the
             // global cap, the ranked path to DEFAULT_LIMIT.
-            (false, None) => (0, global_config::get().maxAggregateResults),
+            (false, None) => (0, global_config::max_aggregate_results()),
             (true, None) => (0, DEFAULT_LIMIT as usize),
         };
         if sortby {
