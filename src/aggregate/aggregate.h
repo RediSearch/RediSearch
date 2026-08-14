@@ -199,6 +199,12 @@ typedef struct AREQ {
 
   const char** requiredFields;
 
+  // Reply-time cache of `requiredFields` resolved against the plan's last
+  // lookup, so serialization does not repeat the by-name lookup for every row.
+  // Entries point into the plan's lookup and stay valid for the request's
+  // lifetime; the array itself is owned by the request.
+  const RLookupKey** requiredFieldsKeys;
+
   struct QOptimizer *optimizer;        // Hold parameters for query optimizer
 
   // Currently we need both because maxSearchResults limits the OFFSET also in

@@ -1816,6 +1816,9 @@ void AREQ_Free(AREQ *req) {
   if(req->requiredFields) {
     array_free(req->requiredFields);
   }
+  if (req->requiredFieldsKeys) {
+    rm_free(req->requiredFieldsKeys);
+  }
   // Free parsed vector data
   if (req->parsedVectorData) {
     ParsedVectorData_Free(req->parsedVectorData);
