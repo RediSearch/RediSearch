@@ -459,6 +459,14 @@ IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec);
  */
 void IndexSpecCache_Decref(IndexSpecCache *cache);
 
+/**
+ * Replace the spec's cache with a freshly built one, releasing the spec's
+ * reference to the old cache (queries holding their own reference are
+ * unaffected). Call after mutating what the cache carries — the field table
+ * or the schema rule's special-field names. Requires the spec write lock.
+ */
+void IndexSpec_RefreshSpecCache(IndexSpec *sp);
+
 /*
  * Get a field spec by field name. Case insensitive!
  * Return the field spec if found, NULL if not

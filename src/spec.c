@@ -1911,6 +1911,11 @@ IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
   return spec->spcache;
 }
 
+void IndexSpec_RefreshSpecCache(IndexSpec *sp) {
+  IndexSpecCache_Decref(sp->spcache);
+  sp->spcache = IndexSpec_BuildSpecCache(sp);
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 void CleanPool_ThreadPoolStart() {
