@@ -48,8 +48,12 @@ Use this when a PR was opened against the wrong repository, wrong target, wrong 
 or with content that should not remain visible in the PR diff or metadata.
 
 1. Pause before closing the PR, deleting the branch, sanitizing metadata, or editing history.
-   Confirm the specific cleanup reason, direct current-user approval, and whether the PR
-   should preserve its current review history.
+   Verify the repository, PR number, PR state, base, head branch, specific cleanup reason,
+   direct current-user approval, and whether the PR should preserve its current review
+   history. If the PR is already closed or merged and GitHub still shows the unwanted diff,
+   do not assume a normal force-push can update it; check whether the PR can be reopened and
+   whether the head ref is writable, otherwise escalate to repository admins or GitHub
+   Support.
 2. Before any branch rewrite, follow [/commit-guidelines](../commit-guidelines/SKILL.md).
    Do not rewrite history casually when the PR has legitimate human review discussion.
 3. Before force-pushing, verify that the head branch is disposable and unshared: it is not
@@ -73,6 +77,6 @@ or with content that should not remain visible in the PR diff or metadata.
    cached view, or timeline event still exposes the material, escalate to repository admins
    or GitHub Support for deletion or purge.
 8. Delete the branch only after verifying the PR no longer shows the unwanted diff.
-9. If the PR was already closed and GitHub still shows the old diff, do not assume a normal
-   force-push can fix it. Hidden `refs/pull/*` refs are generally read-only to normal users;
-   escalate to repository admins or GitHub Support if the stale diff must be purged.
+9. If GitHub still shows a stale unwanted diff after cleanup, hidden `refs/pull/*` refs are
+   generally read-only to normal users; escalate to repository admins or GitHub Support if
+   the stale diff must be purged.
