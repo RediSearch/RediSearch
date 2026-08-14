@@ -447,6 +447,34 @@ mod not_miri {
         test.test.revalidate_after_document_deleted(&mut it, ii);
     }
 
+    /// FT.PROFILE prints the estimate from the reply path, which runs without
+    /// the spec lock and — for stored replies — possibly after the index is
+    /// gone, so `num_estimated` must report the construction-time snapshot
+    /// rather than reading through to the live index.
+    #[test]
+    fn term_num_estimated_is_construction_snapshot() {
+        let test = TermRevalidateTest::new(10);
+        let it = test.create_iterator();
+        let snapshot = it.num_estimated();
+
+        let ii = {
+            use inverted_index::{full::Full, opaque::OpaqueEncoding};
+            Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut()
+        };
+        const OFFSETS: &[u8] = &[0, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+        let mut term = RSQueryTerm::new("term", 1, 0);
+        term.set_idf(5.0);
+        term.set_bm25_idf(10.0);
+        // Doc ids in this fixture are odd and end at 2 * n_docs + 1; append a
+        // fresh, larger one.
+        let record = expected_record(23, u32::MAX as FieldMask, term, OFFSETS);
+        ii.add_record(&record).expect("failed to add record");
+
+        // The live count moved; the reported estimate must not.
+        assert_eq!(ii.unique_docs() as usize, snapshot + 1);
+        assert_eq!(it.num_estimated(), snapshot);
+    }
+
     mod via_resume {
         use super::*;
         use crate::inverted_index::utils::via_resume::{

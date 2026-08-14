@@ -435,7 +435,11 @@ where
     }
 
     fn num_estimated(&self) -> usize {
-        self.reader.unique_docs() as usize
+        // Return the construction-time snapshot (see `num_docs`) rather than
+        // reading the live index: FT.PROFILE prints the estimate from the reply
+        // path, which runs without the spec lock and may outlive the spec
+        // itself. The snapshot is also the value query planning consumed.
+        self.num_docs as usize
     }
 
     fn last_doc_id(&self) -> DocId {
@@ -742,10 +746,9 @@ where
     }
 
     fn num_estimated(&self) -> usize {
-        // The live reader's `unique_docs()` is unavailable once weakened, so we
-        // return the snapshot cached at construction (see `num_docs`). This
-        // matches the active `num_estimated` and keeps FT.PROFILE introspection
-        // of a suspended iterator meaningful.
+        // Same construction-time snapshot the active form returns (see
+        // `num_docs`), keeping FT.PROFILE introspection of a suspended
+        // iterator identical to the active one.
         self.num_docs_field() as usize
     }
 }
