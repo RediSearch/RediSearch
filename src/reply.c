@@ -525,9 +525,6 @@ int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendRe
 
     case RSValueType_Number: {
       if (!(flags & SENDREPLY_FLAG_EXPAND)) {
-        char buf[32];
-        size_t len = RSValue_NumToString(v, buf, sizeof(buf));
-
         if (flags & SENDREPLY_FLAG_TYPED) {
           if (reply->resp3) {
             return RedisModule_Reply_Double(reply, RSValue_Number_Get(v));
@@ -535,9 +532,13 @@ int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendRe
              // In RESP2, RM_ReplyWithDouble() does not tag the response as
              // double, it's just a plain string. So we send it as simple string
              // that is converted to double by MRReply_ToValue().
+            char buf[32];
+            RSValue_NumToString(v, buf, sizeof(buf));
             return RedisModule_Reply_Error(reply, buf);
           }
         } else {
+          char buf[32];
+          size_t len = RSValue_NumToString(v, buf, sizeof(buf));
           return RedisModule_Reply_StringBuffer(reply, buf, len);
         }
       } else {
