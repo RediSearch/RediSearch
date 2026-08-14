@@ -73,10 +73,59 @@ impl IndexSpecCache {
                 nfields,
                 fields,
                 refcount: 1,
+                lang_field: ptr::null_mut(),
+                score_field: ptr::null_mut(),
+                payload_field: ptr::null_mut(),
             });
         }
 
         Self(ptr)
+    }
+
+    /// Record the schema rule's special document-field names on this cache,
+    /// mirroring what `IndexSpec_BuildSpecCache` copies from the schema rule.
+    /// Test helper, like [`IndexSpecCache::from_fields`].
+    pub fn with_rule_special_fields(
+        self,
+        lang: Option<&CStr>,
+        score: Option<&CStr>,
+        payload: Option<&CStr>,
+    ) -> Self {
+        fn rm_strdup(s: Option<&CStr>) -> *mut std::ffi::c_char {
+            let Some(s) = s else {
+                return ptr::null_mut();
+            };
+            // Safety: the redis module is always initialized at this point
+            let alloc = unsafe { redis_module::RedisModule_Alloc.unwrap() };
+            let len = s.to_bytes_with_nul().len();
+            // Safety: the size is non-zero and small
+            let dst = unsafe { alloc(len) }.cast::<std::ffi::c_char>();
+            // Safety: `dst` was just allocated with room for `len` bytes and
+            // `s` is a valid C string of exactly that length.
+            unsafe { ptr::copy_nonoverlapping(s.as_ptr(), dst, len) };
+            dst
+        }
+
+        // Safety: `self.0` is valid (we allocated it in `from_fields`) and not
+        // yet shared, so the mutation cannot race.
+        let me = unsafe { &mut *self.0.as_ptr() };
+        me.lang_field = rm_strdup(lang);
+        me.score_field = rm_strdup(score);
+        me.payload_field = rm_strdup(payload);
+        self
+    }
+
+    /// Returns `true` if `name` is one of the schema rule's special document
+    /// fields (language / score / payload) recorded on this cache.
+    pub fn is_rule_special_field(&self, name: &CStr) -> bool {
+        // Safety: The caller promised - on construction of this type - that this pointer is valid, and alias rules for immutable access are obeyed.
+        let me = unsafe { self.0.as_ref() };
+        [me.lang_field, me.score_field, me.payload_field]
+            .into_iter()
+            .filter(|p| !p.is_null())
+            // Safety: non-null name pointers are valid, NUL-terminated strings
+            // owned by the cache (copied when the cache was built).
+            .any(|p| unsafe { CStr::from_ptr(p) } == name)
     }
 
     /// # Safety

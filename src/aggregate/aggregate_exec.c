@@ -273,15 +273,16 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       RedisModule_Reply_Null(reply);
     } else {
       // Get the number of fields in the reply.
-      // Excludes hidden fields, fields not included in RETURN and, score and language fields.
-      RedisSearchCtx *sctx = AREQ_SearchCtx(req);
-      SchemaRule *rule = (sctx && sctx->spec) ? sctx->spec->rule : NULL;
+      // Excludes hidden fields and fields not included in RETURN. The schema
+      // rule's special fields (score/language/payload) are hidden from
+      // creation (see the spec cache's rule names), so this path never touches
+      // the spec — it may already be gone by reply time.
       uint32_t excludeFlags = RLOOKUP_F_HIDDEN;
       uint32_t requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
       size_t skipFieldIndex_len = RLookup_GetRowLen(lk);
       bool skipFieldIndex[skipFieldIndex_len]; // After calling `RLookup_GetLength` will contain `false` for fields which we should skip below
       memset(skipFieldIndex, 0, skipFieldIndex_len * sizeof(*skipFieldIndex));
-      size_t nfields = RLookup_GetLength(lk, SearchResult_GetRowData(r), skipFieldIndex, skipFieldIndex_len, requiredFlags, excludeFlags, rule);
+      size_t nfields = RLookup_GetLength(lk, SearchResult_GetRowData(r), skipFieldIndex, skipFieldIndex_len, requiredFlags, excludeFlags);
 
       RedisModule_Reply_Map(reply);
       int i = 0;
@@ -298,7 +299,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
         SendReplyFlags flags = (reqFlags & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
         flags |= (reqFlags & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
 
-        unsigned int apiVersion = sctx->apiVersion;
+        unsigned int apiVersion = AREQ_SearchCtx(req)->apiVersion;
         if (RSValue_IsTrio(v)) {
         // Which value to use for duo value
         if (!(flags & SENDREPLY_FLAG_EXPAND)) {
@@ -671,8 +672,7 @@ static void trackWarnings_Resp2(AREQ *req, QueryProcessingCtx *qctx, int rc) {
     ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
   }
 
-  RedisSearchCtx *sctx = AREQ_SearchCtx(req);
-  if (sctx->spec && sctx->spec->scan_failed_OOM) {
+  if (qctx->bgScanOOM) {
     ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
   }
 }
@@ -834,11 +834,12 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
 static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
-  RedisSearchCtx *sctx = AREQ_SearchCtx(req);
   ProfilePrinterCtx *profileCtx = &req->profileCtx;
   RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
-  // qctx->bgScanOOM for coordinator, sctx->spec->scan_failed_OOM for shards
-  if ((qctx->bgScanOOM)||(sctx->spec && sctx->spec->scan_failed_OOM)) {
+  // bgScanOOM: set from shard replies on the coordinator (RPNet), captured from
+  // the spec's scan_failed_OOM on shards while a strong reference is held. The
+  // reply path must not read the spec — it may outlive the last strong ref.
+  if (qctx->bgScanOOM) {
     RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
   }
@@ -1151,8 +1152,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     RedisModule_Reply_ArrayEnd(reply);
 
     // Add BG_SCAN_OOM warning to profile context if applicable
-    RedisSearchCtx *sctx = AREQ_SearchCtx(req);
-    if (sctx && sctx->spec && sctx->spec->scan_failed_OOM) {
+    if (AREQ_QueryProcessingCtx(req)->bgScanOOM) {
       ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
     }
 
@@ -1197,8 +1197,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     }
 
     // Add BG_SCAN_OOM warning to profile context if applicable
-    RedisSearchCtx *sctx = AREQ_SearchCtx(req);
-    if (sctx && sctx->spec && sctx->spec->scan_failed_OOM) {
+    if (AREQ_QueryProcessingCtx(req)->bgScanOOM) {
       ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
     }
 
@@ -1334,6 +1333,10 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   if (!(AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR)) {
     sctx->redisCtx = outctx;
   }
+
+  // Refresh the background-scan-OOM capture under the held execution
+  // reference; the reply path reads only the capture.
+  AREQ_QueryProcessingCtx(req)->bgScanOOM |= sctx->spec->scan_failed_OOM;
 
 #ifdef ENABLE_ASSERT
   // Sync point (debug): pause before acquiring the spec read lock.
@@ -2292,6 +2295,10 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
       return;
     }
 
+    // Refresh the background-scan-OOM capture under the held execution
+    // reference; the reply path reads only the capture.
+    qctx->bgScanOOM |= ((IndexSpec *)StrongRef_Get(execution_ref))->scan_failed_OOM;
+
     if (hasLoader) { // Quick check if the cursor has loaders.
       bool isSetForBackground = reqFlags & QEXEC_F_RUN_IN_BACKGROUND;
       if (bg && !isSetForBackground) {
@@ -2645,6 +2652,10 @@ int RSCursorProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   } else {
     QueryError status = QueryError_Default();
     AREQ_QueryProcessingCtx(req)->err = &status;
+    // Refresh the background-scan-OOM capture under the held execution
+    // reference; the reply path reads only the capture.
+    AREQ_QueryProcessingCtx(req)->bgScanOOM |=
+        ((IndexSpec *)StrongRef_Get(execution_ref))->scan_failed_OOM;
     // Cursor is freed below; signal cursor exhaustion to the client.
     req->base.cursorInfo.id = 0;
     sendChunk_ReplyOnly_EmptyResults(ctx, req);

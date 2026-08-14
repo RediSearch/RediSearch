@@ -201,16 +201,17 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
     if (SearchResult_GetFlags(r) & Result_ExpiredDoc) {
       RedisModule_Reply_Null(reply);
     } else {
-      RedisSearchCtx *sctx = HREQ_SearchCtx(hreq);
       // Get the number of fields in the reply.
-      // Excludes hidden fields, fields not included in RETURN and, score and language fields.
-      SchemaRule *rule = (sctx && sctx->spec) ? sctx->spec->rule : NULL;
+      // Excludes hidden fields. The schema rule's special fields
+      // (score/language/payload) are hidden from creation (see the spec
+      // cache's rule names), so this path never touches the spec — it may
+      // already be gone by reply time.
       uint32_t excludeFlags = RLOOKUP_F_HIDDEN;
       uint32_t requiredFlags = RLOOKUP_F_NOFLAGS;  // Hybrid does not use RETURN fields; it uses LOAD fields instead
       size_t skipFieldIndex_len = RLookup_GetRowLen(lk);
       bool skipFieldIndex[skipFieldIndex_len]; // After calling `RLookup_GetLength` will contain `false` for fields which we should skip below
       memset(skipFieldIndex, 0, skipFieldIndex_len * sizeof(*skipFieldIndex));
-      size_t nfields = RLookup_GetLength(lk, SearchResult_GetRowData(r), skipFieldIndex, skipFieldIndex_len, requiredFlags, excludeFlags, rule);
+      size_t nfields = RLookup_GetLength(lk, SearchResult_GetRowData(r), skipFieldIndex, skipFieldIndex_len, requiredFlags, excludeFlags);
 
       int i = 0;
       RLOOKUP_FOREACH(kk, lk, {
@@ -225,7 +226,7 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
         SendReplyFlags flags = (options & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
         flags |= (options & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
 
-        unsigned int apiVersion = sctx->apiVersion;
+        unsigned int apiVersion = HREQ_SearchCtx(hreq)->apiVersion;
         if (RSValue_IsTrio(v)) {
           // Which value to use for duo value
           if (!(flags & SENDREPLY_FLAG_EXPAND)) {
@@ -399,8 +400,9 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
   // warnings
   HybridWarningMask warnings = HYBRID_WARNING_NONE;
   RedisModule_ReplyKV_Array(reply, "warnings"); // >warnings
-  RedisSearchCtx *sctx = HREQ_SearchCtx(hreq);
-  if (sctx->spec && sctx->spec->scan_failed_OOM) {
+  // bgScanOOM is captured from the spec while a strong reference is held; the
+  // reply path must not read the spec — it may outlive the last strong ref.
+  if (qctx->bgScanOOM) {
     RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
   }
   if (QueryError_HasQueryOOMWarning(qctx->err)) {
@@ -1462,6 +1464,10 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     // Update the main search context with the thread-safe context
     sctx->redisCtx = outctx;
   }
+
+  // Refresh the background-scan-OOM capture under the held execution
+  // reference; the reply path reads only the capture.
+  hreq->tailPipeline->qctx.bgScanOOM |= sctx->spec->scan_failed_OOM;
 
   // Acquire read lock before building pipeline (matching AREQ_Execute_Callback)
   RedisSearchCtx_LockSpecRead(sctx);

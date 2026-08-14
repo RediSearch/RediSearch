@@ -1117,6 +1117,9 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     }
 
     hreq->poolId = ConcurrentCmdCtx_GetPoolId(cmdCtx);
+    // Refresh the background-scan-OOM capture under the held execution
+    // reference; the reply path reads only the capture.
+    hreq->tailPipeline->qctx.bgScanOOM |= sp->scan_failed_OOM;
     // Store coordinator start time for dispatch time tracking
     hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
     size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
@@ -1193,6 +1196,9 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     }
 
     hreq->poolId = ConcurrentCmdCtx_GetPoolId(cmdCtx);
+    // Refresh the background-scan-OOM capture under the held execution
+    // reference; the reply path reads only the capture.
+    hreq->tailPipeline->qctx.bgScanOOM |= sp->scan_failed_OOM;
     hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
     size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
 

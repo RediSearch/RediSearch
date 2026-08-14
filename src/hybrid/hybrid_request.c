@@ -304,6 +304,12 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     hybridReq->tailPipelineError = QueryError_Default();
     Pipeline_Initialize(hybridReq->tailPipeline, hybridReq->reqConfig.timeoutPolicy, &hybridReq->tailPipelineError);
     QueryRequest_SetEndProcRef(&hybridReq->base, &hybridReq->tailPipeline->qctx.endProc);
+    // Capture the background-scan-OOM warning flag while the spec is guaranteed
+    // alive (main-thread command handling). The reply path reads only this
+    // capture — it may run after the last strong spec reference was released.
+    if (sctx && sctx->spec) {
+      hybridReq->tailPipeline->qctx.bgScanOOM |= sctx->spec->scan_failed_OOM;
+    }
 
     // Initialize pipelines for each individual request
     for (size_t i = 0; i < nrequests; i++) {

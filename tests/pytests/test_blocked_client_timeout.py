@@ -8430,3 +8430,60 @@ class TestNoDeadlockQueryWithConcurrentWriter:
 
     def test_search(self):
         self._run(['FT.SEARCH', 'idx', '*', 'LIMIT', '0', '1'])
+
+
+# Regression for the MOD-16992 reply-path use-after-free: with the registry no
+# longer pinning the spec for the cycle, nothing may read the spec after the
+# worker released its execution reference.
+@skip(cluster=True)
+def test_stored_reply_after_index_dropped_mid_cycle():
+    """A FAIL-policy background query replies from stored results on the main
+    thread, after the worker released its execution reference. Pause the worker
+    right after it stored the results (execution reference still held), drop the
+    index — the worker's release then frees it — and resume: the reply must be
+    built entirely from query-owned state. Detects spec reads in the reply path
+    under ASan; also asserts the stored rows are replied in full."""
+    env = Env(moduleArgs='WORKERS 1')
+    skipIfNoEnableAssert(env)  # QUERY_CONTROLLER pause hooks are ENABLE_ASSERT-only
+    env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()
+    n_docs = 5
+    for i in range(n_docs):
+        env.cmd('HSET', f'doc{i}', 'text', 'hello world')
+    waitForIndex(env, 'idx')
+
+    setPauseAfterStoreResults(env, True, internal=False)
+    try:
+        result = {}
+        def run_query():
+            try:
+                result['reply'] = env.getConnection().execute_command(
+                    'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@text')
+            except Exception as e:
+                result['error'] = e
+
+        t = threading.Thread(target=run_query, daemon=True)
+        t.start()
+
+        wait_for_blocked_query_client(env, 'FT.AGGREGATE')
+        wait_for_condition(
+            lambda: (getIsStoreResultsPaused(env) == 1,
+                     {'paused': getIsStoreResultsPaused(env)}),
+            'Timeout while waiting for the worker to pause after storing results')
+
+        # The paused worker holds the only remaining strong reference after this
+        # drop; releasing it on resume frees the index before the client is
+        # unblocked and the reply callback runs.
+        env.expect('FT.DROPINDEX', 'idx').ok()
+    finally:
+        resetStoreResultsDebug(env)
+
+    t.join(timeout=10)
+    env.assertFalse(t.is_alive(), message='query thread should have finished')
+    env.assertNotIn('error', result,
+                    message=f"query failed: {result.get('error')}")
+    # [total, row...] — every row stored before the drop is replied.
+    env.assertEqual(len(result['reply']) - 1, n_docs)
+    for row in result['reply'][1:]:
+        env.assertEqual(row, ['text', 'hello world'])

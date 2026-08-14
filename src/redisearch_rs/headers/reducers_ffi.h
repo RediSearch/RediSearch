@@ -10,11 +10,6 @@
 #include "rqe_core.h"
 
 /**
- * The C version of a [`SharedValue`](value::SharedValue)
- */
-typedef struct RSValue RSValue;
-
-/**
  * Row data for a lookup key. This abstracts the question of if the data comes from a borrowed sorting vector slice
  * or from dynamic values stored in the row during processing.
  *
@@ -25,6 +20,11 @@ typedef struct RSValue RSValue;
  * to the same C tag, and the wrapper provides the actual layout.
  */
 typedef struct RLookupRow RLookupRow;
+
+/**
+ * The C version of a [`SharedValue`](value::SharedValue)
+ */
+typedef struct RSValue RSValue;
 
 /**
  * An append-only list of [`RLookupKey`]s.

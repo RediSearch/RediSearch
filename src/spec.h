@@ -432,6 +432,13 @@ typedef struct IndexSpecCache {
   FieldSpec *fields;
   size_t nfields;
   size_t refcount;
+  // Owned copies of the schema rule's special document-field names (each may
+  // be NULL). Key creation marks keys with these names as hidden, so reply
+  // serialization needs no access to the schema rule (the rule may already be
+  // freed by reply time; this cache is refcounted and outlives the spec).
+  char *lang_field;
+  char *score_field;
+  char *payload_field;
 } IndexSpecCache;
 
 /**
