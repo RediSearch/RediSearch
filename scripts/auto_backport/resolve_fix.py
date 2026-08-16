@@ -251,7 +251,7 @@ query($owner:String!, $repo:String!, $pr:Int!, $after:String) {
           path
           line
           comments(last:100) {
-            nodes { author { login } authorAssociation body createdAt }
+            nodes { author { login __typename } authorAssociation body createdAt }
           }
         }
       }
@@ -350,6 +350,10 @@ def fetch_unresolved_review_threads(pr: int) -> list[dict]:
             comments = ((node.get("comments") or {}).get("nodes")) or []
             if not comments:
                 continue
+            # Actionable feedback must be a write-level *human*: exclude any
+            # Bot-typed author regardless of association. A review bot or machine
+            # account carrying MEMBER/COLLABORATOR would otherwise inject text
+            # the agent (holding contents+workflows write) treats as an order.
             bodies = [
                 {
                     "author": ((c.get("author") or {}).get("login")) or "",
@@ -357,6 +361,7 @@ def fetch_unresolved_review_threads(pr: int) -> list[dict]:
                 }
                 for c in comments
                 if c.get("authorAssociation") in TRUSTED_ASSOCIATIONS and c.get("body")
+                and ((c.get("author") or {}).get("__typename")) != "Bot"
             ]
             if not bodies:
                 continue
@@ -416,9 +421,11 @@ def fetch_general_pr_comments(pr: int, acked: dict[str, str]) -> list[dict]:
     output and `/backport-agent*` command comments.
 
     Same author-association trust gate as the review-thread / context
-    collectors. The bot's own comments are dropped by AUTHOR (`== BOT_LOGIN`),
-    not by body prefix, so a maintainer's comment that quotes the bot's
-    `🤖 …` heading is still surfaced. `/backport-agent*` command comments are
+    collectors, plus `.user.type != "Bot"`: a machine account carrying
+    MEMBER/COLLABORATOR must not have its text treated as actionable human
+    feedback. The bot's own comments are also dropped by AUTHOR
+    (`== BOT_LOGIN`), not by body prefix, so a maintainer's comment that quotes
+    the bot's `🤖 …` heading is still surfaced. `/backport-agent*` command comments are
     skipped by prefix (they're triggers, and `/backport-agent-context` is
     already collected into `context[]`). Each entry keeps its `id` and `kind`
     ("comment") so the agent can stamp the acknowledgement marker when it
@@ -434,6 +441,7 @@ def fetch_general_pr_comments(pr: int, acked: dict[str, str]) -> list[dict]:
         "api", "-X", "GET", f"repos/{repo}/issues/{pr}/comments",
         "--jq",
         "[ .[] "
+        '| select(.user.type != "Bot") '
         "| select(.author_association == \"OWNER\" "
         '     or .author_association == "MEMBER" '
         '     or .author_association == "COLLABORATOR") '
@@ -463,8 +471,9 @@ def fetch_review_bodies(pr: int, acked: dict[str, str]) -> list[dict]:
 
     Such feedback is stored as a pull-request review, not an issue comment or a
     review thread, so neither of the other collectors sees it. Same trust gate
-    and per-item `acked` dedup as `fetch_general_pr_comments`; the bot's own
-    reviews are dropped by author (`== BOT_LOGIN`). There is no thread to
+    and per-item `acked` dedup as `fetch_general_pr_comments`, including the
+    `.user.type != "Bot"` exclusion; the bot's own reviews are also dropped by
+    author (`== BOT_LOGIN`). There is no thread to
     resolve — the agent replies via a normal PR comment, exactly as for general
     comments, so entries share the same shape with `kind` set to "review".
 
@@ -488,6 +497,7 @@ def fetch_review_bodies(pr: int, acked: dict[str, str]) -> list[dict]:
         "api", "-X", "GET", f"repos/{repo}/pulls/{pr}/reviews",
         "--jq",
         "[ .[] "
+        '| select(.user.type != "Bot") '
         "| select(.author_association == \"OWNER\" "
         '     or .author_association == "MEMBER" '
         '     or .author_association == "COLLABORATOR") '

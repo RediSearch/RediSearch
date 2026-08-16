@@ -387,6 +387,21 @@ class ReviewThreadTests(unittest.TestCase):
         got = resolve_fix.fetch_unresolved_review_threads(1)
         self.assertEqual(got[0]["latest_comment_at"], "2026-01-04T00:00:00Z")
 
+    def test_drops_member_associated_bot_feedback(self):
+        # A bot account carrying MEMBER association must NOT be treated as
+        # actionable feedback (prompt-injection guard) — the thread has no
+        # human trusted comment, so it drops.
+        self._stub([
+            {
+                "id": "T1", "isResolved": False, "path": "a", "line": 1,
+                "comments": {"nodes": [
+                    {"author": {"login": "some-bot", "__typename": "Bot"},
+                     "authorAssociation": "MEMBER", "body": "nit: rename this"},
+                ]},
+            },
+        ])
+        self.assertEqual(resolve_fix.fetch_unresolved_review_threads(1), [])
+
     def test_none_data_yields_empty(self):
         common.gh_graphql = lambda *a, **k: None
         self.assertEqual(resolve_fix.fetch_unresolved_review_threads(1), [])
@@ -454,6 +469,16 @@ class GeneralCommentTests(unittest.TestCase):
         got = resolve_fix.fetch_general_pr_comments(1, {})
         self.assertEqual(len(got), resolve_fix.MAX_FEEDBACK_ITEMS)
         self.assertEqual(got[-1]["id"], n - 1)  # newest retained
+
+    def test_query_excludes_bot_typed_authors(self):
+        captured = {}
+
+        def fake(*args, **kwargs):
+            captured["jq"] = args[args.index("--jq") + 1]
+            return []
+        common.gh_paginated_array = fake
+        resolve_fix.fetch_general_pr_comments(1, {})
+        self.assertIn('.user.type != "Bot"', captured["jq"])
 
     def test_empty_when_none(self):
         self._stub([])
@@ -526,6 +551,7 @@ class ReviewBodyTests(unittest.TestCase):
         resolve_fix.fetch_review_bodies(1, {})
         self.assertIn('.state != "DISMISSED"', captured["jq"])
         self.assertIn('.state != "PENDING"', captured["jq"])
+        self.assertIn('.user.type != "Bot"', captured["jq"])
 
 
 class AddressedFeedbackTests(unittest.TestCase):
