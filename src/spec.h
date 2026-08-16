@@ -351,8 +351,13 @@ typedef struct IndexSpec {
   // read write lock
   pthread_rwlock_t rwlock;
 
-  // Cursors counters
+  // Cursors counters. Shard cursors and coordinator cursors are counted
+  // separately because they live in different `CursorList`s, each with its own
+  // mutex: a single counter would be read-modify-written under two different
+  // locks. Each counter is owned by exactly one cursor-list lock, and both are
+  // capped by INDEX_CURSOR_LIMIT independently.
   size_t activeCursors;
+  size_t activeCoordCursors;
 
   // Quick access to the spec's strong ref
   StrongRef own_ref;

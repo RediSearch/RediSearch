@@ -34,6 +34,13 @@ static void Cursors_RequestRescheduleSweep(CursorList *cl);
 CursorList g_CursorsList;
 CursorList g_CursorsListCoord;
 
+// Picks the cursor counter belonging to the given cursor list. Callers must hold
+// that list's lock: the counter it returns is guarded by that lock alone, which
+// is why the two lists cannot share one counter.
+static inline size_t *activeCursorsRef(IndexSpec *spec, bool is_coord) {
+  return is_coord ? &spec->activeCoordCursors : &spec->activeCursors;
+}
+
 static uint64_t curTimeNs() {
   struct timespec tv;
   clock_gettime(CLOCK_MONOTONIC, &tv);
@@ -106,7 +113,9 @@ static void Cursor_FreeInternal(Cursor *cur) {
     IndexSpec *spec = StrongRef_Get(spec_ref);
     // the spec may have been dropped, so we need to make sure it is still valid.
     if(spec) {
-      spec->activeCursors--;
+      // Select on the cursor's own list, not on whichever list a caller happens
+      // to hold: `getCursorList(cur->is_coord)` above is the list we are locked on.
+      (*activeCursorsRef(spec, cur->is_coord))--;
       StrongRef_Release(spec_ref);
     }
     WeakRef_Release(cur->spec_ref);
@@ -364,6 +373,7 @@ Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned inte
                         QueryError *status) {
   Cursor *cur = NULL;
   IndexSpec *spec = NULL;
+  size_t *activeCursors = NULL;
   int dummy = 0;
   khiter_t iter = 0;
 
@@ -373,11 +383,13 @@ Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned inte
   // If the cursor should be associated with a spec,
   // we assume that global_spec_ref points to a valid spec, else the function returns NULL.
   spec = StrongRef_Get(global_spec_ref);
-  // If we are in a coordinator ctx, the spec is NULL
-  if (spec && spec->activeCursors >= RSGlobalConfig.indexCursorLimit) {
+  if (spec) {
+    activeCursors = activeCursorsRef(spec, cl->is_coord);
+  }
+  if (activeCursors && *activeCursors >= RSGlobalConfig.indexCursorLimit) {
     /** Collect idle cursors now */
     Cursors_GCInternal(cl, 0);
-    if (spec->activeCursors >= RSGlobalConfig.indexCursorLimit) {
+    if (*activeCursors >= RSGlobalConfig.indexCursorLimit) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "INDEX_CURSOR_LIMIT of %lld has been reached for an index", RSGlobalConfig.indexCursorLimit);
       goto done;
     }
@@ -392,7 +404,7 @@ Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned inte
     // Get a a weak reference to the spec out of the strong ref, and save it in the
     // cursor's struct.
     cur->spec_ref = StrongRef_Demote(global_spec_ref);
-    spec->activeCursors++;
+    (*activeCursors)++;
   }
 
   iter = kh_put(cursors, cl->lookup, cur->id, &dummy);

@@ -342,6 +342,80 @@ def testExceedCursorCapacityBG():
     env = Env(moduleArgs='WORKERS 1')
     exceedCursorCapacity(env)
 
+def fillCoordCursorsToCapacity(env, limit, *extra_args):
+    """Leave `limit` idle coordinator cursors behind, then return the query that
+    should be rejected. The chunks are never read to depletion, so every cursor
+    stays idle and counted."""
+    for _ in range(limit):
+        _, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1, *extra_args)
+        env.assertNotEqual(cursor, 0, message='cursor was depleted, nothing left to count')
+
+@skip(cluster=False)
+def testExceedCoordCursorCapacity(env):
+    """MOD-17479: coordinator cursors are capped by INDEX_CURSOR_LIMIT.
+
+    The coordinator used to reserve its cursor with a NULL spec ref, so the cap
+    and the counter in `Cursors_Reserve` were both skipped and the coordinator
+    cursor list had no ceiling at all. This is the cluster-mode counterpart of
+    `testExceedCursorCapacity`, which has been shard-only since the cap existed.
+    """
+    env.expect('FT.CREATE idx SCHEMA t NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc1', 't', 1)
+
+    limit = 4
+    env.expect(config_cmd(), 'SET', 'INDEX_CURSOR_LIMIT', limit).ok()
+    try:
+        fillCoordCursorsToCapacity(env, limit)
+        env.expect('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1) \
+            .error().contains('INDEX_CURSOR_LIMIT')
+
+        # The shard budget is a separate counter, so the coordinator hitting its
+        # ceiling must not have consumed the shard allowance for the same index.
+        env.assertLessEqual(getCursorStats(env, 'idx')['index_total'], limit)
+    finally:
+        env.expect(config_cmd(), 'SET', 'INDEX_CURSOR_LIMIT', 128).ok()
+
+@skip(cluster=False)
+def testExceedCoordCursorCapacityWithCount(env):
+    """The deferred WITHCOUNT path reserves the coordinator cursor only after the
+    shard fan-out has already opened shard cursors, so a rejection there must
+    tear those down (`rpnetFree` -> `MRIterator_Release` dispatches
+    `FT.CURSOR DEL`). Asserts both the rejection and the cleanup."""
+    env.expect('FT.CREATE idx SCHEMA t NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc1', 't', 1)
+
+    limit = 4
+    env.expect(config_cmd(), 'SET', 'INDEX_CURSOR_LIMIT', limit).ok()
+    try:
+        fillCoordCursorsToCapacity(env, limit, 'WITHCOUNT')
+        shard_cursors = getCursorStats(env, 'idx')['index_total']
+
+        env.expect('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1, 'WITHCOUNT') \
+            .error().contains('INDEX_CURSOR_LIMIT')
+
+        # FT.CURSOR DEL is dispatched asynchronously, so poll rather than sample.
+        with TimeLimit(5, 'shard cursors were not released after the coordinator bail'):
+            while getCursorStats(env, 'idx')['index_total'] > shard_cursors:
+                sleep(0.01)
+    finally:
+        env.expect(config_cmd(), 'SET', 'INDEX_CURSOR_LIMIT', 128).ok()
+
+@skip(cluster=False)
+def testCoordCursorReadAfterDrop(env):
+    """A coordinator cursor now holds a weak spec ref, so an idle one surviving
+    FT.DROPINDEX must report an error instead of reaching a dangling spec."""
+    env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc1', 'n', 1)
+
+    _, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 1)
+    env.assertNotEqual(cursor, 0)
+
+    env.expect('FT.DROPINDEX', 'idx').ok()
+    env.expect('FT.CURSOR', 'READ', 'idx', cursor).error()
+
 @skip(cluster=False)
 def testCursorOnCoordinatorBG():
     env = Env(moduleArgs='WORKERS 1')
