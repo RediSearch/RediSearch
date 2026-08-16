@@ -1343,7 +1343,7 @@ class TestCoordinatorTimeout:
         ``BeforeCursorReadSendChunk`` and fire ``CLIENT UNBLOCK ... TIMEOUT``
         to invoke ``CursorReadTimeoutFailCallback``. Verify the user sees
         ``-TIMEOUT``, the coord error metric bumps, and the coord cursor is
-        reclaimed via ``AREQ_CleanUpStoredCursor``.
+        reclaimed at cycle end (a cycle that records no park frees by default).
         """
         env = self.env
         skipIfNoEnableAssert(env)
@@ -7409,11 +7409,12 @@ class TestShardTimeout:
         after the handshake but before taking the Redis lock. The timeout callback
         loses the claim, observes holding == true, and takes the preempt branch:
         it replies with an exhausted cursor (id 0) and returns immediately. The
-        blocked-client free callback (ShardCursorBlockClient_FreeAREQ) then drains
-        req->storedReplyState.cursor - freeing the cursor (stashed before
-        sendChunk) and dropping its AREQ reference - while the worker is still
-        parked. Releasing the worker makes it resume sendChunk and keep using the
-        freed cursor/AREQ: a use-after-free (caught under SAN, otherwise a crash).
+        original shard free callback then freed the stashed cursor while the
+        worker was still parked; releasing the worker made it resume sendChunk
+        and keep using the freed cursor/AREQ: a use-after-free (caught under
+        SAN, otherwise a crash). Today the free callback runs only after the
+        worker's own unblock, and a cycle the timeout replied for records no
+        park, so cycle end frees the cursor.
 
         Detects the bug: releasing the worker after the cursor was freed must not
         corrupt memory; the cursor-read thread finishes and the server survives.
@@ -7468,9 +7469,9 @@ class TestShardTimeout:
     def test_return_strict_initial_withcursor_preempt_no_cursor_leak(self):
         """Initial RETURN_STRICT FT.AGGREGATE WITHCURSOR must not orphan its cursor.
 
-        The initial WITHCURSOR query reserves a cursor and stashes it in
-        storedReplyState.cursor before sendChunk. The worker wins the claim, marks
-        itself at the GIL gate, and parks at AfterSafeLoaderGILHandshake. The
+        The initial WITHCURSOR query reserves a cursor and publishes it as the
+        cycle's cursor. The worker wins the claim, marks itself at the GIL
+        gate, and parks at AfterSafeLoaderGILHandshake. The
         timeout callback loses the claim, observes holding == true, and preempts:
         it sends an empty cursor-id-0 reply and returns, skipping the normal
         AREQ_ReplyWithStoredResults path that would pause/free the reserved cursor.
@@ -8370,7 +8371,7 @@ class TestNoDeadlockQueryWithConcurrentWriter:
     """MOD-15364: BG query holds the spec read lock; a concurrent writer
     parks on the spec write lock and blocks the main thread. With the fix,
     the BG worker releases the read lock on the BG thread (inside
-    `AREQ_Execute`, before `AREQ_DecrRef`) prior to `RedisModule_UnblockClient`,
+    `AREQ_Execute`) prior to `RedisModule_UnblockClient`,
     so the writer can acquire the write lock and the main thread later runs
     the unblock callback. Without the fix, the unblock callback never runs
     (main thread is parked on wrlock), the read lock is never released, and
