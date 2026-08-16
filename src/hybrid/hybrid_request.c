@@ -279,15 +279,15 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
  * @param nrequests Number of requests in the array
  */
 void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests, size_t nrequests, RedisModuleString **argv, uint32_t argc) {
-    QueryRequest_Init(&hybridReq->base, QUERY_REQUEST_KIND_HYBRID, argv, argc);
+    // Snapshot the request's config; nothing may re-read RSGlobalConfig for
+    // the request's lifetime.
+    hybridReq->reqConfig = RSGlobalConfig.requestConfigParams;
+    QueryRequest_Init(&hybridReq->base, QUERY_REQUEST_KIND_HYBRID,
+                      &hybridReq->reqConfig, argv, argc);
     hybridReq->requests = requests;
     hybridReq->nrequests = nrequests;
     hybridReq->sctx = sctx;
     hybridReq->kArgIndex = -1;
-    // Snapshot the request's config; nothing may re-read RSGlobalConfig for
-    // the request's lifetime.
-    hybridReq->reqConfig = RSGlobalConfig.requestConfigParams;
-
     rs_wall_clock now = {0};
     rs_wall_clock_init(&now);
 

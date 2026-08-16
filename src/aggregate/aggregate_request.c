@@ -1120,7 +1120,8 @@ bool RunInThread(RedisModuleCtx *ctx) {
 
 AREQ *AREQ_New(RedisModuleString **argv, uint32_t argc) {
   AREQ* req = rm_calloc(1, sizeof(AREQ));
-  QueryRequest_Init(&req->base, QUERY_REQUEST_KIND_AREQ, argv, argc);
+  req->reqConfig = RSGlobalConfig.requestConfigParams;
+  QueryRequest_Init(&req->base, QUERY_REQUEST_KIND_AREQ, &req->reqConfig, argv, argc);
   QueryRequest_SetEndProcRef(&req->base, &req->pipeline.qctx.endProc);
   /*
   unsigned int dialectVersion;
@@ -1129,8 +1130,6 @@ AREQ *AREQ_New(RedisModuleString **argv, uint32_t argc) {
   int printProfileClock;
   uint64_t BM25STD_TanhFactor;
   */
-  req->reqConfig = RSGlobalConfig.requestConfigParams;
-
   // TODO: save only one of the configuration parameters according to the query type
   // once query offset is bounded by both.
   req->maxSearchResults = RSGlobalConfig.maxSearchResults;
@@ -1379,6 +1378,13 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskInd
     goto error;
   }
 
+  // Shard/standalone inline execution has no blocked-client timeout callback,
+  // which RETURN_STRICT requires. Quietly fall back to RETURN for this request.
+  if (!IsCoordinator(req) && req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict &&
+      !RunInThread(ctx)) {
+    req->reqConfig.timeoutPolicy = TimeoutPolicy_Return;
+  }
+
   // Verify we got slots requested if needed
   if (IsInternal(req) && !req->querySlots) {
     // Coordinators older than 8.4 do not send a slots specification. Fall back to the
@@ -1395,6 +1401,11 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskInd
       AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
     }
   }
+
+  // TIMEOUT parsing and request-specific adjustments are complete. Keep this final configuration
+  // unchanged across cursor reads; only the timeout's per-cycle state is reset or rearmed.
+  QueryRequestTimeout_UpdateConfig(&req->base.timeout, req->reqConfig.timeoutPolicy,
+                                   req->reqConfig.queryTimeoutMS);
 
   // Check if we should check for timeout in pipeline
   AREQ_SetSkipTimeoutChecks(req, !shouldCheckInPipelineTimeout(ctx, req));

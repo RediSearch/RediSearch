@@ -1957,6 +1957,8 @@ static int rejectDiskLoaderInlineExecution(AREQ *r, const RedisSearchCtx *sctx,
 static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *status) {
   RedisSearchCtx *sctx = AREQ_SearchCtx(r);
   if (RunInThread(ctx)) {
+    QueryRequestTimeout_BeginCycle(&r->base.timeout,
+                                   QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 
     RSTimeoutPolicy policy = r->reqConfig.timeoutPolicy;
@@ -1993,6 +1995,8 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     // be blocked (MULTI/EXEC, Lua). Flex enforces WORKERS > 0, so a disk
     // request reaching this inline branch is always a non-blockable client —
     // which still happens: any FT.AGGREGATE inside MULTI/EXEC lands here.
+    QueryRequestTimeout_BeginCycle(&r->base.timeout,
+                                   QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
     if (rejectDiskLoaderInlineExecution(r, sctx, status) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
@@ -2188,6 +2192,8 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   // the blocked-client timer, armed by buildPipelineAndExecute (initial
   // WITHCURSOR) or CursorCommand (subsequent READ).
   if (!QueryRequest_UsesReplyCallback(&req->base)) {
+    QueryRequestTimeout_BeginCycle(&req->base.timeout,
+                                   QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
     SearchCtx_UpdateTime(AREQ_SearchCtx(req), req->reqConfig.queryTimeoutMS);
   }
 
@@ -2454,6 +2460,19 @@ static bool cursorIsDiskBacked(const Cursor *cursor) {
   return isDisk;
 }
 
+static void prepareCursorTimeoutCycle(AREQ *req, QueryRequestTimeoutKind kind) {
+  RS_ASSERT(kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT ||
+            kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+  if (kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT) {
+    QueryRequestTimeout_BeginCycle(&req->base.timeout, kind);
+  } else {
+    // Start the clock in runCursor so worker-queue time remains outside the
+    // execution timeout. UNARMED prevents a previous read's deadline from
+    // aborting the queued job before runCursor can rearm it.
+    QueryRequestTimeout_Reset(&req->base.timeout);
+  }
+}
+
 // Coordinator blocked-client callbacks (coord/dist_aggregate.c), used when the
 // taken cursor is a coordinator (RPNet) cursor.
 int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
@@ -2536,6 +2555,9 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
           : DistCursorReadTimeoutReturnStrictCallback;
       timeoutMS = (rs_wall_clock_ms_t)capped;
     }
+    prepareCursorTimeoutCycle(
+        req, replyCallback ? QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
+                           : QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
     return cursorReadDispatchTaken(ctx, cursor, count, replyCallback, timeoutCallback, timeoutMS,
                                    DIST_THREADPOOL);
   }
@@ -2574,6 +2596,9 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
       // from a prior callback-based cursor read so runCursor doesn't park the cursor.
       QueryRequest_SetUseReplyCallback(&req->base, false);
     }
+    prepareCursorTimeoutCycle(
+        req, replyCallback ? QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
+                           : QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
     CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
     cr_ctx->bc = BlockCursorClientWithTimeout(ctx, cursor, count, &req->base, replyCallback,
                                               timeoutCallback, timeoutMS);
@@ -2599,8 +2624,17 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     AREQ *inline_req = Cursor_AREQ(cursor);
     if (inline_req) {
+      if (inline_req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+        // Inline cursor reads cannot provide RETURN_STRICT's blocked-client
+        // callback. Keep the cursor and its request on the RETURN fallback.
+        cursor->queryTimeoutPolicy = TimeoutPolicy_Return;
+        inline_req->reqConfig.timeoutPolicy = TimeoutPolicy_Return;
+        QueryRequestTimeout_UpdateConfig(&inline_req->base.timeout, TimeoutPolicy_Return,
+                                         inline_req->base.timeout.timeoutMS);
+      }
       // Reply inline via ctx; clear stale useReplyCallback.
       QueryRequest_SetUseReplyCallback(&inline_req->base, false);
+      prepareCursorTimeoutCycle(inline_req, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
     }
     cursorRead(ctx, cursor, count, false);
   }

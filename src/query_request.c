@@ -18,6 +18,95 @@
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 #include "util/misc.h"
+#include "util/timeout.h"
+
+void QueryRequestTimeout_Init(QueryRequestTimeout *timeout, RSTimeoutPolicy policy,
+                              long long timeoutMS) {
+  // Capture the request defaults before parsing can apply command-specific overrides.
+  QueryRequestTimeout_UpdateConfig(timeout, policy, timeoutMS);
+  QueryRequestTimeout_Reset(timeout);
+  RS_AtomicBoolStoreRelaxed(&timeout->timedOut, false);
+  timeout->skipTimeoutChecks = false;
+}
+
+void QueryRequestTimeout_UpdateConfig(QueryRequestTimeout *timeout, RSTimeoutPolicy policy,
+                                      long long timeoutMS) {
+  RS_ASSERT(timeoutMS >= 0);
+  timeout->policy = policy;
+  timeout->timeoutMS = timeoutMS;
+}
+
+void QueryRequestTimeout_Reset(QueryRequestTimeout *timeout) {
+  timeout->kind = QUERY_REQUEST_TIMEOUT_UNARMED;
+}
+
+void QueryRequestTimeout_BeginCycle(QueryRequestTimeout *timeout, QueryRequestTimeoutKind kind) {
+  switch (kind) {
+    case QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT:
+      RS_AtomicBoolStoreRelaxed(&timeout->source.blockedClientTimedOut, false);
+      timeout->kind = QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT;
+      return;
+    case QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE: {
+      // RETURN_STRICT depends on the blocked-client timeout callback. Clock-based
+      // consumers must downgrade it to RETURN before starting their cycle.
+      RS_ASSERT(timeout->policy != TimeoutPolicy_ReturnStrict);
+      if (timeout->timeoutMS == 0) {
+        timeout->kind = QUERY_REQUEST_TIMEOUT_UNARMED;
+        return;
+      }
+
+      struct timespec duration = {
+          .tv_sec = timeout->timeoutMS / 1000,
+          .tv_nsec = (timeout->timeoutMS % 1000) * 1000000,
+      };
+      struct timespec now;
+      clock_gettime(CLOCK_MONOTONIC_RAW, &now);
+      rs_timeradd(&now, &duration, &timeout->source.clockDeadline);
+      timeout->kind = QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
+      return;
+    }
+    case QUERY_REQUEST_TIMEOUT_UNARMED:
+      RS_ABORT_ALWAYS("UNARMED is not a selectable timeout source");
+  }
+  RS_ABORT_ALWAYS("Invalid query timeout kind");
+}
+
+void QueryRequestTimeout_MarkTimedOut(QueryRequestTimeout *timeout) {
+  RS_ASSERT(timeout->kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  RS_AtomicBoolStoreRelaxed(&timeout->source.blockedClientTimedOut, true);
+}
+
+bool QueryRequestTimeout_IsTimedOut(const QueryRequestTimeout *timeout) {
+  switch (timeout->kind) {
+    case QUERY_REQUEST_TIMEOUT_UNARMED:
+      return false;
+    case QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT:
+      return RS_AtomicBoolLoadRelaxed(&timeout->source.blockedClientTimedOut);
+    case QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE:
+      return TimedOut(&timeout->source.clockDeadline) == TIMED_OUT;
+  }
+  RS_ABORT_ALWAYS("Invalid query timeout kind");
+}
+
+bool QueryRequestTimeout_IsTimedOutWithCounter(const QueryRequestTimeout *timeout,
+                                               uint32_t *counter) {
+  // Only clock reads are expensive enough to amortize. Other sources retain
+  // the exact semantics of QueryRequestTimeout_IsTimedOut.
+  if (timeout->kind != QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE) {
+    return QueryRequestTimeout_IsTimedOut(timeout);
+  }
+
+  RS_ASSERT(counter && *counter < QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT);
+  if (RS_IsMock) {
+    return false;
+  }
+
+  if (++(*counter) == QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT) {
+    *counter = 0;
+    return QueryRequestTimeout_IsTimedOut(timeout);
+  }
+  return false;
+}
 
 static void QueryRequestArgs_Release(RedisModuleString **argv, uint32_t argc) {
   for (uint32_t ii = 0; ii < argc; ++ii) {
@@ -103,8 +192,10 @@ static void QueryRequest_HoldArgs(QueryRequestArgs *args, RedisModuleString **ar
   }
 }
 
-void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind, RedisModuleString **argv,
+void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind,
+                       const RequestConfig *requestConfig, RedisModuleString **argv,
                        uint32_t argc) {
+  RS_ASSERT(requestConfig);
   request->kind = kind;
   RS_AtomicIntStoreRelaxed(&request->refcount, 1);
   request->args = (QueryRequestArgs) {
@@ -115,8 +206,9 @@ void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind, RedisModule
   request->registryInfo = (RegistryInfo) {0};
   ChunkReplyState_Init(&request->reply);
   QueryRequest_SetUseReplyCallback(request, false);
-  QueryRequestTimeout_ClearTimedOut(&request->timeout);
-  QueryRequestTimeout_SetSkipChecks(&request->timeout, false);
+  QueryRequestTimeout_Init(&request->timeout, requestConfig->timeoutPolicy,
+                           requestConfig->queryTimeoutMS);
+  QueryRequestTimeout_BeginCycle(&request->timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   QueryRequestAsyncState_Init(&request->async);
   QueryRequest_SetEndProcRef(request, NULL);
   if (argv) {

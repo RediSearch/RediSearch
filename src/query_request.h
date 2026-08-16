@@ -13,7 +13,9 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <time.h>
 
+#include "config.h"
 #include "query_error.h"
 #include "util/rs_atomic.h"
 
@@ -107,10 +109,73 @@ typedef struct {
   uint32_t queryOffset;
 } QueryRequestArgs;
 
+#define QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT 100
+
+typedef enum {
+  QUERY_REQUEST_TIMEOUT_UNARMED,
+  QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT,
+  QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE,
+} QueryRequestTimeoutKind;
+
 typedef struct QueryRequestTimeout {
+  // Stable configuration retained across cursor execution cycles.
+  RSTimeoutPolicy policy;
+  long long timeoutMS;
+
+  // The active source is changed only between execution cycles, while no
+  // consumer can observe the union.
+  QueryRequestTimeoutKind kind;
+  union {
+    RS_Atomic(bool) blockedClientTimedOut;
+    struct timespec clockDeadline;
+  } source;
+
+  // TRANSITIONAL(MOD-17481): Existing consumers continue using these fields
+  // until they migrate to the source-independent API above.
   RS_Atomic(bool) timedOut;
   bool skipTimeoutChecks;
 } QueryRequestTimeout;
+
+void QueryRequestTimeout_Init(QueryRequestTimeout *timeout, RSTimeoutPolicy policy,
+                              long long timeoutMS);
+/** Updates request-stable configuration without changing the active cycle. */
+void QueryRequestTimeout_UpdateConfig(QueryRequestTimeout *timeout, RSTimeoutPolicy policy,
+                                      long long timeoutMS);
+/** Clears the active source between cycles; configuration is retained. */
+void QueryRequestTimeout_Reset(QueryRequestTimeout *timeout);
+/**
+ * Starts a timeout cycle using kind as its timeout source.
+ */
+void QueryRequestTimeout_BeginCycle(QueryRequestTimeout *timeout, QueryRequestTimeoutKind kind);
+void QueryRequestTimeout_MarkTimedOut(QueryRequestTimeout *timeout);
+
+/**
+ * Reports whether the request has timed out, independently of how the timeout
+ * is detected:
+ *
+ * - UNARMED always returns false.
+ * - BLOCKED_CLIENT reads the flag published by the blocked-client callback.
+ * - CLOCK_DEADLINE compares the monotonic clock with the active deadline.
+ *
+ * This is the primary timeout operation. It neither applies the timeout policy
+ * nor changes the timeout state.
+ */
+bool QueryRequestTimeout_IsTimedOut(const QueryRequestTimeout *timeout);
+
+/**
+ * Amortized variant of QueryRequestTimeout_IsTimedOut:
+ *
+ * - UNARMED and BLOCKED_CLIENT preserve the primary operation's behavior and
+ *   leave counter unchanged.
+ * - CLOCK_DEADLINE increments counter and checks the deadline only when it
+ *   reaches QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT, then resets it to 0.
+ *
+ * Counter state is caller-owned and must remain in
+ * [0, QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT). Initialize it to 0 to perform the
+ * first clock check on the QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT call. BeginCycle does not reset it.
+ */
+bool QueryRequestTimeout_IsTimedOutWithCounter(const QueryRequestTimeout *timeout,
+                                               uint32_t *counter);
 
 static inline bool QueryRequestTimeout_GetTimedOut(const QueryRequestTimeout *timeout) {
   return RS_AtomicBoolLoadRelaxed(&timeout->timedOut);
@@ -118,10 +183,16 @@ static inline bool QueryRequestTimeout_GetTimedOut(const QueryRequestTimeout *ti
 
 static inline void QueryRequestTimeout_SetTimedOut(QueryRequestTimeout *timeout) {
   RS_AtomicBoolStoreRelaxed(&timeout->timedOut, true);
+  if (timeout->kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT) {
+    QueryRequestTimeout_MarkTimedOut(timeout);
+  }
 }
 
 static inline void QueryRequestTimeout_ClearTimedOut(QueryRequestTimeout *timeout) {
   RS_AtomicBoolStoreRelaxed(&timeout->timedOut, false);
+  if (timeout->kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT) {
+    RS_AtomicBoolStoreRelaxed(&timeout->source.blockedClientTimedOut, false);
+  }
 }
 
 static inline bool QueryRequestTimeout_ShouldCheck(const QueryRequestTimeout *timeout) {
@@ -243,7 +314,8 @@ static inline void QueryRequest_SetExecutionPhase(QueryRequest *request, int pha
   }
 }
 
-void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind, RedisModuleString **argv,
+void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind,
+                       const RequestConfig *requestConfig, RedisModuleString **argv,
                        uint32_t argc);
 void QueryRequest_ResetReply(QueryRequest *request);
 void QueryRequest_Destroy(QueryRequest *request);
