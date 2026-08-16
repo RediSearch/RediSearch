@@ -373,7 +373,8 @@ static size_t getResultsFactor(AREQ *req) {
 // SyncPoint stop predicate: break out of a sync-point wait when the AREQ has
 // been marked as timed out by the main-thread timeout callback.
 bool areq_timed_out(void *arg) {
-  return AREQ_TimedOut((AREQ *)arg);
+  AREQ *req = arg;
+  return QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout);
 }
 
 // SyncPoint stop predicate: break out of a sync-point wait when a writer is
@@ -381,7 +382,9 @@ bool areq_timed_out(void *arg) {
 // from the cleanup sync point without driving the main thread, since the main
 // thread is the one blocked on the writer's `pthread_rwlock_wrlock`.
 static bool areq_timeout_or_pending_spec_writers(void *arg) {
-  return AREQ_TimedOut((AREQ *)arg) || PendingSpecWriters_Get() > 0;
+  AREQ *req = arg;
+  return QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout) ||
+         PendingSpecWriters_Get() > 0;
 }
 
 
@@ -400,7 +403,7 @@ static inline void debugPauseStoreResults(AREQ *req, bool before) {
   StoreResultsDebugCtx_SetPause(true);
   while (StoreResultsDebugCtx_IsPaused()) {
     // Check if timed out - break to avoid deadlock with timeout callback
-    if (AREQ_TimedOut(req)) {
+    if (QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
       StoreResultsDebugCtx_SetPause(false);
       break;
     }
@@ -437,7 +440,7 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
       *rc = RS_RESULT_TIMEDOUT;
       return;
     }
-    if (AREQ_TimedOut(req)) {
+    if (QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
       // We claimed the sync phase, but timeout was already signaled. Store a
       // timed-out cursor-shaped reply and wake the timeout callback.
       *rc = RS_RESULT_TIMEDOUT;
@@ -1302,7 +1305,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   RedisSearchCtx_AssertLockNotHeld(AREQ_SearchCtx(req));
 
   // Check if timed out while in the job queue.
-  if (AREQ_TimedOut(req)) {
+  if (QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
     // Timeout callback already replied.
     // blockedClientReqCtx_destroy will release the AREQ ref.
     blockedClientReqCtx_destroy(BCRctx);
@@ -1678,7 +1681,7 @@ static void drainPartialResultsAfterTimeout(AREQ *req) {
 // Called on the main thread when the blocking client times out (RETURN-STRICT
 // policy only). Coordinates with the BG worker via the AREQ aggregate-results
 // claim/signal handshake:
-//   - SetTimedOut so any RP polling AREQ_TimedOut bails on its next read.
+//   - SetTimedOut so any RP polling the request timeout bails on its next read.
 //   - TryClaim wins iff BG has not yet entered the aggregation phase (it
 //     bails in startPipeline). In that case we own the reply and emit empty.
 //   - Otherwise BG owns the buffer; wait for it to finish AREQ_StoreResults,
@@ -2353,7 +2356,8 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   // A paused cursor must have released the spec lock at the end of the
   // previous read cycle.
   RedisSearchCtx_AssertLockNotHeld(AREQ_SearchCtx(req));
-  if (!AREQ_TimedOut(req) || AREQ_RequiresThreadsSyncResults(req)) {
+  if (!QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout) ||
+      AREQ_RequiresThreadsSyncResults(req)) {
     cursorRead(ctx, cr_ctx->cursor, cr_ctx->count, true);
   } else {
     cursorEndOfCycle(req, cr_ctx->cursor, true);
@@ -2386,7 +2390,8 @@ static void coordCursorRead_ctx(void *p) {
     // won the owner latch, and already replied with a depleted cursor. Free
     // the taken cursor; store nothing (nobody is waiting).
     cursorEndOfCycle(req, cursor, true);
-  } else if (!AREQ_TimedOut(req) || AREQ_RequiresThreadsSyncResults(req)) {
+  } else if (!QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout) ||
+             AREQ_RequiresThreadsSyncResults(req)) {
     // RETURN (no timer) always runs the read and replies inline through the
     // thread-safe ctx; FAIL bails and drops the cursor if the timer already
     // replied; RETURN_STRICT (latch won) always runs the read so it can store

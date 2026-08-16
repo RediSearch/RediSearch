@@ -216,7 +216,8 @@ static void withCountReplyCb(MRIteratorCallbackCtx *ctx, MRReply *rep) {
       }
     }
     iterCtx->numResponded++;
-    bool timedOut = AREQ_TimedOut(iterCtx->areq);
+    bool timedOut =
+        QueryRequestTimeout_IsBlockedClientTimedOut(&iterCtx->areq->base.timeout);
     if (timedOut || isError || iterCtx->numResponded == MRIterator_GetNumShards(it)) {
       if (timedOut) {
         MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(it));
@@ -249,7 +250,7 @@ static void withCountErrorCb(MRIteratorCallbackCtx *ctx) {
   // remaining shards to netCursorCallback and stop accumulating their totals. Wait
   // for the other shards (or a timeout) so their counts are still summed. On a
   // timeout we must dispatch.
-  bool timedOut = AREQ_TimedOut(iterCtx->areq);
+  bool timedOut = QueryRequestTimeout_IsBlockedClientTimedOut(&iterCtx->areq->base.timeout);
   if (timedOut || iterCtx->numResponded == MRIterator_GetNumShards(it)) {
     if (timedOut) {
       MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(it));
@@ -353,7 +354,7 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
 #endif
 
   // Check if the request timed out before starting the iterator
-  if (AREQ_TimedOut(nc->areq)) {
+  if (QueryRequestTimeout_IsBlockedClientTimedOut(&nc->areq->base.timeout)) {
     return RS_RESULT_TIMEDOUT;
   }
 
@@ -395,7 +396,7 @@ static void executeAggregateDeferred(void *arg) {
   RPNet *nc = (RPNet *)AREQ_QueryProcessingCtx(r)->rootProc;
   long long totalResults = iterCtx->totalResults;
 
-  bool timedOut = AREQ_TimedOut(r);
+  bool timedOut = QueryRequestTimeout_IsBlockedClientTimedOut(&r->base.timeout);
 
   if (sp && !timedOut) {
     // Dedicated thread-safe context for this worker. Aliased into sctx->redisCtx
@@ -899,7 +900,7 @@ static void DistAggregateCleanups(RedisModuleCtx *ctx, struct ConcurrentCmdCtx *
   RS_ASSERT(r != NULL);  // the dispatcher allocates the request shell on the main thread
 
   // If timeout already occurred, the timeout callback already replied - don't reply again
-  if (AREQ_TimedOut(r)) {
+  if (QueryRequestTimeout_IsBlockedClientTimedOut(&r->base.timeout)) {
     if (QueryError_HasError(status)) {
       QueryError_ClearError(status);
     }
@@ -979,7 +980,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
       RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
   AREQ *r = QueryRequest_GetAREQ(request);
 
-  if (AREQ_TimedOut(r)) {
+  if (QueryRequestTimeout_IsBlockedClientTimedOut(&r->base.timeout)) {
     // Query timed out while this job was queued; the timeout callback already
     // replied. Release the execution flow's reference (the cycle's reference
     // is released by QueryRequest_OnFree after the unblock).
@@ -1237,7 +1238,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   AREQ *r = QueryRequest_GetAREQ(request);
   AREQ_Debug *debug_req = (AREQ_Debug *)r;
 
-  if (AREQ_TimedOut(r)) {
+  if (QueryRequestTimeout_IsBlockedClientTimedOut(&r->base.timeout)) {
     // Query timed out while this job was queued; the timeout callback already
     // replied. Release the execution flow's reference (the cycle's reference
     // is released by QueryRequest_OnFree after the unblock).

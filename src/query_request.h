@@ -163,6 +163,17 @@ void QueryRequestTimeout_MarkTimedOut(QueryRequestTimeout *timeout);
 bool QueryRequestTimeout_IsTimedOut(const QueryRequestTimeout *timeout);
 
 /**
+ * Reports a timeout only when the active source is BLOCKED_CLIENT.
+ *
+ * This compatibility operation preserves call sites that historically checked
+ * only the blocked-client atomic flag. It deliberately returns false for
+ * CLOCK_DEADLINE so migrating those call sites does not introduce new clock
+ * checks that could change product behavior.
+ * Avoid using this call unless strictly needed.
+ */
+bool QueryRequestTimeout_IsBlockedClientTimedOut(const QueryRequestTimeout *timeout);
+
+/**
  * Amortized variant of QueryRequestTimeout_IsTimedOut:
  *
  * - UNARMED and BLOCKED_CLIENT preserve the primary operation's behavior and

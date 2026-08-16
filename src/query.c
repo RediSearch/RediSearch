@@ -643,7 +643,7 @@ bool AREQ_CheckTimedOut(AREQ *areq) {
 #ifdef ENABLE_ASSERT
   SyncPoint_WaitUntil(SYNC_POINT_BEFORE_QI_TIMEOUT_CHECK, areq_timed_out, areq);
 #endif
-  return AREQ_TimedOut(areq);
+  return QueryRequestTimeout_IsBlockedClientTimedOut(&areq->base.timeout);
 }
 
 static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn,

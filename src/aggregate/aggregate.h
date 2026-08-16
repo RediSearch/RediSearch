@@ -487,9 +487,6 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 // Allows calling parseProfileArgs from reply_empty.c
 int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 
-static inline bool AREQ_TimedOut(AREQ *req) {
-  return QueryRequestTimeout_GetTimedOut(&req->base.timeout);
-}
 static inline void AREQ_SetTimedOut(AREQ *req) {
   QueryRequestTimeout_SetTimedOut(&req->base.timeout);
 }
@@ -502,14 +499,13 @@ static inline void AREQ_SetExecutionStage(AREQ *req, QueryTimeoutStage stage) {
   QueryRequest_SetExecutionPhase(&req->base, (int)stage);
 }
 #ifdef ENABLE_ASSERT
-// SyncPointStopFn predicate adapter for AREQ_TimedOut. Pass the AREQ as `arg`
-// to SyncPoint_WaitUntil to release the wait when the request is timed out.
+// SyncPointStopFn predicate adapter for blocked-client timeouts. Pass the AREQ
+// as `arg` to release the wait when the request is timed out.
 bool areq_timed_out(void *arg);
 #endif
 
-/* Non-inline named bridge over AREQ_TimedOut, invoked by Rust query
- * iterators on the Blocked Client Timeout path. The named extern is a
- * stable symbol that LTO can inline through. */
+/* Named bridge to the blocked-client compatibility check, invoked by Rust
+ * query iterators. The named extern is a stable symbol that LTO can inline through. */
 bool AREQ_CheckTimedOut(AREQ *areq);
 
 /* True when this AREQ uses the BG-thread / timeout-callback claim handshake

@@ -183,7 +183,8 @@ int getNextReply(RPNet *nc) {
     if (nc->drainOnly) {
       return RS_RESULT_EOF;
     }
-    if (nc->areq && AREQ_TimedOut(nc->areq)) {
+    if (nc->areq &&
+        QueryRequestTimeout_IsBlockedClientTimedOut(&nc->areq->base.timeout)) {
       return RS_RESULT_TIMEDOUT;
     }
     return MRIterator_GetPending(nc->it) ? RS_RESULT_OK : RS_RESULT_EOF;
@@ -383,7 +384,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   // may already hold a buffered reply (the NULL-reply check below wouldn't fire
   // and we'd silently return rows). Skipped during the timer's own drain.
   if (areq && QueryRequest_UsesReplyCallback(&areq->base) && !nc->drainOnly &&
-      AREQ_TimedOut(nc->areq)) {
+      QueryRequestTimeout_IsBlockedClientTimedOut(&nc->areq->base.timeout)) {
     return RS_RESULT_TIMEDOUT;
   }
 
