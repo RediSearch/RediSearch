@@ -206,7 +206,7 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
   int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, status, false, EXEC_NO_FLAGS);
   if (rc != REDISMODULE_OK) {
     HybridPipelineParams_Cleanup(&hybridParams);
-    HybridRequest_DecrRef(hreq);
+    HybridRequest_Free(hreq);
     return NULL;
   }
 
@@ -220,7 +220,7 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
   hreq->reqflags = hybridParams.aggregationParams.common.reqflags;
   if (HybridRequest_BuildPipeline(hreq, &hybridParams, false, status) != REDISMODULE_OK) {
     HybridPipelineParams_Cleanup(&hybridParams);
-    HybridRequest_DecrRef(hreq);
+    HybridRequest_Free(hreq);
     return NULL;
   }
 
@@ -237,7 +237,7 @@ static void HybridRequest_Debug_Free(HybridRequest_Debug *debug_req) {
   }
 
   if (debug_req->hreq) {
-    HybridRequest_DecrRef(debug_req->hreq);
+    HybridRequest_Free(debug_req->hreq);
   }
 
   rm_free(debug_req);

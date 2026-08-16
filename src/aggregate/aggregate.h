@@ -249,12 +249,8 @@ static inline const char *AREQ_Query(const AREQ *req, size_t *len) {
   return query;
 }
 
-/* Lifecycle helpers for AREQ objects. AREQ_Free is the concrete destructor
- * selected by the final QueryRequest release; ownership callers use
- * AREQ_IncrRef / AREQ_DecrRef. */
+/* Destroy an AREQ. Owner-only: see the ownership contract on QueryRequest. */
 void AREQ_Free(AREQ *req);
-AREQ *AREQ_IncrRef(AREQ *req);
-void AREQ_DecrRef(AREQ *req);
 
 /**
  * Create a new aggregate request. The request's lifecycle consists of several
@@ -432,19 +428,11 @@ ResultProcessor *Grouper_GetRP(Grouper *gr);
  */
 void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 
+/* Run the pipeline and reply. Never disposes the request — the caller owns disposal. */
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
 void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit);
 void sendChunk_ReplyOnly_EmptyResults(RedisModuleCtx *ctx, AREQ *req);
 
-
-/**
- * Free a cursor parked in `req->base.reply.cursor`, if any.
- * Used by cleanup paths to release a cursor left behind when the
- * blocked-client timeout fires before the reply callback runs and
- * drains it via `AREQ_ReplyWithStoredResults`.
- * No-op when `req->base.reply.cursor` is NULL.
- */
-void AREQ_CleanUpStoredCursor(AREQ *req);
 
 /**
  * Start the cursor on the current request

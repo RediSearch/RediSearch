@@ -359,14 +359,14 @@ void HybridRequest_Free(HybridRequest *req) {
         const bool publish =
             sub->base.cursorInfo.disposition == CURSOR_DISPOSITION_PAUSE && !timedOut;
         sub->base.cursorInfo.cursor = NULL;
-        sub->base.cursorInfo.disposition = CURSOR_DISPOSITION_NONE;
+        sub->base.cursorInfo.disposition = CURSOR_DISPOSITION_FREE;
         if (publish) {
           Cursor_Pause(cursor);
         } else {
           Cursor_Free(cursor);
         }
       } else {
-        AREQ_DecrRef(sub);
+        AREQ_Free(sub);
       }
     }
     array_free(req->requests);
@@ -396,15 +396,6 @@ void HybridRequest_Free(HybridRequest *req) {
     rm_free(req);
 }
 
-HybridRequest *HybridRequest_IncrRef(HybridRequest *req) {
-  QueryRequest_IncrRef(&req->base);
-  return req;
-}
-
-void HybridRequest_DecrRef(HybridRequest *req) {
-  if (!req) return;
-  QueryRequest_DecrRef(&req->base);
-}
 
 static bool isSoftTailPipelineErrorCode(QueryErrorCode code) {
     return code == QUERY_ERROR_CODE_NO_PROP_VAL;
