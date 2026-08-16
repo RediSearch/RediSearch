@@ -2284,7 +2284,10 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
   // If the cursor is associated with a spec, e.g a coordinator ctx.
   if (has_spec) {
     execution_ref = IndexSpecRef_Promote(cursor->spec_ref);
-    if (!StrongRef_Get(execution_ref)) {
+    // The promotion pins the spec until the release below; `spec` is valid
+    // exactly within that window.
+    IndexSpec *spec = StrongRef_Get(execution_ref);
+    if (!spec) {
       QueryError_SetWithoutUserDataFmt(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND,
                                        "The index was dropped while the cursor was idle");
       // Reply before disposing: the cursor may hold the only request ref, so
@@ -2297,7 +2300,7 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
 
     // Refresh the background-scan-OOM capture under the held execution
     // reference; the reply path reads only the capture.
-    qctx->bgScanOOM |= ((IndexSpec *)StrongRef_Get(execution_ref))->scan_failed_OOM;
+    qctx->bgScanOOM |= spec->scan_failed_OOM;
 
     if (hasLoader) { // Quick check if the cursor has loaders.
       bool isSetForBackground = reqFlags & QEXEC_F_RUN_IN_BACKGROUND;
@@ -2643,9 +2646,11 @@ int RSCursorProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   // and we already checked that the cmd is not for profiling.
   // Since it's an internal cursor, it must be associated with a spec.
   RS_ASSERT(cursor_HasSpecWeakRef(cursor));
-  // Check if the spec is still valid
+  // Check if the spec is still valid. The promotion pins the spec until the
+  // release below; `spec` is valid exactly within that window.
   StrongRef execution_ref = IndexSpecRef_Promote(cursor->spec_ref);
-  if (!StrongRef_Get(execution_ref)) {
+  IndexSpec *spec = StrongRef_Get(execution_ref);
+  if (!spec) {
     // The index was dropped while the cursor was idle.
     // Notify the client that the query was aborted.
     RedisModule_ReplyWithError(ctx, "The index was dropped while the cursor was idle");
@@ -2654,8 +2659,7 @@ int RSCursorProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     AREQ_QueryProcessingCtx(req)->err = &status;
     // Refresh the background-scan-OOM capture under the held execution
     // reference; the reply path reads only the capture.
-    AREQ_QueryProcessingCtx(req)->bgScanOOM |=
-        ((IndexSpec *)StrongRef_Get(execution_ref))->scan_failed_OOM;
+    AREQ_QueryProcessingCtx(req)->bgScanOOM |= spec->scan_failed_OOM;
     // Cursor is freed below; signal cursor exhaustion to the client.
     req->base.cursorInfo.id = 0;
     sendChunk_ReplyOnly_EmptyResults(ctx, req);
