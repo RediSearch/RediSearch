@@ -982,3 +982,89 @@ TEST_F(RdbMockTest, testHnswRerankRdbRoundtrip) {
             << "rerank did not round-trip (expected " << initialRerank << ")";
     }
 }
+
+// Legacy pre-2.0 module types (ft_invidx / numericdx / ft_tagidx) exist only so an old RDB can be read
+// and discarded during an upgrade. Their loaders return the `dummyNonNull` sentinel rather than NULL,
+// so a key can outlive the upgrade sweep holding nothing but that sentinel.
+//
+// Such a key is written with no payload at all, stamped LEGACY_EMPTY_ENC_VER so the loader knows not to
+// read one. Writing nothing under the *old* version is what corrupted the RDB: the loader then consumed
+// Redis's module EOF marker as its first field. See MOD-15685.
+extern "C" {
+extern void *dummyNonNull;
+void GenericType_DummyRdbSave(RedisModuleIO *rdb, void *value);
+void *InvertedIndex_RdbLoad_Consume(RedisModuleIO *rdb, int encver);
+void *NumericIndexType_RdbLoad_Consume(RedisModuleIO *rdb, int encver);
+void *TagIndex_RdbLoad_Consume(RedisModuleIO *rdb, int encver);
+}
+
+namespace {
+// Mirrors the constants in src/legacy_types.c, which are private to that translation unit.
+constexpr int kLegacyEncVer = 1;
+constexpr int kLegacyLegacyEncVer = 0;
+constexpr int kLegacyEmptyEncVer = 2;
+}  // namespace
+
+TEST_F(RdbMockTest, testLegacyEmptySaveConsumesNothingOnLoad) {
+  void *(*loaders[])(RedisModuleIO *, int) = {
+      InvertedIndex_RdbLoad_Consume, NumericIndexType_RdbLoad_Consume, TagIndex_RdbLoad_Consume};
+
+  for (auto *load : loaders) {
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    ASSERT_TRUE(io != nullptr);
+
+    GenericType_DummyRdbSave(io, dummyNonNull);
+    // Nothing is written, which is the point: Redis appends its EOF marker straight after the header.
+    EXPECT_EQ(0u, io->buffer.size());
+
+    io->read_pos = 0;
+    EXPECT_EQ(dummyNonNull, load(io, kLegacyEmptyEncVer));
+    // The loader must not have advanced, or it would eat the marker Redis expects to read next.
+    EXPECT_EQ(0u, io->read_pos);
+    EXPECT_EQ(0, RMCK_IsIOError(io));
+
+    RMCK_FreeRdbIO(io);
+  }
+}
+
+// A genuine pre-2.0 payload must still be consumed in full, so upgrading from a real 1.x RDB keeps
+// working. Bumping the registered version must not change how older records are read.
+TEST_F(RdbMockTest, testLegacyRealPayloadStillConsumed) {
+  {  // inverted index: flags, lastId, numDocs, then zero blocks
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    ASSERT_TRUE(io != nullptr);
+    for (int i = 0; i < 4; i++) RMCK_SaveUnsigned(io, 0);
+    io->read_pos = 0;
+    EXPECT_EQ(dummyNonNull, InvertedIndex_RdbLoad_Consume(io, kLegacyEncVer));
+    EXPECT_EQ(io->buffer.size(), io->read_pos);
+    EXPECT_EQ(0, RMCK_IsIOError(io));
+    RMCK_FreeRdbIO(io);
+  }
+  {  // numeric v1: a lone terminator
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    ASSERT_TRUE(io != nullptr);
+    RMCK_SaveUnsigned(io, 0);
+    io->read_pos = 0;
+    EXPECT_EQ(dummyNonNull, NumericIndexType_RdbLoad_Consume(io, kLegacyEncVer));
+    EXPECT_EQ(io->buffer.size(), io->read_pos);
+    RMCK_FreeRdbIO(io);
+  }
+  {  // numeric v0: a zero entry count
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    ASSERT_TRUE(io != nullptr);
+    RMCK_SaveUnsigned(io, 0);
+    io->read_pos = 0;
+    EXPECT_EQ(dummyNonNull, NumericIndexType_RdbLoad_Consume(io, kLegacyLegacyEncVer));
+    EXPECT_EQ(io->buffer.size(), io->read_pos);
+    RMCK_FreeRdbIO(io);
+  }
+  {  // tag index: zero tags
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    ASSERT_TRUE(io != nullptr);
+    RMCK_SaveUnsigned(io, 0);
+    io->read_pos = 0;
+    EXPECT_EQ(dummyNonNull, TagIndex_RdbLoad_Consume(io, kLegacyEncVer));
+    EXPECT_EQ(io->buffer.size(), io->read_pos);
+    RMCK_FreeRdbIO(io);
+  }
+}
