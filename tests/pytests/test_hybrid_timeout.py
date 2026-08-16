@@ -108,6 +108,25 @@ def test_hybrid_debug_unrecognized_argument():
                'DEBUG_PARAMS_COUNT', '2') \
         .error().contains('Unrecognized argument')
 
+def test_hybrid_debug_malformed_query_no_crash():
+    """A parse failure after the debug request was constructed must not crash
+    the server (MOD-17665).
+
+    A malformed SEARCH expression with a valid DEBUG_PARAMS_COUNT is the only
+    error shape that makes ``HybridRequest_Debug_New`` fail *after* the hybrid
+    request, which owns the search context, was built. Pre-fix the handler
+    freed that context a second time on the NULL return: a double free
+    (deterministic crash under ASAN).
+    """
+    env = Env(enableDebugCommand=True)
+    setup_basic_index(env)
+    env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', '@bad:[synta',
+               'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector,
+               'TIMEOUT_AFTER_N_SEARCH', '1',
+               'DEBUG_PARAMS_COUNT', '2').error()
+    # The shard survived the failed command.
+    env.assertTrue(env.cmd('PING'))
+
 @skip(cluster=True)
 def test_hybrid_debug_no_component_timeout_sa():
     """Test error when no component timeout parameter is specified (SA).
