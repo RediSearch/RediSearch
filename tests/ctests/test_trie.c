@@ -1096,8 +1096,10 @@ int testTrieNodeSizeof() {
 
 int testDeleteRunesDeepSuffixTrieUsesDynamicStack() {
   freedTriePayloads = 0;
-  Trie *t = NewTrie(countTriePayloadFree, Trie_Sort_Lex);
-  ASSERT(t != NULL);
+  rune *rootRunes = strToRunes("", NULL);
+  TrieNode *root = __newTrieNode(rootRunes, 0, 0, NULL, 0, 0, 1, 0, Trie_Sort_Lex, 0);
+  ASSERT(root != NULL);
+  free(rootRunes);
 
   enum { keyLen = TRIE_INITIAL_STRING_LEN * 2 + 16 };
   rune key[keyLen];
@@ -1107,21 +1109,20 @@ int testDeleteRunesDeepSuffixTrieUsesDynamicStack() {
 
   RSPayload payload = {.data = "payload", .len = strlen("payload")};
 
-  // Match repeated addSuffixTrie() full-word inserts: Trie_InsertRuneNoSize()
-  // bypasses the normal length guard, and overlapping terms split the trie into
-  // a traversal path that exceeds the local stack and its first heap growth.
+  // Use TrieNode_Add() directly: older Trie wrappers reject terms long enough
+  // to exercise TrieNode_Delete()'s dynamic-stack realloc path.
   for (size_t len = 1; len <= keyLen; ++len) {
-    int rc = Trie_InsertRuneNoSize(t, key, len, 1, 0, &payload, 0);
+    int rc = TrieNode_Add(&root, key, len, &payload, 1, ADD_REPLACE, countTriePayloadFree, 1);
     ASSERT_EQUAL(TRIE_OK_NEW, rc);
   }
   ASSERT_EQUAL(0, freedTriePayloads);
 
-  ASSERT_EQUAL(1, Trie_DeleteRunes(t, key, keyLen));
-  ASSERT(Trie_GetNode(t, key, keyLen, true, NULL) == NULL);
-  ASSERT(Trie_GetNode(t, key, keyLen - 1, true, NULL) != NULL);
+  ASSERT_EQUAL(1, TrieNode_Delete(root, key, keyLen, countTriePayloadFree));
+  ASSERT(TrieNode_Get(root, key, keyLen, true, NULL) == NULL);
+  ASSERT(TrieNode_Get(root, key, keyLen - 1, true, NULL) != NULL);
   ASSERT_EQUAL(1, freedTriePayloads);
 
-  TrieType_Free(t);
+  TrieNode_Free(root, countTriePayloadFree);
   return 0;
 }
 
