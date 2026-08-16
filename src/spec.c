@@ -1197,10 +1197,10 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
         .storage = sp->diskSpec,
         .indexName = rm_strndup(namePtr, nameLen),
         .indexNameLen = nameLen,
-        .rerank = rerank,
         // The disk storage layer keys this field's data by the value it finds
         // here, so it has to stay stable for the life of the index.
         .userData = fs->index,
+        .rerank = rerank,
       };
     }
   } else if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_SVS)) {
@@ -2903,8 +2903,8 @@ static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp) {
       .storage = sp->diskSpec,
       .indexName = rm_strndup(namePtr, nameLen),
       .indexNameLen = nameLen,
-      .rerank = rerank,
       .userData = fs->index,
+      .rerank = rerank,
     };
   }
 }
