@@ -354,14 +354,21 @@ def fetch_unresolved_review_threads(pr: int) -> list[dict]:
             # Bot-typed author regardless of association. A review bot or machine
             # account carrying MEMBER/COLLABORATOR would otherwise inject text
             # the agent (holding contents+workflows write) treats as an order.
+            # This predicate MUST be applied everywhere a comment counts as
+            # trusted feedback (both the body list and the index math below),
+            # or the two disagree and a bot comment can skew `bot_replied_last`.
+            def _is_trusted_human(c: dict) -> bool:
+                return (c.get("authorAssociation") in TRUSTED_ASSOCIATIONS
+                        and bool(c.get("body"))
+                        and ((c.get("author") or {}).get("__typename")) != "Bot")
+
             bodies = [
                 {
                     "author": ((c.get("author") or {}).get("login")) or "",
                     "body": _clip_body(c.get("body") or ""),
                 }
                 for c in comments
-                if c.get("authorAssociation") in TRUSTED_ASSOCIATIONS and c.get("body")
-                and ((c.get("author") or {}).get("__typename")) != "Bot"
+                if _is_trusted_human(c)
             ]
             if not bodies:
                 continue
@@ -375,8 +382,7 @@ def fetch_unresolved_review_threads(pr: int) -> list[dict]:
             # NEW trusted comment lands after the bot's reply, this is False and
             # the feedback is treated as actionable again.
             last_trusted_idx = max(
-                (i for i, c in enumerate(comments)
-                 if c.get("authorAssociation") in TRUSTED_ASSOCIATIONS and c.get("body")),
+                (i for i, c in enumerate(comments) if _is_trusted_human(c)),
                 default=-1,
             )
             last_bot_idx = max(

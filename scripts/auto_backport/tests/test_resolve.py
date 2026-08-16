@@ -387,6 +387,27 @@ class ReviewThreadTests(unittest.TestCase):
         got = resolve_fix.fetch_unresolved_review_threads(1)
         self.assertEqual(got[0]["latest_comment_at"], "2026-01-04T00:00:00Z")
 
+    def test_bot_member_comment_after_reply_does_not_reopen(self):
+        # A Bot-typed MEMBER commenting after the bot's addressed reply must not
+        # count as trusted feedback in the index math — bot_replied_last stays
+        # true so the next run doesn't re-address and re-reply.
+        self._stub([
+            {
+                "id": "T1", "isResolved": False, "path": "a", "line": 1,
+                "comments": {"nodes": [
+                    {"author": {"login": "alice", "__typename": "User"},
+                     "authorAssociation": "MEMBER", "body": "fix this"},
+                    {"author": {"login": resolve_fix.BOT_LOGIN, "__typename": "Bot"},
+                     "authorAssociation": "NONE", "body": "🤖 Addressed."},
+                    {"author": {"login": "ci-bot", "__typename": "Bot"},
+                     "authorAssociation": "MEMBER", "body": "coverage report ..."},
+                ]},
+            },
+        ])
+        got = resolve_fix.fetch_unresolved_review_threads(1)
+        self.assertEqual(len(got), 1)
+        self.assertTrue(got[0]["bot_replied_last"])
+
     def test_drops_member_associated_bot_feedback(self):
         # A bot account carrying MEMBER association must NOT be treated as
         # actionable feedback (prompt-injection guard) — the thread has no
