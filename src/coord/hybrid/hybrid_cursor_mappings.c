@@ -335,7 +335,8 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
     // disabled timeout checks, where the abort flag is the only wake (chan.c requires
     // at least one non-NULL).
     bool timedOut = false;
-    MRReply *r = MRIterator_NextWithTimeout(it, deadline, &timeout->timedOut, &timedOut);
+    MRReply *r = MRIterator_NextWithTimeout(
+        it, deadline, QueryRequestTimeout_GetBlockedClientFlag(timeout), &timedOut);
     RS_ASSERT(r == NULL);  // the callbacks never AddReply; a non-NULL reply is a bug
 
     QueryRequestAsyncState_UnregisterAbortWakeChannel(asyncState);

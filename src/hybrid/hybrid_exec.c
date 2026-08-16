@@ -287,7 +287,7 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
     .oomPolicy = hreq->reqConfig.oomPolicy,
     .skipTimeoutChecks = !HybridRequest_ShouldCheckTimeout(hreq),
     // Borrow a subquery AREQ as the tail's row-boundary timeout-flag proxy:
-    // HybridRequest_SetTimedOut propagates to every subquery's AREQ, so
+    // HybridRequest_PropagateTimeoutToSubqueries marks every subquery AREQ, so
     // AggregateResults can bail between rows while draining buffered tail rows.
     .areq = hreq->requests[SEARCH_INDEX],
   };
@@ -358,7 +358,7 @@ static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
 /* Record this hybrid request's blocked-client timeout into the per-stage
  * breakdown, at the stage its execution-phase marker had reached when the deadline
  * fired. Must be called exactly once per blocked-client timeout callback, right
- * after HybridRequest_SetTimedOut (which freezes the marker). */
+ * after QueryRequestTimeout_MarkTimedOut (which freezes the marker). */
 static inline void recordHREQTimeoutStage(HybridRequest *hreq, bool isError, bool coord) {
   QueryTimeoutStageStats_Record(HybridRequest_ExecutionStage(hreq), isError, coord);
 }
@@ -991,7 +991,8 @@ static int HybridQueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString
   HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
   // Signal timeout to background thread
-  HybridRequest_SetTimedOut(hreq);
+  QueryRequestTimeout_MarkTimedOut(&hreq->base.timeout);
+  HybridRequest_PropagateTimeoutToSubqueries(hreq);
   recordHREQTimeoutStage(hreq, /*isError=*/true, !IsInternal(hreq->requests[0]));
 
   // Lock to synchronize with cursor creation in HybridRequest_StartCursors.
@@ -1033,7 +1034,8 @@ static int HybridQueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModu
   HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
   // Signal timeout to the worker and to all subquery depleters.
-  HybridRequest_SetTimedOut(hreq);
+  QueryRequestTimeout_MarkTimedOut(&hreq->base.timeout);
+  HybridRequest_PropagateTimeoutToSubqueries(hreq);
   recordHREQTimeoutStage(hreq, /*isError=*/false, !IsInternal(hreq->requests[0]));
 
   if (HybridRequest_TryClaimAggregateResults(hreq)) {
@@ -1078,7 +1080,8 @@ static int HybridQueryCursorTimeoutReturnStrictCallback(RedisModuleCtx *ctx, Red
   HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
   // Signal timeout to background thread
-  HybridRequest_SetTimedOut(hreq);
+  QueryRequestTimeout_MarkTimedOut(&hreq->base.timeout);
+  HybridRequest_PropagateTimeoutToSubqueries(hreq);
   // Record at the stage the deadline caught the request (REPLY once the cursors
   // were published, QUEUE/PIPELINE before that).
   recordHREQTimeoutStage(hreq, /*isError=*/false, !IsInternal(hreq->requests[0]));

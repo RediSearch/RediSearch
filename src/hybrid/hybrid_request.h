@@ -91,10 +91,9 @@ static inline QueryTimeoutStage HybridRequest_ExecutionStage(HybridRequest *req)
 static inline void HybridRequest_SetExecutionStage(HybridRequest *req, QueryTimeoutStage stage) {
   QueryRequest_SetExecutionPhase(&req->base, (int)stage);
 }
-// Sets the hybrid request's timedOut flag and propagates it to every subquery
-// AREQ. Propagation flips each subquery's RPNet abort flag so a BG worker
-// blocked in MRChannel_PopWithTimeout exits as soon as the channel is woken.
-void HybridRequest_SetTimedOut(HybridRequest *req);
+// Propagates a hybrid timeout to every subquery AREQ so blocked RPNet waits
+// observe the abort after their channels are woken.
+void HybridRequest_PropagateTimeoutToSubqueries(HybridRequest *req);
 
 // Cursor mutex wrappers for synchronizing cursor creation with timeout callback
 static inline void HybridRequest_LockCursors(HybridRequest *req) {

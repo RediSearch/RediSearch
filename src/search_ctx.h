@@ -21,6 +21,8 @@
 extern "C" {
 #endif
 
+struct QueryRequestTimeout;
+
 #if defined(__FreeBSD__)
 #define CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC
 #endif
@@ -40,17 +42,15 @@ typedef struct SearchTime {
   struct timespec timeout;
   // Flag to skip timeout checks (used in background thread mode with FAIL policy)
   bool skipTimeoutChecks;
-  // Borrowed RS_Atomic(bool) timed-out flag, wired in AREQ_ApplyContext.
-  // Read via SearchTime_IsTimedOut. NULL on contexts without an owning AREQ.
+  // Borrowed request timeout, wired in AREQ_ApplyContext and read through the
+  // blocked-client compatibility API. NULL when there is no owning AREQ.
   // TODO: move to QueryProcessingCtx.
-  const void *timedOutFlag;
+  const struct QueryRequestTimeout *requestTimeout;
 } SearchTime;
 
 // Returns true iff the SearchTime (passed as `void *` so the function doubles
-// as a SyncPoint stop predicate) has a wired timed-out flag and that flag has
-// been set by the main-thread timeout callback. NULL arg or unwired flag both
-// return false. Reads with memory_order_relaxed: callers only need to observe
-// the flag — there is no surrounding state that requires synchronization.
+// as a SyncPoint stop predicate) has a wired request whose blocked-client
+// timeout has fired. NULL arg or an unwired request both return false.
 bool SearchTime_IsTimedOut(void *arg);
 
 /** Context passed to all redis related search handling functions. */
@@ -82,7 +82,7 @@ static inline RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *s
                           .redisCtx = ctx,
                           .key_ = NULL,
                           .spec = sp,
-                          .time = {.current = { 0, 0 }, .timeout = { 0, 0 }, .skipTimeoutChecks = false, .timedOutFlag = NULL},
+                          .time = {.current = { 0, 0 }, .timeout = { 0, 0 }, .skipTimeoutChecks = false, .requestTimeout = NULL},
                           .lock_state = SPEC_LOCK_UNSET,
                           .diskSnapshot = NULL,};
   return sctx;

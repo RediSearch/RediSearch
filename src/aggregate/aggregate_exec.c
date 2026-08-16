@@ -569,8 +569,9 @@ typedef struct {
 /* Record this request's blocked-client timeout into the per-stage breakdown, at
  * the stage its execution-phase marker had reached when the deadline fired. Must be
  * called exactly once per blocked-client timeout callback, right after
- * AREQ_SetTimedOut (which freezes the marker). The breakdown counts timeout
- * callback invocations and is independent of the aggregate error/warning counters
+ * QueryRequestTimeout_MarkTimedOut (which freezes the marker). The breakdown
+ * counts timeout callback invocations and is independent of the aggregate
+ * error/warning counters
  * (which count user-visible timeout replies, including non-blocked-client ones). */
 static inline void recordAREQTimeoutStage(AREQ *req, bool isError) {
   QueryTimeoutStageStats_Record(AREQ_ExecutionStage(req), isError, !IsInternal(req));
@@ -1647,7 +1648,7 @@ static int QueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **arg
 
   AREQ *req = QueryRequest_GetAREQ(request);
   // Signal timeout to background thread (will notice and skip storing results)
-  AREQ_SetTimedOut(req);
+  QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
   recordAREQTimeoutStage(req, /*isError=*/true);
 
   // Reply with timeout error
@@ -1695,7 +1696,7 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
   AREQ *req = QueryRequest_GetAREQ(request);
 
   // Signal timeout to background thread
-  AREQ_SetTimedOut(req);
+  QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
   recordAREQTimeoutStage(req, /*isError=*/false);
 
   if (AREQ_TryClaimAggregateResults(req)) {
@@ -1834,7 +1835,7 @@ static int CursorReadTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString 
 
   AREQ *req = QueryRequest_GetAREQ(request);
   // Signal timeout to background thread so it skips storing results.
-  AREQ_SetTimedOut(req);
+  QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
   recordAREQTimeoutStage(req, /*isError=*/true);
 
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
@@ -1854,7 +1855,7 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
   RS_ASSERT(request != NULL);
 
   AREQ *req = QueryRequest_GetAREQ(request);
-  AREQ_SetTimedOut(req);
+  QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
   recordAREQTimeoutStage(req, /*isError=*/false);
 
   if (AREQ_TryClaimAggregateResults(req)) {

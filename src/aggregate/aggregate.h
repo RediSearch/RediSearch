@@ -487,9 +487,6 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 // Allows calling parseProfileArgs from reply_empty.c
 int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 
-static inline void AREQ_SetTimedOut(AREQ *req) {
-  QueryRequestTimeout_SetTimedOut(&req->base.timeout);
-}
 // The pipeline stage the request had reached, used to attribute a timeout.
 static inline QueryTimeoutStage AREQ_ExecutionStage(AREQ *req) {
   return (QueryTimeoutStage)QueryRequest_GetExecutionPhase(&req->base);
@@ -555,7 +552,7 @@ bool QueryRequest_TimeoutPreemptSafeLoaderGIL(QueryRequest *request);
  *   - base.async.aggregatingResults (CAS claim)
  *   - base.async.aggregateResultsDone (signal latch)
  *   - base.async.safeLoadersHoldingGIL (GIL-handshake latch)
- *   - base.timeout.timedOut (timer latch from the previous chunk's timer)
+ *   - the blocked-client timer latch from the previous chunk
  *   - RPNet::drainOnly on the root proc when it is RP_NETWORK (so the next
  *     read does not short-circuit to EOF on the first empty-channel observation).
  * Caller MUST hold the per-request setRequestLock so the timer cannot publish a

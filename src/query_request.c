@@ -25,7 +25,6 @@ void QueryRequestTimeout_Init(QueryRequestTimeout *timeout, RSTimeoutPolicy poli
   // Capture the request defaults before parsing can apply command-specific overrides.
   QueryRequestTimeout_UpdateConfig(timeout, policy, timeoutMS);
   QueryRequestTimeout_Reset(timeout);
-  RS_AtomicBoolStoreRelaxed(&timeout->timedOut, false);
   timeout->skipTimeoutChecks = false;
 }
 
@@ -74,6 +73,11 @@ void QueryRequestTimeout_BeginCycle(QueryRequestTimeout *timeout, QueryRequestTi
 void QueryRequestTimeout_MarkTimedOut(QueryRequestTimeout *timeout) {
   RS_ASSERT(timeout->kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   RS_AtomicBoolStoreRelaxed(&timeout->source.blockedClientTimedOut, true);
+}
+
+RS_Atomic(bool) *QueryRequestTimeout_GetBlockedClientFlag(QueryRequestTimeout *timeout) {
+  RS_ASSERT(timeout->kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  return &timeout->source.blockedClientTimedOut;
 }
 
 bool QueryRequestTimeout_IsTimedOut(const QueryRequestTimeout *timeout) {

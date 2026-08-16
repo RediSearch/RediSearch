@@ -531,15 +531,13 @@ void AddValidationErrorContext(AREQ *req, QueryError *status) {
   }
 }
 
-void HybridRequest_SetTimedOut(HybridRequest *req) {
-  QueryRequestTimeout_SetTimedOut(&req->base.timeout);
-  // Propagate to each subquery AREQ so its RPNet's MRChannel_PopWithTimeout
-  // abort flag (&areq->base.timeout.timedOut) is flipped. Without this the BG
-  // worker can stay parked on the channel even after the hybrid-level flag
-  // is set.
+void HybridRequest_PropagateTimeoutToSubqueries(HybridRequest *req) {
+  // Propagate to each subquery AREQ so its RPNet wait observes the abort.
+  // Without this the BG worker can stay parked on the channel even after the
+  // hybrid-level flag is set.
   for (size_t i = 0; i < req->nrequests; i++) {
     if (req->requests[i]) {
-      AREQ_SetTimedOut(req->requests[i]);
+      QueryRequestTimeout_MarkTimedOut(&req->requests[i]->base.timeout);
     }
   }
 }

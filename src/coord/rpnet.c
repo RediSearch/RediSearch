@@ -171,9 +171,17 @@ int getNextReply(RPNet *nc) {
     SyncPoint_WaitUntil(SYNC_POINT_RPNET_WAITING_FOR_REPLY, areq_timed_out, nc->areq);
   }
 #endif
-  MRReply *root = nc->areq
-    ? MRIterator_NextWithTimeout(nc->it, NULL, &nc->areq->base.timeout.timedOut, NULL)
-    : MRIterator_Next(nc->it);
+  MRReply *root;
+  if (nc->areq &&
+      nc->areq->base.timeout.kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT) {
+    root = MRIterator_NextWithTimeout(
+        nc->it, NULL,
+        QueryRequestTimeout_GetBlockedClientFlag(&nc->areq->base.timeout), NULL);
+  } else {
+    // Clock-based cycles historically had no abortable wait here. Preserve
+    // that behavior until this consumer deliberately adopts generic timeout checks.
+    root = MRIterator_Next(nc->it);
+  }
 
   if (root == NULL) {
     RPNet_resetCurrent(nc);

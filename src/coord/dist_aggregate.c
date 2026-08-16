@@ -1061,7 +1061,7 @@ int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **ar
   AREQ *req = QueryRequest_GetAREQ(request);
 
   // Signal timeout to the background thread
-  AREQ_SetTimedOut(req);
+  QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
 
   // Record the per-stage breakdown at the stage the deadline caught the request.
   recordCoordAREQTimeoutStage(req, /*isError=*/true);
@@ -1100,7 +1100,7 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
   AREQ *req = QueryRequest_GetAREQ(request);
 
   // Signal timeout to the background thread
-  AREQ_SetTimedOut(req);
+  QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
 
   // Record the per-stage breakdown at the stage the deadline caught the request.
   recordCoordAREQTimeoutStage(req, /*isError=*/false);
@@ -1185,7 +1185,7 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
   QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
   RS_ASSERT(request != NULL);
   AREQ *req = QueryRequest_GetAREQ(request);
-  AREQ_SetTimedOut(req);
+  QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
 
   // Record the per-stage breakdown at the stage the deadline caught the request
   // (QUEUE while BG has not dequeued the read yet).

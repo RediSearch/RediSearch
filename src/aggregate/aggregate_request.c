@@ -1144,9 +1144,8 @@ AREQ *AREQ_New(RedisModuleString **argv, uint32_t argc) {
 
 bool SearchTime_IsTimedOut(void *arg) {
   const SearchTime *time = arg;
-  if (!time || !time->timedOutFlag) return false;
-  return atomic_load_explicit((const _Atomic(bool) *)time->timedOutFlag,
-                              memory_order_relaxed);
+  return time && time->requestTimeout &&
+         QueryRequestTimeout_IsBlockedClientTimedOut(time->requestTimeout);
 }
 
 bool AREQ_TryClaimAggregateResults(AREQ *req) {
@@ -1183,7 +1182,7 @@ void AREQ_WaitForAggregateResultsComplete(AREQ *req) {
 
 /* Read the common base without coupling this path to a concrete request kind. */
 static bool QueryRequest_OwnedRequestTimedOut(QueryRequest *request) {
-  return QueryRequestTimeout_GetTimedOut(&request->timeout);
+  return QueryRequestTimeout_IsBlockedClientTimedOut(&request->timeout);
 }
 
 /* See aggregate.h for the full handshake contract. The aggregateResultsLock
@@ -1230,7 +1229,8 @@ void AREQ_ResetForCursorReadReturnStrict(AREQ *req) {
   req->base.async.aggregateResultsDone = false;
   req->base.async.safeLoadersHoldingGIL = 0;
   pthread_mutex_unlock(&req->base.async.aggregateResultsLock);
-  QueryRequestTimeout_ClearTimedOut(&req->base.timeout);
+  QueryRequestTimeout_BeginCycle(&req->base.timeout,
+                                 QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   ResultProcessor *root = AREQ_QueryProcessingCtx(req)->rootProc;
   if (root && root->type == RP_NETWORK) {
     ((RPNet *)root)->drainOnly = false;
@@ -1598,10 +1598,10 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   IndexSpec *index = sctx->spec;
   RSSearchOptions *opts = &req->searchopts;
   req->sctx = sctx;
-  // Borrow the request's timed-out flag onto the sctx so pipeline RPs can
+  // Borrow the request timeout onto the sctx so pipeline RPs can
   // observe a RETURN-STRICT main-thread timeout without holding an AREQ
   // back-pointer (read via SearchTime_IsTimedOut).
-  sctx->time.timedOutFlag = &req->base.timeout.timedOut;
+  sctx->time.requestTimeout = &req->base.timeout;
 
   if (!IsIndexCoherent(req)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_MISMATCH, NULL);

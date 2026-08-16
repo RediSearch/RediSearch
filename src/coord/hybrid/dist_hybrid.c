@@ -1272,7 +1272,8 @@ int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
   HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
   // Signal timeout to the background thread
-  HybridRequest_SetTimedOut(hreq);
+  QueryRequestTimeout_MarkTimedOut(&hreq->base.timeout);
+  HybridRequest_PropagateTimeoutToSubqueries(hreq);
 
   // Record the per-stage breakdown at the stage the deadline caught the request.
   recordCoordHybridTimeoutStage(hreq, /*isError=*/true);
@@ -1298,7 +1299,8 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
   HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
   // Signal timeout to the background thread
-  HybridRequest_SetTimedOut(hreq);
+  QueryRequestTimeout_MarkTimedOut(&hreq->base.timeout);
+  HybridRequest_PropagateTimeoutToSubqueries(hreq);
 
   // Record the per-stage breakdown at the stage the deadline caught the request.
   recordCoordHybridTimeoutStage(hreq, /*isError=*/false);

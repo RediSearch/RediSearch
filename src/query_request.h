@@ -130,9 +130,8 @@ typedef struct QueryRequestTimeout {
     struct timespec clockDeadline;
   } source;
 
-  // TRANSITIONAL(MOD-17481): Existing consumers continue using these fields
+  // TRANSITIONAL(MOD-17481): Existing consumers continue using this field
   // until they migrate to the source-independent API above.
-  RS_Atomic(bool) timedOut;
   bool skipTimeoutChecks;
 } QueryRequestTimeout;
 
@@ -147,7 +146,17 @@ void QueryRequestTimeout_Reset(QueryRequestTimeout *timeout);
  * Starts a timeout cycle using kind as its timeout source.
  */
 void QueryRequestTimeout_BeginCycle(QueryRequestTimeout *timeout, QueryRequestTimeoutKind kind);
+/**
+ * Marks the active BLOCKED_CLIENT source as timed out.
+ */
 void QueryRequestTimeout_MarkTimedOut(QueryRequestTimeout *timeout);
+
+/**
+ * Borrows the active BLOCKED_CLIENT flag for a wait that cannot use the
+ * source-neutral API. The pointer is valid only until the current timeout
+ * cycle ends; the caller must not retain it across Reset or BeginCycle.
+ */
+RS_Atomic(bool) *QueryRequestTimeout_GetBlockedClientFlag(QueryRequestTimeout *timeout);
 
 /**
  * Reports whether the request has timed out, independently of how the timeout
@@ -187,24 +196,6 @@ bool QueryRequestTimeout_IsBlockedClientTimedOut(const QueryRequestTimeout *time
  */
 bool QueryRequestTimeout_IsTimedOutWithCounter(const QueryRequestTimeout *timeout,
                                                uint32_t *counter);
-
-static inline bool QueryRequestTimeout_GetTimedOut(const QueryRequestTimeout *timeout) {
-  return RS_AtomicBoolLoadRelaxed(&timeout->timedOut);
-}
-
-static inline void QueryRequestTimeout_SetTimedOut(QueryRequestTimeout *timeout) {
-  RS_AtomicBoolStoreRelaxed(&timeout->timedOut, true);
-  if (timeout->kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT) {
-    QueryRequestTimeout_MarkTimedOut(timeout);
-  }
-}
-
-static inline void QueryRequestTimeout_ClearTimedOut(QueryRequestTimeout *timeout) {
-  RS_AtomicBoolStoreRelaxed(&timeout->timedOut, false);
-  if (timeout->kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT) {
-    RS_AtomicBoolStoreRelaxed(&timeout->source.blockedClientTimedOut, false);
-  }
-}
 
 static inline bool QueryRequestTimeout_ShouldCheck(const QueryRequestTimeout *timeout) {
   return !timeout->skipTimeoutChecks;
@@ -320,7 +311,7 @@ static inline int QueryRequest_GetExecutionPhase(const QueryRequest *request) {
 
 // Preserve the phase where a timeout was first observed.
 static inline void QueryRequest_SetExecutionPhase(QueryRequest *request, int phase) {
-  if (!QueryRequestTimeout_GetTimedOut(&request->timeout)) {
+  if (!QueryRequestTimeout_IsBlockedClientTimedOut(&request->timeout)) {
     QueryRequestAsyncState_SetExecutionPhase(&request->async, phase);
   }
 }
