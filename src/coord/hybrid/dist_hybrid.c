@@ -993,7 +993,7 @@ static void HybridDispatchCtx_Tail(void *arg) {
     // If timeout fired between dispatch and tail pickup, the timeout callback
     // already replied — skip the reply path, but still drain depleters before
     // teardown (see waitForDepleters).
-    if (HybridRequest_TimedOut(hreq)) {
+    if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
         waitForDepleters(hreq);
         CurrentThread_ClearIndexSpec();
         HybridDispatchCtx_Free(dispatch);
@@ -1074,7 +1074,7 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
     RS_ASSERT(hreq != NULL);  // the dispatcher allocates the request shell on the main thread
 
     // If timeout already occurred, the timeout callback already replied - don't reply again
-    if (HybridRequest_TimedOut(hreq)) {
+    if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
       if (QueryError_HasError(status)) {
         QueryError_ClearError(status);
       }
@@ -1106,7 +1106,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     // thread's command ctx); re-point it at this thread's ctx before any use.
     hreq->sctx->redisCtx = ctx;
 
-    if (HybridRequest_TimedOut(hreq)) {
+    if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
       // Query timed out while this job was queued; the timeout callback
       // already replied. Release the execution flow's reference.
       WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
@@ -1174,7 +1174,7 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     HybridRequest *hreq = QueryRequest_GetHybrid(request);
     hreq->sctx->redisCtx = ctx;
 
-    if (HybridRequest_TimedOut(hreq)) {
+    if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
       // Timed out while queued; the timeout callback already replied.
       WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
       HybridRequest_DecrRef(hreq);

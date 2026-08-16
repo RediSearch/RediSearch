@@ -340,7 +340,7 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
 
     QueryRequestAsyncState_UnregisterAbortWakeChannel(asyncState);
 
-    if (timedOut || QueryRequestTimeout_GetTimedOut(timeout)) {
+    if (timedOut || QueryRequestTimeout_IsBlockedClientTimedOut(timeout)) {
         QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
         MRIterator_Release(it);
         return false;

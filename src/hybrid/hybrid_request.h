@@ -83,10 +83,6 @@ static inline HybridRequest *QueryRequest_GetHybrid(QueryRequest *request) {
   return (HybridRequest *)request;
 }
 
-// Timeout helper functions for HybridRequest (mirrors AREQ pattern)
-static inline bool HybridRequest_TimedOut(HybridRequest *req) {
-  return QueryRequestTimeout_GetTimedOut(&req->base.timeout);
-}
 // The pipeline stage the hybrid request had reached, used to attribute a timeout.
 static inline QueryTimeoutStage HybridRequest_ExecutionStage(HybridRequest *req) {
   return (QueryTimeoutStage)QueryRequest_GetExecutionPhase(&req->base);
