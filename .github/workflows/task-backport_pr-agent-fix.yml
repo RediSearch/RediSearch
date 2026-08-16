@@ -3,7 +3,10 @@ name: Fix CI failures on auto-backport PR (Codex agent)
 # Companion to task-backport_pr-agent.yml. Once the auto-backport workflow has
 # opened a backport PR, that PR runs the normal `Pull Request Flow` CI. When CI
 # fails, a human can ask a Codex agent to make a minimal mechanical fix (or to
-# bail out and tag a human) by commenting on the backport PR.
+# bail out and tag a human) by commenting on the backport PR. Alongside that fix
+# the agent also addresses write-level reviewer feedback — unresolved inline
+# review threads (which it replies to and marks resolved) and general PR
+# comments (which it replies to) — see pr-backport-auto-fix.md.
 #
 # Trigger (comment-only, on purpose):
 #   - A repo collaborator/member/owner comments `/backport-agent-fix` on the
@@ -41,8 +44,8 @@ on:
 permissions:
   contents: read
   actions: read          # resolve_fix.py: read the failed "Pull Request Flow" run + job logs
-  pull-requests: read    # resolve_fix.py: `gh pr view` of the backport PR
-  issues: read           # resolve_fix.py: read /backport-agent-context comments (PR comments are issue comments)
+  pull-requests: read    # resolve_fix.py: `gh pr view` + GraphQL read of unresolved review threads
+  issues: read           # resolve_fix.py: read /backport-agent-context and general PR comments (PR comments are issue comments)
 
 # Serialize per-PR so two quick `/backport-agent-fix` comments can't run
 # concurrently against the same branch and race on push.
@@ -83,7 +86,10 @@ jobs:
           # App's full installed permission set, not the `permissions:` block
           # above (which only governs the unused default GITHUB_TOKEN).
           permission-contents: write       # push fix commits to the PR branch
-          permission-pull-requests: write  # comment on the backport PR
+          # Comment on the backport PR, reply to review threads, and mark
+          # addressed threads resolved (addPullRequestReviewThreadReply /
+          # resolveReviewThread GraphQL mutations all require pull-requests:write).
+          permission-pull-requests: write
           # NOTE: deliberately NO `permission-actions: read` here. The
           # redis-pr-app installation is not granted the Actions permission, and
           # `permission-*` can only *attenuate* the App's installed grants — never

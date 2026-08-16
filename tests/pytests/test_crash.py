@@ -51,7 +51,9 @@ def scan_log_fragments(logFilePath, expected_fragments):
     results = {fragment: None for fragment in expected_fragments}
     pos = 0  # Track position in expected_fragments to enforce ordering
 
-    with open(logFilePath) as logFile:
+    # A crash report can carry raw memory bytes, so the log is not necessarily
+    # valid UTF-8. The fragments below are ASCII, so decode lossily.
+    with open(logFilePath, encoding="utf-8", errors="replace") as logFile:
         for line in logFile:
             # Only look for the next expected fragment (enforces ordering)
             if pos < len(expected_fragments):

@@ -401,6 +401,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "src/trie/levenshtein.h",
+        fns: &[],
+        types: &["TrieMatchMode"],
+        vars: &["MAX_LEV_DISTANCE"],
+    },
+    HeaderAllowlist {
         path: "src/trie/rune_util.h",
         fns: &["runesToStr", "strToLowerRunes", "strToRunes"],
         types: &[],
@@ -414,6 +420,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "Trie_GetNode",
             "Trie_InsertStringBuffer",
             "Trie_IterateContains",
+            "Trie_IterateFuzzy",
             "Trie_IterateWildcard",
             "TrieType_Free",
         ],
@@ -422,8 +429,8 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/trie/trie_node.h",
-        fns: &["TrieNode_NumDocs"],
-        types: &["TrieRangeCallback", "TrieSuffixCallback"],
+        fns: &["TrieIterator_Free", "TrieIterator_Next", "TrieNode_NumDocs"],
+        types: &["TrieIterator", "TrieRangeCallback", "TrieSuffixCallback"],
         vars: &[],
     },
     HeaderAllowlist {
