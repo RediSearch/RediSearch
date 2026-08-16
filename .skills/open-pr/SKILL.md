@@ -229,7 +229,6 @@ RediSearch.
     If the PR was opened as a draft anyway, mark it ready now and re-arm the monitor from
     step 11: that push is the first to run the `!draft`-gated jobs.
 
-
 ## Title and body
 
 **Title.** For PRs to `master` or another primary target branch, use

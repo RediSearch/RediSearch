@@ -204,7 +204,9 @@ dependencies = [
  "ffi",
  "redis_mock",
  "redisearch_rs",
+ "string_utils",
  "strum",
+ "thiserror",
  "workspace_hack",
 ]
 
@@ -1081,6 +1083,7 @@ dependencies = [
 name = "index_spec"
 version = "0.0.1"
 dependencies = [
+ "c_trie",
  "dict",
  "document",
  "ffi",
@@ -1823,6 +1826,7 @@ dependencies = [
  "rqe_iterators_test_utils",
  "rs_token",
  "search_disk",
+ "string_utils",
  "thiserror",
  "workspace_hack",
 ]
@@ -2504,6 +2508,7 @@ dependencies = [
  "redisearch_rs",
  "rqe_wildcard",
  "rs_token",
+ "string_utils",
  "workspace_hack",
 ]
 
@@ -2885,6 +2890,7 @@ dependencies = [
  "redis-module",
  "redis_mock",
  "redisearch_rs",
+ "rstest",
  "string_utils",
  "thiserror",
  "workspace_hack",

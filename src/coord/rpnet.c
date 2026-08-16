@@ -172,7 +172,7 @@ int getNextReply(RPNet *nc) {
   }
 #endif
   MRReply *root = nc->areq
-    ? MRIterator_NextWithTimeout(nc->it, NULL, &nc->areq->syncState.timedOut, NULL)
+    ? MRIterator_NextWithTimeout(nc->it, NULL, &nc->areq->base.timeout.timedOut, NULL)
     : MRIterator_Next(nc->it);
 
   if (root == NULL) {
@@ -306,9 +306,10 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
 
     // Register the iterator's channel so the main-thread timeout callback can wake a
     // blocked reader after flipping AREQ's `timedOut` flag. Paired with
-    // RequestSyncState_UnregisterAbortWakeChannel in rpnetFree.
+    // QueryRequestAsyncState_UnregisterAbortWakeChannel in rpnetFree.
     if (nc->areq) {
-      RequestSyncState_RegisterAbortWakeChannel(&nc->areq->syncState, MRIterator_GetChannel(nc->it));
+      QueryRequestAsyncState_RegisterAbortWakeChannel(&nc->areq->base.async,
+                                                      MRIterator_GetChannel(nc->it));
     }
 #ifdef ENABLE_ASSERT
     DebugBgIterator_Set(nc->it);
@@ -325,7 +326,7 @@ void rpnetFree(ResultProcessor *rp) {
     // Unregister the abort-wake channel before releasing the iterator, so the main
     // thread's timeout callback cannot observe a channel that is about to be freed.
     if (nc->areq) {
-      RequestSyncState_UnregisterAbortWakeChannel(&nc->areq->syncState);
+      QueryRequestAsyncState_UnregisterAbortWakeChannel(&nc->areq->base.async);
     }
 #ifdef ENABLE_ASSERT
     // Drop the FT.DEBUG BG_PENDING_REPLIES handle before releasing the iterator.
@@ -381,7 +382,8 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   // Surface RETURN_STRICT timeouts on follow-up cursor reads where the channel
   // may already hold a buffered reply (the NULL-reply check below wouldn't fire
   // and we'd silently return rows). Skipped during the timer's own drain.
-  if (areq && areq->useReplyCallback && !nc->drainOnly && AREQ_TimedOut(nc->areq)) {
+  if (areq && QueryRequest_UsesReplyCallback(&areq->base) && !nc->drainOnly &&
+      AREQ_TimedOut(nc->areq)) {
     return RS_RESULT_TIMEDOUT;
   }
 

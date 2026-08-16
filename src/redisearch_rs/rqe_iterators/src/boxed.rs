@@ -137,6 +137,9 @@ pub trait RQESuspendedIterator<'query> {
     /// stale position that made the resume necessary — and a composite one level
     /// up cannot recover its own position from it.
     ///
+    /// Exhaustion must also survive the cycle: an iterator suspended at
+    /// [`at_eof`](RQEIterator::at_eof) must resume at it.
+    ///
     /// Resume re-reads/seeks the index to restore position (mirroring
     /// [`RQEIterator::revalidate`]), so it can fail with an
     /// [`RQEIteratorError`] (e.g. [`IoError`](RQEIteratorError::IoError) or

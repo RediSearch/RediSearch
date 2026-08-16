@@ -10,8 +10,10 @@
 //! Shared string utility functions.
 //!
 //! These are pure-Rust replacements for C helpers that were previously
-//! implemented using `libnu` for Unicode operations.
+//! implemented using `libnu` for Unicode operations, plus — in [`libnu`] — the
+//! guards a caller still handing bytes to one of the remaining C helpers needs.
 
+pub mod libnu;
 pub mod runes;
 pub mod tag;
 pub mod unicode;

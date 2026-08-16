@@ -279,6 +279,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
  * @param nrequests Number of requests in the array
  */
 void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests, size_t nrequests, RedisModuleString **argv, uint32_t argc) {
+    QueryRequest_Init(&hybridReq->base, QUERY_REQUEST_KIND_HYBRID, argv, argc);
     hybridReq->requests = requests;
     hybridReq->nrequests = nrequests;
     hybridReq->sctx = sctx;
@@ -302,44 +303,35 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     AGPLN_Init(&hybridReq->tailPipeline->ap);
     hybridReq->tailPipelineError = QueryError_Default();
     Pipeline_Initialize(hybridReq->tailPipeline, hybridReq->reqConfig.timeoutPolicy, &hybridReq->tailPipelineError);
+    QueryRequest_SetEndProcRef(&hybridReq->base, &hybridReq->tailPipeline->qctx.endProc);
 
     // Initialize pipelines for each individual request
     for (size_t i = 0; i < nrequests; i++) {
         initializeAREQ(requests[i]);
-        // Each sub-AREQ gets its own wrapper, holding the whole command
-        // rather than its own slice: slice boundaries are only discovered
-        // while parsing, and sub pipelines borrow beyond their slice anyway
-        // (distributed tail steps like LOAD, PARAMS).
-        BlockedRequestCtx_NewAREQ(requests[i], argv, argc);
         hybridReq->errors[i] = QueryError_Default();
         Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &hybridReq->errors[i]);
     }
     hybridReq->profileClocks.initClock = now;
 
-    // Initialize timeout coordination fields (embedded per-request slot only;
-    // the aggregate-coord fields live on the heap BlockedRequestCtx wrapper).
-    RequestSyncState_Init(&hybridReq->syncState);
+    // Initialize timeout coordination fields.
     pthread_mutex_init(&hybridReq->cursorMutex, NULL);
 }
 
 HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests, RedisModuleString **argv, uint32_t argc) {
-    // The wrappers hold the full command; each sub takes its own holds — a
+    // The requests hold the full command; each sub takes its own holds — a
     // sub's borrows can outlive the container.
     HybridRequest *hybridReq = rm_calloc(1, sizeof(*hybridReq));
     HybridRequest_Init(hybridReq, sctx, requests, nrequests, argv, argc);
-    // Wrap the top-level hybrid request in its single-owner sync context.
-    // Sets hybridReq->brc; ownership is released via HybridRequest_DecrRef.
-    BlockedRequestCtx_NewHybrid(hybridReq, argv, argc);
     return hybridReq;
 }
 
 void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, uint32_t argc) {
   // argc bounds the parse; the holds may cover a superset (debug flows).
-  RS_ASSERT(argc <= req->brc->argc);
+  RS_ASSERT(argc <= req->base.args.argc);
   // The cursor covers the whole held command, pre-advanced past the command
   // and index names: recorded positions (sub queryOffsets, syntax-error
   // offsets) are relative to the full command.
-  ArgsCursor_InitRString(ac, req->brc->argv, (int)argc);
+  ArgsCursor_InitRString(ac, req->base.args.argv, (int)argc);
   AC_AdvanceBy(ac, argc > 2 ? 2 : argc);
 }
 
@@ -423,23 +415,19 @@ void HybridRequest_Free(HybridRequest *req) {
 
     rm_free(req->debugParams);
 
-    RequestSyncState_Destroy(&req->syncState);
+    QueryRequest_Destroy(&req->base);
 
     rm_free(req);
 }
 
 HybridRequest *HybridRequest_IncrRef(HybridRequest *req) {
-  RS_LOG_ASSERT(req->brc != NULL, "HybridRequest_IncrRef called on unwrapped request");
-  BlockedRequestCtx_IncrRef(req->brc);
+  QueryRequest_IncrRef(&req->base);
   return req;
 }
 
 void HybridRequest_DecrRef(HybridRequest *req) {
   if (!req) return;
-  // Delegate to the wrapper: BlockedRequestCtx_DecrRef → 0 → BlockedRequestCtx_Free
-  // → HybridRequest_Free.
-  RS_LOG_ASSERT(req->brc != NULL, "HybridRequest_DecrRef called on unwrapped request");
-  BlockedRequestCtx_DecrRef(req->brc);
+  QueryRequest_DecrRef(&req->base);
 }
 
 static bool isSoftTailPipelineErrorCode(QueryErrorCode code) {
@@ -498,8 +486,8 @@ static RedisSearchCtx* createThreadSafeSearchContext(RedisModuleCtx *ctx, const 
 
 HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx, RedisModuleString **argv, uint32_t argc) {
   extern size_t NumShards;  // Declared in module.c
-  AREQ *search = AREQ_New();
-  AREQ *vector = AREQ_New();
+  AREQ *search = AREQ_New(argv, argc);
+  AREQ *vector = AREQ_New(argv, argc);
   const char *indexName = HiddenString_GetUnsafe(sctx->spec->specName, NULL);
   search->sctx = createThreadSafeSearchContext(sctx->redisCtx, indexName);
   vector->sctx = createThreadSafeSearchContext(sctx->redisCtx, indexName);
@@ -544,9 +532,9 @@ void AddValidationErrorContext(AREQ *req, QueryError *status) {
 }
 
 void HybridRequest_SetTimedOut(HybridRequest *req) {
-  RequestSyncState_SetTimedOut(&req->syncState);
+  QueryRequestTimeout_SetTimedOut(&req->base.timeout);
   // Propagate to each subquery AREQ so its RPNet's MRChannel_PopWithTimeout
-  // abort flag (&areq->syncState.timedOut) is flipped. Without this the BG
+  // abort flag (&areq->base.timeout.timedOut) is flipped. Without this the BG
   // worker can stay parked on the channel even after the hybrid-level flag
   // is set.
   for (size_t i = 0; i < req->nrequests; i++) {
@@ -558,23 +546,25 @@ void HybridRequest_SetTimedOut(HybridRequest *req) {
 
 bool HybridRequest_TryClaimAggregateResults(HybridRequest *req) {
   bool expected = false;
-  return atomic_compare_exchange_strong_explicit(&req->brc->aggregatingResults, &expected, true,
-                                                 memory_order_relaxed, memory_order_relaxed);
+  return atomic_compare_exchange_strong_explicit(&req->base.async.aggregatingResults, &expected,
+                                                 true, memory_order_relaxed,
+                                                 memory_order_relaxed);
 }
 
 void HybridRequest_SignalAggregateResultsComplete(HybridRequest *req) {
-  pthread_mutex_lock(&req->brc->aggregateResultsLock);
-  req->brc->aggregateResultsDone = true;
-  pthread_cond_broadcast(&req->brc->aggregateResultsCond);
-  pthread_mutex_unlock(&req->brc->aggregateResultsLock);
+  pthread_mutex_lock(&req->base.async.aggregateResultsLock);
+  req->base.async.aggregateResultsDone = true;
+  pthread_cond_broadcast(&req->base.async.aggregateResultsCond);
+  pthread_mutex_unlock(&req->base.async.aggregateResultsLock);
 }
 
 void HybridRequest_WaitForAggregateResultsComplete(HybridRequest *req) {
-  pthread_mutex_lock(&req->brc->aggregateResultsLock);
-  while (!req->brc->aggregateResultsDone) {
-    pthread_cond_wait(&req->brc->aggregateResultsCond, &req->brc->aggregateResultsLock);
+  pthread_mutex_lock(&req->base.async.aggregateResultsLock);
+  while (!req->base.async.aggregateResultsDone) {
+    pthread_cond_wait(&req->base.async.aggregateResultsCond,
+                      &req->base.async.aggregateResultsLock);
   }
-  pthread_mutex_unlock(&req->brc->aggregateResultsLock);
+  pthread_mutex_unlock(&req->base.async.aggregateResultsLock);
 }
 
 #ifdef __cplusplus

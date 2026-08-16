@@ -199,9 +199,9 @@ ResultProcessor *SearchDisk_NewAsyncLoaderResultProcessor(RedisSearchCtx *sctx, 
  * `RPSafeLoader_SetSyncCtx`'s pipeline walk when it reaches an `RP_DISK_ASYNC_LOADER` node.
  *
  * @param rp  The disk async-loader ResultProcessor, from SearchDisk_NewAsyncLoaderResultProcessor
- * @param brc `BlockedRequestCtx *`, or NULL to clear
+ * @param request `QueryRequest *`, or NULL to clear
  */
-void SearchDisk_AsyncLoader_SetSyncCtx(ResultProcessor *rp, BlockedRequestCtx *brc);
+void SearchDisk_AsyncLoader_SetSyncCtx(ResultProcessor *rp, QueryRequest *request);
 
 // Index API wrappers
 
