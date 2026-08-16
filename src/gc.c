@@ -404,6 +404,10 @@ bool GC_ThreadPoolWaitForPause(long timeoutMs) {
   return true;
 }
 
+size_t GC_ThreadPoolJobsInProgress(void) {
+  return gcThreadpool_g ? redisearch_thpool_num_jobs_in_progress(gcThreadpool_g) : 0;
+}
+
 void GC_ThreadPoolResumeAfterConsistency(void) {
   gcSchedulingPauseActiveForConsistency_g = false;
   if (gcThreadpool_g && redisearch_thpool_paused(gcThreadpool_g)) {

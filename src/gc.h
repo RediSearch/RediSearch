@@ -171,6 +171,9 @@ void GC_ThreadPoolPauseForConsistency(void);
 // Wait, up to `timeoutMs`, for the running GC jobs to return. Returns false on timeout. Must
 // follow GC_ThreadPoolPauseForConsistency, or a new job can start the moment this returns.
 bool GC_ThreadPoolWaitForPause(long timeoutMs);
+// GC jobs currently executing. For diagnosing a GC_ThreadPoolWaitForPause timeout; stale the
+// moment it is read anywhere else.
+size_t GC_ThreadPoolJobsInProgress(void);
 void GC_ThreadPoolResumeAfterConsistency(void);
 
 #ifdef __cplusplus

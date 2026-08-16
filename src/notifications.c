@@ -863,6 +863,12 @@ static bool vecsimdisk_sst_consistency_lock_held = false;
 // Spans PRE_CHECKPOINT..POST_FORK as one hold, unlike the VecSim lock.
 static bool disk_gc_paused_for_consistency = false;
 
+// Either half can be held alone - POST_CHECKPOINT releases the VecSim lock but keeps disk GC
+// paused - so an unwind path must test both or it can strand the pause.
+static bool DiskConsistencyWindow_IsOpen(void) {
+  return vecsimdisk_sst_consistency_lock_held || disk_gc_paused_for_consistency;
+}
+
 // Begin a consistent on-disk save window. Shared by the SST replication checkpoint and
 // fork and the foreground hot-restart save, so the callers cannot drift apart on the
 // lock/flag protocol. Pairs with DiskConsistencyWindow_End or _Close.
@@ -883,9 +889,9 @@ static void DiskConsistencyWindow_Begin(void) {
   if (!GC_ThreadPoolWaitForPause(DISK_GC_CONSISTENCY_DRAIN_TIMEOUT_MS)) {
     // Cannot decline the snapshot from here - the subevent handler returns void.
     RedisModule_Log(RSDummyContext, "warning",
-                    "Disk consistency window: disk GC did not drain within %d ms; "
+                    "Disk consistency window: %zu disk GC job(s) still running after %d ms; "
                     "proceeding without the fork-safety guarantee",
-                    DISK_GC_CONSISTENCY_DRAIN_TIMEOUT_MS);
+                    GC_ThreadPoolJobsInProgress(), DISK_GC_CONSISTENCY_DRAIN_TIMEOUT_MS);
   }
 
   // After the drain, never before: a GC run needing this lock would deadlock against us.
@@ -1046,7 +1052,7 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
     }
     break;
   case REDISMODULE_SUBEVENT_PERSISTENCE_ENDED:
-    if (vecsimdisk_sst_consistency_lock_held) {
+    if (DiskConsistencyWindow_IsOpen()) {
       // Only a real hot restart freezes: the process exits shortly, so resuming GC or
       // reopening the gate would let the kept DBs advance past what restart.rdb captured.
       // Any other SST save reaching here leaves the process running, so it must unwind.
@@ -1060,7 +1066,7 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
     }
     break;
   case REDISMODULE_SUBEVENT_PERSISTENCE_FAILED:
-    if (vecsimdisk_sst_consistency_lock_held) {
+    if (DiskConsistencyWindow_IsOpen()) {
       // Unwind the hot-restart consistency window opened at SYNC_RDB_START,
       // re-enabling compactions defensively on failure.
       DiskConsistencyWindow_End(DISK_WINDOW_END_RESUME);
