@@ -988,29 +988,47 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
   }
 
   if (!isCursor) {
+    arrayof(ResultProcessor*) depleters = NULL;
     if (depleteInBackground) {
-      arrayof(ResultProcessor*) depleters = collectDepleters(hreq, RP_SAFE_DEPLETER, status);
+      depleters = collectDepleters(hreq, RP_SAFE_DEPLETER, status);
       if (!depleters) {
-        return REDISMODULE_ERR;
+        goto done;
+      }
+      // The strict timeout callback preempts a loader parked at the GIL gate
+      // only if that loader is linked to the shared gate. Link before any
+      // depleter can run: a sub loader that races past an unlinked check is
+      // invisible to the gate, and the callback then waits for results while
+      // holding the GIL the loader needs — deadlock.
+      if (HybridRequest_RequiresThreadsSyncResults(hreq)) {
+        HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(hreq);
       }
 #ifdef ENABLE_ASSERT
       // Sync point (debug): pause while still holding the read lock, before
       // the depleters race a queued writer for their own locks.
       SyncPoint_WaitUntil(SYNC_POINT_BEFORE_HYBRID_DEPLETION, hreq_timeout_or_pending_spec_writers, hreq);
 #endif
-      // Launch and finish all background depletion up front; the caller holds
-      // the spec read lock, and DepleteAll releases it once every depleter has
-      // taken its own. Timeouts stay on the depleters — the merger below
-      // consumes each one's buffered results and last return code, so the
-      // policy-dependent reply (partial results or timeout error) is the
-      // pipeline's as usual. A lock failure is fatal before any result exists.
-      int rc = RPSafeDepleter_DepleteAll(depleters, sctx, status);
-      array_free(depleters);
-      if (rc == RS_RESULT_ERROR) {
-        return REDISMODULE_ERR;
+      // Launch all background depletion up front; the caller holds the spec
+      // read lock, and StartAll releases it once every depleter has taken its
+      // own. Completion is the merger's business: each depleter's Next waits
+      // for its own buffer, so the merger consumes the sub-pipelines in
+      // completion order, and the policy-dependent reply (partial results or
+      // timeout error) is the pipeline's as usual. A lock failure is fatal
+      // before any result exists.
+      const int startRc = RPSafeDepleter_StartAll(depleters, sctx, status);
+      if (startRc == RS_RESULT_ERROR) {
+        array_free(depleters);
+        goto done;
       }
     }
     HybridRequest_Execute(hreq, ctx, sctx);
+    if (depleters) {
+      // Normally a no-op: the merger ran every depleter to its final rc. On
+      // the pre-merger bails (strict timeout claimed or observed before the
+      // tail started) it drains the launched threads, so the request cannot
+      // be torn down while they still write into the depleters' buffers.
+      RPSafeDepleter_JoinAll(depleters);
+      array_free(depleters);
+    }
   } else if (HybridRequest_StartCursors(hybrid_ref, ctx, status, depleteInBackground) != REDISMODULE_OK) {
     goto done;
   }

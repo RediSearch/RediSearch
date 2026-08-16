@@ -343,13 +343,32 @@ rs_wall_clock_ns_t RPDepleter_GetDepletionTime(const ResultProcessor *depleter);
 int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters);
 
 /**
-* Starts the depletion for all the safe depleters in the array, waits until all finished depleting, and returns.
+* Launches all the safe depleters in the array and resolves the lock handshake, without waiting
+* for depletion to finish: on RS_RESULT_OK, depletion is still in flight, and each depleter's Next
+* waits for its own completion, so consumers observe results in completion order. A lock failure
+* returns RS_RESULT_ERROR — only after draining the group, so no background thread outlives the
+* error return.
 * @param safeDepleters Array of safe depleter processors
 * @param lockedCtx The ctx holding the spec read lock; the depletion-start handshake releases the
 *                  lock through it. Passing a ctx that is not the lock holder silently no-ops the
 *                  unlock and leaves the spec read-locked.
 * @param status Query error object to populate in case of error
+* @return RS_RESULT_OK if all safe depleters launched and locked successfully, otherwise an error code
+*/
+int RPSafeDepleter_StartAll(arrayof(ResultProcessor*) safeDepleters, RedisSearchCtx *lockedCtx, QueryError *status);
+
+/**
+* Blocks until every safe depleter's background job has finished (successfully or not); after it
+* returns, no background thread touches the group's buffers. Safe to call in any state, including
+* after the depleters were consumed — a no-op when everything already finished. Callers that
+* launched via RPSafeDepleter_StartAll must join before tearing the pipelines down.
+*/
+void RPSafeDepleter_JoinAll(arrayof(ResultProcessor*) safeDepleters);
+
+/**
+* RPSafeDepleter_StartAll, then wait until all the safe depleters finished depleting.
 * @return RS_RESULT_OK if all safe depleters completed successfully, otherwise an error code
+*         (errors take priority over timeouts)
 */
 int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, RedisSearchCtx *lockedCtx, QueryError *status);
 
