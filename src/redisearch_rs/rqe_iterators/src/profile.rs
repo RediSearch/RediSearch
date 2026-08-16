@@ -81,6 +81,12 @@ pub struct RawProfile<Rf: Ref, I> {
     counters: ProfileCounters,
     /// Time spent in child iterator operations.
     wall_time: Duration,
+    /// The child's [`RQEIterator::num_estimated`], captured at construction
+    /// under the spec lock — the value query planning consumed. The profile
+    /// print reads this cache instead of calling the live iterator: stored
+    /// replies print on the main thread without the spec lock, possibly after
+    /// the index itself is gone.
+    estimated: usize,
     _marker: std::marker::PhantomData<Rf>,
 }
 
@@ -106,6 +112,7 @@ const _: () = {
     assert!(offset_of!(A, child) == offset_of!(S, child));
     assert!(offset_of!(A, counters) == offset_of!(S, counters));
     assert!(offset_of!(A, wall_time) == offset_of!(S, wall_time));
+    assert!(offset_of!(A, estimated) == offset_of!(S, estimated));
     assert!(size_of::<A>() == size_of::<S>());
     assert!(align_of::<A>() == align_of::<S>());
 };
@@ -113,12 +120,17 @@ const _: () = {
 impl<'index, I: RQEIterator<'index>> Profile<'index, I> {
     /// Creates a new Profile iterator wrapping the given child iterator.
     ///
-    /// The counters are initialized to zero and wall time starts at 0.
+    /// The counters are initialized to zero and wall time starts at 0. The
+    /// child's [`RQEIterator::num_estimated`] is captured into
+    /// [`estimated`](Self::estimated) here, while the caller still holds the
+    /// spec lock.
     pub fn new(child: I) -> Self {
+        let estimated = child.num_estimated();
         Self {
             child,
             counters: ProfileCounters::default(),
             wall_time: Duration::ZERO,
+            estimated,
             _marker: std::marker::PhantomData,
         }
     }
@@ -140,6 +152,13 @@ impl<'index, I: RQEIterator<'index>> Profile<'index, I> {
     #[inline]
     pub const fn wall_time_ns(&self) -> u64 {
         self.wall_time.as_nanos() as u64
+    }
+
+    /// Returns the child's construction-time [`RQEIterator::num_estimated`]
+    /// capture (see [`Self::new`]).
+    #[inline]
+    pub const fn estimated(&self) -> usize {
+        self.estimated
     }
 }
 
@@ -218,7 +237,7 @@ where
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         let counters = self.counters();
-        let mut child_ctx = ctx.with_counters(counters, self.wall_time_ns());
+        let mut child_ctx = ctx.with_counters(counters, self.wall_time_ns(), self.estimated);
         self.child().print_profile(map, &mut child_ctx);
     }
 }
