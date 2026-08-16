@@ -137,7 +137,6 @@ void FieldList_Free(FieldList *fields) {
 }
 
 ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name, const char *path) {
-  size_t foundIndex = -1;
   for (size_t ii = 0; ii < fields->numFields; ++ii) {
     if (!strcmp(fields->fields[ii].name, name)) {
       if (path && fields->fields[ii].explicitReturn == 0 &&
