@@ -195,6 +195,13 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
                             "Forcing coordinator timeout for TIMEOUT_AFTER_N 0 and query timeout 0 "
                             "to avoid infinite loop (RESP2 only)");
             debug_req->r.reqConfig.queryTimeoutMS = COORDINATOR_FORCED_TIMEOUT;
+            // Preserve SearchCtx_UpdateTime's old behavior: this late TIMEOUT change must rearm
+            // the coordinator deadline.
+            QueryRequestTimeout_UpdateConfig(&debug_req->r.base.timeout,
+                                             debug_req->r.reqConfig.timeoutPolicy,
+                                             debug_req->r.reqConfig.queryTimeoutMS);
+            QueryRequestTimeout_BeginCycle(&debug_req->r.base.timeout,
+                                           QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
             SearchCtx_UpdateTime(debug_req->r.sctx, debug_req->r.reqConfig.queryTimeoutMS);
             // The original TIMEOUT 0 caused skipTimeoutChecks=true. Now that we've
             // forced a real timeout, we must re-enable timeout checking so RPNet
@@ -210,7 +217,7 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
       }
       // Add timeout to the coordinator pipeline
       PipelineAddTimeoutAfterCount(AREQ_QueryProcessingCtx(&debug_req->r), AREQ_SearchCtx(&debug_req->r), results_count);
-      // RPTimeoutAfterCount simulates a timeout by setting sctx->time.timeout to "now".
+      // RPTimeoutAfterCount simulates a timeout by moving the request deadline to "now".
       // RPNet checks skipTimeoutChecks before checking TimedOut, so we must ensure
       // timeout checking is enabled for the simulation to be respected.
       // This is needed when queryTimeoutMS==0 (disabled), which causes

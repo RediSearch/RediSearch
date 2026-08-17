@@ -864,15 +864,16 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   r->sctx = rm_new(RedisSearchCtx);
   *r->sctx = SEARCH_CTX_STATIC(ctx, NULL);
   r->sctx->apiVersion = dialect;
-  SearchCtx_UpdateTime(r->sctx, r->reqConfig.queryTimeoutMS);
-  // TODO($$$): Remove the SearchTime mirror once consumers use QueryRequest.timeout.
-  // Propagate skipTimeoutChecks from request to sctx.
-  // AREQ_Compile set the request flag before sctx existed, so the flag
-  // was not propagated. RPNet and startPipeline read from sctx->time.skipTimeoutChecks.
-  r->sctx->time.skipTimeoutChecks = !QueryRequestTimeout_ShouldCheck(&r->base.timeout);
+  r->sctx->time.requestTimeout = &r->base.timeout;
   // r->sctx->expanded should be received from shards
 
-  AREQ_SetSkipTimeoutChecks(r, !shouldCheckInPipelineTimeoutCoord(r));
+  bool checkInPipelineTimeout = shouldCheckInPipelineTimeoutCoord(r);
+  AREQ_SetSkipTimeoutChecks(r, !checkInPipelineTimeout);
+  // Preserve the timeout source and deadline formerly established around SearchCtx_UpdateTime.
+  QueryRequestTimeout_BeginCycle(
+      &r->base.timeout, checkInPipelineTimeout ? QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE
+                                               : QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  SearchCtx_UpdateTime(r->sctx, r->reqConfig.queryTimeoutMS);
 
   return REDISMODULE_OK;
 }

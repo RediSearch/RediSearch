@@ -203,7 +203,7 @@ unsafe fn build_timeout_context(
 /// When null, the Clock Based Timeout path is used, driven entirely by `q.sctx.time`:
 /// `timeout` is the deadline, read back on every probe so that a re-armed deadline is
 /// honoured, and `skipTimeoutChecks` disables the check entirely. There is deliberately no
-/// deadline parameter — a caller wanting a different deadline sets `q.sctx.time.timeout`,
+/// deadline parameter — a caller wanting a different deadline updates the request timeout,
 /// which is the only value the iterator will ever consult. The C caller is expected to
 /// pre-filter the owning request via `AREQ_TimeoutAreqOrNull` before passing it here.
 ///
@@ -216,7 +216,7 @@ unsafe fn build_timeout_context(
 /// 4. `q.sctx` must be a non-null pointer to a valid
 ///    [`RedisSearchCtx`](ffi::RedisSearchCtx), which must stay valid and at a stable
 ///    address for the lifetime of the returned iterator: on the Clock Based Timeout path
-///    the iterator reads `q.sctx.time.timeout` back on every probe. No write to that
+///    the iterator reads the request-owned deadline back on every probe. No write to that
 ///    deadline may overlap a probe.
 /// 5. `q.sctx.spec` must be a non-null pointer to a valid
 ///    [`IndexSpec`](ffi::IndexSpec).

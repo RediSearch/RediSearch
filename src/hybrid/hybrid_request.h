@@ -170,6 +170,9 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
  */
 void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests, size_t nrequests, RedisModuleString **argv, uint32_t argc);
 
+/** Starts the selected timeout source for the container and every subquery. */
+void HybridRequest_BeginTimeoutCycle(HybridRequest *req, QueryRequestTimeoutKind kind);
+
 /* Wrap the request's held argv (taken at construction) in a parse cursor.
  * The caller's argc bounds the parse; the holds may cover a superset (the
  * coordinator debug flow strips trailing debug params). */

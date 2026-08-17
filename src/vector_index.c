@@ -35,6 +35,7 @@
 #include "query.h"
 #include "query_error.h"
 #include "query_error_ffi.h"
+#include "query_request.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 #include "rqe_core.h"
@@ -215,6 +216,18 @@ static bool VectorQuery_HasParam(const VectorQuery *vq, const char *param_name, 
   return false;
 }
 
+static struct timespec VectorQuery_GetTransitionalDeadline(const QueryEvalCtx *q) {
+  const SearchTime *time = &q->sctx->time;
+  if (time->requestTimeout &&
+      time->requestTimeout->kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE) {
+    return *SearchTime_GetClockDeadline(time);
+  }
+
+  // Vector APIs still require a timespec. Until they use the generic timeout API, a
+  // blocked-client or unarmed cycle must not produce a clock-based timeout.
+  return (struct timespec){.tv_sec = INT64_MAX, .tv_nsec = 0};
+}
+
 static int VectorQuery_ValidateDiskHybridPolicy(const QueryEvalCtx *q, const VectorQuery *vq,
                                                 const QueryIterator *child_it) {
   if (!SearchDisk_IsEnabledForValidation() || vq->type != VECSIM_QT_KNN || child_it == NULL) {
@@ -283,7 +296,7 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
                                       .vectorScoreField = vq->scoreField,
                                       .canTrimDeepResults = q->opts->flags & Search_CanSkipRichResults,
                                       .childIt = child_it,
-                                      .timeout = q->sctx->time.timeout,
+                                      .timeout = VectorQuery_GetTransitionalDeadline(q),
                                       .sctx = q->sctx,
                                       .filterCtx = &filterCtx,
       };
@@ -314,7 +327,7 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
       return NewLazyVectorRangeIteratorFromParams(vecsim, vq->range.vector, vq->range.radius,
                                                   qParams, vq->range.order,
                                                   /*yields_metric=*/vq->scoreField != NULL,
-                                                  q->sctx->time.timeout);
+                                                  VectorQuery_GetTransitionalDeadline(q));
     }
   }
   return NULL;

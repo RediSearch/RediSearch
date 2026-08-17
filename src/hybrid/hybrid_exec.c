@@ -283,9 +283,12 @@ bool HybridRequest_TimeoutPreemptSafeLoaderGIL(HybridRequest *hreq) {
 static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
   CommonPipelineCtx ctx = {
     .timeoutPolicy = hreq->reqConfig.timeoutPolicy,
-    .timeout = &hreq->sctx->time.timeout,
+    .timeout = hreq->base.timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE
+                   ? SearchTime_GetClockDeadline(&hreq->sctx->time)
+                   : NULL,
     .oomPolicy = hreq->reqConfig.oomPolicy,
-    .skipTimeoutChecks = !HybridRequest_ShouldCheckTimeout(hreq),
+    .skipTimeoutChecks = hreq->base.timeout.kind != QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE ||
+                         !HybridRequest_ShouldCheckTimeout(hreq),
     // Borrow a subquery AREQ as the tail's row-boundary timeout-flag proxy:
     // HybridRequest_PropagateTimeoutToSubqueries marks every subquery AREQ, so
     // AggregateResults can bail between rows while draining buffered tail rows.
@@ -1380,14 +1383,29 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
       DefaultCleanup(hybrid_ref);
       return replyForHybridPreExecutionTimeout(ctx, internal, profileOptions);
     }
-    // Propagate adjusted timeout to sub-queries
+    // Coordinator elapsed time changes the container budget after parsing; synchronize it at the
+    // mutation point before starting the cycle.
+    QueryRequestTimeout_UpdateConfig(&hybridRequest->base.timeout,
+                                     hybridRequest->reqConfig.timeoutPolicy,
+                                     hybridRequest->reqConfig.queryTimeoutMS);
     for (size_t i = 0; i < hybridRequest->nrequests; i++) {
-      hybridRequest->requests[i]->reqConfig.queryTimeoutMS = hybridRequest->reqConfig.queryTimeoutMS;
+      AREQ *subquery = hybridRequest->requests[i];
+      subquery->reqConfig.queryTimeoutMS = hybridRequest->reqConfig.queryTimeoutMS;
+      // Keep each subquery timeout synchronized with the adjusted budget copied above.
+      QueryRequestTimeout_UpdateConfig(&subquery->base.timeout,
+                                       subquery->reqConfig.timeoutPolicy,
+                                       subquery->reqConfig.queryTimeoutMS);
     }
   }
 
   // Check if we should check for timeout in pipeline
-  HybridRequest_SetSkipTimeoutChecks(hybridRequest, !shouldCheckInPipelineTimeoutHybrid(ctx, hybridRequest));
+  bool checkInPipelineTimeout = shouldCheckInPipelineTimeoutHybrid(ctx, hybridRequest);
+  HybridRequest_SetSkipTimeoutChecks(hybridRequest, !checkInPipelineTimeout);
+  // Preserve the per-request deadlines formerly initialized by the SearchCtx_UpdateTime calls
+  // below, while retaining blocked-client behavior when pipeline clock checks are disabled.
+  HybridRequest_BeginTimeoutCycle(
+      hybridRequest, checkInPipelineTimeout ? QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE
+                                            : QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
 
   // Copy dispatch time to each subquery AREQ for profile printing
   for (size_t i = 0; i < hybridRequest->nrequests; i++) {

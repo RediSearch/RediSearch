@@ -12,6 +12,7 @@
 #include "search_result_ffi.h"
 #include "spec.h"
 #include "search_ctx.h"
+#include "query_request.h"
 #include "rmalloc.h"
 #include "common.h"
 #include "module.h"
@@ -87,6 +88,10 @@ protected:
     // Initialize search contexts for all tests (with or without real spec)
     for (size_t i = 0; i < NumberOfContexts; ++i) {
       searchContexts[i] = SEARCH_CTX_STATIC(redisContexts[i], mockSpec);
+      timeouts[i] = static_cast<QueryRequestTimeout *>(rm_calloc(1, sizeof(QueryRequestTimeout)));
+      QueryRequestTimeout_Init(timeouts[i], TimeoutPolicy_Return, 10000);
+      QueryRequestTimeout_BeginCycle(timeouts[i], QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+      searchContexts[i].time.requestTimeout = timeouts[i];
     }
 
     // Set proper timeout on all search contexts to avoid immediate timeout
@@ -95,7 +100,7 @@ protected:
     clock_gettime(CLOCK_MONOTONIC_RAW, &future_timeout);
     future_timeout.tv_sec += 10; // 10 seconds from now
     for (size_t i = 0; i < NumberOfContexts; ++i) {
-      searchContexts[i].time.timeout = future_timeout;
+      *SearchTime_GetClockDeadlineForUpdate(&searchContexts[i].time) = future_timeout;
     }
   }
 
@@ -104,10 +109,14 @@ protected:
     for (auto ctx : redisContexts) {
       RedisModule_FreeThreadSafeContext(ctx);
     }
+    for (auto timeout : timeouts) {
+      rm_free(timeout);
+    }
   }
 
   std::array<RedisModuleCtx*, NumberOfContexts> redisContexts;
   std::array<RedisSearchCtx, NumberOfContexts> searchContexts;
+  std::array<QueryRequestTimeout *, NumberOfContexts> timeouts = {nullptr};
   IndexSpec* mockSpec = nullptr;
 };
 
@@ -359,7 +368,7 @@ TEST_P(RPSafeDepleterTest, RPSafeDepleter_LazyTimeoutThenWaitForCompletion) {
   struct timespec past_timeout;
   clock_gettime(CLOCK_MONOTONIC_RAW, &past_timeout);
   past_timeout.tv_sec -= 1;
-  searchContexts[1].time.timeout = past_timeout;
+  *SearchTime_GetClockDeadlineForUpdate(&searchContexts[1].time) = past_timeout;
 
   ResultProcessor *depleter = RPSafeDepleter_New(
       DepleterSync_New(1, take_index_lock),
@@ -393,7 +402,7 @@ TEST_P(RPSafeDepleterTest, RPSafeDepleter_StartDepletionTimeoutBailout) {
   struct timespec past_timeout;
   clock_gettime(CLOCK_MONOTONIC_RAW, &past_timeout);
   past_timeout.tv_sec -= 1;
-  searchContexts[1].time.timeout = past_timeout;
+  *SearchTime_GetClockDeadlineForUpdate(&searchContexts[1].time) = past_timeout;
 
   ResultProcessor *depleter = RPSafeDepleter_New(
       DepleterSync_New(1, take_index_lock),

@@ -33,7 +33,7 @@ SearchResult **AggregateResults(ResultProcessor *rp, struct AREQ *areq, int *rc)
 
 typedef struct CommonPipelineCtx {
   RSTimeoutPolicy timeoutPolicy;
-  struct timespec *timeout;
+  const struct timespec *timeout;
   RSOomPolicy oomPolicy;
   bool skipTimeoutChecks;
 

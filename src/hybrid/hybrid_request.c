@@ -287,6 +287,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     hybridReq->requests = requests;
     hybridReq->nrequests = nrequests;
     hybridReq->sctx = sctx;
+    hybridReq->sctx->time.requestTimeout = &hybridReq->base.timeout;
     hybridReq->kArgIndex = -1;
     rs_wall_clock now = {0};
     rs_wall_clock_init(&now);
@@ -315,6 +316,13 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
 
     // Initialize timeout coordination fields.
     pthread_mutex_init(&hybridReq->cursorMutex, NULL);
+}
+
+void HybridRequest_BeginTimeoutCycle(HybridRequest *req, QueryRequestTimeoutKind kind) {
+    QueryRequestTimeout_BeginCycle(&req->base.timeout, kind);
+    for (size_t i = 0; i < req->nrequests; i++) {
+        QueryRequestTimeout_BeginCycle(&req->requests[i]->base.timeout, kind);
+    }
 }
 
 HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests, RedisModuleString **argv, uint32_t argc) {

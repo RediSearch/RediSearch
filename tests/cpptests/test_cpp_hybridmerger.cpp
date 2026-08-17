@@ -158,7 +158,7 @@ static RedisSearchCtx* GetDummySearchCtx() {
     .redisCtx = NULL,
     .key_ = NULL,
     .spec = NULL,
-    .time = {.current = {0, 0}, .timeout = {0, 0}, .skipTimeoutChecks = true},
+    .time = {.current = {0, 0}, .skipTimeoutChecks = true, .requestTimeout = NULL},
     .apiVersion = 0,
     .expanded = 0,
     .lock_state = SPEC_LOCK_UNSET,

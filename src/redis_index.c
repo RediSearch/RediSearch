@@ -37,27 +37,14 @@
 #include "util/references.h"
 #include "util/timeout.h"
 
-static inline void updateTime(SearchTime *searchTime, int32_t durationNS) {
+static inline void updateTime(SearchTime *searchTime) {
   if (RS_IsMock) return;
-
-  // 0 disables the timeout
-  if (durationNS == 0) {
-    durationNS = INT32_MAX;
-  }
-
-  struct timespec duration = {.tv_sec = durationNS / 1000,
-                              .tv_nsec = ((durationNS % 1000) * 1000000)};
 #ifdef CLOCK_REALTIME_COARSE
   clock_gettime(CLOCK_REALTIME_COARSE, &searchTime->current);
 #else
   // In some mac systems CLOCK_REALTIME_COARSE is not defined, we fallback to CLOCK_REALTIME
   clock_gettime(CLOCK_REALTIME, &searchTime->current);
 #endif
-
-  // The timeout mechanism is based on the monotonic clock, so we need another clock_gettime call
-  timespec monotoicNow = {.tv_sec = 0, .tv_nsec = 0};
-  clock_gettime(CLOCK_MONOTONIC_RAW, &monotoicNow);
-  rs_timeradd(&monotoicNow, &duration, &searchTime->timeout);
 }
 
 /**
@@ -200,7 +187,8 @@ void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx) {
 }
 
 void SearchCtx_UpdateTime(RedisSearchCtx *sctx, int32_t durationNS) {
-  updateTime(&sctx->time, durationNS);
+  UNUSED(durationNS);
+  updateTime(&sctx->time);
 }
 
 void SearchCtx_CleanUp(RedisSearchCtx *sctx) {

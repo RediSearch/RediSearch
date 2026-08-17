@@ -48,7 +48,7 @@ pub(crate) fn eval<'index>(
     // returned context may point at — `bcTimeoutAreq` and `sctx` — outlive every timeout
     // context derived from `ctx`, and the returned context is handed straight to
     // `new_not_iterator` below (never retained past this query), so it cannot be used after
-    // either is freed. Writes to `sctx.time.timeout` never overlap a probe (see
+    // either is freed. Writes to the request-owned deadline never overlap a probe (see
     // `TimeoutContextDeadline::new`).
     let timeout_ctx = unsafe { ctx.build_timeout_context() };
 

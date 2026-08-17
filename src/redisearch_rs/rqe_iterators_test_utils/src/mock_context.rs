@@ -9,7 +9,7 @@
 
 use std::ptr::NonNull;
 
-use ffi::{QueryEvalCtx, RedisSearchCtx, SchemaRule};
+use ffi::{QueryEvalCtx, QueryRequestTimeout, RedisSearchCtx, SchemaRule};
 use numeric_range_tree::NumericRangeTree;
 use rqe_core::DocId;
 
@@ -25,6 +25,7 @@ use rqe_core::DocId;
 pub struct MockContext {
     rule: *mut SchemaRule,
     spec: *mut ffi::IndexSpec,
+    timeout: *mut QueryRequestTimeout,
     sctx: *mut RedisSearchCtx,
     qctx: *mut QueryEvalCtx,
     numeric_range_tree: *mut NumericRangeTree,
@@ -45,6 +46,10 @@ impl Drop for MockContext {
             std::alloc::dealloc(
                 self.spec as *mut u8,
                 std::alloc::Layout::new::<ffi::IndexSpec>(),
+            );
+            std::alloc::dealloc(
+                self.timeout as *mut u8,
+                std::alloc::Layout::new::<QueryRequestTimeout>(),
             );
             std::alloc::dealloc(
                 self.sctx as *mut u8,
@@ -73,6 +78,9 @@ impl MockContext {
         // Create boxes and immediately convert to raw pointers
         let rule_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<SchemaRule>() }));
         let spec_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<ffi::IndexSpec>() }));
+        let timeout_ptr = Box::into_raw(Box::new(unsafe {
+            std::mem::zeroed::<QueryRequestTimeout>()
+        }));
         let sctx_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<RedisSearchCtx>() }));
         let qctx_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<QueryEvalCtx>() }));
         let numeric_range_tree_ptr = Box::into_raw(Box::new(NumericRangeTree::new(false)));
@@ -102,6 +110,9 @@ impl MockContext {
 
             // Initialize RedisSearchCtx
             (*sctx_ptr).spec = spec_ptr;
+            (*timeout_ptr).kind =
+                ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
+            (*sctx_ptr).time.requestTimeout = timeout_ptr;
 
             // Initialize QueryEvalCtx
             (*qctx_ptr).sctx = sctx_ptr;
@@ -111,6 +122,7 @@ impl MockContext {
             Self {
                 rule: rule_ptr,
                 spec: spec_ptr,
+                timeout: timeout_ptr,
                 sctx: sctx_ptr,
                 qctx: qctx_ptr,
                 numeric_range_tree: numeric_range_tree_ptr,

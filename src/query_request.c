@@ -80,6 +80,17 @@ RS_Atomic(bool) *QueryRequestTimeout_GetBlockedClientFlag(QueryRequestTimeout *t
   return &timeout->source.blockedClientTimedOut;
 }
 
+const struct timespec *QueryRequestTimeout_GetClockDeadline(
+    const QueryRequestTimeout *timeout) {
+  RS_ASSERT(timeout->kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+  return &timeout->source.clockDeadline;
+}
+
+struct timespec *QueryRequestTimeout_GetClockDeadlineForUpdate(QueryRequestTimeout *timeout) {
+  timeout->kind = QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
+  return &timeout->source.clockDeadline;
+}
+
 bool QueryRequestTimeout_IsTimedOut(const QueryRequestTimeout *timeout) {
   switch (timeout->kind) {
     case QUERY_REQUEST_TIMEOUT_UNARMED:

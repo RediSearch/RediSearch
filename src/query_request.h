@@ -159,6 +159,19 @@ void QueryRequestTimeout_MarkTimedOut(QueryRequestTimeout *timeout);
 RS_Atomic(bool) *QueryRequestTimeout_GetBlockedClientFlag(QueryRequestTimeout *timeout);
 
 /**
+ * Borrows the active CLOCK_DEADLINE for consumers that have not yet migrated
+ * to the source-neutral timeout API.
+ */
+const struct timespec *QueryRequestTimeout_GetClockDeadline(
+    const QueryRequestTimeout *timeout);
+
+/**
+ * Selects CLOCK_DEADLINE and returns its storage for debug timeout simulation
+ * and tests. The caller must initialize the returned deadline before it can be observed.
+ */
+struct timespec *QueryRequestTimeout_GetClockDeadlineForUpdate(QueryRequestTimeout *timeout);
+
+/**
  * Reports whether the request has timed out, independently of how the timeout
  * is detected:
  *

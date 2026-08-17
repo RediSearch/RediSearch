@@ -97,7 +97,11 @@ pub(crate) fn eval<'index>(
     // Resolved here, with every other read of `ctx`, because `Expansion` borrows
     // it mutably for the rest of the expansion.
     let time = &ctx.sctx().time;
-    let timeout = (!time.skipTimeoutChecks).then_some(time.timeout);
+    let timeout = (!time.skipTimeoutChecks).then(|| {
+        // SAFETY: clock-based search contexts wire a live request timeout whose active union
+        // member is `clockDeadline`.
+        unsafe { (*time.requestTimeout).source.clockDeadline }
+    });
 
     let expansion = Expansion {
         ctx,

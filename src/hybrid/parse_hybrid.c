@@ -640,6 +640,11 @@ static void copyHybridConfigToSubquery(AREQ *subqueryRequest,
 
   // Copy request configuration using the helper function
   copyRequestConfig(&subqueryRequest->reqConfig, parsedCmdCtx->reqConfig);
+  // Hybrid subqueries bypass AREQ_Compile, so synchronize their timeout configuration where the
+  // parsed RequestConfig is copied.
+  QueryRequestTimeout_UpdateConfig(&subqueryRequest->base.timeout,
+                                   subqueryRequest->reqConfig.timeoutPolicy,
+                                   subqueryRequest->reqConfig.queryTimeoutMS);
 
   // Copy max results limits
   subqueryRequest->maxSearchResults = maxHybridResults;
@@ -894,6 +899,12 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   if (RSConfig_CapQueryTimeoutToForegroundLimit(&parsedCmdCtx->reqConfig->queryTimeoutMS)) {
     searchRequest->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
   }
+  // TIMEOUT parsing and the foreground cap are complete. Keep the owning hybrid request's
+  // timeout configuration synchronized at the point its effective RequestConfig is finalized.
+  RS_ASSERT(sctx->time.requestTimeout);
+  QueryRequestTimeout_UpdateConfig(sctx->time.requestTimeout,
+                                   parsedCmdCtx->reqConfig->timeoutPolicy,
+                                   parsedCmdCtx->reqConfig->queryTimeoutMS);
 
   // Set slots info in both subqueries
   if (internal) {

@@ -1148,6 +1148,16 @@ bool SearchTime_IsTimedOut(void *arg) {
          QueryRequestTimeout_IsBlockedClientTimedOut(time->requestTimeout);
 }
 
+const struct timespec *SearchTime_GetClockDeadline(const SearchTime *time) {
+  RS_ASSERT(time && time->requestTimeout);
+  return QueryRequestTimeout_GetClockDeadline(time->requestTimeout);
+}
+
+struct timespec *SearchTime_GetClockDeadlineForUpdate(SearchTime *time) {
+  RS_ASSERT(time && time->requestTimeout);
+  return QueryRequestTimeout_GetClockDeadlineForUpdate(time->requestTimeout);
+}
+
 bool AREQ_TryClaimAggregateResults(AREQ *req) {
   bool expected = false;
   return atomic_compare_exchange_strong_explicit(&req->base.async.aggregatingResults, &expected,

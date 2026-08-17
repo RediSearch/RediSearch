@@ -68,22 +68,24 @@ impl<TC: TimeoutChecker> TimeoutContext for TC {
     }
 }
 
-/// [`TimeoutContext`] backed by the deadline living inside a query's [`RedisSearchCtx`].
+/// [`TimeoutContext`] backed by the request deadline borrowed through a query's
+/// [`RedisSearchCtx`].
 ///
 /// The deadline is *read through the pointer on every probe* rather than captured once. That
-/// matters because the deadline moves: `runCursor` calls `SearchCtx_UpdateTime` before each cursor
+/// matters because the deadline moves: `runCursor` starts a new clock cycle before each cursor
 /// read, giving the read its own budget. An iterator tree, by contrast, is built once and reused
 /// for the whole life of the cursor, so a captured deadline is the one belonging to the *first*
 /// read, and every later read starts out already expired against it — the iterators would report a
 /// timeout for a deadline the pipeline around them had just extended.
 ///
 /// Like [`TimeoutContextBlockedClient`], the pointer carries no lifetime; keeping the search
-/// context alive is a runtime invariant the caller upholds, documented on [`new`](Self::new).
+/// context and its request timeout alive is a runtime invariant the caller upholds, documented on
+/// [`new`](Self::new).
 ///
 /// Probing still costs a clock read, so it is amortized the same way
 /// [`DeadlineTimeoutChecker`] amortizes: only every `limit`-th call looks at the clock.
 pub struct TimeoutContextDeadline {
-    /// Deadline owned by the query's search context, re-read on every probe.
+    /// Deadline owned by the query request, re-read on every probe.
     deadline: NonNull<ffi::timespec>,
     /// Calls since the last clock probe.
     counter: u32,
@@ -96,14 +98,14 @@ impl TimeoutContextDeadline {
     ///
     /// # Safety
     ///
-    /// * `deadline` must point to a valid [`timespec`](ffi::timespec) — in practice
-    ///   `sctx.time.timeout` — that stays valid, and at a stable address, for as long as this
+    /// * `deadline` must point to the valid [`timespec`](ffi::timespec) reached through
+    ///   `SearchTime.requestTimeout`, and stay valid at a stable address for as long as this
     ///   context (and any iterator holding it) is used. A request assigns its search context once,
     ///   in `AREQ_ApplyContext`, and later cursor reads update the deadline in place, so the
     ///   address holds for the whole request.
     /// * The deadline must not be written concurrently with a probe. C *does* write to it — that
-    ///   is the point of reading it back — from every `SearchCtx_UpdateTime` call site, and
-    ///   directly from `RPTimeoutAfterCount_SimulateTimeout`. Each of those either runs before the
+    ///   is the point of reading it back — when a clock cycle begins, and directly from
+    ///   `RPTimeoutAfterCount_SimulateTimeout`. Each of those either runs before the
     ///   pipeline for that read starts (`runCursor`, `buildPipelineAndExecute`, the hybrid and
     ///   coordinator entry points) or runs inside the pipeline on the thread that would be
     ///   probing, so no write overlaps a probe. A new write site has to preserve that.
@@ -245,7 +247,7 @@ impl AnyTimeoutContext {
     /// * `sctx` must stay valid, and at a stable address, for as long as the returned context and
     ///   any iterator built from it are used — not merely for this call. The deadline is read back
     ///   through a pointer on every probe.
-    /// * No write to `sctx.time.timeout` may overlap a probe.
+    /// * No write to the request's clock deadline may overlap a probe.
     ///
     /// Note that `skipTimeoutChecks` is read once, here, while the deadline is read live. A
     /// request that flips the flag after its iterators are built (only `TIMEOUT_AFTER_N` does,
@@ -259,16 +261,24 @@ impl AnyTimeoutContext {
         if unsafe { (*time).skipTimeoutChecks } {
             return Self::NoTimeout(NoTimeoutChecker);
         }
-        // A deadline that is absent *now* stays absent: `SearchCtx_UpdateTime` only ever re-arms a
-        // timeout that the request was configured with, so a request without one never gains one.
-        // SAFETY: as above.
-        if duration_from_redis_timespec(unsafe { (*time).timeout }).is_none() {
+        // SAFETY: `time` belongs to the valid search context and clock-based contexts wire its
+        // request timeout before iterator construction.
+        let request_timeout = NonNull::new(unsafe { (*time).requestTimeout })
+            .expect("clock-based SearchTime has no request timeout");
+        // SAFETY: the request timeout is valid and its active union member is the clock deadline.
+        assert_eq!(
+            unsafe { (*request_timeout.as_ptr()).kind },
+            ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE,
+        );
+        let deadline = unsafe {
+            &raw mut (*request_timeout.as_ptr()).source.clockDeadline
+        };
+        let deadline = NonNull::new(deadline).expect("projected from a non-null request timeout");
+        // A request without a configured deadline never gains one.
+        // SAFETY: the request timeout is valid and CLOCK_DEADLINE is the active union member.
+        if duration_from_redis_timespec(unsafe { deadline.read() }).is_none() {
             return Self::NoTimeout(NoTimeoutChecker);
         }
-        // SAFETY: `time` points into the valid `sctx`, so projecting the field is in bounds. The
-        // result stays valid for as long as the caller keeps `sctx` alive.
-        let deadline = unsafe { &raw const (*time).timeout }.cast_mut();
-        let deadline = NonNull::new(deadline).expect("projected from a non-null pointer");
         // SAFETY: forwarded to the caller by this method's own safety contract, both clauses.
         Self::Clock(unsafe { TimeoutContextDeadline::new(deadline, granularity) })
     }
@@ -399,7 +409,7 @@ mod tests {
             TimeoutCheckResult::TimedOut
         ));
 
-        // Stand in for `SearchCtx_UpdateTime`, which re-arms the deadline in place.
+        // Stand in for the next clock cycle, which re-arms the deadline in place.
         // SAFETY: `ptr` points at `deadline`, still alive here, and no probe overlaps this write.
         unsafe { ptr.as_ptr().write(deadline_in(60)) };
         assert!(

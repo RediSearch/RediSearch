@@ -723,7 +723,13 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
       return REDISMODULE_ERR;
     }
     // Set skip timeout
-    HybridRequest_SetSkipTimeoutChecks(hreq, !shouldCheckInPipelineTimeoutCoord(hreq));
+    bool checkInPipelineTimeout = shouldCheckInPipelineTimeoutCoord(hreq);
+    HybridRequest_SetSkipTimeoutChecks(hreq, !checkInPipelineTimeout);
+    // Preserve the per-request deadlines formerly initialized by the SearchCtx_UpdateTime calls
+    // below, while retaining blocked-client behavior when pipeline clock checks are disabled.
+    HybridRequest_BeginTimeoutCycle(
+        hreq, checkInPipelineTimeout ? QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE
+                                     : QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
 
     rs_wall_clock parseClock;
     if (profileOptions != EXEC_NO_FLAGS) {
@@ -875,8 +881,9 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
     bool shardTimedOutWarning = false;
 
     const struct timespec *deadline =
-        (hreq->sctx && HybridRequest_ShouldCheckTimeout(hreq))
-            ? (const struct timespec *)&hreq->sctx->time.timeout
+        (hreq->sctx &&
+         hreq->base.timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE)
+            ? SearchTime_GetClockDeadline(&hreq->sctx->time)
             : NULL;
 
     // Errors from cursor establishment go into the dispatcher's `status` so

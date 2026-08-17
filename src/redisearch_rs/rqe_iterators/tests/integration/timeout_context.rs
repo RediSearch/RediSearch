@@ -20,7 +20,7 @@ use rqe_iterators::utils::{
 };
 use rqe_iterators_test_utils::MockContext;
 
-/// Overwrite the deadline in `ctx`'s search context, as `SearchCtx_UpdateTime` does.
+/// Overwrite the deadline owned by `ctx`'s request timeout.
 fn set_deadline(ctx: &MockContext, secs_from_now: i64) {
     let mut now = libc::timespec {
         tv_sec: 0,
@@ -30,7 +30,9 @@ fn set_deadline(ctx: &MockContext, secs_from_now: i64) {
     unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC_RAW, &mut now) };
     // SAFETY: the mock owns a valid `RedisSearchCtx` for as long as it is alive.
     unsafe {
-        (*ctx.sctx().as_ptr()).time.timeout = ffi::timespec {
+        (*(*ctx.sctx().as_ptr()).time.requestTimeout)
+            .source
+            .clockDeadline = ffi::timespec {
             tv_sec: now.tv_sec + secs_from_now,
             tv_nsec: now.tv_nsec,
         };
@@ -126,7 +128,9 @@ fn the_no_timeout_sentinel_yields_no_checker() {
     // SAFETY: the mock owns a valid `RedisSearchCtx`.
     #[cfg_attr(target_env = "musl", expect(deprecated))]
     unsafe {
-        (*ctx.sctx().as_ptr()).time.timeout = ffi::timespec {
+        (*(*ctx.sctx().as_ptr()).time.requestTimeout)
+            .source
+            .clockDeadline = ffi::timespec {
             tv_sec: libc::time_t::MAX,
             tv_nsec: 0,
         };
@@ -147,10 +151,14 @@ fn a_probe_reads_the_deadline_out_of_the_search_context() {
     // of a live `RedisSearchCtx`, the same way `from_sctx` projects it. The clock-reading tests
     // above have to sit out under miri, which would otherwise leave that read uncovered there.
     let ctx = MockContext::new(100, 10);
-    // SAFETY: the mock owns a valid `RedisSearchCtx` for as long as it is alive.
-    let deadline = unsafe { &raw mut (*ctx.sctx().as_ptr()).time.timeout };
+    // SAFETY: the mock owns the request timeout for as long as it is alive.
+    let deadline = unsafe {
+        &raw mut (*(*ctx.sctx().as_ptr()).time.requestTimeout)
+            .source
+            .clockDeadline
+    };
     #[cfg_attr(target_env = "musl", expect(deprecated))]
-    // SAFETY: `deadline` was just projected out of the valid search context.
+    // SAFETY: `deadline` was just projected from the request owned by the valid search context.
     unsafe {
         deadline.write(ffi::timespec {
             tv_sec: libc::time_t::MAX,

@@ -152,7 +152,10 @@ static int refillBufferUsingIterator(RPQueryIterator *self) {
 
   // Fill buffer up to max capacity
   while (self->async.iteratorResultCount < self->async.poolSize && !it->atEOF) {
-    if (TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
+    if (sctx->time.requestTimeout &&
+        sctx->time.requestTimeout->kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
+        TimedOut_WithCounter(SearchTime_GetClockDeadline(&sctx->time),
+                             &self->timeoutLimiter) == TIMED_OUT) {
       return RS_RESULT_TIMEDOUT;
     }
 
@@ -333,7 +336,10 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
 #endif
 
   while (1) {
-    if ((TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) ||
+    if ((sctx->time.requestTimeout &&
+         sctx->time.requestTimeout->kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
+         TimedOut_WithCounter(SearchTime_GetClockDeadline(&sctx->time),
+                              &self->timeoutLimiter) == TIMED_OUT) ||
         SearchTime_IsTimedOut(&sctx->time)) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
@@ -395,7 +401,10 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
 #endif
 
   while (1) {
-    if (TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
+    if (sctx->time.requestTimeout &&
+        sctx->time.requestTimeout->kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
+        TimedOut_WithCounter(SearchTime_GetClockDeadline(&sctx->time),
+                             &self->timeoutLimiter) == TIMED_OUT) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
 
@@ -2080,9 +2089,12 @@ static void RPSafeDepleter_Deplete(void *arg) {
   // Check if timeout was exceeded before starting execution. The wall-clock
   // check honors skipTimeoutChecks, but the blocked-client (RETURN_STRICT) flag
   // is checked unconditionally since skipTimeoutChecks does not gate it.
+  QueryRequestTimeout *timeout = self->depletingThreadCtx->time.requestTimeout;
   bool timed_out = SearchTime_IsTimedOut(&self->depletingThreadCtx->time) ||
-                   (!self->depletingThreadCtx->time.skipTimeoutChecks &&
-                    TimedOut(&self->depletingThreadCtx->time.timeout) == TIMED_OUT);
+                   (timeout && timeout->kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
+                    !self->depletingThreadCtx->time.skipTimeoutChecks &&
+                    TimedOut(SearchTime_GetClockDeadline(
+                        &self->depletingThreadCtx->time)) == TIMED_OUT);
   if (!timed_out) {
     RPSafeDepleter_DepleteFromUpstream(self, sync);
   } else {
@@ -2212,8 +2224,10 @@ static int RPSafeDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) 
   // true on the timeout path: WaitForCompletion would otherwise block
   // forever waiting on a signal that no BG worker will ever send.
   if (!self->depletion_scheduled) {
-    // Respect skipTimeoutChecks flag
-    if (!self->nextThreadCtx->time.skipTimeoutChecks && TimedOut(&self->nextThreadCtx->time.timeout) == TIMED_OUT) {
+    QueryRequestTimeout *timeout = self->nextThreadCtx->time.requestTimeout;
+    if (timeout && timeout->kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
+        !self->nextThreadCtx->time.skipTimeoutChecks &&
+        TimedOut(SearchTime_GetClockDeadline(&self->nextThreadCtx->time)) == TIMED_OUT) {
       base->Next = RPSafeDepleter_Next_Yield;
       self->last_rc = RS_RESULT_TIMEDOUT;
       return base->Next(base, r);
@@ -2269,8 +2283,10 @@ void RPSafeDepleter_StartDepletion(ResultProcessor *base) {
   //   - RPSafeDepleter_WaitForCompletion no-ops (no signal in flight)
   //   - a late Next() call re-enters the lazy branch, re-detects the
   //     timeout, and switches Next to Yield with RS_RESULT_TIMEDOUT.
-  if (!self->nextThreadCtx->time.skipTimeoutChecks &&
-      TimedOut(&self->nextThreadCtx->time.timeout) == TIMED_OUT) {
+  QueryRequestTimeout *timeout = self->nextThreadCtx->time.requestTimeout;
+  if (timeout && timeout->kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
+      !self->nextThreadCtx->time.skipTimeoutChecks &&
+      TimedOut(SearchTime_GetClockDeadline(&self->nextThreadCtx->time)) == TIMED_OUT) {
     return;
   }
   RPSafeDepleter_StartDepletionThread(self);
@@ -2547,7 +2563,10 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
     // No more results to yield
     int ret = RPHybridMerger_TimedOut(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
     return ret;
-  } else if (self->sctx && TimedOut_WithCounter(&self->sctx->time.timeout, &self->timeoutCounter) == TIMED_OUT) {
+  } else if (self->sctx && self->sctx->time.requestTimeout &&
+             self->sctx->time.requestTimeout->kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
+             TimedOut_WithCounter(SearchTime_GetClockDeadline(&self->sctx->time),
+                                  &self->timeoutCounter) == TIMED_OUT) {
     // Timed out before we could yield all results
     return RS_RESULT_TIMEDOUT;
   }
@@ -2842,10 +2861,15 @@ void PipelineAddTimeoutAfterCount(QueryProcessingCtx *qctx, RedisSearchCtx *sctx
 }
 
 static void RPTimeoutAfterCount_SimulateTimeout(ResultProcessor *rp_timeout, RedisSearchCtx *sctx) {
-    // set timeout to now for the RP up the chain to handle
-    static struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC_RAW, &now);
-    sctx->time.timeout = now;
+    QueryRequestTimeout *timeout = sctx->time.requestTimeout;
+    if (timeout->kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT) {
+      QueryRequestTimeout_MarkTimedOut(timeout);
+    } else {
+      // Set the clock deadline to now for the RP up the chain to handle.
+      struct timespec now;
+      clock_gettime(CLOCK_MONOTONIC_RAW, &now);
+      *SearchTime_GetClockDeadlineForUpdate(&sctx->time) = now;
+    }
 
     // search upstream for rpQueryItNext to set timeout limiter
     ResultProcessor *cur = rp_timeout->upstream;
@@ -2867,8 +2891,16 @@ static int RPTimeoutAfterCount_Next(ResultProcessor *base, SearchResult *r) {
 
   // If we've reached COUNT:
   if (!self->remaining) {
-
-    struct timespec previous = self->sctx->time.timeout;
+    QueryRequestTimeout *timeout = self->sctx->time.requestTimeout;
+    QueryRequestTimeoutKind previousKind = timeout->kind;
+    struct timespec previousDeadline = {0};
+    bool previousBlockedClientTimedOut = false;
+    if (previousKind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE) {
+      previousDeadline = *SearchTime_GetClockDeadline(&self->sctx->time);
+    } else if (previousKind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT) {
+      previousBlockedClientTimedOut =
+          RS_AtomicBoolLoadRelaxed(QueryRequestTimeout_GetBlockedClientFlag(timeout));
+    }
     RPTimeoutAfterCount_SimulateTimeout(base, self->sctx);
 
     int rc = base->upstream->Next(base->upstream, r);
@@ -2877,8 +2909,15 @@ static int RPTimeoutAfterCount_Next(ResultProcessor *base, SearchResult *r) {
       self->remaining = self->count;
     }
 
-    // We don't want to affect any timeout checks that will happen after this next is called, so we restore the previous timeout
-    self->sctx->time.timeout = previous;
+    // Do not affect timeout checks after this Next call; restore the source and its value.
+    if (previousKind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE) {
+      *SearchTime_GetClockDeadlineForUpdate(&self->sctx->time) = previousDeadline;
+    } else if (previousKind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT) {
+      RS_AtomicBoolStoreRelaxed(QueryRequestTimeout_GetBlockedClientFlag(timeout),
+                                previousBlockedClientTimedOut);
+    } else {
+      QueryRequestTimeout_Reset(timeout);
+    }
     return rc;
   }
 

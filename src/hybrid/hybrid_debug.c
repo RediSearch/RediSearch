@@ -207,6 +207,9 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
     return NULL;
   }
 
+  // Preserve the clock deadlines formerly initialized by the SearchCtx_UpdateTime calls below.
+  HybridRequest_BeginTimeoutCycle(hreq, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+
   SearchCtx_UpdateTime(hreq->sctx, hreq->reqConfig.queryTimeoutMS);
   for (int i = 0; i < hreq->nrequests; i++) {
     AREQ *subquery = hreq->requests[i];

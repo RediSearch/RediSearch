@@ -58,7 +58,7 @@ impl QueryEvalContext {
     ///    lifetime of every timeout context and iterator derived from this
     ///    context (e.g. via
     ///    [`build_timeout_context`](QueryEvalContext::build_timeout_context)):
-    ///    a clock-based timeout context reads `sctx.time.timeout` back on every
+    ///    a clock-based timeout context reads the request-owned deadline back on every
     ///    probe rather than capturing it.
     ///    The nested `sctx.spec.diskSpec` pointer may be null (in-memory mode);
     ///    when non-null it must point to a valid
@@ -285,7 +285,7 @@ impl QueryEvalContext {
     /// The returned context, and any iterator built from it, must not be used
     /// after the `AREQ` behind `bcTimeoutAreq` is freed — nor after `sctx` is
     /// freed or moved, since the clock-based variant reads the deadline out of
-    /// it on every probe. No write to `sctx.time.timeout` may overlap a probe;
+    /// it on every probe. No write to the request-owned deadline may overlap a probe;
     /// see [`TimeoutContextDeadline::new`](rqe_iterators::utils::TimeoutContextDeadline::new).
     ///
     /// A Blocked Client Timeout context holds that `AREQ` as a raw pointer with

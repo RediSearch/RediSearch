@@ -93,13 +93,15 @@ static RSValue *MRReply_ToValue(MRReply *r) {
   return v;
 }
 
-// Wall-clock deadline pointer for MRIterator_NextWithTimeout. NULL when
-// AREQ_ShouldCheckTimeout is false (e.g. RETURN-STRICT uses the abort flag).
-static struct timespec *getAbsTimeout(RPNet *nc) {
-  if (!nc->areq || !nc->areq->sctx || !AREQ_ShouldCheckTimeout(nc->areq)) {
+// Wall-clock deadline pointer for MRIterator_NextWithTimeout. NULL unless the
+// request is actively using its clock source and clock checks are enabled.
+static const struct timespec *getAbsTimeout(RPNet *nc) {
+  if (!nc->areq || !nc->areq->sctx ||
+      nc->areq->base.timeout.kind != QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE ||
+      !AREQ_ShouldCheckTimeout(nc->areq)) {
     return NULL;
   }
-  return (struct timespec *)&nc->areq->sctx->time.timeout;
+  return SearchTime_GetClockDeadline(&nc->areq->sctx->time);
 }
 
 // Process warnings from nc->current.meta (RESP3 only), then free reply and reset state.
@@ -434,7 +436,9 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     // (the only policy that sets drainOnly) shouldCheckInPipelineTimeoutCoord
     // already forces skipTimeoutChecks=true, so this branch is naturally bypassed
     // during a drain.
-    if (!nc->areq->sctx->time.skipTimeoutChecks && TimedOut(&nc->areq->sctx->time.timeout)) {
+    if (nc->areq->base.timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
+        !nc->areq->sctx->time.skipTimeoutChecks &&
+        TimedOut(SearchTime_GetClockDeadline(&nc->areq->sctx->time))) {
       // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
       // callback so that a `CURSOR DEL` command will be dispatched instead of
       // a `CURSOR READ` command.

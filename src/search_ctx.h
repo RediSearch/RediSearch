@@ -38,15 +38,19 @@ typedef enum {
 typedef struct SearchTime {
   // current execution start time - real clock
   struct timespec current;
-  // when the query should timeout - monotonic raw clock, unrelated to real clock
-  struct timespec timeout;
   // Flag to skip timeout checks (used in background thread mode with FAIL policy)
   bool skipTimeoutChecks;
-  // Borrowed request timeout, wired in AREQ_ApplyContext and read through the
-  // blocked-client compatibility API. NULL when there is no owning AREQ.
+  // Borrowed request timeout, wired when the request adopts this search context.
+  // NULL when there is no owning request.
   // TODO: move to QueryProcessingCtx.
-  const struct QueryRequestTimeout *requestTimeout;
+  struct QueryRequestTimeout *requestTimeout;
 } SearchTime;
+
+/** Borrows the active clock deadline owned by this search time's request. */
+const struct timespec *SearchTime_GetClockDeadline(const SearchTime *time);
+
+/** Selects and mutably borrows the clock deadline for debug simulation and tests. */
+struct timespec *SearchTime_GetClockDeadlineForUpdate(SearchTime *time);
 
 // Returns true iff the SearchTime (passed as `void *` so the function doubles
 // as a SyncPoint stop predicate) has a wired request whose blocked-client
@@ -82,12 +86,16 @@ static inline RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *s
                           .redisCtx = ctx,
                           .key_ = NULL,
                           .spec = sp,
-                          .time = {.current = { 0, 0 }, .timeout = { 0, 0 }, .skipTimeoutChecks = false, .requestTimeout = NULL},
+                          .time = {.current = { 0, 0 },
+                                   .skipTimeoutChecks = false,
+                                   .requestTimeout = NULL},
                           .lock_state = SPEC_LOCK_UNSET,
                           .diskSnapshot = NULL,};
   return sctx;
 }
 
+// Updates the real-clock execution timestamp. durationNS is retained while deadline ownership
+// migrates to QueryRequestTimeout; it no longer controls a SearchTime-owned deadline.
 void SearchCtx_UpdateTime(RedisSearchCtx *sctx, int32_t durationNS);
 
 typedef struct QueryError QueryError;

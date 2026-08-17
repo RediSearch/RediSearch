@@ -331,12 +331,17 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
     // this wait promptly. Unregistered below before the iterator is released.
     QueryRequestAsyncState_RegisterAbortWakeChannel(asyncState, MRIterator_GetChannel(it));
 
-    // Pass both the deadline and the abort flag: `deadline` is NULL under RETURN-STRICT /
-    // disabled timeout checks, where the abort flag is the only wake (chan.c requires
-    // at least one non-NULL).
+    // Pass the wait primitive selected by the active timeout source. A clock cycle
+    // supplies its deadline; a blocked-client cycle supplies its abort flag. An
+    // unarmed cycle uses the original indefinite wait.
+    RS_Atomic(bool) *blockedClientFlag =
+        timeout->kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
+            ? QueryRequestTimeout_GetBlockedClientFlag(timeout)
+            : NULL;
     bool timedOut = false;
-    MRReply *r = MRIterator_NextWithTimeout(
-        it, deadline, QueryRequestTimeout_GetBlockedClientFlag(timeout), &timedOut);
+    MRReply *r = deadline || blockedClientFlag
+                     ? MRIterator_NextWithTimeout(it, deadline, blockedClientFlag, &timedOut)
+                     : MRIterator_Next(it);
     RS_ASSERT(r == NULL);  // the callbacks never AddReply; a non-NULL reply is a bug
 
     QueryRequestAsyncState_UnregisterAbortWakeChannel(asyncState);
