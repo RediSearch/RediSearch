@@ -40,7 +40,8 @@ typedef struct RedisSearchCtx {
   RedisModuleCtx *redisCtx;
   RedisModuleKey *key_;
   IndexSpec *spec;
-  // Current execution start time from the real clock, used for expiration checks.
+  // Real-clock snapshot shared by document, field, and disk TTL checks so one execution cycle
+  // evaluates every expiration against the same instant.
   struct timespec currentTime;
   // Borrowed request timeout, wired when the request adopts this search context.
   // NULL when there is no owning request.
@@ -76,9 +77,8 @@ static inline RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *s
   return sctx;
 }
 
-// Updates the real-clock execution timestamp. durationNS is retained for API compatibility and
-// no longer controls the request-owned timeout deadline.
-void SearchCtx_UpdateTime(RedisSearchCtx *sctx, int32_t durationNS);
+// Refreshes the real-clock snapshot used for document, field, and disk TTL checks.
+void SearchCtx_UpdateCurrentTime(RedisSearchCtx *sctx);
 
 typedef struct QueryError QueryError;
 

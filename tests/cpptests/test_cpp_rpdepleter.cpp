@@ -94,8 +94,7 @@ protected:
       searchContexts[i].timeout = timeouts[i];
     }
 
-    // Set proper timeout on all search contexts to avoid immediate timeout
-    // Since RS_IsMock prevents SearchCtx_UpdateTime from working, set timeout directly
+    // Set a stable request-owned deadline for tests that temporarily disable mock behavior.
     struct timespec future_timeout;
     clock_gettime(CLOCK_MONOTONIC_RAW, &future_timeout);
     future_timeout.tv_sec += 10; // 10 seconds from now

@@ -1348,9 +1348,8 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   RedisSearchCtx_LockSpecRead(sctx);
 
   if (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return) {
-    // RETURN previously armed its clock in prepareExecutionPlan's SearchCtx_UpdateTime call,
-    // after worker pickup and the spec lock; preserve that boundary so queue and lock wait are
-    // not charged to the execution timeout.
+    // Arm RETURN after worker pickup and the spec lock so queue and lock wait are not charged to
+    // the execution timeout.
     QueryRequestTimeout_BeginCycle(&req->base.timeout,
                                    QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
   }
@@ -1489,11 +1488,11 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  // Set timeout for the query execution
+  // Refresh the expiration-time snapshot before building the iterator tree.
   // TODO: this should be done in `AREQ_execute`, but some of the iterators needs the timeout's
   // value and some of the execution begins in `QAST_Iterate`.
   // Setting the timeout context should be done in the same thread that executes the query.
-  SearchCtx_UpdateTime(sctx, req->reqConfig.queryTimeoutMS);
+  SearchCtx_UpdateCurrentTime(sctx);
 
   req->rootiter = QAST_Iterate(ast, opts, sctx, AREQ_RequestFlags(req), req, status);
 
@@ -2145,7 +2144,7 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
                           (r->reqConfig.timeoutPolicy == TimeoutPolicy_Return ||
                            !RunInThread(ctx));
   if (useClockDeadline) {
-    // Preserve the deadline SearchCtx_UpdateTime used to create for inline EXPLAIN execution.
+    // Arm the clock deadline used by inline EXPLAIN execution.
     QueryRequestTimeout_BeginCycle(&r->base.timeout,
                                    QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
   }
@@ -2218,11 +2217,11 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   // the blocked-client timer, armed by buildPipelineAndExecute (initial
   // WITHCURSOR) or CursorCommand (subsequent READ).
   if (!QueryRequest_UsesReplyCallback(&req->base)) {
-    // Preserve SearchCtx_UpdateTime's old behavior of giving every cursor read a fresh deadline.
-    QueryRequestTimeout_BeginCycle(&req->base.timeout,
-                                   QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
-    SearchCtx_UpdateTime(AREQ_SearchCtx(req), req->reqConfig.queryTimeoutMS);
+    // Give every clock-driven cursor read a fresh deadline.
+    QueryRequestTimeout_BeginCycle(&req->base.timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
   }
+  // Expiration uses a real-clock snapshot independently of the selected timeout source.
+  SearchCtx_UpdateCurrentTime(AREQ_SearchCtx(req));
 
   if (!num) {
     num = req->cursorConfig.chunkSize;

@@ -868,11 +868,10 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   // r->sctx->expanded should be received from shards
 
   bool checkInPipelineTimeout = shouldCheckInPipelineTimeoutCoord(r);
-  // Preserve the timeout source and deadline formerly established around SearchCtx_UpdateTime.
+  // Select the timeout source independently of the expiration-time snapshot.
   QueryRequestTimeout_BeginCycle(
       &r->base.timeout, checkInPipelineTimeout ? QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE
                                                : QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
-  SearchCtx_UpdateTime(r->sctx, r->reqConfig.queryTimeoutMS);
 
   return REDISMODULE_OK;
 }

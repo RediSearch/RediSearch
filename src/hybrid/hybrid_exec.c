@@ -1395,8 +1395,8 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   // Check if we should check for timeout in pipeline
   bool checkInPipelineTimeout = shouldCheckInPipelineTimeoutHybrid(ctx, hybridRequest);
-  // Preserve the per-request deadlines formerly initialized by the SearchCtx_UpdateTime calls
-  // below, while retaining blocked-client behavior when pipeline clock checks are disabled.
+  // Select clock deadlines or blocked-client behavior before refreshing the expiration-time
+  // snapshots below.
   HybridRequest_BeginTimeoutCycle(
       hybridRequest, checkInPipelineTimeout ? QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE
                                             : QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
@@ -1410,12 +1410,11 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     hybridRequest->profileClocks.profileParseTime = rs_wall_clock_elapsed_ns(&hybridRequest->profileClocks.initClock);
   }
 
-  // Initialize timeout for all subqueries BEFORE building pipelines
+  // Each subquery has its own search context, whose iterators use this snapshot for TTL checks.
   for (int i = 0; i < hybridRequest->nrequests; i++) {
     AREQ *subquery = hybridRequest->requests[i];
-    SearchCtx_UpdateTime(AREQ_SearchCtx(subquery), hybridRequest->reqConfig.queryTimeoutMS);
+    SearchCtx_UpdateCurrentTime(AREQ_SearchCtx(subquery));
   }
-  SearchCtx_UpdateTime(hybridRequest->sctx, hybridRequest->reqConfig.queryTimeoutMS);
 
   if (HybridRequest_BuildPipelineAndExecute(hybrid_ref, cmd.hybridParams, ctx, hybridRequest->sctx, &status, internal) != REDISMODULE_OK) {
     HybridRequest_GetError(hybridRequest, &status);

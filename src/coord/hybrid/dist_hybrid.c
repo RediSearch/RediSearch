@@ -723,8 +723,8 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
       return REDISMODULE_ERR;
     }
     bool checkInPipelineTimeout = shouldCheckInPipelineTimeoutCoord(hreq);
-    // Preserve the per-request deadlines formerly initialized by the SearchCtx_UpdateTime calls
-    // below, while retaining blocked-client behavior when pipeline clock checks are disabled.
+    // Select clock deadlines or blocked-client behavior before refreshing the expiration-time
+    // snapshots below.
     HybridRequest_BeginTimeoutCycle(
         hreq, checkInPipelineTimeout ? QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE
                                      : QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
@@ -736,14 +736,6 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
       // Calculate the time elapsed for profileParseTime by using the initialized parseClock
       hreq->profileClocks.profileParseTime = rs_wall_clock_diff_ns(&hreq->profileClocks.initClock, &parseClock);
     }
-
-    // Initialize timeout for all subqueries BEFORE building pipelines
-    // but after the parsing to know the timeout values
-    for (int i = 0; i < hreq->nrequests; i++) {
-        AREQ *subquery = hreq->requests[i];
-        SearchCtx_UpdateTime(AREQ_SearchCtx(subquery), hreq->reqConfig.queryTimeoutMS);
-    }
-    SearchCtx_UpdateTime(hreq->sctx, hreq->reqConfig.queryTimeoutMS);
 
     // Set request flags from hybridParams
     hreq->reqflags = (QEFlags)hybridParams.aggregationParams.common.reqflags;

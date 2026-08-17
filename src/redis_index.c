@@ -186,8 +186,7 @@ void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx) {
   sctx->lock_state = SPEC_LOCK_UNSET;
 }
 
-void SearchCtx_UpdateTime(RedisSearchCtx *sctx, int32_t durationNS) {
-  UNUSED(durationNS);
+void SearchCtx_UpdateCurrentTime(RedisSearchCtx *sctx) {
   updateTime(&sctx->currentTime);
 }
 

@@ -207,13 +207,14 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
     return NULL;
   }
 
-  // Preserve the clock deadlines formerly initialized by the SearchCtx_UpdateTime calls below.
+  // Debug requests bypass hybridCommandHandler, so arm the container and subquery clock deadlines
+  // before building pipelines that consume their timeout state.
   HybridRequest_BeginTimeoutCycle(hreq, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
 
-  SearchCtx_UpdateTime(hreq->sctx, hreq->reqConfig.queryTimeoutMS);
+  // Each subquery has its own search context, whose iterators use this snapshot for TTL checks.
   for (int i = 0; i < hreq->nrequests; i++) {
     AREQ *subquery = hreq->requests[i];
-    SearchCtx_UpdateTime(AREQ_SearchCtx(subquery), hreq->reqConfig.queryTimeoutMS);
+    SearchCtx_UpdateCurrentTime(AREQ_SearchCtx(subquery));
   }
 
   // Set request flags from hybridParams

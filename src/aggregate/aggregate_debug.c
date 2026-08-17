@@ -194,14 +194,12 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
                             "Forcing coordinator timeout for TIMEOUT_AFTER_N 0 and query timeout 0 "
                             "to avoid infinite loop (RESP2 only)");
             debug_req->r.reqConfig.queryTimeoutMS = COORDINATOR_FORCED_TIMEOUT;
-            // Preserve SearchCtx_UpdateTime's old behavior: this late TIMEOUT change must rearm
-            // the coordinator deadline.
+            // This late TIMEOUT change must rearm the coordinator deadline.
             QueryRequestTimeout_UpdateConfig(&debug_req->r.base.timeout,
                                              debug_req->r.reqConfig.timeoutPolicy,
                                              debug_req->r.reqConfig.queryTimeoutMS);
             QueryRequestTimeout_BeginCycle(&debug_req->r.base.timeout,
                                            QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
-            SearchCtx_UpdateTime(debug_req->r.sctx, debug_req->r.reqConfig.queryTimeoutMS);
           }
       }
     } else {
