@@ -68,61 +68,181 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Check if the given value matches the numeric filter.
+ * Add a child to a result if it is an aggregate result.
+ *
+ * If the `parent` is not an aggregate kind, then this is a no-op.
+ *
+ * **Owned (copy) aggregates:** When `parent.is_copy()` is true, the parent
+ * takes ownership of `child` (via `Box::from_raw`). The caller must not
+ * access or free `child` afterward.
+ *
+ * **Borrowed aggregates:** When `parent.is_copy()` is false, the parent
+ * stores a borrowed reference to `child`. The caller retains ownership
+ * and must ensure `child` remains valid for the lifetime of `parent`.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `parent` must point to a valid `RSIndexResult` and cannot be NULL.
+ * - `child` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child);
+
+/**
+ * Get the capacity of the aggregate result.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+ */
+size_t AggregateResult_Capacity(const RSAggregateResult *agg);
+
+/**
+ * Take ownership of a `RSAggregateResult` to free any heap memory it owns. This function will not
+ * free the individual children pointers, but rather the heap allocations owned by the aggregate
+ * result itself (such as the internal vector buffer). The caller is responsible for managing the
+ * memory of the children pointers before this call if needed.
+ *
+ * The `agg` parameter should have been created with [`AggregateResult_New`].
+ */
+void AggregateResult_Free(RSAggregateResult agg);
+
+/**
+ * Get the result at the specified index in the aggregate result. This will return a `NULL` pointer
+ * if the index is out of bounds.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+ */
+const RSIndexResult *AggregateResult_Get(const RSAggregateResult *agg, size_t index);
+
+/**
+ * Get a mutable result at the specified index in the aggregate result, without checking bounds.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * 1. `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+ * 2. `index` must be lower than the length of the aggregate result children vector.
+ * 3. `agg` must be of the `Owned` variant.
+ */
+RSIndexResult *AggregateResult_GetMutUnchecked(RSAggregateResult *agg, size_t index);
+
+/**
+ * Get a view of the records stored inside the aggregate result.
+ *
+ * # Safety
+ * The following invariants must be upheld when calling this function:
+ * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+ */
+struct AggregateRecordsSlice AggregateResult_GetRecordsSlice(const RSAggregateResult *agg);
+
+/**
+ * Get the result at the specified index in the aggregate result, without checking bounds.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * 1. `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+ * 2. `index` must be lower than the length of the aggregate result children vector.
+ */
+const RSIndexResult *AggregateResult_GetUnchecked(const RSAggregateResult *agg, size_t index);
+
+/**
+ * Get the kind mask of the aggregate result.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+ */
+uint8_t AggregateResult_KindMask(const RSAggregateResult *agg);
+
+/**
+ * Create a new aggregate result with the specified capacity. This function will make the result
+ * in Rust memory, but the ownership ends up being transferred to C's memory space. This ownership
+ * should return to Rust to free up any heap memory using [`AggregateResult_Free`].
+ */
+RSAggregateResult AggregateResult_New(size_t cap);
+
+/**
+ * Get the element count of the aggregate result.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+ */
+size_t AggregateResult_NumChildren(const RSAggregateResult *agg);
+
+/**
+ * Get the aggregate result reference if the result is an aggregate result. If the result is
+ * not an aggregate, this function will return a `NULL` pointer.
  *
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * - `filter` must point to a valid `NumericFilter` and cannot be NULL.
+ * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
  */
-bool NumericFilter_Match(const struct NumericFilter *filter, double value);
+const RSAggregateResult *IndexResult_AggregateRef(const RSIndexResult *result);
 
 /**
- * Allocate a new intersect result with a given capacity and weight. This result should be freed
- * using [`IndexResult_Free`].
- */
-RSIndexResult *NewIntersectResult(size_t cap, double weight);
-
-/**
- * Allocate a new union result with a given capacity and weight. This result should be freed using
- * [`IndexResult_Free`].
- */
-RSIndexResult *NewUnionResult(size_t cap, double weight);
-
-/**
- * Allocate a new virtual result with a given weight and field mask. This result should be freed
- * using [`IndexResult_Free`].
- */
-RSIndexResult *NewVirtualResult(double weight, t_fieldMask field_mask);
-
-/**
- * Allocate a new numeric result. This result should be freed using [`IndexResult_Free`].
- */
-RSIndexResult *NewNumericResult(void);
-
-/**
- * Allocate a new metric result. This result should be freed using [`IndexResult_Free`].
- */
-RSIndexResult *NewMetricResult(void);
-
-/**
- * Allocate a new hybrid result. This result should be freed using [`IndexResult_Free`].
+ * Get a mutable aggregate result reference without performing a runtime check
+ * on the enum discriminant.
  *
- * This constructor is only used by the hydrid reader which will pushed owned copies to it.
- * Therefore, this also returns an owned `RSIndexResult`.
- */
-RSIndexResult *NewHybridResult(void);
-
-/**
- * Allocate a new token record with a given term and weight. This result should be freed using
- * [`IndexResult_Free`].
+ * Use this method if and only if you've already checked the enum
+ * discriminant in C code and you don't want to incur the (small)
+ * performance penalty of an additional redundant check.
  *
  * # Safety
  *
- * `term` must be a heap-allocated `RSQueryTerm` (e.g. created by `NewQueryTerm`) and the
- * caller transfers ownership — it must not be freed separately.
+ * The following invariant must be upheld when calling this function:
+ * 1. `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ * 2. `result`'s data payload must be of the aggregate kind
  */
-RSIndexResult *NewTokenRecord(struct RSQueryTerm *term, double weight);
+RSAggregateResult *IndexResult_AggregateRefMutUnchecked(RSIndexResult *result);
+
+/**
+ * Get the aggregate result reference without performing a runtime check
+ * on the enum discriminant.
+ *
+ * Use this method if and only if you've already checked the enum
+ * discriminant in C code and you don't want to incur the (small)
+ * performance penalty of an additional redundant check.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * 1. `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ * 2. `result`'s data payload must be of the aggregate kind
+ */
+const RSAggregateResult *IndexResult_AggregateRefUnchecked(const RSIndexResult *result);
+
+/**
+ * Reset the result if it is an aggregate result. This will clear the children vector
+ * and reset the kind mask.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+void IndexResult_AggregateReset(RSIndexResult *result);
+
+/**
+ * Create a deep copy of the results that is totally thread safe. This is very slow so use it with
+ * caution.
+ *
+ * The created copy should be freed using [`IndexResult_Free`].
+ *
+ * # Safety
+ * The following invariant must be upheld when calling this function:
+ * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *source);
 
 /**
  * Free an index result's internal allocations and also free the result itself.
@@ -141,18 +261,6 @@ RSIndexResult *NewTokenRecord(struct RSQueryTerm *term, double weight);
  *   - [`IndexResult_DeepCopy`]
  */
 void IndexResult_Free(RSIndexResult *result);
-
-/**
- * Create a deep copy of the results that is totally thread safe. This is very slow so use it with
- * caution.
- *
- * The created copy should be freed using [`IndexResult_Free`].
- *
- * # Safety
- * The following invariant must be upheld when calling this function:
- * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
- */
-RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *source);
 
 /**
  * Check if the result is an aggregate result.
@@ -176,17 +284,6 @@ bool IndexResult_IsAggregate(const RSIndexResult *result);
 double IndexResult_NumValue(const RSIndexResult *result);
 
 /**
- * Set the numeric value of the result if it is a numeric result. If the result is not numeric,
- * this function will do nothing.
- *
- * # Safety
- *
- * The following invariant must be upheld when calling this function:
- * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
- */
-void IndexResult_SetNumValue(RSIndexResult *result, double value);
-
-/**
  * Get the query term from a result if it is a term result. If the result is not a term, then
  * this function will return a `NULL` pointer.
  *
@@ -196,6 +293,17 @@ void IndexResult_SetNumValue(RSIndexResult *result, double value);
  * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
  */
 struct RSQueryTerm *IndexResult_QueryTermRef(const RSIndexResult *result);
+
+/**
+ * Set the numeric value of the result if it is a numeric result. If the result is not numeric,
+ * this function will do nothing.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+void IndexResult_SetNumValue(RSIndexResult *result, double value);
 
 /**
  * Get the term offsets from a result if it is a term result. If the result is not a term, then
@@ -209,212 +317,61 @@ struct RSQueryTerm *IndexResult_QueryTermRef(const RSIndexResult *result);
 const RSOffsetSlice *IndexResult_TermOffsetsRef(const RSIndexResult *result);
 
 /**
- * Get the aggregate result reference if the result is an aggregate result. If the result is
- * not an aggregate, this function will return a `NULL` pointer.
+ * Allocate a new hybrid result. This result should be freed using [`IndexResult_Free`].
+ *
+ * This constructor is only used by the hydrid reader which will pushed owned copies to it.
+ * Therefore, this also returns an owned `RSIndexResult`.
+ */
+RSIndexResult *NewHybridResult(void);
+
+/**
+ * Allocate a new intersect result with a given capacity and weight. This result should be freed
+ * using [`IndexResult_Free`].
+ */
+RSIndexResult *NewIntersectResult(size_t cap, double weight);
+
+/**
+ * Allocate a new metric result. This result should be freed using [`IndexResult_Free`].
+ */
+RSIndexResult *NewMetricResult(void);
+
+/**
+ * Allocate a new numeric result. This result should be freed using [`IndexResult_Free`].
+ */
+RSIndexResult *NewNumericResult(void);
+
+/**
+ * Allocate a new token record with a given term and weight. This result should be freed using
+ * [`IndexResult_Free`].
+ *
+ * # Safety
+ *
+ * `term` must be a heap-allocated `RSQueryTerm` (e.g. created by `NewQueryTerm`) and the
+ * caller transfers ownership — it must not be freed separately.
+ */
+RSIndexResult *NewTokenRecord(struct RSQueryTerm *term, double weight);
+
+/**
+ * Allocate a new union result with a given capacity and weight. This result should be freed using
+ * [`IndexResult_Free`].
+ */
+RSIndexResult *NewUnionResult(size_t cap, double weight);
+
+/**
+ * Allocate a new virtual result with a given weight and field mask. This result should be freed
+ * using [`IndexResult_Free`].
+ */
+RSIndexResult *NewVirtualResult(double weight, t_fieldMask field_mask);
+
+/**
+ * Check if the given value matches the numeric filter.
  *
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ * - `filter` must point to a valid `NumericFilter` and cannot be NULL.
  */
-const RSAggregateResult *IndexResult_AggregateRef(const RSIndexResult *result);
-
-/**
- * Get the aggregate result reference without performing a runtime check
- * on the enum discriminant.
- *
- * Use this method if and only if you've already checked the enum
- * discriminant in C code and you don't want to incur the (small)
- * performance penalty of an additional redundant check.
- *
- * # Safety
- *
- * The following invariant must be upheld when calling this function:
- * 1. `result` must point to a valid `RSIndexResult` and cannot be NULL.
- * 2. `result`'s data payload must be of the aggregate kind
- */
-const RSAggregateResult *IndexResult_AggregateRefUnchecked(const RSIndexResult *result);
-
-/**
- * Get a mutable aggregate result reference without performing a runtime check
- * on the enum discriminant.
- *
- * Use this method if and only if you've already checked the enum
- * discriminant in C code and you don't want to incur the (small)
- * performance penalty of an additional redundant check.
- *
- * # Safety
- *
- * The following invariant must be upheld when calling this function:
- * 1. `result` must point to a valid `RSIndexResult` and cannot be NULL.
- * 2. `result`'s data payload must be of the aggregate kind
- */
-RSAggregateResult *IndexResult_AggregateRefMutUnchecked(RSIndexResult *result);
-
-/**
- * Reset the result if it is an aggregate result. This will clear the children vector
- * and reset the kind mask.
- *
- * # Safety
- *
- * The following invariant must be upheld when calling this function:
- * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
- */
-void IndexResult_AggregateReset(RSIndexResult *result);
-
-/**
- * Get the result at the specified index in the aggregate result. This will return a `NULL` pointer
- * if the index is out of bounds.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
- */
-const RSIndexResult *AggregateResult_Get(const RSAggregateResult *agg, size_t index);
-
-/**
- * Get the result at the specified index in the aggregate result, without checking bounds.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * 1. `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
- * 2. `index` must be lower than the length of the aggregate result children vector.
- */
-const RSIndexResult *AggregateResult_GetUnchecked(const RSAggregateResult *agg, size_t index);
-
-/**
- * Get a mutable result at the specified index in the aggregate result, without checking bounds.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * 1. `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
- * 2. `index` must be lower than the length of the aggregate result children vector.
- * 3. `agg` must be of the `Owned` variant.
- */
-RSIndexResult *AggregateResult_GetMutUnchecked(RSAggregateResult *agg, size_t index);
-
-/**
- * Get the element count of the aggregate result.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
- */
-size_t AggregateResult_NumChildren(const RSAggregateResult *agg);
-
-/**
- * Get the capacity of the aggregate result.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
- */
-size_t AggregateResult_Capacity(const RSAggregateResult *agg);
-
-/**
- * Get the kind mask of the aggregate result.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
- */
-uint8_t AggregateResult_KindMask(const RSAggregateResult *agg);
-
-/**
- * Create a new aggregate result with the specified capacity. This function will make the result
- * in Rust memory, but the ownership ends up being transferred to C's memory space. This ownership
- * should return to Rust to free up any heap memory using [`AggregateResult_Free`].
- */
-RSAggregateResult AggregateResult_New(size_t cap);
-
-/**
- * Take ownership of a `RSAggregateResult` to free any heap memory it owns. This function will not
- * free the individual children pointers, but rather the heap allocations owned by the aggregate
- * result itself (such as the internal vector buffer). The caller is responsible for managing the
- * memory of the children pointers before this call if needed.
- *
- * The `agg` parameter should have been created with [`AggregateResult_New`].
- */
-void AggregateResult_Free(RSAggregateResult agg);
-
-/**
- * Add a child to a result if it is an aggregate result.
- *
- * If the `parent` is not an aggregate kind, then this is a no-op.
- *
- * **Owned (copy) aggregates:** When `parent.is_copy()` is true, the parent
- * takes ownership of `child` (via `Box::from_raw`). The caller must not
- * access or free `child` afterward.
- *
- * **Borrowed aggregates:** When `parent.is_copy()` is false, the parent
- * stores a borrowed reference to `child`. The caller retains ownership
- * and must ensure `child` remains valid for the lifetime of `parent`.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `parent` must point to a valid `RSIndexResult` and cannot be NULL.
- * - `child` must point to a valid `RSIndexResult` and cannot be NULL.
- */
-void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child);
-
-/**
- * Get a view of the records stored inside the aggregate result.
- *
- * # Safety
- * The following invariants must be upheld when calling this function:
- * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
- */
-struct AggregateRecordsSlice AggregateResult_GetRecordsSlice(const RSAggregateResult *agg);
-
-/**
- * Retrieve the offsets array from an offset vector.
- *
- * Set the array length into the `len` pointer.
- * The returned array is borrowed and should not be modified.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `offsets` must point to a valid offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
- *   and cannot be NULL.
- * - `len` cannot be NULL and must point to an allocated memory big enough to hold an u32.
- */
-const char *RSOffsetVector_GetData(const RSOffsetSlice *offsets, uint32_t *len);
-
-/**
- * Set the offsets array on an offset vector.
- *
- * The vector will borrow the passed array so it's up to the caller to
- * ensure it stays alive during its lifetime.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `offsets` must point to a valid offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
- *   and cannot be NULL.
- * - `data` must point to an array of `len` offsets.
- * - if `data` is NULL then `len` should be 0.
- */
-void RSOffsetVector_SetData(RSOffsetSlice *offsets, const char *data, uint32_t len);
-
-/**
- * Free the data inside an offset vector.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `offsets` must point to a valid [`RSOffsetVector`] and cannot be NULL.
- * - The data pointer of `offsets` had been allocated via the global allocator
- *   and points to an array matching the length of `offsets`.
- */
-void RSOffsetVector_FreeData(RSOffsetVector *offsets);
+bool NumericFilter_Match(const struct NumericFilter *filter, double value);
 
 /**
  * Copy the data from one offset vector to another.
@@ -433,6 +390,33 @@ void RSOffsetVector_FreeData(RSOffsetVector *offsets);
 void RSOffsetVector_CopyData(RSOffsetVector *dest, const RSOffsetSlice *src);
 
 /**
+ * Free the data inside an offset vector.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `offsets` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+ * - The data pointer of `offsets` had been allocated via the global allocator
+ *   and points to an array matching the length of `offsets`.
+ */
+void RSOffsetVector_FreeData(RSOffsetVector *offsets);
+
+/**
+ * Retrieve the offsets array from an offset vector.
+ *
+ * Set the array length into the `len` pointer.
+ * The returned array is borrowed and should not be modified.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `offsets` must point to a valid offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
+ *   and cannot be NULL.
+ * - `len` cannot be NULL and must point to an allocated memory big enough to hold an u32.
+ */
+const char *RSOffsetVector_GetData(const RSOffsetSlice *offsets, uint32_t *len);
+
+/**
  * Retrieve the number of offsets in an offset vector.
  *
  * # Safety
@@ -442,6 +426,22 @@ void RSOffsetVector_CopyData(RSOffsetVector *dest, const RSOffsetSlice *src);
  *   and cannot be NULL.
  */
 uint32_t RSOffsetVector_Len(const RSOffsetSlice *offsets);
+
+/**
+ * Set the offsets array on an offset vector.
+ *
+ * The vector will borrow the passed array so it's up to the caller to
+ * ensure it stays alive during its lifetime.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `offsets` must point to a valid offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
+ *   and cannot be NULL.
+ * - `data` must point to an array of `len` offsets.
+ * - if `data` is NULL then `len` should be 0.
+ */
+void RSOffsetVector_SetData(RSOffsetSlice *offsets, const char *data, uint32_t len);
 
 #ifdef __cplusplus
 }  // extern "C"

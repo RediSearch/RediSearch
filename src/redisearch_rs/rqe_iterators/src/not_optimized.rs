@@ -52,12 +52,23 @@ pub struct RawNotOptimized<'query, Rf: Ref, W, I, TC> {
     child: MaybeEmpty<I>,
     /// The maximum document ID (used as upper bound guard).
     max_doc_id: DocId,
-    /// Sticky EOF flag, set when iteration completes.
-    forced_eof: bool,
     /// A reusable result object to avoid allocations on each [`read`](RQEIterator::read) call.
     result: RawIndexResult<'query, Rf>,
+    /// Whether the iterator has run *past* its last result, i.e. a
+    /// `read`/`skip_to` found nothing.
+    ///
+    /// The state behind [`current`](RQEIterator::current) and
+    /// [`at_eof`](RQEIterator::at_eof). It cannot be folded into `result.doc_id`:
+    /// that field *is* [`last_doc_id`](RQEIterator::last_doc_id).
+    ///
+    /// Sticky: only [`rewind`](RQEIterator::rewind) clears it, because exhaustion is
+    /// terminal (see [`at_eof`](RQEIterator::at_eof)). That is what lets it also serve
+    /// as [`has_next`](Self::has_next)'s guard, so the reason the iterator stopped —
+    /// the wildcard running out, or this iterator's `max_doc_id` window closing — does
+    /// not need a flag of its own.
+    past_end: bool,
     /// Tracks the execution deadline for this iterator. Pass
-    /// [`NoTimeout`](crate::utils::NoTimeout) to opt out of timeout checks
+    /// [`NoTimeoutChecker`](timeout::NoTimeoutChecker) to opt out of timeout checks
     /// entirely; monomorphization collapses the no-op context to dead code.
     timeout_ctx: TC,
 }
@@ -79,14 +90,14 @@ where
     /// `max_doc_id` is the upper bound for document IDs.
     /// `weight` is the score weight applied to every returned result.
     /// `timeout_ctx` is the [`TimeoutContext`] implementation to use; pass
-    /// [`NoTimeout`](crate::utils::NoTimeout) to disable timeout checks
+    /// [`NoTimeoutChecker`](timeout::NoTimeoutChecker) to disable timeout checks
     /// entirely.
     pub fn new(wcii: W, child: I, max_doc_id: DocId, weight: f64, timeout_ctx: TC) -> Self {
         Self {
             wcii,
             child: MaybeEmpty::new(child),
             max_doc_id,
-            forced_eof: false,
+            past_end: false,
             result: RSIndexResult::build_virt()
                 .weight(weight)
                 .field_mask(RS_FIELDMASK_ALL)
@@ -101,15 +112,15 @@ where
         self.timeout_ctx.check_timeout()
     }
 
-    /// Advance the wildcard iterator and set [`forced_eof`](Self::forced_eof)
-    /// if it is exhausted.
+    /// Advance the wildcard iterator and set [`past_end`](Self::past_end) if it is
+    /// exhausted.
     ///
     /// Returns `Ok(true)` if the wildcard iterator produced a new document,
     /// `Ok(false)` if it reached EOF.
     #[inline(always)]
     fn advance_wcii_or_eof(&mut self) -> Result<bool, RQEIteratorError> {
         if self.wcii.read()?.is_none() {
-            self.forced_eof = true;
+            self.past_end = true;
             return Ok(false);
         }
         Ok(true)
@@ -120,9 +131,26 @@ where
         self.child.as_ref()
     }
 
+    /// Whether there is another result to yield: the iterator has not run past its
+    /// end, and its position is still inside the `max_doc_id` window.
+    ///
+    /// The second term goes `false` one step before [`Self::past_end`] is set, while
+    /// the final result is still current.
+    #[inline(always)]
+    const fn has_next(&self) -> bool {
+        !self.past_end && self.result.doc_id < self.max_doc_id
+    }
+
     /// Check whether the child iterator is positionally past `doc_id`
     /// (already advanced beyond it) or fully exhausted, meaning `doc_id`
     /// cannot be in the child without performing additional reads.
+    ///
+    /// "Exhausted" is the trailing state, so a child still sitting on its last
+    /// result does not qualify: the first probe past that result reads the child
+    /// once more instead of short-circuiting here, gets the same answer, and every
+    /// later probe takes this path again. The look-ahead that would have caught it
+    /// a step earlier is each iterator's own business now, and is not on the trait,
+    /// so this cannot be tightened from here.
     #[inline(always)]
     fn child_is_ahead_or_depleted(&self, doc_id: DocId) -> bool {
         doc_id < self.child.last_doc_id()
@@ -134,22 +162,36 @@ where
     ///
     /// Returns `Ok(true)` if a valid result was found (stored in
     /// `self.result.doc_id`), `Ok(false)` if EOF was reached.
+    ///
+    /// Every `Ok(false)` leaves [`past_end`](Self::past_end) set, so callers report
+    /// exhaustion by relaying the answer rather than re-deriving it.
     fn read_inner(&mut self) -> Result<bool, RQEIteratorError> {
-        if self.at_eof() {
-            self.forced_eof = true;
+        if !self.has_next() {
+            self.past_end = true;
             return Ok(false);
         }
 
         // Advance the wildcard iterator to the next document.
-        // We check the return value (not `at_eof`) because iterators
-        // may report `at_eof() == true` immediately after returning the last
-        // element, while the returned value is still valid.
         if !self.advance_wcii_or_eof()? {
             return Ok(false);
         }
 
         loop {
             let wcii_last = self.wcii.last_doc_id();
+
+            // The wildcard can land beyond `max_doc_id` in a single step — a sparse
+            // existing-documents index, or documents added since the bound was
+            // captured when the plan was built. Everything it has left is then
+            // outside the range this iterator covers, so there is nothing more to
+            // yield: the same answer [`skip_to`](RQEIterator::skip_to) gives for a
+            // target past the bound, and sticky for the same reason.
+            //
+            // Checked here rather than beside the assignment below, because Case 2
+            // re-advances the wildcard and loops back round.
+            if wcii_last > self.max_doc_id {
+                self.past_end = true;
+                return Ok(false);
+            }
 
             if self.child_is_ahead_or_depleted(wcii_last) {
                 // Case 1: The wildcard document is not in the child.
@@ -189,6 +231,9 @@ where
 {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        if self.past_end {
+            return None;
+        }
         Some(&mut self.result)
     }
 
@@ -208,21 +253,33 @@ where
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         debug_assert!(self.last_doc_id() < doc_id);
 
-        if self.at_eof() {
+        if !self.has_next() {
+            self.past_end = true;
             return Ok(None);
         }
         if doc_id > self.max_doc_id {
-            self.forced_eof = true;
+            self.past_end = true;
             return Ok(None);
         }
 
         // Skip wcii to docId.
         if self.wcii.skip_to(doc_id)?.is_none() {
-            self.forced_eof = true;
+            self.past_end = true;
             return Ok(None);
         }
 
         let wcii_last = self.wcii.last_doc_id();
+
+        // The target was checked against `max_doc_id` above, but the wildcard
+        // answers with the next document it *has*, which can be well past it over a
+        // sparse stretch. That landing is outside the range this iterator covers, so
+        // there is nothing left to yield — the same answer the read loop gives.
+        // Checked before the child is synced to it, and before it is published as
+        // this iterator's position.
+        if wcii_last > self.max_doc_id {
+            self.past_end = true;
+            return Ok(None);
+        }
 
         // If child is behind wcii, advance it to catch up.
         if !self.child.at_eof() && self.child.last_doc_id() < wcii_last {
@@ -239,7 +296,9 @@ where
             }
         }
 
-        // Child is ahead or depleted: wcii_last is a valid result.
+        // Child is ahead or depleted: wcii_last is a valid result. `past_end` needs no
+        // clearing — reaching here means `has_next()` was true above, so it is already
+        // `false`, and nothing but `rewind` may clear it anyway.
         self.result.doc_id = wcii_last;
         if self.result.doc_id == doc_id {
             Ok(Some(SkipToOutcome::Found(&mut self.result)))
@@ -250,7 +309,7 @@ where
 
     #[inline(always)]
     fn rewind(&mut self) {
-        self.forced_eof = false;
+        self.past_end = false;
         self.result.doc_id = 0;
         self.wcii.rewind();
         self.child.rewind();
@@ -268,7 +327,7 @@ where
 
     #[inline(always)]
     fn at_eof(&self) -> bool {
-        self.forced_eof || self.result.doc_id >= self.max_doc_id
+        self.past_end
     }
 
     #[inline(always)]
@@ -292,38 +351,61 @@ where
 
         // 3. If the wildcard moved, sync state.
         if matches!(wcii_status, RQEValidateStatus::Moved { .. }) {
-            // Sync the EOF flag with the wildcard iterator. This clears a
-            // previously-set forced_eof so the iterator can recover.
-            self.forced_eof = self.wcii.at_eof();
+            // Latched, never assigned: exhaustion is terminal, and this iterator's own
+            // reasons for reaching it — the `max_doc_id` window closing, which `skip_to`
+            // records with the wildcard still live on a document — outlive whatever the
+            // wildcard now answers. Assigning would drop them.
+            self.past_end |= self.wcii.at_eof();
             // Track whether we land on a valid NOT result. Starts true
             // when wcii is not at EOF (we have a candidate position).
-            let mut have_valid_pos = !self.forced_eof;
+            //
+            // A wildcard that revalidated onto a document past `max_doc_id` has
+            // nothing left inside this iterator's range, so it is not a candidate
+            // — the third place the bound has to be applied, alongside the read
+            // loop and `skip_to`, because each publishes a wildcard position of
+            // its own. Without it, a concurrent index change could hand a native
+            // parent `Moved { current: Some(_) }` with an out-of-range id.
+            let mut have_valid_pos = !self.past_end && self.wcii.last_doc_id() <= self.max_doc_id;
             if have_valid_pos {
                 self.result.doc_id = self.wcii.last_doc_id();
 
-                // If child is behind, skip it forward.
-                // Errors are intentionally ignored: a timeout here should
-                // not abort the iterator, since we are already committed
-                // to returning Moved.
+                // If child is behind, skip it forward — the only thing that makes
+                // the membership test below mean anything.
+                //
+                // A failure here must not be swallowed. The contract forbids a
+                // skip that carries no result from leaving the child's position
+                // *on* the target, exactly so a parent cannot mistake it for a
+                // hit — so the test below would read the failure as "not in the
+                // child" and publish a document this iterator exists to exclude.
+                // Undecided is not the same as absent.
                 if self.child.last_doc_id() < self.result.doc_id {
-                    let _ = self.child.skip_to(self.result.doc_id);
+                    let _ = self.child.skip_to(self.result.doc_id)?;
                 }
 
                 // If child landed on the same position, the current
                 // result is in the child and invalid for NOT. Advance to
                 // the next valid position.
                 if self.child.last_doc_id() == self.result.doc_id {
-                    match self.read_inner() {
-                        Ok(found) => have_valid_pos = found,
-                        Err(_) => {
-                            // A timeout during revalidation should not
-                            // permanently terminate the iterator, but we
-                            // have no valid position to return.
-                            self.forced_eof = false;
-                            have_valid_pos = false;
-                        }
-                    }
+                    // A failing scan leaves nothing to report, and neither answer
+                    // available here would be true: `Moved { current: None }` says
+                    // exhausted, which every composite acts on — `Intersection`
+                    // ends, `OptionalOptimized` latches `past_end`, both unions drop
+                    // the child — so a later `read` finding a document would be
+                    // resurrecting past a parent that has already written this
+                    // iterator off. The error goes to the caller instead, which
+                    // aborts the iterator rather than trusting a position that does
+                    // not exist. Same trade `UnionFlat` makes when catching up a
+                    // lagging child fails.
+                    have_valid_pos = self.read_inner()?;
                 }
+            }
+
+            // Keep the has-current state in step with what we are about to
+            // report: a `Moved { current: None }` must leave `current()` — and
+            // `at_eof()`, its negation — agreeing with it, rather than handing
+            // back the stale pre-revalidation result.
+            if !have_valid_pos {
+                self.past_end = true;
             }
 
             Ok(RQEValidateStatus::Moved {
@@ -359,8 +441,8 @@ where
             wcii: self.wcii,
             child: self.child.map(crate::c2rust::CRQEIterator::into_profiled),
             max_doc_id: self.max_doc_id,
-            forced_eof: self.forced_eof,
             result: self.result,
+            past_end: self.past_end,
             timeout_ctx: self.timeout_ctx,
         }
     }

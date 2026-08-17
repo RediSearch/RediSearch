@@ -7,23 +7,30 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "tag_index.h"
+
+#include <ctype.h>
+#include <string.h>
+#include <sys/param.h>
+#include <sys/types.h>
+#include <time.h>
+
 #include "suffix.h"
 #include "rmalloc.h"
-#include "rmutil/vector.h"
 #include "inverted_index.h"
 #include "redis_index.h"
-#include "rmutil/util.h"
 #include "triemap_ffi.h"
-#include "util/misc.h"
-#include "util/arr.h"
 #include "rmutil/rm_assert.h"
-#include "resp3.h"
 #include "iterators_ffi.h"
 #include "inverted_index_ffi.h"
 #include "metrics_ffi.h"
 #include "query_term_ffi.h"
 #include "search_disk.h"
 #include "spec.h"
+#include "field.h"
+#include "index_result_rs.h"
+#include "query.h"
+#include "redisearch.h"
+#include "util/strconv.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -209,10 +216,10 @@ struct InvertedIndex *TagIndex_OpenIndex(const TagIndex *idx, const char *value,
 // Returns the number of bytes occupied by the encoded entry plus the size of
 // the inverted index (if a new inverted index was created)
 static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, t_docId docId,
-                                  IndexStats *stats, size_t *numRecords) {
+                                  bool hasFieldExpiration, IndexStats *stats, size_t *numRecords) {
   size_t sz;
   RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0,
-                       .metrics = MetricsVec_New()};
+                       .hasFieldExpiration = hasFieldExpiration, .metrics = MetricsVec_New()};
   InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, CREATE_INDEX, &sz);
   uint32_t numDocs = InvertedIndex_NumDocs(iv);
   AddRecordOutcome r = InvertedIndex_WriteEntryGeneric(iv, &rec);
@@ -227,13 +234,14 @@ static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, 
  * `tagIndex_Put` also inserts the matching `InvertedIndex*` into `idx->values`
  * if it is not already there. */
 static void TagIndex_WritePostings(TagIndex *idx, const char **values, size_t n,
-                                     t_docId docId, IndexStats *stats) {
+                                     t_docId docId, bool hasFieldExpiration, IndexStats *stats) {
   if (!values) return;
   size_t numRecords = 0;
   for (size_t ii = 0; ii < n; ++ii) {
     const char *tok = values[ii];
     if (tok) {
-      stats->invertedSize += tagIndex_Put(idx, tok, strlen(tok), docId, stats, &numRecords);
+      stats->invertedSize +=
+          tagIndex_Put(idx, tok, strlen(tok), docId, hasFieldExpiration, stats, &numRecords);
     }
   }
   stats->numRecords += numRecords;
@@ -281,13 +289,15 @@ void TagIndex_Commit(TagIndex *idx, const char **values, size_t n, IndexStats *s
  * In disk mode the postings are staged onto `batch` (committed by
  * `commitDocument`). In memory mode they are written inline into the per-tag
  * `InvertedIndex` and `batch` is ignored. */
-bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, SearchDiskWriteBatchHandle *batch,
-                    const char **values, size_t n, t_docId docId, IndexStats *stats) {
+bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, const TagIndexIndexCtx *indexCtx) {
+  RS_LOG_ASSERT(indexCtx, "TagIndex_Index requires an indexing context");
   if (idx->diskSpec) {
-    if (!values) return true;
-    return SearchDisk_IndexTags(ctx, idx->diskSpec, batch, values, n, docId, idx->fieldIndex);
+    if (!indexCtx->values) return true;
+    return SearchDisk_IndexTags(ctx, idx->diskSpec, indexCtx->batch, indexCtx->values, indexCtx->n,
+                                indexCtx->docId, idx->fieldIndex);
   }
-  TagIndex_WritePostings(idx, values, n, docId, stats);
+  TagIndex_WritePostings(idx, indexCtx->values, indexCtx->n, indexCtx->docId,
+                         indexCtx->hasFieldExpiration, indexCtx->stats);
   return true;
 }
 
@@ -297,27 +307,6 @@ static QueryIterator *TagIndex_GetReader(const TagIndex *idx, const RedisSearchC
   RSQueryTerm *t = NewQueryTerm(&tok, 0);
   FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = fieldIndex};
   return NewInvIndIterator_TagQuery(iv, idx, sctx, fieldMaskOrIndex, t, weight);
-}
-
-// Helper: Get iterator from TrieMap iterator value
-// In disk mode: ptr is ignored, calls disk API with tag string
-// In memory mode: ptr is InvertedIndex*, uses it directly
-QueryIterator *TagIndex_GetIteratorFromTrieMapValue(TagIndex *idx, const RedisSearchCtx *sctx,
-                                                    const char *tag, size_t len, void *ptr,
-                                                    double weight, t_fieldIndex fieldIndex,
-                                                    QueryError *status) {
-  if (idx->diskSpec) {
-    // DISK MODE: Use tag string to query disk
-    RSToken tok = {.str = (char *)tag, .len = len};
-    return SearchDisk_NewTagIterator(idx->diskSpec, sctx, &tok, fieldIndex, weight, status);
-  }
-
-  // MEMORY MODE: Use InvertedIndex from TrieMap
-  InvertedIndex *iv = (InvertedIndex *)ptr;
-  if (!iv || InvertedIndex_NumDocs(iv) == 0) {
-    return NULL;
-  }
-  return TagIndex_GetReader(idx, sctx, iv, tag, len, weight, fieldIndex);
 }
 
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
@@ -389,13 +378,6 @@ void TagIndex_DeleteTagSuffix(TagIndex *idx, const char *tagVal, size_t tagValLe
 TrieMapIterator *TagIndex_IterateValuesWithFilter(TagIndex *idx, const char *tagVal,
                                                  size_t tagValLen, tag_iter_mode mode) {
   return TrieMap_IterateWithFilter(idx->values, tagVal, tagValLen, (tm_iter_mode)mode);
-}
-
-void TagIndex_IterateRangeValues(const TagIndex *idx, const char *min, int minlen, bool includeMin,
-                                 const char *max, int maxlen, bool includeMax,
-                                 TrieMapRangeCallback callback, void *ctx) {
-  TrieMap_IterateRange(idx->values, min, minlen, includeMin, max, maxlen, includeMax, callback,
-                       ctx);
 }
 
 TrieMapIterator *TagIndex_IterateSuffix(const TagIndex *idx) {

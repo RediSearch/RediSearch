@@ -3,6 +3,10 @@ name: Periodic Master Validation
 # Runs broad validation on master against stable dependencies. Busy-day runs
 # start after enough PRs land; the daily sweep covers low-traffic leftovers.
 
+# Floor, not a grant: every job below declares what it needs, so this only
+# stops a job added later from silently inheriting the repository default.
+permissions: {}
+
 on:
   push:
     branches:
@@ -27,6 +31,9 @@ jobs:
   # Skipped validation runs still finish successfully, so this job finds the last
   # successful run that actually completed validation and batches PRs from there.
   should-run:
+    permissions: # queries /actions/runs and /repos/../compare via gh
+      contents: read
+      actions: read
     runs-on: ubuntu-slim
     outputs:
       run-validation: ${{ steps.check.outputs.run-validation }}
@@ -149,21 +156,13 @@ jobs:
         run: |
           echo "Covered PRs: ${{ steps.check.outputs.covered-prs }}"
 
-  # TODO: revert to calling task-get-latest-tag.yml once Redis 8.10 is released.
-  # Pinned to a redis/redis unstable commit (the redis/redis#15350 merge) because the module
-  # requires RedisModule_GetClusterNodeSlotRanges (MOD-15868) and
-  # RedisModuleEvent_ClusterTopologyChange (MOD-15870), neither of which is in any Redis release yet.
   get-latest-redis-tag:
+    permissions: {}
     needs: should-run
     if: ${{ needs.should-run.outputs.run-validation == 'true' }}
-    # uses: ./.github/workflows/task-get-latest-tag.yml
-    # with:
-    #   repo: redis/redis
-    runs-on: ubuntu-slim
-    outputs:
-      tag: 8897348030c20bcd26841bc7d3ec7227f8187aeb
-    steps:
-      - run: echo "Using pinned redis/redis unstable commit instead of the latest release tag"
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
 
   test-selected-platforms:
     needs: [should-run, get-latest-redis-tag]
@@ -181,8 +180,12 @@ jobs:
       platform: 'ubuntu:noble,macos-26,!macos-26~x86_64,alpine:3.23,intel'
       architecture: all
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      job-test-config: '{"test": "", "coverage": "", "sanitize": ""}'
-      options: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && 'unit-tests,coordinator,standalone,rejson,coverage,sanitize' || 'unit-tests,coordinator,standalone,rejson,sanitize' }}
+      job-test-config: '{"test": "", "coverage": "", "sanitize": "", "ubsan": ""}'
+      options: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && 'unit-tests,coordinator,standalone,rejson,coverage,sanitize,ubsan' || 'unit-tests,coordinator,standalone,rejson,sanitize,ubsan' }}
+      # Full alignment UBSan currently exposes unrelated pre-existing UB in the
+      # C/C++ suite. Keep this lane focused on the trie regression until those
+      # findings are fixed separately.
+      ubsan-unit-test-filter: 'TrieTest\.test.*ScansPackedChildKeys'
       rejson-branch: master
 
   notify-cie-failure:
@@ -224,7 +227,7 @@ jobs:
           append_output("covered_prs", covered_prs_text)
 
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # Triage only needs the local workflow/action files. Codex then reads
           # untrusted CI logs and emits external output, so don't leave a usable
@@ -244,7 +247,7 @@ jobs:
 
       - name: Notify CIE failure triage
         if: always()
-        uses: slackapi/slack-github-action@v3
+        uses: slackapi/slack-github-action@0d95c9a7becc1e6e297d76df9bc735c44f4cbcbc # v3.0.5
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL_POST_MERGE_VALIDATION_FAILED }}
           webhook-type: webhook-trigger

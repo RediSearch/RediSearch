@@ -55,7 +55,10 @@ fn visit_dir(dir: &Path, fix: bool, bad_files: &mut Vec<std::path::PathBuf>) {
         let path = entry.path();
         if path.is_dir() {
             let filename = path.file_name().and_then(|s| s.to_str());
-            if filename == Some("thin_vec") || filename == Some("generational_slab") {
+            if filename == Some("thin_vec")
+                || filename == Some("generational_slab")
+                || filename == Some("utf8parse")
+            {
                 // That crate is under a different license, since it's a fork.
                 println!("Skipping crate: {path:?} (Fork under a different license)");
                 continue;

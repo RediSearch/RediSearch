@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.15)
 
 include(CheckCCompilerFlag)
+include(CheckCXXCompilerFlag)
 
 get_filename_component(root ${CMAKE_CURRENT_LIST_DIR} ABSOLUTE)
 # The `binroot` path includes a platform+profile segment
@@ -49,6 +50,25 @@ function(setup_cc_options)
     set(_common_c_flags "${CMAKE_C_FLAGS} -fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fcommon -funsigned-char")
     set(_common_cxx_flags "${CMAKE_CXX_FLAGS} -fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare")
     set(CMAKE_CXX_STANDARD 20)
+
+    # musl compatibility headers emit #warning for non-portable include paths.
+    # Treat those diagnostics as build failures so Alpine catches them early.
+    execute_process(
+        COMMAND ${CMAKE_C_COMPILER} -dumpmachine
+        OUTPUT_VARIABLE C_COMPILER_TARGET
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if(C_COMPILER_TARGET MATCHES "musl" OR EXISTS "/etc/alpine-release")
+        check_c_compiler_flag("-Werror=cpp" HAS_C_WERROR_CPP)
+        check_cxx_compiler_flag("-Werror=cpp" HAS_CXX_WERROR_CPP)
+        if(HAS_C_WERROR_CPP)
+            set(_common_c_flags "${_common_c_flags} -Werror=cpp")
+        endif()
+        if(HAS_CXX_WERROR_CPP)
+            set(_common_cxx_flags "${_common_cxx_flags} -Werror=cpp")
+        endif()
+    endif()
 
     # MOD-14916: inline LSE atomics on Linux AArch64 -- avoid libgcc
     # __aarch64_* outline-atomics helpers on every atomic RMW.
@@ -176,6 +196,18 @@ if(SAN)
         set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=address")
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
         message(STATUS "CMAKE_C_FLAGS: ${CMAKE_C_FLAGS}")
+        message(STATUS "CMAKE_LINKER_FLAGS: ${CMAKE_LINKER_FLAGS}")
+        message(STATUS "CMAKE_SHARED_LINKER_FLAGS: ${CMAKE_SHARED_LINKER_FLAGS}")
+    elseif(SAN STREQUAL "alignment")
+        set(_alignment_sanitizer_flags
+            "-fno-omit-frame-pointer -fsanitize=alignment -fno-sanitize-recover=alignment")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${_alignment_sanitizer_flags}")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${_alignment_sanitizer_flags}")
+        set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} -fsanitize=alignment")
+        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=alignment")
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=alignment")
+        message(STATUS "CMAKE_C_FLAGS: ${CMAKE_C_FLAGS}")
+        message(STATUS "CMAKE_CXX_FLAGS: ${CMAKE_CXX_FLAGS}")
         message(STATUS "CMAKE_LINKER_FLAGS: ${CMAKE_LINKER_FLAGS}")
         message(STATUS "CMAKE_SHARED_LINKER_FLAGS: ${CMAKE_SHARED_LINKER_FLAGS}")
     endif()

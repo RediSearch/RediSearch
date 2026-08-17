@@ -7,10 +7,17 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#include <math.h>
+#include <stddef.h>
+#include <stdint.h>
+
 #include "function.h"
 #include "value_ffi.h"
 #include "aggregate/expr/expression.h"
 #include "geo_ffi.h"
+#include "redisearch.h"
+#include "redismodule.h"
+#include "rlookup_ffi.h"
 
 // parse "x,y"
 static int parseField(RSValue *argv, double *geo, QueryError *status) {

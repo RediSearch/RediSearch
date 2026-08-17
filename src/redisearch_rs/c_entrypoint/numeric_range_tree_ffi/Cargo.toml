@@ -18,6 +18,7 @@ workspace = true
 [dependencies]
 cheadergen.workspace = true
 numeric_range_tree.workspace = true
+redis-module.workspace = true
 index_result.workspace = true
 inverted_index.workspace = true
 inverted_index_ffi = { path = "../inverted_index_ffi" }
@@ -29,14 +30,6 @@ tracing.workspace = true
 workspace_hack.workspace = true
 serde.workspace = true
 rmp-serde.workspace = true
-
-[target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
-workspace = true
-default-features = false
-features = ["min-redis-compatibility-version-7-2"]
-
-[target.'cfg(not(all(target_env="musl", target_os="linux")))'.dependencies.redis-module]
-workspace = true
 
 [dev-dependencies]
 redis_mock.workspace = true

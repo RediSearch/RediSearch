@@ -2,6 +2,10 @@ name: Push to Master or Version Branch
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
+# Floor, not a grant: every job below declares what it needs, so this only
+# stops a job added later from silently inheriting the repository default.
+permissions: {}
+
 on:
   push:
     branches:
@@ -10,6 +14,8 @@ on:
 
 jobs:
   check-what-changed:
+    permissions: # actions/checkout
+      contents: read
     uses: ./.github/workflows/task-check-changes.yml
 
   benchmark:

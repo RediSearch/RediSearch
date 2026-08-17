@@ -38,12 +38,16 @@ env:
 jobs:
   # Get configuration for this specific platform and architecture
   get-config:
+    permissions: {} # task-get-config.yml only resolves config values
     uses: ./.github/workflows/task-get-config.yml
     with:
       platform: ${{ inputs.platform }}
       architecture: ${{ inputs.architecture }}
 
   build-image:
+    permissions: # task-build-cached-container.yml pushes the image to GHCR
+      contents: read
+      packages: write
     needs: get-config
     if: ${{ needs.get-config.outputs.container }}
     name: Build cached container for platform
@@ -129,7 +133,7 @@ jobs:
         run: ${{ needs.get-config.outputs.post_setup_script }}
 
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
           ref: ${{ env.REF }}

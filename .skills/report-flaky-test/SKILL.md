@@ -213,6 +213,27 @@ Any `skip_until` recommendation must include:
 Do not implement the fix from this skill unless the user explicitly asks to switch from reporting to
 implementation.
 
+### 7. Prompt For A Workflow-Based Skip
+
+After the Jira issue exists and a temporary skip is appropriate, explicitly ask the user whether to
+mark the test as flaky with the
+[Flaky tests — mark workflow](https://github.com/RediSearch/RediSearch/actions/workflows/task-flaky-mark.yml).
+Do not dispatch the workflow without explicit user approval.
+
+Show the proposed workflow inputs in the prompt:
+- `test_id`: normalized RLTest id (`<test_file>:<test_name>`, without `.py` or a `[variant]`)
+- `reason`: short failure reason
+- `jira_key`: the existing or newly created MOD ticket
+- `expires_in_days`: `30` unless another period is justified or requested
+
+Ask for the branch scope explicitly instead of assuming it:
+- Should the mark apply to `master`?
+- Which affected version branches should also be marked (for example, `2.10`)?
+- Should `*` be used to cover all branches instead?
+
+Use one workflow dispatch per selected branch, or one dispatch with `branch: *` when the user chooses
+all branches. Summarize the approved branch scope before dispatching.
+
 ## Report Back
 
 End with:
@@ -221,3 +242,4 @@ End with:
 - Likely owner and confidence, or why no confident owner was identified
 - Artifact/log status
 - Immediate triage recommendation, if any
+- Whether a workflow-based skip was offered, and its approved or pending branch scope

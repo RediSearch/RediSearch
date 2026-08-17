@@ -8,6 +8,7 @@
 */
 #ifndef AGGREGATE_PLAN_H_
 #define AGGREGATE_PLAN_H_
+#include <stdint.h>
 #include <value_ffi.h>
 #include <rlookup.h>
 #include <search_options.h>
@@ -94,7 +95,7 @@ typedef struct {
 } PLN_MapFilterStep;
 
 /** ARRANGE covers sort, limit, and so on */
-typedef struct {
+typedef struct PLN_ArrangeStep {
   PLN_BaseStep base;
   const RLookupKey **sortkeysLK;  // simple array
   const char **sortKeys;          // array_*

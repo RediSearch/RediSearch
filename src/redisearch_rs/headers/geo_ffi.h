@@ -17,9 +17,9 @@
 typedef struct QueryError QueryError;
 
 /**
- * The number of geohash ranges: the center cell plus its 8 neighbors.
+ * WGS-84 latitude upper bound (EPSG:900913).
  */
-#define GEO_RANGE_COUNT 9
+#define GEO_LAT_MAX 85.051128779999999
 
 /**
  * WGS-84 latitude lower bound (EPSG:900913).
@@ -27,9 +27,9 @@ typedef struct QueryError QueryError;
 #define GEO_LAT_MIN -85.051128779999999
 
 /**
- * WGS-84 latitude upper bound (EPSG:900913).
+ * WGS-84 longitude upper bound.
  */
-#define GEO_LAT_MAX 85.051128779999999
+#define GEO_LONG_MAX 180.0
 
 /**
  * WGS-84 longitude lower bound.
@@ -37,22 +37,13 @@ typedef struct QueryError QueryError;
 #define GEO_LONG_MIN -180.0
 
 /**
- * WGS-84 longitude upper bound.
+ * The number of geohash ranges: the center cell plus its 8 neighbors.
  */
-#define GEO_LONG_MAX 180.0
+#define GEO_RANGE_COUNT 9
 
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
-
-/**
- * Encode longitude and latitude into a 52-bit-aligned geohash score,
- * or return `INVALID_GEOHASH` (`-1.0`) on invalid coordinates.
- *
- * Valid geohash scores are non-negative, so any negative return value
- * signals an error.
- */
-double encodeGeo(double lon, double lat);
 
 /**
  * Decode a geohash `f64` back into a `[longitude, latitude]` pair.
@@ -65,6 +56,15 @@ double encodeGeo(double lon, double lat);
  * - `xy` must be a valid, non-null pointer to a writable `[f64; 2]`.
  */
 void decodeGeo(double bits, double *xy);
+
+/**
+ * Encode longitude and latitude into a 52-bit-aligned geohash score,
+ * or return `INVALID_GEOHASH` (`-1.0`) on invalid coordinates.
+ *
+ * Valid geohash scores are non-negative, so any negative return value
+ * signals an error.
+ */
+double encodeGeo(double lon, double lat);
 
 /**
  * Calculate the haversine great-circle distance between two WGS-84 points.

@@ -8,6 +8,8 @@
 */
 #pragma once
 
+#include <stdint.h>
+
 #include "redismodule.h"
 #include "hiredis/sds.h"
 #include "rmutil/args.h"
@@ -351,6 +353,7 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS MAX_AGGREGATE_REQUEST_RESULTS
 #define MAX_AGGREGATE_GROUPS (1ULL << 26)
 #define DEFAULT_MAX_AGGREGATE_GROUPS 1000000
+#define MAX_GROUPBY_PROPERTIES UINT16_MAX
 // Lower aggregate caps used as the registration-time defaults in flex (disk)
 // mode: bound result materialization and the per-shard group count to reduce
 // OOM risk (the coordinator multiplies the group cap by the shard count).

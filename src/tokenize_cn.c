@@ -6,6 +6,11 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
 #include "tokenize.h"
 #include "toksep.h"
 #include "config.h"
@@ -14,6 +19,8 @@
 #include "util/minmax.h"
 #include "rmutil/rm_assert.h"
 #include "rmalloc.h"
+#include "stemmer.h"
+#include "stopwords.h"
 
 static friso_config_t config_g;
 static friso_t friso_g;

@@ -9,7 +9,7 @@ publish.workspace = true
 workspace = true
 
 [features]
-# Enabled when building tests so `build.rs` links the C code (`libredisearch_all.a`).
+# Enabled when building tests so `build.rs` links the C code (`libredisearch_c_bundle.a`).
 # See https://github.com/rust-lang/cargo/issues/4789#issuecomment-2308131243
 unittest = []
 

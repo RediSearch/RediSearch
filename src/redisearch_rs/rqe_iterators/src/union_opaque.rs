@@ -235,14 +235,11 @@ where
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         let node_type = self.query_node_type;
-        // Union, Geo, and LexRange always print full children even in
-        // limited mode — these types have few enough children that
-        // collapsing them would lose useful information.
-        let print_full = !ctx.limited
-            || matches!(
-                node_type,
-                QueryNodeType::Union | QueryNodeType::Geo | QueryNodeType::LexRange
-            );
+        // Union and Geo always print full children even in limited mode —
+        // these types have few enough children that collapsing them would lose
+        // useful information.
+        let print_full =
+            !ctx.limited || matches!(node_type, QueryNodeType::Union | QueryNodeType::Geo);
 
         map.kv_simple_string(c"Type", c"UNION");
 
@@ -253,7 +250,6 @@ where
             QueryNodeType::Fuzzy => "FUZZY",
             QueryNodeType::Prefix => "PREFIX",
             QueryNodeType::Numeric => "NUMERIC",
-            QueryNodeType::LexRange => "LEXRANGE",
             QueryNodeType::WildcardQuery => "WILDCARD",
             _ => unreachable!("Invalid type for union"),
         };

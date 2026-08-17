@@ -76,6 +76,11 @@ TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *pa
                         t_len numChildren, float score, int terminal, TrieSortMode sortMode,
                         size_t numDocs);
 
+/* Restore descending-subtreeMaxScore child order after children[idx]'s bound
+ * rose: rotate it left into its slot, keeping the child-key cache in sync.
+ * Equal-score siblings keep their order. Score-mode tries only. */
+void __trieNode_rotateChildIntoPlace(TrieNode *n, int idx);
+
 /* trie iterator stack node. for internal use only */
 typedef struct {
   int state;

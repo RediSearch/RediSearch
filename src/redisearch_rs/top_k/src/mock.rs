@@ -93,6 +93,9 @@ pub struct MockScoreSource {
     /// Number of [`ScoreSource::check_timeout`] calls after which it starts
     /// reporting a fired deadline. `None` (default) never times out.
     timeout_after_n_checks: Option<usize>,
+    /// One-shot deadline: fire on exactly this [`ScoreSource::check_timeout`]
+    /// call (1-based), then resume returning `Ok`. `None` (default) disables it.
+    timeout_once_at: Option<usize>,
     /// Count of [`ScoreSource::check_timeout`] calls so far.
     n_timeout_checks: usize,
 }
@@ -112,7 +115,15 @@ impl MockScoreSource {
         scores: Vec<(DocId, f64)>,
         batch_strategy: impl FnMut(usize, usize) -> BatchStrategy + 'static,
     ) -> Self {
-        let num_estimated = batches.iter().map(Vec::len).sum();
+        // Adhoc mode serves results from `scores` rather than from batches, so
+        // the bound has to cover both — the real source's estimate
+        // (`k.min(index_size())`) is mode-independent for the same reason, and an
+        // estimate below what the iterator goes on to yield is not a bound.
+        let num_estimated = batches
+            .iter()
+            .map(Vec::len)
+            .sum::<usize>()
+            .max(scores.len());
         Self {
             batches,
             batch_pos: 0,
@@ -122,6 +133,7 @@ impl MockScoreSource {
             rerank_scores: None,
             expired: HashSet::new(),
             timeout_after_n_checks: None,
+            timeout_once_at: None,
             n_timeout_checks: 0,
         }
     }
@@ -151,6 +163,14 @@ impl MockScoreSource {
     /// `n`-th call onward (1-based).
     pub fn with_timeout_after(mut self, n: usize) -> Self {
         self.timeout_after_n_checks = Some(n);
+        self
+    }
+
+    /// Make [`ScoreSource::check_timeout`] report a fired deadline on exactly
+    /// its `n`-th call (1-based) and `Ok` on every other call, so a timed-out
+    /// scan can be followed by a clean retry.
+    pub fn with_timeout_once_at(mut self, n: usize) -> Self {
+        self.timeout_once_at = Some(n);
         self
     }
 }
@@ -193,6 +213,12 @@ impl ScoreSource for MockScoreSource {
         RSIndexResult::build_virt().doc_id(doc_id).build()
     }
 
+    fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+    where
+        Self: 'r,
+    {
+    }
+
     fn batch_strategy(&mut self, heap_count: usize, k: usize) -> BatchStrategy {
         (self.batch_strategy)(heap_count, k)
     }
@@ -202,6 +228,9 @@ impl ScoreSource for MockScoreSource {
         if self
             .timeout_after_n_checks
             .is_some_and(|n| self.n_timeout_checks >= n)
+            || self
+                .timeout_once_at
+                .is_some_and(|n| self.n_timeout_checks == n)
         {
             return Err(RQEIteratorError::TimedOut);
         }
@@ -225,5 +254,9 @@ impl ScoreSource for MockScoreSource {
 
     fn iterator_type(&self) -> rqe_iterator_type::IteratorType {
         rqe_iterator_type::IteratorType::Mock
+    }
+
+    fn yields_child_record(&self) -> bool {
+        true
     }
 }

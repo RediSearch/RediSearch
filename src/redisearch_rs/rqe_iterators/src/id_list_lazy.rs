@@ -150,9 +150,10 @@ impl<'index, const SORTED: bool> RQEIterator<'index> for IdListLazy<'index, SORT
 
     #[inline(always)]
     fn at_eof(&self) -> bool {
-        // Before production the list is not (necessarily) exhausted — report not-at-EOF so
-        // callers read it and trigger production.
-        self.produced && self.inner.at_eof()
+        // Delegates as `current()` does, so the two agree. The inner list starts
+        // unread rather than past its end, so callers still read it and trigger
+        // production.
+        self.inner.at_eof()
     }
 
     #[inline(always)]

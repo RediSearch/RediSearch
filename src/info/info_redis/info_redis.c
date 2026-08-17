@@ -7,13 +7,17 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "info_redis.h"
+
+#include <inttypes.h>
+#include <stdbool.h>
+#include <stdio.h>
+
 #include "module.h"
 #include "version.h"
 #include "info/global_stats.h"
 #include "cursor.h"
 #include "info/indexes_info.h"
 #include "util/units.h"
-#include <inttypes.h>
 #include "module_init_ffi.h"
 #include "info/info_redis/types/blocked_queries.h"
 #include "info/info_redis/threads/current_thread.h"
@@ -22,6 +26,14 @@
 #include "spec.h"
 #include "indexes.h"
 #include "indexes_scanner.h"
+#include "config.h"
+#include "field_spec.h"
+#include "gc.h"
+#include "info/info_redis/types/spec_info.h"
+#include "rmutil/rm_assert.h"
+#include "rs_wall_clock.h"
+#include "util/dllist.h"
+#include "util/references.h"
 
 /* ========================== PROTOTYPES ============================ */
 // Fields statistics
@@ -321,7 +333,13 @@ void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *tota
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_syntax", stats.shard_errors.syntax);
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_arguments", stats.shard_errors.arguments);
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_timeout", stats.shard_errors.timeout);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_timeout_while_queued", stats.shard_errors.timeout_by_stage.queue);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_timeout_while_executing", stats.shard_errors.timeout_by_stage.pipeline);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_timeout_while_replying", stats.shard_errors.timeout_by_stage.reply);
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_warnings_timeout", stats.shard_warnings.timeout);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_warnings_timeout_while_queued", stats.shard_warnings.timeout_by_stage.queue);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_warnings_timeout_while_executing", stats.shard_warnings.timeout_by_stage.pipeline);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_warnings_timeout_while_replying", stats.shard_warnings.timeout_by_stage.reply);
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_oom", stats.shard_errors.oom);
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_unavailable_slots", stats.shard_errors.unavailableSlots);
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_warnings_oom", stats.shard_warnings.oom);
@@ -333,7 +351,13 @@ void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *tota
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_syntax", stats.coord_errors.syntax);
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_arguments", stats.coord_errors.arguments);
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_timeout", stats.coord_errors.timeout);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_timeout_while_queued", stats.coord_errors.timeout_by_stage.queue);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_timeout_while_executing", stats.coord_errors.timeout_by_stage.pipeline);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_timeout_while_replying", stats.coord_errors.timeout_by_stage.reply);
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_timeout", stats.coord_warnings.timeout);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_timeout_while_queued", stats.coord_warnings.timeout_by_stage.queue);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_timeout_while_executing", stats.coord_warnings.timeout_by_stage.pipeline);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_timeout_while_replying", stats.coord_warnings.timeout_by_stage.reply);
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_oom", stats.coord_errors.oom);
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_unavailable_slots", stats.coord_errors.unavailableSlots);
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_oom", stats.coord_warnings.oom);

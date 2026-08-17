@@ -8,10 +8,15 @@
  */
 
 #include "index_result_async_read.h"
+
 #include "types_ffi.h"
 #include "search_disk.h"
 #include "rmalloc.h"
 #include "util/dllist.h"
+#include "doc_table.h"
+#include "index_result_rs.h"
+#include "inverted_index.h"
+#include "rmutil/rm_assert.h"
 
 void IndexResultAsyncRead_Init(IndexResultAsyncReadState *state, uint16_t poolSize) {
   // Initialize all fields to safe defaults

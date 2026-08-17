@@ -18,40 +18,55 @@
 // indexes.c -> indexes_scan.h (RDB-load events trigger full rescans). The
 // scanner only reads specDict_g as a data dependency; it never calls back here.
 
+#include <errno.h>
+#include <stdint.h>
+#include <string.h>
+
+#ifdef ENABLE_ASSERT
+#include "module.h" // IWYU pragma: keep
+#endif
+
 #include "spec.h"
 #include "indexes.h"
 #include "indexes_scan.h"
 #include "document.h"
-#include "inverted_index_ffi.h"
-#include "rlookup_load_document.h"
-
-#include "util/logging.h"
 #include "util/likely.h"
 #include "util/misc.h"
 #include "triemap_ffi.h"
 #include "commands.h"
 #include "dictionary.h"
-#include "rmutil/util.h"
 #include "rmutil/rm_assert.h"
 #include "rmalloc.h"
 #include "config.h"
 #include "cursor.h"
-#include "redis_index.h"
 #include "indexer.h"
 #include "alias.h"
-#include "module.h"
 #include "rules.h"
 #include "doc_types.h"
 #include "doc_id_meta.h"
 #include "rdb.h"
-#include "obfuscation/obfuscation_api.h"
-#include "util/workers.h"
 #include "info/global_stats.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "reply_macros.h"
 #include "notifications.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
+#include "aggregate/expr/expression.h"
+#include "doc_table.h"
+#include "field_spec.h"
+#include "indexes_scanner.h"
+#include "obfuscation/hidden.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "result_processor.h"
+#include "rlookup_ffi.h"
+#include "rqe_core.h"
+#include "search_ctx.h"
+#include "search_disk_api.h"
+#include "search_result_rs.h"
+#include "ttl_table.h"
+#include "ttl_table_rs.h"
+#include "util/arr/arr.h"
 
 // The global index registry, keyed by spec id (specIdDict_g) and by a composite
 // (logical DB, name) key (specDict_g). Other translation units read these as
@@ -167,12 +182,22 @@ void Spec_AddToDict(RefManager *rm) {
 // This function consumes the Strong reference it gets.
 void Indexes_RemoveSpecFromGlobals(StrongRef spec_ref, bool removeActive) {
   IndexSpec *spec = StrongRef_Get(spec_ref);
+  // The GC survives the unlink -- IndexSpec_Free deliberately does not free it -- unless a run
+  // is already in flight, which frees it itself. GCContext_BeginDrop tells us which.
+  GCContext *gc = spec->gc;
+  const bool ownGCAfterUnlink = gc && GCContext_BeginDrop(gc);
   // Remove spec from the global index registry (by (db, name) and by specId)
   dictDelete(specDict_g, DB_SPEC_KEY(spec->dbid, spec->specName));
   dictDelete(specIdDict_g, (void *)(uintptr_t)spec->specId);
 
   // Unwind the spec's remaining global state and consume the reference.
   IndexSpec_Unlink(spec_ref, removeActive);
+
+  // Only after the unlink, so this run cannot promote the spec and mistake the drop for an
+  // ordinary cycle -- below the clean threshold it would re-arm instead of terminating.
+  if (ownGCAfterUnlink) {
+    GCContext_FinishDrop(gc);
+  }
 }
 
 // Look up a spec by name (or alias) in the global registry - the specDict_g
@@ -916,6 +941,43 @@ static bool specHasIndexMissing(const IndexSpec *spec) {
   return false;
 }
 
+// Returns true if `after` contains a field index that is not present in
+// `before` — i.e. some field was given a field-level expiration. Both arrays are
+// sorted ascending by field index; either may be NULL (treated as empty). Used
+// to decide whether an HEXPIRE/HPERSIST must reindex the document so the inline
+// per-field expiration bit on that field's postings flips from 0 to 1.
+static bool fieldExpirationAdded(const struct FieldExpirationSlice before,
+                                 const FieldExpirations *after) {
+  const struct FieldExpirationSlice afterSlice = FieldExpirations_AsSlice(after);
+  size_t bi = 0;
+  for (size_t ai = 0; ai < afterSlice.len; ++ai) {
+    const t_fieldIndex idx = afterSlice.ptr[ai].index;
+    while (bi < before.len && before.ptr[bi].index < idx) {
+      ++bi;
+    }
+    if (bi >= before.len || before.ptr[bi].index != idx) {
+      return true;  // `idx` is in `after` but not in `before`
+    }
+  }
+  return false;
+}
+
+// `openKey` is the caller's live handle, borrowed so we do not reopen an open key.
+static void reindexDocAfterFieldExpirationAdded(RedisModuleCtx *ctx, IndexSpec *spec,
+                                                RedisModuleString *key, DocumentType type,
+                                                RedisModuleKey *openKey) {
+  // IndexSpec_UpdateDoc manages its own locking and re-reads the hash's field
+  // TTLs, so it rewrites the postings (with the bit set) and refreshes the TTL
+  // table in one pass. If the schema FILTER no longer accepts the doc, delete it
+  // instead — otherwise the stale entry (with a clear inline bit) keeps being
+  // returned. Mirrors the INDEXMISSING path and the slow path's SpecOp_Del.
+  if (SchemaRule_ShouldIndex(ctx, spec, key, type, openKey)) {
+    IndexSpec_UpdateDoc(spec, ctx, key, type, openKey);
+  } else {
+    IndexSpec_DeleteDoc(spec, ctx, key, openKey);
+  }
+}
+
 void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleString *key,
                                                DocumentType type) {
 
@@ -971,10 +1033,10 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
     // index. Matches the SpecOp_Add / SpecOp_Del split the slow path
     // produces in Indexes_UpdateMatchingWithSchemaRules.
     if (specHasIndexMissing(spec)) {
-      if (SchemaRule_ShouldIndex(ctx, spec, key, type, NULL)) {
-        IndexSpec_UpdateDoc(spec, ctx, key, type, NULL);
+      if (SchemaRule_ShouldIndex(ctx, spec, key, type, k)) {
+        IndexSpec_UpdateDoc(spec, ctx, key, type, k);
       } else {
-        IndexSpec_DeleteDoc(spec, ctx, key, NULL);
+        IndexSpec_DeleteDoc(spec, ctx, key, k);
       }
       continue;
     }
@@ -1002,6 +1064,28 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
 
     const RSDocumentMetadata *cdmd = DocTable_BorrowByKeyR(&spec->docs, key);
     if (cdmd) {
+      // Each inverted-index posting carries a per-field "this field has a TTL"
+      // bit, baked at index time, that expiration-aware iterators use to skip
+      // the TTL-table lookup when it is clear. A field that gains its *first*
+      // field-level expiration (presence 0->1 for that field) therefore needs a
+      // reindex: that field's postings still hold bit=0, so iterators would skip
+      // the check and wrongly return the now-expiring field. The reverse 1->0
+      // transition and value-only 1->1 changes stay correct under the cheap
+      // metadata-only refresh below — a stale set bit only costs a harmless extra
+      // TTL lookup that resolves to "not expired" — so only a field gaining its
+      // first expiration falls back to a full reindex.
+      const struct FieldExpirationSlice before =
+          DocTable_GetFieldExpirations(&spec->docs, cdmd->id);
+
+      if (fieldExpirationAdded(before, &sorted)) {
+        DMD_Return(cdmd);
+        RedisSearchCtx_UnlockSpec(&sctx);
+        FieldExpirations_Free(&sorted);
+        reindexDocAfterFieldExpirationAdded(ctx, spec, key, type, k);
+        continue;
+      }
+
+      // Hands ownership of `sorted` to the doc table (or frees it if empty).
       DocTable_UpdateFieldExpiration(&spec->docs, (RSDocumentMetadata *)cdmd,
                                      DocTable_TakeFieldExpirations(&sorted));
       DMD_Return(cdmd);

@@ -7,10 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ops::Bound;
-
 use inverted_index::NumericFilter;
-use query::{QueryNode, QueryNodeRef, WildcardMode, mock::MockQueryNode};
+use query::{
+    QueryNode, QueryNodeMut, QueryNodeRef, WildcardMode,
+    mock::{MockQueryNode, TokenNodeType},
+};
 use query_types::QueryNodeType;
 
 #[test]
@@ -35,7 +36,6 @@ fn node_type_reflects_each_variant() {
         QueryNodeType::Wildcard,
         QueryNodeType::Tag,
         QueryNodeType::Fuzzy,
-        QueryNodeType::LexRange,
         QueryNodeType::Vector,
         QueryNodeType::WildcardQuery,
         QueryNodeType::Null,
@@ -158,7 +158,7 @@ fn as_enum_token() {
     let QueryNode::Token { tok } = node.as_enum() else {
         panic!("expected Token");
     };
-    assert!(tok.str_.is_null());
+    assert!(tok.as_bytes().is_none());
 }
 
 #[test]
@@ -197,55 +197,6 @@ fn as_enum_prefix() {
         };
         assert_eq!(mode, expected);
     }
-}
-
-#[test]
-fn as_enum_lex_range_unbounded() {
-    let mock = MockQueryNode::new(QueryNodeType::LexRange);
-    let node = unsafe { QueryNodeRef::new(mock.as_non_null()) };
-    let QueryNode::LexRange { begin, end } = node.as_enum() else {
-        panic!("expected LexRange");
-    };
-    assert_eq!(begin, Bound::Unbounded);
-    assert_eq!(end, Bound::Unbounded);
-}
-
-#[test]
-fn as_enum_lex_range_inclusive() {
-    let mut begin_str = *b"a\0";
-    let mut end_str = *b"z\0";
-    let mut mock = MockQueryNode::new(QueryNodeType::LexRange);
-    mock.set_lex_range(
-        begin_str.as_mut_ptr().cast(),
-        true,
-        end_str.as_mut_ptr().cast(),
-        true,
-    );
-    let node = unsafe { QueryNodeRef::new(mock.as_non_null()) };
-    let QueryNode::LexRange { begin, end } = node.as_enum() else {
-        panic!("expected LexRange");
-    };
-    assert!(matches!(begin, Bound::Included(_)));
-    assert!(matches!(end, Bound::Included(_)));
-}
-
-#[test]
-fn as_enum_lex_range_exclusive() {
-    let mut begin_str = *b"a\0";
-    let mut end_str = *b"z\0";
-    let mut mock = MockQueryNode::new(QueryNodeType::LexRange);
-    mock.set_lex_range(
-        begin_str.as_mut_ptr().cast(),
-        false,
-        end_str.as_mut_ptr().cast(),
-        false,
-    );
-    let node = unsafe { QueryNodeRef::new(mock.as_non_null()) };
-    let QueryNode::LexRange { begin, end } = node.as_enum() else {
-        panic!("expected LexRange");
-    };
-    assert!(matches!(begin, Bound::Excluded(_)));
-    assert!(matches!(end, Bound::Excluded(_)));
 }
 
 #[test]
@@ -293,10 +244,10 @@ fn query_node_mut_narrows_child_field_masks() {
     parent.opts_mut().field_mask = 0b0110;
     parent.set_children(&[child1.as_ptr(), child2.as_ptr()]);
 
-    let node = unsafe { QueryNodeRef::new(parent.as_non_null()) };
-    // SAFETY: `node` is the sole wrapper to this subtree for the duration of
-    // the test; no other wrapper or derived reference is live.
-    let mut node = unsafe { node.as_mut() };
+    // SAFETY: `parent` is a valid node and `node` is the sole wrapper to this
+    // subtree for the duration of the test; no other wrapper or derived
+    // reference is live.
+    let mut node = unsafe { QueryNodeMut::new(parent.as_non_null()) };
     assert_eq!(node.num_children(), 2);
     let mask = node.opts().field_mask;
 
@@ -321,8 +272,68 @@ fn query_node_mut_narrows_child_field_masks() {
 #[should_panic(expected = "out of bounds")]
 fn query_node_mut_child_out_of_bounds_panics() {
     let mock = MockQueryNode::new(QueryNodeType::Wildcard);
-    let node = unsafe { QueryNodeRef::new(mock.as_non_null()) };
-    // SAFETY: sole wrapper to a leaf node; no other wrapper or reference live.
-    let mut node = unsafe { node.as_mut() };
+    // SAFETY: sole wrapper to a valid leaf node; no other wrapper or reference
+    // live.
+    let mut node = unsafe { QueryNodeMut::new(mock.as_non_null()) };
     let _ = node.child_mut(0);
+}
+
+#[test]
+fn token_mut_reads_the_nodes_own_token() {
+    // Every node type that carries a rewritable token reaches the same field
+    // through a different payload struct, so each is exercised.
+    for node_type in [
+        TokenNodeType::Prefix,
+        TokenNodeType::Fuzzy,
+        TokenNodeType::WildcardQuery,
+    ] {
+        let mock = MockQueryNode::with_token(node_type, b"he?l*o");
+        // SAFETY: sole wrapper to a valid node; the mock owns writable, terminated
+        // token backing that outlives it, per invariants (3) and (4).
+        let mut node = unsafe { QueryNodeMut::new(mock.as_non_null()) };
+        let tok = node.token_mut().expect("node type carries a token");
+        assert_eq!(tok.as_ref().as_c_str(), Some(c"he?l*o"), "{node_type:?}");
+    }
+}
+
+#[test]
+fn token_mut_rewrites_the_nodes_own_token() {
+    // The handle must address the node's own token, not a copy: a rewrite through
+    // it has to be visible to every later read of the node. Reading the result back
+    // through `as_enum` — a path that never saw the handle — is what shows that.
+    let mock = MockQueryNode::with_token(TokenNodeType::WildcardQuery, br"a\*b\?c");
+    // SAFETY: sole wrapper to a valid node; the mock owns writable, terminated
+    // token backing that outlives it, per invariants (3) and (4).
+    let mut node = unsafe { QueryNodeMut::new(mock.as_non_null()) };
+
+    node.token_mut()
+        .expect("a wildcard-query node carries a token")
+        .remove_wildcard_escapes();
+
+    // The handle is dead, so the node is readable again — and shows the rewrite.
+    let QueryNode::WildcardQuery { tok } = node.as_ref().as_enum() else {
+        panic!("node is a wildcard query");
+    };
+    assert_eq!(tok.len(), 5);
+    assert_eq!(tok.as_bytes(), Some(&b"a*b?c"[..]));
+    assert_eq!(tok.as_c_str(), Some(c"a*b?c"));
+}
+
+#[test]
+fn token_mut_declines_node_types_without_a_rewritable_token() {
+    // The payload is a union, so handing out a token from a node that carries none
+    // would reinterpret unrelated bytes as one. `Token` is here because it is the
+    // near miss: its payload *is* a token, but an expanded one may be neither
+    // writable nor NUL-terminated, so it cannot meet invariant (4).
+    for node_type in [
+        QueryNodeType::Token,
+        QueryNodeType::Union,
+        QueryNodeType::Wildcard,
+        QueryNodeType::Null,
+    ] {
+        let mock = MockQueryNode::new(node_type);
+        // SAFETY: sole wrapper to a valid leaf node.
+        let mut node = unsafe { QueryNodeMut::new(mock.as_non_null()) };
+        assert!(node.token_mut().is_none(), "{node_type:?}");
+    }
 }

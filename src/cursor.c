@@ -7,12 +7,19 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "cursor.h"
-#include "module.h"
-#include "resp3.h"
+
 #include <time.h>
-#include <assert.h>
+#include <stdlib.h>
+
+#include "module.h"
 #include "rmutil/rm_assert.h"
-#include <err.h>
+#include "info/info_redis/threads/main_thread.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "redisearch.h"
+#include "reply.h"
+#include "rmalloc.h"
+#include "shard_window_ratio.h"
 
 #define Cursor_IsIdle(cur) ((cur)->pos != -1)
 
@@ -55,7 +62,7 @@ void CursorList_Init(CursorList *cl, bool is_coord) {
 }
 
 static void Cursor_RemoveFromIdle(Cursor *cur) {
-  CursorList *cl = getCursorList(cur->is_coord);
+  CursorList *cl = getCursorList(CURSOR_IS_COORD(cur->id));
   Array *idle = &cl->idle;
   Cursor **ll = ARRAY_GETARRAY_AS(idle, Cursor **);
   size_t n = ARRAY_GETSIZE_AS(idle, Cursor *);
@@ -75,7 +82,7 @@ static void Cursor_RemoveFromIdle(Cursor *cur) {
 
 /* Assumed to be called under the cursors global lock or upon server shut down. */
 static void Cursor_FreeInternal(Cursor *cur) {
-  CursorList *cl = getCursorList(cur->is_coord);
+  CursorList *cl = getCursorList(CURSOR_IS_COORD(cur->id));
   khiter_t khi = kh_get(cursors, cl->lookup, cur->id);
 
   /* Decrement the used count */
@@ -84,12 +91,14 @@ static void Cursor_FreeInternal(Cursor *cur) {
   RS_LOG_ASSERT(kh_get(cursors, cl->lookup, cur->id) == kh_end(cl->lookup),
                                                     "Failed to delete cursor");
   if (cur->hybrid_ref.rm) {
-    // The AREQ will be free by the hybrid request free function.
+    // TRANSITIONAL(MOD-16691): the sub-AREQ is freed by the
+    // hybrid container; the cursor's hold rides the StrongRef until the
+    // container-handoff step.
     StrongRef_Release(cur->hybrid_ref);
-    cur->execState = NULL;
-  } else if (cur->execState) {
-    AREQ_DecrRef(cur->execState);
-    cur->execState = NULL;
+    cur->query = NULL;
+  } else if (cur->query) {
+    QueryRequest_DecrRef(cur->query);
+    cur->query = NULL;
   }
   // if There's a spec associated with the cursor
   if(cur->spec_ref.rm) {
@@ -224,6 +233,24 @@ static void Cursors_RescheduleSweepLocked(CursorList *cl) {
     return;
   }
 
+  // `RedisModule_StopTimer` / `RedisModule_CreateTimer` below mutate the
+  // server's event-loop timer state, so they must only be reached from the main
+  // thread. Any caller that can run elsewhere must post
+  // `Cursors_RequestRescheduleSweep` instead of re-arming inline. Which callers
+  // those are depends on how each command is dispatched: `Cursor_Pause` runs on
+  // a worker whenever `FT.CURSOR READ` is handed to the workers pool, and
+  // `Cursors_CollectIdle` does whenever a cluster serves `FT.CURSOR GC` off the
+  // main thread. This assertion is the enforcement, so the rule holds without
+  // having to re-derive the dispatch path of every caller.
+  //
+  // `MainThread_GetBlockedQueries` is a proxy for "am I the thread that ran
+  // `RediSearch_InitModuleInternal`": the TLS slot is populated there and is
+  // NULL on every other thread. It is therefore only a valid main-thread test
+  // after module init, which is guaranteed for any cursor operation.
+  RS_LOG_ASSERT(MainThread_GetBlockedQueries() != NULL,
+                "Cursors_RescheduleSweepLocked must run on the main thread; "
+                "use Cursors_RequestRescheduleSweep from worker threads");
+
   if (cl->idleSweepTimerId != IDLE_SWEEP_TIMER_NONE) {
     RedisModule_StopTimer(RSDummyContext, cl->idleSweepTimerId, NULL);
     cl->idleSweepTimerId = IDLE_SWEEP_TIMER_NONE;
@@ -316,8 +343,9 @@ static uint64_t CursorList_GenerateId(CursorList *curlist) {
 }
 
 static void cursorMarkASMInaccuracyCb(CursorList *cl, Cursor *cur, void *arg) {
-  if (cur->execState) {
-    cur->execState->stateflags |= QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT;
+  AREQ *req = Cursor_AREQ(cur);
+  if (req) {
+    req->stateflags |= QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT;
   }
 }
 
@@ -359,7 +387,6 @@ Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned inte
   cur->id = CursorList_GenerateId(cl);
   cur->pos = -1;
   cur->timeoutIntervalMs = interval;
-  cur->is_coord = cl->is_coord;
   if(spec) {
     // Get a a weak reference to the spec out of the strong ref, and save it in the
     // cursor's struct.
@@ -382,7 +409,7 @@ done:
 }
 
 int Cursor_Pause(Cursor *cur) {
-  CursorList *cl = getCursorList(cur->is_coord);
+  CursorList *cl = getCursorList(CURSOR_IS_COORD(cur->id));
 
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
@@ -438,26 +465,6 @@ Cursor *Cursors_TakeForExecution(CursorList *cl, uint64_t cid) {
   return cur;
 }
 
-CursorTimeoutInfo Cursors_PeekTimeoutInfo(CursorList *cl, uint64_t cid) {
-  CursorTimeoutInfo info = {.queryTimeoutMS = 0,
-                            .queryTimeoutPolicy = TimeoutPolicy_Return,
-                            .found = false};
-  CursorList_Lock(cl);
-  CursorList_IncrCounter(cl);
-  khiter_t iter = kh_get(cursors, cl->lookup, cid);
-  if (iter != kh_end(cl->lookup)) {
-    const Cursor *cur = kh_value(cl->lookup, iter);
-    info.queryTimeoutMS = cur->queryTimeoutMS;
-    info.queryTimeoutPolicy = cur->queryTimeoutPolicy;
-    info.found = true;
-#ifdef ENABLE_ASSERT
-    info.isHybrid = (cur->hybrid_ref.rm != NULL);
-#endif
-  }
-  CursorList_Unlock(cl);
-  return info;
-}
-
 int Cursors_PurgeForDb(CursorList *cl, uint64_t cid, int dbid) {
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
@@ -490,7 +497,7 @@ int Cursors_PurgeForDb(CursorList *cl, uint64_t cid, int dbid) {
 }
 
 int Cursor_Free(Cursor *cur) {
-  CursorList *cl = getCursorList(cur->is_coord);
+  CursorList *cl = getCursorList(CURSOR_IS_COORD(cur->id));
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
   Cursor_FreeInternal(cur);

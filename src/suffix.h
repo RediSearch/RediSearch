@@ -30,8 +30,6 @@ typedef struct SuffixCtx {
     Trie *trie;
     rune *rune;
     size_t runelen;
-    const char *cstr;
-    size_t cstrlen;
     SuffixType type;
     TrieSuffixCallback *callback;
     void *cbCtx;

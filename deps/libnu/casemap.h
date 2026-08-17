@@ -8,7 +8,7 @@
 #include "strings.h"
 #include "udb.h"
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 extern "C" {
 #endif
 
@@ -133,7 +133,7 @@ const char* _nu_tofold(const char *encoded, const char *limit, nu_read_iterator_
 
 #endif /* NU_WITH_TOFOLD */
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 }
 #endif
 

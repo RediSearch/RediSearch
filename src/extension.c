@@ -8,14 +8,20 @@
 */
 #include <dlfcn.h>
 #include <stdio.h>
+#include <err.h>
+#include <string.h>
+
 #include "extension.h"
 #include "redisearch.h"
 #include "rmalloc.h"
 #include "redismodule.h"
-#include "index_result.h"
 #include "triemap_ffi.h"
 #include "query.h"
-#include <err.h>
+#include "index_result/index_result.h"
+#include "query_internal.h"
+#include "query_node.h"
+#include "query_types.h"
+#include "rules.h"
 
 /* The registry for query expanders. Initialized by Extensions_Init() */
 static TrieMap *queryExpanders_g = NULL;

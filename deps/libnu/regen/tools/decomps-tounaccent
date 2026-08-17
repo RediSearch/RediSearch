@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-#-*- coding: UTF-8
 
 import sys
 from unidata import *
 
 
-def is_accent(codepoint):
+def is_accent(codepoint: str) -> bool:
 	# When blocks changes, tounaccent.c is also need to be modified
 	diacritic_blocks = (
 		(0x0300, 0x036F),  # Combining Diacritical Marks
@@ -22,34 +21,38 @@ def is_accent(codepoint):
 	return False
 
 
-def unaccent(decomps):
+def unaccent(decomps: list[str]) -> list[str]:
 	unaccented = [x for x in decomps if not is_accent(x)]
 	return unaccented
 
 
-tounaccent = []
+if __name__ == '__main__':
+	tounaccent: list[tuple[str, list[str]]] = []
 
-for line in sys.stdin:
-	if unidata_comment(line):
-		continue
+	for line in sys.stdin:
+		assert isinstance(line, str)
 
-	tokens = line.split(';')
-	codepoint = unidata_strip(tokens[0])
-	tag = unidata_strip(tokens[1])
-	decomps = unidata_split(unidata_strip(tokens[2]))
+		if unidata_comment(line):
+			continue
 
-	if len(tag) > 0:  # only empty tags, no <sort>, <compat>, etc
-		continue
+		tokens = line.split(';')
+		codepoint = unidata_strip(tokens[0])
+		tag = unidata_strip(tokens[1])
+		decomps = unidata_split(unidata_strip(tokens[2]))
 
-	for decomp in decomps:
-		if is_accent(decomp):
-			tounaccent.append((codepoint, decomps))
-			break
+		if len(tag) > 0:  # only empty tags, no <sort>, <compat>, etc
+			continue
 
-for codepoint, decomps in tounaccent:
-	unaccented = unaccent(decomps)
+		for decomp in decomps:
+			if is_accent(decomp):
+				tounaccent.append((codepoint, decomps))
+				break
 
-	if len(unaccented) == 0: # some accents decomps into another accents (empty unaccented)
-		continue
+	for codepoint, decomps in tounaccent:
+		unaccented = unaccent(decomps)
 
-	print(codepoint, ",".join(unaccented))
+		# some accents decomps into another accents (empty unaccented)
+		if len(unaccented) == 0:
+			continue
+
+		print(f'{codepoint} {",".join(unaccented)}')

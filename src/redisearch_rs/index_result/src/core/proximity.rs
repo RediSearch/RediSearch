@@ -494,6 +494,7 @@ mod tests {
             data: RawResultData::Union(agg),
             metrics: crate::MetricsVec::new(),
             weight: 0.0,
+            has_field_expiration: false,
         };
 
         // With n == 1, iterate_offsets delegates directly to the child,

@@ -9,6 +9,12 @@
 #define RS_FUNCTION_C_
 #include "function.h"
 
+#include <string.h>
+
+#include "rmalloc.h"
+#include "util/strconv.h"
+#include "value_ffi.h"
+
 static RSFunctionRegistry functions_g = {0};
 
 RSFunctionInfo *RSFunctionRegistry_Get(const char *name, size_t len) {

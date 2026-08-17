@@ -73,7 +73,10 @@ typedef struct QueryAST {
 int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *sopts,
                const char *qstr, size_t len, unsigned int dialectVersion, QueryError *status);
 
-QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n);
+// Opaque handle to the Rust-side evaluator-config snapshot (`query_eval::Config`).
+typedef struct EvalConfig EvalConfig;
+
+QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n, const EvalConfig *evalConfig);
 
 /**
  * Global filter options impact *all* query nodes. This structure can be used
@@ -87,8 +90,9 @@ typedef struct {
   // Used to set an empty iterator when a legacy filter's field is not found with Dialect 1
   bool empty;
 
-  /** List of keys to limit to, and the length of that array. Not owned. */
-  const sds *keys;
+  /** The keys to limit to: a borrowed window into the request's held argv
+   * (see QueryRequestArgs.argv). Not owned. */
+  RedisModuleString **keys;
   /** Pre-resolved document IDs (for SearchDisk, resolved on main thread). Same length as keys. (Not owned) */
   t_docId *docIds;
   size_t nkeys;

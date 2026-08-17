@@ -1,4 +1,4 @@
-/* Automatically generated file (mph.py), 1779042524
+/* Automatically generated file (mph.py), 1783791798
  *
  * Tag             : NU_DUCET
  * Prime           : 01000193,
@@ -7,8 +7,10 @@
  * Encoding        : UTF-8
  */
 
+#include <stddef.h>
 #include <stdint.h>
 
+/* clang-format off */
 const int16_t NU_DUCET_G[] = {
 	1, 1, 1, 1, 1, 1, 1, 2, 5, 8, 8, 8, 
 	8, 8, 8, 1, 16, 2, 24, 24, 24, 28, 33, -27985, 
@@ -2343,10 +2345,12 @@ const int16_t NU_DUCET_G[] = {
 	2178, 3072, 3072, -15, -14, -12, 3075, -11, -10, -8, -6, -5, 
 	-4, -3, -2, 2177, 3088, 3072, -1, 3092, 3101, 3108, 3108, 3104, 
 	3104, };
+/* clang-format on */
 
 const size_t NU_DUCET_G_SIZE = sizeof(NU_DUCET_G) / sizeof(*NU_DUCET_G);
 
 /* codepoints */
+/* clang-format off */
 const uint32_t NU_DUCET_VALUES_C[] = {
 	0x00A2B1, 0x00A28D, 0x00A28E, 0x00A28F, 0x00A288, 0x00A289, 0x0145DD, 0x00A28A, 
 	0x0145DF, 0x00A28B, 0x00A284, 0x00A286, 0x0145E3, 0x00A287, 0x00A280, 0x00A29D, 
@@ -5847,8 +5851,10 @@ const uint32_t NU_DUCET_VALUES_C[] = {
 	0x00A2F8, 0x00A2F9, 0x00A2FA, 0x00A2FB, 0x00A2F4, 0x0145F3, 0x00A2F0, 0x00A2C5, 
 	0x00A2C6, 0x00A2C1, 0x00A2C2, 0x00A2C3, 0x00A2DC, 0x00A2D1, 0x00A2D2, 0x0145FF, 
 	0x00A2D3, };
+/* clang-format on */
 
 /* indexes */
+/* clang-format off */
 const uint16_t NU_DUCET_VALUES_I[] = {
 	0x3D1E, 0x3CFA, 0x3CFB, 0x3CFC, 0x3CF5, 0x3CF6, 0x639F, 0x3CF7, 0x63A1, 0x3CF8, 
 	0x3CF1, 0x3CF3, 0x63A5, 0x3CF4, 0x3CED, 0x3D0A, 0x3D0C, 0x3D05, 0x3D07, 0x3D08, 
@@ -8649,4 +8655,5 @@ const uint16_t NU_DUCET_VALUES_I[] = {
 	0x639E, 0x6397, 0x6383, 0x3C84, 0x6382, 0x3D6A, 0x3D6B, 0x3D6C, 0x3D65, 0x3D66, 
 	0x3D67, 0x3D68, 0x3D61, 0x63B5, 0x3D5D, 0x3D32, 0x3D33, 0x3D2E, 0x3D2F, 0x3D30, 
 	0x3D49, 0x3D3E, 0x3D3F, 0x63C1, 0x3D40, };
+/* clang-format on */
 

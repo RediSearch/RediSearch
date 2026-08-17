@@ -330,6 +330,12 @@ typedef struct IndexSpec {
   // in favor on a newer, pending scan
   bool scan_in_progress;
   bool scan_failed_OOM; // background indexing failed due to Out Of Memory
+  // Number of keys the background build had scanned when it aborted on OOM, frozen
+  // before the scanner is freed. IndexesScanner_IndexedPercent derives percent_indexed
+  // from it (over the current DbSize) while scan_failed_OOM holds, so an OOM-cancelled
+  // build is distinguishable from a completed one (which reports 1.0). Only meaningful
+  // when scan_failed_OOM is set.
+  size_t scan_failed_OOM_scanned_keys;
   bool monitorDocumentExpiration;
   bool monitorFieldExpiration;
   bool isDuplicate;               // Marks that this index is a duplicate of an existing one
@@ -598,6 +604,9 @@ RedisModuleString *IndexSpec_LegacyGetFormattedKey(IndexSpec *sp, const FieldSpe
  */
 void IndexSpec_MakeKeyless(IndexSpec *sp);
 
+/* The dictType used for IndexSpec.missingFieldDict: HiddenString keys, InvertedIndex* values. */
+extern dictType missingFieldDictType;
+
 /**
  * Exposing all the fields of the index to INFO command.
  * @param ctx - the redis module info context
@@ -621,7 +630,9 @@ int IndexSpec_CreateTextId(IndexSpec *sp, t_fieldIndex index);
 int IndexSpec_AddFields(StrongRef ref, IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac,
                         QueryError *status);
 
-bool IndexSpec_IsCoherent(IndexSpec *sp, sds* prefixes, size_t n_prefixes);
+/* Check that `prefixes` (an _INDEX_PREFIXES argv slice) matches the spec's
+ * rule prefixes, in the same order. */
+bool IndexSpec_IsCoherent(IndexSpec *sp, RedisModuleString **prefixes, size_t n_prefixes);
 
 /**
  * Checks that the given parameters pass memory limits (used while starting from RDB)

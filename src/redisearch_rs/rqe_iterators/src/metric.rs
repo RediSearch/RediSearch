@@ -197,10 +197,9 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SO
     }
 
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        if self.base.at_eof() {
-            return Ok(None);
-        }
-
+        // The read below yields `None` once the base has nothing left, and records
+        // the step past the end as it does so; returning early would skip that
+        // bookkeeping.
         let Some((result, offset)) = self.base.read_and_get_offset()? else {
             return Ok(None);
         };

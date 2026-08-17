@@ -8,9 +8,28 @@
 */
 
 #include "query_optimizer.h"
+
+#include <string.h>
+
 #include "iterators/optimizer_reader.h"
-#include "ext/default.h"
 #include "iterators_ffi.h"
+#include "aggregate/aggregate_plan.h"
+#include "field.h"
+#include "field_spec.h"
+#include "obfuscation/hidden.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "query_internal.h"
+#include "query_types.h"
+#include "redismodule.h"
+#include "result_processor.h"
+#include "result_processor_ffi.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "rqe_iterator_type.h"
+#include "spec.h"
+#include "util/arr/arr.h"
+#include "vector_index.h"
 
 QOptimizer *QOptimizer_New() {
   return rm_calloc(1, sizeof(QOptimizer));
@@ -54,20 +73,15 @@ void QOptimizer_Parse(AREQ *req) {
     opt->scorerType = SCORER_TYPE_NONE;
   } else {
     const char *scorer = req->searchopts.scorerName;
-    if (!scorer || !strcmp(scorer, BM25_STD_SCORER_NAME)) {      // default is BM25STD
-      opt->scorerType = SCORER_TYPE_TERM;
-    } else if (!strcmp(scorer, TFIDF_SCORER_NAME)) {
-      opt->scorerType = SCORER_TYPE_TERM;
-    } else if (!strcmp(scorer, TFIDF_DOCNORM_SCORER_NAME)) {
-      opt->scorerType = SCORER_TYPE_TERM;
-    } else if (!strcmp(scorer, DISMAX_SCORER_NAME)) {
-      opt->scorerType = SCORER_TYPE_TERM;
-    } else if (!strcmp(scorer, BM25_SCORER_NAME)) {
-      opt->scorerType = SCORER_TYPE_TERM;
-    } else if (!strcmp(scorer, DOCSCORE_SCORER)) {
+    // Scorers reading only document metadata, never term data.
+    if (scorer && (!strcmp(scorer, DOCSCORE_SCORER) ||
+                   !strcmp(scorer, HAMMINGDISTANCE_SCORER))) {
       opt->scorerType = SCORER_TYPE_DOC;
-    } else if (!strcmp(scorer, HAMMINGDISTANCE_SCORER)) {
-      opt->scorerType = SCORER_TYPE_DOC;
+    } else {
+      // Every other scorer, including the default and any extension-provided
+      // one, needs scoring. Claiming otherwise drops the scorer and sorter from
+      // the pipeline, so results come back unranked.
+      opt->scorerType = SCORER_TYPE_TERM;
     }
   }
 }
@@ -110,7 +124,6 @@ static QueryNode *checkQueryTypes(QueryNode *node, const char *name, QueryNode *
     case QN_FUZZY:           // TEXT
     case QN_PREFIX:          // TEXT
     case QN_WILDCARD_QUERY:  // TEXT
-    case QN_LEXRANGE:        // TEXT
       *reqScore = true;
       break;
 

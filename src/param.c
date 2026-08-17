@@ -7,10 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "param.h"
+
 #include "query_error_ffi.h"
 #include "rmalloc.h"
-
-#include <assert.h>
+#include "redismodule.h"
 
 void Param_FreeInternal(Param *param) {
   if (param->name) {

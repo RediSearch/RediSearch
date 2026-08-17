@@ -7,20 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "common.h"
+#include <string.h>
+#include <stdio.h>
+
 #include "command.h"
 #include "rmalloc.h"
 #include "resp3.h"
 #include "slot_ranges.h"
 #include "rs_wall_clock.h"
 #include "info/global_stats.h"
-
-#include "version.h"
-
-#include <stdlib.h>
-#include <string.h>
-#include <stdarg.h>
-#include <stdio.h>
+#include "rmutil/rm_assert.h"
 
 #define shift_right(arr, len, start, by) \
   memmove((arr) + (start) + (by), (arr) + (start), ((len) - (start)) * sizeof(*(arr)));
@@ -54,10 +50,6 @@ static void assignStr(MRCommand *cmd, size_t idx, const char *s, size_t n) {
   dropCachedCmdIfNeeded(cmd);
 }
 
-static void assignCstr(MRCommand *cmd, size_t idx, const char *s) {
-  assignStr(cmd, idx, s, strlen(s));
-}
-
 static void copyStr(MRCommand *dst, size_t dstidx, const MRCommand *src, size_t srcidx) {
   const char *srcs = src->strs[srcidx];
   size_t srclen = src->lens[srcidx];
@@ -87,12 +79,12 @@ static void MRCommand_Init(MRCommand *cmd, size_t len) {
   cmd->coordStartTime = 0;
 }
 
-MRCommand MR_NewCommandArgv(int argc, const char **argv) {
+MRCommand MR_NewCommandArgvLen(int argc, const char **argv, const size_t *lens) {
   MRCommand cmd = {0};
   MRCommand_Init(&cmd, argc);
 
   for (int i = 0; i < argc; i++) {
-    assignCstr(&cmd, i, argv[i]);
+    assignStr(&cmd, i, argv[i], lens[i]);
   }
   return cmd;
 }
@@ -115,19 +107,6 @@ MRCommand MRCommand_Copy(const MRCommand *cmd) {
     copyStr(&ret, i, cmd, i);
   }
   return ret;
-}
-
-MRCommand MR_NewCommand(int argc, ...) {
-  MRCommand cmd = {0};
-  MRCommand_Init(&cmd, argc);
-
-  va_list ap;
-  va_start(ap, argc);
-  for (int i = 0; i < argc; i++) {
-    assignCstr(&cmd, i, va_arg(ap, const char *));
-  }
-  va_end(ap);
-  return cmd;
 }
 
 MRCommand MR_NewCommandFromRedisStrings(int argc, RedisModuleString **argv) {

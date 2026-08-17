@@ -1,5 +1,6 @@
 from RLTest import Env
 from includes import *
+from common import *
 
 
 # mainly this test adding and removing docs while the doc table size is 100

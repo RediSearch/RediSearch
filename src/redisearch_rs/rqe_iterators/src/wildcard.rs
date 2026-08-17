@@ -15,13 +15,13 @@ use index_result::{RSIndexResult, RawIndexResult};
 use index_spec::IndexSpecReadGuard;
 use inverted_index::codec::{doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
 use inverted_index::{DocIdsDecoder, opaque};
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, Suspended};
 
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use crate::{
-    Empty, RQEIterator, RQEIteratorError, RQEValidateStatus, SEARCH_ENTERPRISE_ITERATORS,
-    SkipToOutcome,
+    Empty, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, ResumeOutcome, SEARCH_ENTERPRISE_ITERATORS, SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 use crate::{IteratorType, QueryError, RQEIteratorPrintable};
@@ -40,11 +40,45 @@ pub struct RawWildcard<'query, Rf: Ref> {
 
     /// A reusable result object to avoid allocations on each `read` call.
     result: RawIndexResult<'query, Rf>,
+
+    /// Whether the iterator has run *past* its last result, i.e. a
+    /// `read`/`skip_to` found nothing.
+    ///
+    /// The state behind [`current`](RQEIterator::current) and
+    /// [`at_eof`](RQEIterator::at_eof), and the *only* record of it: both
+    /// entry points check it before anything else, so an exhausted iterator
+    /// stays exhausted until [`rewind`](RQEIterator::rewind) whatever the
+    /// position says.
+    ///
+    /// It cannot be folded into `result.doc_id`: that field *is*
+    /// [`last_doc_id`](RQEIterator::last_doc_id), which parents use to choose
+    /// skip targets, so moving it to record exhaustion — past `top_id`, or onto
+    /// it when a skip overshoots — would report a position never yielded.
+    /// [`InvIndIterator`](crate::inverted_index::InvIndIterator) splits the two
+    /// the same way, with `at_eos` beside an untouched `last_doc_id`.
+    past_end: bool,
 }
 
 /// Alias for an [`Active`] [`RawWildcard`] — the only instantiation with an
 /// [`RQEIterator`] impl today.
 pub type Wildcard<'index> = RawWildcard<'index, Active<'index>>;
+
+// Compile-time proof that the `Active` and `Suspended` instantiations are
+// layout-identical, which is what lets [`RawWildcard::suspend`] and its `resume`
+// reinterpret the owning `Box` in place. `result: RawIndexResult<Rf>` is the only
+// `Rf`-dependent field, and its own cross-`Rf` compatibility is proven in
+// `index_result`; these asserts pin down that neither it nor the flag beside it
+// shifts across modes. Mirrors the block in [`crate::optional`].
+const _: () = {
+    use std::mem::{align_of, offset_of, size_of};
+    type A = RawWildcard<'static, Active<'static>>;
+    type S = RawWildcard<'static, Suspended>;
+    assert!(offset_of!(A, top_id) == offset_of!(S, top_id));
+    assert!(offset_of!(A, result) == offset_of!(S, result));
+    assert!(offset_of!(A, past_end) == offset_of!(S, past_end));
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
 
 impl Wildcard<'_> {
     pub fn new(top_id: DocId, weight: f64) -> Self {
@@ -55,18 +89,41 @@ impl Wildcard<'_> {
                 .weight(weight)
                 .field_mask(RS_FIELDMASK_ALL)
                 .build(),
+            past_end: false,
         }
+    }
+
+    /// Whether this iterator owes no further result, recording it if the
+    /// position has just reached `top_id`.
+    ///
+    /// The single gate on both entry points, and the only predicate either of
+    /// them needs: once [`past_end`](Self::past_end) is set, only a
+    /// [`rewind`](RQEIterator::rewind) clears it. It is checked before the
+    /// position, which is what lets an overshooting
+    /// [`skip_to`](RQEIterator::skip_to) leave the position alone — the position
+    /// then sits below `top_id` while the iterator owes nothing, so the
+    /// comparison alone would answer that there is more to come.
+    #[inline(always)]
+    const fn exhausted(&mut self) -> bool {
+        if self.past_end || self.result.doc_id >= self.top_id {
+            self.past_end = true;
+            return true;
+        }
+        false
     }
 }
 
 impl<'index> RQEIterator<'index> for Wildcard<'index> {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        if self.past_end {
+            return None;
+        }
         Some(&mut self.result)
     }
 
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        if self.at_eof() {
+        if self.exhausted() {
             return Ok(None);
         }
 
@@ -78,14 +135,16 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
         &mut self,
         doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        if self.at_eof() {
+        if self.exhausted() {
             return Ok(None);
         }
         debug_assert!(self.last_doc_id() < doc_id);
 
         if doc_id > self.top_id {
-            // skip beyond range - set to EOF
-            self.result.doc_id = self.top_id;
+            // Beyond the last document: this skip carries no result, so it may
+            // not move the position. `past_end` is what records the step, and
+            // the position stays where the last yield left it.
+            self.past_end = true;
             return Ok(None);
         }
 
@@ -95,6 +154,7 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
 
     fn rewind(&mut self) {
         self.result.doc_id = 0;
+        self.past_end = false;
     }
 
     // This should always return total results from the iterator, even after some yields.
@@ -107,7 +167,7 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
     }
 
     fn at_eof(&self) -> bool {
-        self.result.doc_id >= self.top_id
+        self.past_end
     }
 
     fn revalidate(
@@ -127,6 +187,49 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
     }
 }
 
+impl<'index> RQEIteratorBoxed<'index> for Wildcard<'index> {
+    type Suspended = RawWildcard<'index, Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawWildcard` is `#[repr(C)]` with the only `Rf`-dependent
+        // field being `result: RawIndexResult<Rf>`, layout-compatible across
+        // `Rf` (see [`crate::inverted_index::Wildcard::suspend`] for the
+        // same argument). Box::from_raw reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut RawWildcard<'index, Suspended>) }
+    }
+}
+
+impl<'query> RQESuspendedIterator<'query> for RawWildcard<'query, Suspended> {
+    type Resumed<'a>
+        = Wildcard<'a>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        _guard: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        let raw = Box::into_raw(self);
+        // SAFETY: layout-compatible — see `suspend`. The top-level wildcard
+        // owns no references into the index (it's just a counter), so there
+        // is no state to refresh.
+        let active = unsafe { Box::from_raw(raw as *mut Wildcard<'a>) };
+        Ok(ResumeOutcome::Ok(active))
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self.result.doc_id
+    }
+
+    fn num_estimated(&self) -> usize {
+        // Mode-independent — mirrors the active `num_estimated`.
+        self.top_id as usize
+    }
+}
 /// A marker trait for iterators that match all documents.
 pub trait WildcardIterator<'index>: RQEIterator<'index> {}
 
@@ -157,6 +260,17 @@ impl<'index, I: WildcardIterator<'index>> WildcardIterator<'index>
 impl<'index> WildcardIterator<'index> for crate::c2rust::CRQEIterator {}
 
 impl<'index> WildcardIterator<'index> for Box<dyn WildcardIterator<'index> + 'index> {}
+
+/// A [`TypeErasedRQEIterator`](crate::TypeErasedRQEIterator) may wrap a wildcard
+/// iterator, but — as with [`CRQEIterator`](crate::c2rust::CRQEIterator) — that
+/// cannot be verified statically once the concrete type is erased.
+///
+/// The caller is responsible for only using this impl when the erased iterator
+/// really is a wildcard. It exists so composites that take a wildcard base (e.g.
+/// [`OptionalOptimized`](crate::optional_optimized::OptionalOptimized)) can hold
+/// a type-erased one, which is what the suspend/resume path needs in order to
+/// dispatch the base's own `suspend`/`resume` through its vtable.
+impl<'index> WildcardIterator<'index> for crate::TypeErasedRQEIterator<'index> {}
 
 /// The result of [`new_wildcard_iterator`], representing the different kinds of
 /// wildcard iterators that can be created depending on the index configuration.
@@ -291,11 +405,25 @@ impl<'index> RQEIterator<'index> for NewWildcardIterator<'index> {
     }
 
     fn num_estimated(&self) -> usize {
-        delegate_wildcard_iterator!(self, num_estimated)
+        // Disambiguated against `RQESuspendedIterator::num_estimated` for the
+        // `Empty` variant (whose Suspended counterpart is `Empty` itself).
+        match self {
+            Self::NotOptimized(it) => RQEIterator::num_estimated(it),
+            Self::Optimized(it) => RQEIterator::num_estimated(it),
+            Self::Empty(it) => RQEIterator::num_estimated(it),
+            Self::Disk(it) => RQEIterator::num_estimated(it),
+        }
     }
 
     fn last_doc_id(&self) -> DocId {
-        delegate_wildcard_iterator!(self, last_doc_id)
+        // Disambiguated against `RQESuspendedIterator::last_doc_id` for the
+        // `Empty` variant (whose Suspended counterpart is `Empty` itself).
+        match self {
+            Self::NotOptimized(it) => RQEIterator::last_doc_id(it),
+            Self::Optimized(it) => RQEIterator::last_doc_id(it),
+            Self::Empty(it) => RQEIterator::last_doc_id(it),
+            Self::Disk(it) => RQEIterator::last_doc_id(it),
+        }
     }
 
     fn at_eof(&self) -> bool {

@@ -60,12 +60,11 @@ pub enum QueryNodeType {
     Wildcard = 11,
     Tag = 12,
     Fuzzy = 13,
-    LexRange = 14,
-    Vector = 15,
-    WildcardQuery = 16,
-    Null = 17,
-    Missing = 18,
-    Max = 19,
+    Vector = 14,
+    WildcardQuery = 15,
+    Null = 16,
+    Missing = 17,
+    Max = 18,
 }
 
 impl QueryNodeType {
@@ -85,7 +84,6 @@ impl QueryNodeType {
             Self::Wildcard => "WILDCARD",
             Self::Tag => "TAG",
             Self::Fuzzy => "FUZZY",
-            Self::LexRange => "LEXRANGE",
             Self::Vector => "VECTOR",
             Self::WildcardQuery => "WILDCARD_QUERY",
             Self::Null => "NULL",
@@ -119,12 +117,11 @@ impl TryFrom<u32> for QueryNodeType {
             11 => Ok(Self::Wildcard),
             12 => Ok(Self::Tag),
             13 => Ok(Self::Fuzzy),
-            14 => Ok(Self::LexRange),
-            15 => Ok(Self::Vector),
-            16 => Ok(Self::WildcardQuery),
-            17 => Ok(Self::Null),
-            18 => Ok(Self::Missing),
-            19 => Ok(Self::Max),
+            14 => Ok(Self::Vector),
+            15 => Ok(Self::WildcardQuery),
+            16 => Ok(Self::Null),
+            17 => Ok(Self::Missing),
+            18 => Ok(Self::Max),
             other => Err(other),
         }
     }

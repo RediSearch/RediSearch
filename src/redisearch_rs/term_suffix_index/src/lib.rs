@@ -18,7 +18,7 @@
 //! # Case-insensitivity
 //!
 //! Every term and query is lowercased on the way in via
-//! [`unicode_tolower_cow`], so stored terms and matches are always in
+//! [`unicode::tolower_cow`], so stored terms and matches are always in
 //! lowercase form and lookups are case-insensitive. Callers pass terms
 //! verbatim; the index owns normalization.
 //!
@@ -32,24 +32,36 @@
 
 mod term_refs;
 
+use itertools::Itertools;
 use std::{
     fmt::{self, Debug},
     sync::Arc,
 };
 
-use rqe_wildcard::{MatchOutcome, WildcardPattern};
-use string_utils::unicode_tolower_cow;
+use string_utils::unicode;
 use term_refs::{Outcome, TermRefs};
-use trie_rs::str_trie_map::StrTrieMap;
+use trie_rs::{automaton::CodepointWildcard, str_trie_map::StrTrieMap};
 
 /// Score handicap for anchor tokens followed by `*`: matching them
 /// scans a whole subtree instead of a single exact entry, so they
 /// must out-length an exact token by this many codepoints to win.
 const STARRED_ANCHOR_PENALTY: i32 = ffi::SUFFIX_STARRED_ANCHOR_PENALTY as i32;
 
-/// Longest addable term, in bytes, after lowercasing. The underlying
-/// trie stores node labels with `u16` lengths, so a longer key cannot
-/// be represented and would panic on insert.
+/// Poll the caller's stop predicate once per this many candidates examined
+/// during a wildcard scan, amortizing the cost of the check over a run of
+/// work. Scans shorter than one window never poll and always complete.
+pub const TIMEOUT_COUNTER_LIMIT: u32 = ffi::TIMEOUT_COUNTER_LIMIT;
+const _: () = assert!(
+    TIMEOUT_COUNTER_LIMIT > 0,
+    "the poll window divides the candidate count"
+);
+
+/// Longest addable term, in bytes, after lowercasing. The bound is on
+/// the term, not on the trie: node labels carry a `u16` length and a
+/// label is always a substring of some inserted key, so a term within
+/// this bound can never force an oversized label. A longer term can,
+/// depending on which keys are already stored, and insertion would
+/// panic the moment one node had to hold more than `u16::MAX` bytes.
 const MAX_TERM_BYTE_LEN: usize = u16::MAX as usize;
 
 #[derive(Default)]
@@ -81,14 +93,16 @@ impl TermSuffixIndex {
     /// queryable suffix. [Lowercased on entry](crate#case-insensitivity);
     /// re-adding an existing term, or adding an empty one, is a no-op.
     /// So is adding a term whose lowercased form exceeds `u16::MAX`
-    /// bytes — the trie cannot represent such a key.
+    /// bytes: it is skipped rather than inserted, since a single trie
+    /// node label holds at most that many bytes and insertion would
+    /// otherwise risk a panic.
     pub fn add(&mut self, term: &str) {
         if term.is_empty() {
             return;
         }
 
-        let lowered = unicode_tolower_cow(term);
-        let term: &str = &lowered;
+        let lowered = unicode::tolower_cow(term);
+        let term = &lowered;
 
         if term.len() > MAX_TERM_BYTE_LEN {
             return;
@@ -98,7 +112,7 @@ impl TermSuffixIndex {
             return;
         }
 
-        let owner = Arc::from(term);
+        let owner = Arc::from(term as &str);
         self.inner.insert_with(term, |existing| {
             TermRefs::upsert_full_term(existing, Arc::clone(&owner))
         });
@@ -118,7 +132,7 @@ impl TermSuffixIndex {
             return;
         }
 
-        let lowered = unicode_tolower_cow(term);
+        let lowered = unicode::tolower_cow(term);
         let term: &str = &lowered;
 
         if let Some(data) = self.inner.get_mut(term)
@@ -154,9 +168,15 @@ impl TermSuffixIndex {
     /// `needle` yields nothing. A term may be yielded more than once
     /// (once per matching suffix entry).
     pub fn iter_contains(&self, needle: &str) -> impl Iterator<Item = &str> {
-        let lowered = unicode_tolower_cow(needle);
-        self.inner
-            .prefixed_values(&lowered)
+        let subtree = if needle.is_empty() {
+            None
+        } else {
+            let lowered = unicode::tolower_cow(needle);
+            Some(self.inner.prefixed_values(&lowered))
+        };
+        subtree
+            .into_iter()
+            .flatten()
             .flat_map(|data| data.terms().map(|term| &**term))
     }
 
@@ -164,10 +184,10 @@ impl TermSuffixIndex {
     /// Matching is [case-insensitive](crate#case-insensitivity). Empty
     /// `needle` yields nothing.
     pub fn iter_suffix(&self, needle: &str) -> impl Iterator<Item = &str> {
-        let lowered = unicode_tolower_cow(needle);
-        let data = if lowered.is_empty() {
+        let data = if needle.is_empty() {
             None
         } else {
+            let lowered = unicode::tolower_cow(needle);
             self.inner.get(&lowered)
         };
         data.into_iter()
@@ -175,23 +195,27 @@ impl TermSuffixIndex {
     }
 
     /// Iterate over the members matching the glob `pattern`, where `*` matches
-    /// any run of characters and `?` any single byte. Matching is
+    /// any run of codepoints and `?` exactly one codepoint. Matching is
     /// [case-insensitive](crate#case-insensitivity). Returns `None` when no
     /// token in the pattern can seed the search (every token is empty or
-    /// contains `?`).
+    /// contains `?` or `\`).
     /// A term may be yielded more than once (once per matching suffix entry).
     ///
-    /// `?` matches a single *byte*, not a codepoint. The final filter runs
-    /// [`WildcardPattern`] over the raw UTF-8, and that matcher advances one
-    /// byte per `?` — it is the same byte-granular matcher the wider query
-    /// engine uses for wildcard search (the Rust counterpart of C's
-    /// `Wildcard_MatchChar`). So against a multibyte term, `?` lines up with a
-    /// single byte of a codepoint, not the whole character: `entr?` will not
-    /// match `entré`. This is not an approximation introduced here — it is the
-    /// engine's pre-existing `?` behavior, which we deliberately reuse rather
-    /// than diverge from with a second, codepoint-aware matcher.
-    pub fn iter_wildcard(&self, pattern: &str) -> Option<impl Iterator<Item = Arc<str>>> {
-        let lowered = unicode_tolower_cow(pattern);
+    /// `?` matches a whole character even in multibyte terms — `entr?`
+    /// matches `entré`. The final filter runs [`CodepointWildcard`] over each
+    /// candidate term.
+    ///
+    /// `should_stop` is polled once per [`TIMEOUT_COUNTER_LIMIT`] candidates
+    /// examined; when it returns `true` the scan is abandoned early, yielding
+    /// the matches found so far rather than the full set. This lets a caller
+    /// bound the scan by a deadline without consulting the clock on every
+    /// candidate. Pass `|| false` to always scan to completion.
+    pub fn iter_wildcard(
+        &self,
+        pattern: &str,
+        mut should_stop: impl FnMut() -> bool,
+    ) -> Option<impl Iterator<Item = Arc<str>>> {
+        let lowered = unicode::tolower_cow(pattern);
         let (token, followed_by_star) = Self::choose_token(&lowered)?;
 
         // A token followed by `*` can sit anywhere inside a match,
@@ -205,14 +229,19 @@ impl TermSuffixIndex {
             (None, self.inner.get(token))
         };
 
-        let wildcard = WildcardPattern::parse(lowered.as_bytes());
-        let matches: Vec<Arc<str>> = subtree
+        let wildcard = CodepointWildcard::parse(&lowered);
+        let limit = TIMEOUT_COUNTER_LIMIT as usize;
+        let matches = subtree
             .into_iter()
             .flatten()
             .chain(exact)
-            .flat_map(|data| data.terms().cloned())
-            .filter(|term| wildcard.matches(term.as_bytes()) == MatchOutcome::Match)
-            .collect();
+            .flat_map(|data| data.terms())
+            .enumerate()
+            .take_while(|&(i, _)| !((i + 1).is_multiple_of(limit) && should_stop()))
+            .map(|(_, term)| term)
+            .filter(|term| wildcard.matches(term))
+            .cloned()
+            .collect_vec();
         Some(matches.into_iter())
     }
 

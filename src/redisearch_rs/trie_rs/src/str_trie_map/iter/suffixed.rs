@@ -19,8 +19,8 @@ use crate::{
 /// Wrapper-only — [`crate::iter`] has no suffix iterator. Byte `ends_with`
 /// on UTF-8 keys agrees with [`str::ends_with`] because UTF-8 is
 /// self-synchronizing: a multibyte sequence cannot be a suffix of another
-/// codepoint. Empty `suffix` yields zero matches by delegating to an empty
-/// inner iterator.
+/// codepoint. Empty `suffix` yields every entry — the empty string is a
+/// suffix of every key.
 ///
 /// See [`crate::iter::Iter`] for the underlying traversal.
 pub struct SuffixedIter<'tm, Data: 'tm> {
@@ -30,12 +30,6 @@ pub struct SuffixedIter<'tm, Data: 'tm> {
 
 impl<'tm, Data: 'tm> SuffixedIter<'tm, Data> {
     pub(crate) fn new(trie: &'tm TrieMap<Data>, suffix: &str) -> Self {
-        if suffix.is_empty() {
-            return Self {
-                target_bytes: Box::new([]),
-                iter: iter::Iter::empty(),
-            };
-        }
         Self {
             target_bytes: suffix.as_bytes().to_vec().into_boxed_slice(),
             iter: trie.iter(),

@@ -54,8 +54,7 @@ fn reading_filter_based_on_geo_filter() {
         field_spec: ptr::null(),
         geo_filter: &geo_filter as *const _ as *const _,
         ascending: true,
-        limit: 0,
-        offset: 0,
+        ..Default::default()
     };
 
     let mut reader = FilterGeoReader::new(filter, iter.into_iter());

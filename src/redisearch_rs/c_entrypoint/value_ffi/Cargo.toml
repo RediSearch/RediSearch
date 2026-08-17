@@ -13,6 +13,7 @@ cheadergen.workspace = true
 ffi.workspace = true
 libc.workspace = true
 query_error.workspace = true
+redis-module.workspace = true
 value.workspace = true
 workspace_hack.workspace = true
 

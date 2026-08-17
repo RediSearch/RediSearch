@@ -192,6 +192,19 @@ static inline struct FieldExpirationSlice DocTable_GetFieldExpirations(const Doc
   return TimeToLiveTable_GetFieldExpirations(t->ttl, docId);
 }
 
+// Returns true if `docId` has a field-level expiration registered for the field
+// at the given spec field index.
+static inline bool DocTable_FieldHasExpiration(const DocTable *t, t_docId docId,
+                                               t_fieldIndex fieldIndex) {
+  const struct FieldExpirationSlice fes = DocTable_GetFieldExpirations(t, docId);
+  for (size_t i = 0; i < fes.len; ++i) {
+    if (fes.ptr[i].index == fieldIndex) {
+      return true;
+    }
+  }
+  return false;
+}
+
 
 /** Get the docId of a key if it exists in the table, or 0 if it doesn't */
 t_docId DocTable_GetId(const DocTable *dt, const char *s, size_t n);
@@ -200,10 +213,10 @@ t_docId DocTable_GetId(const DocTable *dt, const char *s, size_t n);
   size_t n;                     \
   const char *s = RedisModule_StringPtrLen(r, &n);
 
-static inline t_docId DocTable_GetIdR(const DocTable *dt, RedisModuleString *r) {
-  STRVARS_FROM_RSTRING(r);
-  return DocTable_GetId(dt, s, n);
-}
+/* DocTable_GetId from a RedisModuleString key. A real (exported) function so
+ * the Rust query evaluator can resolve id-filter keys without touching the
+ * module API. */
+t_docId DocTable_GetIdR(const DocTable *dt, const RedisModuleString *r);
 
 /* Free the table and all the keys of documents */
 void DocTable_Free(DocTable *t);

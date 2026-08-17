@@ -29,8 +29,9 @@ struct MRChannel {
 #include "chan.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
-#include "search_ctx.h"
 #include "util/timeout.h"
+
+struct timespec;
 
 // Note: pthread_condattr_setclock only supports CLOCK_MONOTONIC (not CLOCK_MONOTONIC_RAW)
 // The timeout parameter (abstimeMono) is in CLOCK_MONOTONIC_RAW, so we convert it

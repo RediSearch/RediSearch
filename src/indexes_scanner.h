@@ -100,6 +100,11 @@ void IndexesScanner_Free(IndexesScanner *scanner);
 void IndexesScanner_Cancel(struct IndexesScanner *scanner);
 void IndexesScanner_ResetProgression(struct IndexesScanner *scanner);
 
+// Fraction (0..1) of the keyspace indexed, for FT.INFO's percent_indexed. While a scan is
+// active it is scannedKeys/DbSize (clamped to 1.0). With no active scanner it is 1.0 —
+// except when the last background build aborted on OOM (sp->scan_failed_OOM), where the
+// key count that build reached (sp->scan_failed_OOM_scanned_keys) is divided by the current
+// DbSize so an incomplete index is not reported as complete.
 double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, const IndexSpec *sp);
 
 // Record a background-indexing failure on the scanner's spec so it is visible to

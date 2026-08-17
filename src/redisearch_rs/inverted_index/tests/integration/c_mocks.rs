@@ -16,7 +16,7 @@
 use query_term::RSQueryTerm;
 
 #[unsafe(no_mangle)]
-pub extern "C" fn Term_Free(_t: *mut RSQueryTerm) {
+pub const extern "C" fn Term_Free(_t: *mut RSQueryTerm) {
     // Several tests use stack-allocated RSQueryTerm values, so this must be a
     // no-op rather than panicking on non-null pointers.
 }

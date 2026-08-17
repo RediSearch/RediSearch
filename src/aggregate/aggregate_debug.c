@@ -7,9 +7,21 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "aggregate_debug.h"
+
+#include <stdbool.h>
+#include <stddef.h>
+
 #include "debug_commands.h"
 #include "module.h"
 #include "result_processor.h"
+#include "aggregate/aggregate.h"
+#include "config.h"
+#include "query_error_ffi.h"
+#include "query_flags.h"
+#include "rmalloc.h"
+#include "rmutil/args.h"
+#include "search_ctx.h"
+#include "shard_window_ratio.h"
 
 /*  Using INTERNAL_ONLY with TIMEOUT_AFTER_N where N == 0 may result in an infinite loop in the
    coordinator. Since shard replies are always empty, the coordinator might get stuck indefinitely
@@ -26,7 +38,8 @@ AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *statu
     return NULL;
   }
 
-  AREQ_Debug *debug_req = rm_realloc(AREQ_New(), sizeof(*debug_req));
+  AREQ_Debug *debug_req = rm_realloc(AREQ_New(argv, argc), sizeof(*debug_req));
+  QueryRequest_SetEndProcRef(&debug_req->r.base, &debug_req->r.pipeline.qctx.endProc);
 
   // Own a copy of the debug argv tail. The request may execute on a worker
   // thread (WORKERS > 0, always the case on flex), where parseAndCompileDebug
@@ -42,6 +55,9 @@ AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *statu
   debug_req->debug_params = debug_params;
 
   AREQ *r = &debug_req->r;
+  // Holds the full argv; `parseArgc` excludes the debug tail so parsing stops
+  // before it. Must be called after rm_realloc so r points to stable memory.
+  r->base.args.parseArgc = (uint32_t)(argc - debug_argv_count);
   AREQ_AddRequestFlags(r, QEXEC_F_DEBUG);
 
   return debug_req;

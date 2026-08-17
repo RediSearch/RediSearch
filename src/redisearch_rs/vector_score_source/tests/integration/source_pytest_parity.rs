@@ -19,11 +19,11 @@
 //! Data model (shared with `source.rs`): unless noted, doc `i` is `[i; dim]`
 //! under L2, so distance to query `[q; dim]` is `dim*(q-i)^2`.
 
-use std::{ffi::c_void, num::NonZeroUsize};
+use std::num::NonZeroUsize;
 
 use ffi::VecSimIndex_Free;
 use rqe_core::DocId;
-use rqe_iterators::{RQEIterator, RQEIteratorError};
+use rqe_iterators::RQEIterator;
 use top_k::{TopKIterator, TopKMode};
 use vector_score_source::test_utils::{
     asc, build_flat_cosine_index, build_flat_index, build_hnsw_index, collect_ids, make_child,
@@ -63,7 +63,7 @@ fn flat_filtered_full_child_yields_best_first() {
     // SAFETY: index outlives the iterator (freed at end of scope).
     let source = unsafe { make_source(index, uniform_blob(n as f32, dim), n, k, n) };
     let child = make_child((1..=n as DocId).collect());
-    let mut it = new_vector_top_k_filtered(source, child, NonZeroUsize::new(k).unwrap());
+    let mut it = new_vector_top_k_filtered(source, child, NonZeroUsize::new(k).unwrap(), false);
 
     assert_eq!(collect_ids(&mut it), (91..=100).rev().collect::<Vec<_>>());
 
@@ -86,7 +86,7 @@ fn cosine_metric_filtered_top_k_are_highest_ids() {
     // SAFETY: index outlives the iterator (freed at end of scope).
     let source = unsafe { make_source(index, uniform_blob(1.0, dim), n, k, n) };
     let child = make_child((1..=n as DocId).collect());
-    let mut it = new_vector_top_k_filtered(source, child, NonZeroUsize::new(k).unwrap());
+    let mut it = new_vector_top_k_filtered(source, child, NonZeroUsize::new(k).unwrap(), false);
 
     let ids = collect_ids(&mut it);
     assert_eq!(ids.first().copied(), Some(n as DocId));
@@ -116,7 +116,7 @@ fn middle_query_orders_by_distance_then_lower_id() {
     // SAFETY: index outlives the iterator (freed at end of scope).
     let source = unsafe { make_source(index, uniform_blob(mid as f32, dim), n, k, n) };
     let child = make_child((1..=n as DocId).collect());
-    let mut it = new_vector_top_k_filtered(source, child, NonZeroUsize::new(k).unwrap());
+    let mut it = new_vector_top_k_filtered(source, child, NonZeroUsize::new(k).unwrap(), false);
 
     let mut expected = vec![mid];
     for d in 1..=4 {
@@ -166,7 +166,7 @@ fn dim1_filtered_subset_knn_top3() {
     // SAFETY: index outlives the iterator (freed at end of scope).
     let source = unsafe { make_source(index, uniform_blob(0.0, dim), n, k, child_ids.len()) };
     let child = make_child(child_ids);
-    let mut it = new_vector_top_k_filtered(source, child, NonZeroUsize::new(k).unwrap());
+    let mut it = new_vector_top_k_filtered(source, child, NonZeroUsize::new(k).unwrap(), false);
 
     assert_eq!(collect_ids(&mut it), vec![6, 7, 8]);
 
@@ -193,7 +193,7 @@ fn batches_switch_to_adhoc_yields_no_duplicates() {
         source,
         Some(make_child(child_ids)),
         NonZeroUsize::new(k).unwrap(),
-        asc,
+        asc(),
         TopKMode::Batches,
     );
 
@@ -248,7 +248,7 @@ fn numeric_like_subset_batches_matches_adhoc() {
             source,
             Some(make_child(child_ids.clone())),
             NonZeroUsize::new(k).unwrap(),
-            asc,
+            asc(),
             mode,
         );
 
@@ -280,81 +280,4 @@ fn custom_k_returns_exactly_k() {
         // SAFETY: no live references to the index remain.
         unsafe { VecSimIndex_Free(index.as_ptr()) };
     }
-}
-
-unsafe extern "C" {
-    fn VecSim_SetTimeoutCallbackFunction(
-        cb: Option<unsafe extern "C" fn(*mut c_void) -> std::ffi::c_int>,
-    );
-}
-
-unsafe extern "C" fn always_timed_out(_ctx: *mut c_void) -> std::ffi::c_int {
-    1
-}
-
-unsafe extern "C" fn never_timed_out(_ctx: *mut c_void) -> std::ffi::c_int {
-    0
-}
-
-/// Installs the always-timeout callback; restores the no-op on drop so a
-/// panicking assertion cannot leak timeout state to later tests.
-///
-/// Concurrent query tests rely on nextest's process isolation.
-struct MockTimeout;
-impl MockTimeout {
-    fn enable() -> Self {
-        // SAFETY: the fn pointer is valid for the whole program.
-        unsafe { VecSim_SetTimeoutCallbackFunction(Some(always_timed_out)) };
-        MockTimeout
-    }
-}
-impl Drop for MockTimeout {
-    fn drop(&mut self) {
-        // SAFETY: the fn pointer is valid for the whole program.
-        unsafe { VecSim_SetTimeoutCallbackFunction(Some(never_timed_out)) };
-    }
-}
-
-/// From `test_vecsim.py::TestTimeoutReached` (KNN branch).
-#[test]
-#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
-fn unfiltered_propagates_timeout() {
-    let (n, k, dim) = (100, 10, 4);
-    let index = build_hnsw_index(n, dim);
-    let _mock = MockTimeout::enable();
-
-    // SAFETY: index outlives the iterator (freed at end of scope).
-    let source = unsafe { make_source(index, uniform_blob(n as f32, dim), n, k, n) };
-    let mut it = new_vector_top_k_unfiltered(source, NonZeroUsize::new(k).unwrap());
-
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
-
-    drop(it);
-    // SAFETY: no live references to the index remain.
-    unsafe { VecSimIndex_Free(index.as_ptr()) };
-}
-
-/// From `test_vecsim.py::TestTimeoutReached` (hybrid BATCHES branch).
-#[test]
-#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
-fn batches_propagates_timeout() {
-    let (n, k, dim) = (100, 10, 4);
-    let index = build_hnsw_index(n, dim);
-    let _mock = MockTimeout::enable();
-
-    // SAFETY: index outlives the iterator (freed at end of scope).
-    let source = unsafe { make_source(index, uniform_blob(n as f32, dim), n, k, n) };
-    let mut it = TopKIterator::new_with_mode(
-        source,
-        Some(make_child((1..=n as DocId).collect())),
-        NonZeroUsize::new(k).unwrap(),
-        asc,
-        TopKMode::Batches,
-    );
-
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
-
-    drop(it);
-    // SAFETY: no live references to the index remain.
-    unsafe { VecSimIndex_Free(index.as_ptr()) };
 }

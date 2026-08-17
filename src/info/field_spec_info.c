@@ -7,9 +7,21 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "field_spec_info.h"
+
+#include <string.h>
+
 #include "reply_macros.h"
 #include "coord/rmr/reply.h"
 #include "search_disk.h"
+#include "VecSim/vec_sim.h"
+#include "VecSim/vec_sim_common.h"
+#include "info/index_error.h"
+#include "info/vector_index_stats.h"
+#include "obfuscation/hidden.h"
+#include "redis_index.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "vector_index.h"
 
 // Per-field disk metric reply keys, shared by the shard emitter and the
 // coordinator deserializer so both agree on the wire names.
@@ -309,8 +321,9 @@ static void FieldSpecStats_PopulateDiskMetrics(FieldSpecStats *stats, const Inde
   if (FieldSpec_IsIndexableText(fs)) {
     stats->textDisk = SearchDisk_GetTextFieldMetrics(sp->diskSpec, fs->ftId);
   }
-  if (FIELD_IS(fs, INDEXFLD_T_TAG | INDEXFLD_T_NUMERIC)) {
-    // TAG/NUMERIC CFs are named by the numeric field index.
+  if (FIELD_IS(fs, INDEXFLD_T_TAG | INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO)) {
+    // TAG/NUMERIC/GEO fields each own a CF keyed by the field index fs->index
+    // (tag_<i> / numeric_<i>); GEO reuses the numeric CF.
     stats->cfDisk = SearchDisk_GetCfFieldMetrics(sp->diskSpec, fs->index);
   } else if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
     // Vector CFs are named `vector_<fieldName>`, so they are keyed by name.

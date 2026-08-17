@@ -113,6 +113,15 @@ impl<'query, R: Ref> RawTermRecord<'query, R> {
     pub const fn is_copy(&self) -> bool {
         matches!(self, Self::Owned { .. } | Self::FullyOwned { .. })
     }
+
+    /// Get a reference to the query term of this term record, if one is set.
+    pub fn query_term(&self) -> Option<&RSQueryTerm> {
+        match self {
+            Self::Borrowed { term, .. } => term.as_deref(),
+            Self::Owned { term, .. } => *term,
+            Self::FullyOwned { term, .. } => term.as_deref(),
+        }
+    }
 }
 
 impl<'a> RSTermRecord<'a> {
@@ -130,15 +139,6 @@ impl<'a> RSTermRecord<'a> {
             Self::Borrowed { offsets, .. } => offsets.as_bytes(),
             Self::Owned { offsets, .. } => offsets.as_bytes(),
             Self::FullyOwned { offsets, .. } => offsets.as_bytes(),
-        }
-    }
-
-    /// Get a reference to the query term of this term record, if one is set.
-    pub fn query_term(&self) -> Option<&RSQueryTerm> {
-        match self {
-            Self::Borrowed { term, .. } => term.as_deref(),
-            Self::Owned { term, .. } => *term,
-            Self::FullyOwned { term, .. } => term.as_deref(),
         }
     }
 
