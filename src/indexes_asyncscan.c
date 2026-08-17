@@ -61,16 +61,21 @@ typedef struct {
   pthread_mutex_t mutex;
   pthread_cond_t cond;
   bool call_done;   // set by done_cb, consumed by the driver's wait
+  // Reason done_cb reported for the call `call_done` refers to; read only while call_done holds.
+  RedisModuleAsyncScanDoneReason done_reason;
 } AsyncReindexDriver;
 
-// Wait (GIL released) until done_cb signals this call's completion, then consume the flag.
-static void Indexes_AsyncScanWaitForDone(AsyncReindexDriver *driver) {
+// Wait (GIL released) until done_cb signals this call's completion, then consume the flag and
+// return the reason that call reported.
+static RedisModuleAsyncScanDoneReason Indexes_AsyncScanWaitForDone(AsyncReindexDriver *driver) {
   pthread_mutex_lock(&driver->mutex);
   while (!driver->call_done) {
     pthread_cond_wait(&driver->cond, &driver->mutex);
   }
   driver->call_done = false;
+  RedisModuleAsyncScanDoneReason reason = driver->done_reason;
   pthread_mutex_unlock(&driver->mutex);
+  return reason;
 }
 
 // Per-key callback. Main thread, GIL held, value pinned. AsyncScan is at-least-once, so a key
@@ -86,10 +91,10 @@ static void Indexes_AsyncScanKeyCB(RedisModuleCtx *ctx, RedisModuleScanCursor *c
   }
 
   // Memory-limit check. Once flagged, stop re-checking but KEEP indexing the keys already
-  // delivered in this batch: the driver reacts between batches (pause-and-retry or abort),
-  // and a resumed scan is never re-delivered these keys — dropping them here would leave
-  // permanent holes in the index. Overshoot is bounded by the remainder of one batch. The
-  // triggering key is held in case the abort path attaches an index error.
+  // delivered in this batch: the driver acts on the flag between batches, and a resumed scan is
+  // never re-delivered these keys — dropping them here would leave permanent holes in the index.
+  // Overshoot is bounded by the remainder of one batch. The triggering key is held in case the
+  // abort path attaches an index error.
   if (!scanner->scanFailedOnOOM && isAsyncBgIndexingMemoryOverLimit(ctx)) {
     scanner->scanFailedOnOOM = true;
     if (scanner->OOMkey) {
@@ -134,15 +139,16 @@ static void Indexes_AsyncScanKeyCB(RedisModuleCtx *ctx, RedisModuleScanCursor *c
   ++scanner->scannedKeys;
 }
 
-// Call-completion callback. Main thread, GIL held, once per OK Start / NextBatch. Terminal state
-// arrives as the next NextBatch's return code, so ignore `reason` and just wake the driver.
+// Call-completion callback. Main thread, GIL held, once per OK Start / NextBatch. The drive loop
+// switches on the next NextBatch's return code; `reason` is passed along only so it can tell
+// whether the batch it just consumed finished the sweep.
 static void Indexes_AsyncScanDoneCB(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor,
                                     void *privdata, RedisModuleAsyncScanDoneReason reason) {
   REDISMODULE_NOT_USED(ctx);
   REDISMODULE_NOT_USED(cursor);
-  REDISMODULE_NOT_USED(reason);
   AsyncReindexDriver *driver = privdata;
   pthread_mutex_lock(&driver->mutex);
+  driver->done_reason = reason;
   driver->call_done = true;
   pthread_cond_signal(&driver->cond);
   pthread_mutex_unlock(&driver->mutex);
@@ -339,7 +345,7 @@ static RedisModuleAsyncScanResult Indexes_AsyncScanDriveNextBatch(
   *out_terminal = false;
 
   // Batch queued. Wait (GIL released) for done_cb to fire on the main thread.
-  Indexes_AsyncScanWaitForDone(driver);
+  const RedisModuleAsyncScanDoneReason done_reason = Indexes_AsyncScanWaitForDone(driver);
   ++*batchesDone;
 
   // Test hook (ENABLE_ASSERT): park between batches, GIL released, so a test can drop the index /
@@ -396,6 +402,16 @@ static RedisModuleAsyncScanResult Indexes_AsyncScanDriveNextBatch(
                       scanner->spec_name_for_logs, scanner->scannedKeys);
     } else {
       IndexSpecRef_Release(live_ref);
+    }
+  }
+
+  // A completed sweep delivered every key, and key_cb keeps indexing after the latch trips, so the
+  // index is whole whatever pressure that last batch saw. Clear the latch
+  if (done_reason == REDISMODULE_ASYNCSCAN_DONE_COMPLETED && scanner->scanFailedOnOOM) {
+    scanner->scanFailedOnOOM = false;
+    if (scanner->OOMkey) {
+      RedisModule_FreeString(RSDummyContext, scanner->OOMkey);
+      scanner->OOMkey = NULL;
     }
   }
 
