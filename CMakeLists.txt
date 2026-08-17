@@ -370,7 +370,6 @@ set(Boost_NO_WARN_NEW_VERSIONS ON)
 include_directories(
     ${root}/src
     ${root}/src/buffer
-    ${root}/src/dict
     ${root}/src/coord
     ${root}/src/redisearch_rs/headers
     ${root}/deps/libuv/include
