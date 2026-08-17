@@ -30,7 +30,7 @@ use lending_iterator::LendingIterator as _;
 use rqe_wildcard::WildcardPattern;
 use trie_rs::iter::{ContainsLendingIter, LendingIter, WildcardLendingIter, filter::VisitAll};
 
-use crate::{InMemoryMode, SuffixData, Tag, TagIndex, TagIndexMode};
+use crate::{InMemoryMode, OnDiskMode, SuffixData, Tag, TagIndex, TagIndexMode};
 
 /// Value type stored in the memory-mode values trie. Boxed so the heap
 /// [`InvertedIndex`] address stays stable across trie restructuring — callers hold
@@ -189,6 +189,29 @@ impl TagIndex<InMemoryMode> {
         };
 
         TagIndexIterator { iter }
+    }
+}
+
+impl TagIndex<OnDiskMode> {
+    /// Iterate over all tags, in lexicographical order.
+    pub fn value_iter(&self) -> DiskTagIndexIterator<'_> {
+        all_iter(&self.mode.values)
+    }
+
+    /// Iterate over the tags matching `pattern` under `iter_mode`, in
+    /// lexicographical order.
+    ///
+    /// The values trie holds only tag presence, so callers resolve each reader by
+    /// tag string.
+    ///
+    /// `pattern` is borrowed for the iterator's lifetime by the prefix, contains,
+    /// and wildcard modes (the suffix mode copies it).
+    pub fn value_iter_filtered<'a>(
+        &'a self,
+        pattern: Tag<'a>,
+        iter_mode: IterMode,
+    ) -> DiskTagIndexIterator<'a> {
+        filtered_iter(&self.mode.values, pattern, iter_mode)
     }
 }
 

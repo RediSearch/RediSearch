@@ -20,12 +20,24 @@
 //!   the values trie.
 //! - **Disk mode** keeps the postings on disk behind the
 //!   `RSE` API; the values trie holds only tag *presence* sentinels.
+//!   Writes stage onto a disk write batch ([`TagIndex::index`]), reads open a
+//!   disk iterator ([`TagIndex::open_reader`]), and query expansion still walks
+//!   the presence trie for matching keys before opening each reader by string.
 //!
 //! ## Tag bytes
 //!
 //! Tag values are [`Tag`], which carries exactly one guarantee: no
 //! *interior* (or trailing) NUL byte. [`Tag::new`] enforces it; [`Tag::new_unchecked`]
 //! trusts the caller instead.
+//!
+//! Disk-mode indexing ([`TagIndex::index`] on [`OnDiskMode`]) is the one
+//! exception, and takes `&CStr` instead:
+//! `SearchDisk_IndexTags` receives the tags as a `const char **` with a count
+//! and no per-string length array, so `strlen` is the only way its
+//! (closed-source) implementation can find where each tag ends. `&CStr` is
+//! exactly that guarantee — NUL-terminated, no interior NUL — so the disk write
+//! path states the requirement in its signature rather than as a precondition
+//! prose can only ask for.
 //!
 //! The terms yielded by [`TagIndex::suffix_expand`] are [`CStr`], borrowed from a
 //! NUL-terminated allocation whose pointer is directly usable as a C `char *`.
@@ -127,9 +139,6 @@
 //! ```
 //!
 
-// Temporary
-#![expect(dead_code, reason = "read by methods added in a follow-up change")]
-
 mod iter;
 mod suffix;
 mod unique_id;
@@ -149,12 +158,13 @@ extern crate redisearch_rs;
 #[cfg(test)]
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
-use std::ffi::CStr;
+use std::ffi::{CStr, c_char};
 use std::ptr::NonNull;
 use std::time::Instant;
 
 use ffi::{
-    IndexFlags_Index_DocIdsOnly, RedisSearchCtx, RedisSearchDiskIndexSpec, t_fieldIndex, timespec,
+    IndexFlags_Index_DocIdsOnly, RSToken, RedisSearchCtx, RedisSearchDiskIndexSpec,
+    SearchDiskWriteBatchHandle, t_fieldIndex, timespec,
 };
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use index_result::RSIndexResult;
@@ -165,8 +175,9 @@ use inverted_index::{
     doc_ids_only::DocIdsOnly,
 };
 use query_term::RSQueryTerm;
+use redis_module::RedisModuleCtx;
 use rqe_iterators::{
-    FieldExpirationChecker,
+    FieldExpirationChecker, RQEIteratorPrintable, SEARCH_ENTERPRISE_ITERATORS,
     inverted_index::{Tag as TagIterator, TagLookup},
     utils::duration_from_redis_timespec,
 };
@@ -174,7 +185,7 @@ use rqe_wildcard::{MatchOutcome, WildcardPattern};
 pub(crate) use suffix::{SuffixData, TagSuffixIndex};
 use trie_rs::{
     TrieMap,
-    iter::{LendingIter, filter::VisitAll},
+    iter::{LendingIter, RangeFilter, RangeLendingIter, filter::VisitAll},
 };
 pub use unique_id::TagUniqueId;
 
@@ -648,6 +659,157 @@ impl TagIndex<OnDiskMode> {
                 disk_index_spec: disk_spec,
             },
         )
+    }
+
+    /// How many distinct tags the index holds.
+    pub const fn n_tags(&self) -> usize {
+        self.mode.values.n_unique_keys()
+    }
+
+    /// Bytes the index's tries occupy, as reported by `FT.INFO`: the values trie
+    /// plus the suffix trie.
+    pub const fn mem_usage(&self) -> usize {
+        self.mode.values.mem_usage() + self.suffix_mem_usage()
+    }
+
+    /// Stage `doc_id`'s postings for each tag in `tags` onto `batch`, committed
+    /// later by `commitDocument`.
+    ///
+    /// Returns whether the disk write succeeded. There is no delta to fold into
+    /// the spec statistics: the record count is tallied in
+    /// [`commit`](Self::commit).
+    ///
+    /// Takes `&CStr` rather than [`Tag`] because the disk API is given the
+    /// tags as a `const char **` with no length array, so each one has to be a
+    /// real C string — see the crate-level "Tag bytes" docs.
+    ///
+    /// # Safety
+    ///
+    /// `ctx` and `batch` must be the valid disk write context and batch handle
+    /// for the ongoing document write.
+    pub unsafe fn index(
+        &mut self,
+        ctx: *mut RedisModuleCtx,
+        batch: *mut SearchDiskWriteBatchHandle,
+        tags: &[&CStr],
+        doc_id: DocId,
+    ) -> bool {
+        debug_assert!(!ctx.is_null(), "disk-mode indexing needs a write context");
+        debug_assert!(
+            !batch.is_null(),
+            "disk-mode indexing needs a disk write batch"
+        );
+
+        let OnDiskMode {
+            field_id,
+            disk_index_spec,
+            ..
+        } = &mut self.mode;
+
+        if tags.is_empty() {
+            return true;
+        }
+
+        let mut value_ptrs: Vec<*const c_char> = tags.iter().map(|tag| tag.as_ptr()).collect();
+        // SAFETY: `disk_index_spec` is a valid `RedisSearchDiskIndexSpec`
+        // (invariant from `new_on_disk`); the caller's contract covers
+        // `ctx`/`batch`; and every pointer in `value_ptrs` addresses a
+        // NUL-terminated string, borrowed for the duration of the call.
+        unsafe {
+            ffi::SearchDisk_IndexTags(
+                ctx,
+                disk_index_spec.as_ptr(),
+                batch,
+                value_ptrs.as_mut_ptr(),
+                value_ptrs.len(),
+                doc_id,
+                *field_id,
+            )
+        }
+    }
+
+    /// Apply the per-tag metadata updates after the indexing phase of a document
+    /// write: register the tags in the values trie, which is what makes them
+    /// visible to query expansion. The postings are staged onto the write
+    /// batch by [`index`](Self::index).
+    ///
+    /// Returns the number of records to fold into the spec statistics.
+    pub fn commit(&mut self, tags: &[Tag<'_>]) -> u32 {
+        for tag in tags {
+            self.mode.values.insert(tag.as_bytes(), ());
+        }
+        self.add_tags_to_suffix(tags);
+        tags.len() as u32
+    }
+
+    /// Iterate over the tags falling within `filter`'s boundaries, in
+    /// lexicographical order.
+    ///
+    /// The postings live on disk, so, the caller resolves each reader by tag string.
+    pub fn range_iter_values<'tm, 'f>(
+        &'tm self,
+        filter: RangeFilter<'f>,
+    ) -> RangeLendingIter<'tm, 'f, ()> {
+        self.mode.values.range_iter(filter).into()
+    }
+
+    /// Create an iterator over the documents matching `tag`, built through the disk
+    /// API and keyed by the tag string.
+    ///
+    /// It filters on the caller's `field_index` rather than the field recorded at
+    /// write time. Unlike the memory-mode counterpart there is no absent-tag case to
+    /// report: the disk backend owns the lookup, and builds an iterator that simply
+    /// reads nothing.
+    ///
+    /// Returns `Err` when the disk backend fails to build its iterator.
+    ///
+    /// # Panics
+    ///
+    /// If [`SEARCH_ENTERPRISE_ITERATORS`] is not initialized.
+    ///
+    /// # Safety
+    ///
+    /// 1. `self` must outlive the returned iterator.
+    /// 2. `sctx` and `sctx.spec` must be valid and outlive the returned iterator.
+    /// 3. `sctx.diskSnapshot` must be a non-null
+    ///    [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot) handle for this
+    ///    index's disk spec, valid for the duration of the call:
+    ///    [SearchEnterpriseIterators::new_tag_on_disk](rqe_iterators::SearchEnterpriseIterators::new_tag_on_disk)
+    ///    reads it off `sctx` and hands it to the disk backend.
+    pub unsafe fn open_reader(
+        &self,
+        sctx: NonNull<RedisSearchCtx>,
+        tag: Tag<'_>,
+        weight: f64,
+        field_index: t_fieldIndex,
+    ) -> Result<Box<dyn RQEIteratorPrintable<'_> + '_>, Box<dyn std::error::Error>> {
+        // SAFETY: `sctx` is valid (contract 2).
+        let disk_snapshot = unsafe { sctx.as_ref() }.diskSnapshot;
+        debug_assert!(
+            !disk_snapshot.is_null(),
+            "disk-mode reads need a snapshot on the search context"
+        );
+        // SAFETY: contract 3 guarantees `sctx.diskSnapshot` is non-null, checked
+        // above in debug builds.
+        let snapshot = unsafe { NonNull::new_unchecked(disk_snapshot) };
+
+        // Postings live on disk: build the reader through the disk API, keyed by the
+        // tag string.
+        //
+        // SAFETY: `RSToken` is a plain-old-data `#[repr(C)]` struct whose all-zero
+        // bit pattern is a valid, unexpanded token; only `str`/`len` are then set.
+        let mut tok: RSToken = unsafe { std::mem::zeroed() };
+        tok.str_ = tag.as_ptr().cast::<c_char>().cast_mut();
+        tok.len = tag.as_bytes().len();
+
+        let enterprise_iters = SEARCH_ENTERPRISE_ITERATORS
+            .get()
+            .expect("SEARCH_ENTERPRISE_ITERATORS not initialized");
+        // SAFETY: `disk_index_spec` is a valid `RedisSearchDiskIndexSpec` (invariant
+        // from `new_on_disk`); `tok` borrows `tag` for the duration of the call; and
+        // `snapshot` is the snapshot contract 3 requires.
+        let disk_index_spec = unsafe { &mut *self.mode.disk_index_spec.as_ptr() };
+        enterprise_iters.new_tag_on_disk(disk_index_spec, &tok, field_index, weight, snapshot)
     }
 }
 

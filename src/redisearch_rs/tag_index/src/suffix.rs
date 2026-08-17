@@ -65,6 +65,19 @@ fn tag_term_layout(size: usize) -> Layout {
         .expect("a tag term is one byte longer than a tag, far below Layout's size limit")
 }
 
+/// Return the length of the holding string.
+/// 
+/// # Safety
+/// `ptr` has to be NUL-terminated.
+const unsafe fn get_length(ptr: *const u8) -> usize {
+    // This cast doesn't change size, we care about only the NULL
+    let ptr = ptr.cast::<std::ffi::c_char>();
+    // SAFETY: `ptr` is null terminated
+    unsafe { std::ffi::CStr::from_ptr(ptr) }
+        .to_bytes_with_nul()
+        .len()
+}
+
 /// Owning handle to a tag term allocation.
 ///
 /// Dropping it frees the allocation.
@@ -102,12 +115,8 @@ impl OwnedTerm {
 
     /// Full allocation size in bytes (term bytes + the trailing NUL).
     const fn alloc_size(&self) -> usize {
-        // This cast doesn't change size, we care about only the NULL
-        let ptr = self.0.as_ptr().cast::<std::ffi::c_char>().cast_const();
         // SAFETY: [`OwnedTerm::new`] NUL-terminates every allocation.
-        unsafe { std::ffi::CStr::from_ptr(ptr) }
-            .to_bytes_with_nul()
-            .len()
+        unsafe { get_length(self.0.as_ptr()) }
     }
 
     /// Build [`TermPtr`] from the current [`OwnedTerm`]
@@ -137,22 +146,18 @@ impl TermPtr {
         self.0 == owned.0
     }
 
+    pub const fn as_ptr(&self) -> *const u8 {
+        self.0.as_ptr()
+    }
+
     /// Full allocation size in bytes (term bytes + the trailing NUL).
     ///
     /// # Safety
     /// The [`OwnedTerm`] this pointer was taken from must still be alive.
+    #[cfg(test)]
     pub const unsafe fn alloc_size(&self) -> usize {
-        // This cast doesn't change size, we care about only the NULL
-        let ptr = self.0.as_ptr().cast::<std::ffi::c_char>().cast_const();
-        // SAFETY: the pointee is a live allocation from [`OwnedTerm::new`], which
-        // NUL-terminates it.
-        unsafe { std::ffi::CStr::from_ptr(ptr) }
-            .to_bytes_with_nul()
-            .len()
-    }
-
-    pub const fn as_ptr(&self) -> *const u8 {
-        self.0.as_ptr()
+        // SAFETY: The still-alive [`OwnedTerm::new`] is NUL-terminated.
+        unsafe { get_length(self.0.as_ptr()) }
     }
 }
 
