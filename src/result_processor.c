@@ -65,6 +65,10 @@
 // Maximum number of concurrent async disk reads
 #define MAX_ONGOING_READ_SIZE 16
 
+// Iterator results buffered ahead of submission. Separate from the read depth so the
+// two can be tuned independently; must be >= MAX_ONGOING_READ_SIZE.
+#define ITERATOR_BUFFER_SIZE MAX_ONGOING_READ_SIZE
+
 // Timeout for async disk poll when iterator is at EOF (in milliseconds)
 // When the iterator is exhausted, we wait for pending async reads to complete
 #define ASYNC_POLL_TIMEOUT_AT_EOF_MS 1000
@@ -155,7 +159,7 @@ static int refillBufferUsingIterator(RPQueryIterator *self) {
   }
 
   // Fill buffer up to max capacity
-  while (self->async.iteratorResultCount < self->async.poolSize && !it->atEOF) {
+  while (self->async.iteratorResultCount < self->async.bufferSize && !it->atEOF) {
     if (TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
       return RS_RESULT_TIMEDOUT;
     }
@@ -493,7 +497,7 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
 #endif
 
   // Initialize async read state
-  IndexResultAsyncRead_Init(&ret->async, MAX_ONGOING_READ_SIZE);
+  IndexResultAsyncRead_Init(&ret->async, MAX_ONGOING_READ_SIZE, ITERATOR_BUFFER_SIZE);
 
   // Determine which Next function to use based on disk configuration
   if (sctx->spec->diskSpec &&
