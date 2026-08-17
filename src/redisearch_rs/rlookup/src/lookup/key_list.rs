@@ -93,6 +93,7 @@ impl<'a> KeyList<'a> {
     /// warning on the caller's behalf.
     //
     // TODO remove the 'a and 'b lifetimes borrow-checker hack when we refactor this code. refer to Jira ticket MOD-13907.
+    #[must_use = "a rejected key is not in the list, so the caller must treat the field as unavailable"]
     pub(crate) fn push<'b>(
         &mut self,
         mut key: RLookupKey<'a>,
@@ -553,15 +554,21 @@ mod tests {
     fn keylist_cursor_move_next() {
         let mut keylist = KeyList::new();
 
-        keylist.push(RLookupKey::new(
-            c"foo",
-            make_bitflags!(RLookupKeyFlag::Hidden),
-        ));
-        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(
-            c"baz",
-            make_bitflags!(RLookupKeyFlag::Hidden),
-        ));
+        keylist
+            .push(RLookupKey::new(
+                c"foo",
+                make_bitflags!(RLookupKeyFlag::Hidden),
+            ))
+            .unwrap();
+        keylist
+            .push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()))
+            .unwrap();
+        keylist
+            .push(RLookupKey::new(
+                c"baz",
+                make_bitflags!(RLookupKeyFlag::Hidden),
+            ))
+            .unwrap();
         keylist.assert_valid("tests::keylist_cursor_move_next after insertions");
 
         let mut c = keylist.cursor_front();
@@ -579,15 +586,21 @@ mod tests {
     fn keylist_cursor_mut_move_next() {
         let mut keylist = KeyList::new();
 
-        keylist.push(RLookupKey::new(
-            c"foo",
-            make_bitflags!(RLookupKeyFlag::Hidden),
-        ));
-        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(
-            c"baz",
-            make_bitflags!(RLookupKeyFlag::Hidden),
-        ));
+        keylist
+            .push(RLookupKey::new(
+                c"foo",
+                make_bitflags!(RLookupKeyFlag::Hidden),
+            ))
+            .unwrap();
+        keylist
+            .push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()))
+            .unwrap();
+        keylist
+            .push(RLookupKey::new(
+                c"baz",
+                make_bitflags!(RLookupKeyFlag::Hidden),
+            ))
+            .unwrap();
         keylist.assert_valid("tests::keylist_cursor_mut_move_next after insertions");
 
         let mut c = keylist.cursor_front_mut();
@@ -660,10 +673,12 @@ mod tests {
     fn keylist_override_key_find() {
         let mut keylist = KeyList::new();
 
-        keylist.push(RLookupKey::new(
-            c"foo",
-            make_bitflags!(RLookupKeyFlag::Unresolved),
-        ));
+        keylist
+            .push(RLookupKey::new(
+                c"foo",
+                make_bitflags!(RLookupKeyFlag::Unresolved),
+            ))
+            .unwrap();
 
         keylist
             .cursor_front_mut()
@@ -690,10 +705,12 @@ mod tests {
     fn keylist_override_key_iterate() {
         let mut keylist = KeyList::new();
 
-        keylist.push(RLookupKey::new(
-            c"foo",
-            make_bitflags!(RLookupKeyFlag::Unresolved),
-        ));
+        keylist
+            .push(RLookupKey::new(
+                c"foo",
+                make_bitflags!(RLookupKeyFlag::Unresolved),
+            ))
+            .unwrap();
         keylist
             .cursor_front_mut()
             .override_current(make_bitflags!(RLookupKeyFlag::Numeric));
@@ -713,9 +730,15 @@ mod tests {
     fn iter_skips_tombstones() {
         let mut keylist = KeyList::new();
 
-        keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(c"baz", RLookupKeyFlags::empty()));
+        keylist
+            .push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()))
+            .unwrap();
+        keylist
+            .push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()))
+            .unwrap();
+        keylist
+            .push(RLookupKey::new(c"baz", RLookupKeyFlags::empty()))
+            .unwrap();
 
         // Override "foo" to create a tombstone
         keylist
@@ -746,9 +769,15 @@ mod tests {
     fn iter_no_tombstones() {
         let mut keylist = KeyList::new();
 
-        keylist.push(RLookupKey::new(c"a", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(c"b", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(c"c", RLookupKeyFlags::empty()));
+        keylist
+            .push(RLookupKey::new(c"a", RLookupKeyFlags::empty()))
+            .unwrap();
+        keylist
+            .push(RLookupKey::new(c"b", RLookupKeyFlags::empty()))
+            .unwrap();
+        keylist
+            .push(RLookupKey::new(c"c", RLookupKeyFlags::empty()))
+            .unwrap();
 
         let names: Vec<_> = keylist
             .iter()
@@ -765,9 +794,15 @@ mod tests {
     fn iter_mut_skips_tombstones() {
         let mut keylist = KeyList::new();
 
-        keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(c"baz", RLookupKeyFlags::empty()));
+        keylist
+            .push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()))
+            .unwrap();
+        keylist
+            .push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()))
+            .unwrap();
+        keylist
+            .push(RLookupKey::new(c"baz", RLookupKeyFlags::empty()))
+            .unwrap();
 
         // Override "bar" (middle element) to create a tombstone
         let mut cursor = keylist.cursor_front_mut();
@@ -796,8 +831,12 @@ mod tests {
     fn iter_skips_consecutive_tombstones() {
         let mut keylist = KeyList::new();
 
-        keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
+        keylist
+            .push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()))
+            .unwrap();
+        keylist
+            .push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()))
+            .unwrap();
 
         // Override both keys to create consecutive tombstones with their replacements
         keylist
@@ -822,8 +861,12 @@ mod tests {
     fn iter_mut_mutation_visible() {
         let mut keylist = KeyList::new();
 
-        keylist.push(RLookupKey::new(c"a", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(c"b", RLookupKeyFlags::empty()));
+        keylist
+            .push(RLookupKey::new(c"a", RLookupKeyFlags::empty()))
+            .unwrap();
+        keylist
+            .push(RLookupKey::new(c"b", RLookupKeyFlags::empty()))
+            .unwrap();
 
         for key in keylist.iter_mut() {
             key.project().header.flags |= RLookupKeyFlag::ExplicitReturn;
@@ -839,8 +882,12 @@ mod tests {
     fn iter_skips_tail_tombstone() {
         let mut keylist = KeyList::new();
 
-        keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
+        keylist
+            .push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()))
+            .unwrap();
+        keylist
+            .push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()))
+            .unwrap();
 
         // Tombstone the tail without inserting a replacement.
         let mut cursor = keylist.cursor_front_mut();
@@ -859,10 +906,12 @@ mod tests {
         let mut keylist = KeyList::new();
 
         // push two keys, so we can override one without altering the tail and another one to override it.
-        keylist.push(RLookupKey::new(
-            c"foo",
-            make_bitflags!(RLookupKeyFlag::Unresolved),
-        ));
+        keylist
+            .push(RLookupKey::new(
+                c"foo",
+                make_bitflags!(RLookupKeyFlag::Unresolved),
+            ))
+            .unwrap();
         let secoond = keylist
             .push(RLookupKey::new(
                 c"bar",

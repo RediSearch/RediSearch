@@ -652,7 +652,7 @@ mod tests {
 
         let key = RLookupKey::new(key_name, RLookupKeyFlags::empty());
 
-        rlookup.keys.push(key);
+        rlookup.keys.push(key).unwrap();
 
         let retrieved_key = rlookup
             .get_key_load(key_name, field_name, RLookupKeyFlags::empty())
@@ -681,7 +681,7 @@ mod tests {
         rlookup.set_cache(Some(spcache));
 
         let key = RLookupKey::new(key_name, RLookupKeyFlags::empty());
-        rlookup.keys.push(key);
+        rlookup.keys.push(key).unwrap();
 
         let retrieved_key = rlookup
             .get_key_load(
@@ -721,7 +721,7 @@ mod tests {
 
         let key = RLookupKey::new(key_name, RLookupKeyFlags::empty());
 
-        rlookup.keys.push(key);
+        rlookup.keys.push(key).unwrap();
 
         let retrieved_key = rlookup
             .get_key_load(
@@ -763,7 +763,7 @@ mod tests {
 
         let key = RLookupKey::new(key_name, RLookupKeyFlags::empty());
 
-        rlookup.keys.push(key);
+        rlookup.keys.push(key).unwrap();
 
         let retrieved_key = rlookup.get_key_load(
             key_name,
@@ -798,7 +798,7 @@ mod tests {
 
         let key = RLookupKey::new(key_name, RLookupKeyFlags::empty());
 
-        rlookup.keys.push(key);
+        rlookup.keys.push(key).unwrap();
 
         let retrieved_key = rlookup
             .get_key_load(
@@ -841,7 +841,7 @@ mod tests {
 
             let key = RLookupKey::new(key_name, flag.into());
 
-            rlookup.keys.push(key);
+            rlookup.keys.push(key).unwrap();
 
             let retrieved_key =
                 rlookup.get_key_load(key_name, field_name, RLookupKeyFlags::empty());
@@ -1154,7 +1154,7 @@ mod tests {
 
              let key = RLookupKey::new(&name, RLookupKeyFlags::empty());
 
-             rlookup.keys.push(key);
+             rlookup.keys.push(key).unwrap();
 
              let key = rlookup
                  .get_key_read(&name, RLookupKeyFlags::empty())
@@ -1177,7 +1177,7 @@ mod tests {
              let mut rlookup = RLookup::new();
 
              let key = RLookupKey::new(&name, RLookupKeyFlags::empty());
-             rlookup.keys.push(key);
+             rlookup.keys.push(key).unwrap();
 
              let not_key = rlookup
                  .get_key_read(&wrong_name, RLookupKeyFlags::empty());
@@ -1244,7 +1244,7 @@ mod tests {
 
              // push a key to the keylist
              let key = RLookupKey::new(&name1, RLookupKeyFlags::empty());
-             rlookup.keys.push(key);
+             rlookup.keys.push(key).unwrap();
 
              // push a field spec to the cache
              let spcache = IndexSpecCache::from_fields([
@@ -1275,7 +1275,7 @@ mod tests {
 
              let key = RLookupKey::new(&name1, RLookupKeyFlags::empty());
 
-             rlookup.keys.push(key);
+             rlookup.keys.push(key).unwrap();
 
              // push a field spec to the cache
              let spcache = IndexSpecCache::from_fields([
@@ -1385,18 +1385,27 @@ mod tests {
     /// without a sorting-vector source, and a schema key with one.
     fn rlookup_with_selection_keys<'a>() -> RLookup<'a> {
         let mut rlookup = RLookup::new();
-        rlookup.keys.push(RLookupKey::new(
-            c"query_only",
-            make_bitflags!(RLookupKeyFlag::QuerySrc),
-        ));
-        rlookup.keys.push(RLookupKey::new(
-            c"schema_no_sv",
-            make_bitflags!(RLookupKeyFlag::SchemaSrc),
-        ));
-        rlookup.keys.push(RLookupKey::new(
-            c"schema_sv",
-            make_bitflags!(RLookupKeyFlag::{SchemaSrc | SvSrc}),
-        ));
+        rlookup
+            .keys
+            .push(RLookupKey::new(
+                c"query_only",
+                make_bitflags!(RLookupKeyFlag::QuerySrc),
+            ))
+            .unwrap();
+        rlookup
+            .keys
+            .push(RLookupKey::new(
+                c"schema_no_sv",
+                make_bitflags!(RLookupKeyFlag::SchemaSrc),
+            ))
+            .unwrap();
+        rlookup
+            .keys
+            .push(RLookupKey::new(
+                c"schema_sv",
+                make_bitflags!(RLookupKeyFlag::{SchemaSrc | SvSrc}),
+            ))
+            .unwrap();
         rlookup
     }
 
