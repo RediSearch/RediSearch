@@ -173,11 +173,14 @@ static int applyHybridDebugToBuiltPipelines(HybridRequest_Debug *debug_req, Quer
   return REDISMODULE_OK;
 }
 
+/* Consumes `sctx` on every path: on success the returned request owns it (freed
+ * with the request); on failure it is freed here before returning NULL. */
 static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                                      RedisSearchCtx *sctx, const char *indexname, QueryError *status) {
   // Parse debug parameters first
   HybridDebugParams debug_params = parseHybridDebugParamsCount(argv, argc, status);
   if (debug_params.debug_params_count == 0) {
+    SearchCtx_Free(sctx);
     return NULL;
   }
 
@@ -261,8 +264,6 @@ int DEBUG_hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // Create debug hybrid request using the same sctx
   HybridRequest_Debug *debug_req = HybridRequest_Debug_New(ctx, argv, argc, sctx, indexname, &status);
   if (!debug_req) {
-    // parseHybridCommand takes ownership of sctx but doesn't free it on error - we need to clean it up
-    SearchCtx_Free(sctx);
     return QueryError_ReplyAndClear(ctx, &status);
   }
 

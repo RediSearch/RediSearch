@@ -232,9 +232,9 @@ ResultProcessor *SearchDisk_NewAsyncLoaderResultProcessor(RedisSearchCtx *sctx, 
                                                      outStateFlags);
 }
 
-void SearchDisk_AsyncLoader_SetSyncCtx(ResultProcessor *rp, BlockedRequestCtx *brc) {
+void SearchDisk_AsyncLoader_SetSyncCtx(ResultProcessor *rp, QueryRequest *request) {
     RS_ASSERT(disk);
-    disk->basic.asyncLoaderSetSyncCtx(rp, brc);
+    disk->basic.asyncLoaderSetSyncCtx(rp, request);
 }
 
 void SearchDisk_UpdateLogObfuscation() {

@@ -54,6 +54,7 @@ members = [
     "vector_score_source",
     "vector_score_source_bencher",
     "numeric_score_source",
+    "numeric_score_source_bencher",
     "trie_rs",
     "ttl_table",
     "utf8parse",
@@ -123,6 +124,7 @@ fnv = { path = "./fnv" }
 fork_gc = { path = "./fork_gc" }
 generational_slab = { path = "./generational_slab" }
 geo = { path = "./geo" }
+global_config = { path = "./c_wrappers/global_config" }
 hidden_string = { path = "./c_wrappers/hidden_string" }
 hyperloglog = { path = "./hyperloglog" }
 idf = { path = "./idf" }

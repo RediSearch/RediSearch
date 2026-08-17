@@ -338,9 +338,8 @@ const HEADERS: &[HeaderAllowlist] = &[
             "AsyncPollResult",
             "AsyncReadResult",
             "BasicDiskAPI",
-            // RETURN_STRICT GIL handshake ctx; kept opaque (forward-declared
-            // here, defined in `aggregate.h`).
-            "BlockedRequestCtx",
+            // RETURN_STRICT GIL handshake context.
+            "QueryRequest",
             "DocTableDiskAPI",
             "IndexDiskAPI",
             "MetricsDiskAPI",
@@ -402,6 +401,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "src/trie/levenshtein.h",
+        fns: &[],
+        types: &["TrieMatchMode"],
+        vars: &["MAX_LEV_DISTANCE"],
+    },
+    HeaderAllowlist {
         path: "src/trie/rune_util.h",
         fns: &["runesToStr", "strToLowerRunes", "strToRunes"],
         types: &[],
@@ -415,6 +420,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "Trie_GetNode",
             "Trie_InsertStringBuffer",
             "Trie_IterateContains",
+            "Trie_IterateFuzzy",
             "Trie_IterateWildcard",
             "TrieType_Free",
         ],
@@ -423,8 +429,8 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/trie/trie_node.h",
-        fns: &["TrieNode_NumDocs"],
-        types: &["TrieRangeCallback", "TrieSuffixCallback"],
+        fns: &["TrieIterator_Free", "TrieIterator_Next", "TrieNode_NumDocs"],
+        types: &["TrieIterator", "TrieRangeCallback", "TrieSuffixCallback"],
         vars: &[],
     },
     HeaderAllowlist {
@@ -590,6 +596,7 @@ const BLOCKLIST_TYPES: &[&str] = &[
     "QASTValidationFlagsSet",
     "QueryNodeOptions",
     "QueryProcessingCtx", // defined directly in `ffi/src/lib.rs`
+    "RedisModuleString",
     "RSQueryTerm",
     "RSTokenFlags",
 ];
@@ -678,11 +685,6 @@ fn main() {
     // `_GNU_SOURCE` makes `<stdio.h>` declare `asprintf`/`vasprintf`, which
     // `deps/rmalloc/rmalloc.h` uses.
     bindings = bindings.clang_arg("-D_GNU_SOURCE");
-
-    // `BlockedRequestCtx` is only forward-declared in `search_disk_api.h`, but its full
-    // definition (aggregate.h) is pulled in transitively through `AREQ_CheckTimedOut`. Force it
-    // opaque so Rust callers only ever get a pointer, never its (Rust-unsafe-to-model) C internals.
-    bindings = bindings.opaque_type("BlockedRequestCtx");
 
     for ty in BLOCKLIST_TYPES {
         bindings = bindings.blocklist_type(ty);

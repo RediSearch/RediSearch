@@ -18,6 +18,7 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+use c_trie::{SuffixTrie, TermsTrie};
 use dict::{Dict, MissingFieldDictType};
 use field_spec::FieldSpec;
 use inverted_index::opaque::InvertedIndex;
@@ -214,6 +215,31 @@ impl<'lock> IndexSpecWriteGuard<'lock> {
         unsafe { slice::from_raw_parts_mut(self.0.fields.cast::<FieldSpec>(), len) }
     }
 
+    /// Returns the terms trie.
+    pub fn terms_mut(&mut self) -> &mut TermsTrie {
+        debug_assert!(!self.0.terms.is_null(), "terms trie must not be null");
+        // SAFETY: `terms` is a valid, non-null `Trie` for a properly initialised IndexSpec,
+        // and it lives as long as the spec, which outlives this guard's borrow. We hold the
+        // write lock, which every other reader and writer of the trie — Rust or C — must
+        // acquire, so the exclusive borrow is not aliased.
+        unsafe { TermsTrie::from_raw_mut(self.0.terms) }
+    }
+
+    /// Returns the suffix trie.
+    ///
+    /// `None` when no field in the schema was declared `WITHSUFFIXTRIE`: the trie is
+    /// only allocated once some field opts in.
+    pub const fn suffix_mut(&mut self) -> Option<&mut SuffixTrie> {
+        if self.0.suffix.is_null() {
+            return None;
+        }
+        // SAFETY: `suffix` is non-null (checked above) and, once allocated, stays valid
+        // for the life of the spec, which outlives this guard's borrow. We hold the write
+        // lock, which every other reader and writer of the trie must acquire, so the
+        // exclusive borrow is not aliased.
+        Some(unsafe { SuffixTrie::from_raw_mut(self.0.suffix) })
+    }
+
     /// Return the spec's `missingFieldDict` as a typed [`Dict`].
     pub fn missing_field_dict_mut(&mut self) -> &mut Dict<MissingFieldDictType> {
         debug_assert!(
@@ -338,20 +364,18 @@ impl<'lock> IndexSpecReadGuard<'lock> {
         unsafe { Dict::from_raw(self.0.missingFieldDict) }
     }
 
-    /// Returns whether the keys dictionary is available.
-    ///
-    /// The keys dictionary maps TEXT terms to their inverted indexes.
-    pub const fn has_keys_dict(&self) -> bool {
-        !self.0.keysDict.is_null()
+    /// Returns the terms trie.
+    pub fn terms(&self) -> &TermsTrie {
+        debug_assert!(!self.0.terms.is_null(), "terms trie must not be null");
+        // SAFETY: `terms` is a valid, non-null `Trie` for a properly initialised IndexSpec,
+        // and it lives as long as the spec, which outlives this guard's borrow. The guard
+        // holds the spec's read lock, which every writer of the terms trie must not hold
+        // concurrently, so the trie is not mutated for that borrow either.
+        unsafe { TermsTrie::from_raw(self.0.terms) }
     }
 
     /// Returns a pointer to the keys dictionary.
-    ///
-    /// # Panics
-    ///
-    /// Panics in debug builds if keys_dict is null. Use `has_keys_dict()` to check first.
-    pub fn keys_dict(&self) -> *mut ffi::dict {
-        debug_assert!(!self.0.keysDict.is_null(), "keys_dict is null");
+    pub const fn keys_dict(&self) -> *mut ffi::dict {
         self.0.keysDict
     }
 

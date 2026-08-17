@@ -1118,8 +1118,10 @@ bool RunInThread(RedisModuleCtx *ctx) {
   return true;
 }
 
-AREQ *AREQ_New(void) {
+AREQ *AREQ_New(RedisModuleString **argv, uint32_t argc) {
   AREQ* req = rm_calloc(1, sizeof(AREQ));
+  QueryRequest_Init(&req->base, QUERY_REQUEST_KIND_AREQ, argv, argc);
+  QueryRequest_SetEndProcRef(&req->base, &req->pipeline.qctx.endProc);
   /*
   unsigned int dialectVersion;
   long long queryTimeoutMS;
@@ -1138,8 +1140,6 @@ AREQ *AREQ_New(void) {
   req->prefixesOffset = 0;
   req->keySpaceVersion = INVALID_KEYSPACE_VERSION;
   req->querySlots = NULL;
-  RequestSyncState_Init(&req->syncState);
-  req->brc = NULL;
   return req;
 }
 
@@ -1150,232 +1150,93 @@ bool SearchTime_IsTimedOut(void *arg) {
                               memory_order_relaxed);
 }
 
-static BlockedRequestCtx *BlockedRequestCtx_NewCommon(RequestKind kind) {
-  BlockedRequestCtx *brc = rm_calloc(1, sizeof(BlockedRequestCtx));
-  brc->kind = kind;
-  brc->queryOffset = QUERY_OFFSET_NONE;  // "no query argument" until parsing finds one
-  brc->refcount = 1;
-  brc->requiresAggregateResultsSync = false;
-  brc->aggregatingResults = false;
-  brc->aggregateResultsClaimLost = false;
-  brc->aggregateResultsDone = false;
-  brc->safeLoadersHoldingGIL = 0;
-  pthread_mutex_init(&brc->aggregateResultsLock, NULL);
-  pthread_cond_init(&brc->aggregateResultsCond, NULL);
-  brc->reply.err = QueryError_Default();
-  return brc;
-}
-
-BlockedRequestCtx *BlockedRequestCtx_IncrRef(BlockedRequestCtx *brc) {
-  atomic_fetch_add_explicit(&brc->refcount, 1, memory_order_relaxed);
-  return brc;
-}
-
-void BlockedRequestCtx_DecrRef(BlockedRequestCtx *brc) {
-  // ACQ_REL: release ensures our writes are visible before decrement;
-  // acquire ensures we see all prior writes when refcount reaches 0.
-  if (brc && atomic_fetch_sub_explicit(&brc->refcount, 1, memory_order_acq_rel) == 1) {
-    BlockedRequestCtx_Free(brc);
-  }
-}
-
-/* Hold references to `argv` strings whose contents the wrapped request's
- * plan borrows (see BlockedRequestCtx.argv). Runs at construction, on
- * the main thread; released in BlockedRequestCtx_Free, also on main. */
-static void holdArgv(BlockedRequestCtx *brc, RedisModuleString **argv, uint32_t argc) {
-  RS_ASSERT(argv != NULL);
-  RS_ASSERT(brc->argv == NULL);
-  brc->argv = rm_malloc(argc * sizeof(*brc->argv));
-  brc->argc = argc;
-  brc->parseArgc = argc;  // debug constructors lower it to exclude the debug tail
-  for (uint32_t ii = 0; ii < argc; ++ii) {
-    brc->argv[ii] = RedisModule_HoldString(NULL, argv[ii]);
-    // Redis auto-trims (reallocates) retained argv right after the command
-    // callback returns — racing any thread already reading the string. Trim
-    // here instead, before any borrow exists or a worker can see it.
-    RedisModule_TrimStringAllocation(brc->argv[ii]);
-  }
-}
-
-/* Release an argv array taken by holdArgv: drop each string reference and
- * free the array. Main-thread only (string refcounts are not thread safe). */
-static void releaseArgv(RedisModuleString **argv, uint32_t argc) {
-  for (uint32_t ii = 0; ii < argc; ++ii) {
-    RedisModule_FreeString(NULL, argv[ii]);
-  }
-  rm_free(argv);
-}
-
-typedef struct {
-  RedisModuleString **argv;
-  uint32_t argc;
-} DeferredArgvRelease;
-
-static void releaseArgvOnMainThread(void *privdata) {
-  DeferredArgvRelease *deferred = privdata;
-  releaseArgv(deferred->argv, deferred->argc);
-  rm_free(deferred);
-}
-
-BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq, RedisModuleString **argv, uint32_t argc) {
-  // Wrapping an already-wrapped request would silently leak the first wrapper.
-  RS_ASSERT(areq->brc == NULL);
-  BlockedRequestCtx *brc = BlockedRequestCtx_NewCommon(REQUEST_KIND_AREQ);
-  brc->query.areq = areq;
-  areq->brc = brc;
-  holdArgv(brc, argv, argc);
-  return brc;
-}
-
-BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid, RedisModuleString **argv, uint32_t argc) {
-  // Wrapping an already-wrapped request would silently leak the first wrapper.
-  RS_ASSERT(hybrid->brc == NULL);
-  BlockedRequestCtx *brc = BlockedRequestCtx_NewCommon(REQUEST_KIND_HYBRID);
-  brc->query.hybrid = hybrid;
-  hybrid->brc = brc;
-  holdArgv(brc, argv, argc);
-  return brc;
-}
-
-void BlockedRequestCtx_Free(BlockedRequestCtx *brc) {
-  if (!brc) {
-    return;
-  }
-  pthread_mutex_destroy(&brc->aggregateResultsLock);
-  pthread_cond_destroy(&brc->aggregateResultsCond);
-  // Idempotent after EndCycle; kept as a safety net for wrappers freed
-  // outside a cycle. Must run while the owned request is alive: disposing a
-  // stashed cursor clears its wrapper handle.
-  ChunkReplyState_Destroy(&brc->reply);
-
-  if (brc->kind == REQUEST_KIND_AREQ) {
-    AREQ_Free(brc->query.areq);
-  } else {
-    HybridRequest_Free(brc->query.hybrid);
-  }
-  // Every wrapper is born with its holds (construction invariant), released
-  // after the request: its plan borrows from these strings.
-  RS_ASSERT(brc->argv != NULL);
-  if (MainThread_Is()) {
-    releaseArgv(brc->argv, brc->argc);
-  } else {
-    // String references may only be released on the main thread; bounce the
-    // release to the main event loop.
-    DeferredArgvRelease *deferred = rm_new(DeferredArgvRelease);
-    *deferred = (DeferredArgvRelease){.argv = brc->argv, .argc = brc->argc};
-    int rc = RedisModule_EventLoopAddOneShot(releaseArgvOnMainThread, deferred);
-    RS_ASSERT(rc == REDISMODULE_OK);
-    (void)rc;
-  }
-  rm_free(brc);
-}
-
 bool AREQ_TryClaimAggregateResults(AREQ *req) {
   bool expected = false;
-  return atomic_compare_exchange_strong_explicit(&req->brc->aggregatingResults, &expected, true,
-                                                 memory_order_relaxed, memory_order_relaxed);
+  return atomic_compare_exchange_strong_explicit(&req->base.async.aggregatingResults, &expected,
+                                                 true, memory_order_relaxed,
+                                                 memory_order_relaxed);
 }
 
-bool BlockedRequestCtx_TryOwnStrictRead(BlockedRequestCtx *brc, BrcStrictReadOwner owner) {
-  int expected = BRC_READ_OWNER_NONE;
+bool QueryRequest_TryOwnStrictRead(QueryRequest *request, QueryRequestStrictReadOwner owner) {
+  int expected = QUERY_REQUEST_READ_OWNER_NONE;
   // acq_rel: the winner's subsequent actions (BG running the read / the timer
   // replying depleted) must be ordered against the loser's observation.
-  return atomic_compare_exchange_strong_explicit(&brc->strictReadOwner, &expected, (int)owner,
-                                                 memory_order_acq_rel, memory_order_acquire);
+  return atomic_compare_exchange_strong_explicit(
+      &request->async.strictReadOwner, &expected, (int)owner, memory_order_acq_rel,
+      memory_order_acquire);
 }
 
 void AREQ_SignalAggregateResultsComplete(AREQ *req) {
-  pthread_mutex_lock(&req->brc->aggregateResultsLock);
-  req->brc->aggregateResultsDone = true;
-  pthread_cond_broadcast(&req->brc->aggregateResultsCond);
-  pthread_mutex_unlock(&req->brc->aggregateResultsLock);
+  pthread_mutex_lock(&req->base.async.aggregateResultsLock);
+  req->base.async.aggregateResultsDone = true;
+  pthread_cond_broadcast(&req->base.async.aggregateResultsCond);
+  pthread_mutex_unlock(&req->base.async.aggregateResultsLock);
 }
 
 void AREQ_WaitForAggregateResultsComplete(AREQ *req) {
-  pthread_mutex_lock(&req->brc->aggregateResultsLock);
-  while (!req->brc->aggregateResultsDone) {
-    pthread_cond_wait(&req->brc->aggregateResultsCond, &req->brc->aggregateResultsLock);
+  pthread_mutex_lock(&req->base.async.aggregateResultsLock);
+  while (!req->base.async.aggregateResultsDone) {
+    pthread_cond_wait(&req->base.async.aggregateResultsCond,
+                      &req->base.async.aggregateResultsLock);
   }
-  pthread_mutex_unlock(&req->brc->aggregateResultsLock);
+  pthread_mutex_unlock(&req->base.async.aggregateResultsLock);
 }
 
-/* Read the owned request's timeout flag through the wrapper. The flag lives on
- * the request's embedded RequestSyncState, not on the wrapper itself. */
-static bool BlockedRequestCtx_OwnedRequestTimedOut(BlockedRequestCtx *brc) {
-  if (brc->kind == REQUEST_KIND_AREQ) {
-    return RequestSyncState_GetTimedOut(&brc->query.areq->syncState);
-  }
-  return RequestSyncState_GetTimedOut(&brc->query.hybrid->syncState);
+/* Read the common base without coupling this path to a concrete request kind. */
+static bool QueryRequest_OwnedRequestTimedOut(QueryRequest *request) {
+  return QueryRequestTimeout_GetTimedOut(&request->timeout);
 }
 
 /* See aggregate.h for the full handshake contract. The aggregateResultsLock
  * serializes the worker's "set holding, then check timedOut" against the main
  * thread's "set timedOut, then check holding", making the two race-free. */
-bool BlockedRequestCtx_SafeLoaderEnterGIL(BlockedRequestCtx *sync) {
+bool QueryRequest_SafeLoaderEnterGIL(QueryRequest *request) {
+  QueryRequestAsyncState *async = &request->async;
   bool proceed;
-  pthread_mutex_lock(&sync->aggregateResultsLock);
-  if (BlockedRequestCtx_OwnedRequestTimedOut(sync)) {
+  pthread_mutex_lock(&async->aggregateResultsLock);
+  if (QueryRequest_OwnedRequestTimedOut(request)) {
     // Timeout already fired: do not mark holding, bail instead of blocking on the
     // GIL the main thread holds while it waits.
     proceed = false;
   } else {
-    sync->safeLoadersHoldingGIL++;
+    async->safeLoadersHoldingGIL++;
     proceed = true;
   }
-  pthread_mutex_unlock(&sync->aggregateResultsLock);
+  pthread_mutex_unlock(&async->aggregateResultsLock);
   return proceed;
 }
 
-void BlockedRequestCtx_SafeLoaderExitGIL(BlockedRequestCtx *sync) {
-  pthread_mutex_lock(&sync->aggregateResultsLock);
-  RS_LOG_ASSERT(sync->safeLoadersHoldingGIL > 0, "SafeLoaderExitGIL without matching EnterGIL");
-  sync->safeLoadersHoldingGIL--;
-  pthread_mutex_unlock(&sync->aggregateResultsLock);
+void QueryRequest_SafeLoaderExitGIL(QueryRequest *request) {
+  QueryRequestAsyncState *async = &request->async;
+  pthread_mutex_lock(&async->aggregateResultsLock);
+  RS_LOG_ASSERT(async->safeLoadersHoldingGIL > 0,
+                "SafeLoaderExitGIL without matching EnterGIL");
+  async->safeLoadersHoldingGIL--;
+  pthread_mutex_unlock(&async->aggregateResultsLock);
 }
 
-bool BlockedRequestCtx_TimeoutPreemptSafeLoaderGIL(BlockedRequestCtx *sync) {
+bool QueryRequest_TimeoutPreemptSafeLoaderGIL(QueryRequest *request) {
+  QueryRequestAsyncState *async = &request->async;
   bool holding;
-  pthread_mutex_lock(&sync->aggregateResultsLock);
-  holding = sync->safeLoadersHoldingGIL > 0;
-  pthread_mutex_unlock(&sync->aggregateResultsLock);
+  pthread_mutex_lock(&async->aggregateResultsLock);
+  holding = async->safeLoadersHoldingGIL > 0;
+  pthread_mutex_unlock(&async->aggregateResultsLock);
   return holding;
 }
 
 void AREQ_ResetForCursorReadReturnStrict(AREQ *req) {
-  RS_AtomicBoolStoreRelaxed(&req->brc->aggregatingResults, false);
-  req->brc->aggregateResultsClaimLost = false;
-  pthread_mutex_lock(&req->brc->aggregateResultsLock);
-  req->brc->aggregateResultsDone = false;
-  req->brc->safeLoadersHoldingGIL = 0;
-  pthread_mutex_unlock(&req->brc->aggregateResultsLock);
-  RequestSyncState_ClearTimedOut(&req->syncState);
+  RS_AtomicBoolStoreRelaxed(&req->base.async.aggregatingResults, false);
+  req->base.async.aggregateResultsClaimLost = false;
+  pthread_mutex_lock(&req->base.async.aggregateResultsLock);
+  req->base.async.aggregateResultsDone = false;
+  req->base.async.safeLoadersHoldingGIL = 0;
+  pthread_mutex_unlock(&req->base.async.aggregateResultsLock);
+  QueryRequestTimeout_ClearTimedOut(&req->base.timeout);
   ResultProcessor *root = AREQ_QueryProcessingCtx(req)->rootProc;
   if (root && root->type == RP_NETWORK) {
     ((RPNet *)root)->drainOnly = false;
   }
 }
-
-void RequestSyncState_RegisterAbortWakeChannel(RequestSyncState *st, struct MRChannel *chan) {
-  pthread_mutex_lock(&st->abortWakeLock);
-  st->abortWakeChannel = chan;
-  pthread_mutex_unlock(&st->abortWakeLock);
-}
-
-void RequestSyncState_UnregisterAbortWakeChannel(RequestSyncState *st) {
-  pthread_mutex_lock(&st->abortWakeLock);
-  st->abortWakeChannel = NULL;
-  pthread_mutex_unlock(&st->abortWakeLock);
-}
-
-void RequestSyncState_WakeAbortChannel(RequestSyncState *st) {
-  pthread_mutex_lock(&st->abortWakeLock);
-  if (st->abortWakeChannel) {
-    MRChannel_WakeAbort(st->abortWakeChannel);
-  }
-  pthread_mutex_unlock(&st->abortWakeLock);
-}
-
-
 
 int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, bool isDiskIndex, QueryError *status) {
   while (!AC_IsAtEnd(ac)) {
@@ -1453,17 +1314,16 @@ static bool shouldCheckInPipelineTimeout(RedisModuleCtx* ctx, AREQ *req) {
 }
 
 int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskIndex, QueryError *status) {
-  BlockedRequestCtx *brc = req->brc;
-  RS_ASSERT(brc != NULL);
-  RS_ASSERT(offset <= brc->parseArgc && brc->parseArgc <= brc->argc);
-  brc->queryOffset = offset;
+  RS_ASSERT(offset <= req->base.args.parseArgc &&
+            req->base.args.parseArgc <= req->base.args.argc);
+  req->base.args.queryOffset = offset;
 
   // Parse the query and basic keywords first..
   // The cursor covers the whole held command, pre-advanced to the parse
   // start: positions recorded off the cursor (syntax-error offsets,
   // prefixesOffset) are relative to the full command, not the parsed tail.
   ArgsCursor ac = {0};
-  ArgsCursor_InitRString(&ac, brc->argv, brc->parseArgc);
+  ArgsCursor_InitRString(&ac, req->base.args.argv, req->base.args.parseArgc);
   AC_AdvanceBy(&ac, offset);
 
   if (AC_IsAtEnd(&ac)) {
@@ -1645,7 +1505,7 @@ static bool IsIndexCoherent(AREQ *req) {
 
   // prefixesOffset indexes the full held command (recorded off the compile
   // cursor, which covers the whole command).
-  RedisModuleString **args = req->brc->argv;
+  RedisModuleString **args = req->base.args.argv;
   long long n_prefixes = 0;
   RedisModule_StringToLongLong(args[req->prefixesOffset + 1], &n_prefixes);
   // The first argument is at req->prefixesOffset + 2
@@ -1730,7 +1590,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Borrow the request's timed-out flag onto the sctx so pipeline RPs can
   // observe a RETURN-STRICT main-thread timeout without holding an AREQ
   // back-pointer (read via SearchTime_IsTimedOut).
-  sctx->time.timedOutFlag = &req->syncState.timedOut;
+  sctx->time.timedOutFlag = &req->base.timeout.timedOut;
 
   if (!IsIndexCoherent(req)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_MISMATCH, NULL);
@@ -1867,8 +1727,8 @@ void ChunkReplyState_Destroy(ChunkReplyState *state) {
 
   // Timeout edge case: cursor wasn't handled by reply_callback.
   // See ChunkReplyState ownership model in aggregate.h for full explanation.
-  // We must clear the cursor's wrapper handle before Cursor_Free to prevent
-  // the wrapper-release loop (this destroy runs from the wrapper's own free).
+  // We must clear the cursor's request handle before Cursor_Free to prevent a
+  // recursive release while this request is already being destroyed.
   if (state->cursor) {
     state->cursor->query = NULL;
     Cursor_Free(state->cursor);
@@ -1880,20 +1740,13 @@ void ChunkReplyState_Destroy(ChunkReplyState *state) {
 }
 
 AREQ *AREQ_IncrRef(AREQ *req) {
-  RS_LOG_ASSERT(req->brc != NULL, "AREQ_IncrRef called on unwrapped (sub-)AREQ");
-  BlockedRequestCtx_IncrRef(req->brc);
+  QueryRequest_IncrRef(&req->base);
   return req;
 }
 
 void AREQ_DecrRef(AREQ *req) {
   if (!req) return;
-  if (req->brc) {
-    // Top-level wrapped AREQ: delegate to the wrapper's refcount.
-    BlockedRequestCtx_DecrRef(req->brc);
-  } else {
-    // Unwrapped transient / sub-AREQ (e.g. hybrid sub-query): free directly.
-    AREQ_Free(req);
-  }
+  QueryRequest_DecrRef(&req->base);
 }
 
 void AREQ_Free(AREQ *req) {
@@ -1974,15 +1827,15 @@ void AREQ_Free(AREQ *req) {
     req->parsedVectorData = NULL;
   }
 
-  RequestSyncState_Destroy(&req->syncState);
+  QueryRequest_Destroy(&req->base);
 
   rm_free(req);
 }
 
 void AREQ_CleanUpStoredCursor(AREQ *req) {
-  if (req->brc->reply.cursor) {
-    Cursor *cursor = req->brc->reply.cursor;
-    req->brc->reply.cursor = NULL;
+  if (req->base.reply.cursor) {
+    Cursor *cursor = req->base.reply.cursor;
+    req->base.reply.cursor = NULL;
     Cursor_Free(cursor);
   }
 }

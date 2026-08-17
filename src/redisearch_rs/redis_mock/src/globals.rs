@@ -18,9 +18,7 @@ pub fn is_crdt() -> bool {
 
 /// Returns the Redis server version as an integer.
 pub fn get_server_version() -> i32 {
-    // Safety: We access the global config, which is setup during module initialization, we readonly access the serverVersion field here.
-    // which is safe as it is never changed after initialization.
-    unsafe { ffi::RSGlobalConfig.serverVersion }
+    global_config::server_version()
 }
 
 /// Returns true if the Redis server has the Scan Key API feature.

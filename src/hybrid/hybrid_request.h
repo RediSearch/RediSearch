@@ -1,6 +1,7 @@
 #pragma once
 
 #include "aggregate/aggregate.h"
+#include "query_request.h"
 #include "pipeline/pipeline.h"
 #include "hybrid/hybrid_scoring.h"
 #include "hybrid/hybrid_debug.h"
@@ -21,6 +22,8 @@ struct Cursor;
 #define HYBRID_IMPLICIT_KEY_FIELD "__key"
 
 typedef struct HybridRequest {
+    QueryRequest base;
+
     arrayof(AREQ*) requests;
     size_t nrequests;
     QueryError tailPipelineError;
@@ -34,18 +37,6 @@ typedef struct HybridRequest {
     ProfileClocks profileClocks;
     profiler_func profile;
     ProfilePrinterCtx profileCtx;
-
-    // Synchronization context for timeout/reply callbacks.
-    // Holds the per-request timeout flag and abort-wake channel.
-    RequestSyncState syncState;
-
-    // Non-owning back-pointer to the heap wrapper that owns this request.
-    BlockedRequestCtx *brc;
-
-    // Flag to indicate whether to skip timeout checks using clock checks
-    bool skipTimeoutChecks;
-
-    bool useReplyCallback;
 
     // State for reply_callback path (FAIL policy with workers in coordinator mode)
     // Background thread stores results here, then calls UnblockClient.
@@ -78,17 +69,31 @@ typedef struct HybridRequest {
     int kArgIndex;
 } HybridRequest;
 
+#ifdef __cplusplus
+static_assert(offsetof(HybridRequest, base) == 0,
+              "QueryRequest must be HybridRequest's first member");
+#else
+_Static_assert(offsetof(HybridRequest, base) == 0,
+               "QueryRequest must be HybridRequest's first member");
+#endif
+
+static inline HybridRequest *QueryRequest_GetHybrid(QueryRequest *request) {
+  RS_ASSERT(request != NULL);
+  RS_ASSERT(request->kind == QUERY_REQUEST_KIND_HYBRID);
+  return (HybridRequest *)request;
+}
+
 // Timeout helper functions for HybridRequest (mirrors AREQ pattern)
 static inline bool HybridRequest_TimedOut(HybridRequest *req) {
-  return RequestSyncState_GetTimedOut(&req->syncState);
+  return QueryRequestTimeout_GetTimedOut(&req->base.timeout);
 }
 // The pipeline stage the hybrid request had reached, used to attribute a timeout.
 static inline QueryTimeoutStage HybridRequest_ExecutionStage(HybridRequest *req) {
-  return RequestSyncState_GetExecutionStage(&req->syncState);
+  return (QueryTimeoutStage)QueryRequest_GetExecutionPhase(&req->base);
 }
 // Advance the hybrid request's execution-phase marker (QUEUE -> PIPELINE -> REPLY).
 static inline void HybridRequest_SetExecutionStage(HybridRequest *req, QueryTimeoutStage stage) {
-  RequestSyncState_SetExecutionStage(&req->syncState, stage);
+  QueryRequest_SetExecutionPhase(&req->base, (int)stage);
 }
 // Sets the hybrid request's timedOut flag and propagates it to every subquery
 // AREQ. Propagation flips each subquery's RPNet abort flag so a BG worker
@@ -105,12 +110,12 @@ static inline void HybridRequest_UnlockCursors(HybridRequest *req) {
 }
 
 static inline bool HybridRequest_ShouldCheckTimeout(HybridRequest *req) {
-  return !req->skipTimeoutChecks;
+  return QueryRequestTimeout_ShouldCheck(&req->base.timeout);
 }
 
 static inline void HybridRequest_SetSkipTimeoutChecks(HybridRequest *req, bool skipTimeoutChecks) {
-  req->skipTimeoutChecks = skipTimeoutChecks;
-  // Propagate to the SearchCtx's SearchTime for timeout functions that access it directly
+  QueryRequestTimeout_SetSkipChecks(&req->base.timeout, skipTimeoutChecks);
+  // TODO($$$): Remove the SearchTime mirror once consumers use QueryRequest.timeout.
   if (req->sctx) {
     req->sctx->time.skipTimeoutChecks = skipTimeoutChecks;
   }
@@ -123,7 +128,7 @@ static inline void HybridRequest_SetSkipTimeoutChecks(HybridRequest *req, bool s
 }
 
 static inline bool HybridRequest_RequiresThreadsSyncResults(HybridRequest *req) {
-  return req->brc->requiresAggregateResultsSync;
+  return req->base.async.requiresAggregateResultsSync;
 }
 
 bool HybridRequest_TryClaimAggregateResults(HybridRequest *req);
@@ -151,9 +156,8 @@ typedef struct blockedClientHybridCtx {
  * @param sctx The main search context for the hybrid request - the redisCtx inside can change if moving to different thread
  * @param requests Array of AREQ pointers representing individual search requests, the hybrid request will take ownership of the array
  * @param nrequests Number of requests in the array
- * @param argv The command argv, not NULL; the container's and each
- *   sub-request's wrapper take holds on the full command (main-thread only —
- *   see BlockedRequestCtx.argv)
+ * @param argv The command argv, not NULL; the container and every sub-request
+ *   hold the full command (main-thread only — see QueryRequestArgs.argv)
  * @param argc Number of strings in argv
 */
 HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests, RedisModuleString **argv, uint32_t argc);
@@ -166,8 +170,7 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
  * @param sctx The search context for the hybrid request
  * @param requests Array of AREQ pointers, the hybrid request takes ownership
  * @param nrequests Number of requests in the array
- * @param argv The full command argv each sub-request's wrapper holds
- *   (see HybridRequest_New); not NULL
+ * @param argv The full command argv each sub-request holds; not NULL
  * @param argc Number of strings in argv
  */
 void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests, size_t nrequests, RedisModuleString **argv, uint32_t argc);
@@ -261,22 +264,21 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
 
 /**
  * Free a HybridRequest and all its associated resources directly.
- * Called by BlockedRequestCtx_Free when the wrapper's refcount reaches zero.
- * Do not call directly; use HybridRequest_DecrRef instead.
+ * Called by the final QueryRequest release. Do not call directly; use
+ * HybridRequest_DecrRef instead.
  */
 void HybridRequest_Free(HybridRequest *req);
 
 /**
- * Increment the reference count of the owning BlockedRequestCtx wrapper.
+ * Increment the embedded QueryRequest reference count.
  * @param req the request to increment
  * @return the request (for chaining)
  */
 HybridRequest *HybridRequest_IncrRef(HybridRequest *req);
 
 /**
- * Decrement the reference count of the owning BlockedRequestCtx wrapper.
- * If the reference count reaches 0, BlockedRequestCtx_Free is called which
- * destroys the wrapper and the owned HybridRequest.
+ * Decrement the embedded QueryRequest reference count. The final release
+ * destroys the HybridRequest.
  * @param req the request to decrement
  */
 void HybridRequest_DecrRef(HybridRequest *req);

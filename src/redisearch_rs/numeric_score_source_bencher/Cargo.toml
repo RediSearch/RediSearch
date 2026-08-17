@@ -1,0 +1,40 @@
+[package]
+name = "numeric_score_source_bencher"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+# See https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+bench = false
+
+# Rust NumericTopKIterator vs the real C OptimizerIterator (apples-to-apples).
+[[bench]]
+name = "numeric_top_k_optimizer"
+harness = false
+
+[build-dependencies]
+build_utils = { path = "../build_utils" }
+cc.workspace = true
+
+[dependencies]
+criterion.workspace = true
+ffi.workspace = true
+index_result.workspace = true
+inverted_index.workspace = true
+numeric_range_tree.workspace = true
+numeric_score_source = { path = "../numeric_score_source" }
+redis-module.workspace = true
+redis_mock.workspace = true
+rqe_core.workspace = true
+rqe_iterators = { workspace = true }
+rqe_iterators_test_utils.workspace = true
+workspace_hack.workspace = true
+# Crate required to invoke C symbols and keep Rust-defined FFI symbols alive.
+redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = [
+    "mock_allocator",
+] }
