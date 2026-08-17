@@ -1106,8 +1106,8 @@ extern void VecSimDisk_ReleaseConsistencyLock(void);
 // Fork × compaction debug coordinator (FT.DEBUG REPL_COMPACTION_COORDINATOR)
 //
 // Implemented on the Rust side in `redisearch_disk::compaction::debug`. Each
-// lifecycle site (compaction begin/completed, pre_checkpoint; `int` values
-// matching `compaction::Site`) calls `reach` when it executes. A test can:
+// lifecycle site (compaction begin/completed, consistency_window_open; `int`
+// values matching `compaction::Site`) calls `reach` when it executes. A test can:
 //   - `ArmPause(site, true)`  park a site when it is next reached.
 //   - `SetWake(trigger, target)`  release `target` when `trigger` is reached
 //       (the cross-wake that lets a main-thread site unblock a parked

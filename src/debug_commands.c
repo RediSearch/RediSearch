@@ -2379,8 +2379,8 @@ static int parseCompactionSite(const char *name, int *out) {
     *out = SEARCH_DISK_SITE_COMPACTION_BEGIN;
   } else if (!strcasecmp(name, "compaction_completed")) {
     *out = SEARCH_DISK_SITE_COMPACTION_COMPLETED;
-  } else if (!strcasecmp(name, "pre_checkpoint")) {
-    *out = SEARCH_DISK_SITE_PRE_CHECKPOINT;
+  } else if (!strcasecmp(name, "consistency_window_open")) {
+    *out = SEARCH_DISK_SITE_CONSISTENCY_WINDOW_OPEN;
   } else if (!strcasecmp(name, "numeric_split_pre_commit")) {
     *out = SEARCH_DISK_SITE_NUMERIC_SPLIT_PRE_COMMIT;
   } else if (!strcasecmp(name, "numeric_gate_closed")) {
@@ -2403,7 +2403,7 @@ static int parseCompactionSite(const char *name, int *out) {
  *   REACHED <site>                     -> integer arrival count
  *   RESET                              clear all state, free waiters
  *
- * <site> is one of: compaction_begin, compaction_completed, pre_checkpoint,
+ * <site> is one of: compaction_begin, compaction_completed, consistency_window_open,
  * numeric_split_pre_commit, numeric_gate_closed, numeric_map_write_locked.
  */
 DEBUG_COMMAND(replCompactionCoordinator) {

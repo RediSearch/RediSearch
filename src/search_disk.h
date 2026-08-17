@@ -855,10 +855,9 @@ void SearchDisk_Flush(RedisSearchDiskIndexSpec* index);
 /**
  * @brief Open the consistency window on a single index.
  *
- * Replaces the former PreCheckpoint/PreFork pair. Disables and cancels manual compactions
- * and closes the numeric consistency gate; does not flush - the caller does that under the
- * vector consistency lock. Idempotent within a cycle. Takes no IndexSpec lock: running on
- * the main thread is what keeps writes out.
+ * Disables and cancels manual compactions and closes the numeric consistency gate; does not
+ * flush - the caller does that under the vector consistency lock. Idempotent within a cycle.
+ * Takes no IndexSpec lock: running on the main thread is what keeps writes out.
  *
  * @param sp Pointer to the IndexSpec (must have a non-NULL diskSpec)
  */
@@ -912,7 +911,10 @@ void SearchDisk_UpdateMaxOpenFiles(RedisModuleCtx *ctx, int maxOpenFiles);
 typedef enum {
   SEARCH_DISK_SITE_COMPACTION_BEGIN = 0,
   SEARCH_DISK_SITE_COMPACTION_COMPLETED = 1,
-  SEARCH_DISK_SITE_PRE_CHECKPOINT = 2,
+  // The cycle's first index_spec_open_consistency_window, before
+  // disable_compactions() (main thread); cross-wake source for releasing a
+  // compaction the window is about to block on.
+  SEARCH_DISK_SITE_CONSISTENCY_WINDOW_OPEN = 2,
   // A numeric split between its Step B scan and its Step C+D commit (GC
   // thread) — the mid-flight, nothing-committed point.
   SEARCH_DISK_SITE_NUMERIC_SPLIT_PRE_COMMIT = 3,
@@ -938,8 +940,8 @@ void SearchDisk_DebugCoordinatorArmPause(int site, bool armed);
  * @brief Configures a cross-wake: reaching `trigger` releases `target`.
  *
  * This is what breaks the replication-vs-compaction deadlock — a main-thread
- * site (e.g. PRE_CHECKPOINT) can release a background compaction it is about
- * to block on. A `target` of -1 clears the link.
+ * site (e.g. CONSISTENCY_WINDOW_OPEN) can release a background compaction it is
+ * about to block on. A `target` of -1 clears the link.
  */
 void SearchDisk_DebugCoordinatorSetWake(int trigger, int target);
 
