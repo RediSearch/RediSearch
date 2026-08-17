@@ -286,18 +286,18 @@ dependencies = [
 
 [[package]]
 name = "cheadergen"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f990f00a175950d110316af42ed9703ec3b1483db11cc544c4d13043729ef436"
+checksum = "aa09b1f1701ac26f3796ac52ea5689ab788043063aa8c48c34c00f13a9ecab18"
 dependencies = [
  "cheadergen_macros",
 ]
 
 [[package]]
 name = "cheadergen_macros"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "056a8e8de9bc1cab97c960b74f97210d4b0527d3566c5c30048f1aec2cee1818"
+checksum = "595097d3d1620c409f1fdb004465e04d2720474e885ed31259f6ec27d29d10af"
 dependencies = [
  "proc-macro2",
  "quote 1.0.46",
