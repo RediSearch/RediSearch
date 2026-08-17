@@ -93,14 +93,10 @@ static void Indexes_AsyncScanKeyCB(RedisModuleCtx *ctx, RedisModuleScanCursor *c
   // Memory-limit check. Once flagged, stop re-checking but KEEP indexing the keys already
   // delivered in this batch: the driver acts on the flag between batches, and a resumed scan is
   // never re-delivered these keys — dropping them here would leave permanent holes in the index.
-  // Overshoot is bounded by the remainder of one batch. The triggering key is held in case the
-  // abort path attaches an index error.
+  // Overshoot is bounded by the remainder of one batch. Unlike the sync strategy, no offending key
+  // is recorded (scanner->OOMkey stays NULL)
   if (!scanner->scanFailedOnOOM && isAsyncBgIndexingMemoryOverLimit(ctx)) {
     scanner->scanFailedOnOOM = true;
-    if (scanner->OOMkey) {
-      RedisModule_FreeString(RSDummyContext, scanner->OOMkey);
-    }
-    scanner->OOMkey = RedisModule_HoldString(RSDummyContext, name);
   }
 
   DocumentType type = getDocType(key);
@@ -409,10 +405,6 @@ static RedisModuleAsyncScanResult Indexes_AsyncScanDriveNextBatch(
   // index is whole whatever pressure that last batch saw. Clear the latch
   if (done_reason == REDISMODULE_ASYNCSCAN_DONE_COMPLETED && scanner->scanFailedOnOOM) {
     scanner->scanFailedOnOOM = false;
-    if (scanner->OOMkey) {
-      RedisModule_FreeString(RSDummyContext, scanner->OOMkey);
-      scanner->OOMkey = NULL;
-    }
   }
 
   // OOM flagged by key_cb during this batch. Same pause-and-retry as the sync scan: give the
@@ -436,10 +428,6 @@ static RedisModuleAsyncScanResult Indexes_AsyncScanDriveNextBatch(
     RedisModule_ThreadSafeContextLock(ctx);
     if (!IndexesScanner_IsCancelled(scanner) && !isAsyncBgIndexingMemoryOverLimit(ctx)) {
       scanner->scanFailedOnOOM = false;
-      if (scanner->OOMkey) {
-        RedisModule_FreeString(RSDummyContext, scanner->OOMkey);
-        scanner->OOMkey = NULL;
-      }
       RedisModule_Log(ctx, "notice",
                       "AsyncScan: index %s is back within the server's memory budget; resuming "
                       "(scanned=%zu)",
@@ -470,7 +458,8 @@ static RedisModuleAsyncScanResult Indexes_AsyncScanDriveNextBatch(
                     "(scanned=%zu). The index may be incomplete; once memory pressure is "
                     "relieved, drop and recreate the index to rebuild it",
                     scanner->spec_name_for_logs, scanner->scannedKeys);
-    // RecordFailure re-takes the GIL, so call it unlocked. Offending key came from key_cb.
+    // RecordFailure re-takes the GIL, so call it unlocked. No offending key (see key_cb): the
+    // documents this abort omits are the ones later batches never delivered.
     Indexes_AsyncScanRecordFailure(
         ctx, scanner,
         "Background indexing cancelled: used memory exceeded the server's memory budget; the "
@@ -666,10 +655,10 @@ done:
   RedisModule_Log(ctx, "debug", "AsyncScan: index %s scan task exiting (scanned=%zu)",
                   scanner->spec_name_for_logs, scanner->scannedKeys);
 
-  // Take the GIL around IndexesScanner_Free: it clears sp->scanner / sp->scan_in_progress and
-  // frees scanner->OOMkey, all read by FT.INFO (fillReplyWithIndexInfo) on the main thread. This
-  // task runs GIL-released between batches, so without the GIL a scan finishing concurrently with
-  // INFO could race or leave INFO dereferencing a freed scanner. The spec lock is not enough: Free
+  // Take the GIL around IndexesScanner_Free: it clears sp->scanner / sp->scan_in_progress, both
+  // read by FT.INFO (fillReplyWithIndexInfo) on the main thread. This task runs GIL-released
+  // between batches, so without the GIL a scan finishing concurrently with INFO could race or
+  // leave INFO dereferencing a freed scanner. The spec lock is not enough: Free
   // also touches the process-global global_spec_scanner, and INFO reads sp->scanner without any
   // per-spec lock (it relies on the GIL). The GIL is the real contract here, same as the sync scan.
   RedisModule_ThreadSafeContextLock(ctx);
