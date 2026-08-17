@@ -88,6 +88,9 @@ impl<'a> KeyList<'a> {
     /// Keys are never removed, so the list saturates permanently: after the first `None`
     /// every later call returns `None` too, and a caller pushing a sequence of keys can
     /// stop at the first rejection instead of trying the rest.
+    ///
+    /// A rejection means the field's data silently becomes unavailable, so this logs a
+    /// warning on the caller's behalf.
     //
     // TODO remove the 'a and 'b lifetimes borrow-checker hack when we refactor this code. refer to Jira ticket MOD-13907.
     pub(crate) fn push<'b>(
@@ -100,7 +103,16 @@ impl<'a> KeyList<'a> {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::push (before)");
 
-        key.dstidx = u16::try_from(self.rowlen).ok()?;
+        key.dstidx = u16::try_from(self.rowlen)
+            .inspect_err(|_| {
+                tracing::warn!(
+                    field = %key.name().to_string_lossy(),
+                    keys = self.rowlen,
+                    "cannot look up more fields: the key limit is already reached, \
+                     so this field's values will be missing from the results"
+                );
+            })
+            .ok()?;
 
         // Safety: RLookup never hands out mutable references to the key (except `Pin<&mut T>` which is fine)
         // and never copies, or memmoves the memory internally.
