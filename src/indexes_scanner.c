@@ -138,29 +138,28 @@ bool isBgIndexingMemoryOverLimit(RedisModuleCtx *ctx) {
   return (used_memory_ratio > memory_limit_ratio) ;
 }
 
-// Slack (percentage points) added on top of indexingMemoryLimit by the async-scan check.
-// On Flex, used_ram_for_swapout == max_ram is the swapout engine's designed equilibrium once
-// the value cache is warm — the swapper evicts down to the budget, not below it — so without
-// slack the check reads "over limit" at the engine's normal operating point and a background
-// build over a warm keyspace can never finish. Real pressure (e.g. a RAM-resident index that
-// has outgrown the budget, with nothing left to evict) climbs past the slack and stays there;
-// the swapper's own wiggle around its equilibrium is orders of magnitude smaller.
-#define ASYNC_BG_INDEXING_MEM_SLACK_PCT 2
+// How far (percentage points) RAM demand must exceed its budget before the async check believes
+// it. The swapout engine holds the `ram` field of RedisMemoryFlexRatios at that budget, so the
+// ratio's level carries no information once the value cache is warm — only a departure from the
+// setpoint does, and this margin is what distinguishes a departure from the setpoint's own
+// ripple. Sized against a Flex repro whose ripple peaked at +0.03%, so the margin clears it by
+// well over an order of magnitude. Being proportional, it scales with the budget: a larger
+// max_ram tolerates proportionally more absolute overshoot, which is only safe as long as the
+// ripple stays proportional too — it did across the measured repro, but that was a single
+// max_ram, so treat it as the assumption it is.
+#define ASYNC_BG_INDEXING_RAM_SETPOINT_DEADBAND_PCT 2
 
-// Async-scan (disk + Flex) counterpart of isBgIndexingMemoryOverLimit: checks the higher of
-// the RAM-only and total usage ratios against indexingMemoryLimit % plus
-// ASYNC_BG_INDEXING_MEM_SLACK_PCT.
+// Async-scan (disk + Flex) counterpart of isBgIndexingMemoryOverLimit. Each Flex ratio gets its own
+// bound because they measure different things (see RedisMemoryFlexRatios): `total` is scarcity, so
+// exceeding its budget at all means the quota is spent, while `ram` is held at its budget by
+// design, so only a departure past ASYNC_BG_INDEXING_RAM_SETPOINT_DEADBAND_PCT is a signal. That is
+// also why indexingMemoryLimit is not consulted here as it is in the sync check: an "X% of budget"
+// threshold cannot mean anything for a ratio whose healthy value is already 100%.
 bool isAsyncBgIndexingMemoryOverLimit(RedisModuleCtx *ctx) {
-  // if memory limit is set to 0, we don't need to check for memory usage
-  if (RSGlobalConfig.indexingMemoryLimit == 0) {
-    return false;
-  }
+  const RedisMemoryFlexRatios ratios = RedisMemory_GetFlexRatios(ctx);
+  const float ram_limit_ratio = 1.0f + (float)ASYNC_BG_INDEXING_RAM_SETPOINT_DEADBAND_PCT / 100;
 
-  float used_memory_ratio = RedisMemory_GetUsedMemoryRatioFlex(ctx);
-  float memory_limit_ratio =
-      ((float)RSGlobalConfig.indexingMemoryLimit + ASYNC_BG_INDEXING_MEM_SLACK_PCT) / 100;
-
-  return (used_memory_ratio > memory_limit_ratio);
+  return ratios.total > 1.0f || ratios.ram > ram_limit_ratio;
 }
 
 double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, const IndexSpec *sp) {

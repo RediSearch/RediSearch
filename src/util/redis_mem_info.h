@@ -47,13 +47,27 @@ static inline float RedisMemory_GetUsedMemoryRatio(void) {
 // TODO: remove this function and use RedisMemory_GetUsedMemoryRatio instead after benchmarking
 float RedisMemory_GetUsedMemoryRatioUnified(RedisModuleCtx *ctx);
 
-// Used-memory ratio for the async background scan, which runs only with disk indexes on
-// Flex (BigRedis). Returns max(total_ratio, ram_ratio):
-//   total_ratio = used_memory          / min_not_0(maxmemory, max_process_mem)
-//   ram_ratio   = used_ram_for_swapout / min_not_0(max_ram,   max_process_mem)
-// On Flex used_memory is RAM + flash quota, so it can stay low while RAM — the real
-// bottleneck for indexing — is exhausted; the RAM term catches that. The bigredis fields
-// are read from the `mem` INFO section (which on Flex returns both the `memory` and
-// `bigredis` sections in one call). A budget that is 0 contributes a 0 ratio.
+// The two memory-pressure ratios available on Flex (BigRedis), used by the async background
+// scan. Both are expressed against their own budget, so 1.0 means "at budget" for either — but
+// they are NOT interchangeable, and no single threshold is meaningful for both: `total` is free-
+// running while `ram` is actively regulated (see the fields). Callers must therefore test each
+// against its own bound rather than collapsing them with max().
+//
+// `total` alone would not be enough: on Flex it can stay low while RAM — the real bottleneck for
+// indexing — is exhausted, which is exactly what `ram` catches.
+typedef struct {
+  // used_memory / min_not_0(maxmemory, max_process_mem) — the RAM + flash quota. Scarcity:
+  // nothing drives this upward on its own, and reaching 1.0 means the quota really is spent.
+  float total;
+  // used_ram_for_swapout / min_not_0(max_ram, max_process_mem) — RAM only. This one is a
+  // controlled variable: the swapout engine evicts values down to the budget and no further, so
+  // once the value cache is warm 1.0 is its designed operating point rather than a warning, and
+  // it ripples around that setpoint. Only a departure above the setpoint that persists means the
+  // engine has run out of evictable values and RAM demand is genuinely unmet.
+  float ram;
+} RedisMemoryFlexRatios;
+
+// Read both Flex ratios, in one INFO call. A budget of 0 yields a 0 ratio for that term, so an
+// absent bigredis section cannot report pressure.
 // GIL must be held before calling this function.
-float RedisMemory_GetUsedMemoryRatioFlex(RedisModuleCtx *ctx);
+RedisMemoryFlexRatios RedisMemory_GetFlexRatios(RedisModuleCtx *ctx);

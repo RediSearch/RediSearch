@@ -49,10 +49,11 @@ extern DebugCTX globalDebugCtx;
 #define ASYNC_SCAN_BATCH_SIZE_HINT_DEFAULT 100
 
 // Max pause-and-recheck rounds after the indexing memory limit trips, before the scan is
-// aborted for good. On Flex the checked RAM ratio hovers at the limit at steady state, so a
-// single recheck is a point sample with a real chance of landing over the line even though
-// the swapper recovers within seconds; several rounds make a spurious abort improbable while
-// still bounding how long a genuinely stuck (index-does-not-fit) build lingers.
+// aborted for good. Clearing the check's deadband proves RAM demand departed from the swapout
+// engine's setpoint, but not that the departure is permanent: a fork's copy-on-write spike or a
+// burst of large writes gets absorbed within seconds, whereas an index that has outgrown the RAM
+// budget never recovers. Several rounds tell those apart while still bounding how long a
+// genuinely stuck build lingers before it reports OOM.
 #define ASYNC_SCAN_OOM_MAX_PAUSE_ROUNDS 6
 
 // While parked behind the vector flat-buffer throttle, re-check the index still exists every
@@ -406,17 +407,14 @@ static RedisModuleAsyncScanResult Indexes_AsyncScanDriveNextBatch(
     }
   }
 
-  // OOM flagged by key_cb during this batch. On Flex, used_ram_for_swapout transiently
-  // exceeding max_ram is the swapout engine's normal operating signal (the swapper drains it
-  // asynchronously), and at steady state the ratio hovers *at* the limit, so a single
-  // over-limit sample does not prove persistent pressure — nor does a single under-limit
-  // recheck sample prove recovery is impossible. Pause-and-retry like the sync scan
-  // (threadSleepByConfigTime), but recheck up to ASYNC_SCAN_OOM_MAX_PAUSE_ROUNDS times: each
-  // round waits the configured pause with the GIL released, then re-samples. If memory
-  // recovered, resume in place — key_cb kept indexing the keys delivered while the flag was
-  // set, so unlike the sync path no restart is needed. Pause disabled (0) or still over the
-  // limit after every round → fall through to the abort below. Cancellation during a sleep
-  // is caught by the cancel branch that follows.
+  // OOM flagged by key_cb during this batch. One sample cannot distinguish a transient excursion
+  // from RAM demand that will stay unmet, so pause-and-retry like the sync scan
+  // (threadSleepByConfigTime) but re-sample up to ASYNC_SCAN_OOM_MAX_PAUSE_ROUNDS times, each
+  // round waiting the configured pause with the GIL released. If memory recovered, resume in
+  // place — key_cb kept indexing the keys delivered while the flag was set, so unlike the sync
+  // path no restart is needed. Pause disabled (0) or still over the limit after every round →
+  // fall through to the abort below. Cancellation during a sleep is caught by the cancel branch
+  // that follows.
   if (scanner->scanFailedOnOOM && !IndexesScanner_IsCancelled(scanner) &&
       RSGlobalConfig.bgIndexingOomPauseTimeBeforeRetry > 0) {
     const uint32_t pauseSecs = RSGlobalConfig.bgIndexingOomPauseTimeBeforeRetry;

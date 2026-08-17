@@ -192,7 +192,8 @@ typedef struct {
   uint32_t bgIndexingSleepDurationMicroseconds;
   // Limit the number of cursors that can be created for a single index
   long long indexCursorLimit;
-  // The maximum ratio between current memory and max memory for which background indexing is allowed
+  // The maximum ratio between current memory and max memory for which background indexing is allowed.
+  // Percent, 0-100.
   uint8_t indexingMemoryLimit;
   // Enable to execute unstable features
   bool enableUnstableFeatures;
