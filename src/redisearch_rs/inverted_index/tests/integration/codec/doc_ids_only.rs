@@ -9,7 +9,8 @@
 
 use std::io::Cursor;
 
-use inverted_index::{Decoder, Encoder, RSIndexResult, doc_ids_only::DocIdsOnly};
+use index_result::RSIndexResult;
+use inverted_index::{Decoder, Encoder, doc_ids_only::DocIdsOnly};
 
 #[test]
 fn test_encode_doc_ids_only() {

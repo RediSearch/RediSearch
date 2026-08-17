@@ -1,0 +1,323 @@
+#!/usr/bin/env python3
+
+import sys
+import time
+
+from coldata import *
+import mph
+
+State = list[str]  # ["0001", "0002", "0003"]
+States = list[tuple[str, int]]  # [("state_0001_0002", -1), ...] # str states with weights
+
+
+def tab(string: str, tabs: int = 1) -> str:
+	return '\t' * tabs + string
+
+
+def state2str(state: State) -> str:
+	'''transforms state ["0001", "0002"] into string "state_0001_0002"'''
+	numbers_str = '_'.join(f'{int(codepoint, base=16):06X}' for codepoint in state)
+	return f'state_{numbers_str}'
+
+
+def str2state(string: str) -> State:
+	'''transforms string "state_0001_0002" into state ["0001", "0002"]'''
+	return string[len('state_'):].split('_')
+
+
+def find_children(state: State, contractions: Collection) -> list[tuple[State, Weight]]:
+	'''return list of child states, lookup is done on contractions'''
+	children: list[tuple[State, Weight]] = []
+	for s, w in contractions:
+		if len(s) > len(state) and s[:len(state)] == state:
+			children.append((s, w))
+	return children
+
+
+def find_parent(state: State, states: States) -> str | None:
+	'''return parent state, parent might be intermediate or root'''
+	for s, _ in states:
+		s = str2state(s)
+		if len(s) == len(state) - 1 and state[:-1] == s:
+			return state2str(s)
+
+
+def final_state(state: State, contractions: Collection) -> bool:
+	'''test if state is final - no child states'''
+	return not find_children(state, contractions)
+
+
+def root_state(state: State) -> bool:
+	'''test if state is root - no parent states'''
+	return len(state) == 1
+
+
+def collect_states(contractions: Collection) -> tuple[States, int]:
+	'''collect entire list of states: root, intermediate and final'''
+	states: set[str] = set()
+	max_level = 0
+	for points, _ in contractions:
+		if len(points) < 2:
+			continue
+
+		for i in range(len(points) - 1):
+			states.add(state2str(points[:i + 1]))
+		states.add(state2str(points))
+
+		max_level = max(len(points), max_level)
+
+	weighted_states = [(state, -(i + 1)) for i, state in enumerate(sorted(states))]
+	return sorted(weighted_states, key=itemgetter(1)), max_level
+
+
+def find_closest_parent(state: State, states: States, contractions: Collection, codepoints: Collection):
+	'''return closest parent *with assigned weight*'''
+	closest_parent = []
+	for s, _ in states:
+		s = str2state(s)
+		if len(s) <= len(state) and state[:len(s)] == s:
+			if not find_weight(s, contractions) and not find_weight(s, codepoints):
+				continue
+
+			closest_parent = len(s) > len(closest_parent) and s or closest_parent
+
+	return closest_parent or None  # return None instead of empty list
+
+
+def expand_children(state: State, states: States, contractions: Collection, codepoints: Collection, level: int = 1):
+	'''produce switch for child states'''
+
+	def fallback(state: State, states: States, contractions: Collection, codepoints: Collection):
+		'''produce fallback code when neither of child states
+		doesn't fit next codepoint and state is need to be reverted back up
+		to closest parent with assigned weight'''
+		parent = find_closest_parent(state, states, contractions, codepoints)
+		assert parent is not None
+		weight = find_weight(parent, contractions) or find_weight(parent, codepoints)
+		assert weight is not None
+		distance = len(state) - len(parent) + 1
+		assert distance >= 1
+
+		assert len(weight) == 1
+		print(tab(f'*w = {distance};', level))
+		print(tab(f'return 0x{weight[0]:06X};', level))
+
+	children = {tuple(child[:len(state) + 1]) for child, _ in find_children(state, contractions)}
+	children = sorted(children)
+	children = list(list(child) for child in children)
+	assert children
+
+	print(tab('switch (u) {', level))
+
+	for _, next_state in enumerate(children):
+		assert len(next_state) > len(state)
+
+		check_codepoint = next_state[-1]
+
+		if final_state(next_state, contractions):
+			weight = find_weight(next_state, contractions)
+			assert weight is not None
+			assert len(weight) == 1
+			weight_str = f'0x{weight[0]:06X}'
+		else:
+			weight_str = state2str(next_state)
+
+		print(tab(f'case 0x{int(check_codepoint, base=16):06X}: return {weight_str}; ', level))
+
+	print(tab('}', level))
+	print('')
+
+	fallback(state, states, contractions, codepoints)
+
+
+def expand_intermediate_states(states: States, contractions: Collection, codepoints: Collection):
+	'''produce C code for intermediate states'''
+
+	def split_roots(roots: list[str]) -> tuple[str, list[str], list[str]]:
+		'''kind of binary split of list into left side, right side
+		and state at the middle. list is need to be ordered'''
+		middle = roots[len(roots) // 2]
+		left = roots[:len(roots) // 2]
+		right = roots[len(roots) // 2 + 1:]
+		return middle, left, right
+
+	def intermediate_states(states: States, contractions: Collection) -> list[str]:
+		'''filter intermediate states from complete list of states'''
+		return [state for state, _ in states if not final_state(str2state(state), contractions)]
+
+	def expand_intermediate_state(state: State,
+		left: list[str],
+		right: list[str],
+		states: States,
+		contractions: Collection,
+		codepoints: Collection,
+		level: int = 2):
+		'''produce code for a single state recursively'''
+		state_str = state2str(state)
+
+		print(tab(f'if (weight == {state_str}) {{', level))
+		expand_children(state, states, contractions, codepoints, level=level + 1)
+		print(tab('}', level))
+
+		if left:
+			print(tab(f'else if (weight < {state_str}) {{', level))
+			lmiddle, lleft, lright = split_roots(left)
+			expand_intermediate_state(str2state(lmiddle),
+				lleft,
+				lright,
+				states,
+				contractions,
+				codepoints,
+				level=level + 1)
+			print(tab('}', level))
+
+		if right:
+			print(tab(f'else {{ /* weight > {state_str} */', level))
+			rmiddle, rleft, rright = split_roots(right)
+			expand_intermediate_state(str2state(rmiddle),
+				rleft,
+				rright,
+				states,
+				contractions,
+				codepoints,
+				level=level + 1)
+			print(tab('}', level))
+
+	# list is need to be ordered for binary search to work
+	assert states == sorted(states, key=itemgetter(1))
+
+	roots = intermediate_states(states, contractions)
+	middle, left, right = split_roots(roots)
+
+	print(tab('if (w != 0) { /* re-entry, intermediate states */'))
+	print(tab('int32_t weight = *w;', 2))
+	print(tab('*w = 0;', 2))
+	print('')
+
+	expand_intermediate_state(str2state(middle), left, right, states, contractions, codepoints)
+
+	print(tab('}'))
+	print('')
+
+
+def gen_header(tag: str, contractions: Collection):
+	'''produce info header'''
+	print(f'''/* Automatically generated file (contractions-toc), {int(time.time())}
+ *
+ * Tag          : {tag}
+ * Contractions : {len(contractions)}
+ */''')
+	print('')
+
+
+def gen_includes():
+	'''produce all required includes to compile generated code'''
+	print('#include <stdint.h>')
+	print('')
+	print('#include "udb.h"')
+	print('')
+
+
+def gen_consts(tag: str, contractions: Collection, codepoints: Collection):
+	print(f'const size_t {tag.upper()}_CONTRACTIONS = {len(contractions)}; /* contractions included in switch */')
+	print(f'const size_t {tag.upper()}_CODEPOINTS = {len(codepoints)}; /* complementary codepoints number */')
+	print('')
+
+
+def gen_roots_mph(tag: str, states: States, compact: bool = False):
+	'''produce MPH sructures for root codepoints'''
+
+	def root_states(states: States) -> States:
+		'''filter root states from complete states list'''
+		roots = [(state, weight) for state, weight in states if root_state(str2state(state))]
+		return roots
+
+	roots = root_states(states)
+	d: mph.Table = {}
+	for state, weight in roots:
+		codepoints = str2state(state)
+		assert len(codepoints) == 1
+		d[codepoints[0]] = (codepoints[0], -weight)
+
+	fixed_tag = (tag + '_ROOTS').upper()  # internal tag
+
+	(G, V) = mph.create_minimal_perfect_hash(d)
+	mph.gen_G(fixed_tag, G)
+	mph.gen_values(fixed_tag, V, compact)
+
+
+def gen_roots_lookup(tag: str):
+	fixed_tag = (tag + '_ROOTS').upper()  # internal tag
+
+	print(tab('if (w == 0) { /*  first entry, root states */'))
+	print(tab(f'uint32_t state = nu_udb_lookup_value(u, {fixed_tag}_G, {fixed_tag}_G_SIZE,', 2))
+	print(tab(f'{fixed_tag}_VALUES_C, {fixed_tag}_VALUES_I);', 3))
+	print('')
+	print(tab('if (state != 0) {', 2))
+	print(tab('return -state; /* VALUES_I store negated (positive) states */', 3))
+	print(tab('}', 2))
+	print(tab('}'))
+	print('')
+
+
+def gen_switch(tag: str, states: States, contractions: Collection, codepoints: Collection):
+	'''produce switch entry point'''
+
+	print('/* MPH lookup for root codepoints + binary search on balanced tree')
+	print(' * for intermediate states */')
+	print('/* clang-format off */')
+	print(f'int32_t {tag}_weight_switch(uint32_t u, int32_t *w, void *context) {{')
+	print(tab('(void)(context);'))
+	print('')
+
+	gen_roots_lookup(tag)
+	expand_intermediate_states(states, contractions, codepoints)
+
+	# impossible weight because this special case is need
+	# to be handled before entering switch
+	# thus indicates that switch didn't find a weight
+	print(tab('return 0;'))
+	print('}')
+	print('/* clang-format on */')
+
+
+def gen_states(states: States, contractions: Collection):
+	'''produce defines with state weights. normally all states
+	produced would have negative weight (intermediate and root states).
+	final states are resolved directly into weight w/o extra switch'''
+	for state_str, weight in states:
+		state = str2state(state_str)
+		# don't print final states - they will be embedded as numbers
+		if not final_state(state, contractions):
+			assert int(weight) < 0
+			print(f'#define {state_str} ({weight})')
+	print('')
+
+
+def usage():
+	print(f'usage: {sys.argv[0]} [CODEPOINTS] [CONTRACTIONS] [TAG] [BMP_ONLY]')
+	print('')
+	print('  [CODEPOINTS]   - filename with list of codepoints')
+	print('  [CONTRACTIONS] - filename with list of contractions from the same collation')
+	print('  [TAG]          - prefix to weighting switch')
+	print('  [BMP_ONLY]     - flag to indicate if set is BMP-only, 0 or 1 (false or true)')
+
+
+if __name__ == '__main__':
+	if len(sys.argv) < 5:
+		usage()
+		sys.exit(1)
+
+	CODEPOINTS, CONTRACTIONS = sys.argv[1], sys.argv[2]
+	TAG = sys.argv[3]
+	BMP_ONLY = bool(int(sys.argv[4]))
+
+	codepoints, contractions = collect_contractions(CODEPOINTS, CONTRACTIONS)
+	states, _ = collect_states(contractions)
+
+	gen_header(TAG, contractions)
+	gen_includes()
+	gen_consts(TAG, contractions, codepoints)
+	gen_states(states, contractions)
+	gen_roots_mph(TAG, states, BMP_ONLY)
+	gen_switch(TAG, states, contractions, codepoints)

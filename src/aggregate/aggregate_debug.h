@@ -8,8 +8,9 @@
 */
 #pragma once
 
-#include "query_error.h"
 #include "aggregate.h"
+
+typedef struct QueryError QueryError;
 
 /*
  * Debugging Mechanism for Query Execution
@@ -37,13 +38,19 @@
  *         - Internally inserts a result processor (RP) as the downstream processor
  *           of the final execution step (e.g., `RP_INDEX` in SA or `RP_NETWORK` in the
  *           coordinator).
- *         - **Policy constraints (shard-level queries only):** Requires `ON_TIMEOUT RETURN`
- *           policy, or `ON_TIMEOUT FAIL` when running without workers (WORKERS=0).
- *           `ON_TIMEOUT RETURN-STRICT` is never supported. This restriction applies to
- *           shard-level queries (standalone or cluster shards) because `TIMEOUT_AFTER_N`
- *           uses in-pipeline timeout simulation. With workers enabled, `ON_TIMEOUT FAIL`
- *           relies on blocked client timeout instead of in-pipeline checks, making it
- *           incompatible with `TIMEOUT_AFTER_N`.
+ *         - **Policy constraints:**
+ *           - **Shard/SA (not coordinator):** Requires `ON_TIMEOUT RETURN` policy, or
+ *             `ON_TIMEOUT FAIL` when running without workers (WORKERS=0).
+ *             `ON_TIMEOUT RETURN-STRICT` is never supported. This restriction applies because
+ *             `TIMEOUT_AFTER_N` uses in-pipeline timeout simulation. With workers enabled,
+ *             `ON_TIMEOUT FAIL` relies on blocked client timeout instead of in-pipeline checks,
+ *             making it incompatible with `TIMEOUT_AFTER_N`.
+ *           - **Coordinator with `INTERNAL_ONLY`:** No policy constraint on the coordinator
+ *             itself—the debug timeout only affects the shard query pipeline. A special
+ *             handling exists for `N == 0` with query timeout disabled to prevent infinite
+ *             loops (see RESP2/RESP3 details below).
+ *           - **Coordinator without `INTERNAL_ONLY`:** Requires `ON_TIMEOUT RETURN` policy
+ *             only. `ON_TIMEOUT FAIL` and `ON_TIMEOUT RETURN-STRICT` are not supported.
  *       - **`INTERNAL_ONLY` (optional)**:
  *         - Only applicable in FT.AGGREGATE cluster mode.
  *         - If specified, the timeout applies solely to internal shard queries,
@@ -83,9 +90,11 @@
  *
  * ### Limitations:
  * - Pause debugging affects at most one query at a time (single debug pause RP at once).
- * - `TIMEOUT_AFTER_N` policy constraints (shard-level queries only): Requires `ON_TIMEOUT
- *   RETURN` policy, or `ON_TIMEOUT FAIL` without workers (WORKERS=0). `ON_TIMEOUT
- *   RETURN-STRICT` is never supported.
+ * - `TIMEOUT_AFTER_N` policy constraints:
+ *   - Shard/SA: Requires `ON_TIMEOUT RETURN`, or `ON_TIMEOUT FAIL` without workers
+ *     (WORKERS=0). `ON_TIMEOUT RETURN-STRICT` is never supported.
+ *   - Coordinator without `INTERNAL_ONLY`: Requires `ON_TIMEOUT RETURN` only.
+ *   - Coordinator with `INTERNAL_ONLY`: No policy constraint (debug timeout is shard-only).
  *
  * -----------------------------------------------------------------------------
  *
@@ -259,7 +268,9 @@ typedef struct {
 // Will hold AREQ by value, so we can use AREQ_Debug->r in all functions
 // expecting AREQ, including AREQ_Free
 AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *status);
-AREQ_Debug_params parseDebugParamsCount(RedisModuleString **argv, int argc, QueryError *status);
+// Release the debug argv copies owned by the request (see AREQ_Debug_New).
+void AREQ_Debug_FreeParams(AREQ_Debug *debug_req);
+AREQ_Debug_params parseAggregateDebugParamsCount(RedisModuleString **argv, int argc, QueryError *status);
 int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status);
 
 // Debug command to wrap single shard FT.AGGREGATE

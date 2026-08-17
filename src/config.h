@@ -8,12 +8,17 @@
 */
 #pragma once
 
+#include <stdint.h>
+
 #include "redismodule.h"
 #include "hiredis/sds.h"
-#include "query_error.h"
+#include "rmutil/args.h"
 #include "reply.h"
+#include "rqe_iterators.h"
 #include "util/config_macros.h"
 #include "ext/default.h"
+
+typedef struct QueryError QueryError;
 
 typedef enum {
   TimeoutPolicy_Return,       // Return what we have on timeout
@@ -105,17 +110,6 @@ typedef struct {
   RSOomPolicy oomPolicy;
 } RequestConfig;
 
-// Configuration parameters related to the query execution.
-typedef struct {
-  // The maximal number of expansions we allow for a prefix. Default: 200
-  long long maxPrefixExpansions;
-  // The minimal number of characters we allow expansion for in a prefix search. Default: 2
-  long long minTermPrefix;
-  // The minimal word length to stem. Default 4
-  unsigned int minStemLength;
-  long long minUnionIterHeap;
-} IteratorsConfig;
-
 /* RSConfig is a global configuration struct for the module, it can be included from each file,
  * and is initialized with user config options during module startup */
 typedef struct {
@@ -142,6 +136,12 @@ typedef struct {
   size_t maxDocTableSize;
   size_t maxSearchResults;
   size_t maxAggregateResults;
+  size_t maxAggregateGroups;
+
+  // Maximum allowed value (in ms) for the global search-timeout and per-query
+  // TIMEOUT argument when numWorkerThreads == 0 (foreground execution). When
+  // workers are enabled this limit is not enforced. 0 means unlimited.
+  long long maxForegroundTimeoutLimitMS;
 
   // MT configuration
   size_t numWorkerThreads;
@@ -216,6 +216,20 @@ typedef struct {
   bool monitorExpiration;
   // Percentage of available memory to use for disk write buffer (0-100).
   uint8_t diskBufferPercentage;
+  // Controls SpeedB OS page-cache behaviour for disk indexes (MOD-15866).
+  // Both default to false; users opt in via search-disk-drop-read-cache and
+  // search-disk-use-direct-reads at load time.  These are RSE-only knobs and
+  // are intentionally not coupled to any Flex bigredis-driver settings.
+  bool diskDropReadCache;
+  bool diskUseDirectReads;
+  // Per-DB cap on the number of files kept open. Valid values: -1 (unlimited) or >= 11.
+  // The disk backend reserves ~10 descriptors for non-data files and uses (cap - 10) as its
+  // open-file cache size, so caps of 0..10 would underflow that to an effectively unbounded
+  // cache — silently disabling the limit — rather than bounding it. Values in that range are
+  // rejected (see set_search_disk_max_open_files_config).
+  int diskMaxOpenFiles;
+  // If true, fallback to main thread when BlockClient is unavailable.
+  bool fallbackToMainThreadWhenBlockClientUnavailable;
 } RSConfig;
 
 typedef enum {
@@ -298,7 +312,24 @@ sds RSConfig_GetInfoString(const RSConfig *config);
 
 void UpgradeDeprecatedMTConfigs();
 
-char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
+/*
+ * Get the value of a Redis config as a `RedisModuleString`. Returns NULL if the
+ * config does not exist. The caller is responsible for freeing the returned
+ * string using `RedisModule_FreeString`.
+ */
+RedisModuleString *getRedisConfigValue(RedisModuleCtx *ctx, const char *confName);
+
+/*
+ * Get the boolean value of a Redis config. Returns `defaultValue` if the
+ * config does not exist or isn't a boolean config.
+ */
+bool getRedisConfigBool(RedisModuleCtx *ctx, const char *confName, bool defaultValue);
+
+/*
+ * Get the numeric value of a Redis config. Returns `defaultValue` if the
+ * config does not exist or isn't a numeric config.
+ */
+long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long long defaultValue);
 
 // We limit the number of worker threads to limit the amount of memory used by the thread pool
 // and to prevent the system from running out of resources.
@@ -320,6 +351,15 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define DEFAULT_INDEX_CURSOR_LIMIT 128
 #define MAX_AGGREGATE_REQUEST_RESULTS (1ULL << 31)
 #define DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS MAX_AGGREGATE_REQUEST_RESULTS
+#define MAX_AGGREGATE_GROUPS (1ULL << 26)
+#define DEFAULT_MAX_AGGREGATE_GROUPS 1000000
+#define MAX_GROUPBY_PROPERTIES UINT16_MAX
+// Lower aggregate caps used as the registration-time defaults in flex (disk)
+// mode: bound result materialization and the per-shard group count to reduce
+// OOM risk (the coordinator multiplies the group cap by the shard count).
+// Explicitly-set values (module args / CONFIG SET) override them as usual.
+#define DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS_FLEX 1000000
+#define DEFAULT_MAX_AGGREGATE_GROUPS_FLEX 100000
 #define DEFAULT_MAX_CURSOR_IDLE 300000
 #define DEFAULT_MAX_PREFIX_EXPANSIONS 200
 #define DEFAULT_MAX_SEARCH_REQUEST_RESULTS 1000000
@@ -329,6 +369,13 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define DEFAULT_MIN_STEM_LENGTH 4
 #define DEFAULT_MULTI_TEXT_SLOP 100
 #define DEFAULT_QUERY_TIMEOUT_MS 500
+// Flex (disk-based indexes) defaults: disk queries are expected to take
+// longer, so they get a higher timeout, and time out with an error instead
+// of returning partial results.
+#define DEFAULT_QUERY_TIMEOUT_MS_FLEX 5000
+#define DEFAULT_TIMEOUT_POLICY TimeoutPolicy_Return
+#define DEFAULT_TIMEOUT_POLICY_FLEX TimeoutPolicy_Fail
+#define DEFAULT_MAX_FOREGROUND_TIMEOUT_LIMIT_MS 60000
 #define DEFAULT_UNION_ITERATOR_HEAP 20
 #define DEFAULT_VSS_MAX_RESIZE 0
 
@@ -353,6 +400,11 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define DEFAULT_MAX_TRIM_DELAY 5000  // 5 seconds in milliseconds
 #define DEFAULT_TRIMMING_STATE_CHECK_DELAY 100 // 0.1 seconds in milliseconds (We check the trimming state every 0.1 seconds, between MIN_TRIM_DELAY and MAX_TRIM_DELAY)
 #define DEFAULT_DISK_BUFFER_PERCENTAGE 20  // 20% of available memory for disk write buffer
+#define DEFAULT_DISK_MAX_OPEN_FILES 1024   // open-file cap; -1 = unlimited
+// Smallest accepted positive cap. Below this the disk backend's open-file cache (cap - 10)
+// underflows to unbounded, so a positive cap must leave at least one cached reader.
+#define DISK_MAX_OPEN_FILES_MIN 11
+#define DEFAULT_MAX_INDEXES 200000
 
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                    \
@@ -364,7 +416,8 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH,            \
     .iteratorsConfigParams.maxPrefixExpansions = DEFAULT_MAX_PREFIX_EXPANSIONS,\
     .requestConfigParams.queryTimeoutMS = DEFAULT_QUERY_TIMEOUT_MS,            \
-    .requestConfigParams.timeoutPolicy = TimeoutPolicy_Return,                 \
+    .requestConfigParams.timeoutPolicy = DEFAULT_TIMEOUT_POLICY,               \
+    .maxForegroundTimeoutLimitMS = DEFAULT_MAX_FOREGROUND_TIMEOUT_LIMIT_MS,    \
     .cursorReadSize = 1000,                                                    \
     .cursorMaxIdle = DEFAULT_MAX_CURSOR_IDLE,                                  \
     .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                 \
@@ -383,6 +436,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .filterCommands = 0,                                                       \
     .maxSearchResults = DEFAULT_MAX_SEARCH_REQUEST_RESULTS,                    \
     .maxAggregateResults = DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS,              \
+    .maxAggregateGroups = DEFAULT_MAX_AGGREGATE_GROUPS,                        \
     .iteratorsConfigParams.minUnionIterHeap = DEFAULT_UNION_ITERATOR_HEAP,     \
     .numericCompress = false,                                                  \
     .numericTreeMaxDepthRange = 0,                                             \
@@ -411,6 +465,10 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .simulateInFlex = false,                                                   \
     .monitorExpiration = true,                                                 \
     .diskBufferPercentage = DEFAULT_DISK_BUFFER_PERCENTAGE,                    \
+    .diskDropReadCache = false,                                                \
+    .diskUseDirectReads = false,                                               \
+    .diskMaxOpenFiles = DEFAULT_DISK_MAX_OPEN_FILES,                           \
+    .fallbackToMainThreadWhenBlockClientUnavailable = true,                    \
   }
 
 #define REDIS_ARRAY_LIMIT 7
@@ -432,6 +490,12 @@ void iteratorsConfig_init(IteratorsConfig *config);
 
 void LogWarningDeprecatedFTConfig(RedisModuleCtx *ctx, const char *action,
                                   const char *name);
+
+/* Caps `*timeoutMS` to RSGlobalConfig.maxForegroundTimeoutLimitMS when the
+ * limit is active (workers disabled and limit > 0) and the current value
+ * exceeds it. Returns true iff capping occurred, in which case `*timeoutMS`
+ * was updated. */
+bool RSConfig_CapQueryTimeoutToForegroundLimit(long long *timeoutMS);
 
 #ifdef __cplusplus
 }

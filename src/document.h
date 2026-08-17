@@ -16,8 +16,14 @@
 #include "concurrent_ctx.h"
 #include "byte_offsets.h"
 #include "rmutil/args.h"
-#include "query_error.h"
 #include "json.h"
+#include "ttl_table.h"
+
+// Forward declaration of the C-side write-batch wrapper (defined in search_disk.h).
+// Forward-declared here to avoid pulling the entire disk-API surface into document.h.
+typedef struct SearchDiskWriteBatchHandle SearchDiskWriteBatchHandle;
+
+typedef struct QueryError QueryError;
 
 #ifdef __cplusplus
 extern "C" {
@@ -93,7 +99,7 @@ typedef struct Document {
   float score;
   t_docId docId;
   t_expirationTimePoint docExpirationTime;
-  FieldExpiration* fieldExpirations;
+  FieldExpirations fieldExpirations;
   const char *payload;
   size_t payloadSize;
   uint32_t flags;
@@ -147,6 +153,11 @@ typedef struct {
 // When loading the document we are after the iterators phase, where we already verified the expiration time of the field and document
 // We don't allow any lazy expiration to happen here
 #define DOCUMENT_OPEN_KEY_QUERY_FLAGS REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS | REDISMODULE_OPEN_KEY_NOEXPIRE | REDISMODULE_OPEN_KEY_ACCESS_EXPIRED | REDISMODULE_OPEN_KEY_ACCESS_TRIMMED
+
+// Returns the absolute expiration time of an already-opened key as a
+// t_expirationTimePoint, or {0,0} if the key has no TTL. Wraps
+// RedisModule_GetAbsExpire so callers share a single ms->timespec conversion.
+t_expirationTimePoint GetKeyExpirationTime(RedisModuleKey *openedKey);
 
 void Document_AddField(Document *d, const char *fieldname, RedisModuleString *fieldval,
                        uint32_t typemask);
@@ -202,9 +213,27 @@ void Document_Clear(Document *doc);
  * the document must then be freed using Document_Free().
  *
  * The document must already have the docKey set
+ *
+ * `openKey` is an optional already-open handle for the document key. Pass it when
+ * the caller already holds the key open and pinned (e.g. the async scan key
+ * callback) so the load reuses the handle instead of opening the same key a second
+ * time, which is unsafe while the caller's handle is live; pass NULL otherwise. The
+ * caller retains ownership of `openKey` and must keep it valid for the duration of
+ * the call.
  */
-int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError* status);
-int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError* status);
+int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, RedisModuleKey *openKey,
+                                 QueryError* status);
+int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, RedisModuleKey *openKey,
+                                 QueryError* status);
+
+/**
+ * Append a `FieldExpiration` entry for `field` (at position `ii` in
+ * `spec->fields`) to `*out` when the hash key has a TTL on that field; no-op
+ * otherwise. Calling this in `spec->fields` order keeps `*out` sorted by
+ * `t_fieldIndex`, which is the invariant the TTL table relies on.
+ */
+void Document_LoadHashFieldExpiration(RedisModuleKey *k, const FieldSpec *field,
+                                      size_t ii, FieldExpirations *out);
 
 /**
  * Load all the fields into the document.
@@ -297,6 +326,20 @@ typedef struct RSAddDocumentCtx {
   uint8_t stateFlags;    // Indexing state, ACTX_F_xxx
   DocumentAddCompleted donecb;
   void *donecbData;
+
+  // Disk-mode-only state. `batch` is NULL outside disk mode; the other fields
+  // are unused there.
+  struct {
+    SearchDiskWriteBatchHandle *batch;
+    t_docId oldDocId;
+    uint32_t oldDocLen;
+    // Optional already-open key handle for the document, supplied by the caller
+    // (e.g. the async scan key callback, where the engine hands us an open,
+    // pinned key). When non-NULL, applyDocTable updates the DocIdMeta mapping
+    // through this handle (DocIdMeta_SetWithOpenKey) instead of reopening the key by
+    // name. The caller retains ownership; it must outlive AddDocumentCtx_Submit.
+    RedisModuleKey *openKey;
+  } disk;
 } RSAddDocumentCtx;
 
 /**

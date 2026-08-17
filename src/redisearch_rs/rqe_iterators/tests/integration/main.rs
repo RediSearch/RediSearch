@@ -33,8 +33,14 @@ use rstest_reuse::template;
 fn id_cases(#[case] case: &[u64]) {}
 
 mod c2rust;
+mod contract_checker;
+mod deferred;
 mod empty;
+#[cfg(not(miri))]
+mod format_g;
+mod geo_shape;
 mod id_list;
+mod interop;
 mod intersection;
 mod inverted_index;
 mod maybe_empty;
@@ -45,10 +51,16 @@ mod not_optimized;
 mod not_reducer;
 mod optional;
 mod optional_optimized;
+mod optional_reducer;
 mod profilable;
 mod profile;
+#[cfg(not(miri))]
+mod profile_print;
+mod timeout_context;
 #[macro_use]
 mod union_common;
 mod union_flat;
 mod union_heap;
+mod union_reducer;
+mod union_trimmed;
 mod wildcard;

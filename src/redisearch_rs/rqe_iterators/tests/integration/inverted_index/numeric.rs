@@ -7,19 +7,21 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ptr::NonNull;
+use std::ptr::{self, NonNull};
 
-use ffi::{IndexFlags_Index_StoreNumeric, t_docId};
+use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter, IndexFlags_Index_StoreNumeric};
+use index_result::RSIndexResult;
 use inverted_index::{
-    FilterNumericReader, IndexReader, InvertedIndex, NumericFilter, NumericReader, RSIndexResult,
+    FilterNumericReader, IndexReader, InvertedIndex, NumericFilter, NumericReader,
 };
+use rqe_core::DocId;
 use rqe_iterators::{
     IteratorType, NoOpChecker, RQEIterator, RQEValidateStatus, SkipToOutcome,
     inverted_index::Numeric,
 };
 
 use crate::inverted_index::utils::BaseTest;
-use rqe_iterators_test_utils::MockContext;
+use rqe_iterators_test_utils::{ContractChecker, MockContext};
 
 /// Builder for creating a Numeric iterator with optional parameters.
 #[allow(dead_code)]
@@ -117,7 +119,7 @@ struct NumericBaseTest {
 }
 
 impl NumericBaseTest {
-    fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
+    fn expected_record(doc_id: DocId) -> RSIndexResult<'static> {
         // The numeric record has a value of `doc_id * 2.0`.
         RSIndexResult::build_numeric(doc_id as f64 * 2.0)
             .doc_id(doc_id)
@@ -152,7 +154,7 @@ impl NumericBaseTest {
 #[test]
 fn numeric_type() {
     let test = NumericBaseTest::new(10);
-    let it = test.create_iterator();
+    let it = ContractChecker::new(test.create_iterator());
     assert_eq!(it.type_(), IteratorType::InvIdxNumeric);
 }
 
@@ -160,17 +162,19 @@ fn numeric_type() {
 /// test reading from Numeric iterator
 fn numeric_read() {
     let test = NumericBaseTest::new(100);
-    let mut it = test.create_iterator();
+    let mut it = ContractChecker::new(test.create_iterator());
     test.test.read(&mut it, test.test.docs_ids_iter());
 
     // same but using a passthrough filter
     let test = NumericBaseTest::new(100);
     let filter = NumericFilter::default();
     let reader = test.test.ii.reader();
-    let reader = FilterNumericReader::new(&filter, reader);
-    let mut it = NumericBuilder::new(reader)
-        .range_tree(test.test.mock_ctx.numeric_range_tree())
-        .build();
+    let reader = FilterNumericReader::new(filter, reader);
+    let mut it = ContractChecker::new(
+        NumericBuilder::new(reader)
+            .range_tree(test.test.mock_ctx.numeric_range_tree())
+            .build(),
+    );
     test.test.read(&mut it, test.test.docs_ids_iter());
 }
 
@@ -178,7 +182,7 @@ fn numeric_read() {
 /// test skipping from Numeric iterator
 fn numeric_skip_to() {
     let test = NumericBaseTest::new(10);
-    let mut it = test.create_iterator();
+    let mut it = ContractChecker::new(test.create_iterator());
     test.test.skip_to(&mut it);
 }
 
@@ -191,10 +195,12 @@ fn numeric_filter() {
         max: 75.0,
         ..Default::default()
     };
-    let reader = FilterNumericReader::new(&filter, test.test.ii.reader());
-    let mut it = NumericBuilder::new(reader)
-        .range_tree(test.test.mock_ctx.numeric_range_tree())
-        .build();
+    let reader = FilterNumericReader::new(filter, test.test.ii.reader());
+    let mut it = ContractChecker::new(
+        NumericBuilder::new(reader)
+            .range_tree(test.test.mock_ctx.numeric_range_tree())
+            .build(),
+    );
     let docs_ids = test
         .test
         .docs_ids_iter()
@@ -213,9 +219,11 @@ fn skip_multi_id() {
     let _ = ii.add_record(&RSIndexResult::build_numeric(3.0).doc_id(1).build());
 
     let context = MockContext::new(0, 0);
-    let mut it = NumericBuilder::new(ii.reader())
-        .range_tree(context.numeric_range_tree())
-        .build();
+    let mut it = ContractChecker::new(
+        NumericBuilder::new(ii.reader())
+            .range_tree(context.numeric_range_tree())
+            .build(),
+    );
 
     // Read the first entry. Expect to get the entry with value 1.0
     let record = it
@@ -242,9 +250,11 @@ fn skip_multi_id_and_value() {
     let _ = ii.add_record(&RSIndexResult::build_numeric(1.0).doc_id(1).build());
 
     let context = MockContext::new(0, 0);
-    let mut it = NumericBuilder::new(ii.reader())
-        .range_tree(context.numeric_range_tree())
-        .build();
+    let mut it = ContractChecker::new(
+        NumericBuilder::new(ii.reader())
+            .range_tree(context.numeric_range_tree())
+            .build(),
+    );
 
     // Read the first entry. Expect to get the entry with value 1.0
     let record = it
@@ -276,12 +286,14 @@ fn get_correct_value() {
         max: 3.0,
         ..Default::default()
     };
-    let reader = FilterNumericReader::new(&filter, ii.reader());
+    let reader = FilterNumericReader::new(filter, ii.reader());
 
     let context = MockContext::new(0, 0);
-    let mut it = NumericBuilder::new(reader)
-        .range_tree(context.numeric_range_tree())
-        .build();
+    let mut it = ContractChecker::new(
+        NumericBuilder::new(reader)
+            .range_tree(context.numeric_range_tree())
+            .build(),
+    );
 
     // Read the first entry. Expect to get the entry with value 2.0
     let record = it
@@ -314,11 +326,13 @@ fn eof_after_filtering() {
         max: 2.0,
         ..Default::default()
     };
-    let reader = FilterNumericReader::new(&filter, ii.reader());
+    let reader = FilterNumericReader::new(filter, ii.reader());
     let context = MockContext::new(0, 0);
-    let mut it = NumericBuilder::new(reader)
-        .range_tree(context.numeric_range_tree())
-        .build();
+    let mut it = ContractChecker::new(
+        NumericBuilder::new(reader)
+            .range_tree(context.numeric_range_tree())
+            .build(),
+    );
 
     // Attempt to skip to the first entry, expecting EOF since no entries match the filter
     assert_eq!(it.skip_to(1).expect("skip_to failed"), None);
@@ -353,9 +367,11 @@ fn skip_to_then_read_with_duplicates() {
     let _ = ii.add_record(&RSIndexResult::build_numeric(10.0).doc_id(5).build());
 
     let context = MockContext::new(0, 0);
-    let mut it = NumericBuilder::new(ii.reader())
-        .range_tree(context.numeric_range_tree())
-        .build();
+    let mut it = ContractChecker::new(
+        NumericBuilder::new(ii.reader())
+            .range_tree(context.numeric_range_tree())
+            .build(),
+    );
 
     // Skip to doc 1 — should find it.
     let res = it.skip_to(1).expect("skip_to failed");
@@ -393,23 +409,453 @@ fn numeric_reader_accessor() {
 /// Test `should_abort` returns false when no range tree is provided.
 #[test]
 fn numeric_no_range_tree_revalidate() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let mut ii =
         InvertedIndex::<inverted_index::numeric::Numeric>::new(IndexFlags_Index_StoreNumeric);
     let _ = ii.add_record(&RSIndexResult::build_numeric(1.0).doc_id(1).build());
     let _ = ii.add_record(&RSIndexResult::build_numeric(2.0).doc_id(3).build());
 
     // Build without a range tree — should_abort will return false.
-    let mut it = NumericBuilder::new(ii.reader()).build();
+    let mut it = ContractChecker::new(NumericBuilder::new(ii.reader()).build());
 
     // Read one doc to advance the iterator.
     let record = it.read().expect("read failed").expect("expected a result");
     assert_eq!(record.doc_id, 1);
 
     // Revalidate should succeed (not abort) even though there is no range tree.
-    assert_eq!(
-        it.revalidate().expect("revalidate failed"),
-        RQEValidateStatus::Ok
-    );
+    let status = it
+        .revalidate(&*mock_ctx.spec_read())
+        .expect("revalidate failed");
+    assert_eq!(status, RQEValidateStatus::Ok);
+}
+
+/// Resume sibling of [`numeric_no_range_tree_revalidate`]: with no range tree,
+/// `should_abort` returns false, so a suspend/resume cycle promotes the iterator
+/// back to `Active` (`Ok`) and the position is preserved.
+#[test]
+fn numeric_no_range_tree_resume() {
+    use rqe_iterators::TypeErasedRQEIterator;
+    use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
+
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let mut ii =
+        InvertedIndex::<inverted_index::numeric::Numeric>::new(IndexFlags_Index_StoreNumeric);
+    let _ = ii.add_record(&RSIndexResult::build_numeric(1.0).doc_id(1).build());
+    let _ = ii.add_record(&RSIndexResult::build_numeric(2.0).doc_id(3).build());
+
+    // Build without a range tree — should_abort will return false.
+    let it = NumericBuilder::new(ii.reader()).build();
+
+    let guard = mock_ctx.spec_read();
+    let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(it)), &guard)
+        .expect("resume should not fail in this test")
+        .expect_ok();
+
+    // The first doc is still available after resume (no range tree ⇒ no abort).
+    let record = it.read().expect("read failed").expect("expected a result");
+    assert_eq!(record.doc_id, 1);
+
+    // A second resume also succeeds.
+    revalidate_via_resume(it, &guard)
+        .expect("resume should not fail in this test")
+        .expect_ok();
+}
+
+/// A [`GeoFilter`] with a non-null address so `is_numeric_filter()` returns `false`.
+/// `fieldSpec` and `numericFilters` are null — tests using this stub must not
+/// reach code paths that dereference those pointers.
+pub fn geo_filter_stub() -> GeoFilter {
+    GeoFilter {
+        fieldSpec: ptr::null(),
+        lat: 0.0,
+        lon: 0.0,
+        radius: 1.0,
+        unitType: GeoDistance_GEO_DISTANCE_M,
+        numericFilters: ptr::null_mut(),
+    }
+}
+
+mod from_tree {
+    use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
+    use inverted_index::NumericFilter;
+    use numeric_range_tree::NumericRangeTree;
+    use rqe_core::DocId;
+    use rqe_iterators::{NumericIteratorVariant, RQEIterator, RQEValidateStatus};
+    use rqe_iterators_test_utils::{ContractChecker, MockContext};
+
+    fn make_field_ctx() -> FieldFilterContext {
+        FieldFilterContext {
+            field: FieldMaskOrIndex::Index(0),
+            predicate: FieldExpirationPredicate::Default,
+        }
+    }
+
+    fn passthrough_filter() -> NumericFilter {
+        NumericFilter {
+            min: f64::NEG_INFINITY,
+            max: f64::INFINITY,
+            min_inclusive: true,
+            max_inclusive: true,
+            ..Default::default()
+        }
+    }
+
+    fn build_tree(entries: &[(DocId, f64)]) -> NumericRangeTree {
+        let mut tree = NumericRangeTree::new(false);
+        for (doc_id, value) in entries {
+            tree.add(*doc_id, *value, false, false, 0);
+        }
+        tree
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "miri does not support #[should_panic]")]
+    #[should_panic(expected = "Numeric queries require a field index, not a field mask")]
+    fn mask_field_panics() {
+        let tree = build_tree(&[(1, 1.0)]);
+        let ctx = MockContext::new(0, 0);
+        let filter = passthrough_filter();
+        let field_ctx = FieldFilterContext {
+            field: FieldMaskOrIndex::Mask(1),
+            predicate: FieldExpirationPredicate::Default,
+        };
+        // SAFETY: panics before any safety-relevant pointer is touched.
+        unsafe { NumericIteratorVariant::from_tree(&tree, ctx.sctx(), &filter, &field_ctx) };
+    }
+
+    #[test]
+    fn empty_when_no_ranges_match() {
+        let tree = build_tree(&[(1, 1.0), (2, 3.0), (3, 5.0)]);
+        let ctx = MockContext::new(0, 0);
+        let filter = NumericFilter {
+            min: -100.0,
+            max: -1.0,
+            min_inclusive: true,
+            max_inclusive: true,
+            ..Default::default()
+        };
+        let field_ctx = make_field_ctx();
+
+        // SAFETY: `ctx` keeps sctx/spec alive past `iters`; field is Index.
+        let iters =
+            unsafe { NumericIteratorVariant::from_tree(&tree, ctx.sctx(), &filter, &field_ctx) };
+
+        assert!(
+            iters.is_empty(),
+            "expected no matching ranges, got {}",
+            iters.len()
+        );
+    }
+
+    #[test]
+    fn unfiltered_when_range_contained_in_filter_bounds() {
+        let tree = build_tree(&[(1, 1.0), (2, 3.0), (3, 5.0)]);
+        let ctx = MockContext::new(0, 0);
+        let filter = passthrough_filter();
+        let field_ctx = make_field_ctx();
+
+        // SAFETY: `ctx` keeps sctx/spec alive past `iters`; field is Index.
+        let iters =
+            unsafe { NumericIteratorVariant::from_tree(&tree, ctx.sctx(), &filter, &field_ctx) };
+
+        assert!(!iters.is_empty(), "expected at least one iterator");
+        for iter in &iters {
+            assert!(
+                matches!(iter, NumericIteratorVariant::Unfiltered(_)),
+                "expected Unfiltered variant, range is fully inside filter bounds"
+            );
+        }
+    }
+
+    #[test]
+    fn filtered_when_range_partially_overlaps_filter_bounds() {
+        // Range [1, 15] extends outside the filter [5, 10], so per-record checks are needed.
+        let tree = build_tree(&[(1, 1.0), (2, 8.0), (3, 15.0)]);
+        let ctx = MockContext::new(0, 0);
+        let filter = NumericFilter {
+            min: 5.0,
+            max: 10.0,
+            min_inclusive: true,
+            max_inclusive: true,
+            ..Default::default()
+        };
+        let field_ctx = make_field_ctx();
+
+        // SAFETY: `ctx` keeps sctx/spec alive past `iters`; field is Index.
+        let iters =
+            unsafe { NumericIteratorVariant::from_tree(&tree, ctx.sctx(), &filter, &field_ctx) };
+
+        assert!(!iters.is_empty(), "expected at least one iterator");
+        for iter in &iters {
+            assert!(
+                matches!(iter, NumericIteratorVariant::Filtered(_)),
+                "expected Filtered variant for partially-overlapping range"
+            );
+        }
+    }
+
+    #[test]
+    fn geo_variant_for_geo_filter() {
+        let tree = build_tree(&[(1, 1.0)]);
+        let ctx = MockContext::new(0, 0);
+        let geo_filter = super::geo_filter_stub();
+        let filter = NumericFilter {
+            geo_filter: &geo_filter as *const _ as *const _,
+            min: f64::NEG_INFINITY,
+            max: f64::INFINITY,
+            min_inclusive: true,
+            max_inclusive: true,
+            ..Default::default()
+        };
+        let field_ctx = make_field_ctx();
+
+        // SAFETY: `ctx` keeps sctx/spec alive past `iters`; field is Index.
+        // `geo_filter` is stack-allocated and outlives `filter`.
+        let iters =
+            unsafe { NumericIteratorVariant::from_tree(&tree, ctx.sctx(), &filter, &field_ctx) };
+
+        assert!(!iters.is_empty(), "expected at least one iterator");
+        for iter in &iters {
+            assert!(
+                matches!(iter, NumericIteratorVariant::Geo(_)),
+                "expected Geo variant for geo filter"
+            );
+        }
+    }
+
+    #[test]
+    fn can_read_all_documents() {
+        let tree = build_tree(&[(1, 1.0), (3, 3.0), (5, 5.0)]);
+        let ctx = MockContext::new(0, 0);
+        let filter = passthrough_filter();
+        let field_ctx = make_field_ctx();
+
+        // SAFETY: `ctx` keeps sctx/spec alive past `iters`; field is Index.
+        let mut iters =
+            unsafe { NumericIteratorVariant::from_tree(&tree, ctx.sctx(), &filter, &field_ctx) };
+
+        assert_eq!(
+            iters.len(),
+            1,
+            "expected exactly one range for a single-leaf tree"
+        );
+        let mut it = ContractChecker::new(iters.remove(0));
+
+        let mut doc_ids = Vec::new();
+        while let Some(record) = it.read().expect("read failed") {
+            doc_ids.push(record.doc_id);
+        }
+        assert_eq!(doc_ids, vec![1, 3, 5]);
+    }
+
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "the stored NonNull is derived from a `&T` (SharedReadOnly tag); the subsequent \
+                  mutable reborrow to call increment_revision pops that tag under Stacked Borrows, \
+                  so reading through the NonNull during revalidation is flagged as UB. The \
+                  aliasing is intentional: the revision_id detects tree invalidation so the \
+                  iterator can abort before touching stale cursor data, but Stacked Borrows \
+                  cannot model that invariant."
+    )]
+    fn non_null_field_spec_enables_revalidation() {
+        let tree_ptr: *mut NumericRangeTree =
+            Box::into_raw(Box::new(build_tree(&[(1, 1.0), (2, 2.0)])));
+        let ctx = MockContext::new(0, 0);
+        // Any non-null pointer makes from_tree store the tree for revalidation.
+        // SAFETY: `FieldSpec` is a plain C struct (generated by bindgen) with no
+        // Rust-level non-zero validity requirements; a zero bit pattern is valid.
+        // `from_tree` only checks the `field_spec` pointer for null and never dereferences it,
+        // so the zeroed field values are never observed.
+        let dummy_fs: ffi::FieldSpec = unsafe { std::mem::zeroed() };
+        let filter = NumericFilter {
+            field_spec: &dummy_fs,
+            min: f64::NEG_INFINITY,
+            max: f64::INFINITY,
+            min_inclusive: true,
+            max_inclusive: true,
+            ..Default::default()
+        };
+        let field_ctx = make_field_ctx();
+
+        // SAFETY: `tree_ptr` and `ctx` both outlive `iters`; field is Index.
+        let mut iters = unsafe {
+            NumericIteratorVariant::from_tree(
+                &tree_ptr.as_ref().unwrap(),
+                ctx.sctx(),
+                &filter,
+                &field_ctx,
+            )
+        };
+        assert!(!iters.is_empty());
+
+        let mut it = ContractChecker::new(iters.remove(0));
+        let _ = it.read().expect("initial read failed");
+
+        // SAFETY: iterators store a NonNull (no live `&` to the tree), so this
+        // write does not violate aliasing rules.
+        unsafe { (*tree_ptr).increment_revision() };
+
+        let status = it.revalidate(&*ctx.spec_read()).expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Aborted);
+        // SAFETY: `tree_ptr` was created by `Box::into_raw` above; `iters` is dropped
+        // before this point and holds only a `NonNull` (not ownership), so no double-free.
+        unsafe { drop(Box::from_raw(tree_ptr)) };
+    }
+
+    #[test]
+    fn null_field_spec_disables_revalidation() {
+        let tree_ptr: *mut NumericRangeTree =
+            Box::into_raw(Box::new(build_tree(&[(1, 1.0), (2, 2.0)])));
+        let ctx = MockContext::new(0, 0);
+        // passthrough_filter() has field_spec = null → no tree snapshot taken.
+        let filter = passthrough_filter();
+        let field_ctx = make_field_ctx();
+
+        // SAFETY: `tree_ptr` and `ctx` both outlive `iters`; field is Index.
+        let mut iters = unsafe {
+            NumericIteratorVariant::from_tree(
+                tree_ptr.as_ref().unwrap(),
+                ctx.sctx(),
+                &filter,
+                &field_ctx,
+            )
+        };
+        assert!(!iters.is_empty());
+
+        let mut it = ContractChecker::new(iters.remove(0));
+        let _ = it.read().expect("initial read failed");
+
+        // SAFETY: iterators store a NonNull (no live `&` to the tree), so this
+        // write does not violate aliasing rules.
+        unsafe { (*tree_ptr).increment_revision() };
+
+        let status = it.revalidate(&*ctx.spec_read()).expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Ok);
+
+        // SAFETY: `tree_ptr` was created by `Box::into_raw` above; `iters` is dropped
+        // before this point and holds only a `NonNull` (not ownership), so no double-free.
+        unsafe { drop(Box::from_raw(tree_ptr)) };
+    }
+}
+
+/// Tests for [`rqe_iterators::NumericIteratorVariant`] variant selection logic.
+///
+/// These tests verify that [`NumericIteratorVariant::new`] selects the correct
+/// concrete reader variant based on the provided filter:
+/// - `None` → [`NumericIteratorVariant::Unfiltered`]
+/// - `Some(f)` where `f.is_numeric_filter()` → [`NumericIteratorVariant::Filtered`]
+/// - `Some(f)` where `!f.is_numeric_filter()` → [`NumericIteratorVariant::Geo`]
+mod variant {
+    use ffi::IndexFlags_Index_StoreNumeric;
+    use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
+    use index_result::RSIndexResult;
+    use inverted_index::NumericFilter;
+    use numeric_range_tree::NumericIndex;
+    use rqe_iterators::{FieldExpirationChecker, NumericIteratorVariant};
+    use rqe_iterators_test_utils::MockContext;
+
+    fn make_expiration_checker(ctx: &MockContext) -> FieldExpirationChecker {
+        // SAFETY:
+        // - `ctx.sctx()` is a valid `RedisSearchCtx` pointer for the duration of this test.
+        // - `ctx.sctx().spec` is set to a valid `IndexSpec` pointer by `MockContext::new`.
+        // Both remain alive for the lifetime of the returned checker.
+        unsafe {
+            FieldExpirationChecker::new(
+                ctx.sctx(),
+                FieldFilterContext {
+                    field: FieldMaskOrIndex::Index(0),
+                    predicate: FieldExpirationPredicate::Default,
+                },
+                0,
+            )
+        }
+    }
+
+    /// Build a minimal `NumericIndex` with a single record so the reader is non-trivial.
+    fn make_index() -> NumericIndex {
+        let mut idx = NumericIndex::new(false);
+        idx.add_record(&RSIndexResult::build_numeric(1.0).doc_id(1).build());
+        idx
+    }
+
+    #[test]
+    /// `None` filter → `Unfiltered` variant; accessors reflect construction parameters.
+    fn variant_unfiltered() {
+        let ctx = MockContext::new(0, 0);
+        let idx = make_index();
+        let variant = NumericIteratorVariant::new(
+            idx.reader(),
+            None,
+            make_expiration_checker(&ctx),
+            None,
+            1.0,
+            5.0,
+        );
+        assert!(
+            matches!(variant, NumericIteratorVariant::Unfiltered(_)),
+            "expected Unfiltered variant for None filter"
+        );
+        assert_eq!(variant.range_min(), 1.0);
+        assert_eq!(variant.range_max(), 5.0);
+        assert_eq!(variant.flags(), IndexFlags_Index_StoreNumeric);
+    }
+
+    #[test]
+    /// Numeric filter (null `geo_filter`) → `Filtered` variant; accessors reflect construction parameters.
+    fn variant_filtered() {
+        let ctx = MockContext::new(0, 0);
+        let idx = make_index();
+        // Default NumericFilter has geo_filter = null, so is_numeric_filter() == true.
+        let filter = NumericFilter {
+            min: 0.0,
+            max: 10.0,
+            ..Default::default()
+        };
+        let variant = NumericIteratorVariant::new(
+            idx.reader(),
+            Some(&filter),
+            make_expiration_checker(&ctx),
+            None,
+            1.0,
+            5.0,
+        );
+        assert!(
+            matches!(variant, NumericIteratorVariant::Filtered(_)),
+            "expected Filtered variant for numeric filter"
+        );
+        assert_eq!(variant.range_min(), 1.0);
+        assert_eq!(variant.range_max(), 5.0);
+        assert_eq!(variant.flags(), IndexFlags_Index_StoreNumeric);
+    }
+
+    #[test]
+    /// Non-null `geo_filter` → `Geo` variant; accessors reflect construction parameters.
+    fn variant_geo() {
+        let ctx = MockContext::new(0, 0);
+        let idx = make_index();
+        let geo_filter = super::geo_filter_stub();
+        // A non-null geo_filter pointer makes is_numeric_filter() return false.
+        let filter = NumericFilter {
+            geo_filter: &geo_filter as *const _ as *const _,
+            ..Default::default()
+        };
+        let variant = NumericIteratorVariant::new(
+            idx.reader(),
+            Some(&filter),
+            make_expiration_checker(&ctx),
+            None,
+            1.0,
+            5.0,
+        );
+        assert!(
+            matches!(variant, NumericIteratorVariant::Geo(_)),
+            "expected Geo variant for geo filter"
+        );
+        assert_eq!(variant.range_min(), 1.0);
+        assert_eq!(variant.range_max(), 5.0);
+        assert_eq!(variant.flags(), IndexFlags_Index_StoreNumeric);
+    }
 }
 
 #[cfg(not(miri))]
@@ -426,7 +872,7 @@ mod not_miri {
     }
 
     impl NumericExpirationTest {
-        fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
+        fn expected_record(doc_id: DocId) -> RSIndexResult<'static> {
             // The numeric record has a value of `doc_id * 2.0`.
             RSIndexResult::build_numeric(doc_id as f64 * 2.0)
                 .doc_id(doc_id)
@@ -470,7 +916,7 @@ mod not_miri {
             self.test
                 .mark_index_expired(even_ids, field::FieldMaskOrIndex::Index(field_index));
 
-            let mut it = self.create_iterator();
+            let mut it = ContractChecker::new(self.create_iterator());
             self.test.read(&mut it);
         }
 
@@ -488,7 +934,7 @@ mod not_miri {
             self.test
                 .mark_index_expired(even_ids, field::FieldMaskOrIndex::Index(field_index));
 
-            let mut it = self.create_iterator();
+            let mut it = ContractChecker::new(self.create_iterator());
             self.test.skip_to(&mut it);
         }
     }
@@ -535,10 +981,12 @@ mod not_miri {
         let checker = MockExpirationChecker::new(expired_docs);
 
         let context = MockContext::new(0, 0);
-        let mut it = NumericBuilder::new(ii.reader())
-            .range_tree(context.numeric_range_tree())
-            .expiration_checker(checker)
-            .build();
+        let mut it = ContractChecker::new(
+            NumericBuilder::new(ii.reader())
+                .range_tree(context.numeric_range_tree())
+                .expiration_checker(checker)
+                .build(),
+        );
 
         // Skip to doc 2, which doesn't exist. The seeker finds doc 3
         // (the next available), which is NOT expired.
@@ -570,10 +1018,12 @@ mod not_miri {
         let checker = MockExpirationChecker::new(HashSet::new());
 
         let context = MockContext::new(0, 0);
-        let mut it = NumericBuilder::new(ii.reader())
-            .range_tree(context.numeric_range_tree())
-            .expiration_checker(checker)
-            .build();
+        let mut it = ContractChecker::new(
+            NumericBuilder::new(ii.reader())
+                .range_tree(context.numeric_range_tree())
+                .expiration_checker(checker)
+                .build(),
+        );
 
         // Since expiration checking is disabled (has_expiration returns false),
         // we should see all docs including doc 1.
@@ -592,7 +1042,7 @@ mod not_miri {
     #[test]
     fn numeric_revalidate_needs_revalidation_before_reads() {
         let test = NumericRevalidateTest::new(10);
-        let mut it = test.create_iterator();
+        let mut it = ContractChecker::new(test.create_iterator());
         let ii = test.test.context.numeric_inverted_index();
 
         // Trigger GC on the index so needs_revalidation() returns true.
@@ -600,10 +1050,10 @@ mod not_miri {
 
         // Revalidate before any reads. last_doc_id is 0, so even though
         // needs_revalidation is true, we should get Ok.
-        assert_eq!(
-            it.revalidate().expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Ok);
 
         // The iterator should still work — doc 1 was removed, so first doc is 3.
         let record = it.read().expect("read failed").expect("expected a result");
@@ -615,7 +1065,7 @@ mod not_miri {
     }
 
     impl NumericRevalidateTest {
-        fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
+        fn expected_record(doc_id: DocId) -> RSIndexResult<'static> {
             // The numeric record has a value of `doc_id * 2.0`.
             RSIndexResult::build_numeric(doc_id as f64 * 2.0)
                 .doc_id(doc_id)
@@ -645,32 +1095,41 @@ mod not_miri {
     #[test]
     fn numeric_revalidate_basic() {
         let test = NumericRevalidateTest::new(10);
-        let mut it = test.create_iterator();
+        let mut it = ContractChecker::new(test.create_iterator());
         test.test.revalidate_basic(&mut it);
     }
 
     #[test]
     fn numeric_revalidate_at_eof() {
         let test = NumericRevalidateTest::new(10);
-        let mut it = test.create_iterator();
+        let mut it = ContractChecker::new(test.create_iterator());
         test.test.revalidate_at_eof(&mut it);
+    }
+
+    #[test]
+    fn numeric_revalidate_at_eof_after_gc() {
+        let test = NumericRevalidateTest::new(10);
+        let mut it = ContractChecker::new(test.create_iterator());
+        let ii = test.test.context.numeric_inverted_index();
+
+        test.test.revalidate_numeric_at_eof_after_gc(&mut it, ii);
     }
 
     #[test]
     fn numeric_revalidate_after_index_disappears() {
         let test = NumericRevalidateTest::new(10);
-        let mut it = test.create_iterator();
+        let mut it = ContractChecker::new(test.create_iterator());
 
         // First, verify the iterator works normally and read at least one document
-        assert_eq!(
-            it.revalidate().expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Ok);
         assert!(it.read().expect("failed to read").is_some());
-        assert_eq!(
-            it.revalidate().expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Ok);
 
         // For numeric iterators, we can simulate index disappearance by
         // manipulating the revision ID. check_abort() compares the stored
@@ -685,19 +1144,93 @@ mod not_miri {
         }
 
         // Now Revalidate should return Aborted because the revision IDs don't match
-        assert_eq!(
-            it.revalidate().expect("revalidate failed"),
-            RQEValidateStatus::Aborted
-        );
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Aborted);
     }
 
     #[test]
     fn numeric_revalidate_after_document_deleted() {
         let test = NumericRevalidateTest::new(10);
-        let mut it = test.create_iterator();
+        let mut it = ContractChecker::new(test.create_iterator());
         let ii = test.test.context.numeric_inverted_index();
 
         test.test
             .revalidate_numeric_after_document_deleted(&mut it, ii);
+    }
+
+    /// Resume-flavored siblings of the `revalidate` tests above: the same
+    /// scenarios driven through a suspend/resume cycle
+    /// ([`revalidate_via_resume`]) rather than in-place [`RQEIterator::revalidate`].
+    mod via_resume {
+        use super::*;
+        use crate::inverted_index::utils::via_resume::{
+            revalidate_at_eof, revalidate_basic, revalidate_numeric_after_document_deleted,
+            revalidate_numeric_at_eof_after_gc,
+        };
+        use rqe_iterators::{ResumeOutcome, TypeErasedRQEIterator};
+        use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
+
+        #[test]
+        fn numeric_revalidate_basic() {
+            let test = NumericRevalidateTest::new(10);
+            let it = test.create_iterator();
+            revalidate_basic(&test.test, Box::new(it));
+        }
+
+        #[test]
+        fn numeric_revalidate_at_eof() {
+            let test = NumericRevalidateTest::new(10);
+            let it = test.create_iterator();
+            revalidate_at_eof(&test.test, Box::new(it));
+        }
+
+        #[test]
+        fn numeric_revalidate_at_eof_after_gc() {
+            let test = NumericRevalidateTest::new(10);
+            let it = test.create_iterator();
+            let ii = test.test.context.numeric_inverted_index();
+
+            revalidate_numeric_at_eof_after_gc(&test.test, Box::new(it), ii);
+        }
+
+        #[test]
+        fn numeric_revalidate_after_document_deleted() {
+            let test = NumericRevalidateTest::new(10);
+            let it = test.create_iterator();
+            let ii = test.test.context.numeric_inverted_index();
+            revalidate_numeric_after_document_deleted(&test.test, Box::new(it), ii);
+        }
+
+        /// Resume sibling of [`numeric_revalidate_after_index_disappears`]: a
+        /// range-tree revision bump while suspended (simulating a GC node
+        /// split/removal) must abort the resume, since the cached revision id no
+        /// longer matches.
+        #[test]
+        fn numeric_revalidate_after_range_tree_modified() {
+            let test = NumericRevalidateTest::new(10);
+            let it = Box::new(test.create_iterator());
+            let guard = test.test.context.spec_read();
+
+            // A clean resume cycle works before any modification; read one doc so
+            // the iterator holds a non-trivial position.
+            let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
+                .expect("resume should not fail in this test")
+                .expect_ok();
+            assert!(it.read().expect("failed to read").is_some());
+
+            // Bump the range tree's revision id (interior mutability via raw
+            // pointer, so it does not conflict with the read guard).
+            {
+                let rt = test.test.context.numeric_range_tree_mut();
+                rt.increment_revision();
+            }
+
+            // The cached revision no longer matches, so resume must abort.
+            let outcome =
+                revalidate_via_resume(it, &guard).expect("resume should not fail in this test");
+            assert!(matches!(outcome, ResumeOutcome::Aborted));
+        }
     }
 }

@@ -73,13 +73,53 @@ def get_tiered_backend_debug_info(env, index_name, field_name) -> dict:
     return to_dict(tiered_index_info['BACKEND_INDEX'])
 
 def get_vecsim_memory(env, index_key, field_name):
-    return float(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_key, field_name))["MEMORY"])/0x100000
+    # Returns the vector-related memory in MB for a SINGLE field: the per-index
+    # allocator (MEMORY) plus the process-wide VecSim shared memory (SHARED_MEMORY,
+    # e.g. the shared SVS thread pool).
+    #
+    # NOTE: SHARED_MEMORY is process-wide, so it is included on every call. Do not
+    # sum this across multiple vector fields of the same index/process — that would
+    # count the shared term once per field. Compare per single field only (matching
+    # how FT.INFO vector_index_sz_mb folds the shared term in exactly once).
+    info = to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_key, field_name))
+    total = float(info["MEMORY"]) + float(info.get("SHARED_MEMORY", 0))
+    return total / 0x100000
 
 def get_vecsim_index_size(env, index_key, field_name):
     return int(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_key, field_name))["INDEX_SIZE"])
 
 def get_redisearch_vector_index_memory(env, index_key):
     return float(index_info(env, index_key)["vector_index_sz_mb"])
+
+def assert_svs_tiered_state(env, index_name, field_name, expected_live_docs, vectors_per_doc=1, message=''):
+    """
+    Assert the label accounting of an SVS-VAMANA tiered index.
+    Must be called only after `wait_for_background_indexing`, so that no transfer
+    from the frontend (flat buffer) to the backend (SVS) is in flight.
+
+    Note that we cannot expect the frontend to be empty: a transfer is triggered only
+    once the flat buffer holds TIERED_SVS_UPDATE_THRESHOLD vectors, so a smaller
+    remainder legitimately stays there.
+    """
+    frontend = get_tiered_frontend_debug_info(env, index_name, field_name)
+    backend = get_tiered_backend_debug_info(env, index_name, field_name)
+    ctx = f"{message} | frontend={frontend} | backend={backend}"
+
+    # The background training/update did transfer vectors into the backend.
+    env.assertGreater(backend['INDEX_LABEL_COUNT'], 0,
+                      message=f"backend was not populated: {ctx}")
+
+    # Every live doc is indexed exactly once - either in the flat buffer or in the
+    # backend - and no deleted doc was left behind in either of them.
+    env.assertEqual(frontend['INDEX_LABEL_COUNT'] + backend['INDEX_LABEL_COUNT'], expected_live_docs,
+                    message=f"frontend + backend label count != live docs: {ctx}")
+
+    # Deleting a doc marks *all* of its vectors as deleted in the backend, so the live
+    # vectors there are exactly `vectors_per_doc` per live label.
+    env.assertEqual(backend['INDEX_SIZE'] - backend['NUMBER_OF_MARKED_DELETED'],
+                    vectors_per_doc * backend['INDEX_LABEL_COUNT'],
+                    message=f"backend live vectors != vectors_per_doc * live labels: {ctx}")
+
 
 def wait_for_background_indexing(env, index_name, field_name, message=''):
     index_sizes = [0] * env.shardsCount
@@ -90,7 +130,7 @@ def wait_for_background_indexing(env, index_name, field_name, message=''):
     index_state = f"iter: {iter}, index_sizes: {index_sizes}, flat_index_sizes: {flat_index_sizes}, backend_index_sizes: {backend_index_sizes}, is_trained: {is_trained}"
 
     try:
-        with TimeLimit(120):
+        with TimeLimit(250):
             while not all(is_trained):
                 # 'BACKGROUND_INDEXING' == 0 means training is done
                 for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
@@ -103,6 +143,10 @@ def wait_for_background_indexing(env, index_name, field_name, message=''):
                 time.sleep(0.1)
                 iter += 1
                 index_state = f"iter: {iter}, index_sizes: {index_sizes}, flat_index_sizes: {flat_index_sizes}, backend_index_sizes: {backend_index_sizes}, is_trained: {is_trained}"
+            # Drain workers to ensure all background job cleanup (including job object
+            # deallocation from tracked memory) has completed before returning.
+            for con in env.getOSSMasterNodesConnectionList():
+                con.execute_command(debug_cmd(), 'WORKERS', 'DRAIN')
         for id, con in enumerate(env.getOSSMasterNodesConnectionList()):
             index_size = get_tiered_debug_info(con, index_name, field_name)['INDEX_SIZE']
             env.assertGreater(get_tiered_backend_debug_info(con, index_name, field_name)['INDEX_SIZE'], 0, message=f"wait_for_background_indexing: shard: {id}, index size: {index_size}" + message)

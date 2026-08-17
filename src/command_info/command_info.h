@@ -17,6 +17,7 @@ int SetFtDropindexInfo(RedisModuleCommand *cmd);
 int SetFtAliasaddInfo(RedisModuleCommand *cmd);
 int SetFtAliasupdateInfo(RedisModuleCommand *cmd);
 int SetFtAliasdelInfo(RedisModuleCommand *cmd);
+int SetFtAliaslistInfo(RedisModuleCommand *cmd);
 int SetFtTagvalsInfo(RedisModuleCommand *cmd);
 int SetFtSugaddInfo(RedisModuleCommand *cmd);
 int SetFtSuggetInfo(RedisModuleCommand *cmd);

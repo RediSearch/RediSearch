@@ -8,7 +8,12 @@
 */
 #pragma once
 
-#include "value.h"
+#include <assert.h>
+
+#include "value_ffi.h"
+#include "reply.h"
+#include "rs_wall_clock.h"
+#include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "iterators/iterator_api.h"
 
@@ -17,26 +22,11 @@ typedef struct ResultProcessor ResultProcessor;
 typedef struct AREQ AREQ;
 typedef struct HybridRequest HybridRequest;
 
+// Macros used by the result processor profile printing (still in C).
 #define printProfileType(vtype) RedisModule_ReplyKV_SimpleString(reply, "Type", (vtype))
 #define printProfileTime(vtime) RedisModule_ReplyKV_Double(reply, "Time", (vtime))
-#define printProfileIteratorCounter(vcount) RedisModule_ReplyKV_LongLong(reply, "Number of reading operations", (vcount))
 #define printProfileRPCounter(vcount) RedisModule_ReplyKV_LongLong(reply, "Results processed", (vcount))
-// For now we only print the total counter in order to avoid breaking the response format of profile
-// If we get a chance to break it then consider splitting the count into separate fields
-#define printProfileCounters(counters) printProfileIteratorCounter(counters->read + counters->skip_to - counters->eof)
-
 #define printProfileGILTime(vtime) RedisModule_ReplyKV_Double(reply, "GIL-Time", (vtime))
-
-#define printProfileNumBatches(hybrid_reader) \
-  RedisModule_ReplyKV_LongLong(reply, "Batches number", (hybrid_reader)->numIterations)
-#define printProfileMaxBatchSize(hybrid_reader) \
-  RedisModule_ReplyKV_LongLong(reply, "Largest batch size", (hybrid_reader)->maxBatchSize)
-#define printProfileMaxBatchIteration(hybrid_reader) \
-  RedisModule_ReplyKV_LongLong(reply, "Largest batch iteration (zero based)", (hybrid_reader)->maxBatchIteration)
-#define printProfileOptimizationType(oi) \
-  RedisModule_ReplyKV_SimpleString(reply, "Optimizer mode", QOptimizer_PrintType((oi)->optim))
-#define printProfileVectorSearchMode(searchMode) \
-  RedisModule_ReplyKV_SimpleString(reply, "Vector search mode", VecSimSearchMode_ToString(searchMode))
 
 // Print the profile of a single shard
 void Profile_Print(RedisModule_Reply *reply, void *ctx);

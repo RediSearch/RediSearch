@@ -13,11 +13,45 @@
 #include "result_processor.h"
 #include "hybrid_scoring.h"
 #include "hybrid_lookup_context.h"
+#include "vector_index.h"
 #include "util/arr/arr.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/**
+ * Per-query info needed to render the EXPLAINSCORE wrapper. The fields here
+ * describe context that is constant across all yielded rows — per-doc values
+ * (ranks, scores, scorer subtree) are filled in by the merger as it runs.
+ */
+typedef struct HybridExplainContext {
+  // Owned. Resolved scorer name (defaults to RSGlobalConfig.defaultScorer when
+  // the search sub-query did not specify one). Duplicated at build time so a
+  // concurrent FT.CONFIG SET DEFAULT_SCORER cannot pull the string out from
+  // under a long-running query while we render the explain wrapper.
+  char *textScorerName;
+  // Owned: e.g. "vector branch (KNN)" or "vector branch (RANGE: radius=…, epsilon=…)".
+  char *vectorBranchEnvelope;
+  // Vector retrieval mode of the VSIM sub-query.
+  VectorQueryType vectorMode;
+} HybridExplainContext;
+
+void HybridExplainContext_Free(HybridExplainContext *ctx);
+
+/**
+ * Build an EXPLAINSCORE context from the two hybrid sub-AREQs.
+ *
+ * Reads the search sub-query's resolved scorer name and the vector
+ * sub-query's retrieval mode (and, for RANGE, radius + optional epsilon
+ * QueryAttribute) and freezes them into strings the merger reuses per row.
+ *
+ * Must be called after AREQ_ApplyContext on both sub-queries (it relies on the
+ * resolved scorer name and the still-intact ParsedVectorData snapshot).
+ * Returned context is owned by the caller.
+ */
+struct AREQ;
+HybridExplainContext *HybridExplainContext_Build(const struct AREQ *searchReq, const struct AREQ *vectorReq);
 
 /**
  * HybridSearchResult structure that stores SearchResults from multiple sources.
@@ -59,8 +93,12 @@ double calculateHybridScore(HybridSearchResult *hybridResult, HybridScoringConte
  *
  * The primary result is the SearchResult we merge into and return to the downstream processor.
  * This function transfers ownership of the primary result from the HybridSearchResult to the caller.
+ *
+ * When `explainCtx` is non-NULL, an RSScoreExplain wrapper describing the
+ * hybrid combine is attached to the merged result.
  */
-SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoringContext *scoringCtx, HybridLookupContext *lookupCtx);
+SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoringContext *scoringCtx,
+                                 HybridLookupContext *lookupCtx, const HybridExplainContext *explainCtx);
 
 #ifdef __cplusplus
 }

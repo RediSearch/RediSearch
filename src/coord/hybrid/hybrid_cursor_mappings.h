@@ -17,6 +17,9 @@
 extern "C" {
 #endif
 
+typedef struct QueryRequestAsyncState QueryRequestAsyncState;
+typedef struct QueryRequestTimeout QueryRequestTimeout;
+
 typedef enum  {
   TYPE_SEARCH,
   TYPE_VSIM,
@@ -36,20 +39,58 @@ typedef struct {
 // forward declaration of QueryError
 typedef struct QueryError QueryError;
 
+struct timespec;
+
+/**
+ * Context for SHARD_K_RATIO optimization in FT.HYBRID commands.
+ * Contains information needed to calculate and apply effectiveK.
+ */
+typedef struct {
+  size_t originalK;         // Original K value from query
+  double shardWindowRatio;  // Ratio for shard window optimization
+  int kArgIndex;            // Index of the K value argument in the MRCommand
+} HybridKnnContext;
+
+
 /**
  * Process hybrid cursor mappings synchronously
  * Populates the searchMappings and vsimMappings arrays with cursor mappings from all shards.
  * Handles shard errors by recording them in the status parameter while continuing to process all shards.
  * Returns true even if all shards fail with warnings (e.g., OOM), resulting in empty mapping arrays and allowing the caller to handle the warnings.
+ *
  * @param cmd The MRCommand to execute
- * @param numShards Expected number of shards (determines expected callbacks)
  * @param searchMappings Empty array to populate with search cursor mappings
  * @param vsimMappings Empty array to populate with vector similarity cursor mappings
+ * @param knnCtx KNN context for SHARD_K_RATIO optimization (NULL if not applicable)
  * @param status QueryError pointer to store warning/error information
  * @param oomPolicy OOM policy to determine error handling behavior
+ * @param timeoutPolicy Timeout policy to determine timeout error handling behavior
+ * @param maxPrefixSearch Output: set to true if SEARCH subquery reported max prefix expansion warning
+ * @param maxPrefixVsim Output: set to true if VSIM subquery reported max prefix expansion warning
+ * @param shardTimedOutWarning Output: set to true if a shard cursor-mapping reply reported timeout
+ * @param deadline Absolute CLOCK_MONOTONIC_RAW deadline bounding the wait, or NULL
+ *                 when timeout checks are disabled (e.g. RETURN-STRICT). When NULL,
+ *                 the wait is unblocked only via the request's timeout and abort-wake state.
  * @return true if processing completed (even with warnings), false on fatal errors; status will contain error/warning information
  */
-bool ProcessHybridCursorMappings(const MRCommand *cmd,int numShards, StrongRef searchMappings, StrongRef vsimMappings, QueryError *status, RSOomPolicy oomPolicy);
+bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappings,
+                                 StrongRef vsimMappings, HybridKnnContext *knnCtx,
+                                 QueryError *status, RSOomPolicy oomPolicy,
+                                 RSTimeoutPolicy timeoutPolicy, bool *maxPrefixSearch,
+                                 bool *maxPrefixVsim, bool *shardTimedOutWarning,
+                                 const struct timespec *deadline, QueryRequestTimeout *timeout,
+                                 QueryRequestAsyncState *asyncState);
+
+/**
+ * Apply SHARD_K_RATIO optimization to an MRCommand based on the provided
+ * HybridKnnContext. Computes the effective per-shard K and rewrites the K
+ * argument in the command in-place. No-op for single-shard deployments or
+ * when the ratio disables the optimization.
+ *
+ * Exposed primarily as the inner logic of HybridKnnCommandModifier so that
+ * it can be unit-tested without replicating the iteration callback context.
+ */
+void HybridKnnApplyShardKRatio(MRCommand *cmd, size_t numShards, const HybridKnnContext *knnCtx);
 
 /**
  * Release resources associated with a cursor mapping

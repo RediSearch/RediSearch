@@ -2,52 +2,11 @@ name: labeler
 
 on: [pull_request]
 
-jobs:
-    labeler:
-      permissions:
-        pull-requests: write
-        contents: read
-        issues: write
-      runs-on: ubuntu-latest
-      name: Label the PR size
-      steps:
-        - name: Remove existing size labels
-          uses: actions/github-script@v7
-          with:
-            script: |
-              // This is a work-around until https://github.com/CodelyTV/pr-size-labeler/pull/97 is merged.
-              const { data: labels } = await github.rest.issues.listLabelsOnIssue({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.pull_request.number,
-              });
-              for (const label of labels) {
-                if (label.name.startsWith('size:')) {
-                  await github.rest.issues.removeLabel({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    issue_number: context.payload.pull_request.number,
-                    name: label.name,
-                  });
-                }
-              }
-        - uses: codelytv/pr-size-labeler@v1
-          with:
-            xs_label: 'size:XS'
-            xs_max_size: '10'
-            s_label: 'size:S'
-            s_max_size: '100'
-            m_label: 'size:M'
-            m_max_size: '500'
-            l_label: 'size:L'
-            l_max_size: '1000'
-            xl_label: 'size:XL'
-            fail_if_xl: 'false'
-            message_if_xl: >
-                This PR exceeds the recommended size of 1000 lines.
-                Please make sure you are NOT addressing multiple issues with one PR.
-                Note this PR might be rejected due to its size.
-            github_api_url: 'https://api.github.com'
-            files_to_ignore: '*.md .gitignore'
-            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+# Grant the token the reusable workflow needs (it labels the PR).
+permissions:
+  contents: read
+  pull-requests: write
 
+jobs:
+  labeler:
+    uses: redislabsdev/redisearch-ci-common/.github/workflows/pr-size-label.yml@v1

@@ -9,16 +9,16 @@
 
 
 #include "gtest/gtest.h"
+#include "trie/trie_node.h"
+#include "trie/trie_node_internal.h"  // whitebox: subtreeMaxScore invariant checks
 #include "trie/trie.h"
-#include "trie/trie_type.h"
 #include "redismock/redismock.h"
 
-#include <set>
 #include <string>
 #include <memory>
 #include <functional>
-
-typedef std::set<std::string> ElemSet;
+#include <cstdint>
+#include <vector>
 
 class TrieTest : public ::testing::Test {};
 
@@ -32,121 +32,111 @@ static bool trieInsert(Trie *t, const std::string &s) {
   return trieInsert(t, s.c_str(), s.size());
 }
 
-static int rangeFunc(const rune *u16, size_t nrune, void *ctx, void *payload, size_t numDocsInTerm) {
+static void *triePayload(Trie *t, const char *s, size_t len, bool exact) {
+  if (len > TRIE_INITIAL_STRING_LEN * sizeof(rune)) {
+    return nullptr;
+  }
+  runeBuf buf;
+  rune *runes = runeBufFill(s, len, &buf, &len);
+  TrieNode *node = Trie_GetNode(t, runes, len, exact, NULL);
+  runeBufFree(&buf);
+  return TrieNode_GetPayloadData(node);
+}
+
+static int collectTermFunc(const rune *u16, size_t nrune, void *ctx, void *payload,
+                           size_t numDocsInTerm) {
   size_t n;
   char *s = runesToStr(u16, nrune, &n);
-  std::string xs(s, n);
-  free(s);
-  ElemSet *e = (ElemSet *)ctx;
-  assert(e->end() == e->find(xs));
-  e->insert(xs);
+  ((std::vector<std::string> *)ctx)->emplace_back(s, n);
+  rm_free(s);
   return REDISEARCH_OK;
 }
 
-static ElemSet trieIterRange(Trie *t, const char *begin, size_t nbegin, const char *end,
-                             size_t nend) {
-  rune r1[256] = {0};
-  rune r2[256] = {0};
-  size_t nr1, nr2;
+// Collects every term under `prefix`. Unlike Trie_IterateAll's explicit stack,
+// this descends by recursion, one frame per node.
+static std::vector<std::string> trieIterPrefix(Trie *t, const char *prefix) {
+  runeBuf buf;
+  size_t len = strlen(prefix);
+  rune *runes = runeBufFill(prefix, len, &buf, &len);
 
-  rune *r1Ptr = r1;
-  rune *r2Ptr = r2;
-
-  nr1 = strToRunesN(begin, nbegin, r1);
-  nr2 = strToRunesN(end, nend, r2);
-
-  if (!begin) {
-    r1Ptr = NULL;
-    nr1 = -1;
-  }
-
-  if (!end) {
-    r2Ptr = NULL;
-    nr2 = -1;
-  }
-
-  ElemSet foundElements;
-  TrieNode_IterateRange(t->root, r1Ptr, nr1, true, r2Ptr, nr2, false,
-                        rangeFunc, &foundElements);
-  return foundElements;
+  std::vector<std::string> terms;
+  Trie_IterateContains(t, runes, len, true, false, collectTermFunc, &terms, NULL, true);
+  runeBufFree(&buf);
+  return terms;
 }
 
-static ElemSet trieIterRange(Trie *t, const char *begin, const char *end) {
-  return trieIterRange(t, begin, begin ? strlen(begin) : 0, end, end ? strlen(end) : 0);
+// Collects every term the trie emits, preserving emission order so that callers
+// can assert on the sort mode the trie is operating in.
+static std::vector<std::string> trieIterAllTerms(Trie *t) {
+  std::vector<std::string> terms;
+  rune *rstr = NULL;
+  t_len slen = 0;
+  float score = 0;
+
+  TrieIterator *it = Trie_IterateAll(t);
+  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, NULL)) {
+    size_t n;
+    char *s = runesToStr(rstr, slen, &n);
+    terms.emplace_back(s, n);
+    rm_free(s);
+  }
+  TrieIterator_Free(it);
+  return terms;
 }
 
-TEST_F(TrieTest, testBasicRange) {
-  Trie *t = NewTrie(NULL, Trie_Sort_Lex);
-  rune rbuf[TRIE_INITIAL_STRING_LEN + 1];
-  for (size_t ii = 0; ii < 1000; ++ii) {
-    char buf[64];
-    snprintf(buf, sizeof(buf), "%lu", (unsigned long)ii);
-    auto n = trieInsert(t, buf);
-    ASSERT_TRUE(n);
+static constexpr rune kPackedChildKeyPrefix = 0x41;
+static constexpr int kPackedChildKeyChildCount = 128;
+
+static uintptr_t trieNodeChildKeyAddress(const TrieNode *n) {
+  return reinterpret_cast<uintptr_t>(n) + sizeof(TrieNode) + (n->len + 1) * sizeof(rune);
+}
+
+static void buildPackedChildKeyScanTrie(Trie **tOut, TrieNode **prefixNodeOut) {
+  Trie *t = NewTrie(NULL, Trie_Sort_Score);
+  *tOut = t;
+  *prefixNodeOut = nullptr;
+
+  ASSERT_EQ(TRIE_OK_NEW,
+            Trie_InsertRune(t, &kPackedChildKeyPrefix, 1, 1.0, 0, NULL, 0));
+
+  for (int i = 0; i < kPackedChildKeyChildCount; ++i) {
+    rune key[] = {kPackedChildKeyPrefix, static_cast<rune>(0x20 + i)};
+    ASSERT_EQ(TRIE_OK_NEW, Trie_InsertRune(t, key, 2, static_cast<double>(i), 0, NULL, 0));
   }
 
-  //TrieNode_Print(t->root, 0, 0);
+  // Regression: child-key storage is packed inside TrieNode and may start at an
+  // odd address. Scanning a wide score-sorted node must not let the compiler use
+  // aligned loads from that packed key array.
+  TrieNode *prefixNode = Trie_GetNode(t, &kPackedChildKeyPrefix, 1, true, NULL);
+  ASSERT_NE(nullptr, prefixNode);
+  ASSERT_EQ(kPackedChildKeyChildCount, TrieNode_NumChildren(prefixNode));
+  ASSERT_NE(0u, trieNodeChildKeyAddress(prefixNode) % alignof(rune));
+  ASSERT_EQ(0u, reinterpret_cast<uintptr_t>(TrieNode_Children(prefixNode)) % alignof(TrieNode *));
+  *prefixNodeOut = prefixNode;
+}
 
-  // Get all numbers within the lexical range of 1 and 1Z
-  auto ret = trieIterRange(t, "1", "1Z");
-  ASSERT_EQ(111, ret.size());
+TEST_F(TrieTest, testGetScansPackedChildKeys) {
+  Trie *t = nullptr;
+  TrieNode *prefixNode = nullptr;
+  buildPackedChildKeyScanTrie(&t, &prefixNode);
+  ASSERT_NE(nullptr, prefixNode);
 
-  // What does a NULL range return? the entire trie
-  ret = trieIterRange(t, NULL, NULL);
-  ASSERT_EQ(t->size, ret.size());
-
-  // Min and max the same- should return only one value
-  ret = trieIterRange(t, "1", "1");
-  ASSERT_EQ(1, ret.size());
-
-  ret = trieIterRange(t, "10", 2, "11", 2);
-  ASSERT_EQ(11, ret.size());
-
-  // Min and Min+1
-  ret = trieIterRange(t, "10", 2, "10\x01", 3);
-  ASSERT_EQ(1, ret.size());
-
-  // No min, but has a max
-  ret = trieIterRange(t, NULL, "5");
-  ASSERT_EQ(445, ret.size());
+  rune key[] = {kPackedChildKeyPrefix, 0x20};
+  TrieNode *node = Trie_GetNode(t, key, 2, true, NULL);
+  ASSERT_NE(nullptr, node);
 
   TrieType_Free(t);
 }
 
-TEST_F(TrieTest, testBasicRangeWithScore) {
-  Trie *t = NewTrie(NULL, Trie_Sort_Score);
-  rune rbuf[TRIE_INITIAL_STRING_LEN + 1];
-  for (size_t ii = 0; ii < 1000; ++ii) {
-    char buf[64];
-    snprintf(buf, sizeof(buf), "%lu", (unsigned long)ii);
-    auto n = trieInsert(t, buf);
-    ASSERT_TRUE(n);
-  }
+TEST_F(TrieTest, testDeleteScansPackedChildKeys) {
+  Trie *t = nullptr;
+  TrieNode *prefixNode = nullptr;
+  buildPackedChildKeyScanTrie(&t, &prefixNode);
+  ASSERT_NE(nullptr, prefixNode);
 
-  //TrieNode_Print(t->root, 0, 0);
-
-  // Get all numbers within the lexical range of 1 and 1Z
-  auto ret = trieIterRange(t, "1", "1Z");
-  ASSERT_EQ(111, ret.size());
-
-  // What does a NULL range return? the entire trie
-  ret = trieIterRange(t, NULL, NULL);
-  ASSERT_EQ(t->size, ret.size());
-
-  // Min and max the same- should return only one value
-  ret = trieIterRange(t, "1", "1");
-  ASSERT_EQ(1, ret.size());
-
-  ret = trieIterRange(t, "10", 2, "11", 2);
-  ASSERT_EQ(11, ret.size());
-
-  // Min and Min+1
-  ret = trieIterRange(t, "10", 2, "10\x01", 3);
-  ASSERT_EQ(1, ret.size());
-
-  // No min, but has a max
-  ret = trieIterRange(t, NULL, "5");
-  ASSERT_EQ(445, ret.size());
+  rune key[] = {kPackedChildKeyPrefix, 0x20};
+  ASSERT_EQ(1, Trie_DeleteRunes(t, key, 2));
+  ASSERT_EQ(kPackedChildKeyChildCount, Trie_Size(t));
 
   TrieType_Free(t);
 }
@@ -174,8 +164,7 @@ TEST_F(TrieTest, testDeepEntry) {
     // printf("Inserting with len=%u: %d\n", curlen, rc);
   }
 
-  auto ret = trieIterRange(t, "1", "1Z");
-  ASSERT_EQ(maxbuf, ret.size());
+  ASSERT_EQ(maxbuf, trieIterPrefix(t, "1").size());
   TrieType_Free(t);
 }
 
@@ -203,35 +192,35 @@ TEST_F(TrieTest, testPayload) {
 
   // check for prefix of existing term
   // with exact returns null, w/o return load of next term
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 1, 0), "wo", 2), 0);
-  ASSERT_TRUE((char*)Trie_GetValueStringBuffer(t, buf1, 1, 1) == NULL);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 1, 0), "wo", 2), 0);
+  ASSERT_TRUE((char*)triePayload(t, buf1, 1, 1) == NULL);
 
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 2, 1), "wo", 2), 0);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 3, 1), "wor", 3), 0);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 4, 1), "worl", 4), 0);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 5, 1), "world", 5), 0);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf2, 4, 1), "work", 4), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 2, 1), "wo", 2), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 3, 1), "wor", 3), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 4, 1), "worl", 4), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 5, 1), "world", 5), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf2, 4, 1), "work", 4), 0);
 
   ASSERT_EQ(Trie_Delete(t, buf1, 3), 1);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 2, 1), "wo", 2), 0);
-  ASSERT_TRUE((char*)Trie_GetValueStringBuffer(t, buf1, 3, 1) == NULL);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 4, 1), "worl", 4), 0);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 5, 1), "world", 5), 0);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf2, 4, 1), "work", 4), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 2, 1), "wo", 2), 0);
+  ASSERT_TRUE((char*)triePayload(t, buf1, 3, 1) == NULL);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 4, 1), "worl", 4), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 5, 1), "world", 5), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf2, 4, 1), "work", 4), 0);
 
   ASSERT_EQ(Trie_Delete(t, buf1, 4), 1);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 2, 1), "wo", 2), 0);
-  ASSERT_TRUE((char*)Trie_GetValueStringBuffer(t, buf1, 3, 1) == NULL);
-  ASSERT_TRUE((char*)Trie_GetValueStringBuffer(t, buf1, 4, 1) == NULL);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 5, 1), "world", 5), 0);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf2, 4, 1), "work", 4), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 2, 1), "wo", 2), 0);
+  ASSERT_TRUE((char*)triePayload(t, buf1, 3, 1) == NULL);
+  ASSERT_TRUE((char*)triePayload(t, buf1, 4, 1) == NULL);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 5, 1), "world", 5), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf2, 4, 1), "work", 4), 0);
 
   // testing with exact = 0
   // "wor" node exists with NULL payload.
-  ASSERT_TRUE((char*)Trie_GetValueStringBuffer(t, buf1, 3, 0) == NULL);
+  ASSERT_TRUE((char*)triePayload(t, buf1, 3, 0) == NULL);
   // "worl" does not exist but is partial offset of =>`wor`+`ld`.
   // payload of `ld` is returned.
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 4, 0), "world", 5), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 4, 0), "world", 5), 0);
 
   TrieType_Free(t);
 }
@@ -280,7 +269,7 @@ TEST_F(TrieTest, testLexOrder) {
   trieInsert(t, "bar");
   trieInsert(t, "help");
 
-  TrieIterator *iter = Trie_Iterate(t, "", 0, 0, 1);
+  TrieIterator *iter = Trie_IterateAll(t);
   checkNext(iter, "bar");
   checkNext(iter, "foo");
   checkNext(iter, "helen");
@@ -293,7 +282,7 @@ TEST_F(TrieTest, testLexOrder) {
   Trie_Delete(t, "hello", 5);
   Trie_Delete(t, "world", 5);
 
-  iter = Trie_Iterate(t, "", 0, 0, 1);
+  iter = Trie_IterateAll(t);
   checkNext(iter, "foo");
   checkNext(iter, "helen");
   checkNext(iter, "help");
@@ -313,7 +302,7 @@ bool trieContains(Trie *t, const char *s) {
   if (!runes) {
     return false;
   }
-  TrieNode *node = TrieNode_Get(t->root, runes, len, 0, NULL);
+  TrieNode *node = Trie_GetNode(t, runes, len, 0, NULL);
   runeBufFree(&buf);
   return node != NULL;
 }
@@ -328,7 +317,7 @@ TEST_F(TrieTest, testScoreOrder) {
   trieInsertByScore(t, "help", 3);
   trieInsertByScore(t, "helen", 5);
 
-  TrieIterator *iter = Trie_Iterate(t, "", 0, 0, 1);
+  TrieIterator *iter = Trie_IterateAll(t);
   checkNext(iter, "foo");
   checkNext(iter, "helen");
   checkNext(iter, "hello");
@@ -341,13 +330,177 @@ TEST_F(TrieTest, testScoreOrder) {
   Trie_Delete(t, "world", 5);
   Trie_Delete(t, "bar", 3);
 
-  iter = Trie_Iterate(t, "", 0, 0, 1);
+  iter = Trie_IterateAll(t);
   checkNext(iter, "foo");
   checkNext(iter, "helen");
   checkNext(iter, "help");
   TrieIterator_Free(iter);
 
   TrieType_Free(t);
+}
+
+// Fetch a node by its UTF-8 key through the public wrapper, so the test reads
+// subtreeMaxScore without reaching into the opaque Trie struct for its root.
+static TrieNode *getNode(Trie *t, const char *s) {
+  runeBuf buf;
+  size_t len = strlen(s);
+  rune *runes = runeBufFill(s, len, &buf, &len);
+  TrieNode *n = Trie_GetNode(t, runes, len, true, NULL);
+  runeBufFree(&buf);
+  return n;
+}
+
+// Regression test for the subtreeMaxScore staleness bug. subtreeMaxScore is the
+// branch-and-bound upper bound Trie_CollectFuzzy (FT.SUGGET) prunes on, so it
+// must always cover a node's own score and every descendant's. The buggy code
+// folded only the score *delta* into the bound on two insert paths, leaving it
+// under-estimated and causing valid suggestions to be silently pruned.
+TEST_F(TrieTest, testSubtreeMaxScoreCoversIncrAndSplit) {
+  Trie *t = NewTrie(NULL, Trie_Sort_Score);
+
+  // ADD_INCR path: "beer"/"beet" share the internal node "bee". INCR "beer" by 3
+  // (5 -> 8); the buggy code folded only the delta (3), leaving the bounds at 5.
+  Trie_InsertStringBuffer(t, "beer", 4, 5.0, 0, NULL, 1);
+  Trie_InsertStringBuffer(t, "beet", 4, 5.0, 0, NULL, 1);
+  Trie_InsertStringBuffer(t, "beer", 4, 3.0, 1, NULL, 1);
+
+  // Split-exact path: "zoom" is one compressed node; inserting its proper prefix
+  // "zoo" splits it and makes "zoo" terminal with score 9. The buggy code never
+  // folded that score into the split node's bound, leaving it at "zoom"'s 5.
+  Trie_InsertStringBuffer(t, "zoom", 4, 5.0, 0, NULL, 1);
+  Trie_InsertStringBuffer(t, "zoo", 3, 9.0, 0, NULL, 1);
+
+  EXPECT_FLOAT_EQ(getNode(t, "beer")->score, 8.0f);      // INCR applied the delta
+  EXPECT_GE(getNode(t, "beer")->subtreeMaxScore, 8.0f);  // bound covers the total
+  EXPECT_GE(getNode(t, "bee")->subtreeMaxScore, 8.0f);   // ancestor covers descendant
+  EXPECT_GE(getNode(t, "zoo")->subtreeMaxScore, 9.0f);   // split node folded its score
+
+  TrieType_Free(t);
+}
+
+// Add a UTF-8 key directly to a raw root node, bypassing the Trie wrapper so
+// the test owns the root pointer and can walk the structure afterwards.
+static void addRaw(TrieNode **root, const char *s, float score, TrieAddOp op) {
+  runeBuf buf;
+  size_t len = strlen(s);
+  rune *runes = runeBufFill(s, len, &buf, &len);
+  TrieNode_Add(root, runes, len, NULL, score, op, NULL, 1);
+  runeBufFree(&buf);
+}
+
+// Recursively assert that every node keeps its children ordered by descending
+// subtreeMaxScore — the order the score-mode iterator relies on to visit
+// high-scoring branches first.
+static void assertChildrenScoreOrdered(const TrieNode *n) {
+  TrieNode **children = TrieNode_Children(n);
+  for (t_len i = 0; i < TrieNode_NumChildren(n); i++) {
+    if (i + 1 < TrieNode_NumChildren(n)) {
+      EXPECT_GE(children[i]->subtreeMaxScore, children[i + 1]->subtreeMaxScore)
+          << "children out of descending subtreeMaxScore order";
+    }
+    assertChildrenScoreOrdered(children[i]);
+  }
+}
+
+// The insert path restores child order with a single-element rotation instead of
+// a full sort. Storm a small trie with rank-crossing INCRs, then verify both the
+// order invariant and (via exact lookups) that the rotation kept the parallel
+// child-key array consistent with the children.
+TEST_F(TrieTest, testScoreOrderMaintainedAfterIncrStorm) {
+  rune emptyRoot[1] = {0};
+  TrieNode *root = __newTrieNode(emptyRoot, 0, 0, NULL, 0, 0, 0.0f, 0, Trie_Sort_Score, 0);
+
+  const char *keys[] = {"alpha", "alps", "beer", "beet", "bee", "gamma", "gap", "delta"};
+  const size_t numKeys = sizeof(keys) / sizeof(keys[0]);
+  float expected[numKeys];
+
+  for (size_t i = 0; i < numKeys; i++) {
+    addRaw(&root, keys[i], 1.0f, ADD_REPLACE);
+    expected[i] = 1.0f;
+  }
+
+  // Uneven, shifting deltas so sibling ranks keep crossing at every level and
+  // the rotation has to move children by more than one slot.
+  for (int round = 0; round < 20; round++) {
+    for (size_t i = 0; i < numKeys; i++) {
+      float delta = (float)((i + round) % 4 + 1);
+      addRaw(&root, keys[i], delta, ADD_INCR);
+      expected[i] += delta;
+    }
+    assertChildrenScoreOrdered(root);
+  }
+
+  for (size_t i = 0; i < numKeys; i++) {
+    runeBuf buf;
+    size_t len = strlen(keys[i]);
+    rune *runes = runeBufFill(keys[i], len, &buf, &len);
+    TrieNode *node = TrieNode_Get(root, runes, len, true, NULL);
+    runeBufFree(&buf);
+    ASSERT_NE(node, nullptr) << keys[i];
+    EXPECT_FLOAT_EQ(node->score, expected[i]) << keys[i];
+  }
+
+  TrieNode_Free(root, NULL);
+}
+
+// Assert the first rune of each child of root, in child-array order.
+static void assertChildOrder(TrieNode *root, const char *firstRunes) {
+  size_t expected = strlen(firstRunes);
+  ASSERT_EQ(TrieNode_NumChildren(root), expected);
+  TrieNode **children = TrieNode_Children(root);
+  for (size_t i = 0; i < expected; i++) {
+    EXPECT_EQ(children[i]->str[0], (rune)firstRunes[i]) << "child " << i;
+  }
+}
+
+// Whitebox tests for __trieNode_rotateChildIntoPlace: raise one child's bound,
+// rotate, check order, tie stability, and key-cache consistency.
+TEST_F(TrieTest, testRotateChildIntoPlace) {
+  rune emptyRoot[1] = {0};
+  TrieNode *root = __newTrieNode(emptyRoot, 0, 0, NULL, 0, 0, 0.0f, 0, Trie_Sort_Score, 0);
+
+  // descending scores append in order: children are [delta, charlie, bravo, alpha]
+  addRaw(&root, "delta", 9.0f, ADD_REPLACE);
+  addRaw(&root, "charlie", 7.0f, ADD_REPLACE);
+  addRaw(&root, "bravo", 5.0f, ADD_REPLACE);
+  addRaw(&root, "alpha", 3.0f, ADD_REPLACE);
+  assertChildOrder(root, "dcba");
+  TrieNode **children = TrieNode_Children(root);
+
+  // no-move: bravo's bound rises but stays below its left neighbor
+  children[2]->subtreeMaxScore = 6.0f;
+  __trieNode_rotateChildIntoPlace(root, 2);
+  assertChildOrder(root, "dcba");
+
+  // tie stability: bound rises to exactly charlie's; no move
+  children[2]->subtreeMaxScore = 7.0f;
+  __trieNode_rotateChildIntoPlace(root, 2);
+  assertChildOrder(root, "dcba");
+
+  // multi-slot move: alpha's bound rises past bravo and charlie but not delta
+  children[3]->subtreeMaxScore = 8.0f;
+  __trieNode_rotateChildIntoPlace(root, 3);
+  assertChildOrder(root, "dacb");
+
+  // move to front: bravo's bound rises past everything
+  children[3]->subtreeMaxScore = 10.0f;
+  __trieNode_rotateChildIntoPlace(root, 3);
+  assertChildOrder(root, "bdac");
+
+  // key cache stayed in sync: every key still reachable by exact lookup
+  const char *keys[] = {"alpha", "bravo", "charlie", "delta"};
+  const float scores[] = {3.0f, 5.0f, 7.0f, 9.0f};
+  for (size_t i = 0; i < 4; i++) {
+    runeBuf buf;
+    size_t len = strlen(keys[i]);
+    rune *runes = runeBufFill(keys[i], len, &buf, &len);
+    TrieNode *node = TrieNode_Get(root, runes, len, true, NULL);
+    runeBufFree(&buf);
+    ASSERT_NE(node, nullptr) << keys[i];
+    EXPECT_FLOAT_EQ(node->score, scores[i]) << keys[i];
+  }
+
+  TrieNode_Free(root, NULL);
 }
 
 /* leave for future benchmarks if needed
@@ -366,13 +519,13 @@ TEST_F(TrieTest, testbenchmark) {
 
 // Helper function to compare two tries for equality
 static bool compareTrieContents(Trie *original, Trie *loaded) {
-  if (original->size != loaded->size) {
+  if (Trie_Size(original) != Trie_Size(loaded)) {
     return false;
   }
 
   // Compare all entries using iterators
-  TrieIterator *origIter = Trie_Iterate(original, "", 0, 0, 1);
-  TrieIterator *loadedIter = Trie_Iterate(loaded, "", 0, 0, 1);
+  TrieIterator *origIter = Trie_IterateAll(original);
+  TrieIterator *loadedIter = Trie_IterateAll(loaded);
 
   std::unique_ptr<TrieIterator, std::function<void(TrieIterator *)>> origIterPtr(origIter, [](TrieIterator *iter) {
     TrieIterator_Free(iter);
@@ -453,7 +606,7 @@ TEST_F(TrieTest, testBasicRdbSaveLoad) {
   trieInsertByScore(originalTrie, "books", 8.0);       // Extension of "book"
   trieInsertByScore(originalTrie, "booking", 2.0);     // Extension of "book"
 
-  ASSERT_EQ(8, originalTrie->size);
+  ASSERT_EQ(8, Trie_Size(originalTrie));
 
   // Create RDB IO context
   RedisModuleIO *io = RMCK_CreateRdbIO();
@@ -478,7 +631,7 @@ TEST_F(TrieTest, testBasicRdbSaveLoad) {
   EXPECT_EQ(0, RMCK_IsIOError(io));
 
   // Compare the original and loaded tries
-  EXPECT_EQ(originalTrie->size, loadedTrie->size);
+  EXPECT_EQ(Trie_Size(originalTrie), Trie_Size(loadedTrie));
 
   // Verify all entries are present in the loaded trie
   EXPECT_TRUE(trieContains(loadedTrie, "app"));
@@ -511,7 +664,7 @@ TEST_F(TrieTest, testRdbSaveLoadWithPayloads) {
   bool r2 = Trie_InsertStringBuffer(originalTrie, "running", 7, 3.0, 0, &p2, 0);    // Extension with payload
   bool r3 = Trie_InsertStringBuffer(originalTrie, "runner", 6, 4.0, 0, &p3, 0);     // Extension with payload
 
-  EXPECT_EQ(3, originalTrie->size);
+  EXPECT_EQ(3, Trie_Size(originalTrie));
 
   // Create RDB IO context
   RedisModuleIO *io = RMCK_CreateRdbIO();
@@ -528,7 +681,7 @@ TEST_F(TrieTest, testRdbSaveLoadWithPayloads) {
   io->read_pos = 0;
 
   // Load the trie from RDB (with payloads)
-  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, true, true);
+  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, true, true, Trie_Sort_Score);
   std::unique_ptr<Trie, std::function<void(Trie *)>> loadedTriePtr(loadedTrie, [](Trie *trie) {
     TrieType_Free(trie);
   });
@@ -536,7 +689,7 @@ TEST_F(TrieTest, testRdbSaveLoadWithPayloads) {
   EXPECT_EQ(0, RMCK_IsIOError(io));
 
   // Compare the original and loaded tries
-  EXPECT_EQ(originalTrie->size, loadedTrie->size);
+  EXPECT_EQ(Trie_Size(originalTrie), Trie_Size(loadedTrie));
 
   // Verify all entries are present in the loaded trie
   EXPECT_TRUE(trieContains(loadedTrie, "run"));
@@ -544,9 +697,9 @@ TEST_F(TrieTest, testRdbSaveLoadWithPayloads) {
   EXPECT_TRUE(trieContains(loadedTrie, "runner"));
 
   // Verify specific payloads are preserved
-  void *loadedPayload1 = Trie_GetValueStringBuffer(loadedTrie, "run", 3, true);
-  void *loadedPayload2 = Trie_GetValueStringBuffer(loadedTrie, "running", 7, true);
-  void *loadedPayload3 = Trie_GetValueStringBuffer(loadedTrie, "runner", 6, true);
+  void *loadedPayload1 = triePayload(loadedTrie, "run", 3, true);
+  void *loadedPayload2 = triePayload(loadedTrie, "running", 7, true);
+  void *loadedPayload3 = triePayload(loadedTrie, "runner", 6, true);
 
   ASSERT_TRUE(loadedPayload1 != nullptr);
   ASSERT_TRUE(loadedPayload2 != nullptr);
@@ -577,7 +730,7 @@ TEST_F(TrieTest, testRdbSaveLoadPayloadsNotSerialized) {
   Trie_InsertStringBuffer(originalTrie, "care", 4, 6.0, 0, &p2, 0);       // Extension with payload
   Trie_InsertStringBuffer(originalTrie, "careful", 7, 4.0, 0, &p3, 0);    // Extension with payload
 
-  EXPECT_EQ(3, originalTrie->size);
+  EXPECT_EQ(3, Trie_Size(originalTrie));
 
   // Create RDB IO context
   RedisModuleIO *io = RMCK_CreateRdbIO();
@@ -594,7 +747,7 @@ TEST_F(TrieTest, testRdbSaveLoadPayloadsNotSerialized) {
   io->read_pos = 0;
 
   // Load the trie from RDB WITHOUT payloads (loadPayloads = false) and numDocs (loadNumDocs = false)
-  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, false, false);
+  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, false, false, Trie_Sort_Score);
   std::unique_ptr<Trie, std::function<void(Trie *)>> loadedTriePtr(loadedTrie, [](Trie *trie) {
     TrieType_Free(trie);
   });
@@ -602,7 +755,7 @@ TEST_F(TrieTest, testRdbSaveLoadPayloadsNotSerialized) {
   EXPECT_EQ(0, RMCK_IsIOError(io));
 
   // Compare the original and loaded tries - sizes should match
-  EXPECT_EQ(originalTrie->size, loadedTrie->size);
+  EXPECT_EQ(Trie_Size(originalTrie), Trie_Size(loadedTrie));
 
   // Verify all entries are present in the loaded trie
   EXPECT_TRUE(trieContains(loadedTrie, "car"));
@@ -610,9 +763,9 @@ TEST_F(TrieTest, testRdbSaveLoadPayloadsNotSerialized) {
   EXPECT_TRUE(trieContains(loadedTrie, "careful"));
 
   // Verify that payloads are NOT preserved (should be null)
-  void *loadedPayload1 = Trie_GetValueStringBuffer(loadedTrie, "car", 3, true);
-  void *loadedPayload2 = Trie_GetValueStringBuffer(loadedTrie, "care", 4, true);
-  void *loadedPayload3 = Trie_GetValueStringBuffer(loadedTrie, "careful", 7, true);
+  void *loadedPayload1 = triePayload(loadedTrie, "car", 3, true);
+  void *loadedPayload2 = triePayload(loadedTrie, "care", 4, true);
+  void *loadedPayload3 = triePayload(loadedTrie, "careful", 7, true);
 
   EXPECT_TRUE(loadedPayload1 == nullptr);  // Payload should not be preserved
   EXPECT_TRUE(loadedPayload2 == nullptr);  // Payload should not be preserved
@@ -638,7 +791,7 @@ TEST_F(TrieTest, testRdbSaveLoadWithoutPayloads) {
   Trie_InsertStringBuffer(originalTrie, "help", 4, 7.0, 0, NULL, 0);      // Related word without payload
   Trie_InsertStringBuffer(originalTrie, "helper", 6, 5.0, 0, &p2, 0);    // Extension with payload
 
-  EXPECT_EQ(4, originalTrie->size);
+  EXPECT_EQ(4, Trie_Size(originalTrie));
 
   // Create RDB IO context
   RedisModuleIO *io = RMCK_CreateRdbIO();
@@ -655,7 +808,7 @@ TEST_F(TrieTest, testRdbSaveLoadWithoutPayloads) {
   io->read_pos = 0;
 
   // Load the trie from RDB WITHOUT payloads (loadPayloads = false) and numDocs (loadNumDocs = false) to match the save operation
-  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, false, false);
+  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, false, false, Trie_Sort_Score);
   std::unique_ptr<Trie, std::function<void(Trie *)>> loadedTriePtr(loadedTrie, [](Trie *trie) {
     TrieType_Free(trie);
   });
@@ -663,7 +816,7 @@ TEST_F(TrieTest, testRdbSaveLoadWithoutPayloads) {
   EXPECT_EQ(0, RMCK_IsIOError(io));
 
   // Compare sizes - entries should be preserved
-  EXPECT_EQ(originalTrie->size, loadedTrie->size);
+  EXPECT_EQ(Trie_Size(originalTrie), Trie_Size(loadedTrie));
 
   // Verify all entries are present in the loaded trie
   EXPECT_TRUE(trieContains(loadedTrie, "hello"));
@@ -672,10 +825,10 @@ TEST_F(TrieTest, testRdbSaveLoadWithoutPayloads) {
   EXPECT_TRUE(trieContains(loadedTrie, "helper"));
 
   // Verify that payloads remain NULL (since none were inserted)
-  void *loadedPayload1 = Trie_GetValueStringBuffer(loadedTrie, "hello", 5, true);
-  void *loadedPayload2 = Trie_GetValueStringBuffer(loadedTrie, "hell", 4, true);
-  void *loadedPayload3 = Trie_GetValueStringBuffer(loadedTrie, "help", 4, true);
-  void *loadedPayload4 = Trie_GetValueStringBuffer(loadedTrie, "helper", 6, true);
+  void *loadedPayload1 = triePayload(loadedTrie, "hello", 5, true);
+  void *loadedPayload2 = triePayload(loadedTrie, "hell", 4, true);
+  void *loadedPayload3 = triePayload(loadedTrie, "help", 4, true);
+  void *loadedPayload4 = triePayload(loadedTrie, "helper", 6, true);
 
   EXPECT_TRUE(loadedPayload1 == nullptr);  // No payload was inserted
   EXPECT_TRUE(loadedPayload2 == nullptr);  // No payload was inserted
@@ -690,7 +843,7 @@ TEST_F(TrieTest, testRdbSaveLoadEmptyTrie) {
     TrieType_Free(trie);
   });
 
-  ASSERT_EQ(0, originalTrie->size);
+  ASSERT_EQ(0, Trie_Size(originalTrie));
 
   // Create RDB IO context
   RedisModuleIO *io = RMCK_CreateRdbIO();
@@ -715,8 +868,8 @@ TEST_F(TrieTest, testRdbSaveLoadEmptyTrie) {
   EXPECT_EQ(0, RMCK_IsIOError(io));
 
   // Compare the original and loaded tries
-  EXPECT_EQ(0, loadedTrie->size);
-  EXPECT_EQ(originalTrie->size, loadedTrie->size);
+  EXPECT_EQ(0, Trie_Size(loadedTrie));
+  EXPECT_EQ(Trie_Size(originalTrie), Trie_Size(loadedTrie));
 }
 
 TEST_F(TrieTest, testRdbSaveLoadLexSortedTrie) {
@@ -743,7 +896,7 @@ TEST_F(TrieTest, testRdbSaveLoadLexSortedTrie) {
   trieInsertByScore(originalTrie, "careful", 13.0);    // Extension of "care"
   trieInsertByScore(originalTrie, "carefully", 14.0);  // Extension of "careful"
 
-  ASSERT_EQ(14, originalTrie->size);
+  ASSERT_EQ(14, Trie_Size(originalTrie));
 
   // Verify all entries exist in the original trie
   EXPECT_TRUE(trieContains(originalTrie, "test"));
@@ -784,10 +937,11 @@ TEST_F(TrieTest, testRdbSaveLoadLexSortedTrie) {
   EXPECT_EQ(0, RMCK_IsIOError(io));
 
   // Compare the original and loaded tries
-  EXPECT_EQ(originalTrie->size, loadedTrie->size);
+  EXPECT_EQ(Trie_Size(originalTrie), Trie_Size(loadedTrie));
 
-  // Note: The loaded trie will have Trie_Sort_Score (default from TrieType_GenericLoad)
-  // but all the entries should still be present, even though the sorting mode changed
+  // Note: TrieType_RdbLoad (the registered TrieType callback) always reconstructs
+  // with Trie_Sort_Score because the only producer of the registered type is FT.SUGADD.
+  // All entries should still be present, even though the sorting mode changed.
 
   // Verify all entries are present in the loaded trie
   EXPECT_TRUE(trieContains(loadedTrie, "test"));
@@ -820,12 +974,103 @@ static size_t trieGetNumDocs(Trie *t, const char *s) {
   runeBuf buf;
   size_t runeLen = strlen(s);
   rune *runes = runeBufFill(s, runeLen, &buf, &runeLen);
-  TrieNode *node = TrieNode_Get(t->root, runes, runeLen, true, NULL);
+  TrieNode *node = Trie_GetNode(t, runes, runeLen, true, NULL);
   runeBufFree(&buf);
   if (node == NULL) {
     return 0;
   }
-  return node->numDocs;
+  return TrieNode_NumDocs(node);
+}
+
+TEST_F(TrieTest, testDecrementNumDocsRepresentable) {
+  Trie *t = NewTrie(NULL, Trie_Sort_Score);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> tp(t, [](Trie *p) { TrieType_Free(p); });
+
+  trieInsertWithNumDocs(t, "hello", 1.0, 3);
+
+  EXPECT_EQ(TRIE_DECR_UPDATED, Trie_DecrementNumDocs(t, "hello", strlen("hello"), 1));
+  EXPECT_EQ(2, trieGetNumDocs(t, "hello"));
+
+  EXPECT_EQ(TRIE_DECR_DELETED, Trie_DecrementNumDocs(t, "hello", strlen("hello"), 2));
+  EXPECT_EQ(0, trieGetNumDocs(t, "hello"));
+}
+
+// A representable term never inserted must stay distinct (NOT_FOUND) from the
+// unrepresentable case, so the disk-compaction caller can still assert on it.
+TEST_F(TrieTest, testDecrementNumDocsMissingRepresentable) {
+  Trie *t = NewTrie(NULL, Trie_Sort_Score);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> tp(t, [](Trie *p) { TrieType_Free(p); });
+
+  trieInsertWithNumDocs(t, "hello", 1.0, 3);
+  EXPECT_EQ(TRIE_DECR_NOT_FOUND, Trie_DecrementNumDocs(t, "absent", strlen("absent"), 1));
+}
+
+// A term at/over the trie's TRIE_INITIAL_STRING_LEN rune cap is never inserted,
+// so decrementing it reports UNSUPPORTED, not NOT_FOUND.
+TEST_F(TrieTest, testDecrementNumDocsUnrepresentableLongTerm) {
+  Trie *t = NewTrie(NULL, Trie_Sort_Score);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> tp(t, [](Trie *p) { TrieType_Free(p); });
+
+  // 255 runes: representable, inserts and decrements normally.
+  std::string ascii255(TRIE_INITIAL_STRING_LEN - 1, 'a');
+  ASSERT_TRUE(trieInsertWithNumDocs(t, ascii255.c_str(), 1.0, 1));
+  EXPECT_EQ(TRIE_DECR_DELETED, Trie_DecrementNumDocs(t, ascii255.c_str(), ascii255.size(), 1));
+
+  // 256 / 257 runes: trip the rune-length guard.
+  std::string ascii256(TRIE_INITIAL_STRING_LEN, 'a');
+  std::string ascii257(TRIE_INITIAL_STRING_LEN + 1, 'a');
+  EXPECT_EQ(TRIE_DECR_UNSUPPORTED, Trie_DecrementNumDocs(t, ascii256.c_str(), ascii256.size(), 1));
+  EXPECT_EQ(TRIE_DECR_UNSUPPORTED, Trie_DecrementNumDocs(t, ascii257.c_str(), ascii257.size(), 1));
+
+  // 256 copies of U+754C (界), 3 bytes each: trips the earlier byte-length guard.
+  std::string cjk256;
+  for (int i = 0; i < TRIE_INITIAL_STRING_LEN; i++) cjk256 += "\xE7\x95\x8C";
+  EXPECT_EQ(TRIE_DECR_UNSUPPORTED, Trie_DecrementNumDocs(t, cjk256.c_str(), cjk256.size(), 1));
+}
+
+// Regression: TrieType_GenericLoad must preserve sort mode across reload, or a
+// Lex-sourced trie comes back score-sorted and emits terms in the wrong order.
+TEST_F(TrieTest, testRdbSaveLoadPreservesLexSortMode) {
+  Trie *original = NewTrie(NULL, Trie_Sort_Lex);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> originalPtr(
+      original, [](Trie *t) { TrieType_Free(t); });
+
+  // Single-char top-level entries so they become direct children of root.
+  // Scores scrambled so score-descending order != lex-ascending order.
+  struct E { const char *term; float score; };
+  E entries[] = {
+      {"a", 5},  {"b", 11}, {"c", 2},  {"d", 8},  {"e", 13},
+      {"f", 1},  {"g", 7},  {"h", 4},  {"i", 10}, {"j", 6},
+      {"k", 12}, {"l", 3},  {"m", 9},
+  };
+  for (auto &e : entries) {
+    ASSERT_TRUE(Trie_InsertStringBuffer(original, e.term, 1, e.score, 1, NULL, 0));
+  }
+  ASSERT_EQ(13, Trie_Size(original));
+
+  // Ground truth: a Lex trie emits lex-ascending, not score-descending.
+  std::vector<std::string> expected = trieIterAllTerms(original);
+  ASSERT_EQ((std::vector<std::string>{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l",
+                                      "m"}),
+            expected);
+
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(
+      io, [](RedisModuleIO *p) { RMCK_FreeRdbIO(p); });
+  ASSERT_TRUE(io != nullptr);
+
+  // Round-trip via the generic loader (same path as disk-spec / legacy RDB load).
+  TrieType_GenericSave(io, original, false, false);
+  ASSERT_EQ(0, RMCK_IsIOError(io));
+  io->read_pos = 0;
+  Trie *loaded = (Trie *)TrieType_GenericLoad(io, false, false, Trie_Sort_Lex);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> loadedPtr(
+      loaded, [](Trie *t) { TrieType_Free(t); });
+  ASSERT_TRUE(loaded != nullptr);
+  ASSERT_EQ(Trie_Size(original), Trie_Size(loaded));
+
+  // Same data, so the reloaded trie must emit in the same order.
+  EXPECT_EQ(expected, trieIterAllTerms(loaded));
 }
 
 TEST_F(TrieTest, testRdbSaveLoadWithNumDocs) {
@@ -843,7 +1088,7 @@ TEST_F(TrieTest, testRdbSaveLoadWithNumDocs) {
   trieInsertWithNumDocs(originalTrie, "AB", 5.0, 200);      // numDocs = 200
   trieInsertWithNumDocs(originalTrie, "ABC", 6.0, 300);     // numDocs = 300
 
-  ASSERT_EQ(6, originalTrie->size);
+  ASSERT_EQ(6, Trie_Size(originalTrie));
 
   // Verify original numDocs values
   EXPECT_EQ(10, trieGetNumDocs(originalTrie, "help"));
@@ -876,7 +1121,7 @@ TEST_F(TrieTest, testRdbSaveLoadWithNumDocs) {
   EXPECT_EQ(0, RMCK_IsIOError(io));
 
   // Verify the loaded trie has the same size
-  EXPECT_EQ(originalTrie->size, loadedTrie->size);
+  EXPECT_EQ(Trie_Size(originalTrie), Trie_Size(loadedTrie));
 
   // Verify all entries are present
   EXPECT_TRUE(trieContains(loadedTrie, "help"));
@@ -895,7 +1140,7 @@ TEST_F(TrieTest, testRdbSaveLoadWithNumDocs) {
   EXPECT_EQ(300, trieGetNumDocs(loadedTrie, "ABC"));
 
   // Verify numDocs via iterator as well
-  TrieIterator *it = TrieNode_Iterate(loadedTrie->root, NULL, NULL, NULL);
+  TrieIterator *it = Trie_IterateAll(loadedTrie);
   rune *rstr;
   t_len len;
   float score;
@@ -926,4 +1171,36 @@ TEST_F(TrieTest, testRdbSaveLoadWithNumDocs) {
   }
   EXPECT_EQ(6, count);
   TrieIterator_Free(it);
+}
+
+// Regression: Trie_CollectFuzzy(trim=1) used to mutate ret->top before reading the
+// tail entries it was about to free. Vector_Get then returned 0 without
+// touching the out pointer, so TrieSearchResult_Free(h) ran on stack garbage
+// and the allocator aborted. This test forces the trim drop branch (one entry
+// whose score dominates the rest by > SCORE_TRIM_FACTOR) and asserts both
+// non-abort and the surviving count.
+TEST_F(TrieTest, testSearchTrimDropsTail) {
+  Trie *t = NewTrie(NULL, Trie_Sort_Score);
+
+  trieInsertByScore(t, "ha", 100.0f);
+  trieInsertByScore(t, "hb", 1.0f);
+  trieInsertByScore(t, "hc", 1.0f);
+  trieInsertByScore(t, "hd", 1.0f);
+  trieInsertByScore(t, "he", 1.0f);
+
+  // num=10, maxDist=0, mode=TRIE_MATCH_PREFIX, trim=1, optimize=0
+  Vector *res = Trie_CollectFuzzy(t, "h", 1, 10, 0, TRIE_MATCH_PREFIX, 1, 0);
+  ASSERT_TRUE(res != NULL);
+
+  // Only the dominant entry should survive the trim: 1.0 < 100.0 / 10.0.
+  ASSERT_EQ(1, Vector_Size(res));
+
+  TrieSearchResult *e;
+  ASSERT_EQ(1, Vector_Get(res, 0, &e));
+  ASSERT_EQ(2, e->len);
+  ASSERT_EQ(0, memcmp(e->str, "ha", 2));
+  TrieSearchResult_Free(e);
+  Vector_Free(res);
+
+  TrieType_Free(t);
 }

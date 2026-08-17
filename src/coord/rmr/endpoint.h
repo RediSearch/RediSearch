@@ -9,6 +9,8 @@
 
 #pragma once
 
+#include <stdbool.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -17,11 +19,13 @@ extern "C" {
 typedef struct MREndpoint {
   char *host;
   int port;
+  bool isTls;
   char *unixSock;
   char *password;
 } MREndpoint;
 
-/* Parse a TCP address into an endpoint, in the format of host:port */
+/* Parse a TCP address into an endpoint, in the format of host:port.
+   The port is assumed to be a TCP port (isTls is always false) */
 int MREndpoint_Parse(const char *addr, MREndpoint *ep);
 
 /* Copy the endpoint's internal strings so freeing it will not hurt another copy of it */
@@ -30,6 +34,11 @@ void MREndpoint_Copy(MREndpoint *dst, const MREndpoint *src);
 /* Free the endpoint's internal string, doesn't actually free the endpoint object, which is usually
  * allocated on the stack or as part of a value array */
 void MREndpoint_Free(MREndpoint *ep);
+
+/* Return true iff `a` and `b` describe the same endpoint (host, port, unixSock,
+ * password are all equal). NULL strings compare equal only to NULL. Two NULL
+ * endpoint pointers are treated as equal; NULL vs non-NULL is not. */
+bool MREndpoint_Equal(const MREndpoint *a, const MREndpoint *b);
 
 #ifdef __cplusplus
 }

@@ -24,6 +24,11 @@ class TestDebugCommands(object):
         self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'invalid_idx').error().contains('SEARCH_INDEX_NOT_FOUND')
         self.env.expect(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'invalid_idx').error().contains('SEARCH_INDEX_NOT_FOUND')
 
+    def testGcForceInvokeTimeoutArg(self):
+        self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', '30000').equal('DONE')
+        self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', 'notanumber').error().contains('Invalid TIMEOUT value')
+        self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', '-1').error().contains('Invalid TIMEOUT value')
+
     def testDebugHelp(self):
         err_msg = 'wrong number of arguments'
         help_list = [
@@ -56,6 +61,7 @@ class TestDebugCommands(object):
             "TTL_EXPIRE",
             "VECSIM_INFO",
             "DELETE_LOCAL_CURSORS",
+            "DELETE_LOCAL_COORD_CURSORS",
             "DUMP_HNSW",
             "SET_MONITOR_EXPIRATION",
             "WORKERS",
@@ -65,14 +71,18 @@ class TestDebugCommands(object):
             "INFO",
             'GET_HIDE_USER_DATA_FROM_LOGS',
             'YIELDS_COUNTER',
+            'GC_TIMER_ARMS',
             'INDEXER_SLEEP_BEFORE_YIELD_MICROS',
             'QUERY_CONTROLLER',
             'DUMP_SCHEMA',
             'VECSIM_MOCK_TIMEOUT',
+            'MOCK_REVALIDATE_TIMEOUT',
             'GET_MAX_DOC_ID',
             'DUMP_DELETED_IDS',
+            'NUMERIC_BUCKET_MAP',
             'DISK_IO_CONTROL',
             'REGISTER_TEST_SCORERS',
+            'SET_MAX_INDEXES',
             'FT.AGGREGATE',
             '_FT.AGGREGATE',
             'FT.SEARCH',
@@ -84,15 +94,21 @@ class TestDebugCommands(object):
         ]
         coord_help_list = ['SHARD_CONNECTION_STATES', 'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY']
         help_list.extend(coord_help_list)
-        # SYNC_POINT is only available in ENABLE_ASSERT builds
+        # These commands are only available in ENABLE_ASSERT builds.
         if isEnableAssertEnabled(self.env):
             help_list.append('SYNC_POINT')
+            help_list.append('BG_PENDING_REPLIES')
+            help_list.append('IO_RUNTIME_PENDING_REQUESTS')
+            help_list.append('SEND_ERROR')
+            help_list.append('REPL_COMPACTION_COORDINATOR')
 
         self.env.expect(debug_cmd(), 'help').equal(help_list)
 
-        arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS', 'SHARD_CONNECTION_STATES',
+        arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS',
+                        'DELETE_LOCAL_COORD_CURSORS', 'SHARD_CONNECTION_STATES',
                         'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY', 'INFO', 'INDEXES', 'GET_HIDE_USER_DATA_FROM_LOGS',
-                        'REGISTER_TEST_SCORERS']
+                        'REGISTER_TEST_SCORERS', 'BG_PENDING_REPLIES',
+                        'IO_RUNTIME_PENDING_REQUESTS']
         for cmd in [c for c in help_list if c not in arity_2_cmds]:
             self.env.expect(debug_cmd(), cmd).error().contains(err_msg)
 
@@ -256,6 +272,12 @@ class TestDebugCommands(object):
         self.env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'non-existing').error().contains('Index not found')
         self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'non-existing').error().contains('Index not found')
         self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').error().contains('GC is already running periodically')
+        self.env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+        self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
+        # CONTINUE must leave the GC enabled, not merely reply OK.
+        self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').error().contains('GC is already running periodically')
+        # STOP is idempotent.
+        self.env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
         self.env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
         self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
 
@@ -440,9 +462,9 @@ def testSpecIndexesInfo(env: Env):
     # Add a document
     env.expect('HSET', 'doc1', 'n', 1).equal(1)
 
-    # adding the document will create a new index block (48 bytes) with 1 byte of buffer capacity
+    # adding the document will create a new index block (56 bytes) with 1 byte of buffer capacity
     # and 8 bytes of header for the block thin vector
-    expected_reply["inverted_indexes_memory"] = getInvertedIndexInitialSize(env, ['NUMERIC']) + 48 + 1 + 8
+    expected_reply["inverted_indexes_memory"] = getInvertedIndexInitialSize(env, ['NUMERIC']) + 56 + 1 + 8
     debug_output = env.cmd(debug_cmd(), 'SPEC_INVIDXES_INFO', 'idx')
     env.assertEqual(to_dict(debug_output), expected_reply)
 
@@ -828,6 +850,32 @@ class TestQueryDebugCommands(object):
         # Restore the default policy
         env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
 
+    def CoordTimeoutPolicyConstraints(self):
+        """
+        Test TIMEOUT_AFTER_N policy constraints for coordinator-level queries:
+        - ON_TIMEOUT RETURN: always supported
+        - ON_TIMEOUT FAIL: not supported (coordinator only supports RETURN)
+        - ON_TIMEOUT RETURN-STRICT: not supported (coordinator only supports RETURN)
+        """
+        env = self.env
+
+        # Skip for non-cluster - these constraints only apply to coordinator queries
+        if not env.isCluster():
+            return
+
+        # Test ON_TIMEOUT FAIL (not supported for coordinator)
+        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'FAIL').ok()
+        with env.assertResponseError(contained="TIMEOUT_AFTER_N for Coordinator is only supported with ON_TIMEOUT RETURN"):
+            runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
+
+        # Test ON_TIMEOUT RETURN-STRICT (not supported for coordinator)
+        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN-STRICT').ok()
+        with env.assertResponseError(contained="TIMEOUT_AFTER_N for Coordinator is only supported with ON_TIMEOUT RETURN"):
+            runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
+
+        # Restore the default policy
+        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
+
     def SearchDebug(self):
         self.setBasicDebugQuery("SEARCH")
         basic_debug_query = self.basic_debug_query
@@ -920,6 +968,7 @@ class TestQueryDebugCommands(object):
             self.verifyResultsResp3(res, 0, message="AggregateDebug: TIMEOUT_AFTER_N 0 INTERNAL_ONLY without WITHCURSOR in cluster:")
 
         self.TimeoutPolicyConstraints()
+        self.CoordTimeoutPolicyConstraints()
 
     def testAggregateDebug(self):
         self.AggregateDebug()
@@ -1001,6 +1050,11 @@ class TestQueryDebugCommands(object):
 # Didn't want to "break" the API by adding a new config parameter
 def test_hideUserDataFromLogs(env):
     env.skipOnCluster()
+    # 'hide-user-data-from-log' is not a RediSearch-owned config: notifications.c
+    # only mirrors a server-level twin via getRedisConfigBool, so whether it's
+    # registered at all depends on the enterprise server build, not on this module.
+    if RS_TEST_ENTERPRISE:
+        env.skip()
     value = env.cmd(debug_cmd(), 'GET_HIDE_USER_DATA_FROM_LOGS')
     env.assertEqual(value, 0)
     env.expect('CONFIG', 'SET', 'hide-user-data-from-log', 'yes').ok()
@@ -1284,6 +1338,34 @@ def test_query_controller_add_before_after(env):
         # Resume the query
         setPauseRPResume(env)
         t_query.join()
+
+@skip(cluster=True)
+def test_query_controller_set_cursor_read_size():
+    """Wrong-args coverage for FT.DEBUG QUERY_CONTROLLER SET_CURSOR_READ_SIZE."""
+    env = Env()
+    skipIfNoEnableAssert(env)
+
+    # Wrong arity: missing N
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE').error()\
+    .contains('wrong number of arguments')
+    # Wrong arity: extra argument
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', '1', 'extra').error()\
+    .contains('wrong number of arguments')
+    # Non-numeric N
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', 'abc').error()\
+    .contains("Invalid argument for 'SET_CURSOR_READ_SIZE'")
+    # Zero (rejected: N must be >= 1)
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', '0').error()\
+    .contains("Invalid argument for 'SET_CURSOR_READ_SIZE'")
+    # Negative
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', '-5').error()\
+    .contains("Invalid argument for 'SET_CURSOR_READ_SIZE'")
+
+    # Sanity: a valid call returns the previous value (a positive int) and
+    # restoring it works.
+    prev = env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', '7')
+    env.assertGreater(int(prev), 0)
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', str(int(prev))).equal(7)
 
 @skip(cluster=False)
 def test_cluster_query_controller_pause_and_resume():

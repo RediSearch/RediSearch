@@ -21,6 +21,59 @@ def testInfo(env):
     env.assertGreater(float(idx_info['key_table_size_mb']), 0)
     env.assertGreater(float(idx_info['vector_index_sz_mb']), 0)
 
+@skip(cluster=False)
+def testCountDistinctishAcrossShards():
+    """COUNT_DISTINCTISH is distributed as a per-shard HLL reducer (REDUCER_T_HLL),
+    merged on the coordinator by HLL_SUM (a register-wise max of the per-shard
+    HLL registers, see `distributeCountDistinctish` in `src/coord/dist_plan.cpp`).
+
+    This merge is only correct if every shard maps the same logical value to the
+    same HLL register/rank pair, i.e. the hash fed into the per-shard HLL
+    (`RSValue_HashStable`) must be deterministic across processes. If a
+    per-process-randomized hash (`RSValue_Hash`) were used instead, the same
+    `n_values` distinct values would map to unrelated registers on each shard,
+    and the merged HLL would estimate roughly `n_values * env.shardsCount`
+    distinct values instead of `n_values`.
+
+    To make the difference observable, every distinct tag value is written to
+    enough documents that (with overwhelming probability) each shard sees all
+    `n_values` of them.
+    """
+    env = Env(shardsCount=2)
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'group', 'TAG', 'category', 'TAG').ok()
+
+    n_values = 50
+    docs_per_value = 20
+    for j in range(n_values):
+        for i in range(docs_per_value):
+            conn.execute_command('HSET', f'doc:{j}:{i}', 'group', 'all', 'category', f'cat{j}')
+
+    # COUNT_DISTINCT (exact) has no entry in `reducerDistributors_g`, so a GROUPBY
+    # step containing it is never distributed (see `distributeGroupStep`): it runs
+    # entirely on the coordinator over raw rows gathered from all shards, and is
+    # therefore unaffected by per-shard hash seeds. Issued in its own query so it
+    # doesn't drag the COUNT_DISTINCTISH query (below) into the same fate.
+    res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                   'GROUPBY', '1', '@group',
+                   'REDUCE', 'COUNT_DISTINCT', '1', '@category', 'AS', 'exact')
+    exact_count = int(to_dict(res[1])['exact'])
+    env.assertEqual(exact_count, n_values)
+
+    # COUNT_DISTINCTISH is the only reducer in this GROUPBY step and is in
+    # `reducerDistributors_g`, so this step *is* distributed into per-shard HLL
+    # reducers merged via HLL_SUM. The result must be close to the exact count.
+    # With a stable cross-process hash, the merged HLL is ~idempotent across
+    # shards and estimates ~n_values. With a per-process-randomized hash, it
+    # would instead estimate ~n_values * env.shardsCount, well outside this
+    # tolerance for shardsCount >= 2.
+    res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                   'GROUPBY', '1', '@group',
+                   'REDUCE', 'COUNT_DISTINCTISH', '1', '@category', 'AS', 'approx')
+    approx_count = int(to_dict(res[1])['approx'])
+    env.assertAlmostEqual(exact_count, approx_count, delta=exact_count * 0.20)
+
 @skip(cluster=True)
 def test_required_fields(env):
     # Testing coordinator<-> shard `_REQUIRED_FIELDS` protocol
@@ -154,12 +207,24 @@ def test_index_missing_on_one_shard(env):
     except Exception as e:
         env.assertContains(error_msg, str(e))
 
+    # Should fail regardless of which shard is the coordinator
+    read_only_cmds = (
+        ('FT.INFO', index_name),
+        ('FT.SEARCH', index_name, '*'),
+        ('FT.AGGREGATE', index_name, '*'),
+        ('FT.HYBRID', index_name, 'SEARCH', '*',
+         'VSIM', '@v', '$BLOB', 'PARAMS', '2', 'BLOB', 'aaaabbbb'),
+    )
+    for shard in range(1, env.shardsCount + 1):
+        shard_conn = env.getConnection(shard)
+        for cmd in read_only_cmds:
+            try:
+                shard_conn.execute_command(*cmd)
+                env.assertTrue(False, message=f'{cmd[0]} should have failed on shard {shard}')
+            except Exception as e:
+                env.assertContains(error_msg, str(e))
+
     # Query via the cluster connection
-    env.expect('FT.SEARCH', index_name, '*').error().contains(error_msg)
-    env.expect('FT.AGGREGATE', index_name, '*').error().contains(error_msg)
-    env.expect('FT.HYBRID', index_name, 'SEARCH', '*',
-               'VSIM', '@v', '$BLOB', 'PARAMS', '2', 'BLOB', 'aaaabbbb')\
-                .error().contains(error_msg)
     env.expect('FT.SYNUPDATE', index_name, '1', 'a', 'b')\
                 .error().contains(error_msg)
     env.expect('FT.ALTER', index_name, 'SCHEMA', 'ADD', 'n2', 'NUMERIC')\
@@ -283,3 +348,124 @@ def test_single_shard_optimization():
 
     # SpellCheck
     env.expect('FT.SPELLCHECK', 'idx', 'hell').equal([['TERM', 'hell', [['1', 'hello']]]])
+
+
+
+def _set_all_shards_unreachable(env: Env):
+    """Set topology so all shards point to unreachable addresses (port 9)."""
+    env.expect('SEARCH.CLUSTERSET',
+               'MYID', '1',
+               'RANGES', '2',
+               'SHARD', '1', 'SLOTRANGE', '0', '8191',
+               'ADDR', '127.0.0.1:9', 'MASTER',
+               'SHARD', '2', 'SLOTRANGE', '8192', '16383',
+               'ADDR', '127.0.0.1:9', 'MASTER'
+    ).ok()
+    # Wait for the new topology to be applied
+    wait_for_condition(
+        lambda: (env.cmd('SEARCH.CLUSTERINFO')[5][0][7] == 9, {}),
+        'Failed waiting for topology to be applied'
+    )
+
+
+def _set_one_shard_unreachable(env: Env):
+    """Set topology so one shard is reachable and one points to an unreachable address."""
+    # Get the real shard address before we modify the topology
+    cluster_info = env.cmd('SEARCH.CLUSTERINFO')
+    # cluster_info[5] is the shards array, [0] is first shard, [7] is port, [5] is host
+    real_port = cluster_info[5][0][7]
+    real_host = cluster_info[5][0][5]
+
+    env.expect('SEARCH.CLUSTERSET',
+               'MYID', '1',
+               'RANGES', '2',
+               'SHARD', '1', 'SLOTRANGE', '0', '8191',
+               'ADDR', f'{real_host}:{real_port}', 'MASTER',
+               'SHARD', '2', 'SLOTRANGE', '8192', '16383',
+               'ADDR', '127.0.0.1:9', 'MASTER'
+    ).ok()
+    # Wait for the new topology to be applied (check that any shard has port 9)
+    wait_for_condition(
+        lambda: (any(shard[7] == 9 for shard in env.cmd('SEARCH.CLUSTERINFO')[5]), {}),
+        'Failed waiting for topology to be applied'
+    )
+
+
+def _test_all_queries_fail_on_unreachable_shard(env: Env, scenario: str):
+    """Test that FT.SEARCH, FT.AGGREGATE, and FT.HYBRID all return an error."""
+    # FT.SEARCH returns an error (does not hang)
+    with TimeLimit(5, f'FT.SEARCH hung ({scenario})'):
+        env.expect('FT.SEARCH', 'idx', '*').error().contains('Could not send query to cluster')
+
+    # FT.AGGREGATE returns an error (does not hang)
+    with TimeLimit(5, f'FT.AGGREGATE hung ({scenario})'):
+        env.expect('FT.AGGREGATE', 'idx', '*').error().contains('Could not send query to cluster')
+
+    # FT.AGGREGATE with cursor returns an error (does not hang)
+    with TimeLimit(5, f'FT.AGGREGATE WITHCURSOR hung ({scenario})'):
+        env.expect('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR').error().contains('Could not send query to cluster')
+
+    # FT.AGGREGATE WITHCOUNT returns an error (does not hang)
+    with TimeLimit(5, f'FT.AGGREGATE WITHCOUNT hung ({scenario})'):
+        env.expect('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT').error().contains('Could not send query to cluster')
+
+    # FT.HYBRID returns an error (does not hang)
+    with TimeLimit(5, f'FT.HYBRID hung ({scenario})'):
+        env.expect('FT.HYBRID', 'idx',
+                   'SEARCH', '*',
+                   'VSIM', '@v', '$BLOB',
+                   'PARAMS', '2', 'BLOB', 'abcdefgh'
+        ).error().contains('Could not send query to cluster')
+
+
+@skip(cluster=False, min_shards=2)
+def test_queries_fail_on_all_shards_unreachable(env: Env):
+    """Test that all query commands (FT.SEARCH, FT.AGGREGATE, FT.HYBRID) return an error
+    when all shards are unreachable, rather than hanging indefinitely.
+
+    When MRCluster_SendCommand fails (REDIS_ERR) during the initial fanout, the error
+    must be routed through the user callback so that:
+    - FT.SEARCH: The reducer receives the error and returns it to the client
+    - FT.AGGREGATE: The error is pushed to the channel and consumed by rpnetNext
+    - FT.HYBRID: The no-reply path records the communication error and unblocks
+      ProcessHybridCursorMappings' channel wait
+    """
+    # Create an index and add data before breaking topology
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               't', 'TEXT',
+               'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2',
+               'DISTANCE_METRIC', 'L2').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(10):
+        conn.execute_command('HSET', f'doc{i}', 't', f'hello{i}', 'v', 'abcdefgh')
+
+    # Pause topology refresh so our invalid topology stays in effect
+    env.expect(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER').ok()
+    # Set validation timeout to 1ms so we don't wait for unreachable shards
+    env.expect(config_cmd(), 'SET', 'TOPOLOGY_VALIDATION_TIMEOUT', '1').ok()
+
+    _set_all_shards_unreachable(env)
+    _test_all_queries_fail_on_unreachable_shard(env, 'all shards unreachable')
+
+
+@skip(cluster=False, min_shards=2)
+def test_queries_fail_on_one_shard_unreachable(env: Env):
+    """Test that all query commands (FT.SEARCH, FT.AGGREGATE, FT.HYBRID) return an error
+    when one shard is unreachable, rather than hanging indefinitely or returning partial results.
+    """
+    # Create an index and add data before breaking topology
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               't', 'TEXT',
+               'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2',
+               'DISTANCE_METRIC', 'L2').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(10):
+        conn.execute_command('HSET', f'doc{i}', 't', f'hello{i}', 'v', 'abcdefgh')
+
+    # Pause topology refresh so our invalid topology stays in effect
+    env.expect(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER').ok()
+    # Set validation timeout to 1ms so we don't wait for unreachable shards
+    env.expect(config_cmd(), 'SET', 'TOPOLOGY_VALIDATION_TIMEOUT', '1').ok()
+
+    _set_one_shard_unreachable(env)
+    _test_all_queries_fail_on_unreachable_shard(env, 'one shard unreachable')

@@ -11,8 +11,9 @@
 
 #include "query_ctx.h"
 #include "inverted_index.h"
-#include "numeric_index.h"
+#include "inverted_index_ffi.h"
 #include "ttl_table.h"
+#include "llapi_test_helpers.h"
 #include <string>
 #include <vector>
 #include <algorithm>
@@ -92,28 +93,23 @@ public:
     array_free(spec.fieldIdToIndex);
   }
 
-  void TTL_Add(t_docId docId, t_expirationTimePoint expiration = {LONG_MAX, LONG_MAX}) {
-    VerifyTTLInit();
-    TimeToLiveTable_Add(spec.docs.ttl, docId, expiration, NULL);
-  }
-
   void TTL_Add(t_docId docId, t_fieldIndex field, t_expirationTimePoint expiration = {LONG_MAX, LONG_MAX}) {
     VerifyTTLInit();
-    arrayof(FieldExpiration) fe = array_new(FieldExpiration, 1);
+    FieldExpirations fe = FieldExpirations_WithCapacity(1);
     FieldExpiration fe_entry = {field, expiration};
-    array_append(fe, fe_entry);
-    TimeToLiveTable_Add(spec.docs.ttl, docId, {LONG_MAX, LONG_MAX}, fe);
+    FieldExpirations_Push(&fe, fe_entry);
+    TimeToLiveTable_Add(spec.docs.ttl, docId, fe);
   }
   void TTL_Add(t_docId docId, t_fieldMask fieldMask, t_expirationTimePoint expiration = {LONG_MAX, LONG_MAX}) {
     VerifyTTLInit();
-    arrayof(FieldExpiration) fe = array_new(FieldExpiration, __builtin_popcountll(fieldMask));
+    FieldExpirations fe = FieldExpirations_WithCapacity(__builtin_popcountll(fieldMask));
     for (t_fieldIndex i = 0; i < sizeof(fieldMask) * 8; ++i) {
       if (fieldMask & (1ULL << i)) {
         FieldExpiration fe_entry = {i, expiration};
-        array_append(fe, fe_entry);
+        FieldExpirations_Push(&fe, fe_entry);
       }
     }
-    TimeToLiveTable_Add(spec.docs.ttl, docId, {LONG_MAX, LONG_MAX}, fe);
+    TimeToLiveTable_Add(spec.docs.ttl, docId, fe);
   }
 
 private:
@@ -125,6 +121,6 @@ private:
         array_append(spec.fieldIdToIndex, i);
       }
     }
-    TimeToLiveTable_VerifyInit(&spec.docs.ttl);
+    TimeToLiveTable_VerifyInit(&spec.docs.ttl, RSGlobalConfig.maxDocTableSize);
   }
 };

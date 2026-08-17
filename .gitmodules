@@ -10,3 +10,6 @@
 [submodule "deps/VectorSimilarity"]
 	path = deps/VectorSimilarity
 	url = https://github.com/RedisAI/VectorSimilarity.git
+[submodule "deps/snowball"]
+	path = deps/snowball
+	url = https://github.com/snowballstem/snowball.git

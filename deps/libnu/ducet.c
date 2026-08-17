@@ -5,10 +5,18 @@
 
 #ifdef NU_WITH_DUCET
 
-#include "gen/_ducet.c"
+#ifndef NU_WITH_BMP_ONLY
+# include "gen/_ducet.c"
+#else
+# include "gen/_ducet_compact.c"
+#endif /* NU_WITH_BMP_ONLY */
 
 #ifndef NU_DISABLE_CONTRACTIONS
-#	include "gen/_ducet_switch.c"
+# ifndef NU_WITH_BMP_ONLY
+#  include "gen/_ducet_switch.c"
+# else
+#  include "gen/_ducet_switch_compact.c"
+# endif /* NU_WITH_BMP_ONLY */
 #else
 	const size_t _NU_DUCET_CONTRACTIONS = 0;
 #endif

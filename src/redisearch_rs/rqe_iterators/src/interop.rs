@@ -11,11 +11,15 @@ use ffi::{
     IteratorStatus, IteratorStatus_ITERATOR_EOF, IteratorStatus_ITERATOR_NOTFOUND,
     IteratorStatus_ITERATOR_OK, IteratorStatus_ITERATOR_TIMEOUT, QueryIterator, ValidateStatus,
     ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK,
-    t_docId,
+    ValidateStatus_VALIDATE_TIMEOUT,
 };
-use inverted_index::RSIndexResult;
+use index_result::RSIndexResult;
+use rqe_core::DocId;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, profile_print::ProfilePrint,
+};
 
 #[repr(C)]
 /// A wrapper around a Rust iterator—i.e. an implementer of the [`RQEIterator`] trait.
@@ -37,14 +41,14 @@ pub struct RQEIteratorWrapper<E> {
 
 impl<'index, I> RQEIteratorWrapper<I>
 where
-    I: RQEIterator<'index> + 'index,
+    I: RQEIterator<'index> + ProfilePrint + 'index,
 {
     /// Heap-allocate a wrapper with the given `ProfileChildren` callback.
-    fn boxed_new_inner(
+    pub fn boxed_new_inner(
         inner: I,
         profile_children: Option<unsafe extern "C" fn(*mut QueryIterator) -> *mut QueryIterator>,
     ) -> *mut QueryIterator {
-        let mut wrapper = Box::new(Self {
+        let wrapper = Box::new(Self {
             header: QueryIterator {
                 type_: inner.type_(),
                 atEOF: inner.at_eof(),
@@ -57,23 +61,26 @@ where
                 Free: Some(free_iterator::<I>),
                 Rewind: Some(rewind::<I>),
                 ProfileChildren: profile_children,
+                PrintProfile: Some(print_profile::<I>),
             },
             inner,
         });
-        if let Some(current) = wrapper
-            .inner
-            .current()
-            .map(|c| c as *mut RSIndexResult as *mut ffi::RSIndexResult)
-        {
-            wrapper.header.current = current;
+        // Derive the self-referential `current` pointer only *after* the box is
+        // stable behind a raw pointer. `sync_current` reads `inner` and writes
+        // `header.current` through a single `&mut self`, so the borrow never
+        // escapes across `Box::into_raw`'s `Unique` retag (which would pop it).
+        let raw = Box::into_raw(wrapper);
+        // SAFETY: `raw` was just produced by `Box::into_raw`, so it is non-null,
+        unsafe {
+            (*raw).sync_current();
         }
-        Box::into_raw(wrapper) as *mut QueryIterator
+        raw as *mut QueryIterator
     }
 }
 
 impl<'index, I> RQEIteratorWrapper<I>
 where
-    I: RQEIterator<'index> + 'index,
+    I: RQEIterator<'index> + ProfilePrint + 'index,
 {
     /// Create a new C-compatible wrapper around a Rust iterator.
     ///
@@ -141,7 +148,7 @@ pub trait ProfileChildren<'index>: RQEIterator<'index> + Sized + 'index {
 
 impl<'index, I> RQEIteratorWrapper<I>
 where
-    I: ProfileChildren<'index>,
+    I: ProfileChildren<'index> + ProfilePrint,
 {
     /// Create a new C-compatible wrapper around a compound Rust iterator.
     ///
@@ -162,6 +169,19 @@ impl<'index, I> RQEIteratorWrapper<I>
 where
     I: RQEIterator<'index> + 'index,
 {
+    /// Re-synchronize the C header's `current` pointer from the inner
+    /// iterator's [`RQEIterator::current`].
+    ///
+    /// Call this after any operation that may invalidate the previously stored
+    /// `header.current` (e.g. replacing the inner variant in-place).
+    pub fn sync_current(&mut self) {
+        self.header.current = self
+            .inner
+            .current()
+            .map(|c| c as *mut RSIndexResult as *mut ffi::RSIndexResult)
+            .unwrap_or(std::ptr::null_mut());
+    }
+
     /// Convert a type-erased iterator "header" into a wrapper around a specific Rust iterator type.
     ///
     /// # Safety
@@ -227,6 +247,7 @@ extern "C" fn read<'index, I: RQEIterator<'index> + 'index>(
         }
         Ok(None) => {
             wrapper.header.atEOF = true;
+            wrapper.header.current = std::ptr::null_mut();
             IteratorStatus_ITERATOR_EOF
         }
     }
@@ -234,7 +255,7 @@ extern "C" fn read<'index, I: RQEIterator<'index> + 'index>(
 
 extern "C" fn skip_to<'index, I: RQEIterator<'index> + 'index>(
     base: *mut QueryIterator,
-    doc_id: t_docId,
+    doc_id: DocId,
 ) -> IteratorStatus {
     debug_assert!(!base.is_null());
     debug_assert!(base.is_aligned());
@@ -259,19 +280,59 @@ extern "C" fn skip_to<'index, I: RQEIterator<'index> + 'index>(
         }
         Ok(None) => {
             wrapper.header.atEOF = true;
+            wrapper.header.current = std::ptr::null_mut();
             IteratorStatus_ITERATOR_EOF
         }
     }
 }
 
+/// Debug switch behind `FT.DEBUG MOCK_REVALIDATE_TIMEOUT`: when set, every revalidation reports a
+/// timeout without touching the iterator underneath.
+///
+/// A revalidation timeout is otherwise hard to stage from a test. It needs a deadline that expires
+/// between two cursor reads *and* an index change that makes a composite re-seek its children, and
+/// the blocked-client deadline that tests can fire on demand is the same flag the result processor
+/// checks right after revalidating - so it hides the very case under test. This switch stands in
+/// for the deadline so the flow tests can exercise what C does with the status.
+static MOCK_REVALIDATE_TIMEOUT: AtomicBool = AtomicBool::new(false);
+
+/// Set the [`MOCK_REVALIDATE_TIMEOUT`] debug switch.
+pub fn set_mock_revalidate_timeout(enabled: bool) {
+    MOCK_REVALIDATE_TIMEOUT.store(enabled, Ordering::Relaxed);
+}
+
+/// Read the [`MOCK_REVALIDATE_TIMEOUT`] debug switch.
+pub fn mock_revalidate_timeout() -> bool {
+    MOCK_REVALIDATE_TIMEOUT.load(Ordering::Relaxed)
+}
+
 extern "C" fn revalidate<'index, I: RQEIterator<'index> + 'index>(
     base: *mut QueryIterator,
+    spec: *mut ffi::IndexSpec,
 ) -> ValidateStatus {
     debug_assert!(!base.is_null());
     debug_assert!(base.is_aligned());
+    debug_assert!(!spec.is_null());
+
+    // Revalidation runs once per query resume, never in the read loop, so the load costs nothing
+    // worth measuring.
+    if MOCK_REVALIDATE_TIMEOUT.load(Ordering::Relaxed) {
+        return ValidateStatus_VALIDATE_TIMEOUT;
+    }
+
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
     let wrapper = unsafe { RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(base) };
-    match wrapper.inner.revalidate() {
+
+    // SAFETY: spec is a valid pointer (guaranteed by C caller)
+    let spec_ref = unsafe { &*spec };
+
+    // SAFETY:
+    // - C has already acquired the read lock (see handleSpecLockAndRevalidate in result_processor.c)
+    // - from_locked() returns ManuallyDrop to prevent lock release on drop
+    //   (C is responsible for lock lifecycle via RedisSearchCtx_UnlockSpec)
+    let guard = unsafe { index_spec::IndexSpecReadGuard::from_locked(spec_ref) };
+
+    match wrapper.inner.revalidate(&guard) {
         Ok(RQEValidateStatus::Ok) => ValidateStatus_VALIDATE_OK,
         Ok(RQEValidateStatus::Moved { current }) => {
             if let Some(result) = current {
@@ -279,11 +340,17 @@ extern "C" fn revalidate<'index, I: RQEIterator<'index> + 'index>(
                 wrapper.header.lastDocId = result.doc_id;
             } else {
                 wrapper.header.atEOF = true;
+                wrapper.header.current = std::ptr::null_mut();
             }
             ValidateStatus_VALIDATE_MOVED
         }
         Ok(RQEValidateStatus::Aborted) => ValidateStatus_VALIDATE_ABORTED,
-        Err(_) => ValidateStatus_VALIDATE_ABORTED,
+        // Both errors leave the iterator in an indeterminate state, so C frees it either way. They
+        // are reported apart because they say different things about the result set: a timeout
+        // makes it partial and has to reach the client, an I/O error kills this subtree in a query
+        // that still has time left.
+        Err(RQEIteratorError::TimedOut) => ValidateStatus_VALIDATE_TIMEOUT,
+        Err(RQEIteratorError::IoError(_)) => ValidateStatus_VALIDATE_ABORTED,
     }
 }
 
@@ -319,11 +386,18 @@ extern "C" fn num_estimated<'index, I: RQEIterator<'index> + 'index>(
 /// Consumes the wrapper, calls [`ProfileChildren::profile_children`]
 /// on the inner iterator, and re-wraps the result via `boxed_new_inner` with
 /// `ProfileChildren` set to `None` — profiling is a one-shot pass.
-extern "C" fn rust_profile_children<'index, I: ProfileChildren<'index>>(
+extern "C" fn rust_profile_children<'index, I: ProfileChildren<'index> + ProfilePrint>(
     base: *mut QueryIterator,
 ) -> *mut QueryIterator {
     debug_assert!(!base.is_null());
     debug_assert!(base.is_aligned());
+    // SAFETY:
+    // 1. As a header-stored callback (invariant 1. in [`RQEIteratorWrapper`]),
+    //    `base` is a non-null, aligned, live header, uniquely owned until it is
+    //    consumed into the `Box` below.
+    // 2. `SkipTo` is `Copy`, so reading it through a shared reference leaves
+    //    `base` intact for that `Box::from_raw`.
+    let had_no_skip_to = unsafe { (*base).SkipTo.is_none() };
     // SAFETY: Callbacks are guaranteed to get a header pointer created by
     // `RQEIteratorWrapper::boxed_new_compound`, which uses `Box::into_raw`.
     let it = unsafe { Box::from_raw(base as *mut RQEIteratorWrapper<I>) };
@@ -331,7 +405,14 @@ extern "C" fn rust_profile_children<'index, I: ProfileChildren<'index>>(
     // Re-wrap with `boxed_new_inner` instead of `boxed_new_compound`: profiling is
     // a one-shot pass, so the result's children are already profiled and the
     // `ProfileChildren` callback would never be called again.
-    RQEIteratorWrapper::boxed_new_inner(profiled, None)
+    let ptr = RQEIteratorWrapper::boxed_new_inner(profiled, None);
+    if had_no_skip_to {
+        // Preserve a root-only iterator's cleared `SkipTo` (top_k is the only
+        // user today) across this rebox.
+        // SAFETY: `ptr` was just produced above and has no other alias yet.
+        unsafe { patch_vtable(ptr, |h| h.SkipTo = None) };
+    }
+    ptr
 }
 
 extern "C" fn free_iterator<'index, I: RQEIterator<'index> + 'index>(base: *mut QueryIterator) {
@@ -342,4 +423,46 @@ extern "C" fn free_iterator<'index, I: RQEIterator<'index> + 'index>(base: *mut 
         //  which (internally) use `Box::into_raw` to return a raw header pointer.
         let _ = unsafe { Box::from_raw(base as *mut RQEIteratorWrapper<I>) };
     }
+}
+
+/// `PrintProfile` vtable callback.
+///
+/// # Safety
+///
+/// - `base` must be a valid pointer to a [`QueryIterator`] created by
+///   [`RQEIteratorWrapper::boxed_new`] or [`RQEIteratorWrapper::boxed_new_compound`]
+///   with inner type `I`.
+/// - `map` must be a valid pointer to a [`redis_reply::MapBuilder`].
+/// - `ctx` must be a valid pointer to a [`ProfilePrintCtx`](crate::profile_print::ProfilePrintCtx).
+unsafe extern "C" fn print_profile<'index, I: ProfilePrint + RQEIterator<'index> + 'index>(
+    base: *const QueryIterator,
+    map: *mut ffi::RsMapBuilder,
+    ctx: *mut ffi::RsProfilePrintCtx,
+) {
+    debug_assert!(!base.is_null());
+    debug_assert!(!map.is_null());
+    debug_assert!(!ctx.is_null());
+    // SAFETY: base was created by boxed_new/boxed_new_compound with inner type I.
+    let wrapper = unsafe { RQEIteratorWrapper::<I>::ref_from_header_ptr(base) };
+    // SAFETY: map is a valid &mut MapBuilder per precondition.
+    let map = unsafe { &mut *(map as *mut redis_reply::MapBuilder<'_>) };
+    // SAFETY: ctx is a valid &mut ProfilePrintCtx per precondition.
+    let ctx = unsafe { &mut *(ctx as *mut crate::profile_print::ProfilePrintCtx<'_>) };
+    wrapper.inner.print_profile(map, ctx);
+}
+
+/// Apply a post-construction mutation to the vtable of a freshly-boxed iterator.
+///
+/// This is an escape hatch for clearing or overriding vtable entries that
+/// `boxed_new` / `boxed_new_compound` set unconditionally. The closure receives
+/// a mutable reference to the [`QueryIterator`] header and may set any field.
+///
+/// # Safety
+///
+/// 1. `ptr` is a valid, non-null `*mut QueryIterator` produced by a
+///    [`RQEIteratorWrapper`] constructor in this module.
+/// 2. No other alias to `ptr` is live for the duration of `f`.
+pub unsafe fn patch_vtable(ptr: *mut QueryIterator, f: impl FnOnce(&mut QueryIterator)) {
+    // SAFETY: upheld by the caller
+    unsafe { f(&mut *ptr) }
 }

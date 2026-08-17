@@ -8,15 +8,25 @@
 */
 
 #include "dist_utils.h"
+
+#include <stdio.h>
+#include <string.h>
+
 #include "util/misc.h"
 #include "util/strconv.h"
-#include "rpnet.h"
+#include "hiredis/read.h"
+#include "module.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "redismodule.h"
+#include "rmr/rmr.h"
+#include "rmutil/rm_assert.h"
 
 static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx, bool shardTimedOut);
 
 // Helper function to extract total_results from a shard reply
 // Returns true if total_results was found, false otherwise
-static bool extractTotalResults(MRReply *rep, MRCommand *cmd, long long *out_total) {
+bool extractTotalResults(MRReply *rep, MRCommand *cmd, long long *out_total) {
   if (cmd->protocol == 3) {
     // RESP3: [map, cursor]
     MRReply *meta = MRReply_ArrayElement(rep, 0);
@@ -49,9 +59,11 @@ static bool extractTotalResults(MRReply *rep, MRCommand *cmd, long long *out_tot
   return false;
 }
 
+// Cursor callback for network responses.
+// Handles DEL commands, error replies, reply structure assertions,
+// cursor continuation, and reply fan-in to the channel.
 void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
-  ShardResponseBarrier *barrier = (ShardResponseBarrier *)MRIteratorCallback_GetPrivateData(ctx);
 
   // If the root command of this reply is a DEL command, we don't want to
   // propagate it up the chain to the client
@@ -67,10 +79,6 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     const char* error = MRReply_String(rep, NULL);
     RedisModule_Log(RSDummyContext, "notice", "Coordinator got an error '%.*s' from a shard", GetRedisErrorCodeLength(error), error);
     RedisModule_Log(RSDummyContext, "verbose", "Shard error: %s", error);
-    if (barrier && barrier->notifyCallback) {
-      // Notify an error was received
-      barrier->notifyCallback(cmd->targetShardIdx, 0, true, barrier);
-    }
     MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
     MRIteratorCallback_Done(ctx, 1);
     return;
@@ -141,19 +149,6 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   }
 #endif // Reply structure assertions
 
-  // Extract total_results and notify barrier via callback (if registered)
-  if (barrier && barrier->notifyCallback) {
-    long long shardTotal;
-    if (!extractTotalResults(rep, cmd, &shardTotal)) {
-      // If no error was detected earlier, and still we failed to extract total_results,
-      // Response is malformed: log a warning and set total to 0.
-      // Notice: must still call the notify callback since a response was received
-      shardTotal = 0;
-      RedisModule_Log(RSDummyContext, "notice", "Coordinator could not extract total_results from shard %d reply", cmd->targetShardIdx);
-    }
-    barrier->notifyCallback(cmd->targetShardIdx, shardTotal, false, barrier);
-  }
-
   // Check if the shard returned a timeout warning (for profiling commands with RESP3)
   bool shardTimedOut = false;
   if (cmd->forProfiling && cmd->protocol == 3) {
@@ -191,7 +186,7 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 
 // Get cursor command using a cursor id and an existing aggregate command
 // Returns true if the cursor is not done (i.e., not depleted)
-bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx, bool shardTimedOut) {
+static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx, bool shardTimedOut) {
   if (cursorId == CURSOR_EOF) {
     // Cursor was set to 0, end of reply chain. cmd->depleted will be set in `MRIteratorCallback_Done`.
     return false;
@@ -203,25 +198,34 @@ bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx, bo
   bool timedout = MRIteratorCallback_GetTimedOut(ctx) || shardTimedOut;
 
   if (cmd->rootCommand == C_AGG) {
-    MRCommand newCmd;
     char buf[24]; // enough digits for a long long
-    snprintf(buf, sizeof(buf), "%lld", cursorId);
+    int bufLen = snprintf(buf, sizeof(buf), "%lld", cursorId);
     // AGGREGATE commands has the index name at position 1
-    const char *idx = MRCommand_ArgStringPtrLen(cmd, 1, NULL);
+    size_t idxLen;
+    const char *idx = MRCommand_ArgStringPtrLen(cmd, 1, &idxLen);
+    const char *subcommand;
+    size_t subcommandLen;
+    MRRootCommand root;
     // If we timed out and not in cursor mode, we want to send the shard a DEL
     // command instead of a READ command (here we know it has more results)
     if (timedout && cmd->forProfiling) {
-      newCmd = MR_NewCommand(4, "_FT.CURSOR", "PROFILE", idx, buf);
       // Internally we delete the cursor
-      newCmd.rootCommand = C_PROFILE;
+      subcommand = "PROFILE";
+      subcommandLen = sizeof("PROFILE") - 1;
+      root = C_PROFILE;
     } else if (timedout && !cmd->forCursor) {
-      newCmd = MR_NewCommand(4, "_FT.CURSOR", "DEL", idx, buf);
-      // Mark that the last command was a DEL command
-      newCmd.rootCommand = C_DEL;
+      subcommand = "DEL";
+      subcommandLen = sizeof("DEL") - 1;
+      root = C_DEL;
     } else {
-      newCmd = MR_NewCommand(4, "_FT.CURSOR", "READ", idx, buf);
-      newCmd.rootCommand = C_READ;
+      subcommand = "READ";
+      subcommandLen = sizeof("READ") - 1;
+      root = C_READ;
     }
+    const char *argv[4] = {"_FT.CURSOR", subcommand, idx, buf};
+    const size_t lens[4] = {sizeof("_FT.CURSOR") - 1, subcommandLen, idxLen, (size_t)bufLen};
+    MRCommand newCmd = MR_NewCommandArgvLen(4, argv, lens);
+    newCmd.rootCommand = root;
 
     newCmd.targetShard = cmd->targetShard;
     newCmd.targetShardIdx = cmd->targetShardIdx;
@@ -244,7 +248,7 @@ bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx, bo
       // If we timed out and it's a profile command, we want to get the profile data
       if (cmd->forProfiling) {
         RS_LOG_ASSERT(!cmd->forCursor, "profile is not supported on a cursor command");
-        MRCommand_ReplaceArg(cmd, 1, "PROFILE", strlen("PROFILE"));
+        MRCommand_ReplaceArg(cmd, 1, "PROFILE", sizeof("PROFILE") - 1);
         cmd->rootCommand = C_PROFILE;
       } else if (!cmd->forCursor) {
         // If we timed out and not in cursor mode, we want to send the shard a DEL

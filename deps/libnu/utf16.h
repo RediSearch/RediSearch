@@ -13,7 +13,7 @@
  * @example utf16.c
  */
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 extern "C" {
 #endif
 
@@ -95,7 +95,7 @@ char* nu_utf16be_write_bom(char *encoded);
 
 #endif /* NU_WITH_UTF16_WRITER */
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 }
 #endif
 

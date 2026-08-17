@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ffi::{CStr, CString, c_char};
+use std::ffi::{CStr, c_char};
 
 use query_error::{QueryError, opaque::OpaqueQueryError};
 
@@ -107,28 +107,38 @@ pub const extern "C" fn QueryError_CodeMaxValue() -> u8 {
 
 /// Returns a [`QueryErrorCode`] given an error message.
 ///
+/// Matches the message by its prefix (e.g., `"SEARCH_TIMEOUT "`) rather than
+/// exact equality, so that custom messages like `"SEARCH_TIMEOUT Depleting
+/// timed out"` are correctly classified.
+///
 /// This only supports the query error codes [`QueryErrorCode::TimedOut`],
 /// [`QueryErrorCode::OutOfMemory`], and [`QueryErrorCode::UnavailableSlots`].
 /// If another message is provided, [`QueryErrorCode::Generic`] is returned.
 ///
+/// If the message is a null pointer, [`QueryErrorCode::Generic`] is returned.
 ///
 /// # Safety
 ///
 /// - `message` must be a valid C string or a NULL pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryError_GetCodeFromMessage(message: *const c_char) -> QueryErrorCode {
-    const TIMED_OUT_ERROR_CSTR: &CStr = QueryErrorCode::TimedOut.to_c_str();
-    const OUT_OF_MEMORY_ERROR_CSTR: &CStr = QueryErrorCode::OutOfMemory.to_c_str();
-    const UNAVAILABLE_SLOTS_ERROR_CSTR: &CStr = QueryErrorCode::UnavailableSlots.to_c_str();
+    if message.is_null() {
+        return QueryErrorCode::Generic;
+    }
 
-    // Safety: see safety requirement above.
-    let message = unsafe { CStr::from_ptr(message) };
+    const TIMED_OUT_PREFIX: &[u8] = QueryErrorCode::TimedOut.prefix_c_str().to_bytes();
+    const OUT_OF_MEMORY_PREFIX: &[u8] = QueryErrorCode::OutOfMemory.prefix_c_str().to_bytes();
+    const UNAVAILABLE_SLOTS_PREFIX: &[u8] =
+        QueryErrorCode::UnavailableSlots.prefix_c_str().to_bytes();
 
-    if message == TIMED_OUT_ERROR_CSTR {
+    // Safety: see safety requirement above and the handling of null pointer at the start.
+    let message = unsafe { CStr::from_ptr(message) }.to_bytes();
+
+    if message.starts_with(TIMED_OUT_PREFIX) {
         QueryErrorCode::TimedOut
-    } else if message == OUT_OF_MEMORY_ERROR_CSTR {
+    } else if message.starts_with(OUT_OF_MEMORY_PREFIX) {
         QueryErrorCode::OutOfMemory
-    } else if message == UNAVAILABLE_SLOTS_ERROR_CSTR {
+    } else if message.starts_with(UNAVAILABLE_SLOTS_PREFIX) {
         QueryErrorCode::UnavailableSlots
     } else {
         QueryErrorCode::Generic
@@ -168,15 +178,8 @@ pub unsafe extern "C" fn QueryError_SetError(
     } else {
         // Safety: see safety requirement above.
         let msg = unsafe { CStr::from_ptr(message) };
-        let public_message = msg.to_owned();
-
-        // Prepend the error prefix to form the private message.
-        let prefix = code.prefix_c_str().to_str().unwrap_or("");
         let msg_str = msg.to_str().unwrap_or("");
-        let prefixed = format!("{prefix}{msg_str}");
-        let private_message = CString::new(prefixed).unwrap_or_else(|_| public_message.clone());
-
-        query_error.set_code_and_messages(code, Some(public_message), Some(private_message));
+        query_error.set_error(code, msg_str);
     };
 }
 
@@ -439,8 +442,10 @@ pub unsafe extern "C" fn QueryError_SetQueryOOMWarning(query_error: *mut OpaqueQ
 /// Returns a [`QueryWarningCode`] given an warnings message.
 ///
 /// This only supports the query error codes [`QueryWarningCode::TimedOut`], [`QueryWarningCode::ReachedMaxPrefixExpansions`],
-/// [`QueryWarningCode::OutOfMemoryShard`] and [`QueryWarningCode::OutOfMemoryCoord`]. If another message is provided,
-/// [`QueryWarningCode::Ok`] is returned.
+/// [`QueryWarningCode::OutOfMemoryShard`], [`QueryWarningCode::OutOfMemoryCoord`] and [`QueryWarningCode::MaxTimeoutCapped`].
+/// If another message is provided, [`QueryWarningCode::Ok`] is returned.
+///
+/// If the message is a null pointer, returns [`QueryWarningCode::Ok`].
 ///
 /// # Safety
 ///
@@ -449,13 +454,18 @@ pub unsafe extern "C" fn QueryError_SetQueryOOMWarning(query_error: *mut OpaqueQ
 pub unsafe extern "C" fn QueryWarningCode_GetCodeFromMessage(
     message: *const c_char,
 ) -> QueryWarningCode {
+    if message.is_null() {
+        return QueryWarningCode::Ok;
+    }
+
     const TIMED_OUT_WARNING_CSTR: &CStr = QueryWarningCode::TimedOut.to_c_str();
     const REACHED_MAX_PREFIX_EXPANSIONS_WARNING_CSTR: &CStr =
         QueryWarningCode::ReachedMaxPrefixExpansions.to_c_str();
     const OUT_OF_MEMORY_COORD_WARNING_CSTR: &CStr = QueryWarningCode::OutOfMemoryCoord.to_c_str();
     const OUT_OF_MEMORY_SHARD_WARNING_CSTR: &CStr = QueryWarningCode::OutOfMemoryShard.to_c_str();
+    const MAX_TIMEOUT_CAPPED_WARNING_CSTR: &CStr = QueryWarningCode::MaxTimeoutCapped.to_c_str();
 
-    // Safety: see safety requirement above.
+    // Safety: see safety requirement above and the handling of null pointer at the start.
     let message = unsafe { CStr::from_ptr(message) };
 
     if message == TIMED_OUT_WARNING_CSTR {
@@ -466,6 +476,8 @@ pub unsafe extern "C" fn QueryWarningCode_GetCodeFromMessage(
         QueryWarningCode::OutOfMemoryCoord
     } else if message == OUT_OF_MEMORY_SHARD_WARNING_CSTR {
         QueryWarningCode::OutOfMemoryShard
+    } else if message == MAX_TIMEOUT_CAPPED_WARNING_CSTR {
+        QueryWarningCode::MaxTimeoutCapped
     } else {
         QueryWarningCode::Ok
     }

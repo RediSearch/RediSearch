@@ -8,10 +8,9 @@
 */
 
 use buffer::{BufferReader, BufferWriter};
+use rqe_core::FieldMask;
 use std::ptr::NonNull;
 use varint::VarintEncode;
-
-pub type FieldMask = ffi::t_fieldMask;
 
 /// Read a varint-encoded field mask from the given buffer.
 ///

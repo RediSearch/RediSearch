@@ -7,16 +7,21 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "doc_table.h"
+
 #include <sys/param.h>
 #include <string.h>
-#include <stdio.h>
+
 #include "redismodule.h"
-#include "util/fnv.h"
-#include "triemap.h"
+#include "triemap_ffi.h"
 #include "sortable.h"
+#include "sorting_vector_ffi.h"
 #include "rmalloc.h"
 #include "spec.h"
 #include "config.h"
+#include "buffer.h"
+#include "rules.h"
+
+struct timespec;
 
 /* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap, size_t max_size) {
@@ -161,6 +166,12 @@ t_docId DocTable_GetId(const DocTable *dt, const char *s, size_t n) {
   return DocIdMap_Get(&dt->dim, s, n);
 }
 
+t_docId DocTable_GetIdR(const DocTable *dt, const RedisModuleString *r) {
+  size_t n;
+  const char *s = RedisModule_StringPtrLen(r, &n);
+  return DocTable_GetId(dt, s, n);
+}
+
 /* Set the payload for a document. Returns 1 if we set the payload, 0 if we couldn't find the
  * document */
 int DocTable_SetPayload(DocTable *t, RSDocumentMetadata *dmd, const char *data, size_t len) {
@@ -217,35 +228,77 @@ void DocTable_SetByteOffsets(RSDocumentMetadata *dmd, RSByteOffsets *v) {
   dmd->flags |= Document_HasOffsetVector;
 }
 
-void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, arrayof(FieldExpiration) sortedFieldWithExpiration) {
-  if (hasExpirationTimeInformation(dmd->flags)) {
-    TimeToLiveTable_VerifyInit(&t->ttl);
-    TimeToLiveTable_Add(t->ttl, dmd->id, ttl, sortedFieldWithExpiration);
+// Pack a t_expirationTimePoint into nanoseconds since the epoch, preserving
+// the {0,0} "no expiration" sentinel as 0 so callers can use a single scalar
+// compare on the result-processor hot path.
+//
+// `t_expirationTimePoint` is a POSIX `struct timespec` (IEEE Std 1003.1), which
+// is the OS-level resolution ceiling: `tv_nsec` is in [0, 999999999], and any
+// finer-grained clock would require a different type. `int64_t` of nanoseconds
+// covers ~292 years from the epoch (year 2262), far beyond any TTL Redis can
+// produce — `RM_GetAbsExpire` and `RM_HashFieldMinExpire` both return an
+// `mstime_t` (signed milliseconds since epoch), which we expand into a
+// `timespec` in `document_basic.c::timespecFromMilliseconds` before reaching
+// here. The debug assert traps any future caller that violates the timespec
+// invariant.
+static inline int64_t expirationTimePointToNs(t_expirationTimePoint t) {
+  RS_LOG_ASSERT(t.tv_nsec >= 0 && t.tv_nsec < 1000000000L,
+                "tv_nsec out of POSIX timespec range");
+  return (int64_t)t.tv_sec * 1000000000LL + (int64_t)t.tv_nsec;
+}
+
+void DocTable_SetDocExpiration(RSDocumentMetadata *dmd, t_expirationTimePoint ttl) {
+  __atomic_store_n(&dmd->expirationTimeNs, expirationTimePointToNs(ttl), __ATOMIC_RELAXED);
+}
+
+// Sets the doc-level TTL on the DMD and delegates the per-field entry to
+// DocTable_UpdateFieldExpiration. The doc-level TTL is inlined on the DMD so
+// the result-processor can skip the TTL-table lookup; the table itself stays
+// strictly an HFE store, which lets iterators use `t->ttl == NULL` as their
+// per-spec gate. Takes ownership of `sortedFieldWithExpiration`.
+void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, FieldExpirations sortedFieldWithExpiration) {
+  DocTable_SetDocExpiration(dmd, ttl);
+  DocTable_UpdateFieldExpiration(t, dmd, sortedFieldWithExpiration);
+}
+
+void DocTable_UpdateFieldExpiration(DocTable *t, RSDocumentMetadata *dmd,
+                                    FieldExpirations sortedFieldWithExpiration) {
+  // Drop any prior entry before reinserting; TimeToLiveTable_Add asserts on
+  // duplicate ids. Remove is a no-op when the docId is not registered.
+  if (t->ttl) {
+    TimeToLiveTable_Remove(t->ttl, dmd->id);
+  }
+  if (FieldExpirations_Len(&sortedFieldWithExpiration) > 0) {
+    TimeToLiveTable_VerifyInit(&t->ttl, t->maxSize);
+    TimeToLiveTable_Add(t->ttl, dmd->id, sortedFieldWithExpiration);
+  } else {
+    FieldExpirations_Free(&sortedFieldWithExpiration);
+    if (t->ttl && TimeToLiveTable_IsEmpty(t->ttl)) {
+      TimeToLiveTable_Destroy(&t->ttl);
+    }
   }
 }
 
 bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct timespec* expirationPoint) {
-  if (!hasExpirationTimeInformation(dmd->flags)) {
-      return false;
+  // Relaxed atomic load: pairs with the relaxed store in DocTable_UpdateExpiration
+  // so reader/writer concurrency under the spec read lock is well-defined under
+  // the C abstract machine. Ordering relative to other index mutations is not
+  // required — the value is a self-contained timestamp compared against `now`.
+  int64_t exp = __atomic_load_n(&dmd->expirationTimeNs, __ATOMIC_RELAXED);
+  if (exp == 0) {
+    return false;
   }
-  RS_LOG_ASSERT(t->ttl, "Document has expiration time information but no TTL table");
-  return TimeToLiveTable_HasDocExpired(t->ttl, dmd->id, expirationPoint);
+  return exp <= expirationTimePointToNs(*expirationPoint);
 }
 
 void DocTable_ClearExpirationData(DocTable *t) {
-  if (t->ttl) {
-    dictIterator *ttlIter = dictGetIterator(t->ttl);
-    dictEntry *ttlEntry;
-    while ((ttlEntry = dictNext(ttlIter))) {
-      t_docId docId = (t_docId)dictGetKey(ttlEntry);
-      RSDocumentMetadata *dmd = DocTable_GetOwn(t, docId);
-      if (dmd) {
-        dmd->flags &= ~Document_HasExpiration;
-      }
-    }
-    dictReleaseIterator(ttlIter);
-    TimeToLiveTable_Destroy(&t->ttl);
-  }
+  // Walk every DMD: doc-level TTL lives inline on the DMD (not in the TTL
+  // table), and field-level TTL is only present for docs that are also in
+  // the table. Either may be set, so a single sweep over all DMDs is the
+  // simplest correct path. Caller holds the write lock (see header), but use
+  // the relaxed atomic store to match the access pattern everywhere else.
+  DOCTABLE_FOREACH(t, __atomic_store_n(&dmd->expirationTimeNs, 0, __ATOMIC_RELAXED));
+  TimeToLiveTable_Destroy(&t->ttl);
 }
 
 /* Put a new document into the table, assign it an incremental id and store the metadata in the
@@ -369,7 +422,9 @@ RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
       return NULL;
     }
 
-    if (t->ttl && hasExpirationTimeInformation(md->flags)) {
+    // Drop the doc's per-field TTL entry, if any, and tear down the table
+    // once the last entry is gone so iterators can use the NULL gate again.
+    if (t->ttl) {
       TimeToLiveTable_Remove(t->ttl, md->id);
       if (TimeToLiveTable_IsEmpty(t->ttl)) {
         TimeToLiveTable_Destroy(&t->ttl);
@@ -416,7 +471,7 @@ int DocTable_Replace(DocTable *t, const char *from_str, size_t from_len, const c
   return REDISMODULE_OK;
 }
 
-void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
+int DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
   long long deletedElements = 0;
   t->size = RedisModule_LoadUnsigned(rdb);
   t->maxDocId = RedisModule_LoadUnsigned(rdb);
@@ -438,6 +493,13 @@ void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     t->memsize -= t->cap * sizeof(DMDChain);
     t->cap = t->maxSize;
     rm_free(t->buckets);
+    t->buckets = NULL;
+    size_t alloc_size;
+    if (__builtin_mul_overflow(t->cap, sizeof(DMDChain), &alloc_size)) {
+      RedisModule_LogIOError(rdb, "warning", "DocTable_LegacyRdbLoad: allocation overflow");
+      t->cap = 0;
+      return REDISMODULE_ERR;
+    }
     t->buckets = rm_calloc(t->cap, sizeof(*t->buckets));
     t->memsize += t->cap * sizeof(DMDChain);
   }
@@ -510,6 +572,7 @@ void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     }
   }
   t->size -= deletedElements;
+  return REDISMODULE_OK;
 }
 
 t_docId DocTable_GetMaxDocId(const DocTable *t) {

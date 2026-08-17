@@ -7,7 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "reducer.h"
+
+#include <assert.h>
+#include <strings.h>
+
 #include "util/misc.h"
+#include "query_error_ffi.h"
+#include "query_flags.h"
+#include "util/arr/arr.h"
 
 typedef struct {
   const char *name;
@@ -29,10 +36,11 @@ static const FuncEntry globalRegistry[] = {
   {"FIRST_VALUE", RDCRFirstValue_New},
   {"RANDOM_SAMPLE", RDCRRandomSample_New},
   {"HLL", RDCRHLL_New},
-  {"HLL_SUM", RDCRHLLSum_New}
+  {"HLL_SUM", RDCRHLLSum_New},
+  {"COLLECT", RDCRCollect_New}
 };
 
-#define REGISTRY_SIZE 14
+#define REGISTRY_SIZE 15
 static_assert(sizeof(globalRegistry) == sizeof(FuncEntry) * REGISTRY_SIZE);
 
 ReducerFactory RDCR_GetFactory(const char *name) {
@@ -44,6 +52,37 @@ ReducerFactory RDCR_GetFactory(const char *name) {
   return NULL;
 }
 
+bool ReducerOpts_ResolveKey(const ReducerOptions *options, const char *keyName,
+                            const RLookupKey **out) {
+  // Fast path: the field is already available for read in the source lookup.
+  *out = RLookup_GetKey_Read(options->srclookup, keyName, RLOOKUP_F_HIDDEN);
+  if (*out) {
+    return true;
+  }
+
+  // Not available. Implicit loading is only possible when the caller provided a
+  // `loadKeys` array (see ReducerOptions::loadKeys).
+  if (!options->loadKeys) {
+    QueryError_SetWithUserDataFmt(options->status, QUERY_ERROR_CODE_NO_PROP_KEY,
+                                  "Property not loaded nor in pipeline", ": `%s`", keyName);
+    return false;
+  }
+
+  // Open a load slot. We currently allow implicit loading only for known fields
+  // from the schema; anything else is rejected.
+  const RLookupKey *loaded =
+      RLookup_GetKey_Load(options->srclookup, keyName, keyName, RLOOKUP_F_HIDDEN);
+  if (!loaded || !(RLookupKey_GetFlags(loaded) & RLOOKUP_F_SCHEMASRC)) {
+    QueryError_SetWithUserDataFmt(options->status, QUERY_ERROR_CODE_NO_PROP_KEY,
+                                  "Property not loaded nor in pipeline", ": `%s`", keyName);
+    return false;
+  }
+
+  *options->loadKeys = array_ensure_append_1(*options->loadKeys, loaded);
+  *out = loaded;
+  return true;
+}
+
 int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **out) {
   ArgsCursor *ac = options->args;
   const char *s;
@@ -53,25 +92,11 @@ int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **out) {
     return 0;
   }
 
-  // Get the input key..
   const char *keyName = ExtractKeyName(s, &len, options->status, options->strictPrefix, options->name);
   if (!keyName) {
     return 0;
   }
-  *out = RLookup_GetKey_Read(options->srclookup, keyName, RLOOKUP_F_HIDDEN);
-  if (!*out) {
-    if (options->loadKeys) {
-      *out = RLookup_GetKey_Load(options->srclookup, keyName, keyName, RLOOKUP_F_HIDDEN);
-      *options->loadKeys = array_ensure_append_1(*options->loadKeys, *out);
-    }
-    // We currently allow implicit loading only for known fields from the schema.
-    // If we can't load keys, or the key we loaded is not in the schema, we fail.
-    if (!options->loadKeys || !(RLookupKey_GetFlags(*out) & RLOOKUP_F_SCHEMASRC)) {
-      QueryError_SetWithUserDataFmt(options->status, QUERY_ERROR_CODE_NO_PROP_KEY, "Property not loaded nor in pipeline", ": `%s`", keyName);
-      return 0;
-    }
-  }
-  return 1;
+  return ReducerOpts_ResolveKey(options, keyName, out) ? 1 : 0;
 }
 
 int ReducerOpts_EnsureArgsConsumed(const ReducerOptions *options) {
@@ -80,6 +105,10 @@ int ReducerOpts_EnsureArgsConsumed(const ReducerOptions *options) {
     return 0;
   }
   return 1;
+}
+
+bool ReducerOpts_IsInternal(const ReducerOptions *options) {
+  return (options->reqflags & QEXEC_F_INTERNAL) != 0;
 }
 
 void *Reducer_BlkAlloc(Reducer *r, size_t elemsz, size_t blksz) {

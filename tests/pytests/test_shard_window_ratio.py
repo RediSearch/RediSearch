@@ -260,3 +260,41 @@ def test_insufficient_docs_per_shard():
 
     res = env.cmd('FT.AGGREGATE', "idx", query, *params_and_args)
     env.assertEqual(len(res[1:]), expected_k)
+
+
+@skip(cluster=False)
+def test_debug_aggregate_with_shard_k_ratio():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2', enableDebugCommand=True)
+
+    dim = 2
+    datatype = 'FLOAT32'
+    k = 30
+    # Use an index name long enough that, without the fix, the off-by-one
+    # MRCommand_ReplaceArgSubstring lands inside the index-name argument and
+    # corrupts it — the shards then reject the command with "no such index".
+    # The KNN query is `*=>[KNN 30 @v ...]`, so the K token sits at byte
+    # offset 8 in the query string. cmd->strs[index_name_pos] must therefore
+    # be at least len("30") + 8 = 10 bytes long.
+    index_name = 'long_index_name_for_regression_test'
+    num_docs = k * env.shardsCount * 3
+    set_up_database_with_vectors(env, dim, num_docs=num_docs,
+                                 index_name=index_name, datatype=datatype)
+
+    query_vec = create_random_np_array_typed(dim, datatype)
+    ratio = 0.5  # < 1.0, multi-shard => modifier path is active
+
+    query = f'*=>[KNN {k} @v $query_vec]=>{{$shard_k_ratio: {ratio}}}'
+
+    # TIMEOUT_AFTER_N with a count larger than any shard's processed result
+    # count keeps the query path fully functional while exercising the _FT.DEBUG
+    # wrapper.
+    res = env.cmd('_FT.DEBUG', 'FT.AGGREGATE', index_name, query,
+                  'PARAMS', 2, 'query_vec', query_vec.tobytes(),
+                  'LIMIT', 0, k + 1,
+                  'TIMEOUT_AFTER_N', '1000000', 'DEBUG_PARAMS_COUNT', '2')
+
+    actual_result_count = len(res[1:])
+    env.assertEqual(
+        actual_result_count, k,
+        message=f"_FT.DEBUG FT.AGGREGATE with SHARD_K_RATIO={ratio}, K={k}: "
+        f"expected {k} results, got {actual_result_count}")

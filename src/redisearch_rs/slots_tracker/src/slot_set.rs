@@ -170,6 +170,11 @@ impl SlotSet {
         self.ranges.is_empty()
     }
 
+    /// Returns the ranges of this set as a sorted, normalized slice.
+    pub(crate) fn as_ranges(&self) -> &[SlotRange] {
+        &self.ranges
+    }
+
     /// Checks the relationship between this set and input ranges in a single pass.
     ///
     /// Returns `CoverageRelation` indicating: `Equals`, `Covers`, or `NoMatch`.

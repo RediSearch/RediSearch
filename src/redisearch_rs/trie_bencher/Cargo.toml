@@ -32,7 +32,7 @@ lending-iterator.workspace = true
 redis_mock.workspace = true
 trie_rs.workspace = true
 ureq.workspace = true
-wildcard.workspace = true
+rqe_wildcard.workspace = true
 ffi.workspace = true
 workspace_hack.workspace = true
 

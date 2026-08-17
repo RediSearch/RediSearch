@@ -9,7 +9,7 @@
 
 /// The various document types supported by RediSearch.
 ///
-/// cbindgen:prefix-with-name
+#[cheadergen::config(export, prefix_with_name)]
 #[repr(C)]
 #[derive(
     Clone,

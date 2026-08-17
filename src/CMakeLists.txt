@@ -28,7 +28,7 @@ add_custom_target(generate_command_info ALL DEPENDS ${COMMAND_OUTPUT_H} ${COMMAN
 # Add subdirectories for dependencies (from deps/)
 add_subdirectory(${root}/deps/rmutil ${CMAKE_CURRENT_BINARY_DIR}/rmutil)
 add_subdirectory(${root}/deps/friso ${CMAKE_CURRENT_BINARY_DIR}/friso)
-add_subdirectory(${root}/deps/snowball ${CMAKE_CURRENT_BINARY_DIR}/snowball)
+include(${root}/cmake/snowball.cmake)
 add_subdirectory(${root}/deps/phonetics ${CMAKE_CURRENT_BINARY_DIR}/phonetics)
 add_subdirectory(${root}/deps/fast_float ${CMAKE_CURRENT_BINARY_DIR}/fast_float)
 
@@ -37,13 +37,13 @@ set(LIBUV_BUILD_TESTS OFF CACHE BOOL "Build libuv tests" FORCE)
 set(LIBUV_BUILD_BENCH OFF CACHE BOOL "Build libuv benchmarks" FORCE)
 set(LIBUV_BUILD_SHARED OFF CACHE BOOL "Build shared libuv library" FORCE)
 add_subdirectory(${root}/deps/libuv ${CMAKE_CURRENT_BINARY_DIR}/libuv)
+
 # libuv has const-correctness issues that trigger warnings-as-errors on newer compilers.
-# gcc 16+: -Werror=discarded-qualifiers; clang 21+: -Werror=incompatible-pointer-types-discards-qualifiers.
-# Mirror the compiler guards from the top-level CMakeLists.txt.
-if(HAS_DISCARDED_QUALIFIERS)
+# Turn off flags set in the top-level CMakeLists.txt.
+if(HAS_WNO_ERROR_DISCARDED_QUALIFIERS)
     target_compile_options(uv_a PRIVATE $<$<COMPILE_LANGUAGE:C>:-Wno-error=discarded-qualifiers>)
 endif()
-if(HAS_INCOMPATIBLE_POINTER_TYPES_DISCARDS_QUALIFIERS)
+if(HAS_WNO_ERROR_INCOMPATIBLE_POINTER_TYPES_DISCARDS_QUALIFIERS)
     target_compile_options(uv_a PRIVATE $<$<COMPILE_LANGUAGE:C>:-Wno-error=incompatible-pointer-types-discards-qualifiers>)
 endif()
 
@@ -61,19 +61,15 @@ endif()
 add_subdirectory(geometry)
 add_subdirectory(buffer)
 add_subdirectory(iterators)
-add_subdirectory(wildcard)
 add_subdirectory(index_result)
-add_subdirectory(value)
 add_subdirectory(util/mempool)
-add_subdirectory(util/arr)
 add_subdirectory(util/dict)
 add_subdirectory(util/hash)
 add_subdirectory(coord)
-add_subdirectory(ttl_table)
 
 #----------------------------------------------------------------------------------------------
 # Source files for the core library
-file(GLOB SOURCES
+file(GLOB SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/pipeline/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/aggregate/*.c"
@@ -89,6 +85,8 @@ file(GLOB SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/query_parser/v1/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/query_parser/v2/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/util/*.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/util/arr/*.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/wildcard/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/trie/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/info/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/info/info_redis/*.c"
@@ -102,8 +100,18 @@ file(GLOB SOURCES
     "${root}/deps/libnu/*.c"
     "${root}/deps/miniz/*.c"
     "${root}/deps/fast_float/*.c"
-    "${root}/deps/thpool/*.c"
-    "${root}/deps/geohash/*.c")
+    "${root}/deps/thpool/*.c")
+
+#----------------------------------------------------------------------------------------------
+# GIT_VERSPEC / GIT_SHA (computed in the top-level CMakeLists) change on every
+# commit. Scope them to the only two TUs that read them — debug_commands.c
+# (FT.DEBUG GIT_SHA) and module-init.c (version string) — instead of defining
+# them globally, so every other TU keeps a stable compile command line and
+# stays cacheable (sccache) across commits.
+set_source_files_properties(
+    "${CMAKE_CURRENT_SOURCE_DIR}/debug_commands.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/module-init/module-init.c"
+    PROPERTIES COMPILE_DEFINITIONS "GIT_VERSPEC=\"${GIT_VERSPEC}\";GIT_SHA=\"${GIT_SHA}\"")
 
 #----------------------------------------------------------------------------------------------
 # Create the rscore object library
@@ -115,14 +123,11 @@ endif()
 
 # Collect all object files
 set(FINAL_OBJECTS
-    $<TARGET_OBJECTS:arr>
     $<TARGET_OBJECTS:buffer>
     $<TARGET_OBJECTS:dict>
     $<TARGET_OBJECTS:iterators>
-    $<TARGET_OBJECTS:wildcard>
     $<TARGET_OBJECTS:index_result>
     $<TARGET_OBJECTS:mempool>
-    $<TARGET_OBJECTS:value>
     $<TARGET_OBJECTS:rscore>
     $<TARGET_OBJECTS:rmutil>
     $<TARGET_OBJECTS:friso>
@@ -130,7 +135,6 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:metaphone>
     $<TARGET_OBJECTS:fast_float_strtod>
     $<TARGET_OBJECTS:redisearch-coord>
-    $<TARGET_OBJECTS:ttl_table>
 )
 
 # Export FINAL_OBJECTS to parent scope for the top-level redisearch target
@@ -148,7 +152,6 @@ target_link_libraries(redisearch_c
     VectorSimilarity
     redisearch-coord
     uv_a
-    ttl_table
     ${HIREDIS_LIBS})
 
 add_dependencies(redisearch_c VectorSimilarity)
@@ -240,7 +243,7 @@ macro(collect_static_libs target out_libs out_targets)
     set(${out_targets} ${_COLLECT_TARGETS})
 endmacro()
 
-set(REDISEARCH_ALL_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/libredisearch_all.a")
+set(REDISEARCH_C_BUNDLE_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/libredisearch_c_bundle.a")
 
 # Collect all static library dependencies from redisearch_c
 set(LIBS_TO_MERGE "")
@@ -267,7 +270,7 @@ endif()
 
 list(REMOVE_DUPLICATES LIBS_TO_MERGE)
 list(REMOVE_DUPLICATES VISITED_TARGETS)
-message(STATUS "Static libraries for libredisearch_all.a: ${LIBS_TO_MERGE}")
+message(STATUS "Static libraries for libredisearch_c_bundle.a: ${LIBS_TO_MERGE}")
 
 # Combine targets and library paths for DEPENDS
 set(MERGE_DEPENDS ${VISITED_TARGETS} ${LIBS_TO_MERGE})
@@ -277,10 +280,10 @@ list(REMOVE_DUPLICATES MERGE_DEPENDS)
 if(APPLE)
     # macOS: use libtool to merge static libraries
     add_custom_command(
-        OUTPUT ${REDISEARCH_ALL_OUTPUT}
-        COMMAND libtool -static -o ${REDISEARCH_ALL_OUTPUT} ${LIBS_TO_MERGE}
+        OUTPUT ${REDISEARCH_C_BUNDLE_OUTPUT}
+        COMMAND libtool -static -no_warning_for_no_symbols -o ${REDISEARCH_C_BUNDLE_OUTPUT} ${LIBS_TO_MERGE}
         DEPENDS ${MERGE_DEPENDS}
-        COMMENT "Creating unified libredisearch_all.a with libtool"
+        COMMENT "Creating unified libredisearch_c_bundle.a with libtool"
         VERBATIM
         COMMAND_EXPAND_LISTS
     )
@@ -289,19 +292,19 @@ else()
     set(MRI_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/merge_libs.mri")
     string(REPLACE ";" "\nADDLIB " ADDLIB_COMMANDS "${LIBS_TO_MERGE}")
     file(GENERATE OUTPUT ${MRI_SCRIPT} CONTENT
-"CREATE ${REDISEARCH_ALL_OUTPUT}
+"CREATE ${REDISEARCH_C_BUNDLE_OUTPUT}
 ADDLIB ${ADDLIB_COMMANDS}
 SAVE
 END
 ")
     add_custom_command(
-        OUTPUT ${REDISEARCH_ALL_OUTPUT}
-        COMMAND ${CMAKE_COMMAND} -E rm -f ${REDISEARCH_ALL_OUTPUT}
+        OUTPUT ${REDISEARCH_C_BUNDLE_OUTPUT}
+        COMMAND ${CMAKE_COMMAND} -E rm -f ${REDISEARCH_C_BUNDLE_OUTPUT}
         COMMAND ar -M < ${MRI_SCRIPT}
         DEPENDS ${MERGE_DEPENDS} ${MRI_SCRIPT}
-        COMMENT "Creating unified libredisearch_all.a with ar"
+        COMMENT "Creating unified libredisearch_c_bundle.a with ar"
         VERBATIM
     )
 endif()
 
-add_custom_target(redisearch_all ALL DEPENDS ${REDISEARCH_ALL_OUTPUT})
+add_custom_target(redisearch_c_bundle ALL DEPENDS ${REDISEARCH_C_BUNDLE_OUTPUT})

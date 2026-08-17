@@ -1,0 +1,16 @@
+[package]
+name = "utf8parse"
+version.workspace = true
+edition.workspace = true
+# Same license as the original `utf8parse` crate.
+license = "Apache-2.0 OR MIT"
+publish.workspace = true
+
+[lib]
+bench = false
+
+[lints]
+workspace = true
+
+[dependencies]
+workspace_hack.workspace = true

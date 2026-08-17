@@ -7,17 +7,39 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "aggregate/aggregate.h"
-#include "aggregate/aggregate_plan.h"
-#include "pipeline/pipeline_construction.h"
-#include "aggregate/reducer.h"
-#include "util/arr.h"
-#include "dist_plan.h"
-
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+#include <strings.h>
 #include <vector>
 #include <string>
-#include <sstream>
 #include <algorithm>
+
+#include "aggregate/aggregate.h"
+#include "aggregate/aggregate_plan.h"
+#include "aggregate/reducer.h"
+#include "aggregate/reducers/collect_parse.h"
+#include "util/stringify.h"
+#include "dist_plan.h"
+#include "config.h"
+#include "aggregate/expr/expression.h"
+#include "obfuscation/hidden.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "redismodule.h"
+#include "result_processor.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "rmutil/args.h"
+#include "rmutil/rm_assert.h"
+#include "search_disk_api.h"
+#include "spec.h"
+#include "util/dllist.h"
+#include "util/references.h"
+
+// Minimum block size for the reducer-rewriter scratch allocator
+// (`ReducerDistCtx::alloc`).
+#define DIST_REDUCER_BLOCK_SIZE ((size_t)128)
 
 static char *getLastAlias(const PLN_GroupStep *gstp) {
   return gstp->reducers[array_len(gstp->reducers) - 1].alias;
@@ -28,6 +50,18 @@ static const char *stripAtPrefix(const char *s) {
     s++;
   }
   return s;
+}
+
+static const char *distAllocU64Str(BlkAlloc *alloc, uint64_t v) {
+  char buf[32];
+  int n = snprintf(buf, sizeof(buf), "%llu", (unsigned long long)v);
+  // `%llu` for a `uint64_t` is at most 20 chars + NUL, so the result always
+  // fits in `buf` and `snprintf` cannot truncate or return a negative value.
+  RS_ASSERT(n > 0 && (size_t)n < sizeof(buf));
+  size_t len = (size_t)n + 1;
+  auto p = (char *)BlkAlloc_Alloc(alloc, len, std::max(len, DIST_REDUCER_BLOCK_SIZE));
+  memcpy(p, buf, len);
+  return p;
 }
 
 struct ReducerDistCtx {
@@ -51,7 +85,7 @@ struct ReducerDistCtx {
   ArgsCursor *copyArgs(ArgsCursor *args) {
     // Because args are only in temporary storage
     size_t allocsz = sizeof(void *) * args->argc;
-    void **arr = (void **)BlkAlloc_Alloc(alloc, allocsz, std::max(allocsz, size_t(32)));
+    auto arr = (void **)BlkAlloc_Alloc(alloc, allocsz, std::max(allocsz, DIST_REDUCER_BLOCK_SIZE));
     memcpy(arr, args->objs, args->argc * sizeof(*args->objs));
     args->objs = arr;
     return args;
@@ -61,6 +95,7 @@ struct ReducerDistCtx {
     if (PLNGroupStep_AddReducer(gstp, name, cargs, status) != REDISMODULE_OK) {
       return false;
     }
+    array_tail(gstp->reducers).isLocal = (gstp == this->localGroup);
     if (alias) {
       *alias = getLastAlias(gstp);
     }
@@ -79,25 +114,36 @@ struct ReducerDistCtx {
   bool addLocal(const char *name, QueryError *status, T... uargs) {
     return add(localGroup, name, NULL, status, uargs...);
   }
-  template <typename... T>
-  bool addRemote(const char *name, const char **alias, QueryError *status, T... uargs) {
-    ArgsCursorCXX args(uargs...);
-    ArgsCursor tmp = args;
-    // Check if the reducer already exists in the remote group. This may happen NOT AS SYNTAX ERROR if the client
-    // sends, for example, a query with COUNT and AVG, which we send to the shards as COUNT, COUNT and SUM. In this case,
-    // we don't want or need to add the same reducer twice.
+  // Dedup-aware remote add. If an identical (name, args) reducer already lives in the remote
+  // group, returns its alias via `*alias` and skips re-adding. Otherwise persists `cargs` and
+  // appends a new reducer.
+  //
+  // The same logical reducer may legitimately appear multiple times in a single distributed plan:
+  // e.g. an `AVG` rewrites to remote `COUNT` + `SUM`, so a client that asked for both `COUNT` and
+  // `AVG` produces two remote `COUNT`s. Likewise two `REDUCE COLLECT` calls over the same field in
+  // the same `GROUPBY` should run as a single remote COLLECT, with both local reducers reading its
+  // output. Deduping here avoids redundant shard work and avoids `SEARCH_FIELD_DUP` on synthetic
+  // remote aliases.
+  bool addRemote(const char *name, const char **alias, QueryError *status, ArgsCursor *cargs) {
+    ArgsCursor tmp = *cargs;
     auto existing = PLNGroupStep_FindReducer(remoteGroup, name, &tmp);
     if (existing) {
       if (alias) *alias = existing->alias;
       return true;
-    } else {
-      ArgsCursor *cargs = copyArgs(&args);
-      return add(remoteGroup, name, alias, status, cargs);
     }
+    return add(remoteGroup, name, alias, status, copyArgs(cargs));
+  }
+
+  template <typename... T>
+  bool addRemote(const char *name, const char **alias, QueryError *status, T... uargs) {
+    ArgsCursorCXX args(uargs...);
+    ArgsCursor *cargs = &args;
+    return addRemote(name, alias, status, cargs);
   }
 
   const char *srcarg(size_t n) const {
-    auto *s = (const char *)srcReducer->args.objs[n];
+    // Type-aware: hybrid tail plans carry RString-backed arg cursors.
+    const char *s = AC_StringArg(&srcReducer->args, n, NULL);
     return stripAtPrefix(s);
   }
 };
@@ -240,9 +286,7 @@ static int distributeSingleArgSelf(ReducerDistCtx *rdctx, QueryError *status) {
 
 #define RANDOM_SAMPLE_SIZE 500
 
-#define STRINGIFY_(a) STRINGIFY__(a)
-#define STRINGIFY__(a) #a
-#define RANDOM_SAMPLE_SIZE_STR STRINGIFY_(RANDOM_SAMPLE_SIZE)
+#define RANDOM_SAMPLE_SIZE_STR STRINGIFY(RANDOM_SAMPLE_SIZE)
 
 /* Distribute QUANTILE into remote RANDOM_SAMPLE and local QUANTILE */
 static int distributeQuantile(ReducerDistCtx *rdctx, QueryError *status) {
@@ -333,6 +377,110 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
   return REDISMODULE_OK;
 }
 
+/* Distribute COLLECT.
+ *
+ * Both halves of the split GROUPBY forward the original COLLECT argv pointers
+ * verbatim; only what actually differs between the two sides is synthesized.
+ * FIELDS / SORTBY tokens reuse the source tokens' own string buffers — no
+ * per-token duplication.
+ *
+ * Limited path: whenever the user supplied `LIMIT offset count`, the remote
+ * `LIMIT` is rewritten to `0 (offset+count)` so each shard returns enough rows
+ * for the coordinator to perform the final offset/count trim. The local
+ * COLLECT keeps the original offset/count. This mirrors `serializeArrange`'s
+ * behavior for top-level LIMIT and concentrates offset semantics at the
+ * coordinator — internal shards never see a non-zero offset.
+ */
+static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
+  const PLN_Reducer *src = rdctx->srcReducer;
+  RS_ASSERT(src->alias);
+
+  // Parse the original COLLECT args into a pure data struct. No keys are
+  // opened; the parse cursor uses a synthesized lookup-less `ReducerOptions`.
+  ArgsCursor parseAc = src->args;
+  ReducerOptions opts = REDUCEROPTS_INIT(src->name, &parseAc, /*srclookup*/nullptr,
+                                         /*loadKeys*/nullptr, status, /*strictPrefix*/false,
+                                         /*is_local*/false, /*input_key*/nullptr,
+                                         /*reqflags*/0);
+  CollectArgs args = {0};
+  if (!CollectArgs_Parse(&opts, &args)) {
+    CollectArgs_Free(&args);
+    return REDISMODULE_ERR;
+  }
+
+  const size_t srcArgc = src->args.argc;  // reducer args (no leading <nargs>)
+  // Source tokens are read type-aware (the plan cursor may be RString-backed);
+  // each returned buffer is owned by the request for its whole lifetime.
+
+  // Locate the LIMIT offset slot in the original argv.
+  size_t limitValIdx = SIZE_MAX;  // index of the LIMIT offset token
+  if (args.has_limit) {
+    for (size_t i = 0; i + 2 < srcArgc; i++) {
+      if (!strcasecmp(AC_StringArg(&src->args, i, NULL), "LIMIT")) {
+        limitValIdx = i + 1;
+        break;
+      }
+    }
+    RS_ASSERT(limitValIdx != SIZE_MAX);
+  }
+
+  // ---- Remote argv: [<nargs>] [forwarded args, LIMIT rewritten to 0/(off+cnt)]
+  size_t remoteTotal = srcArgc + 1;  // +1 for the leading <nargs>
+  auto remoteObjs = (const char **)BlkAlloc_Alloc(
+      rdctx->alloc, sizeof(char *) * remoteTotal,
+      std::max(sizeof(char *) * remoteTotal, DIST_REDUCER_BLOCK_SIZE));
+  remoteObjs[0] = distAllocU64Str(rdctx->alloc, srcArgc);  // <nargs> = reducer args only
+  // Shallow copy: only pointers are copied; the strings stay owned by src->args
+  // (or are static). Option keywords are normalized so that case-variant
+  // duplicate reducers dedup. User data is never normalized: in the (already
+  // validated) COLLECT grammar it only appears `@`-prefixed, as a number, or as
+  // `*`, so a bare alphabetic token can only be an option keyword.
+  for (size_t i = 0; i < srcArgc; i++) {
+    const char *tok = AC_StringArg(&src->args, i, NULL);
+    const char *normalized = CollectArgs_NormalizedKeyword(tok);
+    remoteObjs[1 + i] = normalized ? normalized : tok;
+  }
+  if (args.has_limit) {
+    remoteObjs[1 + limitValIdx] = distAllocU64Str(rdctx->alloc, 0);
+    remoteObjs[1 + limitValIdx + 1] =
+        distAllocU64Str(rdctx->alloc, args.limit_offset + args.limit_count);
+  }
+  ArgsCursor remoteArgs;
+  ArgsCursor_InitCString(&remoteArgs, remoteObjs, (int)remoteTotal);
+
+  const char *alias = nullptr;
+  if (!rdctx->addRemote("COLLECT", &alias, status, &remoteArgs)) {
+    CollectArgs_Free(&args);
+    return REDISMODULE_ERR;
+  }
+  RS_ASSERT(alias)
+
+  // ---- Local argv: [<nargs>] [forwarded args] AS <user_alias>
+  //      `<nargs>` still counts ONLY the reducer args; `AS`/alias sit outside
+  //      it. LIMIT is forwarded unchanged (the coordinator applies offset).
+  size_t localTotal = srcArgc + 1 + 2;  // +<nargs> +"AS" +alias
+  auto localObjs = (const char **)BlkAlloc_Alloc(
+      rdctx->alloc, sizeof(char *) * localTotal,
+      std::max(sizeof(char *) * localTotal, DIST_REDUCER_BLOCK_SIZE));
+  localObjs[0] = distAllocU64Str(rdctx->alloc, srcArgc);  // unchanged count
+  for (size_t i = 0; i < srcArgc; i++) {
+    localObjs[1 + i] = AC_StringArg(&src->args, i, NULL);
+  }
+  localObjs[srcArgc + 1] = "AS";          // static literal, outside <nargs>
+  localObjs[srcArgc + 2] = src->alias;    // owned by src; outlives this call
+  ArgsCursor localArgs;
+  ArgsCursor_InitCString(&localArgs, localObjs, (int)localTotal);
+
+  if (!rdctx->add(rdctx->localGroup, "COLLECT", nullptr, status, &localArgs)) {
+    CollectArgs_Free(&args);
+    return REDISMODULE_ERR;
+  }
+  array_tail(rdctx->localGroup->reducers).inputAlias = rm_strdup(alias);
+
+  CollectArgs_Free(&args);
+  return REDISMODULE_OK;
+}
+
 // Registry of available distribution functions
 static struct {
   const char *key;
@@ -347,6 +495,7 @@ static struct {
     {"STDDEV", distributeStdDev},
     {"COUNT_DISTINCTISH", distributeCountDistinctish},
     {"QUANTILE", distributeQuantile},
+    {"COLLECT", distributeCollect},
 
     {NULL, NULL}  // sentinel value
 
@@ -568,13 +717,23 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
   AGPLN_Serialize(dstp->plan, &dstp->serialized);
 }
 
-int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError *status) {
+int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us,
+                                  const AggregationPipelineParams *aggregationParams,
+                                  QueryError *status) {
 
   auto dstp = (PLN_DistributeStep *)AGPLN_FindStep(AREQ_AGGPlan(r), NULL, NULL, PLN_T_DISTRIBUTE);
   RS_ASSERT(dstp);
 
   RLookup_EnableOptions(&dstp->lk, RLOOKUP_OPT_ALLOWUNRESOLVED);
-  int rc = AREQ_BuildPipeline(r, status);
+
+  AggregationPipelineParams defaultAggregationParams = {};
+  if (!aggregationParams) {
+    defaultAggregationParams = AREQ_MakeAggregationPipelineParams(
+        r, GroupByLimits_Default(RSGlobalConfig.maxAggregateGroups));
+    aggregationParams = &defaultAggregationParams;
+  }
+
+  int rc = AREQ_BuildPipelineWithAggregationParams(r, aggregationParams, status);
   RLookup_DisableOptions(&dstp->lk, RLOOKUP_OPT_ALLOWUNRESOLVED);
 
   if (rc != REDISMODULE_OK) {

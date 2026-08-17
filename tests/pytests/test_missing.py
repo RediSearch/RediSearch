@@ -1,4 +1,5 @@
 from common import *
+from redis.client import NEVER_DECODE
 import json
 import faker
 
@@ -593,3 +594,94 @@ def testMissingGC():
     # Reschedule the gc - add a job to the queue
     env.cmd(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx')
     env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
+
+@skip(cluster=True)
+def testMissingWithParams():
+    """Tests that ismissing() works correctly in a parameterized query.
+    This exercises QueryNode_EvalParams traversal of QN_MISSING nodes."""
+
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               't', 'TEXT', 'INDEXMISSING').ok()
+
+    conn.execute_command('HSET', 'has_t', 't', 'hello')
+    conn.execute_command('HSET', 'no_t', 'other', 'world')
+
+    # Parameterized query combined with ismissing - triggers
+    # QueryNode_EvalParams on a QN_MISSING node (withChildren=0 path)
+    res = env.cmd('FT.SEARCH', 'idx', '@t:$val | ismissing(@t)',
+                  'NOCONTENT', 'SORTBY', 't', 'ASC',
+                  'PARAMS', '2', 'val', 'hello')
+    env.assertEqual(res, [2, 'has_t', 'no_t'])
+
+    # Parameterized query with only ismissing in an intersection
+    res = env.cmd('FT.SEARCH', 'idx', '@t:$val ismissing(@t)',
+                  'NOCONTENT',
+                  'PARAMS', '2', 'val', 'hello')
+    env.assertEqual(res, [0])
+
+
+@skip(cluster=True)
+def test_missing_field_name_with_interior_nul(env):
+    """Verify that a schema restored with a field name containing an interior
+    NUL byte does not crash the server. The Rust Missing iterator converts the
+    HiddenString field name into a CString, which panics on interior NUL bytes.
+    RDB/schema-restore data is length-based, so it can smuggle NUL bytes past
+    the normal FT.CREATE path (which uses strlen). This test injects a poisoned
+    field name via _FT._RESTOREIFNX and verifies the server stays alive through
+    document indexing and querying."""
+
+    conn = getConnectionByEnv(env)
+
+    # Create an index with a TAG field that indexes missing values.
+    # Use a distinctive field name so we can find and replace it in the
+    # serialized binary blob.
+    field_name = 'nultest_field'
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               field_name, 'TAG', 'INDEXMISSING').ok()
+
+    # Add a document missing the field to populate missingFieldDict.
+    conn.execute_command('HSET', 'doc1', 'other', 'value')
+
+    # Verify the normal ismissing query path works.
+    res = env.cmd('FT.SEARCH', 'idx', f'ismissing(@{field_name})', 'NOCONTENT')
+    env.assertEqual(res, [1, 'doc1'])
+
+    # Mark as internal client so we can use the internal DUMP/RESTORE commands.
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+
+    # Dump the schema as a binary blob (same format as RDB persistence).
+    dump, encode = env.cmd(debug_cmd(), 'DUMP_SCHEMA', 'idx', NEVER_DECODE=True)
+
+    # Verify the field name appears in the dump.
+    env.assertTrue(field_name.encode() in dump,
+                   message="field name not found in schema dump")
+
+    # Drop the original index.
+    env.cmd('FT.DROPINDEX', 'idx')
+
+    # Poison the dump: replace the field name with one containing an interior
+    # NUL byte. The replacement has the same length so all offsets and length
+    # encodings in the binary blob remain valid.
+    poisoned_name = b'nulte\x00t_field'
+    env.assertEqual(len(poisoned_name), len(field_name.encode()),
+                    message="poisoned name must be same length as original")
+
+    # The field name appears twice in the dump: once as fieldName and once as
+    # fieldPath (they share the same value when no separate JSON path is set).
+    poisoned_dump = dump.replace(field_name.encode(), poisoned_name)
+    env.assertNotEqual(dump, poisoned_dump,
+                       message="dump should have been modified")
+
+    # Restore the poisoned schema. The RDB loader rejects field names with
+    # interior NUL bytes.
+    env.expect('_FT._RESTOREIFNX', 'SCHEMA', encode, poisoned_dump).error().contains('Failed to deserialize schema')
+
+    # Verify no index was created from the poisoned dump.
+    idx_list = env.cmd('FT._LIST')
+    env.assertEqual(idx_list, [])
+
+    # Verify the server is still alive.
+    env.expect('PING').equal(True)

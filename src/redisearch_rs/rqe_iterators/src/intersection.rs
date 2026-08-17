@@ -15,63 +15,20 @@
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    c2rust::CRQEIterator, interop::RQEIteratorWrapper,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
-use ffi::t_docId;
-use inverted_index::{RSIndexResult, ResultMetrics_Reset_func};
-
-/// Returns the sort weight for a child iterator, used by [`Intersection`] to order its children
-/// before query execution. A lower value causes the child to act as the pivot, minimising
-/// `SkipTo` calls. The final sort key is `num_estimated * sort_weight`.
-///
-/// Heuristics by type, resolved via [`RQEIterator::as_c_iterator`] + `c.type_`:
-/// - `INTERSECT_ITERATOR`: always a Rust [`Intersection`] wrapped by [`crate::interop::RQEIteratorWrapper`];
-///   weight is `1.0 / num_children`, read directly via [`crate::interop::RQEIteratorWrapper::ref_from_header_ptr`].
-/// - `UNION_ITERATOR`: native C iterator; [`ffi::UnionIterator::num`] cast from the base pointer,
-///   weighted by `num_children` when `prioritize_union_children` is `true`, else `1.0`.
-/// - Everything else (including pure-Rust iterators): `1.0`.
-fn sort_weight<'index, I: RQEIterator<'index>>(iter: &I, prioritize_union_children: bool) -> f64 {
-    // FIXME: pure-Rust iterators (including nested `Intersection`) return `None` here,
-    // so the `INTERSECT_ITERATOR` weight heuristic is silently skipped for them — a
-    // footgun when children are `Box<dyn RQEIterator>`. Not hit in production today
-    // because `NewIntersectionIterator` always produces `CRQEIterator` children.
-    // Will need redesigning when `CRQEIterator` is removed during the full Rust migration.
-    let Some(c) = iter.as_c_iterator() else {
-        return 1.0;
-    };
-    let ptr = std::ptr::from_ref(c.as_ref());
-    match c.type_ {
-        ffi::IteratorType::Intersect => {
-            // SAFETY:
-            // - `type_` guarantees `ptr` was produced by `RQEIteratorWrapper::boxed_new` with
-            //   `Intersection<CRQEIterator>` as the inner type (`NewIntersectionIterator` is the
-            //   sole constructor and always uses that concrete type).
-            // - `ref_from_header_ptr` uses the compiler-computed field offset for `inner` rather
-            //   than manual `size_of` arithmetic, making it immune to alignment padding between
-            //   `header` and `inner` in `RQEIteratorWrapper`.
-            let n = unsafe {
-                RQEIteratorWrapper::<Intersection<'index, CRQEIterator>>::ref_from_header_ptr(ptr)
-                    .inner
-                    .num_children()
-            };
-            if n == 0 { 1.0 } else { 1.0 / n as f64 }
-        }
-        ffi::IteratorType::Union => {
-            if prioritize_union_children {
-                // SAFETY: `type_` guarantees `ptr` points to a `UnionIterator` whose first field
-                // is the `QueryIterator` base — the cast is valid by C struct layout.
-                let num = unsafe { (*ptr.cast::<ffi::UnionIterator>()).num };
-                num as f64
-            } else {
-                1.0
-            }
-        }
-        _ => 1.0,
-    }
-}
+use index_result::{RSIndexResult, RawIndexResult};
+use index_spec::IndexSpecReadGuard;
+use ref_mode::{Active, Ref};
+use rqe_core::DocId;
 
 /// Yields documents appearing in ALL child iterators using a merge (AND) algorithm.
+///
+/// Parameterised over a [`Ref`] mode — see [`Intersection`] for the
+/// [`Active`] instantiation that implements [`RQEIterator`]. `Vec<I>`'s
+/// representation is independent of `Rf`, so this struct is transmute-
+/// compatible across `Active`/`Suspended` instantiations provided `I` is.
 ///
 /// Children are sorted by estimated result count (smallest first) to minimize iterations,
 /// unless `in_order` is set (which preserves the original child order for positional checks).
@@ -81,11 +38,12 @@ fn sort_weight<'index, I: RQEIterator<'index>>(iter: &I, prioritize_union_childr
 /// - `max_slop`: Maximum allowed slop (distance) between term positions. `None` disables proximity
 ///   validation entirely.
 /// - `in_order`: When `true`, terms must appear in the same order as the child iterators.
-pub struct Intersection<'index, I> {
+#[repr(C)]
+pub struct RawIntersection<'query, Rf: Ref, I> {
     /// Child iterators, sorted by estimated count (smallest first) unless `in_order` is set.
     children: Vec<I>,
     /// Last doc_id successfully found in ALL children (returned by [`last_doc_id()`](Self::last_doc_id)).
-    last_doc_id: t_docId,
+    last_doc_id: DocId,
     num_expected: usize,
     is_eof: bool,
     /// Maximum allowed slop (distance) between term positions. `None` disables proximity
@@ -94,15 +52,19 @@ pub struct Intersection<'index, I> {
     /// When `true`, terms must appear in the same order as the child iterators.
     in_order: bool,
     /// Aggregate result combining children's results, reused to avoid allocations.
-    result: RSIndexResult<'index>,
+    result: RawIndexResult<'query, Rf>,
 }
+
+/// Alias for an [`Active`] [`RawIntersection`] — the only instantiation
+/// with an [`RQEIterator`] impl today.
+pub type Intersection<'index, I> = RawIntersection<'index, Active<'index>, I>;
 
 /// Result of attempting to get all children to agree on a target document ID.
 enum AgreeResult {
     /// All children have the target doc_id as their current position.
     Agreed,
     /// A child skipped past the target to a higher doc_id; consensus must restart from this new ID.
-    Ahead(t_docId),
+    Ahead(DocId),
     /// A child reached EOF; no more documents can match.
     Eof,
 }
@@ -149,8 +111,10 @@ where
             children,
             weight,
             |a, b| {
-                let wa = a.num_estimated() as f64 * sort_weight(a, prioritize_union_children);
-                let wb = b.num_estimated() as f64 * sort_weight(b, prioritize_union_children);
+                let wa = a.num_estimated() as f64
+                    * a.intersection_sort_weight(prioritize_union_children);
+                let wb = b.num_estimated() as f64
+                    * b.intersection_sort_weight(prioritize_union_children);
                 wa.total_cmp(&wb)
             },
             max_slop,
@@ -256,8 +220,8 @@ where
     /// child and retries until a relevant result is found or EOF is reached.
     fn find_consensus_with_relevancy_check(
         &mut self,
-        mut target: t_docId,
-    ) -> Result<Option<t_docId>, RQEIteratorError> {
+        mut target: DocId,
+    ) -> Result<Option<DocId>, RQEIteratorError> {
         loop {
             match self.find_consensus(target)? {
                 Some(doc_id) => {
@@ -278,7 +242,7 @@ where
     }
 
     /// Reads from the first child. Returns the doc_id or None if EOF.
-    fn read_from_first_child(&mut self) -> Result<Option<t_docId>, RQEIteratorError> {
+    fn read_from_first_child(&mut self) -> Result<Option<DocId>, RQEIteratorError> {
         match self.children[0].read()? {
             Some(r) => Ok(Some(r.doc_id)),
             None => {
@@ -289,7 +253,7 @@ where
     }
 
     /// Tries to get all children to agree on the target doc_id.
-    fn agree_on_doc_id(&mut self, target: t_docId) -> Result<AgreeResult, RQEIteratorError> {
+    fn agree_on_doc_id(&mut self, target: DocId) -> Result<AgreeResult, RQEIteratorError> {
         for child in &mut self.children {
             // Use child's cached last_doc_id instead of maintaining a parallel array
             if child.last_doc_id() == target {
@@ -313,7 +277,7 @@ where
     }
 
     /// Loops until all children agree on a doc_id, or EOF is reached.
-    fn find_consensus(&mut self, mut target: t_docId) -> Result<Option<t_docId>, RQEIteratorError> {
+    fn find_consensus(&mut self, mut target: DocId) -> Result<Option<DocId>, RQEIteratorError> {
         loop {
             match self.agree_on_doc_id(target)? {
                 AgreeResult::Agreed => return Ok(Some(target)),
@@ -344,14 +308,13 @@ where
     /// Explore removing the unsafe code by using one of the following alternatives (as suggested in the PR):
     ///
     /// - Store owned copies instead of borrowed references (memory/perf tradeoff)
-    /// - Restructure [`RSAggregateResult`](inverted_index::RSAggregateResult) to not require `'index` on stored references
+    /// - Restructure [`RSAggregateResult`](index_result::RSAggregateResult) to not require `'index` on stored references
     /// - Use a different aggregate pattern that doesn't store child references
-    fn build_aggregate_result(&mut self, doc_id: t_docId) {
+    fn build_aggregate_result(&mut self, doc_id: DocId) {
         // Reset all per-document accumulating fields before building the new aggregate.
         self.result.freq = 0;
         self.result.field_mask = 0;
-        // SAFETY: `self.result` is a valid, initialized `RSIndexResult`.
-        unsafe { ResultMetrics_Reset_func(&mut self.result) };
+        self.result.metrics.reset();
         if let Some(agg) = self.result.as_aggregate_mut() {
             agg.reset();
         }
@@ -359,6 +322,7 @@ where
 
         for child in &mut self.children {
             if let Some(child_result) = child.current() {
+                let child_metrics = std::mem::take(&mut child_result.metrics);
                 let child_ptr: *const RSIndexResult<'index> = child_result;
                 // SAFETY:
                 // - `child_ptr` was derived from a valid `&mut RSIndexResult`, so it
@@ -369,10 +333,87 @@ where
                 //   index-backed results; children are owned by `self` and outlive
                 //   this call.
                 let child_ref = unsafe { &*child_ptr };
-                self.result.push_borrowed(child_ref);
+                self.result.push_borrowed(child_ref, child_metrics);
             }
         }
     }
+}
+
+/// Outcome of [`new_intersection_iterator`].
+pub enum NewIntersectionIterator<I> {
+    /// One child was empty — the intersection is trivially empty.
+    /// All other children have already been dropped.
+    Empty,
+    /// Exactly one child survived (or all children were wildcards —
+    /// the last one is returned). No intersection wrapper is needed.
+    Single(I),
+    /// Two or more real, non-wildcard children: build a full [`Intersection`].
+    Proceed(Vec<I>),
+}
+
+/// Reduce `children` before constructing an intersection.
+///
+/// 0. No children → `Empty`.
+/// 1. Strip wildcards. If all were wildcards → `Single(last_wildcard)`. Any wildcard would be
+///    correct (they all match every document); we keep the last as a natural artifact of the
+///    iteration that overwrites `last_wildcard` on each new wildcard seen.
+/// 2. Any empty child → `Empty` (all others are dropped).
+/// 3. Exactly one non-wildcard child → `Single(child)`.
+/// 4. Two or more real children → `Proceed(children)`.
+pub fn new_intersection_iterator<'index, I>(children: Vec<I>) -> NewIntersectionIterator<I>
+where
+    I: RQEIterator<'index>,
+{
+    // Rule 0
+    if children.is_empty() {
+        return NewIntersectionIterator::Empty;
+    }
+
+    // Rule 1: strip wildcards, keep track of the last one seen before any non-wildcard
+    let mut last_wildcard: Option<I> = None;
+    let mut kept: Vec<I> = Vec::with_capacity(children.len());
+    let mut seen_non_wildcard = false;
+
+    for child in children {
+        if matches!(
+            child.type_(),
+            IteratorType::Wildcard | IteratorType::InvIdxWildcard
+        ) {
+            if seen_non_wildcard {
+                drop(child); // wildcard after non-wildcard: discard immediately
+            } else {
+                last_wildcard = Some(child); // Drop evicts the previous wildcard
+            }
+        } else {
+            seen_non_wildcard = true;
+            if let Some(wc) = last_wildcard.take() {
+                drop(wc); // first non-wildcard: discard saved wildcard
+            }
+            kept.push(child);
+        }
+    }
+
+    if kept.is_empty() {
+        // All were wildcards
+        return match last_wildcard {
+            Some(wc) => NewIntersectionIterator::Single(wc),
+            None => NewIntersectionIterator::Empty, // defensive: empty input already handled above
+        };
+    }
+
+    // Rule 2: empty child detection
+    if kept.iter().any(|c| c.type_() == IteratorType::Empty) {
+        // Drop all kept children (including the empty one); intersection is empty
+        return NewIntersectionIterator::Empty;
+    }
+
+    // Rule 3
+    if kept.len() == 1 {
+        return NewIntersectionIterator::Single(kept.remove(0));
+    }
+
+    // Rule 4
+    NewIntersectionIterator::Proceed(kept)
 }
 
 impl<'index, I> RQEIterator<'index> for Intersection<'index, I>
@@ -412,7 +453,7 @@ where
 
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         if self.is_eof {
             return Ok(None);
@@ -480,7 +521,7 @@ where
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.last_doc_id
     }
 
@@ -489,13 +530,16 @@ where
         self.is_eof
     }
 
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    fn revalidate(
+        &mut self,
+        spec: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         let mut any_child_moved = false;
-        let mut max_child_doc_id: t_docId = 0;
+        let mut max_child_doc_id: DocId = 0;
         let mut moved_to_eof = false;
 
         for child in &mut self.children {
-            match child.revalidate()? {
+            match child.revalidate(spec)? {
                 RQEValidateStatus::Aborted => return Ok(RQEValidateStatus::Aborted),
                 RQEValidateStatus::Moved { current } => {
                     any_child_moved = true;
@@ -532,6 +576,10 @@ where
     fn type_(&self) -> IteratorType {
         IteratorType::Intersect
     }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0 / self.children.len().max(1) as f64
+    }
 }
 
 impl<'index> crate::interop::ProfileChildren<'index>
@@ -550,6 +598,25 @@ impl<'index> crate::interop::ProfileChildren<'index>
             max_slop: self.max_slop,
             in_order: self.in_order,
             result: self.result,
+        }
+    }
+}
+
+impl<'index, I> ProfilePrint for Intersection<'index, I>
+where
+    I: RQEIterator<'index> + ProfilePrint,
+{
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        map.kv_simple_string(c"Type", c"INTERSECT");
+        ctx.print_optional_counters(map);
+
+        let num_children = self.num_children();
+        let mut arr = map.kv_array(c"Child iterators");
+        for i in 0..num_children {
+            let mut child_map = arr.map();
+            let mut child_ctx = ctx.child_ctx();
+            self.child_at(i)
+                .print_profile(&mut child_map, &mut child_ctx);
         }
     }
 }

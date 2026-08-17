@@ -8,11 +8,14 @@
 */
 
 use crate::{
-    DecodedBy, Encoder, GcApplyInfo, GcScanDelta, IndexBlock, InvertedIndex, RSIndexResult,
+    AddRecordOutcome, DecodedBy, Encoder, GcApplyInfo, GcScanDelta, IndexBlock, InvertedIndex,
     debug::{BlockSummary, Summary},
+    numeric::{NumericEncoder, PreparedValue},
     reader::IndexReaderCore,
 };
-use ffi::{IndexFlags, t_docId};
+use ffi::IndexFlags;
+use index_result::RSIndexResult;
+use rqe_core::DocId;
 
 /// A wrapper around the inverted index to track the total number of entries in the index.
 /// Unlike [`InvertedIndex::unique_docs()`], this counts all entries, including duplicates.
@@ -35,16 +38,16 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
         }
     }
 
-    /// Add a new record to the index and return by how much memory grew. It is expected that
-    /// the document ID of the record is greater than or equal the last document ID in the index.
+    /// Add a new record to the index. See [`InvertedIndex::add_record`] for the meaning of the
+    /// returned `(memory_growth, blocks_added)` pair.
     ///
     /// The total number of entries in the index is incremented by one.
-    pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<usize> {
-        let mem_growth = self.index.add_record(record)?;
+    pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<AddRecordOutcome> {
+        let result = self.index.add_record(record)?;
 
         self.number_of_entries += 1;
 
-        Ok(mem_growth)
+        Ok(result)
     }
 
     /// The memory size of the index in bytes.
@@ -59,7 +62,7 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
     }
 
     /// Returns the last document ID in the index, if any.
-    pub fn last_doc_id(&self) -> Option<t_docId> {
+    pub fn last_doc_id(&self) -> Option<DocId> {
         self.index.last_doc_id()
     }
 
@@ -138,10 +141,10 @@ impl<E: Encoder + DecodedBy> EntriesTrackingIndex<E> {
     /// If a doc does exist, then `repair` is called with it to run any repair calculations needed.
     ///
     /// This function returns a delta if GC is needed, or `None` if no GC is needed.
-    pub fn scan_gc<'index>(
-        &'index self,
-        doc_exist: impl Fn(t_docId) -> bool,
-        repair: Option<impl FnMut(&RSIndexResult<'index>, &IndexBlock)>,
+    pub fn scan_gc(
+        &self,
+        doc_exist: impl Fn(DocId) -> bool,
+        repair: Option<impl for<'call> FnMut(&RSIndexResult<'call>, &crate::RepairContext<'call>)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
         self.index.scan_gc(doc_exist, repair)
     }
@@ -154,5 +157,24 @@ impl<E: Encoder + DecodedBy> EntriesTrackingIndex<E> {
         self.number_of_entries -= info.entries_removed;
 
         info
+    }
+}
+
+impl<E: NumericEncoder> EntriesTrackingIndex<E> {
+    /// Add an entry whose representation the encoder already decided — see
+    /// [`InvertedIndex::add_prepared_record`].
+    pub fn add_prepared_record(
+        &mut self,
+        doc_id: DocId,
+        prepared: PreparedValue,
+        has_field_expiration: bool,
+    ) -> std::io::Result<AddRecordOutcome> {
+        let result = self
+            .index
+            .add_prepared_record(doc_id, prepared, has_field_expiration)?;
+
+        self.number_of_entries += 1;
+
+        Ok(result)
     }
 }

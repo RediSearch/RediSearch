@@ -1,0 +1,6 @@
+---
+source: rqe_iterators/tests/integration/profile_print.rs
+assertion_line: 412
+expression: reply
+---
+{"Type": "TAG", "Term": b"my_tag", "Estimated number of matches": 1}

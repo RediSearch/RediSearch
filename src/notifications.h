@@ -14,8 +14,8 @@
 extern "C" {
 #endif
 
-int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
-                             RedisModuleString *key);
+int KeySpaceNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
+                               RedisModuleString *key);
 void Initialize_KeyspaceNotifications();
 void Initialize_ServerEventNotifications(RedisModuleCtx *ctx);
 void Initialize_CommandFilter(RedisModuleCtx *ctx);

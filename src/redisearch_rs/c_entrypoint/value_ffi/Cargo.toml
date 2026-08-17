@@ -8,16 +8,12 @@ publish.workspace = true
 [lints]
 workspace = true
 
-[build-dependencies]
-cbindgen.workspace = true
-build_utils = { path = "../../build_utils" }
-
 [dependencies]
-c_ffi_utils.workspace = true
+cheadergen.workspace = true
 ffi.workspace = true
-fnv.workspace = true
 libc.workspace = true
 query_error.workspace = true
+redis-module.workspace = true
 value.workspace = true
 workspace_hack.workspace = true
 

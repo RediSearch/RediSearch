@@ -7,12 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Debug formatting for [`RsValue`] with optional obfuscation.
+//! Debug formatting for [`Value`] with optional obfuscation.
 //!
-//! Provides [`DebugFormatter`], a wrapper that implements [`Debug`] for [`RsValue`],
+//! Provides [`DebugFormatter`], a wrapper that implements [`Debug`] for [`Value`],
 //! with support for obfuscating sensitive data via C-side obfuscation functions.
 
-use crate::RsValue;
+use crate::Value;
 use ffi::{Obfuscate_Number, Obfuscate_Text};
 use std::{
     ffi::CStr,
@@ -20,7 +20,7 @@ use std::{
     str,
 };
 
-/// A wrapper around an [`RsValue`] reference that implements [`Debug`] with
+/// A wrapper around a [`Value`] reference that implements [`Debug`] with
 /// optional obfuscation of string and numeric values.
 ///
 /// When `obfuscate` is `true`, string and numeric values are replaced with
@@ -28,7 +28,7 @@ use std::{
 /// `Obfuscate_Number` functions. Composite types (arrays, maps) recursively
 /// obfuscate their elements.
 pub struct DebugFormatter<'a> {
-    pub(crate) value: &'a RsValue,
+    pub(crate) value: &'a Value,
     pub(crate) obfuscate: bool,
 }
 
@@ -45,9 +45,9 @@ impl<'a> Debug for DebugFormatter<'a> {
         }
 
         match self.value {
-            RsValue::Undefined => f.write_str("<Undefined>"),
-            RsValue::Null => f.write_str("NULL"),
-            RsValue::Number(num) => {
+            Value::Undefined => f.write_str("<Undefined>"),
+            Value::Null => f.write_str("NULL"),
+            Value::Number(num) => {
                 if self.obfuscate {
                     f.write_str(obfuscate_number(*num))
                 } else {
@@ -57,15 +57,15 @@ impl<'a> Debug for DebugFormatter<'a> {
                     f.write_str(s)
                 }
             }
-            RsValue::String(str) => fmt_text(f, str.as_bytes(), self.obfuscate),
-            RsValue::RedisString(str) => fmt_text(f, str.as_bytes(), self.obfuscate),
-            RsValue::Array(array) => {
+            Value::String(str) => fmt_text(f, str.as_bytes(), self.obfuscate),
+            Value::RedisString(str) => fmt_text(f, str.as_bytes(), self.obfuscate),
+            Value::Array(array) => {
                 let entries = array
                     .iter()
                     .map(|item| item.debug_formatter(self.obfuscate));
                 f.debug_list().entries(entries).finish()
             }
-            RsValue::Map(map) => {
+            Value::Map(map) => {
                 let entries = map.iter().map(|(key, value)| {
                     (
                         key.debug_formatter(self.obfuscate),
@@ -74,8 +74,8 @@ impl<'a> Debug for DebugFormatter<'a> {
                 });
                 f.debug_map().entries(entries).finish()
             }
-            RsValue::Ref(ref_value) => ref_value.debug_formatter(self.obfuscate).fmt(f),
-            RsValue::Trio(trio) => trio.left().debug_formatter(self.obfuscate).fmt(f),
+            Value::Ref(ref_value) => ref_value.debug_formatter(self.obfuscate).fmt(f),
+            Value::Trio(trio) => trio.left().debug_formatter(self.obfuscate).fmt(f),
         }
     }
 }

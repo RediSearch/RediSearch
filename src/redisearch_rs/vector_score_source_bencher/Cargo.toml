@@ -1,0 +1,36 @@
+[package]
+name = "vector_score_source_bencher"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+# See https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+bench = false
+
+# Rust VectorTopKIterator vs the real C HybridIterator (apples-to-apples).
+[[bench]]
+name = "vector_top_k_hybrid"
+harness = false
+
+[build-dependencies]
+build_utils = { path = "../build_utils" }
+cc.workspace = true
+
+[dependencies]
+criterion.workspace = true
+ffi.workspace = true
+redis_mock.workspace = true
+rqe_iterators = { workspace = true }
+rqe_iterators_test_utils.workspace = true
+top_k = { path = "../top_k" }
+vector_score_source = { path = "../vector_score_source" }
+workspace_hack.workspace = true
+# Crate required to invoke C symbols and keep Rust-defined FFI symbols alive.
+redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = [
+    "mock_allocator",
+] }

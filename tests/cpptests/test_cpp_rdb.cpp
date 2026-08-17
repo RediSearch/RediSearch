@@ -8,18 +8,26 @@
  */
 
 #include "gtest/gtest.h"
+#include "gtest/internal/gtest-port.h"  // For CaptureStderr/GetCapturedStderr
 #include "common.h"
 #include "redismock/redismock.h"
+#include "synonym_map.h"
+#include "trie/trie.h"
+#include <cstdint>  // For SIZE_MAX, UINT32_MAX
 
 extern "C" {
 #include "spec.h"
-#include "query_error.h"
+#include "indexes.h"
+#include "query_error_ffi.h"
+#include "rules.h"
+#include "stopwords.h"
+#include "doc_table.h"
 
 // Forward declarations for RDB functions
-extern void Indexes_RdbSave(RedisModuleIO *rdb, int when);
 extern int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when);
 extern void Spec_AddToDict(RefManager *rm);  // Helper to add spec to global dict
 }
+
 
 class RdbMockTest : public ::testing::Test {
 protected:
@@ -113,7 +121,7 @@ TEST_F(RdbMockTest, testCreateIndexSpec) {
     EXPECT_EQ(0, lock_result);
 
     // Clean up
-    IndexSpec_RemoveFromGlobals(spec_ref, false);
+    Indexes_RemoveSpecFromGlobals(spec_ref, false);
 }
 
 // Helper function to test lock state
@@ -216,6 +224,49 @@ TEST_F(RdbMockTest, testIndexSpecRdbSerialization) {
     }
 }
 
+TEST_F(RdbMockTest, testIndexSpecRdbLoadNormalizesInvalidStorageFlags) {
+
+    const char *args[] = {"NOFIELDS", "SCHEMA", "title", "TEXT"};
+    QueryError err = QueryError_Default();
+
+    StrongRef original_spec_ref = IndexSpec_ParseC(NULL, "test_rdb_invalid_idx", args, sizeof(args) / sizeof(const char *), &err);
+    ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+
+    IndexSpec *spec = (IndexSpec *)StrongRef_Get(original_spec_ref);
+    ASSERT_TRUE(spec != nullptr);
+    std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> specPtr(spec, [](IndexSpec *spec) {
+        StrongRef_Release(spec->own_ref);
+    });
+
+    // Make sure Index_StoreFieldFlags is not set, and turn on Index_WideSchema which is invalid without it, to simulate an invalid RDB state that we want to normalize on load
+    ASSERT_FALSE(spec->flags & Index_StoreFieldFlags) << "Original IndexSpec should not have storage flags set";
+    uint64_t flags = spec->flags;
+    flags |= Index_WideSchema;
+    spec->flags = (IndexFlags)flags;
+
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+        RMCK_FreeRdbIO(io);
+    });
+    ASSERT_TRUE(io != nullptr);
+
+    IndexSpec_RdbSave(io, spec, 0);
+    EXPECT_EQ(0, RMCK_IsIOError(io));
+
+    io->read_pos = 0;
+
+    QueryError status = QueryError_Default();
+    IndexSpec *loadedSpec = IndexSpec_RdbLoad(io, INDEX_CURRENT_VERSION, false, &status);
+    ASSERT_NE(nullptr, loadedSpec);
+    std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> loadedSpecPtr(loadedSpec, [](IndexSpec *spec) {
+        StrongRef_Release(spec->own_ref);
+    });
+    // We expect no error, and the invalid storage flags to be normalized (i.e., Index_WideSchema should be turned off because Index_StoreFieldFlags is not set)
+    EXPECT_FALSE(QueryError_HasError(&status)) << QueryError_GetUserError(&status);
+    EXPECT_FALSE(loadedSpec->flags & Index_WideSchema);
+    EXPECT_FALSE(loadedSpec->flags & Index_StoreFieldFlags);
+}
+
 TEST_F(RdbMockTest, testIndexSpecStringSerialize) {
 
     // Create an IndexSpec
@@ -235,13 +286,14 @@ TEST_F(RdbMockTest, testIndexSpecStringSerialize) {
     ASSERT_TRUE(serialized != nullptr);
 
     // Drop the original spec from globals
-    IndexSpec_RemoveFromGlobals(original_spec_ref, false);
-    ASSERT_TRUE(IndexSpec_LoadUnsafe("test_rdb_idx").rm == NULL);
+    Indexes_RemoveSpecFromGlobals(original_spec_ref, false);
+    ASSERT_TRUE(Indexes_LoadIndexSpecUnsafe("test_rdb_idx").rm == NULL);
 
     // Deserialize
-    int res = IndexSpec_Deserialize(serialized, encver);
+    IndexSpec *deserialized = IndexSpec_Deserialize(serialized, encver);
+    int res = Indexes_StoreSpecAfterRdbLoad(deserialized);
     ASSERT_EQ(REDISMODULE_OK, res);
-    StrongRef loaded_spec_ref = IndexSpec_LoadUnsafe("test_rdb_idx");
+    StrongRef loaded_spec_ref = Indexes_LoadIndexSpecUnsafe("test_rdb_idx");
     spec = (IndexSpec *)StrongRef_Get(loaded_spec_ref);
 
     // Sanity checks that the spec is loaded correctly
@@ -255,7 +307,7 @@ TEST_F(RdbMockTest, testIndexSpecStringSerialize) {
     ASSERT_STREQ(HiddenString_GetUnsafe(spec->fields[2].fieldName, NULL), "price");
 
     // Clean up
-    IndexSpec_RemoveFromGlobals(loaded_spec_ref, false);
+    Indexes_RemoveSpecFromGlobals(loaded_spec_ref, false);
     RedisModule_FreeString(NULL, serialized);
 }
 
@@ -288,8 +340,8 @@ TEST_F(RdbMockTest, testDuplicateIndexRdbLoad) {
     EXPECT_EQ(0, RMCK_IsIOError(io));
 
     // Remove the original spec from globals before loading from RDB
-    IndexSpec_RemoveFromGlobals(spec_ref, false);
-    ASSERT_TRUE(IndexSpec_LoadUnsafe("test_duplicate_idx").rm == NULL);
+    Indexes_RemoveSpecFromGlobals(spec_ref, false);
+    ASSERT_TRUE(Indexes_LoadIndexSpecUnsafe("test_duplicate_idx").rm == NULL);
 
     // Reset read position to load from RDB
     io->read_pos = 0;
@@ -301,12 +353,789 @@ TEST_F(RdbMockTest, testDuplicateIndexRdbLoad) {
 
 
     // Verify the loaded index exists and has the correct name
-    StrongRef loaded_spec_ref = IndexSpec_LoadUnsafe("test_duplicate_idx");
+    StrongRef loaded_spec_ref = Indexes_LoadIndexSpecUnsafe("test_duplicate_idx");
     IndexSpec *loaded_spec = (IndexSpec *)StrongRef_Get(loaded_spec_ref);
     ASSERT_TRUE(loaded_spec != nullptr);
     ASSERT_STREQ(HiddenString_GetUnsafe(loaded_spec->specName, NULL), "test_duplicate_idx");
     ASSERT_EQ(loaded_spec->numFields, 1);
 
     // Clean up
-    IndexSpec_RemoveFromGlobals(loaded_spec_ref, false);
+    Indexes_RemoveSpecFromGlobals(loaded_spec_ref, false);
+}
+
+TEST_F(RdbMockTest, testSynonymMapRdbSerialization) {
+    // Create a SynonymMap and add some terms
+    SynonymMap *smap = SynonymMap_New(false);
+    ASSERT_TRUE(smap != nullptr);
+    std::unique_ptr<SynonymMap, std::function<void(SynonymMap *)>> smapPtr(smap, [](SynonymMap *s) {
+        SynonymMap_Free(s);
+    });
+
+    // Add terms to synonym groups
+    const char *group1_terms[] = {"hello", "hi", "greetings"};
+    const char *group2_terms[] = {"bye", "goodbye", "farewell"};
+    // hello and bye belong to multiple groups
+    const char *group3_terms[] = {"hello", "bye"};
+
+    ASSERT_EQ(SYNONYM_MAP_OK, SynonymMap_Add(smap, "greet", group1_terms, 3));
+    ASSERT_EQ(SYNONYM_MAP_OK, SynonymMap_Add(smap, "part", group2_terms, 3));
+    ASSERT_EQ(SYNONYM_MAP_OK, SynonymMap_Add(smap, "common", group3_terms, 2));
+
+    // Verify the synonym map has the expected terms
+    TermData *td = SynonymMap_GetIdsBySynonym_cstr(smap, "hello");
+    ASSERT_TRUE(td != nullptr);
+    // hello belongs to "greet" and "common"
+    EXPECT_EQ(2, array_len(td->groupIds));
+
+    // Create RDB IO context
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+        RMCK_FreeRdbIO(io);
+    });
+    ASSERT_TRUE(io != nullptr);
+
+    // Save synonym map to RDB
+    SynonymMap_RdbSave(io, smap);
+    EXPECT_EQ(0, RMCK_IsIOError(io));
+
+    // Reset read position to load it back
+    io->read_pos = 0;
+
+    // Load synonym map from RDB
+    SynonymMap *loadedSmap = (SynonymMap *)SynonymMap_RdbLoad(io, INDEX_CURRENT_VERSION);
+    ASSERT_TRUE(loadedSmap != nullptr);
+    std::unique_ptr<SynonymMap, std::function<void(SynonymMap *)>> loadedSmapPtr(loadedSmap, [](SynonymMap *s) {
+        SynonymMap_Free(s);
+    });
+    EXPECT_EQ(0, RMCK_IsIOError(io));
+
+    // Verify loaded synonym map has the same terms
+    td = SynonymMap_GetIdsBySynonym_cstr(loadedSmap, "hello");
+    ASSERT_TRUE(td != nullptr);
+    EXPECT_EQ(2, array_len(td->groupIds));
+
+    td = SynonymMap_GetIdsBySynonym_cstr(loadedSmap, "hi");
+    ASSERT_TRUE(td != nullptr);
+    EXPECT_EQ(1, array_len(td->groupIds));
+
+    td = SynonymMap_GetIdsBySynonym_cstr(loadedSmap, "bye");
+    ASSERT_TRUE(td != nullptr);
+    EXPECT_EQ(2, array_len(td->groupIds));
+
+    td = SynonymMap_GetIdsBySynonym_cstr(loadedSmap, "farewell");
+    ASSERT_TRUE(td != nullptr);
+    EXPECT_EQ(1, array_len(td->groupIds));
+}
+
+TEST_F(RdbMockTest, testSynonymMapRdbLoadExceedsTermsLimit) {
+    // Test that loading a synonym map with more terms than MAX_SYNONYM_TERMS fails
+    // The check is in SynonymMap_RdbLoad at the dict_size level
+
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+        RMCK_FreeRdbIO(io);
+    });
+    ASSERT_TRUE(io != nullptr);
+
+    // Write dict_size that exceeds MAX_SYNONYM_TERMS
+    uint64_t dict_size = MAX_SYNONYM_TERMS + 1;
+    RMCK_SaveUnsigned(io, dict_size);
+
+    // Write some dummy data to prove failure is from limit check, not EOF
+    const char *term = "test_term";
+    RMCK_SaveStringBuffer(io, term, strlen(term) + 1);
+
+    // Reset read position
+    io->read_pos = 0;
+
+    // Capture stderr to verify the error message
+    testing::internal::CaptureStderr();
+
+    // Try to load - should fail due to exceeding MAX_SYNONYM_TERMS
+    SynonymMap *loadedSmap = (SynonymMap *)SynonymMap_RdbLoad(io, INDEX_CURRENT_VERSION);
+    EXPECT_TRUE(loadedSmap == nullptr) << "Expected RDB load to fail when terms exceed limit";
+
+    // Verify the error message was logged to stderr
+    std::string stderr_output = testing::internal::GetCapturedStderr();
+    std::string expected = "RDB Load: Synonym map size (" +
+        std::to_string(dict_size) +
+        ") exceeds maximum allowed (" +
+        std::to_string(MAX_SYNONYM_TERMS) + ")";
+    EXPECT_TRUE(stderr_output.find(expected) != std::string::npos)
+        << "Expected: " << expected << ", got: " << stderr_output;
+}
+
+TEST_F(RdbMockTest, testTermDataRdbLoadExceedsGroupIdsLimit) {
+    // Test that loading term data with more group IDs than MAX_SYNONYM_GROUP_IDS fails
+    // The check is in TermData_RdbLoad at the group IDs level
+
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+        RMCK_FreeRdbIO(io);
+    });
+    ASSERT_TRUE(io != nullptr);
+
+    // Write term string
+    const char *term = "test_term";
+    RMCK_SaveStringBuffer(io, term, strlen(term) + 1);
+
+    // Write number of group IDs - exceeds the limit
+    uint64_t num_group_ids = MAX_SYNONYM_GROUP_IDS + 1;
+    RMCK_SaveUnsigned(io, num_group_ids);
+
+    // Write some dummy data to prove failure is from limit check, not EOF
+    const char *dummy = "dummy_group";
+    RMCK_SaveStringBuffer(io, dummy, strlen(dummy) + 1);
+
+    // Reset read position
+    io->read_pos = 0;
+
+    // Capture stderr to verify the error message
+    testing::internal::CaptureStderr();
+
+    // Try to load - should fail due to exceeding MAX_SYNONYM_GROUP_IDS
+    TermData *td = TermData_RdbLoad(io, INDEX_CURRENT_VERSION);
+    EXPECT_TRUE(td == nullptr) << "Expected RDB load to fail when synonym groups exceed limit";
+
+    // Verify the error message was logged to stderr
+    std::string stderr_output = testing::internal::GetCapturedStderr();
+    std::string expected = "RDB Load: Synonym group IDs (" +
+        std::to_string(num_group_ids) +
+        ") exceeds maximum allowed (" +
+        std::to_string(MAX_SYNONYM_GROUP_IDS) + ")";
+    EXPECT_TRUE(stderr_output.find(expected) != std::string::npos)
+        << "Expected: " << expected << ", got: " << stderr_output;
+}
+
+TEST_F(RdbMockTest, testSynonymMapRdbLoadValidGroupIds) {
+    // Test that loading a synonym map with valid group IDs succeeds
+    // We manually craft an RDB payload with a valid number of group IDs
+
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+        RMCK_FreeRdbIO(io);
+    });
+    ASSERT_TRUE(io != nullptr);
+
+    // Write RDB data: dict_size, then for each term: term_string, num_group_ids, group_id_strings...
+    uint64_t dict_size = 1;  // One term
+    RMCK_SaveUnsigned(io, dict_size);
+
+    // Write term data
+    const char *term = "test_term";
+    RMCK_SaveStringBuffer(io, term, strlen(term) + 1);  // +1 for null terminator
+
+    // Write number of group IDs
+    uint64_t num_group_ids = 2;
+    RMCK_SaveUnsigned(io, num_group_ids);
+
+    // Write the actual group ID strings (without the ~ prefix, as that's added during load)
+    const char *group1 = "group1";
+    const char *group2 = "group2";
+    RMCK_SaveStringBuffer(io, group1, strlen(group1) + 1);
+    RMCK_SaveStringBuffer(io, group2, strlen(group2) + 1);
+
+    // Reset read position
+    io->read_pos = 0;
+
+    // Load should succeed
+    SynonymMap *loadedSmap = (SynonymMap *)SynonymMap_RdbLoad(io, INDEX_CURRENT_VERSION);
+    ASSERT_TRUE(loadedSmap != nullptr) << "Expected RDB load to succeed with valid group IDs";
+    std::unique_ptr<SynonymMap, std::function<void(SynonymMap *)>> loadedSmapPtr(loadedSmap, [](SynonymMap *s) {
+        SynonymMap_Free(s);
+    });
+    EXPECT_EQ(0, RMCK_IsIOError(io));
+
+    // Verify the loaded data
+    TermData *td = SynonymMap_GetIdsBySynonym_cstr(loadedSmap, "test_term");
+    ASSERT_TRUE(td != nullptr);
+    EXPECT_EQ(2, array_len(td->groupIds));
+}
+
+TEST_F(RdbMockTest, testStopWordListRdbRoundTrip) {
+    // A stopword list is written as a count followed by the already-folded
+    // keys, and read back without folding again — so a round trip is only an
+    // identity if the saved order and the exact key bytes both survive.
+    // Insertion order here is deliberately unsorted and mixed-script.
+    const char *terms[] = {"zebra", "apple", "שלום", "Mango"};
+    const size_t nterms = sizeof(terms) / sizeof(const char *);
+    StopWordList *sl = NewStopWordListCStr(terms, nterms);
+    ASSERT_TRUE(sl != nullptr);
+    std::unique_ptr<StopWordList, std::function<void(StopWordList *)>> slPtr(sl, [](StopWordList *sl) {
+        StopWordList_Unref(sl);
+    });
+
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    ASSERT_TRUE(io != nullptr);
+    std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+        RMCK_FreeRdbIO(io);
+    });
+
+    StopWordList_RdbSave(io, sl);
+    EXPECT_EQ(0, RMCK_IsIOError(io));
+
+    io->read_pos = 0;
+    StopWordList *loaded = StopWordList_RdbLoad(io, INDEX_CURRENT_VERSION);
+    ASSERT_TRUE(loaded != nullptr);
+    std::unique_ptr<StopWordList, std::function<void(StopWordList *)>> loadedPtr(loaded, [](StopWordList *sl) {
+        StopWordList_Unref(sl);
+    });
+    EXPECT_EQ(0, RMCK_IsIOError(io));
+
+    // Membership survives, including the folded form of the mixed-case term.
+    EXPECT_TRUE(StopWordList_Contains(loaded, "zebra", 5));
+    EXPECT_TRUE(StopWordList_Contains(loaded, "apple", 5));
+    EXPECT_TRUE(StopWordList_Contains(loaded, "mango", 5));
+    EXPECT_TRUE(StopWordList_Contains(loaded, "שלום", strlen("שלום")));
+    EXPECT_FALSE(StopWordList_Contains(loaded, "pear", 4));
+
+    // The INFO render is the observable projection of both the key bytes and
+    // their order, so comparing it either way pins the round trip whole.
+    RedisModuleInfoCtx before, after;
+    AddStopWordsListToInfo(&before, sl);
+    AddStopWordsListToInfo(&after, loaded);
+    ASSERT_EQ(before.fields.size(), 1);
+    ASSERT_EQ(after.fields.size(), 1);
+    EXPECT_EQ(before.fields[0].second, after.fields[0].second);
+}
+
+TEST_F(RdbMockTest, testStopWordListRdbLoadTruncated) {
+    // The count promises two keys but only one follows, so the read fails after
+    // the list already holds an entry. Unlike
+    // testStopWordListRdbLoadExceedsLimit, which bails before allocating
+    // anything, this reaches the cleanup path with a partially built list to
+    // free — the leak is only visible under a sanitizer, so the assertion here
+    // is just that load reports failure.
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    ASSERT_TRUE(io != nullptr);
+    std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+        RMCK_FreeRdbIO(io);
+    });
+
+    RMCK_SaveUnsigned(io, 2);
+    const char *term = "foo";
+    RMCK_SaveStringBuffer(io, term, strlen(term));
+
+    io->read_pos = 0;
+
+    StopWordList *loaded = StopWordList_RdbLoad(io, INDEX_CURRENT_VERSION);
+    EXPECT_TRUE(loaded == nullptr) << "Expected RDB load to fail when the payload is short";
+    EXPECT_EQ(1, RMCK_IsIOError(io));
+}
+
+TEST_F(RdbMockTest, testTrieRdbLoadMoreThan65535Elements) {
+    // Test that a trie with more than 65535 (UINT16_MAX) elements can be
+    // saved and loaded correctly from RDB.
+
+    const size_t NUM_ELEMENTS = 65536 + 100;  // Just over UINT16_MAX
+    const char *MIDDLE = "_dictionary_entry_with_a_long_string_to_stress_test_the_trie_node_allocation_";
+
+    // Create a trie and populate it with many elements
+    Trie *originalTrie = NewTrie(NULL, Trie_Sort_Lex);
+    ASSERT_TRUE(originalTrie != nullptr);
+    std::unique_ptr<Trie, std::function<void(Trie *)>> originalTriePtr(originalTrie, [](Trie *t) {
+        TrieType_Free(t);
+    });
+
+    // Insert NUM_ELEMENTS entries using longer strings with number as prefix
+    // AND suffix. This creates more unique trie paths instead of one prefix
+    // node with many children
+    for (size_t i = 0; i < NUM_ELEMENTS; i++) {
+        char buf[160];
+        snprintf(buf, sizeof(buf), "%zu%s%zu", i, MIDDLE, i);
+        Trie_InsertStringBuffer(originalTrie, buf, strlen(buf), 1.0, 0, NULL, 0);
+    }
+
+    ASSERT_EQ(NUM_ELEMENTS, Trie_Size(originalTrie));
+
+    // Create RDB IO context
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+        RMCK_FreeRdbIO(io);
+    });
+    ASSERT_TRUE(io != nullptr);
+
+    // Save the trie to RDB (without payloads, like dictionary)
+    TrieType_GenericSave(io, originalTrie, 0, false);
+    EXPECT_EQ(0, RMCK_IsIOError(io));
+
+    // Reset read position to load it back
+    io->read_pos = 0;
+
+    // Load the trie from RDB
+    Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, 0, false, Trie_Sort_Lex);
+    ASSERT_TRUE(loadedTrie != nullptr) << "Failed to load trie with more than 65535 elements";
+    std::unique_ptr<Trie, std::function<void(Trie *)>> loadedTriePtr(loadedTrie, [](Trie *t) {
+        TrieType_Free(t);
+    });
+    EXPECT_EQ(0, RMCK_IsIOError(io));
+
+    // Verify the loaded trie has the correct size
+    EXPECT_EQ(NUM_ELEMENTS, Trie_Size(loadedTrie));
+}
+
+TEST_F(RdbMockTest, testTriePayloadNoOverflow) {
+    // Test that triePayload_New correctly handles large payloads without
+    // overflow
+
+    // Create RDB IO context
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+        RMCK_FreeRdbIO(io);
+    });
+    ASSERT_TRUE(io != nullptr);
+
+    // Test 1: Normal payload - should succeed
+    {
+        const char *normal_payload = "This is a normal payload";
+        size_t normal_len = strlen(normal_payload);
+
+        // Save a trie entry with normal payload
+        RMCK_SaveUnsigned(io, 1);  // 1 element
+        RMCK_SaveStringBuffer(io, "test", 5);  // key with null terminator
+        RMCK_SaveDouble(io, 1.0);  // score
+        RMCK_SaveStringBuffer(io, normal_payload, normal_len + 1);  // payload with null terminator
+
+        io->read_pos = 0;
+        Trie *trie = (Trie *)TrieType_GenericLoad(io, 1, false, Trie_Sort_Lex);  // loadPayloads = 1
+        ASSERT_TRUE(trie != nullptr) << "Failed to load trie with normal payload";
+        EXPECT_EQ(1, Trie_Size(trie));
+        TrieType_Free(trie);
+    }
+
+    // Test 2: Large but valid payload (1MB) - should succeed
+    RMCK_ResetRdbIO(io);
+    {
+        const size_t large_size = 1024 * 1024;  // 1MB
+        std::vector<char> large_payload(large_size, 'A');
+        large_payload[large_size - 1] = '\0';
+
+        // Save a trie entry with large payload
+        RMCK_SaveUnsigned(io, 1);  // 1 element
+        RMCK_SaveStringBuffer(io, "large", 6);  // key with null terminator
+        RMCK_SaveDouble(io, 1.0);  // score
+        RMCK_SaveStringBuffer(io, large_payload.data(), large_size);  // payload with null terminator
+
+        io->read_pos = 0;
+        Trie *trie = (Trie *)TrieType_GenericLoad(io, 1, false, Trie_Sort_Lex);  // loadPayloads = 1
+        ASSERT_TRUE(trie != nullptr) << "Failed to load trie with 1MB payload";
+        EXPECT_EQ(1, Trie_Size(trie));
+        TrieType_Free(trie);
+    }
+
+    // Test 3: Maximum valid uint32_t payload length - should handle gracefully
+    // Note: We can't actually allocate UINT32_MAX bytes in a test, but we can
+    // verify the RDB load handles the size correctly
+    RMCK_ResetRdbIO(io);
+    {
+        // Create a malicious RDB with a payload length that would cause overflow
+        // if not properly checked: UINT32_MAX
+        RMCK_SaveUnsigned(io, 1);  // 1 element
+        RMCK_SaveStringBuffer(io, "overflow", 9);  // key with null terminator
+        RMCK_SaveDouble(io, 1.0);  // score
+
+        // Save a payload length of UINT32_MAX (this would overflow when adding 1)
+        RMCK_SaveUnsigned(io, UINT32_MAX);
+
+        io->read_pos = 0;
+        Trie *trie = (Trie *)TrieType_GenericLoad(io, 1, false, Trie_Sort_Lex);  // loadPayloads = 1
+
+        // The load should fail gracefully (return NULL) rather than crash
+        // due to integer overflow in the allocation
+        EXPECT_TRUE(trie == nullptr) << "Expected RDB load to fail with UINT32_MAX payload length";
+    }
+}
+
+TEST_F(RdbMockTest, testTriePayloadOverflowDirectInsert) {
+    // Test that Trie_InsertRune correctly detects payload overflow
+    // when payload length would cause uint32_t overflow in allocation.
+    //
+    // LIMITATION: This overflow check is impractical to trigger via FT.SUGADD
+    // command:
+    // - Redis defaults to 512MB max string size (proto-max-bulk-len), though
+    //   it is configurable
+    // - The overflow requires payload size > ~4GB (UINT32_MAX - sizeof(TriePayload) - 1)
+    // - Even if proto-max-bulk-len is increased, allocating ~4GB for a single
+    //   suggestion payload would likely fail due to memory constraints before
+    //   reaching the overflow check
+    //
+    // The overflow check exists to protect against:
+    // 1. Malicious/corrupted RDB files with crafted payload lengths
+    // 2. Internal API misuse where payload.len could be set to an invalid value
+    //
+    // This test exercises the overflow check directly via
+    // Trie_InsertStringBuffer with artificially large payload.len values
+    // (without actually allocating memory).
+
+    // Create a trie
+    Trie *trie = NewTrie(NULL, Trie_Sort_Score);
+    ASSERT_TRUE(trie != nullptr);
+    std::unique_ptr<Trie, std::function<void(Trie *)>> triePtr(trie, [](Trie *t) {
+        TrieType_Free(t);
+    });
+
+    // Test 1: Normal payload insertion should succeed
+    {
+        const char *key = "normal_key";
+        const char *payload_data = "normal_payload";
+        RSPayload payload = {
+            .data = const_cast<char*>(payload_data),
+            .len = strlen(payload_data)
+        };
+
+        int rc = Trie_InsertStringBuffer(trie, key, strlen(key), 1.0, 0, &payload, 0);
+        EXPECT_EQ(TRIE_OK_NEW, rc) << "Normal payload insertion should succeed";
+        EXPECT_EQ(1, Trie_Size(trie));
+    }
+
+    // Test 2: Payload with length that would overflow uint32_t should fail
+    // The overflow check is: sizeof(TriePayload) + 1 + plen > UINT32_MAX
+    // sizeof(TriePayload) is 4 (for the uint32_t len field)
+    // So overflow occurs when plen > UINT32_MAX - 5
+    {
+        const char *key = "overflow_key";
+        char dummy_data = 'X';  // Non-NULL pointer to trigger the overflow check
+        RSPayload payload = {
+            .data = &dummy_data,
+            // This will overflow: 4 + 1 + (UINT32_MAX - 4) > UINT32_MAX
+            .len = static_cast<size_t>(UINT32_MAX) - 4
+        };
+
+        int rc = Trie_InsertStringBuffer(trie, key, strlen(key), 1.0, 0, &payload, 0);
+        EXPECT_EQ(TRIE_ERR_PAYLOAD_OVERFLOW, rc) << "Payload overflow should be detected";
+        EXPECT_EQ(1, Trie_Size(trie)) << "Trie size should not change on failed insert";
+    }
+
+    // Test 3: Payload with SIZE_MAX length should also fail (extreme case)
+    {
+        const char *key = "extreme_key";
+        char dummy_data = 'Y';
+        RSPayload payload = {
+            .data = &dummy_data,
+            .len = SIZE_MAX
+        };
+
+        int rc = Trie_InsertStringBuffer(trie, key, strlen(key), 1.0, 0, &payload, 0);
+        EXPECT_EQ(TRIE_ERR_PAYLOAD_OVERFLOW, rc) << "SIZE_MAX payload should trigger overflow";
+        EXPECT_EQ(1, Trie_Size(trie)) << "Trie size should not change on failed insert";
+    }
+
+}
+
+TEST_F(RdbMockTest, testSchemaPrefixesRdbLoadExceedsLimit) {
+    // Test that loading schema rules with more prefixes than
+    // MAX_SCHEMA_PREFIXES fails.
+    // This exercises the RDB load path in SchemaRule_RdbLoad (src/rules.c).
+
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+        RMCK_FreeRdbIO(io);
+    });
+    ASSERT_TRUE(io != nullptr);
+
+    // Craft RDB data with prefixes exceeding MAX_SCHEMA_PREFIXES (1024)
+    // RDB format for SchemaRule:
+    //   1. type string (e.g., "HASH")
+    //   2. number of prefixes (uint64)
+    //   3. prefix strings...
+
+    // Write type string
+    const char *type = "HASH";
+    RMCK_SaveStringBuffer(io, type, strlen(type) + 1);
+
+    // Write number of prefixes exceeding the limit
+    uint64_t nprefixes = MAX_SCHEMA_PREFIXES + 1;
+    RMCK_SaveUnsigned(io, nprefixes);
+
+    // Write some dummy prefix data to prove failure is from limit check, not EOF
+    const char *prefix = "prefix:";
+    RMCK_SaveStringBuffer(io, prefix, strlen(prefix) + 1);
+
+    // Reset read position
+    io->read_pos = 0;
+
+    // Create QueryError to capture the error message
+    QueryError status = QueryError_Default();
+
+    // Try to load - should fail due to exceeding MAX_SCHEMA_PREFIXES
+    // We pass an invalid StrongRef since we expect failure before it's used
+    StrongRef dummy_ref = INVALID_STRONG_REF;
+    int rc = SchemaRule_RdbLoad(dummy_ref, io, INDEX_CURRENT_VERSION, &status);
+
+    EXPECT_EQ(REDISMODULE_ERR, rc) << "Expected RDB load to fail when prefixes exceed limit";
+    EXPECT_TRUE(QueryError_HasError(&status)) << "Expected QueryError to be set";
+
+    // Verify the error message mentions the limit
+    const char *err_msg = QueryError_GetUserError(&status);
+    EXPECT_TRUE(err_msg != nullptr);
+    if (err_msg) {
+        std::string expected = "RDB Load: Number of prefixes (" +
+            std::to_string(MAX_SCHEMA_PREFIXES + 1) +
+            ") exceeds maximum allowed (" +
+            std::to_string(MAX_SCHEMA_PREFIXES) + ")";
+        EXPECT_TRUE(strstr(err_msg, expected.c_str()) != nullptr)
+            << "Expected: " << expected << ", got: " << err_msg;
+    }
+
+    QueryError_ClearError(&status);
+}
+
+TEST_F(RdbMockTest, testStopWordListRdbLoadExceedsLimit) {
+    // Test that loading a stopword list with more elements than
+    // MAX_STOPWORDLIST_SIZE fails.
+    // This exercises the RDB load path in StopWordList_RdbLoad (src/stopwords.c).
+
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+        RMCK_FreeRdbIO(io);
+    });
+    ASSERT_TRUE(io != nullptr);
+
+    // Craft RDB data with elements exceeding MAX_STOPWORDLIST_SIZE
+    // RDB format for StopWordList:
+    //   1. number of elements (uint64)
+    //   2. element strings...
+
+    // Write number of elements exceeding the limit
+    uint64_t num_elements = MAX_STOPWORDLIST_SIZE + 1;
+    RMCK_SaveUnsigned(io, num_elements);
+
+    // Write some dummy stopword data to prove failure is from limit check, not EOF
+    const char *stopword = "the";
+    RMCK_SaveStringBuffer(io, stopword, strlen(stopword));
+
+    // Reset read position
+    io->read_pos = 0;
+
+    // Capture stderr to verify the error message
+    testing::internal::CaptureStderr();
+
+    // Try to load - should fail due to exceeding MAX_STOPWORDLIST_SIZE
+    StopWordList *loadedList = StopWordList_RdbLoad(io, INDEX_CURRENT_VERSION);
+    EXPECT_TRUE(loadedList == nullptr) << "Expected RDB load to fail when stopwords exceed limit";
+
+    // Verify the error message was logged to stderr
+    std::string stderr_output = testing::internal::GetCapturedStderr();
+    std::string expected = "RDB Load: Stopword list size (" +
+        std::to_string(num_elements) +
+        ") exceeds maximum allowed (" +
+        std::to_string(MAX_STOPWORDLIST_SIZE) + ")";
+    EXPECT_TRUE(stderr_output.find(expected) != std::string::npos)
+        << "Expected: " << expected << ", got: " << stderr_output;
+}
+
+
+TEST_F(RdbMockTest, testDocTableLegacyRdbLoadOverflow) {
+    // Test that DocTable_LegacyRdbLoad correctly handles allocation overflow
+    // when maxDocId > maxSize and the allocation would overflow.
+    //
+    // The overflow check is: t->cap * sizeof(DMDChain) > SIZE_MAX
+    // We craft RDB data with a maxSize that would cause this overflow.
+
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+        RMCK_FreeRdbIO(io);
+    });
+    ASSERT_TRUE(io != nullptr);
+
+    // Create a DocTable with initial small capacity
+    // Use NewDocTable directly to avoid RSGlobalConfig dependency
+    DocTable t = NewDocTable(16, 1000000);
+    std::unique_ptr<DocTable, std::function<void(DocTable *)>> tablePtr(&t, [](DocTable *t) {
+        DocTable_Free(t);
+    });
+
+    // Craft RDB data that will trigger the overflow check:
+    // - size: 2 (at least 1 document to load)
+    // - maxDocId: SIZE_MAX (very large, will be > maxSize)
+    // - maxSize: (SIZE_MAX / sizeof(DMDChain)) + 1 (will cause overflow in allocation)
+    //
+    // RDB format for legacy DocTable (encver >= INDEX_MIN_COMPACTED_DOCTABLE_VERSION):
+    //   1. size (uint64)
+    //   2. maxDocId (uint64)
+    //   3. maxSize (uint64)
+    //   4. document entries...
+
+    uint64_t size = 2;
+    uint64_t maxDocId = SIZE_MAX;
+    // Calculate a maxSize that will cause overflow: cap * sizeof(DMDChain) > SIZE_MAX
+    // sizeof(DMDChain) is typically 8 bytes (pointer to DLLIST2)
+    uint64_t maxSize = (SIZE_MAX / sizeof(DMDChain)) + 1;
+
+    RMCK_SaveUnsigned(io, size);
+    RMCK_SaveUnsigned(io, maxDocId);
+    RMCK_SaveUnsigned(io, maxSize);
+
+    // Write some dummy document data (won't be reached due to early return)
+    const char *docKey = "doc:1";
+    RMCK_SaveStringBuffer(io, docKey, strlen(docKey));
+
+    // Reset read position
+    io->read_pos = 0;
+
+    // Capture stderr to verify the error message
+    testing::internal::CaptureStderr();
+
+    // Try to load - should fail due to allocation overflow
+    int rc = DocTable_LegacyRdbLoad(&t, io, INDEX_MIN_COMPACTED_DOCTABLE_VERSION);
+    EXPECT_EQ(REDISMODULE_ERR, rc) << "Expected DocTable_LegacyRdbLoad to fail on allocation overflow";
+
+    // Verify the error message was logged
+    std::string stderr_output = testing::internal::GetCapturedStderr();
+    EXPECT_TRUE(stderr_output.find("DocTable_LegacyRdbLoad: allocation overflow") != std::string::npos)
+        << "Expected overflow error message, got: " << stderr_output;
+
+    // Verify the DocTable is in a safe state after failure
+    // buckets should be NULL and cap should be 0
+    EXPECT_TRUE(t.buckets == nullptr) << "buckets should be NULL after overflow error";
+    EXPECT_EQ(0, t.cap) << "cap should be 0 after overflow error";
+}
+
+// Returns the index of the (single) vector field in `spec`, or -1 if not found.
+static int findVectorField(const IndexSpec *spec) {
+    for (int i = 0; i < spec->numFields; i++) {
+        if (FIELD_IS(&spec->fields[i], INDEXFLD_T_VECTOR)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// Round-trip an HNSW field's diskCtx.rerank through IndexSpec_RdbSave +
+// IndexSpec_RdbLoad and check both possible values survive. Flow tests can't
+// reach this path because diskCtx.indexName is only set when isFlex==true
+// (Enterprise-only), so this is the only place we exercise the new
+// INDEX_VECTOR_RERANK_VERSION byte end-to-end in OSS CI.
+TEST_F(RdbMockTest, testHnswRerankRdbRoundtrip) {
+    const char *args[] = {
+        "SCHEMA", "v", "VECTOR", "HNSW", "6",
+        "TYPE", "FLOAT32", "DIM", "2", "DISTANCE_METRIC", "L2",
+    };
+    for (bool initialRerank : {true, false}) {
+        QueryError err = QueryError_Default();
+        StrongRef original_ref = IndexSpec_ParseC(
+            NULL, "rerank_idx", args, sizeof(args) / sizeof(const char *), &err);
+        ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+        IndexSpec *spec = (IndexSpec *)StrongRef_Get(original_ref);
+        ASSERT_TRUE(spec != nullptr);
+        std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> specPtr(
+            spec, [](IndexSpec *s) { StrongRef_Release(s->own_ref); });
+
+        // FT.CREATE only stores rerank into diskCtx when sp->diskSpec is set
+        // (i.e. isFlex). isFlex is false here, so set the field directly so
+        // RdbSave has a known value to persist.
+        int vfIdx = findVectorField(spec);
+        ASSERT_GE(vfIdx, 0) << "vector field not found in parsed spec";
+        spec->fields[vfIdx].vectorOpts.diskCtx.rerank = initialRerank;
+
+        RedisModuleIO *io = RMCK_CreateRdbIO();
+        std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(
+            io, [](RedisModuleIO *x) { RMCK_FreeRdbIO(x); });
+        ASSERT_TRUE(io != nullptr);
+
+        IndexSpec_RdbSave(io, spec, 0);
+        EXPECT_EQ(0, RMCK_IsIOError(io));
+
+        io->read_pos = 0;
+        QueryError status = QueryError_Default();
+        IndexSpec *loaded = IndexSpec_RdbLoad(io, INDEX_CURRENT_VERSION, false, &status);
+        ASSERT_TRUE(loaded != nullptr)
+            << "load failed for rerank=" << initialRerank
+            << ": " << QueryError_GetUserError(&status);
+        std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> loadedPtr(
+            loaded, [](IndexSpec *s) { StrongRef_Release(s->own_ref); });
+        EXPECT_FALSE(QueryError_HasError(&status)) << QueryError_GetUserError(&status);
+        EXPECT_EQ(0, RMCK_IsIOError(io));
+
+        int loadedVfIdx = findVectorField(loaded);
+        ASSERT_GE(loadedVfIdx, 0) << "vector field not found in loaded spec";
+        EXPECT_EQ(initialRerank, loaded->fields[loadedVfIdx].vectorOpts.diskCtx.rerank)
+            << "rerank did not round-trip (expected " << initialRerank << ")";
+    }
+}
+
+// Legacy pre-2.0 module types (ft_invidx / numericdx / ft_tagidx) exist only so an old RDB can be read
+// and discarded during an upgrade. Their loaders return the `dummyNonNull` sentinel rather than NULL,
+// so a key can outlive the upgrade sweep holding nothing but that sentinel.
+//
+// Such a key is written with no payload at all, stamped LEGACY_EMPTY_ENC_VER so the loader knows not to
+// read one. Writing nothing under the *old* version is what corrupted the RDB: the loader then consumed
+// Redis's module EOF marker as its first field. See MOD-15685.
+extern "C" {
+extern void *dummyNonNull;
+void GenericType_DummyRdbSave(RedisModuleIO *rdb, void *value);
+void *InvertedIndex_RdbLoad_Consume(RedisModuleIO *rdb, int encver);
+void *NumericIndexType_RdbLoad_Consume(RedisModuleIO *rdb, int encver);
+void *TagIndex_RdbLoad_Consume(RedisModuleIO *rdb, int encver);
+}
+
+namespace {
+// Mirrors the constants in src/legacy_types.c, which are private to that translation unit.
+constexpr int kLegacyEncVer = 1;
+constexpr int kLegacyLegacyEncVer = 0;
+constexpr int kLegacyEmptyEncVer = 2;
+}  // namespace
+
+TEST_F(RdbMockTest, testLegacyEmptySaveConsumesNothingOnLoad) {
+  void *(*loaders[])(RedisModuleIO *, int) = {
+      InvertedIndex_RdbLoad_Consume, NumericIndexType_RdbLoad_Consume, TagIndex_RdbLoad_Consume};
+
+  for (auto *load : loaders) {
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    ASSERT_TRUE(io != nullptr);
+
+    GenericType_DummyRdbSave(io, dummyNonNull);
+    // Nothing is written, which is the point: Redis appends its EOF marker straight after the header.
+    EXPECT_EQ(0u, io->buffer.size());
+
+    io->read_pos = 0;
+    EXPECT_EQ(dummyNonNull, load(io, kLegacyEmptyEncVer));
+    // The loader must not have advanced, or it would eat the marker Redis expects to read next.
+    EXPECT_EQ(0u, io->read_pos);
+    EXPECT_EQ(0, RMCK_IsIOError(io));
+
+    RMCK_FreeRdbIO(io);
+  }
+}
+
+// A genuine pre-2.0 payload must still be consumed in full, so upgrading from a real 1.x RDB keeps
+// working. Bumping the registered version must not change how older records are read.
+TEST_F(RdbMockTest, testLegacyRealPayloadStillConsumed) {
+  {  // inverted index: flags, lastId, numDocs, then zero blocks
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    ASSERT_TRUE(io != nullptr);
+    for (int i = 0; i < 4; i++) RMCK_SaveUnsigned(io, 0);
+    io->read_pos = 0;
+    EXPECT_EQ(dummyNonNull, InvertedIndex_RdbLoad_Consume(io, kLegacyEncVer));
+    EXPECT_EQ(io->buffer.size(), io->read_pos);
+    EXPECT_EQ(0, RMCK_IsIOError(io));
+    RMCK_FreeRdbIO(io);
+  }
+  {  // numeric v1: a lone terminator
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    ASSERT_TRUE(io != nullptr);
+    RMCK_SaveUnsigned(io, 0);
+    io->read_pos = 0;
+    EXPECT_EQ(dummyNonNull, NumericIndexType_RdbLoad_Consume(io, kLegacyEncVer));
+    EXPECT_EQ(io->buffer.size(), io->read_pos);
+    RMCK_FreeRdbIO(io);
+  }
+  {  // numeric v0: a zero entry count
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    ASSERT_TRUE(io != nullptr);
+    RMCK_SaveUnsigned(io, 0);
+    io->read_pos = 0;
+    EXPECT_EQ(dummyNonNull, NumericIndexType_RdbLoad_Consume(io, kLegacyLegacyEncVer));
+    EXPECT_EQ(io->buffer.size(), io->read_pos);
+    RMCK_FreeRdbIO(io);
+  }
+  {  // tag index: zero tags
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    ASSERT_TRUE(io != nullptr);
+    RMCK_SaveUnsigned(io, 0);
+    io->read_pos = 0;
+    EXPECT_EQ(dummyNonNull, TagIndex_RdbLoad_Consume(io, kLegacyEncVer));
+    EXPECT_EQ(io->buffer.size(), io->read_pos);
+    RMCK_FreeRdbIO(io);
+  }
 }

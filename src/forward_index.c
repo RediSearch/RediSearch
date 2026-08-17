@@ -7,12 +7,19 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "forward_index.h"
-#include "tokenize.h"
-#include "util/fnv.h"
-#include "util/logging.h"
+
 #include <stdio.h>
 #include <sys/param.h>
+#include <string.h>
+
+#include "inverted_index_ffi.h"
+#include "tokenize.h"
+#include "fnv_ffi.h"
 #include "rmalloc.h"
+#include "metrics_ffi.h"
+#include "index_result_rs.h"
+#include "spec.h"
+#include "util/arr/arr.h"
 
 typedef struct {
   KHTableEntry khBase;
@@ -195,6 +202,7 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
 
     h->len = tokLen;
     h->freq = 0;
+    h->staged = false;
 
     if (hasOffsets(idx)) {
       h->vw = mempool_get(idx->vvwPool);
@@ -280,16 +288,26 @@ int forwardIndexTokenFunc(ForwardIndexTokenizerCtx *tokCtx, const Token *tokInfo
   return 0;
 }
 
-/** Write a forward-index entry to the index */
-size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, ForwardIndexEntry *ent) {
+/** Write a forward-index entry to the index. Returns an `AddRecordOutcome` carrying the memory
+ * growth and the number of new blocks the write created — callers maintaining per-spec
+ * `total_inverted_index_blocks` should add `.blocks_added` to their counter.
+ */
+AddRecordOutcome InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, ForwardIndexEntry *ent,
+                                                      bool hasFieldExpiration) {
   RSIndexResult rec = {.data.term_tag = RSResultData_Term,
                        .data.term.borrowed.tag = RSTermRecord_Borrowed,
                        .docId = ent->docId,
                        .freq = ent->freq,
-                       .fieldMask = ent->fieldMask};
+                       .fieldMask = ent->fieldMask,
+                       .hasFieldExpiration = hasFieldExpiration,
+                       .metrics = MetricsVec_New()};
 
   if (ent->vw) {
-    rec.data.term.borrowed.offsets.data = VVW_GetByteData(ent->vw);
+    // VVW_GetByteData returns `const uint8_t *`; the Rust side stores
+    // it as a `NonNull<u8>` (cheadergen emits the field as `uint8_t *`).
+    // We never write through this pointer; the cast is purely a typing
+    // adjustment to satisfy the strict C compiler.
+    rec.data.term.borrowed.offsets.data = (uint8_t *)VVW_GetByteData(ent->vw);
     rec.data.term.borrowed.offsets.len = VVW_GetByteLength(ent->vw);
   }
   return InvertedIndex_WriteEntryGeneric(idx, &rec);

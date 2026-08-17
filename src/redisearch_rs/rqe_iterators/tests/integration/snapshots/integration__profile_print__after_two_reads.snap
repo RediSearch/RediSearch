@@ -1,0 +1,5 @@
+---
+source: rqe_iterators/tests/integration/profile_print.rs
+expression: reply
+---
+{"Type": "EMPTY", "Number of reading operations": 1}

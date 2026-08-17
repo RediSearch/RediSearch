@@ -65,8 +65,27 @@ int _testRemoveEscape(char *str, char *strAfter, int lenAfter) {
   return 0;
 }
 
+// The empty pattern in a buffer sized like a resolved query parameter —
+// rm_calloc(1, len + 1), one byte — so a write past it is outside the
+// allocation and visible to AddressSanitizer, unlike the stack-buffer case in
+// test_removeEscape, which only pins the returned length.
+int test_removeEscapeEmpty() {
+  char *pattern = rm_calloc(1, 1);
+  ASSERT(pattern != NULL);
+
+  ASSERT_EQUAL(0, Wildcard_RemoveEscape(pattern, 0));
+  ASSERT_EQUAL('\0', pattern[0]);
+
+  rm_free(pattern);
+  return 0;
+}
+
 int test_removeEscape() {
   char buf[16];
+
+  // empty pattern is returned unchanged
+  memcpy(buf, "", 1);
+  _testRemoveEscape(buf, "", 0);
 
   memcpy(buf, "foo", 4);
   _testRemoveEscape(buf, "foo", 3);
@@ -221,6 +240,7 @@ TEST_MAIN({
   RMUTil_InitAlloc();
   TESTFUNC(test_StarBreak);
   TESTFUNC(test_removeEscape);
+  TESTFUNC(test_removeEscapeEmpty);
   TESTFUNC(test_trimPattern);
   TESTFUNC(test_match); 
 });

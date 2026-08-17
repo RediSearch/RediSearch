@@ -21,7 +21,8 @@ from common import (
     SkipTest,
     call_and_store,
     getWorkersThpoolStats,
-    create_np_array_typed
+    wait_for_condition,
+    skipIfNoEnableAssert,
 )
 
 VECSIM_SVS_DATA_TYPES = ['FLOAT32', 'FLOAT16']
@@ -58,45 +59,33 @@ def test_small_window_size():
     conn = getConnectionByEnv(env)
 
     dim = 2
-    # The vectors will be moved from the flat buffer to svs after 1024 * 10 vectors.
-    svs_transfer_th = 1024 * 10
+    # The threshold is per shard in cluster mode, so add a small margin for
+    # non-compressed SVS to train on every shard.
+    no_compression_training_th = int(DEFAULT_BLOCK_SIZE * 1.1 * env.shardsCount)
+    compression_training_th = DEFAULT_BLOCK_SIZE * 10
     keep_count = 10
-    num_vectors = svs_transfer_th
     field_name = 'v_SVS_VAMANA'
     for data_type in VECSIM_SVS_DATA_TYPES:
         query_vec = create_random_np_array_typed(dim, data_type)
         for compression in [[], ["COMPRESSION", "LVQ8"]]:
+            num_vectors = compression_training_th if compression else no_compression_training_th
             params = ['TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2', "CONSTRUCTION_WINDOW_SIZE", 10, *compression]
             conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', field_name, 'VECTOR', 'SVS-VAMANA', len(params), *params)
 
             # Add enough vector to trigger transfer to svs
-            vectors = []
             for i in range(num_vectors):
                 vector = create_random_np_array_typed(dim, data_type)
-                vectors.append(vector)
                 conn.execute_command('HSET', f'doc_{i}', field_name, vector.tobytes())
 
-            # Create unique filename for this iteration
-            compression_str = "no_compression" if not compression else "_".join(compression)
-            filename = f"vectors_{data_type}_{compression_str}.txt"
-            with open(filename, 'w') as f:
-                f.write(f"Data Type: {data_type}, Compression: {compression}, Dim: {dim}, Count: {num_vectors}\n")
-                f.write(str([vector.tolist() for vector in vectors]))
-            # try:
-            #     conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN {keep_count} @{field_name} $vec_param]', 'PARAMS', 2, 'vec_param', query_vec.tobytes(), 'RETURN', 1, f'__{field_name}_score')
-            # except Exception as e:
-            #     env.assertTrue(False, message=f"compression: {compression} data_type: {data_type}. Search failed with exception: {e}")
             # delete most
             for i in range(num_vectors - keep_count):
                 conn.execute_command('DEL', f'doc_{i}')
 
             # run topk for remaining
             # Before fixing MOD-10771, search crashed
-            try:
-                conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN {keep_count} @{field_name} $vec_param]', 'PARAMS', 2, 'vec_param', query_vec.tobytes(), 'RETURN', 1, f'__{field_name}_score')
-            except Exception as e:
-                env.assertTrue(False, message=f"compression: {compression} data_type: {data_type}. Search failed with exception: {e}")
-                return
+            env.expect('FT.SEARCH', 'idx', f'*=>[KNN {keep_count} @{field_name} $vec_param]',
+                       'PARAMS', 2, 'vec_param', query_vec.tobytes(), 'RETURN', 1,
+                       f'__{field_name}_score').noError()
             conn.execute_command('FLUSHALL')
 
 def test_rdb_load_trained_svs_vamana():
@@ -270,6 +259,138 @@ def test_memory_info():
 
         env.execute_command('FLUSHALL')
 
+@skip(cluster=True)
+def test_svs_threadpool_lazy_init():
+    """Verify the shared SVS thread pool is not allocated until an SVS index is created.
+
+    With lazy init (VectorSimilarity #971), VecSim_UpdateThreadPoolSize (called at
+    module init via workersThreadPool_CreatePool, and on every CONFIG SET WORKERS)
+    only records the requested size — OS worker threads are spawned on the first
+    SVS index attach.
+
+    Observed via the top-level SHARED_MEMORY field in FT.DEBUG VECSIM_INFO, which
+    mirrors VecSim_GetSharedMemory(). That value is sourced exclusively from the
+    shared SVS thread pool and (VectorSimilarity #979) reports 0 until the first SVS
+    index attaches — so a server with no SVS index reports exactly 0.
+    """
+    workers = 4
+    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {workers}')
+
+    # A non-SVS (HNSW) index exercises FT.DEBUG VECSIM_INFO without involving SVS
+    # at all. No SVS index has attached, so the shared pool reports no memory:
+    # VecSim_GetSharedMemory() is gated on the pool's has_attached_index_ flag and
+    # returns exactly 0 until the first SVS index attaches (VectorSimilarity #979),
+    # even though VecSim_UpdateThreadPoolSize already recorded the requested size at
+    # module init.
+    create_vector_index(env, dim=4, alg='HNSW')
+    hnsw_info = get_tiered_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+    env.assertTrue('SHARED_MEMORY' in hnsw_info,
+                   message=f"SHARED_MEMORY field must be present in VECSIM_INFO: {hnsw_info}")
+    hnsw_baseline = int(hnsw_info['SHARED_MEMORY'])
+    env.assertEqual(hnsw_baseline, 0,
+                    message=f"SHARED_MEMORY must be 0 before any SVS index attaches — "
+                            f"nonzero suggests SVS thread slots were allocated despite "
+                            f"no SVS index: got {hnsw_baseline}, info={hnsw_info}")
+    env.execute_command('FT.DROPINDEX', DEFAULT_INDEX_NAME)
+
+    # Creating the first SVS index triggers the lazy thread spawn at the size most
+    # recently recorded by VecSim_UpdateThreadPoolSize, growing SHARED_MEMORY by
+    # the per-slot allocation tracked by the pool (workers - 1 ThreadSlots plus
+    # the slots_ vector capacity).
+    create_vector_index(env, dim=4, alg='SVS-VAMANA')
+    svs_info = get_tiered_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+    env.assertTrue('SHARED_MEMORY' in svs_info,
+                   message=f"SHARED_MEMORY field must be present in VECSIM_INFO: {svs_info}")
+    svs_pool_mem = int(svs_info['SHARED_MEMORY'])
+    env.assertGreater(svs_pool_mem, hnsw_baseline,
+                      message=f"SHARED_MEMORY should grow above the pre-attach baseline "
+                              f"({hnsw_baseline}) after first SVS index creation with "
+                              f"WORKERS={workers}: got {svs_pool_mem}, info={svs_info}")
+
+
+@skip(cluster=True)
+def test_svs_shared_threadpool_memory_info():
+    """Verify shared SVS thread pool memory accounting:
+      * FT.DEBUG VECSIM_INFO exposes it as the top-level SHARED_MEMORY field
+        (appended once by the VecSim C API wrapper, not inside the nested
+        FRONTEND_INDEX/BACKEND_INDEX sections).
+      * FT.INFO vector_index_sz_mb folds it in once per call (per-spec scope).
+      * INFO MODULES search_used_memory_vector_index folds it in once per call
+        (process-wide scope).
+      * For a single SVS index, both FT.INFO and INFO MODULES report the same
+        bytes — vector field memory + pool memory.
+      * Pool memory is added once per call regardless of the number of vector
+        fields in the spec or specs in the process — no double-counting.
+
+    All observations are validated before and after growing the worker pool, which
+    physically resizes the shared SVS pool.
+    """
+    # Use 2+ initial workers so the first SVS index allocates at least one worker
+    # slot (with lazy init, pool size 1 = zero worker slots = zero pool-tracked
+    # bytes, which would make the 'pool memory > 0' assertion below vacuous).
+    initial_workers = 2
+    grown_workers = 4
+    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {initial_workers}')
+    dim = 2
+    shared_mem_field = 'SHARED_MEMORY'
+
+    # The shared SVS pool spawns OS threads lazily on the first SVS index creation
+    # (VectorSimilarity #971), using the size most recently passed to
+    # VecSim_UpdateThreadPoolSize (set at module init by
+    # workersThreadPool_CreatePool), so the field is present in the debug info
+    # once any SVS index exists.
+    create_vector_index(env, dim, alg='SVS-VAMANA')
+
+    def measure():
+        # SHARED_MEMORY is appended once at the top level by the VecSim C API
+        # wrapper, not inside the nested BACKEND_INDEX/FRONTEND_INDEX sections.
+        debug_info = get_tiered_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+        env.assertTrue(shared_mem_field in debug_info,
+                       message=f"VECSIM_INFO missing top-level '{shared_mem_field}': {debug_info}")
+        info_modules = env.cmd('INFO', 'MODULES')
+        return {
+            'debug_svs_pool_mem': int(debug_info[shared_mem_field]),
+            'debug_per_index_mem': int(debug_info['MEMORY']),
+            'info_modules_vec_mem': int(info_modules['search_used_memory_vector_index']),
+            'ft_info_vec_bytes': int(float(index_info(env, DEFAULT_INDEX_NAME)['vector_index_sz_mb']) * 0x100000),
+        }
+
+    def assert_invariants(label, m):
+        # FT.INFO and INFO MODULES report the same total for a single SVS field:
+        # per-index memory + pool memory, both folded once.
+        expected = m['debug_per_index_mem'] + m['debug_svs_pool_mem']
+        env.assertEqual(m['ft_info_vec_bytes'], expected,
+                        message=f"[{label}] FT.INFO vector_index_sz_mb should equal per-index + pool: {m}")
+        env.assertEqual(m['info_modules_vec_mem'], expected,
+                        message=f"[{label}] INFO MODULES search_used_memory_vector_index should equal per-index + pool: {m}")
+        env.assertEqual(m['ft_info_vec_bytes'], m['info_modules_vec_mem'],
+                        message=f"[{label}] FT.INFO vector_index_sz_mb should match INFO MODULES "
+                                f"search_used_memory_vector_index: {m}")
+
+    # ---- Initial state ----
+    before = measure()
+    env.assertGreater(before['debug_svs_pool_mem'], 0, message="shared pool memory should be > 0 after pool initialization")
+    assert_invariants('before resize', before)
+
+    # ---- Grow the worker pool ----
+    # CONFIG SET WORKERS triggers VecSim_UpdateThreadPoolSize, which physically
+    # resizes the shared SVS pool (synchronous when no jobs are pending).
+    env.execute_command(config_cmd(), 'SET', 'WORKERS', grown_workers)
+
+    after = measure()
+    env.assertGreater(after['debug_svs_pool_mem'], before['debug_svs_pool_mem'],
+                      message=f"SHARED_MEMORY should grow when workers go from "
+                              f"{initial_workers} to {grown_workers}: before={before}, after={after}")
+    assert_invariants('after resize', after)
+
+    # Both FT.INFO and INFO MODULES vector memory grow by exactly the pool growth
+    # (per-index memory is unchanged by the pool resize).
+    pool_growth = after['debug_svs_pool_mem'] - before['debug_svs_pool_mem']
+    env.assertEqual(after['ft_info_vec_bytes'] - before['ft_info_vec_bytes'], pool_growth,
+                    message=f"FT.INFO vector_index_sz_mb growth should match pool growth: before={before}, after={after}")
+    env.assertEqual(after['info_modules_vec_mem'] - before['info_modules_vec_mem'], pool_growth,
+                    message=f"INFO MODULES search_used_memory_vector_index growth should match pool growth: before={before}, after={after}")
+
 
 func_gen = lambda tn, comp, dt, dist, wr: lambda: queries_sanity(tn, comp, dt, dist, wr)
 for workers in [0, 4]:
@@ -278,11 +399,21 @@ for workers in [0, 4]:
     # for non intel machines, we only test NO_COMPRESSION and any compression type (will result in GlobalSQ8)
     compression_types = SVS_COMPRESSION_TYPES if is_intel_opt_enabled() and EXTENDED_PYTESTS else ['NO_COMPRESSION', 'LVQ8']
     for compression_type in compression_types:
+        # Full-precision synchronous (WORKERS 0) Vamana construction over this test's large
+        # windows overruns the per-test timeout under coverage instrumentation (MOD-12324).
+        # The async and compressed variants stay in budget; the full matrix still runs standalone.
+        if CODE_COVERAGE and workers == 0 and compression_type == 'NO_COMPRESSION':
+            continue
         for data_type in VECSIM_SVS_DATA_TYPES:
             metrics = VECSIM_DISTANCE_METRICS if EXTENDED_PYTESTS else ['IP']
             for metric in metrics:
                 test_name = f"test_queries_sanity_{compression_type}_{data_type}_{metric}" + name_suffix
-                globals()[test_name] = func_gen(test_name, compression_type, data_type, metric, workers)
+                test_func = func_gen(test_name, compression_type, data_type, metric, workers)
+                # The broad SVS compression/datatype/metric matrix is covered in standalone.
+                # In cluster mode, the same training work is multiplied across shards and can
+                # exceed the coverage job budget without adding meaningful distributed coverage.
+                test_func = skip(cluster=True)(test_func)
+                globals()[test_name] = test_func
 
 '''
 This test validates SVS-VAMANA tiered indexing across all datatype, metric, and compression combinations.
@@ -422,25 +553,18 @@ def change_threads(initial_workers, final_workers):
     env.execute_command(config_cmd(), 'SET', 'WORKERS', final_workers)
     env.assertEqual(int(env.execute_command(config_cmd(), 'GET', 'WORKERS')[0][1]), final_workers, message=message_prefix)
 
-    # TODO: new num_threads should be `final_workers` once VecSim gets notified of RediSearch thread pool changes
-    # last_reserved_num_threads should remain the same as we didn't do any operation
-    verify_num_threads(initial_workers, prev_last_reserved_num_threads, message=f"{message_prefix}, after changing workers to {final_workers}")
+    # VecSim is notified of worker count changes via VecSim_UpdateThreadPoolSize.
+    # NUM_THREADS (shared pool size) should now reflect the new worker count.
+    # last_reserved_num_threads should remain the same as we didn't do any operation.
+    verify_num_threads(final_workers, prev_last_reserved_num_threads, message=f"{message_prefix}, after changing workers to {final_workers}")
 
     # Add more vectors to trigger background indexing
     populate_with_vectors(env, dim=dim, num_docs=update_threshold, datatype='FLOAT32', initial_doc_id=training_threshold + 1)
     wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME, message=f"{message_prefix}, add more vectors to trigger update")
-    # Since VecSim doesn't get notified when RediSearch worker count changes, when RediSearch worker count changes
-    # svs index continues to request the original number of threads during operations
-    #
-    # The actual thread reservation will be limited by the current RediSearch worker count
-    # - If workers decreased: requested > actual_workers
-    # - If workers increased: requested < actual_workers
-    #
-    # TODO: Expected behavior after VecSim gets worker change notifications:
-    # - num_threads should reflect the current RediSearch worker count
-    # - last_reserved_num_threads should match the actual threads used in operations
-    expected_last_reserved_num_threads = min(final_workers, initial_workers)
-    verify_num_threads(initial_workers, expected_last_reserved_num_threads,
+    # After VecSim gets worker change notifications:
+    # - num_threads reflects the current RediSearch worker count (shared pool size)
+    # - last_reserved_num_threads matches the actual threads used in operations (up to final_workers)
+    verify_num_threads(final_workers, final_workers,
                     message=f"{message_prefix}, after changing workers to {final_workers} and triggering another update job")
 
 def test_change_threads_turn_on():
@@ -633,16 +757,195 @@ def test_gc_no_workers():
                          f' _FREE_RESOURCE_ON_THREAD FALSE')
     gc_test_common(env, num_workers)
 
+@skip(cluster=True)
+def test_resize_workers_during_pending_svs_jobs():
+    """WORKERS shrink while SVS update jobs are queued behind blocked queries.
+
+    Uses SYNC_POINT to block all worker threads on queries, then adds vectors
+    (SVS update jobs queue behind the blocked queries), then shrinks WORKERS
+    (allowed because the queue is RUNNING, not PAUSED). On signal, queries
+    release, workers resume, and the SVS jobs execute with the resized pool.
+
+    Uses BeforeSpecLock (not BeforeFirstRead) so that blocked workers do NOT
+    hold the spec read lock — this allows the main thread to acquire the spec
+    write lock for HSET / indexing without deadlocking.
+    """
+    initial_workers = 4
+    final_workers = 2
+    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {initial_workers}')
+    skipIfNoEnableAssert(env)
+    training_threshold = DEFAULT_BLOCK_SIZE
+    dim = 2
+    sync_point = 'BeforeSpecLock'
+
+    # Train the index and add a text field for query blocking
+    create_vector_index(env, dim, alg='SVS-vamana', additional_schema_args=['t', 'TEXT'])
+
+    populate_with_vectors(env, dim=dim, num_docs=training_threshold, datatype='FLOAT32')
+    # Add a text value so FT.SEARCH t:hello has something to find
+    env.execute_command('HSET', 'doc1', 't', 'hello')
+    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME,
+                                message="training")
+
+    backend_info = get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+    env.assertEqual(backend_info['NUM_THREADS'], initial_workers, message="after training")
+
+    # ARM the sync point — queries will block at BeforeSpecLock (no lock held)
+    env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
+
+    # Fire initial_workers queries from separate connections to block all workers
+    query_threads = []
+    for _ in range(initial_workers):
+        conn = env.getConnection()
+        results, errors = [], []
+        t = threading.Thread(
+            target=lambda c, r, e: r.append(c.execute_command('FT.SEARCH', DEFAULT_INDEX_NAME, '*', 'NOCONTENT', 'LIMIT', '0', '0')),
+            args=(conn, results, errors),
+            daemon=True
+        )
+        query_threads.append(t)
+        t.start()
+
+    # Wait until all workers are blocked at the sync point.
+    # Each blocked query is a job in progress, so numJobsInProgress == initial_workers
+    # means all workers are occupied and stuck.
+    wait_for_condition(
+        lambda: (getWorkersThpoolStats(env)['numJobsInProgress'] == initial_workers, {}),
+        'Timeout waiting for all workers to reach sync point')
+
+    # All workers are now blocked on queries (without holding spec lock).
+    # Add vectors — SVS update jobs are created (beginScheduledJob snapshots
+    # pool=4) and queued behind the blocked queries.
+    populate_with_vectors(env, dim=dim, num_docs=training_threshold,
+                          datatype='FLOAT32', initial_doc_id=training_threshold + 1)
+
+    # Shrink workers. Queue is RUNNING (not PAUSED), so this succeeds.
+    # VecSim_UpdateThreadPoolSize(2) is called — but since SVS scheduled jobs
+    # are pending (beginScheduledJob was called), the SVS pool shrink is DEFERRED
+    # until endScheduledJob fires.
+    env.execute_command(config_cmd(), 'SET', 'WORKERS', final_workers)
+
+    # Release all blocked queries
+    env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
+
+    # Wait for queries to finish
+    for t in query_threads:
+        t.join(timeout=30)
+
+    # Wait for SVS background indexing to complete
+    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME,
+                                message="after resize and signal")
+
+    # Pool size should reflect the new worker count (deferred resize applied)
+    backend_info = get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+    env.assertEqual(backend_info['NUM_THREADS'], final_workers,
+                    message="NUM_THREADS should match final workers")
+
+    # Verify search still works
+    query = create_random_np_array_typed(dim, 'FLOAT32')
+    res = env.execute_command('FT.SEARCH', DEFAULT_INDEX_NAME,
+                              f'*=>[KNN 10 @{DEFAULT_FIELD_NAME} $vec_param]',
+                              'PARAMS', 2, 'vec_param', query.tobytes(), 'NOCONTENT')
+    env.assertEqual(res[0], 10, message="KNN search should return results after resize")
+
+@skip(cluster=True)
+def test_multiple_svs_indexes_share_pool():
+    """Two SVS indexes share the same SVS thread pool. Both see the same
+    pool size and both complete operations after a WORKERS resize."""
+    initial_workers = 4
+    final_workers = 2
+    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {initial_workers}')
+    training_threshold = DEFAULT_BLOCK_SIZE
+    dim = 2
+    idx1, idx2 = 'idx1', 'idx2'
+    field = DEFAULT_FIELD_NAME
+
+    # Create two SVS indexes on the same field (both index the same docs)
+    create_vector_index(env, dim, index_name=idx1, field_name=field, alg='SVS-VAMANA')
+    create_vector_index(env, dim, index_name=idx2, field_name=field, alg='SVS-VAMANA')
+
+    # Populate past training threshold
+    populate_with_vectors(env, training_threshold, dim, field_name=field)
+
+    for idx in [idx1, idx2]:
+        wait_for_background_indexing(env, idx, field, message=f"{idx} training")
+
+    # Both should report initial pool size
+    for idx in [idx1, idx2]:
+        info = get_tiered_backend_debug_info(env, idx, field)
+        env.assertEqual(info['NUM_THREADS'], initial_workers,
+                        message=f"{idx} NUM_THREADS before resize")
+
+    # Resize workers
+    env.execute_command(config_cmd(), 'SET', 'WORKERS', final_workers)
+
+    # Both should immediately see the new pool size
+    for idx in [idx1, idx2]:
+        info = get_tiered_backend_debug_info(env, idx, field)
+        env.assertEqual(info['NUM_THREADS'], final_workers,
+                        message=f"{idx} NUM_THREADS after resize")
+
+    # Trigger update jobs on both indexes
+    populate_with_vectors(env, training_threshold, dim, field_name=field,
+                          initial_doc_id=training_threshold + 1)
+
+    for idx in [idx1, idx2]:
+        wait_for_background_indexing(env, idx, field, message=f"{idx} after resize")
+
+    # Both indexes should still report the resized pool
+    for idx in [idx1, idx2]:
+        info = get_tiered_backend_debug_info(env, idx, field)
+        env.assertEqual(info['NUM_THREADS'], final_workers,
+                        message=f"{idx} NUM_THREADS after update")
+
+    # Verify search works on both
+    query = create_random_np_array_typed(dim, 'FLOAT32')
+    for idx in [idx1, idx2]:
+        res = env.execute_command('FT.SEARCH', idx,
+                                  f'*=>[KNN 10 @{field} $vec_param]',
+                                  'PARAMS', 2, 'vec_param', query.tobytes(), 'NOCONTENT')
+        env.assertEqual(res[0], 10, message=f"{idx} KNN search should return results")
+
+
+def assert_background_indexing_in_progress(env, message=''):
+    """The background training/update job is still running, i.e. operations issued from here
+    on do race with it - which is what the tests below are about."""
+    info = get_tiered_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+    env.assertEqual(info['BACKGROUND_INDEXING'], 1,
+                    message=f"{message}: background indexing is not in progress: {info}")
+
+def assert_nearest_neighbor(env, query_vec, expected_doc, message=''):
+    """The nearest neighbor of `query_vec` is `expected_doc` - used with a doc's own vector,
+    to verify it is still indexed under its own label."""
+    res = env.execute_command('FT.SEARCH', DEFAULT_INDEX_NAME,
+                              f'*=>[KNN 1 @{DEFAULT_FIELD_NAME} $vec]',
+                              'PARAMS', 2, 'vec', query_vec.tobytes(), 'NOCONTENT')
+    env.assertEqual(res, [1, expected_doc],
+                    message=f"{message}: expected {expected_doc} to be the nearest neighbor of its own vector")
+
+def assert_docs_not_returned(env, query_vec, k, absent_docs, message=''):
+    """A KNN query with `query_vec` - the vector of one of the deleted docs, so that a
+    stale index entry would rank first - returns none of `absent_docs`."""
+    res = env.execute_command('FT.SEARCH', DEFAULT_INDEX_NAME,
+                              f'*=>[KNN {k} @{DEFAULT_FIELD_NAME} $vec]',
+                              'PARAMS', 2, 'vec', query_vec.tobytes(), 'NOCONTENT')
+    env.assertEqual(res[0], k, message=message)
+    for doc in absent_docs:
+        env.assertNotContains(doc, res, message=f"{message}: deleted doc {doc} was returned")
+
 
 @skip(cluster=True)
 def test_delete_during_background_indexing():
     """
-    Test deletions during SVS background indexing (VectorSimilarity PR #903).
+    Delete docs while the SVS-VAMANA background training - and later a background update -
+    is running (MOD-13168, VectorSimilarity #903).
 
-    1. Insert vectors to trigger initial background training
-    2. Delete vectors added before training started AND vectors added after
-    3. Add another batch, delete during background update
-    4. Verify deleted docs never appear in query results
+    Each phase deletes docs that were inserted before the background job was triggered (so
+    they are part of the batch being transferred into the backend) as well as docs inserted
+    after it was triggered (so they are still in the flat buffer), and then verifies that
+    the index converged: exactly the live docs are indexed, each of them is still
+    retrievable by its own vector, and no deleted doc is returned.
     """
     env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 2')
     conn = getConnectionByEnv(env)
@@ -650,174 +953,167 @@ def test_delete_during_background_indexing():
     data_type = 'FLOAT32'
     training_threshold = DEFAULT_BLOCK_SIZE
     k = 10
-    query = create_random_np_array_typed(dim, data_type)
-
-    # Track deleted doc IDs for verification
     deleted_docs = set()
 
-    # Phase 1: Insert vectors to trigger initial training
+    def delete_docs(first_doc_id, count):
+        for doc_id in range(first_doc_id, first_doc_id + count):
+            doc = f'{DEFAULT_DOC_NAME_PREFIX}{doc_id}'
+            conn.execute_command('DEL', doc)
+            deleted_docs.add(doc)
+
+    # Compression makes the transfer to the backend start with a training phase, which is
+    # the window this test deletes in.
     compression_params = ['COMPRESSION', 'LeanVec4x8', 'TRAINING_THRESHOLD', training_threshold]
     create_vector_index(env, dim, index_name=DEFAULT_INDEX_NAME, datatype=data_type,
                         alg='SVS-VAMANA', additional_vec_params=compression_params)
-    populate_with_vectors(env, num_docs=training_threshold + 100, dim=dim, datatype=data_type)
 
-    # Add more vectors (these are added after training might have started)
-    populate_with_vectors(env, num_docs=50, dim=dim, datatype=data_type, initial_doc_id=training_threshold + 101)
+    # Phase 1: crossing the training threshold triggers the background training. `doc1` is
+    # deleted below, so keep its vector to probe the index for a stale entry.
+    first_batch = training_threshold + 100
+    deleted_before_training_vec = populate_with_vectors(env, num_docs=first_batch, dim=dim, datatype=data_type)
 
-    # Delete vectors added BEFORE training started (from initial batch)
-    for i in range(10):
-        doc = f'{DEFAULT_DOC_NAME_PREFIX}{i + 1}'
-        conn.execute_command('DEL', doc)
-        deleted_docs.add(doc)
+    # These are inserted while the training is already running, and stay in the flat buffer.
+    deleted_during_training_vec = populate_with_vectors(env, num_docs=10, dim=dim, datatype=data_type,
+                                                        initial_doc_id=first_batch + 1)
+    live_vec = populate_with_vectors(env, num_docs=40, dim=dim, datatype=data_type,
+                                     initial_doc_id=first_batch + 11)
+    live_doc = f'{DEFAULT_DOC_NAME_PREFIX}{first_batch + 11}'
 
-    # Delete vectors added AFTER training started (from second batch)
-    for i in range(10):
-        doc = f'{DEFAULT_DOC_NAME_PREFIX}{training_threshold + 101 + i}'
-        conn.execute_command('DEL', doc)
-        deleted_docs.add(doc)
+    assert_background_indexing_in_progress(env, message='phase 1')
+    delete_docs(1, 10)                  # inserted before the training was triggered
+    delete_docs(first_batch + 1, 10)    # inserted after the training was triggered
 
-    # Sanity: num_docs should reflect deletions
-    expected_after_phase1 = training_threshold + 100 + 50 - 20
-    env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], expected_after_phase1)
+    expected_live_docs = first_batch + 50 - 20
+    env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], expected_live_docs)
 
-    # Sanity query - verify deleted docs are NOT returned
-    res = env.execute_command('FT.SEARCH', DEFAULT_INDEX_NAME,
-                              f'*=>[KNN {k} @{DEFAULT_FIELD_NAME} $vec]',
-                              'PARAMS', 2, 'vec', query.tobytes(), 'NOCONTENT', 'DIALECT', 2)
-    env.assertEqual(res[0], k)
-    for doc in deleted_docs:
-        env.assertNotContains(doc, res)
+    for probe_vec in [deleted_before_training_vec, deleted_during_training_vec]:
+        assert_docs_not_returned(env, probe_vec, k, deleted_docs, message='phase 1, training in progress')
 
     wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
 
-    # Phase 2: Add another batch to trigger background update
-    populate_with_vectors(env, num_docs=training_threshold, dim=dim, datatype=data_type,
-                          initial_doc_id=training_threshold + 151)
+    assert_svs_tiered_state(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME,
+                            expected_live_docs=expected_live_docs, message='phase 1')
+    assert_nearest_neighbor(env, live_vec, live_doc, message='phase 1')
+    for probe_vec in [deleted_before_training_vec, deleted_during_training_vec]:
+        assert_docs_not_returned(env, probe_vec, k, deleted_docs, message='phase 1, training done')
 
-    # Delete more vectors during background update
-    for i in range(30):
-        doc = f'{DEFAULT_DOC_NAME_PREFIX}{training_threshold + 111 + i}'
-        conn.execute_command('DEL', doc)
-        deleted_docs.add(doc)
+    # Phase 2: another `training_threshold` vectors fill the flat buffer past
+    # TIERED_SVS_UPDATE_THRESHOLD, triggering a background update of the trained index.
+    phase2_first_doc_id = first_batch + 51
+    phase2_live_vec = populate_with_vectors(env, num_docs=training_threshold, dim=dim, datatype=data_type,
+                                            initial_doc_id=phase2_first_doc_id)
+    phase2_live_doc = f'{DEFAULT_DOC_NAME_PREFIX}{phase2_first_doc_id}'
 
-    # Sanity: num_docs should reflect deletions
-    expected_after_phase2 = expected_after_phase1 + training_threshold - 30
-    env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], expected_after_phase2)
+    # Delete docs of the first batch, which the training already moved to the backend.
+    assert_background_indexing_in_progress(env, message='phase 2')
+    delete_docs(11, 30)
 
-    # Sanity query during update - verify deleted docs are NOT returned
-    res = env.execute_command('FT.SEARCH', DEFAULT_INDEX_NAME,
-                              f'*=>[KNN {k} @{DEFAULT_FIELD_NAME} $vec]',
-                              'PARAMS', 2, 'vec', query.tobytes(), 'NOCONTENT', 'DIALECT', 2)
-    env.assertEqual(res[0], k)
-    for doc in deleted_docs:
-        env.assertNotContains(doc, res)
+    expected_live_docs += training_threshold - 30
+    env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], expected_live_docs)
+
+    assert_docs_not_returned(env, deleted_before_training_vec, k, deleted_docs,
+                             message='phase 2, update in progress')
 
     wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
 
-    # Final validation
-    env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], expected_after_phase2)
-
-    # Final query - verify ALL deleted docs are still not returned
-    res = env.execute_command('FT.SEARCH', DEFAULT_INDEX_NAME,
-                              f'*=>[KNN {k} @{DEFAULT_FIELD_NAME} $vec]',
-                              'PARAMS', 2, 'vec', query.tobytes(), 'NOCONTENT', 'DIALECT', 2)
-    env.assertEqual(res[0], k)
-    for doc in deleted_docs:
-        env.assertNotContains(doc, res)
+    assert_svs_tiered_state(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME,
+                            expected_live_docs=expected_live_docs, message='phase 2')
+    assert_nearest_neighbor(env, live_vec, live_doc, message='phase 2')
+    assert_nearest_neighbor(env, phase2_live_vec, phase2_live_doc, message='phase 2')
+    for probe_vec in [deleted_before_training_vec, deleted_during_training_vec]:
+        assert_docs_not_returned(env, probe_vec, k, deleted_docs, message='phase 2, update done')
 
 
 @skip(cluster=True, no_json=True)
 def test_delete_during_background_indexing_multi_value():
     """
-    Test deletions during SVS background indexing with multi-value JSON (VectorSimilarity PR #903).
-
-    Same logic as test_delete_during_background_indexing but with multi-value vectors.
+    Same as `test_delete_during_background_indexing`, for a multi-value JSON vector field:
+    deleting a doc has to delete all of its vectors, also when the deletion races with the
+    background training or update.
     """
     env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 2')
     conn = getConnectionByEnv(env)
     dim = 32
     data_type = 'FLOAT32'
-    per_doc = 5
+    vectors_per_doc = 5
     training_threshold = DEFAULT_BLOCK_SIZE
-    n_docs = 250  # 250 * 5 = 1250 vectors
     k = 10
-    query = create_np_array_typed([0] * dim, data_type)
-
-    # Track deleted doc IDs for verification
     deleted_docs = set()
 
-    # Create multi-value SVS index with LeanVec compression
+    # doc<id> holds `vectors_per_doc` random vectors, the first of which is kept in
+    # `doc_vectors` to be used as a query vector that should return doc<id> first.
+    doc_vectors = {}
+
+    def add_docs(first_doc_id, count):
+        for doc_id in range(first_doc_id, first_doc_id + count):
+            vectors = [create_random_np_array_typed(dim, data_type) for _ in range(vectors_per_doc)]
+            doc_vectors[doc_id] = vectors[0]
+            conn.json().set(f'{DEFAULT_DOC_NAME_PREFIX}{doc_id}', '.',
+                            {'vecs': [vector.tolist() for vector in vectors]})
+
+    def delete_docs(first_doc_id, count):
+        for doc_id in range(first_doc_id, first_doc_id + count):
+            doc = f'{DEFAULT_DOC_NAME_PREFIX}{doc_id}'
+            conn.execute_command('DEL', doc)
+            deleted_docs.add(doc)
+
     env.expect('FT.CREATE', DEFAULT_INDEX_NAME, 'ON', 'JSON', 'SCHEMA',
                '$.vecs[*]', 'AS', DEFAULT_FIELD_NAME, 'VECTOR', 'SVS-VAMANA', '10',
                'TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2',
                'COMPRESSION', 'LeanVec4x8', 'TRAINING_THRESHOLD', training_threshold).ok()
 
-    # Phase 1: Insert docs to trigger initial training
-    for i in range(n_docs):
-        conn.json().set(f'{DEFAULT_DOC_NAME_PREFIX}{i + 1}', '.', {'vecs': [[i / 8.0] * dim for _ in range(per_doc)]})
+    # Phase 1: crossing the training threshold triggers the background training, then keep
+    # inserting docs (which stay in the flat buffer) while it runs.
+    first_batch = training_threshold // vectors_per_doc + 25   # 229 docs -> 1145 vectors
+    add_docs(1, first_batch)
+    add_docs(first_batch + 1, 20)
 
-    # Add more docs (these are added after training might have started)
-    for i in range(20):
-        conn.json().set(f'{DEFAULT_DOC_NAME_PREFIX}{n_docs + i + 1}', '.', {'vecs': [[(n_docs + i) / 8.0] * dim for _ in range(per_doc)]})
+    assert_background_indexing_in_progress(env, message='phase 1')
+    delete_docs(1, 5)                   # inserted before the training was triggered
+    delete_docs(first_batch + 1, 5)     # inserted after the training was triggered
 
-    # Delete docs added BEFORE training started (doc1..doc5)
-    for i in range(5):
-        doc = f'{DEFAULT_DOC_NAME_PREFIX}{i + 1}'
-        conn.execute_command('DEL', doc)
-        deleted_docs.add(doc)
+    expected_live_docs = first_batch + 20 - 10
+    env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], expected_live_docs)
 
-    # Delete docs added AFTER training started (doc251..doc255)
-    for i in range(5):
-        doc = f'{DEFAULT_DOC_NAME_PREFIX}{n_docs + i + 1}'
-        conn.execute_command('DEL', doc)
-        deleted_docs.add(doc)
-
-    # Sanity: num_docs should reflect deletions (250 + 20 - 10 = 260)
-    expected_after_phase1 = n_docs + 20 - 10
-    env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], expected_after_phase1)
-
-    # Sanity query - verify deleted docs are NOT returned
-    res = conn.execute_command('FT.SEARCH', DEFAULT_INDEX_NAME,
-                               f'*=>[KNN {k} @{DEFAULT_FIELD_NAME} $vec]',
-                               'PARAMS', 2, 'vec', query.tobytes(), 'NOCONTENT', 'DIALECT', 2)
-    env.assertEqual(res[0], k)
-    for doc in deleted_docs:
-        env.assertNotContains(doc, res)
+    for probe_doc_id in [1, first_batch + 1]:
+        assert_docs_not_returned(env, doc_vectors[probe_doc_id], k, deleted_docs,
+                                 message='phase 1, training in progress')
 
     wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
 
-    # Phase 2: Add another batch, delete during background update
-    for i in range(100):
-        doc_id = n_docs + 20 + i + 1
-        conn.json().set(f'{DEFAULT_DOC_NAME_PREFIX}{doc_id}', '.', {'vecs': [[doc_id / 8.0] * dim for _ in range(per_doc)]})
+    assert_svs_tiered_state(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME,
+                            expected_live_docs=expected_live_docs,
+                            vectors_per_doc=vectors_per_doc, message='phase 1')
+    live_doc_id = first_batch + 6
+    assert_nearest_neighbor(env, doc_vectors[live_doc_id], f'{DEFAULT_DOC_NAME_PREFIX}{live_doc_id}',
+                            message='phase 1')
+    for probe_doc_id in [1, first_batch + 1]:
+        assert_docs_not_returned(env, doc_vectors[probe_doc_id], k, deleted_docs,
+                                 message='phase 1, training done')
 
-    # Delete more docs during background update
-    for i in range(15):
-        doc = f'{DEFAULT_DOC_NAME_PREFIX}{n_docs + 5 + i + 1}'
-        conn.execute_command('DEL', doc)
-        deleted_docs.add(doc)
+    # Phase 2: fill the flat buffer past TIERED_SVS_UPDATE_THRESHOLD to trigger a
+    # background update of the trained index.
+    phase2_docs = training_threshold // vectors_per_doc + 1     # 205 docs -> 1025 vectors
+    phase2_first_doc_id = first_batch + 21
+    add_docs(phase2_first_doc_id, phase2_docs)
 
-    # Sanity: num_docs should reflect deletions
-    expected_after_phase2 = expected_after_phase1 + 100 - 15
-    env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], expected_after_phase2)
+    # Delete docs of the first batch, which the training already moved to the backend.
+    assert_background_indexing_in_progress(env, message='phase 2')
+    delete_docs(6, 15)
 
-    # Sanity query during update - verify deleted docs are NOT returned
-    res = conn.execute_command('FT.SEARCH', DEFAULT_INDEX_NAME,
-                               f'*=>[KNN {k} @{DEFAULT_FIELD_NAME} $vec]',
-                               'PARAMS', 2, 'vec', query.tobytes(), 'NOCONTENT', 'DIALECT', 2)
-    env.assertEqual(res[0], k)
-    for doc in deleted_docs:
-        env.assertNotContains(doc, res)
+    expected_live_docs += phase2_docs - 15
+    env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], expected_live_docs)
+
+    assert_docs_not_returned(env, doc_vectors[6], k, deleted_docs, message='phase 2, update in progress')
 
     wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
 
-    # Final validation
-    env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], expected_after_phase2)
-
-    # Final query - verify ALL deleted docs are still not returned
-    res = conn.execute_command('FT.SEARCH', DEFAULT_INDEX_NAME,
-                               f'*=>[KNN {k} @{DEFAULT_FIELD_NAME} $vec]',
-                               'PARAMS', 2, 'vec', query.tobytes(), 'NOCONTENT', 'DIALECT', 2)
-    env.assertEqual(res[0], k)
-    for doc in deleted_docs:
-        env.assertNotContains(doc, res)
+    assert_svs_tiered_state(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME,
+                            expected_live_docs=expected_live_docs,
+                            vectors_per_doc=vectors_per_doc, message='phase 2')
+    for doc_id in [live_doc_id, phase2_first_doc_id]:
+        assert_nearest_neighbor(env, doc_vectors[doc_id], f'{DEFAULT_DOC_NAME_PREFIX}{doc_id}',
+                                message='phase 2')
+    for probe_doc_id in [1, 6, first_batch + 1]:
+        assert_docs_not_returned(env, doc_vectors[probe_doc_id], k, deleted_docs,
+                                 message='phase 2, update done')

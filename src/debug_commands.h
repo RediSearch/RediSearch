@@ -32,6 +32,7 @@ typedef struct BgIndexingDebugCtx {
   volatile atomic_bool pause; // Volatile atomic bool to wait for the resume command
   bool pauseOnOOM; // Whether to pause on OOM
   bool pauseBeforeOOMretry; // Whether to pause before the first OOM retry
+  bool simulateAsyncOOM; // Force the AsyncScan driver into its OOM terminal branch (test hook)
 
 } BgIndexingDebugCtx;
 
@@ -59,13 +60,20 @@ void QueryDebugCtx_SetPause(bool pause);
 ResultProcessor* QueryDebugCtx_GetDebugRP(void);
 void QueryDebugCtx_SetDebugRP(ResultProcessor* debugRP);
 bool QueryDebugCtx_HasDebugRP(void);
+int parseDebugParamsCount(RedisModuleString **argv, int argc, QueryError *status, unsigned long long *debug_params_count);
 
 #ifdef ENABLE_ASSERT
+// Named sentinel values for the pauseBeforeN field of CoordReduceDebugCtx
+#define COORD_REDUCE_NO_PAUSE                0   // Disable pause (no pause point set)
+#define COORD_REDUCE_PAUSE_AFTER_LAST_RESULT (-1) // Pause after the last result is reduced
+#define COORD_REDUCE_PAUSE_BEFORE_REDUCER_INIT (-2) // Pause after claiming reducing but before reducer context init
+
 // Struct used for debugging coordinator reduction (pause mid-reduce)
 // Only available in debug builds to avoid affecting release performance
 typedef struct CoordReduceDebugCtx {
   atomic_bool pause;           // Atomic bool to wait for the resume command
-  atomic_int pauseBeforeN;     // N value: 0=no pause, -1=pause after last, N>0=pause before Nth result
+  atomic_int pauseBeforeN;     // COORD_REDUCE_NO_PAUSE, COORD_REDUCE_PAUSE_BEFORE_REDUCER_INIT,
+                               // COORD_REDUCE_PAUSE_AFTER_LAST_RESULT, or N>0 to pause before the Nth result
   atomic_int reduceCount;      // Counter of results reduced so far
 } CoordReduceDebugCtx;
 
@@ -77,19 +85,50 @@ void CoordReduceDebugCtx_SetPauseBeforeN(int n);
 void CoordReduceDebugCtx_IncrementReduceCount(void);
 int CoordReduceDebugCtx_GetReduceCount(void);
 
+// Sentinel for the pauseAfterN field of AggregateResultsDebugCtx
+#define AGGREGATE_RESULTS_NO_PAUSE 0  // Disable pause (no pause point set)
+
+// Struct used for debugging the AggregateResults loop in aggregate_exec_common.c
+// (pause after extracting N results from the pipeline). Only available in debug
+// builds to avoid affecting release performance.
+typedef struct AggregateResultsDebugCtx {
+  atomic_bool pause;          // Atomic bool to wait for the resume command
+  atomic_int  pauseAfterN;    // AGGREGATE_RESULTS_NO_PAUSE, or N>0 to pause after the Nth result is extracted
+  atomic_int  resultsCount;   // Counter of results extracted so far
+} AggregateResultsDebugCtx;
+
+// AggregateResultsDebugCtx API function declarations
+bool AggregateResultsDebugCtx_IsPaused(void);
+void AggregateResultsDebugCtx_SetPause(bool pause);
+int  AggregateResultsDebugCtx_GetPauseAfterN(void);
+void AggregateResultsDebugCtx_SetPauseAfterN(int n);
+void AggregateResultsDebugCtx_IncrementResultsCount(void);
+int  AggregateResultsDebugCtx_GetResultsCount(void);
+
+// Scope selector for StoreResults pauses: restricts which AREQ/HybridRequest
+// populations the global pause applies to (matches the INTERNAL_ONLY token
+// convention used in src/aggregate/aggregate_debug.c).
+typedef enum {
+  STORE_RESULTS_SCOPE_BOTH = 0,         // Default: pause for both internal and non-internal requests
+  STORE_RESULTS_SCOPE_INTERNAL_ONLY,    // Pause only for internal (coordinator-dispatched) requests
+  STORE_RESULTS_SCOPE_NON_INTERNAL_ONLY,// Pause only for non-internal (user-facing) requests
+} StoreResultsScope;
+
 // Struct used for debugging store results (pause before/after AREQ_StoreResults and HREQ_StoreResults)
 // Only available in debug builds to avoid affecting release performance
 typedef struct StoreResultsDebugCtx {
   atomic_bool pauseBeforeEnabled;   // Whether pause before StoreResults is enabled
   atomic_bool pauseAfterEnabled;    // Whether pause after StoreResults is enabled
+  atomic_int  scope;                // StoreResultsScope; updated together with the enable flags
   atomic_bool pause;                // Atomic bool to wait for the resume command
 } StoreResultsDebugCtx;
 
 // StoreResultsDebugCtx API function declarations
 bool StoreResultsDebugCtx_IsPauseBeforeEnabled(void);
-void StoreResultsDebugCtx_SetPauseBeforeEnabled(bool enabled);
+void StoreResultsDebugCtx_SetPauseBeforeEnabled(bool enabled, StoreResultsScope scope);
 bool StoreResultsDebugCtx_IsPauseAfterEnabled(void);
-void StoreResultsDebugCtx_SetPauseAfterEnabled(bool enabled);
+void StoreResultsDebugCtx_SetPauseAfterEnabled(bool enabled, StoreResultsScope scope);
+StoreResultsScope StoreResultsDebugCtx_GetScope(void);
 bool StoreResultsDebugCtx_IsPaused(void);
 void StoreResultsDebugCtx_SetPause(bool pause);
 
@@ -99,14 +138,69 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 
 // Predefined sync point names for query execution
 // These correspond to specific locations in the query execution path
-#define SYNC_POINT_AFTER_ITERATOR_CREATE  "AfterIteratorCreate"
-#define SYNC_POINT_BEFORE_FIRST_READ      "BeforeFirstRead"
+#define SYNC_POINT_AFTER_ITERATOR_CREATE                "AfterIteratorCreate"
+#define SYNC_POINT_BEFORE_FIRST_READ                    "BeforeFirstRead"
+#define SYNC_POINT_BEFORE_DIST_HYBRID_PROMOTE           "BeforeDistHybridPromote"
+#define SYNC_POINT_BEFORE_SPEC_LOCK                     "BeforeSpecLock"
+#define SYNC_POINT_BEFORE_CURSOR_READ_SEND_CHUNK        "BeforeCursorReadSendChunk"
+#define SYNC_POINT_BEFORE_CURSOR_READ_SPEC_PROMOTE      "BeforeCursorReadSpecPromote"
+#define SYNC_POINT_BEFORE_AGGREGATE_RESULTS_CLAIM       "BeforeAggregateResultsClaim"
+#define SYNC_POINT_BEFORE_SAFE_LOADER_GIL_LOCK          "BeforeSafeLoaderGILLock"
+#define SYNC_POINT_AFTER_SAFE_LOADER_GIL_HANDSHAKE      "AfterSafeLoaderGILHandshake"
+#define SYNC_POINT_BEFORE_SAFE_LOADER_EXIT_GIL          "BeforeSafeLoaderExitGIL"
+#define SYNC_POINT_BEFORE_HYBRID_RESULTS_CLAIM          "BeforeHybridResultsClaim"
+#define SYNC_POINT_BEFORE_RPNET_START                   "BeforeRPNetStart"
+#define SYNC_POINT_BEFORE_RPNET_NEXT                    "BeforeRPNetNext"
+#define SYNC_POINT_BEFORE_CURSOR_MAPPING_PROMOTE        "BeforeCursorMappingPromote"
+#define SYNC_POINT_AFTER_CURSOR_MAPPING_PROMOTE_FAILED  "AfterCursorMappingPromoteFailed"
+#define SYNC_POINT_AFTER_ITERATOR_START                 "AfterIteratorStart"
+#define SYNC_POINT_RPNET_REPLY_ADMITTED                 "RpnetReplyAdmitted"
+#define SYNC_POINT_RPNET_WAITING_FOR_REPLY              "RpnetWaitingForReply"
+#define SYNC_POINT_BEFORE_QI_TIMEOUT_CHECK              "BeforeQITimeoutCheck"
+#define SYNC_POINT_AFTER_SCHEDULE_DEPLETERS             "AfterScheduleDepleters"
+#define SYNC_POINT_ASYNC_SCAN_BEFORE_FIRST_BATCH        "AsyncScanBeforeFirstBatch"
+#define SYNC_POINT_ASYNC_SCAN_BETWEEN_BATCHES           "AsyncScanBetweenBatches"
+// Disk async loader: parked after the spec read-lock is released and before the GIL is taken
+// (RSE redisearch_disk). Lets a test update a key while a load batch is staged, and is the point
+// the deadlock test (MOD-15306) uses to hold a writer against the loader.
+#define SYNC_POINT_BEFORE_LOADER_GIL                    "BeforeLoaderGil"
+#define SYNC_POINT_BEFORE_COMPACTION_APPLY              "BeforeCompactionApply"
+#define SYNC_POINT_GC_BEFORE_DELETED_IDS_REMOVE      "GcBeforeDeletedIdsRemove"
+// Disk shutdown teardown: parked in DeleteDiskIndexesOnShutdown. Lets a test keep
+// the process alive after the free so a GC run parked at
+// SYNC_POINT_GC_BEFORE_DELETED_IDS_REMOVE deterministically wakes into the freed DB
+// (use-after-free) when the disk-GC/teardown handshake was missing.
+#define SYNC_POINT_AFTER_DISK_INDEX_CLOSE               "AfterDiskIndexClose"
+// Disk async loader: parked right after a swap-prefetch is issued for a non-resident key and
+// before the worker waits for the completion (RSE redisearch_disk). Lets a test mutate or delete
+// the key inside the async swap window so the callback hits the docid-mismatch / expired-doc path,
+// and lets a test hold the load past the query timeout to exercise the ON_TIMEOUT policy.
+#define SYNC_POINT_AFTER_PREFETCH_ISSUE                 "AfterPrefetchIssue"
+// Fork-GC worker: parked at the very top of a periodic GC job, before the collection callback
+// runs. Lets a test rendezvous with a real run while RUN_PENDING is held, instead of sleeping.
+#define SYNC_POINT_GC_TASK_START                        "GCTaskStart"
+// Fork-GC worker: parked after the pass finished and before it posts its re-arm to the main
+// thread. The only window where RUN_PENDING is held but no run remains to discover a drop, so a
+// test can land a stop and a drop in it deterministically.
+#define SYNC_POINT_GC_BEFORE_REARM_POST                 "GCBeforeRearmPost"
+// Fork-GC worker: parked before the GIL handshake that precedes the fork, so a test can take
+// the single child slot while a cycle waits here and make the EEXIST retry deterministic.
+#define SYNC_POINT_GC_BEFORE_FORK                       "GCBeforeFork"
+// Fork-GC worker: parked after a fork attempt failed because another child holds the slot, with
+// the GIL released. Reaching it is the only proof, independent of host scheduling, that a cycle
+// really did hit EEXIST rather than winning the slot outright.
+#define SYNC_POINT_GC_FORK_SLOT_BUSY                    "GCForkSlotBusy"
 
 // SyncPoint API function declarations
 // Arm a sync point - subsequent calls to SyncPoint_Wait will block
 // Returns true on success, false if max sync points reached
 // NOTE: Not thread-safe. Must only be called from the main thread.
 bool SyncPoint_Arm(const char *name);
+// Like SyncPoint_Arm, but a parked SyncPoint_Wait self-releases after
+// `auto_release_ms` even without a SIGNAL (0 = wait for SIGNAL, as SyncPoint_Arm).
+// For tests where the thread that would SIGNAL is itself blocked waiting on the
+// parked work (e.g. disable_compactions() during FT.DROPINDEX).
+bool SyncPoint_ArmWithTimeout(const char *name, long long auto_release_ms);
 // Signal a waiting thread at the named sync point to continue (also disarms it)
 void SyncPoint_Signal(const char *name);
 // Check if a thread is waiting at the named sync point
@@ -118,6 +212,30 @@ void SyncPoint_ClearAll(void);
 // Called from code paths to potentially wait at a sync point
 // If the named point is armed, blocks until signaled
 void SyncPoint_Wait(const char *name);
+
+// Predicate callback type for SyncPoint_WaitUntil
+typedef bool (*SyncPointStopFn)(void *arg);
+// Like SyncPoint_Wait, but also exits the wait loop when `stop_fn(arg)` returns
+// true. Lets workers release early when a timeout fires on the main thread.
+void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg);
+
+// Shard dispatch fault injection (test-only, ENABLE_ASSERT builds): arm the next
+// `count` MRCluster_SendCommand calls to return REDIS_ERR, so DebugSendError_Consume
+// returns true that many times. Exercises the no-reply error path.
+void DebugSendError_Arm(int count);
+// Consume one armed failure; returns true if the caller should treat the send as
+// failed. Thread-safe.
+bool DebugSendError_Consume(void);
+
+// Process-wide counter of threads parked in `RedisSearchCtx_LockSpecWrite`
+// waiting on a spec rwlock. Bumped before `pthread_rwlock_wrlock` and
+// decremented once the write lock has been acquired. Used by tests (sync-point
+// stop predicates) to observe a pending writer without depending on the main
+// thread, since the main thread is exactly what's blocked on the wrlock in the
+// scenarios these tests cover.
+void PendingSpecWriters_Incr(void);
+void PendingSpecWriters_Decr(void);
+uint32_t PendingSpecWriters_Get(void);
 
 // Struct used for debugging hybrid cursor storage ONLY (pause before/after cursor creation)
 // Separate from StoreResultsDebugCtx to allow independent control
@@ -135,12 +253,31 @@ void HybridStoreCursorsDebugCtx_SetPauseAfterEnabled(bool enabled);
 bool HybridStoreCursorsDebugCtx_IsPaused(void);
 void HybridStoreCursorsDebugCtx_SetPause(bool pause);
 
+// Blocked-request OnFree counter. Bumped on every QueryRequest_OnFree so
+// tests can deterministically observe that free_privdata has fired without
+// blocking the main thread inside the callback.
+void QueryRequestOnFreeDebug_Increment(void);
+uint64_t QueryRequestOnFreeDebug_GetCount(void);
+
+// Tracks the currently active coordinator MRIterator so tests can poll the
+// `pending` shard counter via FT.DEBUG BG_PENDING_REPLIES. Set after the
+// iterator is created in the RPNet start path; cleared before it is released
+// in rpnetFree. Only one query is expected to be active at a time in tests.
+struct MRIterator;
+void DebugBgIterator_Set(struct MRIterator *it);
+void DebugBgIterator_Clear(struct MRIterator *it);
+
 #endif  // ENABLE_ASSERT
 
 
 // Yield counter functions
 void IncrementLoadYieldCounter(void);
 void IncrementBgIndexYieldCounter(void);
+
+// GC timer arm counters. `FromOneShot` counts the arms that went through the main-thread
+// one-shot; a test asserts the two are equal to prove no arm happened on the GC thread.
+void IncrementGCTimerArm(void);
+void IncrementGCTimerArmFromOneShot(void);
 
 // Indexer sleep before yield functions
 unsigned int GetIndexerSleepBeforeYieldMicros(void);

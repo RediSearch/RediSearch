@@ -319,6 +319,55 @@ pub unsafe extern "C" fn slots_tracker_has_fully_available_overlap(
     with_tracker(|tracker| tracker.has_fully_available_overlap(ranges))
 }
 
+/// Returns the current local slot ranges as a newly allocated array.
+///
+/// The returned array is allocated with the Rust global allocator, which in the
+/// RediSearch module build forwards to `RedisModule_Alloc`. The caller owns the
+/// returned pointer and must free it with `RedisModule_Free` (`rm_free`).
+///
+/// # Safety
+///
+/// This function must be called from the main thread only.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn slots_tracker_get_local_slots() -> *mut SlotRangeArray {
+    with_tracker(|tracker| {
+        let local = tracker.local_slot_ranges();
+        let num_ranges = local.len() as i32;
+
+        let layout = local_slots_array_layout(local.len());
+        // SAFETY: `layout` has a non-zero size (it includes the `num_ranges` header).
+        let array = unsafe { std::alloc::alloc(layout) }.cast::<SlotRangeArray>();
+        if array.is_null() {
+            std::alloc::handle_alloc_error(layout);
+        }
+
+        // SAFETY: `array` is a fresh, properly-aligned allocation for a SlotRangeArray
+        // header (per `layout`), so writing its `num_ranges` field is in bounds.
+        unsafe {
+            (*array).num_ranges = num_ranges;
+        }
+
+        // SAFETY: `&raw mut` only computes the address of the trailing flexible array; the
+        // deref of `array` is sound because it points to the live allocation above.
+        let ranges = unsafe { &raw mut (*array).ranges }.cast::<SlotRange>();
+
+        // SAFETY: the allocation has room for `local.len()` ranges right after the header
+        // (per `layout`), and `local` cannot overlap the freshly allocated `array`.
+        unsafe {
+            std::ptr::copy_nonoverlapping(local.as_ptr(), ranges, local.len());
+        }
+        array
+    })
+}
+
+/// Computes the allocation layout of a `SlotRangeArray` holding `num_ranges` ranges.
+fn local_slots_array_layout(num_ranges: usize) -> std::alloc::Layout {
+    let (layout, _) = std::alloc::Layout::new::<SlotRangeArray>()
+        .extend(std::alloc::Layout::array::<SlotRange>(num_ranges).expect("layout overflow"))
+        .expect("layout overflow");
+    layout.pad_to_align()
+}
+
 /// Checks if all requested slots are available and returns version information.
 ///
 /// Return values (via OptionSlotTrackerVersion):

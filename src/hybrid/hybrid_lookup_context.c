@@ -1,7 +1,11 @@
 #include "hybrid_lookup_context.h"
+
+#include <stddef.h>
+
 #include "aggregate/aggregate_plan.h"
-#include "util/arr.h"
 #include "aggregate/aggregate.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
 
 #ifdef __cplusplus
 extern "C" {

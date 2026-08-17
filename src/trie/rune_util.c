@@ -7,12 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "libnu/libnu.h"
-#include "rune_util.h"
-#include "rmalloc.h"
-
 #include <stdlib.h>
 #include <string.h>
+#include <sys/types.h>
+
+#include "rune_util.h"
+#include "rmalloc.h"
+#include "libnu/casemap.h"
+#include "libnu/extra.h"
+#include "libnu/strings.h"
+#include "libnu/utf8.h"
 
 static uint32_t __fold(uint32_t runelike) {
   uint32_t lowered = 0;
@@ -29,24 +33,9 @@ rune runeFold(rune r) {
   return __fold((uint32_t)r);
 }
 
-static uint32_t __lower(uint32_t runelike) {
-  uint32_t lowered = 0;
-  const char *map = 0;
-  map = nu_tolower(runelike);
-  if (!map) {
-    return runelike;
-  }
-  nu_casemap_read(map, &lowered);
-  return lowered;
-}
-
-rune runeLower(rune r) {
-  return __lower((uint32_t)r);
-}
-
 char *runesToStr(const rune *in, size_t len, size_t *utflen) {
-  if (len > MAX_RUNESTR_LEN) {
-    if (utflen) *utflen = 0;
+  if (len > MAX_RUNE_STR_LEN) {
+    *utflen = 0;
     return NULL;
   }
 
@@ -82,19 +71,10 @@ rune *strToLowerRunes(const char *str, size_t utf8_len, size_t *unicode_len) {
   // determine the length of the folded string
   ssize_t rlen = nu_strtransformnlen(str, utf8_len, nu_utf8_read,
                                      nu_tolower, nu_casemap_read);
-  if (rlen > MAX_RUNESTR_LEN) {
+  if (rlen > MAX_RUNE_STR_LEN) {
     *unicode_len = 0;
     return NULL;
   }
-
-  uint32_t u_stack_buffer[SSO_MAX_LENGTH];
-  uint32_t *u_buffer = u_stack_buffer;
-  if (rlen > SSO_MAX_LENGTH - 1) {
-    u_buffer = rm_malloc((rlen + 1) * sizeof(*u_buffer));
-  }
-
-  u_buffer[rlen] = 0;
-  nu_readstr(str, u_buffer, nu_utf8_read);
 
   rune *ret = rm_calloc(rlen + 1, sizeof(rune));
   const char *encoded_char = str;
@@ -122,27 +102,20 @@ rune *strToLowerRunes(const char *str, size_t utf8_len, size_t *unicode_len) {
   }
   *unicode_len = rlen;
 
-  if (u_buffer != u_stack_buffer) {
-    rm_free(u_buffer);
-  }
   return ret;
 }
 
-/* implementation is identical to that of strToRunes except for line where
- * __fold is called.
- * If the folded rune occupies more than 1 codepoint, only the first
- * is used, the rest are ignored. */
-rune *strToSingleCodepointFoldedRunes(const char *str, size_t *len) {
+rune *strToSingleCodepointFoldedRunes(const char *str, size_t utf8_len, size_t *len) {
 
-  ssize_t rlen = nu_strlen(str, nu_utf8_read);
-  if (rlen > MAX_RUNESTR_LEN) {
+  ssize_t rlen = nu_strnlen(str, utf8_len, nu_utf8_read);
+  if (rlen > MAX_RUNE_STR_LEN) {
     if (len) *len = 0;
     return NULL;
   }
 
   uint32_t decoded[rlen + 1];
   decoded[rlen] = 0;
-  nu_readstr(str, decoded, nu_utf8_read);
+  nu_readnstr(str, utf8_len, decoded, nu_utf8_read);
 
   rune *ret = rm_calloc(rlen + 1, sizeof(rune));
   for (int i = 0; i < rlen; i++) {
@@ -154,24 +127,7 @@ rune *strToSingleCodepointFoldedRunes(const char *str, size_t *len) {
   return ret;
 }
 
-rune *strToRunes(const char *str, size_t *len) {
-  // Determine the length
-  ssize_t rlen = nu_strlen(str, nu_utf8_read);
-  if (rlen > MAX_RUNESTR_LEN) {
-    if (len) *len = 0;
-    return NULL;
-  }
-
-  rune *ret = rm_malloc((rlen + 1) * sizeof(rune));
-  strToRunesN(str, strlen(str), ret);
-  ret[rlen] = '\0';
-  if (len) {
-    *len = rlen;
-  }
-  return ret;
-}
-
-size_t strToRunesN(const char *src, size_t slen, rune *out) {
+size_t strToRunes(const char *src, size_t slen, rune *out, size_t outcap) {
   const char *end = src + slen;
   size_t nout = 0;
   while (src < end) {
@@ -180,17 +136,11 @@ size_t strToRunesN(const char *src, size_t slen, rune *out) {
     if (cp == 0) {
       break;
     }
-    out[nout++] = (rune)cp;
+    // Keep counting past `outcap` so the caller can detect truncation.
+    if (nout < outcap) {
+      out[nout] = (rune)cp;
+    }
+    nout++;
   }
   return nout;
-}
-
-const rune *runenchr(const rune *r, size_t len, rune c) {
-  size_t i = 0;
-  for (; i < len; ++i) {
-    if (r[i] == (rune)c) {
-      break;
-    }
-  }
-  return i == len ? NULL : r + i;
 }

@@ -8,7 +8,8 @@
 */
 #ifndef AGGREGATE_PLAN_H_
 #define AGGREGATE_PLAN_H_
-#include <value.h>
+#include <stdint.h>
+#include <value_ffi.h>
 #include <rlookup.h>
 #include <search_options.h>
 #include <aggregate/expr/expression.h>
@@ -94,13 +95,14 @@ typedef struct {
 } PLN_MapFilterStep;
 
 /** ARRANGE covers sort, limit, and so on */
-typedef struct {
+typedef struct PLN_ArrangeStep {
   PLN_BaseStep base;
   const RLookupKey **sortkeysLK;  // simple array
   const char **sortKeys;          // array_*
   uint64_t sortAscMap;            // Mapping of ascending/descending. Bitwise
   bool isLimited;                 // Flag if `LIMIT` keyword was used.
   bool runLocal;                  // Indicator that this step should run only local (not in shards)
+  const char *scoreTieBreakField; // If set, sort-by-score breaks ties by this field, not the doc id
   uint64_t offset;                // Seek results. If 0, then no paging is applied
   uint64_t limit;                 // Number of rows to output
 } PLN_ArrangeStep;
@@ -132,7 +134,9 @@ typedef struct {
   struct PLN_Reducer {
     const char *name;  // Name of function
     char *alias;       // Output key
+    char *inputAlias;  // Optional input key
     bool isHidden;     // If the output key is hidden. Used by the coordinator
+    bool isLocal;      // Whether this reducer runs locally (on the coordinator side)
     ArgsCursor args;
   } * reducers;
   int idx;

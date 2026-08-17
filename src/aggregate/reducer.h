@@ -12,7 +12,8 @@
 #include "redisearch.h"
 #include "result_processor.h"
 #include "util/block_alloc.h"
-#include "query_error.h"
+
+typedef struct QueryError QueryError;
 
 #ifdef __cplusplus
 extern "C" {
@@ -74,6 +75,13 @@ typedef struct Reducer {
   int (*Add)(struct Reducer *parent, void *instance, const RLookupRow *srcrow);
 
   /**
+   * Optional Add variant for reducers that need the upstream document id as
+   * out-of-band metadata. Reducers that do not set this callback use Add().
+   */
+  int (*AddWithDocId)(struct Reducer *parent, void *instance, const RLookupRow *srcrow,
+                      t_docId docId);
+
+  /**
    * Called when Add() has been invoked for the last time. This is used to
    * populate the result of the reduce function.
    */
@@ -127,13 +135,29 @@ typedef struct {
 
   // Whether to enforce strict parsing of arguments
   bool strictPrefix;
+
+  // Whether this reducer runs locally (set via PLN_Reducer.isLocal)
+  bool is_local;
+
+  // Optional planner-provided input key for reducers whose input is not part
+  // of their public argument syntax.
+  const RLookupKey *input_key;
+
+  // Full request flag bitmask forwarded from `AREQ->reqflags` (semantically a
+  // `QEFlags`, stored as `uint32_t` to avoid a circular include with
+  // `aggregate.h`). Canonical source of truth for request-level state such as
+  // internal dispatch, hybrid subqueries, profiling, etc. Do NOT mirror
+  // individual bits into new booleans on this struct — query them via the
+  // dedicated helpers below (e.g. `ReducerOpts_IsInternal`).
+  uint32_t reqflags;
 } ReducerOptions;
 
 /**
  * Macro to ensure that we don't skip important initialization steps
  */
-#define REDUCEROPTS_INIT(name_, args_, lk_, lkl_, statusp_, strict_) \
-  { name_, args_, lk_, lkl_, statusp_, strict_ }
+#define REDUCEROPTS_INIT(name_, args_, lk_, lkl_, statusp_, strict_, is_local_, \
+                         input_key_, reqflags_)                                 \
+  { name_, args_, lk_, lkl_, statusp_, strict_, is_local_, input_key_, reqflags_ }
 
 /**
  * Utility function to read the next argument as a lookup key.
@@ -148,10 +172,37 @@ int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **kout);
 #define ReducerOptions_GetKey ReducerOpts_GetKey
 
 /**
+ * Resolves an already-extracted (stripped) field name to an RLookupKey against
+ * `options->srclookup`.
+ *
+ * Resolution order:
+ *   1. Look the name up as a key already available for read in `srclookup`.
+ *   2. If not found and `options->loadKeys` is non-NULL (implicit loading is
+ *      enabled), open a load slot for the name, append it to `*options->loadKeys`,
+ *      and accept it only if it is a schema field (RLOOKUP_F_SCHEMASRC).
+ *
+ * Fails (returns false, sets QUERY_ERROR_CODE_NO_PROP_KEY on `options->status`)
+ * when the name is neither already available nor an implicitly-loadable schema
+ * field. See `ReducerOptions::loadKeys` for the loading contract.
+ *
+ * @return true on success (`*out` set to the resolved key), false on failure.
+ */
+bool ReducerOpts_ResolveKey(const ReducerOptions *options, const char *keyName,
+                            const RLookupKey **out);
+
+/**
  * This helper function ensures that all of a reducer's arguments are consumed.
  * Otherwise, an error is raised to the user.
  */
 int ReducerOpts_EnsureArgsConsumed(const ReducerOptions *options);
+
+/**
+ * True iff the current request is an internal continuation of a
+ * coordinator-dispatched command (`QEXEC_F_INTERNAL` is set on
+ * `ReducerOptions::reqflags`). Orthogonal to `is_local`: the
+ * coordinator itself never has `QEXEC_F_INTERNAL` set.
+ */
+bool ReducerOpts_IsInternal(const ReducerOptions *options);
 
 void *Reducer_BlkAlloc(Reducer *r, size_t elemsz, size_t absBlkSize);
 
@@ -169,6 +220,7 @@ Reducer *RDCRFirstValue_New(const ReducerOptions *);
 Reducer *RDCRRandomSample_New(const ReducerOptions *);
 Reducer *RDCRHLL_New(const ReducerOptions *);
 Reducer *RDCRHLLSum_New(const ReducerOptions *);
+Reducer *RDCRCollect_New(const ReducerOptions *);
 
 typedef Reducer *(*ReducerFactory)(const ReducerOptions *);
 ReducerFactory RDCR_GetFactory(const char *name);

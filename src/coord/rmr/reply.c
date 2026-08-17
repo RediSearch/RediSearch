@@ -9,13 +9,18 @@
 #define __RMR_REPLY_C__
 #include "reply.h"
 
-#include "redismodule.h"
-#include "hiredis/hiredis.h"
-#include "fast_float/fast_float_strtod.h"
-
 #include <string.h>
 #include <errno.h>
 #include <limits.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <strings.h>
+
+#include "redismodule.h"
+#include "hiredis/hiredis.h"
+#include "fast_float/fast_float_strtod.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
 
 
 int MRReply_StringEquals(MRReply *r, const char *s, int caseSensitive) {
@@ -268,4 +273,15 @@ MRReply *MRReply_Clone(MRReply *src) {
   dst->str = rm_strndup(src->str, src->len);
   dst->len = src->len;
   return dst;
+}
+
+// Create a new error reply with the given message.
+// `msg` must be non-NULL and `len` must be greater than 0.
+MRReply *MRReply_CreateError(const char *msg, size_t len) {
+  RS_ASSERT(msg && len > 0);
+  MRReply *reply = rm_calloc(1, sizeof(MRReply));
+  reply->type = MR_REPLY_ERROR;
+  reply->len = len;
+  reply->str = rm_strndup(msg, len);
+  return reply;
 }

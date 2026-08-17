@@ -1,0 +1,38 @@
+version: 0.2
+name: "search-expire-doc-json-10-milliseconds"
+description: |
+  TTL table benchmark for document expiration on JSON documents. Mirrors
+  search-expire-doc-10-milliseconds but stores docs as JSON so the JSON
+  branch of the doc-expiration fast path is exercised
+  (Document_LoadSchemaFieldJson uses the same GetKeyExpirationTime helper
+  as the hash branch after PR #9356).
+
+  Active expiration is disabled so every PEXPIRE is a TTL-only metadata
+  update on the matching DMD; the 10K-doc dataset keeps memory pressure low
+  and re-trigger variance tight. Higher per-thread concurrency (-c 32) is
+  used to drive throughput well above 1000 QPS on the smaller dataset.
+
+metadata:
+  component: "search"
+  group: "expire-persist"
+  use_case: "PEXPIRE fast path on JSON documents covers Document_LoadSchemaFieldJson side of GetKeyExpirationTime"
+setups:
+  - oss-standalone
+
+dbconfig:
+  - dataset_name: "10K-singlevalue-numeric-json-expire-doc-10ms"
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/10K-singlevalue-numeric-json/10K-singlevalue-numeric-json.redisjson.commands.SETUP.csv"
+  - init_commands:
+      - '"DEBUG" "SET-ACTIVE-EXPIRE" "0"'
+      - 'FT.CREATE idx:single ON JSON PREFIX 1 doc:single SCHEMA $.numericInt1 AS numericInt1 NUMERIC $.numericFloat1 AS numericFloat1 NUMERIC $.numericInt2 AS numericInt2 NUMERIC $.numericFloat2 AS numericFloat2 NUMERIC $.numericInt3 AS numericInt3 NUMERIC $.numericFloat3 AS numericFloat3 NUMERIC $.numericInt4 AS numericInt4 NUMERIC $.numericFloat4 AS numericFloat4 NUMERIC $.numericInt5 AS numericInt5 NUMERIC $.numericFloat5 AS numericFloat5 NUMERIC $.numericInt6 AS numericInt6 NUMERIC $.numericFloat6 AS numericFloat6 NUMERIC $.numericInt7 AS numericInt7 NUMERIC $.numericFloat7 AS numericFloat7 NUMERIC $.numericInt8 AS numericInt8 NUMERIC $.numericFloat8 AS numericFloat8 NUMERIC $.numericInt9 AS numericInt9 NUMERIC $.numericFloat9 AS numericFloat9 NUMERIC $.numericInt10 AS numericInt10 NUMERIC $.numericFloat10 AS numericFloat10 NUMERIC'
+  - check:
+      keyspacelen: 10000
+
+clientconfig:
+  benchmark_type: "mixed"
+  tool: memtier_benchmark
+  arguments: "--test-time 180 -c 32 -t 4 --hide-histogram --key-prefix 'doc:single' --key-minimum 1 --key-maximum 10000 --command 'FT.SEARCH idx:single * NOCONTENT LIMIT 0 1' --command-ratio 95 --command 'PEXPIRE __key__ 10' --command-ratio 5"

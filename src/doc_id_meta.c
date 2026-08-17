@@ -8,12 +8,17 @@
 */
 
 #include "doc_id_meta.h"
-#include "spec.h"
-#include "util/arr/arr.h"
-#include "util/dict.h"
-#include "rdb.h"
+
 #include <stdbool.h>
 #include <assert.h>
+#include <stddef.h>
+
+#include "spec.h"
+#include "indexes.h"
+#include "rdb.h"
+#include "rmutil/rm_assert.h"
+#include "util/dict/dict.h"
+#include "util/references.h"
 
 #define DOCID_META_INVALID 0
 #define DOCID_META_CLASS_NAME "D-ID"
@@ -21,17 +26,17 @@
 static RedisModuleKeyMetaClassId docIdKeyMetaClassId;
 
 // When true, RDB save/load callbacks become no-ops.
-// Controlled via DocIdMeta_SetPersistenceInProgress, called from notifications.c
+// Controlled via DocIdMeta_SetForgetDocIdMetadata, called from notifications.c
 // during persistence events (BGSAVE/BGREWRITEAOF) to avoid saving/loading
 // DocIdMeta data while persistence is in progress.
-static bool PersistenceInProgress = false;
+static bool ForgetDocIdMetadata = false;
 
-void DocIdMeta_SetPersistenceInProgress(bool inProgress) {
+void DocIdMeta_SetForgetDocIdMetadata(bool inProgress) {
   const char *message = inProgress ?
                           "DocIdMeta: disabling RDB callbacks during persistence" :
                           "DocIdMeta: re-enabling RDB callbacks after persistence";
   RedisModule_Log(RSDummyContext, "verbose", "%s", message);
-  PersistenceInProgress = inProgress;
+  ForgetDocIdMetadata = inProgress;
 }
 
 // Helper macros for casting between uint64_t and void* for dict keys/values.
@@ -117,16 +122,27 @@ static void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
   dictReleaseIterator(iter);
 }
 
+// Return values for RedisModuleKeyMetaLoadFunc (documented on RM_CreateKeyMetaClass):
+//   1: attach the loaded meta to the key
+//   0: skip/ignore (do not attach) - not an error
+//  -1: error, abort RDB load
+#define DOCID_META_RDB_LOAD_ATTACH 1
+#define DOCID_META_RDB_LOAD_SKIP   0
+#define DOCID_META_RDB_LOAD_ERROR  (-1)
+
 static int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
   RS_LOG_ASSERT(encver == 1, "DocIdMeta: unexpected encver in RDB load");
 
-  if (PersistenceInProgress) {
-    // Skip actual loading during persistence events. We don't store this metadata in the RDB/AOF files.
-    *meta = 0;
-    return REDISMODULE_OK;
-  }
+  // Cache the flag locally to ensure all decisions in this callback observe a
+  // consistent value, although it cannot really happen, this gives certainty to static analyzers.
+  const bool forgetDocIDMetadata = ForgetDocIdMetadata;
 
-  dict *specIdToDocId = dictCreate(&dictTypeUint64, NULL);
+  // Even when forgetDocIDMetadata is set we must consume exactly the bytes
+  // that docIdMetaRDBSave wrote: the key-meta framework reads a trailing EOF
+  // marker right after this callback returns and expects the stream to be
+  // positioned at it. Discarding the parsed entries is fine; skipping the
+  // reads would desynchronize the stream and fail the EOF check.
+  dict *specIdToDocId = forgetDocIDMetadata ? NULL : dictCreate(&dictTypeUint64, NULL);
   size_t numEntries;
 
   // Load the number of entries
@@ -137,6 +153,9 @@ static int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
     uint64_t specId = LoadUnsigned_IOError(rdb, goto cleanup);
     uint64_t docId = LoadUnsigned_IOError(rdb, goto cleanup);
 
+    // While persistence is in progress, drain the bytes but do not attach.
+    if (forgetDocIDMetadata) continue;
+
     // Skip entries belonging to indexes that are no longer in specIdDict_g (O(1) lookup).
     if (!isSpecValid(specId)) {
       continue;
@@ -145,21 +164,26 @@ static int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
     dictAdd(specIdToDocId, SPECID_TO_KEY(specId), DOCID_TO_VAL(docId));
   }
 
+  if (forgetDocIDMetadata) {
+    *meta = 0;
+    return DOCID_META_RDB_LOAD_SKIP;
+  }
+
   *meta = (uint64_t)(specIdToDocId);
-  return REDISMODULE_OK;
+  return DOCID_META_RDB_LOAD_ATTACH;
 
 cleanup:
   if (specIdToDocId) {
     dictRelease(specIdToDocId);
   }
   *meta = 0;
-  return REDISMODULE_ERR;
+  return DOCID_META_RDB_LOAD_ERROR;
 }
 
 static void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
   REDISMODULE_NOT_USED(value);
 
-  if (PersistenceInProgress) {
+  if (ForgetDocIdMetadata) {
     // Skip saving during persistence events. We don't want to save this metadata to an RDB/AOF file
     return;
   }
@@ -230,9 +254,9 @@ void DocIdMeta_Init(RedisModuleCtx *ctx) {
 }
 
 
-// Internal function that works with RedisModuleKey
-static int DocIdMeta_SetInternal(RedisModuleKey *key, uint64_t specId,
-                                  uint64_t docId) {
+// Set docId on an already-open key. The caller owns `key` and must have opened
+// it with read+write access. The name-based DocIdMeta_Set delegates here.
+int DocIdMeta_SetWithOpenKey(RedisModuleKey *key, uint64_t specId, uint64_t docId) {
   RS_ASSERT(docId != DOCID_META_INVALID);
   uint64_t meta = 0;
 
@@ -242,7 +266,7 @@ static int DocIdMeta_SetInternal(RedisModuleKey *key, uint64_t specId,
 
     int result = RedisModule_SetKeyMeta(docIdKeyMetaClassId, key, (uint64_t)d);
     if (result != REDISMODULE_OK) {
-      RedisModule_Log(RSDummyContext, "warning", "DocIdMeta: failed to set metadata for key during DocIdMeta_SetInternal");
+      RedisModule_Log(RSDummyContext, "warning", "DocIdMeta: failed to set metadata for key during DocIdMeta_SetWithOpenKey");
       dictRelease(d);
       return result;
     }
@@ -255,8 +279,9 @@ static int DocIdMeta_SetInternal(RedisModuleKey *key, uint64_t specId,
   return REDISMODULE_OK;
 }
 
-static int DocIdMeta_GetInternal(RedisModuleKey *key, uint64_t specId,
-                                  uint64_t *docId) {
+// Get docId from an already-open key. The caller owns `key` and must have opened
+// it with read access. The name-based DocIdMeta_Get delegates here.
+int DocIdMeta_GetWithOpenKey(RedisModuleKey *key, uint64_t specId, uint64_t *docId) {
   uint64_t meta = 0;
   if (RedisModule_GetKeyMeta(docIdKeyMetaClassId, key, &meta) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
@@ -277,7 +302,10 @@ static int DocIdMeta_GetInternal(RedisModuleKey *key, uint64_t specId,
   return REDISMODULE_OK;
 }
 
-static int DocIdMeta_DeleteInternal(RedisModuleKey *key, uint64_t specId) {
+// Delete the specId entry from an already-open key. The caller owns `key` and
+// must have opened it with read+write access. The name-based DocIdMeta_Delete
+// delegates here.
+int DocIdMeta_DeleteWithOpenKey(RedisModuleKey *key, uint64_t specId) {
   uint64_t meta = 0;
   if (RedisModule_GetKeyMeta(docIdKeyMetaClassId, key, &meta) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
@@ -298,7 +326,7 @@ int DocIdMeta_Set(RedisModuleCtx *ctx, RedisModuleString *keyName,
   if (!key) {
     return REDISMODULE_ERR;
   }
-  int result = DocIdMeta_SetInternal(key, specId, docId);
+  int result = DocIdMeta_SetWithOpenKey(key, specId, docId);
   RedisModule_CloseKey(key);
   return result;
 }
@@ -310,7 +338,7 @@ int DocIdMeta_Get(RedisModuleCtx *ctx, RedisModuleString *keyName,
   if (!key) {
     return REDISMODULE_ERR;
   }
-  int result = DocIdMeta_GetInternal(key, specId, docId);
+  int result = DocIdMeta_GetWithOpenKey(key, specId, docId);
   RedisModule_CloseKey(key);
   return result;
 }
@@ -320,7 +348,7 @@ int DocIdMeta_Delete(RedisModuleCtx *ctx, RedisModuleString *keyName, uint64_t s
   if (!key) {
     return REDISMODULE_ERR;
   }
-  int result = DocIdMeta_DeleteInternal(key, specId);
+  int result = DocIdMeta_DeleteWithOpenKey(key, specId);
   RedisModule_CloseKey(key);
   return result;
 }

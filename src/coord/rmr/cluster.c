@@ -7,11 +7,21 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "cluster.h"
-#include "rmutil/rm_assert.h"
-#include "rmalloc.h"
 
 #include <stdlib.h>
-#include "rq.h"
+#include <stdint.h>
+
+#include "rmutil/rm_assert.h"
+#include "rmalloc.h"
+#include "hiredis/read.h"
+#include "rmr/cluster_topology.h"
+#include "rmr/command.h"
+#include "rmr/conn.h"
+#include "rmr/io_runtime_ctx.h"
+#ifdef ENABLE_ASSERT
+// Only needed for the test-only DebugSendError_Consume() fault injection below.
+#include "debug_commands.h"
+#endif
 
 /* Initialize the MapReduce engine with a node provider */
 MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_size, size_t num_io_threads) {
@@ -40,17 +50,25 @@ int MRCluster_SendCommand(IORuntimeCtx *ioRuntime,
                           MRCommand *cmd,
                           redisCallbackFn *fn,
                           void *privdata) {
+#ifdef ENABLE_ASSERT
+  // Test-only: simulate a no-reply dispatch failure.
+  if (DebugSendError_Consume()) {
+    return REDIS_ERR;
+  }
+#endif
   MRConn *conn = MRCluster_GetConn(ioRuntime, cmd);
   if (!conn) return REDIS_ERR;
   return MRConn_SendCommand(conn, cmd, fn, privdata);
 }
 
-/* Multiplex a command to all coordinators, using a specific coordination strategy. Returns the
- * number of sent commands */
+/* Multiplex a non-sharding command to all coordinators, using a specific coordination strategy.  Returns the
+ * number of sent commands.
+ * If validateConnections is true, the function will validate that all connections are up before sending the command */
 int MRCluster_FanoutCommand(IORuntimeCtx *ioRuntime,
                            MRCommand *cmd,
                            redisCallbackFn *fn,
-                           void *privdata) {
+                           void *privdata,
+                           bool validateConnections) {
   struct MRClusterTopology *topo = ioRuntime->topo;
   uint32_t slotsInfoPos = cmd->slotsInfoArgIndex; // 0 if not set, which means slot info is not needed
   uint32_t dispatchTimePos = cmd->dispatchTimeArgIndex; // 0 if not set, which means dispatch time is not needed
@@ -58,6 +76,17 @@ int MRCluster_FanoutCommand(IORuntimeCtx *ioRuntime,
     // Update dispatch time for this command
     MRCommand_SetDispatchTime(cmd);
   }
+
+  // Pre-fanout connection validation
+  if (validateConnections) {
+    for (size_t i = 0; i < topo->numShards; i++) {
+      MRConn *conn = MRConn_Get(&ioRuntime->conn_mgr, topo->shards[i].node.id);
+      if (!conn) {
+        return 0;
+      }
+    }
+  }
+
   int ret = 0;
   for (size_t i = 0; i < topo->numShards; i++) {
     MRConn *conn = MRConn_Get(&ioRuntime->conn_mgr, topo->shards[i].node.id);

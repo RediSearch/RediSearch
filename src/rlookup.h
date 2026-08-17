@@ -13,11 +13,10 @@
 
 #include <spec.h>
 #include <search_ctx.h>
-#include "value.h"
 #include "sortable.h"
 #include "util/arr.h"
 
-#include "rlookup_rs.h"
+#include "rlookup_ffi.h"
 
 #ifdef __cplusplus
 extern "C" {

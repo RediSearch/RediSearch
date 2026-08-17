@@ -28,9 +28,11 @@ protected:
 
     void SetUp() override {
         ctx = RedisModule_GetThreadSafeContext(NULL);
+        RMCK_ClusterMock_Reset();
     }
 
     void TearDown() override {
+        RMCK_ClusterMock_Reset();
         if (ctx) {
             RedisModule_FreeThreadSafeContext(ctx);
         }
@@ -1046,4 +1048,107 @@ TEST_F(ClusterSetTest, EdgeCase_LocalShardReplica) {
     }
 
     MRClusterTopology_Free(topo);
+}
+
+// ============================================================================
+// Short-form (search.CLUSTERSET AUTH <pw>) dispatch tests
+// ----------------------------------------------------------------------------
+// RedisEnterprise_ParseTopology dispatches to parse_topology_short_form when
+// argc == 3 and the cluster API pointer is set. The short form parses AUTH
+// then defers to MRClusterTopology_FromAPI against the mocked cluster.
+// ============================================================================
+
+namespace {
+constexpr const char *SHORT_NODE_A = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+constexpr const char *SHORT_NODE_B = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+}  // namespace
+
+TEST_F(ClusterSetTest, ShortForm_HappyPath) {
+    RMCK_ClusterMock_AddNode(SHORT_NODE_A, "127.0.0.1", 6379,
+                             REDISMODULE_NODE_MASTER | REDISMODULE_NODE_MYSELF,
+                             {{0, 8191}});
+    RMCK_ClusterMock_AddNode(SHORT_NODE_B, "127.0.0.2", 6380,
+                             REDISMODULE_NODE_MASTER, {{8192, 16383}});
+
+    std::vector<std::string> args = {"search.CLUSTERSET", "AUTH", "hunter2"};
+    ArgvList argv(ctx, args);
+    uint32_t my_shard_idx = UINT32_MAX;
+    MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
+
+    ASSERT_NE(topo, nullptr);
+    EXPECT_EQ(topo->numShards, 2u);
+    ASSERT_NE(my_shard_idx, UINT32_MAX);
+    EXPECT_STREQ(topo->shards[my_shard_idx].node.id, SHORT_NODE_A);
+    // Auth value should land on every shard's endpoint password.
+    for (uint32_t i = 0; i < topo->numShards; i++) {
+        EXPECT_STREQ(topo->shards[i].node.endpoint.password, "hunter2");
+    }
+    MRClusterTopology_Free(topo);
+}
+
+TEST_F(ClusterSetTest, ShortForm_FirstArgNotAuth) {
+    // Mock has a valid cluster, but the first arg isn't "AUTH" so VERIFY_ARG
+    // rejects the command before we ever reach MRClusterTopology_FromAPI.
+    RMCK_ClusterMock_AddNode(SHORT_NODE_A, "127.0.0.1", 6379,
+                             REDISMODULE_NODE_MASTER | REDISMODULE_NODE_MYSELF,
+                             {{0, 16383}});
+
+    std::vector<std::string> args = {"search.CLUSTERSET", "NOTAUTH", "pw"};
+    ArgvList argv(ctx, args);
+    uint32_t my_shard_idx = UINT32_MAX;
+    MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
+
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx), "Expected `AUTH` but got `NOTAUTH` at offset 1");
+}
+
+TEST_F(ClusterSetTest, ShortForm_FromAPIFails_NoLocalNode) {
+    // Cluster has shards but no node carries the MYSELF flag, so FromAPI
+    // returns NULL. parse_topology_short_form must translate that into the
+    // "Failed to parse topology using module API" reply.
+    RMCK_ClusterMock_AddNode(SHORT_NODE_A, "127.0.0.1", 6379, REDISMODULE_NODE_MASTER,
+                             {{0, 16383}});
+
+    std::vector<std::string> args = {"search.CLUSTERSET", "AUTH", "pw"};
+    ArgvList argv(ctx, args);
+    uint32_t my_shard_idx = UINT32_MAX;
+    MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
+
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx),
+              "Failed to parse topology using module API at offset 3");
+}
+
+TEST_F(ClusterSetTest, ShortForm_FromAPIFails_EmptyCluster) {
+    // Empty mock cluster — RedisModule_GetClusterNodesList returns nothing, so
+    // FromAPI returns NULL. Same error reply as the no-local case.
+    std::vector<std::string> args = {"search.CLUSTERSET", "AUTH", "pw"};
+    ArgvList argv(ctx, args);
+    uint32_t my_shard_idx = UINT32_MAX;
+    MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
+
+    EXPECT_EQ(topo, nullptr);
+    EXPECT_EQ(RMCK_GetLastError(ctx),
+              "Failed to parse topology using module API at offset 3");
+}
+
+TEST_F(ClusterSetTest, ShortForm_DispatchBoundary_NotArgcThree) {
+    // argc != 3 must NOT dispatch to short form, even with a leading AUTH.
+    // We prove this by asserting we get the long-form parser's error, not
+    // the short-form parser's "Failed to parse topology" error.
+    RMCK_ClusterMock_AddNode(SHORT_NODE_A, "127.0.0.1", 6379,
+                             REDISMODULE_NODE_MASTER | REDISMODULE_NODE_MYSELF,
+                             {{0, 16383}});
+
+    std::vector<std::string> args = {"search.CLUSTERSET", "AUTH", "pw", "extra"};
+    ArgvList argv(ctx, args);
+    uint32_t my_shard_idx = UINT32_MAX;
+    MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argv.size(), &my_shard_idx);
+
+    EXPECT_EQ(topo, nullptr);
+    // The exact message comes from the long-form parser (the AUTH/pw/extra
+    // tokens aren't valid long-form keywords). We only assert it's NOT the
+    // short-form message, which would mean dispatch leaked across the gate.
+    EXPECT_NE(RMCK_GetLastError(ctx),
+              "Failed to parse topology using module API at offset 3");
 }

@@ -18,6 +18,7 @@
 #include "spec.h"
 #include "search_ctx.h"
 #include "aggregate/aggregate.h"
+#include "query_eval_ffi.h"
 
 // Macro for BLOB data that all tests using $BLOB should use
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
@@ -51,7 +52,7 @@ IndexSpec* CreateTestIndexSpec(RedisModuleCtx *ctx, const char* indexName, Query
                             "SCHEMA", "title", "TEXT", "score", "NUMERIC",
                             "category", "TEXT", "vector_field", "VECTOR", "FLAT", "6",
                             "TYPE", "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "COSINE");
-  return IndexSpec_CreateNew(ctx, createArgs, createArgs.size(), status);
+  return Indexes_CreateNewSpec(ctx, createArgs, createArgs.size(), status);
 }
 
 // ============================================================================
@@ -77,7 +78,7 @@ struct HybridIteratorTestCtx {
       if (rootiter) rootiter->Free(rootiter);
       if (hybridReq) HybridRequest_DecrRef(hybridReq);
       if (hybridParams.scoringCtx) HybridScoringContext_Free(hybridParams.scoringCtx);
-      if (spec) IndexSpec_RemoveFromGlobals(spec->own_ref, false);
+      if (spec) Indexes_RemoveSpecFromGlobals(spec->own_ref, false);
     }
   };
 
@@ -113,7 +114,7 @@ bool SetupHybridIteratorTest(RedisModuleCtx *ctx,
     RedisSearchCtx *sctx = NewSearchCtxC(ctx, specName, true);
     if (!sctx) return false;
 
-    testCtx->hybridReq = MakeDefaultHybridRequest(sctx);
+    testCtx->hybridReq = MakeDefaultHybridRequest(sctx, args, args.size());
     if (!testCtx->hybridReq) return false;
 
     // Step 4: Parse the hybrid command
@@ -130,7 +131,7 @@ bool SetupHybridIteratorTest(RedisModuleCtx *ctx,
     };
 
     ArgsCursor ac = {0};
-    HybridRequest_InitArgsCursor(testCtx->hybridReq, &ac, args, args.size());
+    HybridRequest_InitArgsCursor(testCtx->hybridReq, &ac, args.size());
 
     int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, &testCtx->status, false, EXEC_NO_FLAGS);
     if (rc != REDISMODULE_OK) return false;
@@ -139,7 +140,7 @@ bool SetupHybridIteratorTest(RedisModuleCtx *ctx,
     AREQ *vecReq = testCtx->hybridReq->requests[VECTOR_REQUEST_INDEX];
     testCtx->rootiter = QAST_Iterate(&vecReq->ast, &vecReq->searchopts,
                                       AREQ_SearchCtx(vecReq), vecReq->reqflags,
-                                      &testCtx->iterError);
+                                      vecReq, &testCtx->iterError);
 
     if (!QueryError_IsOk(&testCtx->iterError) || !testCtx->rootiter) return false;
     if (testCtx->rootiter->type != HYBRID_ITERATOR) return false;

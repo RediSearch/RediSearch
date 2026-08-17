@@ -10,7 +10,7 @@
 #define RS_AGG_EXPRESSION_H_
 
 #include "redisearch.h"
-#include "value.h"
+#include "value_ffi.h"
 #include "aggregate/functions/function.h"
 #include "reply.h"
 

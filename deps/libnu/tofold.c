@@ -3,7 +3,11 @@
 #ifdef NU_WITH_TOFOLD
 
 #include "casemap_internal.h"
-#include "gen/_tofold.c"
+#ifndef NU_WITH_BMP_ONLY
+# include "gen/_tofold.c"
+#else
+# include "gen/_tofold_compact.c"
+#endif /* NU_WITH_BMP_ONLY */
 
 const char* nu_tofold(uint32_t codepoint) {
 	return _nu_to_something(codepoint, NU_TOFOLD_G, NU_TOFOLD_G_SIZE,

@@ -8,6 +8,13 @@
 */
 #include <aggregate/reducer.h>
 #include <util/block_alloc.h>
+#include <stddef.h>
+
+#include "value_ffi.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "rlookup.h"
+#include "rmalloc.h"
 
 typedef struct {
   size_t count;

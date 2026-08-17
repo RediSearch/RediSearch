@@ -7,33 +7,42 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "redismodule.h"
-
-#include "module.h"
-#include "config.h"
-#include "redisearch_api.h"
-#include <assert.h>
-#include <ctype.h>
 #include <dlfcn.h>
-#include "concurrent_ctx.h"
+// __USE_GNU; glibc-only header
+#if __has_include(<features.h>)
+#include <features.h>  // IWYU pragma: keep
+#endif
+#include <stdbool.h>
+#include <string.h>
+
+#include "redismodule.h"
+#include "module.h"
+#include "indexes.h"
+#include "config.h"
 #include "cursor.h"
 #include "extension.h"
 #include "alias.h"
 #include "notifications.h"
-#include "aggregate/aggregate.h"
+#include "util/misc.h"
 #include "ext/default.h"
-#include "rwlock.h"
 #include "json.h"
 #include "VecSim/vec_sim.h"
 #include "util/workers.h"
-#include "util/array.h"
-#include "cursor.h"
-#include "fork_gc.h"
-#include "info/info_command.h"
-#include "profile/profile.h"
 #include "info/info_redis/info_redis.h"
 #include "util/logging.h"
 #include "asm_state_machine.h"
+#include "VecSim/vec_sim_common.h"
+#include "aggregate/functions/function.h"
+#include "gc.h"
+#include "hiredis/sds.h"
+#include "redisearch.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "spec.h"
+#include "thpool/thpool.h"
+#include "util/timeout.h"
+#include "vector_index.h"
+#include "version.h"
 
 #define DEPLETER_POOL_SIZE 4
 
@@ -55,46 +64,21 @@ static int validateAofSettings(RedisModuleCtx *ctx) {
     return rc;
   }
 
-  // Can't execute commands on the loading context, so make a new one
-  RedisModuleCallReply *reply =
-      RedisModule_Call(RSDummyContext, "CONFIG", "cc", "GET", "aof-use-rdb-preamble");
-  RS_ASSERT(reply);
-  RS_ASSERT(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ARRAY);
-  RS_ASSERT(RedisModule_CallReplyLength(reply) == 2);
-  const char *value =
-      RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(reply, 1), NULL);
-
-  // I tried using strcasecmp, but it seems that the yes/no replies have a trailing
-  // embedded newline in them
-  if (tolower(*value) == 'n') {
+  // Can't execute commands on the loading context, so use the dummy one
+  if (!getRedisConfigBool(RSDummyContext, "aof-use-rdb-preamble", false)) {
     RedisModule_Log(RSDummyContext, "warning", "FATAL: aof-use-rdb-preamble required if AOF is used!");
     rc = 0;
   }
-  RedisModule_FreeCallReply(reply);
   return rc;
 }
 
 static int initAsModule(RedisModuleCtx *ctx) {
-  if (RediSearch_ExportCapi(ctx) != REDISMODULE_OK) {
-    RedisModule_Log(ctx, "warning", "Could not initialize low level api");
-  } else {
-    RedisModule_Log(ctx, "notice", "Low level api version %d initialized successfully",
-                    REDISEARCH_CAPI_VERSION);
-  }
-
   if (!validateAofSettings(ctx)) {
     return REDISMODULE_ERR;
   }
 
   GetJSONAPIs(ctx, 1);
 
-  return REDISMODULE_OK;
-}
-
-static int initAsLibrary(RedisModuleCtx *ctx) {
-  RSGlobalConfig.iteratorsConfigParams.minTermPrefix = 0;
-  RSGlobalConfig.iteratorsConfigParams.maxPrefixExpansions = LONG_MAX;
-  RSGlobalConfig.iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH;
   return REDISMODULE_OK;
 }
 
@@ -109,17 +93,13 @@ static inline const char* RS_GetExtraVersion() {
 int RS_Initialized = 0;
 RedisModuleCtx *RSDummyContext = NULL;
 
-int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
-#define DO_LOG(...)                                 \
-  do {                                              \
-    if (ctx && (mode != REDISEARCH_INIT_LIBRARY)) { \
-      RedisModule_Log(ctx, ##__VA_ARGS__);          \
-    }                                               \
+int RediSearch_Init(RedisModuleCtx *ctx) {
+#define DO_LOG(...)                        \
+  do {                                     \
+    if (ctx) {                             \
+      RedisModule_Log(ctx, ##__VA_ARGS__); \
+    }                                      \
   } while (false)
-
-  if (RediSearch_LockInit(ctx) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
 
   // Print version string!
   DO_LOG("notice", "RediSearch version %d.%d.%d (Git=%s)", REDISEARCH_VERSION_MAJOR,
@@ -131,14 +111,13 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   DO_LOG("debug", "RediSearch base address: %p", info.dli_fbase);
 #endif
   RS_Initialized = 1;
+  MainThread_Set();
 
   if (!RSDummyContext) {
     RSDummyContext = RedisModule_GetDetachedThreadSafeContext(ctx);
   }
 
-  if (mode == REDISEARCH_INIT_MODULE && initAsModule(ctx) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  } else if (mode == REDISEARCH_INIT_LIBRARY && initAsLibrary(ctx) != REDISMODULE_OK) {
+  if (initAsModule(ctx) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
@@ -162,6 +141,14 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 
   // Handle deprecated MT configurations
   UpgradeDeprecatedMTConfigs();
+
+  // Register rm_malloc memory functions as vector similarity memory functions.
+  // Must be done before workersThreadPool_CreatePool, which calls VecSim_UpdateThreadPoolSize
+  // and may allocate VecSim internal structures (shared SVS thread pool).
+  VecSimMemoryFunctions vecsimMemoryFunctions = {.allocFunction = rm_malloc, .callocFunction = rm_calloc, .reallocFunction = rm_realloc, .freeFunction = rm_free};
+  VecSim_SetMemoryFunctions(vecsimMemoryFunctions);
+  VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)TimedOut_WithCtx);
+  VecSim_SetLogCallbackFunction(VecSimLogCallback);
 
   // Init threadpool.
   if (workersThreadPool_CreatePool(RSGlobalConfig.numWorkerThreads) == REDISMODULE_ERR) {
@@ -214,10 +201,5 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   Initialize_RdbNotifications(ctx);
   Initialize_RoleChangeNotifications(ctx);
 
-  // Register rm_malloc memory functions as vector similarity memory functions.
-  VecSimMemoryFunctions vecsimMemoryFunctions = {.allocFunction = rm_malloc, .callocFunction = rm_calloc, .reallocFunction = rm_realloc, .freeFunction = rm_free};
-  VecSim_SetMemoryFunctions(vecsimMemoryFunctions);
-  VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)TimedOut_WithCtx);
-  VecSim_SetLogCallbackFunction(VecSimLogCallback);
   return REDISMODULE_OK;
 }

@@ -27,7 +27,7 @@ protected:
     RMCK::ArgvList createArgs(ctx, "FT.CREATE", index_name.c_str(), "ON", "HASH",
                               "SCHEMA", "title", "TEXT", "content", "TEXT",
                               "vector", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32", "DIM", "3", "DISTANCE_METRIC", "COSINE");
-    IndexSpec *spec = IndexSpec_CreateNew(ctx, createArgs, createArgs.size(), &qerr);
+    IndexSpec *spec = Indexes_CreateNewSpec(ctx, createArgs, createArgs.size(), &qerr);
     if (!spec) {
       printf("Failed to create index '%s': code=%d, detail='%s'\n",
              index_name.c_str(), QueryError_GetCode(&qerr), QueryError_GetUserError(&qerr));
@@ -37,12 +37,8 @@ protected:
 
     sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
     ASSERT_TRUE(sctx != NULL);
-    result = MakeDefaultHybridRequest(sctx);
+    result = NULL;
     hybridParams = {0};
-    parseCtx.search = result->requests[0];
-    parseCtx.vector = result->requests[1];
-    parseCtx.tailPlan = &result->tailPipeline->ap;
-    parseCtx.hybridParams = &hybridParams;
   }
 
   void TearDown() override {
@@ -69,6 +65,12 @@ protected:
   HybridRequest *parseCommand(RMCK::ArgvList& args) {
     QueryError status = QueryError_Default();
 
+    result = MakeDefaultHybridRequest(sctx, args, args.size());
+    parseCtx.search = result->requests[0];
+    parseCtx.vector = result->requests[1];
+    parseCtx.tailPlan = &result->tailPipeline->ap;
+    parseCtx.hybridParams = &hybridParams;
+
     EXPECT_TRUE(result->sctx != NULL) << "Failed to create search context";
 
     ParseHybridCommandCtx cmd = {0};
@@ -80,7 +82,7 @@ protected:
     cmd.cursorConfig = &result->cursorConfig;
 
     ArgsCursor ac = {0};
-    HybridRequest_InitArgsCursor(result, &ac, args, args.size());
+    HybridRequest_InitArgsCursor(result, &ac, args.size());
     int rc =  parseHybridCommand(ctx, &ac, result->sctx, &cmd, &status, false, EXEC_NO_FLAGS);
     if (rc != REDISMODULE_OK) {
       HybridRequest_DecrRef(result);

@@ -8,6 +8,7 @@
 */
 
 use rqe_iterators::{IteratorType, RQEIterator, SkipToOutcome, wildcard::Wildcard};
+use rqe_iterators_test_utils::ContractChecker;
 
 /// Helper macro to assert skip_to result with expected doc_id
 /// This preserves the call site location in test failures
@@ -28,13 +29,13 @@ macro_rules! assert_skip_to_found {
 
 #[test]
 fn type_() {
-    let it = Wildcard::new(10, 1.0);
+    let it = ContractChecker::new(Wildcard::new(10, 1.0));
     assert_eq!(it.type_(), IteratorType::Wildcard);
 }
 
 #[test]
 fn initial_state() {
-    let it = Wildcard::new(10, 5.);
+    let it = ContractChecker::new(Wildcard::new(10, 5.));
 
     assert_eq!(it.last_doc_id(), 0);
     assert!(!it.at_eof());
@@ -45,7 +46,7 @@ fn initial_state() {
 fn read_with_post_call_mutate() {
     // small test to ensure such mutations are possible
     // for iterators which wrap Wildcard.
-    let mut it = Wildcard::new(2, 0.);
+    let mut it = ContractChecker::new(Wildcard::new(2, 0.));
 
     for step in 1..=2 {
         let result = it.read().unwrap().unwrap();
@@ -62,7 +63,7 @@ fn read_with_post_call_mutate() {
 #[test]
 fn read_sequential() {
     let weight = 0.5;
-    let mut it = Wildcard::new(5, weight);
+    let mut it = ContractChecker::new(Wildcard::new(5, weight));
 
     // Read all documents sequentially
     for expected_id in 1..=5 {
@@ -74,9 +75,8 @@ fn read_sequential() {
         assert_eq!(it.last_doc_id(), expected_id);
         assert_eq!(it.current().unwrap().doc_id, expected_id);
 
-        // Should not be at EOF until we've read all documents
-        let expected_eof = expected_id == 5;
-        assert_eq!(it.at_eof(), expected_eof);
+        // Positioned on a result, so not at EOF, including on the last id.
+        assert!(!it.at_eof());
     }
 
     // After reading all docs, next read should return None
@@ -91,7 +91,7 @@ fn read_sequential() {
 
 #[test]
 fn skip_to_valid_targets() {
-    let mut it = Wildcard::new(10, 5.);
+    let mut it = ContractChecker::new(Wildcard::new(10, 5.));
 
     // Test skipping to middle
     let result = it.skip_to(5);
@@ -105,12 +105,17 @@ fn skip_to_valid_targets() {
     assert_skip_to_found!(result, 10);
     assert_eq!(it.last_doc_id(), 10);
     assert_eq!(it.current().unwrap().doc_id, 10);
+    // Still positioned on doc 10; the read that runs past it is what flips EOF.
+    assert!(!it.at_eof());
+
+    assert!(it.read().unwrap().is_none());
     assert!(it.at_eof());
+    assert!(it.current().is_none());
 }
 
 #[test]
 fn skip_to_beyond_range() {
-    let mut it = Wildcard::new(10, 1.);
+    let mut it = ContractChecker::new(Wildcard::new(10, 1.));
 
     let result = it.skip_to(11); // Beyond range
 
@@ -118,14 +123,49 @@ fn skip_to_beyond_range() {
     assert!(outcome.is_none());
     assert!(it.at_eof());
 
+    // The skip carried no result, so it left no position behind: nothing was
+    // ever yielded, and `last_doc_id` still says so.
+    assert_eq!(it.last_doc_id(), 0);
+    assert!(it.current().is_none());
+
     // Subsequent reads should return None
     let result = it.read().unwrap();
     assert!(result.is_none());
 }
 
 #[test]
+fn skip_to_beyond_range_keeps_the_last_yielded_position() {
+    let mut it = ContractChecker::new(Wildcard::new(10, 1.));
+
+    for expected_id in 1..=3 {
+        assert_eq!(it.read().unwrap().unwrap().doc_id, expected_id);
+    }
+
+    // Overshooting reports EOF without adopting a position the iterator never
+    // handed out — `top_id` least of all, which a parent would read as "doc 10
+    // is this iterator's current result".
+    assert!(matches!(it.skip_to(11), Ok(None)));
+    assert!(it.at_eof());
+    assert_eq!(it.last_doc_id(), 3);
+    assert!(it.current().is_none());
+
+    // Exhaustion is recorded on its own, so it holds even though the position
+    // (3) is still below `top_id` and a forward probe is still well-formed.
+    assert!(matches!(it.skip_to(4), Ok(None)));
+    assert!(matches!(it.read(), Ok(None)));
+    assert!(it.at_eof());
+    assert_eq!(it.last_doc_id(), 3);
+
+    // Only a rewind revives it.
+    it.rewind();
+    assert!(!it.at_eof());
+    assert_eq!(it.last_doc_id(), 0);
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+}
+
+#[test]
 fn rewind() {
-    let mut it = Wildcard::new(10, 7.2);
+    let mut it = ContractChecker::new(Wildcard::new(10, 7.2));
 
     // Read some documents
     for _i in 1..=3 {
@@ -155,7 +195,7 @@ fn rewind() {
 
 #[test]
 fn read_after_skip() {
-    let mut it = Wildcard::new(10, 3.);
+    let mut it = ContractChecker::new(Wildcard::new(10, 3.));
 
     // Skip to middle
     let result = it.skip_to(5);
@@ -181,26 +221,30 @@ fn read_after_skip() {
 
 #[test]
 fn skip_to_after_eof() {
-    let mut it = Wildcard::new(10, 3.7);
+    let mut it = ContractChecker::new(Wildcard::new(10, 3.7));
 
     // First, move to EOF by skipping beyond range
     let result = it.skip_to(11);
     assert!(result.is_ok());
     assert!(it.at_eof());
 
-    // Try to skip to a valid target while at EOF
+    // Try to skip to a valid target while at EOF. The overshoot above left the
+    // position at 0, so this is a well-formed forward probe — it just finds
+    // nothing, because exhaustion holds until a rewind.
     let result = it.skip_to(5);
     let outcome = result.unwrap();
     assert!(outcome.is_none());
     assert!(it.at_eof());
+    assert_eq!(it.last_doc_id(), 0);
 }
 
 #[test]
 fn zero_documents() {
-    let mut it = Wildcard::new(0, 3.7);
+    let mut it = ContractChecker::new(Wildcard::new(0, 3.7));
 
-    // Should immediately be at EOF
-    assert!(it.at_eof(), "iterator with top_id=0 should be at EOF");
+    // Unread rather than past its end: `at_eof()` only flips once a read has
+    // actually found nothing, even for an iterator that has nothing to find.
+    assert!(!it.at_eof(), "top_id=0 has not run past its end yet");
     assert_eq!(it.last_doc_id(), 0, "last_doc_id should be 0");
     assert_eq!(it.current().unwrap().doc_id, 0, "current().id should be 0");
     assert_eq!(it.num_estimated(), 0, "num_estimated should be 0");
@@ -209,6 +253,8 @@ fn zero_documents() {
     let result = it.read();
     let outcome = result.unwrap();
     assert!(outcome.is_none());
+    assert!(it.at_eof(), "the read ran past the end");
+    assert!(it.current().is_none());
 
     // Skip should return None
     let result = it.skip_to(1);
@@ -219,21 +265,18 @@ fn zero_documents() {
     );
 }
 
+/// The one test still driving the bare iterator, because its subject is
+/// *Wildcard's own* `debug_assert` that a skip goes strictly forward: it fires
+/// on a call that breaks `skip_to`'s caller-side precondition, which
+/// `ContractChecker` now catches one step earlier, so a wrapped version would
+/// pin the checker's panic instead of Wildcard's.
+///
+/// Probing the position the iterator already holds is the boundary case — a
+/// strictly backward probe trips the same single assertion, so one test covers
+/// both.
 #[test]
 #[cfg(debug_assertions)]
-#[should_panic]
-fn skip_to_backwards() {
-    let mut it = Wildcard::new(100, 6.6);
-
-    let _ = it.skip_to(75);
-
-    // Try to skip backwards to position 25, should panic
-    let _ = it.skip_to(25);
-}
-
-#[test]
-#[cfg(debug_assertions)]
-#[should_panic]
+#[should_panic(expected = "assertion failed: self.last_doc_id() < doc_id")]
 fn skip_to_same_position() {
     let mut it = Wildcard::new(10, 0.5);
 
@@ -243,6 +286,14 @@ fn skip_to_same_position() {
     assert_eq!(it.last_doc_id(), 5);
     assert_eq!(it.current().unwrap().doc_id, 5);
 
-    // Try to skip backwards to the same position, should panic
+    // Try to skip to the same position, should panic
     let _ = it.skip_to(5);
+}
+
+#[test]
+fn wildcard_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    let mut it = ContractChecker::new(Wildcard::new(5, 1.0));
+    assert_eq!(assert_current_contract(&mut it), [1, 2, 3, 4, 5]);
+    assert_current_contract_via_skip_to(&mut it, 6);
 }

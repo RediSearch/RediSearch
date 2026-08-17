@@ -38,12 +38,16 @@ env:
 jobs:
   # Get configuration for this specific platform and architecture
   get-config:
+    permissions: {} # task-get-config.yml only resolves config values
     uses: ./.github/workflows/task-get-config.yml
     with:
       platform: ${{ inputs.platform }}
       architecture: ${{ inputs.architecture }}
 
   build-image:
+    permissions: # task-build-cached-container.yml pushes the image to GHCR
+      contents: read
+      packages: write
     needs: get-config
     if: ${{ needs.get-config.outputs.container }}
     name: Build cached container for platform
@@ -77,8 +81,10 @@ jobs:
       || null }}
 
     env:
+      IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
       VERBOSE: 1 # For logging
       RELEASE: 0 # We build snapshots. This variable is used in the pack name (see `make pack`)
+      LTO: ${{ needs.get-config.outputs.enable_lto }}
       # Build command
       BUILD_CMD: echo '::group::Build' && make build VERBOSE= GIT_BRANCH=$BRANCH && echo '::endgroup::'
       GITHUB_REPOSITORY: ${{ github.repository }}
@@ -126,52 +132,19 @@ jobs:
         if: needs.get-config.outputs.post_setup_script
         run: ${{ needs.get-config.outputs.post_setup_script }}
 
-      - name: checkout (node20)
-        if: needs.get-config.outputs.node20_supported == 'true'
-        uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
           ref: ${{ env.REF }}
-      - name: checkout (legacy)
-        # Manual checkout path for platforms where Node 20-based actions are unavailable.
-        if: needs.get-config.outputs.node20_supported != 'true'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPO: ${{ github.repository }}
-        run: |
-          CONTAINER="${{ needs.get-config.outputs.container }}"
-          echo "Detected platform: $CONTAINER"
-          case "$CONTAINER" in
-            amazonlinux:2)
-              # Configure the safe directory.
-              git config --global --add safe.directory "$GITHUB_WORKSPACE"
-
-              # Checkout.
-              REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git"
-
-              # Initialize a Git repository.
-              git init
-              git remote add origin "$REPO_URL"
-
-              # Fetch the requested ref, then check it out and initialize submodules.
-              git fetch origin "$REF" || {
-                echo "Failed to fetch ref: '$REF'";
-                exit 1;
-              }
-              # Check out the fetched ref.
-              git checkout FETCH_HEAD
-              # Update submodules.
-              git submodule update --init --recursive
-              ;;
-            *)
-              echo "Unsupported platform: '$CONTAINER'"
-              exit 1
-              ;;
-          esac
       - name: Setup sccache
-        # sccache-action is a JavaScript action requiring Node.js 20+
-        if: needs.get-config.outputs.node20_supported == 'true'
+        if: ${{ env.IS_FORK_PR != 'true' }}
         uses: ./.github/actions/setup-sccache
+        with:
+          aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
+          s3-bucket: ${{ vars.SCCACHE_S3_BUCKET }}
+          s3-region: ${{ vars.SCCACHE_S3_REGION }}
+          s3-key-prefix: ${{ vars.SCCACHE_S3_KEY_PREFIX }}
       - name: Setup
         if: needs.build-image.outputs.succeeded != 'true'
         uses: ./.github/actions/retry-command
@@ -184,24 +157,23 @@ jobs:
           command: ./install_aws.sh ${{ needs.get-config.outputs.install_mode }}
           working_directory: .install
       - name: Setup test dependencies
+        # github_token (scoped to this step) lets cargo-binstall, invoked via
+        # common_installations.sh, use authenticated GitHub API calls
         uses: ./.github/actions/retry-command
         with:
           command: .install/test_deps/common_installations.sh ${{ needs.get-config.outputs.install_mode }}
+          github_token: ${{ github.token }}
       - name: install build artifacts req
         uses: ./.github/actions/retry-command
         with:
           command: uv pip install -q -r .install/build_package_requirements.txt
 
-      # Get Redis
-      - name: Get Redis
-        uses: ./.github/actions/get-redis
+      - name: Build Redis (cached)
+        uses: ./.github/actions/build-redis
         with:
           ref: ${{ inputs.redis-ref }}
-          node20_supported: ${{ needs.get-config.outputs.node20_supported }}
-
-      - name: Build Redis
-        working-directory: redis
-        run: ${{ needs.get-config.outputs.install_mode }} make install
+          build_tls: 'false'
+          cache_platform_id: ${{ needs.get-config.outputs.container || needs.get-config.outputs.env }}
 
       # Build & Pack
       - name: Build and Pack RediSearch OSS
@@ -210,8 +182,7 @@ jobs:
         run: ${{ env.BUILD_CMD }} && make pack
 
       - name: Show sccache stats
-        if: needs.get-config.outputs.node20_supported == 'true'
-        run: ${SCCACHE_PATH:-sccache} --show-stats
+        run: ${SCCACHE_PATH:-sccache} --show-stats || true
 
       - name: Validate glibc version
         if: runner.os == 'Linux' && inputs.platform != 'ubuntu:focal'
@@ -226,16 +197,18 @@ jobs:
           aws_access_key_id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
           aws_secret_access_key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
           aws_region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
-          node20_supported: ${{ needs.get-config.outputs.node20_supported }}
       - name: Set Version identifier
         id: set-versions
+        env:
+          INPUT_VERSION_SUFFIX: ${{ inputs.version-suffix }}
+          INPUT_BETA_VERSION: ${{ inputs.beta-version }}
         run: |
-          VERSION_SUFFIX="${{ inputs.version-suffix }}"
+          VERSION_SUFFIX="$INPUT_VERSION_SUFFIX"
           echo "VERSION_SUFFIX=$VERSION_SUFFIX" >> $GITHUB_OUTPUT
           # Use the pre-generated beta version if provided (master branch builds)
           # Otherwise generate regular version from version.h (non-master branch builds)
-          if [[ -n "${{ inputs.beta-version }}" ]]; then
-            BETA_VERSION="${{ inputs.beta-version }}"
+          if [[ -n "$INPUT_BETA_VERSION" ]]; then
+            BETA_VERSION="$INPUT_BETA_VERSION"
             echo "BETA_VERSION=$BETA_VERSION" >> $GITHUB_OUTPUT
             echo "Using pre-generated beta version: $BETA_VERSION"
           else

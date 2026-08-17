@@ -14,10 +14,8 @@ use criterion::{
     measurement::WallTime,
 };
 use ffi::IndexFlags_Index_DocIdsOnly;
-use inverted_index::{IndexBlock, InvertedIndex, RSIndexResult, numeric::Numeric};
-
-#[allow(unused_imports)] // We need this symbol for C binding
-use inverted_index_bencher::ResultMetrics_Free;
+use index_result::RSIndexResult;
+use inverted_index::{InvertedIndex, numeric::Numeric};
 
 fn benchmark_garbage_collection(c: &mut Criterion) {
     let mut group = c.benchmark_group("GC");
@@ -69,8 +67,11 @@ fn benchmark_gc_pattern(
             }
 
             b.iter(|| {
-                ii.scan_gc(&doc_exist, None::<fn(&RSIndexResult, &IndexBlock)>)
-                    .unwrap();
+                ii.scan_gc(
+                    &doc_exist,
+                    None::<fn(&RSIndexResult, &inverted_index::RepairContext<'_>)>,
+                )
+                .unwrap();
             })
         },
     );
@@ -91,7 +92,10 @@ fn benchmark_gc_pattern(
                         .unwrap();
                     }
                     let scan_deltas = ii
-                        .scan_gc(&doc_exist, None::<fn(&RSIndexResult, &IndexBlock)>)
+                        .scan_gc(
+                            &doc_exist,
+                            None::<fn(&RSIndexResult, &inverted_index::RepairContext<'_>)>,
+                        )
                         .unwrap()
                         .unwrap();
 
@@ -142,8 +146,11 @@ fn benchmark_large_delta_pattern(group: &mut BenchmarkGroup<'_, WallTime>) {
             }
 
             b.iter(|| {
-                ii.scan_gc(&doc_exist, None::<fn(&RSIndexResult, &IndexBlock)>)
-                    .unwrap();
+                ii.scan_gc(
+                    &doc_exist,
+                    None::<fn(&RSIndexResult, &inverted_index::RepairContext<'_>)>,
+                )
+                .unwrap();
             })
         },
     );
@@ -165,7 +172,10 @@ fn benchmark_large_delta_pattern(group: &mut BenchmarkGroup<'_, WallTime>) {
                         .unwrap();
                     }
                     let scan_deltas = ii
-                        .scan_gc(&doc_exist, None::<fn(&RSIndexResult, &IndexBlock)>)
+                        .scan_gc(
+                            &doc_exist,
+                            None::<fn(&RSIndexResult, &inverted_index::RepairContext<'_>)>,
+                        )
                         .unwrap()
                         .unwrap();
 

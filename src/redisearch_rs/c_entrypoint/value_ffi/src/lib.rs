@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#![allow(non_camel_case_types, non_snake_case)]
+use std::marker::PhantomData;
 
 pub mod array;
 pub mod comparisons;
@@ -21,3 +21,10 @@ pub mod setters;
 pub mod shared;
 pub mod util;
 pub mod value_type;
+
+/// The C version of a [`SharedValue`](value::SharedValue)
+pub struct RSValue {
+    // Ideally we want this marker to be around `thriomphe::Arc`s inner struct
+    // containing the refcount, but that is hidden from use.
+    _marker: PhantomData<value::Value>,
+}

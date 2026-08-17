@@ -11,16 +11,20 @@ use rqe_iterators::{
     IteratorType, RQEIterator, RQEValidateStatus,
     metric::{MetricSortedById, MetricSortedByScore},
 };
+use rqe_iterators_test_utils::ContractChecker;
 
 #[test]
 fn type_sorted_by_id() {
-    let it = MetricSortedById::new(vec![1, 3, 5], vec![0.1, 0.3, 0.5]);
+    let it = ContractChecker::new(MetricSortedById::new(vec![1, 3, 5], vec![0.1, 0.3, 0.5]));
     assert_eq!(it.type_(), IteratorType::MetricSortedById);
 }
 
 #[test]
 fn type_sorted_by_score() {
-    let it = MetricSortedByScore::new(vec![1, 3, 5], vec![0.1, 0.3, 0.5]);
+    let it = ContractChecker::new_unordered(MetricSortedByScore::new(
+        vec![1, 3, 5],
+        vec![0.1, 0.3, 0.5],
+    ));
     assert_eq!(it.type_(), IteratorType::MetricSortedByScore);
 }
 
@@ -36,7 +40,7 @@ fn test_metric_creation_panic() {
 fn test_metric_creation() {
     let ids = vec![1, 3, 5, 7, 9];
     let metric_data = vec![0.1, 0.3, 0.5, 0.7, 0.9];
-    let mut metric = MetricSortedById::new(ids.clone(), metric_data.clone());
+    let mut metric = ContractChecker::new(MetricSortedById::new(ids.clone(), metric_data.clone()));
 
     // Test that the metric was created with correct data
     assert_eq!(metric.num_estimated(), ids.len());
@@ -58,22 +62,22 @@ fn score_variant_can_handle_unsorted_ids() {
 fn score_variant_cannot_skip() {
     let ids = vec![5, 3, 1, 4, 2];
     let metric_data = vec![0.1, 0.3, 0.5, 0.7, 0.9];
-    let mut i = MetricSortedByScore::new(ids, metric_data);
+    let mut i = ContractChecker::new_unordered(MetricSortedByScore::new(ids, metric_data));
     let _ = i.skip_to(3);
 }
 
-#[cfg(not(miri))]
-mod not_miri {
+mod metrics_tests {
     use crate::id_cases;
-    use ffi::RSValue_Number_Get;
-    use inverted_index::RSResultKind;
+    use index_result::RSResultKind;
     use rqe_iterators::{RQEIterator, SkipToOutcome, metric::MetricSortedById};
+    use rqe_iterators_test_utils::ContractChecker;
     use rstest_reuse::apply;
 
     #[apply(id_cases)]
     fn read(#[case] case: &[u64]) {
         let metric_data: Vec<f64> = case.iter().map(|&id| id as f64 * 0.1).collect();
-        let mut it = MetricSortedById::new(case.to_vec(), metric_data.clone());
+        let mut it =
+            ContractChecker::new(MetricSortedById::new(case.to_vec(), metric_data.clone()));
 
         assert_eq!(it.num_estimated(), case.len());
         assert!(!it.at_eof());
@@ -85,16 +89,15 @@ mod not_miri {
             assert_eq!(res.kind(), RSResultKind::Metric);
             assert_eq!(res.as_numeric(), Some(metric_data[j]));
 
-            assert!(!res.metrics.is_null());
-            let metrics = unsafe { *res.metrics };
-            assert!(metrics.key.is_null());
-
-            let metric_val = unsafe { RSValue_Number_Get(metrics.value) };
-            assert_eq!(metric_val, metric_data[j]);
+            let metrics = res.metrics_ref();
+            let entry = metrics.get(0).expect("should have one entry");
+            assert!(entry.key().is_none());
+            assert_eq!(entry.value(), metric_data[j]);
             assert_eq!(it.last_doc_id(), expected_id);
         }
 
-        assert!(it.at_eof());
+        // Sitting on the last id is not EOF; the read that runs past it is.
+        assert!(!it.at_eof());
         assert!(matches!(it.read(), Ok(None)));
         assert!(it.at_eof());
 
@@ -103,9 +106,11 @@ mod not_miri {
     }
 
     #[apply(id_cases)]
+    #[cfg_attr(miri, ignore = "Too slow under miri")]
     fn skip_to(#[case] case: &[u64]) {
         let metric_data: Vec<f64> = case.iter().map(|&id| id as f64 * 0.1).collect();
-        let mut it = MetricSortedById::new(case.to_vec(), metric_data.clone());
+        let mut it =
+            ContractChecker::new(MetricSortedById::new(case.to_vec(), metric_data.clone()));
 
         // Read first element
         let first_doc = it.read().unwrap().unwrap();
@@ -114,15 +119,14 @@ mod not_miri {
         assert_eq!(first_doc.kind(), RSResultKind::Metric);
         assert_eq!(first_doc.as_numeric().unwrap(), metric_data[0]);
 
-        assert!(!first_doc.metrics.is_null());
-        let metrics = unsafe { *first_doc.metrics };
-        assert!(metrics.key.is_null());
-
-        let metric_val = unsafe { RSValue_Number_Get(metrics.value) };
-        assert_eq!(metric_val, metric_data[0]);
+        let metrics = first_doc.metrics_ref();
+        let entry = metrics.get(0).expect("should have one entry");
+        assert!(entry.key().is_none());
+        assert_eq!(entry.value(), metric_data[0]);
         assert_eq!(it.last_doc_id(), first_id);
         assert_eq!(it.current().unwrap().doc_id, first_id);
-        assert_eq!(it.at_eof(), Some(&first_id) == case.last());
+        // Positioned on an id, so not past the end, even when it is the last one.
+        assert!(!it.at_eof(), "still positioned on {first_id}");
 
         // Skip to higher than last doc id: expect EOF, last_doc_id unchanged
         let last = *case.last().unwrap();
@@ -149,14 +153,12 @@ mod not_miri {
                 assert_eq!(res.kind(), RSResultKind::Metric);
                 assert_eq!(res.as_numeric().unwrap(), metric_data[j]);
 
-                assert!(!res.metrics.is_null());
-                let metrics = unsafe { *res.metrics };
-                assert!(metrics.key.is_null());
-
-                let metric_val = unsafe { RSValue_Number_Get(metrics.value) };
-                assert_eq!(metric_val, metric_data[j]);
+                let metrics = res.metrics_ref();
+                let entry = metrics.get(0).expect("should have one entry");
+                assert!(entry.key().is_none());
+                assert_eq!(entry.value(), metric_data[j]);
                 // Should land on next existing id
-                assert_eq!(it.at_eof(), Some(&id) == case.last());
+                assert!(!it.at_eof(), "still positioned on {id}");
                 assert_eq!(it.last_doc_id(), id);
                 assert_eq!(it.current().unwrap().doc_id, id);
                 probe += 1;
@@ -170,13 +172,11 @@ mod not_miri {
             assert_eq!(res.kind(), RSResultKind::Metric);
             assert_eq!(res.as_numeric().unwrap(), metric_data[j]);
 
-            assert!(!res.metrics.is_null());
-            let metrics = unsafe { *res.metrics };
-            assert!(metrics.key.is_null());
-
-            let metric_val = unsafe { RSValue_Number_Get(metrics.value) };
-            assert_eq!(metric_val, metric_data[j]);
-            assert_eq!(it.at_eof(), Some(&id) == case.last());
+            let metrics = res.metrics_ref();
+            let entry = metrics.get(0).expect("should have one entry");
+            assert!(entry.key().is_none());
+            assert_eq!(entry.value(), metric_data[j]);
+            assert!(!it.at_eof(), "still positioned on {id}");
             assert_eq!(it.last_doc_id(), id);
             assert_eq!(it.current().unwrap().doc_id, id);
             probe += 1;
@@ -195,7 +195,7 @@ mod not_miri {
             assert_eq!(res.doc_id, id);
             assert_eq!(it.last_doc_id(), id);
             assert_eq!(it.current().unwrap().doc_id, id);
-            assert_eq!(it.at_eof(), Some(&id) == case.last());
+            assert!(!it.at_eof(), "still positioned on {id}");
         }
     }
 
@@ -207,7 +207,7 @@ mod not_miri {
         }
 
         let metric_data: Vec<f64> = case.iter().map(|&id| id as f64 * 0.1).collect();
-        let mut it = MetricSortedById::new(case.to_vec(), metric_data);
+        let mut it = ContractChecker::new(MetricSortedById::new(case.to_vec(), metric_data));
 
         for from_idx in 0..case.len() - 1 {
             for to_idx in from_idx + 1..case.len() {
@@ -235,7 +235,7 @@ mod not_miri {
                 assert_eq!(doc_to.doc_id, to_id);
                 assert_eq!(it.last_doc_id(), to_id);
                 assert_eq!(it.current().unwrap().doc_id, to_id);
-                assert_eq!(it.at_eof(), Some(&to_id) == case.last());
+                assert!(!it.at_eof(), "still positioned on {to_id}");
             }
         }
     }
@@ -243,7 +243,8 @@ mod not_miri {
     #[apply(id_cases)]
     fn rewind(#[case] case: &[u64]) {
         let metric_data: Vec<f64> = case.iter().map(|&id| id as f64 * 0.1).collect();
-        let mut it = MetricSortedById::new(case.to_vec(), metric_data.clone());
+        let mut it =
+            ContractChecker::new(MetricSortedById::new(case.to_vec(), metric_data.clone()));
 
         // Skip to each doc ID, verify, then rewind and check reset
         for (j, &id) in case.iter().enumerate() {
@@ -253,11 +254,10 @@ mod not_miri {
             assert_eq!(res.doc_id, id);
             assert_eq!(res.as_numeric().unwrap(), metric_data[j]);
 
-            assert!(!res.metrics.is_null());
-            let metrics = unsafe { *res.metrics };
-            assert!(metrics.key.is_null());
-            let metric_val = unsafe { RSValue_Number_Get(metrics.value) };
-            assert_eq!(metric_val, metric_data[j]);
+            let metrics = res.metrics_ref();
+            let entry = metrics.get(0).expect("should have one entry");
+            assert!(entry.key().is_none());
+            assert_eq!(entry.value(), metric_data[j]);
             assert_eq!(it.last_doc_id(), id);
             it.rewind();
             assert_eq!(it.last_doc_id(), 0);
@@ -270,11 +270,10 @@ mod not_miri {
             assert_eq!(res.doc_id, id);
             assert_eq!(res.as_numeric().unwrap(), metric_data[j]);
 
-            assert!(!res.metrics.is_null());
-            let metrics = unsafe { *res.metrics };
-            assert!(metrics.key.is_null());
-            let metric_val = unsafe { RSValue_Number_Get(metrics.value) };
-            assert_eq!(metric_val, metric_data[j]);
+            let metrics = res.metrics_ref();
+            let entry = metrics.get(0).expect("should have one entry");
+            assert!(entry.key().is_none());
+            assert_eq!(entry.value(), metric_data[j]);
             assert_eq!(it.last_doc_id(), id);
         }
 
@@ -292,9 +291,40 @@ mod not_miri {
 
 #[test]
 fn revalidate() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let metric_data = vec![0.1, 0.2, 0.3];
-    let mut it = MetricSortedById::new(vec![1, 2, 3], metric_data);
-    assert_eq!(it.revalidate().unwrap(), RQEValidateStatus::Ok);
+    let mut it = ContractChecker::new(MetricSortedById::new(vec![1, 2, 3], metric_data));
+    let status = it.revalidate(&*mock_ctx.spec_read()).unwrap();
+    assert_eq!(status, RQEValidateStatus::Ok);
+}
+
+mod via_resume {
+    use super::*;
+    use ffi::RLookupKeyHandle;
+    use rqe_iterators::TypeErasedRQEIterator;
+    use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
+
+    #[test]
+    fn revalidate() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let metric_data = vec![0.1, 0.2, 0.3];
+        let mut handle = RLookupKeyHandle {
+            key_ptr: std::ptr::null_mut(),
+            is_valid: true,
+        };
+        let mut it = MetricSortedById::new(vec![1, 2, 3], metric_data);
+        // SAFETY: handle_ptr points to a valid, stack-allocated RLookupKeyHandle.
+        unsafe { it.set_handle(&raw mut handle) };
+
+        let _it = revalidate_via_resume(
+            TypeErasedRQEIterator::new(Box::new(it)),
+            &mock_ctx.spec_read(),
+        )
+        .expect("resume should not fail")
+        .expect_ok();
+
+        assert!(handle.is_valid);
+    }
 }
 
 #[test]
@@ -331,4 +361,14 @@ fn set_handle_non_null_invalidates_on_drop() {
 
     // After drop, the handle should be invalidated
     assert!(!handle.is_valid);
+}
+
+/// [`Metric`](rqe_iterators::Metric) delegates `current()` to an inner
+/// [`IdList`](rqe_iterators::IdList), as do `MetricLazy` and `IdListLazy`.
+#[test]
+fn metric_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    let mut it = ContractChecker::new(MetricSortedById::new(vec![1u64, 3, 5], vec![0.1, 0.3, 0.5]));
+    assert_eq!(assert_current_contract(&mut it), [1, 3, 5]);
+    assert_current_contract_via_skip_to(&mut it, 6);
 }

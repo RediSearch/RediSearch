@@ -8,10 +8,10 @@
 */
 
 #include "slot_ranges.h"
-#include "rmalloc.h"
-#include "rmutil/rm_assert.h"
 
-#include <stdatomic.h>
+#include <string.h>
+
+#include "rmalloc.h"
 
 extern RedisModuleCtx *RSDummyContext;
 

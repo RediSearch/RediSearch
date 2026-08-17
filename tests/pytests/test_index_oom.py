@@ -65,9 +65,70 @@ def test_stop_background_indexing_on_low_mem(env):
   # Verify that only num_docs_scanned were indexed
   docs_in_index = get_index_num_docs(env)
   env.assertEqual(docs_in_index, num_docs_scanned)
+  # percent_indexed must reflect the OOM-cancelled build, not default to 1.0:
+  # it is frozen at the fraction scanned when the scan aborted (~num_docs_scanned/num_docs).
+  # Cast to float: under RESP2 FT.INFO returns numeric values as strings.
+  percent_indexed = float(index_info(env)['percent_indexed'])
+  env.assertLess(percent_indexed, 1.0)
+  env.assertAlmostEqual(percent_indexed, num_docs_scanned / num_docs, delta=0.05)
   # Verify that used_memory is close to 80% (config set) of maxmemory
   memory_ratio = get_memory_consumption_ratio(env)
   env.assertAlmostEqual(memory_ratio, 0.85, delta=0.1)
+
+@skip(cluster=True)
+def test_oom_state_cleared_on_successful_rescan(env):
+  # An OOM-aborted build persists scan_failed_OOM / scan_failed_OOM_scanned_keys on the
+  # spec. A later scan that completes (e.g. triggered by FT.ALTER once memory recovers)
+  # must clear that state: percent_indexed back to 1.0, background indexing status OK,
+  # and all docs indexed. Otherwise a fully-rebuilt index keeps reporting the old partial
+  # progress and "OOM failure" forever.
+  oom_test_config(env)
+
+  num_docs = 1000
+  for i in range(num_docs):
+      env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+
+  # Drive a partial, OOM-cancelled initial scan (same recipe as
+  # test_stop_background_indexing_on_low_mem): pause after a quarter of the docs, then
+  # tighten memory so resuming trips the OOM guard and cancels the build.
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
+  num_docs_scanned = num_docs // 4
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', num_docs_scanned).ok()
+
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+  waitForIndexPauseScan(env, 'idx')
+  set_tight_maxmemory_for_oom(env, 0.85)
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  waitForIndexStatus(env, 'PAUSED_ON_OOM', 'idx')
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  waitForIndexFinishScan(env, 'idx')
+
+  # Precondition: the aborted build is reported as incomplete.
+  env.assertEqual(get_index_num_docs(env), num_docs_scanned)
+  env.assertLess(float(index_info(env)['percent_indexed']), 1.0)
+  env.assertEqual(get_index_errors_dict(env)[bgIndexingStatusStr], OOMfailureStr)
+
+  # Memory recovers, and the debug pauses that shaped the aborted scan are lifted so the
+  # next scan runs to completion.
+  set_unlimited_maxmemory_for_oom(env)
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'false').ok()
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', 0).ok()
+
+  # FT.ALTER schedules a fresh full scan over all keys. Gate it with SET_PAUSE_BEFORE_SCAN
+  # and wait for the 'NEW' status before resuming: the scan is scheduled asynchronously, so
+  # without this waitForIndexFinishScan could observe 'indexing'=0 (the scan hasn't started
+  # yet) and return before the rescan runs, especially under load.
+  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
+  env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'age', 'NUMERIC').ok()
+  waitForIndexStatus(env, 'NEW', 'idx')
+  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'false').ok()
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  waitForIndexFinishScan(env, 'idx')
+
+  # The successful rescan must have cleared the OOM state.
+  env.assertEqual(get_index_num_docs(env), num_docs)
+  env.assertEqual(float(index_info(env)['percent_indexed']), 1.0)
+  env.assertEqual(get_index_errors_dict(env)[bgIndexingStatusStr], 'OK')
 
 @skip(cluster=True)
 def test_stop_indexing_low_mem_verbosity():
@@ -254,6 +315,15 @@ def test_delete_docs_during_bg_indexing(env):
 @skip(cluster=True)
 def test_change_config_during_bg_indexing(env):
   oom_test_config(env)
+  # On enterprise, _BG_INDEX_OOM_PAUSE_TIME defaults to 5s (vs 0 on OSS, see
+  # config.c: IsEnterprise() ? DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY : 0).
+  # That default makes the scanner release the GIL for 5s after hitting OOM
+  # before re-checking memory (threadSleepByConfigTime() in indexes_scan.c),
+  # during which unrelated Redis memory bookkeeping (allocator/dict activity)
+  # can shift used_memory enough to push the final ratio outside this test's
+  # asserted 0.85+-0.1 window. Pin it to the OSS default so the ratio this
+  # test asserts on is deterministic regardless of build flavor.
+  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_OOM_PAUSE_TIME', '0').ok()
 
   # Test deleting docs while they are being indexed in the background
   # Using a large number of docs to make sure the test is not flaky
@@ -480,6 +550,14 @@ def test_oom_json(env):
 @skip(cluster=True)
 def test_oom_100_percent(env):
   # Test the default behavior of 100% memory limit w.r.t redis memory limit (also 100%)
+  # Pin the post-OOM retry pause to the OSS default (0s): on enterprise it
+  # defaults to 5s (config.c: IsEnterprise() ? DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY
+  # : 0), during which the scanner releases the GIL and re-checks memory before
+  # deciding whether to retry the scan from scratch (indexes_scan.c). If memory
+  # dips back under the threshold during that window the scan restarts instead
+  # of reaching PAUSED_ON_OOM, which can stall this test's waitForIndexStatus
+  # wait past its timeout on enterprise builds.
+  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_OOM_PAUSE_TIME', '0').ok()
   n_docs = 100
   for i in range(n_docs):
     env.expect('HSET', f'doc{i}', 't', f'hello{i}').equal(1)
@@ -510,6 +588,8 @@ def test_oom_100_percent(env):
   # Verify OOM status
   error_dict = get_index_errors_dict(env)
   env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
+  # The build aborted before indexing any doc; percent_indexed must not report 1.0.
+  env.assertLess(float(index_info(env)['percent_indexed']), 1.0)
 
 @skip(cluster=True)
 def test_pseudo_enterprise_oom_retry_success(env):
@@ -549,6 +629,8 @@ def test_pseudo_enterprise_oom_retry_success(env):
   env.assertEqual(docs_in_index, num_docs)
   # Verify index BG indexing status is OK
   env.assertEqual(index_errors[bgIndexingStatusStr], 'OK')
+  # A build that recovered and completed still reports fully indexed.
+  env.assertEqual(float(index_info(env)['percent_indexed']), 1.0)
 
 @skip(cluster=True)
 def test_pseudo_enterprise_oom_retry_failure(env):

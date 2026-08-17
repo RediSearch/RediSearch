@@ -144,3 +144,105 @@ TEST_F(UnicodeToLowerTest, testTurkishDottedI) {
   ASSERT_STREQ(dst, "i̇stanbul");
   rm_free(dst); // Free the allocated memory for dst
 }
+
+TEST_F(UnicodeToLowerTest, testSupplementaryPlaneBit12) {
+  // Regression test for a libnu b4_utf8 encoder bug where bit 12 of the
+  // codepoint was dropped from byte 1 and leaked into byte 2, producing
+  // invalid UTF-8 for any supplementary-plane codepoint with bit 12 set.
+  //
+  // U+118A0 (WARANG CITI CAPITAL NGAA, F0 91 A2 A0) lowercases to
+  // U+118C0 (WARANG CITI SMALL NGAA,   F0 91 A3 80). Both have codepoint
+  // bit 12 set, so this exercises the previously buggy path.
+  char str[] = "\xF0\x91\xA2\xA0";
+  char *dst = nullptr;
+  size_t newLen = strlen(str);
+
+  dst = unicode_tolower(str, &newLen);
+  ASSERT_EQ(dst, nullptr); // Same byte count, in-place conversion
+  ASSERT_EQ(newLen, 4u);
+  ASSERT_STREQ(str, "\xF0\x91\xA3\x80");
+}
+
+TEST_F(UnicodeToLowerTest, testSupplementaryPlaneNoBit12) {
+  // Companion to testSupplementaryPlaneBit12: a supplementary-plane casing
+  // pair where codepoint bit 12 is clear, to lock in that the encoder fix
+  // did not regress the non-bit-12 path.
+  //
+  // U+10400 (DESERET CAPITAL LONG I, F0 90 90 80) lowercases to
+  // U+10428 (DESERET SMALL LONG I,   F0 90 90 A8).
+  char str[] = "\xF0\x90\x90\x80";
+  char *dst = nullptr;
+  size_t newLen = strlen(str);
+
+  dst = unicode_tolower(str, &newLen);
+  ASSERT_EQ(dst, nullptr);
+  ASSERT_EQ(newLen, 4u);
+  ASSERT_STREQ(str, "\xF0\x90\x90\xA8");
+}
+
+TEST_F(UnicodeToLowerTest, testEmbeddedNulAsciiPrefix) {
+  // Embedded NUL terminates the conversion at the NUL position and the ASCII
+  // prefix is lowercased in place. Bytes past the NUL are not touched.
+  char str[] = {'F', 'O', 'O', '\0', 'B', 'A', 'R'};
+  size_t newLen = sizeof(str);
+
+  char *dst = unicode_tolower(str, &newLen);
+  ASSERT_EQ(dst, nullptr);
+  ASSERT_EQ(newLen, 3u);
+  ASSERT_EQ(str[0], 'f');
+  ASSERT_EQ(str[1], 'o');
+  ASSERT_EQ(str[2], 'o');
+  ASSERT_EQ(str[3], '\0');
+  ASSERT_EQ(str[4], 'B');
+  ASSERT_EQ(str[5], 'A');
+  ASSERT_EQ(str[6], 'R');
+}
+
+TEST_F(UnicodeToLowerTest, testEmbeddedNulAtStart) {
+  // NUL at offset 0: no output codepoints, inout_len is left untouched and the
+  // buffer is unchanged.
+  char str[] = {'\0', 'A', 'B', 'C'};
+  size_t newLen = sizeof(str);
+
+  char *dst = unicode_tolower(str, &newLen);
+  ASSERT_EQ(dst, nullptr);
+  ASSERT_EQ(newLen, sizeof(str));
+  ASSERT_EQ(str[0], '\0');
+  ASSERT_EQ(str[1], 'A');
+  ASSERT_EQ(str[2], 'B');
+  ASSERT_EQ(str[3], 'C');
+}
+
+TEST_F(UnicodeToLowerTest, testEmbeddedNulBeforeMultibyte) {
+  // ASCII prefix, NUL, then a multibyte suffix. The NUL terminates the
+  // conversion before the multibyte bytes are ever inspected.
+  char str[] = {'F', 'O', 'O', '\0', '\xC3', '\x89'}; // ..\0É
+  size_t newLen = sizeof(str);
+
+  char *dst = unicode_tolower(str, &newLen);
+  ASSERT_EQ(dst, nullptr);
+  ASSERT_EQ(newLen, 3u);
+  ASSERT_EQ(str[0], 'f');
+  ASSERT_EQ(str[1], 'o');
+  ASSERT_EQ(str[2], 'o');
+  ASSERT_EQ(str[3], '\0');
+  ASSERT_EQ((unsigned char)str[4], 0xC3);
+  ASSERT_EQ((unsigned char)str[5], 0x89);
+}
+
+TEST_F(UnicodeToLowerTest, testEmbeddedNulAfterMultibyte) {
+  // Multibyte prefix, NUL, then an ASCII suffix. This routes through the slow
+  // path (first byte has bit 7 set), and the slow path also truncates at NUL.
+  char str[] = {'\xC3', '\x89', 'A', '\0', 'B', 'C'}; // ÉA\0BC
+  size_t newLen = sizeof(str);
+
+  char *dst = unicode_tolower(str, &newLen);
+  ASSERT_EQ(dst, nullptr);
+  ASSERT_EQ(newLen, 3u);
+  ASSERT_EQ((unsigned char)str[0], 0xC3);
+  ASSERT_EQ((unsigned char)str[1], 0xA9); // é
+  ASSERT_EQ(str[2], 'a');
+  ASSERT_EQ(str[3], '\0');
+  ASSERT_EQ(str[4], 'B');
+  ASSERT_EQ(str[5], 'C');
+}

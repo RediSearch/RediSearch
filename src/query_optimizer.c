@@ -8,65 +8,28 @@
 */
 
 #include "query_optimizer.h"
+
+#include <string.h>
+
 #include "iterators/optimizer_reader.h"
-#include "numeric_index.h"
-#include "ext/default.h"
-#include "iterators/union_iterator.h"
-#include "iterators/intersection_iterator.h"
-#include "iterators_rs.h"
-
-/********************* Horrific hacks moved from index.c *********************/
-
-static inline IteratorStatus UI_ReadUnsorted(QueryIterator *ctx) {
-  UnionIterator *ui = (UnionIterator*)ctx;
-
-  IndexResult_ResetAggregate(ui->base.current);
-  while (ui->num > 0) {
-    if (ui->its[ui->num - 1]->Read(ui->its[ui->num - 1]) == ITERATOR_OK) {
-      AggregateResult_AddChild(ui->base.current, ui->its[ui->num - 1]->current);
-      ui->base.lastDocId = ui->base.current->docId;
-      return ITERATOR_OK;
-    }
-    ui->num--;
-  }
-  return ITERATOR_EOF;
-}
-
-void trimUnionIterator(QueryIterator *iter, size_t limit, bool asc) {
-  RS_LOG_ASSERT(iter->type == UNION_ITERATOR, "trim applies to union iterators only");
-  UnionIterator *ui = (UnionIterator *)iter;
-  if (ui->num_orig <= 2) { // nothing to trim
-    return;
-  }
-
-  size_t curTotal = 0;
-  int i;
-  if (asc) {
-    for (i = 1; i < ui->num; ++i) {
-      QueryIterator *it = ui->its_orig[i];
-      curTotal += it->NumEstimated(it);
-      if (curTotal > limit) {
-        ui->num = i + 1;
-        memset(ui->its + ui->num, 0, (ui->num_orig - ui->num) * sizeof(*ui->its));
-        break;
-      }
-    }
-  } else {  //desc
-    for (i = ui->num - 2; i > 0; --i) {
-      QueryIterator *it = ui->its_orig[i];
-      curTotal += it->NumEstimated(it);
-      if (curTotal > limit) {
-        ui->num -= i;
-        memmove(ui->its, ui->its + i, ui->num * sizeof(*ui->its));
-        memset(ui->its + ui->num, 0, (ui->num_orig - ui->num) * sizeof(*ui->its));
-        break;
-      }
-    }
-  }
-  iter->Read = UI_ReadUnsorted;
-}
-
-/********************* End of horrific hacks moved from index.c *********************/
+#include "iterators_ffi.h"
+#include "aggregate/aggregate_plan.h"
+#include "field.h"
+#include "field_spec.h"
+#include "obfuscation/hidden.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "query_internal.h"
+#include "query_types.h"
+#include "redismodule.h"
+#include "result_processor.h"
+#include "result_processor_ffi.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "rqe_iterator_type.h"
+#include "spec.h"
+#include "util/arr/arr.h"
+#include "vector_index.h"
 
 QOptimizer *QOptimizer_New() {
   return rm_calloc(1, sizeof(QOptimizer));
@@ -110,20 +73,15 @@ void QOptimizer_Parse(AREQ *req) {
     opt->scorerType = SCORER_TYPE_NONE;
   } else {
     const char *scorer = req->searchopts.scorerName;
-    if (!scorer || !strcmp(scorer, BM25_STD_SCORER_NAME)) {      // default is BM25STD
-      opt->scorerType = SCORER_TYPE_TERM;
-    } else if (!strcmp(scorer, TFIDF_SCORER_NAME)) {
-      opt->scorerType = SCORER_TYPE_TERM;
-    } else if (!strcmp(scorer, TFIDF_DOCNORM_SCORER_NAME)) {
-      opt->scorerType = SCORER_TYPE_TERM;
-    } else if (!strcmp(scorer, DISMAX_SCORER_NAME)) {
-      opt->scorerType = SCORER_TYPE_TERM;
-    } else if (!strcmp(scorer, BM25_SCORER_NAME)) {
-      opt->scorerType = SCORER_TYPE_TERM;
-    } else if (!strcmp(scorer, DOCSCORE_SCORER)) {
+    // Scorers reading only document metadata, never term data.
+    if (scorer && (!strcmp(scorer, DOCSCORE_SCORER) ||
+                   !strcmp(scorer, HAMMINGDISTANCE_SCORER))) {
       opt->scorerType = SCORER_TYPE_DOC;
-    } else if (!strcmp(scorer, HAMMINGDISTANCE_SCORER)) {
-      opt->scorerType = SCORER_TYPE_DOC;
+    } else {
+      // Every other scorer, including the default and any extension-provided
+      // one, needs scoring. Claiming otherwise drops the scorer and sorter from
+      // the pipeline, so results come back unranked.
+      opt->scorerType = SCORER_TYPE_TERM;
     }
   }
 }
@@ -166,7 +124,6 @@ static QueryNode *checkQueryTypes(QueryNode *node, const char *name, QueryNode *
     case QN_FUZZY:           // TEXT
     case QN_PREFIX:          // TEXT
     case QN_WILDCARD_QUERY:  // TEXT
-    case QN_LEXRANGE:        // TEXT
       *reqScore = true;
       break;
 
@@ -282,9 +239,15 @@ static void updateRootIter(AREQ *req, QueryIterator *root, QueryIterator *new) {
   }
 }
 
-void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
+int QOptimizer_Iterators(AREQ *req, QOptimizer *opt, QueryError *status) {
   IndexSpec *spec = AREQ_SearchCtx(req)->spec;
   QueryIterator *root = req->rootiter;
+
+  // OptimizerIterator and the Q_OPT_UNDECIDED numeric fallback both rely on
+  // the RAM DocTable / NumericRangeTree. AREQ_Compile rejects the queries that
+  // would set QEXEC_OPTIMIZE on disk specs (DIALECT 4 and WITHOUTCOUNT), so this
+  // function should never be entered for them.
+  RS_ASSERT(!spec->diskSpec);
 
   switch (opt->type) {
     case Q_OPT_HYBRID:
@@ -294,21 +257,31 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
     case Q_OPT_NO_SORTER:
     case Q_OPT_NONE:
     case Q_OPT_FILTER:
-      return;
+      return REDISMODULE_OK;
 
     // limit range to number of required LIMIT
     case Q_OPT_PARTIAL_RANGE: {
       if (root->type == WILDCARD_ITERATOR) {
         req->rootiter = NewOptimizerIterator(opt, root, &req->ast.config);
+        if (!req->rootiter) {
+          req->rootiter = root;
+          QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT, "OFFSET/LIMIT too large for optimizer allocation");
+          return REDISMODULE_ERR;
+        }
       } else if (req->ast.root->type == QN_NUMERIC) {
         // trim the union numeric iterator to have the minimal number of ranges
         if (root->type == UNION_ITERATOR) {
-          trimUnionIterator(root, opt->limit, opt->asc);
+          TrimUnionIterator(root, opt->limit, opt->asc);
         }
       } else {
         req->rootiter = NewOptimizerIterator(opt, root, &req->ast.config);
+        if (!req->rootiter) {
+          req->rootiter = root;
+          QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT, "OFFSET/LIMIT too large for optimizer allocation");
+          return REDISMODULE_ERR;
+        }
       }
-      return;
+      return REDISMODULE_OK;
     }
     case Q_OPT_UNDECIDED: {
       if (!opt->field) {
@@ -319,13 +292,19 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
         QueryIterator *numericIter = NewNumericFilterIterator(AREQ_SearchCtx(req), opt->sortbyNode->nn.nf, INDEXFLD_T_NUMERIC,
                                                               &req->ast.config, &filterCtx);
         updateRootIter(req, root, numericIter);
-        return;
+        return REDISMODULE_OK;
       }
       opt->type = Q_OPT_HYBRID;
       // replace root with OptimizerIterator
       req->rootiter = NewOptimizerIterator(opt, root, &req->ast.config);
+      if (!req->rootiter) {
+        req->rootiter = root;
+        QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT, "OFFSET/LIMIT too large for optimizer allocation");
+        return REDISMODULE_ERR;
+      }
     }
   }
+  return REDISMODULE_OK;
 }
 
 void QOptimizer_UpdateTotalResults(AREQ *req) {
@@ -333,6 +312,11 @@ void QOptimizer_UpdateTotalResults(AREQ *req) {
     size_t reqLimit = arng && arng->isLimited ? arng->limit : DEFAULT_LIMIT;
     size_t reqOffset = arng && arng->isLimited ? arng->offset : 0;
     QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+    // Fold the loader-drop correction into the total before offset/limit rewrites it,
+    // then clear it so it isn't subtracted again at reply time. This keeps the
+    // skippedResults <= totalResults invariant that QITR_ReportedTotal asserts.
+    qctx->totalResults = QITR_ReportedTotal(qctx);
+    qctx->skippedResults = 0;
     qctx->totalResults = qctx->totalResults > reqOffset ?
                               qctx->totalResults - reqOffset : 0;
     if(qctx->totalResults > reqLimit) {

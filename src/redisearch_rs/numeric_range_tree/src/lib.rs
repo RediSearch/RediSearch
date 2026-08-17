@@ -75,18 +75,20 @@ mod node;
 mod range;
 mod tree;
 mod unique_id;
+mod window;
 
 pub use arena::NodeIndex;
-pub use index::{NumericIndex, NumericIndexReader};
+pub use index::{NumericIndex, NumericIndexReader, RawNumericIndexReader};
 pub use inverted_index::NumericFilter;
 pub use iter::{IndexedReversePreOrderDfsIterator, ReversePreOrderDfsIterator};
 pub use node::{InternalNode, LeafNode, NumericRangeNode};
-pub use range::NumericRange;
+pub use range::{Hll, NumericRange};
 pub use tree::{
     AddResult, CompactIfSparseResult, NodeGcDelta, NumericRangeTree, SingleNodeGcResult,
     TrimEmptyLeavesResult,
 };
 pub use unique_id::TreeUniqueId;
+pub use window::RangeWindow;
 
 #[cfg(feature = "test-utils")]
 pub mod test_utils;

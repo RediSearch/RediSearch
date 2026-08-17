@@ -41,7 +41,7 @@ pub type TrieMapRangeCallback =
 /// [`NewTrieMap`]: crate::NewTrieMap
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_IterateRange(
-    trie: *mut TrieMap,
+    trie: *const TrieMap,
     min: *const c_char, // May be NULL iff minlen == 0
     minlen: c_int,      // if 0, execute special case
     includeMin: bool,
@@ -87,7 +87,7 @@ pub unsafe extern "C" fn TrieMap_IterateRange(
     };
 
     // SAFETY: caller is to ensure that `trie` is valid and not null
-    let TrieMap(trie) = unsafe { &mut *trie };
+    let TrieMap(trie) = unsafe { &*trie };
 
     let filter = RangeFilter {
         min: min.map(|m| RangeBoundary {

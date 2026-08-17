@@ -11,13 +11,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include "redismodule.h"
-#include "triemap.h"
 #include "redisearch.h"
 #include "sortable.h"
 #include "byte_offsets.h"
 #include "hiredis/sds.h"
 #include "rmutil/rm_assert.h"
 #include "ttl_table.h"
+
+typedef struct TrieMap TrieMap;
 
 #ifdef __cplusplus
 extern "C" {
@@ -75,6 +76,10 @@ typedef struct {
 
   DMDChain *buckets;
   DocIdMap dim;             // Mapping between document name to internal id
+  // Holds field-level expirations only; created lazily on the first HEXPIRE
+  // and destroyed when the last entry is removed. Iterators use a NULL check
+  // on this pointer as their HFE gate, so a NULL `ttl` means no doc in this
+  // index has ever had (or still has) a field-level expiration.
   TimeToLiveTable* ttl;
 } DocTable;
 
@@ -90,6 +95,9 @@ typedef struct {
 DocTable NewDocTable(size_t cap, size_t max_size);
 
 #define DocTable_New(cap) NewDocTable(cap, RSGlobalConfig.maxDocTableSize)
+
+// Initial number of slots in a spec's document table
+#define INITIAL_DOC_TABLE_SIZE 1000
 
 /* Get a reference to the metadata for a doc Id from the DocTable.
  * If docId is not inside the table, we return NULL */
@@ -127,12 +135,37 @@ int DocTable_SetSortingVector(DocTable *t, RSDocumentMetadata *dmd, RSSortingVec
  */
 void DocTable_SetByteOffsets(RSDocumentMetadata *dmd, RSByteOffsets *offsets);
 
-void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, arrayof(FieldExpiration) allFieldSorted);
+void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, FieldExpirations allFieldSorted);
+
+// Sets only the doc-level TTL on `dmd` (relaxed atomic store on
+// `expirationTimeNs`) without touching the per-field TTL table. Safe to call
+// under the spec read lock: the only mutation is the atomic store, paired
+// with the relaxed atomic load in DocTable_IsDocExpired. Used by the
+// EXPIRE/PERSIST keyspace-notification fast path, which must leave HFE
+// state intact.
+void DocTable_SetDocExpiration(RSDocumentMetadata *dmd, t_expirationTimePoint ttl);
+
+// Replaces the per-field expiration entry for `dmd` without touching
+// `dmd->expirationTimeNs`. Takes ownership of `sortedFieldWithExpiration`:
+// a NULL or empty array clears the entry and destroys the TTL table when
+// no other doc still has an entry; otherwise it replaces the entry. Caller
+// must hold the spec write lock.
+void DocTable_UpdateFieldExpiration(DocTable *t, RSDocumentMetadata *dmd,
+                                    FieldExpirations sortedFieldWithExpiration);
+
+// Takes ownership of the FieldExpirations at `*src`, resets `*src` to the
+// empty sentinel, and returns the moved value. Safe to call on an already-empty
+// sentinel.
+static inline FieldExpirations DocTable_TakeFieldExpirations(FieldExpirations *src) {
+  FieldExpirations result = *src;
+  *src = FieldExpirations_Empty();
+  return result;
+}
 
 bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct timespec* expirationPoint);
 
 // Clear all expiration data from this doc table.
-// Clears Document_HasExpiration flags from all documents and destroys the TTL table.
+// Resets `expirationTimeNs` on every DMD and destroys the TTL table.
 // Must be called with the index write lock held.
 void DocTable_ClearExpirationData(DocTable *t);
 
@@ -141,17 +174,35 @@ void DocTable_ClearExpirationData(DocTable *t);
 // missing predicate - one of the fields did expire -> entry is valid in the context of missing
 static inline bool DocTable_CheckFieldExpirationPredicate(const DocTable *t, t_docId docId, t_fieldIndex field, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint) {
   if (!t->ttl) return true;
-  return TimeToLiveTable_VerifyDocAndField(t->ttl, docId, field, predicate, expirationPoint);
+  return TimeToLiveTable_FieldSatisfiesPredicate(t->ttl, docId, field, predicate, expirationPoint);
 }
-// Same as above, but for a field mask (non-wide schema)
-static inline bool DocTable_CheckFieldMaskExpirationPredicate(const DocTable *t, t_docId docId, uint32_t fieldMask, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint, const t_fieldIndex* ftIdToFieldIndex) {
+// Same as above, but for a field mask. `wide` selects the wide-schema (more
+// than 32 fields) bit width; pass false for narrow schemas.
+static inline bool DocTable_CheckFieldMaskExpirationPredicate(const DocTable *t, t_docId docId, t_fieldMask fieldMask, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint, const t_fieldIndex* ftIdToFieldIndex, bool wide) {
   if (!t->ttl) return true;
-  return TimeToLiveTable_VerifyDocAndFieldMask(t->ttl, docId, fieldMask, predicate, expirationPoint, ftIdToFieldIndex);
+  return TimeToLiveTable_FieldMaskSatisfiesPredicate(t->ttl, docId, fieldMask, predicate, expirationPoint, ftIdToFieldIndex, wide);
 }
-// Same as above, but for a wide field mask
-static inline bool DocTable_CheckWideFieldMaskExpirationPredicate(const DocTable *t, t_docId docId, t_fieldMask fieldMask, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint, const t_fieldIndex* ftIdToFieldIndex) {
-  if (!t->ttl) return true;
-  return TimeToLiveTable_VerifyDocAndWideFieldMask(t->ttl, docId, fieldMask, predicate, expirationPoint, ftIdToFieldIndex);
+
+// Borrowed read of the field-expiration array for `docId`. Returns an empty
+// slice (`{NULL, 0}`) if this index has never registered any field-level
+// TTLs (`t->ttl == NULL`) or if `docId` has no field-level entry. See
+// TimeToLiveTable_GetFieldExpirations for lifetime / aliasing rules.
+static inline struct FieldExpirationSlice DocTable_GetFieldExpirations(const DocTable *t, t_docId docId) {
+  if (!t->ttl) return FieldExpirationsSlice_Empty();
+  return TimeToLiveTable_GetFieldExpirations(t->ttl, docId);
+}
+
+// Returns true if `docId` has a field-level expiration registered for the field
+// at the given spec field index.
+static inline bool DocTable_FieldHasExpiration(const DocTable *t, t_docId docId,
+                                               t_fieldIndex fieldIndex) {
+  const struct FieldExpirationSlice fes = DocTable_GetFieldExpirations(t, docId);
+  for (size_t i = 0; i < fes.len; ++i) {
+    if (fes.ptr[i].index == fieldIndex) {
+      return true;
+    }
+  }
+  return false;
 }
 
 
@@ -162,10 +213,10 @@ t_docId DocTable_GetId(const DocTable *dt, const char *s, size_t n);
   size_t n;                     \
   const char *s = RedisModule_StringPtrLen(r, &n);
 
-static inline t_docId DocTable_GetIdR(const DocTable *dt, RedisModuleString *r) {
-  STRVARS_FROM_RSTRING(r);
-  return DocTable_GetId(dt, s, n);
-}
+/* DocTable_GetId from a RedisModuleString key. A real (exported) function so
+ * the Rust query evaluator can resolve id-filter keys without touching the
+ * module API. */
+t_docId DocTable_GetIdR(const DocTable *dt, const RedisModuleString *r);
 
 /* Free the table and all the keys of documents */
 void DocTable_Free(DocTable *t);
@@ -210,7 +261,10 @@ static inline void DMD_Return(const RSDocumentMetadata *cdmd) {
   }
 }
 
-void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);
+/* Load the doc table from RDB. This is used for legacy RDB load only.
+ * Returns REDISMODULE_OK on success, REDISMODULE_ERR on allocation failure.
+ */
+int DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);
 
 t_docId DocTable_GetMaxDocId(const DocTable *t);
 

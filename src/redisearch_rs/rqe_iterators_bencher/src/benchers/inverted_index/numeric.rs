@@ -11,7 +11,8 @@ use std::hint::black_box;
 
 use criterion::{BenchmarkGroup, Criterion, measurement::Measurement};
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
-use inverted_index::{IndexReader, RSIndexResult};
+use index_result::RSIndexResult;
+use inverted_index::IndexReader;
 use rqe_iterators::{FieldExpirationChecker, RQEIterator, SkipToOutcome, inverted_index::Numeric};
 use rqe_iterators_test_utils::TestContext;
 

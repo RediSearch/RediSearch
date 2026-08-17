@@ -308,6 +308,11 @@ struct RedisModuleCtx {
   bool automemory = false;
   std::set<RedisModuleString *> allocstrs;
   std::set<RedisModuleKey *> allockeys;
+  // Slot range arrays returned by RedisModule_ClusterGet{Local,ByNodeId}SlotRanges
+  // are tracked here while auto-memory is on; the ctx destructor frees them,
+  // mirroring the real Redis server's auto-memory behavior. Entries are removed
+  // when callers explicitly invoke RedisModule_ClusterFreeSlotRanges.
+  std::set<RedisModuleSlotRangeArray *> alloc_slot_ranges;
   std::vector<std::vector<std::string>> propagated_commands;
   KVDB *db = NULL;
   uint32_t dbid = 0;

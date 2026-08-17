@@ -78,6 +78,26 @@ def testTagPrefix(env):
             res = env.cmd('ft.search', 'idx', q)
             env.assertEqual(res[0], 1)
 
+@skip(cluster=True)
+def testTagPrefixTooShort(env):
+    """A single-char tag prefix is rejected when MINPREFIX (default 2) is not met."""
+    env.expect(
+        'ft.create', 'idx', 'ON', 'HASH',
+        'schema', 'tags', 'tag', 'separator', ',').ok()
+
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc1', 'tags', 'alpha,beta,gamma')
+
+    for _ in env.reloadingIterator():
+        waitForIndex(env, 'idx')
+        # 2-char prefix works (meets default MINPREFIX=2)
+        res = env.cmd('ft.search', 'idx', '@tags:{al*}', 'nocontent')
+        env.assertEqual(res, [1, 'doc1'])
+
+        # 1-char prefix returns nothing (below MINPREFIX)
+        res = env.cmd('ft.search', 'idx', '@tags:{a*}', 'nocontent')
+        env.assertEqual(res, [0])
+
 def testTagFieldCase(env):
     dialect = env.cmd(config_cmd(), 'GET', 'DEFAULT_DIALECT')[0][1]
     env.expect(
@@ -192,6 +212,39 @@ def testTagIndex_OnReopen(env:Env): # issue MOD-8011
 
     # Read from the cursor, should not crash
     env.expect('FT.CURSOR', 'READ', 'idx', cursor).noError().equal([ANY, 0]) # cursor is done
+
+@skip(cluster=True)
+def testTagMultiValueNumRecordsAfterGC(env):
+    n_docs = 100
+    tags_per_doc = 5
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'doc:', 'SCHEMA',
+               't', 'TAG', 'SEPARATOR', ',').ok()
+
+    def tags_value(doc_id, offset):
+        tags = [f'tag{doc_id + offset + tag_id}' for tag_id in range(tags_per_doc)]
+        tags.append(tags[0].upper())
+        return ','.join(tags)
+
+    for doc_id in range(n_docs):
+        conn.execute_command('HSET', f'doc:{doc_id}', 't', tags_value(doc_id, 0))
+
+    waitForIndex(env, 'idx')
+    forceInvokeGC(env, 'idx')
+    info = index_info(env, 'idx')
+    env.assertEqual(n_docs, int(info['num_docs']))
+    env.assertEqual(n_docs * tags_per_doc, int(info['num_records']))
+
+    for doc_id in range(n_docs):
+        conn.execute_command('HSET', f'doc:{doc_id}', 't', tags_value(doc_id, n_docs * tags_per_doc))
+
+    waitForIndex(env, 'idx')
+    forceInvokeGC(env, 'idx')
+    info = index_info(env, 'idx')
+    env.assertEqual(n_docs, int(info['num_docs']))
+    env.assertEqual(n_docs * tags_per_doc, int(info['num_records']))
+    env.assertEqual(tags_per_doc, int(float(info['records_per_doc_avg'])))
 
 def testTagCaseSensitive(env):
     conn = getConnectionByEnv(env)
@@ -1005,3 +1058,119 @@ def testTagUNF():
     res = env.cmd('FT.AGGREGATE', 'idx_unf', '*', 'GROUPBY', '1', '@tag',
                   'REDUCE', 'COUNT', '0')
     env.assertEqual(res[0], 3)
+
+@skip(cluster=True)
+def testTagWildcardWithSuffixTrieNoMatch():
+    """Tag wildcard on WITHSUFFIXTRIE field with no matching terms returns
+    empty results (covers suffix trie NULL return path)."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               'tag', 'TAG', 'WITHSUFFIXTRIE').ok()
+
+    conn.execute_command('HSET', '{doc}:1', 'tag', 'apple')
+    conn.execute_command('HSET', '{doc}:2', 'tag', 'banana')
+    conn.execute_command('HSET', '{doc}:3', 'tag', 'cherry')
+
+    # Wildcard with a long fixed prefix that the suffix trie can process
+    # but finds no matches — triggers the NULL return path
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'xyznonexistent*'}", 'NOCONTENT')
+    env.assertEqual(res, [0])
+
+@skip(cluster=True)
+def testTagSuffixMaxExpansionsWithSuffixTrie():
+    """Tag suffix query on WITHSUFFIXTRIE field hits max prefix expansion
+    limit when there are more matching terms than allowed (covers the suffix
+    trie branch of Query_EvalTagPrefixNode)."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=3)
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               'tag', 'TAG', 'WITHSUFFIXTRIE').ok()
+
+    # Create many distinct tag values sharing a common suffix
+    for i in range(20):
+        conn.execute_command('HSET', f'{{doc}}:{i}', 'tag', f'val{i}common')
+
+    # Set max expansions very low
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+
+    # Suffix query (*common) uses the suffix trie path and should trigger
+    # max expansion warning
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*common}', 'LIMIT', '0', '0')
+    env.assertContains('Max prefix expansions limit was reached', res['warning'])
+
+    # Restore default
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
+
+@skip(cluster=True)
+def testTagWildcardMaxExpansionsWithSuffixTrie():
+    """Tag wildcard on WITHSUFFIXTRIE field hits max prefix expansion limit."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=3)
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               'tag', 'TAG', 'WITHSUFFIXTRIE').ok()
+
+    # Create many distinct tag values
+    for i in range(20):
+        conn.execute_command('HSET', f'{{doc}}:{i}', 'tag', f'val{i}end')
+
+    # Set max expansions very low
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+
+    # Wildcard query that uses suffix trie and exceeds max expansions
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'val*end'}", 'LIMIT', '0', '0')
+    env.assertContains('Max prefix expansions limit was reached', res['warning'])
+
+    # Restore default
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
+
+@skip(cluster=True)
+def testTagWildcardMaxExpansionsBruteForce():
+    """Tag wildcard without suffix trie (brute-force) hits max prefix
+    expansion limit."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=3)
+    conn = getConnectionByEnv(env)
+
+    # No WITHSUFFIXTRIE - forces brute-force wildcard path
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG').ok()
+
+    # Create many distinct tag values
+    for i in range(20):
+        conn.execute_command('HSET', f'{{doc}}:{i}', 'tag', f'val{i}end')
+
+    # Set max expansions very low
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+
+    # Wildcard query through brute-force path
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'val*end'}", 'LIMIT', '0', '0')
+    env.assertContains('Max prefix expansions limit was reached', res['warning'])
+
+    # Restore default
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
+
+@skip(cluster=True)
+def testTagSuffixTrieInfoOverhead(env):
+    """FT.INFO on a populated WITHSUFFIXTRIE tag field walks the suffix trie when
+    accounting for index overhead (covers the suffix branch of
+    TagIndex_GetOverhead). Also exercises a contains query against the suffix
+    trie."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'WITHSUFFIXTRIE').ok()
+
+    conn.execute_command('HSET', 'doc1', 't', 'hello')
+    conn.execute_command('HSET', 'doc2', 't', 'jello')
+    conn.execute_command('HSET', 'doc3', 't', 'world')
+
+    for _ in env.reloadingIterator():
+        waitForIndex(env, 'idx')
+        # FT.INFO triggers the per-field overhead computation over the suffix trie.
+        info = index_info(env, 'idx')
+        env.assertEqual(info['num_docs'], 3)
+
+        # Contains query resolved through the suffix trie (both end with "llo").
+        res = env.cmd('FT.SEARCH', 'idx', '@t:{*llo}', 'NOCONTENT')
+        env.assertEqual(res[0], 2)  # hello, jello
+        env.assertEqual(py2sorted(res[1:]), ['doc1', 'doc2'])

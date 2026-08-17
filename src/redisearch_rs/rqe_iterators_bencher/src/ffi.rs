@@ -7,15 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::NewOptionalIterator;
 pub use ffi::{
     IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreByteOffsets,
     IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric,
-    IndexFlags_Index_StoreTermOffsets, IteratorStatus, IteratorStatus_ITERATOR_OK,
-    RedisModule_Alloc, RedisModule_Free, ValidateStatus, t_docId,
+    IndexFlags_Index_StoreTermOffsets, IteratorStatus, IteratorStatus_ITERATOR_EOF,
+    IteratorStatus_ITERATOR_OK, ValidateStatus,
 };
-use inverted_index::{RSIndexResult, RSQueryTerm};
+use index_result::{RSIndexResult, RSQueryTerm};
 use iterators_ffi::intersection::NewIntersectionIterator;
+use redis_module::{RedisModule_Alloc, RedisModule_Free};
+use rqe_core::DocId;
 use std::{ffi::c_void, ptr};
 
 /// Simple wrapper around the C `QueryIterator` type.
@@ -78,44 +79,13 @@ impl QueryIterator {
         Self(unsafe { NewIntersectionIterator(children_ptr, 2, max_slop, in_order, 1.0) })
     }
 
-    #[inline(always)]
-    pub unsafe fn new_term(ii: *mut ffi::InvertedIndex, sctx: *const ffi::RedisSearchCtx) -> Self {
-        let term = Box::into_raw(RSQueryTerm::new("term", 1, 0));
-        Self(unsafe {
-            iterators_ffi::inverted_index::NewInvIndIterator_TermQuery(
-                ii.cast_const(),
-                sctx,
-                field::FieldMaskOrIndex::Mask(ffi::RS_FIELDMASK_ALL),
-                term,
-                1.0,
-            )
-        })
-    }
-
-    /// Create a C `OptionalOptimized` iterator.
-    ///
-    /// `qctx` must point to a `QueryEvalCtx` whose `sctx.spec.rule.index_all`
-    /// is `true` and whose `sctx.spec.existingDocs` points to a valid
-    /// `DocIdsOnly` inverted index. The `qctx` (and the `existingDocs` it
-    /// transitively references) **must outlive the returned iterator**, because
-    /// the iterator's internal wildcard holds a raw pointer into `sctx`.
-    #[inline(always)]
-    pub fn new_optional_optimized(
-        child: Self,
-        qctx: *mut ffi::QueryEvalCtx,
-        max_doc_id: t_docId,
-        weight: f64,
-    ) -> Self {
-        Self(unsafe { NewOptionalIterator(child.into_raw(), qctx, max_doc_id, weight) })
-    }
-
     /// Creates a new intersection iterator from child ID list iterators.
     ///
     /// # Arguments
     /// * `children_ids` - A slice of vectors, each containing sorted document IDs for a child iterator
     /// * `weight` - The weight for the intersection result
     #[inline(always)]
-    pub fn new_intersection(children_ids: &[Vec<t_docId>], weight: f64) -> Self {
+    pub fn new_intersection(children_ids: &[Vec<DocId>], weight: f64) -> Self {
         let num_children = children_ids.len();
 
         // Allocate array of child iterator pointers using RedisModule_Alloc
@@ -128,8 +98,7 @@ impl QueryIterator {
         for (i, ids) in children_ids.iter().enumerate() {
             // Allocate and copy IDs using RedisModule_Alloc (required by NewSortedIdListIterator)
             let ids_ptr = unsafe {
-                RedisModule_Alloc.unwrap()(ids.len() * std::mem::size_of::<t_docId>())
-                    as *mut t_docId
+                RedisModule_Alloc.unwrap()(ids.len() * std::mem::size_of::<DocId>()) as *mut DocId
             };
             unsafe {
                 std::ptr::copy_nonoverlapping(ids.as_ptr(), ids_ptr, ids.len());
@@ -152,72 +121,6 @@ impl QueryIterator {
                 -1,    // max_slop: -1 means no slop validation
                 false, // in_order
                 weight,
-            )
-        })
-    }
-
-    /// Creates a new union iterator from child ID list iterators.
-    ///
-    /// # Arguments
-    /// * `children_ids` - A slice of vectors, each containing sorted document IDs for a child iterator
-    /// * `weight` - The weight for the union result
-    /// * `use_heap` - Whether to force heap-based algorithm (for benchmarking purposes)
-    /// * `quick_exit` - Whether to return after first match (true) or aggregate all matches (false)
-    #[inline(always)]
-    pub fn new_union(
-        children_ids: &[Vec<t_docId>],
-        weight: f64,
-        use_heap: bool,
-        quick_exit: bool,
-    ) -> Self {
-        let num_children = children_ids.len();
-
-        // Allocate array of child iterator pointers using RedisModule_Alloc
-        let children_ptr = unsafe {
-            RedisModule_Alloc.unwrap()(
-                num_children * std::mem::size_of::<*mut ffi::QueryIterator>(),
-            ) as *mut *mut ffi::QueryIterator
-        };
-
-        for (i, ids) in children_ids.iter().enumerate() {
-            // Allocate and copy IDs using RedisModule_Alloc (required by NewSortedIdListIterator)
-            let ids_ptr = unsafe {
-                RedisModule_Alloc.unwrap()(ids.len() * std::mem::size_of::<t_docId>())
-                    as *mut t_docId
-            };
-            unsafe {
-                std::ptr::copy_nonoverlapping(ids.as_ptr(), ids_ptr, ids.len());
-            }
-
-            // Create child iterator
-            let child = unsafe {
-                iterators_ffi::id_list::NewSortedIdListIterator(ids_ptr, ids.len() as u64, 1.0)
-            };
-            unsafe {
-                *children_ptr.add(i) = child;
-            }
-        }
-
-        // Create IteratorsConfig with appropriate minUnionIterHeap
-        // If use_heap is true, set minUnionIterHeap to 0 so we always use heap
-        // If use_heap is false, set minUnionIterHeap to a large value so we never use heap
-        let config = ffi::IteratorsConfig {
-            maxPrefixExpansions: 200,
-            minTermPrefix: 2,
-            minStemLength: 4,
-            minUnionIterHeap: if use_heap { 0 } else { i64::MAX },
-        };
-
-        // Create union iterator (takes ownership of children array)
-        Self(unsafe {
-            ffi::NewUnionIterator(
-                children_ptr,
-                num_children as i32,
-                quick_exit,
-                weight,
-                ffi::QueryNodeType::Union,
-                std::ptr::null(), // q_str
-                &config,
             )
         })
     }
@@ -253,8 +156,9 @@ impl QueryIterator {
     }
 
     #[inline(always)]
-    pub fn revalidate(&self) -> ValidateStatus {
-        unsafe { (*self.0).Revalidate.unwrap()(self.0) }
+    pub unsafe fn revalidate(&self, spec: *mut ffi::IndexSpec) -> ValidateStatus {
+        // SAFETY: Caller must ensure spec is a valid pointer
+        unsafe { (*self.0).Revalidate.unwrap()(self.0, spec) }
     }
 
     #[inline(always)]
@@ -265,7 +169,7 @@ impl QueryIterator {
     #[inline(always)]
     pub fn current(&self) -> Option<&RSIndexResult<'static>> {
         let current = unsafe { (*self.0).current };
-        unsafe { current.cast::<RSIndexResult>().as_ref() }
+        unsafe { current.cast::<RSIndexResult<'static>>().as_ref() }
     }
 }
 
@@ -341,7 +245,7 @@ impl InvertedIndex {
         term: Option<Box<RSQueryTerm>>,
         offsets: &[u8],
     ) {
-        let offsets = inverted_index::RSOffsetSlice::from_slice(offsets);
+        let offsets = index_result::RSOffsetSlice::from_slice(offsets);
         let record = RSIndexResult::build_term()
             .borrowed_record(term, offsets)
             .doc_id(doc_id)
@@ -354,10 +258,5 @@ impl InvertedIndex {
                 &record as *const _ as *mut _,
             );
         }
-    }
-
-    #[inline(always)]
-    pub fn iterator_term(&self) -> QueryIterator {
-        unsafe { QueryIterator::new_term(self.ii, self.sctx) }
     }
 }

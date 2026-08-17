@@ -9,7 +9,8 @@
 
 #include "gtest/gtest.h"
 #include "result_processor.h"
-#include "redisearch_rs/headers/types_rs.h"
+#include "types_ffi.h"
+#include "sorting_vector_ffi.h"
 #include "util/arr.h"
 #include "util/dllist.h"
 #include "search_disk.h"

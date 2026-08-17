@@ -1,0 +1,73 @@
+name: Build TESTFILE excluding flaky tests
+description: |
+  Enumerate tests with `LIST=1 make pytest` (product-specific) and filter out
+  active flaky marks via the shared redisearch-ci-common `flaky-filter` action,
+  emitting the path to a TESTFILE the runner can consume.
+
+  Outputs an empty `testfile` when there are no active marks, no enumerable
+  tests, or any step fails — callers treat that as "run the full suite".
+
+inputs:
+  redis-url:
+    description: "Redis connection URL (rediss://...)"
+    required: true
+  variant:
+    description: "Label for filenames, e.g. 'standalone' or 'coordinator'"
+    required: true
+  redis-standalone:
+    description: "1 or 0 — propagated to the test enumeration as REDIS_STANDALONE"
+    required: true
+  test-config:
+    description: "Test config string forwarded to make (e.g. 'QUICK=1')"
+    required: true
+  rejson:
+    required: false
+    default: "1"
+  rejson-branch:
+    required: false
+    default: "master"
+  san:
+    required: false
+    default: ""
+
+outputs:
+  testfile:
+    description: "Filtered TESTFILE path; empty if no marks/tests or any step failed"
+    value: ${{ steps.filter.outputs.testfile }}
+
+runs:
+  using: composite
+  steps:
+    - name: Enumerate tests
+      id: enumerate
+      shell: bash -l -eo pipefail {0}
+      env:
+        SAN: ${{ inputs.san }}
+        REDIS_STANDALONE: ${{ inputs.redis-standalone }}
+        REJSON: ${{ inputs.rejson }}
+        REJSON_BRANCH: ${{ inputs.rejson-branch }}
+        TEST_CONFIG: ${{ inputs.test-config }}
+        VARIANT: ${{ inputs.variant }}
+        # Don't wipe tests/pytests/logs while listing — the coordinator listing
+        # runs after standalone tests, and otherwise the prior variant's failure
+        # logs would be deleted before artifact upload.
+        CLEAR_LOGS: "0"
+      run: |
+        mkdir -p /tmp/flaky
+        LIST_OUT="/tmp/flaky/list_${VARIANT}.raw"
+        if LIST=1 make pytest $TEST_CONFIG > "$LIST_OUT" 2>&1; then
+          :
+        else
+          echo "::warning::LIST=1 enumeration failed — running the full suite as fallback"
+          : > "$LIST_OUT"
+        fi
+        echo "list=$LIST_OUT" >> "$GITHUB_OUTPUT"
+
+    - name: Filter out flaky marks
+      id: filter
+      uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-filter@v1
+      with:
+        redis-url: ${{ inputs.redis-url }}
+        tests: ${{ steps.enumerate.outputs.list }}
+        output: /tmp/flaky/run_${{ inputs.variant }}.txt
+        ci-common-ref: v1

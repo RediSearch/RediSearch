@@ -42,7 +42,7 @@ def runTestWithSeed(env, s=None):
         443 # buffer size after writing 4 bytes 100 times.
         + 8 # thin vector header
         + 32 # size of the inverted index structure on the stack
-        + 48 # block buffer capacity
+        + 56 # index block stack size
     ) / (1024 * 1024)
     check_index_info(env, idx, count, expected_inv_idx_size, "after insert")
 
@@ -345,9 +345,9 @@ def testDocTableInfo(env):
     # = leanSize + sdsAllocSize(keyPtr)
     # = (sizeof(RSDocumentMetadata) - sizeof(RSPayload *))  (No payload)
     #   + (strlen(key) + 2)
-    # = (64 - 8) + 3 = 59
-    # 2 docs * 59 = 118
-    exp_doc_table_size = (n * doc_table_size_mb) + (118 / (1024 * 1024))
+    # = (72 - 8) + 3 = 67
+    # 2 docs * 67 = 134
+    exp_doc_table_size = (n * doc_table_size_mb) + (134 / (1024 * 1024))
     env.assertEqual(doctable_size1, exp_doc_table_size)
     sortable_size1 = float(d['sortable_values_size_mb'])
     env.assertGreater(sortable_size1, 0)

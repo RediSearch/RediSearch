@@ -10,21 +10,35 @@
 //! Reducer logic for creating the right NOT iterator variant,
 //! with short-circuit reductions applied before construction.
 
-use std::{ptr::NonNull, time::Duration};
+use std::ptr::NonNull;
 
-use ffi::t_docId;
+use rqe_core::DocId;
 
 use crate::{
-    Empty, IteratorType, RQEIterator, WildcardIterator,
+    Empty, IteratorType, NewWildcardIterator, RQEIterator,
     not::Not,
     not_optimized::NotOptimized,
-    wildcard::{new_wildcard_iterator, new_wildcard_iterator_optimized},
+    utils::TimeoutContext,
+    wildcard::{
+        new_wildcard_iterator, new_wildcard_iterator_on_disk, new_wildcard_iterator_optimized,
+    },
 };
 
+/// Check the clock every this many loop iterations to amortize syscall cost.
+pub const TIMEOUT_CHECK_GRANULARITY: u32 = 5_000;
+
 /// The result of [`not_iterator_reducer`].
+///
+/// The `ReducedWildcard` variant is intentionally large (contains an inline
+/// [`NewWildcardIterator`]) to avoid an extra heap allocation on a per-query
+/// construction path. This enum is short-lived and never stored.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "short-lived reducer result; boxing would add a needless allocation"
+)]
 enum NotReduction<'index, I> {
     /// The child is empty → NOT matches everything → wildcard.
-    ReducedWildcard(Box<dyn WildcardIterator<'index> + 'index>),
+    ReducedWildcard(NewWildcardIterator<'index>),
     /// The child is a wildcard → NOT matches nothing → empty.
     ReducedEmpty(Empty),
     /// No reduction was possible. The child is returned unchanged.
@@ -75,15 +89,20 @@ where
 }
 
 /// The result of [`new_not_iterator`].
-pub enum NewNotIterator<'index, I> {
+///
+/// Generic over the [`TimeoutContext`] implementation chosen by the caller
+/// (typically [`AnyTimeoutContext`](crate::utils::AnyTimeoutContext) at the
+/// FFI boundary, or [`NoTimeoutChecker`](timeout::NoTimeoutChecker)
+/// in tests).
+pub enum NewNotIterator<'index, I, TC> {
     /// The child is empty → NOT matches everything → wildcard.
-    ReducedWildcard(Box<dyn WildcardIterator<'index> + 'index>),
+    ReducedWildcard(NewWildcardIterator<'index>),
     /// The child is a wildcard → NOT matches nothing → empty.
     ReducedEmpty(Empty),
     /// Non-optimized path: sequential NOT iterator.
-    Not(Not<'index, I>),
-    /// Optimized path (`index_all`): wildcard-backed NOT iterator.
-    NotOptimized(NotOptimized<'index, Box<dyn WildcardIterator<'index> + 'index>, I>),
+    Not(Not<'index, I, TC>),
+    /// Optimized path (`index_all` or disk index): wildcard-backed NOT iterator.
+    NotOptimized(NotOptimized<'index, NewWildcardIterator<'index>, I, TC>),
 }
 
 /// Construct a NOT iterator, choosing between [`Not`] (sequential) and
@@ -92,6 +111,13 @@ pub enum NewNotIterator<'index, I> {
 /// If the child is trivially reducible (empty or wildcard), the reducer is
 /// applied first and a simplified iterator is returned directly as
 /// [`NewNotIterator::ReducedWildcard`] or [`NewNotIterator::ReducedEmpty`].
+///
+/// `timeout_ctx` is handed to the constructed iterator unchanged. Pass
+/// [`NoTimeoutChecker`](timeout::NoTimeoutChecker) to disable timeout checks
+/// entirely; the caller is otherwise responsible for picking the right
+/// concrete type (typically
+/// [`AnyTimeoutContext`](crate::utils::AnyTimeoutContext) at the FFI
+/// boundary).
 ///
 /// # Safety
 ///
@@ -106,16 +132,16 @@ pub enum NewNotIterator<'index, I> {
 /// 5. All preconditions of [`new_wildcard_iterator`] must hold (it may be
 ///    called both on the optimized path and by the reducer when the child is
 ///    empty).
-pub unsafe fn new_not_iterator<'index, I>(
+pub unsafe fn new_not_iterator<'index, I, TC>(
     child: I,
-    max_doc_id: t_docId,
+    max_doc_id: DocId,
     weight: f64,
-    timeout: Duration,
-    skip_timeout_checks: bool,
+    timeout_ctx: TC,
     query: NonNull<ffi::QueryEvalCtx>,
-) -> NewNotIterator<'index, I>
+) -> NewNotIterator<'index, I, TC>
 where
     I: RQEIterator<'index> + 'index,
+    TC: TimeoutContext,
 {
     // SAFETY: Caller guarantees the preconditions for `new_wildcard_iterator`
     // (used by the reducer when the child is empty).
@@ -144,33 +170,34 @@ where
             unsafe { rule.as_ref() }.index_all
         })
         .unwrap_or(false);
+    let disk_index_available = !spec.diskSpec.is_null();
+    let optimized = index_all || disk_index_available;
 
-    if index_all {
-        debug_assert!(
-            spec.diskSpec.is_null(),
-            "diskSpec should be null when index_all is true"
-        );
-        // SAFETY: Caller guarantees `query.sctx` is a valid, non-null pointer (2)
-        // and all preconditions of `new_wildcard_iterator_optimized` hold (5).
-        let wcii = unsafe { new_wildcard_iterator_optimized(sctx, weight) };
+    if optimized {
+        let wcii = if disk_index_available {
+            // SAFETY: Caller guarantees `spec.diskSpec` is valid, non-null and
+            // remains valid for `'index` (5).
+            let disk_spec = unsafe { &mut *spec.diskSpec };
+            let snapshot = NonNull::new(sctx_ref.diskSnapshot)
+                .expect("query.sctx.diskSnapshot is null for a disk-backed NOT iterator");
+            // SAFETY: Caller guarantees all preconditions of `new_wildcard_iterator_on_disk` hold (5).
+            // The snapshot is read from `query.sctx.diskSnapshot` so the NOT-optimized path
+            // observes the same view as the rest of the query; `query.status` is the valid
+            // `QueryError` of the evaluating query.
+            unsafe { new_wildcard_iterator_on_disk(disk_spec, weight, snapshot, query_ref.status) }
+        } else {
+            // SAFETY: Caller guarantees `query.sctx` is a valid, non-null pointer (2)
+            // and all preconditions of `new_wildcard_iterator_optimized` hold (5).
+            unsafe { new_wildcard_iterator_optimized(sctx, weight) }
+        };
         NewNotIterator::NotOptimized(NotOptimized::new(
             wcii,
             child,
             max_doc_id,
             weight,
-            if skip_timeout_checks {
-                None
-            } else {
-                Some(timeout)
-            },
+            timeout_ctx,
         ))
     } else {
-        NewNotIterator::Not(Not::new(
-            child,
-            max_doc_id,
-            weight,
-            timeout,
-            skip_timeout_checks,
-        ))
+        NewNotIterator::Not(Not::new(child, max_doc_id, weight, timeout_ctx))
     }
 }

@@ -9,11 +9,12 @@
 
 use std::io::{Cursor, Seek, Write};
 
-use ffi::{t_docId, t_fieldMask};
 use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
-use crate::{Decoder, Encoder, RSIndexResult, TermDecoder};
+use crate::{Decoder, Encoder, TermDecoder};
+use index_result::RSIndexResult;
+use rqe_core::{DocId, FieldMask};
 
 /// Encode and decode the delta, frequency and field mask of a record.
 ///
@@ -49,14 +50,14 @@ impl Decoder for FreqsFields {
     #[inline(always)]
     fn decode<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        base: t_docId,
+        base: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<()> {
         let (decoded_values, _bytes_consumed) = qint_decode::<3, _>(cursor)?;
         let [delta, freq, field_mask] = decoded_values;
 
-        result.doc_id = base + delta as t_docId;
-        result.field_mask = field_mask as t_fieldMask;
+        result.doc_id = base + delta as DocId;
+        result.field_mask = field_mask as FieldMask;
         result.freq = freq;
         Ok(())
     }
@@ -65,32 +66,35 @@ impl Decoder for FreqsFields {
         RSIndexResult::build_term().build()
     }
 
+    #[inline(always)]
     fn seek<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        mut base: t_docId,
-        target: t_docId,
+        mut base: DocId,
+        target: DocId,
         result: &mut RSIndexResult<'index>,
-    ) -> std::io::Result<bool> {
+    ) -> std::io::Result<Option<u16>> {
+        let mut skipped: u16 = 0;
         let (freq, field_mask) = loop {
             let [delta, freq, field_mask] = match qint_decode::<3, _>(cursor) {
                 Ok((decoded_values, _bytes_consumed)) => decoded_values,
                 Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
-                    return Ok(false);
+                    return Ok(None);
                 }
                 Err(error) => return Err(error),
             };
 
-            base += delta as t_docId;
+            base += delta as DocId;
 
             if base >= target {
                 break (freq, field_mask);
             }
+            skipped += 1;
         };
 
         result.doc_id = base;
-        result.field_mask = field_mask as t_fieldMask;
+        result.field_mask = field_mask as FieldMask;
         result.freq = freq;
-        Ok(true)
+        Ok(Some(skipped))
     }
 }
 
@@ -125,14 +129,14 @@ impl Decoder for FreqsFieldsWide {
     #[inline(always)]
     fn decode<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        base: t_docId,
+        base: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<()> {
         let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(cursor)?;
         let [delta, freq] = decoded_values;
-        let field_mask = t_fieldMask::read_as_varint(cursor)?;
+        let field_mask = FieldMask::read_as_varint(cursor)?;
 
-        result.doc_id = base + delta as t_docId;
+        result.doc_id = base + delta as DocId;
         result.field_mask = field_mask;
         result.freq = freq;
         Ok(())
@@ -142,33 +146,36 @@ impl Decoder for FreqsFieldsWide {
         RSIndexResult::build_term().build()
     }
 
+    #[inline(always)]
     fn seek<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        mut base: t_docId,
-        target: t_docId,
+        mut base: DocId,
+        target: DocId,
         result: &mut RSIndexResult<'index>,
-    ) -> std::io::Result<bool> {
+    ) -> std::io::Result<Option<u16>> {
+        let mut skipped: u16 = 0;
         let (freq, field_mask) = loop {
             let [delta, freq] = match qint_decode::<2, _>(cursor) {
                 Ok((decoded_values, _bytes_consumed)) => decoded_values,
                 Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
-                    return Ok(false);
+                    return Ok(None);
                 }
                 Err(error) => return Err(error),
             };
-            let field_mask = t_fieldMask::read_as_varint(cursor)?;
+            let field_mask = FieldMask::read_as_varint(cursor)?;
 
-            base += delta as t_docId;
+            base += delta as DocId;
 
             if base >= target {
                 break (freq, field_mask);
             }
+            skipped += 1;
         };
 
         result.doc_id = base;
         result.field_mask = field_mask;
         result.freq = freq;
-        Ok(true)
+        Ok(Some(skipped))
     }
 }
 

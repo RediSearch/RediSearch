@@ -10,7 +10,8 @@
 use std::{hint::black_box, io::Cursor};
 
 use criterion::{BatchSize, Criterion};
-use inverted_index::{Decoder, Encoder, RSIndexResult, freqs_only::FreqsOnly};
+use index_result::RSIndexResult;
+use inverted_index::{Decoder, Encoder, freqs_only::FreqsOnly};
 use itertools::Itertools;
 
 pub struct Bencher {
@@ -39,7 +40,7 @@ impl Bencher {
             .into_iter()
             .cartesian_product(deltas)
             .map(|(freq, delta)| {
-                let record = inverted_index::RSIndexResult::build_virt()
+                let record = index_result::RSIndexResult::build_virt()
                     .doc_id(100)
                     .frequency(freq)
                     .build();
@@ -67,7 +68,7 @@ impl Bencher {
                 || Cursor::new(Vec::with_capacity(buffer_size)),
                 |mut buffer| {
                     for test in &self.test_values {
-                        let record = inverted_index::RSIndexResult::build_virt()
+                        let record = index_result::RSIndexResult::build_virt()
                             .doc_id(100)
                             .frequency(test.freq)
                             .build();

@@ -9,13 +9,14 @@
 
 use std::io::{Cursor, Seek, SeekFrom, Write};
 
-use ffi::t_docId;
 use qint::{qint_decode, qint_encode};
+use rqe_core::DocId;
 
 use crate::{
-    Decoder, Encoder, RSIndexResult, TermDecoder,
+    Decoder, Encoder, TermDecoder,
     full::{decode_term_record_offsets, offsets},
 };
+use index_result::RSIndexResult;
 
 /// Encode and decode the delta, frequency, and offsets of a term record.
 ///
@@ -52,7 +53,7 @@ impl Decoder for FreqsOffsets {
     #[inline(always)]
     fn decode<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        base: t_docId,
+        base: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<()> {
         let (decoded_values, _bytes_consumed) = qint_decode::<3, _>(cursor)?;
@@ -65,33 +66,36 @@ impl Decoder for FreqsOffsets {
         RSIndexResult::build_term().build()
     }
 
+    #[inline(always)]
     fn seek<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        mut base: t_docId,
-        target: t_docId,
+        mut base: DocId,
+        target: DocId,
         result: &mut RSIndexResult<'index>,
-    ) -> std::io::Result<bool> {
+    ) -> std::io::Result<Option<u16>> {
+        let mut skipped: u16 = 0;
         let (freq, offsets_sz) = loop {
             let [delta, freq, offsets_sz] = match qint_decode::<3, _>(cursor) {
                 Ok((decoded_values, _bytes_consumed)) => decoded_values,
                 Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
-                    return Ok(false);
+                    return Ok(None);
                 }
                 Err(error) => return Err(error),
             };
 
-            base += delta as t_docId;
+            base += delta as DocId;
 
             if base >= target {
                 break (freq, offsets_sz);
             }
+            skipped += 1;
 
             // Skip offsets
             cursor.seek(SeekFrom::Current(offsets_sz as i64))?;
         };
 
         decode_term_record_offsets(cursor, base, 0, 0, freq, offsets_sz, result)?;
-        Ok(true)
+        Ok(Some(skipped))
     }
 }
 

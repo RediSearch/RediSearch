@@ -7,12 +7,28 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "cursor.h"
-#include "resp3.h"
+
 #include <time.h>
+#include <stdlib.h>
+
+#include "module.h"
 #include "rmutil/rm_assert.h"
-#include <err.h>
+#include "info/info_redis/threads/main_thread.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "redisearch.h"
+#include "reply.h"
+#include "rmalloc.h"
+#include "shard_window_ratio.h"
 
 #define Cursor_IsIdle(cur) ((cur)->pos != -1)
+
+// Sentinel `RedisModuleTimerID` value meaning "no idle-sweep timer is armed".
+// Redis assigns timer IDs from a non-zero seed, so `0` is safe to reserve.
+#define IDLE_SWEEP_TIMER_NONE ((RedisModuleTimerID)0)
+
+static void Cursors_RescheduleSweepLocked(CursorList *cl);
+static void Cursors_RequestRescheduleSweep(CursorList *cl);
 
 // coord cursors will have odd ids and regular cursors will have even ids
 CursorList g_CursorsList;
@@ -46,7 +62,7 @@ void CursorList_Init(CursorList *cl, bool is_coord) {
 }
 
 static void Cursor_RemoveFromIdle(Cursor *cur) {
-  CursorList *cl = getCursorList(cur->is_coord);
+  CursorList *cl = getCursorList(CURSOR_IS_COORD(cur->id));
   Array *idle = &cl->idle;
   Cursor **ll = ARRAY_GETARRAY_AS(idle, Cursor **);
   size_t n = ARRAY_GETSIZE_AS(idle, Cursor *);
@@ -66,7 +82,7 @@ static void Cursor_RemoveFromIdle(Cursor *cur) {
 
 /* Assumed to be called under the cursors global lock or upon server shut down. */
 static void Cursor_FreeInternal(Cursor *cur) {
-  CursorList *cl = getCursorList(cur->is_coord);
+  CursorList *cl = getCursorList(CURSOR_IS_COORD(cur->id));
   khiter_t khi = kh_get(cursors, cl->lookup, cur->id);
 
   /* Decrement the used count */
@@ -75,12 +91,14 @@ static void Cursor_FreeInternal(Cursor *cur) {
   RS_LOG_ASSERT(kh_get(cursors, cl->lookup, cur->id) == kh_end(cl->lookup),
                                                     "Failed to delete cursor");
   if (cur->hybrid_ref.rm) {
-    // The AREQ will be free by the hybrid request free function.
+    // TRANSITIONAL(MOD-16691): the sub-AREQ is freed by the
+    // hybrid container; the cursor's hold rides the StrongRef until the
+    // container-handoff step.
     StrongRef_Release(cur->hybrid_ref);
-    cur->execState = NULL;
-  } else if (cur->execState) {
-    AREQ_DecrRef(cur->execState);
-    cur->execState = NULL;
+    cur->query = NULL;
+  } else if (cur->query) {
+    QueryRequest_DecrRef(cur->query);
+    cur->query = NULL;
   }
   // if There's a spec associated with the cursor
   if(cur->spec_ref.rm) {
@@ -160,11 +178,127 @@ static int Cursors_GCInternal(CursorList *cl, int force) {
   return ctx.numCollected;
 }
 
+// Runs on the main Redis thread with the GIL held.
 int Cursors_CollectIdle(CursorList *cl) {
   CursorList_Lock(cl);
   int rc = Cursors_GCInternal(cl, 1);
+  Cursors_RescheduleSweepLocked(cl);
   CursorList_Unlock(cl);
   return rc;
+}
+
+// Returns the earliest `nextTimeoutNs` over all idle cursors, or 0 when the
+// idle list is empty. Uses `cl->nextIdleTimeoutNs` as a cache: if non-zero it
+// is already the minimum (maintained by `Cursor_Pause` and invalidated by
+// `Cursor_RemoveFromIdle` when the minimum-holding cursor is removed), so the
+// scan is skipped. Otherwise the idle list is walked and the result is cached
+// before returning. Assumed to be called under the cursor list lock.
+static uint64_t Cursors_FindNextTimeoutNsLocked(CursorList *cl) {
+  if (cl->nextIdleTimeoutNs != 0) {
+    return cl->nextIdleTimeoutNs;
+  }
+  uint64_t min_ns = 0;
+  size_t n = ARRAY_GETSIZE_AS(&cl->idle, Cursor *);
+  for (size_t i = 0; i < n; ++i) {
+    const Cursor *cur = *ARRAY_GETITEM_AS(&cl->idle, i, Cursor **);
+    if (min_ns == 0 || cur->nextTimeoutNs < min_ns) {
+      min_ns = cur->nextTimeoutNs;
+    }
+  }
+  cl->nextIdleTimeoutNs = min_ns;
+  return min_ns;
+}
+
+// Module timer callback: reaps expired idle cursors at MAXIDLE deadlines and
+// re-arms the timer for the next earliest deadline. Runs on the main Redis
+// thread with the GIL held.
+static void cursorIdleSweepTimerCb(RedisModuleCtx *ctx, void *data) {
+  CursorList *cl = data;
+  CursorList_Lock(cl);
+  // The timer ID is consumed when the callback fires.
+  cl->idleSweepTimerId = IDLE_SWEEP_TIMER_NONE;
+  Cursors_GCInternal(cl, 1);
+  Cursors_RescheduleSweepLocked(cl);
+  CursorList_Unlock(cl);
+}
+
+// Re-arms the per-list idle-sweep timer to fire at the earliest idle cursor
+// deadline. Cancels any previously armed timer first. Skipped when the module
+// timer API is unavailable (e.g. unit tests). Refreshes `nextIdleTimeoutNs`
+// from the live idle list. Must be called from the main Redis thread (with
+// the GIL held) and under the cursor list lock, since it manipulates a module
+// timer.
+static void Cursors_RescheduleSweepLocked(CursorList *cl) {
+  if (RS_IsMock) {
+    return;
+  }
+
+  // `RedisModule_StopTimer` / `RedisModule_CreateTimer` below mutate the
+  // server's event-loop timer state, so they must only be reached from the main
+  // thread. Any caller that can run elsewhere must post
+  // `Cursors_RequestRescheduleSweep` instead of re-arming inline. Which callers
+  // those are depends on how each command is dispatched: `Cursor_Pause` runs on
+  // a worker whenever `FT.CURSOR READ` is handed to the workers pool, and
+  // `Cursors_CollectIdle` does whenever a cluster serves `FT.CURSOR GC` off the
+  // main thread. This assertion is the enforcement, so the rule holds without
+  // having to re-derive the dispatch path of every caller.
+  //
+  // `MainThread_GetBlockedQueries` is a proxy for "am I the thread that ran
+  // `RediSearch_InitModuleInternal`": the TLS slot is populated there and is
+  // NULL on every other thread. It is therefore only a valid main-thread test
+  // after module init, which is guaranteed for any cursor operation.
+  RS_LOG_ASSERT(MainThread_GetBlockedQueries() != NULL,
+                "Cursors_RescheduleSweepLocked must run on the main thread; "
+                "use Cursors_RequestRescheduleSweep from worker threads");
+
+  if (cl->idleSweepTimerId != IDLE_SWEEP_TIMER_NONE) {
+    RedisModule_StopTimer(RSDummyContext, cl->idleSweepTimerId, NULL);
+    cl->idleSweepTimerId = IDLE_SWEEP_TIMER_NONE;
+  }
+
+  uint64_t next_ns = Cursors_FindNextTimeoutNsLocked(cl);
+  if (next_ns == 0) {
+    return;
+  }
+
+  uint64_t now_ns = curTimeNs();
+  mstime_t period_ms = 0;
+  if (next_ns > now_ns) {
+    // Round up so we never fire before the deadline.
+    const uint64_t NS_PER_MS = 1000000;
+    period_ms = (mstime_t)((next_ns - now_ns + NS_PER_MS - 1) / NS_PER_MS);
+  }
+
+  cl->idleSweepTimerId = RedisModule_CreateTimer(RSDummyContext, period_ms,
+                                                 cursorIdleSweepTimerCb, cl);
+}
+
+// Event-loop one-shot callback that re-arms the idle-sweep timer on the main
+// thread. Used from contexts that may run on worker threads, where calling
+// the module timer API directly is unsafe.
+static void cursorRescheduleSweepOneShotCb(void *data) {
+  CursorList *cl = data;
+  CursorList_Lock(cl);
+  Cursors_RescheduleSweepLocked(cl);
+  CursorList_Unlock(cl);
+}
+
+// Posts a one-shot job onto the Redis event loop to re-arm the idle-sweep
+// timer on the main thread. Safe to call from any thread; the actual timer
+// manipulation happens later under the GIL. Used from `Cursor_Pause`, which
+// may run on background worker threads (e.g. when FT.CURSOR READ is dispatched
+// to a worker via `cursorRead_ctx`).
+static void Cursors_RequestRescheduleSweep(CursorList *cl) {
+  if (RS_IsMock) {
+    return;
+  }
+  // The `cl` pointer outlives any pending one-shot: both `g_CursorsList` and
+  // `g_CursorsListCoord` are global variables with process lifetime, and
+  // `CursorList_Empty` only clears their contents (it never destroys the
+  // struct, its mutex, its lookup, or its idle array). If this ever changes
+  // (e.g. heap-allocated per-index lists), this call site needs a refcount
+  // or in-flight counter to keep `cl` alive until the one-shot drains.
+  RedisModule_EventLoopAddOneShot(cursorRescheduleSweepOneShotCb, cl);
 }
 
 CursorsInfoStats Cursors_GetInfoStats(void) {
@@ -209,8 +343,9 @@ static uint64_t CursorList_GenerateId(CursorList *curlist) {
 }
 
 static void cursorMarkASMInaccuracyCb(CursorList *cl, Cursor *cur, void *arg) {
-  if (cur->execState) {
-    cur->execState->stateflags |= QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT;
+  AREQ *req = Cursor_AREQ(cur);
+  if (req) {
+    req->stateflags |= QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT;
   }
 }
 
@@ -252,7 +387,6 @@ Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned inte
   cur->id = CursorList_GenerateId(cl);
   cur->pos = -1;
   cur->timeoutIntervalMs = interval;
-  cur->is_coord = cl->is_coord;
   if(spec) {
     // Get a a weak reference to the spec out of the strong ref, and save it in the
     // cursor's struct.
@@ -269,7 +403,7 @@ done:
 }
 
 int Cursor_Pause(Cursor *cur) {
-  CursorList *cl = getCursorList(cur->is_coord);
+  CursorList *cl = getCursorList(CURSOR_IS_COORD(cur->id));
 
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
@@ -282,8 +416,17 @@ int Cursor_Pause(Cursor *cur) {
 
     // Set the next timeout to be the current time + timeout interval
     cur->nextTimeoutNs = curTimeNs() + ((uint64_t)cur->timeoutIntervalMs * 1000000);
-    if (cur->nextTimeoutNs < cl->nextIdleTimeoutNs || cl->nextIdleTimeoutNs == 0) {
+    // Maintain the `nextIdleTimeoutNs` cache invariant: when non-zero it must
+    // equal the actual minimum deadline among the idle cursors. Only narrow it when
+    // it is already valid; if it has been invalidated (set to 0 by
+    // `Cursor_RemoveFromIdle` because the previous minimum-holding cursor was
+    // removed), leave it 0 so that `Cursors_FindNextTimeoutNsLocked` will
+    // rescan and recompute the true minimum.
+    if (cl->nextIdleTimeoutNs != 0 && cur->nextTimeoutNs < cl->nextIdleTimeoutNs) {
       cl->nextIdleTimeoutNs = cur->nextTimeoutNs;
+      Cursors_RequestRescheduleSweep(cl);
+    } else if (cl->nextIdleTimeoutNs == 0) {
+      Cursors_RequestRescheduleSweep(cl);
     }
 
     /* Add to idle list */
@@ -343,7 +486,7 @@ int Cursors_Purge(CursorList *cl, uint64_t cid) {
 }
 
 int Cursor_Free(Cursor *cur) {
-  CursorList *cl = getCursorList(cur->is_coord);
+  CursorList *cl = getCursorList(CURSOR_IS_COORD(cur->id));
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
   Cursor_FreeInternal(cur);
@@ -405,6 +548,10 @@ void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, const Inde
 
 void CursorList_Empty(CursorList *cl) {
   CursorList_Lock(cl);
+  if (cl->idleSweepTimerId != IDLE_SWEEP_TIMER_NONE) {
+    RedisModule_StopTimer(RSDummyContext, cl->idleSweepTimerId, NULL);
+    cl->idleSweepTimerId = IDLE_SWEEP_TIMER_NONE;
+  }
   for (khiter_t ii = 0; ii != kh_end(cl->lookup); ++ii) {
     if (!kh_exist(cl->lookup, ii)) {
       continue;

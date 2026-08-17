@@ -8,12 +8,14 @@
 */
 
 use crate::{
-    DecodedBy, Encoder, FilterMaskReader, GcApplyInfo, GcScanDelta, IndexBlock, InvertedIndex,
-    RSIndexResult,
+    AddRecordOutcome, DecodedBy, Encoder, FilterMaskReader, GcApplyInfo, GcScanDelta, IndexBlock,
+    InvertedIndex,
     debug::{BlockSummary, Summary},
     reader::IndexReaderCore,
 };
-use ffi::{IndexFlags, IndexFlags_Index_StoreFieldFlags, t_docId, t_fieldMask};
+use ffi::{IndexFlags, IndexFlags_Index_StoreFieldFlags};
+use index_result::RSIndexResult;
+use rqe_core::{DocId, FieldMask};
 
 /// A wrapper around the inverted index which tracks the fields for all the records in the index
 /// using a mask. This makes is easy to know if the index has any records for a specific field.
@@ -24,7 +26,7 @@ pub struct FieldMaskTrackingIndex<E> {
 
     /// A field mask of all the entries in the index. This is used to quickly determine if a
     /// record with a specific field mask exists in the index.
-    field_mask: t_fieldMask,
+    field_mask: FieldMask,
 }
 
 impl<E: Encoder> FieldMaskTrackingIndex<E> {
@@ -41,23 +43,23 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
         }
     }
 
-    /// Add a new record to the index and return by how much memory grew. It is expected that
-    /// the document ID of the record is greater than or equal the last document ID in the index.
-    pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<usize> {
-        let mem_growth = self.index.add_record(record)?;
+    /// Add a new record to the index. See [`InvertedIndex::add_record`] for the meaning of the
+    /// returned `(memory_growth, blocks_added)` pair.
+    pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<AddRecordOutcome> {
+        let result = self.index.add_record(record)?;
 
         self.field_mask |= record.field_mask;
 
-        Ok(mem_growth)
+        Ok(result)
     }
 
     /// The memory size of the index in bytes.
     pub fn memory_usage(&self) -> usize {
-        self.index.memory_usage() + std::mem::size_of::<t_fieldMask>()
+        self.index.memory_usage() + std::mem::size_of::<FieldMask>()
     }
 
     /// Returns the last document ID in the index, if any.
-    pub fn last_doc_id(&self) -> Option<t_docId> {
+    pub fn last_doc_id(&self) -> Option<DocId> {
         self.index.last_doc_id()
     }
 
@@ -72,7 +74,7 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
     }
 
     /// Get the combined field mask of all records in the index.
-    pub const fn field_mask(&self) -> t_fieldMask {
+    pub const fn field_mask(&self) -> FieldMask {
         self.field_mask
     }
 
@@ -120,7 +122,7 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
 
 impl<E: Encoder + DecodedBy> FieldMaskTrackingIndex<E> {
     /// Create a new [`crate::reader::IndexReader`] for this inverted index.
-    pub fn reader(&self, mask: t_fieldMask) -> FilterMaskReader<IndexReaderCore<'_, E>> {
+    pub fn reader(&self, mask: FieldMask) -> FilterMaskReader<IndexReaderCore<'_, E>> {
         FilterMaskReader::new(mask, self.index.reader())
     }
 
@@ -132,10 +134,10 @@ impl<E: Encoder + DecodedBy> FieldMaskTrackingIndex<E> {
     /// If a doc does exist, then `repair` is called with it to run any repair calculations needed.
     ///
     /// This function returns a delta if GC is needed, or `None` if no GC is needed.
-    pub fn scan_gc<'index>(
-        &'index self,
-        doc_exist: impl Fn(t_docId) -> bool,
-        repair: Option<impl FnMut(&RSIndexResult<'index>, &IndexBlock)>,
+    pub fn scan_gc(
+        &self,
+        doc_exist: impl Fn(DocId) -> bool,
+        repair: Option<impl for<'call> FnMut(&RSIndexResult<'call>, &crate::RepairContext<'call>)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
         self.index.scan_gc(doc_exist, repair)
     }

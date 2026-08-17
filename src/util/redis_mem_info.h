@@ -46,3 +46,14 @@ static inline float RedisMemory_GetUsedMemoryRatio(void) {
 // Returns 0 if maxmemory is 0
 // TODO: remove this function and use RedisMemory_GetUsedMemoryRatio instead after benchmarking
 float RedisMemory_GetUsedMemoryRatioUnified(RedisModuleCtx *ctx);
+
+// Used-memory ratio for the async background scan, which runs only with disk indexes on
+// Flex (BigRedis). Returns max(total_ratio, ram_ratio):
+//   total_ratio = used_memory          / min_not_0(maxmemory, max_process_mem)
+//   ram_ratio   = used_ram_for_swapout / min_not_0(max_ram,   max_process_mem)
+// On Flex used_memory is RAM + flash quota, so it can stay low while RAM — the real
+// bottleneck for indexing — is exhausted; the RAM term catches that. The bigredis fields
+// are read from the `mem` INFO section (which on Flex returns both the `memory` and
+// `bigredis` sections in one call). A budget that is 0 contributes a 0 ratio.
+// GIL must be held before calling this function.
+float RedisMemory_GetUsedMemoryRatioFlex(RedisModuleCtx *ctx);

@@ -1,0 +1,73 @@
+name: Build RediSearch Binary for Benchmarks
+
+# Builds RediSearch once and uploads the resulting redisearch.so as an artifact
+# so that downstream benchmark jobs can download it instead of rebuilding.
+
+on:
+  workflow_call:
+    inputs:
+      artifact_name:
+        type: string
+        required: true
+        description: "Name of the artifact to upload the built redisearch.so under"
+      arch:
+        type: string
+        default: x86_64
+        description: "CPU arch to build for. `x86_64` (default) runs on GitHub's ubuntu-24.04; `aarch64` runs on ubuntu-24.04-arm. Must match the target EC2 DB architecture at benchmark time."
+
+jobs:
+  build:
+    name: "Build RediSearch ${{ inputs.arch }}"
+    # Runner matches inputs.arch so the produced .so is ABI-compatible with
+    # the target EC2 instance. build.sh derives the output dir from `uname -m`,
+    # so we run the build natively on the matching-arch runner instead of
+    # cross-compiling.
+    runs-on: ${{ inputs.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    permissions:
+      contents: read  # actions/checkout
+      id-token: write # OIDC role assumption for sccache S3
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    env:
+      IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+      # build.sh maps `uname -m == x86_64` -> `x64` and `uname -m == aarch64` -> `aarch64`;
+      # BUILD_DIR mirrors that so the upload step finds the .so.
+      BUILD_DIR: ${{ format('bin/linux-{0}-release/search-community', inputs.arch == 'aarch64' && 'aarch64' || 'x64') }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          submodules: recursive
+      - name: Setup specific
+        working-directory: .install
+        run: ./install_script.sh sudo
+      - name: Setup tests dependencies
+        uses: ./.github/actions/retry-command
+        with:
+          command: .install/test_deps/common_installations.sh sudo
+          github_token: ${{ github.token }}
+      - name: Install Boost
+        working-directory: .install
+        run: ./install_boost.sh
+      - name: Setup sccache
+        if: ${{ env.IS_FORK_PR != 'true' }}
+        uses: ./.github/actions/setup-sccache
+        with:
+          aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
+          s3-bucket: ${{ vars.SCCACHE_S3_BUCKET }}
+          s3-region: ${{ vars.SCCACHE_S3_REGION }}
+          s3-key-prefix: ${{ vars.SCCACHE_S3_KEY_PREFIX }}
+      - name: Build RediSearch
+        run: make build LTO=1
+      - name: Show sccache stats
+        run: ${SCCACHE_PATH:-sccache} --show-stats || true
+      - name: Upload redisearch.so artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: |
+            ${{ env.BUILD_DIR }}/redisearch.so
+            ${{ env.BUILD_DIR }}/redisearch.so.debug
+          if-no-files-found: error
+          retention-days: 1

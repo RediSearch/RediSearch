@@ -8,22 +8,36 @@
 */
 
 #include "geo_index.h"
-#include "rmutil/util.h"
+
+#include <string.h>
+#include <strings.h>
+
+#include "numeric_filter.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
-#include "query_node.h"
-#include "query_param.h"
-#include "iterators/union_iterator.h"
+#include "geo_ffi.h"
+#include "query.h"
+#include "query_error_ffi.h"
+#include "redismodule.h"
+#include "iterators_ffi.h"
 
 static double extractUnitFactor(GeoDistance unit);
 
-static void CheckAndSetEmptyFilterValue(ArgsCursor *ac, bool *hasEmptyFilterValue) {
+/* Legacy contract: an explicitly empty GEOFILTER value parses as 0 under
+ * DIALECT 1; dialect >= 2 rejects it via `hasEmptyFilterValue`. The strict
+ * conversions no longer parse "" as a number, so the empty token is
+ * recognized on conversion failure: returns true, coercing `*target` to 0. */
+static bool CoalesceEmptyFilterValue(ArgsCursor *ac, double *target, bool *hasEmptyFilterValue) {
   const char *val;
+  size_t len;
 
-  int rv = AC_GetString(ac, &val, NULL, AC_F_NOADVANCE);
-  if (rv == AC_OK && !(*val)) {
-    *hasEmptyFilterValue = true;
+  int rv = AC_GetString(ac, &val, &len, AC_F_NOADVANCE);
+  if (rv != AC_OK || len != 0) {
+    return false;
   }
+  *target = 0;
+  *hasEmptyFilterValue = true;
+  return true;
 }
 
 /* Parse a geo filter from redis arguments. We assume the filter args start at argv[0], and FILTER
@@ -45,30 +59,24 @@ int GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFil
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for <geo property>: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
-  if ((rv = AC_GetDouble(ac, &gf->base.lon, AC_F_NOADVANCE) != AC_OK)) {
+  rv = AC_GetDouble(ac, &gf->base.lon, AC_F_NOADVANCE);
+  if (rv != AC_OK && !CoalesceEmptyFilterValue(ac, &gf->base.lon, hasEmptyFilterValue)) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for <lon>: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
-  if (gf->base.lon == 0) {
-    CheckAndSetEmptyFilterValue(ac, hasEmptyFilterValue);
-  }
   AC_Advance(ac);
 
-  if ((rv = AC_GetDouble(ac, &gf->base.lat, AC_F_NOADVANCE)) != AC_OK) {
+  rv = AC_GetDouble(ac, &gf->base.lat, AC_F_NOADVANCE);
+  if (rv != AC_OK && !CoalesceEmptyFilterValue(ac, &gf->base.lat, hasEmptyFilterValue)) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for <lat>: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
-  if (gf->base.lat == 0) {
-    CheckAndSetEmptyFilterValue(ac, hasEmptyFilterValue);
-  }
   AC_Advance(ac);
 
-  if ((rv = AC_GetDouble(ac, &gf->base.radius, AC_F_NOADVANCE)) != AC_OK) {
+  rv = AC_GetDouble(ac, &gf->base.radius, AC_F_NOADVANCE);
+  if (rv != AC_OK && !CoalesceEmptyFilterValue(ac, &gf->base.radius, hasEmptyFilterValue)) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for <radius>: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
-  }
-  if (gf->base.radius == 0) {
-    CheckAndSetEmptyFilterValue(ac, hasEmptyFilterValue);
   }
   AC_Advance(ac);
 
@@ -83,12 +91,11 @@ int GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFil
 }
 
 void GeoFilter_Free(GeoFilter *gf) {
+  // `numericFilters` is allocated in Rust (`build_geo_numeric_filters`), so it
+  // must be freed in Rust with the matching allocator; `GeoFilter_FreeNumericFilters`
+  // releases both the array and each per-range `NumericFilter` it owns.
   if (gf->numericFilters) {
-    for (int i = 0; i < GEO_RANGE_COUNT; ++i) {
-      if (gf->numericFilters[i])
-        NumericFilter_Free(gf->numericFilters[i]);
-    }
-    rm_free(gf->numericFilters);
+    GeoFilter_FreeNumericFilters(gf->numericFilters);
   }
   rm_free(gf);
 }
@@ -100,33 +107,6 @@ void LegacyGeoFilter_Free(LegacyGeoFilter *gf) {
   GeoFilter_Free(&gf->base);
 }
 
-QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, const GeoFilter *gf, IteratorsConfig *config) {
-  // check input parameters are valid
-  if (gf->radius <= 0 ||
-      gf->lon > GEO_LONG_MAX || gf->lon < GEO_LONG_MIN ||
-      gf->lat > GEO_LAT_MAX || gf->lat < GEO_LAT_MIN) {
-    return NULL;
-  }
-
-  GeoHashRange ranges[GEO_RANGE_COUNT] = {{0}};
-  double radius_meter = gf->radius * extractUnitFactor(gf->unitType);
-  calcRanges(gf->lon, gf->lat, radius_meter, ranges);
-
-  QueryIterator **iters = rm_calloc(GEO_RANGE_COUNT, sizeof(*iters));
-  ((GeoFilter *)gf)->numericFilters = rm_calloc(GEO_RANGE_COUNT, sizeof(*gf->numericFilters));
-  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = gf->fieldSpec->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
-  for (size_t ii = 0; ii < GEO_RANGE_COUNT; ++ii) {
-    if (ranges[ii].min != ranges[ii].max) {
-      NumericFilter *filt = gf->numericFilters[ii] =
-              NewNumericFilter(ranges[ii].min, ranges[ii].max, 1, 1, true, NULL);
-      filt->fieldSpec = gf->fieldSpec;
-      filt->geoFilter = gf;
-      iters[ii] = NewNumericFilterIterator(ctx, filt, INDEXFLD_T_GEO, config, &filterCtx);
-    }
-  }
-
-  return NewUnionIterator(iters, GEO_RANGE_COUNT, true, 1, QN_GEO, NULL, config);
-}
 
 GeoDistance GeoDistance_Parse(const char *s) {
 #define X(c, val)            \
@@ -197,17 +177,6 @@ int GeoFilter_Validate(const GeoFilter *gf, QueryError *status) {
   return 1;
 }
 
-/**
- * Generates a geo hash from a given latitude and longtitude
- */
-double calcGeoHash(double lon, double lat) {
-  double res;
-  int rv = encodeGeo(lon, lat, &res);
-  if (rv == 0) {
-    return INVALID_GEOHASH;
-  }
-  return res;
-}
 
 /**
  * Convert different units to meters

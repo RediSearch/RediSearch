@@ -1,0 +1,35 @@
+name: Flaky tests — unmark
+
+# Thin workflow_dispatch caller of the shared reusable flaky-unmark workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch the mark applies to (must match the original mark — use * if it was a wildcard)'
+        required: true
+        default: 'master'
+        type: string
+      test_id:
+        description: "Test identifier in RLTest format: <test_file>:<test_name> (must match the original mark)"
+        required: true
+        type: string
+      reason:
+        description: 'Why are we unmarking? (e.g. "fixed in #1234")'
+        required: true
+        type: string
+
+jobs:
+  unmark:
+    permissions:
+      # The shared workflow checks out redislabsdev/redisearch-ci-common (for
+      # flaky_db.py) with the inherited token, and a caller's permissions are the
+      # ceiling for the workflow it calls.
+      contents: read
+    uses: redislabsdev/redisearch-ci-common/.github/workflows/flaky-unmark.yml@v1
+    with:
+      branch: ${{ inputs.branch }}
+      test_id: ${{ inputs.test_id }}
+      reason: ${{ inputs.reason }}
+      ci-common-ref: v1
+    secrets:
+      redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}

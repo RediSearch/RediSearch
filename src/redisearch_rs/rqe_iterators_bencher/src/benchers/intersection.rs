@@ -20,16 +20,15 @@ use criterion::{
 };
 use ffi::{
     IndexFlags, IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
-    IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets, IteratorStatus_ITERATOR_OK,
+    IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets,
 };
-use inverted_index::{InvertedIndex, RSIndexResult, RSOffsetSlice, full::Full};
+use index_result::{RSIndexResult, RSOffsetSlice};
+use inverted_index::{InvertedIndex, full::Full};
 use query_term::RSQueryTerm;
 use rqe_iterators::{
     Intersection, NoOpChecker, RQEIterator, id_list::IdListSorted, inverted_index::Term,
 };
 use rqe_iterators_test_utils::MockContext;
-
-use crate::ffi::{self, InvertedIndex as CInvertedIndex};
 
 #[derive(Default)]
 pub struct Bencher;
@@ -160,19 +159,6 @@ fn make_rust_indexes(first_pos: u8, second_pos: u8) -> (InvertedIndex<Full>, Inv
     (first, second)
 }
 
-/// Build two C `InvertedIndex` instances.
-///
-/// `first_pos` and `second_pos` are the (constant) positions used for every document.
-fn make_c_indexes(first_pos: u8, second_pos: u8) -> (CInvertedIndex, CInvertedIndex) {
-    let first = CInvertedIndex::new(FLAGS);
-    let second = CInvertedIndex::new(FLAGS);
-    for doc_id in 1..=NUM_DOCS {
-        first.write_term_entry(doc_id, 1, 1, None, &[first_pos]);
-        second.write_term_entry(doc_id, 1, 1, None, &[second_pos]);
-    }
-    (first, second)
-}
-
 impl Bencher {
     const MEASUREMENT_TIME: Duration = Duration::from_millis(3000);
     const WARMUP_TIME: Duration = Duration::from_millis(200);
@@ -195,10 +181,7 @@ impl Bencher {
         c: &'a mut Criterion,
         label: &str,
     ) -> BenchmarkGroup<'a, WallTime> {
-        let mut group = c.benchmark_group(label);
-        group.measurement_time(Self::MEASUREMENT_TIME);
-        group.warm_up_time(Self::WARMUP_TIME);
-        group
+        super::group(c, label, Self::MEASUREMENT_TIME, Self::WARMUP_TIME)
     }
 
     /// Sweep `NUM_CHILDREN_CASES` × `OVERLAP_CASES`, building a fresh `Intersection` from
@@ -259,28 +242,6 @@ impl Bencher {
         first_pos: u8,
         second_pos: u8,
     ) {
-        let (first_c, second_c) = make_c_indexes(first_pos, second_pos);
-
-        group.bench_function("C", |b| {
-            b.iter_batched_ref(
-                || {
-                    ffi::QueryIterator::new_intersection_from_term_its(
-                        first_c.iterator_term(),
-                        second_c.iterator_term(),
-                        max_slop.map_or(-1, |v| v as i32),
-                        in_order,
-                    )
-                },
-                |it| {
-                    while it.read() == IteratorStatus_ITERATOR_OK {
-                        black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
         let (first_rust, second_rust) = make_rust_indexes(first_pos, second_pos);
         let mock_ctx = MockContext::new(NUM_DOCS, NUM_DOCS as usize);
 
