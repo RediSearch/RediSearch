@@ -93,17 +93,6 @@ static RSValue *MRReply_ToValue(MRReply *r) {
   return v;
 }
 
-// Wall-clock deadline pointer for MRIterator_NextWithTimeout. NULL unless the
-// request is actively using its clock source and clock checks are enabled.
-static const struct timespec *getAbsTimeout(RPNet *nc) {
-  if (!nc->areq || !nc->areq->sctx ||
-      nc->areq->base.timeout.kind != QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE ||
-      !AREQ_ShouldCheckTimeout(nc->areq)) {
-    return NULL;
-  }
-  return SearchTime_GetClockDeadline(&nc->areq->sctx->time);
-}
-
 // Process warnings from nc->current.meta (RESP3 only), then free reply and reset state.
 // Warning handling requires nc->current.meta to be set. Cleanup is done regardless of protocol.
 //

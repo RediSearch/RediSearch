@@ -560,10 +560,6 @@ bool QueryRequest_TimeoutPreemptSafeLoaderGIL(QueryRequest *request);
  * RPSorter::base.Next: the Yield latch is load-bearing across reads. */
 void AREQ_ResetForCursorReadReturnStrict(AREQ *req);
 
-static inline bool AREQ_ShouldCheckTimeout(AREQ *req) {
-  return QueryRequestTimeout_ShouldCheck(&req->base.timeout);
-}
-
 static inline void AREQ_SetSkipTimeoutChecks(AREQ *req, bool skipTimeoutChecks) {
   QueryRequestTimeout_SetSkipChecks(&req->base.timeout, skipTimeoutChecks);
   // TODO($$$): Remove the SearchTime mirror once consumers use QueryRequest.timeout.
