@@ -909,8 +909,10 @@ def test_multiple_svs_indexes_share_pool():
 
 
 def assert_background_indexing_in_progress(env, message=''):
-    """The background training/update job is still running, i.e. operations issued from here
-    on do race with it - which is what the tests below are about."""
+    """A background training/update job is scheduled or running, so deletions issued from
+    here on race with it - which is what the tests below are about. Note that
+    BACKGROUND_INDEXING is raised when the job is scheduled and lowered when it completes,
+    so this does not depend on the job's worker having been scheduled yet."""
     info = get_tiered_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
     env.assertEqual(info['BACKGROUND_INDEXING'], 1,
                     message=f"{message}: background indexing is not in progress: {info}")
@@ -925,12 +927,20 @@ def assert_nearest_neighbor(env, query_vec, expected_doc, message=''):
                     message=f"{message}: expected {expected_doc} to be the nearest neighbor of its own vector")
 
 def assert_docs_not_returned(env, query_vec, k, absent_docs, message=''):
-    """A KNN query with `query_vec` - the vector of one of the deleted docs, so that a
-    stale index entry would rank first - returns none of `absent_docs`."""
+    """A KNN query with `query_vec` - the vector of one of the deleted docs, so that a stale
+    vector index entry would rank first - returns `k` live docs, none of them in
+    `absent_docs`.
+
+    The result count is what actually detects a stale entry: the pipeline drops results
+    whose document is gone from the doc table, so a deleted doc that is still in the vector
+    index costs a result slot instead of showing up by name. The `absent_docs` check is the
+    end-to-end guarantee on top of that."""
     res = env.execute_command('FT.SEARCH', DEFAULT_INDEX_NAME,
                               f'*=>[KNN {k} @{DEFAULT_FIELD_NAME} $vec]',
                               'PARAMS', 2, 'vec', query_vec.tobytes(), 'NOCONTENT')
-    env.assertEqual(res[0], k, message=message)
+    env.assertEqual(res[0], k,
+                    message=f"{message}: got {res[0]} of {k} results - a deleted doc is "
+                            f"probably still in the vector index, taking up a result slot")
     for doc in absent_docs:
         env.assertNotContains(doc, res, message=f"{message}: deleted doc {doc} was returned")
 
@@ -941,12 +951,17 @@ def test_delete_during_background_indexing():
     Delete docs while the SVS-VAMANA background training - and later a background update -
     is running (MOD-13168, VectorSimilarity #903).
 
-    Each phase deletes docs that were inserted before the background job was triggered (so
-    they are part of the batch being transferred into the backend) as well as docs inserted
-    after it was triggered (so they are still in the flat buffer), and then verifies that
-    the index converged: exactly the live docs are indexed, each of them is still
-    retrievable by its own vector, and no deleted doc is returned.
+    Each phase deletes docs from both sides of the background job's trigger point: docs
+    inserted before it, which the job is transferring into the backend, and docs inserted
+    after it, which are still in the flat buffer. Whether a given doc ends up on the side
+    intended for it depends on when the job's worker takes its snapshot of the flat buffer,
+    which the test cannot pin down - only that a job is in flight (see
+    `assert_background_indexing_in_progress`). Both orderings are worth covering, and the
+    assertions hold either way: after the job settles, exactly the live docs are indexed,
+    each is still retrievable by its own vector, and no deleted doc is returned.
     """
+    # WORKERS 2 is load-bearing: with no worker threads the tiered index would index in
+    # place, and there would be no background job to race with.
     env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 2')
     conn = getConnectionByEnv(env)
     dim = 32
@@ -967,26 +982,33 @@ def test_delete_during_background_indexing():
     create_vector_index(env, dim, index_name=DEFAULT_INDEX_NAME, datatype=data_type,
                         alg='SVS-VAMANA', additional_vec_params=compression_params)
 
-    # Phase 1: crossing the training threshold triggers the background training. `doc1` is
-    # deleted below, so keep its vector to probe the index for a stale entry.
+    # Phase 1: crossing the training threshold triggers the background training. Each group
+    # of docs is inserted by its own call, to keep the first vector of the group: querying
+    # with a deleted doc's own vector makes a stale index entry rank first, and querying
+    # with a live doc's own vector checks it is still indexed under its own label.
     first_batch = training_threshold + 100
-    deleted_before_training_vec = populate_with_vectors(env, num_docs=first_batch, dim=dim, datatype=data_type)
+    deleted_in_phase1_vec = populate_with_vectors(env, num_docs=10, dim=dim, datatype=data_type)
+    deleted_in_phase2_vec = populate_with_vectors(env, num_docs=30, dim=dim, datatype=data_type,
+                                                  initial_doc_id=11)
+    populate_with_vectors(env, num_docs=first_batch - 40, dim=dim, datatype=data_type,
+                          initial_doc_id=41)
 
-    # These are inserted while the training is already running, and stay in the flat buffer.
-    deleted_during_training_vec = populate_with_vectors(env, num_docs=10, dim=dim, datatype=data_type,
-                                                        initial_doc_id=first_batch + 1)
+    # Inserted once the background job has been triggered, so these are expected to be
+    # deleted straight from the flat buffer.
+    deleted_from_flat_buffer_vec = populate_with_vectors(env, num_docs=10, dim=dim, datatype=data_type,
+                                                         initial_doc_id=first_batch + 1)
     live_vec = populate_with_vectors(env, num_docs=40, dim=dim, datatype=data_type,
                                      initial_doc_id=first_batch + 11)
     live_doc = f'{DEFAULT_DOC_NAME_PREFIX}{first_batch + 11}'
 
     assert_background_indexing_in_progress(env, message='phase 1')
-    delete_docs(1, 10)                  # inserted before the training was triggered
-    delete_docs(first_batch + 1, 10)    # inserted after the training was triggered
+    delete_docs(1, 10)                  # inserted before the job was triggered
+    delete_docs(first_batch + 1, 10)    # inserted after the job was triggered
 
     expected_live_docs = first_batch + 50 - 20
     env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], expected_live_docs)
 
-    for probe_vec in [deleted_before_training_vec, deleted_during_training_vec]:
+    for probe_vec in [deleted_in_phase1_vec, deleted_from_flat_buffer_vec]:
         assert_docs_not_returned(env, probe_vec, k, deleted_docs, message='phase 1, training in progress')
 
     wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
@@ -994,7 +1016,7 @@ def test_delete_during_background_indexing():
     assert_svs_tiered_state(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME,
                             expected_live_docs=expected_live_docs, message='phase 1')
     assert_nearest_neighbor(env, live_vec, live_doc, message='phase 1')
-    for probe_vec in [deleted_before_training_vec, deleted_during_training_vec]:
+    for probe_vec in [deleted_in_phase1_vec, deleted_from_flat_buffer_vec]:
         assert_docs_not_returned(env, probe_vec, k, deleted_docs, message='phase 1, training done')
 
     # Phase 2: another `training_threshold` vectors fill the flat buffer past
@@ -1004,15 +1026,16 @@ def test_delete_during_background_indexing():
                                             initial_doc_id=phase2_first_doc_id)
     phase2_live_doc = f'{DEFAULT_DOC_NAME_PREFIX}{phase2_first_doc_id}'
 
-    # Delete docs of the first batch, which the training already moved to the backend.
+    # Delete docs of the first batch, which the training is expected to have moved to the
+    # backend already.
     assert_background_indexing_in_progress(env, message='phase 2')
     delete_docs(11, 30)
 
     expected_live_docs += training_threshold - 30
     env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], expected_live_docs)
 
-    assert_docs_not_returned(env, deleted_before_training_vec, k, deleted_docs,
-                             message='phase 2, update in progress')
+    for probe_vec in [deleted_in_phase2_vec, deleted_from_flat_buffer_vec]:
+        assert_docs_not_returned(env, probe_vec, k, deleted_docs, message='phase 2, update in progress')
 
     wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
 
@@ -1020,7 +1043,7 @@ def test_delete_during_background_indexing():
                             expected_live_docs=expected_live_docs, message='phase 2')
     assert_nearest_neighbor(env, live_vec, live_doc, message='phase 2')
     assert_nearest_neighbor(env, phase2_live_vec, phase2_live_doc, message='phase 2')
-    for probe_vec in [deleted_before_training_vec, deleted_during_training_vec]:
+    for probe_vec in [deleted_in_phase1_vec, deleted_in_phase2_vec, deleted_from_flat_buffer_vec]:
         assert_docs_not_returned(env, probe_vec, k, deleted_docs, message='phase 2, update done')
 
 
@@ -1031,6 +1054,7 @@ def test_delete_during_background_indexing_multi_value():
     deleting a doc has to delete all of its vectors, also when the deletion races with the
     background training or update.
     """
+    # WORKERS 2 is load-bearing - see `test_delete_during_background_indexing`.
     env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 2')
     conn = getConnectionByEnv(env)
     dim = 32
@@ -1063,14 +1087,14 @@ def test_delete_during_background_indexing_multi_value():
                'COMPRESSION', 'LeanVec4x8', 'TRAINING_THRESHOLD', training_threshold).ok()
 
     # Phase 1: crossing the training threshold triggers the background training, then keep
-    # inserting docs (which stay in the flat buffer) while it runs.
+    # inserting docs while it runs.
     first_batch = training_threshold // vectors_per_doc + 25   # 229 docs -> 1145 vectors
     add_docs(1, first_batch)
     add_docs(first_batch + 1, 20)
 
     assert_background_indexing_in_progress(env, message='phase 1')
-    delete_docs(1, 5)                   # inserted before the training was triggered
-    delete_docs(first_batch + 1, 5)     # inserted after the training was triggered
+    delete_docs(1, 5)                   # inserted before the job was triggered
+    delete_docs(first_batch + 1, 5)     # inserted after the job was triggered
 
     expected_live_docs = first_batch + 20 - 10
     env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], expected_live_docs)
@@ -1097,7 +1121,8 @@ def test_delete_during_background_indexing_multi_value():
     phase2_first_doc_id = first_batch + 21
     add_docs(phase2_first_doc_id, phase2_docs)
 
-    # Delete docs of the first batch, which the training already moved to the backend.
+    # Delete docs of the first batch, which the training is expected to have moved to the
+    # backend already.
     assert_background_indexing_in_progress(env, message='phase 2')
     delete_docs(6, 15)
 

@@ -93,32 +93,36 @@ def get_redisearch_vector_index_memory(env, index_key):
 
 def assert_svs_tiered_state(env, index_name, field_name, expected_live_docs, vectors_per_doc=1, message=''):
     """
-    Assert the label accounting of an SVS-VAMANA tiered index.
-    Must be called only after `wait_for_background_indexing`, so that no transfer
-    from the frontend (flat buffer) to the backend (SVS) is in flight.
+    Assert the label and vector accounting of an SVS-VAMANA tiered index, on a single shard.
+    Must be called only after `wait_for_background_indexing`, so that no transfer from the
+    frontend (flat buffer) to the backend (SVS) is in flight. Note that the frontend is not
+    expected to be empty: a transfer is triggered only once the flat buffer holds
+    TIERED_SVS_UPDATE_THRESHOLD vectors, so a smaller remainder legitimately stays there.
 
-    Note that we cannot expect the frontend to be empty: a transfer is triggered only
-    once the flat buffer holds TIERED_SVS_UPDATE_THRESHOLD vectors, so a smaller
-    remainder legitimately stays there.
+    A single VECSIM_INFO call is used on purpose. The tiered index reports both sub-index
+    infos, and the *deduplicated* union of their labels, while holding both index locks.
+    Adding up the two sub-indexes' label counts instead would double count a multi-value
+    doc whose vectors a transfer split between them - RediSearch adds a multi-value field
+    one vector at a time, so a transfer can pick up some of a doc's vectors and leave the
+    rest in the flat buffer.
     """
-    frontend = get_tiered_frontend_debug_info(env, index_name, field_name)
-    backend = get_tiered_backend_debug_info(env, index_name, field_name)
-    ctx = f"{message} | frontend={frontend} | backend={backend}"
+    info = get_tiered_debug_info(env, index_name, field_name)
+    frontend = to_dict(info['FRONTEND_INDEX'])
+    backend = to_dict(info['BACKEND_INDEX'])
+    marked_deleted = backend['NUMBER_OF_MARKED_DELETED']
+    ctx = (f"{message} | labels={info['INDEX_LABEL_COUNT']} vectors={info['INDEX_SIZE']} "
+           f"marked_deleted={marked_deleted} frontend_vectors={frontend['INDEX_SIZE']} "
+           f"backend_vectors={backend['INDEX_SIZE']}")
 
-    # The background training/update did transfer vectors into the backend.
-    env.assertGreater(backend['INDEX_LABEL_COUNT'], 0,
-                      message=f"backend was not populated: {ctx}")
+    # The index holds exactly the live docs: no deleted doc was left behind, in either the
+    # flat buffer or the backend.
+    env.assertEqual(info['INDEX_LABEL_COUNT'], expected_live_docs,
+                    message=f"indexed labels != live docs: {ctx}")
 
-    # Every live doc is indexed exactly once - either in the flat buffer or in the
-    # backend - and no deleted doc was left behind in either of them.
-    env.assertEqual(frontend['INDEX_LABEL_COUNT'] + backend['INDEX_LABEL_COUNT'], expected_live_docs,
-                    message=f"frontend + backend label count != live docs: {ctx}")
-
-    # Deleting a doc marks *all* of its vectors as deleted in the backend, so the live
-    # vectors there are exactly `vectors_per_doc` per live label.
-    env.assertEqual(backend['INDEX_SIZE'] - backend['NUMBER_OF_MARKED_DELETED'],
-                    vectors_per_doc * backend['INDEX_LABEL_COUNT'],
-                    message=f"backend live vectors != vectors_per_doc * live labels: {ctx}")
+    # Deleting a doc deletes *all* of its vectors, so the live vectors across both
+    # sub-indexes are exactly `vectors_per_doc` per live doc.
+    env.assertEqual(info['INDEX_SIZE'] - marked_deleted, vectors_per_doc * expected_live_docs,
+                    message=f"live vectors != vectors_per_doc * live docs: {ctx}")
 
 
 def wait_for_background_indexing(env, index_name, field_name, message=''):
