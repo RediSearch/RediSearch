@@ -47,6 +47,7 @@ typedef struct IndexResultAsyncReadState {
 
   // Configuration
   uint16_t poolSize;                       // Maximum number of concurrent async reads
+  uint16_t bufferSize;                     // Maximum iterator results buffered ahead (>= poolSize)
 
   // Level 1: Iterator buffer (not yet submitted to async pool)
   DLLIST iteratorResults;                  // Deep-copied IndexResults from iterator
@@ -71,8 +72,11 @@ typedef struct IndexResultAsyncReadState {
  *
  * @param state Async read state structure to initialize
  * @param poolSize Maximum number of concurrent async reads
+ * @param bufferSize Maximum iterator results buffered ahead of submission. Must be
+ *        >= poolSize, so a full pool always has work queued behind it.
  */
-void IndexResultAsyncRead_Init(IndexResultAsyncReadState *state, uint16_t poolSize);
+void IndexResultAsyncRead_Init(IndexResultAsyncReadState *state, uint16_t poolSize,
+                               uint16_t bufferSize);
 
 /**
  * Setup async pool for disk I/O
