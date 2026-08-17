@@ -16,6 +16,9 @@
 //! its [`InvertedIndex<DocIdsOnly>`], while [`DiskTagIndexIterator`] yields the tag
 //! alone, its postings living on disk.
 //!
+//! [`SuffixEntryIterator`] walks the suffix trie instead, which both modes share
+//! and which holds no postings either way.
+//!
 //! [`TagValueReader`] reads the postings (document ids) of a single tag value.
 
 use std::time::Instant;
@@ -30,7 +33,7 @@ use trie_rs::{
     iter::{ContainsLendingIter, LendingIter, WildcardLendingIter, filter::VisitAll},
 };
 
-use crate::{InMemoryMode, TagIndex};
+use crate::{InMemoryMode, SuffixData, TagIndex, TagIndexMode};
 
 /// Value type stored in the memory-mode values trie. Boxed so the heap
 /// [`InvertedIndex`] address stays stable across trie restructuring — callers hold
@@ -211,6 +214,42 @@ impl TagIndex<InMemoryMode> {
         iter_mode: IterMode,
     ) -> MemTagIndexIterator<'a> {
         filtered_iter(&self.mode.values, pattern, iter_mode)
+    }
+}
+
+/// An iterator over the entries of a [`TagIndex`]'s
+/// [suffix index](crate::TagSuffixIndex), returned by
+/// [`TagIndex::suffix_value_iter`].
+///
+/// Yields keys only — the suffix trie's payload is internal bookkeeping — and is
+/// the same in both storage modes, which share the suffix trie.
+pub struct SuffixEntryIterator<'ti> {
+    iter: LendingIter<'ti, SuffixData, VisitAll>,
+}
+
+impl<'ti> SuffixEntryIterator<'ti> {
+    /// Advance to the next suffix-trie entry, honoring the optional timeout.
+    /// `None` at the end of the iteration, or when the timeout is reached.
+    ///
+    /// The key slice is borrowed from trie-internal storage and is invalidated by
+    /// the next call.
+    pub fn advance(&mut self) -> Option<&[u8]> {
+        self.iter.next().map(|(k, _)| k)
+    }
+
+    /// Set the deadline honored while iterating, or clear it with `None`.
+    pub fn set_timeout(&mut self, timeout: Option<timespec>) {
+        self.iter.set_timeout(crate::expansion_deadline(timeout));
+    }
+}
+
+impl<Mode: TagIndexMode> TagIndex<Mode> {
+    /// Iterate over all entries of the suffix index, in lexicographical order, or
+    /// `None` when the index was created without `WITHSUFFIXTRIE`.
+    pub fn suffix_value_iter(&self) -> Option<SuffixEntryIterator<'_>> {
+        Some(SuffixEntryIterator {
+            iter: self.iter_suffix_entries()?,
+        })
     }
 }
 
