@@ -11,6 +11,7 @@
 
 use std::{ffi::CStr, ptr::NonNull};
 
+use c_trie::TermsTrie;
 use query_flags::QEFlags;
 use rlookup::MetricRequest;
 use rqe_core::DocId;
@@ -60,6 +61,14 @@ impl QueryEvalContext {
     ///    [`build_timeout_context`](QueryEvalContext::build_timeout_context)):
     ///    a clock-based timeout context reads `sctx.time.timeout` back on every
     ///    probe rather than capturing it.
+    ///    The nested `sctx.spec.terms` pointer — the index's primary terms trie
+    ///    — must be valid and non-null: every path that creates an
+    ///    [`IndexSpec`](ffi::IndexSpec) installs a terms trie, unconditionally
+    ///    and regardless of whether the schema has any text field, before the
+    ///    spec can answer a query. Loading a legacy spec is the one path that
+    ///    leaves the field null for a while, and it fills it in — or releases
+    ///    the half-built spec — before handing the spec out, so no queryable
+    ///    spec has a null trie.
     ///    The nested `sctx.spec.diskSpec` pointer may be null (in-memory mode);
     ///    when non-null it must point to a valid
     ///    [`RedisSearchDiskIndexSpec`](ffi::RedisSearchDiskIndexSpec).
@@ -114,6 +123,44 @@ impl QueryEvalContext {
         // SAFETY: invariant (2) of `new` guarantees `sctx.spec` is a valid,
         // non-null pointer.
         unsafe { &*self.sctx().spec }
+    }
+
+    /// The index's primary terms trie, the one every term lookup and pattern
+    /// expansion walks.
+    ///
+    /// The trie is always there, per invariant (2) of [`new`](Self::new), which
+    /// also says why. The assertion below states that here rather than leaving
+    /// each caller to assume it: a spec that broke the invariant would otherwise
+    /// be a null dereference in whichever one ran first, with nothing naming
+    /// what went wrong.
+    ///
+    /// `'index` is chosen by the caller and tied to nothing, because the
+    /// borrow this hands out is not one the type system can see: the trie is
+    /// owned by the spec rather than by the context, so binding it to `&self`
+    /// would say the trie is borrowed *from the context* — and then a caller
+    /// could not hold it while borrowing the context exclusively, which is
+    /// exactly what an expanding node type does across a walk that records
+    /// expansions back into the context. Erasing the lifetime is what buys that,
+    /// and it is why this is `unsafe`: nothing left in the signature stops the
+    /// reference outliving the trie.
+    ///
+    /// # Safety
+    ///
+    /// The returned reference must not outlive the query being evaluated. The
+    /// spec that owns the trie stays alive for the whole query (invariant (2)
+    /// of [`new`](Self::new)), so any `'index` within that span is sound, and
+    /// `'static` — or any lifetime reaching past the query — is not.
+    pub unsafe fn terms_trie<'index>(&self) -> &'index TermsTrie {
+        let terms = self.spec().terms;
+        debug_assert!(
+            !terms.is_null(),
+            "the spec of a query being evaluated must have a terms trie"
+        );
+        // SAFETY: `terms` is the spec's terms `Trie`: non-null, valid, and
+        // neither mutated nor freed for the duration of the query (invariants
+        // (1)/(2) of `new`). The caller's own contract above keeps `'index`
+        // inside that span.
+        unsafe { TermsTrie::from_raw(terms) }
     }
 
     /// The search options controlling field masks, scorer, query flags, etc.

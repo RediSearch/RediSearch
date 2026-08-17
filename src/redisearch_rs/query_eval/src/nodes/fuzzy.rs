@@ -62,12 +62,10 @@ pub(crate) fn eval<'index>(
     // Read with every other use of `ctx`, because `Expansion` borrows it mutably
     // for the rest of the expansion.
     let api_version = ctx.sctx().apiVersion;
-    let terms_trie = ctx.spec().terms;
-
-    debug_assert!(!terms_trie.is_null(), "terms trie should be initialized");
-    // SAFETY: `terms_trie` is the spec's terms `Trie`, valid for and unmutated
-    // during the query (`QueryEvalContext` invariants 1/2).
-    let terms = unsafe { TermsTrie::from_raw(terms_trie) };
+    // SAFETY: the reference is confined to this evaluation — the walk below and
+    // the empty-term lookup after it — which the query, and so the spec owning
+    // the trie, outlives.
+    let terms = unsafe { ctx.terms_trie() };
 
     let q_str = tok.as_c_str().expect("fuzzy token must carry a string");
     let pattern = q_str.to_bytes();
