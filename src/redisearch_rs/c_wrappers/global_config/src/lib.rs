@@ -68,6 +68,12 @@ config_accessors! {
     /// Whether an intersection iterator orders its children by factoring out unions rather
     /// than by estimated result count (`_PRIORITIZE_INTERSECT_UNION_CHILDREN`).
     prioritize_intersect_union_children() -> bool = prioritizeIntersectUnionChildren;
+
+    /// Whether user data — index, field and key names, and query terms — must be obfuscated
+    /// before it is written to the log. Mirrors the `hide-user-data-from-log` Redis server
+    /// configuration, which the module tracks through the config-change event rather than
+    /// through `FT.CONFIG`.
+    hide_user_data_from_log() -> bool = hideUserDataFromLog;
 }
 
 /// The name of the configured default scorer (`DEFAULT_SCORER`), or [`None`] when unset.
