@@ -17,7 +17,7 @@
 
 use std::ptr::NonNull;
 
-use rqe_iterators::RQEIterator;
+use rqe_iterators::{RQEIterator, RQEValidateStatus};
 use rqe_iterators_test_utils::MockContext;
 use tag_index::{InMemoryMode, TagIndex, TrieLookup};
 
@@ -156,6 +156,59 @@ fn value_path_reads_all_matching_docs() {
 
     let doc_ids = drain(it);
     assert_eq!(doc_ids, vec![1, 2, 3]);
+
+    // SAFETY: `allocate` allocated it; the iterator using it is gone.
+    drop(unsafe { Box::from_raw(tag_index) });
+}
+
+/// Revalidating aborts once the garbage collector has dropped the tag's
+/// postings — the lookup no longer resolves the tag, so the reader is stale.
+///
+/// The lib-level test of this covers a hand-built lookup; this one goes through
+/// `iterator_for_tag`, so it exercises the lookup all the way through the
+/// reader construction path.
+#[test]
+fn revalidate_aborts_after_gc() {
+    let mock = MockContext::new(3, 3);
+    let tags: &[&[u8]] = &[b"team"];
+    // `allocate` reaches the index through a raw pointer, so it can be mutated while
+    // the iterator holds its back-pointer — as the query layer does across GC cycles.
+    let (tag_index, lookup) = allocate(TagIndex::<InMemoryMode>::new(false));
+    for doc_id in 1..=3 {
+        // SAFETY: `tag_index` was just allocated and is not yet aliased.
+        index_mem(unsafe { &mut *tag_index }, tags, doc_id);
+    }
+
+    // SAFETY: valid, and mutated below only between revalidations.
+    let ii = unsafe { &*tag_index }
+        .find_value(b"team")
+        .expect("tag was indexed");
+    // SAFETY: `tag_index` and `mock` outlive the iterator, `ii` is the trie's
+    // current value for the tag, and `lookup` resolves `tag_index`.
+    let mut it = unsafe {
+        (*tag_index).iterator_for_tag(mock.sctx(), b"team", ii, 1.0, FIELD_INDEX, lookup)
+    }
+    .expect("ii holds documents");
+
+    let status = it
+        .revalidate(&mock.spec_read())
+        .expect("revalidate must not error");
+    assert_eq!(status, RQEValidateStatus::Ok);
+
+    // Simulate the garbage collector dropping every document for the tag.
+    // SAFETY: the iterator is untouched during the mutation, per the
+    // revalidation protocol.
+    unsafe { (*tag_index).delete_tag_value(b"team") };
+
+    // SAFETY: as above; the protocol allows a read only after revalidating.
+    let status = it
+        .revalidate(&mock.spec_read())
+        .expect("revalidate must not error");
+    assert_eq!(
+        status,
+        RQEValidateStatus::Aborted,
+        "a reader whose tag the GC removed must abort"
+    );
 
     // SAFETY: `allocate` allocated it; the iterator using it is gone.
     drop(unsafe { Box::from_raw(tag_index) });
