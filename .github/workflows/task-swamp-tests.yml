@@ -4,9 +4,8 @@ name: Swamp extension tests
 #
 # Stands alone rather than sitting inside task-lint.yml: it shares nothing with
 # linting — not the container, not the toolchain, not the permissions — and a
-# change confined to extensions/, models/ or workflows/ has to reach this gate
-# without being held to `make lint`, cargo-deny and the Rust cache setup it
-# cannot affect.
+# change confined to swamp/ has to reach this gate without being held to
+# `make lint`, cargo-deny and the Rust cache setup it cannot affect.
 
 on: [workflow_call]
 
@@ -15,14 +14,14 @@ jobs:
     name: Swamp extension tests
     # Holds nothing but read access to the repository.
     #
-    # These tests are the contents of the pull request being tested: a change to
-    # extensions/models/*_test.ts is code that CI then executes. Anything this
-    # job holds is within reach of it — which is why it holds no OIDC and no
-    # Actions cache write, and why keeping it out of a job that needs those for
-    # sccache and the Rust cache is the point. Deno's sandbox is not the
-    # boundary being relied on either: the suite needs `--allow-run` to drive
-    # the fake executables its tests spawn, and a subprocess runs outside the
-    # sandbox by design.
+    # These tests are the contents of the pull request being tested: a change
+    # to swamp/extensions/models/*_test.ts is code that CI then executes.
+    # Anything this job holds is within reach of it — which is why it holds no
+    # OIDC and no Actions cache write, and why keeping it out of a job that
+    # needs those for sccache and the Rust cache is the point. Deno's sandbox
+    # is not the boundary being relied on either: the suite needs `--allow-run`
+    # to drive the fake executables its tests spawn, and a subprocess runs
+    # outside the sandbox by design.
     #
     # So the boundary is the job: nothing to take. It needs no toolchain beyond
     # deno, which is why it can stand alone at all.
@@ -48,11 +47,11 @@ jobs:
         with:
           deno-version: v2.x
       # Without swamp the definition half of `make swamp-tests` skips itself,
-      # and for a pull request touching only workflows/ or models/ this job is
-      # the only gate that reads them at all — so a guard that cannot evaluate
-      # would pass CI and fail the first time somebody ran it. SWAMP_REQUIRED
-      # below turns that skip into a failure, which is only safe because this
-      # step puts swamp on PATH first.
+      # and for a pull request touching only swamp/workflows/ or swamp/models/
+      # this job is the only gate that reads them at all — so a guard that
+      # cannot evaluate would pass CI and fail the first time somebody ran it.
+      # SWAMP_REQUIRED below turns that skip into a failure, which is only safe
+      # because this step puts swamp on PATH first.
       - name: Install swamp
         run: |
           mkdir -p "$HOME/.local/bin"
@@ -74,7 +73,7 @@ jobs:
           # definitions proves nothing about them. Newer is allowed, and is what
           # `stable` gives.
           installed="$("$HOME/.local/bin/swamp" --version | sed 's/\x1b\[[0-9;]*m//g' | awk '{print $2}')"
-          configured="$(sed -n 's/^swampVersion: *//p' .swamp.yaml)"
+          configured="$(sed -n 's/^swampVersion: *//p' swamp/.swamp.yaml)"
           echo "swamp $installed (repository recorded $configured)"
           if [ -n "$configured" ] && [ "$(printf '%s\n%s\n' "$configured" "$installed" | sort -V | head -1)" != "$configured" ]; then
             echo "Installed swamp $installed is older than the recorded $configured." >&2

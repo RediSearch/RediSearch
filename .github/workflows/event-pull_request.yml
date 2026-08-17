@@ -44,8 +44,8 @@ jobs:
       compare-advisories-to-base: true
       advisories-base-ref: ${{ github.event.pull_request.base.sha }}
 
-  # Its own gate rather than part of lint: a change confined to extensions/,
-  # models/ or workflows/ has to reach it, and has no Rust or C to lint. That is
+  # Its own gate rather than part of lint: a change confined to swamp/ has to
+  # reach it, and has no Rust or C to lint. That is
   # why those paths get SWAMP_CHANGED instead of being folded into
   # CODE_CHANGED — CODE_CHANGED also starts the build, coverage, sanitizer and
   # benchmark pipelines, which such a change has nothing to say to.

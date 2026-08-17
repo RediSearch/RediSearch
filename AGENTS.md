@@ -5,7 +5,7 @@ This repository is managed with [swamp](https://github.com/swamp-club/swamp).
 
 ## Rules
 
-1. **Search before you build.** When automating AWS, APIs, or any external service: (a) search community extensions with `swamp extension search <query>` — prefer `@swamp/*` official extensions first, (b) search local/installed types with `swamp model type search <query>`, (c) if a community extension exists, install it with `swamp extension pull <package>` instead of building from scratch, (d) extend an existing type if it covers the domain but lacks the method you need, (e) only create a custom extension model in `extensions/models/` as a last resort. Use the `swamp` skill for guidance. The `command/shell` model is ONLY for ad-hoc one-off shell commands, NEVER for wrapping CLI tools or building integrations.
+1. **Search before you build.** When automating AWS, APIs, or any external service: (a) search community extensions with `swamp extension search <query>` — prefer `@swamp/*` official extensions first, (b) search local/installed types with `swamp model type search <query>`, (c) if a community extension exists, install it with `swamp extension pull <package>` instead of building from scratch, (d) extend an existing type if it covers the domain but lacks the method you need, (e) only create a custom extension model in `swamp/extensions/models/` as a last resort. Use the `swamp` skill for guidance. The `command/shell` model is ONLY for ad-hoc one-off shell commands, NEVER for wrapping CLI tools or building integrations.
 2. **Extend, don't be clever.** When a model covers the domain but lacks the method you need, extend it with `export const extension` — don't bypass it with shell scripts, CLI tools, or multi-step hacks. One method, one purpose. Use `swamp model type describe <type> --json` to check available methods.
 3. **Use the data model.** Once data exists in a model (via `lookup`, `start`, `sync`, etc.), reference it with CEL expressions. Don't re-fetch data that's already available.
 4. **CEL expressions everywhere.** Wire models together with CEL expressions. Always prefer `data.latest("<name>", "<dataName>").attributes.<field>` over the deprecated `model.<name>.resource.<spec>.<instance>.attributes.<field>` pattern.
@@ -42,6 +42,36 @@ schema of the CLI (commands, options, arguments) intended for agent
 consumption, run `swamp help [<command>...]` — e.g. `swamp help` returns
 the full tree, and `swamp help model method run` scopes to a subtree.
 <!-- END swamp managed section -->
+
+## Where swamp lives in this repository
+
+Everything swamp owns is under `swamp/` — `.swamp.yaml`, `models/`, `workflows/`,
+`vaults/`, `grants/`, `extensions/` and the runtime `.swamp/` — so that it does not
+compete with RediSearch's own top-level directories.
+
+**Every swamp command therefore needs `--repo-dir swamp`**, or `SWAMP_REPO_DIR`
+exported once per shell:
+
+```bash
+swamp model search --json --repo-dir swamp     # from the repository root
+export SWAMP_REPO_DIR="$PWD/swamp"             # or set it once and drop the flag
+cd swamp && swamp model search --json          # from inside the subtree, no flag
+```
+
+swamp only searches *upward* for `.swamp.yaml`, so a command run from the
+repository root without one of those fails with "Not a swamp repository" — a clear
+error rather than a wrong answer, but a stop either way. The paths in the managed
+section above are relative to `swamp/`, and its instruction to run
+`swamp model search --json` means with one of the forms above.
+
+Because the marker moved, `swamp repo init` and `swamp repo upgrade` now scaffold
+into `swamp/` — including their own copy of the managed section above. Refresh this
+file by hand from `swamp/CLAUDE.md` after upgrading swamp.
+
+Model instances pass `repoRoot: '..'` (or `workingDir: '..'` for the agent models)
+for the same reason: a model's paths resolve against the swamp repository
+directory, and the build, the suites and the checkout they work on are one level
+up.
 
 # RediSearch Development Guide
 

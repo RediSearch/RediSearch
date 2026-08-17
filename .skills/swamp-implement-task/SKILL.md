@@ -8,7 +8,7 @@ description: End-to-end flow for delivering a change — reviewed tests first, r
 The whole path from a task description to a green pull request, as swamp workflows.
 
 **The workflows are the flow.** The ordering, the gates, the iteration caps and the
-escalation rules live in `workflows/workflow-implement-task.yaml` and the phases it
+escalation rules live in `swamp/workflows/workflow-implement-task.yaml` and the phases it
 calls — not here. Each phase spawns a headless agent that must answer in a fixed
 schema, so a gate reads a field rather than a paragraph. This file is how to drive
 it; `swamp workflow get <name>` is where the reasoning for any particular step is

@@ -15,6 +15,10 @@ Use this skill to run comprehensive checks before finalizing changes.
 `verify` runs everything below except the two conditional branches, in one command,
 building once and reusing that build for every suite — plus miri, which CI gates on:
 
+swamp's files live under `swamp/`, and swamp only looks *upward* for them, so
+these commands need `--repo-dir swamp` from the repository root — or the export
+below, once per shell. See *Where swamp lives in this repository* in `AGENTS.md`.
+
 ```bash
 export SWAMP_REPO_DIR="$PWD/swamp"
 swamp workflow run verify

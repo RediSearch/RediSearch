@@ -406,7 +406,7 @@ ifeq ($(strip $(SWAMP_DENO)),)
 	@exit 1
 else
 	@echo "Checking swamp extension formatting..."
-	@cd $(ROOT)/extensions && $(SWAMP_DENO) fmt --check models/ reports/
+	@cd $(ROOT)/swamp/extensions && $(SWAMP_DENO) fmt --check models/ reports/
 	@echo "Running swamp extension tests..."
 # Not --allow-all, which additionally disables the sandbox. What is left is what
 # the suite needs and no more: temp directories to work in (read/write), the fake
@@ -420,7 +420,7 @@ else
 # this holds nothing worth reaching — see the swamp-tests job in
 # .github/workflows/task-lint.yml, which has `contents: read` and no more. The
 # job is the boundary; these flags only keep the default path narrow.
-	@cd $(ROOT)/extensions && $(SWAMP_DENO) test \
+	@cd $(ROOT)/swamp/extensions && $(SWAMP_DENO) test \
 		--allow-read --allow-write --allow-run --allow-env models/ reports/
 endif
 
@@ -464,7 +464,7 @@ swamp-definitions-check:
 	@if command -v swamp >/dev/null 2>&1; then \
 		echo "Validating swamp model and workflow definitions..."; \
 		entries=""; \
-		for file in $(ROOT)/models/*/*/*.yaml $(ROOT)/workflows/*.yaml; do \
+		for file in $(ROOT)/swamp/models/*/*/*.yaml $(ROOT)/swamp/workflows/*.yaml; do \
 			case "$$file" in *"/workflows/"*) kind=workflow;; *) kind=model;; esac; \
 			name="$$(sed -n 's/^name: *//p' "$$file" | head -1)"; \
 			if [ -z "$$name" ]; then \
@@ -475,7 +475,7 @@ swamp-definitions-check:
 		done; \
 		for entry in $$entries; do \
 			kind="$${entry%%:*}"; name="$${entry#*:}"; \
-			out="$$(swamp $$kind validate "$$name" --repo-dir $(ROOT) 2>&1)" || \
+			out="$$(swamp $$kind validate "$$name" --repo-dir $(ROOT)/swamp 2>&1)" || \
 				{ echo "$$out" >&2; exit 1; }; \
 			case "$$out" in \
 				*warning*|*Warning*|*WARNING*) \
@@ -484,7 +484,7 @@ swamp-definitions-check:
 					exit 1;; \
 			esac; \
 		done; \
-		python3 $(ROOT)/scripts/swamp_evaluate_gate.py $(ROOT); \
+		python3 $(ROOT)/swamp/scripts/swamp_evaluate_gate.py $(ROOT)/swamp; \
 	elif [ -n "$(SWAMP_REQUIRED)" ]; then \
 		echo "swamp is not on PATH and SWAMP_REQUIRED is set." >&2; \
 		echo "This is the only gate that reads the workflow definitions, so" >&2; \

@@ -1,0 +1,595 @@
+id: e30f41f1-675d-4bb9-b795-08b991ea5d41
+name: review-loop
+description: >-
+  Review something adversarially, address what comes back, and repeat until a
+  review finds nothing left — or give up after five and escalate.
+
+  This is the loop the swamp-implement-task skill asks for three times over: once on
+  the tests, once on the design, once on the code. It lives in its own workflow
+  because swamp has no loop construct, so the iterations have to be written out,
+  and writing them out three times would mean three places for the guard
+  expression to be got subtly wrong.
+
+  The reviewer and the reviser are separate steps running separate sessions on
+  purpose. The skill asks for an independent review, and an agent asked to
+  review its own work reports what it already believes; one that can fix what it
+  finds has no reason to report anything at all. So the reviewer is told to
+  report and not fix, and a second agent — which sees the findings but not the
+  reasoning that produced them — decides for each one whether to fix it or
+  refute it.
+
+  Iterations end early rather than always running five times: every step after
+  the first is guarded on whether any review in this run has already settled, so
+  a settled first review skips the remaining nine steps. The guard is scoped to
+  this run, because a settled review left behind by a previous run would
+  otherwise skip the loop entirely.
+
+  A review settles when it completed *and* found nothing at a severity in
+  `blockingSeverities`. The reviews pass `ignoreFailure`, so a reviewer that
+  could not inspect the subject at all still records a result — and one with no
+  findings, because it never got far enough to have any, would otherwise read as
+  the quietest possible success.
+
+  The reviewer's own `clean` flag is deliberately not part of that test. It is a
+  second, independent answer to the same question, and the two can disagree: the
+  schema validates them separately, so `clean: true` alongside a critical finding
+  is a well-formed response. Reading `clean` first would let that response settle
+  the loop and skip the reviser, carrying the finding through to the pull
+  request. The findings are the evidence and the flag is a summary of it, so the
+  evidence decides. `clean` is still recorded, and still worth reading.
+
+  Severity is what the test turns on, rather than "any finding at all": a
+  reviewer with no substantive findings left reports smaller ones rather than
+  none, so the loop spends its remaining rounds on findings nobody would hold
+  the change for, and then escalates as though the work were in dispute. Three
+  loops in a row ended that way — each reporting `succeeded` with no blockers,
+  each stopped by a nit. Severity is what distinguishes "not finished" from "not
+  perfect"; the low findings are kept either way.
+
+  Five is the skill's escalation cap, and it is enforced by the assert at the
+  end rather than by anything in the loop: if five reviews have run and none
+  settled, the assert fails and the run stops with the findings on record. That
+  is the intended outcome — it means the disagreement needs a human, not a sixth
+  attempt. `maxIterations` lowers the bound for a cheaper pass; it cannot raise
+  it, because a loop that wants a sixth round is not short of rounds.
+
+  Each review after the first is told what the earlier rounds settled. Findings
+  come back fixed or refuted with evidence, and a refutation is a decision the
+  author took deliberately and defended — but a reviewer is a fresh session with
+  no memory of it, so without being told, it re-derives the same objection every
+  round and the loop cannot converge on anything the author is entitled to
+  disagree with. That is not a hypothetical: a deliberate choice a test
+  documented in a comment kept coming back as a finding, and `clean` stayed false
+  for as long as there were rounds left to spend. A reviewer that still thinks a
+  refutation is wrong is asked to say which part of the evidence fails, which is
+  a real dispute and worth stopping over — rather than one settled by attrition.
+tags:
+  purpose: review
+inputs:
+  type: object
+  properties:
+    task:
+      type: string
+      description: >-
+        The task in the user's terms, passed unchanged to every agent so each
+        one sees the original ask rather than a paraphrase of it.
+    subject:
+      type: string
+      description: >-
+        What is being reviewed, in words — "the tests just written", "the design
+        document", "the implementation". This is what tells the reviewer where
+        to look.
+    reviewer:
+      type: string
+      description: >-
+        Model instance name for the reviewing agent. Each loop needs its own, or
+        two loops in the same run would overwrite each other's findings and the
+        guard would read the wrong one.
+    reviser:
+      type: string
+      description: Model instance name for the agent that addresses the findings.
+    context:
+      type: object
+      default: {}
+      description: >-
+        Structured results of the earlier phases, handed to both agents so the
+        review is against what was decided rather than against taste.
+    reviewInstructions:
+      type: string
+      default: ""
+      description: Extra direction for the reviewer, such as which skill to apply.
+    reviseInstructions:
+      type: string
+      default: ""
+      description: Extra direction for the agent addressing the findings.
+    label:
+      type: string
+      default: ""
+      description: >-
+        Stamped on every review and revision this loop records, as
+        `agent.label`. It is how a later phase tells a review of *this* subject
+        from a review of something else that happened to finish nearby: the
+        records are global and matched by time otherwise, and time cannot say
+        what was read.
+    maxIterations:
+      type: integer
+      default: 5
+      description: >-
+        How many review rounds to allow before escalating. Five is the skill's
+        cap and the number of rounds written out below, so this can lower the
+        bound but not raise it — raising it means writing out more rounds, and
+        that is deliberately awkward. A loop that needs a sixth round is not
+        short of rounds: either the reviewer keeps raising something the author
+        already refuted, which more rounds cannot settle, or the work needs a
+        person. Lower it when you want a cheaper, shallower pass.
+
+        The bound is checked by the first step rather than declared here.
+        `minimum` and `maximum` are accepted by the schema and not enforced by
+        it — verified, not assumed — so declaring them would read as a rule that
+        holds while a caller passing 9 got five rounds and an escalation.
+    blockingSeverities:
+      type: array
+      items:
+        type: string
+        # Closed, because a value outside it silently weakens the gate rather
+        # than failing: the predicates ask `severity in blockingSeverities`, and
+        # a misspelling of `critical` matches nothing, so every critical finding
+        # reads as non-blocking and the loop settles on a review it should have
+        # rejected. The vocabulary is the reviewer's own, which the model
+        # enforces on the agent — this enforces the other half, on the caller.
+        enum: ["critical", "high", "medium", "low"]
+      default: ["critical", "high", "medium"]
+      description: >-
+        Which finding severities have to be gone before the loop is done. A
+        review with no findings at these severities settles the loop even when
+        the reviewer left `clean` false, which is what stops a round being spent
+        on a finding nobody would hold a change for.
+
+        The default leaves `low` out on purpose. A reviewer that has run out of
+        substantive findings does not report none — it reports smaller ones, and
+        the supply of those does not run out, so a loop that waits for `clean`
+        waits for the reviewer to stop having opinions. The low findings are
+        still reported and still on record for a human to read; they just do not
+        buy another round.
+
+        Set it to `["critical", "high", "medium", "low"]` to require a fully
+        clean review, or narrow it to `["critical", "high"]` for a pass that
+        only stops for something serious.
+    agentModel:
+      type: string
+      default: ""
+      description: >-
+        Model to run both agents on. Empty inherits the CLI's own default, which
+        is usually what you want.
+    permissionMode:
+      type: string
+      default: auto
+      description: >-
+        Permission mode for the agents. `auto` matches an interactive session:
+        safe tools proceed and the rest are refused and recorded, since nothing
+        is watching to answer a prompt.
+    timeout:
+      type: integer
+      default: 3600000
+      description: Timeout for a single agent run, in milliseconds.
+jobs:
+  - name: review
+    description: Alternate review and revision until a review comes back clean
+    # The agents work in the same checkout. Two of them editing it at once would
+    # interleave their changes, so this is correctness rather than tidiness.
+    concurrency: 1
+    steps:
+      - name: iterations-in-range
+        description: >-
+          The number of rounds asked for is a number this loop can run.
+
+          Five rounds are written out below, so five is the ceiling: a caller
+          passing more does not get more, it gets five and then the escalation
+          that follows a loop which did not converge — a wrong answer wearing
+          the right shape, since nothing said the request was refused. Below one
+          is the same in the other direction: no review would run and the
+          subject would leave the loop unreviewed.
+
+          Asserted rather than declared on the input. The schema accepts
+          `minimum` and `maximum` and does not enforce them, which was checked
+          rather than assumed, so a declaration there would read as a rule that
+          holds.
+        task:
+          type: assert
+          expr: >-
+            int(inputs.maxIterations) >= 1 && int(inputs.maxIterations) <= 5
+          message: >-
+            maxIterations is ${{ inputs.maxIterations }}, and this loop runs
+            between 1 and 5 rounds — five is the skill's cap and the number of
+            rounds written out in this workflow. Raising it means writing out
+            more rounds, which is deliberately awkward: a loop that needs a
+            sixth round is not short of rounds.
+          severity: high
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+
+      - name: review-1
+        description: First review of the subject
+        task:
+          type: model_method
+          modelType: "@gdesmott/claude-task"
+          modelName: ${{ inputs.reviewer }}
+          methodName: review
+          globalArgs:
+            # The agent works on the checkout, not on the swamp repository
+            # directory this workflow lives in — one level up from it.
+            workingDir: '..'
+            model: ${{ inputs.agentModel }}
+            permissionMode: ${{ inputs.permissionMode }}
+            timeout: ${{ inputs.timeout }}
+          inputs:
+            task: ${{ inputs.task }}
+            label: ${{ inputs.label }}
+            context: ${{ inputs.context }}
+            instructions: >-
+              Review ${{ inputs.subject }}. ${{ inputs.reviewInstructions }}
+            # A review that finds problems has done its job. Letting it fail the
+            # step would skip the revision that exists to act on the findings.
+            ignoreFailure: true
+        dependsOn:
+          - step: iterations-in-range
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: revise-1
+        description: Fix or refute everything the first review reported
+        guard: >-
+          ${{ data.query('modelName == "' + inputs.reviewer + '" && name == "review" && version >= 0 && workflowRunId == "' + run.id + '"').exists(r, r.attributes.succeeded && !r.attributes.?findings.orValue([]).exists(f, f.?severity.orValue("low") in inputs.blockingSeverities)) || int(inputs.maxIterations) < 2 ? "skip" : "" }}
+        task:
+          type: model_method
+          modelType: "@gdesmott/claude-task"
+          modelName: ${{ inputs.reviser }}
+          methodName: revise
+          globalArgs:
+            # The agent works on the checkout, not on the swamp repository
+            # directory this workflow lives in — one level up from it.
+            workingDir: '..'
+            model: ${{ inputs.agentModel }}
+            permissionMode: ${{ inputs.permissionMode }}
+            timeout: ${{ inputs.timeout }}
+          inputs:
+            task: ${{ inputs.task }}
+            label: ${{ inputs.label }}
+            context:
+              earlier: ${{ inputs.context }}
+              # This run's most recent review, not the newest in the store.
+              # Reviewer instances are shared between runs, so a review-loop
+              # running elsewhere can write a review of an entirely different
+              # subject between this run's review step and this one — and the
+              # reviser would then set about changing work nobody reviewed.
+              # Query results come back ascending by version, so the last entry
+              # is the review immediately above.
+              reviewSummary: ${{ data.query('modelName == "' + inputs.reviewer + '" && name == "review" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "' + inputs.reviewer + '" && name == "review" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.summary }}
+              findings: ${{ data.query('modelName == "' + inputs.reviewer + '" && name == "review" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "' + inputs.reviewer + '" && name == "review" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.findings }}
+            instructions: >-
+              These findings are against ${{ inputs.subject }}.
+              ${{ inputs.reviseInstructions }}
+        dependsOn:
+          - step: review-1
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: review-2
+        description: Second review, of the revised subject
+        guard: >-
+          ${{ data.query('modelName == "' + inputs.reviewer + '" && name == "review" && version >= 0 && workflowRunId == "' + run.id + '"').exists(r, r.attributes.succeeded && !r.attributes.?findings.orValue([]).exists(f, f.?severity.orValue("low") in inputs.blockingSeverities)) || int(inputs.maxIterations) < 2 ? "skip" : "" }}
+        task:
+          type: model_method
+          modelType: "@gdesmott/claude-task"
+          modelName: ${{ inputs.reviewer }}
+          methodName: review
+          globalArgs:
+            # The agent works on the checkout, not on the swamp repository
+            # directory this workflow lives in — one level up from it.
+            workingDir: '..'
+            model: ${{ inputs.agentModel }}
+            permissionMode: ${{ inputs.permissionMode }}
+            timeout: ${{ inputs.timeout }}
+          inputs:
+            task: ${{ inputs.task }}
+            label: ${{ inputs.label }}
+            context:
+              earlier: ${{ inputs.context }}
+              # What the earlier rounds settled, and how. Without this a fresh
+              # reviewer re-derives the same objection to a decision that was
+              # taken deliberately, every round, and the loop cannot converge on
+              # anything the author is entitled to disagree with.
+              resolved: >-
+                ${{ data.query('modelName == "' + inputs.reviser + '" && name == "revision" && version >= 0 && workflowRunId == "' + run.id + '"').map(r, r.attributes.resolutions) }}
+            instructions: >-
+              Review ${{ inputs.subject }}. It has been revised since the last
+              review, so review it as it stands rather than re-checking the
+              previous findings. ${{ inputs.reviewInstructions }}
+            ignoreFailure: true
+        dependsOn:
+          - step: revise-1
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: revise-2
+        description: Fix or refute everything the second review reported
+        guard: >-
+          ${{ data.query('modelName == "' + inputs.reviewer + '" && name == "review" && version >= 0 && workflowRunId == "' + run.id + '"').exists(r, r.attributes.succeeded && !r.attributes.?findings.orValue([]).exists(f, f.?severity.orValue("low") in inputs.blockingSeverities)) || int(inputs.maxIterations) < 3 ? "skip" : "" }}
+        task:
+          type: model_method
+          modelType: "@gdesmott/claude-task"
+          modelName: ${{ inputs.reviser }}
+          methodName: revise
+          globalArgs:
+            # The agent works on the checkout, not on the swamp repository
+            # directory this workflow lives in — one level up from it.
+            workingDir: '..'
+            model: ${{ inputs.agentModel }}
+            permissionMode: ${{ inputs.permissionMode }}
+            timeout: ${{ inputs.timeout }}
+          inputs:
+            task: ${{ inputs.task }}
+            label: ${{ inputs.label }}
+            context:
+              earlier: ${{ inputs.context }}
+              # This run's most recent review, not the newest in the store.
+              # Reviewer instances are shared between runs, so a review-loop
+              # running elsewhere can write a review of an entirely different
+              # subject between this run's review step and this one — and the
+              # reviser would then set about changing work nobody reviewed.
+              # Query results come back ascending by version, so the last entry
+              # is the review immediately above.
+              reviewSummary: ${{ data.query('modelName == "' + inputs.reviewer + '" && name == "review" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "' + inputs.reviewer + '" && name == "review" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.summary }}
+              findings: ${{ data.query('modelName == "' + inputs.reviewer + '" && name == "review" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "' + inputs.reviewer + '" && name == "review" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.findings }}
+            instructions: >-
+              These findings are against ${{ inputs.subject }}.
+              ${{ inputs.reviseInstructions }}
+        dependsOn:
+          - step: review-2
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: review-3
+        description: Third review, of the revised subject
+        guard: >-
+          ${{ data.query('modelName == "' + inputs.reviewer + '" && name == "review" && version >= 0 && workflowRunId == "' + run.id + '"').exists(r, r.attributes.succeeded && !r.attributes.?findings.orValue([]).exists(f, f.?severity.orValue("low") in inputs.blockingSeverities)) || int(inputs.maxIterations) < 3 ? "skip" : "" }}
+        task:
+          type: model_method
+          modelType: "@gdesmott/claude-task"
+          modelName: ${{ inputs.reviewer }}
+          methodName: review
+          globalArgs:
+            # The agent works on the checkout, not on the swamp repository
+            # directory this workflow lives in — one level up from it.
+            workingDir: '..'
+            model: ${{ inputs.agentModel }}
+            permissionMode: ${{ inputs.permissionMode }}
+            timeout: ${{ inputs.timeout }}
+          inputs:
+            task: ${{ inputs.task }}
+            label: ${{ inputs.label }}
+            context:
+              earlier: ${{ inputs.context }}
+              # What the earlier rounds settled, and how. Without this a fresh
+              # reviewer re-derives the same objection to a decision that was
+              # taken deliberately, every round, and the loop cannot converge on
+              # anything the author is entitled to disagree with.
+              resolved: >-
+                ${{ data.query('modelName == "' + inputs.reviser + '" && name == "revision" && version >= 0 && workflowRunId == "' + run.id + '"').map(r, r.attributes.resolutions) }}
+            instructions: >-
+              Review ${{ inputs.subject }}. It has been revised since the last
+              review, so review it as it stands rather than re-checking the
+              previous findings. ${{ inputs.reviewInstructions }}
+            ignoreFailure: true
+        dependsOn:
+          - step: revise-2
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: revise-3
+        description: Fix or refute everything the third review reported
+        guard: >-
+          ${{ data.query('modelName == "' + inputs.reviewer + '" && name == "review" && version >= 0 && workflowRunId == "' + run.id + '"').exists(r, r.attributes.succeeded && !r.attributes.?findings.orValue([]).exists(f, f.?severity.orValue("low") in inputs.blockingSeverities)) || int(inputs.maxIterations) < 4 ? "skip" : "" }}
+        task:
+          type: model_method
+          modelType: "@gdesmott/claude-task"
+          modelName: ${{ inputs.reviser }}
+          methodName: revise
+          globalArgs:
+            # The agent works on the checkout, not on the swamp repository
+            # directory this workflow lives in — one level up from it.
+            workingDir: '..'
+            model: ${{ inputs.agentModel }}
+            permissionMode: ${{ inputs.permissionMode }}
+            timeout: ${{ inputs.timeout }}
+          inputs:
+            task: ${{ inputs.task }}
+            label: ${{ inputs.label }}
+            context:
+              earlier: ${{ inputs.context }}
+              # This run's most recent review, not the newest in the store.
+              # Reviewer instances are shared between runs, so a review-loop
+              # running elsewhere can write a review of an entirely different
+              # subject between this run's review step and this one — and the
+              # reviser would then set about changing work nobody reviewed.
+              # Query results come back ascending by version, so the last entry
+              # is the review immediately above.
+              reviewSummary: ${{ data.query('modelName == "' + inputs.reviewer + '" && name == "review" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "' + inputs.reviewer + '" && name == "review" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.summary }}
+              findings: ${{ data.query('modelName == "' + inputs.reviewer + '" && name == "review" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "' + inputs.reviewer + '" && name == "review" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.findings }}
+            instructions: >-
+              These findings are against ${{ inputs.subject }}.
+              ${{ inputs.reviseInstructions }}
+        dependsOn:
+          - step: review-3
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: review-4
+        description: Fourth review, of the revised subject
+        guard: >-
+          ${{ data.query('modelName == "' + inputs.reviewer + '" && name == "review" && version >= 0 && workflowRunId == "' + run.id + '"').exists(r, r.attributes.succeeded && !r.attributes.?findings.orValue([]).exists(f, f.?severity.orValue("low") in inputs.blockingSeverities)) || int(inputs.maxIterations) < 4 ? "skip" : "" }}
+        task:
+          type: model_method
+          modelType: "@gdesmott/claude-task"
+          modelName: ${{ inputs.reviewer }}
+          methodName: review
+          globalArgs:
+            # The agent works on the checkout, not on the swamp repository
+            # directory this workflow lives in — one level up from it.
+            workingDir: '..'
+            model: ${{ inputs.agentModel }}
+            permissionMode: ${{ inputs.permissionMode }}
+            timeout: ${{ inputs.timeout }}
+          inputs:
+            task: ${{ inputs.task }}
+            label: ${{ inputs.label }}
+            context:
+              earlier: ${{ inputs.context }}
+              # What the earlier rounds settled, and how. Without this a fresh
+              # reviewer re-derives the same objection to a decision that was
+              # taken deliberately, every round, and the loop cannot converge on
+              # anything the author is entitled to disagree with.
+              resolved: >-
+                ${{ data.query('modelName == "' + inputs.reviser + '" && name == "revision" && version >= 0 && workflowRunId == "' + run.id + '"').map(r, r.attributes.resolutions) }}
+            instructions: >-
+              Review ${{ inputs.subject }}. It has been revised since the last
+              review, so review it as it stands rather than re-checking the
+              previous findings. ${{ inputs.reviewInstructions }}
+            ignoreFailure: true
+        dependsOn:
+          - step: revise-3
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: revise-4
+        description: Fix or refute everything the fourth review reported
+        guard: >-
+          ${{ data.query('modelName == "' + inputs.reviewer + '" && name == "review" && version >= 0 && workflowRunId == "' + run.id + '"').exists(r, r.attributes.succeeded && !r.attributes.?findings.orValue([]).exists(f, f.?severity.orValue("low") in inputs.blockingSeverities)) || int(inputs.maxIterations) < 5 ? "skip" : "" }}
+        task:
+          type: model_method
+          modelType: "@gdesmott/claude-task"
+          modelName: ${{ inputs.reviser }}
+          methodName: revise
+          globalArgs:
+            # The agent works on the checkout, not on the swamp repository
+            # directory this workflow lives in — one level up from it.
+            workingDir: '..'
+            model: ${{ inputs.agentModel }}
+            permissionMode: ${{ inputs.permissionMode }}
+            timeout: ${{ inputs.timeout }}
+          inputs:
+            task: ${{ inputs.task }}
+            label: ${{ inputs.label }}
+            context:
+              earlier: ${{ inputs.context }}
+              # This run's most recent review, not the newest in the store.
+              # Reviewer instances are shared between runs, so a review-loop
+              # running elsewhere can write a review of an entirely different
+              # subject between this run's review step and this one — and the
+              # reviser would then set about changing work nobody reviewed.
+              # Query results come back ascending by version, so the last entry
+              # is the review immediately above.
+              reviewSummary: ${{ data.query('modelName == "' + inputs.reviewer + '" && name == "review" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "' + inputs.reviewer + '" && name == "review" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.summary }}
+              findings: ${{ data.query('modelName == "' + inputs.reviewer + '" && name == "review" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "' + inputs.reviewer + '" && name == "review" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.findings }}
+            instructions: >-
+              These findings are against ${{ inputs.subject }}.
+              ${{ inputs.reviseInstructions }}
+        dependsOn:
+          - step: review-4
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: review-5
+        description: >-
+          Fifth and final review. There is no revision after this one: if it is
+          not clean, the loop has hit the skill's cap and the assert below stops
+          the run.
+        guard: >-
+          ${{ data.query('modelName == "' + inputs.reviewer + '" && name == "review" && version >= 0 && workflowRunId == "' + run.id + '"').exists(r, r.attributes.succeeded && !r.attributes.?findings.orValue([]).exists(f, f.?severity.orValue("low") in inputs.blockingSeverities)) || int(inputs.maxIterations) < 5 ? "skip" : "" }}
+        task:
+          type: model_method
+          modelType: "@gdesmott/claude-task"
+          modelName: ${{ inputs.reviewer }}
+          methodName: review
+          globalArgs:
+            # The agent works on the checkout, not on the swamp repository
+            # directory this workflow lives in — one level up from it.
+            workingDir: '..'
+            model: ${{ inputs.agentModel }}
+            permissionMode: ${{ inputs.permissionMode }}
+            timeout: ${{ inputs.timeout }}
+          inputs:
+            task: ${{ inputs.task }}
+            label: ${{ inputs.label }}
+            context:
+              earlier: ${{ inputs.context }}
+              # What the earlier rounds settled, and how. Without this a fresh
+              # reviewer re-derives the same objection to a decision that was
+              # taken deliberately, every round, and the loop cannot converge on
+              # anything the author is entitled to disagree with.
+              resolved: >-
+                ${{ data.query('modelName == "' + inputs.reviser + '" && name == "revision" && version >= 0 && workflowRunId == "' + run.id + '"').map(r, r.attributes.resolutions) }}
+            instructions: >-
+              Review ${{ inputs.subject }}. It has been revised since the last
+              review, so review it as it stands rather than re-checking the
+              previous findings. ${{ inputs.reviewInstructions }}
+            ignoreFailure: true
+        dependsOn:
+          - step: revise-4
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: review-converged
+        description: >-
+          Some review in this run settled: clean, or with nothing left at a
+          blocking severity.
+
+          This is the loop's real exit condition, and it is checked here rather
+          than inferred from the steps having finished: once a settled review
+          skips the rest, every later step is skipped too, and a run that ended
+          with nine skipped steps looks exactly like one that converged. Only
+          this assert can tell them apart.
+
+          It depends on the last review unconditionally, so that it still runs
+          when that review was skipped — which is the case whenever the loop
+          converged early, and therefore the case it most needs to cover.
+        task:
+          type: assert
+          expr: >-
+            data.query('modelName == "' + inputs.reviewer + '" && name == "review" && version >= 0 && workflowRunId == "' + run.id + '"').exists(r, r.attributes.succeeded && !r.attributes.?findings.orValue([]).exists(f, f.?severity.orValue("low") in inputs.blockingSeverities))
+          message: >-
+            Every review of ${{ inputs.subject }} still reports a finding at
+            ${{ inputs.blockingSeverities }}. This is the escalation the skill
+            asks for rather than a sixth attempt: read the findings with
+            `swamp data get ${{ inputs.reviewer }}` and decide what should
+            happen. Unlike a loop stopped by nits, this one is stopped by
+            something the reviewer thinks matters.
+          severity: high
+        dependsOn:
+          - step: review-5
+            condition:
+              type: always
+        weight: 0
+        allowFailure: false
+    dependsOn: []
+    weight: 0
+version: 1
