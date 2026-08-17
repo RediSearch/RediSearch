@@ -200,7 +200,7 @@ typedef struct {
   // Control user data obfuscation in logs
   bool hideUserDataFromLog;
   // Set how much time after OOM is detected we should wait to enable the resource manager to
-  // allocate more memory.
+  // allocate more memory. In Flex, how much time after OOM is detected to enable some RAM to be recovered
   uint32_t bgIndexingOomPauseTimeBeforeRetry;
   // Minimum delay before checking trimming state after slot migration (in milliseconds)
   uint32_t minTrimDelayMS;
