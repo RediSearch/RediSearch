@@ -195,8 +195,8 @@ unsafe fn build_timeout_context(
 ///
 /// `bc_timeout_areq` selects the timeout source. When non-null, the Blocked
 /// Client Timeout path is used: every iterator timeout probe forwards to
-/// `AREQ_CheckTimedOut` and `q.sctx.time` is ignored.
-/// When null, the request timeout reached through `q.sctx.time` selects either
+/// `AREQ_CheckTimedOut` and `q.sctx.timeout` is ignored.
+/// When null, the request timeout reached through `q.sctx.timeout` selects either
 /// no timeout or the Clock Based Timeout path. The deadline is read back on
 /// every probe so a re-armed deadline is honoured.
 ///

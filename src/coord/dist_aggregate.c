@@ -864,7 +864,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   r->sctx = rm_new(RedisSearchCtx);
   *r->sctx = SEARCH_CTX_STATIC(ctx, NULL);
   r->sctx->apiVersion = dialect;
-  r->sctx->time.requestTimeout = &r->base.timeout;
+  r->sctx->timeout = &r->base.timeout;
   // r->sctx->expanded should be received from shards
 
   bool checkInPipelineTimeout = shouldCheckInPipelineTimeoutCoord(r);

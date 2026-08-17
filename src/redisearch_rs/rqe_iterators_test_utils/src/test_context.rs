@@ -1167,7 +1167,7 @@ impl TestContext {
         // Set the current time to the future so expiration checks see these as expired
         // SAFETY: self.sctx is a valid pointer created via NewSearchCtxC
         unsafe {
-            self.sctx.as_mut().time.current = ffi::t_expirationTimePoint {
+            self.sctx.as_mut().currentTime = ffi::t_expirationTimePoint {
                 tv_sec: 100,
                 tv_nsec: 100,
             };

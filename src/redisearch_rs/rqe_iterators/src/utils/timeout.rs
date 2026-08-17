@@ -98,8 +98,8 @@ impl TimeoutContextDeadline {
     ///
     /// # Safety
     ///
-    /// * `deadline` must point to the valid [`timespec`](ffi::timespec) reached through
-    ///   `SearchTime.requestTimeout`, and stay valid at a stable address for as long as this
+    /// * `deadline` must point to the valid [`timespec`](ffi::timespec) reached through the
+    ///   `timeout` field of [`RedisSearchCtx`], and stay valid at a stable address for as long as this
     ///   context (and any iterator holding it) is used. A request assigns its search context once,
     ///   in `AREQ_ApplyContext`, and later cursor reads update the deadline in place, so the
     ///   address holds for the whole request.
@@ -250,9 +250,8 @@ impl AnyTimeoutContext {
         // Read construction-time inputs through short-lived raw reads rather than holding
         // a reference: C writes the timeout source through this location between cycles.
         // SAFETY: the caller guarantees `sctx` is valid.
-        let time = unsafe { &raw const (*sctx.as_ptr()).time };
-        // SAFETY: `time` points into the valid `sctx`.
-        let Some(request_timeout) = NonNull::new(unsafe { (*time).requestTimeout }) else {
+        let timeout = unsafe { (*sctx.as_ptr()).timeout };
+        let Some(request_timeout) = NonNull::new(timeout) else {
             return Self::NoTimeout(NoTimeoutChecker);
         };
         // SAFETY: the request timeout is valid for the lifetime guaranteed by the caller.

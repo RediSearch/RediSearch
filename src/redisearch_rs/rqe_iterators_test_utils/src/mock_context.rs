@@ -112,7 +112,7 @@ impl MockContext {
             (*sctx_ptr).spec = spec_ptr;
             (*timeout_ptr).kind =
                 ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
-            (*sctx_ptr).time.requestTimeout = timeout_ptr;
+            (*sctx_ptr).timeout = timeout_ptr;
 
             // Initialize QueryEvalCtx
             (*qctx_ptr).sctx = sctx_ptr;

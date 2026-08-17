@@ -1142,22 +1142,6 @@ AREQ *AREQ_New(RedisModuleString **argv, uint32_t argc) {
   return req;
 }
 
-bool SearchTime_IsTimedOut(void *arg) {
-  const SearchTime *time = arg;
-  return time && time->requestTimeout &&
-         QueryRequestTimeout_IsBlockedClientTimedOut(time->requestTimeout);
-}
-
-const struct timespec *SearchTime_GetClockDeadline(const SearchTime *time) {
-  RS_ASSERT(time && time->requestTimeout);
-  return QueryRequestTimeout_GetClockDeadline(time->requestTimeout);
-}
-
-struct timespec *SearchTime_GetClockDeadlineForUpdate(SearchTime *time) {
-  RS_ASSERT(time && time->requestTimeout);
-  return QueryRequestTimeout_GetClockDeadlineForUpdate(time->requestTimeout);
-}
-
 bool AREQ_TryClaimAggregateResults(AREQ *req) {
   bool expected = false;
   return atomic_compare_exchange_strong_explicit(&req->base.async.aggregatingResults, &expected,
@@ -1597,8 +1581,8 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   req->sctx = sctx;
   // Borrow the request timeout onto the sctx so pipeline RPs can
   // observe a RETURN-STRICT main-thread timeout without holding an AREQ
-  // back-pointer (read via SearchTime_IsTimedOut).
-  sctx->time.requestTimeout = &req->base.timeout;
+  // back-pointer used by query execution and result processors.
+  sctx->timeout = &req->base.timeout;
 
   if (!IsIndexCoherent(req)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_MISMATCH, NULL);

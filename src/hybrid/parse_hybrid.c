@@ -901,8 +901,8 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   }
   // TIMEOUT parsing and the foreground cap are complete. Keep the owning hybrid request's
   // timeout configuration synchronized at the point its effective RequestConfig is finalized.
-  RS_ASSERT(sctx->time.requestTimeout);
-  QueryRequestTimeout_UpdateConfig(sctx->time.requestTimeout,
+  RS_ASSERT(sctx->timeout);
+  QueryRequestTimeout_UpdateConfig(sctx->timeout,
                                    parsedCmdCtx->reqConfig->timeoutPolicy,
                                    parsedCmdCtx->reqConfig->queryTimeoutMS);
 

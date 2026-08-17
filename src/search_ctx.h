@@ -35,32 +35,17 @@ typedef enum {
   SPEC_LOCK_WRITE
 } SpecLockState;
 
-typedef struct SearchTime {
-  // current execution start time - real clock
-  struct timespec current;
-  // Borrowed request timeout, wired when the request adopts this search context.
-  // NULL when there is no owning request.
-  // TODO: move to QueryProcessingCtx.
-  struct QueryRequestTimeout *requestTimeout;
-} SearchTime;
-
-/** Borrows the active clock deadline owned by this search time's request. */
-const struct timespec *SearchTime_GetClockDeadline(const SearchTime *time);
-
-/** Selects and mutably borrows the clock deadline for debug simulation and tests. */
-struct timespec *SearchTime_GetClockDeadlineForUpdate(SearchTime *time);
-
-// Returns true iff the SearchTime (passed as `void *` so the function doubles
-// as a SyncPoint stop predicate) has a wired request whose blocked-client
-// timeout has fired. NULL arg or an unwired request both return false.
-bool SearchTime_IsTimedOut(void *arg);
-
 /** Context passed to all redis related search handling functions. */
 typedef struct RedisSearchCtx {
   RedisModuleCtx *redisCtx;
   RedisModuleKey *key_;
   IndexSpec *spec;
-  SearchTime time;
+  // Current execution start time from the real clock, used for expiration checks.
+  struct timespec currentTime;
+  // Borrowed request timeout, wired when the request adopts this search context.
+  // NULL when there is no owning request.
+  // TODO: move to QueryProcessingCtx.
+  struct QueryRequestTimeout *timeout;
   unsigned int apiVersion; // API Version to allow for backward compatibility / alternative functionality
   unsigned int expanded; // Reply format
   SpecLockState lock_state;
@@ -84,14 +69,15 @@ static inline RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *s
                           .redisCtx = ctx,
                           .key_ = NULL,
                           .spec = sp,
-                          .time = {.current = { 0, 0 }, .requestTimeout = NULL},
+                          .currentTime = { 0, 0 },
+                          .timeout = NULL,
                           .lock_state = SPEC_LOCK_UNSET,
                           .diskSnapshot = NULL,};
   return sctx;
 }
 
-// Updates the real-clock execution timestamp. durationNS is retained while deadline ownership
-// migrates to QueryRequestTimeout; it no longer controls a SearchTime-owned deadline.
+// Updates the real-clock execution timestamp. durationNS is retained for API compatibility and
+// no longer controls the request-owned timeout deadline.
 void SearchCtx_UpdateTime(RedisSearchCtx *sctx, int32_t durationNS);
 
 typedef struct QueryError QueryError;

@@ -461,7 +461,7 @@ static IteratorStatus HR_ReadHybridUnsortedSingle(HybridIterator *hr) {
   if (hr->checkFieldExpiration
       && !DocTable_CheckFieldExpirationPredicate(&hr->sctx->spec->docs, hr->base.current->docId,
                                                  hr->filterCtx.field.index,
-                                                 hr->filterCtx.predicate, &hr->sctx->time.current)) {
+                                                 hr->filterCtx.predicate, &hr->sctx->currentTime)) {
     return ITERATOR_NOTFOUND;
   }
   hr->base.lastDocId = hr->base.current->docId;
@@ -499,7 +499,7 @@ static IteratorStatus HR_ReadKnnUnsortedSingle(HybridIterator *hr) {
   if (hr->checkFieldExpiration
       && !DocTable_CheckFieldExpirationPredicate(&hr->sctx->spec->docs, hr->base.current->docId,
                                                  hr->filterCtx.field.index,
-                                                 hr->filterCtx.predicate, &hr->sctx->time.current)) {
+                                                 hr->filterCtx.predicate, &hr->sctx->currentTime)) {
     return ITERATOR_NOTFOUND;
   }
 
@@ -652,8 +652,8 @@ QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   hi->maxBatchSize = 0;
   hi->maxBatchIteration = 0;
   hi->canTrimDeepResults = hParams.canTrimDeepResults;
-  bool checkClockTimeout = hParams.sctx->time.requestTimeout &&
-                           hParams.sctx->time.requestTimeout->kind ==
+  bool checkClockTimeout = hParams.sctx->timeout &&
+                           hParams.sctx->timeout->kind ==
                                QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
   hi->timeoutCtx = (TimeoutCtx){ .timeout = hParams.timeout,
                                  .counter = checkClockTimeout ? 0 : REDISEARCH_UNINITIALIZED };

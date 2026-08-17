@@ -881,7 +881,7 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
     const struct timespec *deadline =
         (hreq->sctx &&
          hreq->base.timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE)
-            ? SearchTime_GetClockDeadline(&hreq->sctx->time)
+            ? QueryRequestTimeout_GetClockDeadline(hreq->sctx->timeout)
             : NULL;
 
     // Errors from cursor establishment go into the dispatcher's `status` so

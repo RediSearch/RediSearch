@@ -273,7 +273,7 @@ impl QueryEvalContext {
     /// When a Blocked Client Timeout request is wired into the context
     /// (`bcTimeoutAreq` non-null) the iterator polls that request's timeout
     /// flag. Otherwise the Clock Based Timeout (or [`NoTimeoutChecker`], when timeout
-    /// checks are skipped or no deadline is set) is derived from `sctx.time`.
+    /// checks are skipped or no deadline is set) is derived from `sctx.timeout`.
     ///
     /// The returned [`AnyTimeoutContext`] is `'static`: when a Blocked Client
     /// Timeout is wired in it holds the `AREQ` as a raw pointer, not a borrow, so
@@ -311,7 +311,7 @@ impl QueryEvalContext {
                 AnyTimeoutContext::BlockedClient(timeout)
             }
             // No Blocked Client Timeout source: derive the Clock Based Timeout
-            // (or `NoTimeoutChecker`) from `sctx.time`.
+            // (or `NoTimeoutChecker`) from `sctx.timeout`.
             None => {
                 let sctx = NonNull::new(self.sctx_ptr().cast_mut()).expect("sctx must be non-null");
                 // SAFETY: invariant (2) of `new` guarantees `sctx` stays valid for the lifetime of

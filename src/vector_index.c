@@ -217,10 +217,9 @@ static bool VectorQuery_HasParam(const VectorQuery *vq, const char *param_name, 
 }
 
 static struct timespec VectorQuery_GetTransitionalDeadline(const QueryEvalCtx *q) {
-  const SearchTime *time = &q->sctx->time;
-  if (time->requestTimeout &&
-      time->requestTimeout->kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE) {
-    return *SearchTime_GetClockDeadline(time);
+  const QueryRequestTimeout *timeout = q->sctx->timeout;
+  if (timeout && timeout->kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE) {
+    return *QueryRequestTimeout_GetClockDeadline(timeout);
   }
 
   // Vector APIs still require a timespec. Until they use the generic timeout API, a

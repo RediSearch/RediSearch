@@ -287,7 +287,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     hybridReq->requests = requests;
     hybridReq->nrequests = nrequests;
     hybridReq->sctx = sctx;
-    hybridReq->sctx->time.requestTimeout = &hybridReq->base.timeout;
+    hybridReq->sctx->timeout = &hybridReq->base.timeout;
     hybridReq->kArgIndex = -1;
     rs_wall_clock now = {0};
     rs_wall_clock_init(&now);

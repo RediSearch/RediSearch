@@ -37,13 +37,13 @@
 #include "util/references.h"
 #include "util/timeout.h"
 
-static inline void updateTime(SearchTime *searchTime) {
+static inline void updateTime(struct timespec *currentTime) {
   if (RS_IsMock) return;
 #ifdef CLOCK_REALTIME_COARSE
-  clock_gettime(CLOCK_REALTIME_COARSE, &searchTime->current);
+  clock_gettime(CLOCK_REALTIME_COARSE, currentTime);
 #else
   // In some mac systems CLOCK_REALTIME_COARSE is not defined, we fallback to CLOCK_REALTIME
-  clock_gettime(CLOCK_REALTIME, &searchTime->current);
+  clock_gettime(CLOCK_REALTIME, currentTime);
 #endif
 }
 
@@ -188,7 +188,7 @@ void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx) {
 
 void SearchCtx_UpdateTime(RedisSearchCtx *sctx, int32_t durationNS) {
   UNUSED(durationNS);
-  updateTime(&sctx->time);
+  updateTime(&sctx->currentTime);
 }
 
 void SearchCtx_CleanUp(RedisSearchCtx *sctx) {

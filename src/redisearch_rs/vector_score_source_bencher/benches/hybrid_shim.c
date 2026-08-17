@@ -17,7 +17,7 @@
  * doc table, and the min-max heap.
  *
  * The HybridIterator only touches `sctx` in three spots:
- *   - sctx->time.requestTimeout      (NULL disables timeout checks)
+ *   - sctx->timeout                  (NULL disables timeout checks)
  *   - sctx->spec->diskSpec           (zeroed => RAM path)
  *   - sctx->spec->docs.ttl           (zeroed/NULL => field-expiration gate off,
  *                                     so the DocTable expiration calls are

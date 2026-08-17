@@ -764,9 +764,8 @@ void tag_strtolower(char **pstr, size_t *len, int caseSensitive) {
 }
 
 static bool shouldCheckClockTimeout(const QueryEvalCtx *q) {
-  const SearchTime *time = &q->sctx->time;
-  return time->requestTimeout &&
-         time->requestTimeout->kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
+  return q->sctx->timeout &&
+         q->sctx->timeout->kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
 }
 
 /* Evaluate a tag prefix by expanding it with a lookup on the tag index */
@@ -801,7 +800,7 @@ static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
     // TrieMap_IterateWithFilter only returns NULL on allocation failure
     RS_ASSERT(it);
     if (shouldCheckClockTimeout(q)) {
-      TrieMapIterator_SetTimeout(it, *SearchTime_GetClockDeadline(&q->sctx->time));
+      TrieMapIterator_SetTimeout(it, *QueryRequestTimeout_GetClockDeadline(q->sctx->timeout));
     }
 
     // an upper limit on the number of expansions is enforced to avoid stuff like "*"
@@ -832,7 +831,7 @@ static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   } else {  // TAG field has suffix triemap
     bool skipClockChecks = !shouldCheckClockTimeout(q);
     struct timespec timeout = skipClockChecks ? (struct timespec){0}
-                                              : *SearchTime_GetClockDeadline(&q->sctx->time);
+                                              : *QueryRequestTimeout_GetClockDeadline(q->sctx->timeout);
     arrayof(char **) arr = TagIndex_GetSuffixMatches(idx, tok->str, tok->len, qn->pfx.prefix,
                                                      timeout, skipClockChecks);
     if (!arr) {
@@ -895,7 +894,7 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
     // with suffix
     bool skipClockChecks = !shouldCheckClockTimeout(q);
     struct timespec timeout = skipClockChecks ? (struct timespec){0}
-                                              : *SearchTime_GetClockDeadline(&q->sctx->time);
+                                              : *QueryRequestTimeout_GetClockDeadline(q->sctx->timeout);
     arrayof(char *) arr = TagIndex_GetSuffixWildcardMatches(
         idx, tok->str, tok->len, timeout, q->config->maxPrefixExpansions,
         skipClockChecks);
@@ -931,7 +930,7 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
     TrieMapIterator *it =
         TagIndex_IterateValuesWithFilter(idx, tok->str, tok->len, TAG_WILDCARD_MODE);
     if (shouldCheckClockTimeout(q)) {
-      TrieMapIterator_SetTimeout(it, *SearchTime_GetClockDeadline(&q->sctx->time));
+      TrieMapIterator_SetTimeout(it, *QueryRequestTimeout_GetClockDeadline(q->sctx->timeout));
     }
 
     char *s;

@@ -94,9 +94,8 @@ pub(crate) fn eval<'index>(
     let terms_trie = ctx.spec().terms;
     // Resolved here, with every other read of `ctx`, because `Expansion` borrows
     // it mutably for the rest of the expansion.
-    let time = &ctx.sctx().time;
     // SAFETY: the request timeout outlives query evaluation when present.
-    let timeout = unsafe { time.requestTimeout.as_ref() };
+    let timeout = unsafe { ctx.sctx().timeout.as_ref() };
 
     let expansion = Expansion {
         ctx,

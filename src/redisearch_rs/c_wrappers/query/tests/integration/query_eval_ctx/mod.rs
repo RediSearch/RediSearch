@@ -127,8 +127,8 @@ fn next_token_id_post_increments() {
     ignore = "clock-based path calls libc::clock_gettime(CLOCK_MONOTONIC_RAW), unsupported by Miri"
 )]
 fn build_timeout_context_without_blocked_client_uses_sctx() {
-    // No `bcTimeoutAreq` wired in → the source is derived from `sctx.time`, never
-    // the Blocked Client path. The mock's zeroed `sctx.time` is a past deadline,
+    // No `bcTimeoutAreq` wired in → the source is derived from `sctx.timeout`, never
+    // the Blocked Client path. The mock's timeout is a past deadline,
     // so the clock-based variant is selected.
     let mut mock = MockQueryEvalCtx::new();
     let ctx = unsafe { QueryEvalContext::new(mock.as_non_null()) };
@@ -142,7 +142,7 @@ fn build_timeout_context_without_blocked_client_uses_sctx() {
 #[test]
 fn build_timeout_context_prefers_blocked_client_when_wired() {
     // A non-null `bcTimeoutAreq` selects the Blocked Client Timeout source,
-    // overriding `sctx.time` — mirroring the C evaluator's NOT-node behavior.
+    // overriding `sctx.timeout` — mirroring the C evaluator's NOT-node behavior.
     let mut mock = MockQueryEvalCtx::new();
     mock.enable_blocked_client_timeout();
     let ctx = unsafe { QueryEvalContext::new(mock.as_non_null()) };

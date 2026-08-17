@@ -191,6 +191,9 @@ bool QueryRequestTimeout_IsTimedOut(const QueryRequestTimeout *timeout);
  */
 bool QueryRequestTimeout_IsBlockedClientTimedOut(const QueryRequestTimeout *timeout);
 
+/** Sync-point predicate adapter for QueryRequestTimeout_IsBlockedClientTimedOut. */
+bool QueryRequestTimeout_IsBlockedClientTimedOutCallback(void *arg);
+
 /**
  * Amortized variant of QueryRequestTimeout_IsTimedOut:
  *

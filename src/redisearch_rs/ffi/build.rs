@@ -310,13 +310,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/search_ctx.h",
-        fns: &[
-            "NewSearchCtxC",
-            "SearchCtx_Free",
-            // RSE: the disk async loader checks request timeout between disk
-            // reads via this main-thread-owned flag accessor.
-            "SearchTime_IsTimedOut",
-        ],
+        fns: &["NewSearchCtxC", "SearchCtx_Free"],
         types: &[],
         vars: &["APIVERSION_RETURN_MULTI_CMP_FIRST"],
     },

@@ -331,7 +331,7 @@ TEST_F(HybridReaderDiskTest, PinsUnderfillKWhenFieldsExpired) {
     // Expire field 0 of docs 1 and 2; this also populates spec.docs.ttl, the third gate condition.
     mockCtx->TTL_Add(1, (t_fieldIndex)0, past);
     mockCtx->TTL_Add(2, (t_fieldIndex)0, past);
-    mockCtx->sctx.time.current = {2, 0};
+    mockCtx->sctx.currentTime = {2, 0};
 
     // k=3 heap holds docs 2,1,4; live doc 3 (0.8) ranks just below it. Gate on via field 0.
     auto [index, it] =
