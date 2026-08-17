@@ -9,19 +9,13 @@
 
 //! Rust implementation of the vector top-k iterator and its C accessor functions.
 //!
-//! This module provides [`NewVectorTopKIterator`] (a drop-in replacement for the
-//! C `NewHybridVectorIterator`) together with the accessor shims that C callers
-//! use for query-plan construction and profiling.
+//! This module provides [`NewVectorTopKIterator`] together with the accessor
+//! shims that C callers use to bind the iterator's vector-score `RLookupKey`.
 
-use std::{
-    ffi::{c_char, c_void},
-    ptr::{self, NonNull},
-};
+use std::{ffi::c_void, ptr::NonNull};
 
 use ffi::{
     QueryIterator, RLookupKey, RLookupKeyHandle, RedisSearchCtx, VecSimIndex, VecSimQueryParams,
-    VecSimSearchMode_VECSIM_HYBRID_ADHOC_BF, VecSimSearchMode_VECSIM_HYBRID_BATCHES,
-    VecSimSearchMode_VECSIM_HYBRID_BATCHES_TO_ADHOC_BF, VecSimSearchMode_VECSIM_STANDARD_KNN,
     timespec,
 };
 use field::FieldFilterContext;
@@ -30,7 +24,6 @@ use rqe_iterators::{
     c2rust::CRQEIterator,
     interop::{RQEIteratorWrapper, patch_vtable},
 };
-use top_k::TopKMode;
 use vector_score_source::{NewVectorTopK, VectorTopKIterator, new_vector_top_k};
 
 /// Construct a vector top-k iterator and expose it as a C [`QueryIterator`].
@@ -177,31 +170,6 @@ unsafe fn wrapper_mut(
     unsafe { RQEIteratorWrapper::<VectorTopKIterator<'static>>::mut_ref_from_header_ptr(iter) }
 }
 
-/// Cast a `*const QueryIterator` produced by [`NewVectorTopKIterator`] back to
-/// its full Rust wrapper (shared).
-///
-/// # Safety
-///
-/// 1. `iter` is non-null, [valid], and was returned by [`NewVectorTopKIterator`]
-///    for a query that did not reduce to `Empty`, so its `type_` is
-///    [`IteratorType::Hybrid`].
-/// 2. No mutable reference to the wrapper is live for the duration of the
-///    returned borrow.
-/// 3. The `index` and `sctx` given to that [`NewVectorTopKIterator`] call are
-///    still alive.
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-unsafe fn wrapper_ref(
-    iter: *const QueryIterator,
-) -> &'static RQEIteratorWrapper<VectorTopKIterator<'static>> {
-    // SAFETY: guaranteed by 1.
-    debug_assert!(matches!(unsafe { (*iter).type_ }, IteratorType::Hybrid));
-    // SAFETY: 1 pins the inner type — `NewVectorTopKIterator` boxes only
-    // `VectorTopKIterator` with a `FieldExpirationChecker` — and 2 keeps the shared
-    // borrow unaliased; 3 makes the `'static` inner lifetime sound.
-    unsafe { RQEIteratorWrapper::<VectorTopKIterator<'static>>::ref_from_header_ptr(iter) }
-}
-
 /// Return a mutable reference to the `RLookupKey *` stored inside this iterator.
 ///
 /// The key is initially `NULL`; the metrics-loader result processor writes
@@ -242,114 +210,4 @@ pub unsafe extern "C" fn VectorTopK_SetKeyHandle(
     // SAFETY: guaranteed by 1.
     let wrapper = unsafe { wrapper_mut(it) };
     wrapper.inner.source_mut().key_handle = handle;
-}
-
-/// Return a C string describing the search mode that was used (or is being used) for this query.
-///
-/// - [`Unfiltered`](TopKMode::Unfiltered) → `VECSIM_STANDARD_KNN`
-/// - [`Batches`](TopKMode::Batches) → `VECSIM_HYBRID_BATCHES`
-/// - [`AdhocBF`](TopKMode::AdhocBF) → `VECSIM_HYBRID_ADHOC_BF` or
-///   `VECSIM_HYBRID_BATCHES_TO_ADHOC_BF` (when the mode was switched mid-execution)
-///
-/// The returned pointer is a static, null-terminated C string. It is valid for
-/// the lifetime of the program and must not be freed by the caller.
-///
-/// # Safety
-///
-/// 1. `it` is a non-null handle from [`NewVectorTopKIterator`] that did not reduce
-///    to `Empty`, whose `index` and `sctx` are still alive.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn VectorTopK_GetSearchModeString(it: *const QueryIterator) -> *const c_char {
-    debug_assert!(!it.is_null());
-    // SAFETY: guaranteed by 1.
-    let wrapper = unsafe { wrapper_ref(it) };
-    let mode = wrapper.inner.mode();
-    let switches = wrapper.inner.metrics().strategy_switches;
-    let mode = match mode {
-        TopKMode::Unfiltered => VecSimSearchMode_VECSIM_STANDARD_KNN,
-        TopKMode::Batches | TopKMode::ForcedBatches => VecSimSearchMode_VECSIM_HYBRID_BATCHES,
-        TopKMode::AdhocBF if switches > 0 => VecSimSearchMode_VECSIM_HYBRID_BATCHES_TO_ADHOC_BF,
-        TopKMode::AdhocBF => VecSimSearchMode_VECSIM_HYBRID_ADHOC_BF,
-    };
-    // SAFETY: the call is sound for any `mode`; `mode` is initialized with ffi-driven constants.
-    unsafe { ffi::VecSimSearchMode_ToString(mode) }
-}
-
-/// Return `true` if the iterator is, or has ever been, in batches mode.
-///
-/// This includes queries that started as batches before switching to ad-hoc BF.
-///
-/// # Safety
-///
-/// 1. `it` is a non-null handle from [`NewVectorTopKIterator`] that did not reduce
-///    to `Empty`, whose `index` and `sctx` are still alive.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn VectorTopK_IsBatchMode(it: *const QueryIterator) -> bool {
-    debug_assert!(!it.is_null());
-    // SAFETY: guaranteed by 1.
-    let wrapper = unsafe { wrapper_ref(it) };
-    let mode = wrapper.inner.mode();
-    let switches = wrapper.inner.metrics().strategy_switches;
-    matches!(mode, TopKMode::Batches | TopKMode::ForcedBatches)
-        || matches!(mode, TopKMode::AdhocBF if switches > 0)
-}
-
-/// Return the number of batch iterations performed so far (Batches mode only).
-///
-/// # Safety
-///
-/// 1. `it` is a non-null handle from [`NewVectorTopKIterator`] that did not reduce
-///    to `Empty`, whose `index` and `sctx` are still alive.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn VectorTopK_GetNumIterations(it: *const QueryIterator) -> usize {
-    debug_assert!(!it.is_null());
-    // SAFETY: guaranteed by 1.
-    let wrapper = unsafe { wrapper_ref(it) };
-    wrapper.inner.source().num_iterations
-}
-
-/// Return the maximum batch size used during Batches mode.
-///
-/// # Safety
-///
-/// 1. `it` is a non-null handle from [`NewVectorTopKIterator`] that did not reduce
-///    to `Empty`, whose `index` and `sctx` are still alive.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn VectorTopK_GetMaxBatchSize(it: *const QueryIterator) -> usize {
-    debug_assert!(!it.is_null());
-    // SAFETY: guaranteed by 1.
-    let wrapper = unsafe { wrapper_ref(it) };
-    wrapper.inner.source().max_batch_size
-}
-
-/// Return the zero-based batch index at which the maximum batch size occurred.
-///
-/// # Safety
-///
-/// 1. `it` is a non-null handle from [`NewVectorTopKIterator`] that did not reduce
-///    to `Empty`, whose `index` and `sctx` are still alive.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn VectorTopK_GetMaxBatchIteration(it: *const QueryIterator) -> usize {
-    debug_assert!(!it.is_null());
-    // SAFETY: guaranteed by 1.
-    let wrapper = unsafe { wrapper_ref(it) };
-    wrapper.inner.source().max_batch_iteration
-}
-
-/// Return the filter child iterator, or `NULL` for a pure KNN query.
-///
-/// The returned pointer is non-owning; its lifetime is that of `it`.
-///
-/// # Safety
-///
-/// 1. `it` is a non-null handle from [`NewVectorTopKIterator`] that did not reduce
-///    to `Empty`, whose `index` and `sctx` are still alive.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn VectorTopK_GetChild(it: *const QueryIterator) -> *mut QueryIterator {
-    debug_assert!(!it.is_null());
-    // SAFETY: guaranteed by 1.
-    let wrapper = unsafe { wrapper_ref(it) };
-    wrapper.inner.child().map_or(ptr::null_mut(), |c| {
-        c.as_ref() as *const QueryIterator as *mut QueryIterator
-    })
 }
