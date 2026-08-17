@@ -190,10 +190,20 @@ impl TermsTrie {
     /// up as an exact match. Used to compute a term's inverse document
     /// frequency (IDF).
     ///
-    /// Returns `0` for input that cannot correspond to a stored term — invalid
-    /// UTF-8, or a term longer than the trie can hold — since such a term can
+    /// Returns `0` for input that cannot correspond to a stored term — empty,
+    /// invalid UTF-8, or longer than the trie can hold — since such a term can
     /// never have been inserted.
     pub fn num_docs(&self, term: &[u8]) -> usize {
+        // A zero-length key is refused on insertion, so the trie cannot hold the
+        // empty term and the lookup could only answer zero. Skipping it also
+        // keeps an empty slice's pointer — which need not point into an
+        // allocation — away from the decode below, which forms `src + slen`
+        // before testing that the decode loop is empty. That arithmetic is only
+        // defined on a pointer into an object.
+        if term.is_empty() {
+            return 0;
+        }
+
         // Terms longer than the trie can store are never present, so report zero
         // without a lookup (mirrors the C insertion/decrement guards). This also
         // bounds the rune count to `term.len()`, keeping it within `t_len` so the

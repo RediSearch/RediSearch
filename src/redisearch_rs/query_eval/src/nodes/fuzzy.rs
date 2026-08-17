@@ -102,11 +102,11 @@ pub(crate) fn eval<'index>(
     // runes, so a single multibyte character does not reach the empty term at
     // distance 1.
     if api_version >= EMPTY_TERM_API_VERSION && pattern.len() <= max_dist as usize {
-        // Structurally zero: the trie cannot hold a zero-length key, so the
-        // lookup has nothing to find. Only the disk path consumes the count, for
-        // the term's IDF, so the in-memory path does not pay for it.
-        let num_docs = if is_disk { terms.num_docs(b"") } else { 0 };
-        expansion.push_child_ignoring_cap(num_docs, b"");
+        // The document count the disk path scores the term by is zero without a
+        // lookup: a zero-length key is refused on insertion, so the terms trie
+        // cannot hold one and could only answer zero. The empty term is scored
+        // as one never seen, whatever its inverted index holds.
+        expansion.push_child_ignoring_cap(0, b"");
     }
 
     let children = expansion.children;

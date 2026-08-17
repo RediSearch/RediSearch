@@ -107,6 +107,40 @@ fn set(items: &[&str]) -> HashSet<String> {
     items.iter().map(|s| (*s).to_owned()).collect()
 }
 
+// --- `num_docs` -------------------------------------------------------------
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
+fn num_docs_reports_the_stored_count_and_zero_for_absent_terms() {
+    with_terms_trie(CORPUS, |trie| {
+        // The corpus stores each term's char length as its document count.
+        assert_eq!(trie.num_docs(b"apple"), 5);
+        assert_eq!(trie.num_docs(b"map"), 3);
+        assert_eq!(trie.num_docs(b"pear"), 0);
+    });
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
+fn num_docs_of_the_empty_term_is_zero_without_a_lookup() {
+    // A zero-length key is refused on insertion, so no trie can answer anything
+    // but zero here — and the lookup is skipped rather than handing C an empty
+    // slice's pointer to do arithmetic on.
+    with_terms_trie(CORPUS, |trie| {
+        assert_eq!(trie.num_docs(b""), 0);
+    });
+    // Including for a trie that was never given any term at all.
+    with_terms_trie(&[], |trie| {
+        assert_eq!(trie.num_docs(b""), 0);
+    });
+}
+
 // --- `iterate_contains` -----------------------------------------------------
 
 #[test]
