@@ -2302,6 +2302,7 @@ dependencies = [
  "enumflags2",
  "ffi",
  "field_spec",
+ "global_config",
  "index_spec",
  "index_spec_cache",
  "itertools 0.15.0",

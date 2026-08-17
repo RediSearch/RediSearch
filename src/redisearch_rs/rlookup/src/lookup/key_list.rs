@@ -8,7 +8,9 @@
 */
 
 use crate::{RLookupKey, RLookupKeyFlags};
-use std::{ffi::CStr, iter::FusedIterator, marker::PhantomData, pin::Pin, ptr::NonNull};
+use std::{
+    borrow::Cow, ffi::CStr, iter::FusedIterator, marker::PhantomData, pin::Pin, ptr::NonNull,
+};
 
 #[cfg(any(debug_assertions, test))]
 use std::ptr;
@@ -106,8 +108,14 @@ impl<'a> KeyList<'a> {
 
         key.dstidx = u16::try_from(self.rowlen)
             .inspect_err(|_| {
+                let field = if global_config::hide_user_data_from_log() {
+                    Cow::Borrowed("****")
+                } else {
+                    key.name().to_string_lossy()
+                };
+
                 tracing::warn!(
-                    field = %key.name().to_string_lossy(),
+                    field = %field,
                     keys = self.rowlen,
                     "cannot look up more fields: the key limit is already reached, \
                      so this field's values will be missing from the results"
