@@ -8,7 +8,7 @@ publish.workspace = true
 [features]
 # Enabled when building tests so `build.rs` links the C code (`libredisearch_c_bundle`).
 # See https://github.com/rust-lang/cargo/issues/4789#issuecomment-2308131243
-unittest = []
+test-utils = []
 
 [lints]
 workspace = true
@@ -24,7 +24,7 @@ trie_rs.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]
-tag_index = { path = ".", features = ["unittest"] }
+tag_index = { path = ".", features = ["test-utils"] }
 redis_mock.workspace = true
 
 # Crate required to invoke C symbols: its `#[used]` symbol table keeps the Rust FFI

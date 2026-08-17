@@ -22,9 +22,14 @@
 //! Adding and removing items from this trie require order-aware operations.
 //!
 //! For instance, during the insertion:
-//! - insert owned term under tag key
+//! - insert owned term under tag key ([`OwnedTerm`])
 //! - for each suffix:
-//!   - insert borrowed term under the suffix key
+//!   - insert borrowed term under the suffix key ([`TermPtr`])
+//!
+//! # Keys and stored terms
+//!
+//! Keys are the NUL-free tag bytes and each of their suffixes. The stored *terms*
+//! are separate allocations that [`OwnedTerm::new`] NUL-terminates itself.
 //!
 
 use std::{
@@ -35,14 +40,15 @@ use std::{
 use thin_vec::{AlignedU32, ThinVec};
 use trie_rs::TrieMap;
 
+use crate::TagValue;
+
 /// Layout of a tag term allocation.
 fn tag_term_layout(size: usize) -> Layout {
-    let align = align_of::<u16>();
+    // A term is a plain byte buffer, so it needs no alignment beyond 1.
+    let align = align_of::<u8>();
 
-    // `align` is not 0 and power of two
-    // `size` is less than isize::MAX
     Layout::from_size_align(size, align)
-        .expect("tag term length is bounded by u16::MAX, far below Layout's limits")
+        .expect("a tag term is one byte longer than a tag, far below Layout's size limit")
 }
 
 /// Owning handle to a tag term allocation.
@@ -52,26 +58,17 @@ fn tag_term_layout(size: usize) -> Layout {
 struct OwnedTerm(NonNull<u8>);
 
 impl OwnedTerm {
-    /// Copy `term` into a fresh allocation.
+    /// Copy `term` into a fresh, NUL-terminated allocation.
     ///
-    /// # Safety
-    /// 1. term is NULL terminated and cannot contain NULL inside
-    /// 2. term is not empty (it contains at least the null)
-    unsafe fn new(term: &[u8]) -> Self {
-        #[cfg(debug_assertions)]
-        {
-            debug_assert!(!term.is_empty(), "term shouldn't be empty");
-            debug_assert_eq!(
-                *term.last().expect("term shouldn't be empty"),
-                0,
-                "term should be NULL terminated"
-            );
-        }
+    /// The allocation is one byte longer than `term`, and its last byte is the
+    /// terminator written here. `term` being a [`TagValue`] — interior-NUL-free
+    /// by construction — is what makes [`alloc_size`](Self::alloc_size) report
+    /// the true allocation length rather than a short one.
+    fn new(term: TagValue<'_>) -> Self {
+        let term = term.as_bytes();
+        let layout = tag_term_layout(term.len() + 1);
 
-        let size = term.len();
-        let layout = tag_term_layout(size);
-
-        // SAFETY: `layout` has non-zero size (guarantee 2)
+        // SAFETY: `layout` has non-zero size — it is `term.len() + 1`.
         let ptr = unsafe { alloc(layout) };
         let Some(ptr) = NonNull::new(ptr) else {
             handle_alloc_error(layout);
@@ -79,19 +76,21 @@ impl OwnedTerm {
 
         // SAFETY: source and destination are valid for `term.len()` bytes
         // and cannot overlap because `dst` is a freshly allocated block.
-        unsafe { std::ptr::copy_nonoverlapping(term.as_ptr(), ptr.as_ptr(), size) };
+        unsafe { std::ptr::copy_nonoverlapping(term.as_ptr(), ptr.as_ptr(), term.len()) };
+        // SAFETY: the allocation holds `term.len() + 1` bytes, so offset
+        // `term.len()` is the last one in bounds.
+        let terminator = unsafe { ptr.as_ptr().add(term.len()) };
+        // SAFETY: `terminator` is in bounds, as above, and freshly allocated.
+        unsafe { terminator.write(0) };
 
         Self(ptr)
     }
 
     /// Full allocation size in bytes (term bytes + the trailing NUL).
-    ///
-    /// # Safety
-    /// `self` is built by [`OwnedTerm::new`]
-    const unsafe fn alloc_size(&self) -> usize {
+    const fn alloc_size(&self) -> usize {
         // This cast doesn't change size, we care about only the NULL
         let ptr = self.0.as_ptr().cast::<std::ffi::c_char>().cast_const();
-        // SAFETY: guarantee 1 of [`OwnedTerm::new`]
+        // SAFETY: [`OwnedTerm::new`] NUL-terminates every allocation.
         unsafe { std::ffi::CStr::from_ptr(ptr) }
             .to_bytes_with_nul()
             .len()
@@ -100,8 +99,7 @@ impl OwnedTerm {
 
 impl Drop for OwnedTerm {
     fn drop(&mut self) {
-        // SAFETY: `self` is allocated using new method.
-        let len = unsafe { self.alloc_size() };
+        let len = self.alloc_size();
 
         // SAFETY: `self.0` came from `OwnedTerm::new` with exactly this
         // layout, and this is the only deallocation.
@@ -126,48 +124,70 @@ struct SuffixData {
 }
 
 #[derive(Debug, Default)]
-pub struct TagSuffixIndex {
+pub(crate) struct TagSuffixIndex {
     /// The suffix entries
     entries: TrieMap<SuffixData>,
+}
+
+impl TagSuffixIndex {
+    /// Create a new, empty index.
+    pub const fn new() -> Self {
+        Self {
+            entries: TrieMap::new(),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Read back the bytes stored in an [`OwnedTerm`].
-    ///
-    /// # Safety
-    /// `t` must be a live [`OwnedTerm`] produced by [`OwnedTerm::new`].
-    unsafe fn read_back(t: &OwnedTerm) -> Vec<u8> {
-        // SAFETY: guaranteed by Safety rule
-        let len = unsafe { t.alloc_size() };
+    /// [`OwnedTerm::new`], wrapping the NUL-free literals every test below
+    /// passes into a [`TagValue`].
+    fn owned_term(term: &[u8]) -> OwnedTerm {
+        OwnedTerm::new(TagValue::new(term).expect("test literal is NUL-free"))
+    }
 
-        // SAFETY: `src` is valid for `len` initialized bytes.
+    /// Read back the bytes stored in an [`OwnedTerm`], terminator included.
+    fn read_back(t: &OwnedTerm) -> Vec<u8> {
+        let len = t.alloc_size();
+
+        // SAFETY: `t` is a live `OwnedTerm`, so its allocation holds `len`
+        // initialized bytes.
         unsafe { std::slice::from_raw_parts(t.0.as_ptr(), len) }.to_vec()
     }
 
+    /// [`OwnedTerm::new`] takes the NUL-free term and appends the terminator
+    /// itself, so the stored bytes are one longer than the input.
     #[test]
     fn roundtrip() {
-        let term = unsafe { OwnedTerm::new(b"hello\0") };
-        // SAFETY: `term` is live and built by `OwnedTerm::new`.
-        assert_eq!(unsafe { read_back(&term) }, b"hello\0");
+        let term = owned_term(b"hello");
+        assert_eq!(read_back(&term), b"hello\0");
         // `term` drops here; miri checks the alloc/dealloc layout match.
     }
 
+    /// The empty term still gets an allocation — just the terminator.
     #[test]
     fn empty_term_is_fine() {
-        let term = unsafe { OwnedTerm::new(b"\0") };
-        // SAFETY: `term` is live and built by `OwnedTerm::new`.
-        assert_eq!(unsafe { read_back(&term) }, b"\0");
+        let term = owned_term(b"");
+        assert_eq!(read_back(&term), b"\0");
     }
 
     #[test]
     fn larger_term_is_fine() {
-        let mut expected = vec![0xABu8; 300];
+        let term_bytes = vec![0xABu8; 300];
+        let term = owned_term(&term_bytes);
+
+        let mut expected = term_bytes;
         expected.push(0);
-        let term = unsafe { OwnedTerm::new(&expected) };
-        // SAFETY: `term` is live and built by `OwnedTerm::new`.
-        assert_eq!(unsafe { read_back(&term) }, expected);
+        assert_eq!(read_back(&term), expected);
+    }
+
+    #[test]
+    fn owned_term_is_a_fresh_allocation() {
+        let term_bytes = "foo".to_string();
+        let term = owned_term(term_bytes.as_bytes());
+
+        assert_ne!(term_bytes.as_ptr(), term.0.as_ptr().cast());
     }
 }
