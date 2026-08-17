@@ -11,9 +11,7 @@
 //! iterating the indexed tags.
 
 use index_result::RSIndexResult;
-use tag_index::{
-    InMemoryMode, MemTagIndexIterator, SuffixQuery, Tag, TagIndex, TagValueReader,
-};
+use tag_index::{InMemoryMode, MemTagIndexIterator, SuffixQuery, Tag, TagIndex, TagValueReader};
 
 use crate::util::{commit_mem, index_mem};
 

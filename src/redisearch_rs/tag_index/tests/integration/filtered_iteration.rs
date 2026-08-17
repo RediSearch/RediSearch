@@ -17,7 +17,7 @@
 
 use ffi::timespec;
 use lending_iterator::LendingIterator;
-use tag_index::{InMemoryMode, IterMode, MemTagIndexIterator, SuffixQuery, TagIndex, Tag};
+use tag_index::{InMemoryMode, IterMode, MemTagIndexIterator, SuffixQuery, Tag, TagIndex};
 use trie_rs::iter::{RangeBoundary, RangeFilter};
 
 use crate::util::{commit_mem, index_mem};
