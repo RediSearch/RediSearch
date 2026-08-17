@@ -10,7 +10,7 @@
 //! Helpers shared by the integration test modules.
 
 use inverted_index::DocId;
-use tag_index::{InMemoryMode, Tag, TagIndex, WritePostingsDelta};
+use tag_index::{InMemoryMode, OnDiskMode, Tag, TagIndex, WritePostingsDelta};
 
 /// Wrap every NUL-free literal `tags` passes as a test fixture into a [`Tag`].
 fn tag_values<'a>(tags: &[&'a [u8]]) -> Vec<Tag<'a>> {
@@ -33,5 +33,10 @@ pub fn index_mem(
 
 /// Run the post-indexing commit phase for `tags` on a memory-mode index.
 pub fn commit_mem(idx: &mut TagIndex<InMemoryMode>, tags: &[&[u8]]) -> u32 {
+    idx.commit(&tag_values(tags))
+}
+
+/// Run the post-indexing commit phase for `tags` on a disk-mode index.
+pub fn commit_disk(idx: &mut TagIndex<OnDiskMode>, tags: &[&[u8]]) -> u32 {
     idx.commit(&tag_values(tags))
 }
