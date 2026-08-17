@@ -2647,6 +2647,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
   )
 
   RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-disk-async-read-pool-size", DEFAULT_DISK_ASYNC_READ_POOL_SIZE,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      DISK_ASYNC_READ_POOL_SIZE_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.diskAsyncReadPoolSize)
+    )
+  )
+
+  RM_TRY(
     RedisModule_RegisterBoolConfig(
       ctx, "search-disk-drop-read-cache", 0,
       REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,

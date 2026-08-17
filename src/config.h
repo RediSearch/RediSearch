@@ -228,6 +228,9 @@ typedef struct {
   // cache — silently disabling the limit — rather than bounding it. Values in that range are
   // rejected (see set_search_disk_max_open_files_config).
   int diskMaxOpenFiles;
+  // Concurrent async document-metadata reads a single query iterator keeps in flight.
+  // Read when a query builds its pool, so a change applies from the next query on.
+  unsigned int diskAsyncReadPoolSize;
   // If true, fallback to main thread when BlockClient is unavailable.
   bool fallbackToMainThreadWhenBlockClientUnavailable;
 } RSConfig;
@@ -401,6 +404,12 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_TRIMMING_STATE_CHECK_DELAY 100 // 0.1 seconds in milliseconds (We check the trimming state every 0.1 seconds, between MIN_TRIM_DELAY and MAX_TRIM_DELAY)
 #define DEFAULT_DISK_BUFFER_PERCENTAGE 20  // 20% of available memory for disk write buffer
 #define DEFAULT_DISK_MAX_OPEN_FILES 1024   // open-file cap; -1 = unlimited
+#define DEFAULT_DISK_ASYNC_READ_POOL_SIZE 16
+// A query iterator's reads are only one contributor to device queue depth: every
+// concurrently executing query owns a pool, so in-flight reads scale with this
+// value times the number of query threads. Bounded well below what the uint16_t
+// state field allows so a single setting cannot swamp the device.
+#define DISK_ASYNC_READ_POOL_SIZE_MAX 1024
 // Smallest accepted positive cap. Below this the disk backend's open-file cache (cap - 10)
 // underflows to unbounded, so a positive cap must leave at least one cached reader.
 #define DISK_MAX_OPEN_FILES_MIN 11
@@ -468,6 +477,7 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
     .diskDropReadCache = false,                                                \
     .diskUseDirectReads = false,                                               \
     .diskMaxOpenFiles = DEFAULT_DISK_MAX_OPEN_FILES,                           \
+    .diskAsyncReadPoolSize = DEFAULT_DISK_ASYNC_READ_POOL_SIZE,                \
     .fallbackToMainThreadWhenBlockClientUnavailable = true,                    \
   }
 

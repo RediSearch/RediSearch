@@ -2292,3 +2292,23 @@ def test_flex_search_disk_buffer_percentage(env):
     # Values above 100 should be rejected
     env.expect('CONFIG', 'SET', 'search-disk-buffer-percentage', '101').error()\
         .contains('argument must be between 0 and 100')
+
+@skip(cluster=True)
+def test_flex_search_disk_async_read_pool_size(env):
+    """Test search-disk-async-read-pool-size validation in Flex mode"""
+    env.expect('CONFIG', 'GET', 'search-disk-async-read-pool-size')\
+        .equal(['search-disk-async-read-pool-size', '16'])
+
+    env.expect('CONFIG', 'SET', 'search-disk-async-read-pool-size', '64').ok()
+    env.expect('CONFIG', 'GET', 'search-disk-async-read-pool-size')\
+        .equal(['search-disk-async-read-pool-size', '64'])
+
+    # Boundary values
+    env.expect('CONFIG', 'SET', 'search-disk-async-read-pool-size', '1').ok()
+    env.expect('CONFIG', 'SET', 'search-disk-async-read-pool-size', '1024').ok()
+
+    # A pool of zero would stall the async path outright, so it is rejected
+    env.expect('CONFIG', 'SET', 'search-disk-async-read-pool-size', '0').error()\
+        .contains('argument must be between 1 and 1024')
+    env.expect('CONFIG', 'SET', 'search-disk-async-read-pool-size', '1025').error()\
+        .contains('argument must be between 1 and 1024')
