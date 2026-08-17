@@ -141,8 +141,9 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 use std::ptr::NonNull;
 
-use ffi::{RedisSearchDiskIndexSpec, t_fieldIndex};
-use inverted_index::{InvertedIndex, doc_ids_only::DocIdsOnly};
+use ffi::{IndexFlags_Index_DocIdsOnly, RedisSearchDiskIndexSpec, t_fieldIndex};
+use index_result::RSIndexResult;
+use inverted_index::{DocId, InvertedIndex, doc_ids_only::DocIdsOnly};
 use suffix::TagSuffixIndex;
 use trie_rs::TrieMap;
 pub use unique_id::TagUniqueId;
@@ -231,6 +232,61 @@ pub struct TagIndex<M: TagIndexMode> {
     mode: M,
 }
 
+/// Deltas produced by writing a document's tag postings, to fold into the
+/// spec statistics.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WritePostingsDelta {
+    /// Bytes by which the inverted-index memory grew.
+    pub size_delta: usize,
+    /// Number of new (tag, doc) postings written by the in-memory path — see
+    /// [`index`](TagIndex::index) for exactly what counts as "new". A future
+    /// on-disk `commit()` will count differently and should not assume this
+    /// field's dedup guarantee.
+    pub num_records: u32,
+    /// Number of inverted-index blocks allocated.
+    pub blocks_added: u32,
+}
+
+fn write_postings(
+    values: &mut TrieMap<Box<InvertedIndex<DocIdsOnly>>>,
+    tags: &[Tag<'_>],
+    doc_id: DocId,
+    has_field_expiration: bool,
+) -> WritePostingsDelta {
+    let mut delta = WritePostingsDelta::default();
+
+    let mut record = RSIndexResult::build_virt().doc_id(doc_id).build();
+    // The builder always clears this, so set it explicitly: `add_record` reads it
+    // off the record to write the posting's expiration bit.
+    record.has_field_expiration = has_field_expiration;
+    for tag in tags {
+        values.insert_with(tag.as_bytes(), |slot| {
+            let mut ii = slot.unwrap_or_else(|| {
+                let ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
+
+                delta.size_delta += ii.memory_usage();
+
+                Box::new(ii)
+            });
+
+            let docs_before = ii.unique_docs();
+            let outcome = ii.add_record(&record).unwrap();
+            // Count a record only when a new unique document was appended; a
+            // duplicate doc id (e.g. a tag repeated in a multi-value field) is
+            // skipped by `add_record` and must not be counted.
+            if ii.unique_docs() > docs_before {
+                delta.num_records += 1;
+            }
+            delta.blocks_added += outcome.blocks_added;
+            delta.size_delta += outcome.mem_growth as usize;
+
+            ii
+        });
+    }
+
+    delta
+}
+
 impl<M: TagIndexMode> TagIndex<M> {
     /// The part of construction every mode's constructor shares.
     fn with_mode(with_suffix: bool, mode: M) -> Self {
@@ -250,6 +306,17 @@ impl<M: TagIndexMode> TagIndex<M> {
     pub const fn has_suffix(&self) -> bool {
         self.suffix.is_some()
     }
+
+    /// Register `tags` in the [suffix index](TagSuffixIndex), when enabled: the part
+    /// of `commit` that does not depend on where the postings live.
+    fn add_tags_to_suffix(&mut self, tags: &[Tag<'_>]) {
+        let Some(suffix) = &mut self.suffix else {
+            return;
+        };
+        for tag in tags {
+            suffix.add(*tag);
+        }
+    }
 }
 
 impl TagIndex<InMemoryMode> {
@@ -265,6 +332,86 @@ impl TagIndex<InMemoryMode> {
                 values: TrieMap::new(),
             },
         )
+    }
+
+    /// How many distinct tags the index holds.
+    pub const fn n_tags(&self) -> usize {
+        self.mode.values.n_unique_keys()
+    }
+
+    /// Index `doc_id` under each tag in `tags`, writing the postings inline into
+    /// the per-tag inverted index.
+    ///
+    /// Returns the [`WritePostingsDelta`] the caller folds into the spec
+    /// statistics (records, memory, blocks). This always succeeds.
+    /// `num_records` counts a (tag, doc) posting as new only when it makes the tag's
+    /// posting list grow by a document, so a value repeated within this document's
+    /// own multi-value tags is counted once.
+    ///
+    /// `has_field_expiration` records whether this document carries a TTL on the
+    /// field being indexed. It is stored per posting as
+    /// [`RSIndexResult::has_field_expiration`] and gates the TTL re-check
+    /// performed on read.
+    pub fn index(
+        &mut self,
+        tags: &[Tag<'_>],
+        doc_id: DocId,
+        has_field_expiration: bool,
+    ) -> WritePostingsDelta {
+        write_postings(&mut self.mode.values, tags, doc_id, has_field_expiration)
+    }
+
+    /// Apply the per-tag metadata updates after the indexing phase of a document
+    /// write: register the tags in the [suffix index](TagSuffixIndex), when enabled.
+    ///
+    /// Returns the number of records to fold into the spec statistics, always `0`:
+    /// the postings were written, and counted, by [`index`](Self::index). Disk mode
+    /// counts them here instead.
+    pub fn commit(&mut self, tags: &[Tag<'_>]) -> u32 {
+        self.add_tags_to_suffix(tags);
+        0
+    }
+}
+
+// Handles tests reach the index internals through, kept apart from the production
+// methods above and gated behind the `test-utils` feature so they stay out of the
+// public API in release builds.
+#[cfg(feature = "test-utils")]
+impl TagIndex<InMemoryMode> {
+    /// Get the inverted index holding the postings for `tag`, if the tag is
+    /// currently indexed.
+    pub fn find_value(&self, tag: &[u8]) -> Option<&InvertedIndex<DocIdsOnly>> {
+        self.mode.values.find(tag).map(Box::as_ref)
+    }
+
+    /// Get a mutable reference to the inverted index holding the postings for
+    /// `tag`, if the tag is currently indexed.
+    pub fn find_value_mut(&mut self, tag: &[u8]) -> Option<&mut InvertedIndex<DocIdsOnly>> {
+        self.mode.values.find_mut(tag).map(Box::as_mut)
+    }
+
+    /// Get the inverted index for `tag`, registering a new empty one when the
+    /// tag is not indexed yet and `create_if_missing` is set.
+    pub fn open_index(
+        &mut self,
+        tag: &[u8],
+        create_if_missing: bool,
+    ) -> Option<&InvertedIndex<DocIdsOnly>> {
+        let values = &mut self.mode.values;
+
+        if values.find(tag).is_none() {
+            if !create_if_missing {
+                return None;
+            }
+            values.insert(
+                tag,
+                Box::new(InvertedIndex::<DocIdsOnly>::new(
+                    IndexFlags_Index_DocIdsOnly,
+                )),
+            );
+        }
+
+        values.find(tag).map(Box::as_ref)
     }
 }
 

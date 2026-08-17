@@ -95,6 +95,11 @@ impl OwnedTerm {
             .to_bytes_with_nul()
             .len()
     }
+
+    /// Build [`TermPtr`] from the current [`OwnedTerm`]
+    const fn borrowed(&self) -> TermPtr {
+        TermPtr(self.0)
+    }
 }
 
 impl Drop for OwnedTerm {
@@ -111,16 +116,29 @@ impl Drop for OwnedTerm {
 ///
 /// The pointee is owned by the [`OwnedTerm`] of the member's own trie entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct TermPtr(NonNull<u8>);
+pub(crate) struct TermPtr(NonNull<u8>);
 
 /// Payload of one trie entry.
 #[derive(Debug, Default)]
-struct SuffixData {
+pub(crate) struct SuffixData {
     /// `Some` iff this entry's key is itself a member: the owning handle of
     /// that member's tag term allocation.
     full_term: Option<OwnedTerm>,
     /// Every member this entry's key is a suffix of.
-    refs: ThinVec<TermPtr, AlignedU32>,
+    pub(crate) refs: ThinVec<TermPtr, AlignedU32>,
+}
+
+impl SuffixData {
+    /// Every member term this entry's key belongs to: the term itself when the
+    /// key is a full term (stored separately in [`Self::full_term`]) followed by
+    /// every term the key is a *proper* suffix of ([`Self::refs`]).
+    pub fn members(&self) -> impl Iterator<Item = TermPtr> + '_ {
+        self.full_term
+            .as_ref()
+            .map(OwnedTerm::borrowed)
+            .into_iter()
+            .chain(self.refs.iter().copied())
+    }
 }
 
 #[derive(Debug, Default)]
@@ -136,6 +154,58 @@ impl TagSuffixIndex {
             entries: TrieMap::new(),
         }
     }
+
+    /// Index `term` and every one of its suffixes.
+    ///
+    /// `term` is the tag value. The empty tag (`INDEXEMPTY`) is never indexed: it
+    /// has no suffixes to look up.
+    pub fn add(&mut self, term: Tag<'_>) {
+        let bytes = term.as_bytes();
+        if bytes.is_empty() {
+            return;
+        }
+
+        // Don't store duplicates
+        if self
+            .entries
+            .find(bytes)
+            .is_some_and(|data| data.full_term.is_some())
+        {
+            return;
+        }
+
+        let owned = OwnedTerm::new(term);
+        let ptr = owned.borrowed();
+
+        // Store the OwnedTerm into the full tag term
+        self.entries.insert_with(bytes, |slot| {
+            let mut data = slot.unwrap_or_else(|| SuffixData {
+                full_term: None,
+                refs: ThinVec::with_capacity(2),
+            });
+            // Keep "alive" the owned term
+            data.full_term = Some(owned);
+
+            data
+        });
+
+        // Process the suffixes as TermPtr
+        for start in 1..bytes.len() {
+            self.entries.insert_with(&bytes[start..], |slot| {
+                let mut data = slot.unwrap_or_else(|| SuffixData {
+                    full_term: None,
+                    refs: ThinVec::with_capacity(2),
+                });
+                data.refs.push(ptr);
+                data
+            });
+        }
+    }
+
+    /// The entry keyed by exactly `key`, if any.
+    pub fn find(&self, key: &[u8]) -> Option<&SuffixData> {
+        self.entries.find(key)
+    }
 }
 
 #[cfg(test)]
@@ -146,6 +216,11 @@ mod tests {
     /// passes into a [`Tag`].
     fn owned_term(term: &[u8]) -> OwnedTerm {
         OwnedTerm::new(Tag::new(term).expect("test literal is NUL-free"))
+    }
+
+    /// [`TagSuffixIndex::add`], with the same wrapping.
+    fn add(idx: &mut TagSuffixIndex, term: &[u8]) {
+        idx.add(Tag::new(term).expect("test literal is NUL-free"))
     }
 
     /// Read back the bytes stored in an [`OwnedTerm`], terminator included.
@@ -189,5 +264,63 @@ mod tests {
         let term = owned_term(term_bytes.as_bytes());
 
         assert_ne!(term_bytes.as_ptr(), term.0.as_ptr().cast());
+    }
+
+    /// `add` keys the trie on the tag and each of its suffixes, all NUL-free: the
+    /// terminator it stores is part of the value, never of a key, and no stray
+    /// empty entry is created.
+    #[test]
+    fn add_stores_nul_free_keys_without_empty_entry() {
+        let mut idx = TagSuffixIndex::new();
+        add(&mut idx, b"foo");
+
+        assert!(idx.find(b"foo").is_some());
+        assert!(idx.find(b"oo").is_some());
+        assert!(idx.find(b"o").is_some());
+        // The stored terminator is not part of any key, and the empty suffix is
+        // not an entry.
+        assert!(idx.find(b"foo\0").is_none());
+        assert!(idx.find(b"").is_none());
+        assert!(idx.find(b"\0").is_none());
+    }
+
+    /// The empty tag (INDEXEMPTY) is never registered in the suffix trie, not even
+    /// as an empty key.
+    #[test]
+    fn add_ignores_the_empty_tag() {
+        let mut idx = TagSuffixIndex::new();
+        add(&mut idx, b"");
+
+        assert!(idx.find(b"").is_none());
+        assert!(idx.find(b"\0").is_none());
+    }
+
+    /// Re-adding a term already in the trie must be ignored. The second insert
+    /// would otherwise overwrite the entry's [`OwnedTerm`], freeing the
+    /// allocation that every suffix entry's [`TermPtr`] still points at.
+    /// [`TagIndex::commit`](crate::TagIndex::commit) runs once per document, so
+    /// any tag value shared by two documents takes this path.
+    #[test]
+    fn add_of_an_already_indexed_term_is_ignored() {
+        let mut idx = TagSuffixIndex::new();
+        add(&mut idx, b"cat");
+        add(&mut idx, b"cat");
+
+        let term = idx.find(b"cat").expect("`cat` is indexed");
+        assert_eq!(term.members().count(), 1, "one owned term, not two");
+
+        for suffix in [b"at".as_slice(), b"t"] {
+            let data = idx.find(suffix).expect("suffix is indexed");
+            assert_eq!(
+                data.members().count(),
+                1,
+                "`{}` must not gain a second reference to the same term",
+                String::from_utf8_lossy(suffix)
+            );
+            assert!(
+                data.members().eq(term.members()),
+                "the surviving reference must point at the live term allocation"
+            );
+        }
     }
 }
