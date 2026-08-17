@@ -18,5 +18,6 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 mod create;
 mod filtered_iteration;
 mod indexing;
+mod reader;
 mod tag;
 mod util;
