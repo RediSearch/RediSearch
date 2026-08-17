@@ -18,8 +18,9 @@ use std::{cmp::Ordering, ffi::c_void, ptr, ptr::NonNull};
 use ffi::{
     AlgoParams, BFParams, HNSWParams, VecSearchMode, VecSearchMode_EMPTY_MODE,
     VecSimAlgo_VecSimAlgo_BF, VecSimAlgo_VecSimAlgo_HNSWLIB, VecSimIndex, VecSimIndex_AddVector,
-    VecSimIndex_New, VecSimMetric, VecSimMetric_VecSimMetric_Cosine, VecSimMetric_VecSimMetric_L2,
-    VecSimParams, VecSimQueryParams, VecSimType_VecSimType_FLOAT32, t_docId,
+    VecSimIndex_Free, VecSimIndex_New, VecSimMetric, VecSimMetric_VecSimMetric_Cosine,
+    VecSimMetric_VecSimMetric_L2, VecSimParams, VecSimQueryParams, VecSimType_VecSimType_FLOAT32,
+    t_docId,
 };
 use rqe_iterators::{ExpirationChecker, IdList, NoOpChecker, RQEIterator};
 
@@ -40,8 +41,31 @@ pub fn uniform_blob(value: f32, dim: usize) -> Vec<u8> {
     blob(&vec![value; dim])
 }
 
+/// Owns a VecSim index, freeing it on drop. Sources built from it borrow it,
+/// so they cannot outlive the index.
+pub struct TestIndex {
+    index: NonNull<VecSimIndex>,
+    /// Dimensionality every query blob for this index must match.
+    dim: usize,
+}
+
+impl TestIndex {
+    /// Byte length [`QueryVector`](vecsim::QueryVector) requires for this index,
+    /// whose fixtures are all `FLOAT32`.
+    fn expected_blob_len(&self) -> usize {
+        self.dim * size_of::<f32>()
+    }
+}
+
+impl Drop for TestIndex {
+    fn drop(&mut self) {
+        // SAFETY: sole owner of an index built by `new_index`, freed once.
+        unsafe { VecSimIndex_Free(self.index.as_ptr()) };
+    }
+}
+
 /// HNSW L2 index of `n` vectors; doc `i` (1..=n) is `[i; dim]`.
-pub fn build_hnsw_index(n: usize, dim: usize) -> NonNull<VecSimIndex> {
+pub fn build_hnsw_index(n: usize, dim: usize) -> TestIndex {
     let params = VecSimParams {
         algo: VecSimAlgo_VecSimAlgo_HNSWLIB,
         algoParams: AlgoParams {
@@ -60,7 +84,7 @@ pub fn build_hnsw_index(n: usize, dim: usize) -> NonNull<VecSimIndex> {
         },
         logCtx: ptr::null_mut(),
     };
-    new_index(&params, |add| {
+    new_index(&params, dim, |add| {
         for i in 1..=n {
             add(i as t_docId, &vec![i as f32; dim]);
         }
@@ -68,19 +92,24 @@ pub fn build_hnsw_index(n: usize, dim: usize) -> NonNull<VecSimIndex> {
 }
 
 /// FLAT (exact brute-force) L2 index of `n` vectors; doc `i` is `[i; dim]`.
-pub fn build_flat_index(n: usize, dim: usize) -> NonNull<VecSimIndex> {
-    new_index(&flat_params(dim, VecSimMetric_VecSimMetric_L2, n), |add| {
-        for i in 1..=n {
-            add(i as t_docId, &vec![i as f32; dim]);
-        }
-    })
+pub fn build_flat_index(n: usize, dim: usize) -> TestIndex {
+    new_index(
+        &flat_params(dim, VecSimMetric_VecSimMetric_L2, n),
+        dim,
+        |add| {
+            for i in 1..=n {
+                add(i as t_docId, &vec![i as f32; dim]);
+            }
+        },
+    )
 }
 
 /// FLAT cosine index; doc `i` is `[i/n, 1, 1, ...]`, approaching the `[1; dim]`
 /// query as `i` grows.
-pub fn build_flat_cosine_index(n: usize, dim: usize) -> NonNull<VecSimIndex> {
+pub fn build_flat_cosine_index(n: usize, dim: usize) -> TestIndex {
     new_index(
         &flat_params(dim, VecSimMetric_VecSimMetric_Cosine, n),
+        dim,
         |add| {
             for i in 1..=n {
                 let mut v = vec![1.0f32; dim];
@@ -108,11 +137,12 @@ fn flat_params(dim: usize, metric: VecSimMetric, n: usize) -> VecSimParams {
     }
 }
 
-/// Create an index from `params` and populate it via `fill(add)`.
+/// Create a `dim`-dimensional index from `params` and populate it via `fill(add)`.
 fn new_index(
     params: &VecSimParams,
+    dim: usize,
     fill: impl FnOnce(&mut dyn FnMut(t_docId, &[f32])),
-) -> NonNull<VecSimIndex> {
+) -> TestIndex {
     // SAFETY: `params` is fully initialised.
     let index = unsafe { VecSimIndex_New(params) };
     let index = NonNull::new(index).expect("VecSimIndex_New returned null");
@@ -125,112 +155,99 @@ fn new_index(
         }
     };
     fill(&mut add);
-    index
+    TestIndex { index, dim }
 }
 
 /// Build a [`VectorScoreSource`] over `index` for the `query` blob, with no
 /// pinned `HYBRID_POLICY`. `ef` seeds HNSW's `efRuntime`; `child_est` seeds the
 /// batch-size heuristic.
 ///
-/// # Safety
+/// # Panics
 ///
-/// 1. `index` must outlive the returned source (and any iterator built from it).
-/// 2. `query` must match `index`'s type and dimension, the layout VecSim reads
-///    in full on every query path; a shorter blob is read out of bounds. Use
-///    [`uniform_blob`]/[`blob`] sized to the index `dim`.
-pub unsafe fn make_source(
-    index: NonNull<VecSimIndex>,
+/// If `query` is not sized for `index`; use [`uniform_blob`]/[`blob`] with the
+/// `dim` the index was built with.
+pub fn make_source<'index>(
+    index: &'index TestIndex,
     query: Vec<u8>,
     ef: usize,
     k: usize,
     child_est: usize,
-) -> VectorScoreSource<'static, NoOpChecker> {
-    // SAFETY: forwarded to `make_source_with_mode`, same contract.
-    unsafe { make_source_with_mode(index, query, ef, VecSearchMode_EMPTY_MODE, k, child_est) }
+) -> VectorScoreSource<'index, NoOpChecker> {
+    make_source_with_mode(index, query, ef, VecSearchMode_EMPTY_MODE, k, child_est)
 }
 
 /// [`make_source`] with the requested `HYBRID_POLICY` pinned to `search_mode`.
 ///
-/// # Safety
+/// # Panics
 ///
-/// 1. `index` must outlive the returned source (and any iterator built from it).
-/// 2. `query` must match `index`'s type and dimension, the layout VecSim reads
-///    in full on every query path; a shorter blob is read out of bounds. Use
-///    [`uniform_blob`]/[`blob`] sized to the index `dim`.
-pub unsafe fn make_source_with_mode(
-    index: NonNull<VecSimIndex>,
+/// If `query` is not sized for `index`, as [`make_source`].
+pub fn make_source_with_mode<'index>(
+    index: &'index TestIndex,
     query: Vec<u8>,
     ef: usize,
     search_mode: VecSearchMode,
     k: usize,
     child_est: usize,
-) -> VectorScoreSource<'static, NoOpChecker> {
-    // SAFETY: forwarded to `make_source_inner`; caller upholds this fn's
-    // `# Safety` 1 and 2.
-    unsafe { make_source_inner(index, query, ef, search_mode, k, child_est, NoOpChecker) }
+) -> VectorScoreSource<'index, NoOpChecker> {
+    make_source_inner(index, query, ef, search_mode, k, child_est, NoOpChecker)
 }
 
-/// [`make_source`] with an optional field-`expiration` filter, consulted at
-/// yield time. `EMPTY_MODE` lets VecSim pick the search strategy.
+/// [`make_source`] with a field-`expiration` filter, consulted at yield time.
+/// `EMPTY_MODE` lets VecSim pick the search strategy.
 ///
-/// # Safety
+/// # Panics
 ///
-/// 1. `index` must outlive the returned source (and any iterator built from it).
-/// 2. `query` must match `index`'s type and dimension, the layout VecSim reads
-///    in full on every query path; a shorter blob is read out of bounds. Use
-///    [`uniform_blob`]/[`blob`] sized to the index `dim`.
-pub unsafe fn make_source_with_expiration<E: ExpirationChecker>(
-    index: NonNull<VecSimIndex>,
+/// If `query` is not sized for `index`, as [`make_source`].
+pub fn make_source_with_expiration<'index, E: ExpirationChecker>(
+    index: &'index TestIndex,
     query: Vec<u8>,
     ef: usize,
     k: usize,
     child_est: usize,
     expiration: E,
-) -> VectorScoreSource<'static, E> {
-    // SAFETY: forwarded to `make_source_inner`; caller upholds this fn's
-    // `# Safety` 1 and 2.
-    unsafe {
-        make_source_inner(
-            index,
-            query,
-            ef,
-            VecSearchMode_EMPTY_MODE,
-            k,
-            child_est,
-            expiration,
-        )
-    }
+) -> VectorScoreSource<'index, E> {
+    make_source_inner(
+        index,
+        query,
+        ef,
+        VecSearchMode_EMPTY_MODE,
+        k,
+        child_est,
+        expiration,
+    )
 }
 
 /// Shared builder behind the `make_source*` fixtures.
 ///
-/// # Safety
+/// # Panics
 ///
-/// 1. `index` must outlive the returned source (and any iterator built from it).
-/// 2. `query` must match `index`'s type and dimension, the layout VecSim reads
-///    in full on every query path; a shorter blob is read out of bounds. Use
-///    [`uniform_blob`]/[`blob`] sized to the index `dim`.
-unsafe fn make_source_inner<E: ExpirationChecker>(
-    index: NonNull<VecSimIndex>,
+/// If `query` is not sized for `index`, as [`make_source`].
+fn make_source_inner<'index, E: ExpirationChecker>(
+    index: &'index TestIndex,
     query: Vec<u8>,
     ef: usize,
     search_mode: VecSearchMode,
     k: usize,
     child_est: usize,
     expiration: E,
-) -> VectorScoreSource<'static, E> {
+) -> VectorScoreSource<'index, E> {
+    assert_eq!(
+        query.len(),
+        index.expected_blob_len(),
+        "query blob does not match the index dimensionality"
+    );
+
     // SAFETY: zeroed is a valid bit pattern for this config; we then set only
     // the fields VecSim reads.
     let mut query_params: VecSimQueryParams = unsafe { std::mem::zeroed() };
     query_params.__bindgen_anon_1.hnswRuntimeParams.efRuntime = ef;
     query_params.searchMode = search_mode;
 
-    // SAFETY: caller-upheld: `index` stays alive and `query` matches its
-    // type/dim (this fn's `# Safety`); null timeout ctx and a RAM (non-disk)
-    // index.
+    // SAFETY: 1. `index` is borrowed for `'index`. 2. `query` is sized for it,
+    // asserted above. Null timeout ctx and a RAM (non-disk) index.
     unsafe {
         VectorScoreSource::new(
-            index,
+            index.index,
             query,
             query_params,
             k,
@@ -244,11 +261,11 @@ unsafe fn make_source_inner<E: ExpirationChecker>(
 }
 
 /// A filter child yielding `ids`, backed by a sorted [`IdList`].
-pub fn make_child(ids: Vec<t_docId>) -> Box<dyn RQEIterator<'static>> {
+pub fn make_child<'index>(ids: Vec<t_docId>) -> Box<dyn RQEIterator<'index> + 'index> {
     Box::new(IdList::<true>::new(ids))
 }
 
 /// Drain an iterator into the doc ids it yields, in read order.
-pub fn collect_ids<I: RQEIterator<'static>>(it: &mut I) -> Vec<t_docId> {
+pub fn collect_ids<'index, I: RQEIterator<'index>>(it: &mut I) -> Vec<t_docId> {
     std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect()
 }

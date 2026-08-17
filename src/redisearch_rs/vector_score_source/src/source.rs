@@ -582,16 +582,13 @@ fn refine_child_estimated(
 
 #[cfg(test)]
 mod tests {
-    use std::ptr::NonNull;
-
-    use ffi::{VecSimIndex, VecSimIndex_Free};
     use rqe_iterators::NoOpChecker;
     use top_k::ScoreSource;
 
     use super::refine_child_estimated;
     use crate::{
         VectorScoreSource,
-        test_utils::{build_flat_index, make_source, uniform_blob},
+        test_utils::{TestIndex, build_flat_index, make_source, uniform_blob},
     };
 
     #[test]
@@ -615,17 +612,12 @@ mod tests {
     }
 
     /// A dim-1 FLAT source over `n` docs; `0.0` query blob, no pinned policy.
-    ///
-    /// # Safety
-    ///
-    /// `index` must outlive the returned source (freed only after the drop).
-    unsafe fn flat_source(
-        index: NonNull<VecSimIndex>,
+    fn flat_source(
+        index: &TestIndex,
         k: usize,
         child_est: usize,
-    ) -> VectorScoreSource<'static, NoOpChecker> {
-        // SAFETY: caller upholds the `index` lifetime contract.
-        unsafe { make_source(index, uniform_blob(0.0, 1), 0, k, child_est) }
+    ) -> VectorScoreSource<'_, NoOpChecker> {
+        make_source(index, uniform_blob(0.0, 1), 0, k, child_est)
     }
 
     /// Entering adhoc must release the batch iterator before acquiring the adhoc
@@ -636,8 +628,7 @@ mod tests {
     #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
     fn begin_adhoc_releases_batch_iterator() {
         let index = build_flat_index(3, 1);
-        // SAFETY: index is freed after the source is dropped at end of scope.
-        let mut source = unsafe { flat_source(index, 3, 3) };
+        let mut source = flat_source(&index, 3, 3);
 
         // Consume one batch so the iterator is lazily created and held.
         source.next_batch().unwrap();
@@ -649,10 +640,6 @@ mod tests {
             "begin_adhoc must drop the batch iterator before taking adhoc locks"
         );
         source.end_adhoc();
-
-        drop(source);
-        // SAFETY: no live references to the index remain.
-        unsafe { VecSimIndex_Free(index.as_ptr()) };
     }
 
     /// `NumEstimated(child)` is an upper bound that can exceed the index size;
@@ -664,8 +651,7 @@ mod tests {
     fn child_estimate_clamped_to_index_size() {
         let index = build_flat_index(3, 1);
         // Child estimate (100) exceeds the index size (3).
-        // SAFETY: index is freed after the source is dropped at end of scope.
-        let mut source = unsafe { flat_source(index, 3, 100) };
+        let mut source = flat_source(&index, 3, 100);
 
         assert_eq!(source.child_num_estimated, 3, "seed clamped to index size");
         assert_eq!(
@@ -678,10 +664,6 @@ mod tests {
             source.child_num_estimated, 3,
             "rewind restores clamped seed"
         );
-
-        drop(source);
-        // SAFETY: no live references to the index remain.
-        unsafe { VecSimIndex_Free(index.as_ptr()) };
     }
 
     /// The largest-batch profile metrics track each dynamically-computed batch
@@ -690,8 +672,7 @@ mod tests {
     #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
     fn largest_batch_metrics_track_and_survive_rewind() {
         let index = build_flat_index(20, 1);
-        // SAFETY: index is freed after the source is dropped at end of scope.
-        let mut source = unsafe { flat_source(index, 3, 20) };
+        let mut source = flat_source(&index, 3, 20);
 
         // drive two batches, shrinking the child estimate between them so
         // the second computed size is larger, then rewind.
@@ -722,10 +703,6 @@ mod tests {
         source.next_batch().unwrap();
         assert_eq!(source.max_batch_size, grown_size, "re-seed only raises");
         assert_eq!(source.num_iterations, 3, "batches keep accumulating");
-
-        drop(source);
-        // SAFETY: no live references to the index remain.
-        unsafe { VecSimIndex_Free(index.as_ptr()) };
     }
 
     /// A zero seeded child estimate means no doc can match: `next_batch` must
@@ -735,17 +712,12 @@ mod tests {
     #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
     fn zero_child_estimate_skips_batch_iterator() {
         let index = build_flat_index(3, 1);
-        // SAFETY: index is freed after the source is dropped at end of scope.
-        let mut source = unsafe { flat_source(index, 3, 0) };
+        let mut source = flat_source(&index, 3, 0);
 
         assert!(source.next_batch().unwrap().is_none(), "expected no batch");
         assert!(
             source.batch_iter.is_none(),
             "batch iterator must not be created for a zero child estimate"
         );
-
-        drop(source);
-        // SAFETY: no live references to the index remain.
-        unsafe { VecSimIndex_Free(index.as_ptr()) };
     }
 }

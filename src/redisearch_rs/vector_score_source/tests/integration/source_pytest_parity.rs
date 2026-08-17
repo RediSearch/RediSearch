@@ -21,7 +21,6 @@
 
 use std::num::NonZeroUsize;
 
-use ffi::VecSimIndex_Free;
 use rqe_core::DocId;
 use rqe_iterators::RQEIterator;
 use top_k::{TopKIterator, TopKMode};
@@ -40,17 +39,12 @@ fn flat_unfiltered_returns_top_k_nearest_by_score() {
     let (n, k, dim) = (100, 10, 4);
     let index = build_flat_index(n, dim);
 
-    // SAFETY: index outlives the iterator (freed at end of scope).
-    let source = unsafe { make_source(index, uniform_blob(n as f32, dim), n, k, n) };
+    let source = make_source(&index, uniform_blob(n as f32, dim), n, k, n);
     let mut it = new_vector_top_k_unfiltered(source, NonZeroUsize::new(k).unwrap());
 
     // Streamed by score: nearest first, so id 100 (distance 0) down to 91.
     assert_eq!(collect_ids(&mut it), (91..=100).rev().collect::<Vec<_>>());
     assert!(it.at_eof());
-
-    drop(it);
-    // SAFETY: no live references to the index remain.
-    unsafe { VecSimIndex_Free(index.as_ptr()) };
 }
 
 /// From `test_hybrid_query_batches_mode_with_text`: filtered KNN on FLAT.
@@ -60,16 +54,11 @@ fn flat_filtered_full_child_yields_best_first() {
     let (n, k, dim) = (100, 10, 4);
     let index = build_flat_index(n, dim);
 
-    // SAFETY: index outlives the iterator (freed at end of scope).
-    let source = unsafe { make_source(index, uniform_blob(n as f32, dim), n, k, n) };
+    let source = make_source(&index, uniform_blob(n as f32, dim), n, k, n);
     let child = make_child((1..=n as DocId).collect());
     let mut it = new_vector_top_k_filtered(source, child, NonZeroUsize::new(k).unwrap(), false);
 
     assert_eq!(collect_ids(&mut it), (91..=100).rev().collect::<Vec<_>>());
-
-    drop(it);
-    // SAFETY: no live references to the index remain.
-    unsafe { VecSimIndex_Free(index.as_ptr()) };
 }
 
 // Metric coverage (source.rs only covers L2).
@@ -83,8 +72,7 @@ fn cosine_metric_filtered_top_k_are_highest_ids() {
     let (n, k, dim) = (100, 10, 4);
     let index = build_flat_cosine_index(n, dim);
 
-    // SAFETY: index outlives the iterator (freed at end of scope).
-    let source = unsafe { make_source(index, uniform_blob(1.0, dim), n, k, n) };
+    let source = make_source(&index, uniform_blob(1.0, dim), n, k, n);
     let child = make_child((1..=n as DocId).collect());
     let mut it = new_vector_top_k_filtered(source, child, NonZeroUsize::new(k).unwrap(), false);
 
@@ -95,10 +83,6 @@ fn cosine_metric_filtered_top_k_are_highest_ids() {
         assert!(window.contains(id), "id {id} outside top-15 cosine window");
     }
     assert_eq!(ids.len(), k);
-
-    drop(it);
-    // SAFETY: no live references to the index remain.
-    unsafe { VecSimIndex_Free(index.as_ptr()) };
 }
 
 // Non-corner query ordering (source.rs always queries the corner [n; dim]).
@@ -113,8 +97,7 @@ fn middle_query_orders_by_distance_then_lower_id() {
     let mid = (n / 2) as DocId;
     let index = build_flat_index(n, dim);
 
-    // SAFETY: index outlives the iterator (freed at end of scope).
-    let source = unsafe { make_source(index, uniform_blob(mid as f32, dim), n, k, n) };
+    let source = make_source(&index, uniform_blob(mid as f32, dim), n, k, n);
     let child = make_child((1..=n as DocId).collect());
     let mut it = new_vector_top_k_filtered(source, child, NonZeroUsize::new(k).unwrap(), false);
 
@@ -125,10 +108,6 @@ fn middle_query_orders_by_distance_then_lower_id() {
     }
     expected.push(mid - 5);
     assert_eq!(collect_ids(&mut it), expected);
-
-    drop(it);
-    // SAFETY: no live references to the index remain.
-    unsafe { VecSimIndex_Free(index.as_ptr()) };
 }
 
 // dim = 1 coverage (test_ft_aggregate_basic).
@@ -140,15 +119,10 @@ fn dim1_unfiltered_knn_top3() {
     let (n, k, dim) = (10, 3, 1);
     let index = build_flat_index(n, dim);
 
-    // SAFETY: index outlives the iterator (freed at end of scope).
-    let source = unsafe { make_source(index, uniform_blob(0.0, dim), n, k, n) };
+    let source = make_source(&index, uniform_blob(0.0, dim), n, k, n);
     let mut it = new_vector_top_k_unfiltered(source, NonZeroUsize::new(k).unwrap());
 
     assert_eq!(collect_ids(&mut it), vec![1, 2, 3]);
-
-    drop(it);
-    // SAFETY: no live references to the index remain.
-    unsafe { VecSimIndex_Free(index.as_ptr()) };
 }
 
 /// From `test_vecsim.py::test_ft_aggregate_basic` (hybrid `(@n:[0 5])` portion):
@@ -163,16 +137,11 @@ fn dim1_filtered_subset_knn_top3() {
     let index = build_flat_index(n, dim);
 
     let child_ids: Vec<DocId> = (6..=10).collect();
-    // SAFETY: index outlives the iterator (freed at end of scope).
-    let source = unsafe { make_source(index, uniform_blob(0.0, dim), n, k, child_ids.len()) };
+    let source = make_source(&index, uniform_blob(0.0, dim), n, k, child_ids.len());
     let child = make_child(child_ids);
     let mut it = new_vector_top_k_filtered(source, child, NonZeroUsize::new(k).unwrap(), false);
 
     assert_eq!(collect_ids(&mut it), vec![6, 7, 8]);
-
-    drop(it);
-    // SAFETY: no live references to the index remain.
-    unsafe { VecSimIndex_Free(index.as_ptr()) };
 }
 
 /// Regression: a forced Batches scan that switches to adhoc mid-run must not
@@ -187,8 +156,7 @@ fn batches_switch_to_adhoc_yields_no_duplicates() {
     let index = build_flat_index(n, dim);
 
     let child_ids: Vec<DocId> = (6..=10).collect();
-    // SAFETY: index outlives the iterator (freed at end of scope).
-    let source = unsafe { make_source(index, uniform_blob(0.0, dim), n, k, child_ids.len()) };
+    let source = make_source(&index, uniform_blob(0.0, dim), n, k, child_ids.len());
     let mut it = TopKIterator::new_with_mode(
         source,
         Some(make_child(child_ids)),
@@ -204,10 +172,6 @@ fn batches_switch_to_adhoc_yields_no_duplicates() {
         "expected mid-run switch to adhoc"
     );
     assert_eq!(ids, vec![6, 7, 8]);
-
-    drop(it);
-    // SAFETY: no live references to the index remain.
-    unsafe { VecSimIndex_Free(index.as_ptr()) };
 }
 
 // Mode-selection heuristic (PreferAdHocSearch).
@@ -221,13 +185,8 @@ fn small_index_prefers_adhoc() {
     let index = build_hnsw_index(n, dim);
 
     let subset = 31;
-    // SAFETY: index outlives the source (freed at end of scope).
-    let source = unsafe { make_source(index, uniform_blob(n as f32, dim), n, k, subset) };
+    let source = make_source(&index, uniform_blob(n as f32, dim), n, k, subset);
     assert!(source.prefer_adhoc(subset, k, true));
-
-    drop(source);
-    // SAFETY: no live references to the index remain.
-    unsafe { VecSimIndex_Free(index.as_ptr()) };
 }
 
 /// From `test_vecsim.py::test_hybrid_query_with_numeric`: a contiguous high
@@ -241,9 +200,7 @@ fn numeric_like_subset_batches_matches_adhoc() {
 
     for mode in [TopKMode::Batches, TopKMode::AdhocBF] {
         let index = build_hnsw_index(n, dim);
-        // SAFETY: index outlives the iterator (freed at end of scope).
-        let source =
-            unsafe { make_source(index, uniform_blob(n as f32, dim), n, k, child_ids.len()) };
+        let source = make_source(&index, uniform_blob(n as f32, dim), n, k, child_ids.len());
         let mut it = TopKIterator::new_with_mode(
             source,
             Some(make_child(child_ids.clone())),
@@ -253,10 +210,6 @@ fn numeric_like_subset_batches_matches_adhoc() {
         );
 
         assert_eq!(collect_ids(&mut it), expected, "mode {mode:?}");
-
-        drop(it);
-        // SAFETY: no live references to the index remain.
-        unsafe { VecSimIndex_Free(index.as_ptr()) };
     }
 }
 
@@ -268,16 +221,11 @@ fn custom_k_returns_exactly_k() {
     let n = 100;
     for k in [2usize, 5] {
         let index = build_hnsw_index(n, dim);
-        // SAFETY: index outlives the iterator (freed at end of scope).
-        let source = unsafe { make_source(index, uniform_blob(n as f32, dim), n, k, n) };
+        let source = make_source(&index, uniform_blob(n as f32, dim), n, k, n);
         let mut it = new_vector_top_k_unfiltered(source, NonZeroUsize::new(k).unwrap());
 
         // Streamed by score: nearest (highest id) first.
         let expected: Vec<DocId> = ((n as DocId - k as DocId + 1)..=n as DocId).rev().collect();
         assert_eq!(collect_ids(&mut it), expected, "k = {k}");
-
-        drop(it);
-        // SAFETY: no live references to the index remain.
-        unsafe { VecSimIndex_Free(index.as_ptr()) };
     }
 }

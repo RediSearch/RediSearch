@@ -12,10 +12,7 @@
 
 use std::num::NonZeroUsize;
 
-use ffi::{
-    VecSearchMode_EMPTY_MODE, VecSearchMode_HYBRID_ADHOC_BF, VecSearchMode_HYBRID_BATCHES,
-    VecSimIndex_Free,
-};
+use ffi::{VecSearchMode_EMPTY_MODE, VecSearchMode_HYBRID_ADHOC_BF, VecSearchMode_HYBRID_BATCHES};
 use top_k::TopKMode;
 use vector_score_source::new_vector_top_k_filtered;
 use vector_score_source::test_utils::{
@@ -27,16 +24,14 @@ use vector_score_source::test_utils::{
 fn explicit_adhoc_policy() {
     let index = build_flat_index(5, 1);
     // SAFETY: index is freed after the iterator is dropped at end of scope.
-    let source = unsafe {
-        make_source_with_mode(
-            index,
-            uniform_blob(0.0, 1),
-            0,
-            VecSearchMode_HYBRID_ADHOC_BF,
-            3,
-            3,
-        )
-    };
+    let source = make_source_with_mode(
+        &index,
+        uniform_blob(0.0, 1),
+        0,
+        VecSearchMode_HYBRID_ADHOC_BF,
+        3,
+        3,
+    );
     let it = new_vector_top_k_filtered(
         source,
         make_child(vec![1, 2, 3]),
@@ -44,10 +39,6 @@ fn explicit_adhoc_policy() {
         false,
     );
     assert_eq!(it.mode(), TopKMode::AdhocBF);
-
-    drop(it);
-    // SAFETY: no live references to the index remain.
-    unsafe { VecSimIndex_Free(index.as_ptr()) };
 }
 
 #[test]
@@ -55,16 +46,14 @@ fn explicit_adhoc_policy() {
 fn explicit_batches_policy() {
     let index = build_flat_index(5, 1);
     // SAFETY: index is freed after the iterator is dropped at end of scope.
-    let source = unsafe {
-        make_source_with_mode(
-            index,
-            uniform_blob(0.0, 1),
-            0,
-            VecSearchMode_HYBRID_BATCHES,
-            3,
-            3,
-        )
-    };
+    let source = make_source_with_mode(
+        &index,
+        uniform_blob(0.0, 1),
+        0,
+        VecSearchMode_HYBRID_BATCHES,
+        3,
+        3,
+    );
     let it = new_vector_top_k_filtered(
         source,
         make_child(vec![1, 2, 3]),
@@ -72,10 +61,6 @@ fn explicit_batches_policy() {
         false,
     );
     assert_eq!(it.mode(), TopKMode::ForcedBatches);
-
-    drop(it);
-    // SAFETY: no live references to the index remain.
-    unsafe { VecSimIndex_Free(index.as_ptr()) };
 }
 
 /// With no explicit policy the constructor consults the cost heuristic, which
@@ -85,16 +70,14 @@ fn explicit_batches_policy() {
 fn unset_policy_uses_heuristic() {
     let index = build_flat_index(5, 1);
     // SAFETY: index is freed after the iterator is dropped at end of scope.
-    let source = unsafe {
-        make_source_with_mode(
-            index,
-            uniform_blob(0.0, 1),
-            0,
-            VecSearchMode_EMPTY_MODE,
-            3,
-            3,
-        )
-    };
+    let source = make_source_with_mode(
+        &index,
+        uniform_blob(0.0, 1),
+        0,
+        VecSearchMode_EMPTY_MODE,
+        3,
+        3,
+    );
     let it = new_vector_top_k_filtered(
         source,
         make_child(vec![1, 2, 3]),
@@ -106,8 +89,4 @@ fn unset_policy_uses_heuristic() {
         "heuristic path must not force batches; got {:?}",
         it.mode()
     );
-
-    drop(it);
-    // SAFETY: no live references to the index remain.
-    unsafe { VecSimIndex_Free(index.as_ptr()) };
 }
