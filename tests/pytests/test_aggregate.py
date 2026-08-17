@@ -1089,6 +1089,29 @@ def testLoadAll(env):
         env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'SORTBY', 1, '@notExists').error().contains('not loaded nor in schema') # can be enabled in the future - should pass even if notExists doesn't exist
         env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', 1, '@notExists').error().contains('not loaded nor in schema') # without LOAD it's an error (unless we enable implicit LOAD of any field for SORTBY)
 
+@skip(cluster=True) # one shard exercises the shard-local limit; the coordinator's own
+                    # lookup has the same bound and drops surplus fields when merging
+                    # shard replies, which this test does not cover
+def testLoadAllBeyondLookupKeyLimit(env):
+    # A lookup addresses each field by a 16-bit index, so it holds at most 65536 keys.
+    # A document with more fields than that must still be answered: the fields that do
+    # not fit are reported like fields the document does not have.
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+    key_limit = 65536
+    fields = []
+    for i in range(key_limit + 10):
+        fields += [f'f{i}', str(i)]
+    conn.execute_command('HSET', 'doc1', 't', 'hello', *fields)
+
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*')
+    env.assertEqual(res[0], 1)
+    # Every addressable key is used: exactly `key_limit` fields come back, the surplus
+    # fields are left out of the row.
+    env.assertEqual(len(res[1]) // 2, key_limit, message=len(res[1]))
+    env.assertEqual(conn.execute_command('PING'), True)
+
 def testLimitIssue(env):
     #ticket 66895
     conn = getConnectionByEnv(env)

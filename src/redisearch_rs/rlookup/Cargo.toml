@@ -13,6 +13,7 @@ sorting_vector.workspace = true
 document.workspace = true
 document_metadata.workspace = true
 field_spec.workspace = true
+global_config.workspace = true
 index_spec.workspace = true
 index_spec_cache.workspace = true
 schema_rule.workspace = true

@@ -154,7 +154,8 @@ pub unsafe extern "C" fn RLookup_FindFieldInSpecCache(
 ///
 /// A key is returned only if it's already in the lookup table (available from the
 /// pipeline upstream), it is part of the index schema and is sortable (and then it is created), or
-/// if the lookup table accepts unresolved keys.
+/// if the lookup table accepts unresolved keys. `NULL` is also returned when a key would
+/// have to be created but the lookup is already at its key limit.
 ///
 /// # Safety
 ///
@@ -196,7 +197,8 @@ pub unsafe extern "C" fn RLookup_GetKey_Read<'a>(
 ///
 /// A key is returned only if it's already in the lookup table (available from the
 /// pipeline upstream), it is part of the index schema and is sortable (and then it is created), or
-/// if the lookup table accepts unresolved keys.
+/// if the lookup table accepts unresolved keys. `NULL` is also returned when a key would
+/// have to be created but the lookup is already at its key limit.
 ///
 /// # Safety
 ///
@@ -244,7 +246,8 @@ pub unsafe extern "C" fn RLookup_GetKey_ReadEx<'a>(
 /// Get an RLookup key for a given name.
 ///
 /// A key is created and returned only if it's NOT in the lookup table, unless the
-/// override flag is set.
+/// override flag is set. `NULL` is also returned when a key would have to be created
+/// but the lookup is already at its key limit.
 ///
 /// # Safety
 ///
@@ -285,7 +288,8 @@ pub unsafe extern "C" fn RLookup_GetKey_Write<'a>(
 /// Get an RLookup key for a given name.
 ///
 /// A key is created and returned only if it's NOT in the lookup table, unless the
-/// override flag is set.
+/// override flag is set. `NULL` is also returned when a key would have to be created
+/// but the lookup is already at its key limit.
 ///
 /// # Safety
 ///
@@ -335,7 +339,8 @@ pub unsafe extern "C" fn RLookup_GetKey_WriteEx<'a>(
 /// A key is created and returned only if it's NOT in the lookup table (unless the
 /// override flag is set), and it is not already loaded. It will override an existing key if it was
 /// created for read out of a sortable field, and the field was normalized. A sortable un-normalized
-/// field counts as loaded.
+/// field counts as loaded. `NULL` is also returned when a key would have to be created
+/// but the lookup is already at its key limit.
 ///
 /// # Safety
 ///
@@ -384,7 +389,8 @@ pub unsafe extern "C" fn RLookup_GetKey_Load<'a>(
 /// A key is created and returned only if it's NOT in the lookup table (unless the
 /// override flag is set), and it is not already loaded. It will override an existing key if it was
 /// created for read out of a sortable field, and the field was normalized. A sortable un-normalized
-/// field counts as loaded.
+/// field counts as loaded. `NULL` is also returned when a key would have to be created
+/// but the lookup is already at its key limit.
 ///
 /// # Safety
 ///

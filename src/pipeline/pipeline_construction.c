@@ -56,13 +56,16 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     srckeys[ii] = RLookup_GetKey_ReadEx(srclookup, fldname, fldname_len, RLOOKUP_F_NOFLAGS);
     if (!srckeys[ii]) {
       if (loadKeys) {
-        // We failed to get the key for reading, so we know getting it for loading will succeed.
+        // We failed to get the key for reading, so getting it for loading only fails if
+        // the lookup is already at its key limit.
         srckeys[ii] = RLookup_GetKey_LoadEx(srclookup, fldname, fldname_len, fldname, RLOOKUP_F_NOFLAGS);
-        *loadKeys = array_ensure_append_1(*loadKeys, srckeys[ii]);
+        if (srckeys[ii]) {
+          *loadKeys = array_ensure_append_1(*loadKeys, srckeys[ii]);
+        }
       }
       // We currently allow implicit loading only for known fields from the schema.
       // If we can't load keys, or the key we loaded is not in the schema, we fail.
-      if (!loadKeys || !(RLookupKey_GetFlags(srckeys[ii]) & RLOOKUP_F_SCHEMASRC)) {
+      if (!loadKeys || !srckeys[ii] || !(RLookupKey_GetFlags(srckeys[ii]) & RLOOKUP_F_SCHEMASRC)) {
         QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_NO_PROP_KEY, "No such property", " `%s`", fldname);
         return NULL;
       }
@@ -271,11 +274,12 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
         if (!sortkey) {
           // if the key is not sortable, and also not loaded by another result processor,
           // add it to the loadkeys list.
-          // We failed to get the key for reading, so we can't fail to get it for loading.
+          // We failed to get the key for reading, so getting it for loading only fails if
+          // the lookup is already at its key limit.
           sortkey = RLookup_GetKey_Load(lk, keystr, keystr, RLOOKUP_F_NOFLAGS);
           // We currently allow implicit loading only for known fields from the schema.
           // If the key we loaded is not in the schema, we fail.
-          if (!(RLookupKey_GetFlags(sortkey) & RLOOKUP_F_SCHEMASRC)) {
+          if (!sortkey || !(RLookupKey_GetFlags(sortkey) & RLOOKUP_F_SCHEMASRC)) {
             QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NO_PROP_KEY, "Property", " `%s` not loaded nor in schema", keystr);
             goto end;
           }
@@ -421,8 +425,8 @@ static int processLoadStepArgs(PLN_LoadStep *loadStep, RLookup *lookup, uint32_t
 
     // Create the RLookupKey
     RLookupKey *kk = RLookup_GetKey_LoadEx(lookup, name, name_len, path, loadFlags);
-    // We only get a NULL return if the key already exists, which means
-    // that we don't need to retrieve it again.
+    // We get a NULL return if the key already exists — no need to retrieve it
+    // again — or if the lookup is already at its key limit.
     if (kk && loadStep->nkeys < loadStep->args.argc) {
       loadStep->keys[loadStep->nkeys++] = kk;
     }
@@ -709,7 +713,8 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
           uint32_t flags = mstp->noOverride ? RLOOKUP_F_NOFLAGS : RLOOKUP_F_OVERRIDE;
           RLookupKey *dstkey = RLookup_GetKey_Write(curLookup, stp->alias, flags);
           if (!dstkey) {
-            // Can only happen if we're in noOverride mode
+            // The key already exists and we're in noOverride mode, or the lookup is
+            // already at its key limit.
             QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_DUP_FIELD, "Property", " `%s` specified more than once", stp->alias);
             goto error;
           }

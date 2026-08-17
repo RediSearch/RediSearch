@@ -149,8 +149,10 @@ impl<'a> RLookup<'a> {
             // while respecting caller's control flags (F_OVERRIDE, F_FORCE_LOAD, etc.)
             let combined_flags = flags | src_key.flags & !TRANSIENT_FLAGS;
 
-            // NB: get_key_write returns none if the key already exists and `flags` don't contain `Override`.
-            // In this case, we just want to move on to the next key
+            // NB: get_key_write returns none if the key already exists and `flags` don't
+            // contain `Override`, or if the lookup is full. Either way we move on to the
+            // next key; `RLookupRow::copy_fields_from` treats a key that is missing from
+            // the destination like a field the document does not have.
             let _ = self.get_key_write(src_key.name().clone(), combined_flags);
         }
     }
@@ -187,6 +189,11 @@ impl<'a> RLookup<'a> {
     ///
     /// If the flag `RLookupKeyFlag::AllowUnresolved` is set, it will create a new key if it does not exist in the lookup table
     /// nor in the schema.
+    ///
+    /// Returns `None` if no key was found, and none could be created — either because
+    /// the conditions above do not hold, or because the lookup is
+    /// [full](crate::lookup::key_list::KeyList::push).
+    #[expect(rustdoc::private_intra_doc_links)]
     pub fn get_key_read(
         &mut self,
         name: impl Into<Cow<'a, CStr>>,
@@ -208,7 +215,7 @@ impl<'a> RLookup<'a> {
         // the schema as SORTABLE, and create only if so.
         let name = match self.gen_key_from_spec(name, flags) {
             Ok(key) => {
-                let key = self.keys.push(key);
+                let key = self.keys.push(key)?;
 
                 // Safety: We treat the pointer as pinned internally and safe Rust cannot move out of the returned immutable reference.
                 return Some(unsafe { Pin::into_inner_unchecked(key.into_ref()) });
@@ -221,7 +228,7 @@ impl<'a> RLookup<'a> {
             let mut key = RLookupKey::new(name, flags);
             key.flags |= RLookupKeyFlag::Unresolved;
 
-            let key = self.keys.push(key);
+            let key = self.keys.push(key)?;
 
             // Safety: We treat the pointer as pinned internally and safe Rust cannot move out of the returned immutable reference.
             return Some(unsafe { Pin::into_inner_unchecked(key.into_ref()) });
@@ -270,6 +277,10 @@ impl<'a> RLookup<'a> {
     ///
     /// This will never get a key from the cache, it will either create a new key, override an existing key or return `None` if the key
     /// is in exclusive mode.
+    ///
+    /// `None` is also returned when the lookup is
+    /// [full](crate::lookup::key_list::KeyList::push).
+    #[expect(rustdoc::private_intra_doc_links)]
     pub fn get_key_write(
         &mut self,
         name: impl Into<Cow<'a, CStr>>,
@@ -294,7 +305,7 @@ impl<'a> RLookup<'a> {
             // B. we didn't find the key in the lookup table:
             // create a new key with the name and flags.
             self.keys
-                .push(RLookupKey::new(name, flags | RLookupKeyFlag::QuerySrc))
+                .push(RLookupKey::new(name, flags | RLookupKeyFlag::QuerySrc))?
         };
 
         Some(key.into_ref().get_ref())
@@ -302,6 +313,15 @@ impl<'a> RLookup<'a> {
 
     // ===== Load key from redis keyspace (include known information on the key, fail if already loaded) =====
 
+    /// Gets a key by its name, creating it as loadable from the document if it does not
+    /// exist yet.
+    ///
+    /// Returns `None` when the field needs no loading — an existing key already provides
+    /// the value, has loaded it before, or was created by the query — unless the caller
+    /// asked to override that key, or to force-load one whose value is already
+    /// available. Also returns `None` when the lookup is
+    /// [full](crate::lookup::key_list::KeyList::push).
+    #[expect(rustdoc::private_intra_doc_links)]
     pub fn get_key_load(
         &mut self,
         name: impl Into<Cow<'a, CStr>>,
@@ -359,7 +379,7 @@ impl<'a> RLookup<'a> {
             let key = self.keys.push(RLookupKey::new(
                 name.clone(),
                 flags | RLookupKeyFlag::DocSrc | RLookupKeyFlag::IsLoaded,
-            ));
+            ))?;
             // Safety: We treat the pointer as pinned internally and never hand out references that could be moved out of (in safe Rust).
             unsafe { Pin::into_inner_unchecked(key) }
         };
@@ -431,10 +451,11 @@ impl<'a> RLookup<'a> {
         key_name: &CStr,
         open_key: Option<&redis_module::RedisModuleKey>,
     ) -> Result<(), LoadFieldError> {
-        // NB: eagerly consume the entire iterator, so the **side-effect-full* `self.keys.push` happens
-        // for every key.
+        // NB: eagerly consume the iterator, so the **side-effect-full* `self.keys.push` happens for
+        // every key that fits. Since `push` saturates permanently, stopping at the first rejection
+        // still loads every field that fits.
         let keys_to_load: Vec<_> = create_keys_from_spec(index_spec)
-            .map(|k| self.keys.push(k))
+            .map_while(|k| self.keys.push(k))
             .collect();
 
         let key_name =
@@ -631,7 +652,7 @@ mod tests {
 
         let key = RLookupKey::new(key_name, RLookupKeyFlags::empty());
 
-        rlookup.keys.push(key);
+        rlookup.keys.push(key).unwrap();
 
         let retrieved_key = rlookup
             .get_key_load(key_name, field_name, RLookupKeyFlags::empty())
@@ -660,7 +681,7 @@ mod tests {
         rlookup.set_cache(Some(spcache));
 
         let key = RLookupKey::new(key_name, RLookupKeyFlags::empty());
-        rlookup.keys.push(key);
+        rlookup.keys.push(key).unwrap();
 
         let retrieved_key = rlookup
             .get_key_load(
@@ -700,7 +721,7 @@ mod tests {
 
         let key = RLookupKey::new(key_name, RLookupKeyFlags::empty());
 
-        rlookup.keys.push(key);
+        rlookup.keys.push(key).unwrap();
 
         let retrieved_key = rlookup
             .get_key_load(
@@ -742,7 +763,7 @@ mod tests {
 
         let key = RLookupKey::new(key_name, RLookupKeyFlags::empty());
 
-        rlookup.keys.push(key);
+        rlookup.keys.push(key).unwrap();
 
         let retrieved_key = rlookup.get_key_load(
             key_name,
@@ -777,7 +798,7 @@ mod tests {
 
         let key = RLookupKey::new(key_name, RLookupKeyFlags::empty());
 
-        rlookup.keys.push(key);
+        rlookup.keys.push(key).unwrap();
 
         let retrieved_key = rlookup
             .get_key_load(
@@ -820,7 +841,7 @@ mod tests {
 
             let key = RLookupKey::new(key_name, flag.into());
 
-            rlookup.keys.push(key);
+            rlookup.keys.push(key).unwrap();
 
             let retrieved_key =
                 rlookup.get_key_load(key_name, field_name, RLookupKeyFlags::empty());
@@ -1133,7 +1154,7 @@ mod tests {
 
              let key = RLookupKey::new(&name, RLookupKeyFlags::empty());
 
-             rlookup.keys.push(key);
+             rlookup.keys.push(key).unwrap();
 
              let key = rlookup
                  .get_key_read(&name, RLookupKeyFlags::empty())
@@ -1156,7 +1177,7 @@ mod tests {
              let mut rlookup = RLookup::new();
 
              let key = RLookupKey::new(&name, RLookupKeyFlags::empty());
-             rlookup.keys.push(key);
+             rlookup.keys.push(key).unwrap();
 
              let not_key = rlookup
                  .get_key_read(&wrong_name, RLookupKeyFlags::empty());
@@ -1223,7 +1244,7 @@ mod tests {
 
              // push a key to the keylist
              let key = RLookupKey::new(&name1, RLookupKeyFlags::empty());
-             rlookup.keys.push(key);
+             rlookup.keys.push(key).unwrap();
 
              // push a field spec to the cache
              let spcache = IndexSpecCache::from_fields([
@@ -1254,7 +1275,7 @@ mod tests {
 
              let key = RLookupKey::new(&name1, RLookupKeyFlags::empty());
 
-             rlookup.keys.push(key);
+             rlookup.keys.push(key).unwrap();
 
              // push a field spec to the cache
              let spcache = IndexSpecCache::from_fields([
@@ -1364,18 +1385,27 @@ mod tests {
     /// without a sorting-vector source, and a schema key with one.
     fn rlookup_with_selection_keys<'a>() -> RLookup<'a> {
         let mut rlookup = RLookup::new();
-        rlookup.keys.push(RLookupKey::new(
-            c"query_only",
-            make_bitflags!(RLookupKeyFlag::QuerySrc),
-        ));
-        rlookup.keys.push(RLookupKey::new(
-            c"schema_no_sv",
-            make_bitflags!(RLookupKeyFlag::SchemaSrc),
-        ));
-        rlookup.keys.push(RLookupKey::new(
-            c"schema_sv",
-            make_bitflags!(RLookupKeyFlag::{SchemaSrc | SvSrc}),
-        ));
+        rlookup
+            .keys
+            .push(RLookupKey::new(
+                c"query_only",
+                make_bitflags!(RLookupKeyFlag::QuerySrc),
+            ))
+            .unwrap();
+        rlookup
+            .keys
+            .push(RLookupKey::new(
+                c"schema_no_sv",
+                make_bitflags!(RLookupKeyFlag::SchemaSrc),
+            ))
+            .unwrap();
+        rlookup
+            .keys
+            .push(RLookupKey::new(
+                c"schema_sv",
+                make_bitflags!(RLookupKeyFlag::{SchemaSrc | SvSrc}),
+            ))
+            .unwrap();
         rlookup
     }
 

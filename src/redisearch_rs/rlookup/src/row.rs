@@ -255,12 +255,12 @@ impl<'a> RLookupRow<'a> {
     /// Write a value to the lookup table in [`RLookupRow::dyn_values`]. Key must already be registered, and not
     /// refer to a read-only (SVSRC) key.
     pub fn write_key(&mut self, key: &RLookupKey, val: SharedValue) -> Option<SharedValue> {
-        let idx = key.dstidx;
-        if self.dyn_values.len() <= idx as usize {
-            self.set_dyn_capacity((idx + 1) as usize);
+        let idx = key.dstidx as usize;
+        if self.dyn_values.len() <= idx {
+            self.set_dyn_capacity(idx + 1);
         }
 
-        let prev = self.dyn_values[idx as usize].replace(val);
+        let prev = self.dyn_values[idx].replace(val);
 
         if prev.is_none() {
             self.num_dyn_values += 1;
@@ -282,9 +282,12 @@ impl<'a> RLookupRow<'a> {
         let key = if let Some(cursor) = rlookup.find_key_by_name(&name) {
             cursor.into_current().expect("the cursor returned by `Keys::find_by_name` must have a current key. This is a bug!")
         } else {
-            rlookup
-                .get_key_write(name.into_owned(), RLookupKeyFlags::empty())
-                .expect("`RLookup::get_key_write` must never return None for non-existent keys. This is a bug!")
+            let Some(key) = rlookup.get_key_write(name.into_owned(), RLookupKeyFlags::empty())
+            else {
+                // The lookup is full: drop the value.
+                return;
+            };
+            key
         };
         self.write_key(key, val);
     }
@@ -324,15 +327,17 @@ impl<'a> RLookupRow<'a> {
     ///
     /// If a source key has no value in the source row, it is skipped.
     ///
-    /// If a source key is not found in the destination lookup the function will either create it or panic
-    /// depending on the value of `create_missing_keys`.
+    /// If a source key is not found in the destination lookup, it is created when
+    /// `create_missing_keys` is set and the destination lookup can still take a key;
+    /// otherwise the field is left out of this row, like a field the document does
+    /// not have.
     ///
     /// # Arguments
     ///
     /// - `dst_lookup`: The destination lookup containing the schema of this row, must be the associated lookup of `self`.
     /// - `src_row`: The source row from which to copy values.
     /// - `src_lookup`: The source lookup containing the schema of the source row, must be the associated lookup of `src_row`.
-    /// - `create_missing_keys`: Whether keys missing in `dst_lookup` should be created automatically, or force a panic.
+    /// - `create_missing_keys`: Whether keys missing in `dst_lookup` should be created automatically.
     pub fn copy_fields_from(
         &mut self,
         dst_lookup: &mut RLookup<'a>,
@@ -351,22 +356,23 @@ impl<'a> RLookupRow<'a> {
             {
                 // Find corresponding key in destination lookup
                 let dst_key = match dst_lookup.find_key_by_name(src_key.name()) {
-                    Some(k) => k.into_current().unwrap(),
+                    Some(k) => k.into_current(),
                     None if create_missing_keys => {
                         // Inherit non-transient flags from source.
                         let flags = src_key.flags & !TRANSIENT_FLAGS;
 
                         // Key doesn't exist in destination - create it on demand.
                         // This can happen with LOAD * where keys are created dynamically.
-                        dst_lookup
-                            .get_key_write(src_key.name().clone(), flags)
-                            .unwrap()
+                        dst_lookup.get_key_write(src_key.name().clone(), flags)
                     }
-                    _ => panic!("all source keys must exist in destination"),
+                    None => None,
                 };
 
-                // Write fields to destination
-                dst_row.write_key(dst_key, value.clone());
+                // A field whose key is missing from the destination is left out, like
+                // a field the document does not have.
+                if let Some(dst_key) = dst_key {
+                    dst_row.write_key(dst_key, value.clone());
+                }
             }
 
             c.move_next();

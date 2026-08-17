@@ -8,10 +8,18 @@
 */
 
 use crate::{RLookupKey, RLookupKeyFlags};
-use std::{ffi::CStr, iter::FusedIterator, marker::PhantomData, pin::Pin, ptr::NonNull};
+use std::{
+    borrow::Cow, ffi::CStr, iter::FusedIterator, marker::PhantomData, pin::Pin, ptr::NonNull,
+};
 
 #[cfg(any(debug_assertions, test))]
 use std::ptr;
+
+/// Above this many conceptual rows, [`KeyList::assert_valid`] skips the full per-node
+/// walk and checks only the O(1) invariants plus the head and tail nodes. Realistic
+/// lookups stay far below this, so they always get the exhaustive validation.
+#[cfg(any(debug_assertions, test))]
+const FULL_VALIDATION_THRESHOLD: u32 = 256;
 
 #[derive(Debug)]
 #[repr(C)]
@@ -72,16 +80,48 @@ impl<'a> KeyList<'a> {
     /// Insert a `RLookupKey` into this `KeyList` and return a mutable reference to it.
     ///
     /// The key will be owned by the list and freed when dropping the list.
+    ///
+    /// [`dstidx`](crate::lookup::key::RLookupKeyHeader::dstidx) addresses the key's slot
+    /// in every row built from this list, so the list can hold no more keys than that
+    /// index can address. Once it is full, this returns `None` and leaves the list
+    /// unchanged; the caller must then treat the key as unavailable, the same way it
+    /// treats a field that the document does not have.
+    ///
+    /// Keys are never removed, so the list saturates permanently: after the first `None`
+    /// every later call returns `None` too, and a caller pushing a sequence of keys can
+    /// stop at the first rejection instead of trying the rest.
+    ///
+    /// A rejection means the field's data silently becomes unavailable, so this logs a
+    /// warning on the caller's behalf.
     //
     // TODO remove the 'a and 'b lifetimes borrow-checker hack when we refactor this code. refer to Jira ticket MOD-13907.
-    pub(crate) fn push<'b>(&mut self, mut key: RLookupKey<'a>) -> Pin<&'b mut RLookupKey<'a>>
+    #[must_use = "a rejected key is not in the list, so the caller must treat the field as unavailable"]
+    pub(crate) fn push<'b>(
+        &mut self,
+        mut key: RLookupKey<'a>,
+    ) -> Option<Pin<&'b mut RLookupKey<'a>>>
     where
         'a: 'b,
     {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::push (before)");
 
-        key.dstidx = u16::try_from(self.rowlen).expect("conversion from u32 RLookup::rowlen to u16 RLookupKey::dstidx overflowed. This is a bug!");
+        key.dstidx = u16::try_from(self.rowlen)
+            .inspect_err(|_| {
+                let field = if global_config::hide_user_data_from_log() {
+                    Cow::Borrowed("****")
+                } else {
+                    key.name().to_string_lossy()
+                };
+
+                tracing::warn!(
+                    field = %field,
+                    keys = self.rowlen,
+                    "cannot look up more fields: the key limit is already reached, \
+                     so this field's values will be missing from the results"
+                );
+            })
+            .ok()?;
 
         // Safety: RLookup never hands out mutable references to the key (except `Pin<&mut T>` which is fine)
         // and never copies, or memmoves the memory internally.
@@ -118,7 +158,7 @@ impl<'a> KeyList<'a> {
         let key = unsafe { ptr.as_mut() };
         // Safety: We treat the pointer as pinned internally and never hand out references that could be moved out of (in safe Rust)
         // publicly.
-        unsafe { Pin::new_unchecked(key) }
+        Some(unsafe { Pin::new_unchecked(key) })
     }
 
     /// Return a cursor over an [`crate::RLookup`]'s key list.
@@ -207,6 +247,13 @@ impl<'a> KeyList<'a> {
     ///
     /// We use this method to absolutely make sure the linked list is internally consistent
     /// before reading from it and after writing to it.
+    ///
+    /// The full per-node walk is capped at [`FULL_VALIDATION_THRESHOLD`] conceptual rows:
+    /// this method runs on every list operation, so an unconditional walk would make each
+    /// operation O(len) and a sequence of insertions O(len²) — unusable in debug builds for
+    /// lookups with tens of thousands of keys (e.g. `LOAD *` over a document with more
+    /// fields than the key limit). Beyond the cap, only the O(1) invariants plus the head
+    /// and tail nodes are checked.
     #[track_caller]
     #[cfg(any(debug_assertions, test))]
     pub(crate) fn assert_valid(&self, ctx: &str) {
@@ -250,6 +297,12 @@ impl<'a> KeyList<'a> {
                 None,
                 "{ctx} - if the linked list has only one node, it must not be linked"
             );
+            return;
+        }
+
+        if self.rowlen > FULL_VALIDATION_THRESHOLD {
+            head.assert_valid(tail, ctx);
+            tail.assert_valid(tail, ctx);
             return;
         }
 
@@ -474,16 +527,22 @@ mod tests {
     use super::*;
     use crate::RLookupKeyFlag;
     use enumflags2::make_bitflags;
+    #[cfg(not(miri))]
+    use proptest::prelude::*;
 
     // assert that the linked list is produced and linked correctly
     #[test]
     fn keylist_push_consistency() {
         let mut keylist = KeyList::new();
 
-        let foo = keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
+        let foo = keylist
+            .push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()))
+            .unwrap();
         let foo = unsafe { NonNull::from(Pin::into_inner_unchecked(foo)) };
 
-        let bar = keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
+        let bar = keylist
+            .push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()))
+            .unwrap();
         let bar = unsafe { NonNull::from(Pin::into_inner_unchecked(bar)) };
 
         keylist.assert_valid("tests::keylist_push_consistency after insertions");
@@ -503,15 +562,21 @@ mod tests {
     fn keylist_cursor_move_next() {
         let mut keylist = KeyList::new();
 
-        keylist.push(RLookupKey::new(
-            c"foo",
-            make_bitflags!(RLookupKeyFlag::Hidden),
-        ));
-        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(
-            c"baz",
-            make_bitflags!(RLookupKeyFlag::Hidden),
-        ));
+        keylist
+            .push(RLookupKey::new(
+                c"foo",
+                make_bitflags!(RLookupKeyFlag::Hidden),
+            ))
+            .unwrap();
+        keylist
+            .push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()))
+            .unwrap();
+        keylist
+            .push(RLookupKey::new(
+                c"baz",
+                make_bitflags!(RLookupKeyFlag::Hidden),
+            ))
+            .unwrap();
         keylist.assert_valid("tests::keylist_cursor_move_next after insertions");
 
         let mut c = keylist.cursor_front();
@@ -529,15 +594,21 @@ mod tests {
     fn keylist_cursor_mut_move_next() {
         let mut keylist = KeyList::new();
 
-        keylist.push(RLookupKey::new(
-            c"foo",
-            make_bitflags!(RLookupKeyFlag::Hidden),
-        ));
-        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(
-            c"baz",
-            make_bitflags!(RLookupKeyFlag::Hidden),
-        ));
+        keylist
+            .push(RLookupKey::new(
+                c"foo",
+                make_bitflags!(RLookupKeyFlag::Hidden),
+            ))
+            .unwrap();
+        keylist
+            .push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()))
+            .unwrap();
+        keylist
+            .push(RLookupKey::new(
+                c"baz",
+                make_bitflags!(RLookupKeyFlag::Hidden),
+            ))
+            .unwrap();
         keylist.assert_valid("tests::keylist_cursor_mut_move_next after insertions");
 
         let mut c = keylist.cursor_front_mut();
@@ -554,10 +625,14 @@ mod tests {
     fn keylist_find() {
         let mut keylist = KeyList::new();
 
-        let foo = keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
+        let foo = keylist
+            .push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()))
+            .unwrap();
         let foo = unsafe { NonNull::from(Pin::into_inner_unchecked(foo)) };
 
-        let bar = keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
+        let bar = keylist
+            .push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()))
+            .unwrap();
         let bar = unsafe { NonNull::from(Pin::into_inner_unchecked(bar)) };
 
         keylist.assert_valid("tests::keylist_find after insertions");
@@ -575,10 +650,14 @@ mod tests {
     fn keylist_find_mut() {
         let mut keylist = KeyList::new();
 
-        let foo = keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
+        let foo = keylist
+            .push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()))
+            .unwrap();
         let foo = unsafe { NonNull::from(Pin::into_inner_unchecked(foo)) };
 
-        let bar = keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
+        let bar = keylist
+            .push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()))
+            .unwrap();
         let bar = unsafe { NonNull::from(Pin::into_inner_unchecked(bar)) };
 
         keylist.assert_valid("tests::keylist_find_mut after insertions");
@@ -602,10 +681,12 @@ mod tests {
     fn keylist_override_key_find() {
         let mut keylist = KeyList::new();
 
-        keylist.push(RLookupKey::new(
-            c"foo",
-            make_bitflags!(RLookupKeyFlag::Unresolved),
-        ));
+        keylist
+            .push(RLookupKey::new(
+                c"foo",
+                make_bitflags!(RLookupKeyFlag::Unresolved),
+            ))
+            .unwrap();
 
         keylist
             .cursor_front_mut()
@@ -632,10 +713,12 @@ mod tests {
     fn keylist_override_key_iterate() {
         let mut keylist = KeyList::new();
 
-        keylist.push(RLookupKey::new(
-            c"foo",
-            make_bitflags!(RLookupKeyFlag::Unresolved),
-        ));
+        keylist
+            .push(RLookupKey::new(
+                c"foo",
+                make_bitflags!(RLookupKeyFlag::Unresolved),
+            ))
+            .unwrap();
         keylist
             .cursor_front_mut()
             .override_current(make_bitflags!(RLookupKeyFlag::Numeric));
@@ -655,9 +738,15 @@ mod tests {
     fn iter_skips_tombstones() {
         let mut keylist = KeyList::new();
 
-        keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(c"baz", RLookupKeyFlags::empty()));
+        keylist
+            .push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()))
+            .unwrap();
+        keylist
+            .push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()))
+            .unwrap();
+        keylist
+            .push(RLookupKey::new(c"baz", RLookupKeyFlags::empty()))
+            .unwrap();
 
         // Override "foo" to create a tombstone
         keylist
@@ -688,9 +777,15 @@ mod tests {
     fn iter_no_tombstones() {
         let mut keylist = KeyList::new();
 
-        keylist.push(RLookupKey::new(c"a", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(c"b", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(c"c", RLookupKeyFlags::empty()));
+        keylist
+            .push(RLookupKey::new(c"a", RLookupKeyFlags::empty()))
+            .unwrap();
+        keylist
+            .push(RLookupKey::new(c"b", RLookupKeyFlags::empty()))
+            .unwrap();
+        keylist
+            .push(RLookupKey::new(c"c", RLookupKeyFlags::empty()))
+            .unwrap();
 
         let names: Vec<_> = keylist
             .iter()
@@ -707,9 +802,15 @@ mod tests {
     fn iter_mut_skips_tombstones() {
         let mut keylist = KeyList::new();
 
-        keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(c"baz", RLookupKeyFlags::empty()));
+        keylist
+            .push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()))
+            .unwrap();
+        keylist
+            .push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()))
+            .unwrap();
+        keylist
+            .push(RLookupKey::new(c"baz", RLookupKeyFlags::empty()))
+            .unwrap();
 
         // Override "bar" (middle element) to create a tombstone
         let mut cursor = keylist.cursor_front_mut();
@@ -738,8 +839,12 @@ mod tests {
     fn iter_skips_consecutive_tombstones() {
         let mut keylist = KeyList::new();
 
-        keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
+        keylist
+            .push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()))
+            .unwrap();
+        keylist
+            .push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()))
+            .unwrap();
 
         // Override both keys to create consecutive tombstones with their replacements
         keylist
@@ -764,8 +869,12 @@ mod tests {
     fn iter_mut_mutation_visible() {
         let mut keylist = KeyList::new();
 
-        keylist.push(RLookupKey::new(c"a", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(c"b", RLookupKeyFlags::empty()));
+        keylist
+            .push(RLookupKey::new(c"a", RLookupKeyFlags::empty()))
+            .unwrap();
+        keylist
+            .push(RLookupKey::new(c"b", RLookupKeyFlags::empty()))
+            .unwrap();
 
         for key in keylist.iter_mut() {
             key.project().header.flags |= RLookupKeyFlag::ExplicitReturn;
@@ -781,8 +890,12 @@ mod tests {
     fn iter_skips_tail_tombstone() {
         let mut keylist = KeyList::new();
 
-        keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
+        keylist
+            .push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()))
+            .unwrap();
+        keylist
+            .push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()))
+            .unwrap();
 
         // Tombstone the tail without inserting a replacement.
         let mut cursor = keylist.cursor_front_mut();
@@ -801,14 +914,18 @@ mod tests {
         let mut keylist = KeyList::new();
 
         // push two keys, so we can override one without altering the tail and another one to override it.
-        keylist.push(RLookupKey::new(
-            c"foo",
-            make_bitflags!(RLookupKeyFlag::Unresolved),
-        ));
-        let secoond = keylist.push(RLookupKey::new(
-            c"bar",
-            make_bitflags!(RLookupKeyFlag::Unresolved),
-        ));
+        keylist
+            .push(RLookupKey::new(
+                c"foo",
+                make_bitflags!(RLookupKeyFlag::Unresolved),
+            ))
+            .unwrap();
+        let secoond = keylist
+            .push(RLookupKey::new(
+                c"bar",
+                make_bitflags!(RLookupKeyFlag::Unresolved),
+            ))
+            .unwrap();
         let second = unsafe { NonNull::from(Pin::into_inner_unchecked(secoond)) };
 
         // store first override key
@@ -830,5 +947,83 @@ mod tests {
 
         // we expect the tail to be the new key
         assert_eq!(override2, keylist.tail.unwrap());
+    }
+
+    /// Override the `nth` key that is still visible, skipping the tombstones that earlier
+    /// overrides left behind. Does nothing if the list holds fewer keys than that.
+    #[cfg(not(miri))]
+    fn override_nth_visible(keylist: &mut KeyList<'_>, nth: usize) {
+        let mut cursor = keylist.cursor_front_mut();
+        let mut visible = 0;
+
+        loop {
+            let Some(key) = cursor.current() else { return };
+            let hidden = key.flags.contains(RLookupKeyFlag::Hidden);
+
+            if !hidden {
+                if visible == nth {
+                    break;
+                }
+                visible += 1;
+            }
+
+            cursor.move_next();
+        }
+
+        cursor.override_current(RLookupKeyFlags::empty()).unwrap();
+    }
+
+    /// The number of keys a [`KeyList`] accepts, bounded by the `u16` [`RLookupKey::dstidx`].
+    #[cfg(not(miri))]
+    const KEY_CAPACITY: u32 = u16::MAX as u32 + 1;
+
+    #[cfg(not(miri))]
+    proptest! {
+        // Every case fills the list to capacity, so keep the case count well below the default.
+        #![proptest_config(ProptestConfig::with_cases(32))]
+
+        /// Pin down the property [`KeyList::push`] documents and that
+        /// [`RLookup::load_rule_fields`](crate::RLookup::load_rule_fields) relies on when it
+        /// pushes with `map_while`: a rejected push means every later push is rejected too.
+        #[test]
+        fn keylist_push_saturates_permanently(
+            overrides_while_filling in prop::collection::vec((0..KEY_CAPACITY, 0usize..16), 0..4),
+            overrides_when_full in prop::collection::vec(0usize..16, 0..4),
+            pushes_when_full in 1usize..8,
+        ) {
+            let mut keylist = KeyList::new();
+
+            for dstidx in 0..KEY_CAPACITY {
+                let key = keylist
+                    .push(RLookupKey::new(c"key", RLookupKeyFlags::empty()))
+                    .expect("a list below capacity accepts every key");
+
+                prop_assert_eq!(u32::from(key.dstidx), dstidx);
+
+                // Overriding is the only way to allocate a key without claiming a row slot, so it
+                // is what could plausibly move the point at which the list fills up.
+                for (_, nth) in overrides_while_filling.iter().filter(|(at, _)| *at == dstidx) {
+                    override_nth_visible(&mut keylist, *nth);
+                }
+            }
+
+            prop_assert_eq!(keylist.rowlen, KEY_CAPACITY);
+
+            for nth in overrides_when_full {
+                override_nth_visible(&mut keylist, nth);
+
+                prop_assert!(
+                    keylist.push(RLookupKey::new(c"key", RLookupKeyFlags::empty())).is_none()
+                );
+            }
+
+            for _ in 0..pushes_when_full {
+                prop_assert!(
+                    keylist.push(RLookupKey::new(c"key", RLookupKeyFlags::empty())).is_none()
+                );
+            }
+
+            prop_assert_eq!(keylist.rowlen, KEY_CAPACITY);
+        }
     }
 }
