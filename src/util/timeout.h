@@ -60,10 +60,6 @@ static inline void rs_timerremaining(struct timespec *a, struct timespec *b, str
   }
 }
 
-static inline double rs_timer_ms(struct timespec *a){
-  return a->tv_sec * 1000 + (double)a->tv_nsec / 1000000.0;
-}
-
 #define NOT_TIMED_OUT 0
 #define TIMED_OUT 1
 
@@ -73,8 +69,6 @@ typedef struct TimeoutCtx {
   struct timespec timeout;
   uint32_t counter;
 } TimeoutCtx;
-
-typedef int(*TimeoutCb)(TimeoutCtx *);
 
 static inline int TimedOut(const struct timespec *timeout) {
   static struct timespec now;
@@ -86,35 +80,14 @@ static inline int TimedOut(const struct timespec *timeout) {
 }
 
 // Check if time has been reached (run once every TIMEOUT_COUNTER_LIMIT calls)
-static inline int TimedOut_WithCounter(const struct timespec *timeout, uint32_t *counter) {
-  if (RS_IsMock) return 0;
-
-  if (*counter != REDISEARCH_UNINITIALIZED && ++(*counter) == TIMEOUT_COUNTER_LIMIT) {
-    *counter = 0;
-    return TimedOut(timeout);
-  }
-  return NOT_TIMED_OUT;
-}
-
-// Check if time has been reached (run once every `gran` calls)
-static inline int TimedOut_WithCounter_Gran(const struct timespec *timeout, uint32_t *counter, uint32_t gran) {
-  if (RS_IsMock) return 0;
-
-  if (*counter != REDISEARCH_UNINITIALIZED && ++(*counter) == gran) {
-    *counter = 0;
-    return TimedOut(timeout);
-  }
-  return NOT_TIMED_OUT;
-}
-
-// Check if time has been reached (run once every 100 calls)
 static inline int TimedOut_WithCtx(TimeoutCtx *ctx) {
-  return TimedOut_WithCounter(&ctx->timeout, &ctx->counter);
-}
+  if (RS_IsMock) return NOT_TIMED_OUT;
 
-// Check if time has been reached (run once every `gran` calls)
-static inline int TimedOut_WithCtx_Gran(TimeoutCtx *ctx, uint32_t gran) {
-  return TimedOut_WithCounter_Gran(&ctx->timeout, &ctx->counter, gran);
+  if (ctx->counter != REDISEARCH_UNINITIALIZED && ++ctx->counter == TIMEOUT_COUNTER_LIMIT) {
+    ctx->counter = 0;
+    return TimedOut(&ctx->timeout);
+  }
+  return NOT_TIMED_OUT;
 }
 
 // Check if time has been reached

@@ -2616,7 +2616,7 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
       self->upstreamReturnCodes[i] = rc;
       // Currently continues processing other upstreams.
       // No need for a timeout mechanism to stop its spawned thread before completion
-      // assuming other threads would timeout as well within a reasobale delta of docs (See TimedOut_WithCounter)
+      // assuming other threads would time out within the same timeout-counter interval
       consumed[i] = true;
       numConsumed++;
     }
