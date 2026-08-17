@@ -793,13 +793,13 @@ mod via_resume {
     }
 
     /// A child whose resume *fails* takes the union down the
-    /// `free_after_consumed_child` teardown, the most delicate unsafe in this
+    /// `FreeSuspendedShell` teardown, the most delicate unsafe in this
     /// file: it drops the compacted resumed prefix, leaves the consumed slot
     /// alone, and drops the still-suspended tail. Get the `kept`/`consumed`
     /// boundary wrong and it is a double free or a leak, both of which miri
     /// sees through the mocks' reference-counted state.
     ///
-    /// This is the plain shape: no child aborted first, so `kept == consumed`
+    /// This is the plain shape: no child aborted first, so `kept == cursor - 1`
     /// and the buffer is a resumed prefix, the consumed slot, and a suspended
     /// tail — all three regions at once.
     #[test]
@@ -824,7 +824,7 @@ mod via_resume {
 
     /// The same teardown, but with a hole in the middle: child 0 aborts before
     /// child 2 fails, so the survivor is compacted down to slot 0 and `kept`
-    /// (1) trails `consumed` (2). Slot 1 is then a vacated hole that the
+    /// (1) trails the cursor (2). Slot 1 is then a vacated hole that the
     /// teardown must skip — the clause the plain shape never reaches.
     #[test]
     fn resume_child_error_frees_a_shell_with_a_hole_in_it() {
@@ -1276,9 +1276,17 @@ mod via_resume {
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
         let guard = mock_ctx.spec_read();
 
+        // An *owned* Union is the case the kind alone cannot reject: same
+        // `kind()`, but its children are boxed into the result's own allocation
+        // and never transitioned, so re-narrowing would promote whatever
+        // index-backed pointers they hold. Safe code can build one and assign it
+        // through `current()`.
+        let borrowed_src = index_result::RSIndexResult::build_union(1).build();
+        let owned_union = borrowed_src.to_owned();
         for substitute in [
             index_result::RSIndexResult::build_numeric(1.0).build(),
             index_result::RSIndexResult::build_hybrid_metric().build(),
+            owned_union,
         ] {
             let child0: Mock<'_, 2> = Mock::new([10, 30]);
             let child1: Mock<'_, 2> = Mock::new([10, 40]);
