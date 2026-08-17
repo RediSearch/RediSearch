@@ -22,33 +22,37 @@
 
 use index_result::RSIndexResult;
 use inverted_index::{DocId, GcScanDelta, InvertedIndex, RepairContext, doc_ids_only::DocIdsOnly};
-use tag_index::TagIndex;
+use tag_index::{InMemoryMode, TagIndex};
 
-use crate::util::{commit, index_mem};
+use crate::util::{commit_mem, index_mem};
 
 /// Build a memory-mode index holding `tags`, each carrying documents `1..=n`.
 /// `with_suffix` mirrors `WITHSUFFIXTRIE`, and commits the tags so the suffix
 /// trie is populated too.
-fn indexed(tags: &[&[u8]], n: DocId, with_suffix: bool) -> TagIndex {
-    let mut idx = TagIndex::new_in_memory(1, with_suffix);
+fn indexed(tags: &[&[u8]], n: DocId, with_suffix: bool) -> TagIndex<InMemoryMode> {
+    let mut idx = TagIndex::new(1, with_suffix);
     for doc_id in 1..=n {
         index_mem(&mut idx, tags, doc_id);
     }
     if with_suffix {
-        commit(&mut idx, tags);
+        commit_mem(&mut idx, tags);
     }
     idx
 }
 
 /// The heap address of `tag`'s posting list — what the GC child ships back and
 /// [`TagIndex::gc`] checks the delta against.
-fn value_ptr(idx: &TagIndex, tag: &[u8]) -> *const InvertedIndex<DocIdsOnly> {
+fn value_ptr(idx: &TagIndex<InMemoryMode>, tag: &[u8]) -> *const InvertedIndex<DocIdsOnly> {
     idx.find_value(tag).expect("tag is indexed")
 }
 
 /// Scan `tag`'s postings the way the GC child does, keeping only the documents
 /// `doc_exists` accepts. `None` when nothing needs repairing.
-fn scan(idx: &TagIndex, tag: &[u8], doc_exists: impl Fn(DocId) -> bool) -> Option<GcScanDelta> {
+fn scan(
+    idx: &TagIndex<InMemoryMode>,
+    tag: &[u8],
+    doc_exists: impl Fn(DocId) -> bool,
+) -> Option<GcScanDelta> {
     idx.find_value(tag)
         .expect("tag is indexed")
         .scan_gc(
@@ -59,12 +63,12 @@ fn scan(idx: &TagIndex, tag: &[u8], doc_exists: impl Fn(DocId) -> bool) -> Optio
 }
 
 /// Collect the keys currently in the suffix trie.
-fn suffix_keys(idx: &TagIndex) -> Vec<Vec<u8>> {
+fn suffix_keys(idx: &TagIndex<InMemoryMode>) -> Vec<Vec<u8>> {
     let mut it = idx
         .suffix_value_iter()
         .expect("index was created with a suffix trie");
     let mut keys = Vec::new();
-    while let Some((key, _)) = it.advance() {
+    while let Some(key) = it.advance() {
         keys.push(key.to_vec());
     }
     keys

@@ -7,16 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Tests for indexing documents under tags (`TagIndex::index_in_memory`) and
+//! Tests for indexing documents under tags (`TagIndex::index`) and
 //! iterating the indexed tags.
 
 use index_result::RSIndexResult;
-use tag_index::{SuffixQuery, TagIndex, TagIndexIterator, TagValue, TagValueReader};
+use tag_index::{MemTagIndexIterator, SuffixQuery, TagIndex, TagValue, TagValueReader};
 
-use crate::util::{commit, index_mem};
+use crate::util::{commit_mem, index_mem};
 
-/// Drain a [`TagIndexIterator`] into its yielded keys, in iteration order.
-fn value_iter_keys(mut it: TagIndexIterator<'_>) -> Vec<Vec<u8>> {
+/// Drain a [`MemTagIndexIterator`] into its yielded keys, in iteration order.
+fn value_iter_keys(mut it: MemTagIndexIterator<'_>) -> Vec<Vec<u8>> {
     let mut keys: Vec<Vec<u8>> = Vec::new();
     while let Some((key, _)) = it.advance() {
         keys.push(key.to_vec());
@@ -27,7 +27,7 @@ fn value_iter_keys(mut it: TagIndexIterator<'_>) -> Vec<Vec<u8>> {
 /// Indexing a document registers each of its tags.
 #[test]
 fn indexing_registers_every_tag() {
-    let mut tag_index = TagIndex::new_in_memory(1, false);
+    let mut tag_index = TagIndex::new(1, false);
 
     let tags: &[&[u8]] = &[b"tag-1", b"tag-2"];
 
@@ -38,7 +38,7 @@ fn indexing_registers_every_tag() {
     assert_eq!(tags, values.as_slice());
 }
 
-/// A document write drives `index_in_memory` and `commit` from the same tag buffers, so
+/// A document write drives `index` and `commit` from the same tag buffers, so
 /// both must key on those bytes verbatim: the tag stays resolvable afterwards and
 /// the values trie, the suffix trie and iteration all agree on the key.
 ///
@@ -46,11 +46,11 @@ fn indexing_registers_every_tag() {
 /// between them could go unnoticed.
 #[test]
 fn index_and_commit_agree_on_the_key() {
-    let mut tag_index = TagIndex::new_in_memory(1, true);
+    let mut tag_index = TagIndex::new(1, true);
     let tags: &[&[u8]] = &[b"foo"];
 
     index_mem(&mut tag_index, tags, 1);
-    commit(&mut tag_index, tags);
+    commit_mem(&mut tag_index, tags);
 
     assert!(
         tag_index.find_value(b"foo").is_some(),
@@ -80,7 +80,7 @@ fn tag_value_reader_reads_every_posting_in_order() {
     // the reader cross a block boundary.
     const N: u64 = 1500;
 
-    let mut tag_index = TagIndex::new_in_memory(1, false);
+    let mut tag_index = TagIndex::new(1, false);
     for doc_id in 1..=N {
         index_mem(&mut tag_index, &[b"team"], doc_id);
     }
@@ -101,7 +101,7 @@ fn tag_value_reader_reads_every_posting_in_order() {
     );
 }
 
-/// The per-posting expiration bit round-trips: `index_in_memory` records
+/// The per-posting expiration bit round-trips: `index` records
 /// `has_field_expiration` for each document and the reader hands it back.
 ///
 /// That bit is what gates the TTL re-check on read — a clear bit means "no field
@@ -109,12 +109,12 @@ fn tag_value_reader_reads_every_posting_in_order() {
 /// through a tag query.
 #[test]
 fn field_expiration_flag_round_trips() {
-    let mut tag_index = TagIndex::new_in_memory(1, false);
+    let mut tag_index = TagIndex::new(1, false);
     let tags = &[TagValue::new(b"team").unwrap()];
 
     // Doc 1 has no TTL on this field; doc 2 does.
     for (doc_id, has_field_expiration) in [(1, false), (2, true)] {
-        tag_index.index_in_memory(tags, doc_id, has_field_expiration);
+        tag_index.index(tags, doc_id, has_field_expiration);
     }
 
     let ii = tag_index.find_value(b"team").expect("tag was indexed");
@@ -132,7 +132,7 @@ fn field_expiration_flag_round_trips() {
 /// Tags are yielded in lexicographical order, whatever the insertion order.
 #[test]
 fn iterate_values_is_lexicographically_ordered() {
-    let mut tag_index = TagIndex::new_in_memory(1, false);
+    let mut tag_index = TagIndex::new(1, false);
 
     let tags: &mut [&[u8]] = &mut [b"z", b"r", b"t", b"d", b"m", b"a"];
 
@@ -148,7 +148,7 @@ fn iterate_values_is_lexicographically_ordered() {
 /// order, and each yielded index is the one stored in the trie.
 #[test]
 fn iter_values_yields_the_stored_entries_in_order() {
-    let mut tag_index = TagIndex::new_in_memory(1, false);
+    let mut tag_index = TagIndex::new(1, false);
 
     let tags: &mut [&[u8]] = &mut [b"z", b"r", b"t", b"d", b"m", b"a"];
 
@@ -162,7 +162,6 @@ fn iter_values_yields_the_stored_entries_in_order() {
             tag, tags[seen],
             "entries should be yielded in lexicographical tag order"
         );
-        let ii = ii.expect("memory-mode iteration yields the stored inverted index");
         let found = tag_index.find_value(tag).expect("yielded tag is indexed");
         assert!(
             std::ptr::eq(ii, found),
@@ -176,7 +175,7 @@ fn iter_values_yields_the_stored_entries_in_order() {
 /// An empty index yields no entries.
 #[test]
 fn iter_values_on_empty_index_yields_nothing() {
-    let tag_index = TagIndex::new_in_memory(1, false);
+    let tag_index = TagIndex::new(1, false);
     assert!(tag_index.value_iter().advance().is_none());
 }
 
@@ -185,7 +184,7 @@ fn iter_values_on_empty_index_yields_nothing() {
 /// bytes.
 #[test]
 fn reindexing_the_same_document_is_a_no_op() {
-    let mut tag_index = TagIndex::new_in_memory(1, false);
+    let mut tag_index = TagIndex::new(1, false);
     let tags: &[&[u8]] = &[b"hello", b"world", b"foo"];
 
     let first = index_mem(&mut tag_index, tags, 1);
@@ -210,7 +209,7 @@ fn n_tags_and_record_count_track_the_writes() {
     #[cfg(miri)]
     const N: u64 = 20;
 
-    let mut tag_index = TagIndex::new_in_memory(1, false);
+    let mut tag_index = TagIndex::new(1, false);
     let tags: &[&[u8]] = &[b"hello", b"world", b"foo"];
 
     let mut total_records = 0u32;
@@ -226,11 +225,11 @@ fn n_tags_and_record_count_track_the_writes() {
 /// `["foo", "foo", "bar"]` yields two records and two unique values.
 #[test]
 fn intra_document_duplicate_tag_counted_once() {
-    let mut tag_index = TagIndex::new_in_memory(1, false);
+    let mut tag_index = TagIndex::new(1, false);
     let tags: &[&[u8]] = &[b"foo", b"foo", b"bar"];
 
     let delta = index_mem(&mut tag_index, tags, 1);
-    commit(&mut tag_index, tags);
+    commit_mem(&mut tag_index, tags);
 
     assert_eq!(delta.num_records, 2, "the duplicate `foo` is counted once");
     assert_eq!(tag_index.n_tags(), 2);
@@ -251,7 +250,7 @@ fn size_and_block_accounting_matches_reported_memory() {
     // each tag's posting list spill into more than one block.
     const N: u64 = 2500;
 
-    let mut tag_index = TagIndex::new_in_memory(1, false);
+    let mut tag_index = TagIndex::new(1, false);
     let tags: &[&[u8]] = &[b"hello", b"world", b"foo"];
 
     let first = index_mem(&mut tag_index, tags, 1);

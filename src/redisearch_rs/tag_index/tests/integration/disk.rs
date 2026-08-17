@@ -21,10 +21,10 @@
 use std::ptr::NonNull;
 
 use lending_iterator::LendingIterator;
-use tag_index::{IterMode, TagIndex, TagIndexIterator};
+use tag_index::{DiskTagIndexIterator, IterMode, OnDiskMode, TagIndex};
 use trie_rs::iter::{RangeBoundary, RangeFilter};
 
-use crate::util::commit;
+use crate::util::{commit_disk, commit_mem};
 
 /// Collect the keys yielded by a lending iterator over `(key, value)` pairs.
 macro_rules! collect_keys {
@@ -38,10 +38,10 @@ macro_rules! collect_keys {
     }};
 }
 
-/// Drain a [`TagIndexIterator`] into its yielded keys, in iteration order.
-fn value_iter_keys(mut it: TagIndexIterator<'_>) -> Vec<Vec<u8>> {
+/// Drain a [`DiskTagIndexIterator`] into its yielded keys, in iteration order.
+fn value_iter_keys(mut it: DiskTagIndexIterator<'_>) -> Vec<Vec<u8>> {
     let mut keys: Vec<Vec<u8>> = Vec::new();
-    while let Some((key, _)) = it.advance() {
+    while let Some(key) = it.advance() {
         keys.push(key.to_vec());
     }
     keys
@@ -49,7 +49,7 @@ fn value_iter_keys(mut it: TagIndexIterator<'_>) -> Vec<Vec<u8>> {
 
 /// Build a disk-mode index over a dangling spec pointer, the single place these
 /// tests discharge [`TagIndex::new_on_disk`]'s contract.
-fn fake_disk_index(with_suffix: bool) -> TagIndex {
+fn fake_disk_index(with_suffix: bool) -> TagIndex<OnDiskMode> {
     // SAFETY: these tests drive only the paths that never dereference the spec
     // (see the module docs), so a dangling but well-aligned pointer is enough.
     unsafe { TagIndex::new_on_disk(1, NonNull::dangling(), 0, with_suffix) }
@@ -57,17 +57,17 @@ fn fake_disk_index(with_suffix: bool) -> TagIndex {
 
 /// Build a disk-mode index and register `tags` through `commit` (the phase-3
 /// path).
-fn disk_index_with_tags(tags: &[&[u8]], with_suffix: bool) -> TagIndex {
+fn disk_index_with_tags(tags: &[&[u8]], with_suffix: bool) -> TagIndex<OnDiskMode> {
     let mut idx = fake_disk_index(with_suffix);
-    commit(&mut idx, tags);
+    commit_disk(&mut idx, tags);
     idx
 }
 
-/// `new_on_disk` selects disk mode.
+/// `new_on_disk` selects disk mode. The ascription is the assertion: the mode is
+/// part of the type, so this would not compile for a memory-mode index.
 #[test]
 fn new_on_disk_means_disk_mode() {
-    let idx = fake_disk_index(false);
-    assert!(idx.disk_mode());
+    let _: TagIndex<OnDiskMode> = fake_disk_index(false);
 }
 
 /// `commit` counts every committed tag value (disk postings are written during
@@ -77,7 +77,7 @@ fn new_on_disk_means_disk_mode() {
 fn commit_counts_records_and_registers_presence() {
     let mut idx = fake_disk_index(false);
 
-    let n = commit(&mut idx, &[b"foo", b"bar", b"foo"]);
+    let n = commit_disk(&mut idx, &[b"foo", b"bar", b"foo"]);
     assert_eq!(n, 3, "disk commit counts every committed tag value");
 
     // The duplicate `foo` collapses to a single trie entry.
@@ -96,7 +96,7 @@ fn commit_counts_records_and_registers_presence() {
 #[test]
 fn commit_indexes_the_empty_tag() {
     let mut idx = fake_disk_index(false);
-    let n = commit(&mut idx, &[b""]);
+    let n = commit_disk(&mut idx, &[b""]);
     assert_eq!(n, 1);
     let values = value_iter_keys(idx.value_iter());
     assert_eq!(values, vec![Vec::<u8>::new()]);
@@ -105,8 +105,8 @@ fn commit_indexes_the_empty_tag() {
 /// In memory mode `commit` reports no records — they are counted at index time.
 #[test]
 fn memory_commit_reports_no_records() {
-    let mut idx = TagIndex::new_in_memory(1, false);
-    assert_eq!(commit(&mut idx, &[b"foo", b"bar"]), 0);
+    let mut idx = TagIndex::new(1, false);
+    assert_eq!(commit_mem(&mut idx, &[b"foo", b"bar"]), 0);
 }
 
 /// Disk-mode prefix iteration yields only the matching tag keys.
@@ -168,7 +168,7 @@ fn disk_range_iteration_yields_keys_in_range() {
             is_included: true,
         }),
     };
-    let keys = collect_keys!(idx.disk_range_iter_values(filter));
+    let keys = collect_keys!(idx.range_iter_values(filter));
     assert_eq!(keys, [b"b".to_vec(), b"c".to_vec()]);
 }
 

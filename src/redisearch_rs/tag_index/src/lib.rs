@@ -9,14 +9,19 @@
 
 //! [`TagIndex`] is an index that indexes textual tags for documents.
 //!
-//! It supports two storage modes, chosen by the constructor used
-//! ([`TagIndex::new_in_memory`] or [`TagIndex::new_on_disk`]):
+//! It supports two storage modes. The mode is chosen by the constructor used
+//! ([`TagIndex::new_in_memory`] or [`TagIndex::new_on_disk`]) and, since it never
+//! changes afterwards, it is carried in the type — `TagIndex<`[`InMemoryMode`]`>`
+//! or `TagIndex<`[`OnDiskMode`]`>` — rather than in a runtime discriminant. Each
+//! mode owns the values trie in the shape it needs, and a method that only makes
+//! sense in one mode lives in that mode's `impl` block, so reaching for it in the
+//! other mode is a compile error rather than a panic.
 //!
 //! - **Memory mode** keeps the per-tag posting lists (document ids) inline in
 //!   the values trie.
 //! - **Disk mode** keeps the postings on disk behind the
 //!   `SearchDisk_*` API; the values trie holds only tag *presence* sentinels.
-//!   Writes stage onto a disk write batch ([`TagIndex::index_on_disk`]), reads open a
+//!   Writes stage onto a disk write batch ([`TagIndex::index`]), reads open a
 //!   disk iterator ([`TagIndex::open_reader`]), and query expansion still walks
 //!   the presence trie for matching keys before opening each reader by string.
 //!
@@ -30,7 +35,8 @@
 //! the readers and the value iterators — works off the length, so that is all
 //! they need.
 //!
-//! [`TagIndex::index_on_disk`] is the one exception, and takes `&CStr` instead:
+//! Disk-mode indexing ([`TagIndex::index`] on [`OnDiskMode`]) is the one
+//! exception, and takes `&CStr` instead:
 //! `SearchDisk_IndexTags` receives the tags as a `const char **` with a count
 //! and no per-string length array, so `strlen` is the only way its
 //! (closed-source) implementation can find where each tag ends. `&CStr` is
@@ -141,7 +147,10 @@
 mod iter;
 mod suffix;
 
-pub use iter::{IterMode, TagIndexIterator, TagValueReader};
+pub use iter::{
+    DiskTagIndexIterator, IterMode, MemTagIndexIterator, SuffixEntryIterator, TagIndexIterator,
+    TagValueReader,
+};
 
 // Force-link the umbrella `redisearch_rs` crate so its `#[used]` symbol table keeps the
 // Rust FFI functions that the linked C code (`libredisearch_c_bundle`) calls back into, and
@@ -182,10 +191,7 @@ use rqe_wildcard::{MatchOutcome, WildcardPattern};
 pub(crate) use suffix::{SuffixData, TagSuffixIndex};
 use trie_rs::{
     TrieMap,
-    iter::{
-        ContainsLendingIter, LendingIter, RangeFilter, RangeLendingIter, WildcardLendingIter,
-        filter::VisitAll,
-    },
+    iter::{LendingIter, RangeFilter, RangeLendingIter, filter::VisitAll},
 };
 
 /// A tag value: borrowed bytes guaranteed to contain no interior NUL byte — see
@@ -210,35 +216,53 @@ impl<'a> TagValue<'a> {
     }
 }
 
-/// Identifies the way the data is stored
-enum TagIndexMode {
-    /// If the postings (doc_ids) are kept in memory
-    InMemory {
-        /// tag value -> document ids.
-        values: TrieMap<Box<InvertedIndex<DocIdsOnly>>>,
-    },
-    /// If the postings (doc_ids) are kept on disk
-    Disk {
-        /// tag value -> (). It is used only to know whether a tag is there
-        values: TrieMap<()>,
-        /// Field id
-        field_id: t_fieldIndex,
-        /// Disk Index spec, valid for as long as this index lives — the
-        /// invariant [`TagIndex::new_on_disk`] establishes.
-        disk_index_spec: NonNull<RedisSearchDiskIndexSpec>,
-    },
+mod sealed {
+    pub trait Sealed {}
 }
 
+/// The way a [`TagIndex`] stores its postings, as a type rather than a runtime
+/// discriminant: a mode is chosen at construction and never changes, so it
+/// parameterizes the index instead of being matched on.
+///
+/// This trait is sealed — only [`InMemoryMode`] and [`OnDiskMode`] implement it —
+/// and deliberately carries nothing: each mode owns the values trie in the shape
+/// that mode needs, so methods available in one mode only live in that mode's
+/// `impl` block rather than panicking in the other.
+pub trait TagIndexMode: sealed::Sealed {}
+
+/// Postings (doc_ids) kept in memory.
+pub struct InMemoryMode {
+    /// tag value -> document ids.
+    values: TrieMap<Box<InvertedIndex<DocIdsOnly>>>,
+}
+
+impl sealed::Sealed for InMemoryMode {}
+impl TagIndexMode for InMemoryMode {}
+
+/// Postings (doc_ids) kept on disk behind the RSE API.
+pub struct OnDiskMode {
+    /// tag value -> (). It is used only to know whether a tag is there
+    values: TrieMap<()>,
+    /// Field id
+    field_id: t_fieldIndex,
+    /// Disk Index spec, valid for as long as this index lives.
+    disk_index_spec: NonNull<RedisSearchDiskIndexSpec>,
+}
+
+impl sealed::Sealed for OnDiskMode {}
+impl TagIndexMode for OnDiskMode {}
+
 /// See the [crate documentation](self) for an overview.
-pub struct TagIndex {
+pub struct TagIndex<M: TagIndexMode> {
     /// Unique id generated at creation time.
     unique_id: u32,
 
     /// Suffix index, present only for fields created `WITHSUFFIXTRIE`.
     suffix: Option<TagSuffixIndex>,
 
-    /// The mode: in memory / disk
-    mode: TagIndexMode,
+    /// The storage mode, owning the values trie and whatever else that mode
+    /// needs. [`InMemoryMode`] is zero-sized, so memory mode pays nothing for it.
+    mode: M,
 }
 
 /// Deltas produced by writing a document's tag postings, to fold into the
@@ -295,55 +319,9 @@ fn write_postings(
     delta
 }
 
-impl TagIndex {
-    /// Create a new, empty index keeping its postings in memory.
-    ///
-    /// - `id` uniquely identifies this index.
-    /// - `with_suffix` enables the [suffix index](TagSuffixIndex)
-    ///   (`WITHSUFFIXTRIE`), so suffix (`*foo`) and contains (`*foo*`)
-    ///   queries don't have to scan the whole tag trie.
-    pub fn new_in_memory(id: u32, with_suffix: bool) -> Self {
-        Self::with_mode(
-            id,
-            with_suffix,
-            TagIndexMode::InMemory {
-                values: TrieMap::new(),
-            },
-        )
-    }
-
-    /// Create a new, empty index keeping its postings on disk.
-    ///
-    /// `disk_spec` is paired with `field_id`, the field index the disk API
-    /// calls need. `id` and `with_suffix` are as in
-    /// [`new_in_memory`](Self::new_in_memory).
-    ///
-    /// # Safety
-    ///
-    /// `disk_spec` must point to a [valid] [`RedisSearchDiskIndexSpec`] that
-    /// remains valid for the lifetime of the returned [`TagIndex`]: the disk
-    /// paths hand it to the `SearchDisk_*` API, which dereferences it.
-    ///
-    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-    pub unsafe fn new_on_disk(
-        id: u32,
-        disk_spec: NonNull<RedisSearchDiskIndexSpec>,
-        field_id: t_fieldIndex,
-        with_suffix: bool,
-    ) -> Self {
-        Self::with_mode(
-            id,
-            with_suffix,
-            TagIndexMode::Disk {
-                values: TrieMap::new(),
-                field_id,
-                disk_index_spec: disk_spec,
-            },
-        )
-    }
-
-    /// The part of construction both constructors share.
-    fn with_mode(id: u32, with_suffix: bool, mode: TagIndexMode) -> Self {
+impl<M: TagIndexMode> TagIndex<M> {
+    /// The part of construction every mode's constructor shares.
+    fn with_mode(id: u32, with_suffix: bool, mode: M) -> Self {
         Self {
             unique_id: id,
             suffix: with_suffix.then(TagSuffixIndex::new),
@@ -361,323 +339,24 @@ impl TagIndex {
         self.suffix.is_some()
     }
 
-    /// Returns `true` if the postings are backed by disk.
-    pub const fn disk_mode(&self) -> bool {
-        matches!(self.mode, TagIndexMode::Disk { .. })
-    }
-
-    /// How many distinct tags the index holds.
-    pub const fn n_tags(&self) -> usize {
-        match &self.mode {
-            TagIndexMode::InMemory { values } => values.n_unique_keys(),
-            TagIndexMode::Disk { values, .. } => values.n_unique_keys(),
+    /// Bytes the [suffix index](TagSuffixIndex) occupies, or `0` when the index was
+    /// created without `WITHSUFFIXTRIE`. Each mode adds this to its own values trie.
+    const fn suffix_mem_usage(&self) -> usize {
+        match &self.suffix {
+            Some(suffix) => suffix.mem_usage(),
+            None => 0,
         }
     }
 
-    /// Index `doc_id` under each tag in `tags`, writing the postings inline into
-    /// the per-tag inverted index.
-    ///
-    /// Returns the [`WritePostingsDelta`] the caller folds into the spec
-    /// statistics (records, memory, blocks). This always succeeds.
-    ///
-    /// `has_field_expiration` records whether this document carries a TTL on the
-    /// field being indexed. It is stored per posting as
-    /// [`RSIndexResult::has_field_expiration`] and gates the TTL re-check
-    /// performed on read.
-    ///
-    /// # Panics
-    /// Panics on a disk-mode index; use [`index_on_disk`](Self::index_on_disk).
-    pub fn index_in_memory(
-        &mut self,
-        tags: &[TagValue<'_>],
-        doc_id: DocId,
-        has_field_expiration: bool,
-    ) -> WritePostingsDelta {
-        let TagIndexMode::InMemory { values } = &mut self.mode else {
-            unimplemented!("index_in_memory requires memory mode: use index_on_disk in disk mode")
+    /// Register `tags` in the [suffix index](TagSuffixIndex), when enabled: the part
+    /// of `commit` that does not depend on where the postings live.
+    fn add_tags_to_suffix(&mut self, tags: &[TagValue<'_>]) {
+        let Some(suffix) = &mut self.suffix else {
+            return;
         };
-
-        write_postings(values, tags, doc_id, has_field_expiration)
-    }
-
-    /// Stage `doc_id`'s postings for each tag in `tags` onto `batch`, committed
-    /// later by `commitDocument`.
-    ///
-    /// Returns whether the disk write succeeded. There is no delta to fold into
-    /// the spec statistics: the record count is tallied in
-    /// [`commit`](Self::commit).
-    ///
-    /// Takes `&CStr` rather than [`TagValue`] because the disk API is given the
-    /// tags as a `const char **` with no length array, so each one has to be a
-    /// real C string — see the crate-level "Tag bytes" docs. There is no
-    /// `has_field_expiration` counterpart to the memory-mode write: the disk
-    /// backend takes no such flag.
-    ///
-    /// # Panics
-    /// Panics on a memory-mode index; use
-    /// [`index_in_memory`](Self::index_in_memory).
-    ///
-    /// # Safety
-    ///
-    /// `ctx` and `batch` must be the valid disk write context and batch handle
-    /// for the ongoing document write.
-    pub unsafe fn index_on_disk(
-        &mut self,
-        ctx: *const RedisModuleCtx,
-        batch: *const SearchDiskWriteBatchHandle,
-        tags: &[&CStr],
-        doc_id: DocId,
-    ) -> bool {
-        let TagIndexMode::Disk {
-            field_id,
-            disk_index_spec,
-            ..
-        } = &mut self.mode
-        else {
-            unimplemented!("index_on_disk requires disk mode: use index_in_memory in memory mode")
-        };
-
-        if tags.is_empty() {
-            return true;
-        }
-        debug_assert!(!ctx.is_null(), "disk-mode indexing needs a write context");
-        debug_assert!(
-            !batch.is_null(),
-            "disk-mode indexing needs a disk write batch"
-        );
-
-        let mut value_ptrs: Vec<*const c_char> = tags.iter().map(|tag| tag.as_ptr()).collect();
-        // SAFETY: `disk_index_spec` is a valid `RedisSearchDiskIndexSpec`
-        // (invariant from `new_on_disk`); the caller's contract covers
-        // `ctx`/`batch`; and every pointer in `value_ptrs` addresses a
-        // NUL-terminated string, borrowed for the duration of the call.
-        unsafe {
-            ffi::SearchDisk_IndexTags(
-                ctx.cast_mut(),
-                disk_index_spec.as_ptr(),
-                batch.cast_mut(),
-                value_ptrs.as_mut_ptr(),
-                value_ptrs.len(),
-                doc_id,
-                *field_id,
-            )
-        }
-    }
-
-    /// Apply the per-tag metadata updates after the indexing phase
-    /// of a document write: register the tags in the values trie (disk mode
-    /// only) and in the
-    /// [suffix index](TagSuffixIndex), when enabled.
-    ///
-    /// Returns the number of records to fold into the spec statistics: in disk
-    /// mode the postings are written to disk during this phase, so the
-    /// committed tag values are counted here; in memory mode they were already
-    /// counted by [`index_in_memory`](Self::index_in_memory), so `0` is returned.
-    pub fn commit(&mut self, tags: &[TagValue<'_>]) -> u32 {
-        let disk = self.disk_mode();
         for tag in tags {
-            if let TagIndexMode::Disk { values, .. } = &mut self.mode {
-                values.insert(tag.as_bytes(), ());
-            }
-            if let Some(suffix) = &mut self.suffix {
-                suffix.add(*tag);
-            }
+            suffix.add(*tag);
         }
-        if disk { tags.len() as u32 } else { 0 }
-    }
-
-    /// Create a [`Tag`] iterator over the documents matching the given tag,
-    /// reading from `ii`.
-    ///
-    /// `ii` is the inverted index already resolved for `tag` (e.g. while
-    /// iterating the values trie), so no lookup is performed at construction
-    /// time. The tag is still looked up again on every revalidation, to detect
-    /// that the garbage collector removed or replaced the inverted index.
-    ///
-    /// `lookup` is the handle the iterator revalidates through;
-    ///
-    /// Returns `None` when `ii` holds no documents.
-    ///
-    /// # Panics
-    /// Panics on a disk-mode index: the postings live on disk, so there is no
-    /// in-memory inverted index to build a reader over.
-    ///
-    /// # Safety
-    ///
-    /// 1. `self` must outlive the returned iterator, and must not be mutated
-    ///    while the iterator is in use except under the standard revalidation
-    ///    protocol.
-    /// 2. `ii` must be the inverted index currently stored in this index's
-    ///    values trie for `tag`.
-    /// 3. `sctx` and `sctx.spec` must be valid and outlive the returned
-    ///    iterator.
-    /// 4. `lookup` must hold a `self` reference.
-    pub unsafe fn iterator_for_tag<'ii>(
-        &self,
-        sctx: NonNull<RedisSearchCtx>,
-        tag: &[u8],
-        ii: &'ii InvertedIndex<DocIdsOnly>,
-        weight: f64,
-        field_index: t_fieldIndex,
-        lookup: TrieLookup,
-    ) -> Option<Tag<'ii, DocIdsOnly, TrieLookup, FieldExpirationChecker>> {
-        let TagIndexMode::InMemory { values } = &self.mode else {
-            unimplemented!()
-        };
-
-        if ii.unique_docs() == 0 {
-            return None;
-        }
-
-        // Same identity check as `gc`: the caller must hand us the trie's
-        // current value for this tag.
-        debug_assert!(
-            values
-                .find(tag)
-                .map(Box::as_ref)
-                .is_some_and(|v| std::ptr::eq(v, ii)),
-            "ii must be the inverted index currently stored for tag"
-        );
-
-        // SAFETY: contracts 1 to 4 are exactly `get_reader`'s four
-        // pre-conditions, and this function's caller upholds them.
-        Some(unsafe { self.get_reader(sctx, ii, tag, weight, field_index, lookup) })
-    }
-
-    /// Iterate over all `(tag, inverted index)` entries, in lexicographical
-    /// order of the tag.
-    pub(crate) fn iter(&self) -> LendingIter<'_, Box<InvertedIndex<DocIdsOnly>>, VisitAll> {
-        let TagIndexMode::InMemory { values } = &self.mode else {
-            unimplemented!()
-        };
-        values.lending_iter()
-    }
-
-    /// Iterate over the `(tag, inverted index)` entries whose tag starts with
-    /// `prefix`, in lexicographical order of the tag.
-    pub(crate) fn iter_prefix(
-        &self,
-        prefix: &[u8],
-    ) -> LendingIter<'_, Box<InvertedIndex<DocIdsOnly>>, VisitAll> {
-        let TagIndexMode::InMemory { values } = &self.mode else {
-            unimplemented!()
-        };
-        values.prefixed_lending_iter(prefix)
-    }
-
-    /// Iterate over the `(tag, inverted index)` entries whose tag contains
-    /// `fragment`, in lexicographical order of the tag.
-    pub(crate) fn contains_iter_values<'tm, 't>(
-        &'tm self,
-        fragment: &'t [u8],
-    ) -> ContainsLendingIter<'tm, 't, Box<InvertedIndex<DocIdsOnly>>> {
-        let TagIndexMode::InMemory { values } = &self.mode else {
-            unimplemented!()
-        };
-        values.contains_iter(fragment).into()
-    }
-
-    /// Iterate over the `(tag, inverted index)` entries whose tag matches the
-    /// wildcard `pattern` (`*` and `?` metacharacters), in lexicographical
-    /// order of the tag.
-    pub(crate) fn wildcard_iter_values<'tm, 'p>(
-        &'tm self,
-        pattern: &'p [u8],
-    ) -> WildcardLendingIter<'tm, 'p, Box<InvertedIndex<DocIdsOnly>>> {
-        let TagIndexMode::InMemory { values } = &self.mode else {
-            unimplemented!()
-        };
-        values.wildcard_iter(WildcardPattern::parse(pattern)).into()
-    }
-
-    /// Iterate over the `(tag, inverted index)` entries whose tag falls within
-    /// `filter`'s boundaries, in lexicographical order of the tag.
-    ///
-    /// # Panics
-    /// Panics on a disk-mode index, which has no in-memory postings to yield.
-    pub fn range_iter_values<'tm, 'f>(
-        &'tm self,
-        filter: RangeFilter<'f>,
-    ) -> RangeLendingIter<'tm, 'f, Box<InvertedIndex<DocIdsOnly>>> {
-        let TagIndexMode::InMemory { values } = &self.mode else {
-            unimplemented!()
-        };
-        values.range_iter(filter).into()
-    }
-
-    // --- Disk-mode value-trie iterators ---------------------------------
-    //
-    // In disk mode the values trie holds only tag *presence* (`()`), the
-    // postings living on disk. Query expansion (prefix / contains / wildcard /
-    // lex-range / suffix) and `FT.TAGVALS` still walk this trie for the
-    // matching tag *keys*, then open each reader by tag string via the disk
-    // API.
-
-    /// Disk-mode counterpart of [`iter`](Self::iter).
-    ///
-    /// # Panics
-    /// Panics on a memory-mode index;
-    pub(crate) fn disk_iter_values(&self) -> LendingIter<'_, (), VisitAll> {
-        let TagIndexMode::Disk { values, .. } = &self.mode else {
-            unimplemented!()
-        };
-        values.lending_iter()
-    }
-
-    /// Disk-mode counterpart of
-    /// [`iter_prefix`](Self::iter_prefix).
-    ///
-    /// # Panics
-    /// Panics on a memory-mode index;
-    pub(crate) fn disk_prefixed_iter_values(&self, prefix: &[u8]) -> LendingIter<'_, (), VisitAll> {
-        let TagIndexMode::Disk { values, .. } = &self.mode else {
-            unimplemented!()
-        };
-        values.prefixed_lending_iter(prefix)
-    }
-
-    /// Disk-mode counterpart of
-    /// [`contains_iter_values`](Self::contains_iter_values).
-    ///
-    /// # Panics
-    /// Panics on a memory-mode index;
-    pub(crate) fn disk_contains_iter_values<'tm, 't>(
-        &'tm self,
-        fragment: &'t [u8],
-    ) -> ContainsLendingIter<'tm, 't, ()> {
-        let TagIndexMode::Disk { values, .. } = &self.mode else {
-            unimplemented!()
-        };
-        values.contains_iter(fragment).into()
-    }
-
-    /// Disk-mode counterpart of
-    /// [`wildcard_iter_values`](Self::wildcard_iter_values).
-    ///
-    /// # Panics
-    /// Panics on a memory-mode index;
-    pub(crate) fn disk_wildcard_iter_values<'tm, 'p>(
-        &'tm self,
-        pattern: &'p [u8],
-    ) -> WildcardLendingIter<'tm, 'p, ()> {
-        let TagIndexMode::Disk { values, .. } = &self.mode else {
-            unimplemented!()
-        };
-        values.wildcard_iter(WildcardPattern::parse(pattern)).into()
-    }
-
-    /// Disk-mode counterpart of [`range_iter_values`](Self::range_iter_values).
-    ///
-    /// # Panics
-    /// Panics on a memory-mode index;
-    pub fn disk_range_iter_values<'tm, 'f>(
-        &'tm self,
-        filter: RangeFilter<'f>,
-    ) -> RangeLendingIter<'tm, 'f, ()> {
-        let TagIndexMode::Disk { values, .. } = &self.mode else {
-            unimplemented!()
-        };
-        values.range_iter(filter).into()
     }
 
     /// Iterate over all the entries of the [suffix index](TagSuffixIndex), in
@@ -685,225 +364,6 @@ impl TagIndex {
     /// created without `WITHSUFFIXTRIE`.
     pub(crate) fn iter_suffix_entries(&self) -> Option<LendingIter<'_, SuffixData, VisitAll>> {
         self.suffix.as_ref().map(TagSuffixIndex::lending_iter)
-    }
-
-    /// Apply a garbage-collection `delta` (computed by a fork GC scan) to the
-    /// inverted index stored for `tag`. If no document is left afterwards,
-    /// the tag is dropped from the values trie and from the
-    /// [suffix index](TagSuffixIndex), when enabled.
-    ///
-    /// `value` is the inverted index the GC scan ran against: when the tag
-    /// was removed or its index replaced in the meantime, the delta is stale
-    /// and `None` is returned without applying anything.
-    ///
-    /// On success, returns the [`GcApplyInfo`] describing the applied changes.
-    /// Its [`bytes_freed`](GcApplyInfo::bytes_freed) and
-    /// [`block_count_delta`](GcApplyInfo::block_count_delta) already account for
-    /// the whole posting list being dropped when the tag became empty.
-    ///
-    /// # Panics
-    /// Panics on a disk-mode index;
-    pub fn gc(
-        &mut self,
-        tag: &[u8],
-        value: *const InvertedIndex<DocIdsOnly>,
-        delta: GcScanDelta,
-    ) -> Option<GcApplyInfo> {
-        let TagIndexMode::InMemory { values } = &mut self.mode else {
-            unreachable!("tag GC runs only in memory mode; disk uses GCPolicy_Disk");
-        };
-        let ii = values.find_mut(tag)?;
-        // The posting list is boxed, so its heap address is stable across trie
-        // restructuring; comparing it against the pointer the child scanned
-        // detects the tag being removed or its index replaced meanwhile.
-        if !std::ptr::eq(&**ii as *const InvertedIndex<DocIdsOnly>, value) {
-            return None;
-        }
-
-        let mut info = ii.apply_gc(delta);
-
-        if ii.unique_docs() == 0 {
-            info.bytes_freed += ii.memory_usage();
-            info.block_count_delta -= ii.number_of_blocks() as i64;
-
-            self.remove_tag_value(tag);
-
-            if let Some(suffix) = &mut self.suffix
-                && !tag.is_empty()
-            {
-                suffix.delete(tag);
-            }
-        }
-
-        Some(info)
-    }
-
-    /// Remove `tag` (and its postings) from the values trie.
-    ///
-    /// # Panics
-    /// Panics on a disk-mode index;
-    fn remove_tag_value(&mut self, tag: &[u8]) {
-        let TagIndexMode::InMemory { values } = &mut self.mode else {
-            unreachable!("tag deletion runs only in memory mode; disk uses GCPolicy_Disk");
-        };
-        values.remove(tag);
-    }
-
-    /// Create a [`NewTagIterator`] over the documents matching `tag`, or `None`
-    /// when the tag is absent or holds no documents.
-    ///
-    /// In memory mode the tag is resolved in the values trie and the postings are
-    /// read inline. In disk mode the reader is built through the disk API, keyed by
-    /// the tag string, and filters on the caller's `field_index` rather than the
-    /// field recorded at write time.
-    ///
-    /// `lookup` is only used by the memory-mode iterator, which revalidates by
-    /// re-resolving the tag in the values trie. The disk backend owns its reader
-    /// and revalidates it itself, so the disk branch drops `lookup` unused.
-    ///
-    /// Returns `Err` when the disk backend fails to build its iterator.
-    ///
-    /// # Panics
-    ///
-    /// In disk mode, if [`SEARCH_ENTERPRISE_ITERATORS`] is not initialized.
-    ///
-    /// # Safety
-    ///
-    /// 1. `self` must outlive the returned iterator, and must not be mutated
-    ///    while it is in use except under the standard revalidation protocol.
-    ///    The memory-mode iterator is the one
-    ///    [`iterator_for_tag`](Self::iterator_for_tag) builds and
-    ///    shares its contract;
-    /// 2. `sctx` and `sctx.spec` must be valid and outlive the returned iterator.
-    /// 3. `lookup` must resolve `self`, checked by a `debug_assert!` in
-    ///    [`get_reader`](Self::get_reader).
-    /// 4. In disk mode, `sctx.diskSnapshot` must be a non-null
-    ///    [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot) handle for
-    ///    this index's disk spec, valid for the duration of the call:
-    ///    [SearchEnterpriseIterators::new_tag_on_disk](rqe_iterators::SearchEnterpriseIterators::new_tag_on_disk) reads it off `sctx` and
-    ///    hands it to the disk backend.
-    pub unsafe fn open_reader(
-        &self,
-        sctx: NonNull<RedisSearchCtx>,
-        tag: &[u8],
-        weight: f64,
-        field_index: t_fieldIndex,
-        lookup: TrieLookup,
-    ) -> Result<Option<NewTagIterator<'_>>, Box<dyn std::error::Error>> {
-        match &self.mode {
-            TagIndexMode::Disk {
-                disk_index_spec, ..
-            } => {
-                // SAFETY: `sctx` is valid (contract 2).
-                let disk_snapshot = unsafe { sctx.as_ref() }.diskSnapshot;
-                debug_assert!(
-                    !disk_snapshot.is_null(),
-                    "disk-mode reads need a snapshot on the search context"
-                );
-                // SAFETY: contract 4 guarantees `sctx.diskSnapshot` is
-                // non-null, checked above in debug builds.
-                let snapshot = unsafe { NonNull::new_unchecked(disk_snapshot) };
-
-                // Postings live on disk: build the reader through the disk API,
-                // keyed by the tag string.
-                //
-                // SAFETY: `RSToken` is a plain-old-data `#[repr(C)]` struct
-                // whose all-zero bit pattern is a valid, unexpanded token; only
-                // `str`/`len` are then set.
-                let mut tok: RSToken = unsafe { std::mem::zeroed() };
-                tok.str_ = tag.as_ptr().cast::<c_char>().cast_mut();
-                tok.len = tag.len();
-
-                // SAFETY: caller guarantees `SEARCH_ENTERPRISE_ITERATORS` is
-                // initialized in disk mode (contract 5).
-                let enterprise_iters = SEARCH_ENTERPRISE_ITERATORS
-                    .get()
-                    .expect("SEARCH_ENTERPRISE_ITERATORS not initialized");
-                // SAFETY: `disk_index_spec` is a valid `RedisSearchDiskIndexSpec`
-                // (invariant from `new_on_disk`); `tok` borrows `tag` for the
-                // duration of the call; `snapshot` is the snapshot contract 4
-                // requires.
-                let disk_index_spec = unsafe { &mut *disk_index_spec.as_ptr() };
-                let it = enterprise_iters.new_tag_on_disk(
-                    disk_index_spec,
-                    &tok,
-                    field_index,
-                    weight,
-                    snapshot,
-                )?;
-                Ok(Some(NewTagIterator::Disk(it)))
-            }
-            TagIndexMode::InMemory { values } => match values.find(tag) {
-                None => Ok(None),
-                Some(ii) if ii.unique_docs() == 0 => Ok(None),
-                Some(ii) => {
-                    // SAFETY: `get_reader`'s contracts are this function's
-                    // contracts.
-                    let reader =
-                        unsafe { self.get_reader(sctx, ii, tag, weight, field_index, lookup) };
-                    Ok(Some(NewTagIterator::Mem(Box::new(reader))))
-                }
-            },
-        }
-    }
-
-    /// Build the [`Tag`] iterator reading `ii`'s postings for `tag`.
-    ///
-    /// # Safety
-    ///
-    /// 1. `self` must outlive the returned iterator, and may be mutated while it
-    ///    is alive only under the revalidation protocol described on
-    ///    [`iterator_for_tag`](Self::iterator_for_tag).
-    /// 2. `ii` must be the inverted index this index currently stores for `tag`.
-    /// 3. `sctx` and `sctx.spec` must be valid and outlive the returned iterator.
-    /// 4. `lookup` must resolve `self`.
-    unsafe fn get_reader<'ii>(
-        &self,
-        sctx: NonNull<RedisSearchCtx>,
-        ii: &'ii InvertedIndex<DocIdsOnly>,
-        tag: &[u8],
-        weight: f64,
-        field_index: t_fieldIndex,
-        lookup: TrieLookup,
-    ) -> Tag<'ii, DocIdsOnly, TrieLookup, FieldExpirationChecker> {
-        let term = RSQueryTerm::new_bytes(tag, 0, 0);
-
-        let filter_ctx = FieldFilterContext {
-            field: FieldMaskOrIndex::Index(field_index),
-            predicate: FieldExpirationPredicate::Default,
-        };
-        let reader = ii.reader();
-        // SAFETY: contract 3 guarantees sctx/spec validity for the checker's
-        // lifetime.
-        let checker = unsafe { FieldExpirationChecker::new(sctx, filter_ctx, reader.flags()) };
-
-        // Contract 4.
-        debug_assert!(
-            std::ptr::eq(
-                lookup.index_ptr().as_ptr().cast_const(),
-                std::ptr::from_ref(self)
-            ),
-            "lookup must resolve the index this reader reads from"
-        );
-
-        // SAFETY: contract 2 makes `reader` the current reader for `tag`,
-        // contract 3 guarantees `sctx` and `sctx.spec` are valid, and contract 4
-        // is `Tag::new`'s own requirement on `lookup`.
-        unsafe { Tag::new(reader, sctx, lookup, term, weight, checker) }
-    }
-
-    /// Bytes the index's tries occupy, as reported by `FT.INFO`: the values trie
-    /// plus the suffix trie, in both modes.
-    pub const fn mem_usage(&self) -> usize {
-        let mut size = match &self.mode {
-            TagIndexMode::InMemory { values } => values.mem_usage(),
-            TagIndexMode::Disk { values, .. } => values.mem_usage(),
-        };
-        if let Some(suffix) = &self.suffix {
-            size += suffix.mem_usage();
-        }
-
-        size
     }
 
     /// Expand a [`SuffixQuery`] against the [suffix index](TagSuffixIndex) into
@@ -976,41 +436,455 @@ impl TagIndex {
     }
 }
 
-/// The iterator [`TagIndex::open_reader`] returns, one variant per storage mode.
-pub enum NewTagIterator<'index> {
-    /// Memory mode: reads the tag's postings inline from the values trie.
-    Mem(Box<Tag<'index, DocIdsOnly, TrieLookup, FieldExpirationChecker>>),
-    /// Disk mode: delegates to the enterprise disk index iterator.
+impl TagIndex<InMemoryMode> {
+    /// Create a new, empty index keeping its postings in memory.
     ///
-    /// `Box<dyn _>` is what
-    /// [SearchEnterpriseIterators::new_tag_on_disk](rqe_iterators::SearchEnterpriseIterators::new_tag_on_disk)
-    /// returns.
-    Disk(Box<dyn RQEIteratorPrintable<'index> + 'index>),
+    /// - `id` uniquely identifies this index.
+    /// - `with_suffix` enables the [suffix index](TagSuffixIndex)
+    ///   (`WITHSUFFIXTRIE`), so suffix (`*foo`) and contains (`*foo*`)
+    ///   queries don't have to scan the whole tag trie.
+    pub fn new(id: u32, with_suffix: bool) -> Self {
+        Self::with_mode(
+            id,
+            with_suffix,
+            InMemoryMode {
+                values: TrieMap::new(),
+            },
+        )
+    }
+
+    /// How many distinct tags the index holds.
+    pub const fn n_tags(&self) -> usize {
+        self.mode.values.n_unique_keys()
+    }
+
+    /// Bytes the index's tries occupy, as reported by `FT.INFO`: the values trie
+    /// plus the suffix trie.
+    pub const fn mem_usage(&self) -> usize {
+        self.mode.values.mem_usage() + self.suffix_mem_usage()
+    }
+
+    /// Index `doc_id` under each tag in `tags`, writing the postings inline into
+    /// the per-tag inverted index.
+    ///
+    /// Returns the [`WritePostingsDelta`] the caller folds into the spec
+    /// statistics (records, memory, blocks). This always succeeds.
+    ///
+    /// `has_field_expiration` records whether this document carries a TTL on the
+    /// field being indexed. It is stored per posting as
+    /// [`RSIndexResult::has_field_expiration`] and gates the TTL re-check
+    /// performed on read.
+    pub fn index(
+        &mut self,
+        tags: &[TagValue<'_>],
+        doc_id: DocId,
+        has_field_expiration: bool,
+    ) -> WritePostingsDelta {
+        write_postings(&mut self.mode.values, tags, doc_id, has_field_expiration)
+    }
+
+    /// Apply the per-tag metadata updates after the indexing phase of a document
+    /// write: register the tags in the [suffix index](TagSuffixIndex), when enabled.
+    ///
+    /// Returns the number of records to fold into the spec statistics, always `0`:
+    /// the postings were written, and counted, by [`index`](Self::index). Disk mode
+    /// counts them here instead.
+    pub fn commit(&mut self, tags: &[TagValue<'_>]) -> u32 {
+        self.add_tags_to_suffix(tags);
+        0
+    }
+
+    /// Iterate over the `(tag, inverted index)` entries whose tag falls within
+    /// `filter`'s boundaries, in lexicographical order of the tag.
+    pub fn range_iter_values<'tm, 'f>(
+        &'tm self,
+        filter: RangeFilter<'f>,
+    ) -> RangeLendingIter<'tm, 'f, Box<InvertedIndex<DocIdsOnly>>> {
+        self.mode.values.range_iter(filter).into()
+    }
+
+    /// Create a [`Tag`] iterator over the documents matching the given tag,
+    /// reading from `ii`.
+    ///
+    /// `ii` is the inverted index already resolved for `tag` (e.g. while
+    /// iterating the values trie), so no lookup is performed at construction
+    /// time. The tag is still looked up again on every revalidation, to detect
+    /// that the garbage collector removed or replaced the inverted index.
+    ///
+    /// `lookup` is the handle the iterator revalidates through;
+    ///
+    /// Returns `None` when `ii` holds no documents.
+    ///
+    /// # Safety
+    ///
+    /// 1. `self` must outlive the returned iterator, and must not be mutated
+    ///    while the iterator is in use except under the standard revalidation
+    ///    protocol.
+    /// 2. `ii` must be the inverted index currently stored in this index's
+    ///    values trie for `tag`.
+    /// 3. `sctx` and `sctx.spec` must be valid and outlive the returned
+    ///    iterator.
+    /// 4. `lookup` must hold a `self` reference.
+    pub unsafe fn iterator_for_tag<'ii>(
+        &self,
+        sctx: NonNull<RedisSearchCtx>,
+        tag: &[u8],
+        ii: &'ii InvertedIndex<DocIdsOnly>,
+        weight: f64,
+        field_index: t_fieldIndex,
+        lookup: TrieLookup,
+    ) -> Option<Tag<'ii, DocIdsOnly, TrieLookup, FieldExpirationChecker>> {
+        if ii.unique_docs() == 0 {
+            return None;
+        }
+
+        // Same identity check as `gc`: the caller must hand us the trie's
+        // current value for this tag.
+        debug_assert!(
+            self.mode
+                .values
+                .find(tag)
+                .map(Box::as_ref)
+                .is_some_and(|v| std::ptr::eq(v, ii)),
+            "ii must be the inverted index currently stored for tag"
+        );
+
+        // SAFETY: contracts 1 to 4 are exactly `get_reader`'s four
+        // pre-conditions, and this function's caller upholds them.
+        Some(unsafe { self.get_reader(sctx, ii, tag, weight, field_index, lookup) })
+    }
+
+    /// Create an iterator over the documents matching `tag`, resolved in the values
+    /// trie, or `None` when the tag is absent or holds no documents.
+    ///
+    /// `lookup` is the handle the iterator revalidates through, by re-resolving the
+    /// tag in the values trie.
+    ///
+    /// # Safety
+    ///
+    /// 1. `self` must outlive the returned iterator, and must not be mutated while
+    ///    it is in use except under the standard revalidation protocol. This is the
+    ///    iterator [`iterator_for_tag`](Self::iterator_for_tag) builds, and shares
+    ///    its contract;
+    /// 2. `sctx` and `sctx.spec` must be valid and outlive the returned iterator.
+    /// 3. `lookup` must resolve `self`, checked by a `debug_assert!` in
+    ///    [`get_reader`](Self::get_reader).
+    pub unsafe fn open_reader(
+        &self,
+        sctx: NonNull<RedisSearchCtx>,
+        tag: &[u8],
+        weight: f64,
+        field_index: t_fieldIndex,
+        lookup: TrieLookup,
+    ) -> Option<Tag<'_, DocIdsOnly, TrieLookup, FieldExpirationChecker>> {
+        let ii = self.mode.values.find(tag)?;
+        if ii.unique_docs() == 0 {
+            return None;
+        }
+
+        // SAFETY: `get_reader`'s contracts are this function's contracts.
+        Some(unsafe { self.get_reader(sctx, ii, tag, weight, field_index, lookup) })
+    }
+
+    /// Build the [`Tag`] iterator reading `ii`'s postings for `tag`.
+    ///
+    /// # Safety
+    ///
+    /// 1. `self` must outlive the returned iterator, and may be mutated while it
+    ///    is alive only under the revalidation protocol described on
+    ///    [`iterator_for_tag`](Self::iterator_for_tag).
+    /// 2. `ii` must be the inverted index this index currently stores for `tag`.
+    /// 3. `sctx` and `sctx.spec` must be valid and outlive the returned iterator.
+    /// 4. `lookup` must resolve `self`.
+    unsafe fn get_reader<'ii>(
+        &self,
+        sctx: NonNull<RedisSearchCtx>,
+        ii: &'ii InvertedIndex<DocIdsOnly>,
+        tag: &[u8],
+        weight: f64,
+        field_index: t_fieldIndex,
+        lookup: TrieLookup,
+    ) -> Tag<'ii, DocIdsOnly, TrieLookup, FieldExpirationChecker> {
+        let term = RSQueryTerm::new_bytes(tag, 0, 0);
+
+        let filter_ctx = FieldFilterContext {
+            field: FieldMaskOrIndex::Index(field_index),
+            predicate: FieldExpirationPredicate::Default,
+        };
+        let reader = ii.reader();
+        // SAFETY: contract 3 guarantees sctx/spec validity for the checker's
+        // lifetime.
+        let checker = unsafe { FieldExpirationChecker::new(sctx, filter_ctx, reader.flags()) };
+
+        // Contract 4.
+        debug_assert!(
+            std::ptr::eq(
+                lookup.index_ptr().as_ptr().cast_const(),
+                std::ptr::from_ref(self)
+            ),
+            "lookup must resolve the index this reader reads from"
+        );
+
+        // SAFETY: contract 2 makes `reader` the current reader for `tag`,
+        // contract 3 guarantees `sctx` and `sctx.spec` are valid, and contract 4
+        // is `Tag::new`'s own requirement on `lookup`.
+        unsafe { Tag::new(reader, sctx, lookup, term, weight, checker) }
+    }
+
+    /// Apply a garbage-collection `delta` (computed by a fork GC scan) to the
+    /// inverted index stored for `tag`. If no document is left afterwards,
+    /// the tag is dropped from the values trie and from the
+    /// [suffix index](TagSuffixIndex), when enabled.
+    ///
+    /// `value` is the inverted index the GC scan ran against: when the tag
+    /// was removed or its index replaced in the meantime, the delta is stale
+    /// and `None` is returned without applying anything.
+    ///
+    /// On success, returns the [`GcApplyInfo`] describing the applied changes.
+    /// Its [`bytes_freed`](GcApplyInfo::bytes_freed) and
+    /// [`block_count_delta`](GcApplyInfo::block_count_delta) already account for
+    /// the whole posting list being dropped when the tag became empty.
+    pub fn gc(
+        &mut self,
+        tag: &[u8],
+        value: *const InvertedIndex<DocIdsOnly>,
+        delta: GcScanDelta,
+    ) -> Option<GcApplyInfo> {
+        let ii = self.mode.values.find_mut(tag)?;
+        // The posting list is boxed, so its heap address is stable across trie
+        // restructuring; comparing it against the pointer the child scanned
+        // detects the tag being removed or its index replaced meanwhile.
+        if !std::ptr::eq(&**ii as *const InvertedIndex<DocIdsOnly>, value) {
+            return None;
+        }
+
+        let mut info = ii.apply_gc(delta);
+
+        if ii.unique_docs() == 0 {
+            info.bytes_freed += ii.memory_usage();
+            info.block_count_delta -= ii.number_of_blocks() as i64;
+
+            self.remove_tag_value(tag);
+
+            if let Some(suffix) = &mut self.suffix
+                && !tag.is_empty()
+            {
+                suffix.delete(tag);
+            }
+        }
+
+        Some(info)
+    }
+
+    /// Remove `tag` (and its postings) from the values trie.
+    fn remove_tag_value(&mut self, tag: &[u8]) {
+        self.mode.values.remove(tag);
+    }
+}
+
+impl TagIndex<OnDiskMode> {
+    /// Create a new, empty index keeping its postings on disk.
+    ///
+    /// `disk_spec` is paired with `field_id`, the field index the disk API
+    /// calls need. `id` and `with_suffix` are as in
+    /// [`new_in_memory`](Self::new_in_memory).
+    ///
+    /// # Safety
+    ///
+    /// `disk_spec` must point to a [valid] [`RedisSearchDiskIndexSpec`] that
+    /// remains valid for the lifetime of the returned [`TagIndex`]: the disk
+    /// paths hand it to the `SearchDisk_*` API, which dereferences it.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+    pub unsafe fn new_on_disk(
+        id: u32,
+        disk_spec: NonNull<RedisSearchDiskIndexSpec>,
+        field_id: t_fieldIndex,
+        with_suffix: bool,
+    ) -> Self {
+        Self::with_mode(
+            id,
+            with_suffix,
+            OnDiskMode {
+                values: TrieMap::new(),
+                field_id,
+                disk_index_spec: disk_spec,
+            },
+        )
+    }
+
+    /// How many distinct tags the index holds.
+    pub const fn n_tags(&self) -> usize {
+        self.mode.values.n_unique_keys()
+    }
+
+    /// Bytes the index's tries occupy, as reported by `FT.INFO`: the values trie
+    /// plus the suffix trie.
+    pub const fn mem_usage(&self) -> usize {
+        self.mode.values.mem_usage() + self.suffix_mem_usage()
+    }
+
+    /// Stage `doc_id`'s postings for each tag in `tags` onto `batch`, committed
+    /// later by `commitDocument`.
+    ///
+    /// Returns whether the disk write succeeded. There is no delta to fold into
+    /// the spec statistics: the record count is tallied in
+    /// [`commit`](Self::commit).
+    ///
+    /// Takes `&CStr` rather than [`TagValue`] because the disk API is given the
+    /// tags as a `const char **` with no length array, so each one has to be a
+    /// real C string — see the crate-level "Tag bytes" docs. There is no
+    /// `has_field_expiration` counterpart to the memory-mode write: the disk
+    /// backend takes no such flag.
+    ///
+    /// # Safety
+    ///
+    /// `ctx` and `batch` must be the valid disk write context and batch handle
+    /// for the ongoing document write.
+    pub unsafe fn index(
+        &mut self,
+        ctx: *const RedisModuleCtx,
+        batch: *const SearchDiskWriteBatchHandle,
+        tags: &[&CStr],
+        doc_id: DocId,
+    ) -> bool {
+        let OnDiskMode {
+            field_id,
+            disk_index_spec,
+            ..
+        } = &mut self.mode;
+
+        if tags.is_empty() {
+            return true;
+        }
+        debug_assert!(!ctx.is_null(), "disk-mode indexing needs a write context");
+        debug_assert!(
+            !batch.is_null(),
+            "disk-mode indexing needs a disk write batch"
+        );
+
+        let mut value_ptrs: Vec<*const c_char> = tags.iter().map(|tag| tag.as_ptr()).collect();
+        // SAFETY: `disk_index_spec` is a valid `RedisSearchDiskIndexSpec`
+        // (invariant from `new_on_disk`); the caller's contract covers
+        // `ctx`/`batch`; and every pointer in `value_ptrs` addresses a
+        // NUL-terminated string, borrowed for the duration of the call.
+        unsafe {
+            ffi::SearchDisk_IndexTags(
+                ctx.cast_mut(),
+                disk_index_spec.as_ptr(),
+                batch.cast_mut(),
+                value_ptrs.as_mut_ptr(),
+                value_ptrs.len(),
+                doc_id,
+                *field_id,
+            )
+        }
+    }
+
+    /// Apply the per-tag metadata updates after the indexing phase of a document
+    /// write: register the tags in the values trie — which is what makes them
+    /// visible to query expansion, their postings having been staged onto the write
+    /// batch by [`index`](Self::index) — and in the
+    /// [suffix index](TagSuffixIndex), when enabled.
+    ///
+    /// Returns the number of records to fold into the spec statistics: the postings
+    /// reach disk during this phase, so the committed tags are counted here rather
+    /// than at indexing time, as memory mode does.
+    pub fn commit(&mut self, tags: &[TagValue<'_>]) -> u32 {
+        for tag in tags {
+            self.mode.values.insert(tag.as_bytes(), ());
+        }
+        self.add_tags_to_suffix(tags);
+        tags.len() as u32
+    }
+
+    /// Iterate over the tags falling within `filter`'s boundaries, in
+    /// lexicographical order.
+    ///
+    /// The postings live on disk, so — unlike the memory-mode counterpart — the
+    /// entries carry no value: the caller resolves each reader by tag string.
+    pub fn range_iter_values<'tm, 'f>(
+        &'tm self,
+        filter: RangeFilter<'f>,
+    ) -> RangeLendingIter<'tm, 'f, ()> {
+        self.mode.values.range_iter(filter).into()
+    }
+
+    /// Create an iterator over the documents matching `tag`, built through the disk
+    /// API and keyed by the tag string.
+    ///
+    /// It filters on the caller's `field_index` rather than the field recorded at
+    /// write time. Unlike the memory-mode counterpart there is no absent-tag case to
+    /// report: the disk backend owns the lookup, and builds an iterator that simply
+    /// reads nothing.
+    ///
+    /// Returns `Err` when the disk backend fails to build its iterator.
+    ///
+    /// # Panics
+    ///
+    /// If [`SEARCH_ENTERPRISE_ITERATORS`] is not initialized.
+    ///
+    /// # Safety
+    ///
+    /// 1. `self` must outlive the returned iterator.
+    /// 2. `sctx` and `sctx.spec` must be valid and outlive the returned iterator.
+    /// 3. `sctx.diskSnapshot` must be a non-null
+    ///    [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot) handle for this
+    ///    index's disk spec, valid for the duration of the call:
+    ///    [SearchEnterpriseIterators::new_tag_on_disk](rqe_iterators::SearchEnterpriseIterators::new_tag_on_disk)
+    ///    reads it off `sctx` and hands it to the disk backend.
+    pub unsafe fn open_reader(
+        &self,
+        sctx: NonNull<RedisSearchCtx>,
+        tag: &[u8],
+        weight: f64,
+        field_index: t_fieldIndex,
+    ) -> Result<Box<dyn RQEIteratorPrintable<'_> + '_>, Box<dyn std::error::Error>> {
+        // SAFETY: `sctx` is valid (contract 2).
+        let disk_snapshot = unsafe { sctx.as_ref() }.diskSnapshot;
+        debug_assert!(
+            !disk_snapshot.is_null(),
+            "disk-mode reads need a snapshot on the search context"
+        );
+        // SAFETY: contract 3 guarantees `sctx.diskSnapshot` is non-null, checked
+        // above in debug builds.
+        let snapshot = unsafe { NonNull::new_unchecked(disk_snapshot) };
+
+        // Postings live on disk: build the reader through the disk API, keyed by the
+        // tag string.
+        //
+        // SAFETY: `RSToken` is a plain-old-data `#[repr(C)]` struct whose all-zero
+        // bit pattern is a valid, unexpanded token; only `str`/`len` are then set.
+        let mut tok: RSToken = unsafe { std::mem::zeroed() };
+        tok.str_ = tag.as_ptr().cast::<c_char>().cast_mut();
+        tok.len = tag.len();
+
+        let enterprise_iters = SEARCH_ENTERPRISE_ITERATORS
+            .get()
+            .expect("SEARCH_ENTERPRISE_ITERATORS not initialized");
+        // SAFETY: `disk_index_spec` is a valid `RedisSearchDiskIndexSpec` (invariant
+        // from `new_on_disk`); `tok` borrows `tag` for the duration of the call; and
+        // `snapshot` is the snapshot contract 3 requires.
+        let disk_index_spec = unsafe { &mut *self.mode.disk_index_spec.as_ptr() };
+        enterprise_iters.new_tag_on_disk(disk_index_spec, &tok, field_index, weight, snapshot)
+    }
 }
 
 // Handles tests reach the index internals through, kept apart from the production
 // methods above and gated behind the `test-utils` feature so they stay out of the
 // public API in release builds.
 #[cfg(feature = "test-utils")]
-impl TagIndex {
+impl TagIndex<InMemoryMode> {
     /// Get the inverted index holding the postings for `tag`, if the tag is
     /// currently indexed.
     pub fn find_value(&self, tag: &[u8]) -> Option<&InvertedIndex<DocIdsOnly>> {
-        let TagIndexMode::InMemory { values } = &self.mode else {
-            unimplemented!()
-        };
-
-        values.find(tag).map(Box::as_ref)
+        self.mode.values.find(tag).map(Box::as_ref)
     }
 
     /// Get a mutable reference to the inverted index holding the postings for
     /// `tag`, if the tag is currently indexed.
     pub fn find_value_mut(&mut self, tag: &[u8]) -> Option<&mut InvertedIndex<DocIdsOnly>> {
-        let TagIndexMode::InMemory { values } = &mut self.mode else {
-            unimplemented!()
-        };
-
-        values.find_mut(tag).map(Box::as_mut)
+        self.mode.values.find_mut(tag).map(Box::as_mut)
     }
 
     /// Get the inverted index for `tag`, registering a new empty one when the
@@ -1020,9 +894,7 @@ impl TagIndex {
         tag: &[u8],
         create_if_missing: bool,
     ) -> Option<&InvertedIndex<DocIdsOnly>> {
-        let TagIndexMode::InMemory { values } = &mut self.mode else {
-            unimplemented!()
-        };
+        let values = &mut self.mode.values;
 
         if values.find(tag).is_none() {
             if !create_if_missing {
@@ -1204,7 +1076,11 @@ fn choose_token(pattern: &[u8]) -> Option<(usize, usize)> {
 /// returned from [`TagIndex::iterator_for_tag`] to detect during
 /// revalidation that the garbage collector removed or replaced a tag's
 /// inverted index.
-pub struct TrieLookup(NonNull<TagIndex>);
+///
+/// Only a memory-mode index has an in-memory posting list to re-resolve a tag to,
+/// which is why this is tied to [`InMemoryMode`] rather than generic over the
+/// mode: the disk backend owns its reader and revalidates it itself.
+pub struct TrieLookup(NonNull<TagIndex<InMemoryMode>>);
 
 impl TrieLookup {
     /// Create a lookup over the given [`TagIndex`].
@@ -1235,14 +1111,14 @@ impl TrieLookup {
     ///    [`revalidate`](rqe_iterators::RQEIterator::revalidate) calls, never
     ///    concurrently with a read — mirroring the contract of
     ///    [`TagIndex::iterator_for_tag`].
-    pub const unsafe fn new(idx: NonNull<TagIndex>) -> Self {
+    pub const unsafe fn new(idx: NonNull<TagIndex<InMemoryMode>>) -> Self {
         Self(idx)
     }
 
     /// The index this lookup resolves tags in, for the identity check in
     /// [`TagIndex::get_reader`]. Returns the pointer without dereferencing it, so
     /// callers may compare it against an index reached another way.
-    pub(crate) const fn index_ptr(&self) -> NonNull<TagIndex> {
+    pub(crate) const fn index_ptr(&self) -> NonNull<TagIndex<InMemoryMode>> {
         self.0
     }
 }
@@ -1255,11 +1131,7 @@ impl TagLookup<DocIdsOnly> for TrieLookup {
         // this call, so nothing is outstanding across the next mutation.
         let tag_index = unsafe { self.0.as_ref() };
 
-        let TagIndexMode::InMemory { values } = &tag_index.mode else {
-            unimplemented!()
-        };
-
-        values.find(tag).map(Box::as_ref)
+        tag_index.mode.values.find(tag).map(Box::as_ref)
     }
 }
 
@@ -1279,10 +1151,10 @@ mod tests {
     #[test]
     fn revalidate_aborts_after_tag_removed() {
         let mock = MockContext::new(3, 3);
-        let mut idx = TagIndex::new_in_memory(1, false);
+        let mut idx = TagIndex::new(1, false);
         let tags = &[TagValue::new(b"team").unwrap()];
         for doc_id in 1..=3 {
-            idx.index_in_memory(tags, doc_id, false);
+            idx.index(tags, doc_id, false);
         }
         // Heap-allocate the index and go through raw pointers so it can be
         // mutated while the iterator holds a lookup back-pointer, as the query
@@ -1334,8 +1206,8 @@ mod suffix_wildcard_tests {
     const NO_CAP: u64 = u64::MAX;
 
     /// Build an in-memory index with a suffix trie and commit `tags`.
-    fn indexed(tags: &[&[u8]]) -> TagIndex {
-        let mut idx = TagIndex::new_in_memory(1, true);
+    fn indexed(tags: &[&[u8]]) -> TagIndex<InMemoryMode> {
+        let mut idx = TagIndex::new(1, true);
         let tags: Vec<TagValue<'_>> = tags
             .iter()
             .map(|t| TagValue::new(t).expect("test literal is NUL-free"))
@@ -1346,7 +1218,7 @@ mod suffix_wildcard_tests {
 
     /// Expand a wildcard query and return the matched terms as owned byte vectors
     /// with the trailing NUL stripped, sorted for order-independent comparison.
-    fn matches(idx: &TagIndex, pattern: &[u8], cap: u64) -> Option<Vec<Vec<u8>>> {
+    fn matches(idx: &TagIndex<InMemoryMode>, pattern: &[u8], cap: u64) -> Option<Vec<Vec<u8>>> {
         // A pattern with no usable anchor token is a `SuffixWildcardPattern::new`
         // error, surfaced here as `None`.
         let pattern = SuffixWildcardPattern::new(pattern).ok()?;
@@ -1528,7 +1400,7 @@ mod expansion_timeout_tests {
     /// suffix entry per term, and the contains-expansion `e` visits one
     /// proper-suffix entry per term — so both walks visit exactly `CORPUS`
     /// entries, which is what makes `CORPUS` the knob the deadline tests rely on.
-    fn big_index() -> (TagIndex, usize) {
+    fn big_index() -> (TagIndex<InMemoryMode>, usize) {
         let owned: Vec<Vec<u8>> = (0..CORPUS)
             .map(|i| format!("he{i:05}").into_bytes())
             .collect();
@@ -1537,7 +1409,7 @@ mod expansion_timeout_tests {
             .iter()
             .map(|t| TagValue::new(t).expect("generated tag is ASCII, hence NUL-free"))
             .collect();
-        let mut idx = TagIndex::new_in_memory(1, true);
+        let mut idx = TagIndex::new(1, true);
         idx.commit(&tags);
         (idx, owned.len())
     }

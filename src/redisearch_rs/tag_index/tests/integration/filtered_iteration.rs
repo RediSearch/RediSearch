@@ -17,10 +17,10 @@
 
 use ffi::timespec;
 use lending_iterator::LendingIterator;
-use tag_index::{IterMode, SuffixQuery, TagIndex, TagIndexIterator, TagValue};
+use tag_index::{InMemoryMode, IterMode, MemTagIndexIterator, SuffixQuery, TagIndex, TagValue};
 use trie_rs::iter::{RangeBoundary, RangeFilter};
 
-use crate::util::{commit, index_mem};
+use crate::util::{commit_mem, index_mem};
 
 /// Collect the keys yielded by a lending iterator over `(key, value)` pairs.
 macro_rules! collect_keys {
@@ -34,8 +34,20 @@ macro_rules! collect_keys {
     }};
 }
 
-/// Drain a [`TagIndexIterator`] into its yielded keys, in iteration order.
-fn value_iter_keys(mut it: TagIndexIterator<'_>) -> Vec<Vec<u8>> {
+/// Drain the index's suffix-trie iterator into its yielded keys, in iteration order.
+fn suffix_keys(idx: &TagIndex<InMemoryMode>) -> Vec<Vec<u8>> {
+    let mut it = idx
+        .suffix_value_iter()
+        .expect("index was created with a suffix trie");
+    let mut keys: Vec<Vec<u8>> = Vec::new();
+    while let Some(key) = it.advance() {
+        keys.push(key.to_vec());
+    }
+    keys
+}
+
+/// Drain a [`MemTagIndexIterator`] into its yielded keys, in iteration order.
+fn value_iter_keys(mut it: MemTagIndexIterator<'_>) -> Vec<Vec<u8>> {
     let mut keys: Vec<Vec<u8>> = Vec::new();
     while let Some((key, _)) = it.advance() {
         keys.push(key.to_vec());
@@ -44,8 +56,8 @@ fn value_iter_keys(mut it: TagIndexIterator<'_>) -> Vec<Vec<u8>> {
 }
 
 /// Build an in-memory index holding `tags`, each with one document.
-fn index_with_tags(tags: &[&[u8]]) -> TagIndex {
-    let mut tag_index = TagIndex::new_in_memory(1, false);
+fn index_with_tags(tags: &[&[u8]]) -> TagIndex<InMemoryMode> {
+    let mut tag_index = TagIndex::new(1, false);
     index_mem(&mut tag_index, tags, 1);
     tag_index
 }
@@ -68,7 +80,6 @@ fn prefixed_iter_values_yields_only_matching_tags() {
     let mut iter = tag_index.value_iter_filtered(b"foo", IterMode::Prefix);
     let mut keys: Vec<Vec<u8>> = Vec::new();
     while let Some((tag, ii)) = iter.advance() {
-        let ii = ii.expect("memory-mode iteration yields the stored inverted index");
         let found = tag_index.find_value(tag).expect("yielded tag is indexed");
         assert!(
             std::ptr::eq(ii, found),
@@ -117,7 +128,7 @@ fn set_timeout_cuts_iteration_short() {
         .map(|i| format!("tag{i:04}").into_bytes())
         .collect();
     let tags: Vec<&[u8]> = owned.iter().map(|t| t.as_slice()).collect();
-    let mut tag_index = TagIndex::new_in_memory(1, false);
+    let mut tag_index = TagIndex::new(1, false);
     index_mem(&mut tag_index, &tags, 1);
 
     let mut it = tag_index.value_iter();
@@ -145,7 +156,7 @@ fn set_timeout_bounds_the_nonmatches_a_suffix_walk_skips() {
         .chain(std::iter::once(b"zzzoo".to_vec()))
         .collect();
     let tags: Vec<&[u8]> = owned.iter().map(|t| t.as_slice()).collect();
-    let mut tag_index = TagIndex::new_in_memory(1, false);
+    let mut tag_index = TagIndex::new(1, false);
     index_mem(&mut tag_index, &tags, 1);
 
     let mut it = tag_index.value_iter_filtered(b"oo", IterMode::Suffix);
@@ -173,10 +184,10 @@ fn no_timeout_lets_iteration_complete() {
 /// every tag it is a proper suffix of.
 #[test]
 fn suffix_query_exact_node_yields_every_member() {
-    let mut tag_index = TagIndex::new_in_memory(1, true);
+    let mut tag_index = TagIndex::new(1, true);
     let tags: &[&[u8]] = &[b"eat", b"beat", b"heat", b"bean"];
     index_mem(&mut tag_index, tags, 1);
-    commit(&mut tag_index, tags);
+    commit_mem(&mut tag_index, tags);
 
     let mut terms: Vec<Vec<u8>> = tag_index
         .suffix_expand(SuffixQuery::Suffix(TagValue::new(b"eat").unwrap()), None)
@@ -220,12 +231,12 @@ fn wildcard_iter_values_matches_metacharacters() {
 /// document, so any tag value shared by two documents takes this path.
 #[test]
 fn recommitting_a_tag_keeps_its_suffix_terms_readable() {
-    let mut tag_index = TagIndex::new_in_memory(1, true);
+    let mut tag_index = TagIndex::new(1, true);
     let tags: &[&[u8]] = &[b"cat"];
 
     for doc_id in 1..=2 {
         index_mem(&mut tag_index, tags, doc_id);
-        commit(&mut tag_index, tags);
+        commit_mem(&mut tag_index, tags);
     }
 
     // Materializing the expanded terms dereferences each suffix entry's term
@@ -265,7 +276,7 @@ fn range_iter_values_respects_boundaries() {
 /// Without `WITHSUFFIXTRIE` there is no suffix index to iterate.
 #[test]
 fn iter_suffix_entries_is_none_without_suffix_trie() {
-    let tag_index = TagIndex::new_in_memory(1, false);
+    let tag_index = TagIndex::new(1, false);
     assert!(tag_index.suffix_value_iter().is_none());
 }
 
@@ -273,15 +284,11 @@ fn iter_suffix_entries_is_none_without_suffix_trie() {
 /// its suffixes in the suffix index.
 #[test]
 fn iter_suffix_entries_lists_every_suffix() {
-    let mut tag_index = TagIndex::new_in_memory(1, true);
+    let mut tag_index = TagIndex::new(1, true);
     index_mem(&mut tag_index, &[b"foo"], 1);
-    commit(&mut tag_index, &[b"foo"]);
+    commit_mem(&mut tag_index, &[b"foo"]);
 
-    let keys = value_iter_keys(
-        tag_index
-            .suffix_value_iter()
-            .expect("index was created with a suffix trie"),
-    );
+    let keys = suffix_keys(&tag_index);
 
     let mut expected: Vec<Vec<u8>> = [b"foo".as_slice(), b"oo", b"o"]
         .iter()

@@ -9,12 +9,15 @@
 
 //! Iterators over the contents of a [`TagIndex`].
 //!
-//! [`TagIndexIterator`] walks the tag *values* (the keys of the values trie, or
-//! the suffix trie), optionally filtered by a pattern and bounded by a timeout.
-//! Its [`advance`](TagIndexIterator::advance) yields, for each tag, the borrowed key
-//! together with the tag's [`InvertedIndex<DocIdsOnly>`] in memory mode (`None` in
-//! disk mode or when walking the suffix trie, where the trie holds no in-memory
-//! postings).
+//! [`TagIndexIterator`] walks the tag *values* — the keys of the values trie —
+//! optionally filtered by a pattern and bounded by a timeout. It is generic over
+//! the trie's payload rather than over the index's storage mode, because that is
+//! all the walk depends on: [`MemTagIndexIterator`] yields each tag together with
+//! its [`InvertedIndex<DocIdsOnly>`], while [`DiskTagIndexIterator`] yields the tag
+//! alone, its postings living on disk.
+//!
+//! [`SuffixEntryIterator`] walks the suffix trie instead, which both modes share
+//! and which holds no postings either way.
 //!
 //! [`TagValueReader`] reads the postings (document ids) of a single tag value.
 
@@ -24,20 +27,24 @@ use ffi::timespec;
 use index_result::RSIndexResult;
 use inverted_index::{IndexReader, IndexReaderCore, InvertedIndex, doc_ids_only::DocIdsOnly};
 use lending_iterator::LendingIterator as _;
-use trie_rs::iter::{ContainsLendingIter, LendingIter, WildcardLendingIter, filter::VisitAll};
+use rqe_wildcard::WildcardPattern;
+use trie_rs::{
+    TrieMap,
+    iter::{ContainsLendingIter, LendingIter, WildcardLendingIter, filter::VisitAll},
+};
 
-use crate::{SuffixData, TagIndex};
+use crate::{InMemoryMode, OnDiskMode, SuffixData, TagIndex, TagIndexMode};
 
 /// Value type stored in the memory-mode values trie. Boxed so the heap
 /// [`InvertedIndex`] address stays stable across trie restructuring — callers hold
 /// it across mutations.
 type BoxedInvertedIndex = Box<InvertedIndex<DocIdsOnly>>;
 
-/// Predicate the suffix variants filter a full trie walk with. It owns a copy of
+/// Predicate the suffix variant filters a full trie walk with. It owns a copy of
 /// the queried suffix, so its closure type is unnameable and has to be boxed to
 /// appear in an enum variant. This is a boxed *predicate*, not a boxed iterator —
 /// dispatch over the iterator shapes below stays static.
-type SuffixPredicate<V> = Box<dyn Fn(&(&[u8], &V)) -> bool>;
+type SuffixPredicate<'a, V> = Box<dyn Fn(&(&[u8], &V)) -> bool + 'a>;
 
 /// Which subset of tag values a [filtered iterator](TagIndex::value_iter_filtered)
 /// walks. A tag matches when it starts with (`Prefix`), ends with (`Suffix`),
@@ -54,105 +61,71 @@ pub enum IterMode {
     Wildcard,
 }
 
-/// The concrete tag-value iterator, one variant per underlying `trie_rs`
-/// iterator shape, in both storage modes. Kept as an enum (rather than a
-/// `Box<dyn>` trait object) so iteration dispatches statically.
-///
-/// Memory-mode variants carry [`BoxedInvertedIndex`] values whose stable heap address is
-/// exposed to callers; disk-mode variants carry `()` (the trie holds only tag
-/// presence, postings live on disk) and the suffix-trie variant carries opaque
-/// [`SuffixData`] — both yield no value.
-enum TagIndexIteratorImpl<'ti> {
-    /// Memory mode, full iteration or prefix filter.
-    MemAll(LendingIter<'ti, BoxedInvertedIndex, VisitAll>),
-    /// Memory mode, entries whose key contains a fragment.
-    MemContains(ContainsLendingIter<'ti, 'ti, BoxedInvertedIndex>),
-    /// Memory mode, entries whose key matches a wildcard pattern.
-    MemWildcard(WildcardLendingIter<'ti, 'ti, BoxedInvertedIndex>),
-    /// Memory mode, entries whose key ends with a suffix. A trie cannot seek by
-    /// suffix, so this pairs a full walk with the predicate the walk is filtered
-    /// by; see [`advance`](TagIndexIterator::advance) for why the two are kept
-    /// side by side rather than combined into a filtering adapter.
-    MemSuffix(
-        LendingIter<'ti, BoxedInvertedIndex, VisitAll>,
-        SuffixPredicate<BoxedInvertedIndex>,
-    ),
-    /// Disk mode, full iteration or prefix filter.
-    DiskAll(LendingIter<'ti, (), VisitAll>),
-    /// Disk mode, entries whose key contains a fragment.
-    DiskContains(ContainsLendingIter<'ti, 'ti, ()>),
-    /// Disk mode, entries whose key matches a wildcard pattern.
-    DiskWildcard(WildcardLendingIter<'ti, 'ti, ()>),
-    /// Disk mode, entries whose key ends with a suffix, filtered like
-    /// [`MemSuffix`](Self::MemSuffix).
-    DiskSuffix(LendingIter<'ti, (), VisitAll>, SuffixPredicate<()>),
-    /// Suffix-trie entries; the value is opaque bookkeeping.
-    SuffixEntries(LendingIter<'ti, SuffixData, VisitAll>),
+/// The concrete tag-value iterator, one variant per underlying `trie_rs` iterator
+/// shape. Kept as an enum (rather than a `Box<dyn>` trait object) so iteration
+/// dispatches statically.
+enum TagIndexIteratorImpl<'ti, Value> {
+    /// Full iteration or prefix filter.
+    All(LendingIter<'ti, Value, VisitAll>),
+    /// Entries whose key contains a fragment.
+    Contains(ContainsLendingIter<'ti, 'ti, Value>),
+    /// Entries whose key matches a wildcard pattern.
+    Wildcard(WildcardLendingIter<'ti, 'ti, Value>),
+    /// Entries whose key ends with a suffix. A trie cannot seek by suffix, so this
+    /// pairs a full walk with the predicate the walk is filtered by; see
+    /// [`next_entry`](TagIndexIterator::next_entry) for why the two are kept side
+    /// by side rather than combined into a filtering adapter.
+    Suffix(LendingIter<'ti, Value, VisitAll>, SuffixPredicate<'ti, Value>),
 }
 
-impl TagIndexIteratorImpl<'_> {
+impl<Value> TagIndexIteratorImpl<'_, Value> {
     /// Forward deadline to the behind iterator.
     fn set_timeout(&mut self, deadline: Option<Instant>) {
         match self {
-            Self::MemAll(it) => it.set_timeout(deadline),
-            Self::MemContains(it) => it.set_timeout(deadline),
-            Self::MemWildcard(it) => it.set_timeout(deadline),
-            Self::MemSuffix(it, _) => it.set_timeout(deadline),
-            Self::DiskAll(it) => it.set_timeout(deadline),
-            Self::DiskContains(it) => it.set_timeout(deadline),
-            Self::DiskWildcard(it) => it.set_timeout(deadline),
-            Self::DiskSuffix(it, _) => it.set_timeout(deadline),
-            Self::SuffixEntries(it) => it.set_timeout(deadline),
+            Self::All(it) => it.set_timeout(deadline),
+            Self::Contains(it) => it.set_timeout(deadline),
+            Self::Wildcard(it) => it.set_timeout(deadline),
+            Self::Suffix(it, _) => it.set_timeout(deadline),
         }
     }
 }
 
 /// An iterator over the values (tags) stored in a [`TagIndex`], returned by
-/// [`TagIndex::value_iter`], [`TagIndex::value_iter_filtered`], and
-/// [`TagIndex::suffix_value_iter`].
+/// [`TagIndex::value_iter`] and [`TagIndex::value_iter_filtered`].
 ///
-/// Drive it with [`advance`](Self::advance), which yields each tag together
-/// with its value: in memory mode the tag's [`InvertedIndex<DocIdsOnly>`]
-/// stored in the values trie, otherwise `None` (disk entries and suffix-trie
-/// entries carry no in-memory value). Long affix expansions can be bounded with
-/// [`set_timeout`](Self::set_timeout).
-pub struct TagIndexIterator<'ti> {
-    iter: TagIndexIteratorImpl<'ti>,
+/// `V` is the payload the index's values trie stores per tag, so the storage mode
+/// picks the instantiation: [`MemTagIndexIterator`] or [`DiskTagIndexIterator`].
+///
+/// Drive either with its `advance`, which returns `None` at the end of the
+/// iteration or once the deadline set by [`set_timeout`](Self::set_timeout) — the
+/// bound for long affix expansions — has passed. The key it yields is borrowed
+/// from trie-internal storage, and is invalidated by the next call.
+pub struct TagIndexIterator<'ti, Value> {
+    iter: TagIndexIteratorImpl<'ti, Value>,
 }
 
-impl<'ti> TagIndexIterator<'ti> {
-    /// Advance to the next entry, honoring the optional timeout, and return the
-    /// key together with the value (when provided).
-    /// Returns `None` at the end of the iteration, or when the timeout is
-    /// reached. The key slice is borrowed from trie-internal storage and is
-    /// invalidated by the next call.
-    pub fn advance(&mut self) -> Option<(&[u8], Option<&InvertedIndex<DocIdsOnly>>)> {
-        // The memory-mode value is a `&Box<InvertedIndex>`; callers hold and
-        // dereference the heap `InvertedIndex`, so hand out that stable address
-        // (the `Box`'s heap content, via deref coercion), not the box slot in
-        // the trie node.
-        fn mem_value(v: &BoxedInvertedIndex) -> &InvertedIndex<DocIdsOnly> {
-            v
-        }
+/// A [`TagIndexIterator`] over a memory-mode index, yielding each tag's postings
+/// alongside it.
+pub type MemTagIndexIterator<'ti> = TagIndexIterator<'ti, BoxedInvertedIndex>;
 
+/// A [`TagIndexIterator`] over a disk-mode index, whose values trie records only
+/// that a tag is present.
+pub type DiskTagIndexIterator<'ti> = TagIndexIterator<'ti, ()>;
+
+impl<'ti, Value> TagIndexIterator<'ti, Value> {
+    /// The key and trie payload of the next entry, which each mode's `advance`
+    /// projects onto what that mode can offer.
+    ///
+    /// The suffix variant filters a full walk in place with
+    /// [`LendingIterator::find`](lending_iterator::LendingIterator::find) rather
+    /// than through a `filter` adapter, because the borrow of the key it yields
+    /// ends with the call: an adapter would have to hold it across iterations.
+    fn next_entry(&mut self) -> Option<(&[u8], &Value)> {
         match &mut self.iter {
-            TagIndexIteratorImpl::MemAll(it) => it.next().map(|(k, v)| (k, Some(mem_value(v)))),
-            TagIndexIteratorImpl::MemContains(it) => {
-                it.next().map(|(k, v)| (k, Some(mem_value(v))))
-            }
-            TagIndexIteratorImpl::MemWildcard(it) => {
-                it.next().map(|(k, v)| (k, Some(mem_value(v))))
-            }
-            TagIndexIteratorImpl::MemSuffix(it, matches) => {
-                it.find(&mut *matches).map(|(k, v)| (k, Some(mem_value(v))))
-            }
-            TagIndexIteratorImpl::DiskAll(it) => it.next().map(|(k, ())| (k, None)),
-            TagIndexIteratorImpl::DiskContains(it) => it.next().map(|(k, ())| (k, None)),
-            TagIndexIteratorImpl::DiskWildcard(it) => it.next().map(|(k, ())| (k, None)),
-            TagIndexIteratorImpl::DiskSuffix(it, matches) => {
-                it.find(&mut *matches).map(|(k, ())| (k, None))
-            }
-            TagIndexIteratorImpl::SuffixEntries(it) => it.next().map(|(k, _)| (k, None)),
+            TagIndexIteratorImpl::All(it) => it.next(),
+            TagIndexIteratorImpl::Contains(it) => it.next(),
+            TagIndexIteratorImpl::Wildcard(it) => it.next(),
+            TagIndexIteratorImpl::Suffix(it, matches) => it.find(&mut *matches),
         }
     }
 
@@ -163,73 +136,139 @@ impl<'ti> TagIndexIterator<'ti> {
     }
 }
 
-impl TagIndex {
-    /// Iterate over all tag values, in lexicographical order.
-    pub fn value_iter(&self) -> TagIndexIterator<'_> {
-        let iter = if self.disk_mode() {
-            TagIndexIteratorImpl::DiskAll(self.disk_iter_values())
-        } else {
-            TagIndexIteratorImpl::MemAll(self.iter())
-        };
-        TagIndexIterator { iter }
+impl MemTagIndexIterator<'_> {
+    /// Advance to the next entry and return the tag together with its postings, per
+    /// [`TagIndexIterator`]'s iteration semantics.
+    pub fn advance(&mut self) -> Option<(&[u8], &InvertedIndex<DocIdsOnly>)> {
+        // The trie stores a `Box<InvertedIndex>`; callers hold and dereference the
+        // heap `InvertedIndex`, so hand out that stable address (the `Box`'s heap
+        // content) rather than the box slot in the trie node.
+        self.next_entry().map(|(k, ii)| (k, &**ii))
+    }
+}
+
+impl DiskTagIndexIterator<'_> {
+    /// Advance to the next entry and return the tag, per [`TagIndexIterator`]'s
+    /// iteration semantics.
+    ///
+    /// There is no value to yield: the trie records only that the tag exists, and
+    /// its postings are read from disk by [`open_reader`](TagIndex::open_reader),
+    /// keyed by this tag.
+    pub fn advance(&mut self) -> Option<&[u8]> {
+        self.next_entry().map(|(k, ())| k)
+    }
+}
+
+/// An iterator over the entries of a [`TagIndex`]'s
+/// [suffix index](crate::TagSuffixIndex), returned by
+/// [`TagIndex::suffix_value_iter`].
+///
+/// Yields keys only — the suffix trie's payload is internal bookkeeping — and is
+/// the same in both storage modes, which share the suffix trie.
+pub struct SuffixEntryIterator<'ti> {
+    iter: LendingIter<'ti, SuffixData, VisitAll>,
+}
+
+impl<'ti> SuffixEntryIterator<'ti> {
+    /// Advance to the next suffix-trie entry, honoring the optional timeout.
+    /// `None` at the end of the iteration, or when the timeout is reached.
+    ///
+    /// The key slice is borrowed from trie-internal storage and is invalidated by
+    /// the next call.
+    pub fn advance(&mut self) -> Option<&[u8]> {
+        self.iter.next().map(|(k, _)| k)
     }
 
-    /// Iterate over the tag values matching `pattern` under `mode`, in
-    /// lexicographical order.
+    /// Set the deadline honored while iterating, or clear it with `None`.
+    pub fn set_timeout(&mut self, timeout: Option<timespec>) {
+        self.iter.set_timeout(crate::expansion_deadline(timeout));
+    }
+}
+
+/// Walk every entry of `values`, in lexicographical order of the key.
+fn all_iter<Value>(values: &TrieMap<Value>) -> TagIndexIterator<'_, Value> {
+    TagIndexIterator {
+        iter: TagIndexIteratorImpl::All(values.lending_iter()),
+    }
+}
+
+/// Walk the entries of `values` whose key matches `pattern` under `iter_mode`, in
+/// lexicographical order of the key.
+fn filtered_iter<'a, Value>(
+    values: &'a TrieMap<Value>,
+    pattern: &'a [u8],
+    iter_mode: IterMode,
+) -> TagIndexIterator<'a, Value> {
+    // The suffix mode filters a full trie walk by an owned copy of the pattern; the
+    // boxed predicate keeps the `Vec` alive for the iterator's lifetime.
+    fn suffix_predicate<'a, V>(suffix: Vec<u8>) -> SuffixPredicate<'a, V> {
+        Box::new(move |(k, _): &(&[u8], &V)| k.ends_with(&suffix))
+    }
+
+    let iter = match iter_mode {
+        IterMode::Prefix => TagIndexIteratorImpl::All(values.prefixed_lending_iter(pattern)),
+        IterMode::Contains => TagIndexIteratorImpl::Contains(values.contains_iter(pattern).into()),
+        IterMode::Suffix => {
+            TagIndexIteratorImpl::Suffix(values.lending_iter(), suffix_predicate(pattern.to_vec()))
+        }
+        IterMode::Wildcard => TagIndexIteratorImpl::Wildcard(
+            values.wildcard_iter(WildcardPattern::parse(pattern)).into(),
+        ),
+    };
+
+    TagIndexIterator { iter }
+}
+
+impl TagIndex<InMemoryMode> {
+    /// Iterate over all `(tag, inverted index)` entries, in lexicographical order
+    /// of the tag.
+    pub fn value_iter(&self) -> MemTagIndexIterator<'_> {
+        all_iter(&self.mode.values)
+    }
+
+    /// Iterate over the `(tag, inverted index)` entries whose tag matches
+    /// `pattern` under `iter_mode`, in lexicographical order of the tag.
     ///
-    /// In disk mode the values trie holds only tag presence, so callers resolve
-    /// each reader by tag string; in memory mode the yielded value is still
-    /// exposed by [`advance`](TagIndexIterator::advance).
-    ///
-    /// `pattern` is borrowed for the iterator's lifetime by the prefix,
-    /// contains, and wildcard modes (the suffix mode copies it).
+    /// `pattern` is borrowed for the iterator's lifetime by the prefix, contains,
+    /// and wildcard modes (the suffix mode copies it).
     pub fn value_iter_filtered<'a>(
         &'a self,
         pattern: &'a [u8],
         iter_mode: IterMode,
-    ) -> TagIndexIterator<'a> {
-        // The suffix mode filters a full trie walk by an owned copy of the
-        // pattern; the boxed predicate keeps the `Vec` alive for the iterator's
-        // lifetime.
-        fn suffix_predicate<V>(suffix: Vec<u8>) -> SuffixPredicate<V> {
-            Box::new(move |(k, _): &(&[u8], &V)| k.ends_with(&suffix))
-        }
+    ) -> MemTagIndexIterator<'a> {
+        filtered_iter(&self.mode.values, pattern, iter_mode)
+    }
+}
 
-        let iter = match (self.disk_mode(), iter_mode) {
-            (true, IterMode::Prefix) => {
-                TagIndexIteratorImpl::DiskAll(self.disk_prefixed_iter_values(pattern))
-            }
-            (true, IterMode::Contains) => {
-                TagIndexIteratorImpl::DiskContains(self.disk_contains_iter_values(pattern))
-            }
-            (true, IterMode::Suffix) => TagIndexIteratorImpl::DiskSuffix(
-                self.disk_iter_values(),
-                suffix_predicate(pattern.to_vec()),
-            ),
-            (true, IterMode::Wildcard) => {
-                TagIndexIteratorImpl::DiskWildcard(self.disk_wildcard_iter_values(pattern))
-            }
-            (false, IterMode::Prefix) => TagIndexIteratorImpl::MemAll(self.iter_prefix(pattern)),
-            (false, IterMode::Contains) => {
-                TagIndexIteratorImpl::MemContains(self.contains_iter_values(pattern))
-            }
-            (false, IterMode::Suffix) => {
-                TagIndexIteratorImpl::MemSuffix(self.iter(), suffix_predicate(pattern.to_vec()))
-            }
-            (false, IterMode::Wildcard) => {
-                TagIndexIteratorImpl::MemWildcard(self.wildcard_iter_values(pattern))
-            }
-        };
-
-        TagIndexIterator { iter }
+impl TagIndex<OnDiskMode> {
+    /// Iterate over all tags, in lexicographical order.
+    pub fn value_iter(&self) -> DiskTagIndexIterator<'_> {
+        all_iter(&self.mode.values)
     }
 
-    /// Iterate over all entries of the suffix index, in lexicographical order,
-    /// or `None` when the index was created without `WITHSUFFIXTRIE`.
-    pub fn suffix_value_iter(&self) -> Option<TagIndexIterator<'_>> {
-        let iter = self.iter_suffix_entries()?;
-        Some(TagIndexIterator {
-            iter: TagIndexIteratorImpl::SuffixEntries(iter),
+    /// Iterate over the tags matching `pattern` under `iter_mode`, in
+    /// lexicographical order.
+    ///
+    /// The values trie holds only tag presence, so callers resolve each reader by
+    /// tag string.
+    ///
+    /// `pattern` is borrowed for the iterator's lifetime by the prefix, contains,
+    /// and wildcard modes (the suffix mode copies it).
+    pub fn value_iter_filtered<'a>(
+        &'a self,
+        pattern: &'a [u8],
+        iter_mode: IterMode,
+    ) -> DiskTagIndexIterator<'a> {
+        filtered_iter(&self.mode.values, pattern, iter_mode)
+    }
+}
+
+impl<Mode: TagIndexMode> TagIndex<Mode> {
+    /// Iterate over all entries of the suffix index, in lexicographical order, or
+    /// `None` when the index was created without `WITHSUFFIXTRIE`.
+    pub fn suffix_value_iter(&self) -> Option<SuffixEntryIterator<'_>> {
+        Some(SuffixEntryIterator {
+            iter: self.iter_suffix_entries()?,
         })
     }
 }

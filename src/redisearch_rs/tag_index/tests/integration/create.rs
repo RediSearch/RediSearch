@@ -12,39 +12,40 @@
 
 use std::ptr::NonNull;
 
-use tag_index::TagIndex;
+use tag_index::{InMemoryMode, OnDiskMode, TagIndex};
 
-use crate::util::commit;
+use crate::util::commit_mem;
 
 /// A tag index reports the id it was created with.
 #[test]
 fn reports_the_creation_id() {
-    let tag_index = TagIndex::new_in_memory(1, false);
+    let tag_index = TagIndex::new(1, false);
     assert_eq!(tag_index.id(), 1);
 }
 
 /// `with_suffix` toggles suffix support.
 #[test]
 fn suffix_support_follows_the_creation_flag() {
-    let tag_index = TagIndex::new_in_memory(1, false);
+    let tag_index = TagIndex::new(1, false);
     assert!(!tag_index.has_suffix());
 
-    let tag_index = TagIndex::new_in_memory(1, true);
+    let tag_index = TagIndex::new(1, true);
     assert!(tag_index.has_suffix());
 }
 
-/// `new_in_memory` selects the memory mode.
+/// `new_in_memory` selects the memory mode. The ascription is the assertion: the
+/// mode is part of the type, so a constructor returning the other one would not
+/// compile.
 #[test]
 fn new_in_memory_means_memory_mode() {
-    let tag_index = TagIndex::new_in_memory(1, false);
-    assert!(!tag_index.disk_mode());
+    let _: TagIndex<InMemoryMode> = TagIndex::new(1, false);
 }
 
 /// A newly created index holds no tags: lookups miss, iteration yields
 /// nothing, and a read-only open does not create the posting list.
 #[test]
 fn new_index_holds_no_tags() {
-    let mut tag_index = TagIndex::new_in_memory(1, false);
+    let mut tag_index = TagIndex::new(1, false);
 
     assert!(tag_index.find_value(b"missing").is_none());
     assert!(
@@ -62,7 +63,7 @@ fn new_index_holds_no_tags() {
 /// replacing it.
 #[test]
 fn open_index_creates_the_posting_list_once() {
-    let mut tag_index = TagIndex::new_in_memory(1, false);
+    let mut tag_index = TagIndex::new(1, false);
 
     let created: *const _ = tag_index
         .open_index(b"team", true)
@@ -86,8 +87,8 @@ fn open_index_creates_the_posting_list_once() {
 /// hence no record — is created.
 #[test]
 fn commit_indexes_no_documents() {
-    let mut tag_index = TagIndex::new_in_memory(1, true);
-    commit(&mut tag_index, &[b"hello", b"world"]);
+    let mut tag_index = TagIndex::new(1, true);
+    commit_mem(&mut tag_index, &[b"hello", b"world"]);
 
     assert_eq!(tag_index.n_tags(), 0, "commit creates no postings");
     assert!(
@@ -104,15 +105,15 @@ fn commit_indexes_no_documents() {
 fn mem_usage_accounts_for_the_suffix_trie() {
     let tags: &[&[u8]] = &[b"hello", b"world"];
 
-    let mut with_suffix = TagIndex::new_in_memory(1, true);
-    commit(&mut with_suffix, tags);
+    let mut with_suffix = TagIndex::new(1, true);
+    commit_mem(&mut with_suffix, tags);
     assert!(
         with_suffix.mem_usage() > 0,
         "a populated suffix trie contributes overhead"
     );
 
-    let mut without_suffix = TagIndex::new_in_memory(1, false);
-    commit(&mut without_suffix, tags);
+    let mut without_suffix = TagIndex::new(1, false);
+    commit_mem(&mut without_suffix, tags);
 
     assert!(
         with_suffix.mem_usage() > without_suffix.mem_usage(),
@@ -120,15 +121,13 @@ fn mem_usage_accounts_for_the_suffix_trie() {
     );
 }
 
-/// `new_on_disk` selects the disk-backed mode, where the memory-mode-only accessors
-/// abort with `unimplemented!` instead of silently operating on in-memory postings
-/// that don't exist.
+/// `new_on_disk` selects the disk-backed mode. The memory-mode-only accessors
+/// (`find_value`, `open_index`, `gc`, …) are not merely absent at run time: they
+/// live in `impl TagIndex<InMemoryMode>`, so naming one here would not compile.
 #[test]
-#[should_panic(expected = "not implemented")]
 fn new_on_disk_means_disk_mode() {
     // SAFETY: this test only drives paths that never dereference the spec, so a
     // dangling pointer satisfies `new_on_disk` here (see the `disk` module docs).
-    let tag_index = unsafe { TagIndex::new_on_disk(1, NonNull::dangling(), 0, false) };
-
-    let _ = tag_index.find_value(b"team");
+    let _: TagIndex<OnDiskMode> =
+        unsafe { TagIndex::new_on_disk(1, NonNull::dangling(), 0, false) };
 }
