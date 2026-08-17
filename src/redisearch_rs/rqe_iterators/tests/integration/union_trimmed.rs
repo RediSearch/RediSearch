@@ -9,8 +9,11 @@
 
 //! Integration tests for [`UnionTrimmed`].
 
-use crate::utils::{MockVec, create_mock_3, drain_doc_ids};
-use rqe_iterators::{IteratorType, RQEIterator, UnionTrimmed};
+use crate::utils::{Mock, MockVec, create_mock_3, drain_doc_ids};
+use rqe_iterators::{
+    IteratorType, RQEIterator, RQEIteratorBoxed, TypeErasedRQEIterator, UnionTrimmed,
+};
+use rqe_iterators_test_utils::ContractChecker;
 
 /// Helper: create a vec of boxed MockVec children from doc_id slices.
 /// Each child's `num_estimated` equals the length of its slice.
@@ -54,7 +57,7 @@ fn new_panics_on_two_children() {
 #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn three_children_reverse_order() {
     let (children, _data) = create_mock_3([1], [2], [3]);
-    let mut union = UnionTrimmed::new(children, usize::MAX, true);
+    let mut union = ContractChecker::new_unordered(UnionTrimmed::new(children, usize::MAX, true));
 
     let r = union.read().unwrap().unwrap();
     assert_eq!(r.doc_id, 3, "last child read first");
@@ -70,7 +73,7 @@ fn three_children_reverse_order() {
 #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn four_children_reverse_order() {
     let children = make_children(&[&[1, 2], &[3, 4], &[5, 6], &[7, 8]]);
-    let mut union = UnionTrimmed::new(children, usize::MAX, true);
+    let mut union = ContractChecker::new_unordered(UnionTrimmed::new(children, usize::MAX, true));
 
     let docs = drain_doc_ids(&mut union);
     assert_eq!(docs, [7, 8, 5, 6, 3, 4, 1, 2]);
@@ -84,7 +87,7 @@ fn four_children_reverse_order() {
 #[should_panic(expected = "skip_to is not supported on UnionTrimmed")]
 fn skip_to_panics() {
     let (children, _data) = create_mock_3([1, 2], [3, 4], [5, 6]);
-    let mut union = UnionTrimmed::new(children, usize::MAX, true);
+    let mut union = ContractChecker::new_unordered(UnionTrimmed::new(children, usize::MAX, true));
     let _ = union.skip_to(2);
 }
 
@@ -96,7 +99,7 @@ fn skip_to_panics() {
 #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn rewind_restores_full_iteration() {
     let (children, _data) = create_mock_3([1], [2], [3]);
-    let mut union = UnionTrimmed::new(children, usize::MAX, true);
+    let mut union = ContractChecker::new_unordered(UnionTrimmed::new(children, usize::MAX, true));
 
     // Drain everything.
     let docs = drain_doc_ids(&mut union);
@@ -133,7 +136,7 @@ fn num_estimated_sums_children() {
 fn skips_exhausted_children() {
     let (children, _data) = create_mock_3([10, 20], [], [30]);
     // children[1] is empty, so it is skipped.
-    let mut union = UnionTrimmed::new(children, usize::MAX, true);
+    let mut union = ContractChecker::new_unordered(UnionTrimmed::new(children, usize::MAX, true));
 
     let docs = drain_doc_ids(&mut union);
     assert_eq!(docs, [30, 10, 20]);
@@ -172,9 +175,9 @@ fn new_asc_basic() {
         &[10, 11, 12],
         &[13, 14, 15],
     ]);
-    let mut union = UnionTrimmed::new(children, 5, true);
+    let mut union = ContractChecker::new_unordered(UnionTrimmed::new(children, 5, true));
     // All 5 children are still owned.
-    assert_eq!(union.num_children_total(), 5);
+    assert_eq!(union.inner().num_children_total(), 5);
     // Only first 3 are active — reads in reverse: child[2], child[1], child[0].
     let docs = drain_doc_ids(&mut union);
     assert_eq!(docs, [7, 8, 9, 4, 5, 6, 1, 2, 3]);
@@ -201,8 +204,8 @@ fn new_desc_basic() {
         &[10, 11, 12],
         &[13, 14, 15],
     ]);
-    let mut union = UnionTrimmed::new(children, 5, false);
-    assert_eq!(union.num_children_total(), 5);
+    let mut union = ContractChecker::new_unordered(UnionTrimmed::new(children, 5, false));
+    assert_eq!(union.inner().num_children_total(), 5);
     // Active window [2..5], reads in reverse: child[4], child[3], child[2].
     let docs = drain_doc_ids(&mut union);
     assert_eq!(docs, [13, 14, 15, 10, 11, 12, 7, 8, 9]);
@@ -223,8 +226,12 @@ fn new_asc_keeps_correct_prefix() {
     // Children: A=[1], B=[2,3], C=[4,5,6], D=[7,8,9,10]
     // Scanning from B: B.est=2, C.est=3 → total=5 > limit=4 → keep=3 (A,B,C).
     let children = make_children(&[&[1], &[2, 3], &[4, 5, 6], &[7, 8, 9, 10]]);
-    let mut union = UnionTrimmed::new(children, 4, true);
-    assert_eq!(union.num_children_total(), 4, "all children stay alive");
+    let mut union = ContractChecker::new_unordered(UnionTrimmed::new(children, 4, true));
+    assert_eq!(
+        union.inner().num_children_total(),
+        4,
+        "all children stay alive"
+    );
     // Reads in reverse within active [0..3): C then B then A.
     let r = union.read().unwrap().unwrap();
     assert_eq!(r.doc_id, 4);
@@ -238,8 +245,12 @@ fn new_desc_keeps_correct_suffix() {
     // Scanning from C backward: C.est=3, B.est=2 → total=5 > limit=4 → skip=1.
     // Active window [1..4) = B,C,D.
     let children = make_children(&[&[1], &[2, 3], &[4, 5, 6], &[7, 8, 9, 10]]);
-    let mut union = UnionTrimmed::new(children, 4, false);
-    assert_eq!(union.num_children_total(), 4, "all children stay alive");
+    let mut union = ContractChecker::new_unordered(UnionTrimmed::new(children, 4, false));
+    assert_eq!(
+        union.inner().num_children_total(),
+        4,
+        "all children stay alive"
+    );
     // Reads in reverse within active [1..4): D then C then B.
     let r = union.read().unwrap().unwrap();
     assert_eq!(r.doc_id, 7);
@@ -254,7 +265,7 @@ fn new_desc_keeps_correct_suffix() {
 #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn current_some_after_read() {
     let children = make_children(&[&[1], &[2], &[42]]);
-    let mut union = UnionTrimmed::new(children, usize::MAX, true);
+    let mut union = ContractChecker::new_unordered(UnionTrimmed::new(children, usize::MAX, true));
 
     union.read().unwrap();
     let cur = union.current().unwrap();
@@ -266,7 +277,7 @@ fn current_some_after_read() {
 #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn current_none_after_exhaustion() {
     let (children, _data) = create_mock_3([1], [2], [3]);
-    let mut union = UnionTrimmed::new(children, usize::MAX, true);
+    let mut union = ContractChecker::new_unordered(UnionTrimmed::new(children, usize::MAX, true));
 
     drain_doc_ids(&mut union);
     assert!(union.current().is_none());
@@ -281,7 +292,7 @@ fn current_none_after_exhaustion() {
 #[should_panic(expected = "revalidate is not supported on UnionTrimmed")]
 fn revalidate_panics() {
     let (children, _data) = create_mock_3([1], [2], [3]);
-    let mut union = UnionTrimmed::new(children, usize::MAX, true);
+    let mut union = ContractChecker::new_unordered(UnionTrimmed::new(children, usize::MAX, true));
 
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let _ = union.revalidate(&*mock_ctx.spec_read());
@@ -327,50 +338,58 @@ fn child_at_accesses_trimmed_children() {
 fn num_children_active_shrinks_as_children_exhaust() {
     // 4 children with 2 docs each, asc trim with large limit → active window [0..4).
     let children = make_children(&[&[1, 2], &[3, 4], &[5, 6], &[7, 8]]);
-    let mut union = UnionTrimmed::new(children, usize::MAX, true);
+    let mut union = ContractChecker::new_unordered(UnionTrimmed::new(children, usize::MAX, true));
 
-    assert_eq!(union.num_children_total(), 4);
-    assert_eq!(union.num_children_active(), 4, "all active before reads");
+    assert_eq!(union.inner().num_children_total(), 4);
+    assert_eq!(
+        union.inner().num_children_active(),
+        4,
+        "all active before reads"
+    );
 
     // Read first doc of child[3] — cursor still at 3.
     union.read().unwrap().unwrap();
-    assert_eq!(union.num_children_active(), 4);
+    assert_eq!(union.inner().num_children_active(), 4);
 
     // Read second doc of child[3] — child[3] not yet detected as exhausted.
     union.read().unwrap().unwrap();
-    assert_eq!(union.num_children_active(), 4);
+    assert_eq!(union.inner().num_children_active(), 4);
 
     // Next read: child[3] returns None → cursor moves to 2, reads child[2].
     union.read().unwrap().unwrap();
-    assert_eq!(union.num_children_active(), 3);
+    assert_eq!(union.inner().num_children_active(), 3);
 
     // Read second doc of child[2].
     union.read().unwrap().unwrap();
-    assert_eq!(union.num_children_active(), 3);
+    assert_eq!(union.inner().num_children_active(), 3);
 
     // child[2] exhausted → cursor moves to 1.
     union.read().unwrap().unwrap();
-    assert_eq!(union.num_children_active(), 2);
+    assert_eq!(union.inner().num_children_active(), 2);
 
     // Read second doc of child[1].
     union.read().unwrap().unwrap();
-    assert_eq!(union.num_children_active(), 2);
+    assert_eq!(union.inner().num_children_active(), 2);
 
     // child[1] exhausted → cursor moves to 0.
     union.read().unwrap().unwrap();
-    assert_eq!(union.num_children_active(), 1);
+    assert_eq!(union.inner().num_children_active(), 1);
 
     // Read second doc of child[0].
     union.read().unwrap().unwrap();
-    assert_eq!(union.num_children_active(), 1);
+    assert_eq!(union.inner().num_children_active(), 1);
 
     // child[0] exhausted → EOF.
     assert!(union.read().unwrap().is_none());
-    assert_eq!(union.num_children_active(), 0, "none active at EOF");
+    assert_eq!(union.inner().num_children_active(), 0, "none active at EOF");
 
     // Rewind restores full active window.
     union.rewind();
-    assert_eq!(union.num_children_active(), 4, "all active after rewind");
+    assert_eq!(
+        union.inner().num_children_active(),
+        4,
+        "all active after rewind"
+    );
 }
 
 /// When trimming reduces the active window, `num_children_active` reflects
@@ -414,7 +433,7 @@ fn intersection_sort_weight_with_priority() {
 #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn intersection_sort_weight_decreases_after_reads() {
     let children = make_children(&[&[1, 2], &[3, 4], &[5, 6]]);
-    let mut union = UnionTrimmed::new(children, usize::MAX, true);
+    let mut union = ContractChecker::new_unordered(UnionTrimmed::new(children, usize::MAX, true));
     assert_eq!(union.intersection_sort_weight(true), 3.0);
 
     // Drain child[2] (2 docs) then child[1] starts.
@@ -429,7 +448,7 @@ fn intersection_sort_weight_decreases_after_reads() {
 #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn intersection_sort_weight_at_eof() {
     let children = make_children(&[&[1], &[2], &[3]]);
-    let mut union = UnionTrimmed::new(children, usize::MAX, true);
+    let mut union = ContractChecker::new_unordered(UnionTrimmed::new(children, usize::MAX, true));
     drain_doc_ids(&mut union);
     assert_eq!(union.intersection_sort_weight(true), 1.0);
 }
@@ -466,4 +485,29 @@ fn into_trimmed_reuses_all_children() {
         [13, 14, 15, 10, 11, 12, 7, 8, 9, 4, 5, 6, 1, 2, 3],
         "previously trimmed children are now active"
     );
+}
+
+// =============================================================================
+// suspend()
+// =============================================================================
+
+/// `suspend` panics, so it is the whole of the suspend/resume surface that can
+/// be exercised: `resume`'s companion panic is unreachable from any value this
+/// crate can build, since `suspend` is the only thing that could have produced
+/// the suspended form to call it on.
+///
+/// Children are type-erased because that is the shape production hands the
+/// union — the refusal must not depend on the child type.
+#[test]
+#[should_panic(expected = "suspend is not supported on UnionTrimmed")]
+fn suspend_panics() {
+    let children = (1..=3)
+        .map(|doc_id| {
+            let child: Mock<'_, 1> = Mock::new([doc_id]);
+            TypeErasedRQEIterator::new(Box::new(child))
+        })
+        .collect();
+    let union = UnionTrimmed::new(children, usize::MAX, true);
+
+    let _ = Box::new(union).suspend();
 }

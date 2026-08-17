@@ -12,7 +12,6 @@
 #include <string.h>
 #include <limits.h>
 #include <stdint.h>
-#include <stdlib.h>
 
 #include "util/heap.h"
 #include "util/misc.h"
@@ -41,12 +40,11 @@ size_t Trie_Size(const Trie *t) {
 
 Trie *NewTrie(TrieFreeCallback freecb, TrieSortMode sortMode) {
   Trie *tree = rm_malloc(sizeof(Trie));
-  rune *rs = strToRunes("", 0);
+  rune rs[1] = {0};
   tree->root = __newTrieNode(rs, 0, 0, NULL, 0, 0, 0, 0, sortMode, 0);
   tree->size = 0;
   tree->freecb = freecb;
   tree->sortMode = sortMode;
-  rm_free(rs);
   return tree;
 }
 
@@ -108,12 +106,6 @@ int Trie_DeleteRunes(Trie *t, const rune *runes, size_t len) {
 
 TrieNode *Trie_GetNode(Trie *t, const rune *str, t_len len, bool exact, int *offsetOut) {
   return TrieNode_Get(t->root, str, len, exact, offsetOut);
-}
-
-void Trie_IterateRange(const Trie *t, const rune *min, int minlen, bool includeMin,
-                       const rune *max, int maxlen, bool includeMax,
-                       TrieRangeCallback callback, void *ctx) {
-  TrieNode_IterateRange(t->root, min, minlen, includeMin, max, maxlen, includeMax, callback, ctx);
 }
 
 void Trie_IterateContains(const Trie *t, const rune *str, int nstr, bool prefix, bool suffix,
@@ -356,29 +348,6 @@ Vector *Trie_CollectFuzzy(const Trie *t, const char *str, size_t len, size_t num
   heap_free(pq);
 
   return ret;
-}
-
-int Trie_RandomKey(Trie *t, char **str, t_len *len, double *score) {
-  if (t->size == 0) {
-    return 0;
-  }
-
-  rune *rstr;
-  t_len rlen;
-
-  // TODO: deduce steps from cardinality properly
-  TrieNode *n =
-      TrieNode_RandomWalk(t->root, 2 + rand() % 8 + (int)round(logb(1 + t->size)), &rstr, &rlen);
-  if (!n) {
-    return 0;
-  }
-  size_t sz;
-  *str = runesToStr(rstr, rlen, &sz);
-  *len = sz;
-  rm_free(rstr);
-
-  *score = n->score;
-  return 1;
 }
 
 /***************************************************************

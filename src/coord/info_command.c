@@ -119,7 +119,6 @@ typedef struct {
   MRReply *indexDef;
   MRReply *indexSchema;
   MRReply *indexOptions;
-  size_t *errorIndexes;
   InfoValue toplevelValues[NUM_FIELDS_SPEC];
   AggregatedFieldSpecInfo *fieldSpecInfo_arr;
   IndexError indexError;
@@ -324,7 +323,6 @@ static void cleanInfoReply(InfoFields *fields) {
     fields->fieldSpecInfo_arr = NULL;
   }
   IndexError_Clear(fields->indexError);
-  rm_free(fields->errorIndexes);
 }
 
 static void replyKvArray(RedisModule_Reply *reply, InfoFields *fields, InfoValue *values,
@@ -412,7 +410,6 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply, bo
 int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
   // Summarize all aggregate replies
   InfoFields fields = { .indexError = IndexError_Init() };
-  size_t numErrored = 0;
   MRReply *firstError = NULL;
   RedisModuleCtx *ctx = MRCtx_GetRedisCtx(mc);
 
@@ -423,17 +420,10 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   QueryError error = QueryError_Default();
 
-  for (size_t ii = 0; ii < count; ++ii) {
+  for (size_t ii = 0; ii < count && !firstError; ++ii) {
     int type = MRReply_Type(replies[ii]);
     if (type == MR_REPLY_ERROR) {
-      if (!fields.errorIndexes) {
-        fields.errorIndexes = rm_calloc(count, sizeof(*fields.errorIndexes));
-      }
-      fields.errorIndexes[ii] = 1;
-      numErrored++;
-      if (!firstError) {
-        firstError = replies[ii];
-      }
+      firstError = replies[ii];
       continue;
     }
 
@@ -450,7 +440,7 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
   }
 
   // Now we've received all the replies.
-  if (numErrored == count) {
+  if (firstError) {
     // Reply with error
     MR_ReplyWithMRReply(reply, firstError);
   } else if (QueryError_HasError(&error)) {

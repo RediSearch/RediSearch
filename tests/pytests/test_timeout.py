@@ -74,3 +74,63 @@ def test_aggregate_debug_zero_params_count():
     env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
                'TIMEOUT_AFTER_N', '100',
                'DEBUG_PARAMS_COUNT', '0').error().contains('Invalid DEBUG_PARAMS_COUNT count')
+
+
+@skip(cluster=True)
+def testCursorDeadlineIsNotStaleOnResume():
+    """A cursor read is measured against its own deadline, not an earlier read's.
+
+    `runCursor` re-arms `sctx->time.timeout` before every read. Before this fix the clock-based
+    timeout checker captured its deadline when the iterator tree was built, so from the second
+    read onwards the iterators measured against the *first* read's deadline and reported a
+    timeout for one the pipeline had just extended - and because the NOT iterator latches itself
+    to EOF on timeout, the cursor then ended, dropping the documents it still owed.
+
+    Only the clock checker was affected. FAIL and RETURN_STRICT poll the blocked-client flag,
+    re-read on every probe, and those are exactly the policies for which `runCursor` skips the
+    re-arm - so RETURN was both the only policy that re-armed and the only one that captured.
+
+    Reaching it needs an iterator that probes the clock (NOT, NOT-optimized, geo-shape) and a run
+    of skipped documents long enough to reach the amortization limit, which is why it went
+    unnoticed on small indexes.
+    """
+    env = Env(protocol=3, moduleArgs='ON_TIMEOUT RETURN')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()
+
+    # doc:0 matches `-common` straight away, so the first page is served without scanning.
+    # The 6000 documents after it are all skipped by the NOT iterator on the *second* page, which
+    # is more than the 5000-probe amortization limit, so the second page is the one that consults
+    # the clock. The two trailing documents are the results the second page owes.
+    skipped = 6000
+    with conn.pipeline(transaction=False) as p:
+        p.execute_command('HSET', 'doc:0', 'text', 'rare')
+        for i in range(1, skipped + 1):
+            p.execute_command('HSET', f'doc:{i}', 'text', 'common')
+        p.execute_command('HSET', f'doc:{skipped + 1}', 'text', 'rare')
+        p.execute_command('HSET', f'doc:{skipped + 2}', 'text', 'rare')
+        p.execute()
+
+    # Generous enough that scanning the skipped run cannot legitimately exhaust it on a loaded
+    # runner or an instrumented build - a real timeout here would be indistinguishable from the
+    # regression. The sleep below scales with it, so the pre-fix deadline is expired either way.
+    query_timeout_ms = 2000
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '-common', 'LOAD', '1', '@__key',
+                          'WITHCURSOR', 'COUNT', '1', 'TIMEOUT', query_timeout_ms)
+    env.assertEqual([d['extra_attributes']['__key'] for d in res['results']], ['doc:0'])
+    env.assertNotEqual(cursor, 0)
+
+    # Outlive the deadline this request started with. The pipeline re-arms its own deadline for the
+    # next read, so the read below has its full budget - only a captured deadline would be expired.
+    time.sleep(query_timeout_ms / 1000 * 1.5)
+
+    remaining = []
+    while cursor != 0:
+        res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+        env.assertEqual(res.get('warning', []), [],
+                        message="a cursor read gets a fresh deadline, so nothing should time out")
+        remaining.extend(d['extra_attributes']['__key'] for d in res['results'])
+
+    env.assertEqual(remaining, [f'doc:{skipped + 1}', f'doc:{skipped + 2}'],
+                    message="documents past the skipped run must still be served")

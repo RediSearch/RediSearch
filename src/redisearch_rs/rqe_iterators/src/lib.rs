@@ -219,10 +219,46 @@ pub trait RQEIterator<'index> {
     /// The iterator should check if it is still valid by comparing its stored state
     /// against the current index state.
     ///
+    /// # Exhaustion is terminal
+    ///
+    /// An implementation that was at [`at_eof`](Self::at_eof) on entry must still be at
+    /// it on return, and [`Moved`](RQEValidateStatus::Moved)`{ current: Some(_) }` out
+    /// of the exhausted state is forbidden outright — see [`at_eof`](Self::at_eof),
+    /// which owns the rule and why callers cannot undo acting on it.
+    ///
+    /// # Errors
+    ///
+    /// Revalidation re-reads and seeks the index to restore the position, so it can fail with an
+    /// [`RQEIteratorError`] — [`TimedOut`](RQEIteratorError::TimedOut) or
+    /// [`IoError`](RQEIteratorError::IoError) — which is distinct from
+    /// [`Aborted`](RQEValidateStatus::Aborted). On `Err` the fix-up is left half-applied: children
+    /// may have been repositioned or dropped while the state derived from them was never re-synced.
+    /// The iterator is therefore in an indeterminate state, and the caller must drop it rather than
+    /// read from it or revalidate it again. This mirrors [`RQESuspendedIterator::resume`], which
+    /// consumes the iterator and drops it on the same failure.
+    ///
+    /// At the FFI boundary the two errors are reported apart: `TimedOut` becomes
+    /// `VALIDATE_TIMEOUT`, which tells the C caller the result set is incomplete, while `IoError`
+    /// becomes `VALIDATE_ABORTED`, a dead subtree in a query that still has time left.
+    ///
     /// # Locking
     ///
     /// The caller must hold the spec read lock, represented by [`IndexSpecReadGuard`].
     /// The lock ensures the spec remains valid and unchanged during this call.
+    ///
+    /// # Errors
+    ///
+    /// An error is terminal. It interrupts a fix-up that is already half applied —
+    /// children repositioned or dropped, the state derived from them never re-synced —
+    /// so [`current`](Self::current), [`at_eof`](Self::at_eof) and
+    /// [`last_doc_id`](Self::last_doc_id) stop describing anything, and there is no
+    /// earlier state to roll back to either: the position they would be restored to
+    /// belongs to an index the iterator no longer sits in.
+    ///
+    /// Calling any of them afterwards is therefore meaningless rather than merely
+    /// stale, and so is [`rewind`](Self::rewind). Drop the iterator instead. Composites
+    /// propagate the error rather than handling it, and the C boundary reports
+    /// `VALIDATE_ABORTED`, on which the result processor frees the whole tree.
     fn revalidate(
         &mut self,
         spec: &IndexSpecReadGuard,
@@ -258,6 +294,15 @@ pub trait RQEIterator<'index> {
     /// strict negations, for an implementation that materialises its result only
     /// on a read: [`current`](Self::current) already answers `None` there while
     /// this is still `false`, as its `# Usage` describes.
+    ///
+    /// # Exhaustion is terminal
+    ///
+    /// Once this is `true` it stays `true` until [`rewind`](Self::rewind), across
+    /// [`revalidate`](Self::revalidate) and [`resume`](RQESuspendedIterator::resume)
+    /// included. Callers act on exhaustion irreversibly: a composite drops the children
+    /// that report it, so one that comes back alive re-enters a parent that has already
+    /// moved on without it, replaying documents from behind the position that parent
+    /// now holds.
     fn at_eof(&self) -> bool;
 
     /// Returns the [`IteratorType`] of this iterator.

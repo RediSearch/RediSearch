@@ -14,7 +14,7 @@ use std::{marker::PhantomData, ops::Deref, ptr::NonNull};
 use inverted_index::NumericFilter;
 use query_types::{QueryNodeOptions, QueryNodeType};
 use rqe_core::{DocId, FieldMask};
-use rs_token::{RSTokenRef, RSTokenRefNulTerminated};
+use rs_token::{RSTokenMut, RSTokenRef, RSTokenRefNulTerminated};
 
 /// The wildcard expansion mode for a [`QueryNode::Prefix`] node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,8 +97,10 @@ pub enum QueryNode<'a> {
     },
     /// A filter by explicit document key names.
     Ids {
-        /// SDS key strings to match against.
-        keys: &'a [ffi::sds],
+        /// The key names to match against: `RedisModuleString`s borrowed
+        /// from storage owned by the request (its held argv). Opaque to
+        /// Rust; resolved through `DocTable_GetIdR`.
+        keys: &'a [*mut redis_module::raw::RedisModuleString],
         /// Pre-resolved document IDs (resolved on the main thread for
         /// search-on-disk).  `None` when not in disk mode.
         doc_ids: Option<&'a [DocId]>,
@@ -313,7 +315,7 @@ impl QueryNodeRef {
                         &[]
                     } else {
                         // SAFETY: invariant (1) of `new` guarantees `keys` is a
-                        // valid pointer to `len` SDS strings when non-null.
+                        // valid pointer to `len` string pointers when non-null.
                         unsafe { std::slice::from_raw_parts(fn_.keys, len) }
                     },
                     doc_ids: if fn_.docIds.is_null() {
@@ -440,10 +442,88 @@ impl QueryNodeMut<'_> {
     ///    wrappers to the same node can be minted from safe code (e.g.
     ///    [`child`](QueryNodeRef::child)) and because C holds its own pointers
     ///    into the AST; upholding it is the caller's responsibility.
+    /// 3. That exclusivity extends to a token's separately allocated string, not
+    ///    just to the node structs: a rewrite such as the ones
+    ///    [`token_mut`](Self::token_mut) exposes writes to a buffer the node only
+    ///    points at, so nothing else in the subtree's lifetime may read or write
+    ///    those bytes either.
+    /// 4. The token of every node [`token_mut`](Self::token_mut) hands one out for
+    ///    must meet the string requirements of
+    ///    [`RSTokenMut::from_nul_terminated_ffi`]. Both shapes the parser produces
+    ///    do: a query literal is copied into an explicitly terminated allocation,
+    ///    and a query parameter into a zeroed one a byte longer than its value.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub const unsafe fn new(ptr: NonNull<ffi::RSQueryNode>) -> Self {
         Self(ptr, PhantomData)
+    }
+
+    /// Borrow this node's token for in-place rewriting, or `None` when the node
+    /// carries no rewritable one.
+    ///
+    /// The returned handle borrows `*self`, so the node cannot be read or mutated
+    /// while it is live, and it is the only way to reach the token — which is what
+    /// [`RSTokenMut`]'s constructor demands, established here by the borrow checker
+    /// rather than by a second `unsafe` assertion.
+    ///
+    /// The token's string requirements come from invariant (4) of
+    /// [`QueryNodeMut::new`]; its exclusivity, from invariant (3).
+    ///
+    /// # Which nodes carry one
+    ///
+    /// The prefix, fuzzy and wildcard-query payloads each begin with a token, and
+    /// this is the accessor for all three: gating one method on three discriminants
+    /// keeps a caller from having to know which payload struct it is reading
+    /// through. Every other node type yields `None`.
+    ///
+    /// [`QueryNodeType::Token`] is deliberately not among them, even though its
+    /// payload *is* a token: an expanded one may borrow a length-delimited string
+    /// that is neither NUL-terminated nor writable, so it cannot satisfy invariant
+    /// (4). That is also why [`QueryNode::Token`] alone carries an [`RSTokenRef`]
+    /// with no NUL-termination typestate.
+    ///
+    /// The check is not optional — the payload is a union, so handing out a token
+    /// from a variant carrying none would reinterpret unrelated bytes as one, and
+    /// it has to live here because a token pointer carries no evidence of which
+    /// variant produced it. Reporting it as `None` rather than a panic is what lets
+    /// a caller check the node type exactly once.
+    pub fn token_mut(&mut self) -> Option<RSTokenMut<'_>> {
+        // As in `and_field_mask`, `&mut self` plus invariant (2) of
+        // `QueryNodeMut::new` rule out any aliasing wrapper or reference — here
+        // including the token's separately allocated string, per invariant (3).
+        // Everything below goes through raw pointers, never forming an
+        // intermediate reference to the node.
+        //
+        // SAFETY: the node is valid, so a raw pointer to its payload union is in
+        // bounds.
+        let union_ptr = unsafe { &raw mut (*self.0.as_ptr()).__bindgen_anon_1 };
+
+        // Each arm addresses the `tok` field of the payload the discriminant named,
+        // rather than casting straight to a token because all three happen to start
+        // with one.
+        let tok = match self.as_ref().node_type() {
+            // SAFETY: `type_` is `Prefix`, so the union's active member is a
+            // `QueryPrefixNode`, whose `tok` field this addresses.
+            QueryNodeType::Prefix => unsafe {
+                &raw mut (*union_ptr.cast::<ffi::QueryPrefixNode>()).tok
+            },
+            // SAFETY: `type_` is `Fuzzy`, so the union's active member is a
+            // `QueryFuzzyNode`, whose `tok` field this addresses.
+            QueryNodeType::Fuzzy => unsafe {
+                &raw mut (*union_ptr.cast::<ffi::QueryFuzzyNode>()).tok
+            },
+            // SAFETY: `type_` is `WildcardQuery`, so the union's active member is a
+            // `QueryVerbatimNode`, whose `tok` field this addresses.
+            QueryNodeType::WildcardQuery => unsafe {
+                &raw mut (*union_ptr.cast::<ffi::QueryVerbatimNode>()).tok
+            },
+            _ => return None,
+        };
+
+        // SAFETY: `tok` addresses the node's valid token, exclusively owned for the
+        // returned handle's lifetime by the borrow of `*self`, and its string meets
+        // the constructor's requirements per invariant (4).
+        Some(unsafe { RSTokenMut::from_nul_terminated_ffi(tok) })
     }
 
     /// Intersect `mask` into this node's [field mask](QueryNodeOptions::field_mask).

@@ -11,16 +11,20 @@ use rqe_iterators::{
     IteratorType, RQEIterator, RQEValidateStatus,
     metric::{MetricSortedById, MetricSortedByScore},
 };
+use rqe_iterators_test_utils::ContractChecker;
 
 #[test]
 fn type_sorted_by_id() {
-    let it = MetricSortedById::new(vec![1, 3, 5], vec![0.1, 0.3, 0.5]);
+    let it = ContractChecker::new(MetricSortedById::new(vec![1, 3, 5], vec![0.1, 0.3, 0.5]));
     assert_eq!(it.type_(), IteratorType::MetricSortedById);
 }
 
 #[test]
 fn type_sorted_by_score() {
-    let it = MetricSortedByScore::new(vec![1, 3, 5], vec![0.1, 0.3, 0.5]);
+    let it = ContractChecker::new_unordered(MetricSortedByScore::new(
+        vec![1, 3, 5],
+        vec![0.1, 0.3, 0.5],
+    ));
     assert_eq!(it.type_(), IteratorType::MetricSortedByScore);
 }
 
@@ -36,7 +40,7 @@ fn test_metric_creation_panic() {
 fn test_metric_creation() {
     let ids = vec![1, 3, 5, 7, 9];
     let metric_data = vec![0.1, 0.3, 0.5, 0.7, 0.9];
-    let mut metric = MetricSortedById::new(ids.clone(), metric_data.clone());
+    let mut metric = ContractChecker::new(MetricSortedById::new(ids.clone(), metric_data.clone()));
 
     // Test that the metric was created with correct data
     assert_eq!(metric.num_estimated(), ids.len());
@@ -58,7 +62,7 @@ fn score_variant_can_handle_unsorted_ids() {
 fn score_variant_cannot_skip() {
     let ids = vec![5, 3, 1, 4, 2];
     let metric_data = vec![0.1, 0.3, 0.5, 0.7, 0.9];
-    let mut i = MetricSortedByScore::new(ids, metric_data);
+    let mut i = ContractChecker::new_unordered(MetricSortedByScore::new(ids, metric_data));
     let _ = i.skip_to(3);
 }
 
@@ -66,12 +70,14 @@ mod metrics_tests {
     use crate::id_cases;
     use index_result::RSResultKind;
     use rqe_iterators::{RQEIterator, SkipToOutcome, metric::MetricSortedById};
+    use rqe_iterators_test_utils::ContractChecker;
     use rstest_reuse::apply;
 
     #[apply(id_cases)]
     fn read(#[case] case: &[u64]) {
         let metric_data: Vec<f64> = case.iter().map(|&id| id as f64 * 0.1).collect();
-        let mut it = MetricSortedById::new(case.to_vec(), metric_data.clone());
+        let mut it =
+            ContractChecker::new(MetricSortedById::new(case.to_vec(), metric_data.clone()));
 
         assert_eq!(it.num_estimated(), case.len());
         assert!(!it.at_eof());
@@ -103,7 +109,8 @@ mod metrics_tests {
     #[cfg_attr(miri, ignore = "Too slow under miri")]
     fn skip_to(#[case] case: &[u64]) {
         let metric_data: Vec<f64> = case.iter().map(|&id| id as f64 * 0.1).collect();
-        let mut it = MetricSortedById::new(case.to_vec(), metric_data.clone());
+        let mut it =
+            ContractChecker::new(MetricSortedById::new(case.to_vec(), metric_data.clone()));
 
         // Read first element
         let first_doc = it.read().unwrap().unwrap();
@@ -200,7 +207,7 @@ mod metrics_tests {
         }
 
         let metric_data: Vec<f64> = case.iter().map(|&id| id as f64 * 0.1).collect();
-        let mut it = MetricSortedById::new(case.to_vec(), metric_data);
+        let mut it = ContractChecker::new(MetricSortedById::new(case.to_vec(), metric_data));
 
         for from_idx in 0..case.len() - 1 {
             for to_idx in from_idx + 1..case.len() {
@@ -236,7 +243,8 @@ mod metrics_tests {
     #[apply(id_cases)]
     fn rewind(#[case] case: &[u64]) {
         let metric_data: Vec<f64> = case.iter().map(|&id| id as f64 * 0.1).collect();
-        let mut it = MetricSortedById::new(case.to_vec(), metric_data.clone());
+        let mut it =
+            ContractChecker::new(MetricSortedById::new(case.to_vec(), metric_data.clone()));
 
         // Skip to each doc ID, verify, then rewind and check reset
         for (j, &id) in case.iter().enumerate() {
@@ -285,7 +293,7 @@ mod metrics_tests {
 fn revalidate() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let metric_data = vec![0.1, 0.2, 0.3];
-    let mut it = MetricSortedById::new(vec![1, 2, 3], metric_data);
+    let mut it = ContractChecker::new(MetricSortedById::new(vec![1, 2, 3], metric_data));
     let status = it.revalidate(&*mock_ctx.spec_read()).unwrap();
     assert_eq!(status, RQEValidateStatus::Ok);
 }
@@ -360,7 +368,7 @@ fn set_handle_non_null_invalidates_on_drop() {
 #[test]
 fn metric_upholds_current_contract() {
     use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
-    let mut it = MetricSortedById::new(vec![1u64, 3, 5], vec![0.1, 0.3, 0.5]);
+    let mut it = ContractChecker::new(MetricSortedById::new(vec![1u64, 3, 5], vec![0.1, 0.3, 0.5]));
     assert_eq!(assert_current_contract(&mut it), [1, 3, 5]);
     assert_current_contract_via_skip_to(&mut it, 6);
 }

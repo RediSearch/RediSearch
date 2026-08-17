@@ -250,9 +250,19 @@ static inline void SearchResult_BufferIndexResult(ResultProcessor *rp, SearchRes
   }
 }
 
+typedef enum {
+  REVALIDATE_CONTINUE,         // Proceed with a normal read
+  REVALIDATE_VALIDATE_CURRENT, // The iterator moved: use its current result before reading again
+  REVALIDATE_TIMEDOUT,         // The deadline expired mid-revalidation: report a timeout
+} RevalidateOutcome;
+
 /**
  * Handle initial spec lock and iterator revalidation.
- * Returns true if we should goto validate_current (VALIDATE_MOVED case).
+ *
+ * On VALIDATE_ABORTED and VALIDATE_TIMEOUT alike the iterator is unusable and gets replaced by an
+ * empty one, so the pipeline stays safe if it reads again. The two part ways in what the caller
+ * reports: an abort lets the query end as if the index were exhausted, while a timeout means the
+ * results are partial and must be returned as `RS_RESULT_TIMEDOUT`.
  *
  * * For disk indexes, we skip the lock acquisition because:
  * 1. All in-memory structure accesses (terms Trie, suffix Trie, stats) happen
@@ -261,33 +271,38 @@ static inline void SearchResult_BufferIndexResult(ResultProcessor *rp, SearchRes
  *    consistency for disk reads without needing to hold the lock.
  * 3. This avoids blocking the main thread during disk IO operations.
  */
-static bool handleSpecLockAndRevalidate(RPQueryIterator *self) {
+static RevalidateOutcome handleSpecLockAndRevalidate(RPQueryIterator *self) {
   RedisSearchCtx *sctx = self->sctx;
 
   // For disk indexes, return immediately, since we don't need to acquire the
   // lock, nor to revalidate the iterators.
   if (sctx->spec->diskSpec) {
-    return false;
+    return REVALIDATE_CONTINUE;
   }
 
   QueryIterator *it = self->iterator;
 
+  // Already locked by us, or borrowed from an outer scope that has held the lock
+  // since the iterators were built - nothing to lock or revalidate either way.
   if (sctx->lock_state != SPEC_LOCK_UNSET) {
-    return false;
+    return REVALIDATE_CONTINUE;
   }
 
   RedisSearchCtx_LockSpecRead(sctx);
 
   ValidateStatus rc = it->Revalidate(it, sctx->spec);
 
-  if (rc == VALIDATE_ABORTED) {
+  if (rc == VALIDATE_ABORTED || rc == VALIDATE_TIMEOUT) {
     self->iterator->Free(self->iterator);
     self->iterator = NewEmptyIterator();
+    if (rc == VALIDATE_TIMEOUT) {
+      return REVALIDATE_TIMEDOUT;
+    }
   } else if (rc == VALIDATE_MOVED && !it->atEOF) {
-    return true;  // Caller should validate current
+    return REVALIDATE_VALIDATE_CURRENT;
   }
 
-  return false;
+  return REVALIDATE_CONTINUE;
 }
 
 /* Next implementation for sync disk and regular (in-memory) flow */
@@ -298,7 +313,11 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
   IndexSpec* spec = sctx->spec;
   const RSDocumentMetadata *dmd;
   // Handle spec lock and revalidation
-  bool needToValidateCurrent = handleSpecLockAndRevalidate(self);
+  RevalidateOutcome revalidateOutcome = handleSpecLockAndRevalidate(self);
+  if (revalidateOutcome == REVALIDATE_TIMEDOUT) {
+    return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+  }
+  bool needToValidateCurrent = (revalidateOutcome == REVALIDATE_VALIDATE_CURRENT);
 
   // Always update it after revalidation as iterator may have been replaced
   it = self->iterator;
@@ -357,9 +376,14 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
   QueryIterator *it = self->iterator;
   RedisSearchCtx *sctx = self->sctx;
 
-  // Handle spec lock and revalidation
-  // no need store the return value since validate current result is not needed for async disk path
-  handleSpecLockAndRevalidate(self);
+  // Handle spec lock and revalidation.
+  // Neither outcome is reachable today: this processor is only installed for disk specs, and those
+  // return before revalidating at all. A moved iterator would need no special handling here anyway,
+  // but the timeout is answered defensively, so that a disk spec which one day does revalidate
+  // reports the timeout instead of reading past it as end-of-results.
+  if (handleSpecLockAndRevalidate(self) == REVALIDATE_TIMEDOUT) {
+    return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+  }
 
   // Always update it after revalidation as iterator may have been replaced
   it = self->iterator;
@@ -1143,7 +1167,7 @@ typedef struct RPSafeLoader {
   // Request sync context; non-NULL only for RETURN_STRICT requests that use the
   // aggregate-results sync. When set, the loader performs the GIL deadlock-
   // avoidance handshake around the GIL (see aggregate.h).
-  BlockedRequestCtx *brc;
+  QueryRequest *request;
 } RPSafeLoader;
 
 /************************* Safe Loader private functions *************************/
@@ -1325,10 +1349,10 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   SyncPoint_WaitUntil(SYNC_POINT_BEFORE_SAFE_LOADER_GIL_LOCK, SearchTime_IsTimedOut, &sctx->time);
 #endif
 
-  // Deadlock-avoidance handshake (brc non-NULL only for RETURN_STRICT). Mark
+  // Deadlock-avoidance handshake (request non-NULL only for RETURN_STRICT). Mark
   // that we are about to take the GIL so the timeout callback can preempt us; if
   // it already timed out, bail instead of blocking. See aggregate.h.
-  if (self->brc && !BlockedRequestCtx_SafeLoaderEnterGIL(self->brc)) {
+  if (self->request && !QueryRequest_SafeLoaderEnterGIL(self->request)) {
     return RS_RESULT_TIMEDOUT;
   }
 
@@ -1349,8 +1373,8 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   // closes the race where a timeout landing in the unlock->clear gap sees a
   // stale safeLoadersHoldingGIL count and preempts, dropping already-loaded
   // results. See aggregate.h.
-  if (self->brc) {
-    BlockedRequestCtx_SafeLoaderExitGIL(self->brc);
+  if (self->request) {
+    QueryRequest_SafeLoaderExitGIL(self->request);
   }
 
   // Done loading. Unlock Redis
@@ -1407,7 +1431,7 @@ static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk,
 
   sl->last_buffered_rc = RS_RESULT_OK;
   sl->sctx = sctx;
-  sl->brc = NULL;
+  sl->request = NULL;
 
   sl->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
   sl->base_loader.base.Free = rpSafeLoaderFree;
@@ -1526,7 +1550,7 @@ static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
   sl->curr_result_index = 0;
 
   sl->last_buffered_rc = RS_RESULT_OK;
-  sl->brc = NULL;
+  sl->request = NULL;
 
   sl->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
   sl->base_loader.base.Free = rpSafeLoaderFree;
@@ -1563,13 +1587,13 @@ void SetLoadersForBG(QueryProcessingCtx *qctx) {
 //
 // The disk async loader (Rust `redisearch_disk` crate) uses the same handshake via
 // `SearchDisk_AsyncLoader_SetSyncCtx` (see aggregate.h).
-void RPSafeLoader_SetSyncCtx(QueryProcessingCtx *qctx, struct BlockedRequestCtx *sync) {
+void RPSafeLoader_SetSyncCtx(QueryProcessingCtx *qctx, QueryRequest *request) {
   ResultProcessor *rp = qctx->endProc;
   while (rp) {
     if (rp->type == RP_SAFE_LOADER) {
-      ((RPSafeLoader *)rp)->brc = sync;
+      ((RPSafeLoader *)rp)->request = request;
     } else if (rp->type == RP_DISK_ASYNC_LOADER) {
-      SearchDisk_AsyncLoader_SetSyncCtx(rp, sync);
+      SearchDisk_AsyncLoader_SetSyncCtx(rp, request);
     }
     rp = rp->upstream;
   }

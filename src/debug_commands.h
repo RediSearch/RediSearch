@@ -179,6 +179,17 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 // Fork-GC worker: parked at the very top of a periodic GC job, before the collection callback
 // runs. Lets a test rendezvous with a real run while RUN_PENDING is held, instead of sleeping.
 #define SYNC_POINT_GC_TASK_START                        "GCTaskStart"
+// Fork-GC worker: parked after the pass finished and before it posts its re-arm to the main
+// thread. The only window where RUN_PENDING is held but no run remains to discover a drop, so a
+// test can land a stop and a drop in it deterministically.
+#define SYNC_POINT_GC_BEFORE_REARM_POST                 "GCBeforeRearmPost"
+// Fork-GC worker: parked before the GIL handshake that precedes the fork, so a test can take
+// the single child slot while a cycle waits here and make the EEXIST retry deterministic.
+#define SYNC_POINT_GC_BEFORE_FORK                       "GCBeforeFork"
+// Fork-GC worker: parked after a fork attempt failed because another child holds the slot, with
+// the GIL released. Reaching it is the only proof, independent of host scheduling, that a cycle
+// really did hit EEXIST rather than winning the slot outright.
+#define SYNC_POINT_GC_FORK_SLOT_BUSY                    "GCForkSlotBusy"
 
 // SyncPoint API function declarations
 // Arm a sync point - subsequent calls to SyncPoint_Wait will block
@@ -242,11 +253,11 @@ void HybridStoreCursorsDebugCtx_SetPauseAfterEnabled(bool enabled);
 bool HybridStoreCursorsDebugCtx_IsPaused(void);
 void HybridStoreCursorsDebugCtx_SetPause(bool pause);
 
-// Blocked-request OnFree counter. Bumped on every BlockedRequestCtx_OnFree so
+// Blocked-request OnFree counter. Bumped on every QueryRequest_OnFree so
 // tests can deterministically observe that free_privdata has fired without
 // blocking the main thread inside the callback.
-void BlockedRequestOnFreeDebug_Increment(void);
-uint64_t BlockedRequestOnFreeDebug_GetCount(void);
+void QueryRequestOnFreeDebug_Increment(void);
+uint64_t QueryRequestOnFreeDebug_GetCount(void);
 
 // Tracks the currently active coordinator MRIterator so tests can poll the
 // `pending` shard counter via FT.DEBUG BG_PENDING_REPLIES. Set after the
@@ -262,6 +273,11 @@ void DebugBgIterator_Clear(struct MRIterator *it);
 // Yield counter functions
 void IncrementLoadYieldCounter(void);
 void IncrementBgIndexYieldCounter(void);
+
+// GC timer arm counters. `FromOneShot` counts the arms that went through the main-thread
+// one-shot; a test asserts the two are equal to prove no arm happened on the GC thread.
+void IncrementGCTimerArm(void);
+void IncrementGCTimerArmFromOneShot(void);
 
 // Indexer sleep before yield functions
 unsigned int GetIndexerSleepBeforeYieldMicros(void);

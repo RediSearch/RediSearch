@@ -567,16 +567,24 @@ where
         // and `Not::revalidate` asserts that of its child — which is where a
         // `QUICK_EXIT` union usually sits.
         //
-        // Both modes can see one. With `QUICK_EXIT` it is the mode's own early
-        // return: `rebuild_heap` keys on `last_doc_id()`, which answers 0 for a child
-        // that has never been read and an earlier round's id for one that
-        // `advance_lagging_children` left in the heap when it returned on an exact
-        // match. Without it there is exactly one way: a child that ran out and was
-        // dropped can *resurrect* during the revalidation above — an inverted-index
-        // leaf rewinds and re-seeks the position it held, and rewinding clears the
-        // past-the-end state — so `rebuild_heap` re-admits it far behind a union that
-        // carried on without it.
+        // With `QUICK_EXIT` this is the mode's own early return, and routine:
+        // `rebuild_heap` keys on `last_doc_id()`, which answers 0 for a child that has
+        // never been read and an earlier round's id for one that
+        // `advance_lagging_children` left in the heap when it returned on an exact match.
+        //
+        // A full union cannot get here: `advance_matching_children` leaves no active
+        // child behind the union, and exhaustion is terminal across a revalidation (see
+        // [`RQEIterator::at_eof`]), so a child dropped on EOF cannot be re-admitted by
+        // `rebuild_heap` behind us. Asserted rather than compensated for — the recovery
+        // below is quick mode's, and a full union arriving in it means a child is broken.
         if min.doc_id < original_last_doc_id {
+            debug_assert!(
+                QUICK_EXIT,
+                "a full union's child moved behind the union's position: doc {} comes \
+                 before doc {original_last_doc_id}",
+                min.doc_id,
+            );
+
             // A child still sitting on the union's document backs the position as it
             // stands: republish from it (the result holds raw pointers into children
             // that may have moved or been dropped) and report `Ok`, with no reads

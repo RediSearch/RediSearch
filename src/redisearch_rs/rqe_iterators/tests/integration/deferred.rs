@@ -19,6 +19,7 @@ use rqe_iterators::{
     metric::MetricType,
     metric_lazy::MetricLazySortedById,
 };
+use rqe_iterators_test_utils::ContractChecker;
 
 /// Build a [`Producer`] closure yielding `ids`/`metrics` (or a timeout), incrementing `calls`
 /// each time it runs so tests can assert the query is deferred to (and run only on) first access.
@@ -47,11 +48,11 @@ fn producer(
 #[test]
 fn id_list_is_not_produced_until_first_read() {
     let calls = Rc::new(Cell::new(0));
-    let mut it = IdListLazy::<true>::new(
+    let mut it = ContractChecker::new(IdListLazy::<true>::new(
         producer(vec![1, 4, 9], None, false, calls.clone()),
         100,
         index_result::RSIndexResult::build_virt().build(),
-    );
+    ));
 
     // Building the iterator must not run the query, but it must look readable so the engine
     // will read it (and the estimate falls back to the supplied hint).
@@ -139,7 +140,7 @@ mod id_list_suspend_resume {
 #[test]
 fn metric_produces_ids_and_metrics_on_first_read() {
     let calls = Rc::new(Cell::new(0));
-    let mut it = MetricLazySortedById::new(
+    let mut it = ContractChecker::new(MetricLazySortedById::new(
         producer(
             vec![2, 5, 8],
             Some(vec![0.2, 0.5, 0.8]),
@@ -148,7 +149,7 @@ fn metric_produces_ids_and_metrics_on_first_read() {
         ),
         42,
         MetricType::VectorDistance,
-    );
+    ));
     assert_eq!(calls.get(), 0);
     assert!(!it.at_eof());
     assert_eq!(it.num_estimated(), 42);
@@ -167,11 +168,11 @@ fn metric_produces_ids_and_metrics_on_first_read() {
 #[test]
 fn empty_production_reports_eof() {
     let calls = Rc::new(Cell::new(0));
-    let mut it = MetricLazySortedById::new(
+    let mut it = ContractChecker::new(MetricLazySortedById::new(
         producer(vec![], Some(vec![]), false, calls.clone()),
         7,
         MetricType::VectorDistance,
-    );
+    ));
     assert!(!it.at_eof()); // not known to be empty until produced
     assert!(matches!(it.read(), Ok(None)));
     assert!(it.at_eof());
@@ -181,11 +182,11 @@ fn empty_production_reports_eof() {
 #[test]
 fn timeout_propagates_on_first_read() {
     let calls = Rc::new(Cell::new(0));
-    let mut it = IdListLazy::<true>::new(
+    let mut it = ContractChecker::new(IdListLazy::<true>::new(
         producer(vec![], None, true, calls.clone()),
         10,
         index_result::RSIndexResult::build_virt().build(),
-    );
+    ));
     assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
     // The producer was consumed even on timeout, so a subsequent read yields EOF (no re-run).
     assert!(matches!(it.read(), Ok(None)));
@@ -195,11 +196,11 @@ fn timeout_propagates_on_first_read() {
 #[test]
 fn skip_to_triggers_production() {
     let calls = Rc::new(Cell::new(0));
-    let mut it = IdListLazy::<true>::new(
+    let mut it = ContractChecker::new(IdListLazy::<true>::new(
         producer(vec![3, 6, 9, 12], None, false, calls.clone()),
         50,
         index_result::RSIndexResult::build_virt().build(),
-    );
+    ));
     assert_eq!(calls.get(), 0);
 
     let outcome = it.skip_to(6).unwrap().unwrap();
@@ -283,11 +284,11 @@ fn id_list_lazy_upholds_current_contract() {
     use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
 
     let calls = Rc::new(Cell::new(0));
-    let mut it = IdListLazy::<true>::new(
+    let mut it = ContractChecker::new(IdListLazy::<true>::new(
         producer(vec![1, 4, 9], None, false, calls.clone()),
         100,
         index_result::RSIndexResult::build_virt().build(),
-    );
+    ));
 
     assert_eq!(assert_current_contract(&mut it), [1, 4, 9]);
     assert_current_contract_via_skip_to(&mut it, 10);
@@ -298,7 +299,7 @@ fn metric_lazy_upholds_current_contract() {
     use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
 
     let calls = Rc::new(Cell::new(0));
-    let mut it = MetricLazySortedById::new(
+    let mut it = ContractChecker::new(MetricLazySortedById::new(
         producer(
             vec![2, 5, 8],
             Some(vec![0.2, 0.5, 0.8]),
@@ -307,7 +308,7 @@ fn metric_lazy_upholds_current_contract() {
         ),
         42,
         MetricType::VectorDistance,
-    );
+    ));
 
     assert_eq!(assert_current_contract(&mut it), [2, 5, 8]);
     assert_current_contract_via_skip_to(&mut it, 9);
@@ -319,11 +320,11 @@ fn metric_lazy_upholds_current_contract() {
 #[test]
 fn producer_timeout_reports_eof_only_once_a_read_has_found_nothing() {
     let calls = Rc::new(Cell::new(0));
-    let mut it = IdListLazy::<true>::new(
+    let mut it = ContractChecker::new(IdListLazy::<true>::new(
         producer(vec![1, 2], None, true, calls.clone()),
         100,
         index_result::RSIndexResult::build_virt().build(),
-    );
+    ));
 
     assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
     assert_eq!(calls.get(), 1);

@@ -14,6 +14,7 @@
 //! [`Evaluated`](crate::Evaluated) outcome type, and the helpers for evaluating
 //! a child node — lives at the crate root rather than here.
 
+pub(crate) mod fuzzy;
 pub(crate) mod geo;
 pub(crate) mod geometry;
 pub(crate) mod ids;
@@ -27,3 +28,4 @@ pub(crate) mod prefix;
 pub(crate) mod token;
 pub(crate) mod union;
 pub(crate) mod wildcard;
+pub(crate) mod wildcard_query;

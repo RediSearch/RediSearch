@@ -40,6 +40,7 @@ mod empty;
 mod format_g;
 mod geo_shape;
 mod id_list;
+mod interop;
 mod intersection;
 mod inverted_index;
 mod maybe_empty;
@@ -55,6 +56,7 @@ mod profilable;
 mod profile;
 #[cfg(not(miri))]
 mod profile_print;
+mod timeout_context;
 #[macro_use]
 mod union_common;
 mod union_flat;

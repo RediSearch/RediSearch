@@ -41,6 +41,7 @@ fn explicit_adhoc_policy() {
         source,
         make_child(vec![1, 2, 3]),
         NonZeroUsize::new(3).unwrap(),
+        false,
     );
     assert_eq!(it.mode(), TopKMode::AdhocBF);
 
@@ -68,6 +69,7 @@ fn explicit_batches_policy() {
         source,
         make_child(vec![1, 2, 3]),
         NonZeroUsize::new(3).unwrap(),
+        false,
     );
     assert_eq!(it.mode(), TopKMode::ForcedBatches);
 
@@ -97,6 +99,7 @@ fn unset_policy_uses_heuristic() {
         source,
         make_child(vec![1, 2, 3]),
         NonZeroUsize::new(3).unwrap(),
+        false,
     );
     assert!(
         matches!(it.mode(), TopKMode::Batches | TopKMode::AdhocBF),

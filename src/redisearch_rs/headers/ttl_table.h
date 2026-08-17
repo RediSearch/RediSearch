@@ -34,28 +34,84 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Lazy-initialize a [`TimeToLiveTable`] at `*table`. No-op if `*table` is
- * already non-null. `max_size` is the fixed modulus for the slot formula
- * so it must be ≥ 1.
- *
- * # Panics
- * `max_size` must be ≥ 1, otherwise the function panics
- *
- * # Safety
- *  - `table` must be a valid, writable `*mut *mut TimeToLiveTable`.
+ * Return empty FieldExpirationSlice
  */
-void TimeToLiveTable_VerifyInit(struct TimeToLiveTable * *table, size_t max_size);
+struct FieldExpirationSlice FieldExpirationsSlice_Empty(void);
 
 /**
- * Destroy the [`TimeToLiveTable`] at `*table` and write `NULL` back to it.
- * No-op if `*table` is already null.
+ * Borrow the entries of an owned [`FieldExpirations`] value without taking
+ * ownership.
+ *
+ * Returns an empty slice for a null pointer. The returned pointer is
+ * invalidated by any later mutation/drop of `fields` and must not be freed by
+ * the caller.
  *
  * # Safety
- *  - `table` must be a valid, writable `*mut *mut TimeToLiveTable`.
- *  - If `*table` is non-null, it must point to a value previously returned
- *    by [`TimeToLiveTable_VerifyInit`] and not yet destroyed.
+ *  - `fields`, when non-null, must point to a valid [`FieldExpirations`].
  */
-void TimeToLiveTable_Destroy(struct TimeToLiveTable * *table);
+struct FieldExpirationSlice FieldExpirations_AsSlice(const FieldExpirations *fields);
+
+/**
+ * Construct an empty [`FieldExpirations`].
+ *
+ * No heap allocation is performed until the first insertion.
+ */
+FieldExpirations FieldExpirations_Empty(void);
+
+/**
+ * Drop the [`FieldExpirations`] at `*v` and leave it in an empty,
+ * reusable state.
+ *
+ * Use on the abandon path — when a `FieldExpirations` is built but
+ * never handed to [`TimeToLiveTable_Add`]. Two such paths exist on the
+ * C side today:
+ * - `Document_Free` (`src/document_basic.c`) releasing a discarded
+ *   document.
+ * - `DocTable_UpdateExpiration` (`src/doc_table.c`) discarding an
+ *   empty list rather than registering it.
+ *
+ * After this call `*v` is logically the same as a fresh
+ * [`FieldExpirations_Empty`] result and is safe to reuse or to drop
+ * again.
+ *
+ * # Safety
+ *  - `v` must be non-null.
+ *  - `*v` must be either an initialized [`FieldExpirations`] (returned by a
+ *    constructor in this module).
+ *  - No other reference to `*v` may exist for the duration of the call.
+ */
+void FieldExpirations_Free(FieldExpirations *v);
+
+/**
+ * Number of [`FieldExpiration`] entries currently stored in `*v`.
+ *
+ * # Safety
+ *  - `v` must be non-null.
+ *  - `*v` must be either an initialized [`FieldExpirations`] (returned by a
+ *    constructor in this module).
+ */
+size_t FieldExpirations_Len(const FieldExpirations *v);
+
+/**
+ * Append `fe` to the end of `*v` without searching for the insertion
+ * point.
+ *
+ * Use when the caller already knows that `fe.index` is strictly greater
+ * than every index currently in `*v` — typically when building the
+ * list from an already-sorted source iterator.
+ *
+ * # Safety
+ *  - `v` must be a non-null pointer to an initialized [`FieldExpirations`].
+ *  - `fe.index` must be strictly greater than the `index` of every entry
+ *    already present in `*v`.
+ */
+void FieldExpirations_Push(FieldExpirations *v, struct FieldExpiration fe);
+
+/**
+ * Construct a [`FieldExpirations`] with backing storage pre-sized for at
+ * least `cap` entries.
+ */
+FieldExpirations FieldExpirations_WithCapacity(size_t cap);
 
 /**
  * Insert a document's per-field expirations. Ownership of `field_expirations`
@@ -73,67 +129,15 @@ void TimeToLiveTable_Destroy(struct TimeToLiveTable * *table);
 void TimeToLiveTable_Add(struct TimeToLiveTable *table, t_docId doc_id, FieldExpirations field_expirations);
 
 /**
- * Remove the entry for `doc_id`, if any. No-op if absent.
+ * Destroy the [`TimeToLiveTable`] at `*table` and write `NULL` back to it.
+ * No-op if `*table` is already null.
  *
  * # Safety
- *  - `table` must point to a valid, initialized [`TimeToLiveTable`] with
- *    no other live references.
+ *  - `table` must be a valid, writable `*mut *mut TimeToLiveTable`.
+ *  - If `*table` is non-null, it must point to a value previously returned
+ *    by [`TimeToLiveTable_VerifyInit`] and not yet destroyed.
  */
-void TimeToLiveTable_Remove(struct TimeToLiveTable *table, t_docId doc_id);
-
-/**
- * Returns whether the table holds no entries.
- *
- * # Safety
- *  - `table` must point to a valid, initialized [`TimeToLiveTable`].
- */
-bool TimeToLiveTable_IsEmpty(const struct TimeToLiveTable *table);
-
-/**
- * Borrow the per-field expiration list stored for `doc_id`.
- *
- * Returns a [`FieldExpirationSlice`] borrowing storage owned by the table.
- * On miss, both `ptr` and `len` are zero. The returned pointer is invalidated
- * by any subsequent `_Add` / `_Remove` / `_Destroy` for this table and must
- * not be freed by the caller.
- *
- * # Safety
- *  - `table` must point to a valid, initialized [`TimeToLiveTable`].
- */
-struct FieldExpirationSlice TimeToLiveTable_GetFieldExpirations(const struct TimeToLiveTable *table, t_docId doc_id);
-
-/**
- * Borrow the entries of an owned [`FieldExpirations`] value without taking
- * ownership.
- *
- * Returns an empty slice for a null pointer. The returned pointer is
- * invalidated by any later mutation/drop of `fields` and must not be freed by
- * the caller.
- *
- * # Safety
- *  - `fields`, when non-null, must point to a valid [`FieldExpirations`].
- */
-struct FieldExpirationSlice FieldExpirations_AsSlice(const FieldExpirations *fields);
-
-/**
- * Single-field expiration check.
- *
- * # Returns
- * `true` if the field's state satisfies `predicate` at `expiration_point`,
- * `false` otherwise. Specifically:
- * - With [`FieldExpirationPredicate::Default`], returns `true` iff the
- *   field is not expired (untracked fields and documents with no entry are
- *   treated as not expired).
- * - With [`FieldExpirationPredicate::Missing`], returns `true` iff the
- *   field is expired.
- *
- * Documents with no entry trivially satisfy any predicate and return `true`.
- *
- * # Safety
- *  - `table` must point to a valid, initialized [`TimeToLiveTable`].
- *  - `expiration_point` must be a valid `*const t_expirationTimePoint`.
- */
-bool TimeToLiveTable_FieldSatisfiesPredicate(const struct TimeToLiveTable *table, t_docId doc_id, uint16_t field_index, enum FieldExpirationPredicate predicate, const t_expirationTimePoint *expiration_point);
+void TimeToLiveTable_Destroy(struct TimeToLiveTable * *table);
 
 /**
  * Field-mask expiration check.
@@ -165,6 +169,47 @@ bool TimeToLiveTable_FieldSatisfiesPredicate(const struct TimeToLiveTable *table
 bool TimeToLiveTable_FieldMaskSatisfiesPredicate(const struct TimeToLiveTable *table, t_docId doc_id, t_fieldMask field_mask, enum FieldExpirationPredicate predicate, const t_expirationTimePoint *expiration_point, const uint16_t *ft_id_to_field_index, bool wide);
 
 /**
+ * Single-field expiration check.
+ *
+ * # Returns
+ * `true` if the field's state satisfies `predicate` at `expiration_point`,
+ * `false` otherwise. Specifically:
+ * - With [`FieldExpirationPredicate::Default`], returns `true` iff the
+ *   field is not expired (untracked fields and documents with no entry are
+ *   treated as not expired).
+ * - With [`FieldExpirationPredicate::Missing`], returns `true` iff the
+ *   field is expired.
+ *
+ * Documents with no entry trivially satisfy any predicate and return `true`.
+ *
+ * # Safety
+ *  - `table` must point to a valid, initialized [`TimeToLiveTable`].
+ *  - `expiration_point` must be a valid `*const t_expirationTimePoint`.
+ */
+bool TimeToLiveTable_FieldSatisfiesPredicate(const struct TimeToLiveTable *table, t_docId doc_id, uint16_t field_index, enum FieldExpirationPredicate predicate, const t_expirationTimePoint *expiration_point);
+
+/**
+ * Borrow the per-field expiration list stored for `doc_id`.
+ *
+ * Returns a [`FieldExpirationSlice`] borrowing storage owned by the table.
+ * On miss, both `ptr` and `len` are zero. The returned pointer is invalidated
+ * by any subsequent `_Add` / `_Remove` / `_Destroy` for this table and must
+ * not be freed by the caller.
+ *
+ * # Safety
+ *  - `table` must point to a valid, initialized [`TimeToLiveTable`].
+ */
+struct FieldExpirationSlice TimeToLiveTable_GetFieldExpirations(const struct TimeToLiveTable *table, t_docId doc_id);
+
+/**
+ * Returns whether the table holds no entries.
+ *
+ * # Safety
+ *  - `table` must point to a valid, initialized [`TimeToLiveTable`].
+ */
+bool TimeToLiveTable_IsEmpty(const struct TimeToLiveTable *table);
+
+/**
  * Test-only: number of buckets currently allocated.
  *
  * Number of buckets currently allocated (lazy-growth high-water mark).
@@ -181,71 +226,26 @@ bool TimeToLiveTable_FieldMaskSatisfiesPredicate(const struct TimeToLiveTable *t
 size_t TimeToLiveTable_NAllocatedBuckets(const struct TimeToLiveTable *table);
 
 /**
- * Construct an empty [`FieldExpirations`].
- *
- * No heap allocation is performed until the first insertion.
- */
-FieldExpirations FieldExpirations_Empty(void);
-
-/**
- * Construct a [`FieldExpirations`] with backing storage pre-sized for at
- * least `cap` entries.
- */
-FieldExpirations FieldExpirations_WithCapacity(size_t cap);
-
-/**
- * Append `fe` to the end of `*v` without searching for the insertion
- * point.
- *
- * Use when the caller already knows that `fe.index` is strictly greater
- * than every index currently in `*v` — typically when building the
- * list from an already-sorted source iterator.
+ * Remove the entry for `doc_id`, if any. No-op if absent.
  *
  * # Safety
- *  - `v` must be a non-null pointer to an initialized [`FieldExpirations`].
- *  - `fe.index` must be strictly greater than the `index` of every entry
- *    already present in `*v`.
+ *  - `table` must point to a valid, initialized [`TimeToLiveTable`] with
+ *    no other live references.
  */
-void FieldExpirations_Push(FieldExpirations *v, struct FieldExpiration fe);
+void TimeToLiveTable_Remove(struct TimeToLiveTable *table, t_docId doc_id);
 
 /**
- * Number of [`FieldExpiration`] entries currently stored in `*v`.
+ * Lazy-initialize a [`TimeToLiveTable`] at `*table`. No-op if `*table` is
+ * already non-null. `max_size` is the fixed modulus for the slot formula
+ * so it must be ≥ 1.
+ *
+ * # Panics
+ * `max_size` must be ≥ 1, otherwise the function panics
  *
  * # Safety
- *  - `v` must be non-null.
- *  - `*v` must be either an initialized [`FieldExpirations`] (returned by a
- *    constructor in this module).
+ *  - `table` must be a valid, writable `*mut *mut TimeToLiveTable`.
  */
-size_t FieldExpirations_Len(const FieldExpirations *v);
-
-/**
- * Drop the [`FieldExpirations`] at `*v` and leave it in an empty,
- * reusable state.
- *
- * Use on the abandon path — when a `FieldExpirations` is built but
- * never handed to [`TimeToLiveTable_Add`]. Two such paths exist on the
- * C side today:
- * - `Document_Free` (`src/document_basic.c`) releasing a discarded
- *   document.
- * - `DocTable_UpdateExpiration` (`src/doc_table.c`) discarding an
- *   empty list rather than registering it.
- *
- * After this call `*v` is logically the same as a fresh
- * [`FieldExpirations_Empty`] result and is safe to reuse or to drop
- * again.
- *
- * # Safety
- *  - `v` must be non-null.
- *  - `*v` must be either an initialized [`FieldExpirations`] (returned by a
- *    constructor in this module).
- *  - No other reference to `*v` may exist for the duration of the call.
- */
-void FieldExpirations_Free(FieldExpirations *v);
-
-/**
- * Return empty FieldExpirationSlice
- */
-struct FieldExpirationSlice FieldExpirationsSlice_Empty(void);
+void TimeToLiveTable_VerifyInit(struct TimeToLiveTable * *table, size_t max_size);
 
 #ifdef __cplusplus
 }  // extern "C"

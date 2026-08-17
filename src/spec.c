@@ -1197,6 +1197,9 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
         .storage = sp->diskSpec,
         .indexName = rm_strndup(namePtr, nameLen),
         .indexNameLen = nameLen,
+        // The disk storage layer keys this field's data by the value it finds
+        // here, so it has to stay stable for the life of the index.
+        .userData = fs->index,
         .rerank = rerank,
       };
     }
@@ -1616,7 +1619,7 @@ int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, 
   return IndexSpec_AddFieldsInternal(sp, spec_ref, ac, status, 0);
 }
 
-bool IndexSpec_IsCoherent(IndexSpec *spec, sds* prefixes, size_t n_prefixes) {
+bool IndexSpec_IsCoherent(IndexSpec *spec, RedisModuleString **prefixes, size_t n_prefixes) {
   if (!spec || !spec->rule) {
     return false;
   }
@@ -1628,8 +1631,10 @@ bool IndexSpec_IsCoherent(IndexSpec *spec, sds* prefixes, size_t n_prefixes) {
   // Validate that the prefixes in the arguments are the same as the ones in the
   // index (also in the same order)
   for (size_t i = 0; i < n_prefixes; i++) {
-    sds arg = prefixes[i];
-    if (HiddenUnicodeString_CompareC(spec_prefixes[i], arg) != 0) {
+    size_t spec_len, arg_len;
+    const char *spec_str = HiddenUnicodeString_GetUnsafe(spec_prefixes[i], &spec_len);
+    const char *arg = RedisModule_StringPtrLen(prefixes[i], &arg_len);
+    if (spec_len != arg_len || memcmp(spec_str, arg, arg_len) != 0) {
       // Unmatching prefixes
       return false;
     }
@@ -2331,7 +2336,7 @@ void InvIndFreeCb(void *privdata, void *val) {
   InvertedIndex_Free(idx);
 }
 
-static dictType invIdxDictType = {
+dictType invIdxDictType = {
   .hashFunction = CharBuf_HashFunction,
   .keyDup = CharBuf_KeyDup,
   .valDup = NULL, // Taking and owning the InvertedIndex pointer
@@ -2898,6 +2903,7 @@ static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp) {
       .storage = sp->diskSpec,
       .indexName = rm_strndup(namePtr, nameLen),
       .indexNameLen = nameLen,
+      .userData = fs->index,
       .rerank = rerank,
     };
   }
@@ -3225,6 +3231,16 @@ int IndexSpec_RdbLoadOpenDisk(RedisModuleCtx *ctx, IndexSpec *sp, bool useSst, Q
 
 void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver < LEGACY_INDEX_MIN_VERSION || encver > LEGACY_INDEX_MAX_VERSION) {
+    return NULL;
+  }
+  // Upgrading a legacy spec only makes sense while an RDB load is in progress. Both the UPGRADE_INDEX
+  // rules and the registry of legacy specs are built for the duration of a load and released at the end
+  // of it, so outside one - a RESTORE of a legacy payload on a running server, say - they are NULL and
+  // the lookups below would dereference NULL. Refuse instead: the caller sees a load failure, which for
+  // RESTORE surfaces as a command error.
+  if (legacySpecRules == NULL || legacySpecDict == NULL) {
+    RedisModule_LogIOError(rdb, "warning",
+                           "Refusing to load a legacy index outside of an RDB load");
     return NULL;
   }
   RS_LOG_ASSERT(!SearchDisk_IsEnabled(), "Legacy indexes are not supported on disk");

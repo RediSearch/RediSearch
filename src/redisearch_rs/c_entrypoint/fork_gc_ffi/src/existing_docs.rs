@@ -23,9 +23,8 @@ use crate::{FGCError, util::into_fgc_error};
 /// only the terminator is sent.  Otherwise an empty header followed by the
 /// serialised GC delta is sent before the terminator.
 ///
-/// # Panic
-///
-/// Panics if `pipe_write_fd` on `gc` is an invalid or closed writable file descriptor.
+/// Any write failure, such as a closed fd or a broken pipe, terminates the
+/// child process via `RedisModule_ExitFromChild`.
 ///
 /// # Safety
 ///
@@ -59,10 +58,6 @@ pub unsafe extern "C" fn FGC_childCollectExistingDocs(
 /// the child sent no data (index absent or nothing to collect),
 /// [`FGCError::Collected`] after successfully applying a delta, or an
 /// error variant on pipe or spec failure.
-///
-/// # Panic
-///
-/// Panics if `pipe_write_fd` on `gc` is an invalid or closed writable file descriptor.
 ///
 /// # Safety
 ///

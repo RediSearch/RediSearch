@@ -21,6 +21,7 @@ mod common {
 
 use crate::utils::{Mock, MockRevalidateResult, create_mock_2, create_mock_3};
 use rqe_iterators::{RQEIterator, UnionFullFlat, UnionQuickFlat};
+use rqe_iterators_test_utils::ContractChecker;
 
 // =============================================================================
 // Implementation-specific tests (read_count assertions differ between Flat and Heap)
@@ -30,7 +31,7 @@ use rqe_iterators::{RQEIterator, UnionFullFlat, UnionQuickFlat};
 #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn reuse_results_optimization_quick_mode() {
     let (children, data) = create_mock_2([3], [2]);
-    let mut union = UnionQuickFlat::new(children);
+    let mut union = ContractChecker::new(UnionQuickFlat::new(children));
 
     let result = union
         .read()
@@ -105,7 +106,7 @@ fn into_children_returns_all_children() {
 fn into_trimmed_full_flat_yields_all_children() {
     let (children, _data) = create_mock_3([1, 2], [3, 4], [5, 6]);
     let union = UnionFullFlat::new(children);
-    let mut trimmed = union.into_trimmed(usize::MAX, true).unwrap();
+    let mut trimmed = ContractChecker::new_unordered(union.into_trimmed(usize::MAX, true).unwrap());
 
     // UnionTrimmed drains children last-to-first.
     let mut docs = Vec::new();
@@ -123,9 +124,13 @@ fn into_trimmed_quick_flat_trims_asc() {
     // Asc scan from child[1]: child[1].est=2 > 1 → keep=2.
     let (children, _data) = create_mock_3([1, 2], [3, 4], [5, 6]);
     let union = UnionQuickFlat::new(children);
-    let mut trimmed = union.into_trimmed(1, true).unwrap();
+    let mut trimmed = ContractChecker::new_unordered(union.into_trimmed(1, true).unwrap());
 
-    assert_eq!(trimmed.num_children_total(), 3, "all children stay alive");
+    assert_eq!(
+        trimmed.inner().num_children_total(),
+        3,
+        "all children stay alive"
+    );
     let mut docs = Vec::new();
     while let Some(r) = trimmed.read().unwrap() {
         docs.push(r.doc_id);
@@ -141,7 +146,7 @@ fn union_full_flat_upholds_current_contract() {
         Box::new(crate::utils::Mock::new([1u64, 3])),
         Box::new(crate::utils::Mock::new([2u64, 4])),
     ];
-    let mut it = UnionFullFlat::new(children);
+    let mut it = ContractChecker::new(UnionFullFlat::new(children));
     assert_eq!(assert_current_contract(&mut it), [1, 2, 3, 4]);
     assert_current_contract_via_skip_to(&mut it, 5);
 }
@@ -162,7 +167,7 @@ fn revalidate_with_an_unread_sibling_does_not_move_the_union_backwards() {
 
     let children: Vec<Box<dyn RQEIterator<'static>>> =
         vec![Box::new(matching), Box::new(untouched)];
-    let mut it = UnionQuickFlat::new(children);
+    let mut it = ContractChecker::new(UnionQuickFlat::new(children));
 
     let outcome = it
         .skip_to(10)

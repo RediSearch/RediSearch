@@ -44,10 +44,12 @@ pub(crate) fn eval<'index>(
     let child = eval_child_iterator(ctx, node.child_mut(0), config);
     ctx.set_in_not_sub_tree(prev_in_not_sub_tree);
 
-    // SAFETY: invariant (2) of `QueryEvalContext::new` guarantees `bcTimeoutAreq`
-    // outlives every timeout context derived from `ctx`, and the returned context
-    // is handed straight to `new_not_iterator` below (never retained past this
-    // query), so it cannot be used after the `AREQ` is freed.
+    // SAFETY: invariant (2) of `QueryEvalContext::new` guarantees that both things the
+    // returned context may point at — `bcTimeoutAreq` and `sctx` — outlive every timeout
+    // context derived from `ctx`, and the returned context is handed straight to
+    // `new_not_iterator` below (never retained past this query), so it cannot be used after
+    // either is freed. Writes to `sctx.time.timeout` never overlap a probe (see
+    // `TimeoutContextDeadline::new`).
     let timeout_ctx = unsafe { ctx.build_timeout_context() };
 
     // SAFETY: the preconditions of `new_not_iterator` map to

@@ -8,10 +8,21 @@
 */
 #include "misc.h"
 
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "query_error_ffi.h"
+
+static pthread_t mainThread;
+
+void MainThread_Set(void) {
+  mainThread = pthread_self();
+}
+
+bool MainThread_Is(void) {
+  return pthread_equal(mainThread, pthread_self());
+}
 
 void GenericAofRewrite_DisabledHandler(RedisModuleIO *aof, RedisModuleString *key, void *value) {
   RedisModule_Log(RedisModule_GetContextFromIO(aof), "error",

@@ -20,13 +20,14 @@ use std::collections::HashSet;
 
 use index_result::RSIndexResult;
 use inverted_index::{FilterNumericReader, IndexReader as _, NumericFilter};
-use numeric_range_tree::{NumericRange, NumericRangeTree};
+use numeric_range_tree::{NumericRange, NumericRangeTree, RangeWindow};
 use rqe_core::DocId;
+use rqe_iterators::{RQEIteratorError, utils::TimeoutContext};
 
 use crate::score_batch::NumericScoreBatch;
 
-/// Streams a numeric tree's ranges in value order, windowed by the filter's
-/// `offset`/`limit` and chunked by [`next_n`](Self::next_n).
+/// Streams a numeric tree's ranges in value order, restricted to a
+/// [`RangeWindow`] and chunked by [`next_n`](Self::next_n).
 pub struct NumericRangeIterator<'index> {
     tree: &'index NumericRangeTree,
     /// Ranges matching the current filter window, best-score-first.
@@ -46,27 +47,31 @@ pub struct NumericRangeIterator<'index> {
 }
 
 impl<'index> NumericRangeIterator<'index> {
-    /// Resolve `filter` against `tree` and prepare to stream the matching
-    /// ranges best-score-first.
-    pub fn new(tree: &'index NumericRangeTree, filter: &NumericFilter) -> Self {
+    /// Resolve `filter` against `tree` over `window` and prepare to stream the
+    /// matching ranges best-score-first.
+    pub fn new(
+        tree: &'index NumericRangeTree,
+        filter: &NumericFilter,
+        window: RangeWindow,
+    ) -> Self {
         Self {
             tree,
-            ranges: tree.find(filter),
+            ranges: tree.find_windowed(filter, window),
             pos: 0,
             filter: *filter,
             emitted: HashSet::new(),
         }
     }
 
-    /// Re-resolve the (typically expanded) `filter` and restart from the first
-    /// matching range.
+    /// Re-resolve onto `window`, usually the next one, and restart from its
+    /// first matching range.
     ///
     /// The emitted-doc set is kept: expansion moves to a strictly worse,
     /// disjoint value window, so a doc already scored on a better value must
     /// stay suppressed. Use [`forget_emitted`](Self::forget_emitted) to reset it
     /// when restarting the whole query.
-    pub fn refind(&mut self, filter: &NumericFilter) {
-        self.ranges = self.tree.find(filter);
+    pub fn refind(&mut self, filter: &NumericFilter, window: RangeWindow) {
+        self.ranges = self.tree.find_windowed(filter, window);
         self.pos = 0;
         self.filter = *filter;
     }
@@ -80,7 +85,7 @@ impl<'index> NumericRangeIterator<'index> {
     /// Sum of `num_docs` across every range in the current window.
     ///
     /// Used as the per-window document estimate, both for the source's
-    /// `num_estimated` and to advance the filter `offset` past a consumed
+    /// `num_estimated` and to advance the window's `offset` past a consumed
     /// window on retry.
     pub fn total_docs_estimate(&self) -> usize {
         self.ranges.iter().map(|r| r.num_docs() as usize).sum()
@@ -94,13 +99,24 @@ impl<'index> NumericRangeIterator<'index> {
     /// Materialize the next `n` value-ordered ranges into one doc-id-ordered
     /// batch, or `Ok(None)` once the window is exhausted.
     ///
-    /// `n` is clamped to at least `1`.
-    pub fn next_n(&mut self, n: usize) -> std::io::Result<Option<NumericScoreBatch>> {
+    /// `n` is clamped to at least `1`. `timeout` is polled once per record read
+    /// so a long materialization aborts with [`RQEIteratorError::TimedOut`]
+    /// rather than running past the query deadline.
+    pub fn next_n(
+        &mut self,
+        n: usize,
+        timeout: &mut impl TimeoutContext,
+    ) -> Result<Option<NumericScoreBatch>, RQEIteratorError> {
         if self.pos >= self.ranges.len() {
             return Ok(None);
         }
         let end = (self.pos + n.max(1)).min(self.ranges.len());
-        let batch = merge_ranges(&self.ranges[self.pos..end], self.filter, &mut self.emitted)?;
+        let batch = merge_ranges(
+            &self.ranges[self.pos..end],
+            self.filter,
+            &mut self.emitted,
+            timeout,
+        )?;
         self.pos = end;
         Ok(Some(batch))
     }
@@ -120,16 +136,23 @@ impl<'index> NumericRangeIterator<'index> {
 /// coalesced to a single entry carrying the doc's best score for the sort
 /// direction; occurrences already handed out by an earlier batch (tracked in
 /// `emitted`) are dropped, since their better value was scored there.
+///
+/// `timeout` is polled once per record and once more before the sort, so a
+/// large batch stays deadline-aware across its ordering pass. The amortized
+/// counter accumulates across records and ranges, so the real clock check
+/// fires every `granularity` reads.
 fn merge_ranges(
     ranges: &[&NumericRange],
     filter: NumericFilter,
     emitted: &mut HashSet<DocId>,
-) -> std::io::Result<NumericScoreBatch> {
+    timeout: &mut impl TimeoutContext,
+) -> Result<NumericScoreBatch, RQEIteratorError> {
     let mut items: Vec<(DocId, f64)> = Vec::new();
     let mut record = RSIndexResult::build_numeric(0.0).build();
     for range in ranges {
         let mut reader = FilterNumericReader::new(filter, range.reader());
         while reader.next_record(&mut record)? {
+            timeout.check_timeout()?;
             if emitted.contains(&record.doc_id) {
                 continue;
             }
@@ -139,6 +162,7 @@ fn merge_ranges(
             items.push((record.doc_id, score));
         }
     }
+    timeout.check_timeout()?;
     items.sort_unstable_by_key(|(doc_id, _)| *doc_id);
     coalesce_by_doc_id(&mut items, filter.ascending);
     emitted.extend(items.iter().map(|(doc_id, _)| *doc_id));
@@ -169,8 +193,9 @@ fn coalesce_by_doc_id(items: &mut Vec<(DocId, f64)>, ascending: bool) {
 #[cfg(test)]
 mod tests {
     use inverted_index::NumericFilter;
-    use numeric_range_tree::NumericRangeTree;
+    use numeric_range_tree::{NumericRangeTree, RangeWindow};
     use rqe_core::DocId;
+    use rqe_iterators::utils::NoTimeoutChecker;
     use top_k::ScoreBatch;
 
     use super::NumericRangeIterator;
@@ -190,9 +215,10 @@ mod tests {
         filter: &NumericFilter,
         per_batch: usize,
     ) -> Vec<(DocId, f64)> {
-        let mut it = NumericRangeIterator::new(tree, filter);
+        let mut it = NumericRangeIterator::new(tree, filter, RangeWindow::UNBOUNDED);
+        let mut timeout = NoTimeoutChecker;
         let mut pairs = Vec::new();
-        while let Some(mut batch) = it.next_n(per_batch).unwrap() {
+        while let Some(mut batch) = it.next_n(per_batch, &mut timeout).unwrap() {
             while let Some(pair) = batch.next() {
                 pairs.push(pair);
             }

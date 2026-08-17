@@ -556,6 +556,11 @@ impl TestContext {
     /// `WITHSUFFIXTRIE` and each term is also inserted into the spec's suffix
     /// trie, exercising the suffix-trie expansion path instead of the brute-force
     /// terms-trie scan.
+    ///
+    /// The empty term is a special case, and is faithful to the indexer: neither
+    /// trie takes a zero-length key — the terms trie refuses one and the suffix
+    /// trie is gated against it — so an empty term contributes only its inverted
+    /// index, exactly as an `INDEXEMPTY` field's empty value does.
     pub fn prefix<T, S>(terms: T, with_suffix_trie: bool) -> Self
     where
         T: IntoIterator<Item = (S, Vec<RSIndexResult<'static>>)>,
@@ -595,8 +600,10 @@ impl TestContext {
             unsafe {
                 ffi::IndexSpec_AddTerm(spec, cterm.as_ptr(), cterm.as_bytes().len());
             }
-            // Mirror the indexer by also feeding the suffix trie when enabled.
-            if with_suffix_trie {
+            // Mirror the indexer by also feeding the suffix trie when enabled —
+            // including its gate against the empty term, which `addSuffixTrie`
+            // asserts on.
+            if with_suffix_trie && !cterm.as_bytes().is_empty() {
                 // SAFETY: `spec` is a valid, non-null `IndexSpec` just returned
                 // by `create_spec_sctx`.
                 let suffix = unsafe { (*spec).suffix };

@@ -29,6 +29,21 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Deallocates the inner values buffer of an [`RSSortingVector`] and zeros the struct.
+ *
+ * Each [`RSValue`] element is dropped (decrementing its refcount) and the heap buffer is freed.
+ * After this call the pointed-to struct is in the same state as [`RSSortingVector::empty()`].
+ * Passing a null pointer is a no-op.
+ *
+ * # Safety
+ *
+ * 1. `vec` must be either null or a [valid] pointer to an [`RSSortingVector`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void RSSortingVector_ClearAndDeAlloc(RSSortingVector *vec);
+
+/**
  * Initializes an empty `RSSortingVector`.
  *
  * No heap allocation is performed.
@@ -47,6 +62,30 @@ RSSortingVector RSSortingVector_Empty(void);
 size_t RSSortingVector_GetMemorySize(const RSSortingVector *vec);
 
 /**
+ * Creates a new `RSSortingVector` with the given length, returned by value.
+ *
+ * # Panics
+ *
+ * Panics if `len` is greater than [`RS_SORTABLES_MAX`].
+ */
+RSSortingVector RSSortingVector_New(size_t len);
+
+/**
+ * Puts a null at the given index in the sorting vector.  If a out of bounds occurs it returns silently.
+ *
+ * # Panics
+ *
+ * Panics if the `idx` is out of bounds for the vector.
+ *
+ * # Safety
+ *
+ * 1. The pointer must be a [valid] pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`] or equivalent.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void RSSortingVector_PutNull(RSSortingVector *vec, size_t idx);
+
+/**
  * Puts a number (double) at the given index in the sorting vector. If a out of bounds occurs it returns silently.
  *
  * # Panics
@@ -60,6 +99,22 @@ size_t RSSortingVector_GetMemorySize(const RSSortingVector *vec);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void RSSortingVector_PutNum(RSSortingVector *vec, size_t idx, double num);
+
+/**
+ * Puts a value at the given index in the sorting vector. If a out of bounds occurs it returns silently.
+ *
+ * # Panics
+ *
+ * Panics if the `idx` is out of bounds for the vector.
+ *
+ * # Safety
+ *
+ * 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`] or equivalent.
+ * 2. `val` must be a [valid], non-null pointer must point to a `RSValue`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void RSSortingVector_PutRSVal(RSSortingVector *vec, size_t idx, struct RSValue *val);
 
 /**
  * Puts a string at the given index in the sorting vector.
@@ -96,61 +151,6 @@ void RSSortingVector_PutStr(RSSortingVector *vec, size_t idx, const char *str);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 bool RSSortingVector_PutStrNormalize(RSSortingVector *vec, size_t idx, const char *str, struct QueryError *status);
-
-/**
- * Puts a value at the given index in the sorting vector. If a out of bounds occurs it returns silently.
- *
- * # Panics
- *
- * Panics if the `idx` is out of bounds for the vector.
- *
- * # Safety
- *
- * 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`] or equivalent.
- * 2. `val` must be a [valid], non-null pointer must point to a `RSValue`.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-void RSSortingVector_PutRSVal(RSSortingVector *vec, size_t idx, struct RSValue *val);
-
-/**
- * Puts a null at the given index in the sorting vector.  If a out of bounds occurs it returns silently.
- *
- * # Panics
- *
- * Panics if the `idx` is out of bounds for the vector.
- *
- * # Safety
- *
- * 1. The pointer must be a [valid] pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`] or equivalent.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-void RSSortingVector_PutNull(RSSortingVector *vec, size_t idx);
-
-/**
- * Creates a new `RSSortingVector` with the given length, returned by value.
- *
- * # Panics
- *
- * Panics if `len` is greater than [`RS_SORTABLES_MAX`].
- */
-RSSortingVector RSSortingVector_New(size_t len);
-
-/**
- * Deallocates the inner values buffer of an [`RSSortingVector`] and zeros the struct.
- *
- * Each [`RSValue`] element is dropped (decrementing its refcount) and the heap buffer is freed.
- * After this call the pointed-to struct is in the same state as [`RSSortingVector::empty()`].
- * Passing a null pointer is a no-op.
- *
- * # Safety
- *
- * 1. `vec` must be either null or a [valid] pointer to an [`RSSortingVector`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-void RSSortingVector_ClearAndDeAlloc(RSSortingVector *vec);
 
 #ifdef __cplusplus
 }  // extern "C"

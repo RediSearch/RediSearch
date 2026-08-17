@@ -204,7 +204,9 @@ dependencies = [
  "ffi",
  "redis_mock",
  "redisearch_rs",
+ "string_utils",
  "strum",
+ "thiserror",
  "workspace_hack",
 ]
 
@@ -877,6 +879,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
+name = "global_config"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "workspace_hack",
+]
+
+[[package]]
 name = "half"
 version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1081,6 +1091,7 @@ dependencies = [
 name = "index_spec"
 version = "0.0.1"
 dependencies = [
+ "c_trie",
  "dict",
  "document",
  "ffi",
@@ -1190,6 +1201,7 @@ dependencies = [
  "cheadergen",
  "ffi",
  "field",
+ "global_config",
  "index_result",
  "index_spec",
  "inverted_index",
@@ -1556,6 +1568,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "numeric_score_source_bencher"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cc",
+ "criterion",
+ "ffi",
+ "index_result",
+ "inverted_index",
+ "numeric_range_tree",
+ "numeric_score_source",
+ "redis-module",
+ "redis_mock",
+ "redisearch_rs",
+ "rqe_core",
+ "rqe_iterators",
+ "rqe_iterators_test_utils",
+ "workspace_hack",
+]
+
+[[package]]
 name = "object"
 version = "0.37.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1760,12 +1793,14 @@ name = "query"
 version = "0.0.1"
 dependencies = [
  "build_utils",
+ "c_trie",
  "ffi",
  "inverted_index",
  "query",
  "query_error",
  "query_flags",
  "query_types",
+ "redis-module",
  "redis_mock",
  "redisearch_rs",
  "rlookup",
@@ -1822,6 +1857,7 @@ dependencies = [
  "rqe_iterators_test_utils",
  "rs_token",
  "search_disk",
+ "string_utils",
  "thiserror",
  "workspace_hack",
 ]
@@ -1831,6 +1867,7 @@ name = "query_eval_ffi"
 version = "0.0.1"
 dependencies = [
  "ffi",
+ "global_config",
  "query_eval",
  "query_types",
  "rqe_iterators",
@@ -2020,7 +2057,7 @@ dependencies = [
 [[package]]
 name = "redis-module"
 version = "2.0.8"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=7fb620f1ef42453dea4e22c9358d0d25d4224710#7fb620f1ef42453dea4e22c9358d0d25d4224710"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=f4d68b97520aafc9baa2a946d42652415c4df002#f4d68b97520aafc9baa2a946d42652415c4df002"
 dependencies = [
  "backtrace",
  "bindgen",
@@ -2043,7 +2080,7 @@ dependencies = [
 [[package]]
 name = "redis-module-common"
 version = "0.1.1"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=7fb620f1ef42453dea4e22c9358d0d25d4224710#7fb620f1ef42453dea4e22c9358d0d25d4224710"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=f4d68b97520aafc9baa2a946d42652415c4df002#f4d68b97520aafc9baa2a946d42652415c4df002"
 dependencies = [
  "serde",
 ]
@@ -2051,7 +2088,7 @@ dependencies = [
 [[package]]
 name = "redis-module-macros-internals"
 version = "2.0.8"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=7fb620f1ef42453dea4e22c9358d0d25d4224710#7fb620f1ef42453dea4e22c9358d0d25d4224710"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=f4d68b97520aafc9baa2a946d42652415c4df002#f4d68b97520aafc9baa2a946d42652415c4df002"
 dependencies = [
  "lazy_static",
  "proc-macro2",
@@ -2076,6 +2113,7 @@ name = "redis_mock"
 version = "0.0.1"
 dependencies = [
  "ffi",
+ "global_config",
  "libc",
  "redis-module",
  "tracing",
@@ -2139,6 +2177,7 @@ dependencies = [
  "build_utils",
  "bumpalo",
  "ffi",
+ "global_config",
  "indexmap",
  "itertools 0.15.0",
  "min-max-heap",
@@ -2501,7 +2540,9 @@ dependencies = [
  "redis-module",
  "redis_mock",
  "redisearch_rs",
+ "rqe_wildcard",
  "rs_token",
+ "string_utils",
  "workspace_hack",
 ]
 
@@ -2862,7 +2903,6 @@ dependencies = [
  "proptest",
  "rstest",
  "string_utils",
- "strsim",
  "trie_rs",
  "workspace_hack",
 ]
@@ -2884,6 +2924,7 @@ dependencies = [
  "redis-module",
  "redis_mock",
  "redisearch_rs",
+ "rstest",
  "string_utils",
  "thiserror",
  "workspace_hack",
@@ -2897,12 +2938,6 @@ checksum = "2a8f8038e7e7969abb3f1b7c2a811225e9296da208539e0f79c5251d6cac0025"
 dependencies = [
  "vte",
 ]
-
-[[package]]
-name = "strsim"
-version = "0.11.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "strum"
@@ -3032,7 +3067,6 @@ dependencies = [
  "ffi",
  "itertools 0.15.0",
  "proptest",
- "rqe_wildcard",
  "rstest",
  "string_utils",
  "trie_rs",

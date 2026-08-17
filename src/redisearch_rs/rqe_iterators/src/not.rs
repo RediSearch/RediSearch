@@ -9,11 +9,13 @@
 
 //! Supporting types for [`Not`].
 
-use index_result::{RSIndexResult, RawIndexResult};
-use ref_mode::{Active, Ref};
+use index_result::{RSIndexResult, RSResultKind, RawIndexResult};
+use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    boxed::{ResumeSlotOutcome, resume_child_slot_in_place, suspend_child_slot_in_place},
     maybe_empty::MaybeEmpty,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::TimeoutContext,
@@ -66,6 +68,30 @@ pub struct RawNot<'query, Rf: Ref, I, TC> {
 /// Alias for an [`Active`] [`RawNot`] — the only instantiation with an
 /// [`RQEIterator`] impl today.
 pub type Not<'index, I, TC> = RawNot<'index, Active<'index>, I, TC>;
+
+// Compile-time proof of invariant 1 on `RawNot`: for a representative concrete
+// child, the `Active` and `Suspended` instantiations are layout-identical. The
+// `result: RawIndexResult<Rf>` field's own cross-`Rf` layout compatibility is
+// proven in `index_result`; the `MaybeEmpty<I>` slot's is the child's invariant 1
+// (enforced generically by `suspend_child_slot_in_place`); the remaining fields
+// are `Rf`-free.
+const _: () = {
+    use crate::Wildcard;
+    use crate::utils::NoTimeoutChecker;
+    use std::mem::{align_of, offset_of, size_of};
+    type AChild = Wildcard<'static>;
+    type SChild = <Wildcard<'static> as RQEIteratorBoxed<'static>>::Suspended;
+    type A = RawNot<'static, Active<'static>, AChild, NoTimeoutChecker>;
+    type S = RawNot<'static, Suspended, SChild, NoTimeoutChecker>;
+    assert!(offset_of!(A, child) == offset_of!(S, child));
+    assert!(offset_of!(A, max_doc_id) == offset_of!(S, max_doc_id));
+    assert!(offset_of!(A, forced_eof) == offset_of!(S, forced_eof));
+    assert!(offset_of!(A, result) == offset_of!(S, result));
+    assert!(offset_of!(A, past_end) == offset_of!(S, past_end));
+    assert!(offset_of!(A, timeout_ctx) == offset_of!(S, timeout_ctx));
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
 
 impl<'index, I, TC> Not<'index, I, TC>
 where
@@ -322,6 +348,167 @@ where
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+impl<'index, I, TC> RQEIteratorBoxed<'index> for Not<'index, I, TC>
+where
+    I: RQEIteratorBoxed<'index>,
+    TC: TimeoutContext + 'static,
+{
+    type Suspended = RawNot<'index, Suspended, I::Suspended, TC>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Transition the child in place. A whole-box cast alone is *not* enough
+        // for a type-erased child: its active and suspended forms carry different
+        // `dyn` vtables, so the transition must be dispatched through the child's
+        // own `suspend` — which `suspend_child_slot_in_place` does (a no-op
+        // whole-box cast for concrete children, a vtable swap for erased ones).
+        // The slot is a `MaybeEmpty<I>`, itself an `RQEIteratorBoxed` that walks
+        // its own `Some(I)` arm.
+        //
+        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned, initialised,
+        // exclusively owned); `&raw mut` forms a field pointer to `child`.
+        let child = unsafe { &raw mut (*raw).child };
+        // SAFETY: `child` points at a valid, owned `MaybeEmpty<I>`; the helper
+        // dispatches its `suspend` and reinitialises the slot as a valid
+        // `MaybeEmpty<I::Suspended>`.
+        unsafe { suspend_child_slot_in_place(child) };
+        // SAFETY: the child slot now holds its `Suspended` form;
+        // `result: RawIndexResult<Rf>` is layout-compatible across `Rf`, and the
+        // remaining fields are `Rf`-free — so the allocation is a valid suspended
+        // `RawNot`, layout-identical to the active form by invariant 1 (const
+        // proof above). `Box::from_raw` reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut RawNot<'index, Suspended, I::Suspended, TC>) }
+    }
+}
+
+impl<'query, S, TC> RQESuspendedIterator<'query> for RawNot<'query, Suspended, S, TC>
+where
+    S: RQESuspendedIterator<'query>,
+    TC: TimeoutContext + 'static,
+{
+    type Resumed<'a>
+        = Not<'a, S::Resumed<'a>, TC>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        // `Not`'s `result` must still be a virtual sentinel. It is handed out
+        // mutably via `current()`/`read()`/`skip_to`, so a consumer could in
+        // principle have replaced its `data` with a real, index-backed payload —
+        // and reinterpreting that `Suspended → Active` would assert `'index`
+        // borrows this iterator cannot re-validate (it owns no backing for the
+        // sentinel). `kind() == Virtual` is the whole condition: `data` is the
+        // only `Rf`-parametrized field. Checked safely via `&self`, before
+        // `Box::into_raw` opens the raw-pointer critical section, so a violation
+        // just drops `self`; the state is recoverable, hence `Aborted` rather
+        // than `Err`.
+        if self.result.kind() != RSResultKind::Virtual {
+            return Ok(ResumeOutcome::Aborted);
+        }
+
+        let raw = Box::into_raw(self);
+
+        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned, initialised,
+        // exclusively owned); `&raw mut` forms a field pointer to `child`.
+        let child_slot = unsafe { &raw mut (*raw).child };
+
+        // Resume the child in place. `MaybeEmpty<S>`'s own `resume` walks its
+        // `Some` arm and propagates an inner abort; its `None(Empty)` arm resumes
+        // unchanged.
+        //
+        // SAFETY: `child_slot` holds a valid, owned `MaybeEmpty<S>`. On
+        // `Unchanged`/`Moved` the helper rewrites the slot as a valid
+        // `MaybeEmpty<S::Resumed<'a>>`; on `Aborted`/`Err` it consumes the child
+        // and leaves the slot uninitialised (handled in each arm below).
+        let child_moved = match unsafe { resume_child_slot_in_place(child_slot, guard) } {
+            Ok(ResumeSlotOutcome::Unchanged) => false,
+            Ok(ResumeSlotOutcome::Moved) => true,
+            Ok(ResumeSlotOutcome::Aborted) => {
+                // Mirror `revalidate`: `NOT (aborted)` collapses to "NOT empty".
+                // The consumed slot is reinitialised with the `I`-free empty arm,
+                // typed as the *resumed* slot the reinterpretation below expects.
+                // SAFETY: the slot is uninitialised and exclusively owned;
+                // `ptr::write` does not drop the moved-from child, and
+                // `MaybeEmpty<S>`/`MaybeEmpty<S::Resumed>` share size/alignment
+                // (enforced by `resume_child_slot_in_place`).
+                unsafe {
+                    child_slot
+                        .cast::<MaybeEmpty<S::Resumed<'a>>>()
+                        .write(MaybeEmpty::new_empty())
+                };
+                false
+            }
+            Err(e) => {
+                // Free the reused allocation without dropping the moved-from
+                // child: restore the `I`-free empty arm, then reclaim and drop
+                // the box normally (frees `result` + the allocation).
+                // SAFETY: the slot is uninitialised and exclusively owned;
+                // `ptr::write` does not drop the moved-from child.
+                unsafe {
+                    child_slot
+                        .cast::<MaybeEmpty<S::Resumed<'a>>>()
+                        .write(MaybeEmpty::new_empty())
+                };
+                // SAFETY: every field of `raw` is initialised again, and the
+                // child slot holds the resumed type this cast names — `result`
+                // stays suspended, since this path never re-types it. Reclaim
+                // the allocation `Box::into_raw` released above and drop it.
+                drop(unsafe {
+                    Box::from_raw(raw.cast::<RawNot<'query, Suspended, S::Resumed<'a>, TC>>())
+                });
+                return Err(e);
+            }
+        };
+
+        // Reinterpret the owning box in place, reusing the allocation so the
+        // `result` pointer handed out by `current()`/`read()`/`skip_to` — and the
+        // FFI's cached `header.current` — stays valid across the cycle.
+        //
+        // SAFETY: the child slot holds its resumed form (or the empty arm);
+        // `result` is a virtual sentinel (checked above), so its
+        // `Suspended → Active<'a>` re-typing carries no index pointers; the
+        // remaining fields (`max_doc_id`, `forced_eof`, `past_end` — an iterator
+        // already past its end must stay there, only `rewind` clears it —
+        // `timeout_ctx`) are `Rf`-free. Layout-identical to the suspended form by
+        // invariant 1 on `RawNot` (const proof above). `Box::from_raw` reuses the
+        // same allocation.
+        let active = unsafe { Box::from_raw(raw.cast::<Not<'a, S::Resumed<'a>, TC>>()) };
+
+        if child_moved {
+            // A child only ever moves forward, so a move leaves NOT's own position
+            // valid: read/skip_to always leave the child ahead of us or at EOF, and
+            // both still sitting at 0 is the fresh-iterator case. Asserted after the
+            // reinterpretation because only there is the child slot typed as an
+            // active iterator; the same check guards `revalidate`'s `Moved` arm.
+            debug_assert!(
+                active.child.at_eof()
+                    || RQEIterator::last_doc_id(&active.child) > active.last_doc_id()
+                    || (RQEIterator::last_doc_id(&active.child) == 0 && active.last_doc_id() == 0)
+            );
+        }
+
+        // Mirror `revalidate`, which reports `Ok` in all three child outcomes: a
+        // child move doesn't shift NOT's position (NOT keeps its own cursor), and
+        // an aborted child was absorbed above.
+        Ok(ResumeOutcome::Ok(active))
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self.result.doc_id
+    }
+
+    fn num_estimated(&self) -> usize {
+        // Mode-independent — mirrors the active `num_estimated`.
+        self.max_doc_id as usize
     }
 }
 

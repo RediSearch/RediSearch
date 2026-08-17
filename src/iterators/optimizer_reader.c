@@ -61,10 +61,20 @@ static size_t OPT_NumEstimated(const QueryIterator *self) {
 // TODO: handle MOVED better
 static ValidateStatus OPT_Validate(QueryIterator *self, struct IndexSpec *spec) {
   OptimizerIterator *opt = (OptimizerIterator *)self;
-  if (opt->child->Revalidate(opt->child, spec) != VALIDATE_OK) {
+  ValidateStatus childStatus = opt->child->Revalidate(opt->child, spec);
+  // A timeout is passed up as such: unlike an abort, it says the query ran out of time and its
+  // results are partial, which only the caller can report.
+  if (childStatus == VALIDATE_TIMEOUT) {
+    return VALIDATE_TIMEOUT;
+  }
+  if (childStatus != VALIDATE_OK) {
     return VALIDATE_ABORTED;
   }
-  if (opt->numericIter->Revalidate(opt->numericIter, spec) != VALIDATE_OK) {
+  ValidateStatus numericStatus = opt->numericIter->Revalidate(opt->numericIter, spec);
+  if (numericStatus == VALIDATE_TIMEOUT) {
+    return VALIDATE_TIMEOUT;
+  }
+  if (numericStatus != VALIDATE_OK) {
     return VALIDATE_ABORTED;
   }
   return VALIDATE_OK;

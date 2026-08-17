@@ -142,7 +142,8 @@ struct ReducerDistCtx {
   }
 
   const char *srcarg(size_t n) const {
-    auto *s = (const char *)srcReducer->args.objs[n];
+    // Type-aware: hybrid tail plans carry RString-backed arg cursors.
+    const char *s = AC_StringArg(&srcReducer->args, n, NULL);
     return stripAtPrefix(s);
   }
 };
@@ -380,7 +381,7 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
  *
  * Both halves of the split GROUPBY forward the original COLLECT argv pointers
  * verbatim; only what actually differs between the two sides is synthesized.
- * FIELDS / SORTBY tokens are reused directly from `src->args.objs` — no
+ * FIELDS / SORTBY tokens reuse the source tokens' own string buffers — no
  * per-token duplication.
  *
  * Limited path: whenever the user supplied `LIMIT offset count`, the remote
@@ -408,13 +409,14 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   }
 
   const size_t srcArgc = src->args.argc;  // reducer args (no leading <nargs>)
-  auto srcObjs = (const char **)src->args.objs;
+  // Source tokens are read type-aware (the plan cursor may be RString-backed);
+  // each returned buffer is owned by the request for its whole lifetime.
 
   // Locate the LIMIT offset slot in the original argv.
-  size_t limitValIdx = SIZE_MAX;  // index into srcObjs of the LIMIT offset token
+  size_t limitValIdx = SIZE_MAX;  // index of the LIMIT offset token
   if (args.has_limit) {
     for (size_t i = 0; i + 2 < srcArgc; i++) {
-      if (!strcasecmp(srcObjs[i], "LIMIT")) {
+      if (!strcasecmp(AC_StringArg(&src->args, i, NULL), "LIMIT")) {
         limitValIdx = i + 1;
         break;
       }
@@ -434,8 +436,9 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   // validated) COLLECT grammar it only appears `@`-prefixed, as a number, or as
   // `*`, so a bare alphabetic token can only be an option keyword.
   for (size_t i = 0; i < srcArgc; i++) {
-    const char *normalized = CollectArgs_NormalizedKeyword(srcObjs[i]);
-    remoteObjs[1 + i] = normalized ? normalized : srcObjs[i];
+    const char *tok = AC_StringArg(&src->args, i, NULL);
+    const char *normalized = CollectArgs_NormalizedKeyword(tok);
+    remoteObjs[1 + i] = normalized ? normalized : tok;
   }
   if (args.has_limit) {
     remoteObjs[1 + limitValIdx] = distAllocU64Str(rdctx->alloc, 0);
@@ -460,7 +463,9 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
       rdctx->alloc, sizeof(char *) * localTotal,
       std::max(sizeof(char *) * localTotal, DIST_REDUCER_BLOCK_SIZE));
   localObjs[0] = distAllocU64Str(rdctx->alloc, srcArgc);  // unchanged count
-  memcpy(localObjs + 1, srcObjs, srcArgc * sizeof(char *));
+  for (size_t i = 0; i < srcArgc; i++) {
+    localObjs[1 + i] = AC_StringArg(&src->args, i, NULL);
+  }
   localObjs[srcArgc + 1] = "AS";          // static literal, outside <nargs>
   localObjs[srcArgc + 2] = src->alias;    // owned by src; outlives this call
   ArgsCursor localArgs;

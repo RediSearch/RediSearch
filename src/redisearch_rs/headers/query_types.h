@@ -499,49 +499,14 @@ typedef struct QueryNodeOptions {
 } QueryNodeOptions;
 
 /**
- * Default query expander (`DEFAULT`). Used when a query does not request one.
- */
-#define DEFAULT_EXPANDER_NAME "DEFAULT"
-
-/**
- * Phonetic-matching query expander (`PHONETIC`).
- */
-#define PHONETIC_EXPENDER_NAME "PHONETIC"
-
-/**
- * TF-IDF scorer (`TFIDF`). Uses term proximity, so it needs term offsets.
- */
-#define TFIDF_SCORER_NAME "TFIDF"
-
-/**
- * Synonym-expansion query expander (`SYNONYM`).
- */
-#define SYNONYMS_EXPENDER_NAME "SYNONYM"
-
-/**
- * Document-normalized TF-IDF scorer (`TFIDF.DOCNORM`).
- */
-#define TFIDF_DOCNORM_SCORER_NAME "TFIDF.DOCNORM"
-
-/**
- * Stemming query expander (`SBSTEM`).
- */
-#define STEMMER_EXPENDER_NAME "SBSTEM"
-
-/**
- * Disjunction-max scorer (`DISMAX`).
- */
-#define DISMAX_SCORER_NAME "DISMAX"
-
-/**
  * Legacy BM25 scorer (`BM25`).
  */
 #define BM25_SCORER_NAME "BM25"
 
 /**
- * Standard BM25 scorer (`BM25STD`). The default scorer.
+ * Standard BM25 scorer with max normalization (`BM25STD.NORM`).
  */
-#define BM25_STD_SCORER_NAME "BM25STD"
+#define BM25_STD_NORMALIZED_MAX_SCORER_NAME "BM25STD.NORM"
 
 /**
  * Standard BM25 scorer with tanh normalization (`BM25STD.TANH`).
@@ -549,9 +514,28 @@ typedef struct QueryNodeOptions {
 #define BM25_STD_NORMALIZED_TANH_SCORER_NAME "BM25STD.TANH"
 
 /**
- * Standard BM25 scorer with max normalization (`BM25STD.NORM`).
+ * Standard BM25 scorer (`BM25STD`). The default scorer.
  */
-#define BM25_STD_NORMALIZED_MAX_SCORER_NAME "BM25STD.NORM"
+#define BM25_STD_SCORER_NAME "BM25STD"
+
+/**
+ * Default query expander (`DEFAULT`). Used when a query does not request one.
+ */
+#define DEFAULT_EXPANDER_NAME "DEFAULT"
+
+/**
+ * Name of the scorer used when a query does not request one explicitly.
+ *
+ * This is the standard BM25 scorer. It is spelled out as a literal, matching
+ * [`BM25_STD_SCORER_NAME`], because the C header generator only exports literal
+ * string constants.
+ */
+#define DEFAULT_SCORER_NAME "BM25STD"
+
+/**
+ * Disjunction-max scorer (`DISMAX`).
+ */
+#define DISMAX_SCORER_NAME "DISMAX"
 
 /**
  * Document-score scorer (`DOCSCORE`).
@@ -564,10 +548,26 @@ typedef struct QueryNodeOptions {
 #define HAMMINGDISTANCE_SCORER "HAMMING"
 
 /**
- * Name of the scorer used when a query does not request one explicitly.
- *
- * This is the standard BM25 scorer. It is spelled out as a literal, matching
- * [`BM25_STD_SCORER_NAME`], because the C header generator only exports literal
- * string constants.
+ * Phonetic-matching query expander (`PHONETIC`).
  */
-#define DEFAULT_SCORER_NAME "BM25STD"
+#define PHONETIC_EXPENDER_NAME "PHONETIC"
+
+/**
+ * Stemming query expander (`SBSTEM`).
+ */
+#define STEMMER_EXPENDER_NAME "SBSTEM"
+
+/**
+ * Synonym-expansion query expander (`SYNONYM`).
+ */
+#define SYNONYMS_EXPENDER_NAME "SYNONYM"
+
+/**
+ * Document-normalized TF-IDF scorer (`TFIDF.DOCNORM`).
+ */
+#define TFIDF_DOCNORM_SCORER_NAME "TFIDF.DOCNORM"
+
+/**
+ * TF-IDF scorer (`TFIDF`). Uses term proximity, so it needs term offsets.
+ */
+#define TFIDF_SCORER_NAME "TFIDF"

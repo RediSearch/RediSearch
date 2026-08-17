@@ -104,16 +104,28 @@ impl ForkGC {
         unsafe { IndexSpecWeakRef::from_raw(self.0.index) }
     }
 
+    /// Whether the periodic callback requested trimming of empty numeric leaves
+    /// on this cycle (mirrors `ForkGC::cleanNumericEmptyNodes`).
+    pub const fn clean_numeric_empty_nodes(&self) -> bool {
+        self.0.cleanNumericEmptyNodes != 0
+    }
+
     /// Update the GC-level statistics after applying a garbage collection delta.
+    ///
+    /// `numeric_nodes_missed` is a count rather than a single increment because
+    /// the numeric scanner tallies misses across a whole node stream and flushes
+    /// them together with the rest of the field's counters.
     pub const fn update_gc_stats(
         &mut self,
         bytes_collected: usize,
         bytes_allocated: usize,
         blocks_denied: u64,
+        numeric_nodes_missed: u64,
     ) {
         self.0.stats.totalCollected += bytes_collected as isize;
         self.0.stats.totalCollected -= bytes_allocated as isize;
         self.0.stats.gcBlocksDenied += blocks_denied;
+        self.0.stats.gcNumericNodesMissed += numeric_nodes_missed;
     }
 }
 

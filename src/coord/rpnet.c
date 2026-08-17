@@ -172,7 +172,7 @@ int getNextReply(RPNet *nc) {
   }
 #endif
   MRReply *root = nc->areq
-    ? MRIterator_NextWithTimeout(nc->it, NULL, &nc->areq->syncState.timedOut, NULL)
+    ? MRIterator_NextWithTimeout(nc->it, NULL, &nc->areq->base.timeout.timedOut, NULL)
     : MRIterator_Next(nc->it);
 
   if (root == NULL) {
@@ -287,15 +287,16 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
 
     size_t idx_len;
     const char *idx = MRCommand_ArgStringPtrLen(&nc->cmd, 1, &idx_len);
-    char *idx_copy = rm_strndup(idx, idx_len);
+    // Build the cursor-read command before freeing the old command — idx points
+    // into its storage.
+    const char *argv[3] = {"_FT.CURSOR", "READ", idx};
+    const size_t lens[3] = {sizeof("_FT.CURSOR") - 1, sizeof("READ") - 1, idx_len};
+    MRCommand newCmd = MR_NewCommandArgvLen(3, argv, lens);
     MRCommand_Free(&nc->cmd);
-
-    // Create cursor read command using the copied index name
-    nc->cmd = MR_NewCommand(3, "_FT.CURSOR", "READ", idx_copy);
+    nc->cmd = newCmd;
     nc->cmd.rootCommand = C_READ;
     nc->cmd.forProfiling = IsProfile(nc->areq);
     nc->cmd.protocol = 3;
-    rm_free(idx_copy);
 
     nc->it = MR_IterateWithPrivateData(&nc->cmd, &(MRIteratorConfig){
       .successCB = netCursorCallback,
@@ -305,9 +306,10 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
 
     // Register the iterator's channel so the main-thread timeout callback can wake a
     // blocked reader after flipping AREQ's `timedOut` flag. Paired with
-    // RequestSyncState_UnregisterAbortWakeChannel in rpnetFree.
+    // QueryRequestAsyncState_UnregisterAbortWakeChannel in rpnetFree.
     if (nc->areq) {
-      RequestSyncState_RegisterAbortWakeChannel(&nc->areq->syncState, MRIterator_GetChannel(nc->it));
+      QueryRequestAsyncState_RegisterAbortWakeChannel(&nc->areq->base.async,
+                                                      MRIterator_GetChannel(nc->it));
     }
 #ifdef ENABLE_ASSERT
     DebugBgIterator_Set(nc->it);
@@ -324,7 +326,7 @@ void rpnetFree(ResultProcessor *rp) {
     // Unregister the abort-wake channel before releasing the iterator, so the main
     // thread's timeout callback cannot observe a channel that is about to be freed.
     if (nc->areq) {
-      RequestSyncState_UnregisterAbortWakeChannel(&nc->areq->syncState);
+      QueryRequestAsyncState_UnregisterAbortWakeChannel(&nc->areq->base.async);
     }
 #ifdef ENABLE_ASSERT
     // Drop the FT.DEBUG BG_PENDING_REPLIES handle before releasing the iterator.
@@ -380,7 +382,8 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   // Surface RETURN_STRICT timeouts on follow-up cursor reads where the channel
   // may already hold a buffered reply (the NULL-reply check below wouldn't fire
   // and we'd silently return rows). Skipped during the timer's own drain.
-  if (areq && areq->useReplyCallback && !nc->drainOnly && AREQ_TimedOut(nc->areq)) {
+  if (areq && QueryRequest_UsesReplyCallback(&areq->base) && !nc->drainOnly &&
+      AREQ_TimedOut(nc->areq)) {
     return RS_RESULT_TIMEDOUT;
   }
 

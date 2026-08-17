@@ -9,6 +9,7 @@
 
 extern "C" {
 #include "hiredis/sds.h"
+#include "util/dict.h"
 }
 
 #include "buffer/buffer.h"
@@ -294,7 +295,7 @@ TEST_F(IndexTest, testNot) {
   MockQueryEvalCtx mockQctx(16, 16);
   irs[0] = NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1);
   MockQueryEvalCtx mockQctx2(10, 10);
-  irs[1] = NewNotIterator(NewInvIndIterator_TermQuery(w2, &mockQctx2.sctx, f, makeTestQueryTerm(), 1), InvertedIndex_LastId(w2), 1, {0}, NULL, &ctx->qctx);
+  irs[1] = NewNotIterator(NewInvIndIterator_TermQuery(w2, &mockQctx2.sctx, f, makeTestQueryTerm(), 1), InvertedIndex_LastId(w2), 1, NULL, &ctx->qctx);
 
   QueryIterator *ui = NewIntersectionIterator(irs, 2, -1, 0, 1);
   int expected[] = {1, 2, 4, 5, 7, 8, 10, 11, 13, 14, 16};
@@ -316,7 +317,7 @@ TEST_F(IndexTest, testPureNot) {
   auto ctx = std::make_unique<MockQueryEvalCtx>();
   FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
   MockQueryEvalCtx mockQctx(10, 10);
-  QueryIterator *ir = NewNotIterator(NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1), InvertedIndex_LastId(w) + 5, 1, {0}, NULL, &ctx->qctx);
+  QueryIterator *ir = NewNotIterator(NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1), InvertedIndex_LastId(w) + 5, 1, NULL, &ctx->qctx);
 
   RSIndexResult *h = NULL;
   int expected[] = {1,  2,  4,  5,  7,  8,  10, 11, 13, 14, 16, 17, 19,
@@ -636,8 +637,11 @@ TEST_F(IndexTest, testHybridVector) {
   queryParams.hnswRuntimeParams.efRuntime = max_id;
   FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
   FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
-  // Create a mock context for timeout configuration
+  // Revalidation looks up the term through the spec's keys dictionary, as it does in production.
   MockQueryEvalCtx mockQctx(max_id, max_id);
+  mockQctx.spec.keysDict = dictCreate(&invIdxDictType, nullptr);
+  CharBuf termKey = {.buf = const_cast<char *>("term"), .len = 4};
+  dictAdd(mockQctx.spec.keysDict, &termKey, w);
   // Run simple top k query.
   HybridIteratorParams hParams = {.sctx=&mockQctx.sctx,
                                   .index = index,
@@ -764,7 +768,7 @@ TEST_F(IndexTest, testHybridVector) {
   }
   hybridIt->Free(hybridIt);
 
-  InvertedIndex_Free(w);
+  dictRelease(mockQctx.spec.keysDict);
   VecSimIndex_Free(index);
 }
 

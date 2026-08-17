@@ -42,27 +42,6 @@ extern "C" {
 struct RSQueryTerm *NewQueryTerm(const RSToken *tok, int id);
 
 /**
- * Free an [`RSQueryTerm`] previously allocated by [`NewQueryTerm`].
- *
- * # Safety
- *
- * - `t` may be NULL (in which case this is a no-op).
- * - If non-NULL, `t` must have been allocated by [`NewQueryTerm`].
- * - After this call, `t` is dangling and must not be used.
- */
-void Term_Free(struct RSQueryTerm *t);
-
-/**
- * Get the IDF (inverse document frequency) value from a query term.
- *
- * # Safety
- *
- * `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
- * allocated by [`NewQueryTerm`].
- */
-double QueryTerm_GetIDF(const struct RSQueryTerm *term);
-
-/**
  * Get the BM25 IDF value from a query term.
  *
  * # Safety
@@ -71,18 +50,6 @@ double QueryTerm_GetIDF(const struct RSQueryTerm *term);
  * allocated by [`NewQueryTerm`].
  */
 double QueryTerm_GetBM25_IDF(const struct RSQueryTerm *term);
-
-/**
- * Set both IDF values (TF-IDF and BM25) on a query term.
- *
- * This is a convenience function for setting both values at once.
- *
- * # Safety
- *
- * `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
- * allocated by [`NewQueryTerm`].
- */
-void QueryTerm_SetIDFs(struct RSQueryTerm *term, double idf, double bm25_idf);
 
 /**
  * Get the term ID.
@@ -95,6 +62,16 @@ void QueryTerm_SetIDFs(struct RSQueryTerm *term, double idf, double bm25_idf);
  * allocated by [`NewQueryTerm`].
  */
 int QueryTerm_GetID(const struct RSQueryTerm *term);
+
+/**
+ * Get the IDF (inverse document frequency) value from a query term.
+ *
+ * # Safety
+ *
+ * `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+ * allocated by [`NewQueryTerm`].
+ */
+double QueryTerm_GetIDF(const struct RSQueryTerm *term);
 
 /**
  * Get the term string length in bytes.
@@ -117,6 +94,29 @@ size_t QueryTerm_GetLen(const struct RSQueryTerm *term);
  * - `out_len` must be a valid pointer to write the length to
  */
 const char *QueryTerm_GetStrAndLen(const struct RSQueryTerm *term, size_t *out_len);
+
+/**
+ * Set both IDF values (TF-IDF and BM25) on a query term.
+ *
+ * This is a convenience function for setting both values at once.
+ *
+ * # Safety
+ *
+ * `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+ * allocated by [`NewQueryTerm`].
+ */
+void QueryTerm_SetIDFs(struct RSQueryTerm *term, double idf, double bm25_idf);
+
+/**
+ * Free an [`RSQueryTerm`] previously allocated by [`NewQueryTerm`].
+ *
+ * # Safety
+ *
+ * - `t` may be NULL (in which case this is a no-op).
+ * - If non-NULL, `t` must have been allocated by [`NewQueryTerm`].
+ * - After this call, `t` is dangling and must not be used.
+ */
+void Term_Free(struct RSQueryTerm *t);
 
 #ifdef __cplusplus
 }  // extern "C"

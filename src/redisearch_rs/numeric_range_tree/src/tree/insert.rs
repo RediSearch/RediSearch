@@ -65,7 +65,7 @@ impl NumericRangeTree {
         is_multivalued: bool,
         max_depth_range: usize,
     ) -> AddResult {
-        #[cfg(all(feature = "unittest", not(miri)))]
+        #[cfg(all(feature = "unittest", debug_assertions, not(miri)))]
         let (stats_before, revision_id_before, total_records_before) =
             (self.stats, self.revision_id, self.total_records());
 
@@ -77,7 +77,7 @@ impl NumericRangeTree {
             max_depth_range,
         );
 
-        #[cfg(all(feature = "unittest", not(miri)))]
+        #[cfg(all(feature = "unittest", debug_assertions, not(miri)))]
         {
             self.check_delta_invariants(
                 stats_before,

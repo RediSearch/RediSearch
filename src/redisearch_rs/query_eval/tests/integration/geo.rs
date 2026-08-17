@@ -21,6 +21,7 @@ use query_error::QueryErrorCode;
 use query_eval::{Config, EvalResult, QueryEvalContext, QueryNodeMut, eval_node};
 use query_types::QueryNodeType;
 use rqe_iterators::RQEIterator;
+use rqe_iterators_test_utils::ContractChecker;
 use rqe_iterators_test_utils::{GlobalGuard, TestContext};
 
 // Two well-separated points (≈ 7400 km apart), so a modest radius around one
@@ -110,7 +111,7 @@ impl Drop for GeoFixture {
 }
 
 /// Collect the doc ids the iterator yields, in order.
-fn read_all(it: &mut EvalResult<'_>) -> Vec<u64> {
+fn read_all<'index>(it: &mut impl RQEIterator<'index>) -> Vec<u64> {
     let mut ids = Vec::new();
     while let Some(r) = it.read().expect("read must not error") {
         ids.push(r.doc_id);
@@ -127,9 +128,11 @@ fn eval_geo_matches_points_within_radius() {
         PALERMO.1,
         300.0,
     );
-    let mut it = fixture
-        .eval()
-        .expect("a matching geo query must build an iterator");
+    let mut it = ContractChecker::new(
+        fixture
+            .eval()
+            .expect("a matching geo query must build an iterator"),
+    );
     assert_eq!(read_all(&mut it), vec![1]);
 }
 

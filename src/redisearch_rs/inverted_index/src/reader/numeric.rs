@@ -44,13 +44,16 @@ pub struct NumericFilter {
     pub ascending: bool,
 
     /// Minimum number of results needed
+    #[deprecated(note = "pagination state, not part of the filter: the caller paginating owns it")]
     pub limit: usize,
 
     /// Number of results to skip
+    #[deprecated(note = "pagination state, not part of the filter: the caller paginating owns it")]
     pub offset: usize,
 }
 
 impl Default for NumericFilter {
+    #[expect(deprecated, reason = "initialises the deprecated fields")]
     fn default() -> Self {
         Self {
             min: 0.0,

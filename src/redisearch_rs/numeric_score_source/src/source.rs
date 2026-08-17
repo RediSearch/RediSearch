@@ -13,10 +13,13 @@
 
 use index_result::RSIndexResult;
 use inverted_index::NumericFilter;
-use numeric_range_tree::NumericRangeTree;
+use numeric_range_tree::{NumericRangeTree, RangeWindow};
 use rqe_core::DocId;
 use rqe_iterator_type::IteratorType;
-use rqe_iterators::{ExpirationChecker, NoOpChecker, RQEIteratorError};
+use rqe_iterators::{
+    ExpirationChecker, NoOpChecker, RQEIteratorError,
+    utils::{NoTimeoutChecker, TimeoutContext},
+};
 use top_k::{BatchStrategy, ScoreSource};
 
 use crate::range_iterator::NumericRangeIterator;
@@ -80,7 +83,7 @@ const MIN_SUCCESS_RATIO: f64 = 0.01;
 ///
 /// A document's score is its value in the numeric field. The source asks the
 /// [`NumericRangeTree`] for the field's ranges in score order (per `ascending`),
-/// windowed by the filter's `offset`/`limit`, and hands them to the surrounding
+/// restricted to a [`RangeWindow`], and hands them to the surrounding
 /// [`TopKIterator`] as doc-id-ordered batches. Because batches arrive
 /// best-score-first, a full heap (`heap_count >= k`) means no later batch can
 /// improve the result, so [`batch_strategy`](ScoreSource::batch_strategy) can
@@ -90,8 +93,8 @@ const MIN_SUCCESS_RATIO: f64 = 0.01;
 ///
 /// With a filter child, the initial window may be too small to fill the heap.
 /// When a window is drained with `heap_count < k`,
-/// [`batch_strategy`](ScoreSource::batch_strategy) advances `offset`/`limit` to
-/// the next disjoint window and returns [`BatchStrategy::ExpandWindow`]. The
+/// [`batch_strategy`](ScoreSource::batch_strategy) advances the window to the
+/// next disjoint one and returns [`BatchStrategy::ExpandWindow`]. The
 /// windows are disjoint in value space, so the heap keeps accumulating the
 /// global top `k` across them. The unfiltered path reads an unbounded window and
 /// never retries.
@@ -100,21 +103,40 @@ const MIN_SUCCESS_RATIO: f64 = 0.01;
 ///
 /// [`TopKIterator`]: top_k::TopKIterator
 ///
+/// # Revalidation
+///
+/// The source has no revalidate step of its own: the wrapping [`TopKIterator`]
+/// collects eagerly and then yields from a materialized buffer, so once results
+/// are collected the range stream is never read again. A revalidate therefore
+/// only consults the filter child — a child abort aborts the query, and a child
+/// reposition collapses to `Ok` because it cannot move a cursor that reads from
+/// the buffer.
+///
+/// # Rewind after timeout
+///
+/// A timeout aborts collection with the heap and range stream left partway;
+/// [`rewind`](ScoreSource::rewind) is what restores a clean, re-runnable state
+/// (fresh heap, ranges re-resolved to the initial window). The query deadline is
+/// absolute and is *not* reset by rewind.
+///
 /// Not implemented yet:
-/// - TODO: MOD-14945 Timeout handling
 /// - TODO: MOD-14946 Profile metrics
 /// - TODO: MOD-14947 Parity tests
 /// - TODO: MOD-14948 Performance validation
-pub struct NumericScoreSource<'index, V: DocValidity = AllValid, E: ExpirationChecker = NoOpChecker>
-{
+pub struct NumericScoreSource<
+    'index,
+    V: DocValidity = AllValid,
+    E: ExpirationChecker = NoOpChecker,
+    T: TimeoutContext = NoTimeoutChecker,
+> {
     /// Value-ordered range stream over the numeric index.
     ranges: NumericRangeIterator<'index>,
-    /// Filter driving [`find`](NumericRangeTree::find); its `offset`/`limit`
-    /// window is mutated in place by the retry expansion.
+    /// Value predicate driving [`find_windowed`](NumericRangeTree::find_windowed).
     filter: NumericFilter,
-    /// Initial `offset`/`limit` of `filter`, restored by [`rewind`](ScoreSource::rewind).
-    initial_offset: usize,
-    initial_limit: usize,
+    /// Slice of the ranges currently being read; the retry expansion advances it.
+    window: RangeWindow,
+    /// The window the source started on, restored by [`rewind`](ScoreSource::rewind).
+    initial_window: RangeWindow,
     /// Sort direction (`SORTBY field ASC`/`DESC`), also written into `filter`.
     ascending: bool,
     /// Number of value-ordered ranges materialized per batch. Always `>= 1`.
@@ -145,14 +167,16 @@ pub struct NumericScoreSource<'index, V: DocValidity = AllValid, E: ExpirationCh
     /// they reach the top-k heap, matching the optimizer's numeric field
     /// predicate. [`NoOpChecker`] keeps every record.
     expiration: E,
+    /// Query-deadline poll, checked once per record during batch materialization
+    /// and once per step during yielding. [`NoTimeoutChecker`] never times out.
+    timeout: T,
 }
 
 impl<'index> NumericScoreSource<'index> {
-    /// Build a source for the unfiltered case (no filter child): an unbounded
-    /// value-ordered window with no retry. `filter` is the numeric range over
-    /// the sort field that picks which ranges to read; its `offset`/`limit`
-    /// window is ignored here, since `LIMIT k` is served by the heap plus the
-    /// early `Stop`.
+    /// Build a source for the unfiltered case (no filter child): every range, in
+    /// value order, with no retry. `filter` is the numeric range over the sort
+    /// field that picks which ranges to read; there is no window to size, since
+    /// `LIMIT k` is served by the heap plus the early `Stop`.
     pub fn unfiltered(
         tree: &'index NumericRangeTree,
         filter: NumericFilter,
@@ -170,19 +194,27 @@ impl<'index> NumericScoreSource<'index> {
         range_batch_size: usize,
     ) -> Self {
         filter.ascending = ascending;
-        filter.limit = 0;
-        filter.offset = 0;
-        Self::build(tree, filter, ascending, range_batch_size, 0, 0, false)
+        Self::build(
+            tree,
+            filter,
+            RangeWindow::UNBOUNDED,
+            ascending,
+            range_batch_size,
+            0,
+            0,
+            false,
+        )
     }
 
     /// Build a filtered source with the expand-and-retry path enabled.
     ///
+    /// `window` is the initial slice of the value-ordered stream to read.
     /// `num_docs` is the total document count and `child_estimate` the filter
-    /// child's selectivity estimate; both size the retry windows. `filter.limit`
-    /// is the initial window size.
+    /// child's selectivity estimate; both size the retry windows.
     pub fn filtered(
         tree: &'index NumericRangeTree,
         mut filter: NumericFilter,
+        window: RangeWindow,
         ascending: bool,
         range_batch_size: usize,
         num_docs: usize,
@@ -192,6 +224,7 @@ impl<'index> NumericScoreSource<'index> {
         Self::build(
             tree,
             filter,
+            window,
             ascending,
             range_batch_size,
             num_docs,
@@ -200,22 +233,24 @@ impl<'index> NumericScoreSource<'index> {
         )
     }
 
+    #[expect(clippy::too_many_arguments, reason = "private constructor")]
     fn build(
         tree: &'index NumericRangeTree,
         filter: NumericFilter,
+        window: RangeWindow,
         ascending: bool,
         range_batch_size: usize,
         num_docs: usize,
         child_estimate: usize,
         retry_enabled: bool,
     ) -> Self {
-        let ranges = NumericRangeIterator::new(tree, &filter);
+        let ranges = NumericRangeIterator::new(tree, &filter, window);
         let num_estimated = ranges.total_docs_estimate();
         Self {
             ranges,
-            last_limit_estimate: filter.limit,
-            initial_offset: filter.offset,
-            initial_limit: filter.limit,
+            last_limit_estimate: window.limit,
+            initial_window: window,
+            window,
             filter,
             ascending,
             range_batch_size: range_batch_size.max(1),
@@ -227,24 +262,31 @@ impl<'index> NumericScoreSource<'index> {
             num_iterations: 0,
             validity: AllValid,
             expiration: NoOpChecker,
+            timeout: NoTimeoutChecker,
         }
     }
 }
 
-impl<'index, V: DocValidity, E: ExpirationChecker> NumericScoreSource<'index, V, E> {
+impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext>
+    NumericScoreSource<'index, V, E, T>
+{
     /// Attach a document-validity oracle, dropping records for doc ids it reports
     /// invalid (deleted or whole-doc expired) from every batch. This is the
     /// source's equivalent of the numeric optimizer's per-document validity
     /// check, keeping entries that survive in the index until GC out of the
     /// top-k results.
-    pub fn with_validity<V2: DocValidity>(self, validity: V2) -> NumericScoreSource<'index, V2, E> {
+    pub fn with_validity<V2: DocValidity>(
+        self,
+        validity: V2,
+    ) -> NumericScoreSource<'index, V2, E, T> {
         NumericScoreSource {
             validity,
             expiration: self.expiration,
+            timeout: self.timeout,
             ranges: self.ranges,
             filter: self.filter,
-            initial_offset: self.initial_offset,
-            initial_limit: self.initial_limit,
+            window: self.window,
+            initial_window: self.initial_window,
             ascending: self.ascending,
             range_batch_size: self.range_batch_size,
             num_estimated: self.num_estimated,
@@ -265,14 +307,42 @@ impl<'index, V: DocValidity, E: ExpirationChecker> NumericScoreSource<'index, V,
     pub fn with_expiration<E2: ExpirationChecker>(
         self,
         expiration: E2,
-    ) -> NumericScoreSource<'index, V, E2> {
+    ) -> NumericScoreSource<'index, V, E2, T> {
         NumericScoreSource {
             expiration,
             validity: self.validity,
+            timeout: self.timeout,
             ranges: self.ranges,
             filter: self.filter,
-            initial_offset: self.initial_offset,
-            initial_limit: self.initial_limit,
+            window: self.window,
+            initial_window: self.initial_window,
+            ascending: self.ascending,
+            range_batch_size: self.range_batch_size,
+            num_estimated: self.num_estimated,
+            retry_enabled: self.retry_enabled,
+            num_docs: self.num_docs,
+            child_estimate: self.child_estimate,
+            last_limit_estimate: self.last_limit_estimate,
+            heap_old_size: self.heap_old_size,
+            num_iterations: self.num_iterations,
+        }
+    }
+
+    /// Attach a query-deadline poll, checked once per record during
+    /// materialization and once per step during yielding. [`NoTimeoutChecker`] (the
+    /// default) never times out.
+    pub fn with_timeout<T2: TimeoutContext>(
+        self,
+        timeout: T2,
+    ) -> NumericScoreSource<'index, V, E, T2> {
+        NumericScoreSource {
+            timeout,
+            validity: self.validity,
+            expiration: self.expiration,
+            ranges: self.ranges,
+            filter: self.filter,
+            window: self.window,
+            initial_window: self.initial_window,
             ascending: self.ascending,
             range_batch_size: self.range_batch_size,
             num_estimated: self.num_estimated,
@@ -316,25 +386,25 @@ impl<'index, V: DocValidity, E: ExpirationChecker> NumericScoreSource<'index, V,
         }
         // A `limit == 0` window is unbounded and has already read every remaining
         // range, so there is nothing left to expand into.
-        if self.filter.limit == 0 {
+        if self.window.limit == 0 {
             return false;
         }
 
-        self.filter.offset += self.ranges.total_docs_estimate();
+        self.window.offset += self.ranges.total_docs_estimate();
         let success_ratio = self.success_ratio(heap_count);
 
         if success_ratio < MIN_SUCCESS_RATIO || self.num_iterations + 1 >= MAX_ITERATIONS {
             // Hits are too sparse, or this is the last allowed retry: drop the
             // window limit so the retry reads every remaining range.
-            self.filter.limit = 0;
+            self.window.limit = 0;
         } else {
             let results_missing = k.saturating_sub(heap_count);
             let estimate = estimate_limit(self.num_docs, self.child_estimate, results_missing);
             self.last_limit_estimate = ((estimate as f64) * success_ratio) as usize;
-            self.filter.limit = self.last_limit_estimate.max(1);
+            self.window.limit = self.last_limit_estimate.max(1);
         }
 
-        self.ranges.refind(&self.filter);
+        self.ranges.refind(&self.filter, self.window);
 
         // The advanced window resolved to no ranges: the tree is exhausted, so
         // report no expansion rather than a spurious empty one.
@@ -348,13 +418,18 @@ impl<'index, V: DocValidity, E: ExpirationChecker> NumericScoreSource<'index, V,
     }
 }
 
-impl<'index, V: DocValidity, E: ExpirationChecker> ScoreSource
-    for NumericScoreSource<'index, V, E>
+impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSource
+    for NumericScoreSource<'index, V, E, T>
 {
     type Batch = NumericScoreBatch;
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
-        let Some(mut batch) = self.ranges.next_n(self.range_batch_size)? else {
+        // `ranges` and `timeout` are disjoint fields; the split borrow lets the
+        // materialization loop poll the deadline once per record.
+        let Some(batch) = self
+            .ranges
+            .next_n(self.range_batch_size, &mut self.timeout)?
+        else {
             return Ok(None);
         };
         // Drop stale entries pre-heap so they never displace a live document from
@@ -363,20 +438,22 @@ impl<'index, V: DocValidity, E: ExpirationChecker> ScoreSource
         // gate keeps the common no-filtering case free of its per-record check.
         let filter_validity = self.validity.may_filter();
         let filter_expiration = self.expiration.has_expiration();
-        if filter_validity || filter_expiration {
-            batch.retain(|doc_id, score| {
-                if filter_validity && !self.validity.is_valid(doc_id) {
-                    return false;
-                }
-                if filter_expiration {
-                    let record = RSIndexResult::build_numeric(score).doc_id(doc_id).build();
-                    if self.expiration.is_expired(&record) {
-                        return false;
-                    }
-                }
-                true
-            });
+        if !filter_validity && !filter_expiration {
+            return Ok(Some(batch));
         }
+        let batch = batch.retain(|doc_id, score| {
+            self.timeout.check_timeout()?;
+            if filter_validity && !self.validity.is_valid(doc_id) {
+                return Ok(false);
+            }
+            if filter_expiration {
+                let record = RSIndexResult::build_numeric(score).doc_id(doc_id).build();
+                if self.expiration.is_expired(&record) {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        })?;
         Ok(Some(batch))
     }
 
@@ -394,13 +471,12 @@ impl<'index, V: DocValidity, E: ExpirationChecker> ScoreSource
         // Full reset to the initial window. The expand-and-retry path resolves
         // its own windows inside `expand_window`, so this is only reached for an
         // outer rewind that restarts the whole query.
-        self.filter.offset = self.initial_offset;
-        self.filter.limit = self.initial_limit;
-        self.last_limit_estimate = self.initial_limit;
+        self.window = self.initial_window;
+        self.last_limit_estimate = self.initial_window.limit;
         self.num_iterations = 0;
         self.heap_old_size = 0;
         self.ranges.forget_emitted();
-        self.ranges.refind(&self.filter);
+        self.ranges.refind(&self.filter, self.window);
     }
 
     fn build_result<'r>(&self, doc_id: DocId, score: f64) -> RSIndexResult<'r>
@@ -435,9 +511,10 @@ impl<'index, V: DocValidity, E: ExpirationChecker> ScoreSource
     }
 
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
-        // TODO: MOD-14945 — real timeout handling. The numeric source never
-        // times out yet.
-        Ok(())
+        // Yielding-phase hook. Collection self-checks per record via `next_batch`,
+        // because the surrounding `TopKIterator` collects eagerly and only polls
+        // this during yielding.
+        self.timeout.check_timeout()
     }
 
     fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)

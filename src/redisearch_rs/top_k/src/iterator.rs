@@ -301,6 +301,8 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
                     self.heap.push(doc_id, score);
                 }
             }
+            // Batch consumption is unpolled; check once at the boundary.
+            self.source.check_timeout()?;
             match self.source.batch_strategy(self.heap.len(), self.k.get()) {
                 BatchStrategy::Continue => continue,
                 BatchStrategy::Stop => break,
@@ -466,6 +468,11 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
         loop {
             if self.yield_pos >= self.results.len() {
                 self.at_eof = true;
+                // Cleared alongside the flag, as `advance_unfiltered_direct` does:
+                // `current()` is the negation of `at_eof()`, so leaving the last
+                // yielded record here would hand a caller a document it has
+                // already consumed.
+                *self.current = None;
                 return Ok(None);
             }
             let entry = &mut self.results[self.yield_pos];
@@ -500,8 +507,10 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
                 let Some(mut record) = record else {
                     // A rich filtered-mode entry must always carry its captured
                     // record; a missing one would indicate a collection-side bug.
-                    // Treat as EOF rather than panicking.
+                    // Treat as EOF rather than panicking — and report it as EOF
+                    // fully, with no stale current left behind.
                     self.at_eof = true;
+                    *self.current = None;
                     return Ok(None);
                 };
                 if self.source.is_expired(&record) {

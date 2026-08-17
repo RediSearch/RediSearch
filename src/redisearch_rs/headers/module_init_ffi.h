@@ -18,6 +18,23 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Add the current backtrace as a new section to the report printed
+ * by RediSearch's INFO command.
+ *
+ * # Safety
+ *
+ * `ctx` must be a valid pointer to a `RedisModuleInfoCtx`.
+ */
+void AddToInfo_RustBacktrace(struct RedisModuleInfoCtx *ctx);
+
+/**
+ * Initialize RediSearch's panic hook, without replaacing the pre-existing panic hook (if any).
+ *
+ * Panic messages will be logged through `tracing` at the `ERROR` level.
+ */
+void RustPanicHook_Init(void);
+
+/**
  * Initializes a global subscriber that reports Rust `tracing` traces through `redismodule` logging.
  *
  * `level` is the initial redis `loglevel` config value the filter is set to.
@@ -37,23 +54,6 @@ void TracingRedisModule_Init(struct RedisModuleCtx *ctx, const char *level);
  * `level` must point to a valid, null-terminated C string.
  */
 void TracingRedisModule_SetLogLevel(const char *level);
-
-/**
- * Initialize RediSearch's panic hook, without replaacing the pre-existing panic hook (if any).
- *
- * Panic messages will be logged through `tracing` at the `ERROR` level.
- */
-void RustPanicHook_Init(void);
-
-/**
- * Add the current backtrace as a new section to the report printed
- * by RediSearch's INFO command.
- *
- * # Safety
- *
- * `ctx` must be a valid pointer to a `RedisModuleInfoCtx`.
- */
-void AddToInfo_RustBacktrace(struct RedisModuleInfoCtx *ctx);
 
 #ifdef __cplusplus
 }  // extern "C"
