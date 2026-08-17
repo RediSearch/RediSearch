@@ -421,12 +421,9 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   // get the next reply from the channel
   while (!root) {
-    // Check for timeout (respecting skipTimeoutChecks flag). Under RETURN-STRICT
-    // (the only policy that sets drainOnly) shouldCheckInPipelineTimeoutCoord
-    // already forces skipTimeoutChecks=true, so this branch is naturally bypassed
-    // during a drain.
+    // RETURN_STRICT uses the blocked-client source, so only clock-based cycles
+    // reach this check.
     if (nc->areq->base.timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
-        !nc->areq->sctx->time.skipTimeoutChecks &&
         QueryRequestTimeout_IsTimedOut(&nc->areq->base.timeout)) {
       // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
       // callback so that a `CURSOR DEL` command will be dispatched instead of

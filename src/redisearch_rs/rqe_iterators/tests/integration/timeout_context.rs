@@ -107,17 +107,20 @@ fn probes_are_amortized_across_the_granularity() {
 
 #[cfg_attr(miri, ignore = "miri has no clock_gettime(CLOCK_MONOTONIC_RAW)")]
 #[test]
-fn skip_timeout_checks_opts_out_entirely() {
+fn unarmed_timeout_opts_out_entirely() {
     let ctx = MockContext::new(100, 10);
     set_deadline(&ctx, -1);
-    // SAFETY: the mock owns a valid `RedisSearchCtx`.
-    unsafe { (*ctx.sctx().as_ptr()).time.skipTimeoutChecks = true };
+    // SAFETY: the mock owns a valid request timeout and no checker is active yet.
+    unsafe {
+        (*(*ctx.sctx().as_ptr()).time.requestTimeout).kind =
+            ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED;
+    }
 
     // SAFETY: as above.
     let mut checker = unsafe { AnyTimeoutContext::from_sctx(ctx.sctx(), 1) };
     assert!(
         matches!(checker, AnyTimeoutContext::NoTimeout(_)),
-        "skipTimeoutChecks must win over an expired deadline",
+        "an unarmed timeout must ignore stale deadline storage",
     );
     assert!(probe(&mut checker, 1).is_ok());
 }

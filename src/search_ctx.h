@@ -38,8 +38,6 @@ typedef enum {
 typedef struct SearchTime {
   // current execution start time - real clock
   struct timespec current;
-  // Flag to skip timeout checks (used in background thread mode with FAIL policy)
-  bool skipTimeoutChecks;
   // Borrowed request timeout, wired when the request adopts this search context.
   // NULL when there is no owning request.
   // TODO: move to QueryProcessingCtx.
@@ -86,9 +84,7 @@ static inline RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *s
                           .redisCtx = ctx,
                           .key_ = NULL,
                           .spec = sp,
-                          .time = {.current = { 0, 0 },
-                                   .skipTimeoutChecks = false,
-                                   .requestTimeout = NULL},
+                          .time = {.current = { 0, 0 }, .requestTimeout = NULL},
                           .lock_state = SPEC_LOCK_UNSET,
                           .diskSnapshot = NULL,};
   return sctx;

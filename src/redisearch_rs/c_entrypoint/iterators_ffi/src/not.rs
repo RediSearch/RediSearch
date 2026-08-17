@@ -154,12 +154,8 @@ impl<'index> rqe_iterators::interop::ProfileChildren<'index> for NotIteratorEnum
 ///
 /// Selection rules:
 ///
-/// * If `bc_timeout_areq` is non-null, the Blocked Client Timeout path is
-///   used and `timeout` / `skipTimeoutChecks` are ignored.
-/// * Else if `skipTimeoutChecks` is set or `timeout` is the Redis sentinel
-///   (no deadline), [`AnyTimeoutContext::NoTimeout`] is returned and every
-///   timeout probe becomes a no-op.
-/// * Otherwise the Clock Based Timeout path is used.
+/// * If `bc_timeout_areq` is non-null, the Blocked Client Timeout path is used.
+/// * Otherwise the active request-timeout kind selects no timeout or the clock path.
 ///
 /// # Safety
 ///
@@ -200,12 +196,9 @@ unsafe fn build_timeout_context(
 /// `bc_timeout_areq` selects the timeout source. When non-null, the Blocked
 /// Client Timeout path is used: every iterator timeout probe forwards to
 /// `AREQ_CheckTimedOut` and `q.sctx.time` is ignored.
-/// When null, the Clock Based Timeout path is used, driven entirely by `q.sctx.time`:
-/// `timeout` is the deadline, read back on every probe so that a re-armed deadline is
-/// honoured, and `skipTimeoutChecks` disables the check entirely. There is deliberately no
-/// deadline parameter — a caller wanting a different deadline updates the request timeout,
-/// which is the only value the iterator will ever consult. The C caller is expected to
-/// pre-filter the owning request via `AREQ_TimeoutAreqOrNull` before passing it here.
+/// When null, the request timeout reached through `q.sctx.time` selects either
+/// no timeout or the Clock Based Timeout path. The deadline is read back on
+/// every probe so a re-armed deadline is honoured.
 ///
 /// # Safety
 ///

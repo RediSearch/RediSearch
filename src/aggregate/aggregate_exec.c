@@ -421,8 +421,6 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
   CommonPipelineCtx ctx = {
     .timeout = &req->base.timeout,
     .oomPolicy = req->reqConfig.oomPolicy,
-    .skipTimeoutChecks = req->base.timeout.kind != QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE ||
-                         req->sctx->time.skipTimeoutChecks,
     .areq = req,
   };
 

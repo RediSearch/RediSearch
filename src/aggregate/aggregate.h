@@ -560,20 +560,11 @@ bool QueryRequest_TimeoutPreemptSafeLoaderGIL(QueryRequest *request);
  * RPSorter::base.Next: the Yield latch is load-bearing across reads. */
 void AREQ_ResetForCursorReadReturnStrict(AREQ *req);
 
-static inline void AREQ_SetSkipTimeoutChecks(AREQ *req, bool skipTimeoutChecks) {
-  QueryRequestTimeout_SetSkipChecks(&req->base.timeout, skipTimeoutChecks);
-  // TODO($$$): Remove the SearchTime mirror once consumers use QueryRequest.timeout.
-  if (req->sctx) {
-    req->sctx->time.skipTimeoutChecks = skipTimeoutChecks;
-  }
-}
-
 // Returns the AREQ that iterator constructors should use to wire the
 // Blocked Client Timeout, or NULL if iterators should fall back to the
-// in-pipeline clock-based timeout. `skipTimeoutChecks` is set by
-// `AREQ_ApplyContext` exactly when the BC callback is the active source.
+// in-pipeline clock-based timeout.
 static inline AREQ *AREQ_TimeoutAreqOrNull(AREQ *req) {
-  return (req && !QueryRequestTimeout_ShouldCheck(&req->base.timeout)) ? req : NULL;
+  return (req && req->base.timeout.kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT) ? req : NULL;
 }
 
 static inline bool RequestConfig_ApplyCoordinatorElapsedTime(RequestConfig *reqConfig,

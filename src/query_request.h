@@ -129,10 +129,6 @@ typedef struct QueryRequestTimeout {
     RS_Atomic(bool) blockedClientTimedOut;
     struct timespec clockDeadline;
   } source;
-
-  // TRANSITIONAL(MOD-17481): Existing consumers continue using this field
-  // until they migrate to the source-independent API above.
-  bool skipTimeoutChecks;
 } QueryRequestTimeout;
 
 void QueryRequestTimeout_Init(QueryRequestTimeout *timeout, RSTimeoutPolicy policy,
@@ -209,15 +205,6 @@ bool QueryRequestTimeout_IsBlockedClientTimedOut(const QueryRequestTimeout *time
  */
 bool QueryRequestTimeout_IsTimedOutWithCounter(const QueryRequestTimeout *timeout,
                                                uint32_t *counter);
-
-static inline bool QueryRequestTimeout_ShouldCheck(const QueryRequestTimeout *timeout) {
-  return !timeout->skipTimeoutChecks;
-}
-
-static inline void QueryRequestTimeout_SetSkipChecks(QueryRequestTimeout *timeout,
-                                                     bool skipTimeoutChecks) {
-  timeout->skipTimeoutChecks = skipTimeoutChecks;
-}
 
 /**
  * Timeout-only synchronization between query workers and main-thread callbacks.

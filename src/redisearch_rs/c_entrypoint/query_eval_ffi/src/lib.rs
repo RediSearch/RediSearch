@@ -236,12 +236,15 @@ pub unsafe extern "C" fn QAST_Iterate(
     // SAFETY: `sctx` is a valid, non-null pointer (precondition 3).
     let spec = unsafe { (*sctx).spec };
 
-    // Wire the Blocked Client Timeout dispatch to this request only when it
-    // opted into `skipTimeoutChecks`; otherwise leave it unset so iterators use
-    // the clock-based timeout instead.
+    // Wire the Blocked Client Timeout dispatch only while it is the active source.
     // SAFETY: `areq`, when non-null (checked first), is a valid `AREQ`
     // (precondition 5).
-    let bc_timeout_areq = if !areq.is_null() && unsafe { (*areq).base.timeout.skipTimeoutChecks } {
+    let bc_timeout_areq = if !areq.is_null()
+        && unsafe {
+            (*areq).base.timeout.kind
+                == ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
+        }
+    {
         areq
     } else {
         std::ptr::null_mut()

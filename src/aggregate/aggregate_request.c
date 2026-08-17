@@ -1312,16 +1312,6 @@ static bool IsNeededDepleter(AREQ *req) {
          (!IsCursor(req) || !IsCoordinator(req));
 }
 
-// This function should only be called from the main thread (calling RunInThread() is not thread safe)
-// AREQ execution flags are not set when this function is called currently
-static bool shouldCheckInPipelineTimeout(RedisModuleCtx* ctx, AREQ *req) {
-  // We should check for timeout in pipeline only if timeout is > 0
-  // and when the policy is RETURN or the policy is FAIL/RETURN-strict, without workers.
-  return req->reqConfig.queryTimeoutMS > 0 &&
-         (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return || !RunInThread(ctx));
-
-}
-
 int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskIndex, QueryError *status) {
   RS_ASSERT(offset <= req->base.args.parseArgc &&
             req->base.args.parseArgc <= req->base.args.argc);
@@ -1416,9 +1406,6 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskInd
   // unchanged across cursor reads; only the timeout's per-cycle state is reset or rearmed.
   QueryRequestTimeout_UpdateConfig(&req->base.timeout, req->reqConfig.timeoutPolicy,
                                    req->reqConfig.queryTimeoutMS);
-
-  // Check if we should check for timeout in pipeline
-  AREQ_SetSkipTimeoutChecks(req, !shouldCheckInPipelineTimeout(ctx, req));
 
   return REDISMODULE_OK;
 

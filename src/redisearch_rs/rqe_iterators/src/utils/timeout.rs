@@ -233,12 +233,9 @@ pub enum AnyTimeoutContext {
 impl AnyTimeoutContext {
     /// Builds the timeout context from a search context's time settings.
     ///
-    /// `skipTimeoutChecks` (or the absence of a deadline) opts out of timeout
-    /// checks entirely, yielding [`NoTimeoutChecker`]; otherwise the context borrows the
-    /// deadline out of `sctx` and probes the clock against it once every `granularity`
-    /// checks. A search context carries no Blocked Client Timeout
-    /// source, so the [`BlockedClient`](Self::BlockedClient) variant is never
-    /// produced here.
+    /// The request timeout's active kind selects no timeout or a clock deadline.
+    /// Blocked-client contexts are built from the owning `AREQ`, before this
+    /// constructor is reached.
     ///
     /// # Safety
     ///
@@ -249,27 +246,26 @@ impl AnyTimeoutContext {
     ///   through a pointer on every probe.
     /// * No write to the request's clock deadline may overlap a probe.
     ///
-    /// Note that `skipTimeoutChecks` is read once, here, while the deadline is read live. A
-    /// request that flips the flag after its iterators are built (only `TIMEOUT_AFTER_N` does,
-    /// via `AREQ_SetSkipTimeoutChecks`) keeps whichever variant this chose.
     pub unsafe fn from_sctx(sctx: NonNull<RedisSearchCtx>, granularity: u32) -> Self {
-        // Read the two construction-time inputs through short-lived raw reads rather than holding
-        // a reference: C writes the deadline through this same location while the context lives.
+        // Read construction-time inputs through short-lived raw reads rather than holding
+        // a reference: C writes the timeout source through this location between cycles.
         // SAFETY: the caller guarantees `sctx` is valid.
         let time = unsafe { &raw const (*sctx.as_ptr()).time };
         // SAFETY: `time` points into the valid `sctx`.
-        if unsafe { (*time).skipTimeoutChecks } {
+        let Some(request_timeout) = NonNull::new(unsafe { (*time).requestTimeout }) else {
             return Self::NoTimeout(NoTimeoutChecker);
+        };
+        // SAFETY: the request timeout is valid for the lifetime guaranteed by the caller.
+        match unsafe { (*request_timeout.as_ptr()).kind } {
+            ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED => {
+                return Self::NoTimeout(NoTimeoutChecker);
+            }
+            ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE => {}
+            ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT => {
+                panic!("blocked-client timeout context requires its owning AREQ");
+            }
+            kind => panic!("invalid query timeout kind: {kind}"),
         }
-        // SAFETY: `time` belongs to the valid search context and clock-based contexts wire its
-        // request timeout before iterator construction.
-        let request_timeout = NonNull::new(unsafe { (*time).requestTimeout })
-            .expect("clock-based SearchTime has no request timeout");
-        // SAFETY: the request timeout is valid and its active union member is the clock deadline.
-        assert_eq!(
-            unsafe { (*request_timeout.as_ptr()).kind },
-            ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE,
-        );
         let deadline = unsafe {
             &raw mut (*request_timeout.as_ptr()).source.clockDeadline
         };

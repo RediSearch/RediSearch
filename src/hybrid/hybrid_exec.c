@@ -284,8 +284,6 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
   CommonPipelineCtx ctx = {
     .timeout = &hreq->base.timeout,
     .oomPolicy = hreq->reqConfig.oomPolicy,
-    .skipTimeoutChecks = hreq->base.timeout.kind != QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE ||
-                         !HybridRequest_ShouldCheckTimeout(hreq),
     // Borrow a subquery AREQ as the tail's row-boundary timeout-flag proxy:
     // HybridRequest_PropagateTimeoutToSubqueries marks every subquery AREQ, so
     // AggregateResults can bail between rows while draining buffered tail rows.
@@ -1397,7 +1395,6 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   // Check if we should check for timeout in pipeline
   bool checkInPipelineTimeout = shouldCheckInPipelineTimeoutHybrid(ctx, hybridRequest);
-  HybridRequest_SetSkipTimeoutChecks(hybridRequest, !checkInPipelineTimeout);
   // Preserve the per-request deadlines formerly initialized by the SearchCtx_UpdateTime calls
   // below, while retaining blocked-client behavior when pipeline clock checks are disabled.
   HybridRequest_BeginTimeoutCycle(

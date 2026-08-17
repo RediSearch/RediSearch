@@ -185,7 +185,6 @@ TEST_F(WildcardEmptyPatternTest, suffixTrieIterateSignalsUnusable) {
       .timeoutMS = 0,
       .kind = QUERY_REQUEST_TIMEOUT_UNARMED,
       .source = {.clockDeadline = {}},
-      .skipTimeoutChecks = false,
   };
   rune emptyPattern[1] = {0};
   SuffixCtx ctx = {};
@@ -232,7 +231,6 @@ TEST_F(WildcardEmptyPatternTest, trieIterateWildcardEmptyMatchesNothing) {
       .timeoutMS = 0,
       .kind = QUERY_REQUEST_TIMEOUT_UNARMED,
       .source = {.clockDeadline = {}},
-      .skipTimeoutChecks = false,
   };
   Trie_IterateWildcard(t, emptyPattern, 0, countRangeHit, &hits, &timeout);
   EXPECT_EQ(hits, 0);

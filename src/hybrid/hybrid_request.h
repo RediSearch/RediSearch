@@ -104,24 +104,6 @@ static inline void HybridRequest_UnlockCursors(HybridRequest *req) {
   pthread_mutex_unlock(&req->cursorMutex);
 }
 
-static inline bool HybridRequest_ShouldCheckTimeout(HybridRequest *req) {
-  return QueryRequestTimeout_ShouldCheck(&req->base.timeout);
-}
-
-static inline void HybridRequest_SetSkipTimeoutChecks(HybridRequest *req, bool skipTimeoutChecks) {
-  QueryRequestTimeout_SetSkipChecks(&req->base.timeout, skipTimeoutChecks);
-  // TODO($$$): Remove the SearchTime mirror once consumers use QueryRequest.timeout.
-  if (req->sctx) {
-    req->sctx->time.skipTimeoutChecks = skipTimeoutChecks;
-  }
-  // Propagate to all AREQ subqueries
-  for (size_t i = 0; i < req->nrequests; i++) {
-    if (req->requests[i]) {
-      AREQ_SetSkipTimeoutChecks(req->requests[i], skipTimeoutChecks);
-    }
-  }
-}
-
 static inline bool HybridRequest_RequiresThreadsSyncResults(HybridRequest *req) {
   return req->base.async.requiresAggregateResultsSync;
 }

@@ -150,9 +150,8 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
     /// Create a new `VectorScoreSource`.
     ///
     /// `timeout` is the query deadline as an absolute `timespec`.
-    /// `skip_timeout_checks` mirrors `sctx->time.skipTimeoutChecks`: when
-    /// `true`, the VecSim periodic counter check is disabled
-    /// (`REDISEARCH_UNINITIALIZED`).
+    /// When `skip_timeout_checks` is true, the VecSim periodic counter check is
+    /// disabled (`REDISEARCH_UNINITIALIZED`).
     ///
     /// # Safety
     ///

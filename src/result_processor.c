@@ -470,8 +470,7 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
   ret->base.Free = rpQueryItFree;
   ret->sctx = sctx;
   ret->base.type = RP_INDEX;
-  // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks
-  ret->timeoutLimiter = sctx->time.skipTimeoutChecks ? REDISEARCH_UNINITIALIZED : 0;
+  ret->timeoutLimiter = 0;
 #ifdef ENABLE_ASSERT
   ret->firstRead = true;
 #endif
@@ -2041,8 +2040,8 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
     array_append(self->results, r);
     r = rm_calloc(1, sizeof(*r));
     *r = SearchResult_New();
-    // Notice a blocked-client (RETURN_STRICT) timeout promptly: the main-thread
-    // callback flips the borrowed flag, which skipTimeoutChecks does not gate.
+    // Notice a blocked-client (RETURN_STRICT) timeout promptly when the
+    // main-thread callback flips the borrowed flag.
     // The wall-clock deadline is already handled by the upstream's own checks.
     if (SearchTime_IsTimedOut(&self->depletingThreadCtx->time)) {
       rc = RS_RESULT_TIMEDOUT;
@@ -2082,13 +2081,9 @@ static void RPSafeDepleter_Deplete(void *arg) {
   rs_wall_clock depletionStart;
   rs_wall_clock_init(&depletionStart);
 
-  // Check if timeout was exceeded before starting execution. The wall-clock
-  // check honors skipTimeoutChecks, but the blocked-client (RETURN_STRICT) flag
-  // is checked unconditionally since skipTimeoutChecks does not gate it.
+  // Check if timeout was exceeded before starting execution.
   QueryRequestTimeout *timeout = self->depletingThreadCtx->time.requestTimeout;
-  bool timed_out = SearchTime_IsTimedOut(&self->depletingThreadCtx->time) ||
-                   (timeout && !self->depletingThreadCtx->time.skipTimeoutChecks &&
-                    QueryRequestTimeout_IsTimedOut(timeout));
+  bool timed_out = timeout && QueryRequestTimeout_IsTimedOut(timeout);
   if (!timed_out) {
     RPSafeDepleter_DepleteFromUpstream(self, sync);
   } else {
@@ -2219,8 +2214,7 @@ static int RPSafeDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) 
   // forever waiting on a signal that no BG worker will ever send.
   if (!self->depletion_scheduled) {
     QueryRequestTimeout *timeout = self->nextThreadCtx->time.requestTimeout;
-    if (timeout && !self->nextThreadCtx->time.skipTimeoutChecks &&
-        QueryRequestTimeout_IsTimedOut(timeout)) {
+    if (timeout && QueryRequestTimeout_IsTimedOut(timeout)) {
       base->Next = RPSafeDepleter_Next_Yield;
       self->last_rc = RS_RESULT_TIMEDOUT;
       return base->Next(base, r);
@@ -2277,8 +2271,7 @@ void RPSafeDepleter_StartDepletion(ResultProcessor *base) {
   //   - a late Next() call re-enters the lazy branch, re-detects the
   //     timeout, and switches Next to Yield with RS_RESULT_TIMEDOUT.
   QueryRequestTimeout *timeout = self->nextThreadCtx->time.requestTimeout;
-  if (timeout && !self->nextThreadCtx->time.skipTimeoutChecks &&
-      QueryRequestTimeout_IsTimedOut(timeout)) {
+  if (timeout && QueryRequestTimeout_IsTimedOut(timeout)) {
     return;
   }
   RPSafeDepleter_StartDepletionThread(self);
@@ -2697,9 +2690,8 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
   RPHybridMerger *ret = rm_calloc(1, sizeof(*ret));
 
   ret->sctx = sctx;
-  // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks
   RS_ASSERT(sctx);
-  ret->timeoutCounter = sctx->time.skipTimeoutChecks ? REDISEARCH_UNINITIALIZED : 0;
+  ret->timeoutCounter = 0;
   RS_ASSERT(numUpstreams > 0);
   ret->numUpstreams = numUpstreams;
 

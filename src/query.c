@@ -765,7 +765,7 @@ void tag_strtolower(char **pstr, size_t *len, int caseSensitive) {
 
 static bool shouldCheckClockTimeout(const QueryEvalCtx *q) {
   const SearchTime *time = &q->sctx->time;
-  return !time->skipTimeoutChecks && time->requestTimeout &&
+  return time->requestTimeout &&
          time->requestTimeout->kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
 }
 

@@ -722,9 +722,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     if (rc != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
-    // Set skip timeout
     bool checkInPipelineTimeout = shouldCheckInPipelineTimeoutCoord(hreq);
-    HybridRequest_SetSkipTimeoutChecks(hreq, !checkInPipelineTimeout);
     // Preserve the per-request deadlines formerly initialized by the SearchCtx_UpdateTime calls
     // below, while retaining blocked-client behavior when pipeline clock checks are disabled.
     HybridRequest_BeginTimeoutCycle(

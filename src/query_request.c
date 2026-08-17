@@ -25,7 +25,6 @@ void QueryRequestTimeout_Init(QueryRequestTimeout *timeout, RSTimeoutPolicy poli
   // Capture the request defaults before parsing can apply command-specific overrides.
   QueryRequestTimeout_UpdateConfig(timeout, policy, timeoutMS);
   QueryRequestTimeout_Reset(timeout);
-  timeout->skipTimeoutChecks = false;
 }
 
 void QueryRequestTimeout_UpdateConfig(QueryRequestTimeout *timeout, RSTimeoutPolicy policy,

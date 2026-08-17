@@ -123,7 +123,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
      // Aggregate all results before populating the response
      *results = AggregateResults(rp, ctx->areq, rc);
      // Check timeout after aggregation
-     if (!ctx->skipTimeoutChecks && QueryRequestTimeout_IsTimedOut(ctx->timeout)) {
+     if (QueryRequestTimeout_IsTimedOut(ctx->timeout)) {
        *rc = RS_RESULT_TIMEDOUT;
      }
    } else {

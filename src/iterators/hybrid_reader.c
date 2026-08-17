@@ -15,6 +15,7 @@
 #include "VecSim/query_results.h"
 #include "iterators_ffi.h"
 #include "metrics_ffi.h"
+#include "query_request.h"
 #include "rqe_iterator_type.h"
 #include "types_ffi.h"
 #include "query.h"
@@ -651,8 +652,11 @@ QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   hi->maxBatchSize = 0;
   hi->maxBatchIteration = 0;
   hi->canTrimDeepResults = hParams.canTrimDeepResults;
-  // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks
-  hi->timeoutCtx = (TimeoutCtx){ .timeout = hParams.timeout, .counter = hParams.sctx->time.skipTimeoutChecks ? REDISEARCH_UNINITIALIZED : 0 };
+  bool checkClockTimeout = hParams.sctx->time.requestTimeout &&
+                           hParams.sctx->time.requestTimeout->kind ==
+                               QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
+  hi->timeoutCtx = (TimeoutCtx){ .timeout = hParams.timeout,
+                                 .counter = checkClockTimeout ? 0 : REDISEARCH_UNINITIALIZED };
   hi->runtimeParams.timeoutCtx = &hi->timeoutCtx;
   hi->sctx = hParams.sctx;
   hi->filterCtx = *hParams.filterCtx;
