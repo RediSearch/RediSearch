@@ -133,6 +133,10 @@ impl Drop for OwnedTerm {
 pub(crate) struct TermPtr(NonNull<u8>);
 
 impl TermPtr {
+    fn belong_to(&self, owned: &OwnedTerm) -> bool {
+        self.0 == owned.0
+    }
+
     /// Full allocation size in bytes (term bytes + the trailing NUL).
     ///
     /// # Safety
@@ -288,6 +292,47 @@ impl TagSuffixIndex {
         pattern: WildcardPattern<'p>,
     ) -> WildcardIter<'tm, 'p, SuffixData> {
         self.entries.wildcard_iter(pattern)
+    }
+
+    /// Remove `tag` and all of its suffixes from the trie, dropping the entries
+    /// that no other term still relies on.
+    ///
+    /// `tag` is the NUL-free tag value (the values-trie key), matching the keys
+    /// stored by [`add`](Self::add).
+    pub fn delete(&mut self, tag: &[u8]) {
+        debug_assert!(
+            !tag.is_empty(),
+            "empty string is likely a caller-level mistake"
+        );
+
+        // Taken from the `tag` entry on the first iteration and dropped when this
+        // call returns, once no suffix entry points at it any more.
+        let mut deleted_term = None;
+
+        for j in 0..tag.len() {
+            let data = self.entries.find_mut(&tag[j..]);
+            debug_assert!(data.is_some(), "all suffixes must exist");
+            // A missing entry means this trie and the values trie disagree; skip
+            // it rather than panicking inside the garbage collector.
+            let Some(data) = data else { continue };
+
+            if j == 0 {
+                deleted_term = data.full_term.take();
+            }
+
+            // Drop the pointers to the term being deleted, keeping every one that
+            // belongs to a different term. On the first iteration that also unlinks
+            // the entry's own pointer at the term it just gave up, since `members`
+            // holds it alongside the references; with no term to delete there is
+            // nothing to match.
+            if let Some(deleted) = &deleted_term {
+                data.members.retain(|b| !b.belong_to(deleted));
+            }
+
+            if data.full_term.is_none() && data.members.is_empty() {
+                self.entries.remove(&tag[j..]);
+            }
+        }
     }
 
     /// The entry keyed by exactly `key`, if any.
@@ -584,5 +629,43 @@ mod tests {
         );
         assert_counter_is_exact(&short_idx);
         assert_counter_is_exact(&long_idx);
+    }
+
+    /// Deleting a tag that is merely a *suffix* of an indexed term must not
+    /// panic: the entry exists but owns no term, so there is nothing to unlink.
+    #[test]
+    fn delete_of_a_suffix_only_entry_changes_nothing() {
+        let mut idx = TagSuffixIndex::new();
+        add(&mut idx, b"cat");
+
+        idx.delete(b"at");
+
+        assert!(idx.find(b"cat").is_some(), "`cat` is untouched");
+        assert_eq!(
+            idx.find(b"at").expect("kept for `cat`").members().count(),
+            1,
+            "`at` still references `cat`"
+        );
+    }
+
+    /// Deleting a term drops only the references pointing at that term, keeping
+    /// the suffix entries that other terms still rely on.
+    #[test]
+    fn delete_keeps_suffixes_still_used_by_other_terms() {
+        let mut idx = TagSuffixIndex::new();
+        // "cat" and "bat" share the suffixes "at" and "t".
+        add(&mut idx, b"cat");
+        add(&mut idx, b"bat");
+
+        idx.delete(b"cat");
+
+        // "cat" and its unique full-term entry are gone...
+        assert!(idx.find(b"cat").is_none());
+        // ...but the shared suffixes survive, now referencing only "bat".
+        assert!(idx.find(b"bat").is_some());
+        let at = idx.find(b"at").expect("shared suffix kept for `bat`");
+        assert_eq!(at.members().count(), 1);
+        let t = idx.find(b"t").expect("shared suffix kept for `bat`");
+        assert_eq!(t.members().count(), 1);
     }
 }
