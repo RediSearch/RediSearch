@@ -11,7 +11,6 @@
 #include <time.h>
 #include "redisearch.h"
 #include "version.h"
-#include "query_error_ffi.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -88,15 +87,6 @@ static inline int TimedOut_WithCtx(TimeoutCtx *ctx) {
     return TimedOut(&ctx->timeout);
   }
   return NOT_TIMED_OUT;
-}
-
-// Check if time has been reached
-static inline int TimedOut_WithStatus(const struct timespec *timeout, QueryError *status) {
-  int rc = TimedOut(timeout);
-  if (status && rc == TIMED_OUT) {
-    QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
-  }
-  return rc;
 }
 
 #ifdef __cplusplus
