@@ -98,8 +98,11 @@ void IndexResultAsyncRead_Free(IndexResultAsyncReadState *state);
  * is full or no more buffered results are available.
  *
  * @param state Async read state structure
+ * @return Number of reads submitted. Zero means the pool is saturated or the
+ *         iterator buffer is empty, so the caller cannot make progress by
+ *         submitting more and should wait on a completion instead of re-polling.
  */
-void IndexResultAsyncRead_RefillPool(IndexResultAsyncReadState *state);
+uint16_t IndexResultAsyncRead_RefillPool(IndexResultAsyncReadState *state);
 
 /**
  * Poll for completed async reads

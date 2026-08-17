@@ -136,7 +136,7 @@ void IndexResultAsyncRead_Free(IndexResultAsyncReadState *state) {
   }
 }
 
-void IndexResultAsyncRead_RefillPool(IndexResultAsyncReadState *state) {
+uint16_t IndexResultAsyncRead_RefillPool(IndexResultAsyncReadState *state) {
   uint16_t added = 0;
 
   // Move nodes from iteratorResults to pendingResults
@@ -161,6 +161,8 @@ void IndexResultAsyncRead_RefillPool(IndexResultAsyncReadState *state) {
     state->iteratorResultCount--;
     added++;
   }
+
+  return added;
 }
 
 static void IndexResultAsyncRead_CleanupFailedReads(IndexResultAsyncReadState *state) {
