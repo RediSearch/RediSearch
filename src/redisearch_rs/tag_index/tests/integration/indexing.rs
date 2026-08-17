@@ -11,7 +11,9 @@
 //! iterating the indexed tags.
 
 use index_result::RSIndexResult;
-use tag_index::{InMemoryMode, MemTagIndexIterator, Tag, TagIndex, TagValueReader};
+use tag_index::{
+    InMemoryMode, MemTagIndexIterator, SuffixQuery, Tag, TagIndex, TagValueReader,
+};
 
 use crate::util::{commit_mem, index_mem};
 
@@ -36,6 +38,34 @@ fn indexing_registers_every_tag() {
     let values = value_iter_keys(tag_index.value_iter());
 
     assert_eq!(tags, values.as_slice());
+}
+
+/// A document write drives `index` and `commit` from the same tag buffers, so
+/// both must key on those bytes verbatim: the tag stays resolvable afterwards and
+/// the values trie, the suffix trie and iteration all agree on the key.
+///
+/// Nothing else exercises the two phases together, which is how a mismatch
+/// between them could go unnoticed.
+#[test]
+fn index_and_commit_agree_on_the_key() {
+    let mut tag_index = TagIndex::<InMemoryMode>::new(true);
+    let tags: &[&[u8]] = &[b"foo"];
+
+    index_mem(&mut tag_index, tags, 1);
+    commit_mem(&mut tag_index, tags);
+
+    assert!(
+        tag_index.find_value(b"foo").is_some(),
+        "the indexed tag must still resolve under the bytes it was written with"
+    );
+    assert_eq!(value_iter_keys(tag_index.value_iter()), [b"foo".to_vec()]);
+    assert!(
+        tag_index
+            .suffix_expand(SuffixQuery::Suffix(Tag::new(b"oo").unwrap()), None)
+            .next()
+            .is_some(),
+        "the suffix trie must resolve the same tag through one of its suffixes"
+    );
 }
 
 /// `TagValueReader` walks a tag's postings in ascending document order and

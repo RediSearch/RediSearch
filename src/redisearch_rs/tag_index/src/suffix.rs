@@ -37,8 +37,12 @@ use std::{
     ptr::NonNull,
 };
 
+use rqe_wildcard::WildcardPattern;
 use thin_vec::{AlignedU32, ThinVec};
-use trie_rs::TrieMap;
+use trie_rs::{
+    TrieMap,
+    iter::{LendingIter, WildcardIter, filter::VisitAll},
+};
 
 use crate::Tag;
 
@@ -117,6 +121,26 @@ impl Drop for OwnedTerm {
 /// The pointee is owned by the [`OwnedTerm`] of the member's own trie entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TermPtr(NonNull<u8>);
+
+impl TermPtr {
+    /// Full allocation size in bytes (term bytes + the trailing NUL).
+    ///
+    /// # Safety
+    /// The [`OwnedTerm`] this pointer was taken from must still be alive.
+    pub const unsafe fn alloc_size(&self) -> usize {
+        // This cast doesn't change size, we care about only the NULL
+        let ptr = self.0.as_ptr().cast::<std::ffi::c_char>().cast_const();
+        // SAFETY: the pointee is a live allocation from [`OwnedTerm::new`], which
+        // NUL-terminates it.
+        unsafe { std::ffi::CStr::from_ptr(ptr) }
+            .to_bytes_with_nul()
+            .len()
+    }
+
+    pub const fn as_ptr(&self) -> *const u8 {
+        self.0.as_ptr()
+    }
+}
 
 /// Payload of one trie entry.
 #[derive(Debug, Default)]
@@ -200,6 +224,27 @@ impl TagSuffixIndex {
                 data
             });
         }
+    }
+
+    /// Iterate over all `(suffix, data)` entries, in lexicographical order of
+    /// the suffix.
+    pub fn lending_iter(&self) -> LendingIter<'_, SuffixData, VisitAll> {
+        self.entries.lending_iter()
+    }
+
+    /// Iterate over the `(suffix, data)` entries whose key starts with `prefix`,
+    /// in lexicographical order.
+    pub fn prefixed_iter(&self, prefix: &[u8]) -> trie_rs::iter::Iter<'_, SuffixData, VisitAll> {
+        self.entries.prefixed_iter(prefix)
+    }
+
+    /// Iterate over all `(suffix, data)` entries whose suffix matches the
+    /// wildcard `pattern`.
+    pub fn wildcard_iter<'tm, 'p>(
+        &'tm self,
+        pattern: WildcardPattern<'p>,
+    ) -> WildcardIter<'tm, 'p, SuffixData> {
+        self.entries.wildcard_iter(pattern)
     }
 
     /// The entry keyed by exactly `key`, if any.
