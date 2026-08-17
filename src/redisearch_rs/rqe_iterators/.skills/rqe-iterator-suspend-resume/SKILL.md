@@ -329,7 +329,11 @@ result takes an explicit re-cast of the pointer.
 **Call it last** — after the child walk, after any side-table rebuild, with no
 `&mut` taken to a child afterwards: each entry is a shared reborrow whose tag a
 later `read`, `skip_to`, `iter_mut` or `swap_remove` pops. `&mut` to the
-composite itself is fine.
+composite itself is fine. A path that goes on to rebuild the aggregate itself
+after touching children (a union's settle) cannot honour that, so on that path
+clear the records instead of rebuilding them: the composite then never holds
+an entry the later step leaves stale, and the clear is as sound to re-narrow as
+a rebuild.
 
 **Act on the outcome**, behind a `#[must_use]` type phrased as the composite
 means it — a union needs one child behind its document, an intersection needs

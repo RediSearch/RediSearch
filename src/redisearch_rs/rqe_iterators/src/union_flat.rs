@@ -9,9 +9,10 @@
 
 //! Flat array variant of the union iterator with O(n) min-finding.
 
-use index_result::{RSIndexResult, RSResultKind, RawIndexResult};
+use index_result::{RSIndexResult, RSResultKind, RawBorrowedAggregateResult, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
-use rqe_core::DocId;
+use rqe_core::{DocId, FieldMask};
+use std::marker::PhantomData;
 
 use crate::union::SettleOutcome;
 use crate::{
@@ -128,54 +129,89 @@ const _: () = {
     assert!(align_of::<A>() == align_of::<S>());
 };
 
-/// Frees a suspended [`RawUnionFlat`]'s reused allocation after the in-place
-/// resume consumed the child at `consumed`: drops the compacted resumed prefix
-/// `children[..kept]` in place and the still-suspended tail past `consumed`,
-/// skips the holes in between (moved-from or consumed), empties the `Vec` so it
-/// frees only its buffer, then drops the box (freeing the still-suspended
-/// `result` and the allocation).
+/// RAII guard owning a suspended [`RawUnionFlat`]'s shell while its children
+/// buffer is part-resumed and part-suspended.
 ///
-/// # Safety
+/// The buffer is three regions during [`resume`](RQESuspendedIterator::resume),
+/// and the guard's fields *are* their boundaries: [`kept`](Self::kept) resumed
+/// survivors compacted to the front, vacated slots up to
+/// [`cursor`](Self::cursor) — moved left by the compaction, or consumed by a
+/// child that aborted or failed — and still-suspended children from there to
+/// [`len`](Self::len). [`resume`](RQESuspendedIterator::resume) advances the
+/// boundaries as it walks, so the drop reads the state that actually holds
+/// rather than being handed indices that have to agree with it.
 ///
-/// * `raw` must be exclusively owned and have come from `Box::into_raw`.
-/// * `children[..kept]` must hold valid `IndexedChild<S::Resumed<'a>>` values,
-///   `children[kept..=consumed]` must be moved-from or consumed (they are not
-///   touched), and `children[consumed + 1..]` must hold valid `IndexedChild<S>`
-///   values — the exact state the in-place resume loop leaves behind when the
-///   slot helper reports `Err` for element `consumed`.
-unsafe fn free_after_consumed_child<'query, 'a, S, const QUICK_EXIT: bool>(
-    raw: *mut RawUnionFlat<'query, Suspended, S, QUICK_EXIT>,
-    kept: usize,
-    consumed: usize,
-) where
+/// On drop — an early return or a panic — it drops the prefix at the resumed
+/// type, drops the suspended tail, leaves the vacated middle alone, empties the
+/// `Vec` so it frees only its buffer, and drops the shell (freeing the
+/// still-suspended `result` and the allocation). Disarmed with
+/// [`std::mem::forget`] once the buffer is whole again and the cast is about to
+/// run.
+struct FreeSuspendedShell<'query, 'a, S, const QUICK_EXIT: bool>
+where
     S: RQESuspendedIterator<'query>,
     'query: 'a,
 {
-    // SAFETY: `raw` is exclusively owned (caller contract); the borrow is used
-    // only to reach the buffer pointer, the length, and `set_len`.
-    let children: &mut Vec<IndexedChild<S>> = unsafe { &mut (*raw).children };
-    let len = children.len();
-    let base = children.as_mut_ptr();
-    for i in 0..kept {
-        // SAFETY: `i` is in bounds of the children buffer.
-        let slot = unsafe { base.add(i) };
-        // SAFETY: the slot holds a valid resumed child (caller contract); drop
-        // it through the resumed type (same size/alignment, enforced by the
-        // slot helper's const guard).
-        unsafe { std::ptr::drop_in_place(slot.cast::<IndexedChild<S::Resumed<'a>>>()) };
+    /// The shell, still owned here. Came from `Box::into_raw`.
+    raw: *mut RawUnionFlat<'query, Suspended, S, QUICK_EXIT>,
+    /// `children[..kept]` hold resumed survivors.
+    kept: usize,
+    /// `children[kept..cursor]` are vacated and must not be dropped.
+    cursor: usize,
+    /// `children[cursor..len]` still hold suspended children.
+    len: usize,
+    /// The type the prefix must be dropped at. Never materialised, so it adds
+    /// no drop glue of its own.
+    _resumed: PhantomData<fn() -> S::Resumed<'a>>,
+}
+
+impl<'query, 'a, S, const QUICK_EXIT: bool> Drop for FreeSuspendedShell<'query, 'a, S, QUICK_EXIT>
+where
+    S: RQESuspendedIterator<'query>,
+    'query: 'a,
+{
+    fn drop(&mut self) {
+        debug_assert!(!self.raw.is_null(), "the shell must still be owned here");
+        // Catches boundaries that cross, not a `cursor` that lags behind a
+        // consumed slot; that double free only shows under miri, via
+        // `resume_child_error_frees_a_shell_with_a_suspended_tail`.
+        debug_assert!(
+            self.kept <= self.cursor && self.cursor <= self.len,
+            "region boundaries out of order: kept={}, cursor={}, len={}",
+            self.kept,
+            self.cursor,
+            self.len,
+        );
+        // SAFETY: `raw` is exclusively owned by this guard; the borrow reaches
+        // the buffer pointer and the length, and is confined to this function.
+        let children: &mut Vec<IndexedChild<S>> = unsafe { &mut (*self.raw).children };
+        debug_assert!(
+            self.len <= children.capacity(),
+            "the recorded length outruns the buffer it indexes",
+        );
+        let base = children.as_mut_ptr();
+        for i in 0..self.kept {
+            // SAFETY: `i < kept <= len`, in bounds of the children buffer.
+            let slot = unsafe { base.add(i) };
+            // SAFETY: the slot holds a resumed survivor; drop it through the
+            // resumed type, which shares `S`'s size and alignment (statically
+            // enforced by the slot helper's const guard).
+            unsafe { std::ptr::drop_in_place(slot.cast::<IndexedChild<S::Resumed<'a>>>()) };
+        }
+        for i in self.cursor..self.len {
+            // SAFETY: `i < len`, in bounds of the children buffer.
+            let slot = unsafe { base.add(i) };
+            // SAFETY: the slot still holds a valid suspended child.
+            unsafe { std::ptr::drop_in_place(slot) };
+        }
+        // SAFETY: every element has been dropped, moved or consumed; zeroing the
+        // length keeps the `Vec` from dropping them again, so it frees only its
+        // buffer.
+        unsafe { children.set_len(0) };
+        // SAFETY: the shell is a well-formed suspended union again (empty
+        // children, still-suspended `result`, `Rf`-free scalars).
+        drop(unsafe { Box::from_raw(self.raw) });
     }
-    for i in (consumed + 1)..len {
-        // SAFETY: `i` is in bounds of the children buffer.
-        let slot = unsafe { base.add(i) };
-        // SAFETY: the slot still holds a valid suspended child.
-        unsafe { std::ptr::drop_in_place(slot) };
-    }
-    // SAFETY: every element was dropped, moved, or consumed; zeroing the length
-    // keeps the `Vec` from dropping them again — it frees only its buffer.
-    unsafe { children.set_len(0) };
-    // SAFETY: `raw` is a well-formed suspended union again (empty children,
-    // still-suspended `result`, `Rf`-free scalars); reclaim and drop it.
-    drop(unsafe { Box::from_raw(raw) });
 }
 
 // Methods used in both modes.
@@ -1016,9 +1052,10 @@ enum RebuildOutcome {
 /// document, and each entry is a pointer derived from a borrow of that child's
 /// result. Transitioning a child hands its allocation through a by-value
 /// `Box<Self>`, whose retag invalidates that borrow even though nothing was
-/// dropped, moved or written — so every entry has to be written afresh before
-/// the union's own allocation is re-narrowed. This is that step, and it is not
-/// optional.
+/// dropped, moved or written — so every entry has to be written afresh, or
+/// dropped, before the union's own allocation is re-narrowed. This is the
+/// writing-afresh half, for the one resume exit that publishes the aggregate
+/// without a settle behind it.
 ///
 /// # Why rebuild rather than re-derive
 ///
@@ -1059,10 +1096,8 @@ enum RebuildOutcome {
 /// been dropped stays; the alternative loses the surviving children's metrics
 /// too, to remove it.
 ///
-/// `doc_id` is likewise untouched: it is the document the rebuild is *for*, and
-/// the input to the contributor test rather than an output of it. It is read
-/// before anything is cleared, so the clearing step cannot quietly become the
-/// one that takes it away.
+/// `doc_id` is the document the rebuild is *for*: the input to the contributor
+/// test rather than an output of it.
 ///
 /// # Quick mode
 ///
@@ -1083,25 +1118,21 @@ enum RebuildOutcome {
 /// `current`, an `iter_mut` over the children, a `swap_remove`, a sort — pops
 /// the tag it carries. `&mut` to the union itself is fine; the entries point
 /// into the *children's* allocations.
+///
+/// A resume that goes on to settle cannot honour that: the settle swaps
+/// children and seeks laggers before it rebuilds the aggregate itself. Such a
+/// resume clears the records instead of calling this, so it never holds an
+/// entry the settle would leave stale.
 fn rebuild_borrowed_entries<'a, 'child, R, const QUICK_EXIT: bool>(
-    result: &mut RawIndexResult<'a, Suspended>,
+    aggregate: &mut RawBorrowedAggregateResult<'a, Suspended>,
+    doc_id: DocId,
+    freq: &mut u32,
+    field_mask: &mut FieldMask,
     children: impl IntoIterator<Item = &'child mut R>,
 ) -> RebuildOutcome
 where
     R: RQEIterator<'a> + 'child,
 {
-    let doc_id = result.doc_id;
-    let Some(aggregate) = result
-        .as_aggregate_mut()
-        .and_then(|aggregate| aggregate.as_borrowed_mut())
-    else {
-        // Nothing borrowed here: not an aggregate at all, or an owned one whose
-        // children live in the result's own allocation. Either way there is
-        // nothing to rebuild
-        // and nothing for the caller to make good. `Unbacked` here would oblige
-        // it to abort a resume that never had entries at stake.
-        return RebuildOutcome::Backed;
-    };
     if aggregate.is_empty() {
         // Nothing borrowed, so again nothing to rebuild, and no reason to touch
         // a single child. This is the union that was suspended before its first
@@ -1112,12 +1143,11 @@ where
 
     // Drops the records and the kind mask; `push_borrowed_ptr_from_ref` rebuilds
     // both, entry by entry. Deliberately not `reset_aggregate`, which would also
-    // take `doc_id` — read above, and what the loop below tests each child
-    // against — and the metrics, which cannot be put back. See
+    // take `doc_id` and the metrics, which cannot be put back. See
     // `# What is recomputed` above.
     aggregate.reset();
-    result.freq = 0;
-    result.field_mask = 0;
+    *freq = 0;
+    *field_mask = 0;
 
     let mut contributors = 0;
     for child in children {
@@ -1135,13 +1165,9 @@ where
         // none after this call returns.
         let current: &RSIndexResult<'a> = &*current;
 
-        result.freq += current.freq;
-        result.field_mask |= current.field_mask;
-        result
-            .as_aggregate_mut()
-            .and_then(|aggregate| aggregate.as_borrowed_mut())
-            .expect("the result borrowed an aggregate a handful of statements ago")
-            .push_borrowed_ptr_from_ref(current);
+        *freq += current.freq;
+        *field_mask |= current.field_mask;
+        aggregate.push_borrowed_ptr_from_ref(current);
         contributors += 1;
 
         if QUICK_EXIT {
@@ -1175,22 +1201,34 @@ where
     {
         // `current()` hands the result out mutably, so "still a union result" is
         // a runtime invariant rather than an enforced one — a consumer could
-        // have replaced it with an index-backed result of another kind. Nothing
-        // below would notice: `rebuild_borrowed_entries` has nothing to rebuild
-        // for a result that borrows nothing, and the cast would
-        // then re-narrow whatever suspended pointers the substitute holds
-        // without re-validating them. A union has no way to re-validate a
+        // have replaced it with an index-backed result of another kind, and the
+        // cast would then re-narrow whatever suspended pointers the substitute
+        // holds without re-validating them. A union has no way to re-validate a
         // payload it did not build, so it refuses, on `&self`, before
         // `Box::into_raw` opens the raw-pointer section — the same shape
-        // `Optional` and `NotOptimized` use for their virtual sentinels.
+        // `Optional` and `NotOptimized` use for their virtual sentinels. It is
+        // also what lets `rebuild_borrowed_entries` take the borrowed aggregate
+        // as given.
         //
         // The test is the exact kind, not `is_aggregate()`: that also admits
         // `HybridMetric`, whose children are *owned* boxes rather than borrowed
-        // entries. `rebuild_borrowed_entries` takes its "nothing borrowed"
-        // early return for one and reports success, leaving boxed children whose
-        // own `data` may still be index-backed and suspended — a case no union
-        // is equipped to re-validate. This is what keeps it unreachable.
-        if self.result.kind() != RSResultKind::Union {
+        // entries, and whose own `data` may still be index-backed and
+        // suspended — a case no union is equipped to re-validate.
+        //
+        // The kind alone is not enough: an aggregate of kind `Union` can be the
+        // *owned* representation, whose children are boxed into the result's own
+        // allocation and are never transitioned. Safe code can build one —
+        // `to_owned()` on a union result, `push_boxed` an index-backed term into
+        // it, assign it through `current()` — and a boxed child's `data` can be
+        // index-backed and suspended, so re-narrowing it would promote pointers
+        // nothing re-validated. Demanding the borrowed representation is what
+        // closes that.
+        let is_borrowed_union = self.result.kind() == RSResultKind::Union
+            && self
+                .result
+                .as_aggregate()
+                .is_some_and(|aggregate| aggregate.as_borrowed().is_some());
+        if !is_borrowed_union {
             return Ok(ResumeOutcome::Aborted);
         }
 
@@ -1201,41 +1239,24 @@ where
 
         let raw = Box::into_raw(self);
 
-        // Resume every child *in place* — including the exhausted tail past
-        // `num_active`, which is not optional. The cast below retypes the whole
-        // buffer at once, so a slot left suspended would be read as an
-        // `S::Resumed<'a>`, and even dropping it would be undefined behaviour.
-        // Exhaustion also does not put a child beyond reach: [`rewind`] re-admits
-        // every one of them, so a child skipped here on the grounds that it was
-        // spent would be a suspended iterator the very next rewind rewinds and
-        // reads. Aborted children are removed, like `revalidate`'s aborted
-        // children: survivors are compacted down over the holes.
+        // Resume every child *in place*, including the exhausted tail past
+        // `num_active`: the cast below retypes the whole buffer, and [`rewind`]
+        // re-admits exhausted children, so none may be left suspended. Aborted
+        // children are removed, as in `revalidate`.
         //
         // [`rewind`]: RQEIterator::rewind
         //
-        // The compaction preserves the survivors' relative order where
-        // `revalidate` uses `swap_remove`, which pulls the last child into the
-        // hole instead. The surviving *set* is the same and `original_index`
-        // keeps each child identifiable, so the two orders differ only in the
-        // shared settle's tie-breaks between children sitting on the *same*
-        // document (`min_child_idx` takes the first, and `QUICK_EXIT`'s
-        // `position(..)` likewise): the union's document sequence is identical
-        // either way, only which of several equally-matching children backs a
-        // `QUICK_EXIT` payload can differ. Matching `swap_remove` here would mean
-        // pulling still-suspended children out of the tail and re-entering slots
-        // the walk has already transitioned, so the buffer would no longer be a
-        // resumed prefix followed by a suspended suffix — the split
-        // `free_after_consumed_child` relies on to tear the allocation down.
-        // Compacting is the deliberate choice.
+        // Survivors are compacted down over the holes rather than
+        // `swap_remove`d: pulling a still-suspended child out of the tail would
+        // break the resumed-prefix / suspended-suffix split
+        // [`FreeSuspendedShell`] tears down by. The surviving set is the same;
+        // only tie-breaks between children on the same document can differ,
+        // which changes which child backs a `QUICK_EXIT` payload, never the
+        // documents yielded.
         //
-        // Whatever the walk does to the children, the suspended aggregate's
-        // entries are dealt with before the cast — the one step that turns
-        // pointers whose addresses happen to have survived into usable
-        // references. Which way round that goes is decided below, and hinges on
-        // whether the compaction ran.
-        //
-        // A panic between slot transitions leaks the allocation (memory-safe);
-        // the slot helper guards its own moved-out window.
+        // The aggregate's entries are then rebuilt from the survivors, or
+        // cleared for the settle to rebuild, before the cast; see
+        // `rebuild_borrowed_entries`.
         let (base, len) = {
             // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned,
             // initialised, exclusively owned); the borrow is used only to reach
@@ -1243,9 +1264,24 @@ where
             let children: &mut Vec<IndexedChild<S>> = unsafe { &mut (*raw).children };
             (children.as_mut_ptr(), children.len())
         };
+        // From here until the cast, the buffer is part-resumed and part-suspended
+        // and `shell` owns it: every early return below, and any panic, frees it
+        // through the guard's drop rather than through a call the exit has to
+        // remember to make.
+        let mut shell = FreeSuspendedShell::<'query, 'a, S, QUICK_EXIT> {
+            raw,
+            kept: 0,
+            cursor: 0,
+            len,
+            _resumed: PhantomData,
+        };
         let mut any_change = false;
-        let mut kept = 0usize;
         for i in 0..len {
+            // Slot `i` counts as vacated for as long as the helper owns its
+            // contents, so the boundary moves *before* the call, not after: on
+            // `Err` the child is consumed and the guard must already know not to
+            // drop it.
+            shell.cursor = i + 1;
             // SAFETY: `i` is in bounds of the children buffer.
             let elem = unsafe { base.add(i) };
             // SAFETY: `elem` holds a valid `IndexedChild`; `&raw mut` forms a
@@ -1254,63 +1290,41 @@ where
             // SAFETY: `inner` holds a valid, owned `S`; the helper rewrites it as
             // a valid `S::Resumed<'a>` on `Unchanged`/`Moved`, and consumes it on
             // `Aborted`/`Err`.
-            match unsafe { resume_child_slot_in_place(inner, guard) } {
-                Ok(outcome) => {
-                    match outcome {
-                        ResumeSlotOutcome::Unchanged => {}
-                        ResumeSlotOutcome::Moved => any_change = true,
-                        ResumeSlotOutcome::Aborted => {
-                            // Dropped from the union, as `revalidate` drops an
-                            // aborted child; the hole is compacted over by later
-                            // survivors.
-                            any_change = true;
-                            continue;
-                        }
-                    }
-                    if kept < i {
-                        // SAFETY: `kept < i < len`, both in bounds.
-                        let dst = unsafe { base.add(kept) };
-                        // SAFETY: slot `kept` was vacated (its element moved left
-                        // or was consumed) and `elem` holds a resumed child, so
-                        // this is a single-element move between disjoint,
-                        // in-bounds slots. `copy_nonoverlapping` is a move — the
-                        // source is treated as vacated from here on.
-                        unsafe {
-                            std::ptr::copy_nonoverlapping(
-                                elem.cast::<IndexedChild<S::Resumed<'a>>>().cast_const(),
-                                dst.cast::<IndexedChild<S::Resumed<'a>>>(),
-                                1,
-                            )
-                        };
-                    }
-                    kept += 1;
-                }
-                Err(e) => {
-                    // The one place resume cannot match `revalidate`, and it is
-                    // structural rather than a choice. A spent union — `is_eof`,
-                    // nothing left to read — makes `revalidate` return `Ok`
-                    // before it looks at a child, so a child that would time out
-                    // is never asked and the union survives. Resume has to ask
-                    // every child before it can hand any of them back, and
-                    // `S::resume` takes the child *by value*: once it answers
-                    // `Err` the child is gone, so there is no walking past it to
-                    // reach the `is_eof` exit below. The union is torn down and
-                    // the error reaches the caller, where `revalidate` would have
-                    // reported `Ok`.
-                    //
-                    // Pinned by `resume_of_a_spent_union_surfaces_a_child_error`
-                    // rather than left to be rediscovered.
-                    //
-                    // SAFETY: `children[..kept]` holds compacted resumed
-                    // survivors, `children[kept..=i]` holes or the consumed
-                    // element, `children[i + 1..]` still-suspended children — the
-                    // exact state the teardown documents; `raw` is exclusively
-                    // owned.
-                    unsafe { free_after_consumed_child::<S, QUICK_EXIT>(raw, kept, i) };
-                    return Err(e);
+            //
+            // An `Err` returns through `?`, dropping `shell` — even for a spent
+            // union, which `revalidate` would report `Ok` without asking any
+            // child: the child was consumed, so there is no union left to hand
+            // back. Pinned by `resume_of_a_spent_union_surfaces_a_child_error`.
+            match unsafe { resume_child_slot_in_place(inner, guard) }? {
+                ResumeSlotOutcome::Unchanged => {}
+                ResumeSlotOutcome::Moved => any_change = true,
+                ResumeSlotOutcome::Aborted => {
+                    // Dropped from the union, as `revalidate` drops an aborted
+                    // child; the hole is compacted over by later survivors.
+                    any_change = true;
+                    continue;
                 }
             }
+            if shell.kept < i {
+                // SAFETY: `shell.kept < i < len`, both in bounds.
+                let dst = unsafe { base.add(shell.kept) };
+                // SAFETY: slot `shell.kept` was vacated (its element moved left
+                // or was consumed) and `elem` holds a resumed child, so this is a
+                // single-element move between disjoint, in-bounds slots.
+                // `copy_nonoverlapping` is a move — the source is treated as
+                // vacated from here on, which is what the guard's vacated middle
+                // already covers.
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        elem.cast::<IndexedChild<S::Resumed<'a>>>().cast_const(),
+                        dst.cast::<IndexedChild<S::Resumed<'a>>>(),
+                        1,
+                    )
+                };
+            }
+            shell.kept += 1;
         }
+        let kept = shell.kept;
         // SAFETY: `raw` is exclusively owned; the borrow is confined to this
         // statement.
         let children = unsafe { &mut (*raw).children };
@@ -1321,59 +1335,78 @@ where
         // below.
         unsafe { children.set_len(kept) };
 
-        // Every survivor now sits in its resumed form, and the aggregate has to be
-        // dealt with before the cast — the step that makes its entries usable
-        // again, rather than merely re-narrowed.
+        // Only the `!any_change` exit below publishes the aggregate without a
+        // settle. On every other path the settle swaps children and seeks
+        // laggers before rebuilding the aggregate itself, which would leave any
+        // entry derived here stale, so those paths only clear the records.
+        // `freq` and `field_mask` are left for the same rebuild to reset; the
+        // settle's `Eof` exit publishes no `current()` to read them.
         //
-        // Every survivor is offered, including any parked past `num_active`: the
-        // rebuild decides membership by asking each child where it sits, and a
-        // parked child is exactly one that will decline. Which is also why the
-        // compaction above needs no special handling here — nothing is matched
-        // against a slot, so nothing is confused by a survivor having moved into
-        // a dropped child's slot.
+        // Where it does run, every survivor is offered, including any parked
+        // past `num_active`: the rebuild asks each child where it sits, so
+        // neither parking nor the compaction above needs special handling.
         let rebuilt = {
-            // Viewed at `'a` rather than at `'query`. Narrowing a query lifetime
-            // is the safe direction — `'query: 'a` — but `&mut` is invariant, so
-            // the compiler will not do it for us and the pointer is re-cast
-            // instead. It is what lets the rebuild tie each entry to the same
-            // lifetime the children carry, rather than widening theirs to
-            // `'query`.
-            //
-            // SAFETY: `raw` is exclusively owned and `result` is a valid
-            // suspended result in a field disjoint from the children buffer; the
-            // borrow is confined to this block. `RawIndexResult` differs between
-            // the two lifetimes only in the query-pipeline pointers it claims,
-            // and `'query: 'a` makes every one of them valid for `'a`.
+            // Viewed at `'a` so the rebuilt entries carry the children's
+            // lifetime; `&mut` is invariant, so the narrowing needs a cast.
             //
             // SAFETY: `raw` is exclusively owned and non-null, so projecting to
             // its `result` field is in bounds; no reference is created here.
             let result_ptr = unsafe { &raw mut (*raw).result };
             // SAFETY: the projection above is valid, aligned and initialised, and
-            // the two lifetimes differ only in the claim described above.
+            // holds a suspended result in a field disjoint from the children
+            // buffer; `raw` is exclusively owned and the borrow is confined to
+            // this block. `RawIndexResult` differs between the two lifetimes only
+            // in the query-pipeline pointers it claims, and `'query: 'a` makes
+            // every one of them valid for `'a`.
             let result: &mut RawIndexResult<'a, Suspended> =
                 unsafe { &mut *result_ptr.cast::<RawIndexResult<'a, Suspended>>() };
-            // SAFETY: `base` addresses the `kept` survivors, each a valid
-            // `IndexedChild<S::Resumed<'a>>` — same size and alignment as the
-            // `IndexedChild<S>` the buffer was allocated for, by `#[repr(C)]`
-            // over a child slot whose halves the slot helper statically
-            // enforces — and `raw` is exclusively owned, so the slice is
-            // unaliased.
-            let children = unsafe {
-                std::slice::from_raw_parts_mut(base.cast::<IndexedChild<S::Resumed<'a>>>(), kept)
-            };
-            rebuild_borrowed_entries::<_, QUICK_EXIT>(
-                result,
-                children.iter_mut().map(|c| &mut c.inner),
-            )
+            let doc_id = result.doc_id;
+            // `freq` and `field_mask` sit beside the aggregate in `result`, which
+            // it borrows whole, so they are rebuilt in copies and written back.
+            let (mut freq, mut field_mask) = (result.freq, result.field_mask);
+            let aggregate = result
+                .as_aggregate_mut()
+                .and_then(|aggregate| aggregate.as_borrowed_mut())
+                .expect("resume admits only a borrowed union aggregate");
+            if any_change {
+                aggregate.reset();
+                None
+            } else {
+                // SAFETY: `base` addresses the `kept` survivors, each a valid
+                // `IndexedChild<S::Resumed<'a>>` — same size and alignment as the
+                // `IndexedChild<S>` the buffer was allocated for, by `#[repr(C)]`
+                // over a child slot whose halves the slot helper statically
+                // enforces — and `raw` is exclusively owned, so the slice is
+                // unaliased.
+                let children = unsafe {
+                    std::slice::from_raw_parts_mut(
+                        base.cast::<IndexedChild<S::Resumed<'a>>>(),
+                        kept,
+                    )
+                };
+                let rebuilt = rebuild_borrowed_entries::<_, QUICK_EXIT>(
+                    aggregate,
+                    doc_id,
+                    &mut freq,
+                    &mut field_mask,
+                    children.iter_mut().map(|c| &mut c.inner),
+                );
+                result.freq = freq;
+                result.field_mask = field_mask;
+                Some(rebuilt)
+            }
         };
+
+        // Disarmed only now: until the cast the elements are typed as suspended
+        // while holding resumed children, so an unwind must go through the guard.
+        std::mem::forget(shell);
 
         // SAFETY: every surviving child slot holds its resumed form inside the
         // `Vec`'s untouched buffer, and the aggregate's entries have just been
-        // re-derived from those survivors or dropped outright, so no entry is
-        // re-narrowed onto a freed, relocated, or merely retagged result; the
-        // remaining fields are `Rf`-free. Layout-identical
-        // to the suspended form by invariant 1 on `RawUnionFlat` (const proof
-        // above). `Box::from_raw` reuses the same allocation, so the FFI's cached
+        // rebuilt from those survivors or cleared, so no entry is re-narrowed
+        // onto a freed, relocated, or merely retagged result; the remaining fields are `Rf`-free. Layout-identical to the
+        // suspended form by invariant 1 on `RawUnionFlat` (const proof above).
+        // `Box::from_raw` reuses the same allocation, so the FFI's cached
         // `header.current` and any parent's pointer into `result` stay valid
         // across the cycle.
         let mut active =
@@ -1381,25 +1414,12 @@ where
         // Aborted children shrank the vec; the active region cannot outgrow it.
         active.num_active = active.num_active.min(active.children.len());
 
-        // From here on, mirror `revalidate` decision for decision — including
-        // the order the two questions are asked in. An already-finished union
-        // stays finished, whatever its children now report: `revalidate` returns
-        // before it looks at a single one, so asking "did they all abort?" first
-        // would tear down a spent union that `revalidate` leaves alone. Its
-        // position is preserved (`result.doc_id` rode along in the cast), exactly
-        // as `revalidate` leaves it. The children were still transitioned above —
-        // the one structural difference from `revalidate`, which never touches
-        // them.
-        //
-        // That difference is observable, and only through `rewind`. The walk
-        // above dropped every child that answered `Aborted`, where `revalidate`
-        // left them in place having never asked; a later `rewind` re-admits what
-        // is there, so the two paths yield different documents from that point
-        // on. Not a defect to fix: an aborted child's state is unrecoverable, so
-        // the ones this path drops are exactly the ones `revalidate` would go on
-        // to rewind and read *after* their index went away. Pinned by
-        // `resume_of_a_spent_union_drops_children_that_revalidate_would_rewind`,
-        // because the differential harness cannot see it — it never rewinds.
+        // From here on, mirror `revalidate` decision for decision, in the same
+        // order: a spent union stays spent whatever its children report. Unlike
+        // `revalidate`, its aborted children are already gone, which a later
+        // `rewind` can observe — deliberately, since their state is
+        // unrecoverable. Pinned by
+        // `resume_of_a_spent_union_drops_children_that_revalidate_would_rewind`.
         if active.is_eof {
             return Ok(ResumeOutcome::Ok(active));
         }
@@ -1415,22 +1435,11 @@ where
         // Nothing moved or aborted: the children still sit on the positions the
         // aggregate describes, so it stands as-is.
         if !any_change {
-            // Unless the aggregate could not be re-derived. This is the only exit
-            // that hands a live position back with no rebuild under it, so a union
-            // that can no longer say which children back that position aborts
-            // rather than publish one that describes nothing. (The `is_eof` exit
-            // above needs no such guard: it publishes no `current`, so a cleared
-            // aggregate has no observer there and `revalidate`'s `Ok` stays the
-            // faithful answer.)
-            //
-            // Believed unreachable with conforming children, and asserted rather
-            // than assumed. On this arm every child reported `Unchanged` and none
-            // was dropped, so the children that backed the union's document
-            // before the suspend are all still there, still publishing a
-            // `current()`, and still on that document — at least one contributor,
-            // since the union was sitting on a document it had read. Coming out
-            // unbacked means a child broke `Unchanged`'s promise to hold its
-            // position.
+            // Unless the aggregate could not be rebuilt: this is the only exit
+            // that publishes a live position without a settle behind it, so an
+            // unbacked one aborts rather than describe nothing. Only a child
+            // breaking `Unchanged`'s promise to hold its position can get here.
+            let rebuilt = rebuilt.expect("the aggregate is rebuilt whenever no child changed");
             debug_assert_ne!(
                 rebuilt,
                 RebuildOutcome::Unbacked,
