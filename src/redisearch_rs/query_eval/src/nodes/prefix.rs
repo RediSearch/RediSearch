@@ -92,16 +92,11 @@ pub(crate) fn eval<'index>(
     let suffix_trie = ctx.spec().suffix;
     let suffix_mask = ctx.spec().suffixMask;
     let terms_trie = ctx.spec().terms;
-    // Enforce the search deadline unless timeout checks are disabled for this
-    // request, in which case the brute-force walk below runs to completion.
     // Resolved here, with every other read of `ctx`, because `Expansion` borrows
     // it mutably for the rest of the expansion.
     let time = &ctx.sctx().time;
-    let timeout = (!time.skipTimeoutChecks).then(|| {
-        // SAFETY: clock-based search contexts wire a live request timeout whose active union
-        // member is `clockDeadline`.
-        unsafe { (*time.requestTimeout).source.clockDeadline }
-    });
+    // SAFETY: the request timeout outlives query evaluation when present.
+    let timeout = unsafe { time.requestTimeout.as_ref() };
 
     let expansion = Expansion {
         ctx,
@@ -232,7 +227,7 @@ impl Expansion<'_> {
         pattern: &[ffi::rune],
         match_prefix: bool,
         match_suffix: bool,
-        timeout: Option<ffi::timespec>,
+        timeout: Option<&ffi::QueryRequestTimeout>,
     ) -> Vec<CRQEIterator> {
         // The primary trie hands terms back as runes (with their document count, used
         // for the disk IDF), which must be encoded back into the term's key, byte for

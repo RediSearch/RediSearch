@@ -27,6 +27,14 @@ use std::{
 
 use c_trie::{FuzzyWalk, LoweredPattern, TermsTrie};
 
+fn clock_timeout(deadline: ffi::timespec) -> ffi::QueryRequestTimeout {
+    // SAFETY: every field in the C timeout struct accepts an all-zero value.
+    let mut timeout: ffi::QueryRequestTimeout = unsafe { mem::zeroed() };
+    timeout.kind = ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
+    timeout.source.clockDeadline = deadline;
+    timeout
+}
+
 /// Convert an ASCII/UTF-8 string to the trie's rune (`u16`) key.
 fn to_runes(s: &str) -> Vec<ffi::rune> {
     // A UTF-8 string decodes to at most as many runes as bytes, so the decode
@@ -213,8 +221,8 @@ fn iterate_contains_some_and_none_timeout_agree() {
     // `RS_IsMock` is true in this test binary (`RedisModule_CreateTimer` is
     // unbound), so an actual deadline never fires — deadline *enforcement* is
     // covered by the C and Python suites. This exercises both branches of the
-    // wrapper's timeout mapping (`None` → skip checks; `Some` → a deadline the
-    // walk copies in) and confirms they accept input and return the same set.
+    // wrapper's timeout mapping and confirms both an absent timeout and a
+    // request-owned clock timeout return the same set.
     with_terms_trie(CORPUS, |trie| {
         let runes = to_runes("ap");
 
@@ -227,8 +235,9 @@ fn iterate_contains_some_and_none_timeout_agree() {
         // SAFETY: `timespec` is a plain-old-data struct; an all-zero value is valid.
         let mut deadline: ffi::timespec = unsafe { mem::zeroed() };
         deadline.tv_sec = 1_i64 << 40; // far in the future
+        let timeout = clock_timeout(deadline);
         let mut some_hits = HashSet::new();
-        trie.iterate_contains(&runes, true, true, Some(deadline), |term, _| {
+        trie.iterate_contains(&runes, true, true, Some(&timeout), |term, _| {
             some_hits.insert(runes_to_string(term));
             ControlFlow::Continue(())
         });
@@ -704,8 +713,9 @@ fn iterate_wildcard_some_and_none_timeout_agree() {
         // SAFETY: `timespec` is a plain-old-data struct; an all-zero value is valid.
         let mut deadline: ffi::timespec = unsafe { mem::zeroed() };
         deadline.tv_sec = 1_i64 << 40; // far in the future
+        let timeout = clock_timeout(deadline);
         let mut some_hits = HashSet::new();
-        trie.iterate_wildcard(&pattern("ap*"), Some(deadline), |term, _| {
+        trie.iterate_wildcard(&pattern("ap*"), Some(&timeout), |term, _| {
             some_hits.insert(runes_to_string(term));
             ControlFlow::Continue(())
         });

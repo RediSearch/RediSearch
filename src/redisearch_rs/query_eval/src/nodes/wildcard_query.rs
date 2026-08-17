@@ -84,11 +84,8 @@ pub(crate) fn eval<'index>(
     // Resolved here, with every other read of `ctx`, because `Expansion` borrows
     // it mutably for the rest of the expansion.
     let time = &ctx.sctx().time;
-    let timeout = (!time.skipTimeoutChecks).then(|| {
-        // SAFETY: clock-based search contexts wire a live request timeout whose active union
-        // member is `clockDeadline`.
-        unsafe { (*time.requestTimeout).source.clockDeadline }
-    });
+    // SAFETY: the request timeout outlives query evaluation when present.
+    let timeout = unsafe { time.requestTimeout.as_ref() };
 
     let mut expansion = Expansion {
         ctx,
@@ -209,7 +206,7 @@ impl Expansion<'_> {
         suffix: &SuffixTrie,
         terms: &TermsTrie,
         pattern: LoweredPattern,
-        timeout: Option<ffi::timespec>,
+        timeout: Option<&ffi::QueryRequestTimeout>,
     ) -> SuffixWalk {
         // The suffix trie hands terms back already as stored key bytes but carries
         // no document count, so on the disk path the term's count is looked up in
@@ -244,7 +241,7 @@ impl Expansion<'_> {
         &mut self,
         terms: &TermsTrie,
         pattern: &LoweredPattern,
-        timeout: Option<ffi::timespec>,
+        timeout: Option<&ffi::QueryRequestTimeout>,
     ) {
         // The primary trie hands terms back as runes (with their document count,
         // used for the disk IDF), which must be encoded back into the term's key,

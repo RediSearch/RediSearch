@@ -85,7 +85,7 @@ typedef struct {
   ResultProcessor base;
   QueryIterator *iterator;
   RedisSearchCtx *sctx;
-  uint32_t timeoutLimiter;                      // counter to limit number of calls to TimedOut_WithCounter()
+  uint32_t timeoutLimiter;  // counter to limit clock reads in timeout checks
   uint32_t keySpaceVersion;                     // version of the Keyspace slot ranges used for filtering
   const RedisModuleSlotRangeArray *querySlots;  // Query slots info, may be used for filtering
 
@@ -153,9 +153,8 @@ static int refillBufferUsingIterator(RPQueryIterator *self) {
   // Fill buffer up to max capacity
   while (self->async.iteratorResultCount < self->async.poolSize && !it->atEOF) {
     if (sctx->time.requestTimeout &&
-        sctx->time.requestTimeout->kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
-        TimedOut_WithCounter(SearchTime_GetClockDeadline(&sctx->time),
-                             &self->timeoutLimiter) == TIMED_OUT) {
+        QueryRequestTimeout_IsTimedOutWithCounter(sctx->time.requestTimeout,
+                                                  &self->timeoutLimiter)) {
       return RS_RESULT_TIMEDOUT;
     }
 
@@ -336,11 +335,9 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
 #endif
 
   while (1) {
-    if ((sctx->time.requestTimeout &&
-         sctx->time.requestTimeout->kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
-         TimedOut_WithCounter(SearchTime_GetClockDeadline(&sctx->time),
-                              &self->timeoutLimiter) == TIMED_OUT) ||
-        SearchTime_IsTimedOut(&sctx->time)) {
+    if (sctx->time.requestTimeout &&
+        QueryRequestTimeout_IsTimedOutWithCounter(sctx->time.requestTimeout,
+                                                  &self->timeoutLimiter)) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
 
@@ -402,9 +399,8 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
 
   while (1) {
     if (sctx->time.requestTimeout &&
-        sctx->time.requestTimeout->kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
-        TimedOut_WithCounter(SearchTime_GetClockDeadline(&sctx->time),
-                             &self->timeoutLimiter) == TIMED_OUT) {
+        QueryRequestTimeout_IsTimedOutWithCounter(sctx->time.requestTimeout,
+                                                  &self->timeoutLimiter)) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
 
@@ -2560,9 +2556,8 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
     int ret = RPHybridMerger_TimedOut(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
     return ret;
   } else if (self->sctx && self->sctx->time.requestTimeout &&
-             self->sctx->time.requestTimeout->kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
-             TimedOut_WithCounter(SearchTime_GetClockDeadline(&self->sctx->time),
-                                  &self->timeoutCounter) == TIMED_OUT) {
+             QueryRequestTimeout_IsTimedOutWithCounter(self->sctx->time.requestTimeout,
+                                                       &self->timeoutCounter)) {
     // Timed out before we could yield all results
     return RS_RESULT_TIMEDOUT;
   }

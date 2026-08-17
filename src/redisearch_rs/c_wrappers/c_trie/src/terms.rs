@@ -263,14 +263,13 @@ impl TermsTrie {
     /// visits nothing, as does a `pattern` longer than the trie's maximum term
     /// length (no stored term can match it).
     ///
-    /// `timeout` bounds the walk: `Some(deadline)` aborts it once the deadline
-    /// passes, while `None` runs it to completion with no deadline.
+    /// `timeout` supplies the request-owned timeout state for the walk.
     pub fn iterate_contains<F>(
         &self,
         pattern: &[ffi::rune],
         prefix: bool,
         suffix: bool,
-        mut timeout: Option<ffi::timespec>,
+        timeout: Option<&ffi::QueryRequestTimeout>,
         mut callback: F,
     ) where
         F: FnMut(&[ffi::rune], usize) -> ControlFlow<()>,
@@ -285,17 +284,11 @@ impl TermsTrie {
         if suffix && pattern.is_empty() {
             return;
         }
-        // The iterator only honours a deadline when timeout checks are enabled,
-        // and treats a null deadline as already-expired, so the two must move
-        // together: a deadline enables the checks, its absence disables them.
-        let (timeout, skip_timeout_checks) = match &mut timeout {
-            Some(timeout) => (ptr::from_mut(timeout), false),
-            None => (ptr::null_mut(), true),
-        };
+        let timeout = timeout.map_or(ptr::null(), ptr::from_ref);
         // SAFETY: `self` borrows a valid `ffi::Trie`; `pattern` points to
         // `pattern.len()` runes; `&mut callback` stays alive for the whole
         // call, so the `ctx` the trampoline reconstitutes is valid; and
-        // `timeout` is null or points to a valid `timeout` argument.
+        // `timeout` is null or points to valid request-owned timeout state.
         unsafe {
             ffi::Trie_IterateContains(
                 self.as_ptr(),
@@ -306,7 +299,6 @@ impl TermsTrie {
                 Some(range_trampoline::<F>),
                 std::ptr::from_mut(&mut callback).cast(),
                 timeout,
-                skip_timeout_checks,
             );
         }
     }
@@ -505,7 +497,7 @@ impl TermsTrie {
     pub fn iterate_wildcard<F>(
         &self,
         pattern: &LoweredPattern,
-        mut timeout: Option<ffi::timespec>,
+        timeout: Option<&ffi::QueryRequestTimeout>,
         mut callback: F,
     ) where
         F: FnMut(&[ffi::rune], usize) -> ControlFlow<()>,
@@ -516,18 +508,12 @@ impl TermsTrie {
         if pattern.is_empty() {
             return;
         }
-        // As in `iterate_contains`: the walk only honours a deadline when timeout
-        // checks are enabled and treats a null deadline as already-expired, so the
-        // two must move together.
-        let (timeout, skip_timeout_checks) = match &mut timeout {
-            Some(timeout) => (ptr::from_mut(timeout), false),
-            None => (ptr::null_mut(), true),
-        };
+        let timeout = timeout.map_or(ptr::null(), ptr::from_ref);
         // SAFETY: `self` borrows a valid `ffi::Trie`; `pattern` addresses its
         // content runes followed by the readable zero sentinel the matcher
         // requires (`LoweredPattern` invariant); `&mut callback` stays alive for
         // the whole call, so the `ctx` the trampoline reconstitutes is valid; and
-        // `timeout` is null or points to a valid `timeout` argument.
+        // `timeout` is null or points to valid request-owned timeout state.
         unsafe {
             ffi::Trie_IterateWildcard(
                 self.as_ptr(),
@@ -536,7 +522,6 @@ impl TermsTrie {
                 Some(range_trampoline::<F>),
                 std::ptr::from_mut(&mut callback).cast(),
                 timeout,
-                skip_timeout_checks,
             );
         }
     }
