@@ -12,6 +12,7 @@ bench = false
 
 [dependencies]
 ffi.workspace = true
+global_config.workspace = true
 tracing.workspace = true
 value.workspace = true
 redis-module.workspace = true

@@ -23,6 +23,7 @@ bench = false
 cheadergen.workspace = true
 ffi.workspace = true
 field.workspace = true
+global_config.workspace = true
 index_result.workspace = true
 index_spec.workspace = true
 inverted_index.workspace = true
