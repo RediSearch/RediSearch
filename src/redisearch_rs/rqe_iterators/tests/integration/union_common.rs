@@ -1993,5 +1993,77 @@ macro_rules! union_common_tests {
             assert_eq!(union.intersection_sort_weight(true), 1.0);
         }
 
+        /// A full union that rebuilds its aggregate for a document it has
+        /// already built loses the metrics it gathered the first time round.
+        ///
+        /// Metrics are *moved* into the aggregate, not copied:
+        /// `RSIndexResult::push_borrowed` takes them by value and
+        /// `debug_assert!`s that the caller drained the child first. So
+        /// `reset_aggregate` clearing `metrics` is right for every other caller
+        /// — `read`/`skip_to` only ever build a document they have not built
+        /// before — but `revalidate` can rebuild the one it is already on: a
+        /// sibling moves, another child still holds the minimum, and the
+        /// position does not change. The reset then discards the metrics the
+        /// aggregate owns and the re-drain finds the children already empty.
+        ///
+        /// A KNN child in a hybrid query is the case that bites: the union
+        /// answers `Ok`, still on the same document, with `__vector_score` gone
+        /// from the reply.
+        ///
+        /// Ignored because it fails: this is a pre-existing defect, shared with
+        /// the pre-port C `UI_Revalidate`, which reset and rebuilt the same way.
+        /// The fix belongs with `revalidate` re-deriving the aggregate's
+        /// borrowed entries instead of rebuilding it when the position is
+        /// unchanged; this test is the red half of it.
+        #[test]
+        // No `cfg_attr(miri, ignore)` alongside, for two reasons. It would expand
+        // to a second `#[ignore]` under `cfg(miri)`, and `unused_attributes` is
+        // denied. And it would not be earning its place: the rebuild moves the
+        // metrics through `MetricsVec::concat`, which is a `ThinVec::append` and
+        // nothing else — `index_result` has no FFI at all. The neighbouring
+        // guards in this file blame `RSYieldableMetric_Concat` for the same code
+        // path; that symbol is a Rust *entrypoint* called from
+        // `hybrid_reader.c`, never called by this crate, so those guards skip
+        // tests miri handles fine.
+        #[ignore = "known defect: revalidate drops aggregate metrics when it rebuilds an unchanged document"]
+        fn revalidate_on_an_unchanged_document_keeps_its_metrics() {
+            use rqe_iterators::metric::MetricSortedById;
+
+            let scored = MetricSortedById::new(vec![100], vec![0.5]);
+            let sibling: Mock<'static, 2> = Mock::new([200, 300]);
+            let mut sibling_data = sibling.data();
+            // Some child has to move, or `revalidate` returns before the rebuild.
+            sibling_data.set_revalidate_result(MockRevalidateResult::Move);
+
+            let children: Vec<Box<dyn RQEIterator<'static>>> =
+                vec![Box::new(scored), Box::new(sibling)];
+            let mut union = Union::new(children);
+
+            let first = union.read().expect("read failed").expect("doc 100");
+            assert_eq!(first.doc_id, 100);
+            assert_eq!(
+                first.metrics.len(),
+                1,
+                "the aggregate gathered the scored child's metric",
+            );
+
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            let status = union
+                .revalidate(&*mock_ctx.spec_read())
+                .expect("revalidate failed");
+            assert!(
+                matches!(status, RQEValidateStatus::Ok),
+                "the minimum is still doc 100, so nothing moved: {status:?}",
+            );
+
+            let current = union.current().expect("still on doc 100");
+            assert_eq!(current.doc_id, 100);
+            assert_eq!(
+                current.metrics.len(),
+                1,
+                "the metric must survive a rebuild of the document it was gathered for",
+            );
+        }
+
     };
 }
