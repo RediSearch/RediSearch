@@ -268,7 +268,7 @@ def main() -> int:
     # `gh pr view --json` exposes `state` (OPEN/CLOSED/MERGED); the
     # boolean `merged` field doesn't exist in current gh CLI.
     pr_data = common.fetch_pr(pr, [
-        "title", "mergeCommit", "labels", "state", "url", "isCrossRepository",
+        "title", "body", "mergeCommit", "labels", "state", "url", "isCrossRepository",
     ])
     state = pr_data.get("state")
     if state != "MERGED":
@@ -306,10 +306,14 @@ def main() -> int:
     # the context JSON into the backport commit.
     runner_temp = os.environ["RUNNER_TEMP"]
     context_file = os.path.join(runner_temp, "auto-backport-context.json")
+    # `body` is pre-fetched here so the agent needs no `gh` (hence no token and
+    # no network): the applier reads it to replicate the release-notes checkbox,
+    # and the agent may read it as untrusted evidence about the change's intent.
     common.write_context(context_file, {
         "pr": int(pr),
         "sha": sha,
         "title": pr_data.get("title", ""),
+        "body": pr_data.get("body", ""),
         "url": pr_data.get("url", ""),
         "targets": targets,
     })
