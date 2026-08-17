@@ -12,6 +12,7 @@
 use index_result::{RSIndexResult, RSResultKind, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
+use std::marker::PhantomData;
 
 use crate::union::SettleOutcome;
 use crate::utils::DocIdMinHeap;
@@ -87,54 +88,90 @@ const _: () = {
     assert!(align_of::<A>() == align_of::<S>());
 };
 
-/// Frees a suspended [`RawUnionHeap`]'s reused allocation after the in-place
-/// resume consumed the child at `consumed`: drops the compacted resumed prefix
-/// `children[..kept]` in place and the still-suspended tail past `consumed`,
-/// skips the holes in between (moved-from or consumed), empties the `Vec` so it
-/// frees only its buffer, then drops the box (freeing the still-suspended
-/// `result`, the heap, and the allocation).
+/// RAII guard owning a suspended [`RawUnionHeap`]'s shell while its children
+/// buffer is part-resumed and part-suspended.
 ///
-/// # Safety
+/// The buffer is three regions during `resume`, and the guard's fields *are*
+/// their boundaries: [`kept`](Self::kept) resumed survivors compacted to the
+/// front, vacated slots up to [`cursor`](Self::cursor) — moved left by the
+/// compaction, or consumed by a child that aborted or failed — and
+/// still-suspended children from there to [`len`](Self::len). `resume` advances
+/// the boundaries as it walks, so the drop reads the state that actually holds
+/// rather than being handed indices that have to agree with it.
 ///
-/// * `raw` must be exclusively owned and have come from `Box::into_raw`.
-/// * `children[..kept]` must hold valid `S::Resumed<'a>` values,
-///   `children[kept..=consumed]` must be moved-from or consumed (they are not
-///   touched), and `children[consumed + 1..]` must hold valid `S` values — the
-///   exact state the in-place resume loop leaves behind when the slot helper
-///   reports `Err` for element `consumed`.
-unsafe fn free_after_consumed_child<'query, 'a, S, const QUICK_EXIT: bool>(
-    raw: *mut RawUnionHeap<'query, Suspended, S, QUICK_EXIT>,
-    kept: usize,
-    consumed: usize,
-) where
+/// On drop — an early return or a panic — it drops the prefix at the resumed
+/// type, drops the suspended tail, leaves the vacated middle alone, empties the
+/// `Vec` so it frees only its buffer, and drops the shell (freeing the
+/// still-suspended `result`, the heap, and the allocation). Disarmed with
+/// [`std::mem::forget`] once the buffer is whole again and the cast is about to
+/// run.
+struct FreeSuspendedShell<'query, 'a, S, const QUICK_EXIT: bool>
+where
     S: RQESuspendedIterator<'query>,
     'query: 'a,
 {
-    // SAFETY: `raw` is exclusively owned (caller contract); the borrow is used
-    // only to reach the buffer pointer, the length, and `set_len`.
-    let children: &mut Vec<S> = unsafe { &mut (*raw).children };
-    let len = children.len();
-    let base = children.as_mut_ptr();
-    for i in 0..kept {
-        // SAFETY: `i` is in bounds of the children buffer.
-        let slot = unsafe { base.add(i) };
-        // SAFETY: the slot holds a valid resumed child (caller contract); drop
-        // it through the resumed type (same size/alignment, enforced by the
-        // slot helper's const guard).
-        unsafe { std::ptr::drop_in_place(slot.cast::<S::Resumed<'a>>()) };
+    /// The shell, still owned here. Came from `Box::into_raw`.
+    raw: *mut RawUnionHeap<'query, Suspended, S, QUICK_EXIT>,
+    /// `children[..kept]` hold resumed survivors.
+    kept: usize,
+    /// `children[kept..cursor]` are vacated and must not be dropped.
+    cursor: usize,
+    /// `children[cursor..len]` still hold suspended children.
+    len: usize,
+    /// The type the prefix must be dropped at. Never materialised, so it adds
+    /// no drop glue of its own.
+    _resumed: PhantomData<fn() -> S::Resumed<'a>>,
+}
+
+impl<'query, 'a, S, const QUICK_EXIT: bool> Drop for FreeSuspendedShell<'query, 'a, S, QUICK_EXIT>
+where
+    S: RQESuspendedIterator<'query>,
+    'query: 'a,
+{
+    fn drop(&mut self) {
+        debug_assert!(!self.raw.is_null(), "the shell must still be owned here");
+        // The whole teardown rests on this ordering and nothing else checks it.
+        // The way to break it is to move `cursor`'s advance in `resume` to
+        // *after* the slot helper call — which reads like a tidy-up, since every
+        // other field is advanced after its work — leaving a consumed slot
+        // inside the suspended tail for the loop below to drop a second time.
+        debug_assert!(
+            self.kept <= self.cursor && self.cursor <= self.len,
+            "region boundaries out of order: kept={}, cursor={}, len={}",
+            self.kept,
+            self.cursor,
+            self.len,
+        );
+        // SAFETY: `raw` is exclusively owned by this guard; the borrow reaches
+        // the buffer pointer and the length, and is confined to this function.
+        let children: &mut Vec<S> = unsafe { &mut (*self.raw).children };
+        debug_assert!(
+            self.len <= children.capacity(),
+            "the recorded length outruns the buffer it indexes",
+        );
+        let base = children.as_mut_ptr();
+        for i in 0..self.kept {
+            // SAFETY: `i < kept <= len`, in bounds of the children buffer.
+            let slot = unsafe { base.add(i) };
+            // SAFETY: the slot holds a resumed survivor; drop it through the
+            // resumed type, which shares `S`'s size and alignment (statically
+            // enforced by the slot helper's const guard).
+            unsafe { std::ptr::drop_in_place(slot.cast::<S::Resumed<'a>>()) };
+        }
+        for i in self.cursor..self.len {
+            // SAFETY: `i < len`, in bounds of the children buffer.
+            let slot = unsafe { base.add(i) };
+            // SAFETY: the slot still holds a valid suspended child.
+            unsafe { std::ptr::drop_in_place(slot) };
+        }
+        // SAFETY: every element has been dropped, moved or consumed; zeroing the
+        // length keeps the `Vec` from dropping them again, so it frees only its
+        // buffer.
+        unsafe { children.set_len(0) };
+        // SAFETY: the shell is a well-formed suspended union again (empty
+        // children, still-suspended `result`, `Rf`-free scalars and heap).
+        drop(unsafe { Box::from_raw(self.raw) });
     }
-    for i in (consumed + 1)..len {
-        // SAFETY: `i` is in bounds of the children buffer.
-        let slot = unsafe { base.add(i) };
-        // SAFETY: the slot still holds a valid suspended child.
-        unsafe { std::ptr::drop_in_place(slot) };
-    }
-    // SAFETY: every element was dropped, moved, or consumed; zeroing the length
-    // keeps the `Vec` from dropping them again — it frees only its buffer.
-    unsafe { children.set_len(0) };
-    // SAFETY: `raw` is a well-formed suspended union again (empty children,
-    // still-suspended `result`, `Rf`-free scalars and heap); reclaim and drop it.
-    drop(unsafe { Box::from_raw(raw) });
 }
 
 // Methods used in both modes.
@@ -1097,72 +1134,70 @@ where
             let children: &mut Vec<S> = unsafe { &mut (*raw).children };
             (children.as_mut_ptr(), children.len())
         };
+        // From here until the cast, the buffer is part-resumed and part-suspended
+        // and `shell` owns it: every early return below, and any panic, frees it
+        // through the guard's drop rather than through a call the exit has to
+        // remember to make.
+        let mut shell = FreeSuspendedShell::<'query, 'a, S, QUICK_EXIT> {
+            raw,
+            kept: 0,
+            cursor: 0,
+            len,
+            _resumed: PhantomData,
+        };
         let mut any_change = false;
-        let mut kept = 0usize;
         for i in 0..len {
+            // Slot `i` counts as vacated for as long as the helper owns its
+            // contents, so the boundary moves *before* the call, not after: on
+            // `Err` the child is consumed and the guard must already know not to
+            // drop it.
+            shell.cursor = i + 1;
             // SAFETY: `i` is in bounds of the children buffer.
             let elem = unsafe { base.add(i) };
             // SAFETY: `elem` holds a valid, owned `S`; the helper rewrites it as
             // a valid `S::Resumed<'a>` on `Unchanged`/`Moved`, and consumes it
             // on `Aborted`/`Err`.
-            match unsafe { resume_child_slot_in_place(elem, guard) } {
-                Ok(outcome) => {
-                    match outcome {
-                        ResumeSlotOutcome::Unchanged => {}
-                        ResumeSlotOutcome::Moved => any_change = true,
-                        ResumeSlotOutcome::Aborted => {
-                            // Dropped from the union, as `revalidate` drops an
-                            // aborted child; the hole is compacted over by later
-                            // survivors, in the order noted above.
-                            any_change = true;
-                            continue;
-                        }
-                    }
-                    if kept < i {
-                        // SAFETY: slot `kept` was vacated (its element moved left
-                        // or was consumed); move the resumed element `i` into it.
-                        // `copy_nonoverlapping` is a move — the source is treated
-                        // as vacated from here on.
-                        // SAFETY: `kept < i < len`, both in bounds.
-                        let dst = unsafe { base.add(kept) };
-                        // SAFETY: single-element move between disjoint,
-                        // in-bounds slots.
-                        unsafe {
-                            std::ptr::copy_nonoverlapping(
-                                elem.cast::<S::Resumed<'a>>().cast_const(),
-                                dst.cast::<S::Resumed<'a>>(),
-                                1,
-                            )
-                        };
-                    }
-                    kept += 1;
-                }
-                Err(e) => {
-                    // The one place resume cannot match `revalidate`, and it is
-                    // structural rather than a choice. A spent union — `is_eof`,
-                    // nothing left to read — makes `revalidate` return `Ok`
-                    // before it looks at a child, so a child that would time out
-                    // is never asked and the union survives. Resume has to ask
-                    // every child before it can hand any of them back, and
-                    // `S::resume` takes the child *by value*: once it answers
-                    // `Err` the child is gone, so there is no walking past it to
-                    // reach the `is_eof` exit below. The union is torn down and
-                    // the error reaches the caller, where `revalidate` would have
-                    // reported `Ok`.
-                    //
-                    // Pinned by `resume_of_a_spent_union_surfaces_a_child_error`
-                    // rather than left to be rediscovered.
-                    //
-                    // SAFETY: `children[..kept]` holds compacted resumed
-                    // survivors, `children[kept..=i]` holes or the consumed
-                    // element, `children[i + 1..]` still-suspended children — the
-                    // exact state the teardown documents; `raw` is exclusively
-                    // owned.
-                    unsafe { free_after_consumed_child::<S, QUICK_EXIT>(raw, kept, i) };
-                    return Err(e);
+            //
+            // An `Err` returns through `?`, dropping `shell`. That is the one
+            // place resume cannot match `revalidate`, and it is structural rather
+            // than a choice: a spent union — `is_eof`, nothing left to read —
+            // makes `revalidate` return `Ok` before it looks at a child, so a
+            // child that would time out is never asked. Resume has to ask every
+            // child before it can hand any of them back, and `S::resume` takes
+            // the child *by value*, so once it answers `Err` there is nothing
+            // left to walk past to reach the `is_eof` exit below. Pinned by
+            // `resume_of_a_spent_union_surfaces_a_child_error`.
+            match unsafe { resume_child_slot_in_place(elem, guard) }? {
+                ResumeSlotOutcome::Unchanged => {}
+                ResumeSlotOutcome::Moved => any_change = true,
+                ResumeSlotOutcome::Aborted => {
+                    // Dropped from the union, as `revalidate` drops an aborted
+                    // child; the hole is compacted over by later survivors, in
+                    // the order noted above.
+                    any_change = true;
+                    continue;
                 }
             }
+            if shell.kept < i {
+                // SAFETY: `shell.kept < i < len`, both in bounds.
+                let dst = unsafe { base.add(shell.kept) };
+                // SAFETY: slot `shell.kept` was vacated (its element moved left or
+                // was consumed) and `elem` holds a resumed child, so this is a
+                // single-element move between disjoint, in-bounds slots.
+                // `copy_nonoverlapping` is a move — the source is treated as
+                // vacated from here on, which is what the guard's vacated middle
+                // already covers.
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        elem.cast::<S::Resumed<'a>>().cast_const(),
+                        dst.cast::<S::Resumed<'a>>(),
+                        1,
+                    )
+                };
+            }
+            shell.kept += 1;
         }
+        let kept = shell.kept;
         // SAFETY: `children[..kept]` holds the compacted survivors; everything
         // past it is vacated. `set_len` never drops, so shrinking to the
         // survivors is sound. The stale `num_active` is clamped right after the
@@ -1214,6 +1249,14 @@ where
                 unsafe { std::slice::from_raw_parts_mut(base.cast::<S::Resumed<'a>>(), kept) };
             rebuild_borrowed_entries::<_, QUICK_EXIT>(result, children)
         };
+
+        // The buffer is whole again and the next statement takes ownership of the
+        // allocation, so the guard is disarmed here and not before: it stayed
+        // armed across the `set_len` and the aggregate work above, where the
+        // elements are still *typed* as suspended while holding resumed children,
+        // and an unwind out of either would otherwise have dropped them at the
+        // wrong type.
+        std::mem::forget(shell);
 
         // SAFETY: every surviving child slot holds its resumed form inside the
         // `Vec`'s buffer, and the aggregate's entries have just been re-derived
