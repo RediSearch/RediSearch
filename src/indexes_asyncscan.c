@@ -15,6 +15,7 @@
 #include <stdint.h>
 
 #include "redismodule.h"
+#include "config.h"
 #include "spec.h"
 #include "indexes_scanner.h"
 #include "rules.h"
@@ -46,6 +47,13 @@ extern DebugCTX globalDebugCtx;
 // Per-batch work hint for Start / NextBatch: sizes the hash range each batch sweeps. A hint,
 // not a delivery cap; passed explicitly so we don't defer to the engine's default (128).
 #define ASYNC_SCAN_BATCH_SIZE_HINT_DEFAULT 100
+
+// Max pause-and-recheck rounds after the indexing memory limit trips, before the scan is
+// aborted for good. On Flex the checked RAM ratio hovers at the limit at steady state, so a
+// single recheck is a point sample with a real chance of landing over the line even though
+// the swapper recovers within seconds; several rounds make a spurious abort improbable while
+// still bounding how long a genuinely stuck (index-does-not-fit) build lingers.
+#define ASYNC_SCAN_OOM_MAX_PAUSE_ROUNDS 6
 
 // While parked behind the vector flat-buffer throttle, re-check the index still exists every
 // this many backoff iterations: FT.DROPINDEX / FLUSHDB don't set cancelled, and the throttle
@@ -80,18 +88,21 @@ static void Indexes_AsyncScanKeyCB(RedisModuleCtx *ctx, RedisModuleScanCursor *c
   AsyncReindexDriver *driver = privdata;
   IndexesScanner *scanner = driver->scanner;
 
-  if (IndexesScanner_IsCancelled(scanner) || scanner->scanFailedOnOOM) {
+  if (IndexesScanner_IsCancelled(scanner)) {
     return;
   }
 
-  if (isAsyncBgIndexingMemoryOverLimit(ctx)) {
+  // Memory-limit check. Once flagged, stop re-checking but KEEP indexing the keys already
+  // delivered in this batch: the driver reacts between batches (pause-and-retry or abort),
+  // and a resumed scan is never re-delivered these keys — dropping them here would leave
+  // permanent holes in the index. Overshoot is bounded by the remainder of one batch. The
+  // triggering key is held in case the abort path attaches an index error.
+  if (!scanner->scanFailedOnOOM && isAsyncBgIndexingMemoryOverLimit(ctx)) {
     scanner->scanFailedOnOOM = true;
     if (scanner->OOMkey) {
       RedisModule_FreeString(RSDummyContext, scanner->OOMkey);
     }
-    // Hold the key that triggered OOM in case we need to attach an index error.
     scanner->OOMkey = RedisModule_HoldString(RSDummyContext, name);
-    return;
   }
 
   DocumentType type = getDocType(key);
@@ -392,6 +403,47 @@ static RedisModuleAsyncScanResult Indexes_AsyncScanDriveNextBatch(
                       scanner->spec_name_for_logs, scanner->scannedKeys);
     } else {
       IndexSpecRef_Release(live_ref);
+    }
+  }
+
+  // OOM flagged by key_cb during this batch. On Flex, used_ram_for_swapout transiently
+  // exceeding max_ram is the swapout engine's normal operating signal (the swapper drains it
+  // asynchronously), and at steady state the ratio hovers *at* the limit, so a single
+  // over-limit sample does not prove persistent pressure — nor does a single under-limit
+  // recheck sample prove recovery is impossible. Pause-and-retry like the sync scan
+  // (threadSleepByConfigTime), but recheck up to ASYNC_SCAN_OOM_MAX_PAUSE_ROUNDS times: each
+  // round waits the configured pause with the GIL released, then re-samples. If memory
+  // recovered, resume in place — key_cb kept indexing the keys delivered while the flag was
+  // set, so unlike the sync path no restart is needed. Pause disabled (0) or still over the
+  // limit after every round → fall through to the abort below. Cancellation during a sleep
+  // is caught by the cancel branch that follows.
+  if (scanner->scanFailedOnOOM && !IndexesScanner_IsCancelled(scanner) &&
+      RSGlobalConfig.bgIndexingOomPauseTimeBeforeRetry > 0) {
+    const uint32_t pauseSecs = RSGlobalConfig.bgIndexingOomPauseTimeBeforeRetry;
+    RedisModule_Log(ctx, "notice",
+                    "AsyncScan: index %s reached the indexing memory limit; pausing up to "
+                    "%u rounds of %u seconds before aborting (scanned=%zu)",
+                    scanner->spec_name_for_logs, ASYNC_SCAN_OOM_MAX_PAUSE_ROUNDS, pauseSecs,
+                    scanner->scannedKeys);
+    for (uint32_t round = 0; round < ASYNC_SCAN_OOM_MAX_PAUSE_ROUNDS; ++round) {
+      RedisModule_ThreadSafeContextUnlock(ctx);
+      sleep(pauseSecs);
+      RedisModule_ThreadSafeContextLock(ctx);
+      if (IndexesScanner_IsCancelled(scanner)) {
+        break;
+      }
+      if (!isAsyncBgIndexingMemoryOverLimit(ctx)) {
+        scanner->scanFailedOnOOM = false;
+        if (scanner->OOMkey) {
+          RedisModule_FreeString(RSDummyContext, scanner->OOMkey);
+          scanner->OOMkey = NULL;
+        }
+        RedisModule_Log(ctx, "notice",
+                        "AsyncScan: index %s used memory dropped below the limit; resuming "
+                        "(scanned=%zu, rounds=%u)",
+                        scanner->spec_name_for_logs, scanner->scannedKeys, round + 1);
+        break;
+      }
     }
   }
 

@@ -138,8 +138,18 @@ bool isBgIndexingMemoryOverLimit(RedisModuleCtx *ctx) {
   return (used_memory_ratio > memory_limit_ratio) ;
 }
 
+// Slack (percentage points) added on top of indexingMemoryLimit by the async-scan check.
+// On Flex, used_ram_for_swapout == max_ram is the swapout engine's designed equilibrium once
+// the value cache is warm — the swapper evicts down to the budget, not below it — so without
+// slack the check reads "over limit" at the engine's normal operating point and a background
+// build over a warm keyspace can never finish. Real pressure (e.g. a RAM-resident index that
+// has outgrown the budget, with nothing left to evict) climbs past the slack and stays there;
+// the swapper's own wiggle around its equilibrium is orders of magnitude smaller.
+#define ASYNC_BG_INDEXING_MEM_SLACK_PCT 2
+
 // Async-scan (disk + Flex) counterpart of isBgIndexingMemoryOverLimit: checks the higher of
-// the RAM-only and total usage ratios against indexingMemoryLimit %.
+// the RAM-only and total usage ratios against indexingMemoryLimit % plus
+// ASYNC_BG_INDEXING_MEM_SLACK_PCT.
 bool isAsyncBgIndexingMemoryOverLimit(RedisModuleCtx *ctx) {
   // if memory limit is set to 0, we don't need to check for memory usage
   if (RSGlobalConfig.indexingMemoryLimit == 0) {
@@ -147,7 +157,8 @@ bool isAsyncBgIndexingMemoryOverLimit(RedisModuleCtx *ctx) {
   }
 
   float used_memory_ratio = RedisMemory_GetUsedMemoryRatioFlex(ctx);
-  float memory_limit_ratio = (float)RSGlobalConfig.indexingMemoryLimit / 100;
+  float memory_limit_ratio =
+      ((float)RSGlobalConfig.indexingMemoryLimit + ASYNC_BG_INDEXING_MEM_SLACK_PCT) / 100;
 
   return (used_memory_ratio > memory_limit_ratio);
 }
