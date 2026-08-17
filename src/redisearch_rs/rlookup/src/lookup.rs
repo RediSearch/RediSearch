@@ -451,10 +451,11 @@ impl<'a> RLookup<'a> {
         key_name: &CStr,
         open_key: Option<&redis_module::RedisModuleKey>,
     ) -> Result<(), LoadFieldError> {
-        // NB: eagerly consume the entire iterator, so the **side-effect-full* `self.keys.push` happens
-        // for every key. Skipping the keys that no longer fit keeps the fields that do fit loading.
+        // NB: eagerly consume the iterator, so the **side-effect-full* `self.keys.push` happens for
+        // every key that fits. Since `push` saturates permanently, stopping at the first rejection
+        // still loads every field that fits.
         let keys_to_load: Vec<_> = create_keys_from_spec(index_spec)
-            .filter_map(|k| self.keys.push(k))
+            .map_while(|k| self.keys.push(k))
             .collect();
 
         let key_name =

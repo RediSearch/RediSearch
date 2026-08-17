@@ -84,6 +84,10 @@ impl<'a> KeyList<'a> {
     /// index can address. Once it is full, this returns `None` and leaves the list
     /// unchanged; the caller must then treat the key as unavailable, the same way it
     /// treats a field that the document does not have.
+    ///
+    /// Keys are never removed, so the list saturates permanently: after the first `None`
+    /// every later call returns `None` too, and a caller pushing a sequence of keys can
+    /// stop at the first rejection instead of trying the rest.
     //
     // TODO remove the 'a and 'b lifetimes borrow-checker hack when we refactor this code. refer to Jira ticket MOD-13907.
     pub(crate) fn push<'b>(
@@ -502,6 +506,8 @@ mod tests {
     use super::*;
     use crate::RLookupKeyFlag;
     use enumflags2::make_bitflags;
+    #[cfg(not(miri))]
+    use proptest::prelude::*;
 
     // assert that the linked list is produced and linked correctly
     #[test]
@@ -872,5 +878,83 @@ mod tests {
 
         // we expect the tail to be the new key
         assert_eq!(override2, keylist.tail.unwrap());
+    }
+
+    /// Override the `nth` key that is still visible, skipping the tombstones that earlier
+    /// overrides left behind. Does nothing if the list holds fewer keys than that.
+    #[cfg(not(miri))]
+    fn override_nth_visible(keylist: &mut KeyList<'_>, nth: usize) {
+        let mut cursor = keylist.cursor_front_mut();
+        let mut visible = 0;
+
+        loop {
+            let Some(key) = cursor.current() else { return };
+            let hidden = key.flags.contains(RLookupKeyFlag::Hidden);
+
+            if !hidden {
+                if visible == nth {
+                    break;
+                }
+                visible += 1;
+            }
+
+            cursor.move_next();
+        }
+
+        cursor.override_current(RLookupKeyFlags::empty()).unwrap();
+    }
+
+    /// The number of keys a [`KeyList`] accepts, bounded by the `u16` [`RLookupKey::dstidx`].
+    #[cfg(not(miri))]
+    const KEY_CAPACITY: u32 = u16::MAX as u32 + 1;
+
+    #[cfg(not(miri))]
+    proptest! {
+        // Every case fills the list to capacity, so keep the case count well below the default.
+        #![proptest_config(ProptestConfig::with_cases(32))]
+
+        /// Pin down the property [`KeyList::push`] documents and that
+        /// [`RLookup::load_rule_fields`](crate::RLookup::load_rule_fields) relies on when it
+        /// pushes with `map_while`: a rejected push means every later push is rejected too.
+        #[test]
+        fn keylist_push_saturates_permanently(
+            overrides_while_filling in prop::collection::vec((0..KEY_CAPACITY, 0usize..16), 0..4),
+            overrides_when_full in prop::collection::vec(0usize..16, 0..4),
+            pushes_when_full in 1usize..8,
+        ) {
+            let mut keylist = KeyList::new();
+
+            for dstidx in 0..KEY_CAPACITY {
+                let key = keylist
+                    .push(RLookupKey::new(c"key", RLookupKeyFlags::empty()))
+                    .expect("a list below capacity accepts every key");
+
+                prop_assert_eq!(u32::from(key.dstidx), dstidx);
+
+                // Overriding is the only way to allocate a key without claiming a row slot, so it
+                // is what could plausibly move the point at which the list fills up.
+                for (_, nth) in overrides_while_filling.iter().filter(|(at, _)| *at == dstidx) {
+                    override_nth_visible(&mut keylist, *nth);
+                }
+            }
+
+            prop_assert_eq!(keylist.rowlen, KEY_CAPACITY);
+
+            for nth in overrides_when_full {
+                override_nth_visible(&mut keylist, nth);
+
+                prop_assert!(
+                    keylist.push(RLookupKey::new(c"key", RLookupKeyFlags::empty())).is_none()
+                );
+            }
+
+            for _ in 0..pushes_when_full {
+                prop_assert!(
+                    keylist.push(RLookupKey::new(c"key", RLookupKeyFlags::empty())).is_none()
+                );
+            }
+
+            prop_assert_eq!(keylist.rowlen, KEY_CAPACITY);
+        }
     }
 }
