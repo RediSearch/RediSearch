@@ -779,48 +779,6 @@ void SetMetricRLookupHandle(QueryIterator *header, struct RLookupKeyHandle *key_
 void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
 
 /**
- * Return the filter child iterator, or `NULL` for a pure KNN query.
- *
- * The returned pointer is non-owning; its lifetime is that of `it`.
- *
- * # Safety
- *
- * 1. `it` is a non-null handle from [`NewVectorTopKIterator`] that did not reduce
- *    to `Empty`, whose `index` and `sctx` are still alive.
- */
-QueryIterator *VectorTopK_GetChild(const QueryIterator *it);
-
-/**
- * Return the zero-based batch index at which the maximum batch size occurred.
- *
- * # Safety
- *
- * 1. `it` is a non-null handle from [`NewVectorTopKIterator`] that did not reduce
- *    to `Empty`, whose `index` and `sctx` are still alive.
- */
-size_t VectorTopK_GetMaxBatchIteration(const QueryIterator *it);
-
-/**
- * Return the maximum batch size used during Batches mode.
- *
- * # Safety
- *
- * 1. `it` is a non-null handle from [`NewVectorTopKIterator`] that did not reduce
- *    to `Empty`, whose `index` and `sctx` are still alive.
- */
-size_t VectorTopK_GetMaxBatchSize(const QueryIterator *it);
-
-/**
- * Return the number of batch iterations performed so far (Batches mode only).
- *
- * # Safety
- *
- * 1. `it` is a non-null handle from [`NewVectorTopKIterator`] that did not reduce
- *    to `Empty`, whose `index` and `sctx` are still alive.
- */
-size_t VectorTopK_GetNumIterations(const QueryIterator *it);
-
-/**
  * Return a mutable reference to the `RLookupKey *` stored inside this iterator.
  *
  * The key is initially `NULL`; the metrics-loader result processor writes
@@ -832,36 +790,6 @@ size_t VectorTopK_GetNumIterations(const QueryIterator *it);
  *    not reduce to `Empty`, whose `index` and `sctx` are still alive.
  */
 RLookupKey * *VectorTopK_GetOwnKeyRef(QueryIterator *it);
-
-/**
- * Return a C string describing the search mode that was used (or is being used) for this query.
- *
- * - [`Unfiltered`](TopKMode::Unfiltered) → `VECSIM_STANDARD_KNN`
- * - [`Batches`](TopKMode::Batches) → `VECSIM_HYBRID_BATCHES`
- * - [`AdhocBF`](TopKMode::AdhocBF) → `VECSIM_HYBRID_ADHOC_BF` or
- *   `VECSIM_HYBRID_BATCHES_TO_ADHOC_BF` (when the mode was switched mid-execution)
- *
- * The returned pointer is a static, null-terminated C string. It is valid for
- * the lifetime of the program and must not be freed by the caller.
- *
- * # Safety
- *
- * 1. `it` is a non-null handle from [`NewVectorTopKIterator`] that did not reduce
- *    to `Empty`, whose `index` and `sctx` are still alive.
- */
-const char *VectorTopK_GetSearchModeString(const QueryIterator *it);
-
-/**
- * Return `true` if the iterator is, or has ever been, in batches mode.
- *
- * This includes queries that started as batches before switching to ad-hoc BF.
- *
- * # Safety
- *
- * 1. `it` is a non-null handle from [`NewVectorTopKIterator`] that did not reduce
- *    to `Empty`, whose `index` and `sctx` are still alive.
- */
-bool VectorTopK_IsBatchMode(const QueryIterator *it);
 
 /**
  * Set the [`RLookupKeyHandle`] back-reference on this iterator.
