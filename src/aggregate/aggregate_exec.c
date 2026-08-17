@@ -419,10 +419,7 @@ static inline void debugPauseStoreResults(AREQ *req, bool before) {
 #endif
 static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
   CommonPipelineCtx ctx = {
-    .timeoutPolicy = req->reqConfig.timeoutPolicy,
-    .timeout = req->base.timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE
-                   ? SearchTime_GetClockDeadline(&req->sctx->time)
-                   : NULL,
+    .timeout = &req->base.timeout,
     .oomPolicy = req->reqConfig.oomPolicy,
     .skipTimeoutChecks = req->base.timeout.kind != QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE ||
                          req->sctx->time.skipTimeoutChecks,

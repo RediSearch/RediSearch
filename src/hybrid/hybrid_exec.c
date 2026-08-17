@@ -282,10 +282,7 @@ bool HybridRequest_TimeoutPreemptSafeLoaderGIL(HybridRequest *hreq) {
 
 static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
   CommonPipelineCtx ctx = {
-    .timeoutPolicy = hreq->reqConfig.timeoutPolicy,
-    .timeout = hreq->base.timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE
-                   ? SearchTime_GetClockDeadline(&hreq->sctx->time)
-                   : NULL,
+    .timeout = &hreq->base.timeout,
     .oomPolicy = hreq->reqConfig.oomPolicy,
     .skipTimeoutChecks = hreq->base.timeout.kind != QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE ||
                          !HybridRequest_ShouldCheckTimeout(hreq),

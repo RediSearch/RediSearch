@@ -2091,10 +2091,8 @@ static void RPSafeDepleter_Deplete(void *arg) {
   // is checked unconditionally since skipTimeoutChecks does not gate it.
   QueryRequestTimeout *timeout = self->depletingThreadCtx->time.requestTimeout;
   bool timed_out = SearchTime_IsTimedOut(&self->depletingThreadCtx->time) ||
-                   (timeout && timeout->kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
-                    !self->depletingThreadCtx->time.skipTimeoutChecks &&
-                    TimedOut(SearchTime_GetClockDeadline(
-                        &self->depletingThreadCtx->time)) == TIMED_OUT);
+                   (timeout && !self->depletingThreadCtx->time.skipTimeoutChecks &&
+                    QueryRequestTimeout_IsTimedOut(timeout));
   if (!timed_out) {
     RPSafeDepleter_DepleteFromUpstream(self, sync);
   } else {
@@ -2225,9 +2223,8 @@ static int RPSafeDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) 
   // forever waiting on a signal that no BG worker will ever send.
   if (!self->depletion_scheduled) {
     QueryRequestTimeout *timeout = self->nextThreadCtx->time.requestTimeout;
-    if (timeout && timeout->kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
-        !self->nextThreadCtx->time.skipTimeoutChecks &&
-        TimedOut(SearchTime_GetClockDeadline(&self->nextThreadCtx->time)) == TIMED_OUT) {
+    if (timeout && !self->nextThreadCtx->time.skipTimeoutChecks &&
+        QueryRequestTimeout_IsTimedOut(timeout)) {
       base->Next = RPSafeDepleter_Next_Yield;
       self->last_rc = RS_RESULT_TIMEDOUT;
       return base->Next(base, r);
@@ -2284,9 +2281,8 @@ void RPSafeDepleter_StartDepletion(ResultProcessor *base) {
   //   - a late Next() call re-enters the lazy branch, re-detects the
   //     timeout, and switches Next to Yield with RS_RESULT_TIMEDOUT.
   QueryRequestTimeout *timeout = self->nextThreadCtx->time.requestTimeout;
-  if (timeout && timeout->kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
-      !self->nextThreadCtx->time.skipTimeoutChecks &&
-      TimedOut(SearchTime_GetClockDeadline(&self->nextThreadCtx->time)) == TIMED_OUT) {
+  if (timeout && !self->nextThreadCtx->time.skipTimeoutChecks &&
+      QueryRequestTimeout_IsTimedOut(timeout)) {
     return;
   }
   RPSafeDepleter_StartDepletionThread(self);

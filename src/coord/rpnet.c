@@ -438,7 +438,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     // during a drain.
     if (nc->areq->base.timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
         !nc->areq->sctx->time.skipTimeoutChecks &&
-        TimedOut(SearchTime_GetClockDeadline(&nc->areq->sctx->time))) {
+        QueryRequestTimeout_IsTimedOut(&nc->areq->base.timeout)) {
       // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
       // callback so that a `CURSOR DEL` command will be dispatched instead of
       // a `CURSOR READ` command.
