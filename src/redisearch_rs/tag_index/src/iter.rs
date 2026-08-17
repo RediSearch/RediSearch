@@ -152,7 +152,8 @@ impl DiskTagIndexIterator<'_> {
     /// iteration semantics.
     ///
     /// There is no value to yield: the trie records only that the tag exists, and
-    /// its postings are read from disk by the disk-mode reader, keyed by this tag.
+    /// its postings are read from disk by [`open_reader`](TagIndex::open_reader),
+    /// keyed by this tag.
     pub fn advance(&mut self) -> Option<&[u8]> {
         self.next_entry().map(|(k, ())| k)
     }
