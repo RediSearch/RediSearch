@@ -50,9 +50,7 @@ pub struct RawWildcard<
     // to the `Active` reader regardless of `Rf` (see `RawInvIndIterator`'s `RA`).
     RA = RawIndexReaderCore<Active<'query>, E>,
 > {
-    // `pub(crate)` so the top-level `OptimizedWildcard` wrapper can drive the
-    // inner iterator's `resume_in_place` on its inline variants.
-    pub(crate) it: RawInvIndIterator<'query, Rf, RawIndexReaderCore<Rf, E>, NoOpChecker, RA>,
+    it: RawInvIndIterator<'query, Rf, RawIndexReaderCore<Rf, E>, NoOpChecker, RA>,
 }
 
 /// Alias for an [`Active`] [`RawWildcard`] — the only instantiation with an
@@ -76,10 +74,7 @@ where
     /// 1. `spec.existingDocs`, when non-null, must point to an opaque
     ///    [`InvertedIndex`](inverted_index::InvertedIndex) whose encoding
     ///    variant matches `E`.
-    ///
-    /// `pub(crate)` so the top-level `OptimizedWildcard` wrapper can run the
-    /// identity check on its inline inverted-index wildcard variants.
-    pub(crate) fn should_abort(&self, spec: &IndexSpecReadGuard) -> bool {
+    fn should_abort(&self, spec: &IndexSpecReadGuard) -> bool {
         // the garbage collector may set existing_docs to NULL after garbage collecting all documents
         let Some(existing_docs) = spec.existing_docs() else {
             return true;
