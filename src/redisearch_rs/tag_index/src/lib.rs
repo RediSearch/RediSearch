@@ -125,8 +125,11 @@
 // Temporary
 #![expect(dead_code, reason = "read by methods added in a follow-up change")]
 
+mod iter;
 mod suffix;
 mod unique_id;
+
+pub use iter::{DiskTagIndexIterator, IterMode, MemTagIndexIterator, TagValueReader};
 
 // Force-link the umbrella `redisearch_rs` crate so its `#[used]` symbol table keeps the
 // Rust FFI functions that the linked C code (`libredisearch_c_bundle`) calls back into, and
@@ -140,12 +143,17 @@ extern crate redisearch_rs;
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 use std::ptr::NonNull;
+use std::time::Instant;
 
-use ffi::{IndexFlags_Index_DocIdsOnly, RedisSearchDiskIndexSpec, t_fieldIndex};
+use ffi::{IndexFlags_Index_DocIdsOnly, RedisSearchDiskIndexSpec, t_fieldIndex, timespec};
 use index_result::RSIndexResult;
 use inverted_index::{DocId, InvertedIndex, doc_ids_only::DocIdsOnly};
-use suffix::TagSuffixIndex;
-use trie_rs::TrieMap;
+use rqe_iterators::utils::duration_from_redis_timespec;
+pub(crate) use suffix::TagSuffixIndex;
+use trie_rs::{
+    TrieMap,
+    iter::{RangeFilter, RangeLendingIter},
+};
 pub use unique_id::TagUniqueId;
 
 /// A tag value: borrowed bytes guaranteed to contain no interior (neither trailing) NUL byte — see
@@ -369,6 +377,15 @@ impl TagIndex<InMemoryMode> {
         self.add_tags_to_suffix(tags);
         0
     }
+
+    /// Iterate over the `(tag, inverted index)` entries whose tag falls within
+    /// `filter`'s boundaries, in lexicographical order of the tag.
+    pub fn range_iter_values<'tm, 'f>(
+        &'tm self,
+        filter: RangeFilter<'f>,
+    ) -> RangeLendingIter<'tm, 'f, Box<InvertedIndex<DocIdsOnly>>> {
+        self.mode.values.range_iter(filter).into()
+    }
 }
 
 // More methods to access internals for test purposes.
@@ -415,4 +432,9 @@ impl TagIndex<OnDiskMode> {
             },
         )
     }
+}
+
+pub(crate) fn expansion_deadline(timeout: Option<timespec>) -> Option<Instant> {
+    let remaining = timeout.and_then(duration_from_redis_timespec)?;
+    Some(Instant::now() + remaining)
 }
