@@ -39,11 +39,13 @@ const EMPTY_TERM_API_VERSION: u32 = 2;
 /// The number of expansions is capped by the configured
 /// [`Config::max_prefix_expansions`], with the empty term below exempt from it.
 ///
-/// A `max_dist` the walk refuses with [`InvalidFuzzyDistance`] is a caller bug
-/// rather than a query the grammar can express — it spells the distance as the
-/// number of `%` delimiters and has productions for only one, two and three — so
-/// it trips a debug assertion first, and only a release build reaches the `None`
-/// it otherwise returns for it.
+/// # Panics
+///
+/// Panics if the walk refuses `max_dist` with [`InvalidFuzzyDistance`]. That is
+/// a caller bug rather than a query the grammar can express — it spells the
+/// distance as the number of `%` delimiters and has productions for only one,
+/// two and three — and no expansion the node could stand for is known at that
+/// point, so there is no result to return in its place.
 pub(crate) fn eval<'index>(
     ctx: &'index mut QueryEvalContext,
     node: &QueryNodeRef,
@@ -87,11 +89,10 @@ pub(crate) fn eval<'index>(
         Ok(FuzzyWalk::PatternRejected) => return None,
         // The distance reaches C as the size of a stack allocation, so the walk
         // bounds it rather than trusting it the whole way down. Nothing a query
-        // can express is refused here.
-        Err(err) => {
-            debug_assert!(false, "{err}");
-            return None;
-        }
+        // can express is refused here, and the node builder asserts the range
+        // too, so a refusal means the AST was built by something that does not
+        // respect the grammar's distances.
+        Err(err) => panic!("{err}"),
     }
 
     // A token no longer than the distance could be deleted entirely and still be

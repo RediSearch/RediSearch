@@ -286,6 +286,10 @@ QueryNode *NewWildcardNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
 }
 
 QueryNode *NewFuzzyNode_WithParams(QueryParseCtx *q, QueryToken *qt, int maxDist) {
+  // The distance sizes a stack array in the edit-distance automaton
+  // (`SparseAutomaton_Start`), so an out-of-range one is undefined behaviour
+  // rather than an empty expansion. The grammar only ever spells 1, 2 or 3.
+  RS_ASSERT(maxDist >= 0 && maxDist <= MAX_LEV_DISTANCE);
   QueryNode *ret = NewQueryNode(QN_FUZZY);
   q->numTokens++;
 
