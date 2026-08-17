@@ -16,6 +16,8 @@ use std::ptr::NonNull;
 
 use tag_index::{InMemoryMode, OnDiskMode, TagIndex};
 
+use crate::util::commit_mem;
+
 /// Two indexes never share an id, so the fork GC can tell a recreated index from
 /// the one its child scanned.
 #[test]
@@ -63,6 +65,30 @@ fn new_index_holds_no_tags() {
     assert!(
         tag_index.value_iter().advance().is_none(),
         "a new index yields no tags"
+    );
+}
+
+/// `mem_usage` accounts for the suffix trie: an index built
+/// `WITHSUFFIXTRIE` reports strictly more overhead than one without, once the
+/// suffix trie has been populated. Asserted as a comparison so it does not depend
+/// on the trie's absolute byte size.
+#[test]
+fn mem_usage_accounts_for_the_suffix_trie() {
+    let tags: &[&[u8]] = &[b"hello", b"world"];
+
+    let mut with_suffix = TagIndex::<InMemoryMode>::new(true);
+    commit_mem(&mut with_suffix, tags);
+    assert!(
+        with_suffix.mem_usage() > 0,
+        "a populated suffix trie contributes overhead"
+    );
+
+    let mut without_suffix = TagIndex::<InMemoryMode>::new(false);
+    commit_mem(&mut without_suffix, tags);
+
+    assert!(
+        with_suffix.mem_usage() > without_suffix.mem_usage(),
+        "the suffix trie must add to the reported overhead"
     );
 }
 

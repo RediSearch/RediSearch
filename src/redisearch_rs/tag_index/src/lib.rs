@@ -292,6 +292,15 @@ impl<M: TagIndexMode> TagIndex<M> {
         self.suffix.is_some()
     }
 
+    /// Bytes the [suffix index](TagSuffixIndex) occupies, or `0` when the index was
+    /// created without `WITHSUFFIXTRIE`. Each mode adds this to its own values trie.
+    const fn suffix_mem_usage(&self) -> usize {
+        match &self.suffix {
+            Some(suffix) => suffix.mem_usage(),
+            None => 0,
+        }
+    }
+
     /// Register `tags` in the [suffix index](TagSuffixIndex), when enabled.
     fn add_tags_to_suffix(&mut self, tags: &[Tag<'_>]) {
         let Some(suffix) = &mut self.suffix else {
@@ -388,6 +397,12 @@ impl TagIndex<InMemoryMode> {
     /// How many distinct tags the index holds.
     pub const fn n_tags(&self) -> usize {
         self.mode.values.n_unique_keys()
+    }
+
+    /// Bytes the index's tries occupy, as reported by `FT.INFO`: the values trie
+    /// plus the suffix trie.
+    pub const fn mem_usage(&self) -> usize {
+        self.mode.values.mem_usage() + self.suffix_mem_usage()
     }
 
     /// Index `doc_id` under each tag in `tags`, writing the postings inline into
