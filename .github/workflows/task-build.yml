@@ -32,6 +32,10 @@ on:
         description: 'Name of the workflow artifact uploaded with the contents of bin/.'
         type: string
         required: true
+      rust-tests-artifact-name:
+        description: 'Name of the workflow artifact uploaded with the Rust nextest archive. Kept separate from artifact-name because only the unit-test job needs it.'
+        type: string
+        required: true
       # Resolved platform config — produced by task-get-config.yml at the
       # pipeline level so this workflow doesn't redo it. Caller must supply.
       name:
@@ -69,6 +73,9 @@ on:
         # Reusable-workflow outputs must map from a job output, not directly
         # from inputs — otherwise validation can reject it / it evaluates empty.
         value: ${{ jobs.common-flow.outputs.artifact-name }}
+      rust-tests-artifact-name:
+        description: 'Name of the uploaded Rust nextest archive artifact.'
+        value: ${{ jobs.common-flow.outputs.rust-tests-artifact-name }}
 
 env:
   COV: ${{ inputs.coverage && 1 || 0 }} # convert the boolean input to numeric
@@ -98,6 +105,7 @@ jobs:
     name: Build ${{ inputs.name }}
     outputs:
       artifact-name: ${{ inputs.artifact-name }}
+      rust-tests-artifact-name: ${{ inputs.rust-tests-artifact-name }}
     runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
     container: ${{
       inputs.container
@@ -128,18 +136,6 @@ jobs:
         shell: sh -l -eo pipefail {0}
         run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
 
-      - name: Free up disk space (container)
-        # For container jobs - delete mounted host directories
-        if: ${{ inputs.container }}
-        run: |
-          echo "Before cleanup:"
-          df -h
-          rm -rf /host_usr/dotnet/* 2>/dev/null || true
-          rm -rf /host_usr/android/* 2>/dev/null || true
-          rm -rf /host_opt/ghc/* 2>/dev/null || true
-          rm -rf /host_opt/hostedtoolcache/CodeQL/* 2>/dev/null || true
-          echo "After cleanup:"
-          df -h
       - name: Free up disk space (non-container)
         # For non-container jobs - delete directly with sudo
         # Skip macOS - it doesn't have these directories
@@ -200,6 +196,9 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
+      - name: Free up disk space (container)
+        if: ${{ inputs.container }}
+        uses: ./.github/actions/free-container-disk-space
       - name: Setup build environment
         uses: ./.github/actions/setup-build-env
         with:
@@ -322,8 +321,18 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ inputs.artifact-name }}
-          path: |
-            bin.tar.gz
-            nextest-archive.tar.zst
+          path: bin.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload Rust test archive
+        # Separate artifact, because only the unit-test job runs Rust tests. The
+        # archive carries 138 test binaries with debuginfo and dwarfs bin/ (GBs
+        # vs ~100 MB), so bundling the two made every flow-test shard pull the
+        # archive down only to leave it on disk untouched.
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.rust-tests-artifact-name }}
+          path: nextest-archive.tar.zst
           if-no-files-found: error
           retention-days: 1

@@ -43,6 +43,10 @@ on:
         type: boolean
         default: false
         description: "Run coordinator tests in a separate parallel job per platform"
+      rust-cache-read-only:
+        type: boolean
+        default: false
+        description: "If true, restore the Rust cache but never write it. Set by callers that sweep every platform, whose saves would evict the caches on the merge-queue critical path."
 
   workflow_dispatch:
     inputs:
@@ -166,3 +170,4 @@ jobs:
       san: ${{ matrix.job-type == 'sanitize' && 'address' || matrix.job-type == 'ubsan' && 'alignment' || '' }}
       fail-fast: ${{ contains(inputs.options, 'fail-fast') || inputs.fail-fast == true }}
       skip-tests: ${{ contains(inputs.options, 'skip-tests') }}
+      rust-cache-read-only: ${{ inputs.rust-cache-read-only || false }}

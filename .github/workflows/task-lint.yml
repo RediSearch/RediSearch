@@ -107,6 +107,14 @@ jobs:
           # relative to the `$workspace` and defaults to "target" if not explicitly given.
           # default: ". -> target"
           workspaces: "src/redisearch_rs -> ../../bin/redisearch_rs"
+          # Restore-only off the default branch, matching setup-build-env's
+          # rust-cache. This job does not go through that action, so it needs its
+          # own copy of the gate — and it is the single largest writer in the
+          # repo at ~800 MB, on every PR push and every merge-queue entry, which
+          # on its own kept evicting the caches the other jobs depend on. The
+          # nightly flow runs this job on the default branch, so the cache still
+          # gets written once a day.
+          save-if: ${{ github.ref == 'refs/heads/master' }}
       - name: Hakari
         run: cargo install cargo-hakari --locked
       - name: Cargo deny

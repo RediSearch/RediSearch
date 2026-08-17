@@ -1,0 +1,57 @@
+name: Free up container disk space
+description: |
+  Reclaim the host toolchain directories (dotnet, android, ghc, CodeQL) that the
+  runner images ship but our builds never use, for jobs running inside a
+  container. The caller's `container.options` bind-mounts them under /host_usr
+  and /host_opt; this action deletes through those mounts.
+
+  Reclaiming them unlinks millions of small files across a mounted overlay, which
+  costs minutes on the large runners, so it is only worth paying when a build
+  would otherwise risk filling the disk — hence `min-free-gb`.
+
+  This action MUST run after `actions/checkout` (a local action only exists on
+  disk once the repo is checked out) but before the build, test or artifact-
+  download steps that actually consume the space.
+
+  Non-container jobs keep their own inline copy, unconditional and pre-checkout.
+  That is where a local action cannot reach, and it was left alone rather than
+  relocated because it is not on the merge-queue critical path: every Linux
+  distro platform sets `container`, macOS is excluded by that step's own `if`,
+  so the only job it applies to is `intel` — a self-hosted EC2 runner.
+
+inputs:
+  min-free-gb:
+    description: |
+      Skip the cleanup when at least this many GB are already free on the
+      filesystem holding the workspace. A full build with tests peaks near 25G,
+      so the default leaves ample headroom before the cleanup is worth its cost.
+    required: false
+    default: "40"
+
+runs:
+  using: composite
+  steps:
+    - name: Reclaim host toolchain directories
+      shell: bash
+      env:
+        MIN_FREE_GB: ${{ inputs.min-free-gb }}
+      run: |
+        df -h
+        # -P keeps each mount on one line (long device names wrap otherwise) and
+        # -k fixes the block size, so field 4 is portably the free 1K-blocks.
+        # `|| true` and the `:-0` below are both load-bearing: composite `bash`
+        # runs with `-eo pipefail`, so without them a df that failed or printed
+        # something unparsable would abort the step and fail the job over an
+        # optimisation. Treat an unknown figure as "no space" and clean instead.
+        FREE_GB=$(df -Pk . 2>/dev/null | awk 'NR==2 {print int($4 / 1048576)}' || true)
+        if [ "${FREE_GB:-0}" -ge "$MIN_FREE_GB" ]; then
+          echo "${FREE_GB}G free (threshold ${MIN_FREE_GB}G): skipping host toolchain cleanup."
+          exit 0
+        fi
+        echo "${FREE_GB}G free (threshold ${MIN_FREE_GB}G): reclaiming host toolchain directories."
+        rm -rf /host_usr/dotnet/* 2>/dev/null || true
+        rm -rf /host_usr/android/* 2>/dev/null || true
+        rm -rf /host_opt/ghc/* 2>/dev/null || true
+        rm -rf /host_opt/hostedtoolcache/CodeQL/* 2>/dev/null || true
+        echo "After cleanup:"
+        df -h

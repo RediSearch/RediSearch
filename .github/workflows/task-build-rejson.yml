@@ -116,20 +116,6 @@ jobs:
         shell: sh -l -eo pipefail {0}
         run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
 
-      # On a cache miss this job compiles RedisJSON from source (cargo), so it
-      # needs real disk headroom — unlike task-build-redis.yml, which restores or
-      # makes a small C build.
-      - name: Free up disk space (container)
-        if: ${{ inputs.container }}
-        run: |
-          echo "Before cleanup:"
-          df -h
-          rm -rf /host_usr/dotnet/* 2>/dev/null || true
-          rm -rf /host_usr/android/* 2>/dev/null || true
-          rm -rf /host_opt/ghc/* 2>/dev/null || true
-          rm -rf /host_opt/hostedtoolcache/CodeQL/* 2>/dev/null || true
-          echo "After cleanup:"
-          df -h
       - name: Free up disk space (non-container)
         if: ${{ !inputs.container && !contains(inputs.env, 'macos') }}
         run: |
@@ -176,6 +162,12 @@ jobs:
         # .rust-nightly and tests/deps/setup_rejson.sh. RedisJSON and its own
         # submodules are cloned by that script.
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      # On a cache miss this job compiles RedisJSON from source (cargo), so it
+      # needs real disk headroom — unlike task-build-redis.yml, which restores or
+      # makes a small C build.
+      - name: Free up disk space (container)
+        if: ${{ inputs.container }}
+        uses: ./.github/actions/free-container-disk-space
 
       - name: Setup build environment
         uses: ./.github/actions/setup-build-env

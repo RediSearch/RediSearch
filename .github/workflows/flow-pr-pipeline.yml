@@ -97,6 +97,7 @@ jobs:
       # rerun and would otherwise collide with the existing artifact). Test
       # jobs below consume needs.build.outputs.artifact-name, not this literal.
       artifact-name: pr-build-${{ inputs.job-type }}-${{ github.run_id }}-${{ github.run_attempt }}
+      rust-tests-artifact-name: pr-rust-tests-${{ inputs.job-type }}-${{ github.run_id }}-${{ github.run_attempt }}
       # Resolved platform config — task-build.yml no longer reruns get-config.
       name: ${{ needs.get-config.outputs.name }}
       container: ${{ needs.get-config.outputs.container }}
@@ -185,6 +186,7 @@ jobs:
       # artifact keeps the original attempt's name. Reconstructing here would
       # look for an artifact that was never produced.
       artifact-name: ${{ needs.build.outputs.artifact-name }}
+      rust-tests-artifact-name: ${{ needs.build.outputs.rust-tests-artifact-name }}
       name: ${{ needs.get-config.outputs.name }}
       container: ${{ needs.get-config.outputs.container }}
       env: ${{ needs.get-config.outputs.env }}
