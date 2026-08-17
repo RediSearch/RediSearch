@@ -391,7 +391,8 @@ RLookupKey *RLookup_GetKey_Load(struct RLookup *lookup, const char *name, const 
  * A key is created and returned only if it's NOT in the lookup table (unless the
  * override flag is set), and it is not already loaded. It will override an existing key if it was
  * created for read out of a sortable field, and the field was normalized. A sortable un-normalized
- * field counts as loaded.
+ * field counts as loaded. `NULL` is also returned when a key would have to be created
+ * but the lookup is already at its key limit.
  *
  * # Safety
  *
@@ -417,7 +418,8 @@ RLookupKey *RLookup_GetKey_LoadEx(struct RLookup *lookup, const char *name, size
  *
  * A key is returned only if it's already in the lookup table (available from the
  * pipeline upstream), it is part of the index schema and is sortable (and then it is created), or
- * if the lookup table accepts unresolved keys.
+ * if the lookup table accepts unresolved keys. `NULL` is also returned when a key would
+ * have to be created but the lookup is already at its key limit.
  *
  * # Safety
  *
@@ -442,7 +444,8 @@ RLookupKey *RLookup_GetKey_Read(struct RLookup *lookup, const char *name, uint32
  *
  * A key is returned only if it's already in the lookup table (available from the
  * pipeline upstream), it is part of the index schema and is sortable (and then it is created), or
- * if the lookup table accepts unresolved keys.
+ * if the lookup table accepts unresolved keys. `NULL` is also returned when a key would
+ * have to be created but the lookup is already at its key limit.
  *
  * # Safety
  *
@@ -467,7 +470,8 @@ RLookupKey *RLookup_GetKey_ReadEx(struct RLookup *lookup, const char *name, size
  * Get an RLookup key for a given name.
  *
  * A key is created and returned only if it's NOT in the lookup table, unless the
- * override flag is set.
+ * override flag is set. `NULL` is also returned when a key would have to be created
+ * but the lookup is already at its key limit.
  *
  * # Safety
  *
@@ -491,7 +495,8 @@ RLookupKey *RLookup_GetKey_Write(struct RLookup *lookup, const char *name, uint3
  * Get an RLookup key for a given name.
  *
  * A key is created and returned only if it's NOT in the lookup table, unless the
- * override flag is set.
+ * override flag is set. `NULL` is also returned when a key would have to be created
+ * but the lookup is already at its key limit.
  *
  * # Safety
  *
