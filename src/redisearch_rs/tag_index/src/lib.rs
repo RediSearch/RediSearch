@@ -23,8 +23,9 @@
 //!
 //! ## Tag bytes
 //!
-//! Tag values are [`TagValue`], which carries exactly one guarantee: no
-//! *interior* NUL byte. [`TagValue::new`] enforces it.
+//! Tag values are [`Tag`], which carries exactly one guarantee: no
+//! *interior* NUL byte. [`Tag::new`] enforces it; [`Tag::new_unchecked`]
+//! trusts the caller instead.
 //!
 //! [`TagIndex`] uses the same indexes as the full text but in a simpler manner. In fact:
 //!
@@ -149,12 +150,25 @@ pub use unique_id::TagUniqueId;
 /// A tag value: borrowed bytes guaranteed to contain no interior NUL byte — see
 /// the crate-level "Tag bytes" docs for exactly what that does and doesn't cover.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TagValue<'a>(&'a [u8]);
+pub struct Tag<'a>(&'a [u8]);
 
-impl<'a> TagValue<'a> {
+impl<'a> Tag<'a> {
     /// `None` if `bytes` contains an interior NUL byte.
     pub fn new(bytes: &'a [u8]) -> Option<Self> {
         (!bytes.contains(&0)).then_some(Self(bytes))
+    }
+
+    /// Builds a [`Tag`] without checking for an interior NUL byte.
+    ///
+    /// # Safety
+    ///
+    /// `bytes` must contain no interior NUL byte.
+    pub unsafe fn new_unchecked(bytes: &'a [u8]) -> Self {
+        debug_assert!(
+            !bytes.contains(&0),
+            "bytes must contain no interior NUL byte"
+        );
+        Self(bytes)
     }
 
     /// The underlying NUL-free bytes.
