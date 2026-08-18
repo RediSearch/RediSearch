@@ -255,10 +255,10 @@ fn write_postings(
 ) -> WritePostingsDelta {
     let mut delta = WritePostingsDelta::default();
 
-    let mut record = RSIndexResult::build_virt().doc_id(doc_id).build();
-    // The builder always clears this, so set it explicitly: `add_record` reads it
-    // off the record to write the posting's expiration bit.
-    record.has_field_expiration = has_field_expiration;
+    let record = RSIndexResult::build_virt()
+        .doc_id(doc_id)
+        .has_field_expiration(has_field_expiration)
+        .build();
     for tag in tags {
         values.insert_with(tag.as_bytes(), |slot| {
             let mut ii = slot.unwrap_or_else(|| {
