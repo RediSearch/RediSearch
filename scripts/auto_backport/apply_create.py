@@ -146,12 +146,14 @@ def apply_target(ctx: dict, work: str, entry: dict) -> dict:
     pr = ctx["pr"]
     target = entry.get("target")
     status = entry.get("status")
+    # `error` = a validation/apply failure that must fail the run (and is NOT a
+    # valid coverage outcome); `skipped` is reserved for legit no-ops (an explicit
+    # agent skip, a missing target branch, an already-open PR). Type-check the
+    # (agent-authored) entry so a malformed field is an error row, never a crash
+    # and never a silently-"covered" target.
     row = {"target": target if isinstance(target, str) else str(target),
-           "status": "skipped", "detail": ""}
+           "status": "error", "detail": ""}
 
-    # Fully type-check the (agent-authored) entry so a malformed field turns into
-    # a skipped row rather than crashing mid-loop and leaving a partial apply
-    # with no summary.
     if not isinstance(target, str) or not TARGET_RE.match(target) or target not in ctx["targets"]:
         row["detail"] = f"invalid/unknown target {target!r}"
         return row
@@ -159,6 +161,7 @@ def apply_target(ctx: dict, work: str, entry: dict) -> dict:
         row["detail"] = f"invalid status {status!r}"
         return row
     if status == "skipped":
+        row["status"] = "skipped"
         row["detail"] = entry.get("reason", "skipped by agent")
         return row
 
@@ -171,13 +174,15 @@ def apply_target(ctx: dict, work: str, entry: dict) -> dict:
     if git(work, "rev-parse", "--verify", f"refs/heads/{branch}", check=False).returncode != 0:
         row["detail"] = "agent did not produce the branch"
         return row
-    # Target must still exist on origin.
+    # Target must still exist on origin — a legit skip, not an error.
     if git(work, "ls-remote", "--exit-code", "--heads", "origin", target,
            check=False).returncode != 0:
+        row["status"] = "skipped"
         row["detail"] = f"no such branch {target}"
         return row
-    # Idempotency: never re-open / force over an existing backport PR.
+    # Idempotency: never re-open / force over an existing backport PR — legit skip.
     if (ex := existing_pr(branch)):
+        row["status"] = "skipped"
         row["detail"] = f"already {ex}"
         return row
 

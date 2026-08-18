@@ -86,15 +86,17 @@ class ApplyCreateTests(unittest.TestCase):
                    for a in self.git_calls)
 
     def test_rejects_untrusted_entries_without_pushing(self):
-        # An injected manifest can't push to an off-list target or a branch name
-        # that isn't exactly backport-agent/pr-<pr>-to-<target>.
+        # An injected manifest can't push to an off-list target, a mismatched
+        # branch, or with a bogus status — each is an `error` (fails the run),
+        # not a silently-"covered" skip, and nothing is pushed.
         for entry in ({"target": "8.6", "branch": "backport-agent/pr-8774-to-EVIL", "status": "clean"},
                       {"target": "9.9", "branch": "backport-agent/pr-8774-to-9.9", "status": "clean"},
-                      {"target": "8.6; rm -rf /", "branch": "x", "status": "clean"}):
+                      {"target": "8.6; rm -rf /", "branch": "x", "status": "clean"},
+                      {"target": "8.6", "branch": "backport-agent/pr-8774-to-8.6", "status": "bogus"}):
             with self.subTest(entry=entry):
                 self.git_calls.clear()
                 row = apply_create.apply_target(self.ctx, "/w", entry)
-                self.assertEqual(row["status"], "skipped")
+                self.assertEqual(row["status"], "error")
                 self.assertFalse(self._pushed())
 
     def test_malformed_entry_never_crashes(self):
