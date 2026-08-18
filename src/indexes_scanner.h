@@ -28,6 +28,7 @@
 #include <stddef.h>
 
 #include "redismodule.h"
+#include "util/redis_mem_info.h"
 #include "util/references.h"
 
 #ifdef __cplusplus
@@ -133,12 +134,18 @@ void scanStopAfterOOM(RedisModuleCtx *ctx, IndexesScanner *scanner);
 // false if within bounds or the limit is 0. Shared by both reindex strategies.
 bool isBgIndexingMemoryOverLimit(RedisModuleCtx *ctx);
 
-// Like isBgIndexingMemoryOverLimit, but for the async background scan (disk indexes on Flex).
-// True when either Flex memory budget is under real pressure — the RAM + flash quota is spent, or
-// RAM demand has departed from the swapout engine's setpoint by more than a deadband.
-//
-// A true result means "back off now", NOT "this build cannot finish":
-bool isAsyncBgIndexingMemoryOverLimit(RedisModuleCtx *ctx);
+// Which Flex budget the async background scan is over, and therefore whether pausing can help.
+typedef enum {
+  BG_INDEXING_MEM_OK = 0,
+  BG_INDEXING_MEM_THROTTLE,
+  BG_INDEXING_MEM_EXHAUSTED,
+} BgIndexingMemVerdict;
+
+// Async-scan (disk + Flex) counterpart of isBgIndexingMemoryOverLimit. Reads one INFO sample and
+// classifies it; see BgIndexingMemVerdict for what each outcome means. Unlike the sync check this
+// does not consult indexingMemoryLimit: each budget is tested against itself.
+// GIL must be held before calling this function.
+BgIndexingMemVerdict AsyncBgIndexingMemVerdict(RedisModuleCtx *ctx);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
