@@ -8,6 +8,8 @@
 */
 
 use crate::{RLookupKey, RLookupKeyFlags};
+use ahash::RandomState;
+use hashbrown::HashTable;
 use std::{ffi::CStr, iter::FusedIterator, mem, pin::Pin, ptr::NonNull, slice};
 
 /// Owns a pinned key while keeping the key's address independent of vector reallocations.
@@ -51,6 +53,14 @@ struct KeyStore<'a> {
     live: Vec<OwnedKey<'a>>,
     /// Replaced keys whose addresses must remain valid for C consumers.
     retired: Vec<OwnedKey<'a>>,
+    /// Optional coordinator-only name index. Standalone and narrow cluster rows stay linear.
+    by_name: Option<NameIndex>,
+}
+
+#[derive(Debug)]
+struct NameIndex {
+    slots: HashTable<u16>,
+    hash_builder: RandomState,
 }
 
 impl KeyStore<'_> {
@@ -58,15 +68,65 @@ impl KeyStore<'_> {
         Self {
             live: Vec::new(),
             retired: Vec::new(),
+            by_name: None,
         }
     }
 
     fn find_slot(&self, name: &CStr) -> Option<u16> {
+        if let Some(index) = &self.by_name {
+            let hash = index.hash_builder.hash_one(name);
+            return index
+                .slots
+                .find(hash, |slot| {
+                    self.live[usize::from(*slot)].get().name().as_ref() == name
+                })
+                .copied();
+        }
+
         let slot = self
             .live
             .iter()
             .position(|key| key.get().name().as_ref() == name)?;
         Some(u16::try_from(slot).expect("RLookup key count exceeds u16::MAX"))
+    }
+
+    fn enable_name_index(&mut self) {
+        if self.by_name.is_some() {
+            return;
+        }
+
+        self.by_name = Some(NameIndex {
+            slots: HashTable::with_capacity(self.live.len()),
+            hash_builder: RandomState::new(),
+        });
+        for slot in 0..self.live.len() {
+            self.index_slot_first_wins(
+                u16::try_from(slot).expect("RLookup key count exceeds u16::MAX"),
+            );
+        }
+    }
+
+    fn index_slot_first_wins(&mut self, slot: u16) {
+        let name = self.live[usize::from(slot)].get().name().as_ref();
+        let index = self.by_name.as_ref().unwrap();
+        let hash = index.hash_builder.hash_one(name);
+        if index
+            .slots
+            .find(hash, |existing| {
+                self.live[usize::from(*existing)].get().name().as_ref() == name
+            })
+            .is_some()
+        {
+            return;
+        }
+
+        let live = &self.live;
+        let index = self.by_name.as_mut().unwrap();
+        index.slots.insert_unique(hash, slot, |slot| {
+            index
+                .hash_builder
+                .hash_one(live[usize::from(*slot)].get().name().as_ref())
+        });
     }
 }
 
@@ -123,11 +183,20 @@ impl<'a> KeyList<'a> {
         u32::try_from(self.live().len()).expect("RLookup row length exceeds u32::MAX")
     }
 
+    pub(crate) fn enable_name_index(&mut self) {
+        self.store
+            .get_or_insert_with(|| Box::new(KeyStore::new()))
+            .enable_name_index();
+    }
+
     pub(crate) fn push_slot(&mut self, mut key: RLookupKey<'a>) -> u16 {
         let store = self.store.get_or_insert_with(|| Box::new(KeyStore::new()));
         let slot = u16::try_from(store.live.len()).expect("RLookup key count exceeds u16::MAX");
         key.dstidx = slot;
         store.live.push(OwnedKey::new(key));
+        if store.by_name.is_some() {
+            store.index_slot_first_wins(slot);
+        }
 
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::push");
@@ -390,6 +459,34 @@ mod tests {
         keys.push(RLookupKey::new(c"same", RLookupKeyFlags::empty()));
 
         assert_eq!(keys.find_slot(c"same"), Some(0));
+    }
+
+    #[test]
+    fn name_index_covers_existing_and_later_keys() {
+        let mut keys = KeyList::new();
+        keys.push(RLookupKey::new(c"before", RLookupKeyFlags::empty()));
+        keys.push(RLookupKey::new(c"same", RLookupKeyFlags::empty()));
+
+        keys.enable_name_index();
+        keys.enable_name_index();
+        keys.push(RLookupKey::new(c"after", RLookupKeyFlags::empty()));
+        keys.push(RLookupKey::new(c"same", RLookupKeyFlags::empty()));
+
+        assert_eq!(keys.find_slot(c"before"), Some(0));
+        assert_eq!(keys.find_slot(c"same"), Some(1));
+        assert_eq!(keys.find_slot(c"after"), Some(2));
+        assert_eq!(keys.find_slot(c"missing"), None);
+        assert_eq!(
+            keys.store
+                .as_ref()
+                .unwrap()
+                .by_name
+                .as_ref()
+                .unwrap()
+                .slots
+                .len(),
+            3
+        );
     }
 
     #[test]

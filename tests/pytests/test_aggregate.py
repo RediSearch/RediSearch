@@ -1134,6 +1134,21 @@ def testLoadAllManyDynamicFields(env):
     exp = sorted(sorted([['common', 'x'], [f'field{i}', str(i)]]) for i in range(n_docs))
     env.assertEqual(rows, exp)
 
+def testLoadAllWideCoordinatorRow(env):
+    """LOAD * a row wide enough for RPNet to switch from linear key-name
+    lookup to its optional index, while preserving every dynamic field."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'marker', 'TEXT').ok()
+    fields = {f'field{i}': i for i in range(24)}
+    conn.execute_command(
+        'HSET', '{wide}:1', 'marker', 'x', *itertools.chain.from_iterable(fields.items()))
+
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*')
+    env.assertEqual(res[0], 1, message=res)
+    env.assertEqual(
+        dict(zip(res[1][::2], res[1][1::2])),
+        {'marker': 'x', **{k: str(v) for k, v in fields.items()}})
+
 def testLimitIssue(env):
     #ticket 66895
     conn = getConnectionByEnv(env)
