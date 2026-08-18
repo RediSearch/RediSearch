@@ -88,6 +88,13 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   // Save string copy to all suffixes of it
   // If it exists, move to the next field
   for (size_t j = 1; j < rlen; ++j) {
+    // Trie_InsertRune silently drops keys at or past TRIE_INITIAL_STRING_LEN. Skip
+    // them before building a payload, which the drop would otherwise strand. The
+    // shorter suffixes that follow are still insertable, so this must not bail out.
+    if (rlen - j >= TRIE_INITIAL_STRING_LEN) {
+      continue;
+    }
+
     TrieNode *trienode = Trie_GetNode(trie, runes + j, rlen - j, true, NULL);
 
     data = Suffix_GetData(trienode);
