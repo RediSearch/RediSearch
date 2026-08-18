@@ -201,9 +201,11 @@ fn free(idx: *mut RustTagIndex) {
 
 #[test]
 fn a_null_tag_entry_is_skipped() {
-    // `TagIndex_Preprocess` appends a NULL entry for an `INDEXEMPTY` field whose
-    // value is neither empty nor separator-terminated. Both C write paths skipped
-    // it, and a NULL means "no tag here" — not the empty tag, which arrives as "".
+    // `TagIndex_Preprocess` appends a NULL entry per tokenized value for an
+    // `INDEXEMPTY` field whose text is neither empty nor separator-terminated, so
+    // a multi-value field interleaves them — hence the NULL in the middle here.
+    // Both C write paths skipped them, and a NULL means "no tag here", not the
+    // empty tag, which arrives as "".
     let idx = new_in_memory(false);
 
     let red = CString::new("red").expect("literal is NUL-free");

@@ -2490,6 +2490,7 @@ dependencies = [
  "rlookup",
  "rqe_core",
  "rqe_iterators",
+ "trie_rs",
  "ttl_table",
  "varint_ffi",
  "workspace_hack",

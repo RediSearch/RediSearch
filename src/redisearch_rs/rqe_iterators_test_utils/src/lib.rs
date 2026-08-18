@@ -17,6 +17,7 @@ pub mod contract_checker;
 #[expect(clippy::multiple_unsafe_ops_per_block)]
 pub mod mock_context;
 pub mod mock_expiration;
+pub mod tag_lookup;
 #[expect(clippy::undocumented_unsafe_blocks)]
 #[expect(clippy::multiple_unsafe_ops_per_block)]
 pub mod test_context;
@@ -29,6 +30,7 @@ use rqe_core::DocId;
 use rqe_iterators::{
     RQEIterator, ResumeOutcome, TypeErasedRQEIterator, TypeErasedRQESuspendedIterator,
 };
+pub use tag_lookup::TrieMapTagLookup;
 pub use test_context::{GlobalGuard, TestContext};
 
 /// Drive `it` from its current position to exhaustion, asserting that it

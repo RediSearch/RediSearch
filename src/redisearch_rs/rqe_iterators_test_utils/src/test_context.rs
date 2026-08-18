@@ -124,7 +124,9 @@ enum TestContextInner {
     },
     Tag {
         field_spec: ptr::NonNull<ffi::FieldSpec>,
-        tag_index: ptr::NonNull<ffi::TagIndex>,
+        /// The tag values trie, owned by this context so a test can remove or
+        /// replace `test_tag`'s entry to stand in for the collector.
+        tag_trie: ptr::NonNull<trie_rs::TrieMapOpaque>,
         inverted_index: ptr::NonNull<ffi::InvertedIndex>,
     },
     Geometry {
@@ -776,7 +778,7 @@ impl TestContext {
 
     /// Create a new [`TestContext`] with a tag inverted index for tag queries.
     ///
-    /// Creates a TAG field, a `TagIndex` with a TrieMap, and adds a doc-ids-only
+    /// Creates a TAG field, a tag values trie, and adds a doc-ids-only
     /// inverted index under the key `"test_tag"`.
     ///
     /// # Arguments
@@ -805,35 +807,35 @@ impl TestContext {
         let field_spec: ptr::NonNull<ffi::FieldSpec> =
             ptr::NonNull::new(fs as _).expect("FieldSpec should not be null");
 
-        // Create TagIndex via the C API (uses Redis allocator for proper cleanup)
-        let tag_index_raw =
-            unsafe { ffi::TagIndex_Ensure(field_spec.as_ptr(), ptr::null_mut(), false) };
-        let tag_index = ptr::NonNull::new(tag_index_raw).expect("TagIndex should not be null");
+        // The tag index itself lives in Rust now and owns its postings, so it
+        // cannot hand a test a posting list to poke at. Build the values trie and
+        // the `test_tag` posting list directly instead — that is exactly what the
+        // lookup these tests exercise resolves through.
+        let tag_trie = ptr::NonNull::new(Box::into_raw(Box::new(trie_rs::TrieMapOpaque(
+            trie_rs::TrieMap::new(),
+        ))))
+        .expect("Box::into_raw is never null");
 
-        // Create the tag inverted index for "test_tag" via TagIndex_OpenIndex
-        // (CREATE_INDEX = 1 creates a new DocIdsOnly inverted index in the TrieMap)
-        let tag_key = CString::new("test_tag").unwrap();
-        let mut sz: usize = 0;
-        let ii_ptr = unsafe {
-            ffi::TagIndex_OpenIndex(
-                tag_index_raw,
-                tag_key.as_ptr(),
-                tag_key.as_bytes().len(),
-                1, // CREATE_INDEX
-                &mut sz,
-            )
-        };
-        assert!(!ii_ptr.is_null(), "TagIndex_OpenIndex returned null");
-        let ii = ptr::NonNull::new(ii_ptr.cast()).expect("InvertedIndex should not be null");
+        let mut ii_size: usize = 0;
+        let ii_opaque = inverted_index_ffi::NewInvertedIndex_Ex(
+            ffi::IndexFlags_Index_DocIdsOnly,
+            false,
+            false,
+            &mut ii_size,
+        );
+        assert!(!ii_opaque.is_null(), "NewInvertedIndex_Ex returned null");
+
+        // SAFETY: `tag_trie` was just allocated and is not yet aliased.
+        unsafe { tag_trie.as_ptr().as_mut() }
+            .expect("tag_trie is non-null")
+            .insert(b"test_tag", ii_opaque.cast());
+
+        let ii = ptr::NonNull::new(ii_opaque.cast()).expect("InvertedIndex should not be null");
 
         // Populate with virtual records for each document ID.
-        // TagIndex_OpenIndex internally calls NewInvertedIndex_Ex, so the
-        // pointer is actually a Rust opaque InvertedIndex despite the C type.
-        let ii_opaque: *mut inverted_index::opaque::InvertedIndex = ii_ptr.cast();
         for doc_id in doc_ids {
             let record: RSIndexResult = RSIndexResult::build_virt().doc_id(doc_id).build();
-            // SAFETY: ii_opaque is a valid pointer created via TagIndex_OpenIndex
-            // which delegates to NewInvertedIndex_Ex (Rust FFI).
+            // SAFETY: `ii_opaque` was just created by `NewInvertedIndex_Ex`.
             unsafe {
                 inverted_index_ffi::InvertedIndex_WriteEntryGeneric(
                     ii_opaque,
@@ -849,7 +851,7 @@ impl TestContext {
             qctx: OnceCell::new(),
             inner: TestContextInner::Tag {
                 field_spec,
-                tag_index,
+                tag_trie,
                 inverted_index: ii,
             },
         }
@@ -1051,11 +1053,12 @@ impl TestContext {
         }
     }
 
-    /// Get the tag index for this context.
+    /// The tag values trie backing [`TrieMapTagLookup`](crate::TrieMapTagLookup).
+    ///
     /// Panics if this is not a tag context.
-    pub fn tag_index(&self) -> ptr::NonNull<ffi::TagIndex> {
+    pub fn tag_trie(&self) -> ptr::NonNull<trie_rs::TrieMapOpaque> {
         match self.inner {
-            TestContextInner::Tag { tag_index, .. } => tag_index,
+            TestContextInner::Tag { tag_trie, .. } => tag_trie,
             _ => panic!("TestContext is not a Tag context"),
         }
     }

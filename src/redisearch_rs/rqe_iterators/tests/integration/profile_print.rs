@@ -388,7 +388,7 @@ fn tag_with_query_term() {
         rqe_iterators::inverted_index::Tag::new(
             reader,
             mock_ctx.sctx(),
-            iterators_ffi::inverted_index::CTagIndexLookup::new(mock_ctx.tag_index()),
+            rqe_iterators_test_utils::TrieMapTagLookup::new(mock_ctx.tag_trie()),
             RSQueryTerm::new("my_tag", 0, 0),
             0.0,
             rqe_iterators::NoOpChecker,

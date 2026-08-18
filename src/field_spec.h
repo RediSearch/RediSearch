@@ -16,7 +16,9 @@
 #include "info/index_error.h"
 #include "obfuscation/hidden.h"
 
-struct TagIndex;
+/* The tag index lives in Rust; see `src/redisearch_rs/tag_index`. `tag_index.h`
+ * typedefs this as `TagIndex`. */
+struct RustTagIndex;
 struct NumericRangeTree;
 
 #ifdef __cplusplus
@@ -111,7 +113,7 @@ typedef struct FieldSpec {
       // Flags for tag options
       TagFieldFlags tagFlags : 16;
       char tagSep;
-      struct TagIndex *tagIndex;
+      struct RustTagIndex *tagIndex;
     } tagOpts;
     struct {
       // Vector similarity index parameters.
