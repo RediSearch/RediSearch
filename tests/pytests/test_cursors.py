@@ -386,20 +386,23 @@ def seedCoordCursorIndex(env):
                       message='a shard holds less than one chunk, so its cursor would deplete')
 
 def fillCoordCursorsToCapacity(env, limit, *extra_args):
-    """Leave `limit` idle coordinator cursors behind. The chunks are never read to
-    depletion, so every cursor stays idle and counted.
+    """Leave `limit` idle coordinator cursors behind and return their ids. The
+    chunks are never read to depletion, so every cursor stays idle and counted.
 
     Every query matches a single document, so each shard cursor is depleted in
     its first reply and the shard budget is left untouched. That is what makes
     the rejection the caller asserts attributable to the coordinator cap: the
     shard cap shares both the config value and the error message, so a test that
     let shard cursors accumulate could not tell the two apart."""
+    cursors = []
     for _ in range(limit):
         _, cursor = env.cmd('FT.AGGREGATE', 'idx', SINGLE_DOC_QUERY, 'WITHCURSOR', 'COUNT', 1,
                             *extra_args)
         env.assertNotEqual(cursor, 0, message='cursor was depleted, nothing left to count')
+        cursors.append(cursor)
     env.assertEqual(getCursorStats(env, 'idx')['index_total'], 0,
                     message='shard cursors are alive, so a rejection below could be the shard cap')
+    return cursors
 
 @skip(cluster=False)
 def testExceedCoordCursorCapacity(env):
@@ -413,11 +416,26 @@ def testExceedCoordCursorCapacity(env):
     seedCoordCursorIndex(env)
     previous = setIndexCursorLimit(env, COORD_CURSOR_LIMIT)
     try:
-        fillCoordCursorsToCapacity(env, COORD_CURSOR_LIMIT)
+        cursors = fillCoordCursorsToCapacity(env, COORD_CURSOR_LIMIT)
         # Matches one document, so this query's own shard cursors deplete too and
         # only the coordinator counter can be at its ceiling.
         env.expect('FT.AGGREGATE', 'idx', SINGLE_DOC_QUERY, 'WITHCURSOR', 'COUNT', 1) \
             .error().contains('INDEX_CURSOR_LIMIT')
+        env.assertEqual(getCursorStats(env, 'idx')['index_total_coord'], COORD_CURSOR_LIMIT)
+
+        # Releasing a coordinator cursor must give the budget back. Filling alone
+        # cannot catch a release that decrements the wrong counter: the coordinator
+        # counter would stay full -- rejecting coordinator cursors forever once the
+        # index first reaches capacity -- while the shard counter, a size_t, would
+        # underflow. FT.CURSOR DEL frees the coordinator cursor on the main thread,
+        # so both counters are settled by the time the reply lands.
+        env.expect('FT.CURSOR', 'DEL', 'idx', cursors[0]).ok()
+        stats = getCursorStats(env, 'idx')
+        env.assertEqual(stats['index_total_coord'], COORD_CURSOR_LIMIT - 1)
+        env.assertEqual(stats['index_total'], 0, message='release decremented the shard counter')
+        # And the freed slot is actually reusable, not merely accounted for.
+        _, reused = env.cmd('FT.AGGREGATE', 'idx', SINGLE_DOC_QUERY, 'WITHCURSOR', 'COUNT', 1)
+        env.assertNotEqual(reused, 0)
         env.assertEqual(getCursorStats(env, 'idx')['index_total_coord'], COORD_CURSOR_LIMIT)
     finally:
         env.expect(config_cmd(), 'SET', 'INDEX_CURSOR_LIMIT', previous).ok()
