@@ -505,6 +505,23 @@ pub unsafe extern "C" fn RLookup_Seal(lookup: Option<NonNull<OpaqueRLookup>>) {
     lookup.seal();
 }
 
+/// Build the optional key-name index used by wide coordinator rows. Idempotent.
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_EnableNameIndex(lookup: Option<NonNull<OpaqueRLookup>>) {
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
+    #[cfg(debug_assertions)]
+    lookup.assert_valid("RLookup_EnableNameIndex");
+
+    lookup.enable_name_index();
+}
+
 /// Returns `true` if this `RLookup` has an associated [`IndexSpecCache`].
 ///
 /// # Safety

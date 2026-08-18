@@ -321,6 +321,17 @@ void RLookup_Cleanup(struct RLookup *lookup);
 void RLookup_DisableOptions(struct RLookup *lookup, uint32_t options);
 
 /**
+ * Build the optional key-name index used by wide coordinator rows. Idempotent.
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void RLookup_EnableNameIndex(struct RLookup *lookup);
+
+/**
  * Enables the given set of `RLookup` options.
  *
  * # Safety

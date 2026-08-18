@@ -115,6 +115,14 @@ impl<'a> RLookup<'a> {
         self.keys.seal();
     }
 
+    /// Build the optional key-name index used by wide coordinator rows.
+    ///
+    /// This is idempotent and may be called after [`Self::seal`]: it derives an index from the
+    /// existing keys without changing their identity, order, or flags, and indexes later appends.
+    pub fn enable_name_index(&mut self) {
+        self.keys.enable_name_index();
+    }
+
     /// Whether [`Self::seal`] has been called.
     pub const fn is_sealed(&self) -> bool {
         self.keys.is_sealed()

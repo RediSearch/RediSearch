@@ -6,6 +6,7 @@ license-file.workspace = true
 publish.workspace = true
 
 [dependencies]
+ahash.workspace = true
 cheadergen.workspace = true
 ffi.workspace = true
 c_ffi_utils.workspace = true
@@ -22,6 +23,7 @@ redis_mock.workspace = true
 query_error.workspace = true
 redis_json_api.workspace = true
 enumflags2.workspace = true
+hashbrown.workspace = true
 libc.workspace = true
 pin-project.workspace = true
 strum.workspace = true
