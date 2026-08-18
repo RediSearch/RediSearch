@@ -26,6 +26,7 @@
 #include "rlookup_ffi.h"
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
+
 #include "iterators_ffi.h"
 #include "metrics_ffi.h"
 #include "rs_wall_clock.h"
@@ -61,6 +62,13 @@
 #include "spec.h"
 #include "util/dict/dict.h"
 #include "util/dllist.h"
+
+#ifdef ENABLE_ASSERT
+static bool blockedClientTimedOut(void *arg) {
+  const QueryRequestTimeout *timeout = arg;
+  return timeout && QueryRequestTimeout_IsBlockedClientTimedOut(timeout);
+}
+#endif
 
 // Maximum number of concurrent async disk reads
 #define MAX_ONGOING_READ_SIZE 16
@@ -330,8 +338,7 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
   // the coordinator's BeforeRPNetStart).
   if (self->firstRead) {
     self->firstRead = false;
-    SyncPoint_WaitUntil(SYNC_POINT_BEFORE_FIRST_READ,
-                        QueryRequestTimeout_IsBlockedClientTimedOutCallback, sctx->timeout);
+    SyncPoint_WaitUntil(SYNC_POINT_BEFORE_FIRST_READ, blockedClientTimedOut, sctx->timeout);
   }
 #endif
 
@@ -394,8 +401,7 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
   // See rpQueryItNext: same interruptible park for the async-disk variant.
   if (self->firstRead) {
     self->firstRead = false;
-    SyncPoint_WaitUntil(SYNC_POINT_BEFORE_FIRST_READ,
-                        QueryRequestTimeout_IsBlockedClientTimedOutCallback, sctx->timeout);
+    SyncPoint_WaitUntil(SYNC_POINT_BEFORE_FIRST_READ, blockedClientTimedOut, sctx->timeout);
   }
 #endif
 
@@ -1350,8 +1356,8 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
 #ifdef ENABLE_ASSERT
   // Sync point: pause after buffering, before taking the GIL.
   // Interruptible so a fired timeout callback can release the worker.
-  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_SAFE_LOADER_GIL_LOCK,
-                      QueryRequestTimeout_IsBlockedClientTimedOutCallback, sctx->timeout);
+  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_SAFE_LOADER_GIL_LOCK, blockedClientTimedOut,
+                      sctx->timeout);
 #endif
 
   // Deadlock-avoidance handshake (request non-NULL only for RETURN_STRICT). Mark
@@ -1364,8 +1370,8 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
 #ifdef ENABLE_ASSERT
   // Sync point: pause holding the GIL gate (safeLoadersHoldingGIL > 0),
   // before the Redis lock, so a timeout callback observes it and preempts.
-  SyncPoint_WaitUntil(SYNC_POINT_AFTER_SAFE_LOADER_GIL_HANDSHAKE,
-                      QueryRequestTimeout_IsBlockedClientTimedOutCallback, sctx->timeout);
+  SyncPoint_WaitUntil(SYNC_POINT_AFTER_SAFE_LOADER_GIL_HANDSHAKE, blockedClientTimedOut,
+                      sctx->timeout);
 #endif
 
   // Then, lock Redis to guarantee safe access to Redis keyspace
@@ -1389,8 +1395,8 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
 #ifdef ENABLE_ASSERT
   // Sync point: pause after clearing the flag and unlocking Redis. The
   // flag is already false, so a timeout callback waits for results, not preempts.
-  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_SAFE_LOADER_EXIT_GIL,
-                      QueryRequestTimeout_IsBlockedClientTimedOutCallback, sctx->timeout);
+  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_SAFE_LOADER_EXIT_GIL, blockedClientTimedOut,
+                      sctx->timeout);
 #endif
 
   if (isQueryProfile) {

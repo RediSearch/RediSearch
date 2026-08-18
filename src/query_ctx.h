@@ -33,6 +33,6 @@ typedef struct QueryEvalCtx {
   // iterators poll `AREQ_CheckTimedOut` against this request; NULL means
   // iterators fall back to the in-pipeline clock-based timeout (low-level
   // C API, tests, or a request whose active timeout source is not BLOCKED_CLIENT).
-  // Set via `AREQ_TimeoutAreqOrNull` in `QAST_Iterate`.
+  // Selected while constructing the context in `QAST_Iterate`.
   struct AREQ *bcTimeoutAreq;
 } QueryEvalCtx;

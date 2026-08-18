@@ -45,7 +45,6 @@ typedef struct RedisSearchCtx {
   struct timespec currentTime;
   // Borrowed request timeout, wired when the request adopts this search context.
   // NULL when there is no owning request.
-  // TODO: move to QueryProcessingCtx.
   struct QueryRequestTimeout *timeout;
   unsigned int apiVersion; // API Version to allow for backward compatibility / alternative functionality
   unsigned int expanded; // Reply format

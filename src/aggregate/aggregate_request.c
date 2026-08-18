@@ -1174,11 +1174,6 @@ void AREQ_WaitForAggregateResultsComplete(AREQ *req) {
   pthread_mutex_unlock(&req->base.async.aggregateResultsLock);
 }
 
-/* Read the common base without coupling this path to a concrete request kind. */
-static bool QueryRequest_OwnedRequestTimedOut(QueryRequest *request) {
-  return QueryRequestTimeout_IsBlockedClientTimedOut(&request->timeout);
-}
-
 /* See aggregate.h for the full handshake contract. The aggregateResultsLock
  * serializes the worker's "set holding, then check timedOut" against the main
  * thread's "set timedOut, then check holding", making the two race-free. */
@@ -1186,7 +1181,7 @@ bool QueryRequest_SafeLoaderEnterGIL(QueryRequest *request) {
   QueryRequestAsyncState *async = &request->async;
   bool proceed;
   pthread_mutex_lock(&async->aggregateResultsLock);
-  if (QueryRequest_OwnedRequestTimedOut(request)) {
+  if (QueryRequestTimeout_IsBlockedClientTimedOut(&request->timeout)) {
     // Timeout already fired: do not mark holding, bail instead of blocking on the
     // GIL the main thread holds while it waits.
     proceed = false;

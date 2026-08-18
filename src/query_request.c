@@ -113,11 +113,6 @@ bool QueryRequestTimeout_IsBlockedClientTimedOut(const QueryRequestTimeout *time
   RS_ABORT_ALWAYS("Invalid query timeout kind");
 }
 
-bool QueryRequestTimeout_IsBlockedClientTimedOutCallback(void *arg) {
-  const QueryRequestTimeout *timeout = arg;
-  return timeout && QueryRequestTimeout_IsBlockedClientTimedOut(timeout);
-}
-
 bool QueryRequestTimeout_IsTimedOutWithCounter(const QueryRequestTimeout *timeout,
                                                uint32_t *counter) {
   // Only clock reads are expensive enough to amortize. Other sources retain

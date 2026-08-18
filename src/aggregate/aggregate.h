@@ -560,13 +560,6 @@ bool QueryRequest_TimeoutPreemptSafeLoaderGIL(QueryRequest *request);
  * RPSorter::base.Next: the Yield latch is load-bearing across reads. */
 void AREQ_ResetForCursorReadReturnStrict(AREQ *req);
 
-// Returns the AREQ that iterator constructors should use to wire the
-// Blocked Client Timeout, or NULL if iterators should fall back to the
-// in-pipeline clock-based timeout.
-static inline AREQ *AREQ_TimeoutAreqOrNull(AREQ *req) {
-  return (req && req->base.timeout.kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT) ? req : NULL;
-}
-
 static inline bool RequestConfig_ApplyCoordinatorElapsedTime(RequestConfig *reqConfig,
                                                              rs_wall_clock_ns_t coordinatorElapsedTime) {
   // Only adjust the timeout for 'fail' and 'return-strict' policies.
