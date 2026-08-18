@@ -208,8 +208,12 @@ def apply_target(ctx: dict, work: str, entry: dict) -> dict:
                         "--title", title, "--body-file", body_file, check=False)
     url = created.strip().splitlines()[-1] if created.strip() else ""
     if not url.startswith("http"):
+        # PR creation failed after the push — delete the just-created remote ref
+        # so it isn't left orphaned (a leftover branch would make the next run's
+        # non-force push fail as non-fast-forward and wedge this target).
+        git(work, "push", "--no-verify", "origin", "--delete", branch, check=False)
         row["status"] = "error"
-        row["detail"] = "gh pr create produced no URL"
+        row["detail"] = "gh pr create failed; pushed branch deleted"
         return row
 
     for label in labels:

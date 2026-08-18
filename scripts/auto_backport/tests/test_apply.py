@@ -113,6 +113,16 @@ class ApplyCreateTargetTests(unittest.TestCase):
             row = apply_create.apply_target(self.ctx, "/w", bad)
             self.assertIn(row["status"], ("skipped", "clean", "error"))
 
+    def test_pr_create_failure_deletes_orphaned_branch(self):
+        # gh pr create returns no URL → the just-pushed ref must be deleted.
+        common.gh = lambda *a, **k: ("" if a[:2] in (("pr", "list"), ("pr", "create")) else "")
+        row = apply_create.apply_target(
+            self.ctx, "/w",
+            {"target": "8.6", "branch": "backport-agent/pr-8774-to-8.6", "status": "clean"})
+        self.assertEqual(row["status"], "error")
+        self.assertTrue(any(a[0] == "push" and "--delete" in a for a in self.git_calls),
+                        f"expected a delete push, got {self.git_calls}")
+
     def test_existing_pr_is_not_reopened(self):
         common.gh = lambda *a, **k: ("OPEN https://github.com/x/y/pull/1"
                                      if a[:2] == ("pr", "list") else "")
