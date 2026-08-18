@@ -40,7 +40,7 @@ use std::{
 use thin_vec::{AlignedU32, ThinVec};
 use trie_rs::TrieMap;
 
-use crate::TagValue;
+use crate::Tag;
 
 /// Layout of a tag term allocation.
 fn tag_term_layout(size: usize) -> Layout {
@@ -61,10 +61,10 @@ impl OwnedTerm {
     /// Copy `term` into a fresh, NUL-terminated allocation.
     ///
     /// The allocation is one byte longer than `term`, and its last byte is the
-    /// terminator written here. `term` being a [`TagValue`] — interior-NUL-free
+    /// terminator written here. `term` being a [`Tag`] — interior-NUL-free
     /// by construction — is what makes [`alloc_size`](Self::alloc_size) report
     /// the true allocation length rather than a short one.
-    fn new(term: TagValue<'_>) -> Self {
+    fn new(term: Tag<'_>) -> Self {
         let term = term.as_bytes();
         let layout = tag_term_layout(term.len() + 1);
 
@@ -143,9 +143,9 @@ mod tests {
     use super::*;
 
     /// [`OwnedTerm::new`], wrapping the NUL-free literals every test below
-    /// passes into a [`TagValue`].
+    /// passes into a [`Tag`].
     fn owned_term(term: &[u8]) -> OwnedTerm {
-        OwnedTerm::new(TagValue::new(term).expect("test literal is NUL-free"))
+        OwnedTerm::new(Tag::new(term).expect("test literal is NUL-free"))
     }
 
     /// Read back the bytes stored in an [`OwnedTerm`], terminator included.
