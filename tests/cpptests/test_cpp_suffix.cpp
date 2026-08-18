@@ -156,3 +156,46 @@ TEST_F(SuffixChooseTokenTest, multiByteCharsScoredByRune) {
   EXPECT_EQ(chooseRune("αβγδε").tokenOrdinal, 0);
   EXPECT_EQ(chooseRune("αβγδε").len, 5u);
 }
+
+// addSuffixTrie indexes the whole term through an unguarded entry point, but each
+// proper suffix goes through Trie_InsertRune, which drops keys at or past
+// TRIE_INITIAL_STRING_LEN. A term longer than that cap is therefore indexed with a
+// gap: its longest suffixes are missing while the shorter ones are present.
+
+class SuffixTrieLongTermTest : public ::testing::Test {};
+
+// Long enough that suffixes fall on both sides of the cap.
+static constexpr size_t kLongTermLen = TRIE_INITIAL_STRING_LEN + 44;
+
+// Only an inserted suffix carries a payload; a node reached merely as a prefix of
+// a longer key does not.
+static bool suffixIndexed(Trie *t, const rune *runes, size_t rlen, size_t off) {
+  TrieNode *node = Trie_GetNode(t, runes + off, rlen - off, true, NULL);
+  return TrieNode_GetPayloadData(node) != NULL;
+}
+
+TEST_F(SuffixTrieLongTermTest, suffixesPastTheKeyLengthCapAreSkipped) {
+  std::string term;
+  for (size_t i = 0; i < kLongTermLen; ++i) {
+    term += static_cast<char>('a' + (i * 7) % 26);
+  }
+
+  Trie *t = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
+  addSuffixTrie(t, term.data(), term.size());
+
+  runeBuf buf;
+  size_t rlen = 0;
+  rune *runes = runeBufFill(term.data(), term.size(), &buf, &rlen);
+  ASSERT_EQ(rlen, kLongTermLen);
+
+  EXPECT_TRUE(suffixIndexed(t, runes, rlen, 0));
+  // Longest proper suffix, and the last one still over the cap.
+  EXPECT_FALSE(suffixIndexed(t, runes, rlen, 1));
+  EXPECT_FALSE(suffixIndexed(t, runes, rlen, kLongTermLen - TRIE_INITIAL_STRING_LEN));
+  // First suffix under the cap, and the shortest one.
+  EXPECT_TRUE(suffixIndexed(t, runes, rlen, kLongTermLen - TRIE_INITIAL_STRING_LEN + 1));
+  EXPECT_TRUE(suffixIndexed(t, runes, rlen, rlen - 1));
+
+  runeBufFree(&buf);
+  TrieType_Free(t);
+}
