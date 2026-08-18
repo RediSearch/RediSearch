@@ -112,6 +112,10 @@ fn assert_value_matches(actual: &SharedValue, expected: &serde_json::Value) {
         serde_json::Value::Number(n) => assert_eq!(actual.as_num(), n.as_f64()),
         serde_json::Value::String(s) => assert_eq!(actual.as_str_bytes(), Some(s.as_bytes())),
         serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
+            assert!(
+                matches!(&**actual, Value::RedisString(_)),
+                "expected serialized RedisString, got {actual:?}"
+            );
             let expected = serde_json::to_string(expected).unwrap();
             assert_eq!(actual.as_str_bytes(), Some(expected.as_bytes()));
         }
@@ -211,6 +215,16 @@ fn load_all_reports_missing_root_values() {
         load_all_dollar(Some(json!([])), MULTI),
         Err(LoadAllError::JsonRootMissing),
     ));
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn pre_multi_non_scalar_values_are_redis_strings() {
+    for value in [json!(["red", "blue"]), json!({ "name": "alice" })] {
+        let val = load_field_value(json!({ "x": value.clone() }), PRE_MULTI, c"$.x")
+            .expect("value should be loaded");
+        assert_value_matches(&val, &value);
+    }
 }
 
 proptest! {
