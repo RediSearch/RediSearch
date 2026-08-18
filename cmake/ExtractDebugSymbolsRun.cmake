@@ -6,12 +6,20 @@
 # copy the already-stripped object over the sidecar, destroying the DWARF.
 # Checking first makes a repeat run a no-op.
 
+# extract_debug_symbols() forwards the binutils CMake resolved for the active
+# toolchain. Falling back to PATH would pick host tools when cross-compiling, or
+# GNU tools under an LLVM-only toolchain.
 foreach(tool readelf objcopy strip)
     string(TOUPPER ${tool} _var)
-    find_program(_EDS_${_var} ${tool})
-    if(NOT _EDS_${_var})
+    set(_tool "${EDS_${_var}}")
+    if(NOT _tool)
+        find_program(_found_${_var} ${tool})
+        set(_tool "${_found_${_var}}")
+    endif()
+    if(NOT _tool)
         message(FATAL_ERROR "extract_debug_symbols: ${tool} not found")
     endif()
+    set(_EDS_${_var} "${_tool}")
 endforeach()
 
 function(_eds_run)
@@ -30,7 +38,8 @@ if(NOT _result EQUAL 0)
     message(FATAL_ERROR "extract_debug_symbols: cannot read ${OBJECT}")
 endif()
 
-if(NOT _sections MATCHES "\\.debug_info")
+# `.zdebug_info` is the same section under --compress-debug-sections=zlib-gnu.
+if(NOT _sections MATCHES "\\.z?debug_info")
     message(STATUS "extract_debug_symbols: ${OBJECT} has no DWARF, already extracted")
     return()
 endif()

@@ -13,7 +13,10 @@
 # Safe to run repeatedly: the work happens in ExtractDebugSymbolsRun.cmake, which
 # skips an object whose DWARF has already been moved out.
 
-set(_EDS_RUN_SCRIPT "${CMAKE_CURRENT_LIST_DIR}/ExtractDebugSymbolsRun.cmake")
+# The function survives into a parent scope after add_subdirectory(); a directory-scoped
+# variable would not, leaving the generated command with no script to run.
+set_property(GLOBAL PROPERTY _EDS_RUN_SCRIPT
+    "${CMAKE_CURRENT_LIST_DIR}/ExtractDebugSymbolsRun.cmake")
 
 function(extract_debug_symbols target)
     cmake_parse_arguments(ARG "" "FILE" "" ${ARGN})
@@ -38,8 +41,15 @@ function(extract_debug_symbols target)
         set(object "$<TARGET_FILE:${target}>")
     endif()
 
+    get_property(run_script GLOBAL PROPERTY _EDS_RUN_SCRIPT)
+
     add_custom_command(TARGET ${target} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} "-DOBJECT=${object}" -P "${_EDS_RUN_SCRIPT}"
+        COMMAND ${CMAKE_COMMAND}
+            "-DOBJECT=${object}"
+            "-DEDS_READELF=${CMAKE_READELF}"
+            "-DEDS_OBJCOPY=${CMAKE_OBJCOPY}"
+            "-DEDS_STRIP=${CMAKE_STRIP}"
+            -P "${run_script}"
         COMMENT "Extracting debug symbols from ${target}"
     )
 endfunction()
