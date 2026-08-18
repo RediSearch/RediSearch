@@ -226,6 +226,8 @@ impl<'a> KeyList<'a> {
     #[track_caller]
     #[cfg(any(debug_assertions, test))]
     pub(crate) fn assert_valid(&self, ctx: &str) {
+        self.assert_structure_valid(ctx);
+
         let Some(store) = &self.store else {
             return;
         };
@@ -233,6 +235,27 @@ impl<'a> KeyList<'a> {
         for (slot, owned) in store.live.iter().enumerate() {
             let key = owned.get();
             key.assert_valid(ctx);
+            let resolved = store.find_slot(key.name().as_ref()).unwrap();
+            assert!(
+                usize::from(resolved) <= slot,
+                "{ctx} - duplicate name did not resolve first"
+            );
+        }
+        for owned in &store.retired {
+            owned.get().assert_valid(ctx);
+        }
+    }
+
+    /// Validate invariants that do not require dereferencing borrowed key data.
+    #[track_caller]
+    #[cfg(any(debug_assertions, test))]
+    pub(crate) fn assert_structure_valid(&self, ctx: &str) {
+        let Some(store) = &self.store else {
+            return;
+        };
+
+        for (slot, owned) in store.live.iter().enumerate() {
+            let key = owned.get();
             assert!(
                 !key.is_tombstone(),
                 "{ctx} - live key at slot {slot} is a tombstone"
@@ -242,16 +265,12 @@ impl<'a> KeyList<'a> {
                 slot,
                 "{ctx} - dstidx does not match slot"
             );
-            let resolved = store.find_slot(key.name().as_ref()).unwrap();
-            assert!(
-                usize::from(resolved) <= slot,
-                "{ctx} - duplicate name did not resolve first"
-            );
         }
         for owned in &store.retired {
-            let key = owned.get();
-            key.assert_valid(ctx);
-            assert!(key.is_tombstone(), "{ctx} - retired key is not a tombstone");
+            assert!(
+                owned.get().is_tombstone(),
+                "{ctx} - retired key is not a tombstone"
+            );
         }
     }
 }

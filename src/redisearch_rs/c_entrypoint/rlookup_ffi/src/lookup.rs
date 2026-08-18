@@ -538,7 +538,9 @@ pub unsafe extern "C" fn RLookup_Cleanup(lookup: Option<NonNull<OpaqueRLookup>>)
     let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
 
     #[cfg(debug_assertions)]
-    lookup.assert_valid("RLookup_Cleanup");
+    // Key names and paths may be borrowed from pipeline steps that are destroyed before the
+    // lookup, so cleanup can only validate invariants that do not dereference borrowed data.
+    lookup.assert_structure_valid("RLookup_Cleanup");
 
     // Safety: ensured by caller (2.)
     unsafe { ptr::drop_in_place(lookup) };
