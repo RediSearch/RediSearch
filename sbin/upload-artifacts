@@ -86,7 +86,8 @@ echo "Detected PLATFORM: $PLATFORM"
 
 OP=""
 [[ $NOP == 1 ]] && OP=echo
-S3_URL=s3://redismodules
+S3_URL="${ARTIFACT_S3_BUCKET:-s3://redismodules}"
+S3_ACL="${ARTIFACT_S3_ACL-public-read}"
 
 
 if [[ -z $GITHUB_ACTIONS && $FORCE != 1 ]]; then
@@ -120,7 +121,8 @@ s3_upload_file() {
     local s3_dir="$2"
     [[ $s3_dir != */ ]] && s3_dir="${s3_dir}/"
 
-    $OP aws s3 cp "$file" "$s3_dir" --acl public-read --no-progress
+    local acl_args=(); [[ -n "$S3_ACL" ]] && acl_args=(--acl "$S3_ACL")
+    $OP aws s3 cp "$file" "$s3_dir" "${acl_args[@]}" --no-progress
 
     # Verify the file was uploaded
     local file_name=$(basename "$file")
