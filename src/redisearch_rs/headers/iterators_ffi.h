@@ -26,15 +26,12 @@ typedef struct AREQ AREQ;
 
 
 /**
- * Smart pointer handle for [`RLookupKey`] that can be
- * invalidated when the iterator that owns the key is freed.
+ * An opaque inverted index structure. The actual implementation is determined at runtime based on
+ * the index flags provided when creating the index. This allows us to have a single interface for
+ * all index types while still being able to optimize the storage and performance for each index
+ * type.
  */
-typedef struct RLookupKeyHandle RLookupKeyHandle;
-
-/**
- * Filter details to apply to numeric values
- */
-typedef struct NumericFilter NumericFilter;
+typedef struct InvertedIndex InvertedIndex;
 
 /**
  * Builder for Redis maps.
@@ -53,22 +50,9 @@ typedef struct NumericFilter NumericFilter;
 typedef struct MapBuilder MapBuilder;
 
 /**
- * A single term being evaluated at query time.
- *
- * Each term carries scoring metadata ([`idf`](RSQueryTerm::idf),
- * [`bm25_idf`](RSQueryTerm::bm25_idf)) and a unique
- * [`id`](RSQueryTerm::id) assigned during query parsing.
- *
+ * Filter details to apply to numeric values
  */
-typedef struct RSQueryTerm RSQueryTerm;
-
-/**
- * An opaque inverted index structure. The actual implementation is determined at runtime based on
- * the index flags provided when creating the index. This allows us to have a single interface for
- * all index types while still being able to optimize the storage and performance for each index
- * type.
- */
-typedef struct InvertedIndex InvertedIndex;
+typedef struct NumericFilter NumericFilter;
 
 /**
  * A numeric range tree for efficient range queries over numeric values.
@@ -107,7 +91,33 @@ typedef struct NumericRangeTree NumericRangeTree;
 
 typedef struct RLookupKey RLookupKey;
 
+/**
+ * Smart pointer handle for [`RLookupKey`] that can be
+ * invalidated when the iterator that owns the key is freed.
+ */
+typedef struct RLookupKeyHandle RLookupKeyHandle;
+
+/**
+ * A single term being evaluated at query time.
+ *
+ * Each term carries scoring metadata ([`idf`](RSQueryTerm::idf),
+ * [`bm25_idf`](RSQueryTerm::bm25_idf)) and a unique
+ * [`id`](RSQueryTerm::id) assigned during query parsing.
+ *
+ */
+typedef struct RSQueryTerm RSQueryTerm;
+
 typedef struct RedisModuleCtx RedisModuleCtx;
+
+/**
+ * Type of the C callback that frees the producer context.
+ */
+typedef void (*FreeProducerCtxFn)(void *ctx);
+
+/**
+ * Type of the C callback that runs the deferred query and returns its results.
+ */
+typedef struct VectorRangeResults (*ProduceResultsFn)(void *ctx);
 
 /**
  * Results returned by a [`ProduceResultsFn`].
@@ -136,16 +146,6 @@ typedef struct VectorRangeResults {
    */
   bool timed_out;
 } VectorRangeResults;
-
-/**
- * Type of the C callback that runs the deferred query and returns its results.
- */
-typedef struct VectorRangeResults (*ProduceResultsFn)(void *ctx);
-
-/**
- * Type of the C callback that frees the producer context.
- */
-typedef void (*FreeProducerCtxFn)(void *ctx);
 
 #ifdef __cplusplus
 extern "C" {
