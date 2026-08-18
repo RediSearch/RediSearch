@@ -266,6 +266,15 @@ def main() -> int:
 
     rows = [apply_target(ctx, work, e) for e in entries if isinstance(e, dict)]
 
+    # Every requested target must be accounted for. A target the manifest omits
+    # entirely (a truncated/empty agent output) would otherwise be a silent
+    # green no-op — surface it as an error row so it appears in the summary and
+    # fails the run.
+    covered = {r["target"] for r in rows}
+    omitted = [t for t in ctx["targets"] if t not in covered]
+    rows += [{"target": t, "status": "error", "detail": "omitted from manifest"}
+             for t in omitted]
+
     if rows and not DRY_RUN:
         comment_file = os.path.join(os.environ["RUNNER_TEMP"], "backport-summary.md")
         with open(comment_file, "w") as f:
@@ -278,7 +287,9 @@ def main() -> int:
     common.log("Auto-backport apply summary:")
     for r in rows:
         common.log(f"  {r['target']:<12} {r['status']:<14} {r['detail']}")
-    return 0
+    # Fail the run if any requested target was omitted or errored, so a partial /
+    # empty manifest isn't reported as success.
+    return 1 if any(r["status"] == "error" for r in rows) else 0
 
 
 if __name__ == "__main__":
