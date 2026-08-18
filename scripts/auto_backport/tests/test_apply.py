@@ -49,8 +49,8 @@ class ApplyCreateTargetTests(unittest.TestCase):
 
         def fake_git(work, *args, check=True):
             self.git_calls.append(args)
-            if args[0] == "rev-parse":       # branch exists
-                return _cp(0)
+            if args[0] == "rev-parse":       # branch exists / tip SHA
+                return _cp(0, stdout="deadbeef")
             if args[0] == "ls-remote":       # target exists
                 return _cp(0)
             if args[0] == "push":
@@ -120,8 +120,13 @@ class ApplyCreateTargetTests(unittest.TestCase):
             self.ctx, "/w",
             {"target": "8.6", "branch": "backport-agent/pr-8774-to-8.6", "status": "clean"})
         self.assertEqual(row["status"], "error")
-        self.assertTrue(any(a[0] == "push" and "--delete" in a for a in self.git_calls),
-                        f"expected a delete push, got {self.git_calls}")
+        # Delete must be leased to the pushed SHA (won't drop a concurrent update).
+        self.assertTrue(
+            any(a[0] == "push"
+                and any(x.startswith("--force-with-lease=") for x in a)
+                and any(x == ":refs/heads/backport-agent/pr-8774-to-8.6" for x in a)
+                for a in self.git_calls),
+            f"expected a leased delete push, got {self.git_calls}")
 
     def test_existing_pr_is_not_reopened(self):
         common.gh = lambda *a, **k: ("OPEN https://github.com/x/y/pull/1"
