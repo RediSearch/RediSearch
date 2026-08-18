@@ -389,6 +389,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "Suffix_IterateContains",
             "Suffix_IterateWildcard",
             "addSuffixTrie",
+            "deleteSuffixTrie",
             "suffixTrie_freeCallback",
         ],
         types: &["SuffixCtx", "SuffixType"],
@@ -417,8 +418,10 @@ const HEADERS: &[HeaderAllowlist] = &[
         fns: &[
             "NewTrie",
             "Trie_DecrementNumDocs",
+            "Trie_Delete",
             "Trie_GetNode",
             "Trie_InsertStringBuffer",
+            "Trie_IterateAll",
             "Trie_IterateContains",
             "Trie_IterateFuzzy",
             "Trie_IterateWildcard",
