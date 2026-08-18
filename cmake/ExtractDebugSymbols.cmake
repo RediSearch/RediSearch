@@ -22,7 +22,10 @@ function(extract_debug_symbols target)
     cmake_parse_arguments(ARG "" "FILE" "" ${ARGN})
 
     # Debug keeps DWARF inline for local debugging; only optimized builds ship.
-    if(APPLE OR NOT CMAKE_BUILD_TYPE MATCHES "^(Release|RelWithDebInfo)$")
+    # CMake selects the per-config flags case-insensitively, so match that way too:
+    # `release` gets -O3 -DNDEBUG just like `Release` and must be stripped as well.
+    string(TOUPPER "${CMAKE_BUILD_TYPE}" build_type)
+    if(APPLE OR NOT build_type MATCHES "^(RELEASE|RELWITHDEBINFO)$")
         return()
     endif()
 
