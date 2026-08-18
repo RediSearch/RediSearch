@@ -91,7 +91,6 @@ size_t bench_c_hybrid(VecSimIndex *index, const void *query_vec, size_t dim, siz
       .vectorScoreField = (char *)"__v_score",
       .canTrimDeepResults = true,
       .childIt = child,
-      .timeout = {0, 0},
       .filterCtx = &filterCtx,
   };
 

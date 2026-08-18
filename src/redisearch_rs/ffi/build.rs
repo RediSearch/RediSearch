@@ -490,12 +490,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         types: &[],
         vars: &[],
     },
-    // `vector_score_source` owns a `TimeoutCtx` (carrying an absolute
-    // `timespec` deadline) that it hands to VecSim as the timeout context.
+    // `vector_score_source` owns a `VecSimTimeoutCtx` that points to the request-owned
+    // `QueryRequestTimeout` and hands the adapter context to VecSim.
     HeaderAllowlist {
         path: "src/util/timeout.h",
         fns: &[],
-        types: &["TimeoutCtx", "timespec"],
+        types: &["VecSimTimeoutCtx", "QueryRequestTimeout"],
         vars: &[],
     },
     // `VecSimSearchMode` (+ `_ToString`) labels the top-k query strategy

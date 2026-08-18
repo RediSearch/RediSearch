@@ -171,11 +171,11 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryReply_Iterator *ve
 
 // Global timeout callback for VecSim searches.
 // Need the redirection so tests can pass a mock function to test timeout behavior.
-int (*vecsimTimeoutCallback)(TimeoutCtx *ctx) = TimedOut_WithCtx;
+int (*vecsimTimeoutCallback)(VecSimTimeoutCtx *ctx) = VecSim_TimedOut;
 
 // Non-inline wrapper called from Rust's VectorScoreSource::adhoc_strategy so the
 // test-mockable vecsimTimeoutCallback indirection is honored on the adhoc-BF path.
-int RS_VecSimCheckTimeout(TimeoutCtx *ctx) {
+int RS_VecSimCheckTimeout(VecSimTimeoutCtx *ctx) {
   return vecsimTimeoutCallback(ctx);
 }
 
@@ -480,7 +480,7 @@ static IteratorStatus HR_ReadHybridUnsorted(QueryIterator *ctx) {
   IteratorStatus rc;
   do {
     rc = HR_ReadHybridUnsortedSingle(hr);
-    if (TimedOut_WithCtx(&hr->timeoutCtx)) {
+    if (VecSim_TimedOut(&hr->timeoutCtx)) {
       return ITERATOR_TIMEOUT;
     }
   } while (rc == ITERATOR_NOTFOUND);
@@ -521,7 +521,7 @@ static IteratorStatus HR_ReadKnnUnsorted(QueryIterator *ctx) {
   IteratorStatus rc;
   do {
     rc = HR_ReadKnnUnsortedSingle(hr);
-    if (TimedOut_WithCtx(&hr->timeoutCtx)) {
+    if (VecSim_TimedOut(&hr->timeoutCtx)) {
       return ITERATOR_TIMEOUT;
     }
   } while (rc == ITERATOR_NOTFOUND);
@@ -652,11 +652,8 @@ QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   hi->maxBatchSize = 0;
   hi->maxBatchIteration = 0;
   hi->canTrimDeepResults = hParams.canTrimDeepResults;
-  bool checkClockTimeout = hParams.sctx->timeout &&
-                           hParams.sctx->timeout->kind ==
-                               QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
-  hi->timeoutCtx = (TimeoutCtx){ .timeout = hParams.timeout,
-                                 .counter = checkClockTimeout ? 0 : REDISEARCH_UNINITIALIZED };
+  hi->timeoutCtx = (VecSimTimeoutCtx){ .timeout = hParams.sctx ? hParams.sctx->timeout : NULL,
+                                       .counter = 0 };
   hi->runtimeParams.timeoutCtx = &hi->timeoutCtx;
   hi->sctx = hParams.sctx;
   hi->filterCtx = *hParams.filterCtx;

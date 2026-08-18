@@ -16,8 +16,8 @@ use std::{
 };
 
 use ffi::{
-    RLookupKeyHandle, RS_VecSimCheckTimeout, TimeoutCtx, VecSearchMode,
-    VecSearchMode_HYBRID_BATCHES, VecSimIndex, VecSimQueryParams, timespec,
+    QueryRequestTimeout, RLookupKeyHandle, RS_VecSimCheckTimeout, VecSimTimeoutCtx, VecSearchMode,
+    VecSearchMode_HYBRID_BATCHES, VecSimIndex, VecSimQueryParams,
 };
 use index_result::RSIndexResult;
 use rlookup::RLookupKey;
@@ -69,7 +69,7 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker> {
     k: usize,
     /// Heap-allocated timeout context passed to VecSim as a `*mut c_void`.
     /// Boxed so the pointer remains stable even if `VectorScoreSource` is moved.
-    timeout_ctx: Box<TimeoutCtx>,
+    timeout_ctx: Box<VecSimTimeoutCtx>,
     /// Adhoc-BF path selection and scan-scoped state.
     adhoc_state: AdhocPathState<'index>,
     /// Whether the disk adhoc-BF scan should rescore its top-k with exact
@@ -149,9 +149,8 @@ unsafe impl<E: ExpirationChecker + Send> Send for VectorScoreSource<'_, E> {}
 impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
     /// Create a new `VectorScoreSource`.
     ///
-    /// `timeout` is the query deadline as an absolute `timespec`.
-    /// When `skip_timeout_checks` is true, the VecSim periodic counter check is
-    /// disabled (`REDISEARCH_UNINITIALIZED`).
+    /// `timeout` points to the request-owned timeout state. A null pointer disables
+    /// timeout checks for standalone users that do not have a query request.
     ///
     /// # Safety
     ///
@@ -160,14 +159,14 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
     /// 2. `query_vector` must satisfy the [`QueryVector`] length invariant for
     ///    `index`, which VecSim reads in full on every query path (a shorter
     ///    blob is read out of bounds).
+    /// 3. If non-null, `timeout` must remain valid for the returned source's lifetime.
     #[expect(clippy::too_many_arguments)]
     pub unsafe fn new(
         index: NonNull<VecSimIndex>,
         query_vector: Vec<u8>,
         query_params: VecSimQueryParams,
         k: usize,
-        timeout: timespec,
-        skip_timeout_checks: bool,
+        timeout: *const QueryRequestTimeout,
         child_num_estimated: usize,
         fixed_batch_size: usize,
         expiration: E,
@@ -192,10 +191,9 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
             query_vector,
             query_params,
             k,
-            timeout_ctx: Box::new(TimeoutCtx {
+            timeout_ctx: Box::new(VecSimTimeoutCtx {
                 timeout,
-                // u32::MAX ≡ REDISEARCH_UNINITIALIZED = (uint32_t)(-1)
-                counter: if skip_timeout_checks { u32::MAX } else { 0 },
+                counter: 0,
             }),
             adhoc_state,
             should_rerank,
@@ -214,10 +212,10 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
         }
     }
 
-    /// Return a `*mut c_void` pointing to the owned [`TimeoutCtx`],
+    /// Return a `*mut c_void` pointing to the owned [`VecSimTimeoutCtx`],
     /// suitable for assignment to [`VecSimQueryParams::timeoutCtx`].
     fn timeout_ctx_ptr(&mut self) -> *mut c_void {
-        self.timeout_ctx.as_mut() as *mut TimeoutCtx as *mut c_void
+        self.timeout_ctx.as_mut() as *mut VecSimTimeoutCtx as *mut c_void
     }
 
     /// Return the number of vectors currently in the index.
@@ -515,8 +513,8 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
         // SAFETY: `as_mut()` gives a valid, exclusive borrow for the call; the
         // source is single-threaded so no other access to the aliased raw
         // pointer in `query_params.timeoutCtx` is live during the call. The
-        // callee reads the deadline and bumps the counter without retaining the
-        // pointer.
+        // callee checks the request timeout and updates the adapter counter without
+        // retaining the pointer.
         let timeout = unsafe { RS_VecSimCheckTimeout(self.timeout_ctx.as_mut()) };
         if timeout != 0 {
             return Err(RQEIteratorError::TimedOut);

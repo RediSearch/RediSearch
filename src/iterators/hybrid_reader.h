@@ -24,7 +24,6 @@ typedef struct {
   char *vectorScoreField;
   bool canTrimDeepResults; // If true, no need to deep copy the results before adding them to the heap.
   QueryIterator *childIt;
-  struct timespec timeout;
   const FieldFilterContext* filterCtx;
 } HybridIteratorParams;
 
@@ -53,7 +52,7 @@ typedef struct {
   size_t maxBatchIteration;        // Iteration (zero-based) where the maximum batch size occurred
   bool canTrimDeepResults;         // Ignore the document scores, only vector score matters. No need to deep copy the results from the child iterator.
   bool checkFieldExpiration;       // Hoisted gate; refreshed in HR_Revalidate.
-  TimeoutCtx timeoutCtx;           // Timeout parameters
+  VecSimTimeoutCtx timeoutCtx;     // Timeout parameters
   FieldFilterContext filterCtx;
 } HybridIterator;
 
@@ -65,7 +64,7 @@ QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
 
 // Routes the Rust adhoc-BF scan through the swappable `vecsimTimeoutCallback`
 // so FT.DEBUG VECSIM_MOCK_TIMEOUT can override its timeout behavior.
-int RS_VecSimCheckTimeout(TimeoutCtx *ctx);
+int RS_VecSimCheckTimeout(VecSimTimeoutCtx *ctx);
 
 RLookupKey    **HybridIterator_GetOwnKeyRef(QueryIterator *it);
 void            HybridIterator_SetKeyHandle(QueryIterator *it, struct RLookupKeyHandle *h);

@@ -139,7 +139,7 @@ typedef struct {
   // reply is in use: a tiered index defers part of the search (and its timeout checks) to the
   // reply iteration, so a stack-local would dangle by then. Stored here so it lives until the
   // whole producer context is freed (after the reply is drained).
-  TimeoutCtx timeoutCtx;
+  VecSimTimeoutCtx timeoutCtx;
 } VectorRangeProducerCtx;
 
 // Runs the deferred vector range query. On timeout, frees the reply, marks `out` and returns NULL;
@@ -186,12 +186,12 @@ static void vectorRangeFreeCtx(void *ctxp) {
 // Builds a lazily-evaluated vector range iterator from already-resolved query parameters. Shared
 // by NewVectorIterator's range branch and by unit tests, so both drive the same deferred path
 // (the query runs on the iterator's first read, after the spec lock is released; see MOD-16437).
-// `vector` is borrowed and must outlive the iterator; `timeout` is the query deadline (monotonic
-// clock). Ownership of the freshly-allocated context transfers to the returned iterator.
+// `vector` and `timeout` are borrowed and must outlive the iterator. Ownership of the
+// freshly-allocated context transfers to the returned iterator.
 QueryIterator *NewLazyVectorRangeIteratorFromParams(VecSimIndex *vecsim, const void *vector,
                                                     double radius, VecSimQueryParams qParams,
                                                     VecSimQueryReply_Order order, bool yields_metric,
-                                                    struct timespec timeout) {
+                                                    const QueryRequestTimeout *timeout) {
   VectorRangeProducerCtx *ctx = rm_malloc(sizeof(*ctx));
   *ctx = (VectorRangeProducerCtx){
       .vecsim = vecsim,
@@ -214,17 +214,6 @@ static bool VectorQuery_HasParam(const VectorQuery *vq, const char *param_name, 
     }
   }
   return false;
-}
-
-static struct timespec VectorQuery_GetTransitionalDeadline(const QueryEvalCtx *q) {
-  const QueryRequestTimeout *timeout = q->sctx->timeout;
-  if (timeout && timeout->kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE) {
-    return *QueryRequestTimeout_GetClockDeadline(timeout);
-  }
-
-  // Vector APIs still require a timespec. Until they use the generic timeout API, a
-  // blocked-client or unarmed cycle must not produce a clock-based timeout.
-  return (struct timespec){.tv_sec = INT64_MAX, .tv_nsec = 0};
 }
 
 static int VectorQuery_ValidateDiskHybridPolicy(const QueryEvalCtx *q, const VectorQuery *vq,
@@ -295,7 +284,6 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
                                       .vectorScoreField = vq->scoreField,
                                       .canTrimDeepResults = q->opts->flags & Search_CanSkipRichResults,
                                       .childIt = child_it,
-                                      .timeout = VectorQuery_GetTransitionalDeadline(q),
                                       .sctx = q->sctx,
                                       .filterCtx = &filterCtx,
       };
@@ -326,7 +314,7 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
       return NewLazyVectorRangeIteratorFromParams(vecsim, vq->range.vector, vq->range.radius,
                                                   qParams, vq->range.order,
                                                   /*yields_metric=*/vq->scoreField != NULL,
-                                                  VectorQuery_GetTransitionalDeadline(q));
+                                                  q->sctx->timeout);
     }
   }
   return NULL;

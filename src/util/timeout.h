@@ -9,6 +9,7 @@
 #pragma once
 
 #include <time.h>
+#include "query_request.h"
 #include "redisearch.h"
 #include "version.h"
 
@@ -62,12 +63,13 @@ static inline void rs_timerremaining(struct timespec *a, struct timespec *b, str
 #define NOT_TIMED_OUT 0
 #define TIMED_OUT 1
 
-#define TIMEOUT_COUNTER_LIMIT 100
+#define TIMEOUT_COUNTER_LIMIT QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT
 
-typedef struct TimeoutCtx {
-  struct timespec timeout;
+typedef struct VecSimTimeoutCtx {
+  // Borrowed for the lifetime of every VecSim operation that receives this adapter.
+  const QueryRequestTimeout *timeout;
   uint32_t counter;
-} TimeoutCtx;
+} VecSimTimeoutCtx;
 
 static inline int TimedOut(const struct timespec *timeout) {
   static struct timespec now;
@@ -78,15 +80,11 @@ static inline int TimedOut(const struct timespec *timeout) {
   return NOT_TIMED_OUT;
 }
 
-// Check if time has been reached (run once every TIMEOUT_COUNTER_LIMIT calls)
-static inline int TimedOut_WithCtx(TimeoutCtx *ctx) {
+// VecSim timeout callback adapter. The request timeout owns the active source and decides how it
+// is checked; its counter-aware API amortizes clock reads without delaying blocked-client checks.
+static inline int VecSim_TimedOut(VecSimTimeoutCtx *ctx) {
   if (RS_IsMock) return NOT_TIMED_OUT;
-
-  if (ctx->counter != REDISEARCH_UNINITIALIZED && ++ctx->counter == TIMEOUT_COUNTER_LIMIT) {
-    ctx->counter = 0;
-    return TimedOut(&ctx->timeout);
-  }
-  return NOT_TIMED_OUT;
+  return ctx->timeout && QueryRequestTimeout_IsTimedOutWithCounter(ctx->timeout, &ctx->counter);
 }
 
 #ifdef __cplusplus
