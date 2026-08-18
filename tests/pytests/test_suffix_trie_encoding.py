@@ -42,6 +42,9 @@ contains/suffix queries):
 ASTRAL = '\U0001F600'
 # The rune the suffix trie actually stores for ASTRAL: the low 16 bits.
 BMP_TWIN = chr(0xF600)
+# U+1F601. Astral like ASTRAL, but its low 16 bits differ, so the two terms
+# below truncate to distinct rune keys.
+ASTRAL_NEAR_MISS = '\U0001F601'
 
 # 300 runes of plain ASCII: past the 256-rune insert gate, well under the
 # 512-byte one, so the rune gate is the only thing that fires.
@@ -134,12 +137,17 @@ def testWildcardSkipsAstralCandidates(env):
 # term and returns early if it does. The check cannot distinguish two terms
 # that truncate to the same runes.
 
-def testTwoTermsShareSuffixNodeWithoutCollision(env):
+def testNearMissRuneKeysStoreBothTerms(env):
     create_index(env)
-    add_doc(env, 'doc_a', 'zqay')
-    add_doc(env, 'doc_b', 'zqby')
-    # Baseline: distinct rune keys, so both terms are stored and a shared
-    # suffix node reports both documents.
+    add_doc(env, 'doc_a', 'zq' + ASTRAL)
+    add_doc(env, 'doc_b', 'zq' + ASTRAL_NEAR_MISS)
+    # Control for the collapse below: same encoding path, same truncation, rune
+    # keys apart in the low 16 bits alone. Both terms are stored and the shared
+    # node answers with both documents, so it is rune-key equality that
+    # collapses the pair, not the mere presence of a supplementary codepoint.
+    # The shared part is two ASCII bytes because a single-byte pattern is
+    # refused before it reaches the trie -- see
+    # testMinimumPatternLengthCountsBytesNotCharacters.
     env.assertEqual(ids(env, '*zq*'), ['doc_a', 'doc_b'])
 
 def testRuneCollisionDropsSecondTerm(env):
