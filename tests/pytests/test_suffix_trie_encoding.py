@@ -259,12 +259,15 @@ def testMinimumPatternLengthCountsBytesNotCharacters(env):
 # ================= RDB RELOAD (RE-INDEXING) =========================
 # The suffix trie is not serialized: it is rebuilt from the documents by the
 # same indexing path that filled it originally. What survives a reload is
-# therefore whatever that path is deterministic about.
+# therefore whatever that path is deterministic about. That rebuild runs on a
+# background scan thread, so a reload is only observable once the index reports
+# it has finished indexing.
 
 def testGatesReproduceAcrossReload(env):
     create_index(env)
     add_doc(env, 'doc1', LONG)
     env.dumpAndReload()
+    waitForIndex(env, 'idx')
     env.assertEqual(num_results(env, '*' + LONG[-10:]), 1)
     env.assertEqual(num_results(env, '*' + LONG[-256:]), 0)
     env.assertEqual(num_results(env, '*' + LONG), 1)
@@ -274,6 +277,7 @@ def testCollisionSurvivesReloadWithoutAgreeingOnAWinner(env):
     add_doc(env, 'doc_bmp', 'x' + BMP_TWIN + 'y')
     add_doc(env, 'doc_astral', 'x' + ASTRAL + 'y')
     env.dumpAndReload()
+    waitForIndex(env, 'idx')
     # Documents are re-indexed in keyspace order, which is not the order they
     # were added in, so which term wins the collision is not pinned here --
     # only that one of them does, and that both queries agree on it.
