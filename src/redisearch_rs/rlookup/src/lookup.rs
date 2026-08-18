@@ -98,6 +98,13 @@ impl<'a> RLookup<'a> {
         self.keys.assert_valid(ctx);
     }
 
+    /// Asserts invariants without dereferencing data borrowed by lookup keys.
+    #[track_caller]
+    #[cfg(any(debug_assertions, test))]
+    pub fn assert_structure_valid(&self, ctx: &str) {
+        self.keys.assert_structure_valid(ctx);
+    }
+
     /// Seal this lookup: from now on it is **append-only** (see the
     /// [type-level docs](Self#sealing)). Idempotent.
     ///

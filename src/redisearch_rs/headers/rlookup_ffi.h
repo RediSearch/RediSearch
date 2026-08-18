@@ -10,10 +10,14 @@
 #include "search_result_rs.h"
 #include "rlookup.h"
 
+typedef struct QueryError QueryError;
+
 /**
  * The C version of a [`SharedValue`](value::SharedValue)
  */
 typedef struct RSValue RSValue;
+
+typedef struct RedisModuleKey RedisModuleKey;
 
 /**
  * SearchResult - the object all the processing chain is working on.
@@ -22,9 +26,40 @@ typedef struct RSValue RSValue;
  */
 typedef struct SearchResult SearchResult;
 
-typedef struct RedisModuleKey RedisModuleKey;
+typedef struct LoadAllKeysOptions {
+  RedisSearchCtx *sctx;
+  const RSDocumentMetadata *dmd;
+  bool force_string;
+  struct QueryError *status;
+} LoadAllKeysOptions;
 
-typedef struct QueryError QueryError;
+typedef struct LoadIndividualKeysOptions {
+  RedisSearchCtx *sctx;
+  const RSDocumentMetadata *dmd;
+  /**
+   * Explicit list of keys to load. If `nkeys == 0`, every loadable schema
+   * key in the lookup is considered (subject to `force_load` / `cached_only`).
+   */
+  const RLookupKey *const *keys;
+  size_t nkeys;
+  bool force_string;
+  bool force_load;
+  bool cached_only;
+  struct QueryError *status;
+  /**
+   * Optional per-key profiling buffer, `nkeys` entries long, for the
+   * `FT.PROFILE ... LOAD` path. Null when profiling is not requested.
+   */
+  struct LoadFieldProfile *profile_fields;
+} LoadIndividualKeysOptions;
+
+/**
+ * An iterator over the keys in an `RLookup`, returning immutable pointers.
+ */
+typedef struct RLookupIterator {
+  const RLookupKey *const *current;
+  size_t remaining;
+} RLookupIterator;
 
 /**
  * [`RSSortingVector`] acts as a cache for sortable fields in a document.
@@ -68,41 +103,6 @@ typedef struct RSSortingVectorSlice {
    */
   size_t len;
 } RSSortingVectorSlice;
-
-typedef struct LoadAllKeysOptions {
-  RedisSearchCtx *sctx;
-  const RSDocumentMetadata *dmd;
-  bool force_string;
-  struct QueryError *status;
-} LoadAllKeysOptions;
-
-typedef struct LoadIndividualKeysOptions {
-  RedisSearchCtx *sctx;
-  const RSDocumentMetadata *dmd;
-  /**
-   * Explicit list of keys to load. If `nkeys == 0`, every loadable schema
-   * key in the lookup is considered (subject to `force_load` / `cached_only`).
-   */
-  const RLookupKey *const *keys;
-  size_t nkeys;
-  bool force_string;
-  bool force_load;
-  bool cached_only;
-  struct QueryError *status;
-  /**
-   * Optional per-key profiling buffer, `nkeys` entries long, for the
-   * `FT.PROFILE ... LOAD` path. Null when profiling is not requested.
-   */
-  struct LoadFieldProfile *profile_fields;
-} LoadIndividualKeysOptions;
-
-/**
- * An iterator over the keys in an `RLookup`, returning immutable pointers.
- */
-typedef struct RLookupIterator {
-  const RLookupKey *const *current;
-  size_t remaining;
-} RLookupIterator;
 
 #ifdef __cplusplus
 extern "C" {

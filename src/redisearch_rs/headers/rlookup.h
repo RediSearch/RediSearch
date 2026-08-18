@@ -116,18 +116,6 @@ typedef uint32_t RLookup_Opt;
 #endif // __cplusplus
 
 /**
- * Row data for a lookup key. This abstracts the question of if the data comes from a borrowed sorting vector slice
- * or from dynamic values stored in the row during processing.
- *
- * The C-visible layout comes from the `OpaqueRLookupRow` wrapper (which is
- * `#[repr(C, align(8))]` and `#[cheadergen::config(rename = "RLookupRow")]`).
- * Force this internal type to opaque so cheadergen does not warn about it
- * being reached by value through `SearchResult._row_data` — both names emit
- * to the same C tag, and the wrapper provides the actual layout.
- */
-typedef struct RLookupRow RLookupRow;
-
-/**
  * An append-only list of [`RLookupKey`]s.
  *
  * This type maintains a list of [`RLookupKey`]s addressable by string name.
@@ -145,92 +133,17 @@ typedef struct RLookupRow RLookupRow;
  */
 typedef struct RLookup RLookup;
 
-#ifndef SIZE_24_DEFINED
-#define SIZE_24_DEFINED
 /**
- * A type with size `N`.
- */
-typedef uint8_t Size_24[24];
-#endif /* SIZE_24_DEFINED */
-
-#ifndef SIZE_32_DEFINED
-#define SIZE_32_DEFINED
-/**
- * A type with size `N`.
- */
-typedef uint8_t Size_32[32];
-#endif /* SIZE_32_DEFINED */
-
-/**
- * Smart pointer handle for [`RLookupKey`] that can be
- * invalidated when the iterator that owns the key is freed.
- */
-typedef struct RLookupKeyHandle {
-  /**
-   * Pointer to the [`RLookupKey`] pointer field inside
-   * the owning iterator.
-   */
-  RLookupKey * *key_ptr;
-  /**
-   * Whether the owning iterator is still alive. Set to `true` on
-   * creation and cleared to `false` when the iterator is freed.
-   */
-  bool is_valid;
-} RLookupKeyHandle;
-
-/**
- * A deferred binding between a metric name produced during query parsing
- * and the [`RLookupKey`] that will be resolved during
- * pipeline construction.
- */
-typedef struct MetricRequest {
-  /**
-   * The name of the metric field to register in the
-   * [`RLookup`] table (e.g. `"__vec_score"`).
-   */
-  const char *metric_name;
-  /**
-   * Optional handle back to the iterator's
-   * [`RLookupKey`] slot. `NULL` when the iterator
-   * that requested this metric was not created (e.g. an early
-   * empty-result short-circuit).
-   */
-  struct RLookupKeyHandle *key_handle;
-  /**
-   * When `true`, the metric is excluded from the query response
-   * (the corresponding [`RLookupKey`] is created
-   * with the `HIDDEN` flag).
-   */
-  bool isInternal;
-} MetricRequest;
-
-/**
- * Per-key load profiling counters, one entry per explicit `LOAD` key.
+ * Row data for a lookup key. This abstracts the question of if the data comes from a borrowed sorting vector slice
+ * or from dynamic values stored in the row during processing.
  *
- * Populated by [`load_specific_keys`] when profiling is requested,
- * read back by the `FT.PROFILE` reply in `result_processor.c`.
- * The array is allocated and owned by C.
+ * The C-visible layout comes from the `OpaqueRLookupRow` wrapper (which is
+ * `#[repr(C, align(8))]` and `#[cheadergen::config(rename = "RLookupRow")]`).
+ * Force this internal type to opaque so cheadergen does not warn about it
+ * being reached by value through `SearchResult._row_data` — both names emit
+ * to the same C tag, and the wrapper provides the actual layout.
  */
-typedef struct LoadFieldProfile {
-  /**
-   * Accumulated wall-clock time spent loading this field, in nanoseconds.
-   */
-  uint64_t load_time_ns;
-  /**
-   * Number of times this field was loaded.
-   */
-  uint64_t load_count;
-} LoadFieldProfile;
-
-/**
- * An opaque lookup row which can be passed by value to C.
- *
- * The size and alignment of this struct must match the Rust `RLookupRow`
- * structure exactly.
- */
-typedef struct CHEADERGEN_ALIGNED(8) RLookupRow {
-  Size_24 m0;
-} RLookupRow;
+typedef struct RLookupRow RLookupRow;
 
 #ifndef BITFLAGS_RLOOKUPKEYFLAG__U32_DEFINED
 #define BITFLAGS_RLOOKUPKEYFLAG__U32_DEFINED
@@ -351,6 +264,50 @@ typedef uint32_t BitFlags_RLookupKeyFlag__u32;
 #endif /* BITFLAGS_RLOOKUPKEYFLAG__U32_DEFINED */
 
 /**
+ * Per-key load profiling counters, one entry per explicit `LOAD` key.
+ *
+ * Populated by [`load_specific_keys`] when profiling is requested,
+ * read back by the `FT.PROFILE` reply in `result_processor.c`.
+ * The array is allocated and owned by C.
+ */
+typedef struct LoadFieldProfile {
+  /**
+   * Accumulated wall-clock time spent loading this field, in nanoseconds.
+   */
+  uint64_t load_time_ns;
+  /**
+   * Number of times this field was loaded.
+   */
+  uint64_t load_count;
+} LoadFieldProfile;
+
+/**
+ * A deferred binding between a metric name produced during query parsing
+ * and the [`RLookupKey`] that will be resolved during
+ * pipeline construction.
+ */
+typedef struct MetricRequest {
+  /**
+   * The name of the metric field to register in the
+   * [`RLookup`] table (e.g. `"__vec_score"`).
+   */
+  const char *metric_name;
+  /**
+   * Optional handle back to the iterator's
+   * [`RLookupKey`] slot. `NULL` when the iterator
+   * that requested this metric was not created (e.g. an early
+   * empty-result short-circuit).
+   */
+  struct RLookupKeyHandle *key_handle;
+  /**
+   * When `true`, the metric is excluded from the query response
+   * (the corresponding [`RLookupKey`] is created
+   * with the `HIDDEN` flag).
+   */
+  bool isInternal;
+} MetricRequest;
+
+/**
  * Helper type to represent a set of [`RLookupKeyFlag`]s.
  */
 typedef BitFlags_RLookupKeyFlag__u32 RLookupKeyFlags;
@@ -388,6 +345,49 @@ typedef struct RLookupKey {
    */
   size_t name_len;
 } RLookupKey;
+
+/**
+ * Smart pointer handle for [`RLookupKey`] that can be
+ * invalidated when the iterator that owns the key is freed.
+ */
+typedef struct RLookupKeyHandle {
+  /**
+   * Pointer to the [`RLookupKey`] pointer field inside
+   * the owning iterator.
+   */
+  RLookupKey * *key_ptr;
+  /**
+   * Whether the owning iterator is still alive. Set to `true` on
+   * creation and cleared to `false` when the iterator is freed.
+   */
+  bool is_valid;
+} RLookupKeyHandle;
+
+#ifndef SIZE_24_DEFINED
+#define SIZE_24_DEFINED
+/**
+ * A type with size `N`.
+ */
+typedef uint8_t Size_24[24];
+#endif /* SIZE_24_DEFINED */
+
+/**
+ * An opaque lookup row which can be passed by value to C.
+ *
+ * The size and alignment of this struct must match the Rust `RLookupRow`
+ * structure exactly.
+ */
+typedef struct CHEADERGEN_ALIGNED(8) RLookupRow {
+  Size_24 m0;
+} RLookupRow;
+
+#ifndef SIZE_32_DEFINED
+#define SIZE_32_DEFINED
+/**
+ * A type with size `N`.
+ */
+typedef uint8_t Size_32[32];
+#endif /* SIZE_32_DEFINED */
 
 /**
  * An opaque lookup which can be passed by value to C.
