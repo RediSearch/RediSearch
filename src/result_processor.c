@@ -137,11 +137,11 @@ static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx 
 }
 
 /**
- * Refill the IndexResult buffer from the iterator.
- * Fills up to current capacity, doesn't grow the buffer.
+ * Refill the IndexResult queue from the iterator.
+ * Fills up to current capacity, doesn't grow the queue.
  * Returns RS_RESULT_OK on success, RS_RESULT_TIMEDOUT on timeout.
  */
-static int refillBufferUsingIterator(RPQueryIterator *self) {
+static int refillQueueUsingIterator(RPQueryIterator *self) {
   QueryIterator *it = self->iterator;
   RedisSearchCtx *sctx = self->sctx;
   IndexSpec *spec = sctx->spec;
@@ -151,8 +151,8 @@ static int refillBufferUsingIterator(RPQueryIterator *self) {
     return RS_RESULT_OK;
   }
 
-  // Fill buffer up to max capacity
-  while (self->async.iteratorResultCount < self->async.bufferSize && !it->atEOF) {
+  // Fill the queue up to max capacity
+  while (self->async.iteratorResultCount < self->async.queueSize && !it->atEOF) {
     if (TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
       return RS_RESULT_TIMEDOUT;
     }
@@ -409,13 +409,13 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
       self->async.lastReturnedIndexResult = NULL;
     }
 
-    // Step 1: Refill IndexResult buffer if needed (cheap iterator reads)
-    int refillResult = refillBufferUsingIterator(self);
+    // Step 1: Refill the IndexResult queue if needed (cheap iterator reads)
+    int refillResult = refillQueueUsingIterator(self);
     if (refillResult == RS_RESULT_TIMEDOUT) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
 
-    // Step 1b: Submit any buffered results to async pool (keep pipeline full)
+    // Step 1b: Submit any queued results to async pool (keep pipeline full)
     const uint16_t submitted = IndexResultAsyncRead_RefillPool(&self->async);
 
     // Step 2: Try to serve a ready result if we have one
@@ -490,12 +490,14 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
   ret->firstRead = true;
 #endif
 
-  // Read once so the pool and the buffer feeding it cannot disagree if the config
-  // changes mid-query. Bounded by DISK_ASYNC_READ_POOL_SIZE_MAX at registration.
+  // Read both once so the pool and the queue feeding it cannot disagree if the config
+  // changes mid-query. Both bounds are enforced at registration, and the factor's minimum
+  // of 1 is what keeps the queue at least as deep as the pool.
   const uint16_t asyncPoolSize = (uint16_t)RSGlobalConfig.diskAsyncReadPoolSize;
+  const uint16_t asyncQueueSize = asyncPoolSize * (uint16_t)RSGlobalConfig.diskAsyncReadQueueFactor;
 
   // Initialize async read state
-  IndexResultAsyncRead_Init(&ret->async, asyncPoolSize, asyncPoolSize);
+  IndexResultAsyncRead_Init(&ret->async, asyncPoolSize, asyncQueueSize);
 
   // Determine which Next function to use based on disk configuration
   if (sctx->spec->diskSpec &&
