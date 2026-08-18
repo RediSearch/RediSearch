@@ -13,6 +13,7 @@ use ffi::{QueryEvalCtx, RedisSearchCtx, SchemaRule};
 use field::FieldMaskOrIndex;
 use numeric_range_tree::NumericRangeTree;
 use rqe_core::DocId;
+use trie_rs::TrieMapOpaque;
 
 /// Mock search context creating fake objects for testing.
 /// It can be used to test expiration but not validation.
@@ -29,7 +30,7 @@ pub struct MockContext {
     sctx: *mut RedisSearchCtx,
     qctx: *mut QueryEvalCtx,
     numeric_range_tree: *mut NumericRangeTree,
-    tag_index: *mut ffi::TagIndex,
+    tag_trie: *mut TrieMapOpaque,
 }
 
 impl Drop for MockContext {
@@ -64,8 +65,8 @@ impl Drop for MockContext {
             );
             let _ = Box::from_raw(self.numeric_range_tree);
             std::alloc::dealloc(
-                self.tag_index as *mut u8,
-                std::alloc::Layout::new::<ffi::TagIndex>(),
+                self.tag_trie as *mut u8,
+                std::alloc::Layout::new::<TrieMapOpaque>(),
             );
         }
     }
@@ -84,11 +85,14 @@ impl MockContext {
         let sctx_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<RedisSearchCtx>() }));
         let qctx_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<QueryEvalCtx>() }));
         let numeric_range_tree_ptr = Box::into_raw(Box::new(NumericRangeTree::new(false)));
-        // SAFETY: TagIndex is a C struct where all-zeros is a valid representation.
-        let tag_index_ptr: *mut ffi::TagIndex = unsafe {
-            let ptr = std::alloc::alloc_zeroed(std::alloc::Layout::new::<ffi::TagIndex>());
+        // Allocated raw rather than boxed for the same reason as the structs
+        // above: library code derives shared references from these pointers.
+        let tag_trie_ptr: *mut TrieMapOpaque = unsafe {
+            let ptr = std::alloc::alloc(std::alloc::Layout::new::<TrieMapOpaque>());
             assert!(!ptr.is_null(), "allocation failed");
-            ptr.cast()
+            let ptr: *mut TrieMapOpaque = ptr.cast();
+            ptr.write(TrieMapOpaque(trie_rs::TrieMap::new()));
+            ptr
         };
 
         // Initialize all structs through raw pointers
@@ -126,7 +130,7 @@ impl MockContext {
                 sctx: sctx_ptr,
                 qctx: qctx_ptr,
                 numeric_range_tree: numeric_range_tree_ptr,
-                tag_index: tag_index_ptr,
+                tag_trie: tag_trie_ptr,
             }
         }
     }
@@ -178,9 +182,13 @@ impl MockContext {
         NonNull::new(self.qctx).expect("QueryEvalCtx should not be null")
     }
 
-    /// Get a zeroed [`TagIndex`](ffi::TagIndex) pointer for basic (non-revalidation) tests.
-    pub const fn tag_index(&self) -> NonNull<ffi::TagIndex> {
-        NonNull::new(self.tag_index).expect("TagIndex should not be null")
+    /// The tag values trie backing [`TrieMapTagLookup`](crate::TrieMapTagLookup).
+    ///
+    /// Empty unless a test populates it. Basic tests never consult the lookup, and
+    /// revalidation tests insert and remove entries here to stand in for the
+    /// collector.
+    pub const fn tag_trie(&self) -> NonNull<TrieMapOpaque> {
+        NonNull::new(self.tag_trie).expect("tag trie should not be null")
     }
 
     /// Set `sctx.diskSnapshot` to `snapshot` so disk-backed paths that now

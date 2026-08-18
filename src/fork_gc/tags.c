@@ -13,6 +13,7 @@
 #include "pipe.h"
 #include "triemap_ffi.h"
 #include "inverted_index_ffi.h"
+#include "redisearch_rs/headers/tag_index_ffi.h"
 #include "redis_index.h"
 #include "tag_index.h"
 #include "rmutil/rm_assert.h"
@@ -29,7 +30,12 @@
 
 typedef struct {
   const char *field;
-  const void *curPtr;
+  /* Frames the stream: a NULL marks the end of this field's values. The parent
+   * never dereferences it — it compares `valueUniqueId` instead, because the
+   * tag's posting list can be freed and a new one allocated at the same address
+   * between this scan and the parent's apply. */
+  const void *valueMarker;
+  IndexUniqueId valueUniqueId;
   char *tagValue;
   size_t tagLen;
   uint64_t uniqueId;
@@ -45,7 +51,8 @@ static void sendTagHeader(void *opaqueCtx) {
     FGC_sendBuffer(ctx->gc, info->field, strlen(info->field));
     FGC_sendFixed(ctx->gc, &info->uniqueId, sizeof info->uniqueId);
   }
-  FGC_SEND_VAR(ctx->gc, info->curPtr);
+  FGC_SEND_VAR(ctx->gc, info->valueMarker);
+  FGC_SEND_VAR(ctx->gc, info->valueUniqueId);
   FGC_sendBuffer(ctx->gc, info->tagValue, info->tagLen);
 }
 
@@ -62,12 +69,13 @@ void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
       tagHeader header = {.field = HiddenString_GetUnsafe(tagFields[i]->fieldName, NULL),
                           .uniqueId = TagIndex_GetId(tagIdx)};
 
-      TrieMapIterator *iter = TagIndex_IterateValues(tagIdx);
+      ValueIterator *iter = TagIndex_IterateValues(tagIdx);
       char *ptr;
       tm_len_t len;
-      InvertedIndex *value;
-      while (TrieMapIterator_Next(iter, &ptr, &len, (void **)&value)) {
-        header.curPtr = value;
+      TagIndexValue *value;
+      while (Rust_TagIndex_ValueIterator_Next(iter, &ptr, &len, &value)) {
+        header.valueMarker = value;
+        header.valueUniqueId = Rust_TagIndexValue_UniqueId(value);
         header.tagValue = ptr;
         header.tagLen = len;
 
@@ -78,8 +86,9 @@ void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
 
         II_GCWriter wr = { .ctx = gc, .write = pipe_write_cb };
 
-        InvertedIndex_GcDelta_Scan(&wr, sctx, value, &cb);
+        Rust_TagIndexValue_GcDelta_Scan(&wr, sctx, value, &cb);
       }
+      Rust_TagIndex_ValueIterator_Free(iter);
 
       // we are done with the current field
       if (header.sentFieldName) {
@@ -98,32 +107,36 @@ FGCError FGC_parentHandleTags(ForkGC *gc) {
   size_t fieldNameLen;
   char *fieldName = NULL;
   uint64_t tagUniqueId;
-  InvertedIndex *value = NULL;
+  const void *valueMarker = NULL;
   FGCError status = recvFieldHeader(gc, &fieldName, &fieldNameLen, &tagUniqueId);
 
   while (status == FGC_COLLECTED) {
     InvertedIndexGcDelta *delta = NULL;
-    II_GCScanStats info = {0};
     TagIndex *tagIdx = NULL;
     char *tagVal = NULL;
     size_t tagValLen = 0;
+    IndexUniqueId valueUniqueId = 0;
     StrongRef spec_ref;
     IndexSpec *sp = NULL;
     RedisSearchCtx _sctx;
     RedisSearchCtx *sctx = NULL;
     II_GCReader rd;
     const FieldSpec *fs = NULL;
-    size_t dummy_size = 0;
-    InvertedIndex *idx = NULL;
+    TagGcResult r = {0};
 
-    if (FGC_recvFixed(gc, &value, sizeof value) != REDISMODULE_OK) {
+    if (FGC_recvFixed(gc, &valueMarker, sizeof valueMarker) != REDISMODULE_OK) {
       status = FGC_CHILD_ERROR;
       break;
     }
 
     // No more tags values in tag field
-    if (value == NULL) {
+    if (valueMarker == NULL) {
       RS_LOG_ASSERT(status == FGC_COLLECTED, "GC status is COLLECTED");
+      break;
+    }
+
+    if (FGC_recvFixed(gc, &valueUniqueId, sizeof valueUniqueId) != REDISMODULE_OK) {
+      status = FGC_CHILD_ERROR;
       break;
     }
 
@@ -161,31 +174,21 @@ FGCError FGC_parentHandleTags(ForkGC *gc) {
       goto loop_cleanup;
     }
 
-    idx = TagIndex_OpenIndex(tagIdx, tagVal, tagValLen, DONT_CREATE_INDEX, &dummy_size);
-    if (idx == TRIEMAP_NOTFOUND || idx != value) {
+    // Applies the delta, and reports it was not applied when the tag's posting
+    // list is no longer the one that was scanned — removed, or replaced by a
+    // new one that may well sit at the same address. When the list ends up
+    // empty the tag is dropped from the values trie and the suffix index too.
+    // Ownership of `delta` transfers on every path.
+    r = Rust_TagIndex_GC(tagIdx, (const uint8_t *)tagVal, tagValLen, valueUniqueId, delta);
+    delta = NULL;
+    if (!r.applied) {
       status = FGC_PARENT_ERROR;
       goto loop_cleanup;
     }
 
-    InvertedIndex_ApplyGCDelta(idx, delta, &info);
-    delta = NULL;
-    IndexStats_BlockCountAdd(&sctx->spec->stats, info.block_count_delta);
-
-    // if tag value is empty, let's remove it.
-    if (InvertedIndex_NumDocs(idx) == 0) {
-      // Sample memory and block count before the TrieMap destructor callback frees the
-      // index without spec context.
-      info.bytes_freed += InvertedIndex_MemUsage(idx);
-      IndexStats_BlockCountAdd(&sctx->spec->stats, -(int64_t)InvertedIndex_NumBlocks(idx));
-      TagIndex_DeleteTagValue(tagIdx, tagVal, tagValLen);
-
-      // Empty values (INDEXEMPTY) are never inserted into the suffix triemap, so skip the delete.
-      if (TagIndex_HasSuffix(tagIdx) && tagValLen) {
-        TagIndex_DeleteTagSuffix(tagIdx, tagVal, tagValLen);
-      }
-    }
-
-    FGC_updateStats(gc, sctx, info.entries_removed, info.bytes_freed, info.bytes_allocated, info.ignored_last_block);
+    IndexStats_BlockCountAdd(&sctx->spec->stats, r.info.block_count_delta);
+    FGC_updateStats(gc, sctx, r.info.entries_removed, r.info.bytes_freed, r.info.bytes_allocated,
+                    r.info.ignored_last_block);
 
   loop_cleanup:
     RedisSearchCtx_UnlockSpec(sctx);

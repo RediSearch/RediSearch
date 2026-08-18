@@ -15,11 +15,9 @@ use inverted_index::doc_ids_only::DocIdsOnly;
 use query_term::RSQueryTerm;
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 use rqe_iterators::{IteratorType, NoOpChecker, RQEIterator, inverted_index::Tag};
-use rqe_iterators_test_utils::{ContractChecker, MockContext};
+use rqe_iterators_test_utils::{ContractChecker, MockContext, TrieMapTagLookup};
 
 use crate::inverted_index::utils::BaseTest;
-
-use iterators_ffi::inverted_index::CTagIndexLookup;
 
 struct TagBaseTest {
     test: BaseTest<DocIdsOnly>,
@@ -47,7 +45,7 @@ impl TagBaseTest {
         RSQueryTerm::new("test_tag", 0, 0)
     }
 
-    fn create_iterator(&self) -> Tag<'_, DocIdsOnly, CTagIndexLookup, NoOpChecker> {
+    fn create_iterator(&self) -> Tag<'_, DocIdsOnly, TrieMapTagLookup, NoOpChecker> {
         let reader = self.test.ii.reader();
         let term = Self::create_term();
         // SAFETY: `mock_ctx` provides a valid `RedisSearchCtx` with a valid `spec`
@@ -58,7 +56,7 @@ impl TagBaseTest {
             Tag::new(
                 reader,
                 self.test.mock_ctx.sctx(),
-                CTagIndexLookup::new(self.test.mock_ctx.tag_index()),
+                TrieMapTagLookup::new(self.test.mock_ctx.tag_trie()),
                 term,
                 0.0,
                 NoOpChecker,
@@ -101,7 +99,7 @@ fn tag_empty_index() {
         Tag::new(
             reader,
             mock_ctx.sctx(),
-            CTagIndexLookup::new(mock_ctx.tag_index()),
+            TrieMapTagLookup::new(mock_ctx.tag_trie()),
             term,
             0.0,
             NoOpChecker,
@@ -144,9 +142,9 @@ mod not_miri {
             }
         }
 
-        fn create_iterator(&self) -> Tag<'_, DocIdsOnly, CTagIndexLookup, NoOpChecker> {
+        fn create_iterator(&self) -> Tag<'_, DocIdsOnly, TrieMapTagLookup, NoOpChecker> {
             let ii = DocIdsOnly::from_opaque(self.test.context.tag_inverted_index());
-            let tag_index = self.test.context.tag_index();
+            let tag_trie = self.test.context.tag_trie();
             let term = RSQueryTerm::new("test_tag", 0, 0);
             // SAFETY: `self.test.context` provides a valid `RedisSearchCtx` with a valid
             // `spec` and `TagIndex` that outlive the returned iterator.
@@ -154,7 +152,7 @@ mod not_miri {
                 Tag::new(
                     ii.reader(),
                     self.test.context.sctx,
-                    CTagIndexLookup::new(tag_index),
+                    TrieMapTagLookup::new(tag_trie),
                     term,
                     0.0,
                     NoOpChecker,
@@ -213,15 +211,15 @@ mod not_miri {
             (test.test.context.tag_inverted_index() as *mut inverted_index::opaque::InvertedIndex)
                 .cast();
 
-        let tag_index = test.test.context.tag_index();
+        let tag_trie = test.test.context.tag_trie();
 
         // Delete the old entry then add the new one.
         // The iterator's reader holds a (now-dangling) raw pointer to the
         // original II, but `should_abort` only compares pointers via
         // `points_to_ii` (`std::ptr::eq`) without dereferencing it.
-        // SAFETY: `tag_index` is valid (created by `TagIndex_Ensure`), `values`
-        // is a valid TrieMap.
-        let trie = unsafe { &mut *tag_index.as_ref().values.cast::<trie_rs::TrieMapOpaque>() };
+        // SAFETY: `tag_trie` is the context's own trie pointer, and nothing else
+        // borrows it here.
+        let trie = unsafe { &mut *tag_trie.as_ptr() };
         let old_val = trie.remove(b"test_tag");
         assert!(old_val.is_some(), "test_tag should exist in the TrieMap");
         let prev = trie.insert(b"test_tag", new_ii as *mut c_void);
@@ -271,10 +269,10 @@ mod not_miri {
 
         // Simulate the garbage collector removing the tag's inverted index
         // by deleting the TrieMap entry.
-        let tag_index = test.test.context.tag_index();
-        // SAFETY: `tag_index` is valid (created by `TagIndex_Ensure`), `values`
-        // is a valid TrieMap.
-        let trie = unsafe { &mut *tag_index.as_ref().values.cast::<trie_rs::TrieMapOpaque>() };
+        let tag_trie = test.test.context.tag_trie();
+        // SAFETY: `tag_trie` is the context's own trie pointer, and nothing else
+        // borrows it here.
+        let trie = unsafe { &mut *tag_trie.as_ptr() };
         let old_val = trie.remove(b"test_tag");
         assert!(old_val.is_some(), "test_tag should exist in the TrieMap");
 
@@ -360,12 +358,12 @@ mod not_miri {
                     as *mut inverted_index::opaque::InvertedIndex)
                     .cast();
 
-            let tag_index = test.test.context.tag_index();
+            let tag_trie = test.test.context.tag_trie();
 
             // Delete the old entry then add the new one.
-            // SAFETY: `tag_index` is valid (created by `TagIndex_Ensure`), `values`
-            // is a valid TrieMap.
-            let trie = unsafe { &mut *tag_index.as_ref().values.cast::<trie_rs::TrieMapOpaque>() };
+            // SAFETY: `tag_trie` is the context's own trie pointer, and nothing
+            // else borrows it here.
+            let trie = unsafe { &mut *tag_trie.as_ptr() };
             let old_val = trie.remove(b"test_tag");
             assert!(old_val.is_some(), "test_tag should exist in the TrieMap");
             let prev = trie.insert(b"test_tag", new_ii as *mut c_void);
@@ -414,10 +412,10 @@ mod not_miri {
 
             // Simulate the garbage collector removing the tag's inverted index
             // by deleting the TrieMap entry.
-            let tag_index = test.test.context.tag_index();
-            // SAFETY: `tag_index` is valid (created by `TagIndex_Ensure`), `values`
-            // is a valid TrieMap.
-            let trie = unsafe { &mut *tag_index.as_ref().values.cast::<trie_rs::TrieMapOpaque>() };
+            let tag_trie = test.test.context.tag_trie();
+            // SAFETY: `tag_trie` is the context's own trie pointer, and nothing
+            // else borrows it here.
+            let trie = unsafe { &mut *tag_trie.as_ptr() };
             let old_val = trie.remove(b"test_tag");
             assert!(old_val.is_some(), "test_tag should exist in the TrieMap");
 

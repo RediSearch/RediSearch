@@ -95,14 +95,35 @@ class FGCTest : public ::testing::Test {
   }
 };
 
-static InvertedIndex *getTagInvidx(RedisSearchCtx *sctx, const char *field,
+/* The tag index owns its posting lists, so the only way to reach one is to walk
+ * the values. Returns NULL when `value` has not been indexed yet. */
+static TagIndexValue *getTagInvidx(RedisSearchCtx *sctx, const char *field,
                                    const char *value) {
-  const FieldSpec *fs = IndexSpec_GetFieldWithLength(sctx->spec, "f1", strlen("f1"));
-  auto tix = TagIndex_Ensure(const_cast<FieldSpec *>(fs), NULL, false);
-  size_t sz;
-  auto iv = TagIndex_OpenIndex(tix, "hello", strlen("hello"), CREATE_INDEX, &sz);
-  sctx->spec->stats.invertedSize += sz;
-  return iv;
+  const FieldSpec *fs = IndexSpec_GetFieldWithLength(sctx->spec, field, strlen(field));
+  TagIndex *tix = TagIndex_Ensure(const_cast<FieldSpec *>(fs), NULL, false);
+
+  ValueIterator *it = TagIndex_IterateValues(tix);
+  char *tag;
+  tm_len_t len;
+  TagIndexValue *tiv = NULL;
+  TagIndexValue *found = NULL;
+  size_t valueLen = strlen(value);
+  while (Rust_TagIndex_ValueIterator_Next(it, &tag, &len, &tiv)) {
+    if (len == valueLen && memcmp(tag, value, len) == 0) {
+      found = tiv;
+      break;
+    }
+  }
+  Rust_TagIndex_ValueIterator_Free(it);
+  return found;
+}
+
+/* Block count for `value`, or 0 before it has been indexed. The tag index
+ * creates a posting list on the first write, so tests that grow blocks by
+ * adding documents have to re-resolve until then. */
+static size_t tagNumBlocks(RedisSearchCtx *sctx, const char *field, const char *value) {
+  TagIndexValue *tiv = getTagInvidx(sctx, field, value);
+  return tiv ? Rust_TagIndexValue_NumBlocks(tiv) : 0;
 }
 
 class FGCTestTag : public FGCTest {
@@ -260,19 +281,19 @@ TEST_F(FGCTestTag, testModifyLastBlockWhileAddingNewBlocks) {
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
   sctx.spec->monitorDocumentExpiration = false;
-  auto iv = getTagInvidx(&sctx, "f1", "hello");
+  TagIndexValue *iv = getTagInvidx(&sctx, "f1", "hello");
   const char *originalData;
   size_t invertedSizeBeforeApply;
 
   runGC([&]() {
-    while (InvertedIndex_NumBlocks(iv) < 3)
+    while (Rust_TagIndexValue_NumBlocks(iv) < 3)
       ASSERT_TRUE(RS::addDocument(ctx, ism, numToDocStr(curId++).c_str(), "f1", "hello"));
     ASSERT_EQ(3, totalSpecBlocks() - startValue);
-    originalData = IndexBlock_Data(InvertedIndex_BlockRef(iv, 0));
+    originalData = IndexBlock_Data(Rust_TagIndexValue_BlockRef(iv, 0));
     invertedSizeBeforeApply = (get_spec(ism))->stats.invertedSize;
   });
 
-  const char *afterGcData = IndexBlock_Data(InvertedIndex_BlockRef(iv, 0));
+  const char *afterGcData = IndexBlock_Data(Rust_TagIndexValue_BlockRef(iv, 0));
   ASSERT_EQ(afterGcData, originalData);
 
   // gc stats
@@ -301,13 +322,16 @@ TEST_F(FGCTestTag, testRemoveAllBlocksWhileUpdateLast) {
   sctx.spec->monitorDocumentExpiration = false;
 
   // Add documents to the index until it has 2 blocks (1 full block + 1 block with one entry)
-  auto iv = getTagInvidx(&sctx,  "f1", "hello");
+  TagIndexValue *iv = NULL;
   // Measure the memory added by the last block.
   size_t lastBlockMemory = 0;
-  while (InvertedIndex_NumBlocks(iv) < 2) {
+  while (tagNumBlocks(&sctx, "f1", "hello") < 2) {
     size_t n = snprintf(buf, sizeof(buf), "doc%u", curId++);
     lastBlockMemory = this->addDocumentWrapper(buf, "f1", "hello");
   }
+  // The posting list exists now; its address is stable from here on.
+  iv = getTagInvidx(&sctx, "f1", "hello");
+  ASSERT_TRUE(iv != NULL);
 
   ASSERT_EQ(2, totalSpecBlocks() - startValue);
 
@@ -323,12 +347,12 @@ TEST_F(FGCTestTag, testRemoveAllBlocksWhileUpdateLast) {
       invertedSizeBeforeApply = sctx.spec->stats.invertedSize;
       size_t n = snprintf(buf, sizeof(buf), "doc%u", curId);
       lastBlockMemory += this->addDocumentWrapper(buf, "f1", "hello");
-      const IndexBlock *lastBlock = InvertedIndex_BlockRef(iv, InvertedIndex_NumBlocks(iv) - 1);
+      const IndexBlock *lastBlock = Rust_TagIndexValue_BlockRef(iv, Rust_TagIndexValue_NumBlocks(iv) - 1);
       originalData = IndexBlock_Data(lastBlock);
     });
 
   // gc stats - make sure we skipped the last block
-  const IndexBlock *lastBlock = InvertedIndex_BlockRef(iv, InvertedIndex_NumBlocks(iv) - 1);
+  const IndexBlock *lastBlock = Rust_TagIndexValue_BlockRef(iv, Rust_TagIndexValue_NumBlocks(iv) - 1);
   const char *afterGcData = IndexBlock_Data(lastBlock);
   ASSERT_EQ(afterGcData, originalData);
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
@@ -356,17 +380,20 @@ TEST_F(FGCTestTag, testRepairLastBlockWhileRemovingMiddle) {
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
   sctx.spec->monitorDocumentExpiration = false;
-  auto iv = getTagInvidx(&sctx,  "f1", "hello");
+  TagIndexValue *iv = NULL;
   // Add 2 full blocks + 1 block with1 entry.
   unsigned middleBlockFirstId = 0;
-  while (InvertedIndex_NumBlocks(iv) < 3) {
+  while (tagNumBlocks(&sctx, "f1", "hello") < 3) {
     size_t n = snprintf(buf, sizeof(buf), "doc%u", curId++);
     ASSERT_TRUE(RS::addDocument(ctx, ism, buf, "f1", "hello"));
     // A new block had opened
-    if (InvertedIndex_NumBlocks(iv) == 2 && !middleBlockFirstId) {
+    if (tagNumBlocks(&sctx, "f1", "hello") == 2 && !middleBlockFirstId) {
       middleBlockFirstId = curId - 1;
     }
   }
+  // The posting list exists now; its address is stable from here on.
+  iv = getTagInvidx(&sctx, "f1", "hello");
+  ASSERT_TRUE(iv != NULL);
 
   unsigned lastBlockFirstId = curId - 1;
 
@@ -394,7 +421,7 @@ TEST_F(FGCTestTag, testRepairLastBlockWhileRemovingMiddle) {
   }
   valid_docs = curId - 1 - total_deletions;
   ASSERT_EQ(valid_docs, sctx.spec->stats.scoring.numDocuments);
-  lastBlockEntries = IndexBlock_NumEntries(InvertedIndex_BlockRef(iv, 2));
+  lastBlockEntries = IndexBlock_NumEntries(Rust_TagIndexValue_BlockRef(iv, 2));
   runGC([&]() {
       snprintf(buf, sizeof(buf), "doc%u", curId);
       RS::addDocument(ctx, ism, buf, "f1", "hello");
@@ -408,12 +435,12 @@ TEST_F(FGCTestTag, testRepairLastBlockWhileRemovingMiddle) {
   // Other updates should take place.
   ASSERT_EQ(valid_docs, sctx.spec->stats.scoring.numDocuments);
   // We are left with the first + last block.
-  ASSERT_EQ(2, InvertedIndex_NumBlocks(iv));
+  ASSERT_EQ(2, Rust_TagIndexValue_NumBlocks(iv));
   // The first entry was deleted. first block starts from docId = 2.
-  ASSERT_EQ(2, IndexBlock_FirstId(InvertedIndex_BlockRef(iv, 0)));
+  ASSERT_EQ(2, IndexBlock_FirstId(Rust_TagIndexValue_BlockRef(iv, 0)));
   // Last block was moved.
-  ASSERT_EQ(lastBlockFirstId, IndexBlock_FirstId(InvertedIndex_BlockRef(iv, 1)));
-  ASSERT_EQ(3, IndexBlock_NumEntries(InvertedIndex_BlockRef(iv, 1)));
+  ASSERT_EQ(lastBlockFirstId, IndexBlock_FirstId(Rust_TagIndexValue_BlockRef(iv, 1)));
+  ASSERT_EQ(3, IndexBlock_NumEntries(Rust_TagIndexValue_BlockRef(iv, 1)));
 }
 
 /**
@@ -424,12 +451,15 @@ TEST_F(FGCTestTag, testRepairLastBlock) {
   unsigned curId = 0;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
   sctx.spec->monitorDocumentExpiration = false;
-  auto iv = getTagInvidx(&sctx, "f1", "hello");
-  while (InvertedIndex_NumBlocks(iv) < 2) {
+  TagIndexValue *iv = NULL;
+  while (tagNumBlocks(&sctx, "f1", "hello") < 2) {
     char buf[1024];
     size_t n = snprintf(buf, sizeof(buf), "doc%u", curId++);
     ASSERT_TRUE(RS::addDocument(ctx, ism, buf, "f1", "hello"));
   }
+  // The posting list exists now; its address is stable from here on.
+  iv = getTagInvidx(&sctx, "f1", "hello");
+  ASSERT_TRUE(iv != NULL);
   /**
    * In this case, we want to keep `curId`, but we want to delete a 'middle' entry
    * while appending documents to it..
@@ -448,7 +478,7 @@ TEST_F(FGCTestTag, testRepairLastBlock) {
   // since the block size in the main process doesn't equal to its original size as seen by the child,
   // we ignore the fork collection - the last block changes should be discarded.
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
-  ASSERT_EQ(2, InvertedIndex_NumBlocks(iv));
+  ASSERT_EQ(2, Rust_TagIndexValue_NumBlocks(iv));
 }
 
 /**
@@ -460,12 +490,15 @@ TEST_F(FGCTestTag, testRepairMiddleRemoveLast) {
   unsigned curId = 0;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
   sctx.spec->monitorDocumentExpiration = false;
-  auto iv = getTagInvidx(&sctx, "f1", "hello");
-  while (InvertedIndex_NumBlocks(iv) < 3) {
+  TagIndexValue *iv = NULL;
+  while (tagNumBlocks(&sctx, "f1", "hello") < 3) {
     char buf[1024];
     size_t n = snprintf(buf, sizeof(buf), "doc%u", curId++);
     ASSERT_TRUE(RS::addDocument(ctx, ism, buf, "f1", "hello"));
   }
+  // The posting list exists now; its address is stable from here on.
+  iv = getTagInvidx(&sctx, "f1", "hello");
+  ASSERT_TRUE(iv != NULL);
 
   char buf[1024];
   snprintf(buf, sizeof(buf), "doc%u", curId);
@@ -484,7 +517,7 @@ TEST_F(FGCTestTag, testRepairMiddleRemoveLast) {
       snprintf(buf, sizeof(buf), "doc%u", next_id);
       ASSERT_TRUE(RS::addDocument(ctx, ism, buf, "f1", "hello"));
     });
-  ASSERT_EQ(2, InvertedIndex_NumBlocks(iv));
+  ASSERT_EQ(2, Rust_TagIndexValue_NumBlocks(iv));
 }
 
 /**
@@ -497,16 +530,19 @@ TEST_F(FGCTestTag, testRemoveMiddleBlock) {
   unsigned curId = 0;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
   sctx.spec->monitorDocumentExpiration = false;
-  InvertedIndex *iv = getTagInvidx(&sctx, "f1", "hello");
+  TagIndexValue *iv = NULL;
 
-  while (InvertedIndex_NumBlocks(iv) < 2) {
+  while (tagNumBlocks(&sctx, "f1", "hello") < 2) {
     RS::addDocument(ctx, ism, numToDocStr(++curId).c_str(), "f1", "hello");
   }
 
   unsigned firstMidId = curId;
-  while (InvertedIndex_NumBlocks(iv) < 3) {
+  while (tagNumBlocks(&sctx, "f1", "hello") < 3) {
     RS::addDocument(ctx, ism, numToDocStr(++curId).c_str(), "f1", "hello");
   }
+  // The posting list exists now; its address is stable from here on.
+  iv = getTagInvidx(&sctx, "f1", "hello");
+  ASSERT_TRUE(iv != NULL);
   unsigned firstLastBlockId = curId;
   unsigned lastMidId = curId - 1;
   ASSERT_EQ(3, totalSpecBlocks() - startValue);
@@ -519,19 +555,19 @@ TEST_F(FGCTestTag, testRemoveMiddleBlock) {
     RS::deleteDocument(ctx, ism, numToDocStr(ii).c_str());
   runGC([&]() {
       newLastBlockId = curId + 1;
-      while (InvertedIndex_NumBlocks(iv) < 4)
+      while (Rust_TagIndexValue_NumBlocks(iv) < 4)
         ASSERT_TRUE(RS::addDocument(ctx, ism, numToDocStr(++curId).c_str(), "f1", "hello"));
       lastLastBlockId = curId - 1;
-      const IndexBlock *secondLastBlock = InvertedIndex_BlockRef(iv, InvertedIndex_NumBlocks(iv) - 2);
+      const IndexBlock *secondLastBlock = Rust_TagIndexValue_BlockRef(iv, Rust_TagIndexValue_NumBlocks(iv) - 2);
       pp = IndexBlock_Data(secondLastBlock);
     });
 
   // We add new documents to the last block after the fork, so we expect the GC to deny it.
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
-  ASSERT_EQ(3, InvertedIndex_NumBlocks(iv));
+  ASSERT_EQ(3, Rust_TagIndexValue_NumBlocks(iv));
 
   // The pointer to the last gc-block, received from the fork
-  const IndexBlock *secondLastBlock = InvertedIndex_BlockRef(iv, InvertedIndex_NumBlocks(iv) - 2);
+  const IndexBlock *secondLastBlock = Rust_TagIndexValue_BlockRef(iv, Rust_TagIndexValue_NumBlocks(iv) - 2);
   const char *gcpp = IndexBlock_Data(secondLastBlock);
   ASSERT_EQ(pp, gcpp);
 
@@ -548,11 +584,14 @@ TEST_F(FGCTestTag, testDeleteDuringGCCleanup) {
   unsigned curId = 0;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
   sctx.spec->monitorDocumentExpiration = false;
-  InvertedIndex *iv = getTagInvidx(&sctx, "f1", "hello");
+  TagIndexValue *iv = NULL;
 
-  while (InvertedIndex_NumBlocks(iv) < 2) {
+  while (tagNumBlocks(&sctx, "f1", "hello") < 2) {
     RS::addDocument(ctx, ism, numToDocStr(++curId).c_str(), "f1", "hello");
   }
+  // The posting list exists now; its address is stable from here on.
+  iv = getTagInvidx(&sctx, "f1", "hello");
+  ASSERT_TRUE(iv != NULL);
   // Delete one document.
   RS::deleteDocument(ctx, ism, numToDocStr(1).c_str());
   ASSERT_EQ(RSGlobalStats.totalStats.logically_deleted, 1);

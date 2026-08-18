@@ -237,10 +237,12 @@ pub struct TagIndexWriteResult {
 
 /// Borrow the C strings out of `values`, skipping NULL entries.
 ///
-/// NULL entries are not a caller error: `TagIndex_Preprocess` appends one for an
-/// `INDEXEMPTY` field whose value is neither empty nor separator-terminated, and
-/// both C write paths skipped them. Dropping them here keeps that behaviour —
-/// a NULL is the absence of a tag, not the empty tag, which arrives as `""`.
+/// NULL entries are not a caller error: `TagIndex_Preprocess` appends one per
+/// tokenized value whose field is `INDEXEMPTY` and whose text is neither empty
+/// nor separator-terminated, so a multi-value field interleaves them between the
+/// real tags. Both C write paths skipped NULLs wherever they fell, and dropping
+/// them here keeps that behaviour — a NULL is the absence of a tag, not the empty
+/// tag, which arrives as `""`.
 ///
 /// # Safety
 ///
