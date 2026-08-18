@@ -84,6 +84,13 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
 
     data = Suffix_GetData(trienode);
     if (!trienode || !trienode->payload) {
+      // Trie_InsertRune silently drops keys at or past TRIE_INITIAL_STRING_LEN, so
+      // building a payload for one strands it. The shorter suffixes that follow are
+      // still insertable, so this must not bail out.
+      if (rlen - j >= TRIE_INITIAL_STRING_LEN) {
+        continue;
+      }
+
       suffixData newdata = createSuffixNode(copyStr, 0);
       RSPayload payload = { .data = (char*)&newdata, .len = sizeof(newdata) };
       int rc = Trie_InsertRune(trie, runes + j, rlen - j, 1, ADD_REPLACE, &payload, 0);
