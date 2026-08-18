@@ -31,8 +31,12 @@ def cargo_deny(repo: Path, output: Path, manifest: str) -> int:
         "--audit-compatible-output",
         "advisories",
     ]
-    with output.open("w", encoding="utf-8") as fh:
-        return subprocess.run(cmd, cwd=repo, stdout=fh, stderr=subprocess.STDOUT, text=True).returncode
+    error_output = output.with_suffix(".stderr")
+    with (
+        output.open("w", encoding="utf-8") as stdout,
+        error_output.open("w", encoding="utf-8") as stderr,
+    ):
+        return subprocess.run(cmd, cwd=repo, stdout=stdout, stderr=stderr, text=True).returncode
 
 
 def finding_from_object(value: dict[str, Any]) -> tuple[str, str, str] | None:
@@ -84,10 +88,16 @@ def print_findings(title: str, findings: set[tuple[str, str, str]]) -> None:
         print(f"  - {advisory_id}: {crate}{f' {version}' if version else ''}")
 
 
-def fail_if_unparsed(rc: int, findings: set[tuple[str, str, str]], label: str) -> None:
+def fail_if_unparsed(
+    rc: int, findings: set[tuple[str, str, str]], label: str, output: Path
+) -> None:
     if rc != 0 and not findings:
         print(f"cargo deny failed for {label}, but no advisory findings could be parsed.")
         print("Failing conservatively so CI does not hide a tool or configuration error.")
+        for captured_output in (output, output.with_suffix(".stderr")):
+            print(f"----- cargo deny output ({captured_output}) -----")
+            print(captured_output.read_text(encoding="utf-8", errors="replace"), end="")
+            print("----- end cargo deny output -----")
         sys.exit(rc)
 
 
@@ -95,8 +105,8 @@ def add_base_worktree(base_ref: str, out_dir: Path) -> Path:
     worktree = Path(tempfile.mkdtemp(prefix="cargo-deny-base-", dir=out_dir))
     shutil.rmtree(worktree)
     try:
-        subprocess.run(["git", "fetch", "--no-tags", "--depth=1", "origin", base_ref], check=True)
-        subprocess.run(["git", "worktree", "add", "--detach", str(worktree), "FETCH_HEAD"], check=True)
+        subprocess.run(["git", "cat-file", "-e", f"{base_ref}^{{commit}}"], check=True)
+        subprocess.run(["git", "worktree", "add", "--detach", str(worktree), base_ref], check=True)
     except Exception:
         shutil.rmtree(worktree, ignore_errors=True)
         raise
@@ -115,7 +125,7 @@ def main() -> int:
 
     head_rc = cargo_deny(Path.cwd(), head_out, args.manifest_path)
     head_findings = parse_findings(head_out)
-    fail_if_unparsed(head_rc, head_findings, "current checkout")
+    fail_if_unparsed(head_rc, head_findings, "current checkout", head_out)
 
     if not args.compare_to_base:
         print_findings("Current advisory findings:", head_findings)
@@ -135,7 +145,7 @@ def main() -> int:
         base_out = out_dir / "cargo-deny-advisories-base.jsonl"
         base_rc = cargo_deny(worktree, base_out, args.manifest_path)
         base_findings = parse_findings(base_out)
-        fail_if_unparsed(base_rc, base_findings, "base checkout")
+        fail_if_unparsed(base_rc, base_findings, "base checkout", base_out)
     finally:
         subprocess.run(["git", "worktree", "remove", "--force", str(worktree)], check=False)
         shutil.rmtree(worktree, ignore_errors=True)

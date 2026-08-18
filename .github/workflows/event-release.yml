@@ -187,19 +187,11 @@ jobs:
     needs: [validate-tag, generate-matrix]
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
     steps:
-      - name: Configure AWS Credentials Using Role
-        if: vars.USE_AWS_ROLE == 'true'
+      - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: ${{ vars.ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
-      - name: Configure AWS Credentials Using Keys
-        if: vars.USE_AWS_ROLE == 'false'
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          aws-access-key-id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
+          role-to-assume: ${{ vars.INTERNAL_ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.INTERNAL_ARTIFACT_UPLOAD_AWS_REGION }}
       - name: Get boto3
         run: pip install boto3
       - name: Set Version Artifacts
@@ -217,7 +209,7 @@ jobs:
           from concurrent.futures import ThreadPoolExecutor
           from zipfile import ZipFile
 
-          bucket = "redismodules"
+          bucket = "redismodules-internal"
           oss_dir = "redisearch-oss"
           ent_dir = "redisearch"
 
@@ -313,7 +305,7 @@ jobs:
 
           # Copy included files to new location
           for src, dst in zip(include_list, dest_files):
-              client.copy_object(Bucket=bucket, Key=dst, CopySource={"Bucket": bucket, "Key": src}, ACL="public-read")
+              client.copy_object(Bucket=bucket, Key=dst, CopySource={"Bucket": bucket, "Key": src})
 
           group_print("New Files", dest_files)
 

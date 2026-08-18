@@ -27,7 +27,7 @@ on:
 env:
   REF: ${{ inputs.sha || inputs.ref || github.sha }}  # Define fallbacks for ref to checkout
   BRANCH: ${{ inputs.ref || github.ref_name }}        # Define "branch" name for pack name (used in `make pack`)
-  AWS_REGION: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
+  AWS_REGION: ${{ vars.INTERNAL_ARTIFACT_UPLOAD_AWS_REGION }}
   # NOTE: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are NOT set at workflow level
   # to avoid interfering with OIDC-based authentication.
   # They are exported dynamically when assuming role.
@@ -237,18 +237,18 @@ jobs:
           BUILD_INTEL_SVS_OPT: 1
         run: ${{ env.BUILD_CMD }} && make pack
 
-      # Upload
-      - name: Configure AWS Credentials Using Role (node20)
-        if: vars.USE_AWS_ROLE == 'true' && steps.node20.outputs.supported == 'true'
+      # Upload (internal is always OIDC)
+      - name: Configure AWS Credentials (node20)
+        if: steps.node20.outputs.supported == 'true'
         uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: ${{ vars.ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
-      - name: Configure AWS Credentials Using Role (node20 not supported)
-        if: vars.USE_AWS_ROLE == 'true' && steps.node20.outputs.supported == 'false'
+          role-to-assume: ${{ vars.INTERNAL_ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.INTERNAL_ARTIFACT_UPLOAD_AWS_REGION }}
+      - name: Configure AWS Credentials (node20 not supported)
+        if: steps.node20.outputs.supported == 'false'
         env:
-          ROLE_ARN: ${{ vars.ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}
-          AWS_REGION: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
+          ROLE_ARN: ${{ vars.INTERNAL_ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}
+          AWS_REGION: ${{ vars.INTERNAL_ARTIFACT_UPLOAD_AWS_REGION }}
         run: |
           if ! command -v jq &> /dev/null; then
             echo "Error: jq is not installed."
@@ -298,35 +298,6 @@ jobs:
           } >> "$GITHUB_ENV"
 
           echo "AWS credentials configured successfully using OIDC."
-      - name: Configure AWS Credentials Using Keys (node20)
-        if: vars.USE_AWS_ROLE == 'false' && steps.node20.outputs.supported == 'true'
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          aws-access-key-id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
-      - name: Configure AWS Credentials Using Keys (node20 not supported)
-        if: vars.USE_AWS_ROLE == 'false' && steps.node20.outputs.supported == 'false'
-        run: |
-          AWS_ACCESS_KEY_ID="${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}"
-          AWS_SECRET_ACCESS_KEY="${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}"
-          AWS_REGION="${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}"
-
-          if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ] || [ -z "$AWS_REGION" ]; then
-            echo "Missing AWS credentials or region configuration."
-            exit 1
-          fi
-
-          echo "::add-mask::$AWS_ACCESS_KEY_ID"
-          echo "::add-mask::$AWS_SECRET_ACCESS_KEY"
-
-          {
-            echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID"
-            echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY"
-            echo "AWS_REGION=$AWS_REGION"
-          } >> "$GITHUB_ENV"
-
-          echo "AWS credentials configured successfully using access keys."
       - name: Set Version identifier
         id: set-versions
         run: |
@@ -334,5 +305,7 @@ jobs:
           echo "VERSION_SUFFIX=$VERSION_SUFFIX" >> $GITHUB_OUTPUT
       - name: Upload Artifacts
         env:
+          ARTIFACT_S3_BUCKET: ${{ vars.INTERNAL_ARTIFACT_S3_BUCKET }}
+          ARTIFACT_S3_ACL: ""
           VERSION_SUFFIX: ${{ steps.set-versions.outputs.VERSION_SUFFIX }}
         run: make upload-artifacts
