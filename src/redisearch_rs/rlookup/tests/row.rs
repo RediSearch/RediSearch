@@ -493,21 +493,25 @@ fn get_item_priority_dynamic_over_static() {
 )]
 fn write_key_by_name_new_key() {
     // Test case: name is not yet part of the lookup and gets created
+    let key_name = CString::new("new_key").unwrap();
     let mut lookup = RLookup::new();
     let mut row = RLookupRow::new();
 
-    let key_name = CString::new("new_key").unwrap();
     let value = SharedValue::new_string(b"test_value".to_vec());
 
     // Initially, row should be empty
     assert_eq!(row.len(), 0);
 
     // Write the key
-    row.write_key_by_name(&mut lookup, key_name.to_owned(), value.clone());
+    row.write_key_by_name(&mut lookup, key_name.as_c_str(), value.clone());
 
     // Verify we can find the key by name
     let cursor = lookup.find_key_by_name(&key_name);
     assert!(cursor.is_some());
+    assert!(matches!(
+        cursor.unwrap().into_current().unwrap().name(),
+        std::borrow::Cow::Owned(_)
+    ));
 
     // Verify the rlookup row is in correct state
     assert_eq!(row.len(), 1);
