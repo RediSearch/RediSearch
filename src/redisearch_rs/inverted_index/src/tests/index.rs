@@ -657,8 +657,10 @@ fn add_prepared_record_matches_add_record() {
         let doc_id = i as DocId + 1;
 
         let has_field_expiration = i % 2 == 0;
-        let mut record = RSIndexResult::build_numeric(*value).doc_id(doc_id).build();
-        record.has_field_expiration = has_field_expiration;
+        let record = RSIndexResult::build_numeric(*value)
+            .doc_id(doc_id)
+            .has_field_expiration(has_field_expiration)
+            .build();
         let record_outcome = from_records.add_record(&record).unwrap();
         let prepared_outcome = from_prepared
             .add_prepared_record(doc_id, Numeric::prepare(*value), has_field_expiration)
