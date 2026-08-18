@@ -89,6 +89,10 @@ jobs:
           # safe under `pull_request_target` — no fork code is ever checked out.
           ref: master
           fetch-depth: 0
+          # Do NOT leave the checkout token in `.git/config`: the Codex step can
+          # read the workspace, so a persisted token would be an extractable
+          # credential. The clone-prep step configures its own temporary auth.
+          persist-credentials: false
 
       - name: Configure git identity
         # Global so the pre-made clone (and the agent's cherry-pick commits in it)
@@ -172,9 +176,18 @@ jobs:
           # GitHub refuses from a `workflows`-less App token — see git history.
           permission-workflows: write
 
+      # Restore the applier + its deps from the trusted commit before running
+      # them with the token: the Codex step has workspace-write, so it could have
+      # overwritten scripts/auto_backport/*. `.git` is mounted read-only for the
+      # agent, so HEAD is trustworthy; this discards any working-tree tampering.
+      - name: Restore trusted apply scripts
+        if: steps.ctx.outputs.skip != 'true'
+        run: git checkout HEAD -- scripts/auto_backport
+
       # apply_create.py is the ONLY component that holds the write token. It
-      # validates the agent's manifest (branch shape, target allow-list) and
-      # pushes / opens PRs / labels / comments via argument arrays.
+      # validates the agent's manifest (branch shape, target allow-list),
+      # sanitizes the agent's clone `.git`, and pushes / opens PRs / labels /
+      # comments via argument arrays.
       - name: Apply backport manifest
         if: steps.ctx.outputs.skip != 'true'
         env:

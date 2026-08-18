@@ -66,6 +66,9 @@ jobs:
         with:
           ref: master
           fetch-depth: 0
+          # Don't persist the checkout token in `.git/config`: the Codex step can
+          # read the workspace. The clone-prep step sets its own temporary auth.
+          persist-credentials: false
 
       - name: Configure git identity
         # Global so the pre-made clone (and the agent's fix commit in it) inherit
@@ -152,9 +155,18 @@ jobs:
           # A fix touching .github/workflows/* needs the workflows grant to push.
           permission-workflows: write
 
+      # Restore the applier + its deps from the trusted commit before running
+      # them with the token — the Codex step (workspace-write) could have
+      # overwritten scripts/auto_backport/*; `.git` is read-only to the agent, so
+      # HEAD is trustworthy.
+      - name: Restore trusted apply scripts
+        if: steps.ctx.outputs.skip != 'true'
+        run: git checkout HEAD -- scripts/auto_backport
+
       # apply_fix.py is the ONLY component that holds the write token. It
-      # validates the manifest (branch match, thread/comment ids ⊆ context) and
-      # pushes / comments / resolves via argument arrays + GraphQL.
+      # validates the manifest (branch match, thread/comment ids ⊆ context),
+      # sanitizes the agent's clone `.git`, and pushes / comments / resolves via
+      # argument arrays + GraphQL.
       - name: Apply fix manifest
         if: steps.ctx.outputs.skip != 'true'
         env:

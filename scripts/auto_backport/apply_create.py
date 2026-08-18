@@ -34,6 +34,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import common  # noqa: E402
 
+# APPLY_DRY_RUN=1 makes this print the push / PR / label / comment it WOULD do
+# without performing any write (read-only pre-flight still runs). Lets the whole
+# resolve -> cherry-pick -> apply pipeline be exercised locally, and is a safe
+# operational plan mode.
+DRY_RUN = os.environ.get("APPLY_DRY_RUN") == "1"
+
 # Same release-branch shape the resolve step validates targets against; a branch
 # name is only ever `backport-agent/pr-<pr>-to-<target>` with a valid target.
 TARGET_RE = re.compile(r"^\d{1,4}\.\d{1,4}(?:-[A-Za-z0-9._-]{1,64})?$")
@@ -41,9 +47,11 @@ VALID_STATUSES = {"clean", "conflicts", "skipped"}
 
 
 def git(work: str, *args: str, check: bool = True) -> subprocess.CompletedProcess:
-    """Run `git -C <work> <args>` with an argument array (no shell)."""
+    """Run `git -C <work> <args>` with an argument array (no shell), under the
+    sanitized env that ignores agent-writable global/system git config."""
     return subprocess.run(["git", "-C", work, *args],
-                          capture_output=True, text=True, check=check)
+                          capture_output=True, text=True, check=check,
+                          env=common.SAFE_GIT_ENV)
 
 
 def configure_push_auth(work: str, token: str) -> None:
@@ -53,6 +61,8 @@ def configure_push_auth(work: str, token: str) -> None:
     a bearer header is rejected. Done here (not in the agent) so the token never
     enters the agent's environment.
     """
+    if DRY_RUN:
+        return
     import base64
     header = "AUTHORIZATION: basic " + base64.b64encode(
         f"x-access-token:{token}".encode()).decode()
@@ -166,14 +176,25 @@ def apply_target(ctx: dict, work: str, entry: dict) -> dict:
         row["detail"] = f"already {ex}"
         return row
 
+    title = f"[{target}] {ctx.get('title', '')}"
+    labels = ["auto-backport"] + (["auto-backport-conflicts"] if status == "conflicts" else [])
+    status_label = f"conflicts({len(entry.get('conflict_log') or [])})" \
+        if status == "conflicts" else "clean"
+
+    if DRY_RUN:
+        row["status"] = status_label
+        row["detail"] = f"[dry-run] would push {branch}, open PR '{title}', labels {labels}"
+        return row
+
     # Push the agent's branch — plain (non-force) push of a fresh ref only.
-    push = git(work, "push", "origin", f"refs/heads/{branch}:refs/heads/{branch}",
-               check=False)
+    # `--no-verify` + the sanitized `.git` (done once in main) mean no
+    # agent-installed hook/config runs during this token-holding push.
+    push = git(work, "push", "--no-verify", "origin",
+               f"refs/heads/{branch}:refs/heads/{branch}", check=False)
     if push.returncode != 0:
         row["detail"] = f"push failed: {push.stderr.strip()[:200]}"
         return row
 
-    title = f"[{target}] {ctx.get('title', '')}"
     body_file = os.path.join(os.environ["RUNNER_TEMP"], f"backport-body-{target}.md")
     with open(body_file, "w") as f:
         f.write(pr_body(ctx, entry))
@@ -185,12 +206,10 @@ def apply_target(ctx: dict, work: str, entry: dict) -> dict:
         row["detail"] = "gh pr create produced no URL"
         return row
 
-    labels = ["auto-backport"] + (["auto-backport-conflicts"] if status == "conflicts" else [])
     for label in labels:
         common.gh("pr", "edit", url, "--add-label", label, check=False)
 
-    row["status"] = f"conflicts({len(entry.get('conflict_log') or [])})" \
-        if status == "conflicts" else "clean"
+    row["status"] = status_label
     row["detail"] = url
     return row
 
@@ -210,26 +229,35 @@ def main() -> int:
     ctx = json.loads(Path(os.environ["BACKPORT_CONTEXT_FILE"]).read_text())
     manifest_path = os.environ["BACKPORT_MANIFEST_FILE"]
     work = os.environ["BACKPORT_WORK"]
-    token = os.environ["GH_TOKEN"]
+    token = os.environ.get("GH_TOKEN", "")
 
     if not os.path.exists(manifest_path):
-        common.log("No manifest produced by the agent; nothing to apply.")
-        return 0
+        # The agent step ran (we're past the skip gate) but produced no manifest
+        # — a model/tool interruption or output-contract miss. Fail loudly rather
+        # than reporting a green no-op that silently opened no backports.
+        common.log("ERROR: agent produced no manifest; failing the run.")
+        return 1
     manifest = json.loads(Path(manifest_path).read_text())
     entries = manifest.get("targets") or []
     if not isinstance(entries, list):
         common.log("Malformed manifest: 'targets' is not a list.")
         return 1
 
+    # Treat the agent's clone `.git` as hostile before the token-holding push.
+    if not DRY_RUN:
+        common.sanitize_git_dir(work, os.environ["GITHUB_REPOSITORY"])
     configure_push_auth(work, token)
 
     rows = [apply_target(ctx, work, e) for e in entries if isinstance(e, dict)]
 
-    if rows:
+    if rows and not DRY_RUN:
         comment_file = os.path.join(os.environ["RUNNER_TEMP"], "backport-summary.md")
         with open(comment_file, "w") as f:
             f.write(summary_comment(ctx["pr"], ctx["sha"], rows))
         common.gh("pr", "comment", str(ctx["pr"]), "--body-file", comment_file, check=False)
+    elif rows:
+        common.log("[dry-run] would comment the summary on the original PR:")
+        common.log(summary_comment(ctx["pr"], ctx["sha"], rows))
 
     common.log("Auto-backport apply summary:")
     for r in rows:

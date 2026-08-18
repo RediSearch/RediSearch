@@ -211,6 +211,114 @@ class ApplyFixResolveGuardTests(unittest.TestCase):
         self.assertEqual(
             apply_fix.resolve_thread_if_unchanged("T1", "2026-01-01T00:00:00Z"), "resolved")
 
+    def test_fails_closed_when_read_unverifiable(self):
+        # A failed/malformed live read must NOT resolve (could hide a follow-up).
+        def fake(query, **kw):
+            if "resolveReviewThread" in query:
+                raise AssertionError("must not resolve on unverifiable read")
+            return None                       # gh_graphql failure
+        common.gh_graphql = fake
+        self.assertIn("could not verify",
+                      apply_fix.resolve_thread_if_unchanged("T1", "2026-01-01T00:00:00Z"))
+
+
+class GhGraphqlArgTests(unittest.TestCase):
+    def setUp(self):
+        self._gh = common.gh
+
+    def tearDown(self):
+        common.gh = self._gh
+
+    def test_strings_use_raw_f_ints_use_typed_F(self):
+        captured = {}
+
+        def fake_gh(*args, check=True):
+            captured["args"] = list(args)
+            return "{}"
+        common.gh = fake_gh
+        common.gh_graphql("query", pr=123, body="@reviewer take a look")
+        a = captured["args"]
+        # int -> -F pr=123 ; string -> -f body=... (raw, so a leading @ is literal)
+        self.assertIn("-F", a)
+        self.assertIn("pr=123", a)
+        self.assertIn("-f", a)
+        self.assertIn("body=@reviewer take a look", a)
+        self.assertNotIn("-F", [a[i] for i in range(len(a))
+                                if i + 1 < len(a) and a[i + 1].startswith("body=")])
+
+
+class ApplyFixMainTests(unittest.TestCase):
+    """main()'s security gating: feedback only when the push succeeded, and
+    resolution-only restricted to context `bot_replied_last` threads."""
+
+    def setUp(self):
+        self.tmp = os.environ.get("TMPDIR", "/tmp")
+        os.environ["RUNNER_TEMP"] = self.tmp
+        os.environ["GITHUB_REPOSITORY"] = "RediSearch/RediSearch"
+        os.environ["GH_TOKEN"] = "x"
+        os.environ["BACKPORT_WORK"] = "/nonexistent-work"
+        self._saved = (apply_fix.push_fix, apply_fix.configure_push_auth,
+                       common.sanitize_git_dir, apply_fix.post_pr_comment,
+                       apply_fix.reply_thread, apply_fix.resolve_thread_if_unchanged,
+                       apply_fix.append_caveats)
+        self.replies, self.resolved, self.comments = [], [], []
+        apply_fix.configure_push_auth = lambda *a, **k: None
+        common.sanitize_git_dir = lambda *a, **k: None
+        apply_fix.reply_thread = lambda tid, body: self.replies.append(tid)
+        apply_fix.resolve_thread_if_unchanged = lambda tid, ts: (self.resolved.append(tid) or "resolved")
+        apply_fix.post_pr_comment = lambda pr, body: self.comments.append(body)
+        apply_fix.append_caveats = lambda *a, **k: None
+
+    def tearDown(self):
+        (apply_fix.push_fix, apply_fix.configure_push_auth, common.sanitize_git_dir,
+         apply_fix.post_pr_comment, apply_fix.reply_thread,
+         apply_fix.resolve_thread_if_unchanged, apply_fix.append_caveats) = self._saved
+
+    def _run(self, manifest, pushed):
+        apply_fix.push_fix = lambda w, b: (pushed, "abc1234" if pushed else "push failed")
+        ctx = {"pr": 1, "branch": "backport-agent/pr-1-to-8.6", "run_url": "u",
+               "review_threads": [
+                   {"thread_id": "T1", "latest_comment_at": "t", "bot_replied_last": False},
+                   {"thread_id": "T2", "latest_comment_at": "t", "bot_replied_last": True}],
+               "pr_comments": [{"kind": "comment", "id": 1}]}
+        cf = os.path.join(self.tmp, "fixctx.json")
+        mf = os.path.join(self.tmp, "fixman.json")
+        Path(cf).write_text(__import__("json").dumps(ctx))
+        Path(mf).write_text(__import__("json").dumps(manifest))
+        os.environ["BACKPORT_FIX_CONTEXT_FILE"] = cf
+        os.environ["BACKPORT_FIX_MANIFEST_FILE"] = mf
+        return apply_fix.main()
+
+    def test_feedback_applied_only_on_successful_push(self):
+        man = {"branch": "backport-agent/pr-1-to-8.6", "action": "fix",
+               "thread_replies": [{"thread_id": "T1", "body": "x"}],
+               "comment_replies": [{"kind": "comment", "id": 1, "body": "y"}],
+               "resolve_only_threads": ["T1", "T2"]}
+        # push fails → no reply/summary/comment; resolve-only still runs, but only
+        # for the bot-replied thread T2 (T1 is not resolve-eligible).
+        self._run(man, pushed=False)
+        self.assertEqual(self.replies, [])
+        self.assertEqual(self.resolved, ["T2"])
+        self.assertFalse(any("fix attempt" in c for c in self.comments))
+
+    def test_feedback_applied_when_push_succeeds(self):
+        man = {"branch": "backport-agent/pr-1-to-8.6", "action": "fix",
+               "thread_replies": [{"thread_id": "T1", "body": "x"}],
+               "comment_replies": [{"kind": "comment", "id": 1, "body": "y"}],
+               "resolve_only_threads": ["T1", "T2"]}
+        self._run(man, pushed=True)
+        self.assertEqual(self.replies, ["T1"])          # thread reply applied
+        self.assertIn("T1", self.resolved)              # and resolved
+        self.assertIn("T2", self.resolved)              # resolve-only (bot-replied)
+        self.assertTrue(any("fix attempt" in c for c in self.comments))
+
+    def test_missing_manifest_fails(self):
+        os.environ["BACKPORT_FIX_CONTEXT_FILE"] = os.path.join(self.tmp, "fixctx2.json")
+        Path(os.environ["BACKPORT_FIX_CONTEXT_FILE"]).write_text(
+            '{"pr":1,"branch":"backport-agent/pr-1-to-8.6"}')
+        os.environ["BACKPORT_FIX_MANIFEST_FILE"] = os.path.join(self.tmp, "does-not-exist.json")
+        self.assertEqual(apply_fix.main(), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
