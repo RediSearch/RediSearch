@@ -283,6 +283,15 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) 
         size_t dummy_mem;
         iiMissingDocs = NewInvertedIndex(Index_DocIdsOnly, 1, &dummy_mem);
         dictAdd(spec->missingFieldDict, fs->name, iiMissingDocs);
+        // Complete any rehashing this insert started, else later reads on different
+        // threads could end up mutating the dict simultaneously, corrupting it.
+        //
+        // Cheap because this dict contains just IndexSpec's INDEXMISSING fields.
+        //
+        // dictRehash migrates a bounded number of buckets per call and returns
+        // non-zero while more remain, so loop until it reports done.
+        while (dictRehash(spec->missingFieldDict, 100)) {
+        }
       }
       // Add docId to inverted index
       t_docId docId = aCtx->doc->docId;
