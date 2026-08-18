@@ -22,18 +22,18 @@
 typedef struct IndexReader IndexReader;
 
 /**
- * A writer that calls a C function to write data.
+ * A callback structure to trigger garbage collection operations.
  */
-typedef struct II_GCWriter {
+typedef struct II_GCCallback {
   /**
-   * Context pointer passed to the write function.
+   * Context pointer passed to the call function.
    */
   void *ctx;
   /**
-   * Function pointer to the write function.
+   * Function pointer to the call function.
    */
-  void (*write)(void *ctx, const void *buf, size_t len);
-} II_GCWriter;
+  void (*call)(void *ctx);
+} II_GCCallback;
 
 /**
  * A reader that calls a C function to read data.
@@ -50,18 +50,18 @@ typedef struct II_GCReader {
 } II_GCReader;
 
 /**
- * A callback structure to trigger garbage collection operations.
+ * A writer that calls a C function to write data.
  */
-typedef struct II_GCCallback {
+typedef struct II_GCWriter {
   /**
-   * Context pointer passed to the call function.
+   * Context pointer passed to the write function.
    */
   void *ctx;
   /**
-   * Function pointer to the call function.
+   * Function pointer to the write function.
    */
-  void (*call)(void *ctx);
-} II_GCCallback;
+  void (*write)(void *ctx, const void *buf, size_t len);
+} II_GCWriter;
 
 /**
  * The [`Active`] instantiation of [`RawIndexResult`].

@@ -607,6 +607,9 @@ RedisModuleString *IndexSpec_LegacyGetFormattedKey(IndexSpec *sp, const FieldSpe
  */
 void IndexSpec_MakeKeyless(IndexSpec *sp);
 
+/* The dictType used for IndexSpec.keysDict: CharBuf keys, InvertedIndex* values. */
+extern dictType invIdxDictType;
+
 /* The dictType used for IndexSpec.missingFieldDict: HiddenString keys, InvertedIndex* values. */
 extern dictType missingFieldDictType;
 

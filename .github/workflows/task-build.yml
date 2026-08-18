@@ -6,6 +6,11 @@ name: Common Flow for Build
 # coordinator binaries) with `make build TESTS=1`, and uploads the contents of
 # `bin/` as a workflow artifact. Downstream test workflows
 # (`task-test-unit.yml`, `task-test-flow.yml`) consume that artifact.
+#
+# Only RediSearch is built here. The two external binaries the flow tests need —
+# redis-server and the RedisJSON module — are produced by `task-build-redis.yml`
+# and `task-build-rejson.yml`, which run as sibling jobs off the same resolved
+# platform config and ship their own artifacts.
 
 on:
   workflow_call:
@@ -23,18 +28,10 @@ on:
       coverage:
         type: boolean
         default: false
-      redis-ref:
-        description: 'Redis version to use (e.g. "7.2.3", "unstable")'
-        type: string
-        default: '8.10.0'
       artifact-name:
         description: 'Name of the workflow artifact uploaded with the contents of bin/.'
         type: string
         required: true
-      rejson-branch:
-        description: 'RedisJSON branch to build once here; the resulting rejson.so ships in the artifact so flow test jobs reuse it instead of rebuilding.'
-        type: string
-        default: master
       # Resolved platform config — produced by task-get-config.yml at the
       # pipeline level so this workflow doesn't redo it. Caller must supply.
       name:
@@ -98,7 +95,7 @@ env:
 
 jobs:
   common-flow:
-    name: Build ${{ inputs.name }}, Redis ${{ inputs.redis-ref }}
+    name: Build ${{ inputs.name }}
     outputs:
       artifact-name: ${{ inputs.artifact-name }}
     runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
@@ -225,10 +222,6 @@ jobs:
           github-token: ${{ github.token }}
           python-test-deps: 'true'
           sanitizer-setup: 'true'
-          build-redis: 'true'
-          redis-ref: ${{ inputs.redis-ref }}
-          coverage: ${{ inputs.coverage }}
-          redis-cache-platform-id: ${{ inputs.container || inputs.env }}
 
       - name: Build (incl. Rust nextest archive)
         # `make build TESTS=1` builds redisearch.so + C test binaries; with
@@ -239,7 +232,6 @@ jobs:
         env:
           SAN: ${{ inputs.san }}
           COV: ${{ inputs.coverage && 1 || 0 }}
-          REDIS_VER: ${{ inputs.redis-ref }}
           ENABLE_ASSERT: 1
           ARCHIVE_RUST_TESTS: 1
           # Skip the Rust → C FFI header regeneration here; freshness is enforced
@@ -262,20 +254,6 @@ jobs:
 
       - name: Show sccache stats
         run: ${SCCACHE_PATH:-sccache} --show-stats || true
-
-      # RedisJSON is loaded as a side module by the flow tests. Build it once
-      # here (same sanitizer variant as the rest of the artifact) and drop
-      # rejson.so into bin/ so it ships in the build artifact; flow test jobs set
-      # REJSON_PATH to it and skip their own clone+build. The action caches it
-      # per (RedisJSON SHA, platform, arch, sanitizer) exactly like Redis, so an
-      # unchanged RedisJSON SHA under the same flags is restored, not rebuilt.
-      - name: Build RedisJSON module (cached)
-        uses: ./.github/actions/build-rejson
-        with:
-          rejson-branch: ${{ inputs.rejson-branch }}
-          san: ${{ inputs.san }}
-          cov: ${{ inputs.coverage && '1' || '0' }}
-          cache_platform_id: ${{ inputs.platform }}
 
       - name: Package build outputs
         # We package bin/ as a tarball for two reasons:
@@ -340,22 +318,6 @@ jobs:
           echo "Tarball size:"
           ls -lh bin.tar.gz
 
-      # Ship the Redis install tree alongside the module. The flow-test jobs used
-      # to obtain it from the shared Actions cache that the step above populates,
-      # but a cache miss there (eviction, a re-run after the entry aged out) made
-      # them build Redis themselves — with the default compiler rather than the
-      # sanitizer clang used here, producing a redis-server that aborts with
-      # "ASan runtime does not come first in initial library list". Shipping it in
-      # the artifact makes the toolchain match by construction, so the cache is a
-      # build-time optimisation only and can never change what the tests run.
-      # tar (not the artifact zip) to preserve the executable bits.
-      - name: Package Redis install tree
-        run: |
-          set -euo pipefail
-          tar -czf redis-install.tar.gz redis-install
-          echo "Redis tarball size:"
-          ls -lh redis-install.tar.gz
-
       - name: Upload build artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -363,6 +325,5 @@ jobs:
           path: |
             bin.tar.gz
             nextest-archive.tar.zst
-            redis-install.tar.gz
           if-no-files-found: error
           retention-days: 1

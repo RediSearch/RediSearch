@@ -69,7 +69,7 @@ void CursorList_Init(CursorList *cl, bool is_coord) {
 }
 
 static void Cursor_RemoveFromIdle(Cursor *cur) {
-  CursorList *cl = getCursorList(cur->is_coord);
+  CursorList *cl = getCursorList(CURSOR_IS_COORD(cur->id));
   Array *idle = &cl->idle;
   Cursor **ll = ARRAY_GETARRAY_AS(idle, Cursor **);
   size_t n = ARRAY_GETSIZE_AS(idle, Cursor *);
@@ -89,7 +89,7 @@ static void Cursor_RemoveFromIdle(Cursor *cur) {
 
 /* Assumed to be called under the cursors global lock or upon server shut down. */
 static void Cursor_FreeInternal(Cursor *cur) {
-  CursorList *cl = getCursorList(cur->is_coord);
+  CursorList *cl = getCursorList(CURSOR_IS_COORD(cur->id));
   khiter_t khi = kh_get(cursors, cl->lookup, cur->id);
 
   /* Decrement the used count */
@@ -98,13 +98,13 @@ static void Cursor_FreeInternal(Cursor *cur) {
   RS_LOG_ASSERT(kh_get(cursors, cl->lookup, cur->id) == kh_end(cl->lookup),
                                                     "Failed to delete cursor");
   if (cur->hybrid_ref.rm) {
-    // TRANSITIONAL(MOD-16691): the sub-AREQ (and its wrapper) is freed by the
+    // TRANSITIONAL(MOD-16691): the sub-AREQ is freed by the
     // hybrid container; the cursor's hold rides the StrongRef until the
     // container-handoff step.
     StrongRef_Release(cur->hybrid_ref);
     cur->query = NULL;
   } else if (cur->query) {
-    BlockedRequestCtx_DecrRef(cur->query);
+    QueryRequest_DecrRef(cur->query);
     cur->query = NULL;
   }
   // if There's a spec associated with the cursor
@@ -114,8 +114,8 @@ static void Cursor_FreeInternal(Cursor *cur) {
     // the spec may have been dropped, so we need to make sure it is still valid.
     if(spec) {
       // Select on the cursor's own list, not on whichever list a caller happens
-      // to hold: `getCursorList(cur->is_coord)` above is the list we are locked on.
-      (*activeCursorsRef(spec, cur->is_coord))--;
+      // to hold: the `getCursorList` call above is the list we are locked on.
+      (*activeCursorsRef(spec, CURSOR_IS_COORD(cur->id)))--;
       StrongRef_Release(spec_ref);
     }
     WeakRef_Release(cur->spec_ref);
@@ -399,7 +399,6 @@ Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned inte
   cur->id = CursorList_GenerateId(cl);
   cur->pos = -1;
   cur->timeoutIntervalMs = interval;
-  cur->is_coord = cl->is_coord;
   if(spec) {
     // Get a a weak reference to the spec out of the strong ref, and save it in the
     // cursor's struct.
@@ -416,7 +415,7 @@ done:
 }
 
 int Cursor_Pause(Cursor *cur) {
-  CursorList *cl = getCursorList(cur->is_coord);
+  CursorList *cl = getCursorList(CURSOR_IS_COORD(cur->id));
 
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
@@ -499,7 +498,7 @@ int Cursors_Purge(CursorList *cl, uint64_t cid) {
 }
 
 int Cursor_Free(Cursor *cur) {
-  CursorList *cl = getCursorList(cur->is_coord);
+  CursorList *cl = getCursorList(CURSOR_IS_COORD(cur->id));
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
   Cursor_FreeInternal(cur);

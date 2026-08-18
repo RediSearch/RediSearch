@@ -5,7 +5,9 @@ name: Common Flow for Python Flow Tests
 # Reusable workflow that runs the Python flow tests (`make pytest`) against a
 # pre-built RediSearch module produced by `task-build.yml`. The build artifact
 # is downloaded into `bin/` and exactly one mode (`standalone` or `coordinator`)
-# is exercised per job invocation. No C/C++ or Rust compilation happens here.
+# is exercised per job invocation. No compilation happens here at all: the
+# redis-server and the RedisJSON module come from their own artifacts, uploaded
+# by `task-build-redis.yml` and `task-build-rejson.yml`.
 
 on:
   workflow_call:
@@ -42,7 +44,7 @@ on:
       rejson-branch:
         type: string
         default: master
-        description: "Branch to use when building RedisJSON for tests"
+        description: "RedisJSON ref the module in rejson-artifact-name was built from (reported by the test harness; nothing is built here)"
       test-timeout:
         type: number
         default: 120
@@ -59,6 +61,14 @@ on:
         default: 1
       artifact-name:
         description: 'Workflow artifact name to download (produced by task-build.yml).'
+        type: string
+        required: true
+      redis-artifact-name:
+        description: 'Workflow artifact holding redis-install.tar.gz (produced by task-build-redis.yml).'
+        type: string
+        required: true
+      rejson-artifact-name:
+        description: 'Workflow artifact holding rejson.so (produced by task-build-rejson.yml). Only downloaded when rejson is true.'
         type: string
         required: true
       # Resolved platform config — produced by task-get-config.yml at the
@@ -223,8 +233,8 @@ jobs:
           sanitizer-setup: 'true'
           # Flow tests only need the ASAN symbolizer, not CC/CXX/LD pinned to clang.
           llvm-full-config: 'false'
-          # No compilation happens in this job, Redis included: the build job
-          # ships its redis-install tree in the artifact and we unpack it below.
+          # No compilation happens in this job, Redis included: the Redis build
+          # job ships its install tree as an artifact and we unpack it below.
           build-redis: 'false'
 
       - name: Set Artifact Names
@@ -262,7 +272,13 @@ jobs:
           echo "Module binaries:"
           find bin -name 'redisearch.so' -o -name 'redisearch.dylib' 2>/dev/null
 
-      - name: Restore Redis from build artifact
+      - name: Download Redis artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ inputs.redis-artifact-name }}
+          # redis-install.tar.gz lands in the working directory; unpacked next.
+
+      - name: Restore Redis from artifact
         # Same install tree, same toolchain as the module under test. The
         # `--version` check mirrors what RLTest parses to decide the server
         # version (it wants a "v=<version>" field on stdout): assert it here so a
@@ -293,6 +309,31 @@ jobs:
             chmod 0644 /etc/profile.d/redis-prefix.sh
           fi
 
+      - name: Download RedisJSON artifact
+        if: ${{ inputs.rejson }}
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ inputs.rejson-artifact-name }}
+          # rejson.tar.gz lands in the working directory; unpacked next.
+
+      - name: Unpack RedisJSON module
+        # Into bin/, where REJSON_PATH points below. Runs after the bin/ unpack
+        # so that tarball can never clobber it. The execute bit is asserted, not
+        # assumed: Redis checks X_OK before loading a module and refuses a
+        # non-executable one, and every server in the job then fails to start —
+        # which surfaces as every test reporting "Connection refused" with the
+        # cause only visible in the per-server logs.
+        if: ${{ inputs.rejson }}
+        run: |
+          set -euo pipefail
+          tar -xzf rejson.tar.gz -C bin
+          rm rejson.tar.gz
+          ls -l bin/rejson.so
+          [[ -x bin/rejson.so ]] || {
+            echo "::error::bin/rejson.so is not executable; Redis will refuse to load it"
+            exit 1
+          }
+
       # Enumerate the suite (LIST=1 => RLTest --collect-only, one "<file>:<test>"
       # spec per line). Needed to shard and as the input to flaky filtering.
       # Runs whenever we shard (shard-total > 1) OR can filter (internal PRs); a
@@ -304,7 +345,7 @@ jobs:
           SAN: ${{ inputs.san }}
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
-          # rejson.so was prebuilt and restored from the artifact; point
+          # rejson.so came from the RedisJSON build job's artifact; point
           # setup_rejson.sh at it so enumeration doesn't clone+build RedisJSON.
           REJSON_PATH: ${{ github.workspace }}/bin/rejson.so
           # Enumerate in the same mode the shard runs in, so collection matches.
@@ -406,8 +447,8 @@ jobs:
           FAILEDFILE: .failed_standalone.txt
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
-          # rejson.so was prebuilt by the build job and restored from the artifact.
-          # Pointing REJSON_PATH at it makes setup_rejson.sh skip its clone+build.
+          # rejson.so came from the RedisJSON build job's artifact. Pointing
+          # REJSON_PATH at it makes setup_rejson.sh skip its clone+build.
           REJSON_PATH: ${{ github.workspace }}/bin/rejson.so
           ENABLE_ASSERT: 1
           TEST_CONFIG: ${{ inputs.test-config }}
@@ -430,8 +471,8 @@ jobs:
           FAILEDFILE: .failed_coordinator.txt
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
-          # rejson.so was prebuilt by the build job and restored from the artifact.
-          # Pointing REJSON_PATH at it makes setup_rejson.sh skip its clone+build.
+          # rejson.so came from the RedisJSON build job's artifact. Pointing
+          # REJSON_PATH at it makes setup_rejson.sh skip its clone+build.
           REJSON_PATH: ${{ github.workspace }}/bin/rejson.so
           ENABLE_ASSERT: 1
           TEST_CONFIG: ${{ inputs.test-config }}

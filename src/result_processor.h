@@ -206,7 +206,7 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit);
  *
  *******************************************************************************************************************/
 struct AREQ;
-struct BlockedRequestCtx;
+struct QueryRequest;
 ResultProcessor *RPLoader_New(RedisSearchCtx *sctx, uint32_t reqflags, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad, uint32_t *outStateflags);
 void RPLoader_ReplyProfileFields(RedisModule_Reply *reply, const ResultProcessor *base);
 
@@ -216,7 +216,7 @@ void SetLoadersForMainThread(QueryProcessingCtx *qctx);
 /* Link the request sync context into every RP_SAFE_LOADER and RP_DISK_ASYNC_LOADER in the
  * pipeline so they can perform the RETURN_STRICT GIL deadlock-avoidance handshake (see
  * aggregate.h). No-op for pipelines without safe/disk loaders. */
-void RPSafeLoader_SetSyncCtx(QueryProcessingCtx *qctx, struct BlockedRequestCtx *sync);
+void RPSafeLoader_SetSyncCtx(QueryProcessingCtx *qctx, struct QueryRequest *request);
 
 /** Creates a new Highlight processor */
 ResultProcessor *RPHighlighter_New(RSLanguage language, const FieldList *fields,
