@@ -47,13 +47,11 @@ def dump_terms_raw(env, idx='idx'):
     return sorted(env.cmd(debug_cmd(), 'DUMP_TERMS', idx, **{NEVER_DECODE: []}))
 
 def create_index(env):
-    env.skipOnCluster()
     env.expect('ft.create', 'idx', 'ON', 'HASH',
                'SCHEMA', 't', 'TEXT', 'NOSTEM').ok()
 
 def add_doc(env, key, value):
-    with env.getClusterConnectionIfNeeded() as r:
-        env.assertEqual(r.execute_command('hset', key, 't', value), 1)
+    env.assertEqual(env.cmd('hset', key, 't', value), 1)
     waitForIndex(env, 'idx')
 
 def num_results(env, query):
@@ -63,6 +61,7 @@ def num_results(env, query):
 # ============================ VALID UTF-8 ============================
 # Field values that decode cleanly: every codepoint <= U+FFFF round-trips.
 
+@skip(cluster=True)
 def testValidTermsCaseFoldedRoundtrip(env):
     create_index(env)
     add_doc(env, 'doc1', 'Hello Café 日本語')
@@ -81,18 +80,21 @@ def testValidTermsCaseFoldedRoundtrip(env):
 # U+F600 instead of U+1F600 -- and every query path that goes through the
 # trie rebuilds the wrong bytes.
 
+@skip(cluster=True)
 def testAstralExactSearchWorks(env):
     create_index(env)
     add_doc(env, 'doc1', '\U0001F600\U0001F600')
     # Exact term search hits the inverted index by bytes: lossless.
     env.assertEqual(num_results(env, '\U0001F600\U0001F600'), 1)
 
+@skip(cluster=True)
 def testAstralTermTrieTruncated(env):
     create_index(env)
     add_doc(env, 'doc1', '\U0001F600\U0001F600')
     # The trie stored truncated runes: DUMP_TERMS shows U+F600 U+F600.
     env.assertEqual(dump_terms_raw(env), ['\uf600\uf600'.encode()])
 
+@skip(cluster=True)
 def testAstralPrefixSearchFindsNothing(env):
     create_index(env)
     add_doc(env, 'doc1', '\U0001F600\U0001F600')
@@ -105,6 +107,7 @@ def testAstralPrefixSearchFindsNothing(env):
     # term has no inverted-index entry either.
     env.assertEqual(num_results(env, '\uf600*'), 0)
 
+@skip(cluster=True)
 def testAstralFuzzyAndWildcardFindNothing(env):
     create_index(env)
     add_doc(env, 'doc1', '\U0001F600\U0001F600')
@@ -119,6 +122,7 @@ def testAstralFuzzyAndWildcardFindNothing(env):
 # Invalid bytes and NULs in document field values: never rejected, always
 # rewritten into whatever the decoder makes of them.
 
+@skip(cluster=True)
 def testNulStopsTokenization(env):
     create_index(env)
     # toksep's scan loop is NUL-terminated: 'bar' after the NUL is never seen.
@@ -127,6 +131,7 @@ def testNulStopsTokenization(env):
     env.assertEqual(num_results(env, 'foo'), 1)
     env.assertEqual(num_results(env, 'bar'), 0)
 
+@skip(cluster=True)
 def testControlCharsStrippedFromToken(env):
     create_index(env)
     # In contrast to NUL, other control bytes are stripped by
@@ -136,6 +141,7 @@ def testControlCharsStrippedFromToken(env):
     env.assertEqual(dump_terms_raw(env), [b'ab'])
     env.assertEqual(num_results(env, 'ab'), 1)
 
+@skip(cluster=True)
 def testInvalidBytesLaunderedIntoValidTerm(env):
     create_index(env)
     # 0xC3 0xC3 is invalid (0xC3 is not a continuation byte). The blind
@@ -147,6 +153,7 @@ def testInvalidBytesLaunderedIntoValidTerm(env):
     env.assertEqual(dump_terms_raw(env), ['ã'.encode()])
     env.assertEqual(num_results(env, 'ã'), 1)
 
+@skip(cluster=True)
 def testSurrogateBytesIndexedVerbatim(env):
     create_index(env)
     # 0xED 0xA0 0x80 (lone surrogate U+D800, invalid UTF-8) survives the
@@ -155,6 +162,7 @@ def testSurrogateBytesIndexedVerbatim(env):
     add_doc(env, 'doc1', b'\xed\xa0\x80')
     env.assertEqual(dump_terms_raw(env), [b'\xed\xa0\x80'])
 
+@skip(cluster=True)
 def testSurrogateTermSurfacesInSpellCheckReply(env):
     create_index(env)
     # FT.SPELLCHECK suggestions come from spec->terms (no dictionaries
@@ -175,6 +183,7 @@ def testSurrogateTermSurfacesInSpellCheckReply(env):
 # a phantom prefix behind that no document ever contained -- unlike the
 # valid-astral case, where the trie holds a wrong term of the right length.
 
+@skip(cluster=True)
 def testAboveBmpInvalidBytesCutTermShortInTrie(env):
     create_index(env)
     add_doc(env, 'doc1', b'caf\xf5\x80\x80\x80e')
@@ -184,6 +193,7 @@ def testAboveBmpInvalidBytesCutTermShortInTrie(env):
     # so exact search - which never consults the trie - still finds the doc.
     env.assertEqual(num_results(env, b'caf\xf5\x80\x80\x80e'), 1)
 
+@skip(cluster=True)
 def testAboveBmpPhantomTermMatchesNothing(env):
     create_index(env)
     add_doc(env, 'doc1', b'caf\xf5\x80\x80\x80e')
@@ -192,6 +202,7 @@ def testAboveBmpPhantomTermMatchesNothing(env):
     env.assertEqual(num_results(env, 'caf'), 0)
     env.assertEqual(num_results(env, 'caf*'), 0)
 
+@skip(cluster=True)
 def testAboveBmpPrefixReachesOnlyBmpSibling(env):
     create_index(env)
     add_doc(env, 'doc1', b'caf\xf5\x80\x80\x80e')
@@ -209,8 +220,8 @@ def testAboveBmpPrefixReachesOnlyBmpSibling(env):
 # spec->terms is pinned here; test_suffix_trie_encoding.py owns the suffix
 # store's own characteristics.
 
+@skip(cluster=True)
 def testSuffixQueriesReachAstralTerm(env):
-    env.skipOnCluster()
     env.expect('ft.create', 'idx', 'ON', 'HASH',
                'SCHEMA', 't', 'TEXT', 'NOSTEM', 'WITHSUFFIXTRIE').ok()
     add_doc(env, 'doc1', 'x\U0001F600y')
@@ -230,6 +241,7 @@ def testSuffixQueriesReachAstralTerm(env):
 # limit are indexed and exactly searchable, yet absent from the trie. Same
 # observable shape as the above-BMP case, reached without any invalid input.
 
+@skip(cluster=True)
 def testLongTermIndexedButMissingFromTrie(env):
     create_index(env)
     add_doc(env, 'doc1', 'a' * 255)
@@ -240,6 +252,7 @@ def testLongTermIndexedButMissingFromTrie(env):
     env.assertEqual(num_results(env, 'b' * 600), 1)
     env.assertEqual(num_results(env, 'bbb*'), 0)
 
+@skip(cluster=True)
 def testLongMultibyteTermGateIsBytes(env):
     create_index(env)
     # The gate counts raw bytes, not runes, so a multibyte term is dropped at
@@ -259,6 +272,7 @@ def testLongMultibyteTermGateIsBytes(env):
 # DETERMINISTIC, not because the trie bytes round-trip: truncated-astral and
 # surrogate terms are re-created from the (binary-safe) hash values.
 
+@skip(cluster=True)
 def testRdbRoundtripTermsTrie(env):
     create_index(env)
     add_doc(env, 'doc1', 'Hello')
