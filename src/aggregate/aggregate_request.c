@@ -1957,6 +1957,13 @@ int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
   int rc = Pipeline_BuildAggregationPart(&req->pipeline, aggregationParams, &req->stateflags, status);
   if (rc == REDISMODULE_OK) {
     AREQ_SetCanYieldPartialResults(req);
+    // The pipeline is final: execution may only append keys to the reply
+    // lookup (document loaders, the coordinator's RPNet); changing an existing
+    // key panics in the Rust core.
+    RLookup *replyLookup = AGPLN_GetLookup(&req->pipeline.ap, NULL, AGPLN_GETLOOKUP_LAST);
+    if (replyLookup) {
+      RLookup_Seal(replyLookup);
+    }
   }
   return rc;
 }
