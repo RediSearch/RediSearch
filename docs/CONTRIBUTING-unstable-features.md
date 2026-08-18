@@ -1,10 +1,10 @@
 # Contributing a Feature Behind the Unstable-Features Flag
 
-RediSearch ships a runtime feature gate, `ENABLE_UNSTABLE_FEATURES`, that is **off by default**. Code behind that gate is invisible to every user who has not deliberately turned it on.
+RediSearch ships a runtime feature gate, `ENABLE_UNSTABLE_FEATURES`, that is **off by default**. Behavior behind that gate is invisible to every user who has not deliberately turned it on.
 
-That gate exists to make a trade possible. Normally a new `FT.*` command, or a new option on an existing one, goes through the [spec-driven workflow](CONTRIBUTING-specs.md): a proposal and a design reviewed by the Search team and by product before you write code, because anything that reaches a default-on release is something Redis has to support, document, and keep working for years. That review might be slow, and for an idea whose value is not yet proven it is often slower than the idea deserves.
+That gate exists to make a trade possible. Normally a new `FT.*` command, or a new option on an existing one, goes through the [spec-driven workflow](CONTRIBUTING-specs.md): a proposal and a design reviewed by the Search team and by product before you write code, because anything that reaches a default-on release is something Redis has to support, document, and keep working until it reaches end-of-life. That review might be slow, and for an idea whose value is not yet proven it is often slower than the idea deserves.
 
-If you instead land your feature **behind the gate**, the review narrows sharply. Maintainers still check that your code is safe, but they do not have to agree that the feature is the right long-term API, because nothing is committed: the surface is off by default, carries no compatibility promise, and can be changed or removed at any time. Once the feature has proven useful and correct, a follow-up PR removes the gate and *that* is when the full design and product review happens — with a working implementation and real users to point at.
+If you instead land your feature **behind the gate**, the review narrows sharply. Maintainers still check that your code is safe, but they do not have to agree that the feature is the right long-term API, because no compatibility commitment is made: the surface is off by default, carries no compatibility promise, and can be changed or removed at any time. Once the feature has proven useful and correct, a follow-up PR removes the gate and *that* is when the full design and product review happens — with a working implementation and real users to point at.
 
 This document is the contract for that path. Follow it and your PR should be a short review. Break the parts marked as requirements and your PR becomes a normal spec-driven change, because the gate stops protecting users.
 
@@ -53,7 +53,7 @@ Four properties of the flag matter when you design against it:
 **It is not persistent on its own, and how you persist it depends on the deployment.** A bare `CONFIG SET` changes the running process only, and is lost on restart.
 
 - **Redis Open Source 8** — run `CONFIG REWRITE` if you want the setting preserved across a restart, or set it up front in `redis.conf` or as a module argument.
-- **Redis Enterprise and Redis Cloud** — use the database configuration API or another supported database-management mechanism. A `CONFIG SET` issued directly against a shard may be temporary: the shard configuration is owned by the control plane and can be regenerated when a shard restarts or fails over, discarding the local change. Settings that must survive have to be stored in the database configuration.
+- **Redis Enterprise and Redis Cloud** — a `CONFIG SET` issued directly against a shard may be temporary, since the control plane owns shard configuration and can regenerate it on restart or failover; consult deployment-specific documentation for how to persist it there.
 
 This matters when you write reproduction steps or test instructions for your feature. "Run `CONFIG SET` and try it" is fine for a local build, but do not present it as the way to enable the flag in a managed deployment — an operator following that advice can see the feature silently switch off after a shard restart.
 
@@ -179,6 +179,8 @@ void TearDown() override {
 }
 ```
 
+`TearDown()` runs even when an assertion fails inside the test body, so the previous value is always restored — never restore only on the success path.
+
 See [`CONTRIBUTING.md`](../CONTRIBUTING.md#testing-requirements) for how to run each suite.
 
 ## Documentation and release notes
@@ -202,6 +204,7 @@ Unstable-feature gate
 - [ ] No unconditional allocation, callback registration, locking, or hot-path cost
 - [ ] Feature code is separable; graduation or removal is a small diff
 - [ ] Single gate check, shared by all entry points including the coordinator path
+- [ ] Does not change or regress existing unstable features
 - [ ] Rejection error names the feature and the command that enables it
 - [ ] Tests with the flag on
 - [ ] A test asserting rejection with the flag off
@@ -226,7 +229,7 @@ The code change itself is mechanical. `git show 66978e2386` (PR #10377, which gr
 
 ## If it does not work out
 
-Some gated features will not graduate, and that is a normal outcome rather than a failure. Because nothing was promised to users, removal is a straightforward deletion of the feature code, its gate, and its tests — no deprecation cycle, no compatibility shim. Maintainers may propose removing a gated feature that has sat unused, or that has become a maintenance cost, and will normally open an issue and give you a chance to make the case for keeping it first.
+Some gated features will not graduate, and that is a normal outcome rather than a failure. Because nothing was promised to users, removal is a straightforward deletion of the feature code, the feature-specific gate checks, and its tests — no deprecation cycle, no compatibility shim. Maintainers may propose removing a gated feature that has sat unused, or that has become a maintenance cost, and will normally open an issue and give you a chance to make the case for keeping it first.
 
 ## See also
 
