@@ -466,3 +466,44 @@ fn set_offsets_owned_on_borrowed_panics() {
         .unwrap()
         .set_offsets_owned(RSOffsetVector::empty());
 }
+
+/// Nearly every `build_*` call site omits `has_field_expiration` and relies on
+/// the flag being clear, so the default is pinned here for all result kinds.
+#[test]
+fn has_field_expiration_defaults_to_false() {
+    let defaults = [
+        RSIndexResult::build_virt().build(),
+        RSIndexResult::build_numeric(10.0).build(),
+        RSIndexResult::build_metric(10.0).build(),
+        RSIndexResult::build_intersect(1).build(),
+        RSIndexResult::build_union(1).build(),
+        RSIndexResult::build_hybrid_metric().build(),
+        RSIndexResult::build_term().build(),
+    ];
+
+    for result in &defaults {
+        assert!(
+            !result.has_field_expiration,
+            "{:?} must not opt into field-expiration checks by default",
+            result.kind()
+        );
+    }
+}
+
+/// Both builders — the generic one and the term-specific one — must carry the
+/// flag through to the built result.
+#[test]
+fn has_field_expiration_setter() {
+    assert!(
+        RSIndexResult::build_virt()
+            .has_field_expiration(true)
+            .build()
+            .has_field_expiration
+    );
+    assert!(
+        RSIndexResult::build_term()
+            .has_field_expiration(true)
+            .build()
+            .has_field_expiration
+    );
+}
