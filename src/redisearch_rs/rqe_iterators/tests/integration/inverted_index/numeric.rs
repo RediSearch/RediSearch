@@ -311,6 +311,7 @@ fn get_correct_value() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "Too slow to be run under miri.")]
 fn eof_after_filtering() {
     let mut ii =
         InvertedIndex::<inverted_index::numeric::Numeric>::new(IndexFlags_Index_StoreNumeric);
