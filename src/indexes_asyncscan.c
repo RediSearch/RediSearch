@@ -323,10 +323,16 @@ static void Indexes_AsyncScanCancelIfDropped(IndexesScanner *scanner) {
 }
 
 // React to Flex memory pressure, once per completed batch. Latches scanner->scanFailedOnOOM when
-// the scan cannot continue, which the caller's abort branch acts on.
+// the scan cannot continue, which the caller's abort branch acts on. Does nothing for a cancelled
+// scan: the sweep is going away, and the OOM pause below would sleep on a dead cursor while the
+// replacement scan waits for this worker.
 //
 // Caller must hold the GIL; returns with it held.
 static void Indexes_AsyncScanHandleMemoryPressure(RedisModuleCtx *ctx, IndexesScanner *scanner) {
+  if (IndexesScanner_IsCancelled(scanner)) {
+    return;
+  }
+
   const BgIndexingMemVerdict verdict = AsyncBgIndexingMemVerdict(ctx);
   if (verdict == BG_INDEXING_MEM_OK) {
     return;
@@ -353,7 +359,7 @@ static void Indexes_AsyncScanHandleMemoryPressure(RedisModuleCtx *ctx, IndexesSc
     RedisModule_ThreadSafeContextUnlock(ctx);
     sleep(graceSecs);
     RedisModule_ThreadSafeContextLock(ctx);
-    // Cancelled during the pause: the caller's cancellation branch owns the teardown.
+    // Cancelled during the pause: the caller's check below owns the teardown.
     if (IndexesScanner_IsCancelled(scanner)) {
       return;
     }
@@ -441,9 +447,8 @@ static RedisModuleAsyncScanResult Indexes_AsyncScanDriveNextBatch(
     }
   }
 
-  // Cancelled (per-key or just above): abort the sweep. Abort is a NOOP on an already-terminal
-  // cursor and publishes terminal state on an active one, so teardown's ScanCursorDestroy is
-  // always valid.
+  Indexes_AsyncScanHandleMemoryPressure(ctx, scanner);
+
   if (IndexesScanner_IsCancelled(scanner)) {
     RedisModule_AsyncScanAbort(cursor);
     RedisModule_ThreadSafeContextUnlock(ctx);
@@ -453,8 +458,6 @@ static RedisModuleAsyncScanResult Indexes_AsyncScanDriveNextBatch(
     *out_terminal = true;
     return REDISMODULE_ASYNCSCAN_ABORTED;
   }
-
-  Indexes_AsyncScanHandleMemoryPressure(ctx, scanner);
 
   if (scanner->scanFailedOnOOM) {
     RedisModule_AsyncScanAbort(cursor);
