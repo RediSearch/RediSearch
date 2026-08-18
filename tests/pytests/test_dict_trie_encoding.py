@@ -125,14 +125,11 @@ def testLoneContinuationByteSwallowsNextByte(env):
 
 def testUndefinedLeadByteSwallowsThreeBytes(env):
     # 0xFF is not a legal lead byte; the decoder treats anything >= 0xF0 as a
-    # 4-byte sequence, consuming 0xFF plus 'abc' as one codepoint (which is
-    # then also > U+FFFF and truncated to uint16). Only 'd' survives intact.
+    # 4-byte sequence, consuming 0xFF plus 'abc' as one codepoint. That yields
+    # U+1E18A3, itself > U+FFFF and so truncated to U+18A3, leaving 'd' as the
+    # only byte that survives intact.
     env.expect('ft.dictadd', 'dict', b'\xffabcd').equal(1)
-    dumped = dump_raw(env, 'dict')
-    env.assertEqual(len(dumped), 1)
-    # One mangled leading character followed by the surviving 'd'.
-    env.assertTrue(dumped[0].endswith(b'd'))
-    env.assertNotEqual(dumped[0], b'\xffabcd')
+    env.assertEqual(dump_raw(env, 'dict'), ['\u18a3d'.encode()])
 
 def testTruncatedSequenceAtEndOfTerm(env):
     # A 2-byte lead as the last byte makes the decoder read one byte past the
