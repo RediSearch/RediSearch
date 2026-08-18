@@ -125,6 +125,7 @@
 #![expect(dead_code, reason = "read by methods added in a follow-up change")]
 
 mod suffix;
+mod unique_id;
 
 // Force-link the umbrella `redisearch_rs` crate so its `#[used]` symbol table keeps the
 // Rust FFI functions that the linked C code (`libredisearch_c_bundle`) calls back into, and
@@ -143,6 +144,7 @@ use ffi::{RedisSearchDiskIndexSpec, t_fieldIndex};
 use inverted_index::{InvertedIndex, doc_ids_only::DocIdsOnly};
 use suffix::TagSuffixIndex;
 use trie_rs::TrieMap;
+pub use unique_id::TagUniqueId;
 
 /// A tag value: borrowed bytes guaranteed to contain no interior NUL byte — see
 /// the crate-level "Tag bytes" docs for exactly what that does and doesn't cover.
@@ -204,7 +206,7 @@ impl TagIndexMode for OnDiskMode {}
 /// See the [crate documentation](self) for an overview.
 pub struct TagIndex<M: TagIndexMode> {
     /// Unique id generated at creation time.
-    unique_id: u32,
+    unique_id: TagUniqueId,
 
     /// Suffix index, present only for fields created `WITHSUFFIXTRIE`.
     suffix: Option<TagSuffixIndex>,
@@ -217,16 +219,16 @@ pub struct TagIndex<M: TagIndexMode> {
 
 impl<M: TagIndexMode> TagIndex<M> {
     /// The part of construction every mode's constructor shares.
-    fn with_mode(id: u32, with_suffix: bool, mode: M) -> Self {
+    fn with_mode(with_suffix: bool, mode: M) -> Self {
         Self {
-            unique_id: id,
+            unique_id: TagUniqueId::next(),
             suffix: with_suffix.then(TagSuffixIndex::new),
             mode,
         }
     }
 
-    /// The unique id this index was created with.
-    pub const fn id(&self) -> u32 {
+    /// The unique id generated when this index was created.
+    pub const fn id(&self) -> TagUniqueId {
         self.unique_id
     }
 
@@ -239,13 +241,11 @@ impl<M: TagIndexMode> TagIndex<M> {
 impl TagIndex<InMemoryMode> {
     /// Create a new, empty index keeping its postings in memory.
     ///
-    /// - `id` uniquely identifies this index.
-    /// - `with_suffix` enables the [suffix index](TagSuffixIndex)
-    ///   (`WITHSUFFIXTRIE`), so suffix (`*foo`) and contains (`*foo*`)
-    ///   queries don't have to scan the whole tag trie.
-    pub fn new(id: u32, with_suffix: bool) -> Self {
+    /// `with_suffix` enables the [suffix index](TagSuffixIndex)
+    /// (`WITHSUFFIXTRIE`), so suffix (`*foo`) and contains (`*foo*`)
+    /// queries don't have to scan the whole tag trie.
+    pub fn new(with_suffix: bool) -> Self {
         Self::with_mode(
-            id,
             with_suffix,
             InMemoryMode {
                 values: TrieMap::new(),
@@ -258,8 +258,7 @@ impl TagIndex<OnDiskMode> {
     /// Create a new, empty index keeping its postings on disk.
     ///
     /// `disk_spec` is paired with `field_id`, the field index the disk API
-    /// calls need. `id` and `with_suffix` are as in
-    /// [`TagIndex<InMemoryMode>::new`].
+    /// calls need. `with_suffix` is as in [`TagIndex<InMemoryMode>::new`].
     ///
     /// # Safety
     ///
@@ -267,13 +266,11 @@ impl TagIndex<OnDiskMode> {
     /// remains valid for the lifetime of the returned [`TagIndex`]: the disk
     /// paths hand it to the `RSE` API, which dereferences it.
     pub unsafe fn new(
-        id: u32,
         disk_spec: NonNull<RedisSearchDiskIndexSpec>,
         field_id: t_fieldIndex,
         with_suffix: bool,
     ) -> Self {
         Self::with_mode(
-            id,
             with_suffix,
             OnDiskMode {
                 values: TrieMap::new(),
