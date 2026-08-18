@@ -2313,6 +2313,9 @@ def test_flex_search_disk_async_read_pool_size(env):
     env.expect('CONFIG', 'SET', 'search-disk-async-read-pool-size', '1025').error()\
         .contains('argument must be between 1 and 1024')
 
+    # RLTest reuses the server across tests, so hand it back at the default
+    env.expect('CONFIG', 'SET', 'search-disk-async-read-pool-size', '16').ok()
+
 @skip(cluster=True)
 def test_flex_search_disk_async_read_queue_factor(env):
     """Test search-disk-async-read-queue-factor validation in Flex mode"""
@@ -2333,6 +2336,9 @@ def test_flex_search_disk_async_read_queue_factor(env):
     env.expect('CONFIG', 'SET', 'search-disk-async-read-queue-factor', '17').error()\
         .contains('argument must be between 1 and 16')
 
+    # RLTest reuses the server across tests, so hand it back at the default
+    env.expect('CONFIG', 'SET', 'search-disk-async-read-queue-factor', '1').ok()
+
 @skip(cluster=True)
 def test_flex_search_disk_async_read_pool_and_queue_set_together(env):
     """The pool size and the queue factor can be set in one command, in either order"""
@@ -2349,3 +2355,7 @@ def test_flex_search_disk_async_read_pool_and_queue_set_together(env):
         .equal(['search-disk-async-read-pool-size', '1024'])
     env.expect('CONFIG', 'GET', 'search-disk-async-read-queue-factor')\
         .equal(['search-disk-async-read-queue-factor', '4'])
+
+    # RLTest reuses the server across tests, so hand it back at the defaults
+    env.expect('CONFIG', 'SET', 'search-disk-async-read-pool-size', '16',
+               'search-disk-async-read-queue-factor', '1').ok()
