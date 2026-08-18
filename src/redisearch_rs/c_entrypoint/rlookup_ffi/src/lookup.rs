@@ -21,7 +21,6 @@ use rlookup::{
 use std::{
     borrow::Cow,
     ffi::{CStr, CString, c_char, c_int},
-    pin::Pin,
     ptr::{self, NonNull},
     slice,
 };
@@ -512,6 +511,27 @@ pub unsafe extern "C" fn RLookup_SetCache(
     lookup.set_cache(spcache);
 }
 
+/// Seal the lookup at the end of pipeline construction: from now on it is
+/// append-only. Creating new keys stays legal (document loaders and the
+/// coordinator append keys during execution), but overriding or mutating an
+/// existing key panics. Idempotent.
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_Seal(lookup: *mut OpaqueRLookup) {
+    // SAFETY: ensured by caller (1.)
+    let lookup =
+        unsafe { RLookup::from_opaque_mut_ptr(lookup) }.expect("`lookup` must not be null");
+    #[cfg(debug_assertions)]
+    lookup.assert_valid("RLookup_Seal");
+
+    lookup.seal();
+}
+
 /// Returns `true` if this `RLookup` has an associated [`IndexSpecCache`].
 ///
 /// # Safety
@@ -923,42 +943,6 @@ pub unsafe extern "C" fn RLookup_Iter<'a>(lookup: *const OpaqueRLookup) -> RLook
 #[repr(C)]
 pub struct RLookupIterator<'a> {
     pub current: *const RLookupKey<'a>,
-}
-
-/// Return an iterator over an [`RLookup`]'s key list with editing operations.
-///
-/// # Safety
-///
-/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
-/// 2. The returned iterator must only be used as long as the `lookup` remains valid.
-/// 3. The caller must treat the returned `current` pointer as pinned. Specifically
-///    a. Not move (memcpy/memmove) out of the pointer.
-///    b. The pointed-to value must remain at its original address in memory and never be relocated.
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_IterMut<'a>(lookup: *mut OpaqueRLookup) -> RLookupIteratorMut<'a> {
-    // Safety: ensured by caller (1.)
-    let lookup =
-        unsafe { RLookup::from_opaque_mut_ptr(lookup) }.expect("`lookup` must not be null");
-    #[cfg(debug_assertions)]
-    lookup.assert_valid("RLookup_IterMut");
-
-    let current = lookup.cursor_mut().current().map_or(ptr::null_mut(), |c| {
-        ptr::from_mut(
-            // Safety: ensured by caller (2., 3.)
-            // Both this function and the caller guarantee that the value behind the pointer is never moved.
-            unsafe { Pin::into_inner_unchecked(c) },
-        )
-    });
-
-    RLookupIteratorMut { current }
-}
-
-/// An iterator over the keys in an `RLookup`, returning mutable pointers.
-#[repr(C)]
-pub struct RLookupIteratorMut<'a> {
-    pub current: *mut RLookupKey<'a>,
 }
 
 /// Turns `name` into an owned allocation if needed, and returns it together with the (cleared) flags.
