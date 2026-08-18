@@ -103,7 +103,11 @@ unsafe fn new_metric_iterator<const SORTED_BY_ID: bool>(
 ///
 /// 1. `header` is a valid non-null pointer to a [`QueryIterator`].
 /// 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
-/// 3. `key_handle` is either a null pointer or a valid non-null pointer to a [`RLookupKeyHandle`] instance.
+/// 3. The caller has exclusive access to that iterator for the duration of the call.
+/// 4. `key_handle` is either a null pointer, or a valid non-null pointer to a [`RLookupKeyHandle`]
+///    that stays live until the iterator is freed — not merely for this call. The iterator clears
+///    the handle's validity flag when it is dropped, so releasing the handle while the iterator is
+///    still alive is a use-after-free at that later point.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn SetMetricRLookupHandle(
     header: *mut QueryIterator,
@@ -111,7 +115,8 @@ pub unsafe extern "C" fn SetMetricRLookupHandle(
 ) {
     let header = NonNull::new(header).expect("header must not be null");
 
-    // SAFETY: Safe thanks to 1 + 2 + 3.
+    // SAFETY: 1 + 2 give the callee its live iterator, 3 its exclusive access,
+    // and 4 the handle that outlasts the iterator writing through it.
     unsafe { metric::set_key_handle(header, key_handle) };
 }
 
@@ -121,11 +126,12 @@ pub unsafe extern "C" fn SetMetricRLookupHandle(
 ///
 /// 1. `header` is a valid non-null pointer to a [`QueryIterator`].
 /// 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
+/// 3. The caller has exclusive access to that iterator for the duration of the call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn GetMetricOwnKeyRef(header: *mut QueryIterator) -> *mut *mut RLookupKey {
     let header = NonNull::new(header).expect("header must not be null");
 
-    // SAFETY: Safe thanks to 1 + 2. The borrow parameter is discharged by
+    // SAFETY: Safe thanks to 1 + 2 + 3. The borrow parameter is discharged by
     // discarding it: it is inferred to a lifetime local to this function and
     // erased by the cast below, so no key typed with it escapes to C — which
     // has none to offer and reads no borrowed string through this pointer.

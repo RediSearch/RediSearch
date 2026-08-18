@@ -457,10 +457,14 @@ impl<'query, const SORTED_BY_ID: bool> RQESuspendedIterator<'query>
 ///
 /// # Safety
 ///
-/// 1. `header` points to a live iterator built by one of the metric
-///    constructors — that is, wrapping one of [`MetricSortedById`],
-///    [`MetricSortedByScore`], [`MetricLazySortedById`] or
-///    [`MetricLazySortedByScore`].
+/// 1. `header` points to a live iterator built by
+///    [`RQEIteratorWrapper::boxed_new`] whose type tag names the type it
+///    actually wraps. Being a *metric* iterator is not required — that is the
+///    run-time check under [Panics](#panics) — but honesty is. The tag is what
+///    the downcast below keys off, and the wrapper copies it from the safe
+///    [`RQEIterator::type_`], so an iterator reporting a flavour it is not
+///    would be downcast to a type it is not, and its `inner` read as that type.
+///    Every iterator in this crate reports honestly.
 /// 2. The caller holds that iterator exclusively for the duration of the call.
 /// 3. `'index` must not outlive the storage the slot's key borrows. A
 ///    [`NonNull<QueryIterator>`] carries no lifetime, so — as for
@@ -481,7 +485,9 @@ impl<'query, const SORTED_BY_ID: bool> RQESuspendedIterator<'query>
 ///
 /// # Panics
 ///
-/// Panics if `header` is any other iterator type.
+/// Panics unless `header` wraps one of [`MetricSortedById`],
+/// [`MetricSortedByScore`], [`MetricLazySortedById`] or
+/// [`MetricLazySortedByScore`] — the four flavours that own a key slot.
 // TODO: this API should use proper Rust types instead of QueryIterator once top-k has been ported
 // to Rust (MOD-17755).
 pub unsafe fn own_key_ref<'index>(header: NonNull<QueryIterator>) -> *mut *mut RLookupKey<'index> {
@@ -528,15 +534,18 @@ pub unsafe fn own_key_ref<'index>(header: NonNull<QueryIterator>) -> *mut *mut R
 ///
 /// # Safety
 ///
-/// 1. `header` points to a live metric iterator, exactly as for
-///    [`own_key_ref`].
+/// 1. `header` points to a live iterator whose type tag is honest, exactly as
+///    for [`own_key_ref`] — metric-ness is a run-time check here too, not a
+///    pre-condition.
 /// 2. The caller holds that iterator exclusively for the duration of the call.
 /// 3. `handle` is null, or points to a valid [`RLookupKeyHandle`] that outlives
-///    the iterator — which clears its validity flag when freed.
+///    the iterator. The iterator clears the handle's validity flag on its way
+///    out, so freeing the handle first is a use-after-free at a distance: the
+///    write lands whenever the iterator is dropped, not during this call.
 ///
 /// # Panics
 ///
-/// Panics if `header` is not a metric iterator.
+/// Panics on any header [`own_key_ref`] would panic on.
 pub unsafe fn set_key_handle(header: NonNull<QueryIterator>, handle: *mut RLookupKeyHandle<'_>) {
     // SAFETY: safe thanks to 1.
     let iterator_type = unsafe { header.as_ref().type_ };

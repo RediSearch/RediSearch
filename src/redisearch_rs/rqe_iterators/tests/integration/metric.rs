@@ -532,10 +532,10 @@ mod header_dispatch {
     fn own_key_ref_rejects_a_non_metric_iterator() {
         let it = OwnedHeader::new(RQEIteratorWrapper::boxed_new(Mock::new([1, 2, 3])));
 
-        // SAFETY: the header is live, which is all the dispatch touches before it
-        // recognises the type as non-metric and panics. It is deliberately not a
-        // metric iterator, so pre-condition 1 does not hold — the panic is the
-        // contract violation being reported rather than acted on. The dispatch
+        // SAFETY: the header is a live, exclusively-held wrapper reporting its
+        // type honestly — `Mock` tags itself `IteratorType::Mock`. That is the
+        // whole pre-condition; being a metric iterator is not one, it is the
+        // documented panic condition, and this asserts it fires. The dispatch
         // reads the type tag and nothing else, so the iterator is untouched and
         // `it` can still free it as the unwind passes through.
         unsafe { metric::own_key_ref(it.as_non_null()) };
