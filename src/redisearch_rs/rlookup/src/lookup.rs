@@ -115,14 +115,6 @@ impl<'a> RLookup<'a> {
         self.keys.seal();
     }
 
-    /// Build the optional key-name index used by wide coordinator rows.
-    ///
-    /// This is idempotent and may be called after [`Self::seal`]: it derives an index from the
-    /// existing keys without changing their identity, order, or flags, and indexes later appends.
-    pub fn enable_name_index(&mut self) {
-        self.keys.enable_name_index();
-    }
-
     /// Whether [`Self::seal`] has been called.
     pub const fn is_sealed(&self) -> bool {
         self.keys.is_sealed()
@@ -204,6 +196,18 @@ impl<'a> RLookup<'a> {
     // FIXME [MOD-10315] replace with more efficient search
     pub fn find_key_by_name(&self, name: &CStr) -> Option<Cursor<'_, 'a>> {
         self.keys.find_by_name(name)
+    }
+
+    /// Resolve a writable key by name, lazily indexing wide lookups before the search.
+    pub(crate) fn get_or_create_key_by_name(&mut self, name: Cow<'a, CStr>) -> &RLookupKey<'a> {
+        self.keys.promote_name_index_if_wide();
+        let slot = if let Some(slot) = self.keys.find_slot(&name) {
+            slot
+        } else {
+            self.get_key_write_slot(name, RLookupKeyFlags::empty())
+                .expect("a missing key must be writable")
+        };
+        self.keys.get(slot).unwrap()
     }
 
     /// Add all non-overridden keys from `src` to `self`.
