@@ -908,13 +908,38 @@ def test_multiple_svs_indexes_share_pool():
         env.assertEqual(res[0], 10, message=f"{idx} KNN search should return results")
 
 
-def assert_background_indexing_scheduled(env, message=''):
-    """A background training/update job is scheduled or running: BACKGROUND_INDEXING is
-    raised when the job is submitted and lowered when it completes, so this holds while the
-    job is still queued - which is how the tests below make it deterministic."""
+def assert_transfer_pending(env, message=''):
+    """A transfer of the flat buffer into the backend index is scheduled and has not started
+    yet. Asserted with the workers paused, which is what makes it deterministic: the index
+    reports a pending update, and the job it submitted is still queued in the thread pool.
+
+    BACKGROUND_INDEXING alone would not be enough - it conflates "queued", "running" and "the
+    job mutex happened to be held" - hence the pending-jobs check next to it."""
     info = get_tiered_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+    stats = getWorkersThpoolStats(env)
     env.assertEqual(info['BACKGROUND_INDEXING'], 1,
-                    message=f"{message}: no background indexing job is pending")
+                    message=f"{message}: the index reports no pending update")
+    env.assertGreater(stats['totalPendingJobs'], 0,
+                      message=f"{message}: no queued job to be raced with: {stats}")
+
+def backend_marked_deleted(env):
+    return get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['NUMBER_OF_MARKED_DELETED']
+
+def assert_deletions_reached_the_backend(env, marked_deleted_before, message=''):
+    """At least one of the docs deleted while the transfer was running had already been picked
+    up by it, so it ended up in the backend index and had to be deleted from there - through
+    the transfer's deletions journal if the transfer was still running, directly if it had
+    just finished. Either way it shows up as newly marked-deleted entries in the backend.
+
+    This is the test's witness that those deletions really did interleave with the transfer.
+    Had they all landed before the transfer snapshotted the flat buffer, the docs would never
+    have reached the backend, nothing would have been marked deleted there, and every other
+    assertion in this test would still have passed - the coverage would have been lost
+    silently, which is what this guards against."""
+    env.assertGreater(backend_marked_deleted(env), marked_deleted_before,
+                      message=f"{message}: no deleted doc reached the backend index, so the "
+                              f"deletions did not interleave with the transfer and the race "
+                              f"this test is for went uncovered")
 
 def assert_doc_indexed_under_own_vector(env, k, query_vec, expected_doc, message=''):
     """`expected_doc` is returned for a KNN query with its own vector, i.e. it is still
@@ -944,8 +969,50 @@ def assert_deleted_docs_not_returned(env, k, query_vec, deleted_docs, expect_ful
         env.assertEqual(res[0], k,
                         message=f"{message}: got {res[0]} of {k} results, so a deleted doc is "
                                 f"probably still in the vector index, taking up a result slot: {res}")
-    for doc in deleted_docs:
-        env.assertNotContains(doc, res, message=f"{message}: deleted doc {doc} was returned: {res}")
+    env.assertEqual(deleted_docs.intersection(res[1:]), set(),
+                    message=f"{message}: deleted docs were returned: {res}")
+
+
+def assert_svs_tiered_state(env, index_name, field_name, expected_live_docs, vectors_per_doc=1, message=''):
+    """
+    Assert the label and vector accounting of an SVS-VAMANA tiered index, on a single shard.
+    Must be called only after `wait_for_background_indexing`, so that no transfer from the
+    frontend (flat buffer) to the backend (SVS) is in flight. Note that the frontend is not
+    expected to be empty: a transfer is triggered only once the flat buffer holds
+    TIERED_SVS_UPDATE_THRESHOLD vectors, so a smaller remainder legitimately stays there.
+
+    The label count is taken from the tiered index itself, which reports the *deduplicated*
+    union of the two sub-indexes' labels, computed while holding both index locks. Adding up
+    the sub-indexes' own label counts instead would double count a multi-value doc whose
+    vectors a transfer split between them - RediSearch adds a multi-value field one vector at
+    a time, so a transfer can pick up some of a doc's vectors and leave the rest in the flat
+    buffer.
+
+    Note that the tiered index's sub-index infos are read after that union, each under its
+    own lock, so the three are not one atomic snapshot. That is fine here only because
+    nothing may mutate the index while this runs: background indexing has settled, and the
+    caller is expected to have disabled periodic fork GC, which would otherwise compact the
+    backend's deleted entries in between.
+    """
+    info = get_tiered_debug_info(env, index_name, field_name)
+    frontend = to_dict(info['FRONTEND_INDEX'])
+    backend = to_dict(info['BACKEND_INDEX'])
+    # The backend's size and its marked-deleted count come from the same read, so their
+    # difference - its live vectors - is consistent even if a GC did slip in.
+    live_vectors = frontend['INDEX_SIZE'] + backend['INDEX_SIZE'] - backend['NUMBER_OF_MARKED_DELETED']
+    ctx = (f"{message} | labels={info['INDEX_LABEL_COUNT']} live_vectors={live_vectors} "
+           f"frontend_vectors={frontend['INDEX_SIZE']} backend_vectors={backend['INDEX_SIZE']} "
+           f"backend_marked_deleted={backend['NUMBER_OF_MARKED_DELETED']}")
+
+    # The index holds exactly the live docs: no deleted doc was left behind, in either the
+    # flat buffer or the backend.
+    env.assertEqual(info['INDEX_LABEL_COUNT'], expected_live_docs,
+                    message=f"indexed labels != live docs: {ctx}")
+
+    # Deleting a doc deletes *all* of its vectors, so the live vectors across both
+    # sub-indexes are exactly `vectors_per_doc` per live doc.
+    env.assertEqual(live_vectors, vectors_per_doc * expected_live_docs,
+                    message=f"live vectors != vectors_per_doc * live docs: {ctx}")
 
 
 @skip(cluster=True)
@@ -963,8 +1030,9 @@ def test_delete_during_background_indexing():
     state is asserted for both.
     """
     # WORKERS 2 is load-bearing: with no worker threads the tiered index indexes in place,
-    # and there is no background transfer to race with. Periodic fork GC is disabled so it
-    # cannot compact the backend's deleted entries in the middle of the assertions below.
+    # and there is no background transfer to race with. Periodic fork GC is disabled - as the
+    # sibling SVS tests that read NUMBER_OF_MARKED_DELETED do - to keep it from compacting the
+    # backend's deleted entries under the assertions below.
     env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 2 FORK_GC_RUN_INTERVAL 1000000')
     conn = getConnectionByEnv(env)
     dim = 32
@@ -1001,9 +1069,10 @@ def test_delete_during_background_indexing():
 
     # The training is scheduled, and cannot run while the workers are paused, so these
     # deletions are guaranteed to happen with a transfer of their vectors pending.
-    assert_background_indexing_scheduled(env, message='phase 1, training pending')
+    assert_transfer_pending(env, message='phase 1, training pending')
     delete_docs(1, 10)
 
+    marked_deleted_before_transfer = backend_marked_deleted(env)
     env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
 
     # The training is running now: these docs go into the flat buffer while it runs, and
@@ -1029,6 +1098,7 @@ def test_delete_during_background_indexing():
 
     env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], expected_live_docs,
                     message='phase 1, transfer done')
+    assert_deletions_reached_the_backend(env, marked_deleted_before_transfer, message='phase 1')
     assert_svs_tiered_state(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME,
                             expected_live_docs=expected_live_docs, message='phase 1')
     assert_doc_indexed_under_own_vector(env, k, live_vec, live_doc, message='phase 1')
@@ -1048,9 +1118,10 @@ def test_delete_during_background_indexing():
 
     # Docs 41-70 were moved into the backend by phase 1's training, so deleting them now
     # goes through the backend while an update of that same index is pending.
-    assert_background_indexing_scheduled(env, message='phase 2, update pending')
+    assert_transfer_pending(env, message='phase 2, update pending')
     delete_docs(41, 30)
 
+    marked_deleted_before_transfer = backend_marked_deleted(env)
     env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
     delete_docs(phase2_first_doc_id, 15)    # part of the batch being transferred
 
@@ -1066,6 +1137,7 @@ def test_delete_during_background_indexing():
 
     env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], expected_live_docs,
                     message='phase 2, update done')
+    assert_deletions_reached_the_backend(env, marked_deleted_before_transfer, message='phase 2')
     assert_svs_tiered_state(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME,
                             expected_live_docs=expected_live_docs, message='phase 2')
     for vec, doc in [(live_vec, live_doc), (phase2_live_vec, phase2_live_doc)]:
@@ -1121,9 +1193,11 @@ def test_delete_during_background_indexing_multi_value():
     total_docs = docs_per_threshold + 24    # 229 docs -> 1145 vectors
     add_docs(1, total_docs)
 
-    assert_background_indexing_scheduled(env, message='phase 1, training pending')
+    assert_transfer_pending(env, message='phase 1, training pending')
     delete_docs(1, 5)
 
+    marked_deleted_before_transfer = backend_marked_deleted(env)
+    marked_deleted_before_transfer = backend_marked_deleted(env)
     env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
 
     # The training is running now: these docs go into the flat buffer while it runs, and
@@ -1146,6 +1220,7 @@ def test_delete_during_background_indexing_multi_value():
 
     env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], expected_live_docs,
                     message='phase 1, transfer done')
+    assert_deletions_reached_the_backend(env, marked_deleted_before_transfer, message='phase 1')
     assert_svs_tiered_state(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME,
                             expected_live_docs=expected_live_docs,
                             vectors_per_doc=vectors_per_doc, message='phase 1')
@@ -1165,9 +1240,10 @@ def test_delete_during_background_indexing_multi_value():
 
     # Docs 21-35 were moved into the backend by phase 1's training, so deleting them now
     # goes through the backend while an update of that same index is pending.
-    assert_background_indexing_scheduled(env, message='phase 2, update pending')
+    assert_transfer_pending(env, message='phase 2, update pending')
     delete_docs(21, 15)
 
+    marked_deleted_before_transfer = backend_marked_deleted(env)
     env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
     delete_docs(phase2_first_doc_id, 15)    # part of the batch being transferred
 
@@ -1183,6 +1259,7 @@ def test_delete_during_background_indexing_multi_value():
 
     env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], expected_live_docs,
                     message='phase 2, update done')
+    assert_deletions_reached_the_backend(env, marked_deleted_before_transfer, message='phase 2')
     assert_svs_tiered_state(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME,
                             expected_live_docs=expected_live_docs,
                             vectors_per_doc=vectors_per_doc, message='phase 2')
