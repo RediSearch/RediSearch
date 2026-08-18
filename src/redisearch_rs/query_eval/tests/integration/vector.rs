@@ -51,6 +51,11 @@ const DEFAULT_SCORE_FIELD: &[u8] = b"__v_score";
 /// test can tell "the query kept the default" from "the query took this one".
 const USER_SCORE_FIELD: &[u8] = b"myscore";
 
+/// The distance field a [`Child::Vector`] yields under. Distinct from
+/// [`USER_SCORE_FIELD`] so a test reading the reserved requests can tell the
+/// child's entry from the root's.
+const CHILD_SCORE_FIELD: &[u8] = b"childscore";
+
 /// A field name that is not valid UTF-8, and the default score field derived
 /// from it.
 ///
@@ -144,6 +149,21 @@ enum Child {
     /// iterator* rather than to no iterator, which the search hands straight
     /// back in place of a vector one.
     Empty,
+    /// Another `QN_VECTOR` node — a range query on the same field, as
+    /// `@v:[VECTOR_RANGE r $b]=>{$YIELD_DISTANCE_AS:...}=>[KNN ...]` produces.
+    ///
+    /// The only child that *reserves a metric request of its own*, and it does
+    /// so while the parent's reservation is already outstanding. That is what
+    /// makes the parent's index matter: the list it must bind into is no longer
+    /// one entry long, and the entry it reserved is no longer the last.
+    Vector {
+        /// How far from the query vector the child matches. Generous in the
+        /// tests that want it to yield, so the parent's own search is the only
+        /// thing restricting the answer.
+        radius: f64,
+        /// The name the child yields its distance under.
+        score_field: &'static [u8],
+    },
 }
 
 /// A flat (brute-force) L2 index over `count` vectors, document `i` holding a
@@ -306,6 +326,10 @@ struct VectorFixture {
     /// The vector query the node points at, holding the score field the
     /// evaluation resolves. Boxed for a stable address.
     vq: Box<ffi::VectorQuery>,
+    /// The vector query a [`Child::Vector`] points at, holding the score field
+    /// that child reserves under. Boxed for a stable address, as
+    /// [`vq`](Self::vq) is.
+    child_vq: Option<Box<ffi::VectorQuery>>,
     /// The blob [`vq`](Self::vq) searches for, when it searches at all. Kept
     /// alive because the query addresses it rather than owning it.
     _query_vector: Box<[f32]>,
@@ -353,7 +377,9 @@ impl VectorFixture {
                 (Some(child), Some(filter))
             }
             Some(Child::Empty) => (Some(MockQueryNode::new(QueryNodeType::Null)), None),
-            None => (None, None),
+            // Built below instead: a vector child borrows the field spec and
+            // query blob this fixture only creates further down.
+            Some(Child::Vector { .. }) | None => (None, None),
         };
 
         let name = opts.field_name.unwrap_or(VECTOR_FIELD);
@@ -416,6 +442,43 @@ impl VectorFixture {
             }
         }
 
+        // A vector child shares the root's field, index and query blob — what
+        // it contributes is a *second* metric request, appended while the
+        // root's is already outstanding. Sharing keeps the difference between
+        // this fixture and a single-node one down to exactly that.
+        let child_vq = if let Some(Child::Vector {
+            radius,
+            score_field,
+        }) = opts.child
+        {
+            assert!(
+                !index.is_null(),
+                "a vector child has nothing to reserve a request for without an index"
+            );
+            // SAFETY: `ffi::VectorQuery` is a `#[repr(C)]` POD struct whose
+            // all-zero bit pattern is a valid (empty) instance.
+            let mut child_vq: Box<ffi::VectorQuery> = Box::new(unsafe { std::mem::zeroed() });
+            child_vq.field = &*field_spec as *const ffi::FieldSpec;
+            child_vq.scoreField = module_string(score_field);
+            child_vq.type_ = ffi::VectorQueryType_VECSIM_QT_RANGE;
+            let vec_len = std::mem::size_of_val(&*query_vector);
+            child_vq.__bindgen_anon_1.range = ffi::RangeVectorQuery {
+                vector: query_vector.as_mut_ptr().cast(),
+                vecLen: vec_len,
+                radius,
+                // By id, as a range query under a filter is parsed to.
+                order: RangeOrder::ById.as_ffi(),
+            };
+
+            let mut child_node = MockQueryNode::new(QueryNodeType::Vector);
+            child_node.opts_mut().weight = 1.0;
+            child_node.set_vector_query(&mut *child_vq as *mut ffi::VectorQuery);
+            child = Some(child_node);
+            Some(child_vq)
+        } else {
+            None
+        };
+
         let mut node = MockQueryNode::new(QueryNodeType::Vector);
         node.opts_mut().weight = 1.0;
         node.opts_mut().dist_field = opts.dist_field.map_or(std::ptr::null_mut(), module_string);
@@ -435,6 +498,7 @@ impl VectorFixture {
             _child: child,
             _filter: filter,
             vq,
+            child_vq,
             _query_vector: query_vector,
             _field_spec: field_spec,
             index,
@@ -515,6 +579,9 @@ impl Drop for VectorFixture {
         unsafe {
             free_module_string(self.vq.scoreField);
             free_module_string(self.node.opts_mut().dist_field);
+            if let Some(child_vq) = &self.child_vq {
+                free_module_string(child_vq.scoreField);
+            }
             ffi::HiddenString_Free(self.field_name, true);
             if !self.index.is_null() {
                 // Every iterator the search built over this index was released
@@ -553,6 +620,17 @@ fn assert_bound_metric_request(fixture: &VectorFixture, name: &[u8]) {
         "freeing the iterator must invalidate the handle, or the back-reference \
          was never wired up"
     );
+}
+
+/// The names of the metric requests `fixture` reserved, in reservation order.
+fn metric_names(fixture: &VectorFixture) -> Vec<Vec<u8>> {
+    fixture
+        .metric_requests()
+        .iter()
+        // SAFETY: each request names the score field of the vector query that
+        // reserved it, a live string that query owns.
+        .map(|request| unsafe { read_module_string(request.metric_name) })
+        .collect()
 }
 
 #[test]
@@ -1004,5 +1082,95 @@ fn eval_vector_duplicate_error_reports_binary_names_verbatim() {
         private.windows(expected.len()).any(|w| w == expected),
         "the message must carry both names byte for byte, got {:?}",
         String::from_utf8_lossy(&private)
+    );
+}
+#[test]
+fn eval_vector_binds_each_node_to_the_request_it_reserved() {
+    // A vector child under a vector root, as
+    // `@v:[VECTOR_RANGE ...]=>{$YIELD_DISTANCE_AS:...}=>[KNN ...]` parses to.
+    // The root reserves its request *before* descending, the child appends a
+    // second one, and only then does the root get an iterator to bind to. So
+    // the entry the root must bind is no longer the last one in the list.
+    let mut fixture = VectorFixture::new(VectorOptions {
+        score_field: Some(USER_SCORE_FIELD),
+        child: Some(Child::Vector {
+            radius: 1e6,
+            score_field: CHILD_SCORE_FIELD,
+        }),
+        indexed_vectors: Some(INDEXED_VECTORS),
+        ..VectorOptions::default()
+    });
+    let (kind, ids) = fixture
+        .eval()
+        .expect("the search must answer with an iterator");
+    assert_eq!(kind, IteratorType::Hybrid);
+    // The child's radius reaches every indexed document, so it restricts
+    // nothing and the root yields the same nearest neighbours it does alone.
+    assert_eq!(ids, [8, 7, 6]);
+
+    let requests = fixture.metric_requests();
+    assert_eq!(requests.len(), 2, "each vector node reserves one request");
+    assert_eq!(
+        metric_names(&fixture),
+        [USER_SCORE_FIELD, CHILD_SCORE_FIELD],
+        "reservation order is evaluation order, and a node reserves before it \
+         descends into its child"
+    );
+
+    // The pin. Binding by the reserved index and binding to the last entry are
+    // the same thing for every single-node query, and differ here: the latter
+    // would leave the root's distance unbound and write the child's handle
+    // twice. Re-reading the list by index after the child has appended is also
+    // what keeps the write off a stale pointer, since appending reallocates.
+    assert!(
+        !requests[0].key_handle.is_null(),
+        "the root must bind to the request it reserved, not to the last one"
+    );
+    assert!(
+        !requests[1].key_handle.is_null(),
+        "the child must bind to its own request"
+    );
+    assert_ne!(
+        requests[0].key_handle, requests[1].key_handle,
+        "two iterators must not share one handle"
+    );
+    assert_eq!(fixture.ctx.status().code(), QueryErrorCode::Ok);
+}
+
+#[test]
+fn eval_vector_leaves_its_childs_binding_alone_when_its_own_search_declines() {
+    // The same two-node shape, with the root's search rejected for a negative
+    // radius after the child's has already succeeded and bound. The child's
+    // entry is the one carrying a handle, and it is the *second*: a node that
+    // bound at a fixed index rather than its own would have put it first.
+    let mut fixture = VectorFixture::new(VectorOptions {
+        score_field: Some(USER_SCORE_FIELD),
+        child: Some(Child::Vector {
+            radius: 1e6,
+            score_field: CHILD_SCORE_FIELD,
+        }),
+        indexed_vectors: Some(INDEXED_VECTORS),
+        search: Search::Range {
+            radius: -1.0,
+            order: RangeOrder::ById,
+        },
+        ..VectorOptions::default()
+    });
+    fixture.eval_yielding_nothing();
+
+    assert_eq!(fixture.ctx.status().code(), QueryErrorCode::Inval);
+    assert_eq!(
+        metric_names(&fixture),
+        [USER_SCORE_FIELD, CHILD_SCORE_FIELD]
+    );
+
+    let requests = fixture.metric_requests();
+    assert!(
+        requests[0].key_handle.is_null(),
+        "the root never got an iterator, so its own entry stays unbound"
+    );
+    assert!(
+        !requests[1].key_handle.is_null(),
+        "the child bound its handle at its own index before the root declined"
     );
 }
