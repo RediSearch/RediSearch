@@ -541,7 +541,8 @@ def test_info():
                       ],
       'bytes_per_record_avg': ANY,
       'cleaning': 0,
-      'cursor_stats': {'global_idle': 0, 'global_total': 0, 'index_capacity': ANY, 'index_total': 0},
+      'cursor_stats': {'global_idle': 0, 'global_total': 0, 'index_capacity': ANY, 'index_total': 0,
+                       'index_total_coord': 0},
       'dialect_stats': {'dialect_1': 0, 'dialect_2': 0, 'dialect_3': 0, 'dialect_4': 0},
       'doc_table_size_mb': ANY,
       'gc_stats': ANY,
@@ -1419,7 +1420,8 @@ def test_ft_info():
           'global_idle': 0,
           'global_total': 0,
           'index_capacity': ANY,
-          'index_total': 0
+          'index_total': 0,
+          'index_total_coord': 0
         },
         'dialect_stats': {
           'dialect_1': 0,
@@ -1501,7 +1503,8 @@ def test_ft_info():
           'global_idle': 0,
           'global_total': 0,
           'index_capacity': ANY,
-          'index_total': 0
+          'index_total': 0,
+          'index_total_coord': 0
         },
         'dialect_stats': {'dialect_1': 0,
                           'dialect_2': 0,

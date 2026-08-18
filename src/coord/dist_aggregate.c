@@ -897,6 +897,12 @@ static int executePlan(AREQ *r, struct ConcurrentCmdCtx *cmdCtx, StrongRef spec_
   return REDISMODULE_OK;
 }
 
+// Reachable from executePlan's cursor branch, which has already called
+// ConcurrentCmdCtx_KeepRedisCtx: `ctx` therefore outlives threadHandleCommand
+// and is owned by the AREQ (AREQ_Free frees sctx->redisCtx under
+// QEXEC_F_IS_CURSOR). Using `ctx` and `reply` below is still safe because the
+// AREQ_DecrRef here only drops the execution flow's reference — the cycle's
+// reference keeps the AREQ, and with it `ctx`, alive until the unblock.
 static void DistAggregateCleanups(RedisModuleCtx *ctx, struct ConcurrentCmdCtx *cmdCtx, IndexSpec *sp,
                           StrongRef *strong_ref, specialCaseCtx *knnCtx, AREQ *r, RedisModule_Reply *reply, QueryError *status) {
 

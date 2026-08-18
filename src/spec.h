@@ -352,10 +352,13 @@ typedef struct IndexSpec {
   pthread_rwlock_t rwlock;
 
   // Cursors counters. Shard cursors and coordinator cursors are counted
-  // separately because they live in different `CursorList`s, each with its own
-  // mutex: a single counter would be read-modify-written under two different
-  // locks. Each counter is owned by exactly one cursor-list lock, and both are
-  // capped by INDEX_CURSOR_LIMIT independently.
+  // separately, and each is capped by INDEX_CURSOR_LIMIT independently, because
+  // a shared budget would let a coordinator query starve itself: its own shard
+  // fan-out opens a shard cursor in this same process, so the fan-out would
+  // consume the budget that the coordinator cursor then needs. Separate
+  // counters also keep each one owned by exactly one cursor-list lock — the two
+  // `CursorList`s have distinct mutexes, so a shared counter would be
+  // read-modify-written under either of them.
   size_t activeCursors;
   size_t activeCoordCursors;
 
