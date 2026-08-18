@@ -69,6 +69,10 @@
 // When the iterator is exhausted, we wait for pending async reads to complete
 #define ASYNC_POLL_TIMEOUT_AT_EOF_MS 1000
 
+// Poll timeout when the pipeline is saturated (in milliseconds). Short because it
+// only bounds an idle wait before looping back to re-check the query timeout.
+#define ASYNC_POLL_TIMEOUT_SATURATED_MS 2
+
 /*******************************************************************************************************************
  *  Base Result Processor - this processor is the topmost processor of every processing chain.
  *
@@ -415,7 +419,7 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
     }
 
     // Step 1b: Submit any buffered results to async pool (keep pipeline full)
-    IndexResultAsyncRead_RefillPool(&self->async);
+    const uint16_t submitted = IndexResultAsyncRead_RefillPool(&self->async);
 
     // Step 2: Try to serve a ready result if we have one
     RSIndexResult *indexResult = IndexResultAsyncRead_PopReadyResult(&self->async);
@@ -435,8 +439,24 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
     }
 
     // Step 3: No ready results - poll for more
-    int timeout_ms = it->atEOF ? ASYNC_POLL_TIMEOUT_AT_EOF_MS : 0;
-    const size_t pendingCount = IndexResultAsyncRead_Poll(&self->async, timeout_ms, &sctx->time.current);
+    int index_poll_timeout_ms = 0;
+    if (it->atEOF) {
+      index_poll_timeout_ms = ASYNC_POLL_TIMEOUT_AT_EOF_MS;
+    } else if (submitted == 0 && !DLLIST_IS_EMPTY(&self->async.pendingResults)) {
+      // Pool saturated: nothing left to submit, so a non-blocking poll would spin
+      // until a completion lands instead of making progress.
+      index_poll_timeout_ms = ASYNC_POLL_TIMEOUT_SATURATED_MS;
+    }
+    const size_t pendingCount =
+        IndexResultAsyncRead_Poll(&self->async, index_poll_timeout_ms, &sctx->time.current);
+
+    // The loop-head check samples the clock once per TIMEOUT_COUNTER_LIMIT iterations,
+    // which is too coarse once an iteration can sleep. Re-check unthrottled after a
+    // blocking poll.
+    if (index_poll_timeout_ms > 0 &&
+        TimedOut_Unthrottled(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
+      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+    }
 
     // Step 4: Check if we're completely done
     if (IndexResultAsyncRead_IsIterationComplete(&self->async, it->atEOF, pendingCount)) {
