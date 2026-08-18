@@ -29,7 +29,8 @@ use crate::{FGCError, util::into_fgc_error};
 ///
 /// # Safety
 ///
-/// 1. `gc` must point to a valid [`ffi::ForkGC`].
+/// 1. `gc` must point to a valid [`ffi::ForkGC`], with no other reference to it
+///    alive for the duration of this call.
 /// 2. `sctx` must point to a valid [`ffi::RedisSearchCtx`].
 /// 3. `sctx.spec` must be a non-null pointer to a valid [`ffi::IndexSpec`].
 /// 4. This function should only be called when it has exclusive access to the [`ffi::IndexSpec`].

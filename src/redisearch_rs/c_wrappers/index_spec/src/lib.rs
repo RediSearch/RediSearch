@@ -10,7 +10,7 @@
 //! Safe wrapper around [`ffi::IndexSpec`].
 
 use std::{
-    ffi::c_char,
+    ffi::{CStr, c_char},
     ops::Deref,
     ptr,
     ptr::NonNull,
@@ -21,6 +21,7 @@ use std::{
 use c_trie::{SuffixTrie, TermsTrie};
 use dict::{Dict, KeysDictType, MissingFieldDictType};
 use field_spec::FieldSpec;
+use hidden_string::HiddenString;
 use inverted_index::opaque::InvertedIndex;
 use schema_rule::SchemaRule;
 
@@ -70,6 +71,19 @@ impl IndexSpec {
         let data = self.0.fields.cast::<FieldSpec>();
         // Safety: (1.) due to creation with `IndexSpec::from_raw`
         unsafe { slice::from_raw_parts(data, len) }
+    }
+
+    /// Return the original or obfuscated index name.
+    pub fn display_name(&self, obfuscate: bool) -> &CStr {
+        if obfuscate {
+            // SAFETY: every initialized spec owns a NUL-terminated `obfuscatedName`
+            // that remains immutable for its full lifetime.
+            unsafe { CStr::from_ptr(self.0.obfuscatedName) }
+        } else {
+            // SAFETY: every initialized spec owns an initialized `specName`
+            // whose backing buffer remains immutable for its full lifetime.
+            unsafe { HiddenString::from_raw(self.0.specName) }.secret_value()
+        }
     }
 
     /// Acquire the write lock for this `IndexSpec`. This is required before performing any
@@ -281,6 +295,16 @@ impl<'lock> IndexSpecWriteGuard<'lock> {
         self.0.stats.invertedSize -= bytes_freed;
         self.0.stats.termsSize -= terms_size_removed;
         self.0.stats.scoring.numTerms -= terms_removed;
+    }
+}
+
+impl Deref for IndexSpecWriteGuard<'_> {
+    type Target = IndexSpec;
+
+    fn deref(&self) -> &IndexSpec {
+        // SAFETY: `IndexSpec` is transparent over `ffi::IndexSpec`, and the guard's
+        // borrow keeps the spec valid for the returned shared borrow.
+        unsafe { IndexSpec::from_raw(self.0) }
     }
 }
 
