@@ -69,7 +69,7 @@ unsafe impl DictType for MissingFieldDictType {
     type V = InvertedIndex;
 
     fn as_ptr() -> *mut ffi::dictType {
-        std::ptr::addr_of_mut!(ffi::missingFieldDictType)
+        &raw mut ffi::missingFieldDictType
     }
 
     fn with_key_ptr<R>(key: Self::K<'_>, f: impl FnOnce(*mut c_void) -> R) -> R {
@@ -100,7 +100,7 @@ unsafe impl DictType for KeysDictType {
     type V = InvertedIndex;
 
     fn as_ptr() -> *mut ffi::dictType {
-        std::ptr::addr_of_mut!(ffi::invIdxDictType)
+        &raw mut ffi::invIdxDictType
     }
 
     fn with_key_ptr<R>(key: Self::K<'_>, f: impl FnOnce(*mut c_void) -> R) -> R {
@@ -108,7 +108,7 @@ unsafe impl DictType for KeysDictType {
             buf: key.as_ptr().cast_mut().cast::<c_char>(),
             len: key.len(),
         };
-        f(std::ptr::from_mut(&mut key).cast())
+        f((&raw mut key).cast())
     }
 
     unsafe fn key_from_ptr<'a>(ptr: *mut c_void) -> Self::K<'a> {
