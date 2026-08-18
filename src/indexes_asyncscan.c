@@ -61,16 +61,21 @@ typedef struct {
   pthread_mutex_t mutex;
   pthread_cond_t cond;
   bool call_done;   // set by done_cb, consumed by the driver's wait
+  // Reason done_cb reported for the call `call_done` refers to; read only while call_done holds.
+  RedisModuleAsyncScanDoneReason done_reason;
 } AsyncReindexDriver;
 
-// Wait (GIL released) until done_cb signals this call's completion, then consume the flag.
-static void Indexes_AsyncScanWaitForDone(AsyncReindexDriver *driver) {
+// Wait (GIL released) until done_cb signals this call's completion, then consume the flag and
+// return the reason that call reported.
+static RedisModuleAsyncScanDoneReason Indexes_AsyncScanWaitForDone(AsyncReindexDriver *driver) {
   pthread_mutex_lock(&driver->mutex);
   while (!driver->call_done) {
     pthread_cond_wait(&driver->cond, &driver->mutex);
   }
   driver->call_done = false;
+  RedisModuleAsyncScanDoneReason reason = driver->done_reason;
   pthread_mutex_unlock(&driver->mutex);
+  return reason;
 }
 
 // Per-key callback. Main thread, GIL held, value pinned. AsyncScan is at-least-once, so a key
@@ -121,15 +126,16 @@ static void Indexes_AsyncScanKeyCB(RedisModuleCtx *ctx, RedisModuleScanCursor *c
   ++scanner->scannedKeys;
 }
 
-// Call-completion callback. Main thread, GIL held, once per OK Start / NextBatch. Terminal state
-// arrives as the next NextBatch's return code, so ignore `reason` and just wake the driver.
+// Call-completion callback. Main thread, GIL held, once per OK Start / NextBatch. The drive loop
+// switches on the next NextBatch's return code; `reason` is passed along only so it can tell
+// whether the batch it just consumed finished the sweep.
 static void Indexes_AsyncScanDoneCB(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor,
                                     void *privdata, RedisModuleAsyncScanDoneReason reason) {
   REDISMODULE_NOT_USED(ctx);
   REDISMODULE_NOT_USED(cursor);
-  REDISMODULE_NOT_USED(reason);
   AsyncReindexDriver *driver = privdata;
   pthread_mutex_lock(&driver->mutex);
+  driver->done_reason = reason;
   driver->call_done = true;
   pthread_cond_signal(&driver->cond);
   pthread_mutex_unlock(&driver->mutex);
@@ -375,7 +381,7 @@ static RedisModuleAsyncScanResult Indexes_AsyncScanDriveNextBatch(
   *out_terminal = false;
 
   // Batch queued. Wait (GIL released) for done_cb to fire on the main thread.
-  Indexes_AsyncScanWaitForDone(driver);
+  const RedisModuleAsyncScanDoneReason done_reason = Indexes_AsyncScanWaitForDone(driver);
   ++*batchesDone;
 
   // Test hook (ENABLE_ASSERT): park between batches, GIL released, so a test can drop the index /
@@ -435,8 +441,6 @@ static RedisModuleAsyncScanResult Indexes_AsyncScanDriveNextBatch(
     }
   }
 
-  Indexes_AsyncScanHandleMemoryPressure(ctx, scanner);
-
   // Cancelled (per-key or just above): abort the sweep. Abort is a NOOP on an already-terminal
   // cursor and publishes terminal state on an active one, so teardown's ScanCursorDestroy is
   // always valid.
@@ -450,9 +454,8 @@ static RedisModuleAsyncScanResult Indexes_AsyncScanDriveNextBatch(
     return REDISMODULE_ASYNCSCAN_ABORTED;
   }
 
-  // The RAM + flash quota is spent and the grace period above did not get it back: abort the
-  // still-active cursor and surface OOM like the engine's OUT_OF_MEMORY branch. Not resumed, so the
-  // index may be incomplete.
+  Indexes_AsyncScanHandleMemoryPressure(ctx, scanner);
+
   if (scanner->scanFailedOnOOM) {
     RedisModule_AsyncScanAbort(cursor);
     RedisModule_ThreadSafeContextUnlock(ctx);
@@ -658,10 +661,10 @@ done:
   RedisModule_Log(ctx, "debug", "AsyncScan: index %s scan task exiting (scanned=%zu)",
                   scanner->spec_name_for_logs, scanner->scannedKeys);
 
-  // Take the GIL around IndexesScanner_Free: it clears sp->scanner / sp->scan_in_progress and
-  // frees scanner->OOMkey, all read by FT.INFO (fillReplyWithIndexInfo) on the main thread. This
-  // task runs GIL-released between batches, so without the GIL a scan finishing concurrently with
-  // INFO could race or leave INFO dereferencing a freed scanner. The spec lock is not enough: Free
+  // Take the GIL around IndexesScanner_Free: it clears sp->scanner / sp->scan_in_progress, both
+  // read by FT.INFO (fillReplyWithIndexInfo) on the main thread. This task runs GIL-released
+  // between batches, so without the GIL a scan finishing concurrently with INFO could race or
+  // leave INFO dereferencing a freed scanner. The spec lock is not enough: Free
   // also touches the process-global global_spec_scanner, and INFO reads sp->scanner without any
   // per-spec lock (it relies on the GIL). The GIL is the real contract here, same as the sync scan.
   RedisModule_ThreadSafeContextLock(ctx);

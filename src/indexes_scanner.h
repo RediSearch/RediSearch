@@ -73,7 +73,10 @@ typedef struct IndexesScanner {
   WeakRef spec_ref;
   char *spec_name_for_logs;
   size_t scannedKeys;
-  RedisModuleString *OOMkey; // The key that caused the OOM
+  // The key the sync strategy stopped at on OOM, reported as FT.INFO's last indexing error key.
+  // Always NULL for the async strategy: it keeps indexing the key that observed the pressure, so
+  // that key is not the one left out — the omitted documents are the ones its abort never reached.
+  RedisModuleString *OOMkey;
 } IndexesScanner;
 
 // Relaxed-atomic read of the cancellation latch. Safe with or without the GIL.
@@ -112,7 +115,7 @@ double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanne
 // clients: records `error` as the spec's last indexing error (surfaced in FT.INFO
 // "Index Errors"), so a partially-built index is not silently treated as complete.
 // `error` must carry no user data. The offending key is taken from scanner->OOMkey, which
-// may be NULL when no single key is to blame (the async engine-OOM case, or an I/O
+// may be NULL when no single key is to blame (any async-scan failure, or an I/O
 // error). When `oom` is true it additionally sets the spec's scan_failed_OOM flag
 // (consulted at query time to warn results may be incomplete, aggregated in FT.INFO) and
 // raises the OOM background-index status flag; pass false for non-OOM failures (e.g. a
