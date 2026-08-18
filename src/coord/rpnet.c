@@ -35,9 +35,6 @@
 
 
 #define CURSOR_EOF 0
-// The corrected lookup microbenchmark crossed over between roughly 20 and 30 fields. Keep narrow
-// rows linear and pay the one-time index build only for coordinator rows at or above that range.
-#define RLOOKUP_NAME_INDEX_MIN_FIELDS 24
 
 static RSValue *MRReply_ToValue(MRReply *r) {
   if (!r) return RSValue_NullStatic();
@@ -517,10 +514,6 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   } else {
     fields_length = fields && MRReply_Type(fields) == MR_REPLY_ARRAY ? MRReply_Length(fields) : 0;
     RS_LOG_ASSERT(fields_length % 2 == 0, "invalid fields record");
-  }
-
-  if (fields_length >= 2 * RLOOKUP_NAME_INDEX_MIN_FIELDS) {
-    RLookup_EnableNameIndex(nc->lookup);
   }
 
   // The score is optional, in hybrid we need the score for the sorter and hybrid merger

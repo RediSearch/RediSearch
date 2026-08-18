@@ -580,6 +580,40 @@ fn write_multiple_different_keys() {
     }
 }
 
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
+fn write_key_by_name_promotes_wide_lookup() {
+    let mut lookup = RLookup::new();
+    let mut row = RLookupRow::new();
+    let names: Vec<_> = (0..25)
+        .map(|index| CString::new(format!("key{index}")).unwrap())
+        .collect();
+
+    for (index, name) in names.iter().enumerate() {
+        row.write_key_by_name(
+            &mut lookup,
+            name.to_owned(),
+            SharedValue::new_num(index as f64),
+        );
+    }
+
+    assert_eq!(row.len(), names.len());
+    for (index, name) in names.iter().enumerate() {
+        let key = lookup
+            .find_key_by_name(name)
+            .unwrap()
+            .into_current()
+            .unwrap();
+        assert_eq!(
+            row.get(key).and_then(|value| value.as_num()),
+            Some(index as f64)
+        );
+    }
+}
+
 fn create_test_key(dstidx: u16, svidx: u16, flags: RLookupKeyFlags) -> RLookupKey<'static> {
     let str = format!("mock_key_{}_{}", dstidx, svidx);
     let cstring = CString::new(str).unwrap();

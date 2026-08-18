@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, lookup::TRANSIENT_FLAGS};
+use crate::{RLookup, RLookupKey, RLookupKeyFlag, lookup::TRANSIENT_FLAGS};
 use sorting_vector::{RSSortingVector, RSSortingVectorRef};
 use std::{borrow::Cow, ffi::CStr, fmt};
 use thin_vec::ThinVec;
@@ -170,13 +170,7 @@ impl<'a> RLookupRow<'a> {
         val: SharedValue,
     ) {
         let name = name.into();
-        let key = if let Some(cursor) = rlookup.find_key_by_name(&name) {
-            cursor.into_current().expect("the cursor returned by `Keys::find_by_name` must have a current key. This is a bug!")
-        } else {
-            rlookup
-                .get_key_write(name.into_owned(), RLookupKeyFlags::empty())
-                .expect("`RLookup::get_key_write` must never return None for non-existent keys. This is a bug!")
-        };
+        let key = rlookup.get_or_create_key_by_name(name);
         self.write_key(key, val);
     }
 
