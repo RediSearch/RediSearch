@@ -1096,6 +1096,7 @@ dependencies = [
  "document",
  "ffi",
  "field_spec",
+ "hidden_string",
  "inverted_index",
  "pretty_assertions",
  "redis_mock",

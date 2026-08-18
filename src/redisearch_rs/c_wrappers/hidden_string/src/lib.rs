@@ -58,12 +58,13 @@ impl HiddenString {
         let data = unsafe { ffi::HiddenString_GetUnsafe(self.as_ptr(), &mut len) };
         debug_assert!(!data.is_null(), "data must not be null");
 
-        // The length doesn't include the nul terminator so we need to add one.
+        // The length doesn't include the NUL terminator so we need to add one.
         let n = len.checked_add(1).expect("length overflow");
         // Safety: must be ensured by the implementation of `ffi::HiddenString_GetUnsafe` above.
         let bytes = unsafe { core::slice::from_raw_parts(data.cast::<u8>(), n) };
 
-        CStr::from_bytes_with_nul(bytes).expect("malformed C string")
+        // Do explicit truncation here in the rare case the string contains interior NUL bytes.
+        CStr::from_bytes_until_nul(bytes).expect("malformed C string")
     }
 }
 
