@@ -26,6 +26,12 @@ Current (lenient) semantics demonstrated here:
   * Dictionary NAMES take a different path from dictionary terms: they never
     reach the trie, and are keyed as C strings.
 
+Scope: byte-level encoding only. Every assertion here reads raw reply bytes
+(NEVER_DECODE), which is what lets it state anything about encoding at all.
+Command semantics that hold regardless of encoding -- arity, add/delete counts,
+missing keys, FLUSHALL -- belong in test_spell_check.py and are not repeated
+here.
+
 Deliberately NOT skipped on cluster: every command here carries binary
 arguments, so running the same assertions against a coordinator also pins
 that fan-out preserves argument lengths rather than truncating at the first
@@ -41,26 +47,18 @@ def dump_raw(env, dict_name):
 # ============================ VALID UTF-8 ============================
 # Input that decodes cleanly: every codepoint <= U+FFFF round-trips.
 
-def testValidAsciiRoundtrip(env):
-    env.expect('ft.dictadd', 'dict', 'hello', 'world').equal(2)
-    env.assertEqual(dump_raw(env, 'dict'), [b'hello', b'world'])
-    env.expect('ft.dictdel', 'dict', 'hello', 'world').equal(2)
-
-def testValidBmpMultibyteRoundtrip(env):
-    # 2-byte (é), 3-byte (日) sequences: all codepoints <= U+FFFF round-trip.
-    terms = ['café', 'über', '日本語', 'привет']
-    env.expect('ft.dictadd', 'dict', *terms).equal(4)
+def testValidBmpRoundtrip(env):
+    # 1-byte, 2-byte (é) and 3-byte (日) sequences: all codepoints <= U+FFFF
+    # round-trip, so the dumped bytes equal the added bytes.
+    terms = ['hello', 'café', 'über', '日本語', 'привет']
+    env.expect('ft.dictadd', 'dict', *terms).equal(5)
     env.assertEqual(dump_raw(env, 'dict'), sorted(t.encode() for t in terms))
-    env.expect('ft.dictdel', 'dict', *terms).equal(4)
+    env.expect('ft.dictdel', 'dict', *terms).equal(5)
 
 def testValidCaseSensitive(env):
     # The dictionary trie does not case-fold: FOO and foo are distinct.
     env.expect('ft.dictadd', 'dict', 'FOO', 'foo').equal(2)
     env.assertEqual(dump_raw(env, 'dict'), [b'FOO', b'foo'])
-
-def testValidDuplicateCounting(env):
-    env.expect('ft.dictadd', 'dict', 'term').equal(1)
-    env.expect('ft.dictadd', 'dict', 'term').equal(0)
 
 
 # ==================== ASTRAL PLANE (valid UTF-8) ====================
