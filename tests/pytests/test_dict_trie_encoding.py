@@ -165,11 +165,15 @@ def testTermLengthLimits(env):
 
 def testMultibyteTermLengthGateIsBytes(env):
     # The byte gate is applied to the raw input, before decoding, so it binds
-    # long before the rune limit for multibyte input: 200 three-byte
-    # characters are 600 bytes but only 200 runes, and are still dropped.
-    env.expect('ft.dictadd', 'dict', '日' * 200).equal(0)
-    env.expect('ft.dictadd', 'dict', '日' * 100).equal(1)
-    env.assertEqual(dump_raw(env, 'dict'), [('日' * 100).encode()])
+    # long before the rune limit for multibyte input. Both terms below stay
+    # well under the 256-rune limit, so only the 512-byte gate can reject
+    # them: 171 three-byte characters are 513 bytes / 171 runes and are
+    # dropped, while 512 bytes spread over 172 runes are accepted.
+    over = '日' * 171                  # 513 bytes
+    under = '日' * 170 + 'ab'          # 512 bytes
+    env.expect('ft.dictadd', 'dict', over).equal(0)
+    env.expect('ft.dictadd', 'dict', under).equal(1)
+    env.assertEqual(dump_raw(env, 'dict'), [under.encode()])
 
 def testEmptyTermNotAdded(env):
     # Zero-length input is the lower end of the same silent-drop surface: the
