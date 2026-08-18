@@ -54,8 +54,11 @@ def add_doc(env, key, value):
     env.assertEqual(env.cmd('hset', key, 't', value), 1)
     waitForIndex(env, 'idx')
 
+def search(env, query):
+    return env.cmd('ft.search', 'idx', query, 'NOCONTENT')
+
 def num_results(env, query):
-    return env.cmd('ft.search', 'idx', query, 'NOCONTENT')[0]
+    return search(env, query)[0]
 
 
 # ============================ VALID UTF-8 ============================
@@ -210,8 +213,9 @@ def testAboveBmpPrefixReachesOnlyBmpSibling(env):
     # survives the rune round-trip and stays reachable.
     add_doc(env, 'doc2', b'caf\xe9\x41\x42')
     env.assertEqual(dump_terms_raw(env), [b'caf', 'caf遂'.encode()])
-    # One prefix, two trie hits, one reachable document.
-    env.assertEqual(num_results(env, 'caf*'), 1)
+    # One prefix, two trie hits, one reachable document - and it is the BMP
+    # sibling, not the document whose term the trie cut short.
+    env.assertEqual(search(env, 'caf*'), [1, 'doc2'])
 
 
 # ================ SUFFIX TRIE KEEPS THE ORIGINAL BYTES ==============
