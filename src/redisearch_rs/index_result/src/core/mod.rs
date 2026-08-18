@@ -892,14 +892,14 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
     /// Is this result some copy type
     pub const fn is_copy(&self) -> bool {
         match self.data {
-            RawResultData::Union(RawAggregateResult::Owned { .. })
-            | RawResultData::Intersection(RawAggregateResult::Owned { .. })
-            | RawResultData::HybridMetric(RawAggregateResult::Owned { .. })
+            RawResultData::Union(RawAggregateResult::Owned(_))
+            | RawResultData::Intersection(RawAggregateResult::Owned(_))
+            | RawResultData::HybridMetric(RawAggregateResult::Owned(_))
             | RawResultData::Term(RawTermRecord::Owned { .. })
             | RawResultData::Term(RawTermRecord::FullyOwned { .. }) => true,
-            RawResultData::Union(RawAggregateResult::Borrowed { .. })
-            | RawResultData::Intersection(RawAggregateResult::Borrowed { .. })
-            | RawResultData::HybridMetric(RawAggregateResult::Borrowed { .. })
+            RawResultData::Union(RawAggregateResult::Borrowed(_))
+            | RawResultData::Intersection(RawAggregateResult::Borrowed(_))
+            | RawResultData::HybridMetric(RawAggregateResult::Borrowed(_))
             | RawResultData::Term(RawTermRecord::Borrowed { .. })
             | RawResultData::Virtual
             | RawResultData::Numeric(_)
@@ -951,6 +951,12 @@ impl<'a> RSIndexResult<'a> {
     /// The caller must drain the child's metrics via `std::mem::take(&mut child.metrics)`
     /// before calling this method, and pass them as `child_metrics`.
     ///
+    /// # Panics
+    ///
+    /// If this is an aggregate result that *owns* its children, which cannot take a
+    /// borrowed one. Use [`Self::push_boxed`] for those, or ask
+    /// [`Self::is_copy`] which kind this is.
+    ///
     /// # Safety
     ///
     /// The given `child` has to stay valid for the lifetime of this index result. Else reading
@@ -977,7 +983,9 @@ impl<'a> RSIndexResult<'a> {
         }
 
         if let Some(agg) = self.as_aggregate_mut() {
-            agg.push_borrowed(child);
+            agg.as_borrowed_mut()
+                .expect("Cannot push a borrowed child to an owned aggregate result")
+                .push_borrowed(child);
         }
     }
 
@@ -1020,6 +1028,12 @@ impl<'a> RSIndexResult<'a> {
     ///
     /// If this is not an aggregate result, then nothing happens. Use [`Self::is_aggregate()`] first
     /// to make sure this is an aggregate result.
+    ///
+    /// # Panics
+    ///
+    /// If this is an aggregate result that *borrows* its children, which cannot take
+    /// ownership of one. Use [`Self::push_borrowed`] for those, or ask
+    /// [`Self::is_copy`] which kind this is.
     pub fn push_boxed(&mut self, mut child: Box<RSIndexResult<'a>>) {
         if !self.is_aggregate() {
             return;
@@ -1035,17 +1049,28 @@ impl<'a> RSIndexResult<'a> {
         }
 
         if let Some(agg) = self.as_aggregate_mut() {
-            agg.push_boxed(child);
+            agg.as_owned_mut()
+                .expect("Cannot push an owned child to a borrowed aggregate result")
+                .push_boxed(child);
         }
     }
 
     /// Get a mutable reference to the child at the given index, if it is an aggregate record.
     /// `None` is returned if this is not an aggregate record or if the index is out-of-bounds.
+    ///
+    /// # Panics
+    ///
+    /// If this is an aggregate record that *borrows* its children: those are shared
+    /// with whoever owns them, so only an
+    /// [`Owned`](RawAggregateResult::Owned) aggregate can hand out a `&mut` to one.
     pub fn get_mut(&mut self, index: usize) -> Option<&mut Self> {
         match &mut self.data {
             RawResultData::Union(agg)
             | RawResultData::Intersection(agg)
-            | RawResultData::HybridMetric(agg) => agg.get_mut(index),
+            | RawResultData::HybridMetric(agg) => agg
+                .as_owned_mut()
+                .expect("Cannot get a mutable reference to a borrowed aggregate result")
+                .get_mut(index),
             RawResultData::Term(_)
             | RawResultData::Virtual
             | RawResultData::Numeric(_)
