@@ -12,6 +12,10 @@ use ahash::RandomState;
 use hashbrown::HashTable;
 use std::{ffi::CStr, iter::FusedIterator, mem, pin::Pin, ptr::NonNull, slice};
 
+// Paired coordinator benchmarks show hashing wins once rows reach the mid-twenties. Promotion is
+// checked only for by-name writes, so wide lookups used solely by slot never pay for this index.
+const NAME_INDEX_MIN_KEYS: usize = 24;
+
 /// Owns a pinned key while keeping the key's address independent of vector reallocations.
 #[derive(Debug)]
 #[repr(transparent)]
@@ -53,7 +57,7 @@ struct KeyStore<'a> {
     live: Vec<OwnedKey<'a>>,
     /// Replaced keys whose addresses must remain valid for C consumers.
     retired: Vec<OwnedKey<'a>>,
-    /// Optional coordinator-only name index. Standalone and narrow cluster rows stay linear.
+    /// Lazily created name index for wide lookups that receive by-name writes.
     by_name: Option<NameIndex>,
 }
 
@@ -183,10 +187,13 @@ impl<'a> KeyList<'a> {
         u32::try_from(self.live().len()).expect("RLookup row length exceeds u32::MAX")
     }
 
-    pub(crate) fn enable_name_index(&mut self) {
-        self.store
-            .get_or_insert_with(|| Box::new(KeyStore::new()))
-            .enable_name_index();
+    pub(crate) fn promote_name_index_if_wide(&mut self) {
+        let Some(store) = self.store.as_mut() else {
+            return;
+        };
+        if store.live.len() >= NAME_INDEX_MIN_KEYS {
+            store.enable_name_index();
+        }
     }
 
     pub(crate) fn push_slot(&mut self, mut key: RLookupKey<'a>) -> u16 {
@@ -437,6 +444,7 @@ mod tests {
     use super::*;
     use crate::RLookupKeyFlag;
     use enumflags2::make_bitflags;
+    use std::ffi::CString;
 
     #[test]
     fn append_and_lookup_preserve_row_order() {
@@ -462,19 +470,34 @@ mod tests {
     }
 
     #[test]
-    fn name_index_covers_existing_and_later_keys() {
+    fn name_index_is_promoted_only_for_wide_key_stores() {
+        let names: Vec<_> = (0..=NAME_INDEX_MIN_KEYS)
+            .map(|index| CString::new(format!("key{index}")).unwrap())
+            .collect();
         let mut keys = KeyList::new();
-        keys.push(RLookupKey::new(c"before", RLookupKeyFlags::empty()));
-        keys.push(RLookupKey::new(c"same", RLookupKeyFlags::empty()));
+        for name in &names[..NAME_INDEX_MIN_KEYS - 1] {
+            keys.push(RLookupKey::new(name.as_c_str(), RLookupKeyFlags::empty()));
+        }
 
-        keys.enable_name_index();
-        keys.enable_name_index();
-        keys.push(RLookupKey::new(c"after", RLookupKeyFlags::empty()));
-        keys.push(RLookupKey::new(c"same", RLookupKeyFlags::empty()));
+        keys.promote_name_index_if_wide();
+        assert!(keys.store.as_ref().unwrap().by_name.is_none());
 
-        assert_eq!(keys.find_slot(c"before"), Some(0));
-        assert_eq!(keys.find_slot(c"same"), Some(1));
-        assert_eq!(keys.find_slot(c"after"), Some(2));
+        keys.push(RLookupKey::new(
+            names[NAME_INDEX_MIN_KEYS - 1].as_c_str(),
+            RLookupKeyFlags::empty(),
+        ));
+        assert!(keys.store.as_ref().unwrap().by_name.is_none());
+
+        keys.promote_name_index_if_wide();
+        keys.promote_name_index_if_wide();
+        keys.push(RLookupKey::new(
+            names[NAME_INDEX_MIN_KEYS].as_c_str(),
+            RLookupKeyFlags::empty(),
+        ));
+
+        for (slot, name) in names.iter().enumerate() {
+            assert_eq!(keys.find_slot(name), Some(u16::try_from(slot).unwrap()));
+        }
         assert_eq!(keys.find_slot(c"missing"), None);
         assert_eq!(
             keys.store
@@ -485,7 +508,7 @@ mod tests {
                 .unwrap()
                 .slots
                 .len(),
-            3
+            NAME_INDEX_MIN_KEYS + 1
         );
     }
 
