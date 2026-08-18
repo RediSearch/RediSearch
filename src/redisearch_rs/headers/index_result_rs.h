@@ -13,6 +13,8 @@
 typedef struct RSDocumentMetadata_s RSDocumentMetadata;
 
 
+typedef struct RLookupKey RLookupKey;
+
 /**
  * A single term being evaluated at query time.
  *
@@ -23,7 +25,123 @@ typedef struct RSDocumentMetadata_s RSDocumentMetadata;
  */
 typedef struct RSQueryTerm RSQueryTerm;
 
-typedef struct RLookupKey RLookupKey;
+#ifndef BITFLAGS_RSRESULTKIND__U8_DEFINED
+#define BITFLAGS_RSRESULTKIND__U8_DEFINED
+/**
+ * Represents a set of flags of some type `T`.
+ * `T` must have the `#[bitflags]` attribute applied.
+ *
+ * A `BitFlags<T>` is as large as the `T` itself,
+ * and stores one flag per bit.
+ *
+ * ## Comparison operators, [`PartialOrd`] and [`Ord`]
+ *
+ * To make it possible to use `BitFlags` as the key of a
+ * [`BTreeMap`][std::collections::BTreeMap], `BitFlags` implements
+ * [`Ord`]. There is no meaningful total order for bitflags,
+ * so the implementation simply compares the integer values of the bits.
+ *
+ * Unfortunately, this means that comparing `BitFlags` with an operator
+ * like `<=` will compile, and return values that are probably useless
+ * and not what you expect. In particular, `<=` does *not* check whether
+ * one value is a subset of the other. Use [`BitFlags::contains`] for that.
+ *
+ * ## Customizing `Default`
+ *
+ * By default, creating an instance of `BitFlags<T>` with `Default` will result
+ * in an empty set. If that's undesirable, you may customize this:
+ *
+ * ```
+ * # use enumflags2::{BitFlags, bitflags};
+ * #[bitflags(default = B | C)]
+ * #[repr(u8)]
+ * #[derive(Copy, Clone, Debug, PartialEq)]
+ * enum MyFlag {
+ *     A = 0b0001,
+ *     B = 0b0010,
+ *     C = 0b0100,
+ *     D = 0b1000,
+ * }
+ *
+ * assert_eq!(BitFlags::default(), MyFlag::B | MyFlag::C);
+ * ```
+ *
+ * ## Memory layout
+ *
+ * `BitFlags<T>` is marked with the `#[repr(transparent)]` trait, meaning
+ * it can be safely transmuted into the corresponding numeric type.
+ *
+ * Usually, the same can be achieved by using [`BitFlags::bits`] in one
+ * direction, and [`BitFlags::from_bits`], [`BitFlags::from_bits_truncate`],
+ * or [`BitFlags::from_bits_unchecked`] in the other direction. However,
+ * transmuting might still be useful if, for example, you're dealing with
+ * an entire array of `BitFlags`.
+ *
+ * When transmuting *into* a `BitFlags`, make sure that each set bit
+ * corresponds to an existing flag
+ * (cf. [`from_bits_unchecked`][BitFlags::from_bits_unchecked]).
+ *
+ * For example:
+ *
+ * ```
+ * # use enumflags2::{BitFlags, bitflags};
+ * #[bitflags]
+ * #[repr(u8)] // <-- the repr determines the numeric type
+ * #[derive(Copy, Clone)]
+ * enum TransmuteMe {
+ *     One = 1 << 0,
+ *     Two = 1 << 1,
+ * }
+ *
+ * # use std::slice;
+ * // NOTE: we use a small, self-contained function to handle the slice
+ * // conversion to make sure the lifetimes are right.
+ * fn transmute_slice<'a>(input: &'a [BitFlags<TransmuteMe>]) -> &'a [u8] {
+ *     unsafe {
+ *         slice::from_raw_parts(input.as_ptr() as *const u8, input.len())
+ *     }
+ * }
+ *
+ * let many_flags = &[
+ *     TransmuteMe::One.into(),
+ *     TransmuteMe::One | TransmuteMe::Two,
+ * ];
+ *
+ * let as_nums = transmute_slice(many_flags);
+ * assert_eq!(as_nums, &[0b01, 0b11]);
+ * ```
+ *
+ * ## Implementation notes
+ *
+ * You might expect this struct to be defined as
+ *
+ * ```ignore
+ * struct BitFlags<T: BitFlag> {
+ *     value: T::Numeric
+ * }
+ * ```
+ *
+ * Ideally, that would be the case. However, because `const fn`s cannot
+ * have trait bounds in current Rust, this would prevent us from providing
+ * most `const fn` APIs. As a workaround, we define `BitFlags` with two
+ * type parameters, with a default for the second one:
+ *
+ * ```ignore
+ * struct BitFlags<T, N = <T as BitFlag>::Numeric> {
+ *     value: N,
+ *     marker: PhantomData<T>,
+ * }
+ * ```
+ *
+ * Manually providing a type for the `N` type parameter shouldn't ever
+ * be necessary.
+ *
+ * The types substituted for `T` and `N` must always match, creating a
+ * `BitFlags` value where that isn't the case is only possible with
+ * incorrect unsafe code.
+ */
+typedef uint8_t BitFlags_RSResultKind__u8;
+#endif /* BITFLAGS_RSRESULTKIND__U8_DEFINED */
 
 /**
  * A single metric: a borrowed key and a numeric value.
@@ -52,12 +170,6 @@ typedef struct MetricEntry {
 } MetricEntry;
 
 /**
- * The [`Active`] instantiation of [`RawOffsetSlice`]: a borrowed view whose data
- * pointer is a live `&'a [u8]`.
- */
-typedef struct RSOffsetVector RSOffsetSlice;
-
-/**
  * A read-only, C-visible slice view over the entries of a [`MetricsVec`].
  *
  * Returned by [`MetricsVec::as_metrics_slice`] for zero-copy iteration
@@ -76,46 +188,13 @@ typedef struct MetricsSlice {
   size_t len;
 } MetricsSlice;
 
-#ifndef THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U16_DEFINED
-#define THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U16_DEFINED
 /**
- * See the crate's top level documentation for a description of this type.
+ * The [`Active`] instantiation of [`RawOffsetSlice`]: a borrowed view whose data
+ * pointer is a live `&'a [u8]`.
  */
-typedef struct ThinVec_Box_RawIndexResult_Active__u16 {
-  struct Header_u16 *ptr;
-} ThinVec_Box_RawIndexResult_Active__u16;
-#endif /* THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U16_DEFINED */
+typedef struct RSOffsetVector RSOffsetSlice;
 
-#ifndef THINVEC_METRICENTRY__U64_DEFINED
-#define THINVEC_METRICENTRY__U64_DEFINED
-/**
- * See the crate's top level documentation for a description of this type.
- */
-typedef struct ThinVec_MetricEntry__u64 {
-  struct Header_u64 *ptr;
-} ThinVec_MetricEntry__u64;
-#endif /* THINVEC_METRICENTRY__U64_DEFINED */
-
-/**
- * A dynamically-sized collection of [`MetricEntry`] values.
- *
- * Backed by a [`ThinVec`] — a single-pointer vec that stores len/cap in
- * the allocation header. `MetricsVec::new()` does not allocate.
- *
- * `repr(transparent)` over `ThinVec` means this type is pointer-sized
- * and can be embedded directly in `repr(C)` structs.
- */
-typedef struct ThinVec_MetricEntry__u64 MetricsVec;
-
-#ifndef THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U16_DEFINED
-#define THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U16_DEFINED
-/**
- * See the crate's top level documentation for a description of this type.
- */
-typedef struct ThinVec_SharedPtr_Active__RawIndexResult_Active__u16 {
-  struct Header_u16 *ptr;
-} ThinVec_SharedPtr_Active__RawIndexResult_Active__u16;
-#endif /* THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U16_DEFINED */
+typedef BitFlags_RSResultKind__u8 RSResultKindMask;
 
 #ifndef SHAREDPTR_ACTIVE__U8_DEFINED
 #define SHAREDPTR_ACTIVE__U8_DEFINED
@@ -268,6 +347,16 @@ typedef union RawTermRecord_Active {
  */
 typedef union RawTermRecord_Active RSTermRecord;
 
+#ifndef THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U16_DEFINED
+#define THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U16_DEFINED
+/**
+ * See the crate's top level documentation for a description of this type.
+ */
+typedef struct ThinVec_Box_RawIndexResult_Active__u16 {
+  struct Header_u16 *ptr;
+} ThinVec_Box_RawIndexResult_Active__u16;
+#endif /* THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U16_DEFINED */
+
 #ifndef SMALLTHINVEC_BOX_RAWINDEXRESULT_ACTIVE_DEFINED
 #define SMALLTHINVEC_BOX_RAWINDEXRESULT_ACTIVE_DEFINED
 /**
@@ -279,6 +368,37 @@ typedef union RawTermRecord_Active RSTermRecord;
 typedef struct ThinVec_Box_RawIndexResult_Active__u16 SmallThinVec_Box_RawIndexResult_Active;
 #endif /* SMALLTHINVEC_BOX_RAWINDEXRESULT_ACTIVE_DEFINED */
 
+#ifndef THINVEC_METRICENTRY__U64_DEFINED
+#define THINVEC_METRICENTRY__U64_DEFINED
+/**
+ * See the crate's top level documentation for a description of this type.
+ */
+typedef struct ThinVec_MetricEntry__u64 {
+  struct Header_u64 *ptr;
+} ThinVec_MetricEntry__u64;
+#endif /* THINVEC_METRICENTRY__U64_DEFINED */
+
+/**
+ * A dynamically-sized collection of [`MetricEntry`] values.
+ *
+ * Backed by a [`ThinVec`] — a single-pointer vec that stores len/cap in
+ * the allocation header. `MetricsVec::new()` does not allocate.
+ *
+ * `repr(transparent)` over `ThinVec` means this type is pointer-sized
+ * and can be embedded directly in `repr(C)` structs.
+ */
+typedef struct ThinVec_MetricEntry__u64 MetricsVec;
+
+#ifndef THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U16_DEFINED
+#define THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U16_DEFINED
+/**
+ * See the crate's top level documentation for a description of this type.
+ */
+typedef struct ThinVec_SharedPtr_Active__RawIndexResult_Active__u16 {
+  struct Header_u16 *ptr;
+} ThinVec_SharedPtr_Active__RawIndexResult_Active__u16;
+#endif /* THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U16_DEFINED */
+
 #ifndef SMALLTHINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE_DEFINED
 #define SMALLTHINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE_DEFINED
 /**
@@ -289,126 +409,6 @@ typedef struct ThinVec_Box_RawIndexResult_Active__u16 SmallThinVec_Box_RawIndexR
  */
 typedef struct ThinVec_SharedPtr_Active__RawIndexResult_Active__u16 SmallThinVec_SharedPtr_Active__RawIndexResult_Active;
 #endif /* SMALLTHINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE_DEFINED */
-
-#ifndef BITFLAGS_RSRESULTKIND__U8_DEFINED
-#define BITFLAGS_RSRESULTKIND__U8_DEFINED
-/**
- * Represents a set of flags of some type `T`.
- * `T` must have the `#[bitflags]` attribute applied.
- *
- * A `BitFlags<T>` is as large as the `T` itself,
- * and stores one flag per bit.
- *
- * ## Comparison operators, [`PartialOrd`] and [`Ord`]
- *
- * To make it possible to use `BitFlags` as the key of a
- * [`BTreeMap`][std::collections::BTreeMap], `BitFlags` implements
- * [`Ord`]. There is no meaningful total order for bitflags,
- * so the implementation simply compares the integer values of the bits.
- *
- * Unfortunately, this means that comparing `BitFlags` with an operator
- * like `<=` will compile, and return values that are probably useless
- * and not what you expect. In particular, `<=` does *not* check whether
- * one value is a subset of the other. Use [`BitFlags::contains`] for that.
- *
- * ## Customizing `Default`
- *
- * By default, creating an instance of `BitFlags<T>` with `Default` will result
- * in an empty set. If that's undesirable, you may customize this:
- *
- * ```
- * # use enumflags2::{BitFlags, bitflags};
- * #[bitflags(default = B | C)]
- * #[repr(u8)]
- * #[derive(Copy, Clone, Debug, PartialEq)]
- * enum MyFlag {
- *     A = 0b0001,
- *     B = 0b0010,
- *     C = 0b0100,
- *     D = 0b1000,
- * }
- *
- * assert_eq!(BitFlags::default(), MyFlag::B | MyFlag::C);
- * ```
- *
- * ## Memory layout
- *
- * `BitFlags<T>` is marked with the `#[repr(transparent)]` trait, meaning
- * it can be safely transmuted into the corresponding numeric type.
- *
- * Usually, the same can be achieved by using [`BitFlags::bits`] in one
- * direction, and [`BitFlags::from_bits`], [`BitFlags::from_bits_truncate`],
- * or [`BitFlags::from_bits_unchecked`] in the other direction. However,
- * transmuting might still be useful if, for example, you're dealing with
- * an entire array of `BitFlags`.
- *
- * When transmuting *into* a `BitFlags`, make sure that each set bit
- * corresponds to an existing flag
- * (cf. [`from_bits_unchecked`][BitFlags::from_bits_unchecked]).
- *
- * For example:
- *
- * ```
- * # use enumflags2::{BitFlags, bitflags};
- * #[bitflags]
- * #[repr(u8)] // <-- the repr determines the numeric type
- * #[derive(Copy, Clone)]
- * enum TransmuteMe {
- *     One = 1 << 0,
- *     Two = 1 << 1,
- * }
- *
- * # use std::slice;
- * // NOTE: we use a small, self-contained function to handle the slice
- * // conversion to make sure the lifetimes are right.
- * fn transmute_slice<'a>(input: &'a [BitFlags<TransmuteMe>]) -> &'a [u8] {
- *     unsafe {
- *         slice::from_raw_parts(input.as_ptr() as *const u8, input.len())
- *     }
- * }
- *
- * let many_flags = &[
- *     TransmuteMe::One.into(),
- *     TransmuteMe::One | TransmuteMe::Two,
- * ];
- *
- * let as_nums = transmute_slice(many_flags);
- * assert_eq!(as_nums, &[0b01, 0b11]);
- * ```
- *
- * ## Implementation notes
- *
- * You might expect this struct to be defined as
- *
- * ```ignore
- * struct BitFlags<T: BitFlag> {
- *     value: T::Numeric
- * }
- * ```
- *
- * Ideally, that would be the case. However, because `const fn`s cannot
- * have trait bounds in current Rust, this would prevent us from providing
- * most `const fn` APIs. As a workaround, we define `BitFlags` with two
- * type parameters, with a default for the second one:
- *
- * ```ignore
- * struct BitFlags<T, N = <T as BitFlag>::Numeric> {
- *     value: N,
- *     marker: PhantomData<T>,
- * }
- * ```
- *
- * Manually providing a type for the `N` type parameter shouldn't ever
- * be necessary.
- *
- * The types substituted for `T` and `N` must always match, creating a
- * `BitFlags` value where that isn't the case is only possible with
- * incorrect unsafe code.
- */
-typedef uint8_t BitFlags_RSResultKind__u8;
-#endif /* BITFLAGS_RSRESULTKIND__U8_DEFINED */
-
-typedef BitFlags_RSResultKind__u8 RSResultKindMask;
 
 #ifndef RAWAGGREGATERESULT_ACTIVE_DEFINED
 #define RAWAGGREGATERESULT_ACTIVE_DEFINED
@@ -476,6 +476,11 @@ typedef union RawAggregateResult_Active {
 } RawAggregateResult_Active;
 #endif /* RAWAGGREGATERESULT_ACTIVE_DEFINED */
 
+/**
+ * The [`Active`] instantiation of [`RawAggregateResult`].
+ */
+typedef union RawAggregateResult_Active RSAggregateResult;
+
 #ifndef RAWRESULTDATA_ACTIVE_DEFINED
 #define RAWRESULTDATA_ACTIVE_DEFINED
 /**
@@ -537,11 +542,6 @@ typedef union RawResultData_Active {
  * The [`Active`] instantiation of [`RawResultData`].
  */
 typedef union RawResultData_Active RSResultData;
-
-/**
- * The [`Active`] instantiation of [`RawAggregateResult`].
- */
-typedef union RawAggregateResult_Active RSAggregateResult;
 
 #ifndef RAWINDEXRESULT_ACTIVE_DEFINED
 #define RAWINDEXRESULT_ACTIVE_DEFINED

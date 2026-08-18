@@ -13,13 +13,6 @@
 #include "rqe_core.h"
 
 /**
- * Filter details to apply to numeric values
- */
-typedef struct NumericFilter NumericFilter;
-
-typedef struct RedisModuleCtx RedisModuleCtx;
-
-/**
  * An opaque inverted index reader structure. The actual implementation is determined at runtime
  * based on the index type and filter provided when creating the reader. This allows us to have a
  * single interface for all index reader types while still being able to optimize the storage
@@ -28,12 +21,11 @@ typedef struct RedisModuleCtx RedisModuleCtx;
 typedef struct IndexReader IndexReader;
 
 /**
- * Type alias for the tree iterator, providing a C-friendly name.
- *
- * The iterator holds references to nodes in the tree. The tree must not be
- * freed or mutated while this iterator exists.
+ * Filter details to apply to numeric values
  */
-typedef struct ReversePreOrderDfsIterator NumericRangeTreeIterator;
+typedef struct NumericFilter NumericFilter;
+
+typedef struct RedisModuleCtx RedisModuleCtx;
 
 /**
  * Result of [`NumericRangeTree_Find`] - an array of range pointers.
@@ -52,6 +44,14 @@ typedef struct NumericRangeTreeFindResult {
    */
   size_t len;
 } NumericRangeTreeFindResult;
+
+/**
+ * Type alias for the tree iterator, providing a C-friendly name.
+ *
+ * The iterator holds references to nodes in the tree. The tree must not be
+ * freed or mutated while this iterator exists.
+ */
+typedef struct ReversePreOrderDfsIterator NumericRangeTreeIterator;
 
 #ifdef __cplusplus
 extern "C" {
