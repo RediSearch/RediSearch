@@ -99,20 +99,28 @@ def assert_svs_tiered_state(env, index_name, field_name, expected_live_docs, vec
     expected to be empty: a transfer is triggered only once the flat buffer holds
     TIERED_SVS_UPDATE_THRESHOLD vectors, so a smaller remainder legitimately stays there.
 
-    A single VECSIM_INFO call is used on purpose. The tiered index reports both sub-index
-    infos, and the *deduplicated* union of their labels, while holding both index locks.
-    Adding up the two sub-indexes' label counts instead would double count a multi-value
-    doc whose vectors a transfer split between them - RediSearch adds a multi-value field
-    one vector at a time, so a transfer can pick up some of a doc's vectors and leave the
-    rest in the flat buffer.
+    The label count is taken from the tiered index itself, which reports the *deduplicated*
+    union of the two sub-indexes' labels, computed while holding both index locks. Adding up
+    the sub-indexes' own label counts instead would double count a multi-value doc whose
+    vectors a transfer split between them - RediSearch adds a multi-value field one vector at
+    a time, so a transfer can pick up some of a doc's vectors and leave the rest in the flat
+    buffer.
+
+    Note that the tiered index's sub-index infos are read after that union, each under its
+    own lock, so the three are not one atomic snapshot. That is fine here only because
+    nothing may mutate the index while this runs: background indexing has settled, and the
+    caller is expected to have disabled periodic fork GC, which would otherwise compact the
+    backend's deleted entries in between.
     """
     info = get_tiered_debug_info(env, index_name, field_name)
     frontend = to_dict(info['FRONTEND_INDEX'])
     backend = to_dict(info['BACKEND_INDEX'])
-    marked_deleted = backend['NUMBER_OF_MARKED_DELETED']
-    ctx = (f"{message} | labels={info['INDEX_LABEL_COUNT']} vectors={info['INDEX_SIZE']} "
-           f"marked_deleted={marked_deleted} frontend_vectors={frontend['INDEX_SIZE']} "
-           f"backend_vectors={backend['INDEX_SIZE']}")
+    # The backend's size and its marked-deleted count come from the same read, so their
+    # difference - its live vectors - is consistent even if a GC did slip in.
+    live_vectors = frontend['INDEX_SIZE'] + backend['INDEX_SIZE'] - backend['NUMBER_OF_MARKED_DELETED']
+    ctx = (f"{message} | labels={info['INDEX_LABEL_COUNT']} live_vectors={live_vectors} "
+           f"frontend_vectors={frontend['INDEX_SIZE']} backend_vectors={backend['INDEX_SIZE']} "
+           f"backend_marked_deleted={backend['NUMBER_OF_MARKED_DELETED']}")
 
     # The index holds exactly the live docs: no deleted doc was left behind, in either the
     # flat buffer or the backend.
@@ -121,7 +129,7 @@ def assert_svs_tiered_state(env, index_name, field_name, expected_live_docs, vec
 
     # Deleting a doc deletes *all* of its vectors, so the live vectors across both
     # sub-indexes are exactly `vectors_per_doc` per live doc.
-    env.assertEqual(info['INDEX_SIZE'] - marked_deleted, vectors_per_doc * expected_live_docs,
+    env.assertEqual(live_vectors, vectors_per_doc * expected_live_docs,
                     message=f"live vectors != vectors_per_doc * live docs: {ctx}")
 
 
