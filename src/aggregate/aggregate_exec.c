@@ -2632,11 +2632,9 @@ int RSCursorProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     Cursor_Pause(cursor); // Pause the cursor again since we are not going to use it, but it's still valid.
     return RedisModule_ReplyWithErrorFormat(ctx, "cursor request is not profile, id: %d", cid);
   }
-  // Only internal shard profiling cursors (created by `_FT.PROFILE`) reach here:
-  // public `FT.PROFILE ... WITHCURSOR` is rejected before a cursor is created, so
-  // a coordinator cursor cannot own a profiling request. Assert on the cursor id's
-  // coordinator bit rather than on the spec ref, which coordinator cursors also
-  // carry now.
+  // Public `FT.PROFILE ... WITHCURSOR` is rejected before a cursor is created, so
+  // only internal shard profiling cursors reach here. Asserted explicitly because
+  // the spec ref below no longer distinguishes coordinator cursors.
   RS_ASSERT(!CURSOR_IS_COORD(cursor->id));
   RS_ASSERT(cursor_HasSpecWeakRef(cursor));
   // Check if the spec is still valid
