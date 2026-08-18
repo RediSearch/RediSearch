@@ -88,10 +88,24 @@ def push_fix(work: str, branch: str) -> tuple[bool, str]:
 THREAD_LATEST_QUERY = """
 query($id:ID!) {
   node(id:$id) { ... on PullRequestReviewThread {
-    comments(last:20) { nodes { createdAt author { login } } }
+    comments(last:100) { nodes { createdAt author { login } } }
   } }
 }
 """
+
+
+def strip_reserved(text: str) -> str:
+    """Remove any auto-backport acknowledgement marker from agent-supplied prose.
+
+    Only the applier may emit `<!-- backport-agent-addressed: <kind>:<id> -->`.
+    Stripping every such marker from agent text before it is posted (using the
+    exact regex `addressed_feedback` later scans with) stops an injected agent
+    from forging markers in its reply/summary prose to make a future run
+    suppress unrelated real feedback as "already addressed".
+    """
+    if not isinstance(text, str):
+        return ""
+    return resolve_fix.ADDRESSED_MARKER_RE.sub("", text)
 
 
 def newest_non_bot_comment(thread_id: str) -> str | None:
@@ -124,14 +138,18 @@ def resolve_thread_if_unchanged(thread_id: str, snapshot_ts: str) -> str:
     return "resolved"
 
 
-def reply_thread(thread_id: str, body: str) -> None:
+def reply_thread(thread_id: str, body: str) -> bool:
+    """Post an inline reply. Returns True on success — the caller must only
+    resolve a thread whose reply actually posted, so a transient failure doesn't
+    silently close the thread without the promised explanation."""
     if DRY_RUN:
         common.log(f"[dry-run] would reply on thread {thread_id}: {body[:80]}")
-        return
-    common.gh_graphql(
+        return True
+    res = common.gh_graphql(
         "mutation($t:ID!,$b:String!){ addPullRequestReviewThreadReply("
         "input:{pullRequestReviewThreadId:$t, body:$b}){ comment { id } } }",
         t=thread_id, b=body)
+    return res is not None
 
 
 def _tmp_body_file(text: str) -> str:
@@ -202,9 +220,9 @@ def main() -> int:
         d = m.get("decline") or {}
         post_pr_comment(pr, "\n".join([
             "🤖 Auto-backport fix declined", "",
-            f"**What I observed:** {d.get('observed', '')}",
-            f"**Specific obstacle:** {d.get('obstacle', '')}",
-            f"**What the reviewer needs to decide:** {d.get('reviewer_needs', '')}",
+            f"**What I observed:** {strip_reserved(d.get('observed', ''))}",
+            f"**Specific obstacle:** {strip_reserved(d.get('obstacle', ''))}",
+            f"**What the reviewer needs to decide:** {strip_reserved(d.get('reviewer_needs', ''))}",
             "", f"Failed run: {run_url}"]))
         common.log("Agent declined; posted decline comment.")
         return 0
@@ -223,37 +241,52 @@ def main() -> int:
     if pushed:
         post_pr_comment(pr, "\n".join([
             "🤖 Auto-backport fix attempt", "",
-            f"**Root cause:** {m.get('root_cause', '')}",
-            f"**Change:** {m.get('change_summary', '')}",
-            f"**Files touched:** {', '.join(m.get('files_touched') or [])}",
-            f"**Kind of fix:** {m.get('kind', '')}",
+            f"**Root cause:** {strip_reserved(m.get('root_cause', ''))}",
+            f"**Change:** {strip_reserved(m.get('change_summary', ''))}",
+            f"**Files touched:** {strip_reserved(', '.join(m.get('files_touched') or []))}",
+            f"**Kind of fix:** {strip_reserved(m.get('kind', ''))}",
             "", f"Pushed as {detail} on top of the existing branch. CI will re-run.",
             f"Failed run: {run_url}"]))
         if m.get("kind") == "scope-adapting" and m.get("caveats_markdown"):
-            append_caveats(pr, m["caveats_markdown"])
+            append_caveats(pr, strip_reserved(m["caveats_markdown"]))
 
+        # Deduplicate by thread id so a manifest that repeats a thread can't
+        # flood replies and push a reviewer follow-up out of the recheck window.
+        done_threads: set = set()
         for tr in m.get("thread_replies") or []:
             tid = tr.get("thread_id")
-            if tid not in valid_threads:
-                common.log(f"Ignoring thread_reply for out-of-context thread {tid!r}")
+            if tid not in valid_threads or tid in done_threads:
+                if tid not in valid_threads:
+                    common.log(f"Ignoring thread_reply for out-of-context thread {tid!r}")
                 continue
-            reply_thread(tid, f"🤖 {tr.get('body', '').strip()}")
-            common.log(f"thread {tid}: {resolve_thread_if_unchanged(tid, valid_threads[tid])}")
+            done_threads.add(tid)
+            # Only resolve if the reply actually posted.
+            if reply_thread(tid, f"🤖 {strip_reserved(tr.get('body', '').strip())}"):
+                common.log(f"thread {tid}: {resolve_thread_if_unchanged(tid, valid_threads[tid])}")
+            else:
+                common.log(f"thread {tid}: left open (reply failed)")
 
+        done_comments: set = set()
         for cr in m.get("comment_replies") or []:
             kind, cid = cr.get("kind"), cr.get("id")
-            if (kind, cid) not in valid_comments:
-                common.log(f"Ignoring comment_reply for out-of-context item {kind}:{cid}")
+            if (kind, cid) not in valid_comments or (kind, cid) in done_comments:
+                if (kind, cid) not in valid_comments:
+                    common.log(f"Ignoring comment_reply for out-of-context item {kind}:{cid}")
                 continue
+            done_comments.add((kind, cid))
             marker = f"<!-- backport-agent-addressed: {kind}:{cid} -->"
-            post_pr_comment(pr, f"🤖 {cr.get('body', '').strip()}\n\n{marker}")
+            post_pr_comment(pr, f"🤖 {strip_reserved(cr.get('body', '').strip())}\n\n{marker}")
 
     # Resolution-only retries are independent of this run's push (they finish a
-    # PRIOR run's already-pushed fix), but are restricted to bot-replied threads.
+    # PRIOR run's already-pushed fix), but are restricted to bot-replied threads
+    # and deduplicated.
+    done_resolve: set = set()
     for tid in m.get("resolve_only_threads") or []:
-        if tid not in resolve_only_allowed:
-            common.log(f"Ignoring resolve_only for non-bot-replied/out-of-context thread {tid!r}")
+        if tid not in resolve_only_allowed or tid in done_resolve:
+            if tid not in resolve_only_allowed:
+                common.log(f"Ignoring resolve_only for non-bot-replied/out-of-context thread {tid!r}")
             continue
+        done_resolve.add(tid)
         common.log(f"thread {tid} (resolution-only): {resolve_thread_if_unchanged(tid, valid_threads[tid])}")
 
     return 0
