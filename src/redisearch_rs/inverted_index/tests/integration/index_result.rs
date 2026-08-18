@@ -8,8 +8,8 @@
 */
 
 use index_result::{
-    MetricsVec, RSAggregateResult, RSIndexResult, RSOffsetSlice, RSOffsetVector, RSResultKind,
-    RSResultKindMask,
+    MetricsVec, RSBorrowedAggregateResult, RSIndexResult, RSOffsetSlice, RSOffsetVector,
+    RSOwnedAggregateResult, RSResultKind, RSResultKindMask,
 };
 use query_term::RSQueryTerm;
 use rqe_core::RS_FIELDMASK_ALL;
@@ -20,7 +20,7 @@ fn pushing_to_aggregate_result() {
     let num_second = RSIndexResult::build_numeric(100.0).doc_id(3).build();
     let virt_first = RSIndexResult::build_virt().doc_id(4).build();
 
-    let mut agg = RSAggregateResult::borrowed_with_capacity(2);
+    let mut agg = RSBorrowedAggregateResult::with_capacity(2);
 
     assert_eq!(agg.kind_mask(), RSResultKindMask::empty());
 
@@ -170,6 +170,91 @@ fn to_owned_an_aggregate_index_result() {
         5.0,
         "cloned value should not have changed"
     )
+}
+
+/// Which payload an aggregate answers for: the operations only one kind supports
+/// hang off that payload, so this is what decides whether they are reachable at
+/// all.
+#[test]
+fn an_aggregate_answers_for_exactly_one_payload() {
+    let mut borrowed = RSIndexResult::build_union(1).build();
+    let agg = borrowed
+        .as_aggregate_mut()
+        .expect("a union result carries an aggregate");
+    assert!(agg.as_borrowed().is_some());
+    assert!(agg.as_owned().is_none());
+    assert!(agg.as_borrowed_mut().is_some());
+    assert!(agg.as_owned_mut().is_none());
+
+    let mut owned = RSIndexResult::build_hybrid_metric().build();
+    let agg = owned
+        .as_aggregate_mut()
+        .expect("a hybrid metric result carries an aggregate");
+    assert!(agg.as_owned().is_some());
+    assert!(agg.as_borrowed().is_none());
+    assert!(agg.as_owned_mut().is_some());
+    assert!(agg.as_borrowed_mut().is_none());
+}
+
+/// `into_records` hands every child to the caller, so dropping what it returns is
+/// what frees them. Nothing else exercises that: its only production caller
+/// deliberately `mem::forget`s each child to leave the memory with C, so a
+/// double-free or a leak on this path would go unobserved. Run under miri.
+#[test]
+fn into_records_yields_the_children_in_order_and_frees_them_on_drop() {
+    let mut owned = RSOwnedAggregateResult::with_capacity(2);
+    owned.push_boxed(Box::new(
+        RSIndexResult::build_numeric(1.0).doc_id(7).build(),
+    ));
+    owned.push_boxed(Box::new(
+        RSIndexResult::build_numeric(2.0).doc_id(11).build(),
+    ));
+
+    let records = owned.into_records();
+
+    assert_eq!(records.len(), 2);
+    assert_eq!(
+        records.iter().map(|c| c.doc_id).collect::<Vec<_>>(),
+        vec![7, 11],
+        "the children come back in the order they were pushed",
+    );
+
+    // The drop at the end of scope is the point of the test: these boxes are the
+    // aggregate's only owners now, so miri sees either a clean free here or a leak.
+}
+
+/// An owned aggregate frees its children, so taking a borrowed one would hand it a
+/// pointer it must not free.
+#[test]
+#[should_panic = "Cannot push a borrowed child to an owned aggregate result"]
+fn pushing_a_borrowed_child_to_an_owned_aggregate_panics() {
+    let child = RSIndexResult::build_metric(1.0).doc_id(7).build();
+    let mut owned = RSIndexResult::build_hybrid_metric().build();
+
+    owned.push_borrowed(&child, MetricsVec::new());
+}
+
+/// The mirror image: a borrowed aggregate never frees its children, so taking
+/// ownership of one would leak it.
+#[test]
+#[should_panic = "Cannot push an owned child to a borrowed aggregate result"]
+fn pushing_an_owned_child_to_a_borrowed_aggregate_panics() {
+    let mut borrowed = RSIndexResult::build_union(1).build();
+
+    borrowed.push_boxed(Box::new(
+        RSIndexResult::build_numeric(1.0).doc_id(7).build(),
+    ));
+}
+
+/// A borrowed child is shared with whoever owns it, so a `&mut` to it would alias.
+#[test]
+#[should_panic = "Cannot get a mutable reference to a borrowed aggregate result"]
+fn mutably_reaching_a_borrowed_child_panics() {
+    let child = RSIndexResult::build_numeric(1.0).doc_id(7).build();
+    let mut borrowed = RSIndexResult::build_union(1).build();
+    borrowed.push_borrowed(&child, MetricsVec::new());
+
+    let _ = borrowed.get_mut(0);
 }
 
 #[test]
