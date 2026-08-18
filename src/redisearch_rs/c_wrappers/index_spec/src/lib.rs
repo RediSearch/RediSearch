@@ -115,14 +115,6 @@ impl<'lock> IndexSpecWriteGuard<'lock> {
         }
     }
 
-    /// Decrements the num terms counter by the given amount.
-    pub fn decrement_num_terms(&mut self, decr: u64) {
-        // SAFETY: We hold the write lock (enforced by Self::new).
-        unsafe {
-            ffi::IndexSpec_DecrementNumTerms(self.0, decr);
-        }
-    }
-
     /// Creates a guard from an already-locked IndexSpec without acquiring the lock.
     ///
     /// Returns `ManuallyDrop<IndexSpecWriteGuard>` to prevent the guard from releasing
@@ -135,14 +127,6 @@ impl<'lock> IndexSpecWriteGuard<'lock> {
     /// - In test contexts, no lock is actually held (tests don't use real locks)
     /// - Test code is responsible for ensuring exclusive access
     ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// // In test code where no real lock is needed:
-    /// let mut guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut *spec_ptr) };
-    /// // guard is ManuallyDrop, won't release lock on drop
-    /// guard.decrement_num_terms(5);
-    /// ```
     pub const unsafe fn from_locked_mut(
         index_spec: &'lock mut ffi::IndexSpec,
     ) -> std::mem::ManuallyDrop<Self> {
@@ -289,10 +273,14 @@ impl<'lock> IndexSpecWriteGuard<'lock> {
         entries_removed: usize,
         bytes_freed: usize,
         bytes_allocated: usize,
+        terms_size_removed: usize,
+        terms_removed: usize,
     ) {
         self.0.stats.numRecords -= entries_removed;
         self.0.stats.invertedSize += bytes_allocated;
         self.0.stats.invertedSize -= bytes_freed;
+        self.0.stats.termsSize -= terms_size_removed;
+        self.0.stats.scoring.numTerms -= terms_removed;
     }
 }
 
