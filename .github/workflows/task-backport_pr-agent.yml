@@ -182,7 +182,14 @@ jobs:
       # agent, so HEAD is trustworthy; this discards any working-tree tampering.
       - name: Restore trusted apply scripts
         if: steps.ctx.outputs.skip != 'true'
-        run: git checkout HEAD -- scripts/auto_backport
+        # Restore tracked files from the trusted HEAD AND remove any agent-created
+        # untracked files: otherwise an injected `scripts/auto_backport/json.py`
+        # (or `sitecustomize.py`) on the applier's `sys.path[0]` would hijack an
+        # `import` and run with the token. `-x` also clears ignored files
+        # (e.g. __pycache__) that could shadow a module.
+        run: |
+          git checkout HEAD -- scripts/auto_backport
+          git clean -ffdx scripts/auto_backport
 
       # apply_create.py is the ONLY component that holds the write token. It
       # validates the agent's manifest (branch shape, target allow-list),

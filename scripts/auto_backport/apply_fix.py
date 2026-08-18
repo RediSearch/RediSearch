@@ -108,6 +108,13 @@ def strip_reserved(text: str) -> str:
     return resolve_fix.ADDRESSED_MARKER_RE.sub("", text)
 
 
+def _str_list(value) -> list[str]:
+    """Coerce a manifest field to a list of strings (malformed input -> [])."""
+    if not isinstance(value, list):
+        return []
+    return [x for x in value if isinstance(x, str)]
+
+
 def newest_non_bot_comment(thread_id: str) -> str | None:
     """Timestamp of the thread's newest NON-bot comment. `""` means the thread
     genuinely has no non-bot comment; `None` means the live read failed or came
@@ -161,11 +168,18 @@ def _tmp_body_file(text: str) -> str:
     return path
 
 
-def post_pr_comment(pr: int, body: str) -> None:
+def post_pr_comment(pr: int, body: str) -> bool:
+    """Post a PR comment. Returns True on success — the decline path treats its
+    comment as the required deliverable and fails the run if it can't post."""
     if DRY_RUN:
         common.log(f"[dry-run] would comment on PR #{pr}:\n{body}")
-        return
-    common.gh("pr", "comment", str(pr), "--body-file", _tmp_body_file(body), check=False)
+        return True
+    try:
+        common.gh("pr", "comment", str(pr), "--body-file", _tmp_body_file(body), check=True)
+        return True
+    except Exception:
+        common.log(f"Failed to post PR comment on #{pr}")
+        return False
 
 
 def append_caveats(pr: int, caveats_md: str) -> None:
@@ -218,14 +232,17 @@ def main() -> int:
 
     if m.get("action") == "decline":
         d = m.get("decline") or {}
-        post_pr_comment(pr, "\n".join([
+        # The decline comment is the run's only deliverable — fail if it can't be
+        # posted rather than reporting a green no-op with no reviewer-facing note.
+        ok = post_pr_comment(pr, "\n".join([
             "🤖 Auto-backport fix declined", "",
             f"**What I observed:** {strip_reserved(d.get('observed', ''))}",
             f"**Specific obstacle:** {strip_reserved(d.get('obstacle', ''))}",
             f"**What the reviewer needs to decide:** {strip_reserved(d.get('reviewer_needs', ''))}",
             "", f"Failed run: {run_url}"]))
-        common.log("Agent declined; posted decline comment.")
-        return 0
+        common.log("Agent declined; posted decline comment." if ok
+                   else "Agent declined but the decline comment failed to post.")
+        return 0 if ok else 1
 
     # Treat the agent's clone `.git` as hostile before the token-holding push.
     if not DRY_RUN:
@@ -243,7 +260,7 @@ def main() -> int:
             "🤖 Auto-backport fix attempt", "",
             f"**Root cause:** {strip_reserved(m.get('root_cause', ''))}",
             f"**Change:** {strip_reserved(m.get('change_summary', ''))}",
-            f"**Files touched:** {strip_reserved(', '.join(m.get('files_touched') or []))}",
+            f"**Files touched:** {strip_reserved(', '.join(_str_list(m.get('files_touched'))))}",
             f"**Kind of fix:** {strip_reserved(m.get('kind', ''))}",
             "", f"Pushed as {detail} on top of the existing branch. CI will re-run.",
             f"Failed run: {run_url}"]))

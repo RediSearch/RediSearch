@@ -103,8 +103,9 @@ def pr_body(ctx: dict, entry: dict) -> str:
         "",
         "## Cherry-pick result",
     ]
-    conflict_log = entry.get("conflict_log") or []
-    if entry["status"] == "conflicts" and conflict_log:
+    cl = entry.get("conflict_log")
+    conflict_log = cl if isinstance(cl, list) else []
+    if entry.get("status") == "conflicts" and conflict_log:
         lines.append(f"- Resolved {len(conflict_log)} conflict(s) — see Conflict Log below.")
         lines += ["", "## Conflict Log"]
         for c in conflict_log:
@@ -143,14 +144,18 @@ def existing_pr(branch: str) -> str | None:
 def apply_target(ctx: dict, work: str, entry: dict) -> dict:
     """Push + open the PR for one manifest entry. Returns a summary row."""
     pr = ctx["pr"]
-    target = entry.get("target", "")
-    status = entry.get("status", "")
-    row = {"target": target, "status": "skipped", "detail": ""}
+    target = entry.get("target")
+    status = entry.get("status")
+    row = {"target": target if isinstance(target, str) else str(target),
+           "status": "skipped", "detail": ""}
 
-    if not TARGET_RE.match(target) or target not in ctx["targets"]:
+    # Fully type-check the (agent-authored) entry so a malformed field turns into
+    # a skipped row rather than crashing mid-loop and leaving a partial apply
+    # with no summary.
+    if not isinstance(target, str) or not TARGET_RE.match(target) or target not in ctx["targets"]:
         row["detail"] = f"invalid/unknown target {target!r}"
         return row
-    if status not in VALID_STATUSES:
+    if not isinstance(status, str) or status not in VALID_STATUSES:
         row["detail"] = f"invalid status {status!r}"
         return row
     if status == "skipped":
@@ -178,8 +183,9 @@ def apply_target(ctx: dict, work: str, entry: dict) -> dict:
 
     title = f"[{target}] {ctx.get('title', '')}"
     labels = ["auto-backport"] + (["auto-backport-conflicts"] if status == "conflicts" else [])
-    status_label = f"conflicts({len(entry.get('conflict_log') or [])})" \
-        if status == "conflicts" else "clean"
+    cl = entry.get("conflict_log")
+    n_conflicts = len(cl) if isinstance(cl, list) else 0
+    status_label = f"conflicts({n_conflicts})" if status == "conflicts" else "clean"
 
     if DRY_RUN:
         row["status"] = status_label

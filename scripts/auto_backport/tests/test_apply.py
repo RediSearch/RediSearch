@@ -102,6 +102,17 @@ class ApplyCreateTargetTests(unittest.TestCase):
         self.assertEqual(row["detail"], "manual")
         self.assertFalse(self._pushed())
 
+    def test_malformed_entries_do_not_crash(self):
+        # A null target, a non-string status, or a non-list conflict_log must
+        # each become a row, never raise (so the loop finishes + summary posts).
+        for bad in ({"target": None, "status": "clean"},
+                    {"target": "8.6", "status": 123,
+                     "branch": "backport-agent/pr-8774-to-8.6"},
+                    {"target": "8.6", "branch": "backport-agent/pr-8774-to-8.6",
+                     "status": "clean", "conflict_log": "not-a-list"}):
+            row = apply_create.apply_target(self.ctx, "/w", bad)
+            self.assertIn(row["status"], ("skipped", "clean", "error"))
+
     def test_existing_pr_is_not_reopened(self):
         common.gh = lambda *a, **k: ("OPEN https://github.com/x/y/pull/1"
                                      if a[:2] == ("pr", "list") else "")
@@ -279,7 +290,7 @@ class ApplyFixMainTests(unittest.TestCase):
         common.sanitize_git_dir = lambda *a, **k: None
         apply_fix.reply_thread = lambda tid, body: (self.replies.append(tid) or True)
         apply_fix.resolve_thread_if_unchanged = lambda tid, ts: (self.resolved.append(tid) or "resolved")
-        apply_fix.post_pr_comment = lambda pr, body: self.comments.append(body)
+        apply_fix.post_pr_comment = lambda pr, body: (self.comments.append(body) or True)
         apply_fix.append_caveats = lambda *a, **k: None
 
     def tearDown(self):
@@ -339,6 +350,18 @@ class ApplyFixMainTests(unittest.TestCase):
                "thread_replies": [{"thread_id": "T1", "body": "x"}]}
         self._run(man, pushed=True)
         self.assertEqual(self.resolved, [])             # left open
+
+    def test_decline_succeeds_when_comment_posts(self):
+        man = {"branch": "backport-agent/pr-1-to-8.6", "action": "decline",
+               "decline": {"observed": "o", "obstacle": "x", "reviewer_needs": "n"}}
+        self.assertEqual(self._run(man, pushed=False), 0)
+        self.assertTrue(any("declined" in c for c in self.comments))
+
+    def test_decline_fails_when_comment_fails(self):
+        apply_fix.post_pr_comment = lambda pr, body: False   # transient post failure
+        man = {"branch": "backport-agent/pr-1-to-8.6", "action": "decline",
+               "decline": {"observed": "o", "obstacle": "x", "reviewer_needs": "n"}}
+        self.assertEqual(self._run(man, pushed=False), 1)
 
     def test_missing_manifest_fails(self):
         os.environ["BACKPORT_FIX_CONTEXT_FILE"] = os.path.join(self.tmp, "fixctx2.json")

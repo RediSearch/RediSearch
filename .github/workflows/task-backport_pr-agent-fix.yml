@@ -161,7 +161,12 @@ jobs:
       # HEAD is trustworthy.
       - name: Restore trusted apply scripts
         if: steps.ctx.outputs.skip != 'true'
-        run: git checkout HEAD -- scripts/auto_backport
+        # Restore tracked files AND remove agent-created untracked ones, so an
+        # injected module on the applier's `sys.path[0]` can't hijack an import
+        # when it runs with the token (see the create workflow for detail).
+        run: |
+          git checkout HEAD -- scripts/auto_backport
+          git clean -ffdx scripts/auto_backport
 
       # apply_fix.py is the ONLY component that holds the write token. It
       # validates the manifest (branch match, thread/comment ids ⊆ context),
