@@ -951,35 +951,38 @@ def assert_doc_indexed_under_own_vector(env, k, query_vec, expected_doc, message
     env.assertContains(expected_doc, res,
                        message=f"{message}: {expected_doc} was not returned for its own vector: {res}")
 
-def assert_deleted_docs_not_returned(env, k, query_vec, deleted_docs, expect_full_page=True, message=''):
-    """A KNN query with `query_vec` - the vector of a deleted doc, so that an index entry
-    left behind for it ranks first - returns none of `deleted_docs`.
+def assert_deleted_docs_not_returned(env, k, query_vec, deleted_docs, message=''):
+    """A KNN query with `query_vec` - the vector of a deleted doc, so that an index entry left
+    behind for it ranks first - returns a full page of `k` live docs, none of them deleted.
 
-    Once the index has settled it must also return a full page of `k` live docs, and that is
-    what actually detects an entry left behind: the pipeline drops results whose document is
-    gone from the doc table, so a deleted doc still in the vector index costs a result slot
-    instead of showing up by name. While a transfer is in flight the count is not guaranteed
-    - a doc deleted from the batch being transferred is legitimately (re-)added to the
-    backend, and is only removed once the transfer applies its deletions journal - so pass
-    `expect_full_page=False` there."""
+    The result count is the end-to-end symptom of an entry left behind: the pipeline drops
+    results whose document is gone from the doc table, so such an entry costs a result slot
+    rather than showing up by name - which is also why the name check alone would not detect
+    it. Both are weaker than the label accounting in `assert_svs_tiered_state`, since a KNN
+    query over an approximate backend is not obliged to rank the leftover entry into the page
+    at all; they are here for the user-visible guarantee, not as the primary detector.
+
+    Only valid once the index has settled: while a transfer is in flight a doc deleted from
+    the batch being transferred is legitimately (re-)added to the backend, and only removed
+    when the transfer applies its deletions journal, so the count is expected to be short."""
     res = env.execute_command('FT.SEARCH', DEFAULT_INDEX_NAME,
                               f'*=>[KNN {k} @{DEFAULT_FIELD_NAME} $vec]',
                               'PARAMS', 2, 'vec', query_vec.tobytes(), 'NOCONTENT', 'LIMIT', 0, k)
-    if expect_full_page:
-        env.assertEqual(res[0], k,
-                        message=f"{message}: got {res[0]} of {k} results, so a deleted doc is "
-                                f"probably still in the vector index, taking up a result slot: {res}")
+    env.assertEqual(res[0], k,
+                    message=f"{message}: got {res[0]} of {k} results, so a deleted doc is "
+                            f"probably still in the vector index, taking up a result slot: {res}")
     env.assertEqual(deleted_docs.intersection(res[1:]), set(),
                     message=f"{message}: deleted docs were returned: {res}")
 
 
-def assert_svs_tiered_state(env, index_name, field_name, expected_live_docs, vectors_per_doc=1, message=''):
+def assert_svs_tiered_state(env, expected_live_docs, vectors_per_doc=1, message=''):
     """
     Assert the label and vector accounting of an SVS-VAMANA tiered index, on a single shard.
     Must be called only after `wait_for_background_indexing`, so that no transfer from the
     frontend (flat buffer) to the backend (SVS) is in flight. Note that the frontend is not
     expected to be empty: a transfer is triggered only once the flat buffer holds
-    TIERED_SVS_UPDATE_THRESHOLD vectors, so a smaller remainder legitimately stays there.
+    TRAINING_THRESHOLD vectors while the backend is still empty, and TIERED_SVS_UPDATE_THRESHOLD
+    afterwards, so a smaller remainder legitimately stays there.
 
     The label count is taken from the tiered index itself, which reports the *deduplicated*
     union of the two sub-indexes' labels, computed while holding both index locks. Adding up
@@ -994,7 +997,7 @@ def assert_svs_tiered_state(env, index_name, field_name, expected_live_docs, vec
     caller is expected to have disabled periodic fork GC, which would otherwise compact the
     backend's deleted entries in between.
     """
-    info = get_tiered_debug_info(env, index_name, field_name)
+    info = get_tiered_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
     frontend = to_dict(info['FRONTEND_INDEX'])
     backend = to_dict(info['BACKEND_INDEX'])
     # The backend's size and its marked-deleted count come from the same read, so their
@@ -1039,6 +1042,12 @@ def test_delete_during_background_indexing():
     data_type = 'FLOAT32'
     training_threshold = DEFAULT_BLOCK_SIZE
     k = 10
+    # How many docs to delete while a resumed transfer runs. A resumed transfer does not
+    # snapshot the flat buffer immediately - its job first waits for its threads to be
+    # reserved, bounded by the 5ms TIERED_SVS_THREADS_RESERVE_TIMEOUT - so the deletions have
+    # to keep coming for longer than that for some of them to be certain to land inside the
+    # transfer. One DEL round trip is well under a millisecond, hence a comfortably large group.
+    racing_deletes = 100
     deleted_docs = set()
 
     def delete_docs(first_doc_id, count):
@@ -1061,11 +1070,16 @@ def test_delete_during_background_indexing():
     env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
     total_docs = training_threshold + 100
     deleted_while_pending_vec = populate_with_vectors(env, num_docs=10, dim=dim, datatype=data_type)
-    deleted_during_transfer_vec = populate_with_vectors(env, num_docs=30, dim=dim, datatype=data_type,
-                                                       initial_doc_id=11)
+    transfer_deletes_first_doc_id = 11
+    deleted_during_transfer_vec = populate_with_vectors(env, num_docs=racing_deletes, dim=dim,
+                                                       datatype=data_type,
+                                                       initial_doc_id=transfer_deletes_first_doc_id)
+    backend_deletes_first_doc_id = transfer_deletes_first_doc_id + racing_deletes
     deleted_from_backend_vec = populate_with_vectors(env, num_docs=30, dim=dim, datatype=data_type,
-                                                     initial_doc_id=41)
-    populate_with_vectors(env, num_docs=total_docs - 70, dim=dim, datatype=data_type, initial_doc_id=71)
+                                                     initial_doc_id=backend_deletes_first_doc_id)
+    bulk_first_doc_id = backend_deletes_first_doc_id + 30
+    populate_with_vectors(env, num_docs=total_docs - bulk_first_doc_id + 1, dim=dim,
+                          datatype=data_type, initial_doc_id=bulk_first_doc_id)
 
     # The training is scheduled, and cannot run while the workers are paused, so these
     # deletions are guaranteed to happen with a transfer of their vectors pending.
@@ -1077,30 +1091,28 @@ def test_delete_during_background_indexing():
 
     # The training is running now: these docs go into the flat buffer while it runs, and
     # these deletions race with it.
+    flat_buffer_first_doc_id = total_docs + 1
     deleted_from_flat_buffer_vec = populate_with_vectors(env, num_docs=10, dim=dim, datatype=data_type,
-                                                        initial_doc_id=total_docs + 1)
+                                                        initial_doc_id=flat_buffer_first_doc_id)
+    live_first_doc_id = flat_buffer_first_doc_id + 10
     live_vec = populate_with_vectors(env, num_docs=40, dim=dim, datatype=data_type,
-                                     initial_doc_id=total_docs + 11)
-    live_doc = f'{DEFAULT_DOC_NAME_PREFIX}{total_docs + 11}'
+                                     initial_doc_id=live_first_doc_id)
+    live_doc = f'{DEFAULT_DOC_NAME_PREFIX}{live_first_doc_id}'
     total_docs += 50
-    delete_docs(11, 30)                 # part of the batch being transferred
-    delete_docs(total_docs - 49, 10)    # inserted after the transfer started
+    # Part of the batch being transferred, and inserted after the transfer started.
+    delete_docs(transfer_deletes_first_doc_id, racing_deletes)
+    delete_docs(flat_buffer_first_doc_id, 10)
 
     deleted_probes = [deleted_while_pending_vec, deleted_during_transfer_vec, deleted_from_flat_buffer_vec]
     expected_live_docs = total_docs - len(deleted_docs)
     env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], expected_live_docs,
                     message='phase 1, transfer in progress')
-    for probe_vec in deleted_probes:
-        assert_deleted_docs_not_returned(env, k, probe_vec, deleted_docs, expect_full_page=False,
-                                         message='phase 1, transfer in progress')
-
     wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
 
     env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], expected_live_docs,
                     message='phase 1, transfer done')
     assert_deletions_reached_the_backend(env, marked_deleted_before_transfer, message='phase 1')
-    assert_svs_tiered_state(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME,
-                            expected_live_docs=expected_live_docs, message='phase 1')
+    assert_svs_tiered_state(env, expected_live_docs, message='phase 1')
     assert_doc_indexed_under_own_vector(env, k, live_vec, live_doc, message='phase 1')
     for probe_vec in deleted_probes:
         assert_deleted_docs_not_returned(env, k, probe_vec, deleted_docs, message='phase 1, transfer done')
@@ -1109,37 +1121,34 @@ def test_delete_during_background_indexing():
     # vectors in the flat buffer schedule an update of it rather than a training.
     env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
     phase2_first_doc_id = total_docs + 1
-    deleted_during_update_vec = populate_with_vectors(env, num_docs=15, dim=dim, datatype=data_type,
+    deleted_during_update_vec = populate_with_vectors(env, num_docs=racing_deletes, dim=dim,
+                                                     datatype=data_type,
                                                      initial_doc_id=phase2_first_doc_id)
-    phase2_live_vec = populate_with_vectors(env, num_docs=training_threshold - 15, dim=dim,
-                                            datatype=data_type, initial_doc_id=phase2_first_doc_id + 15)
-    phase2_live_doc = f'{DEFAULT_DOC_NAME_PREFIX}{phase2_first_doc_id + 15}'
+    phase2_live_first_doc_id = phase2_first_doc_id + racing_deletes
+    phase2_live_vec = populate_with_vectors(env, num_docs=training_threshold - racing_deletes, dim=dim,
+                                            datatype=data_type, initial_doc_id=phase2_live_first_doc_id)
+    phase2_live_doc = f'{DEFAULT_DOC_NAME_PREFIX}{phase2_live_first_doc_id}'
     total_docs += training_threshold
 
-    # Docs 41-70 were moved into the backend by phase 1's training, so deleting them now
-    # goes through the backend while an update of that same index is pending.
+    # These docs were moved into the backend by phase 1's training, so deleting them now goes
+    # through the backend while an update of that same index is pending.
     assert_transfer_pending(env, message='phase 2, update pending')
-    delete_docs(41, 30)
+    delete_docs(backend_deletes_first_doc_id, 30)
 
     marked_deleted_before_transfer = backend_marked_deleted(env)
     env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
-    delete_docs(phase2_first_doc_id, 15)    # part of the batch being transferred
+    delete_docs(phase2_first_doc_id, racing_deletes)    # part of the batch being transferred
 
     deleted_probes += [deleted_from_backend_vec, deleted_during_update_vec]
     expected_live_docs = total_docs - len(deleted_docs)
     env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], expected_live_docs,
                     message='phase 2, update in progress')
-    for probe_vec in deleted_probes:
-        assert_deleted_docs_not_returned(env, k, probe_vec, deleted_docs, expect_full_page=False,
-                                         message='phase 2, update in progress')
-
     wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
 
     env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], expected_live_docs,
                     message='phase 2, update done')
     assert_deletions_reached_the_backend(env, marked_deleted_before_transfer, message='phase 2')
-    assert_svs_tiered_state(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME,
-                            expected_live_docs=expected_live_docs, message='phase 2')
+    assert_svs_tiered_state(env, expected_live_docs, message='phase 2')
     for vec, doc in [(live_vec, live_doc), (phase2_live_vec, phase2_live_doc)]:
         assert_doc_indexed_under_own_vector(env, k, vec, doc, message='phase 2')
     for probe_vec in deleted_probes:
@@ -1163,6 +1172,8 @@ def test_delete_during_background_indexing_multi_value():
     # Docs needed to fill the flat buffer past a threshold given in vectors.
     docs_per_threshold = training_threshold // vectors_per_doc + 1
     k = 10
+    # See `test_delete_during_background_indexing` for why this group is this large.
+    racing_deletes = 60
     deleted_docs = set()
 
     # doc<id> holds `vectors_per_doc` random vectors, the first of which is kept here to be
@@ -1190,40 +1201,37 @@ def test_delete_during_background_indexing_multi_value():
     # Phase 1: crossing the training threshold schedules the training, which cannot run
     # while the workers are paused.
     env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
-    total_docs = docs_per_threshold + 24    # 229 docs -> 1145 vectors
+    total_docs = docs_per_threshold + racing_deletes + 40   # 305 docs -> 1525 vectors
     add_docs(1, total_docs)
 
     assert_transfer_pending(env, message='phase 1, training pending')
     delete_docs(1, 5)
 
     marked_deleted_before_transfer = backend_marked_deleted(env)
-    marked_deleted_before_transfer = backend_marked_deleted(env)
     env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
 
     # The training is running now: these docs go into the flat buffer while it runs, and
     # these deletions race with it.
-    add_docs(total_docs + 1, 30)
-    live_doc_id = total_docs + 11
+    flat_buffer_first_doc_id = total_docs + 1
+    add_docs(flat_buffer_first_doc_id, 30)
+    live_doc_id = flat_buffer_first_doc_id + 10
     total_docs += 30
-    delete_docs(6, 15)                  # part of the batch being transferred
-    delete_docs(total_docs - 29, 10)    # inserted after the transfer started
+    # Part of the batch being transferred, and inserted after the transfer started.
+    transfer_deletes_first_doc_id = 6
+    delete_docs(transfer_deletes_first_doc_id, racing_deletes)
+    delete_docs(flat_buffer_first_doc_id, 10)
 
-    deleted_probes = [1, 6, total_docs - 29]
+    deleted_probes = [1, transfer_deletes_first_doc_id, flat_buffer_first_doc_id]
     expected_live_docs = total_docs - len(deleted_docs)
     env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], expected_live_docs,
                     message='phase 1, transfer in progress')
-    for probe_doc_id in deleted_probes:
-        assert_deleted_docs_not_returned(env, k, doc_vectors[probe_doc_id], deleted_docs,
-                                         expect_full_page=False, message='phase 1, transfer in progress')
-
     wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
 
     env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], expected_live_docs,
                     message='phase 1, transfer done')
     assert_deletions_reached_the_backend(env, marked_deleted_before_transfer, message='phase 1')
-    assert_svs_tiered_state(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME,
-                            expected_live_docs=expected_live_docs,
-                            vectors_per_doc=vectors_per_doc, message='phase 1')
+    assert_svs_tiered_state(env, expected_live_docs, vectors_per_doc=vectors_per_doc,
+                            message='phase 1')
     assert_doc_indexed_under_own_vector(env, k, doc_vectors[live_doc_id],
                                         f'{DEFAULT_DOC_NAME_PREFIX}{live_doc_id}', message='phase 1')
     for probe_doc_id in deleted_probes:
@@ -1234,35 +1242,31 @@ def test_delete_during_background_indexing_multi_value():
     # of the now populated backend index.
     env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
     phase2_first_doc_id = total_docs + 1
-    add_docs(phase2_first_doc_id, docs_per_threshold)   # 205 docs -> 1025 vectors
-    phase2_live_doc_id = phase2_first_doc_id + 15
-    total_docs += docs_per_threshold
+    add_docs(phase2_first_doc_id, docs_per_threshold + racing_deletes)   # 265 docs -> 1325 vectors
+    phase2_live_doc_id = phase2_first_doc_id + racing_deletes
+    total_docs += docs_per_threshold + racing_deletes
 
-    # Docs 21-35 were moved into the backend by phase 1's training, so deleting them now
-    # goes through the backend while an update of that same index is pending.
+    # These docs were moved into the backend by phase 1's training, so deleting them now goes
+    # through the backend while an update of that same index is pending.
     assert_transfer_pending(env, message='phase 2, update pending')
-    delete_docs(21, 15)
+    backend_deletes_first_doc_id = transfer_deletes_first_doc_id + racing_deletes
+    delete_docs(backend_deletes_first_doc_id, 15)
 
     marked_deleted_before_transfer = backend_marked_deleted(env)
     env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
-    delete_docs(phase2_first_doc_id, 15)    # part of the batch being transferred
+    delete_docs(phase2_first_doc_id, racing_deletes)    # part of the batch being transferred
 
-    deleted_probes += [21, phase2_first_doc_id]
+    deleted_probes += [backend_deletes_first_doc_id, phase2_first_doc_id]
     expected_live_docs = total_docs - len(deleted_docs)
     env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], expected_live_docs,
                     message='phase 2, update in progress')
-    for probe_doc_id in deleted_probes:
-        assert_deleted_docs_not_returned(env, k, doc_vectors[probe_doc_id], deleted_docs,
-                                         expect_full_page=False, message='phase 2, update in progress')
-
     wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
 
     env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], expected_live_docs,
                     message='phase 2, update done')
     assert_deletions_reached_the_backend(env, marked_deleted_before_transfer, message='phase 2')
-    assert_svs_tiered_state(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME,
-                            expected_live_docs=expected_live_docs,
-                            vectors_per_doc=vectors_per_doc, message='phase 2')
+    assert_svs_tiered_state(env, expected_live_docs, vectors_per_doc=vectors_per_doc,
+                            message='phase 2')
     for doc_id in [live_doc_id, phase2_live_doc_id]:
         assert_doc_indexed_under_own_vector(env, k, doc_vectors[doc_id],
                                             f'{DEFAULT_DOC_NAME_PREFIX}{doc_id}', message='phase 2')
