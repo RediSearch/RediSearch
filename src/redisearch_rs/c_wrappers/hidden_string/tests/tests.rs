@@ -52,6 +52,27 @@ fn get_secret_value() {
     miri,
     ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
 )]
+fn secret_value_truncates_at_interior_nul() {
+    let input = b"idx\0tail\0";
+    // SAFETY: `input` remains live and readable for the provided byte length;
+    // `takeOwnership = false` leaves ownership of the backing buffer with this test.
+    let ffi_hs = unsafe { ffi::NewHiddenString(input.as_ptr().cast(), input.len() - 1, false) };
+    // SAFETY: `ffi_hs` is the non-null, initialized wrapper created above and
+    // neither it nor its backing buffer is mutated while `sut` is used.
+    let sut = unsafe { HiddenString::from_raw(ffi_hs) };
+
+    assert_eq!(sut.secret_value(), c"idx");
+
+    // SAFETY: `ffi_hs` is still the live wrapper created above and is freed
+    // exactly once; `false` matches its non-owning construction.
+    unsafe { ffi::HiddenString_Free(ffi_hs, false) };
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn debug_output() {
     let input = c"Ab#123!";
     let ffi_hs = unsafe { ffi::NewHiddenString(input.as_ptr(), input.count_bytes(), false) };

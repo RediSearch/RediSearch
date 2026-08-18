@@ -63,6 +63,34 @@ fn rule() {
     assert_eq!(rule.type_(), document::DocumentType::Json);
 }
 
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
+fn display_name_truncates_at_interior_nul() {
+    let original = b"idx\0tail\0";
+    let obfuscated = c"Index@123";
+    // SAFETY: a zeroed `ffi::IndexSpec` is valid for this test setup, which
+    // initializes every field subsequently accessed through `IndexSpec`.
+    let mut index_spec = unsafe { mem::zeroed::<ffi::IndexSpec>() };
+    // SAFETY: `original` remains live and readable for the provided byte
+    // length; `takeOwnership = false` leaves its backing buffer with this test.
+    index_spec.specName =
+        unsafe { ffi::NewHiddenString(original.as_ptr().cast(), original.len() - 1, false) };
+    index_spec.obfuscatedName = obfuscated.as_ptr().cast_mut();
+    // SAFETY: `index_spec` and the fields read by `display_name` are initialized
+    // and remain live and immutable while `sut` is used.
+    let sut = unsafe { IndexSpec::from_raw(ptr::from_ref(&index_spec)) };
+
+    assert_eq!(sut.display_name(false), c"idx");
+    assert_eq!(sut.display_name(true), obfuscated);
+
+    // SAFETY: `specName` is still the live wrapper allocated above and is freed
+    // exactly once; `false` matches its non-owning construction.
+    unsafe { ffi::HiddenString_Free(index_spec.specName, false) };
+}
+
 fn field_spec(field_name: &CStr, field_path: &CStr, index: u16) -> ffi::FieldSpec {
     let mut res = unsafe { mem::zeroed::<ffi::FieldSpec>() };
     res.fieldName =
