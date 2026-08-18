@@ -233,13 +233,8 @@ impl<'a> RLookupRow<'a> {
     ) {
         let dst_row = self;
 
-        // NB: the `Iterator` impl for `Cursor` will automatically skip overridden keys
-        let mut c = src_lookup.cursor();
-
-        while let Some(src_key) = c.current() {
-            if !src_key.is_tombstone()
-                && let Some(value) = src_row.get(src_key)
-            {
+        for src_key in src_lookup.iter() {
+            if let Some(value) = src_row.get(src_key) {
                 // Find corresponding key in destination lookup
                 let dst_key = match dst_lookup.find_key_by_name(src_key.name()) {
                     Some(k) => k.into_current().unwrap(),
@@ -259,20 +254,15 @@ impl<'a> RLookupRow<'a> {
                 // Write fields to destination
                 dst_row.write_key(dst_key, value.clone());
             }
-
-            c.move_next();
         }
     }
 
     /// Move data from the source row to the destination row. The source row is cleared.
     pub fn move_fields_from(&mut self, src: &mut Self, lookup: &RLookup) {
-        let mut c = lookup.cursor();
-        while let Some(key) = c.current() {
+        for key in lookup.iter() {
             if let Some(value) = src.get(key) {
                 self.write_key(key, value.to_owned());
             }
-
-            c.move_next();
         }
         src.wipe();
     }
