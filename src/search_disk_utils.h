@@ -16,7 +16,7 @@
 
 typedef struct QueryError QueryError;
 
-#define FLEX_MAX_INDEX_COUNT 10
+#define FLEX_MAX_INDEX_COUNT 100000
 
 /**
  * @brief Check if the number of indexes is within the limit
