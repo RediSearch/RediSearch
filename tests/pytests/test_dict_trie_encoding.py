@@ -96,6 +96,18 @@ def testEmbeddedNulTruncates(env):
     env.expect('ft.dictdel', 'dict', b'foo\x00qux').equal(1)
     env.expect('ft.dictdump', 'dict').equal([])
 
+def testNulConsumedAsContinuationByte(env):
+    # strToRunes breaks on a decoded codepoint of 0, not on a raw zero byte. A
+    # NUL that follows a multibyte lead is swallowed as that sequence's
+    # continuation byte instead of terminating the term: 0xC3 0x00 decodes to
+    # (0xC3 & 0x03) << 6 | 0 = U+00C0 'À', and the bytes after it survive. This
+    # is also the case that makes the cluster run meaningful: a coordinator
+    # that truncated arguments at the first NUL would store a bare 'À', without
+    # the trailing 'XYZ'.
+    env.expect('ft.dictadd', 'dict', b'\xc3\x00XYZ').equal(1)
+    env.assertEqual(dump_raw(env, 'dict'), ['ÀXYZ'.encode()])
+    env.expect('ft.dictdel', 'dict', b'\xc3\x00XYZ').equal(1)
+
 def testLoneNulNotAdded(env):
     # A term that decodes to zero runes is silently dropped (reply 0, no error).
     env.expect('ft.dictadd', 'dict', b'\x00').equal(0)
