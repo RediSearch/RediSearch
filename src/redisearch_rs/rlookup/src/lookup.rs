@@ -204,7 +204,9 @@ impl<'a> RLookup<'a> {
         let slot = if let Some(slot) = self.keys.find_slot(&name) {
             slot
         } else {
-            self.get_key_write_slot(name, RLookupKeyFlags::empty())
+            // By-name callers only promise that the source string is valid for this call. Existing
+            // keys merely compare against it, but a newly inserted key must outlive that buffer.
+            self.get_key_write_slot(name.into_owned(), RLookupKeyFlags::empty())
                 .expect("a missing key must be writable")
         };
         self.keys.get(slot).unwrap()
