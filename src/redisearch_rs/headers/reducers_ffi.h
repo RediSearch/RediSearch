@@ -12,7 +12,18 @@
 /**
  * An append-only list of [`RLookupKey`]s.
  *
- * This type maintains a mapping from string names to [`RLookupKey`]s.
+ * This type maintains a list of [`RLookupKey`]s addressable by string name.
+ *
+ * # Sealing
+ *
+ * At the end of pipeline construction the lookup is [sealed](Self::seal):
+ * from that point on it is *append-only*. Creating new keys stays legal —
+ * document loaders and the coordinator append keys during execution — but
+ * every operation that changes an existing key panics. Each mutating method
+ * documents on which side of that line it falls. The invariant exists so
+ * that state derived from the key set at finalization (cached
+ * [`RLookupKey`] pointers, compiled reply plans) stays valid for the rest of
+ * the request without re-validation.
  */
 typedef struct RLookup RLookup;
 
