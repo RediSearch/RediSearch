@@ -36,9 +36,10 @@ re-encodes trie runes with runesToStr, and via FT.SEARCH):
     suffix trie carries the original term bytes as a payload, so contains and
     suffix queries survive what prefix queries lose
     (test_suffix_trie_encoding.py).
-  * Terms longer than the trie's insert limit are dropped from the trie but
-    still indexed: another way for a searchable term to be invisible to
-    every trie-driven expansion.
+  * Terms past either of the trie's two insert gates -- a raw-byte precheck
+    and a decoded-rune limit -- are dropped from the trie but still indexed:
+    another way for a searchable term to be invisible to every trie-driven
+    expansion.
 '''
 
 
@@ -249,18 +250,32 @@ def testSuffixQueriesReachAstralTerm(env):
 def testLongTermIndexedButMissingFromTrie(env):
     create_index(env)
     add_doc(env, 'doc1', 'a' * 255)
-    # Trie_InsertStringBuffer rejects terms longer than 512 bytes and
-    # IndexSpec_AddTerm discards that rejection without logging or counting it.
+    # Two independent gates drop the term, and IndexSpec_AddTerm discards
+    # either rejection without logging or counting it: Trie_InsertStringBuffer
+    # rejects more than TRIE_INITIAL_STRING_LEN * sizeof(rune) = 512 raw
+    # bytes, and Trie_InsertRune then keeps only fewer than
+    # TRIE_INITIAL_STRING_LEN = 256 decoded runes.
     add_doc(env, 'doc2', 'b' * 600)
     env.assertEqual(dump_terms_raw(env), [b'a' * 255])
     env.assertEqual(num_results(env, 'b' * 600), 1)
     env.assertEqual(num_results(env, 'bbb*'), 0)
 
 @skip(cluster=True)
-def testLongMultibyteTermGateIsBytes(env):
+def testTermAtRuneLimitMissingFromTrie(env):
     create_index(env)
-    # The gate counts raw bytes, not runes, so a multibyte term is dropped at
-    # well under 256 runes: 200 three-byte characters are 600 bytes.
+    # 256 ASCII bytes clear the 512-byte precheck and are stopped by the rune
+    # gate alone: 255 runes is the last length the trie accepts, so this pins
+    # the boundary the byte precheck can never reach.
+    add_doc(env, 'doc1', 'a' * 256)
+    env.assertEqual(dump_terms_raw(env), [])
+    env.assertEqual(num_results(env, 'a' * 256), 1)
+
+@skip(cluster=True)
+def testLongMultibyteTermStoppedByByteGate(env):
+    create_index(env)
+    # The byte precheck fires first and counts raw bytes, so a multibyte term
+    # is dropped while still well inside the 256-rune gate: 200 three-byte
+    # characters are 600 bytes.
     add_doc(env, 'doc1', '日' * 200)
     env.assertEqual(dump_terms_raw(env), [])
     env.assertEqual(num_results(env, '日' * 200), 1)
