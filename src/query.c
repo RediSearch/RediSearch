@@ -286,6 +286,10 @@ QueryNode *NewWildcardNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
 }
 
 QueryNode *NewFuzzyNode_WithParams(QueryParseCtx *q, QueryToken *qt, int maxDist) {
+  // The distance sizes a stack array in the edit-distance automaton
+  // (`SparseAutomaton_Start`), so an out-of-range one is undefined behaviour
+  // rather than an empty expansion. The grammar only ever spells 1, 2 or 3.
+  RS_ASSERT(maxDist >= 0 && maxDist <= MAX_LEV_DISTANCE);
   QueryNode *ret = NewQueryNode(QN_FUZZY);
   q->numTokens++;
 
@@ -533,86 +537,6 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
   }
 }
 
-static inline void addTerm(char *str, size_t tok_len, size_t numDocsInTerm, QueryEvalCtx *q,
-  QueryNodeOptions *opts, QueryIterator ***its, size_t *itsSz, size_t *itsCap) {
-  // Create a token for the reader
-  RSToken tok = (RSToken){
-      .expanded = 0,
-      .flags = 0,
-      .len = tok_len,
-      .str = str
-  };
-
-  QueryIterator *ir = NULL;
-
-  if (q->sctx->spec->diskSpec) {
-    double idf = CalculateIDF(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
-    double bm25_idf = CalculateIDF_BM25(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
-    bool needsOffsets = queryNeedsOffsets(q->opts->scorerName, opts);
-    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, q->sctx, &tok, q->tokenId++, q->opts->fieldmask & opts->fieldMask, 1, idf, bm25_idf, needsOffsets, q->status);
-  } else {
-    // Open an index reader
-    ir = Redis_OpenReader(q->sctx, &tok, q->tokenId++, &q->sctx->spec->docs,
-                                        q->opts->fieldmask & opts->fieldMask, 1);
-  }
-
-  if (!ir) {
-    return;
-  }
-
-  (*its)[(*itsSz)++] = ir;
-  if (*itsSz == *itsCap) {
-    *itsCap *= 2;
-    *its = rm_realloc(*its, (*itsCap) * sizeof(*its));
-  }
-}
-
-static QueryIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const char *str,
-                                           size_t len, int maxDist, TrieMatchMode mode,
-                                           QueryNodeOptions *opts) {
-  TrieIterator *it = Trie_IterateFuzzy(terms, str, len, maxDist, mode);
-  if (!it) return NULL;
-
-  size_t itsSz = 0, itsCap = 8;
-  QueryIterator **its = rm_calloc(itsCap, sizeof(*its));
-
-  rune *rstr = NULL;
-  char *target_str = NULL;
-  size_t tok_len = 0;
-  t_len slen = 0;
-  float score = 0;
-  int dist = 0;
-
-  // an upper limit on the number of expansions is enforced to avoid stuff like "*"
-  int hasNext;
-  size_t numDocsInTerm = 0;
-  while ((hasNext = TrieIterator_Next(it, &rstr, &slen, NULL, &score, &numDocsInTerm, &dist)) &&
-         (itsSz < q->config->maxPrefixExpansions)) {
-    target_str = runesToStr(rstr, slen, &tok_len);
-    addTerm(target_str, tok_len, numDocsInTerm, q, opts, &its, &itsSz, &itsCap);
-    rm_free(target_str);
-  }
-  TrieIterator_Free(it);
-
-  if (hasNext && itsSz == q->config->maxPrefixExpansions) {
-    QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
-  }
-
-  // Add an iterator over the inverted index of the empty string for fuzzy search
-  if (mode == TRIE_MATCH_EDIT_DISTANCE && q->sctx->apiVersion >= 2 && len <= maxDist) {
-    size_t rlen = 0;
-    runeBuf buf;
-    rune *runes = runeBufFill("", 1, &buf, &rlen);
-    TrieNode *emptyNode = Trie_GetNode(terms, runes, rlen, true, NULL);
-    runeBufFree(&buf);
-    size_t numDocsInEmpty = emptyNode ? TrieNode_NumDocs(emptyNode) : 0;
-    addTerm("", 0, numDocsInEmpty, q, opts, &its, &itsSz, &itsCap);
-  }
-
-  QueryNodeType type = mode == TRIE_MATCH_PREFIX ? QN_PREFIX : QN_FUZZY;
-  return NewUnionIterator(its, itsSz, true, opts->weight, type, str, q->config);
-}
-
 static const char *PrefixNode_GetTypeString(const QueryPrefixNode *pfx) {
   if (pfx->prefix && pfx->suffix) {
     return "INFIX";
@@ -621,17 +545,6 @@ static const char *PrefixNode_GetTypeString(const QueryPrefixNode *pfx) {
   } else {
     return "SUFFIX";
   }
-}
-
-static QueryIterator *Query_EvalFuzzyNode(QueryEvalCtx *q, QueryNode *qn) {
-  RS_LOG_ASSERT(qn->type == QN_FUZZY, "query node type should be fuzzy");
-
-  Trie *terms = q->sctx->spec->terms;
-
-  if (!terms) return NULL;
-
-  return iterateExpandedTerms(q, terms, qn->pfx.tok.str, strlen(qn->pfx.tok.str), qn->fz.maxDist,
-                              TRIE_MATCH_EDIT_DISTANCE, &qn->opts);
 }
 
 // Keep the query-iterator sync point out of the source-neutral timeout API.
@@ -1061,12 +974,11 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n, const EvalConfig *e
     case QN_GEOMETRY:
     case QN_PREFIX:
     case QN_WILDCARD_QUERY:
+    case QN_FUZZY:
       // These node types have been ported to Rust.
       return Query_EvalNode_Rs(q, n, evalConfig);
     case QN_TAG:
       return Query_EvalTagNode(q, n);
-    case QN_FUZZY:
-      return Query_EvalFuzzyNode(q, n);
     case QN_VECTOR:
       return Query_EvalVectorNode(q, n, evalConfig);
     case QN_MAX: // LCOV_EXCL_LINE — exhaustive switch: all valid QN types handled above

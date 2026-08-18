@@ -18,13 +18,13 @@
 typedef struct RSQueryNode RSQueryNode;
 
 
+typedef struct QueryError QueryError;
+
 /**
  * Various modifiers and options that can apply to the entire query or any
  * sub-query of it.
  */
 typedef struct QueryNodeOptions QueryNodeOptions;
-
-typedef struct QueryError QueryError;
 
 #ifdef __cplusplus
 extern "C" {

@@ -122,12 +122,6 @@ where
     /// The raw pointers inside `spec` (e.g. `keysDict`) must be valid and
     /// dereferenceable for the duration of the call.
     fn should_abort(&self, spec: &IndexSpecReadGuard) -> bool {
-        // Redis_OpenInvertedIndex() relies on keysDict to open the II.
-        // It should always be set in production flows but some tests do not set up a full spec.
-        if !spec.has_keys_dict() {
-            return false;
-        }
-
         let term = self
             .it
             .result

@@ -9,6 +9,7 @@
 
 extern "C" {
 #include "hiredis/sds.h"
+#include "util/dict.h"
 }
 
 #include "buffer/buffer.h"
@@ -636,8 +637,11 @@ TEST_F(IndexTest, testHybridVector) {
   queryParams.hnswRuntimeParams.efRuntime = max_id;
   FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
   FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
-  // Create a mock context for timeout configuration
+  // Revalidation looks up the term through the spec's keys dictionary, as it does in production.
   MockQueryEvalCtx mockQctx(max_id, max_id);
+  mockQctx.spec.keysDict = dictCreate(&invIdxDictType, nullptr);
+  CharBuf termKey = {.buf = const_cast<char *>("term"), .len = 4};
+  dictAdd(mockQctx.spec.keysDict, &termKey, w);
   // Run simple top k query.
   HybridIteratorParams hParams = {.sctx=&mockQctx.sctx,
                                   .index = index,
@@ -764,7 +768,7 @@ TEST_F(IndexTest, testHybridVector) {
   }
   hybridIt->Free(hybridIt);
 
-  InvertedIndex_Free(w);
+  dictRelease(mockQctx.spec.keysDict);
   VecSimIndex_Free(index);
 }
 

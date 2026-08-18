@@ -26,7 +26,9 @@ use inverted_index::{
     FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter, NumericReader,
     ResumableReader, SuspendableReader,
 };
-use numeric_range_tree::{NumericIndexReader, NumericRangeTree, RangeWindow};
+use numeric_range_tree::{
+    NumericIndexReader, NumericRangeTree, RangeWindow, RawNumericIndexReader,
+};
 use query_types::QueryNodeType;
 use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
@@ -387,20 +389,112 @@ pub unsafe fn open_numeric_or_geo_index<'a>(
     }
 }
 
-/// Selects the correct numeric reader variant based on the filter.
+/// Payload of [`RawNumericIteratorVariant::Unfiltered`]: a numeric leaf reading
+/// the range's entries directly. `Rf` flows into the reader (which weakens on
+/// suspend) but never into the frozen `RA` slot, which stays the **active**
+/// reader — see [`RawInvIndIterator`]'s `RA` parameter.
+type UnfilteredArm<'query, Rf> = RawNumeric<
+    'query,
+    Rf,
+    RawNumericIndexReader<Rf>,
+    FieldExpirationChecker,
+    NumericIndexReader<'query>,
+>;
+
+/// Payload of [`RawNumericIteratorVariant::Filtered`] — [`UnfilteredArm`]'s
+/// reader wrapped in a [`FilterNumericReader`].
+type FilteredArm<'query, Rf> = RawNumeric<
+    'query,
+    Rf,
+    FilterNumericReader<RawNumericIndexReader<Rf>>,
+    FieldExpirationChecker,
+    FilterNumericReader<NumericIndexReader<'query>>,
+>;
+
+/// Payload of [`RawNumericIteratorVariant::Geo`] — [`UnfilteredArm`]'s reader
+/// wrapped in a [`FilterGeoReader`].
+type GeoArm<'query, Rf> = RawNumeric<
+    'query,
+    Rf,
+    FilterGeoReader<RawNumericIndexReader<Rf>>,
+    FieldExpirationChecker,
+    FilterGeoReader<NumericIndexReader<'query>>,
+>;
+
+/// Selects the correct numeric reader variant based on the filter,
+/// parameterised over a [`Ref`] mode. See [`NumericIteratorVariant`] for the
+/// [`Active`] instantiation that implements [`RQEIterator`], and
+/// [`NumericIteratorVariantSuspended`] for its passive carrier across a lock
+/// release/reacquire cycle.
 ///
 /// - No filter → [`NumericIteratorVariant::Unfiltered`]
 /// - Numeric filter (no geo sub-filter) → [`NumericIteratorVariant::Filtered`]
 /// - Geo filter → [`NumericIteratorVariant::Geo`]
-pub enum NumericIteratorVariant<'index> {
+///
+/// # Invariants
+///
+/// 1. **Layout compatibility across modes.** `NumericIteratorVariant<'query>`
+///    and `NumericIteratorVariantSuspended<'query>` are layout-identical, so
+///    [`suspend`](RQEIteratorBoxed::suspend) /
+///    [`resume`](RQESuspendedIterator::resume) can transition each payload in
+///    place and then reinterpret the owning `Box` between the two. Being a single
+///    `#[repr(C, u8)]` generic, the two share a tag encoding and variant order by
+///    construction; the per-arm payload correspondence and layout identity are
+///    enforced by the `const _` proof below.
+#[repr(C, u8)]
+pub enum RawNumericIteratorVariant<'query, Rf: Ref> {
     /// No filter: iterates all entries in the range.
-    Unfiltered(Numeric<'index, NumericIndexReader<'index>, FieldExpirationChecker>),
+    Unfiltered(UnfilteredArm<'query, Rf>),
     /// Numeric filter: skips entries outside the filter's value range.
-    Filtered(
-        Numeric<'index, FilterNumericReader<NumericIndexReader<'index>>, FieldExpirationChecker>,
-    ),
+    Filtered(FilteredArm<'query, Rf>),
     /// Geo filter: skips entries that do not pass the geo predicate.
-    Geo(Numeric<'index, FilterGeoReader<NumericIndexReader<'index>>, FieldExpirationChecker>),
+    Geo(GeoArm<'query, Rf>),
+}
+
+/// Alias for an [`Active`] [`RawNumericIteratorVariant`] — the only
+/// instantiation with an [`RQEIterator`] impl.
+pub type NumericIteratorVariant<'index> = RawNumericIteratorVariant<'index, Active<'index>>;
+
+/// [`Suspended`]-mode counterpart of [`NumericIteratorVariant`], used as its
+/// [`RQEIteratorBoxed::Suspended`] type. Retains the `'query` lifetime so
+/// query-attached borrows stay valid across the suspend/resume cycle.
+pub type NumericIteratorVariantSuspended<'query> = RawNumericIteratorVariant<'query, Suspended>;
+
+impl<'query, Rf: Ref> RawNumericIteratorVariant<'query, Rf> {
+    /// Returns the cached flags of the underlying index reader.
+    ///
+    /// Available in every mode: the value is a construction-time snapshot
+    /// ([`RawInvIndIterator::flags`]), so a suspended variant answers the same
+    /// as the active one it came from.
+    pub const fn flags(&self) -> IndexFlags {
+        match self {
+            Self::Unfiltered(iter) => iter.flags(),
+            Self::Filtered(iter) => iter.flags(),
+            Self::Geo(iter) => iter.flags(),
+        }
+    }
+
+    /// Returns the minimum value of the numeric range (used for profiling).
+    ///
+    /// Mode-independent, for the same reason as [`Self::flags`].
+    pub const fn range_min(&self) -> f64 {
+        match self {
+            Self::Unfiltered(iter) => iter.range_min(),
+            Self::Filtered(iter) => iter.range_min(),
+            Self::Geo(iter) => iter.range_min(),
+        }
+    }
+
+    /// Returns the maximum value of the numeric range (used for profiling).
+    ///
+    /// Mode-independent, for the same reason as [`Self::flags`].
+    pub const fn range_max(&self) -> f64 {
+        match self {
+            Self::Unfiltered(iter) => iter.range_max(),
+            Self::Filtered(iter) => iter.range_max(),
+            Self::Geo(iter) => iter.range_max(),
+        }
+    }
 }
 
 impl<'index> NumericIteratorVariant<'index> {
@@ -535,33 +629,6 @@ impl<'index> NumericIteratorVariant<'index> {
                 };
                 Self::Geo(iter)
             }
-        }
-    }
-
-    /// Returns the cached flags of the underlying index reader.
-    pub const fn flags(&self) -> IndexFlags {
-        match self {
-            Self::Unfiltered(iter) => iter.flags(),
-            Self::Filtered(iter) => iter.flags(),
-            Self::Geo(iter) => iter.flags(),
-        }
-    }
-
-    /// Returns the minimum value of the numeric range (used for profiling).
-    pub const fn range_min(&self) -> f64 {
-        match self {
-            Self::Unfiltered(iter) => iter.range_min(),
-            Self::Filtered(iter) => iter.range_min(),
-            Self::Geo(iter) => iter.range_min(),
-        }
-    }
-
-    /// Returns the maximum value of the numeric range (used for profiling).
-    pub const fn range_max(&self) -> f64 {
-        match self {
-            Self::Unfiltered(iter) => iter.range_max(),
-            Self::Filtered(iter) => iter.range_max(),
-            Self::Geo(iter) => iter.range_max(),
         }
     }
 }
@@ -751,4 +818,235 @@ pub unsafe fn build_numeric_filter_iterator(
     let iter =
         crate::union_opaque::build_union(children, true, min_union_iter_heap, node_type, 1.0);
     Some(iter)
+}
+
+// Compile-time proof of invariant 1 on `RawNumericIteratorVariant`: a
+// `Box<NumericIteratorVariant>` can be reinterpreted as a
+// `Box<NumericIteratorVariantSuspended>` and back, as `suspend`/`resume` below
+// do. Because both are instantiations of the *same* `#[repr(C, u8)]` enum, the
+// variant order and tag encoding agree by construction and need no assertion.
+// What remains to be proven:
+//
+// (a) **Arm correspondence.** `suspend` fills each payload slot with
+//     `<active arm as RQEIteratorBoxed>::Suspended` — see
+//     [`crate::boxed::suspend_child_slot_in_place`] — and only then relabels the
+//     owning box. That is sound only if the suspended enum's matching arm *is*
+//     that projection. Asserted below as a type equality rather than a layout
+//     comparison: it is the property the reinterpretation actually needs, and a
+//     mismatch (e.g. a reader whose `SuspendableReader::Suspended` does not
+//     simply weaken `Rf`) becomes a build error instead of a silently
+//     mistyped payload.
+//
+// (b) **Per-arm payload layout identity.** Implied by (a) together with
+//     invariant 1 on `RawInvIndIterator` (proven in `core.rs` for a
+//     representative reader) and the reader-side layout invariants that back the
+//     `SuspendableReader`/`ResumableReader` impls of `RawNumericIndexReader`
+//     (const proof in `numeric_range_tree::index`), `FilterNumericReader` and
+//     `FilterGeoReader` (const proofs in `inverted_index`). Asserted per arm
+//     anyway so a regression names the arm that broke, and because under
+//     `#[repr(C, u8)]` each payload sits at an offset derived from *that
+//     payload's* alignment — per-arm alignment equality, not the enum's, is what
+//     pins the payload offsets. (`offset_of!` into enum variants is not yet
+//     stable, so the offsets cannot be asserted directly.)
+//
+// (c) **Enum size/alignment equality.** Needed on its own by `resume`'s
+//     abort/error paths, which free an allocation created for the active enum
+//     using `Layout::new::<NumericIteratorVariantSuspended>()`.
+const _: () = {
+    use std::mem::{align_of, size_of};
+
+    /// Witnesses that `Self` and `T` are the same type: the blanket impl is the
+    /// only one, so a `A: IsSame<B>` bound holds exactly when `A` *is* `B`.
+    trait IsSame<T> {}
+    impl<T> IsSame<T> for T {}
+
+    /// (a) — fails to compile unless suspending `A` yields exactly `S`.
+    const fn assert_suspends_to<A, S>()
+    where
+        A: RQEIteratorBoxed<'static>,
+        A::Suspended: IsSame<S>,
+    {
+    }
+
+    assert_suspends_to::<UnfilteredArm<'static, Active<'static>>, UnfilteredArm<'static, Suspended>>(
+    );
+    assert_suspends_to::<FilteredArm<'static, Active<'static>>, FilteredArm<'static, Suspended>>();
+    assert_suspends_to::<GeoArm<'static, Active<'static>>, GeoArm<'static, Suspended>>();
+
+    // (b)
+    assert!(
+        size_of::<UnfilteredArm<'static, Active<'static>>>()
+            == size_of::<UnfilteredArm<'static, Suspended>>()
+    );
+    assert!(
+        align_of::<UnfilteredArm<'static, Active<'static>>>()
+            == align_of::<UnfilteredArm<'static, Suspended>>()
+    );
+    assert!(
+        size_of::<FilteredArm<'static, Active<'static>>>()
+            == size_of::<FilteredArm<'static, Suspended>>()
+    );
+    assert!(
+        align_of::<FilteredArm<'static, Active<'static>>>()
+            == align_of::<FilteredArm<'static, Suspended>>()
+    );
+    assert!(
+        size_of::<GeoArm<'static, Active<'static>>>() == size_of::<GeoArm<'static, Suspended>>()
+    );
+    assert!(
+        align_of::<GeoArm<'static, Active<'static>>>() == align_of::<GeoArm<'static, Suspended>>()
+    );
+
+    // (c)
+    assert!(
+        size_of::<NumericIteratorVariant<'static>>()
+            == size_of::<NumericIteratorVariantSuspended<'static>>()
+    );
+    assert!(
+        align_of::<NumericIteratorVariant<'static>>()
+            == align_of::<NumericIteratorVariantSuspended<'static>>()
+    );
+};
+
+impl<'index> RQEIteratorBoxed<'index> for NumericIteratorVariant<'index> {
+    type Suspended = NumericIteratorVariantSuspended<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Transition the payload in place, arm by arm. Both enums are the same
+        // `#[repr(C, u8)]` generic at different `Rf`, so they share a tag
+        // encoding and variant order; the helper writes exactly the arm's
+        // `Suspended` projection, which invariant 1's proof (a) pins to the
+        // matching suspended arm. Together those make the final whole-box cast
+        // sound. The tag byte itself is untouched.
+        //
+        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned,
+        // initialised, exclusively owned); the `&mut` borrow is confined to the
+        // match.
+        match unsafe { &mut *raw } {
+            NumericIteratorVariant::Unfiltered(it) => {
+                // SAFETY: `it` is the valid, exclusively-owned payload; the
+                // helper reinitialises the slot as its `Suspended` form in place.
+                unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
+            }
+            NumericIteratorVariant::Filtered(it) => {
+                // SAFETY: as above.
+                unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
+            }
+            NumericIteratorVariant::Geo(it) => {
+                // SAFETY: as above.
+                unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
+            }
+        }
+        // SAFETY: the payload now holds its `Suspended` form at the same offset,
+        // and the tag encodes the same variant in both enums. `Box::from_raw`
+        // reuses the same allocation, so the box address is preserved.
+        unsafe { Box::from_raw(raw.cast::<NumericIteratorVariantSuspended<'index>>()) }
+    }
+}
+
+impl<'query> RQESuspendedIterator<'query> for NumericIteratorVariantSuspended<'query> {
+    type Resumed<'a>
+        = NumericIteratorVariant<'a>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        let raw = Box::into_raw(self);
+        // Resume the payload in place, arm by arm — the tag byte is untouched,
+        // so the whole-box cast below lands on the same variant of the active
+        // enum (same `#[repr(C, u8)]` generic at a different `Rf`; arm
+        // correspondence and per-arm layout identity are invariant 1's const
+        // proof above).
+        //
+        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned,
+        // initialised, exclusively owned); the `&mut` borrow is confined to the
+        // match. On `Unchanged`/`Moved` the helper rewrites the payload as its
+        // resumed form; on `Aborted`/`Err` it consumes the payload, leaving it
+        // uninitialised (handled below).
+        let outcome = match unsafe { &mut *raw } {
+            NumericIteratorVariantSuspended::Unfiltered(it) => {
+                // SAFETY: `it` is the valid, exclusively-owned payload.
+                unsafe { crate::boxed::resume_child_slot_in_place(it as *mut _, guard) }
+            }
+            NumericIteratorVariantSuspended::Filtered(it) => {
+                // SAFETY: as above.
+                unsafe { crate::boxed::resume_child_slot_in_place(it as *mut _, guard) }
+            }
+            NumericIteratorVariantSuspended::Geo(it) => {
+                // SAFETY: as above.
+                unsafe { crate::boxed::resume_child_slot_in_place(it as *mut _, guard) }
+            }
+        };
+
+        match outcome {
+            Ok(crate::boxed::ResumeSlotOutcome::Unchanged) => {
+                // SAFETY: the payload holds its resumed form at the same offset
+                // and the tag is unchanged; `Box::from_raw` reuses the same
+                // allocation, so the box address — and the FFI's cached
+                // `header.current` into the payload's result — stay valid.
+                let active = unsafe { Box::from_raw(raw.cast::<NumericIteratorVariant<'a>>()) };
+                Ok(ResumeOutcome::Ok(active))
+            }
+            Ok(crate::boxed::ResumeSlotOutcome::Moved) => {
+                // SAFETY: as above.
+                let active = unsafe { Box::from_raw(raw.cast::<NumericIteratorVariant<'a>>()) };
+                Ok(ResumeOutcome::Moved(active))
+            }
+            Ok(crate::boxed::ResumeSlotOutcome::Aborted) => {
+                // The payload was consumed; the allocation holds only the tag
+                // and an uninitialised payload, so it must be freed without
+                // dropping anything.
+                // SAFETY: `raw` was allocated by `Box` with exactly this layout;
+                // nothing in it is live any more.
+                unsafe {
+                    std::alloc::dealloc(
+                        raw.cast::<u8>(),
+                        std::alloc::Layout::new::<NumericIteratorVariantSuspended<'query>>(),
+                    )
+                };
+                Ok(ResumeOutcome::Aborted)
+            }
+            Err(e) => {
+                // As `Aborted`: the payload was consumed; free the allocation
+                // without dropping it.
+                // SAFETY: as above.
+                unsafe {
+                    std::alloc::dealloc(
+                        raw.cast::<u8>(),
+                        std::alloc::Layout::new::<NumericIteratorVariantSuspended<'query>>(),
+                    )
+                };
+                Err(e)
+            }
+        }
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        match self {
+            NumericIteratorVariantSuspended::Unfiltered(it) => {
+                RQESuspendedIterator::last_doc_id(it)
+            }
+            NumericIteratorVariantSuspended::Filtered(it) => RQESuspendedIterator::last_doc_id(it),
+            NumericIteratorVariantSuspended::Geo(it) => RQESuspendedIterator::last_doc_id(it),
+        }
+    }
+
+    fn num_estimated(&self) -> usize {
+        match self {
+            NumericIteratorVariantSuspended::Unfiltered(it) => {
+                RQESuspendedIterator::num_estimated(it)
+            }
+            NumericIteratorVariantSuspended::Filtered(it) => {
+                RQESuspendedIterator::num_estimated(it)
+            }
+            NumericIteratorVariantSuspended::Geo(it) => RQESuspendedIterator::num_estimated(it),
+        }
+    }
 }

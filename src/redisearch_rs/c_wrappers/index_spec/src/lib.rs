@@ -374,20 +374,8 @@ impl<'lock> IndexSpecReadGuard<'lock> {
         unsafe { TermsTrie::from_raw(self.0.terms) }
     }
 
-    /// Returns whether the keys dictionary is available.
-    ///
-    /// The keys dictionary maps TEXT terms to their inverted indexes.
-    pub const fn has_keys_dict(&self) -> bool {
-        !self.0.keysDict.is_null()
-    }
-
     /// Returns a pointer to the keys dictionary.
-    ///
-    /// # Panics
-    ///
-    /// Panics in debug builds if keys_dict is null. Use `has_keys_dict()` to check first.
-    pub fn keys_dict(&self) -> *mut ffi::dict {
-        debug_assert!(!self.0.keysDict.is_null(), "keys_dict is null");
+    pub const fn keys_dict(&self) -> *mut ffi::dict {
         self.0.keysDict
     }
 

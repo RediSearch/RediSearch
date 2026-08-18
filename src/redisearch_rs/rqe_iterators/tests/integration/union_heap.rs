@@ -32,7 +32,6 @@ use rqe_iterators_test_utils::ContractChecker;
 /// read must not inherit those: doc 0 sorts ahead of every real id, so the union
 /// would report an id no document has.
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn revalidate_before_first_read_leaves_no_stale_heap_entries() {
     // The empty child has nothing to yield but reports not-at-EOF until something
     // reads it, so the rebuild keeps it.
@@ -58,7 +57,6 @@ fn revalidate_before_first_read_leaves_no_stale_heap_entries() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn reuse_results_optimization_quick_mode() {
     let (children, data) = create_mock_2([3], [2]);
     let mut union = ContractChecker::new(UnionQuickHeap::new(children));
@@ -121,7 +119,6 @@ fn reuse_results_optimization_quick_mode() {
 /// `into_trimmed` on a `UnionFullHeap` produces a working `UnionTrimmed` that
 /// yields all children in reverse order when the limit is large enough.
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn into_trimmed_full_heap_yields_all_children() {
     let (children, _data) = create_mock_3([1, 2], [3, 4], [5, 6]);
     let union = UnionFullHeap::new(children);
@@ -152,7 +149,6 @@ fn into_children_returns_all_children() {
 
 /// `into_trimmed` on a `UnionQuickHeap` applies trimming correctly.
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn into_trimmed_quick_heap_trims_desc() {
     // 3 children with est [2, 2, 2], limit=1.
     // Desc scan from child[1] backward: child[1].est=2 > 1 → skip=1.
@@ -185,7 +181,6 @@ fn into_trimmed_quick_heap_trims_desc() {
 /// The drain is bounded so a regression fails on the assertion below rather than
 /// spinning until the harness kills it.
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn revalidate_before_first_read_keeps_every_document_of_non_empty_children() {
     let moved: Mock<'static, 2> = Mock::new([5, 7]);
     let mut moved_data = moved.data();
@@ -230,7 +225,6 @@ fn revalidate_before_first_read_keeps_every_document_of_non_empty_children() {
 /// over from the smaller heap then runs past zero as children exhaust, which
 /// panics in debug and wraps into a nonsense sort weight in release.
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn revalidate_before_first_read_keeps_the_active_count_in_step_with_the_heap() {
     // One document, so `Moved` leaves this child on its last one.
     let moved: Mock<'static, 1> = Mock::new([5]);

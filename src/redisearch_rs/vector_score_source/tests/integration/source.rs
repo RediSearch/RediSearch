@@ -22,7 +22,7 @@ use std::collections::HashSet;
 
 use ffi::{RLookupKey, VecSimIndex, VecSimIndex_Free, t_docId};
 use index_result::{RSIndexResult, RSResultKind};
-use rqe_iterators::{ExpirationChecker, NoOpChecker, RQEIterator};
+use rqe_iterators::{ExpirationChecker, IdList, NoOpChecker, RQEIterator};
 use rqe_iterators_test_utils::MockExpirationChecker;
 use top_k::{ScoreSource, TopKIterator, TopKMode};
 use vector_score_source::test_utils::{self, asc, collect_ids, make_child, uniform_blob};
@@ -37,7 +37,7 @@ fn build_hnsw_index(n: usize) -> NonNull<VecSimIndex> {
     test_utils::build_hnsw_index(n, DIM)
 }
 
-/// test_utilsing the corner `[n; DIM]` with `efRuntime = n`. `child_est` seeds
+/// test_utilising the corner `[n; DIM]` with `efRuntime = n`. `child_est` seeds
 /// the batch-size heuristic — production passes `child.num_estimated()`.
 ///
 /// # Safety
@@ -553,4 +553,90 @@ fn attach_score_metric_without_key_is_noop() {
     drop(source);
     // SAFETY: no live references to the index remain.
     unsafe { VecSimIndex_Free(index.as_ptr()) };
+}
+
+/// Value the child writes under the shared key, distinct from every distance
+/// this suite's index can produce.
+const STALE_CHILD_SCORE: f64 = 777.0;
+
+/// Drives a trimmed filtered query in `mode` whose child yields a metric under
+/// the source's own output key, and returns `(doc id, value under that key,
+/// numeric payload)` per result, asserting along the way that no second entry
+/// appeared for the key.
+fn trimmed_shared_key_yields(mode: TopKMode) -> Vec<(t_docId, f64, Option<f64>)> {
+    let n = 10;
+    let k = 3;
+    let index = build_hnsw_index(n);
+    let lookup_key = make_key();
+
+    // SAFETY: index outlives the iterator, freed below.
+    let mut source = unsafe { make_source(index, n, k, n) };
+    *source.own_key = (&lookup_key as *const RLookupKey).cast_mut().cast();
+
+    let mut child_result = RSIndexResult::build_metric(0.0).doc_id(0).build();
+    child_result
+        .metrics
+        .push_with_key(&lookup_key, STALE_CHILD_SCORE);
+    // Ids below `n` only: doc `n` sits on the query vector, so its distance is 0
+    // and would be indistinguishable from the payload the carrier zeroes.
+    let child = IdList::<true>::with_result(vec![7, 8, 9], child_result);
+
+    let mut it = TopKIterator::new_with_mode(
+        source,
+        Some(child),
+        NonZeroUsize::new(k).unwrap(),
+        asc(),
+        mode,
+    )
+    .with_trim_deep_results(true);
+
+    let mut emitted = Vec::new();
+    while let Some(result) = it.read().unwrap() {
+        assert_eq!(
+            result.metrics.len(),
+            1,
+            "the score must land on the child's entry, not beside it"
+        );
+        let payload = result.as_numeric();
+        let value = result.metrics.find_by_key_mut(&lookup_key).unwrap().value();
+        emitted.push((result.doc_id, value, payload));
+    }
+
+    drop(it);
+    // SAFETY: no live references to the index remain.
+    unsafe { VecSimIndex_Free(index.as_ptr()) };
+    emitted
+}
+
+/// A nested KNN reusing the outer `AS` alias makes the child yield a metric
+/// under this source's own key: the distance must overwrite that entry and the
+/// numeric payload, leaving nothing of the child's value.
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn batches_trimmed_shared_metric_key_carries_vector_score() {
+    // Squared-L2 distance DIM*(n-id)^2 per child id, best-first.
+    assert_eq!(
+        trimmed_shared_key_yields(TopKMode::Batches),
+        vec![
+            (9, 4.0, Some(4.0)),
+            (8, 16.0, Some(16.0)),
+            (7, 36.0, Some(36.0))
+        ]
+    );
+}
+
+/// Adhoc-BF counterpart of
+/// [`batches_trimmed_shared_metric_key_carries_vector_score`]: the child-driven
+/// scan captures the child's metrics on its own path, so it needs its own check.
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn adhoc_trimmed_shared_metric_key_carries_vector_score() {
+    assert_eq!(
+        trimmed_shared_key_yields(TopKMode::AdhocBF),
+        vec![
+            (9, 4.0, Some(4.0)),
+            (8, 16.0, Some(16.0)),
+            (7, 36.0, Some(36.0))
+        ]
+    );
 }

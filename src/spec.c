@@ -1197,6 +1197,9 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
         .storage = sp->diskSpec,
         .indexName = rm_strndup(namePtr, nameLen),
         .indexNameLen = nameLen,
+        // The disk storage layer keys this field's data by the value it finds
+        // here, so it has to stay stable for the life of the index.
+        .userData = fs->index,
         .rerank = rerank,
       };
     }
@@ -2333,7 +2336,7 @@ void InvIndFreeCb(void *privdata, void *val) {
   InvertedIndex_Free(idx);
 }
 
-static dictType invIdxDictType = {
+dictType invIdxDictType = {
   .hashFunction = CharBuf_HashFunction,
   .keyDup = CharBuf_KeyDup,
   .valDup = NULL, // Taking and owning the InvertedIndex pointer
@@ -2900,6 +2903,7 @@ static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp) {
       .storage = sp->diskSpec,
       .indexName = rm_strndup(namePtr, nameLen),
       .indexNameLen = nameLen,
+      .userData = fs->index,
       .rerank = rerank,
     };
   }

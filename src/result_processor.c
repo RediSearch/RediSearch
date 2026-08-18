@@ -73,9 +73,17 @@ static bool blockedClientTimedOut(void *arg) {
 // Maximum number of concurrent async disk reads
 #define MAX_ONGOING_READ_SIZE 16
 
+// Iterator results buffered ahead of submission. Separate from the read depth so the
+// two can be tuned independently; must be >= MAX_ONGOING_READ_SIZE.
+#define ITERATOR_BUFFER_SIZE MAX_ONGOING_READ_SIZE
+
 // Timeout for async disk poll when iterator is at EOF (in milliseconds)
 // When the iterator is exhausted, we wait for pending async reads to complete
 #define ASYNC_POLL_TIMEOUT_AT_EOF_MS 1000
+
+// Poll timeout when the pipeline is saturated (in milliseconds). Short because it
+// only bounds an idle wait before looping back to re-check the query timeout.
+#define ASYNC_POLL_TIMEOUT_SATURATED_MS 2
 
 /*******************************************************************************************************************
  *  Base Result Processor - this processor is the topmost processor of every processing chain.
@@ -159,7 +167,7 @@ static int refillBufferUsingIterator(RPQueryIterator *self) {
   }
 
   // Fill buffer up to max capacity
-  while (self->async.iteratorResultCount < self->async.poolSize && !it->atEOF) {
+  while (self->async.iteratorResultCount < self->async.bufferSize && !it->atEOF) {
     if (sctx->timeout &&
         QueryRequestTimeout_IsTimedOutWithCounter(sctx->timeout,
                                                   &self->timeoutLimiter)) {
@@ -292,6 +300,8 @@ static RevalidateOutcome handleSpecLockAndRevalidate(RPQueryIterator *self) {
 
   QueryIterator *it = self->iterator;
 
+  // Already locked by us, or borrowed from an outer scope that has held the lock
+  // since the iterators were built - nothing to lock or revalidate either way.
   if (sctx->lock_state != SPEC_LOCK_UNSET) {
     return REVALIDATE_CONTINUE;
   }
@@ -426,7 +436,7 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
     }
 
     // Step 1b: Submit any buffered results to async pool (keep pipeline full)
-    IndexResultAsyncRead_RefillPool(&self->async);
+    const uint16_t submitted = IndexResultAsyncRead_RefillPool(&self->async);
 
     // Step 2: Try to serve a ready result if we have one
     RSIndexResult *indexResult = IndexResultAsyncRead_PopReadyResult(&self->async);
@@ -446,8 +456,24 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
     }
 
     // Step 3: No ready results - poll for more
-    int timeout_ms = it->atEOF ? ASYNC_POLL_TIMEOUT_AT_EOF_MS : 0;
-    const size_t pendingCount = IndexResultAsyncRead_Poll(&self->async, timeout_ms, &sctx->currentTime);
+    int index_poll_timeout_ms = 0;
+    if (it->atEOF) {
+      index_poll_timeout_ms = ASYNC_POLL_TIMEOUT_AT_EOF_MS;
+    } else if (submitted == 0 && !DLLIST_IS_EMPTY(&self->async.pendingResults)) {
+      // Pool saturated: nothing left to submit, so a non-blocking poll would spin
+      // until a completion lands instead of making progress.
+      index_poll_timeout_ms = ASYNC_POLL_TIMEOUT_SATURATED_MS;
+    }
+    const size_t pendingCount =
+        IndexResultAsyncRead_Poll(&self->async, index_poll_timeout_ms, &sctx->currentTime);
+
+    // The loop-head check samples the clock once per TIMEOUT_COUNTER_LIMIT iterations,
+    // which is too coarse once an iteration can sleep. Re-check unthrottled after a
+    // blocking poll.
+    if (index_poll_timeout_ms > 0 && sctx->timeout &&
+        QueryRequestTimeout_IsTimedOut(sctx->timeout)) {
+      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+    }
 
     // Step 4: Check if we're completely done
     if (IndexResultAsyncRead_IsIterationComplete(&self->async, it->atEOF, pendingCount)) {
@@ -484,7 +510,7 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
 #endif
 
   // Initialize async read state
-  IndexResultAsyncRead_Init(&ret->async, MAX_ONGOING_READ_SIZE);
+  IndexResultAsyncRead_Init(&ret->async, MAX_ONGOING_READ_SIZE, ITERATOR_BUFFER_SIZE);
 
   // Determine which Next function to use based on disk configuration
   if (sctx->spec->diskSpec &&
