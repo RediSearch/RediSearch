@@ -33,10 +33,7 @@ pub struct MockQueryEvalCtx {
     doc_table: *mut ffi::DocTable,
     config: *mut IteratorsConfig,
     qctx: *mut ffi::QueryEvalCtx,
-    /// Backing allocation for `qctx.bcTimeoutAreq`, lazily created by
-    /// [`MockQueryEvalCtx::enable_blocked_client_timeout`]; null when no
-    /// Blocked Client Timeout source has been wired in.
-    areq: *mut ffi::AREQ,
+    timeout: *mut ffi::QueryRequestTimeout,
 }
 
 impl Drop for MockQueryEvalCtx {
@@ -60,9 +57,10 @@ impl Drop for MockQueryEvalCtx {
             dealloc(self.doc_table.cast(), Layout::new::<ffi::DocTable>());
             drop(Box::from_raw(self.config));
             dealloc(self.qctx.cast(), Layout::new::<ffi::QueryEvalCtx>());
-            if !self.areq.is_null() {
-                dealloc(self.areq.cast(), Layout::new::<ffi::AREQ>());
-            }
+            dealloc(
+                self.timeout.cast(),
+                Layout::new::<ffi::QueryRequestTimeout>(),
+            );
         }
     }
 }
@@ -84,6 +82,11 @@ impl MockQueryEvalCtx {
             assert!(!sctx.is_null());
 
             (*sctx).spec = spec;
+            let timeout = alloc_zeroed(Layout::new::<ffi::QueryRequestTimeout>())
+                .cast::<ffi::QueryRequestTimeout>();
+            assert!(!timeout.is_null());
+            (*timeout).kind = ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
+            (*sctx).timeout = timeout;
 
             let opts =
                 alloc_zeroed(Layout::new::<ffi::RSSearchOptions>()).cast::<ffi::RSSearchOptions>();
@@ -138,7 +141,7 @@ impl MockQueryEvalCtx {
                 doc_table,
                 config,
                 qctx,
-                areq: std::ptr::null_mut(),
+                timeout,
             }
         }
     }
@@ -178,26 +181,13 @@ impl MockQueryEvalCtx {
         unsafe { (*self.spec).diskSpec = std::ptr::NonNull::dangling().as_ptr() }
     }
 
-    /// Wire a real, zeroed [`ffi::AREQ`] into `bcTimeoutAreq` so that the
-    /// Blocked Client Timeout source is selected (simulating a
-    /// background-executed request).
-    ///
-    /// The allocation is owned by this mock and freed on drop. Its zeroed
-    /// `QueryRequestTimeout::timedOut` flag reads as "not timed out", so
-    /// `AREQ_CheckTimedOut` sees a non-expired request.
+    /// Select a non-expired Blocked Client Timeout source.
     pub fn enable_blocked_client_timeout(&mut self) {
-        // SAFETY: the allocation has the size and alignment of `ffi::AREQ` and
-        // is checked non-null. This mock only exposes it to `AREQ_CheckTimedOut`,
-        // which reads the zeroed atomic timeout flag; it never uses uninitialized
-        // request resources. The allocation is retained for cleanup in `Drop`.
+        // SAFETY: `self.timeout` is a valid, exclusively-owned allocation. Its
+        // zeroed union storage represents a false blocked-client atomic flag.
         unsafe {
-            if self.areq.is_null() {
-                let areq = alloc_zeroed(Layout::new::<ffi::AREQ>()).cast::<ffi::AREQ>();
-                assert!(!areq.is_null());
-                self.areq = areq;
-            }
-            // SAFETY: `self.qctx` is a valid, exclusively-owned allocation.
-            (*self.qctx).bcTimeoutAreq = self.areq;
+            (*self.timeout).kind =
+                ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT;
         }
     }
 }

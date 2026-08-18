@@ -126,29 +126,23 @@ fn next_token_id_post_increments() {
     miri,
     ignore = "clock-based path calls libc::clock_gettime(CLOCK_MONOTONIC_RAW), unsupported by Miri"
 )]
-fn build_timeout_context_without_blocked_client_uses_sctx() {
-    // No `bcTimeoutAreq` wired in → the source is derived from `sctx.timeout`, never
-    // the Blocked Client path. The mock's timeout is a past deadline,
-    // so the clock-based variant is selected.
+fn build_timeout_context_uses_clock_source_from_sctx() {
+    // The mock's request timeout is a past clock deadline.
     let mut mock = MockQueryEvalCtx::new();
     let ctx = unsafe { QueryEvalContext::new(mock.as_non_null()) };
 
-    // SAFETY: `mock` (and its AREQ, if any) outlives the returned context, which
-    // is dropped at the end of the assertion — never used past the AREQ.
+    // SAFETY: `mock` outlives the returned context.
     let timeout = unsafe { ctx.build_timeout_context() };
     assert!(matches!(timeout, AnyTimeoutContext::Clock(_)));
 }
 
 #[test]
-fn build_timeout_context_prefers_blocked_client_when_wired() {
-    // A non-null `bcTimeoutAreq` selects the Blocked Client Timeout source,
-    // overriding `sctx.timeout` — mirroring the C evaluator's NOT-node behavior.
+fn build_timeout_context_uses_blocked_client_source_from_sctx() {
     let mut mock = MockQueryEvalCtx::new();
     mock.enable_blocked_client_timeout();
     let ctx = unsafe { QueryEvalContext::new(mock.as_non_null()) };
 
-    // SAFETY: `mock`'s AREQ outlives the returned context, which is dropped at
-    // the end of the assertion — never used past the AREQ.
+    // SAFETY: `mock` outlives the returned context.
     let timeout = unsafe { ctx.build_timeout_context() };
     assert!(matches!(timeout, AnyTimeoutContext::BlockedClient(_)));
 }

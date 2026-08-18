@@ -634,16 +634,20 @@ static QueryIterator *Query_EvalFuzzyNode(QueryEvalCtx *q, QueryNode *qn) {
                               TRIE_MATCH_EDIT_DISTANCE, &qn->opts);
 }
 
-// Probe the Blocked Client Timeout flag for a query iterator. Called from
-// Rust via a direct `extern "C"` declaration when a NOT iterator is wired
-// to an AREQ; the sync point makes the check deterministically pauseable
-// in assert builds for race tests.
-bool AREQ_CheckTimedOut(AREQ *areq) {
-  RS_LOG_ASSERT(areq, "AREQ_CheckTimedOut called with NULL areq");
+// Keep the query-iterator sync point out of the source-neutral timeout API.
 #ifdef ENABLE_ASSERT
-  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_QI_TIMEOUT_CHECK, areq_timed_out, areq);
+static bool queryIteratorTimedOut(void *arg) {
+  const QueryRequestTimeout *timeout = arg;
+  return QueryRequestTimeout_IsBlockedClientTimedOut(timeout);
+}
 #endif
-  return QueryRequestTimeout_IsBlockedClientTimedOut(&areq->base.timeout);
+
+bool QueryIterator_IsBlockedClientTimedOut(const QueryRequestTimeout *timeout) {
+  RS_LOG_ASSERT(timeout, "QueryIterator_IsBlockedClientTimedOut called with NULL timeout");
+#ifdef ENABLE_ASSERT
+  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_QI_TIMEOUT_CHECK, queryIteratorTimedOut, (void *)timeout);
+#endif
+  return QueryRequestTimeout_IsBlockedClientTimedOut(timeout);
 }
 
 static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn,

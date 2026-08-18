@@ -501,10 +501,6 @@ static inline void AREQ_SetExecutionStage(AREQ *req, QueryTimeoutStage stage) {
 bool areq_timed_out(void *arg);
 #endif
 
-/* Named bridge to the blocked-client compatibility check, invoked by Rust
- * query iterators. The named extern is a stable symbol that LTO can inline through. */
-bool AREQ_CheckTimedOut(AREQ *areq);
-
 /* True when this AREQ uses the BG-thread / timeout-callback claim handshake
  * around AggregateResults (TryClaim/Signal/Wait). Set on coordinator AREQs
  * under RETURN_STRICT, and on shard/standalone AREQs for RETURN_STRICT

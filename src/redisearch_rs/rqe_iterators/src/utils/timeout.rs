@@ -9,7 +9,7 @@
 
 use std::ptr::NonNull;
 
-use ffi::{AREQ, AREQ_CheckTimedOut, RedisSearchCtx};
+use ffi::{QueryIterator_IsBlockedClientTimedOut, QueryRequestTimeout, RedisSearchCtx};
 pub use timeout::{DeadlineTimeoutChecker, NoTimeoutChecker, TimeoutCheckResult, TimeoutChecker};
 
 use crate::{
@@ -28,8 +28,7 @@ use crate::{
 ///   it is not what a query iterator gets, because a query's deadline moves — see
 ///   [`TimeoutContextDeadline`].)
 /// * [`TimeoutContextBlockedClient`] — Blocked Client Timeout: reads the
-///   AREQ atomic flag (set by the Blocked Client Timeout main-thread
-///   callback) via the [`AREQ_CheckTimedOut`] C symbol.
+///   request atomic flag via [`QueryIterator_IsBlockedClientTimedOut`].
 ///
 /// Iterators are generic over this trait so the dispatch is monomorphized
 /// in the hot path.
@@ -144,54 +143,47 @@ impl TimeoutChecker for TimeoutContextDeadline {
     }
 }
 
-/// [`TimeoutContext`] backed by the Blocked Client Timeout flag on an [`AREQ`].
+/// [`TimeoutContext`] backed by a request's Blocked Client Timeout flag.
 ///
-/// The struct stores a pointer to the [`AREQ`] and on every
-/// [`TimeoutContext::check_timeout`] call forwards directly to the
-/// [`AREQ_CheckTimedOut`] C symbol.
+/// Every [`TimeoutContext::check_timeout`] call forwards the borrowed
+/// [`QueryRequestTimeout`] to [`QueryIterator_IsBlockedClientTimedOut`].
 ///
 /// Unlike [`DeadlineTimeoutChecker`] this variant does **not** amortize calls:
 /// the cost of a relaxed atomic load through the named extern is already
 /// in the same order of magnitude as a counter bump, and avoiding the
 /// counter keeps the hot path branch-free.
 ///
-/// The [`AREQ`] is held as a raw [`NonNull`] pointer with no lifetime: like the
+/// The timeout is held as a raw [`NonNull`] pointer with no lifetime: like the
 /// rest of the query-iterator tree (see the "phantom `'index`" note on
 /// `RQEIteratorWrapper`), the context does not model the borrow in the type
-/// system. Keeping the request valid for as long as the context is used is a
+/// system. Keeping the timeout valid for as long as the context is used is a
 /// runtime invariant the caller upholds, documented on [`new`](Self::new).
 pub struct TimeoutContextBlockedClient {
-    /// [`AREQ`] pointer forwarded verbatim to [`AREQ_CheckTimedOut`].
-    areq: NonNull<AREQ>,
+    /// Request timeout forwarded to [`QueryIterator_IsBlockedClientTimedOut`].
+    timeout: NonNull<QueryRequestTimeout>,
 }
 
 impl TimeoutContextBlockedClient {
-    /// Build a new context wrapping `areq`.
+    /// Build a new context wrapping `timeout`.
     ///
     /// # Safety
     ///
-    /// * `areq` must point to a valid [`AREQ`] (as defined in
-    ///   `src/aggregate/aggregate.h`) for as long as this context (and any
-    ///   iterator holding it) is used. The pointer is stored without a
-    ///   lifetime, so the caller is fully responsible for not using the context
-    ///   past the [`AREQ`]'s lifetime.
-    /// * The `QueryRequestTimeout::timedOut` flag in the [`AREQ`]'s embedded
-    ///   `QueryRequest` must be safe to read with relaxed semantics from any thread.
+    /// `timeout` must remain valid and keep
+    /// [`QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT`](ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT)
+    /// as its active source for as long as this context and every iterator holding it are used.
     #[inline(always)]
-    pub const unsafe fn new(areq: NonNull<AREQ>) -> Self {
-        Self { areq }
+    pub const unsafe fn new(timeout: NonNull<QueryRequestTimeout>) -> Self {
+        Self { timeout }
     }
 }
 
 impl TimeoutChecker for TimeoutContextBlockedClient {
-    /// Probe the AREQ timed-out flag via [`AREQ_CheckTimedOut`] and translate
-    /// its `bool` reply into the iterator-level [`Result`].
+    /// Probe the request's blocked-client flag and translate the result.
     #[inline(always)]
     fn check_timeout(&mut self) -> TimeoutCheckResult {
-        // SAFETY: constructor contract guarantees `self.areq` is valid and
-        // thread-safe to probe; `AREQ_CheckTimedOut` performs a relaxed
-        // atomic load and does not unwind.
-        let timed_out = unsafe { AREQ_CheckTimedOut(self.areq.as_ptr()) };
+        // SAFETY: the constructor guarantees that `self.timeout` remains valid
+        // with the blocked-client source active. The C bridge performs a relaxed atomic load.
+        let timed_out = unsafe { QueryIterator_IsBlockedClientTimedOut(self.timeout.as_ptr()) };
         if timed_out {
             TimeoutCheckResult::TimedOut
         } else {
@@ -215,7 +207,7 @@ impl TimeoutChecker for TimeoutContextBlockedClient {
 /// [`check_timeout`]: TimeoutContext::check_timeout
 ///
 /// Two of the three variants hold a raw pointer with no lifetime:
-/// [`BlockedClient`](Self::BlockedClient) an [`AREQ`] (see
+/// [`BlockedClient`](Self::BlockedClient) a [`QueryRequestTimeout`] (see
 /// [`TimeoutContextBlockedClient`]), and [`Clock`](Self::Clock) the deadline inside a
 /// [`RedisSearchCtx`] (see [`TimeoutContextDeadline`]). Only
 /// [`NoTimeout`](Self::NoTimeout) borrows nothing. The type is therefore `'static`, and keeping
@@ -226,25 +218,25 @@ pub enum AnyTimeoutContext {
     NoTimeout(NoTimeoutChecker),
     /// Clock Based Timeout: amortized clock check against the search context's live deadline.
     Clock(TimeoutContextDeadline),
-    /// Blocked Client Timeout: relaxed atomic load against the AREQ flag.
+    /// Blocked Client Timeout: relaxed atomic load against the request flag.
     BlockedClient(TimeoutContextBlockedClient),
 }
 
 impl AnyTimeoutContext {
     /// Builds the timeout context from a search context's time settings.
     ///
-    /// The request timeout's active kind selects no timeout or a clock deadline.
-    /// Blocked-client contexts are built from the owning `AREQ`, before this
-    /// constructor is reached.
+    /// The request timeout's active kind selects no timeout, a blocked-client
+    /// flag, or a clock deadline.
     ///
     /// # Safety
     ///
-    /// Both preconditions of [`TimeoutContextDeadline::new`] are forwarded to the caller:
+    /// The selected timeout variant's constructor preconditions are forwarded to the caller:
     ///
     /// * `sctx` must stay valid, and at a stable address, for as long as the returned context and
     ///   any iterator built from it are used — not merely for this call. The deadline is read back
     ///   through a pointer on every probe.
     /// * No write to the request's clock deadline may overlap a probe.
+    /// * The borrowed request timeout must remain valid with its active source unchanged.
     ///
     pub unsafe fn from_sctx(sctx: NonNull<RedisSearchCtx>, granularity: u32) -> Self {
         // Read construction-time inputs through short-lived raw reads rather than holding
@@ -261,7 +253,10 @@ impl AnyTimeoutContext {
             }
             ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE => {}
             ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT => {
-                panic!("blocked-client timeout context requires its owning AREQ");
+                // SAFETY: the caller keeps the request timeout valid for the returned context.
+                return Self::BlockedClient(unsafe {
+                    TimeoutContextBlockedClient::new(request_timeout)
+                });
             }
             kind => panic!("invalid query timeout kind: {kind}"),
         }
@@ -451,7 +446,7 @@ mod tests {
     }
 
     // The `BlockedClient` variant is a thin wrapper around the C symbol
-    // `AREQ_CheckTimedOut` (declared above as `unsafe extern "C"`); its
+    // `QueryIterator_IsBlockedClientTimedOut`; its
     // dispatch is covered end-to-end by `tests/pytests/test_blocked_client_timeout.py`
-    // because exercising it from Rust requires a real AREQ.
+    // because exercising the debug sync point requires the C query pipeline.
 }

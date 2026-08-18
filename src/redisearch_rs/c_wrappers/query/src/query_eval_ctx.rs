@@ -15,9 +15,7 @@ use query_flags::QEFlags;
 use rlookup::MetricRequest;
 use rqe_core::DocId;
 use rqe_iterators::{
-    IteratorsConfig,
-    not_reducer::TIMEOUT_CHECK_GRANULARITY,
-    utils::{AnyTimeoutContext, TimeoutContextBlockedClient},
+    IteratorsConfig, not_reducer::TIMEOUT_CHECK_GRANULARITY, utils::AnyTimeoutContext,
 };
 use search_disk::SearchDiskHandle;
 
@@ -63,11 +61,6 @@ impl QueryEvalContext {
     ///    The nested `sctx.spec.diskSpec` pointer may be null (in-memory mode);
     ///    when non-null it must point to a valid
     ///    [`RedisSearchDiskIndexSpec`](ffi::RedisSearchDiskIndexSpec).
-    ///    `bcTimeoutAreq` may be null; when non-null it must point to a valid
-    ///    [`AREQ`](ffi::AREQ) that stays valid not just for the lifetime of the returned
-    ///    context, but for the lifetime of every timeout context and iterator
-    ///    derived from it (e.g. via
-    ///    [`build_timeout_context`](QueryEvalContext::build_timeout_context)).
     ///    The `opts.scorerName` pointer may be null (no scorer requested); when
     ///    non-null it must point to a valid NUL-terminated C string that stays
     ///    valid for at least the lifetime of the returned context (read by
@@ -270,56 +263,24 @@ impl QueryEvalContext {
     /// Build the [`AnyTimeoutContext`] a query iterator should use for this
     /// evaluation.
     ///
-    /// When a Blocked Client Timeout request is wired into the context
-    /// (`bcTimeoutAreq` non-null) the iterator polls that request's timeout
-    /// flag. Otherwise the Clock Based Timeout (or [`NoTimeoutChecker`], when timeout
-    /// checks are skipped or no deadline is set) is derived from `sctx.timeout`.
+    /// The active request-timeout kind reached through `sctx.timeout` selects
+    /// the Blocked Client Timeout, Clock Based Timeout, or [`NoTimeoutChecker`].
     ///
-    /// The returned [`AnyTimeoutContext`] is `'static`: when a Blocked Client
-    /// Timeout is wired in it holds the `AREQ` as a raw pointer, not a borrow, so
-    /// the type system no longer ties it to the request. That validity is now a
-    /// runtime precondition (see below), which is why this method is `unsafe`.
+    /// The returned [`AnyTimeoutContext`] is `'static`: timeout variants hold raw
+    /// pointers rather than borrows, so their validity is a runtime precondition.
     ///
     /// # Safety
     ///
-    /// The returned context, and any iterator built from it, must not be used
-    /// after the `AREQ` behind `bcTimeoutAreq` is freed — nor after `sctx` is
-    /// freed or moved, since the clock-based variant reads the deadline out of
-    /// it on every probe. No write to the request-owned deadline may overlap a probe;
-    /// see [`TimeoutContextDeadline::new`](rqe_iterators::utils::TimeoutContextDeadline::new).
-    ///
-    /// A Blocked Client Timeout context holds that `AREQ` as a raw pointer with
-    /// no lifetime, so nothing enforces the precondition at compile time:
-    /// probing the context calls [`AREQ_CheckTimedOut`](ffi::AREQ_CheckTimedOut)
-    /// on the stored pointer. For a [`QueryEvalContext`] built through
-    /// [`new`](Self::new), invariant (2) already guarantees `bcTimeoutAreq`
-    /// outlives every timeout context and iterator derived from it, so the
-    /// caller discharges the precondition simply by not retaining the returned
-    /// context beyond the current query. See [`TimeoutContextBlockedClient::new`].
+    /// The returned context and any iterator built from it must not outlive
+    /// `sctx` or its borrowed request timeout. No write to a request-owned
+    /// deadline may overlap a probe; see
+    /// [`TimeoutContextDeadline::new`](rqe_iterators::utils::TimeoutContextDeadline::new).
     ///
     /// [`NoTimeoutChecker`]: rqe_iterators::utils::NoTimeoutChecker
     pub unsafe fn build_timeout_context(&self) -> AnyTimeoutContext {
-        match NonNull::new(self.as_ref().bcTimeoutAreq) {
-            Some(areq) => {
-                // SAFETY: invariant (2) of `new` guarantees a non-null
-                // `bcTimeoutAreq` points to a valid `AREQ` that outlives every
-                // iterator built from this context; this method's own safety
-                // contract requires the caller not to use the returned context
-                // past that window — together they satisfy the
-                // `TimeoutContextBlockedClient::new` contract.
-                let timeout = unsafe { TimeoutContextBlockedClient::new(areq) };
-                AnyTimeoutContext::BlockedClient(timeout)
-            }
-            // No Blocked Client Timeout source: derive the Clock Based Timeout
-            // (or `NoTimeoutChecker`) from `sctx.timeout`.
-            None => {
-                let sctx = NonNull::new(self.sctx_ptr().cast_mut()).expect("sctx must be non-null");
-                // SAFETY: invariant (2) of `new` guarantees `sctx` stays valid for the lifetime of
-                // every timeout context and iterator derived from this one, which is what
-                // `from_sctx` needs to read the deadline back on each probe. Writes to the
-                // deadline never overlap a probe (see `TimeoutContextDeadline::new`).
-                unsafe { AnyTimeoutContext::from_sctx(sctx, TIMEOUT_CHECK_GRANULARITY) }
-            }
-        }
+        let sctx = NonNull::new(self.sctx_ptr().cast_mut()).expect("sctx must be non-null");
+        // SAFETY: invariant (2) of `new` guarantees `sctx` and its borrowed timeout stay valid
+        // for every derived iterator. Writes to a deadline never overlap a probe.
+        unsafe { AnyTimeoutContext::from_sctx(sctx, TIMEOUT_CHECK_GRANULARITY) }
     }
 }

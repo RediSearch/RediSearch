@@ -78,6 +78,10 @@ typedef struct EvalConfig EvalConfig;
 
 QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n, const EvalConfig *evalConfig);
 
+// Blocked-client timeout probe used by Rust query iterators. The named bridge
+// keeps the query-iterator debug sync point outside the generic timeout API.
+bool QueryIterator_IsBlockedClientTimedOut(const struct QueryRequestTimeout *timeout);
+
 /**
  * Global filter options impact *all* query nodes. This structure can be used
  * to set global properties for the entire query

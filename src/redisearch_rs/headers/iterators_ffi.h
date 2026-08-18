@@ -19,10 +19,6 @@
 // In C, timespec is a struct tag, not a typedef. Rust's libc::timespec maps to
 // the bare name, so we introduce a typedef to make it valid C.
 typedef struct timespec timespec;
-// `AREQ` is forward-declared as a struct tag in `query.h` (above) but its
-// typedef lives in `aggregate/aggregate.h`. cheadergen emits `*mut ffi::AREQ`
-// as the bare `AREQ *`, so we surface the typedef here for the C compiler.
-typedef struct AREQ AREQ;
 
 
 /**
@@ -485,12 +481,9 @@ QueryIterator *NewMetricIteratorSortedByScore(t_docId *ids, double *metric_list,
  * If the child is trivially reducible (empty or wildcard), a simplified
  * iterator is returned directly.
  *
- * `bc_timeout_areq` selects the timeout source. When non-null, the Blocked
- * Client Timeout path is used: every iterator timeout probe forwards to
- * `AREQ_CheckTimedOut` and `q.sctx.timeout` is ignored.
- * When null, the request timeout reached through `q.sctx.timeout` selects either
- * no timeout or the Clock Based Timeout path. The deadline is read back on
- * every probe so a re-armed deadline is honoured.
+ * The request timeout reached through `q.sctx.timeout` selects no timeout,
+ * the Blocked Client Timeout, or the Clock Based Timeout. Clock deadlines are
+ * read back on every probe so a re-armed deadline is honoured.
  *
  * # Safety
  *
@@ -509,11 +502,8 @@ QueryIterator *NewMetricIteratorSortedByScore(t_docId *ids, double *metric_list,
  *    [`SchemaRule`](ffi::SchemaRule).
  * 7. When the optimized path is taken, the preconditions of
  *    [`crate::wildcard::NewWildcardIterator`] must hold.
- * 8. When `bc_timeout_areq` is non-null, it must satisfy the
- *    [`TimeoutContextBlockedClient::new`] safety contract and remain
- *    valid for the lifetime of the returned iterator.
  */
-QueryIterator *NewNotIterator(QueryIterator *child, t_docId max_doc_id, double weight, AREQ *bc_timeout_areq, QueryEvalCtx *q);
+QueryIterator *NewNotIterator(QueryIterator *child, t_docId max_doc_id, double weight, QueryEvalCtx *q);
 
 /**
  * Opens the numeric/geo index and creates an iterator over all matching sub-ranges.

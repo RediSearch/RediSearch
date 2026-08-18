@@ -16,8 +16,7 @@ use std::{
 };
 
 use ffi::{
-    AREQ, QueryAST, QueryError, QueryEvalCtx, QueryIterator, RSQueryNode, RSSearchOptions,
-    RedisSearchCtx,
+    QueryAST, QueryError, QueryEvalCtx, QueryIterator, RSQueryNode, RSSearchOptions, RedisSearchCtx,
 };
 use query_eval::{
     Config, QueryEvalContext, QueryNodeMut, eval_node, qast_iterate,
@@ -216,8 +215,6 @@ pub unsafe extern "C" fn Query_EvalNode_Rs(
 /// 3. `sctx` must be a non-null pointer to a valid [`RedisSearchCtx`] whose
 ///    `spec` is a valid, non-null [`IndexSpec`](ffi::IndexSpec).
 /// 4. `status` must be a non-null pointer to a valid [`QueryError`].
-/// 5. `areq`, when non-null, must point to a valid [`AREQ`].
-///
 /// Together these are exactly the invariants documented on
 /// [`QueryEvalContext::new`] for the assembled context, which remains valid for
 /// the lifetime of the returned iterator.
@@ -227,7 +224,6 @@ pub unsafe extern "C" fn QAST_Iterate(
     opts: *const RSSearchOptions,
     sctx: *mut RedisSearchCtx,
     reqflags: u32,
-    areq: *mut AREQ,
     status: *mut QueryError,
 ) -> *mut QueryIterator {
     // SAFETY: `qast` is a valid, non-null pointer (precondition 1), held
@@ -235,20 +231,6 @@ pub unsafe extern "C" fn QAST_Iterate(
     let qast = unsafe { &mut *qast };
     // SAFETY: `sctx` is a valid, non-null pointer (precondition 3).
     let spec = unsafe { (*sctx).spec };
-
-    // Wire the Blocked Client Timeout dispatch only while it is the active source.
-    // SAFETY: `areq`, when non-null (checked first), is a valid `AREQ`
-    // (precondition 5).
-    let bc_timeout_areq = if !areq.is_null()
-        && unsafe {
-            (*areq).base.timeout.kind
-                == ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
-        }
-    {
-        areq
-    } else {
-        std::ptr::null_mut()
-    };
 
     // Assemble the evaluation context for this query. `tokenId` starts at 0 and
     // is bumped as token iterators are created during evaluation.
@@ -263,7 +245,6 @@ pub unsafe extern "C" fn QAST_Iterate(
         reqFlags: reqflags,
         config: &raw mut qast.config,
         inNotSubTree: false,
-        bcTimeoutAreq: bc_timeout_areq,
     };
 
     let root = NonNull::new(qast.root).expect("QAST_Iterate: qast root is null");
