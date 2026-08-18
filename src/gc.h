@@ -175,6 +175,10 @@ bool GC_ThreadPoolWaitForPause(long timeoutMs);
 // moment it is read anywhere else.
 size_t GC_ThreadPoolJobsInProgress(void);
 void GC_ThreadPoolResumeAfterConsistency(void);
+// Queue `fn(arg)` on the GC pool. No production caller: tests use it to hold a job in
+// progress across a drain, which no ordinary entry point can do -- a real cycle returns
+// long before GC_ThreadPoolWaitForPause could observe it.
+void GC_ThreadPoolAddJobForTests(void (*fn)(void*), void* arg);
 
 #ifdef __cplusplus
 }

@@ -30,6 +30,8 @@ extern "C" {
 #include <random>
 #include <unordered_set>
 #include <thread>
+#include <atomic>
+#include <chrono>
 
 /**
  * The following tests purpose is to make sure the garbage collection is working properly,
@@ -782,4 +784,55 @@ TEST_F(FGCTest, testWaitForPauseReturnsWhenNothingIsRunning) {
   GC_ThreadPoolPauseForConsistency();
   ASSERT_TRUE(GC_ThreadPoolWaitForPause(10));
   GC_ThreadPoolResumeAfterConsistency();
+}
+
+namespace {
+// A job the test can hold on a GC-pool thread, following the MarkAndWait pattern in
+// test_cpp_thpool.cpp: spin on an atomic rather than block on the pool's own synchronization.
+struct ParkedGCJob {
+  std::atomic<bool> running{false};
+  std::atomic<bool> hold{true};
+
+  static void Run(void *p) {
+    ParkedGCJob *job = static_cast<ParkedGCJob *>(p);
+    job->running = true;
+    while (job->hold) {
+      std::this_thread::sleep_for(std::chrono::microseconds(1));
+    }
+    job->running = false;
+  }
+};
+}  // namespace
+
+// The drain's whole point is the job it cannot stop: pausing the pool keeps new jobs from
+// starting, but one already on a thread must be waited out -- or timed out on.
+TEST_F(FGCTest, testWaitForPauseTimesOutWhileAJobRuns) {
+  ParkedGCJob job;
+  // Unpark and unpause on every exit path. A failed ASSERT returns immediately, which would
+  // otherwise leave a pool thread spinning on a dangling stack pointer and the pool paused
+  // for every test after this one.
+  struct Cleanup {
+    ParkedGCJob &job;
+    ~Cleanup() {
+      job.hold = false;
+      while (job.running) {
+        std::this_thread::sleep_for(std::chrono::microseconds(1));
+      }
+      GC_ThreadPoolResumeAfterConsistency();
+    }
+  } cleanup{job};
+
+  GC_ThreadPoolAddJobForTests(ParkedGCJob::Run, &job);
+  while (GC_ThreadPoolJobsInProgress() == 0) {  // wait for a thread to pick it up
+    std::this_thread::sleep_for(std::chrono::microseconds(1));
+  }
+
+  GC_ThreadPoolPauseForConsistency();
+  // This count is what the drain-timeout warning reports to the operator.
+  ASSERT_EQ(GC_ThreadPoolJobsInProgress(), (size_t)1);
+  ASSERT_FALSE(GC_ThreadPoolWaitForPause(50));
+
+  job.hold = false;
+  ASSERT_TRUE(GC_ThreadPoolWaitForPause(5000));
+  ASSERT_EQ(GC_ThreadPoolJobsInProgress(), (size_t)0);
 }

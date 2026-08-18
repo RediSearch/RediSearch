@@ -414,3 +414,9 @@ void GC_ThreadPoolResumeAfterConsistency(void) {
     redisearch_thpool_resume_threads(gcThreadpool_g);
   }
 }
+
+void GC_ThreadPoolAddJobForTests(void (*fn)(void*), void* arg) {
+  if (gcThreadpool_g) {
+    redisearch_thpool_add_work(gcThreadpool_g, fn, arg, THPOOL_PRIORITY_HIGH);
+  }
+}
