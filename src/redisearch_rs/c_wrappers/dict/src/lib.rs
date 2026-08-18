@@ -158,7 +158,9 @@ impl<DT: DictType> Dict<DT> {
     ///    the `ffi::dictType` described by `DT`, and must remain live for `'a`.
     /// 2. Rehashing must be excluded (paused (`pauserehash > 0`) or not in progress
     ///    (`rehashidx == -1`)) whenever another thread may access the dict during `'a`.
-    pub const unsafe fn from_raw<'a>(ptr: *const ffi::dict) -> &'a Self {
+    pub unsafe fn from_raw<'a>(ptr: *const ffi::dict) -> &'a Self {
+        // SAFETY: the caller guarantees `ptr` points to a valid `ffi::dict`.
+        debug_assert!(std::ptr::eq(unsafe { (*ptr).type_ }, DT::as_ptr()));
         // SAFETY: #[repr(transparent)] guarantees identical layout.
         // Validity and liveness are the caller's responsibility.
         unsafe { ptr.cast::<Self>().as_ref().unwrap() }
@@ -171,7 +173,9 @@ impl<DT: DictType> Dict<DT> {
     /// 1. `ptr` must be a valid, non-null pointer to an `ffi::dict` created with
     ///    the `ffi::dictType` described by `DT`, must remain live for `'a`, and the
     ///    caller must have exclusive access to it.
-    pub const unsafe fn from_raw_mut<'a>(ptr: *mut ffi::dict) -> &'a mut Self {
+    pub unsafe fn from_raw_mut<'a>(ptr: *mut ffi::dict) -> &'a mut Self {
+        // SAFETY: the caller guarantees `ptr` points to a valid `ffi::dict`.
+        debug_assert!(std::ptr::eq(unsafe { (*ptr).type_ }, DT::as_ptr()));
         // SAFETY: #[repr(transparent)] guarantees identical layout.
         // Validity, liveness, and exclusivity are the caller's responsibility.
         unsafe { ptr.cast::<Self>().as_mut().unwrap() }
