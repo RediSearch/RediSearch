@@ -36,7 +36,7 @@ class IteratorCase:
     """
 
     def __init__(self, name, schema, docs, query, ttl_field, profile_type, params=None,
-                 dialect=None):
+                 dialect=None, yield_order=('doc:1', 'doc:2')):
         self.name = name
         self.schema = schema
         self.docs = docs
@@ -45,6 +45,10 @@ class IteratorCase:
         self.profile_type = profile_type
         self.params = params or []
         self.dialect = dialect
+        # The order the iterator yields its two documents in. Ascending doc id for
+        # everything that walks the index; nearest-first for the vector iterator,
+        # which orders by score instead.
+        self.yield_order = yield_order
 
 
 TEXT_CASE = IteratorCase(
@@ -106,6 +110,7 @@ VECTOR_CASE = IteratorCase(
     profile_type='VECTOR',
     params=['PARAMS', 2, 'vec', VEC_QUERY],
     dialect=3,
+    yield_order=('doc:2', 'doc:1'),
 )
 
 ALL_CASES = [TEXT_CASE, TAG_CASE, NUMERIC_CASE, GEO_CASE, GEOSHAPE_CASE, VECTOR_CASE]
@@ -134,8 +139,10 @@ def profile_iterator_types(node):
     return found
 
 
-def setup_case(env, case):
-    """Create the index for `case`, load its documents, and give `doc:1` a TTL."""
+def setup_case(env, case, ttl_doc='doc:1'):
+    """Create the index for `case`, load its documents, and give `ttl_doc` a TTL
+    on the queried field. The two documents then differ only in whether that field
+    has lapsed."""
     conn = getConnectionByEnv(env)
     env.flush()
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
@@ -143,7 +150,8 @@ def setup_case(env, case):
     env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'fields')
     for doc_id, fields in case.docs.items():
         conn.execute_command('HSET', doc_id, *chain_fields(fields))
-    conn.execute_command('HPEXPIRE', 'doc:1', str(TTL_MS), 'FIELDS', '1', case.ttl_field)
+    if ttl_doc is not None:
+        conn.execute_command('HPEXPIRE', ttl_doc, str(TTL_MS), 'FIELDS', '1', case.ttl_field)
     return conn
 
 
@@ -228,3 +236,220 @@ def test_expiry_baseline_geoshape(env):
 @skip(cluster=True, redis_less_than='8.0')
 def test_expiry_baseline_vector(env):
     run_baseline(env, VECTOR_CASE)
+
+
+def aggregate_cursor(env, case, count):
+    """Open a cursor over the case's query, loading each document's key."""
+    args = ['idx', case.query, 'LOAD', 1, '@__key', *case.params]
+    if case.dialect is not None:
+        args += ['DIALECT', case.dialect]
+    args += ['WITHCURSOR', 'COUNT', count]
+    return env.cmd('FT.AGGREGATE', *args)
+
+
+def rows_to_keys(rows):
+    """The document keys in one `FT.AGGREGATE` chunk."""
+    return [to_dict(row)['__key'] for row in rows[1:]]
+
+
+def drain_cursor(env, cursor):
+    """Read a cursor to exhaustion, returning every key it still yields."""
+    keys = []
+    while cursor:
+        rows, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+        keys += rows_to_keys(rows)
+    return keys
+
+
+def run_liveness_across_cursor_reads(env, case):
+    """A field that lapses between two cursor reads stops being yielded.
+
+    Each `FT.CURSOR READ` re-stamps the instant the round evaluates TTLs against,
+    so a document still live when the cursor opened must disappear once the clock
+    has moved past its TTL — unless the iterator decided its filtering strategy
+    when the cursor was built and never revisited it.
+
+    The TTL goes on the document yielded *second*, so the clock moves while it is
+    still in flight. The first assertion pins that: if it comes out of the opening
+    chunk instead, the shift lands after it was already returned and the rest of
+    the test proves nothing.
+    """
+    early_doc, late_doc = case.yield_order
+    setup_case(env, case, ttl_doc=late_doc)
+    try:
+        set_query_time(env, BEFORE_EXPIRY_MS)
+        rows, cursor = aggregate_cursor(env, case, 1)
+        seen_before = rows_to_keys(rows)
+
+        env.assertEqual(seen_before, [early_doc],
+                        message=f'{case.name}: opening chunk was {seen_before}, so the clock '
+                                f'shift cannot land while the TTL document is in flight')
+
+        set_query_time(env, AFTER_EXPIRY_MS)
+        seen_after = drain_cursor(env, cursor)
+
+        env.assertEqual(late_doc in seen_after, False,
+                        message=f'{case.name}: expired doc yielded after the clock moved, '
+                                f'after={seen_after}')
+    finally:
+        env.cmd(debug_cmd(), 'MOCK_QUERY_TIME', 'disable')
+
+
+def run_ttl_table_emptied_mid_cursor(env, case):
+    """Removing the last document carrying a field TTL mid-cursor is survivable.
+
+    The TTL table is freed when its last entry leaves, while iterators built
+    before that may still hold a decision that assumed it was there. Draining the
+    cursor afterwards must still yield the live document.
+    """
+    conn = setup_case(env, case)
+    try:
+        set_query_time(env, BEFORE_EXPIRY_MS)
+        rows, cursor = aggregate_cursor(env, case, 1)
+        seen = rows_to_keys(rows)
+
+        conn.execute_command('DEL', 'doc:1')
+        seen += drain_cursor(env, cursor)
+
+        env.assertContains('doc:2', seen,
+                           message=f'{case.name}: live doc lost after the TTL table emptied, '
+                                   f'seen={seen}')
+    finally:
+        env.cmd(debug_cmd(), 'MOCK_QUERY_TIME', 'disable')
+
+
+@skip(cluster=True, redis_less_than='7.4')
+def test_expiry_liveness_text(env):
+    run_liveness_across_cursor_reads(env, TEXT_CASE)
+
+
+@skip(cluster=True, redis_less_than='7.4')
+def test_expiry_liveness_tag(env):
+    run_liveness_across_cursor_reads(env, TAG_CASE)
+
+
+@skip(cluster=True, redis_less_than='7.4')
+def test_expiry_liveness_numeric(env):
+    run_liveness_across_cursor_reads(env, NUMERIC_CASE)
+
+
+@skip(cluster=True, redis_less_than='7.4')
+def test_expiry_liveness_geo(env):
+    run_liveness_across_cursor_reads(env, GEO_CASE)
+
+
+@skip(cluster=True, redis_less_than='8.0')
+def test_expiry_liveness_geoshape(env):
+    run_liveness_across_cursor_reads(env, GEOSHAPE_CASE)
+
+
+@skip(cluster=True, redis_less_than='8.0')
+def test_expiry_liveness_vector(env):
+    run_liveness_across_cursor_reads(env, VECTOR_CASE)
+
+
+@skip(cluster=True, redis_less_than='7.4')
+def test_ttl_table_emptied_mid_cursor_text(env):
+    run_ttl_table_emptied_mid_cursor(env, TEXT_CASE)
+
+
+@skip(cluster=True, redis_less_than='7.4')
+def test_ttl_table_emptied_mid_cursor_numeric(env):
+    run_ttl_table_emptied_mid_cursor(env, NUMERIC_CASE)
+
+
+@skip(cluster=True, redis_less_than='8.0')
+def test_ttl_table_emptied_mid_cursor_vector(env):
+    run_ttl_table_emptied_mid_cursor(env, VECTOR_CASE)
+
+
+def run_gate_armed_mid_cursor(env, case):
+    """A field TTL created after the cursor opened is honoured on later reads.
+
+    With no TTL anywhere in the index the expiration gate is off, and an iterator
+    is free to commit to a no-filtering read path when it is built. Arming the
+    gate mid-cursor asks whether that decision is ever revisited: the document is
+    yielded second, so it is still in flight when its TTL appears and lapses.
+    """
+    early_doc, late_doc = case.yield_order
+    conn = setup_case(env, case, ttl_doc=None)
+    try:
+        set_query_time(env, BEFORE_EXPIRY_MS)
+        rows, cursor = aggregate_cursor(env, case, 1)
+        seen_before = rows_to_keys(rows)
+
+        env.assertEqual(seen_before, [early_doc],
+                        message=f'{case.name}: opening chunk was {seen_before}, so the gate '
+                                f'cannot be armed while the TTL document is in flight')
+
+        conn.execute_command('HPEXPIRE', late_doc, str(TTL_MS), 'FIELDS', '1', case.ttl_field)
+        set_query_time(env, AFTER_EXPIRY_MS)
+        seen_after = drain_cursor(env, cursor)
+
+        env.assertEqual(late_doc in seen_after, False,
+                        message=f'{case.name}: document expired by a TTL set after the cursor '
+                                f'opened was still yielded, after={seen_after}')
+    finally:
+        env.cmd(debug_cmd(), 'MOCK_QUERY_TIME', 'disable')
+
+
+@skip(cluster=True, redis_less_than='7.4')
+def test_gate_armed_mid_cursor_text(env):
+    run_gate_armed_mid_cursor(env, TEXT_CASE)
+
+
+@skip(cluster=True, redis_less_than='7.4')
+def test_gate_armed_mid_cursor_tag(env):
+    run_gate_armed_mid_cursor(env, TAG_CASE)
+
+
+@skip(cluster=True, redis_less_than='7.4')
+def test_gate_armed_mid_cursor_numeric(env):
+    run_gate_armed_mid_cursor(env, NUMERIC_CASE)
+
+
+@skip(cluster=True, redis_less_than='7.4')
+def test_gate_armed_mid_cursor_geo(env):
+    run_gate_armed_mid_cursor(env, GEO_CASE)
+
+
+@skip(cluster=True, redis_less_than='8.0')
+def test_gate_armed_mid_cursor_geoshape(env):
+    run_gate_armed_mid_cursor(env, GEOSHAPE_CASE)
+
+
+@skip(cluster=True, redis_less_than='8.0')
+def test_gate_armed_mid_cursor_vector(env):
+    run_gate_armed_mid_cursor(env, VECTOR_CASE)
+
+
+@skip(cluster=True, redis_less_than='7.4')
+def test_hexpire_on_iterated_numeric_field_mid_cursor(env):
+    """`HPEXPIRE` on the numeric field a suspended cursor is iterating.
+
+    Reduced from `test_gate_armed_mid_cursor_numeric`, and reached with no debug
+    command in the sequence. Narrowing, for whoever picks this up:
+
+    - a plain `HSET` on the same field mid-cursor is fine;
+    - `HPEXPIRE` on a field absent from the schema is fine;
+    - `HPEXPIRE` on the field under iteration is fine too, if the index already
+      held a field TTL when the cursor opened;
+    - only the index acquiring its *first* field TTL mid-cursor is not.
+
+    Written up, with the production exposure, in
+    `.vscode/docs/expiry_tests/numeric-cursor-crash.md`.
+    """
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    conn.execute_command('HSET', 'doc:1', 'n', '1')
+    conn.execute_command('HSET', 'doc:2', 'n', '2')
+
+    rows, cursor = env.cmd('FT.AGGREGATE', 'idx', '@n:[0 100]',
+                           'LOAD', 1, '@__key', 'WITHCURSOR', 'COUNT', 1)
+    env.assertEqual(rows_to_keys(rows), ['doc:1'], message=rows)
+
+    conn.execute_command('HPEXPIRE', 'doc:2', str(TTL_MS), 'FIELDS', '1', 'n')
+    seen = drain_cursor(env, cursor)
+
+    env.assertEqual(seen, ['doc:2'], message=seen)
