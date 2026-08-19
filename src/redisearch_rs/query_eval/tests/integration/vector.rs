@@ -603,22 +603,34 @@ impl Drop for VectorFixture {
 fn assert_bound_metric_request(fixture: &VectorFixture, name: &[u8]) {
     let requests = fixture.metric_requests();
     assert_eq!(requests.len(), 1);
-    // SAFETY: the request names the score field, a live string owned by the
-    // vector query.
-    assert_eq!(unsafe { read_module_string(requests[0].metric_name) }, name);
+    assert_bound_to_a_freed_iterator(&requests[0], name, "an iterator that yields a metric");
+}
 
-    let handle = requests[0].key_handle;
+/// Assert `request` names `name` and carries a lookup-key handle that the
+/// iterator yielding it was pointed *back* at, `what` naming whose request it is.
+///
+/// Reserving the request, allocating its handle, and pointing the iterator back
+/// at that handle are three separate steps, and only the third clears the
+/// validity flag when the iterator is freed — as it has been by the time this
+/// reads it. A handle that was merely stored on the request still reads as
+/// valid, so the flag is the only thing here that tells the two apart.
+fn assert_bound_to_a_freed_iterator(request: &rlookup::MetricRequest<'_>, name: &[u8], what: &str) {
+    // SAFETY: the request names the score field, a live string owned by the
+    // vector query that reserved it.
+    assert_eq!(unsafe { read_module_string(request.metric_name) }, name);
+
+    let handle = request.key_handle;
     assert!(
         !handle.is_null(),
-        "an iterator that yields a metric must be bound to a lookup-key handle"
+        "{what} must be bound to a lookup-key handle"
     );
     // SAFETY: non-null checked; the handle is owned by the request and outlives
     // the iterator that was pointed at it.
     let is_valid = unsafe { (*handle).is_valid };
     assert!(
         !is_valid,
-        "freeing the iterator must invalidate the handle, or the back-reference \
-         was never wired up"
+        "freeing the iterator of {what} must invalidate its handle, or the \
+         back-reference was never wired up"
     );
 }
 
@@ -1084,6 +1096,7 @@ fn eval_vector_duplicate_error_reports_binary_names_verbatim() {
         String::from_utf8_lossy(&private)
     );
 }
+
 #[test]
 fn eval_vector_binds_each_node_to_the_request_it_reserved() {
     // A vector child under a vector root, as
@@ -1117,18 +1130,19 @@ fn eval_vector_binds_each_node_to_the_request_it_reserved() {
          descends into its child"
     );
 
-    // The pin. Binding by the reserved index and binding to the last entry are
-    // the same thing for every single-node query, and differ here: the latter
-    // would leave the root's distance unbound and write the child's handle
-    // twice. Re-reading the list by index after the child has appended is also
-    // what keeps the write off a stale pointer, since appending reallocates.
-    assert!(
-        !requests[0].key_handle.is_null(),
-        "the root must bind to the request it reserved, not to the last one"
+    // The pin: binding by reserved index and binding to the last entry coincide
+    // for a single-node query, and differ here — the latter leaves the root
+    // unbound and writes the child's handle twice. Whether the append also moved
+    // the array, dangling a cached pointer, is the allocator's call.
+    assert_bound_to_a_freed_iterator(
+        &requests[0],
+        USER_SCORE_FIELD,
+        "the root, which must bind the request it reserved rather than the last",
     );
-    assert!(
-        !requests[1].key_handle.is_null(),
-        "the child must bind to its own request"
+    assert_bound_to_a_freed_iterator(
+        &requests[1],
+        CHILD_SCORE_FIELD,
+        "the child, which must bind its own",
     );
     assert_ne!(
         requests[0].key_handle, requests[1].key_handle,
@@ -1169,8 +1183,13 @@ fn eval_vector_leaves_its_childs_binding_alone_when_its_own_search_declines() {
         requests[0].key_handle.is_null(),
         "the root never got an iterator, so its own entry stays unbound"
     );
-    assert!(
-        !requests[1].key_handle.is_null(),
-        "the child bound its handle at its own index before the root declined"
+    // Checking the flag and not just the pointer is what makes the root's
+    // disposal of the child iterator observable: the root declined *after* the
+    // child had built and bound one, so the only thing that can have cleared
+    // this is the root freeing it on its way out.
+    assert_bound_to_a_freed_iterator(
+        &requests[1],
+        CHILD_SCORE_FIELD,
+        "the child, which bound at its own index before the root declined",
     );
 }
