@@ -274,7 +274,9 @@ fn write_postings(
             );
 
             let docs_before = ii.unique_docs();
-            let outcome = ii.add_record(&record).unwrap();
+            let outcome = ii
+                .add_record(&record)
+                .expect("in-memory tag inverted index write cannot fail");
             // Count a record only when a new unique document was appended; a
             // duplicate doc id (e.g. a tag repeated in a multi-value field) is
             // skipped by `add_record` and must not be counted.
@@ -346,7 +348,7 @@ impl TagIndex<InMemoryMode> {
     /// the per-tag inverted index.
     ///
     /// Returns the [`WritePostingsDelta`] the caller folds into the spec
-    /// statistics (records, memory, blocks). This always succeeds.
+    /// statistics (records, memory, blocks).
     /// `num_records` counts a (tag, doc) posting as new only when it makes the tag's
     /// posting list grow by a document, so a value repeated within this document's
     /// own multi-value tags is counted once.
