@@ -203,6 +203,27 @@ static long long get_uint_numeric_config(const char *name, void *privdata) {
   return (long long)(*(unsigned int *)privdata);
 }
 
+// True only while RedisModule_LoadConfigs (called from RediSearch_InitModuleConfig) is running.
+static bool loadingStartupConfig = false;
+
+void RSConfig_SetLoadingStartupConfig(bool loading) {
+  loadingStartupConfig = loading;
+}
+
+// Startup must never abort, so an out-of-range value keeps the config's current value with a
+// warning; CONFIG SET stays strict.
+static int warn_or_reject_size_t_config(const char *name, long long val, size_t *privdata,
+                                         RedisModuleString **err) {
+  if (loadingStartupConfig) {
+    RedisModule_Log(RSDummyContext, "warning", "%s: value %lld is out of range, keeping %zu",
+                     name, val, *privdata);
+    return REDISMODULE_OK;
+  }
+  RS_ASSERT(err);
+  *err = RedisModule_CreateStringPrintf(NULL, "%s: value %lld is out of range", name, val);
+  return REDISMODULE_ERR;
+}
+
 // Legacy MAXSEARCHRESULTS -1 means unlimited; shared with setMaxSearchResults so the legacy and
 // native paths cannot drift.
 static size_t translateOrClampMaxSearchResults(long long val) {
@@ -217,6 +238,29 @@ static int set_max_search_results_config(const char *name, long long val, void *
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
   *(size_t *)privdata = translateOrClampMaxSearchResults(val);
+  return REDISMODULE_OK;
+}
+
+// Unlike search-max-search-results, a negative value here does not translate to unlimited on the
+// native path; it warns and keeps the current value. Positive values are still bounded by the
+// registered max (MAX_AGGREGATE_REQUEST_RESULTS), enforced by core before this setter runs.
+static int set_max_aggregate_results_config(const char *name, long long val, void *privdata,
+                                             RedisModuleString **err) {
+  if (val < 0) {
+    return warn_or_reject_size_t_config(name, val, (size_t *)privdata, err);
+  }
+  *(size_t *)privdata = (size_t)val;
+  return REDISMODULE_OK;
+}
+
+// 0 is legal on the legacy FORK_GC_CLEAN_THRESHOLD path but the native path does not mirror that;
+// it warns and keeps the current value.
+static int set_fork_gc_clean_threshold_config(const char *name, long long val, void *privdata,
+                                               RedisModuleString **err) {
+  if (val == 0) {
+    return warn_or_reject_size_t_config(name, val, (size_t *)privdata, err);
+  }
+  *(size_t *)privdata = (size_t)val;
   return REDISMODULE_OK;
 }
 
@@ -2177,8 +2221,8 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterNumericConfig (
       ctx, "search-fork-gc-clean-threshold",
       SearchDisk_IsEnabledForValidation() ? DEFAULT_DISK_GC_CLEAN_THRESHOLD : DEFAULT_FORK_GC_CLEAN_THRESHOLD,
-      REDISMODULE_CONFIG_UNPREFIXED, 1,
-      LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
+      REDISMODULE_CONFIG_UNPREFIXED, 0,
+      LLONG_MAX, get_size_t_numeric_config, set_fork_gc_clean_threshold_config, NULL,
       (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold)
     )
   )
@@ -2237,8 +2281,8 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       ctx, "search-max-aggregate-results",
       SearchDisk_IsEnabled() ? DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS_FLEX
                              : DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS,
-      REDISMODULE_CONFIG_UNPREFIXED, 0,
-      MAX_AGGREGATE_REQUEST_RESULTS, get_size_t_numeric_config, set_size_t_numeric_config,
+      REDISMODULE_CONFIG_UNPREFIXED, -1,
+      MAX_AGGREGATE_REQUEST_RESULTS, get_size_t_numeric_config, set_max_aggregate_results_config,
       NULL, (void *)&(RSGlobalConfig.maxAggregateResults)
     )
   )
