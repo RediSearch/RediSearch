@@ -143,7 +143,7 @@ struct TestHybrid {
 
 class HybridReaderDiskTest : public ::testing::Test {
     std::array<float, 4> queryVec = {1.0f, 2.0f, 3.0f, 4.0f};
-    // Stable address used as ownKey sentinel. MetricsVec_UpdateValue compares by
+    // Stable address used as ownKey sentinel. MetricsVec_UpsertValue compares by
     // pointer identity only and never reads the fields, so zero-init is fine.
     RLookupKey scoreKey = {};
 protected:
@@ -213,7 +213,7 @@ protected:
         auto hr = (HybridIterator *)h.iter;
         // Enable reranking before the first Read() triggers prepareResults().
         hr->runtimeParams.hnswDiskRuntimeParams.shouldRerank = VecSimBool_TRUE;
-        // Provide a non-null ownKey so MetricsVec_UpdateValue can find and update
+        // Provide a non-null ownKey so MetricsVec_UpsertValue can find and update
         // the score entry. In production this is set by the metrics loader results
         // processor; in tests we supply a stable fixture-member address instead.
         hr->ownKey = &scoreKey;

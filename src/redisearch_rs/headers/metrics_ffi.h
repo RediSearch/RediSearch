@@ -50,15 +50,18 @@ struct MetricsSlice MetricsVec_AsSlice(const MetricsVec *metrics);
 MetricsVec MetricsVec_New(void);
 
 /**
- * Finds the first metric whose key matches `key` (pointer equality) and
- * replaces its value.
+ * Sets the value carried under `key`, appending a new entry if none carries it yet.
+ *
+ * See [`MetricsVec::upsert_with_key`] for which metrics belong here rather than in
+ * [`ResultMetrics_Add`].
  *
  * # Safety
  *
  * 1. `metrics` must point to a valid `MetricsVec` (e.g. `&result.metrics`).
- * 2. `key` must point to a valid `RLookupKey`. Compared by pointer identity.
+ * 2. `key` must point to a valid `RLookupKey` that outlives the collection, since an
+ *    absent key is stored rather than ignored. Compared by pointer identity.
  */
-void MetricsVec_UpdateValue(MetricsVec *metrics, const RLookupKey *key, double new_value);
+void MetricsVec_UpsertValue(MetricsVec *metrics, const RLookupKey *key, double new_value);
 
 /**
  * Moves all metrics from `child` into `parent`, leaving `child` empty.
