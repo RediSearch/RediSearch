@@ -37,8 +37,7 @@ float RedisMemory_GetUsedMemoryRatioUnified(RedisModuleCtx *ctx) {
 //
 //   used_ram              everything the process allocated (zmalloc_used_memory): resident values,
 //                         key names and per-key metadata — kept even for flash-resident keys —
-//                         client and replication buffers, module memory, and the SpeedB driver's
-//                         caches and memtables.
+//                         client and replication buffers, module memory, and the disk-related overhead
 //   used_ram_for_swapout  the same total, with actual memtable usage replaced by the full memtable
 //                         budget.
 //
