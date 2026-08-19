@@ -1532,7 +1532,6 @@ dependencies = [
 name = "numeric_range_tree_ffi"
 version = "0.0.1"
 dependencies = [
- "cheadergen",
  "ffi",
  "generational_slab",
  "hyperloglog",
@@ -1838,7 +1837,6 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "c_trie",
- "cheadergen",
  "ffi",
  "field",
  "geo",
@@ -1853,6 +1851,7 @@ dependencies = [
  "redis-module",
  "redis_mock",
  "redisearch_rs",
+ "rlookup",
  "rqe_core",
  "rqe_iterators",
  "rqe_iterators_test_utils",
@@ -2487,6 +2486,7 @@ dependencies = [
  "query_error",
  "redis-module",
  "redis_mock",
+ "rlookup",
  "rqe_core",
  "rqe_iterators",
  "ttl_table",
@@ -3342,7 +3342,6 @@ dependencies = [
 name = "triemap_ffi"
 version = "0.0.1"
 dependencies = [
- "cheadergen",
  "lending-iterator",
  "libc",
  "redis-module",
@@ -3397,7 +3396,6 @@ dependencies = [
 name = "ttl_table_ffi"
 version = "0.0.1"
 dependencies = [
- "cheadergen",
  "ffi",
  "field",
  "libc",
@@ -3412,7 +3410,6 @@ dependencies = [
 name = "types_ffi"
 version = "0.0.1"
 dependencies = [
- "cheadergen",
  "ffi",
  "field",
  "index_result",
@@ -3579,7 +3576,6 @@ name = "varint_ffi"
 version = "0.0.1"
 dependencies = [
  "buffer",
- "cheadergen",
  "ffi",
  "rqe_core",
  "varint",

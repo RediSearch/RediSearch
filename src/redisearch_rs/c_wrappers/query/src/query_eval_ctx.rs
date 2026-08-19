@@ -74,6 +74,13 @@ impl QueryEvalContext {
     ///    non-null it must point to a valid NUL-terminated C string that stays
     ///    valid for at least the lifetime of the returned context (read by
     ///    [`scorer`](QueryEvalContext::scorer)).
+    ///    The head `metricRequestsP` points *at* must be either null — the
+    ///    empty list — or a live `array.h` tracked array of initialised
+    ///    [`MetricRequest`]s, that being the only shape carrying the length
+    ///    header that [`metric_requests`](QueryEvalContext::metric_requests)
+    ///    reads back. A plain allocation holding one [`MetricRequest`] would
+    ///    satisfy every other clause here and still make that safe method read
+    ///    outside it.
     /// 3. The caller must have exclusive access to the pointer for the
     ///    lifetime of the returned [`QueryEvalContext`].
     ///
@@ -232,9 +239,42 @@ impl QueryEvalContext {
     /// The C side appends entries via `array_ensure_append_1`. Rust callers
     /// that create vector iterators use this to register score-field metric
     /// requests.
-    pub fn metric_requests_ptr(&self) -> &*mut MetricRequest<'_> {
-        // SAFETY: invariant (2) of `new`.
-        unsafe { &*self.as_ref().metricRequestsP.cast() }
+    ///
+    /// Exclusive because appending reallocates, which invalidates any slice
+    /// [`metric_requests`](Self::metric_requests) handed out: taking the two
+    /// borrows apart is what stops a reader from outliving the array it read.
+    pub const fn metric_requests_ptr(&mut self) -> *mut *mut MetricRequest<'_> {
+        self.as_mut().metricRequestsP.cast()
+    }
+
+    /// The metric requests reserved so far, in the order they were reserved.
+    ///
+    /// The read side of what
+    /// [`metric_requests_ptr`](Self::metric_requests_ptr) is appended through.
+    /// The slice borrows this context for as long as it is held, so no append
+    /// can run while it is alive.
+    pub fn metric_requests(&self) -> &[MetricRequest<'_>] {
+        // SAFETY: invariant (2) of `new`, which also gives the head the
+        // tracked-array shape the length read below depends on.
+        let head = unsafe {
+            *self
+                .as_ref()
+                .metricRequestsP
+                .cast::<*mut MetricRequest<'_>>()
+        };
+        if head.is_null() {
+            // The list is a tracked array, whose empty state is a null head
+            // with no length header behind it to read.
+            return &[];
+        }
+        // SAFETY: a non-null head points just past the length header of a
+        // tracked array, which is what records how many elements follow it.
+        let len = unsafe { ffi::array_len_func(head.cast()) } as usize;
+        // SAFETY: those `len` elements are initialised `MetricRequest`s, and
+        // the array lives as long as the context holding its head — which the
+        // returned slice borrows, so nothing can append to it and move it out
+        // from under the slice.
+        unsafe { std::slice::from_raw_parts(head, len) }
     }
 
     /// Allocate the next token ID and return it (post-increment).

@@ -31,17 +31,9 @@ typedef struct Cursor {
    */
   WeakRef spec_ref;
 
-  /**
-   * Hybrid request reference. This is a strong reference to the hybrid request.
-   * If the hybrid request is NULL, this is a regular cursor.
-   */
-  StrongRef hybrid_ref;
-
   /** The parked request — the cursor is its owner between cycles, holding one
    * QueryRequest reference released by Cursor_FreeInternal.
-   * NULL only for the hybrid single-cursor fallback.
-   * TRANSITIONAL(MOD-16691): hybrid sub-cursors hold their reference through
-   * hybrid_ref instead, until the container-handoff step retires it. */
+   * Hybrid sub-cursors take theirs at publication (the container handoff). */
   QueryRequest *query;
 
   /** Time when this cursor will no longer be valid, in nanos */
@@ -74,8 +66,7 @@ typedef struct Cursor {
 } Cursor;
 
 /* The AREQ carried by this cursor: the parked request for plain
- * cursors, the sub-AREQ for hybrid sub-cursors. NULL for the hybrid
- * single-cursor fallback. */
+ * cursors, the sub-AREQ for hybrid sub-cursors. */
 static inline AREQ *Cursor_AREQ(const Cursor *cur) {
   if (!cur->query) {
     return NULL;

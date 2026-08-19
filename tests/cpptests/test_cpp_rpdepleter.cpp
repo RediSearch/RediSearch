@@ -113,6 +113,38 @@ protected:
     }
   }
 
+  // Build a single-depleter pipeline over `upstream`, start depletion, drain
+  // the DEPLETING phase, then yield every buffered result, expecting doc ids
+  // sequential from 1. Returns the last (non-OK) return code.
+  int runDepleterToCompletion(ResultProcessor *upstream, int expectedResults) {
+    QueryProcessingCtx qitr = {0};
+    ResultProcessor *depleter =
+        RPSafeDepleter_New(DepleterSync_New(1, GetParam()), &searchContexts[0], depleterPool);
+    QITR_PushRP(&qitr, upstream);
+    QITR_PushRP(&qitr, depleter);
+
+    RPSafeDepleter_StartDepletion(depleter);
+
+    SearchResult res = SearchResult_New();
+    int rc;
+    while ((rc = depleter->Next(depleter, &res)) == RS_RESULT_DEPLETING) {
+      // Next blocks on the shared cv; nothing to do between wakeups.
+    }
+
+    int resultCount = 0;
+    do {
+      if (rc == RS_RESULT_OK) {
+        EXPECT_EQ(SearchResult_GetDocId(&res), ++resultCount);
+        SearchResult_Clear(&res);
+      }
+    } while ((rc = depleter->Next(depleter, &res)) == RS_RESULT_OK);
+    EXPECT_EQ(resultCount, expectedResults);
+
+    SearchResult_Destroy(&res);
+    depleter->Free(depleter);
+    return rc;
+  }
+
   std::array<RedisModuleCtx*, NumberOfContexts> redisContexts;
   std::array<RedisSearchCtx, NumberOfContexts> searchContexts;
   std::array<QueryRequestTimeout *, NumberOfContexts> timeouts = {nullptr};
@@ -123,90 +155,24 @@ TEST_P(RPSafeDepleterTest, RPSafeDepleter_Basic) {
   // Tests basic RPSafeDepleter functionality: background thread depletes upstream results,
   // main thread waits on condition variable, then yields results in order.
 
-  bool take_index_lock = GetParam();
-
   // Mock upstream processor: yields 3 results, then EOF
-  const size_t n_docs = 3;
-  QueryProcessingCtx qitr = {0};
-
+  const int n_docs = 3;
   MockUpstream mockUpstream(n_docs, RS_RESULT_EOF);
 
-  // Create safe depleter processor with new sync reference
-  ResultProcessor *depleter = RPSafeDepleter_New(DepleterSync_New(1, take_index_lock), &searchContexts[0], &searchContexts[1], depleterPool);
-
-  QITR_PushRP(&qitr, &mockUpstream);
-  QITR_PushRP(&qitr, depleter);
-
-  SearchResult res = SearchResult_New();
-  int rc;
-  int depletingCount = 0;
-  // The first call(s) should return RS_RESULT_DEPLETING until the thread is done
-  while ((rc = depleter->Next(depleter, &res)) == RS_RESULT_DEPLETING) {
-    depletingCount++;
-  }
-  ASSERT_GT(depletingCount, 0); // Should have at least one depleting state
-
-  // Now, results should be available
-  int resultCount = 0;
-  do {
-    if (rc == RS_RESULT_OK) {
-      ASSERT_EQ(SearchResult_GetDocId(&res), ++resultCount);
-      SearchResult_Clear(&res);
-    }
-  } while ((rc = depleter->Next(depleter, &res)) == RS_RESULT_OK);
-
-  // We expect to have received all results from the upstream processor.
-  ASSERT_EQ(resultCount, n_docs);
   // The last return code should be RS_RESULT_EOF, as the upstream last returned.
-  ASSERT_EQ(rc, RS_RESULT_EOF);
-
-  SearchResult_Destroy(&res);
-  depleter->Free(depleter);
+  ASSERT_EQ(runDepleterToCompletion(&mockUpstream, n_docs), RS_RESULT_EOF);
 }
 
 TEST_P(RPSafeDepleterTest, RPSafeDepleter_Timeout) {
   // Tests RPSafeDepleter handling of upstream timeout: background thread gets timeout,
   // main thread waits on condition variable, then yields results and timeout.
 
-  bool take_index_lock = GetParam();
-
   // Mock upstream processor: yields 3 results, then timeout.
-  const size_t n_docs = 3;
-  QueryProcessingCtx qitr = {0};
-
+  const int n_docs = 3;
   MockUpstream mockUpstream(n_docs, RS_RESULT_TIMEDOUT);
 
-  // Create safe depleter processor with new sync reference
-  ResultProcessor *depleter = RPSafeDepleter_New(DepleterSync_New(1, take_index_lock), &searchContexts[0], &searchContexts[1], depleterPool);
-
-  QITR_PushRP(&qitr, &mockUpstream);
-  QITR_PushRP(&qitr, depleter);
-
-  SearchResult res = SearchResult_New();
-  int rc;
-  int depletingCount = 0;
-
-  // The first call(s) should return RS_RESULT_DEPLETING until the thread is done
-  while ((rc = depleter->Next(depleter, &res)) == RS_RESULT_DEPLETING) {
-    depletingCount++;
-  }
-  ASSERT_GT(depletingCount, 0);
-
-  // Now, results should be available
-  int resultCount = 0;
-  do {
-    if (rc == RS_RESULT_OK) {
-      ASSERT_EQ(SearchResult_GetDocId(&res), ++resultCount);
-      SearchResult_Clear(&res);
-    }
-  } while ((rc = depleter->Next(depleter, &res)) == RS_RESULT_OK);
-
-  ASSERT_EQ(resultCount, n_docs);
   // The last return code should be RS_RESULT_TIMEDOUT, as the upstream last returned.
-  ASSERT_EQ(rc, RS_RESULT_TIMEDOUT);
-
-  SearchResult_Destroy(&res);
-  depleter->Free(depleter);
+  ASSERT_EQ(runDepleterToCompletion(&mockUpstream, n_docs), RS_RESULT_TIMEDOUT);
 }
 
 TEST_P(RPSafeDepleterTest, RPSafeDepleter_CrossWakeup) {
@@ -230,8 +196,8 @@ TEST_P(RPSafeDepleterTest, RPSafeDepleter_CrossWakeup) {
 
   // Create shared sync reference and two safe depleters sharing it
   StrongRef sync_ref = DepleterSync_New(2, take_index_lock);
-  ResultProcessor *fastDepleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), &searchContexts[0], &searchContexts[2], depleterPool);
-  ResultProcessor *slowDepleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), &searchContexts[1], &searchContexts[2], depleterPool);
+  ResultProcessor *fastDepleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), &searchContexts[0], depleterPool);
+  ResultProcessor *slowDepleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), &searchContexts[1], depleterPool);
   StrongRef_Release(sync_ref);  // Release our reference
 
   // Set up pipelines
@@ -240,24 +206,20 @@ TEST_P(RPSafeDepleterTest, RPSafeDepleter_CrossWakeup) {
   QITR_PushRP(&qitr2, &slowUpstream);
   QITR_PushRP(&qitr2, slowDepleter);
 
-  SearchResult res = SearchResult_New();
+  RPSafeDepleter_StartDepletion(slowDepleter);
+  RPSafeDepleter_StartDepletion(fastDepleter);
 
-  // Start both depleters - they should both return DEPLETING initially
-  int rc2 = slowDepleter->Next(slowDepleter, &res);
-  int rc1 = fastDepleter->Next(fastDepleter, &res);
-  ASSERT_EQ(rc1, RS_RESULT_DEPLETING);
-  ASSERT_EQ(rc2, RS_RESULT_DEPLETING);
+  SearchResult res = SearchResult_New();
 
   // Call Next on the slow depleter, and get `RS_RESULT_DEPLETING`, indicating
   // that the fast depleter-thread has finished and woke it up.
-  rc2 = slowDepleter->Next(slowDepleter, &res);
+  int rc2 = slowDepleter->Next(slowDepleter, &res);
   ASSERT_EQ(rc2, RS_RESULT_DEPLETING);
 
-  if (take_index_lock) {
-    // Wait for the locks to be taken
-    while ((rc1 = fastDepleter->Next(fastDepleter, &res)) == RS_RESULT_DEPLETING) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
+  // Drain any further cross-wakeups until the fast depleter itself completes.
+  int rc1;
+  while ((rc1 = fastDepleter->Next(fastDepleter, &res)) == RS_RESULT_DEPLETING) {
+    // Next blocks on the shared cv; nothing to do between wakeups.
   }
 
   // Deplete the fast depleter - each result should be available immediately,
@@ -294,46 +256,13 @@ TEST_P(RPSafeDepleterTest, RPSafeDepleter_CrossWakeup) {
 TEST_P(RPSafeDepleterTest, RPSafeDepleter_Error) {
   // Tests RPSafeDepleter handling of upstream error: background thread gets error,
   // main thread waits on condition variable, then propagates the error.
-  // Mock upstream processor sends an error on the first call.
-
-  bool take_index_lock = GetParam();
-
-  QueryProcessingCtx qitr = {0};
+  // Mock upstream processor sends an error on the first call; no results reach
+  // the yield phase.
 
   MockUpstream mockUpstream(0, RS_RESULT_ERROR);
 
-  // Create safe depleter processor with new sync reference
-  ResultProcessor *depleter = RPSafeDepleter_New(DepleterSync_New(1, take_index_lock), &searchContexts[0], &searchContexts[1], depleterPool);
-
-  QITR_PushRP(&qitr, &mockUpstream);
-  QITR_PushRP(&qitr, depleter);
-
-  SearchResult res = SearchResult_New();
-  int rc;
-  int depletingCount = 0;
-
-  // The first call(s) should return RS_RESULT_DEPLETING until the thread is done
-  while ((rc = depleter->Next(depleter, &res)) == RS_RESULT_DEPLETING) {
-    depletingCount++;
-  }
-  // We now expect to have more than one call to the Next function while the
-  // depleter is running in the background.
-  ASSERT_GT(depletingCount, 0);
-
-  // Now, results should be available (no results will be reached here)
-  int resultCount = 0;
-  do {
-    if (rc == RS_RESULT_OK) {
-      ASSERT_EQ(SearchResult_GetDocId(&res), ++resultCount);
-      SearchResult_Clear(&res);
-    }
-  } while ((rc = depleter->Next(depleter, &res)) == RS_RESULT_OK);
-
   // The last return code should be RS_RESULT_EOF, as the upstream last returned.
-  ASSERT_EQ(rc, RS_RESULT_EOF);
-
-  SearchResult_Destroy(&res);
-  depleter->Free(depleter);
+  ASSERT_EQ(runDepleterToCompletion(&mockUpstream, 0), RS_RESULT_EOF);
 }
 
 // Drive RPSafeDepleter_WaitForCompletion on a separate thread and assert it
@@ -353,74 +282,31 @@ static void AssertWaitForCompletionDoesNotBlock(ResultProcessor *depleter, int t
   waiter.join();
 }
 
-// Regression for the deadlock found in the split-pipeline path: if the
-// lazy-start branch of Next_Dispatch bails on a clock timeout, no BG job is
-// scheduled. A subsequent WaitForCompletion must observe that and return
-// immediately, not block on `done_depleting` which will never be signaled.
-TEST_P(RPSafeDepleterTest, RPSafeDepleter_LazyTimeoutThenWaitForCompletion) {
+// Regression for the deadlock found in the split-pipeline path: a depleter the
+// launcher resolved as timed out has no BG job in flight, so WaitForCompletion
+// must return immediately rather than block on `done_depleting`, which will
+// never be signaled — and Next must yield the timeout.
+TEST_P(RPSafeDepleterTest, RPSafeDepleter_MarkTimedOut) {
   bool take_index_lock = GetParam();
   QueryProcessingCtx qitr = {nullptr};
 
   MockUpstream mockUpstream(3, RS_RESULT_EOF);
 
-  // Force the depleter's nextThreadCtx to look already-timed-out.
-  struct timespec past_timeout;
-  clock_gettime(CLOCK_MONOTONIC_RAW, &past_timeout);
-  past_timeout.tv_sec -= 1;
-  *QueryRequestTimeout_GetClockDeadlineForUpdate(searchContexts[1].timeout) = past_timeout;
-
   ResultProcessor *depleter = RPSafeDepleter_New(
-      DepleterSync_New(1, take_index_lock),
-      &searchContexts[0], &searchContexts[1], depleterPool);
+      DepleterSync_New(1, take_index_lock), &searchContexts[0], depleterPool);
 
   QITR_PushRP(&qitr, &mockUpstream);
   QITR_PushRP(&qitr, depleter);
 
-  // Lazy branch sees the timeout, switches Next to Yield, returns TIMEDOUT
-  // without scheduling a BG job.
+  RPSafeDepleter_MarkTimedOut(depleter);
+
+  AssertWaitForCompletionDoesNotBlock(depleter);
+
   SearchResult res = SearchResult_New();
   int rc = depleter->Next(depleter, &res);
   ASSERT_EQ(rc, RS_RESULT_TIMEDOUT);
 
-  AssertWaitForCompletionDoesNotBlock(depleter);
-
-  SearchResult_Destroy(&res);
-  depleter->Free(depleter);
-}
-
-// Regression: RPSafeDepleter_StartDepletion bailing on a clock timeout must
-// leave the depleter in the "not scheduled" state so that:
-//   - WaitForCompletion is a no-op
-//   - a subsequent Next() runs the lazy branch and yields TIMEDOUT
-TEST_P(RPSafeDepleterTest, RPSafeDepleter_StartDepletionTimeoutBailout) {
-  bool take_index_lock = GetParam();
-  QueryProcessingCtx qitr = {nullptr};
-
-  MockUpstream mockUpstream(3, RS_RESULT_EOF);
-
-  struct timespec past_timeout;
-  clock_gettime(CLOCK_MONOTONIC_RAW, &past_timeout);
-  past_timeout.tv_sec -= 1;
-  *QueryRequestTimeout_GetClockDeadlineForUpdate(searchContexts[1].timeout) = past_timeout;
-
-  ResultProcessor *depleter = RPSafeDepleter_New(
-      DepleterSync_New(1, take_index_lock),
-      &searchContexts[0], &searchContexts[1], depleterPool);
-
-  QITR_PushRP(&qitr, &mockUpstream);
-  QITR_PushRP(&qitr, depleter);
-
-  // StartDepletion bails because the clock has already passed.
-  RPSafeDepleter_StartDepletion(depleter);
-
-  AssertWaitForCompletionDoesNotBlock(depleter);
-
-  // Late Next() must re-detect the timeout via the lazy path.
-  SearchResult res = SearchResult_New();
-  int rc = depleter->Next(depleter, &res);
-  ASSERT_EQ(rc, RS_RESULT_TIMEDOUT);
-
-  // Still a no-op after the lazy branch ran on a timed-out depleter.
+  // Still a no-op after yielding on the marked depleter.
   AssertWaitForCompletionDoesNotBlock(depleter);
 
   SearchResult_Destroy(&res);

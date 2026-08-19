@@ -46,11 +46,20 @@ fn status_mutations_are_visible() {
 }
 
 #[test]
-fn metric_requests_ptr_returns_inner_ref() {
+fn metric_requests_ptr_addresses_the_context_field() {
     let mut mock = MockQueryEvalCtx::new();
-    let ctx = unsafe { QueryEvalContext::new(mock.as_non_null()) };
+    let mut ctx = unsafe { QueryEvalContext::new(mock.as_non_null()) };
     let ptr = ctx.metric_requests_ptr();
     assert!(std::ptr::eq(ptr, mock.metric_requests_p().cast()));
+}
+
+#[test]
+fn metric_requests_is_empty_before_any_are_reserved() {
+    // A tracked array reads as a null head until its first append, which is not
+    // a length of zero to read but the absence of a length header altogether.
+    let mut mock = MockQueryEvalCtx::new();
+    let ctx = unsafe { QueryEvalContext::new(mock.as_non_null()) };
+    assert!(ctx.metric_requests().is_empty());
 }
 
 #[test]

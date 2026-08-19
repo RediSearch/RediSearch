@@ -40,8 +40,9 @@ typedef enum {
 
 /** Context passed to all redis related search handling functions. */
 typedef struct RedisSearchCtx {
+  // Borrowed, never owned; valid only within the execution cycle that lent it
+  // (command handler, worker cycle, or per-read install for cursor reads).
   RedisModuleCtx *redisCtx;
-  RedisModuleKey *key_;
   IndexSpec *spec;
   // Real-clock snapshot shared by document, field, and disk TTL checks so one execution cycle
   // evaluates every expiration against the same instant.
@@ -49,8 +50,7 @@ typedef struct RedisSearchCtx {
   // Borrowed request timeout, wired when the request adopts this search context.
   // NULL when there is no owning request.
   struct QueryRequestTimeout *timeout;
-  unsigned int apiVersion; // API Version to allow for backward compatibility / alternative functionality
-  unsigned int expanded; // Reply format
+  uint8_t apiVersion; // API Version to allow for backward compatibility / alternative functionality
   SpecLockState lock_state;
   // Per-query disk snapshot (optional, NULL when no snapshot has been taken or when the
   // backing index has no disk component). Used by the disk-iterator construction paths
@@ -70,7 +70,6 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool r
 static inline RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *sp) {
   RedisSearchCtx sctx = {
                           .redisCtx = ctx,
-                          .key_ = NULL,
                           .spec = sp,
                           .currentTime = { 0, 0 },
                           .timeout = NULL,

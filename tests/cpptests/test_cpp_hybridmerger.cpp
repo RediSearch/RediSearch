@@ -155,12 +155,10 @@ struct MockUpstream : public ResultProcessor {
 static RedisSearchCtx* GetDummySearchCtx() {
   static RedisSearchCtx dummySctx = {
     .redisCtx = NULL,
-    .key_ = NULL,
     .spec = NULL,
     .currentTime = {0, 0},
     .timeout = NULL,
     .apiVersion = 0,
-    .expanded = 0,
     .lock_state = SPEC_LOCK_UNSET,
   };
   return &dummySctx;

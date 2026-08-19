@@ -290,7 +290,6 @@ int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *sta
 
 void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req) {
   if (AREQ_RequestFlags(req) & QEXEC_FORMAT_EXPAND) {
-    sctx->expanded = 1;
     sctx->apiVersion = MAX(APIVERSION_RETURN_MULTI_CMP_FIRST, req->reqConfig.dialectVersion);
   } else {
     sctx->apiVersion = req->reqConfig.dialectVersion;
@@ -1772,15 +1771,10 @@ void AREQ_Free(AREQ *req) {
   }
   rm_free((void *)req->querySlots);
 
-  // Finally, free the context. If we are a cursor or have multi workers threads,
-  // we need also to detach the ("Thread Safe") context.
-  RedisModuleCtx *thctx = NULL;
+  // Finally, free the context. Its redisCtx is a cycle-scoped borrow, never
+  // owned, so there is nothing to release here.
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
   if (sctx) {
-    if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-      thctx = sctx->redisCtx;
-      sctx->redisCtx = NULL;
-    }
     // Here we unlock the spec
     SearchCtx_Free(sctx);
   }
@@ -1802,9 +1796,6 @@ void AREQ_Free(AREQ *req) {
     Param_DictFree(req->searchopts.params);
   }
   FieldList_Free(&req->outFields);
-  if (thctx) {
-    RedisModule_FreeThreadSafeContext(thctx);
-  }
   if(req->requiredFields) {
     array_free(req->requiredFields);
   }

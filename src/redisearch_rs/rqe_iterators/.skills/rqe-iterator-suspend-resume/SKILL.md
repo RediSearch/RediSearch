@@ -124,6 +124,73 @@ After the child slot is transitioned, `Box::from_raw(raw.cast())` the wrapper.
 The wrapper must be `#[repr(C)]` with the child slot plus only `Rf`-free fields
 and the ZST `PhantomData<Rf>`.
 
+### Transition *every* child, exhausted ones included
+
+A composite that holds several children (a `Vec<I>`, a fixed pair, …) walks all of
+them. Not the active region, not the ones still in its heap — **every slot it
+owns**, including the ones it parked as spent. This is not an optimisation
+opportunity; skipping the inactive ones is wrong twice over:
+
+1. **The cast retypes the whole buffer at once.** After
+   `Box::from_raw(raw.cast())` every slot is typed `S::Resumed<'a>`, so one left
+   holding an `S` is read at the wrong type by anything that touches it —
+   `Drop` included. There is no per-slot opt-out: it is transition-all or
+   transition-none.
+2. **`rewind` re-admits all of them.** A composite's `rewind` resets
+   `num_active` to `children.len()` (or rebuilds its heap) and rewinds each
+   child, so exhaustion is not out-of-reach — it is one `rewind` away. A child
+   skipped on the grounds that it was spent is a suspended iterator the very next
+   rewind rewinds and reads.
+
+The only child that leaves the collection is one whose `resume` reported
+`Aborted` or `Err`: the helper consumed it, so the composite removes or compacts
+over its slot, exactly as `revalidate` drops an aborted child. Whatever it does
+there, the buffer must stay in a shape the teardown path can describe — for a
+`Vec` of children, compacting survivors down keeps it a resumed prefix followed
+by a suspended suffix, which is the split a teardown after a mid-walk `Err` needs.
+
+Removing a child *does* invalidate any active/parked partition or index-keyed
+side table (`num_active`, a heap of `child_idx` entries), so rebuild those after
+the walk — and say that is why, not the reason ruled out in the next section.
+Rebuild them **before** rebuilding the aggregate, not after: a side-table
+rebuild that touches children mutably undoes the entries' provenance. See
+"Call it last" below.
+
+### Exhaustion is terminal: assume it, don't compensate for it
+
+`RQEIterator::at_eof` owns the rule: once it is `true` it stays `true` until
+`rewind`, across `revalidate` and `resume` alike. A composite relies on it:
+
+- a child suspended at `at_eof` resumes at `at_eof`;
+- a child dropped from the active set *because* it hit EOF cannot re-enter it
+  behind the parent's position.
+
+A leaf that restores its position with `rewind()` + `skip_to` has to take care
+here: the `rewind` clears the past-the-end state, so an iterator that was *at*
+EOF must have that position restored explicitly rather than re-sought.
+
+So **do not carry recovery code for a resurrected child**. Where a "child landed
+behind us" path is still structurally reachable for some *other* reason — a
+`QUICK_EXIT` union's own early return strands a live sibling — gate the recovery
+on that reason and `debug_assert!` the rest, so a broken child is surfaced rather
+than quietly absorbed. Both unions do exactly this:
+
+```rust
+if min_doc_id < original_last_doc_id {
+    debug_assert!(
+        QUICK_EXIT,
+        "a full union's child moved behind the union's position: …",
+    );
+```
+
+Enforcement is already in the harness — lean on it rather than re-deriving it.
+`rqe_iterators_test_utils::revalidate_via_resume` is the funnel every resume test
+goes through, and it asserts across the cycle that an at-EOF iterator stays at
+EOF, that the position never moves backwards, and that `Ok` means an unchanged
+position; `ContractChecker` asserts the `RQEIterator` half. A test that reaches a
+state the rules forbid asserts the **panic** (`#[should_panic]` +
+`#[cfg(debug_assertions)]`) rather than the compensation.
+
 ### The child slot: use a `#[repr(C)]` enum, not `Option<I>`
 
 When the child slot must express **"present or absent"** (or "either the child or
@@ -222,35 +289,53 @@ The direction asymmetry is the crux:
   re-narrowing. Leaves do exactly this in their `resume_in_place` (refresh the
   reader, promote the result).
 
-**Virtual sentinels are the trap.** An iterator whose result is a virtual
-sentinel (`RSIndexResult::build_virt()`, `kind() == Virtual`) has no `Rf`-borrows
-in `data`, so resume needs to re-validate nothing. But note two things:
+### Aggregates: rebuild the entries, never merely re-narrow them
 
-1. Because `current()` hands the result out **mutably**, "still virtual" is an
-   *unenforced* runtime invariant — a consumer *could* replace `data` with a real
-   payload. So it must be **checked at the resume boundary, not assumed**:
-   `kind() == Virtual` is the whole condition (`dmd`/`metrics` are not
-   `Rf`-parametrized, so they don't affect the reinterpretation).
-2. An owner of a *sentinel* has no index backing to re-validate a foreign payload
-   against — it cannot recover a non-virtual result. So on violation it must
-   **refuse to reinterpret** stale pointers as live — never silently continue.
-   The approved pattern makes this check on `&self` **before** `Box::into_raw`
-   opens the raw-pointer critical section, and returns `Ok(ResumeOutcome::Aborted)`
-   so the box simply drops. It must **not** be surfaced as `Err`: a sentinel
-   violation is a recoverable unsafe-to-resume state that callers already handle
-   via `ResumeOutcome::Aborted`, and `RQEIteratorError` is reserved for genuine
-   `TimedOut`/`IoError` failures — turning this into an `Err` would raise a
-   user-visible error where none is warranted.
+An **aggregate** result holds one borrowed entry per contributing child, each
+derived from a borrow of that child's result. Transitioning a child hands its
+allocation through a by-value `Box<Self>`, and that retag kills the borrow the
+entry came from, even though the child never moves. The address survives, the
+provenance does not — so the whole-box cast alone leaves entries that are
+well-addressed and UB to read, which is what a scorer walking `current()` after
+an `Ok` resume does.
 
-Worked examples:
+Discharge it by **rebuilding the entry list** while the result is still
+suspended: reset the aggregate's records, then push one entry per contributor
+through `index_result::RawAggregateResult::push_borrowed_ptr_from_ref`.
 
-- `optional.rs` — `Optional`'s `resume` checks `self.result.kind() != Virtual`
-  on `&self`, **before** `Box::into_raw`, and returns `Ok(ResumeOutcome::Aborted)`
-  on violation (the box just drops). It cannot re-validate an index-backed payload
-  it did not create, so it refuses to reinterpret rather than erroring.
-- `maybe_empty.rs` — `MaybeEmpty` owns **no** result, so it has no virtual
-  fallback: a child that aborts on resume aborts the whole wrapper (the consumed
-  `Some(I)` slot is rewritten to `None(Empty)` before the box is dropped).
+**Recompute the contributor set; do not recognise it.** An entry records only an
+address, so matching entries back to children breaks as soon as a composite
+compacts over a dropped slot, and cannot tell a survivor that moved onto that
+address from the one always there. Every composite already knows the rule it
+chose contributors by — a union takes every child on its document, an
+intersection publishes only once all of them agree — so evaluate that rule again
+over the survivors, in the composite's own module.
+
+**Recompute `freq` and `field_mask`; carry `metrics` and `doc_id` across.** The
+first two are copies of what each contributor holds. Metrics are *moved* out of
+the children when the aggregate is first built, so there is nothing to
+re-accumulate and resetting them drops `__vector_score` for good — which is why
+`reset_aggregate` is the wrong clearing tool, since it takes all four. Reset the
+records alone, and read `doc_id` before you do.
+
+**Narrow the result, never widen the children.** Entries are stored at the
+composite's `'query` while its resumed children sit at the shorter `'a`.
+Admitting an `'a` child into a `'query` slot silently widens its query-pipeline
+pointers, which `into_active` excludes from the caller's obligations precisely
+because the `'query: 'a` bound covers them. `push_borrowed_ptr_from_ref` ties its
+child to `'query` so that is rejected; `&mut` is invariant, so narrowing the
+result takes an explicit re-cast of the pointer.
+
+**Call it last** — after the child walk, after any side-table rebuild, with no
+`&mut` taken to a child afterwards: each entry is a shared reborrow whose tag a
+later `read`, `skip_to`, `iter_mut` or `swap_remove` pops. `&mut` to the
+composite itself is fine.
+
+**Act on the outcome**, behind a `#[must_use]` type phrased as the composite
+means it — a union needs one child behind its document, an intersection needs
+all of them. Coming up short is safe to re-narrow and unsafe to publish: return
+`ResumeOutcome::Aborted` unless the path rebuilds anyway (a union's settle, an
+intersection's `skip_to`) or is gated on `is_eof`.
 
 ## Layout-invariant enforcement (compile-time)
 
@@ -305,6 +390,15 @@ teardown. Any bespoke in-place transition code must reproduce this.
       `from_raw`); never rebuilt with `Box::new`.
 - [ ] Generic children are transitioned via `suspend_child_slot_in_place` /
       `resume_child_slot_in_place`, **never** whole-box cast directly.
+- [ ] **Every** child slot is transitioned — the parked and exhausted ones too,
+      not just the active region — and only an `Aborted`/`Err` child leaves the
+      collection. Any active/parked partition or index-keyed side table is
+      rebuilt afterwards *because a removal invalidated it*, not because a child
+      can come back.
+- [ ] No resurrection compensation: a child at `at_eof` before the cycle is
+      assumed at `at_eof` after it. A "child landed behind us" recovery is gated
+      on a reason other than resurrection (e.g. `QUICK_EXIT`) and
+      `debug_assert!`ed otherwise.
 - [ ] A child slot that can be absent uses a **`#[repr(C)]` enum** (e.g.
       `OptionalChild`/`MaybeEmptyOption`), **never** `Option<I>` (niche layout is
       not transmute-stable across `I → I::Suspended`).
@@ -324,6 +418,11 @@ teardown. Any bespoke in-place transition code must reproduce this.
       the resume **refuses to reinterpret** on violation — returning
       `ResumeOutcome::Aborted` (never `Err`: the state is recoverable, and
       `RQEIteratorError` is only for `TimedOut`/`IoError`).
+- [ ] If the iterator owns an **aggregate**, `resume` rebuilds its entries from
+      the transitioned children — recomputing the contributor set rather than
+      matching by address, recomputing `freq`/`field_mask` with it, carrying
+      `metrics`/`doc_id` across, narrowing the result to the children's lifetime
+      rather than widening theirs, and acting on the `#[must_use]` outcome.
 - [ ] Panic window is covered (the shared helpers already do; bespoke in-place
       code must arm its own abort guard).
 - [ ] `// SAFETY:` comments cite the invariant; no compiler-enforced fact is

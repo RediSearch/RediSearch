@@ -782,6 +782,28 @@ done_2:
     return rc;
 }
 
+/* Reply-callback mode: hand the cycle's results to the main thread instead of
+ * serializing them into `reply` (or forfeit them to a lost strict claim).
+ * The ctx loan is returned before the results are stored and signaled: the
+ * strict timeout callback may serialize them on the main thread the moment it
+ * wakes, and must not observe this cycle's dying ctx through sctx->redisCtx.
+ * The pipeline is done with the ctx once it reaches here. */
+static void storeResultsForReplyCallback(AREQ *req, SearchResult *r, SearchResult **results,
+                                         int rc, cachedVars cv, size_t limit) {
+  if (!req->base.async.aggregateResultsClaimLost) {
+    AREQ_SearchCtx(req)->redisCtx = NULL;
+    debugPauseStoreResults(req, true);  // pause before
+    AREQ_StoreResults(req, results, rc, cv, limit);
+    debugPauseStoreResults(req, false); // pause after
+
+    // Signal completion for main-thread timeout
+    if (AREQ_RequiresThreadsSyncResults(req)) {
+      AREQ_SignalAggregateResultsComplete(req);
+    }
+  }
+  SearchResult_Destroy(r);
+}
+
 /**
  * Sends a chunk of <n> rows in the resp2 format
  */
@@ -803,23 +825,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     startPipeline(req, rp, &state.results, &r, &rc);
 
     if (QueryRequest_UsesReplyCallback(&req->base)) {
-      if (req->base.async.aggregateResultsClaimLost) {
-        SearchResult_Destroy(&r);
-        return;
-      }
-
-      // Store results for reply_callback (includes cv and limit)
-      debugPauseStoreResults(req, true);  // pause before
-      AREQ_StoreResults(req, state.results, rc, cv, limit);
-      debugPauseStoreResults(req, false); // pause after
-
-      // Signal completion for main-thread timeout
-      if (AREQ_RequiresThreadsSyncResults(req)) {
-        AREQ_SignalAggregateResultsComplete(req);
-      }
-
-      // Destroy unused SearchResult
-      SearchResult_Destroy(&r);
+      storeResultsForReplyCallback(req, &r, state.results, rc, cv, limit);
       return;
     }
 
@@ -1025,23 +1031,7 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     startPipeline(req, rp, &state.results, &r, &rc);
 
     if (QueryRequest_UsesReplyCallback(&req->base)) {
-      if (req->base.async.aggregateResultsClaimLost) {
-        SearchResult_Destroy(&r);
-        return;
-      }
-
-      // Store results for reply_callback (includes cv and limit)
-      debugPauseStoreResults(req, true);  // pause before
-      AREQ_StoreResults(req, state.results, rc, cv, limit);
-      debugPauseStoreResults(req, false); // pause after
-
-      // Signal completion for main-thread timeout
-      if (AREQ_RequiresThreadsSyncResults(req)) {
-        AREQ_SignalAggregateResultsComplete(req);
-      }
-
-      // Destroy unused SearchResult
-      SearchResult_Destroy(&r);
+      storeResultsForReplyCallback(req, &r, state.results, rc, cv, limit);
       return;
     }
 
@@ -1084,6 +1074,12 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   if (sctx->spec) {
     IndexSpec_DecrActiveQueries(sctx->spec);
   }
+
+  // sendChunk consumes the cycle's ctx loan: nothing on this thread reads
+  // sctx->redisCtx past the pipeline, and the caller may park or free the
+  // request right after. (The reply-callback branch already returned the loan
+  // before signaling results-complete; this is a no-op there.)
+  sctx->redisCtx = NULL;
 }
 
 // Simple version of sendChunk that returns empty results for aggregate queries.
@@ -1331,11 +1327,12 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
     return;
   }
 
-  // Cursors are created with a thread-safe context, so we don't want to replace it
+  // Lend this cycle's ctx to the sctx; returned before outctx is freed below
+  // (sendChunk consumes it; the error path returns it by hand), never read
+  // between cycles.
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
-  if (!(AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR)) {
-    sctx->redisCtx = outctx;
-  }
+  RS_ASSERT(sctx->redisCtx == NULL); // the dispatch returned the handler's loan
+  sctx->redisCtx = outctx;
 
 #ifdef ENABLE_ASSERT
   // Sync point (debug): pause before acquiring the spec read lock.
@@ -1398,6 +1395,9 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
 
 error:
   AREQ_ReplyOrStoreError(req, outctx, &status);
+  // Return the ctx loan before `cleanup` frees outctx; the request may outlive
+  // this cycle through the reply callback's reference.
+  sctx->redisCtx = NULL;
   // Both jumps here explicitly unlocked, and `req` is still owned by BCRctx.
   // The success paths are checked inside AREQ_Execute / runCursor, where the
   // request is still alive (it may already be freed once we reach `cleanup`).
@@ -1556,7 +1556,6 @@ static int buildRequest(RedisModuleCtx *ctx, int type, QueryError *status, AREQ 
   int rc = REDISMODULE_ERR;
   const char *indexname = RedisModule_StringPtrLen((*r)->base.args.argv[1], NULL);
   RedisSearchCtx *sctx = NULL;
-  RedisModuleCtx *thctx = NULL;
 
   if (type == COMMAND_SEARCH) {
     AREQ_AddRequestFlags(*r, QEXEC_F_IS_SEARCH);
@@ -1576,12 +1575,6 @@ static int buildRequest(RedisModuleCtx *ctx, int type, QueryError *status, AREQ 
   (*r)->protocol = is_resp3(ctx) ? 3 : 2;
 
   // Prepare the query.. this is where the context is applied.
-  if (AREQ_RequestFlags(*r) & QEXEC_F_IS_CURSOR) {
-    RedisModuleCtx *newctx = RedisModule_GetDetachedThreadSafeContext(ctx);
-    RedisModule_SelectDb(newctx, RedisModule_GetSelectedDb(ctx));
-    ctx = thctx = newctx;  // In case of error!
-  }
-
   sctx = NewSearchCtxC(ctx, indexname, true);
   if (!sctx) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NO_INDEX, "Index not found", ": %s", indexname);
@@ -1591,7 +1584,6 @@ static int buildRequest(RedisModuleCtx *ctx, int type, QueryError *status, AREQ 
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
 
   rc = AREQ_ApplyContext(*r, sctx, status);
-  thctx = NULL;
   // ctx is always assigned after ApplyContext
   if (rc != REDISMODULE_OK) {
     CurrentThread_ClearIndexSpec();
@@ -1602,9 +1594,6 @@ done:
   if (rc != REDISMODULE_OK && *r) {
     AREQ_DecrRef(*r);
     *r = NULL;
-    if (thctx) {
-      RedisModule_FreeThreadSafeContext(thctx);
-    }
   }
   return rc;
 }
@@ -2002,6 +1991,9 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
       // Add 1ns as epsilon value so we can verify that the GIL time is greater than 0.
       AREQ_QueryProcessingCtx(r)->queryGILTime += rs_wall_clock_elapsed_ns(&(AREQ_QueryProcessingCtx(r)->initTime)) + 1;
     }
+    // The sctx borrowed this handler's ctx at construction (buildRequest); the
+    // loan ends here. AREQ_Execute_Callback lends the worker's ctx at pickup.
+    sctx->redisCtx = NULL;
     const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
     RS_ASSERT(rc == 0);
   } else {
@@ -2172,7 +2164,6 @@ int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, Quer
   // Cache timeout config on the Cursor so subsequent FT.CURSOR READs use the
   // values from the originating FT.AGGREGATE, regardless of any later
   // `search-on-timeout` config change. Written before the first Cursor_Pause.
-  RS_ASSERT(cursor->hybrid_ref.rm == NULL); // assuming hybrid cursors don't reach here
   cursor->queryTimeoutMS = (size_t)r->reqConfig.queryTimeoutMS;
   cursor->queryTimeoutPolicy = r->reqConfig.timeoutPolicy;
   r->base.cursorInfo.id = cursor->id;
@@ -2274,26 +2265,12 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
 
 static QueryProcessingCtx *prepareForCursorRead(Cursor *cursor, bool *hasLoader, bool *initClock, QEFlags *reqFlags, QueryError *status) {
   AREQ *req = Cursor_AREQ(cursor);
-  QueryProcessingCtx *qctx = NULL;
-  if (req) {
-    qctx = AREQ_QueryProcessingCtx(req);
-    AREQ_RemoveRequestFlags(req, QEXEC_F_IS_AGGREGATE); // Second read was not triggered by FT.AGGREGATE
-    *reqFlags = AREQ_RequestFlags(req);
-    *hasLoader = HasLoader(req);
-    *initClock = IsProfile(req) || !IsInternal(req);
-  } else {
-    // Single-cursor hybrid fallback: only reachable via
-    // HybridRequest_StartSingleCursor (no cursor-carried request, hybrid_ref
-    // set), i.e. user-facing FT.HYBRID WITHCURSOR — currently not supported.
-    // _FT.HYBRID WITHCURSOR sub-cursors always carry their sub-AREQ
-    // and take the if branch above.
-    HybridRequest *hreq = StrongRef_Get(cursor->hybrid_ref);
-    *reqFlags = hreq->reqflags;
-    qctx = &hreq->tailPipeline->qctx;
-    // If we don't have an AREQ then this is a coordinator cursor going directly to the client
-    // We can't have a loader in the coordinator
-    *hasLoader = false;
-  }
+  RS_ASSERT(req != NULL);
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+  AREQ_RemoveRequestFlags(req, QEXEC_F_IS_AGGREGATE); // Second read was not triggered by FT.AGGREGATE
+  *reqFlags = AREQ_RequestFlags(req);
+  *hasLoader = HasLoader(req);
+  *initClock = IsProfile(req) || !IsInternal(req);
   qctx->err = status;
   return qctx;
 }
@@ -2345,6 +2322,11 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
   }
 
   if (req) {
+    // Lend this read's ctx to the sctx for the cycle (loader GIL lock and
+    // keyspace loads read it); runCursor returns the loan before the cycle
+    // ends.
+    RS_ASSERT(AREQ_SearchCtx(req)->redisCtx == NULL); // parked with no loan
+    AREQ_SearchCtx(req)->redisCtx = ctx;
     // useReplyCallback is authoritative from the caller: blocking dispatches
     // set it according to whether a reply callback will serialize stored
     // results on main; inline paths clear it before invoking cursorRead.

@@ -7,7 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ref_mode::{Active, Ref, SharedPtr};
+use std::ptr::NonNull;
+
+use ref_mode::{Active, Ref, SharedPtr, Suspended};
 use thin_vec::SmallThinVec;
 
 use super::core::{RSIndexResult, RawIndexResult};
@@ -449,6 +451,59 @@ impl<'query, R: Ref> RawAggregateResult<'query, R> {
             Self::Borrowed(agg) => agg.reset(),
             Self::Owned(agg) => agg.reset(),
         }
+    }
+}
+
+impl<'query> RawBorrowedAggregateResult<'query, Suspended> {
+    /// Append an entry for `child`, taking its provenance from that live
+    /// reference — the push counterpart of
+    /// [`push_borrowed`](RSBorrowedAggregateResult::push_borrowed), for a caller
+    /// holding a [`Suspended`] aggregate and an [`Active`] child.
+    ///
+    /// # Why a suspended aggregate needs this
+    ///
+    /// Every entry is a pointer derived from a `&` to a child's own
+    /// [`RawIndexResult`]. A resume re-narrows them all in one whole-allocation
+    /// cast, which the addresses survive — the children never leave their slots
+    /// — but their *provenance* does not: transitioning a child hands its
+    /// allocation through a by-value `Box<Self>`, and that retag invalidates the
+    /// borrow each entry was derived from. Rebuilding the list while the result
+    /// is still suspended writes every entry from a reference that post-dates
+    /// the retag.
+    ///
+    /// # What the caller still owes
+    ///
+    /// [`reset`](RawBorrowedAggregateResult::reset) drops the kind mask with the
+    /// records and this rebuilds it, but `freq` and `field_mask` live on the
+    /// enclosing [`RawIndexResult`] and are the caller's to re-accumulate.
+    /// `metrics` are not: [`RSIndexResult::push_borrowed`] **moves** them out of
+    /// the children when the aggregate is first built, so there is nothing to
+    /// re-accumulate and they must be carried across untouched.
+    ///
+    /// The lifetime tie does not keep the child *alive*, since the stored
+    /// pointer is raw — that stays [`RawIndexResult::into_active`]'s
+    /// preconditions (3) and (4), along with taking no `&mut` to the child
+    /// before the result is re-narrowed.
+    ///
+    /// # Why the child is tied to `'query`
+    ///
+    /// A child admitted at a shorter lifetime would have its query-pipeline
+    /// pointers — the [`RLookupKey`](ffi::RLookupKey) in its `metrics`, a term
+    /// record's borrowed query term — silently widened to `'query`.
+    /// [`RawIndexResult::into_active`] excludes exactly those from the caller's
+    /// obligations because the `'query: 'a` bound already covers them, so
+    /// widening would remove the only thing that clause rests on, in safe code
+    /// and with no diagnostic. A composite whose children sit at a shorter `'a`
+    /// narrows its *result* to `'a` instead — the sound direction, which `&mut`
+    /// invariance stops the compiler from taking on its own.
+    pub fn push_borrowed_ptr_from_ref(&mut self, child: &RSIndexResult<'query>) {
+        // The cast is between the two `Ref` modes of one `#[repr(C)]` type,
+        // proven layout-identical in `core`, and changes neither address nor
+        // provenance.
+        let live = NonNull::from_ref(child).cast::<RawIndexResult<'query, Suspended>>();
+        self.records.push(SharedPtr::from_non_null(live));
+
+        self.kind_mask |= child.kind();
     }
 }
 

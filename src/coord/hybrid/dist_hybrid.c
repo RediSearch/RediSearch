@@ -62,6 +62,7 @@
 #include "rules.h"
 #include "search_ctx.h"
 #include "util/references.h"
+#include "util/timeout.h"
 #include "vector_index.h"
 
 struct ConcurrentCmdCtx;
@@ -894,10 +895,10 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
 
     // Propagate max-prefix-expansion warning to the specific subquery that triggered it.
     if (maxPrefixSearch) {
-        QueryError_SetReachedMaxPrefixExpansionsWarning(&hreq->errors[SEARCH_INDEX]);
+        QueryError_SetReachedMaxPrefixExpansionsWarning(&hreq->requests[SEARCH_INDEX]->base.reply.err);
     }
     if (maxPrefixVsim) {
-        QueryError_SetReachedMaxPrefixExpansionsWarning(&hreq->errors[VECTOR_INDEX]);
+        QueryError_SetReachedMaxPrefixExpansionsWarning(&hreq->requests[VECTOR_INDEX]->base.reply.err);
     }
 
     RS_ASSERT(array_len(search->mappings) == array_len(vsim->mappings));
@@ -957,14 +958,23 @@ static ResultProcessor *findSafeDepleter(const HybridRequest *hreq, size_t i) {
     return rp;
 }
 
-// Schedule each subquery's RPSafeDepleter to the coordinator thread pool.
+// Schedule each subquery's RPSafeDepleter to the coordinator thread pool, or
+// mark them all timed out when the query's clock has already expired — the
+// launcher owns that decision, and a marked depleter yields TIMEDOUT without
+// a job to wait on.
 //
 // NOTE: FIFO ordering on the pool must guarantees depleters get a worker before
 // the tail hybrid merger job that cv-waits on their completion or this will
 // deadlock (see submitHybridTail).
 static void scheduleDepleters(HybridRequest *hreq) {
+    const bool timedOut = QueryRequestTimeout_IsTimedOut(&hreq->base.timeout);
     for (size_t i = 0; i < hreq->nrequests; i++) {
-        RPSafeDepleter_StartDepletion(findSafeDepleter(hreq, i));
+        ResultProcessor *depleter = findSafeDepleter(hreq, i);
+        if (timedOut) {
+            RPSafeDepleter_MarkTimedOut(depleter);
+        } else {
+            RPSafeDepleter_StartDepletion(depleter);
+        }
     }
 }
 
