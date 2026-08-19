@@ -23,7 +23,7 @@ use std::ptr;
 ///
 /// The metrics code only stores and compares the borrow's address, so the
 /// field values are intentionally meaningless.
-const fn make_key() -> RLookupKey {
+pub(crate) const fn make_key() -> RLookupKey {
     RLookupKey {
         dstidx: 0,
         svidx: 0,
@@ -346,6 +346,51 @@ fn concat_into_empty_destination() {
     assert_eq!(dst.len(), 2);
     assert_eq!(dst.get(0).unwrap().value(), 1.0);
     assert_eq!(dst.get(1).unwrap().value(), 2.0);
+}
+
+// ── MetricsVec — extend_copied ────────────────────────────────
+
+#[test]
+fn extend_copied_appends_and_leaves_the_source_intact() {
+    let key_a = make_key();
+    let key_b = make_key();
+    let mut dst = MetricsVec::new();
+    dst.push_with_key(&key_a, 1.0);
+    let mut src = MetricsVec::new();
+    src.push_with_key(&key_b, 2.0);
+    src.push_without_key(3.0);
+
+    dst.extend_copied(&src);
+
+    assert_eq!(
+        dst.iter().map(|e| e.value()).collect::<Vec<_>>(),
+        vec![1.0, 2.0, 3.0],
+        "appended in source order after what was already there",
+    );
+    assert_eq!(src.len(), 2, "the source keeps its entries — this copies");
+}
+
+#[test]
+fn extend_copied_from_an_empty_source_is_a_noop() {
+    let key = make_key();
+    let mut dst = MetricsVec::new();
+    dst.push_with_key(&key, 1.0);
+
+    dst.extend_copied(&MetricsVec::new());
+
+    assert_eq!(dst.len(), 1);
+}
+
+#[test]
+fn extend_copied_into_an_empty_destination() {
+    let key = make_key();
+    let mut src = MetricsVec::new();
+    src.push_with_key(&key, 1.0);
+
+    let mut dst = MetricsVec::new();
+    dst.extend_copied(&src);
+
+    assert_eq!(dst, src);
 }
 
 // ── MetricsVec — as_metrics_slice ────────────────────────────────────────

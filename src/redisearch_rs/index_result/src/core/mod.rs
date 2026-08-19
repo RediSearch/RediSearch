@@ -1003,6 +1003,36 @@ impl<'a> RSIndexResult<'a> {
         }
     }
 
+    /// Copies every metric in this result's subtree into `dst`, deepest first.
+    ///
+    /// Use this wherever a result's metrics have to outlive the tree that produced them:
+    /// a caller that stores only part of the tree, or none of it, cannot reach the entries
+    /// its children hold. [`metrics_ref`](Self::metrics_ref) alone is not enough, since it
+    /// sees a single node.
+    ///
+    /// Children are collected before the node's own entries, so a metric a node minted for
+    /// itself is appended after the ones it merely carries for its children. Consumers that
+    /// resolve a repeated key by last-write-wins therefore report the outermost value —
+    /// matching [`MetricsVec::upsert_with_key`], which overwrites a child's entry in place
+    /// when it writes at the node instead. Siblings are collected in child order, so among
+    /// entries at the same depth the last child's wins.
+    ///
+    /// The source is left untouched, so a result that is reused from one document to the
+    /// next can be collected from once per document.
+    pub fn flatten_metrics_into(&self, dst: &mut MetricsVec<'a>) {
+        if let Some(agg) = self.as_aggregate() {
+            // Indexed rather than [`RSAggregateResult::iter`], whose `&'a self` receiver
+            // would tie the borrow to the payload's own lifetime and not `&self` here.
+            let mut index = 0;
+            while let Some(child) = agg.get(index) {
+                child.flatten_metrics_into(dst);
+                index += 1;
+            }
+        }
+
+        dst.extend_copied(&self.metrics);
+    }
+
     /// Create an owned copy of this index result, allocating new memory for the contained data.
     ///
     /// The returned result may borrow the term data from the original result.

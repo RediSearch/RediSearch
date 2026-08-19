@@ -16,6 +16,24 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Copies every metric in `source`'s subtree into `dst`, deepest first.
+ *
+ * See [`RSIndexResult::flatten_metrics_into`] for the ordering guarantee and for when a
+ * caller needs this rather than reading `source->metrics` directly.
+ *
+ * # Safety
+ *
+ * 1. `source` must point to a valid [`RSIndexResult`] and cannot be null.
+ * 2. `dst` must point to a valid [`MetricsVec`] (e.g. `&result.metrics`).
+ * 3. `dst` must not alias any collection reachable from `source`, including
+ *    `source->metrics` itself: `source` is read while `dst` is written, and appending to
+ *    `dst` may reallocate it.
+ * 4. The `RLookupKey`s reachable from `source` must outlive `dst`, since `dst` keeps
+ *    borrowing them after this call returns.
+ */
+void IndexResult_FlattenMetricsInto(const RSIndexResult *source, MetricsVec *dst);
+
+/**
  * Resets aggregate-specific fields on an `RSIndexResult`: doc_id, freq,
  * field_mask, child records, and metrics.
  *

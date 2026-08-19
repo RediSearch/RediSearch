@@ -87,7 +87,16 @@ static IteratorStatus HR_ReadInBatch(HybridIterator *hr, RSIndexResult *out) {
 
 static void insertResultToHeap_Metric(HybridIterator *hr, RSIndexResult *child_res, RSIndexResult **vec_res, double *upper_bound) {
 
-  RSYieldableMetric_Concat(&(*vec_res)->metrics, &child_res->metrics); // Pass child metrics, if there are any
+  // Collect the child's whole subtree: none of it is stored beside this bare distance, so
+  // anything a composite child holds deeper would be unreachable later.
+  //
+  // This copies where the previous drain moved, which leaves `child_res` holding its own
+  // entries afterwards. That does not accumulate, because every metric producer clears its
+  // collection before writing the next document's: `set_result_metrics` for a Rust metric
+  // leaf, `reset_aggregate` for a composite, the reset in `HR_ReadKnnUnsortedSingle` here.
+  // A producer that appended without clearing would have depended on someone draining it,
+  // which nothing guarantees.
+  IndexResult_FlattenMetricsInto(child_res, &(*vec_res)->metrics);
   ResultMetrics_Add(*vec_res, hr->ownKey, IndexResult_NumValue(*vec_res));
 
   if (hr->topResults->count < hr->query.k) {

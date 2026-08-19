@@ -297,6 +297,34 @@ TEST_F(HybridReaderDiskTest, RerankingUpdatesScores) {
     ASSERT_EQ(it->Read(it), ITERATOR_EOF);
 }
 
+// A child that yields metrics of its own — a distance yielded by a clause below the filter —
+// has them carried onto every trimmed heap entry, and keeps them: the collection copies out
+// of the child rather than draining it, because the child reuses one result across reads and
+// its own producer is what clears it.
+TEST_F(HybridReaderDiskTest, TrimmedResultsCarryChildMetricsWithoutDrainingTheChild) {
+    constexpr double CHILD_METRIC = 42.0;
+    std::map<labelType, double> sq8 = {{1, 0.5}, {2, 0.1}};
+    auto [index, it] = makeNormalIterator(sq8, {1, 2}, 2);
+
+    ASSERT_NE(it, nullptr);
+
+    // The mock child reuses one result for every read, so planting the entry once covers
+    // every candidate the heap sees.
+    RSIndexResult *childRes = ((HybridIterator *)it)->child->current;
+    ResultMetrics_Add(childRes, nullptr, CHILD_METRIC);
+
+    ASSERT_EQ(it->Read(it), ITERATOR_OK);
+    MetricsSlice carried = MetricsVec_AsSlice(&it->current->metrics);
+    ASSERT_EQ(carried.len, 2u) << "the child's entry plus this reader's distance";
+    EXPECT_DOUBLE_EQ(carried.data[0].value, CHILD_METRIC) << "child's entries come first";
+
+    EXPECT_EQ(MetricsVec_AsSlice(&childRes->metrics).len, 1u)
+        << "the child keeps its own entry; collecting copies rather than moves";
+
+    ASSERT_EQ(it->Read(it), ITERATOR_OK);
+    EXPECT_EQ(MetricsVec_AsSlice(&it->current->metrics).len, 2u);
+}
+
 // Reranking with no score field wired up. `ownKey` is only set when the query asks for the
 // distance as a field, so the rescore must still fix the numeric payload while storing
 // nothing under a key — a null key is not something the metrics collection can carry.
