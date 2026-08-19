@@ -220,10 +220,6 @@ void SearchCtx_UpdateTime(RedisSearchCtx *sctx, int32_t durationNS) {
 }
 
 void SearchCtx_CleanUp(RedisSearchCtx *sctx) {
-  if (sctx->key_) {
-    RedisModule_CloseKey(sctx->key_);
-    sctx->key_ = NULL;
-  }
   // Release the per-query disk snapshot (no-op when NULL). Must happen after every
   // iterator built from `sctx` has been freed; the OSS query pipeline tears down
   // iterators before reaching SearchCtx_CleanUp/SearchCtx_Free.

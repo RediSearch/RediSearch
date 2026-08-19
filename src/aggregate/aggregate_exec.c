@@ -1577,6 +1577,8 @@ static int buildRequest(RedisModuleCtx *ctx, int type, QueryError *status, AREQ 
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NO_INDEX, "Index not found", ": %s", indexname);
     goto done;
   }
+  // The cursor's detached ctx is handed over to the sctx; AREQ_Free releases it.
+  sctx->ownRedisCtx = thctx != NULL;
 
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
 
@@ -2146,7 +2148,6 @@ int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, Quer
   // Cache timeout config on the Cursor so subsequent FT.CURSOR READs use the
   // values from the originating FT.AGGREGATE, regardless of any later
   // `search-on-timeout` config change. Written before the first Cursor_Pause.
-  RS_ASSERT(cursor->hybrid_ref.rm == NULL); // assuming hybrid cursors don't reach here
   cursor->queryTimeoutMS = (size_t)r->reqConfig.queryTimeoutMS;
   cursor->queryTimeoutPolicy = r->reqConfig.timeoutPolicy;
   r->base.cursorInfo.id = cursor->id;
@@ -2242,26 +2243,12 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
 
 static QueryProcessingCtx *prepareForCursorRead(Cursor *cursor, bool *hasLoader, bool *initClock, QEFlags *reqFlags, QueryError *status) {
   AREQ *req = Cursor_AREQ(cursor);
-  QueryProcessingCtx *qctx = NULL;
-  if (req) {
-    qctx = AREQ_QueryProcessingCtx(req);
-    AREQ_RemoveRequestFlags(req, QEXEC_F_IS_AGGREGATE); // Second read was not triggered by FT.AGGREGATE
-    *reqFlags = AREQ_RequestFlags(req);
-    *hasLoader = HasLoader(req);
-    *initClock = IsProfile(req) || !IsInternal(req);
-  } else {
-    // Single-cursor hybrid fallback: only reachable via
-    // HybridRequest_StartSingleCursor (no cursor-carried request, hybrid_ref
-    // set), i.e. user-facing FT.HYBRID WITHCURSOR — currently not supported.
-    // _FT.HYBRID WITHCURSOR sub-cursors always carry their sub-AREQ
-    // and take the if branch above.
-    HybridRequest *hreq = StrongRef_Get(cursor->hybrid_ref);
-    *reqFlags = hreq->reqflags;
-    qctx = &hreq->tailPipeline->qctx;
-    // If we don't have an AREQ then this is a coordinator cursor going directly to the client
-    // We can't have a loader in the coordinator
-    *hasLoader = false;
-  }
+  RS_ASSERT(req != NULL);
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+  AREQ_RemoveRequestFlags(req, QEXEC_F_IS_AGGREGATE); // Second read was not triggered by FT.AGGREGATE
+  *reqFlags = AREQ_RequestFlags(req);
+  *hasLoader = HasLoader(req);
+  *initClock = IsProfile(req) || !IsInternal(req);
   qctx->err = status;
   return qctx;
 }

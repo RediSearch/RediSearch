@@ -1907,12 +1907,16 @@ ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLook
  *
  *  The RPSafeDepleter result processor offloads the task of consuming all results from
  *  its upstream processor into a background thread, storing them in an internal
- *  array. While the background thread is running, calls to Next() wait on a shared
- *  condition variable and return RS_RESULT_DEPLETING. The thread can be awakened
- *  either by its own depleting thread completing or by another RPSafeDepleter's thread
- *  signaling completion. Once depleting is complete for this processor, Next()
- *  yields results one by one from the internal array, and finally returns the last
- *  return code from the upstream.
+ *  array. The launcher resolves every depleter's fate before its first Next()
+ *  call: it schedules the background job (in bulk via RPSafeDepleter_DepleteAll,
+ *  or one at a time via RPSafeDepleter_StartDepletion) or marks the depleter
+ *  timed out (RPSafeDepleter_MarkTimedOut). While the background thread is
+ *  running, calls to Next() wait on a shared condition variable and return
+ *  RS_RESULT_DEPLETING. The thread can be awakened either by its own depleting
+ *  thread completing or by another RPSafeDepleter's thread signaling completion.
+ *  Once depleting is complete for this processor, Next() yields results one by
+ *  one from the internal array, and finally returns the last return code from
+ *  the upstream.
  *  NOTE: Currently the recommended number of upstreams is 2. Using more may
  *  induce performance issues, until a more robust mechanism is implemented.
  *******************************************************************************************************************/
@@ -1923,23 +1927,21 @@ ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLook
 
 typedef struct {
   ResultProcessor base;                // Base result processor struct
-  // We require separate contexts because we have different threads.
-  // Each thread may use the redis context in the search context and in order for things to be thread safe we need a context for each thread
+  // Used only on the depleting thread (the sub-pipeline runs there, and so
+  // does its locking); the Next-calling thread needs no context of its own —
+  // launch, timeout, and lock-handoff decisions belong to the launcher.
   RedisSearchCtx *depletingThreadCtx;  // Upstream Search context - used by the depleting thread
-  RedisSearchCtx *nextThreadCtx;       // Downstream search context - used by the thread calling Next
   arrayof(SearchResult *) results;     // Array of pointers to SearchResult, filled by the depleting thread
   bool done_depleting;                 // Set to `true` when depleting is finished (under lock)
   size_t cur_idx;                      // Current index for yielding results
   RPStatus last_rc;                    // Last return code from upstream
   // True iff a background depletion job has been submitted to the pool and
   // will eventually call SignalDone(). Flips false->true exactly once, in
-  // RPSafeDepleter_StartDepletionThread. Read-only after that until Free().
+  // RPSafeDepleter_StartDepletionThread; MarkTimedOut leaves it false.
+  // Read-only after the launcher's decision until Free().
   //
-  // Drives two decisions:
-  //   - Next_Dispatch: false means "no BG in flight yet, take the lazy-start
-  //     branch"; true means "BG is in flight, take the wait branch".
-  //   - WaitForCompletion: false means "nothing to wait for, return"; true
-  //     means "block on done_depleting".
+  // Drives WaitForCompletion: false means "nothing to wait for, return"; true
+  // means "block on done_depleting".
   bool depletion_scheduled;
   StrongRef sync_ref;                  // Reference to shared synchronization object (DepleterSync)
   rs_wall_clock_ns_t depletionTime;    // Time spent depleting in the background thread (nanoseconds)
@@ -1964,6 +1966,10 @@ typedef struct {
   uint32_t num_depleters;  // Number of depleters to sync
   atomic_int num_locked;   // Number of depleters that have locked the index
   atomic_int num_skipped_lock;  // Number of depleters that skipped locking (timeout before start or lock failure)
+  // Lock failures only (a subset of num_skipped_lock). Incremented before
+  // num_skipped_lock, so once the start handshake completes the launcher
+  // observes every failure that occurred.
+  atomic_int num_lock_failed;
   bool index_released;     // Whether or not the index-spec has been released by the pipeline thread yet
   bool take_index_lock;    // Whether or not the depleter should take the index lock
 } DepleterSync;
@@ -1985,6 +1991,7 @@ StrongRef DepleterSync_New(uint32_t num_depleters, bool take_index_lock) {
   sync->take_index_lock = take_index_lock;
   atomic_store(&sync->num_locked, 0);
   atomic_store(&sync->num_skipped_lock, 0);
+  atomic_store(&sync->num_lock_failed, 0);
   return StrongRef_New(sync, DepleterSync_Free);
 }
 
@@ -2043,6 +2050,7 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
       self->last_rc = RS_RESULT_ERROR;
       QueryError_SetError(self->base.parent->err, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
                           SAFE_DEPLETER_LOCK_FAILURE_MSG);
+      atomic_fetch_add(&sync->num_lock_failed, 1);
       // Signal that we're skipping the lock phase (for WaitForDepletionToStart)
       atomic_fetch_add(&sync->num_skipped_lock, 1);
       return;
@@ -2167,7 +2175,7 @@ static inline void RPSafeDepleter_StartDepletionThread(RPSafeDepleter *self) {
 // Once all depleters have completed this phase, the main thread releases its
 // lock. This ensures all the safe depleters that acquired locks see a
 // consistent index state.
-static inline int RPSafeDepleter_WaitForDepletionToStart(DepleterSync *sync, RedisSearchCtx *nextThreadCtx) {
+static inline int RPSafeDepleter_WaitForDepletionToStart(DepleterSync *sync, RedisSearchCtx *lockedCtx) {
   if (sync->take_index_lock && !sync->index_released) {
     // Load the atomic counters
     int num_locked = atomic_load(&sync->num_locked);
@@ -2180,7 +2188,7 @@ static inline int RPSafeDepleter_WaitForDepletionToStart(DepleterSync *sync, Red
       // Release the main thread's lock - depleters that acquired locks have
       // their own
       // This prevents deadlock: SafeLoader needs GIL, Writer holds GIL waiting for write lock
-      RedisSearchCtx_UnlockSpec(nextThreadCtx);
+      RedisSearchCtx_UnlockSpec(lockedCtx);
       // Mark the index as released
       sync->index_released = true;
       return RS_RESULT_OK;
@@ -2220,40 +2228,18 @@ static inline int RPSafeDepleter_WaitForDepletionToComplete(RPSafeDepleter *self
 
 /**
  * Next function for RPSafeDepleter.
- * First call: starts background thread and returns `RS_RESULT_DEPLETING`.
- * Subsequent calls: wait on condition variable for any safe depleter to complete.
+ * Waits on the shared condition variable for any safe depleter to complete.
  * When woken up, checks if this safe depleter is done. If so, switches to yield mode.
  * If not, returns `RS_RESULT_DEPLETING` to allow downstream to check other safe depleters.
- *
- * A dedicated thread-pool `depleterPool` is used, such that there are no
- * contentions with the `_workers_thpool` thread-pool, such as adding a new job
- * to its queue after `WORKERS` has been set to `0`.
  */
 static int RPSafeDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) {
   RPSafeDepleter *self = (RPSafeDepleter *)base;
-
-  // Lazy-start branch: no BG depletion in flight yet. Either schedule one,
-  // or — if the query has already timed out — switch to Yield and report
-  // TIMEDOUT without scheduling. We must not flip depletion_scheduled to
-  // true on the timeout path: WaitForCompletion would otherwise block
-  // forever waiting on a signal that no BG worker will ever send.
-  if (!self->depletion_scheduled) {
-    // Respect skipTimeoutChecks flag
-    if (!self->nextThreadCtx->time.skipTimeoutChecks && TimedOut(&self->nextThreadCtx->time.timeout) == TIMED_OUT) {
-      base->Next = RPSafeDepleter_Next_Yield;
-      self->last_rc = RS_RESULT_TIMEDOUT;
-      return base->Next(base, r);
-    }
-
-    RPSafeDepleter_StartDepletionThread(self);
-    return RS_RESULT_DEPLETING;
-  }
+  // The launcher's decision (schedule or mark timed out) precedes any Next
+  // call; waiting on an unscheduled depleter would block forever on a
+  // completion signal no BG worker will ever send.
+  RS_ASSERT(self->depletion_scheduled);
 
   DepleterSync *sync = (DepleterSync *)StrongRef_Get(self->sync_ref);
-  if (RPSafeDepleter_WaitForDepletionToStart(sync, self->nextThreadCtx) == RS_RESULT_DEPLETING) {
-    return RS_RESULT_DEPLETING;
-  }
-
   pthread_mutex_lock(&sync->mutex);
   const int rc = RPSafeDepleter_WaitForDepletionToComplete(self, sync);
   pthread_mutex_unlock(&sync->mutex);
@@ -2267,7 +2253,7 @@ static int RPSafeDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) 
  * Constructs a new RPSafeDepleter processor. Consumes the StrongRef given.
  * The pool argument selects which thread pool depletion jobs are submitted to.
  */
-ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx, RedisSearchCtx *nextThreadCtx, redisearch_thpool_t *pool) {
+ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx, redisearch_thpool_t *pool) {
   RPSafeDepleter *ret = rm_calloc(1, sizeof(*ret));
   ret->results = array_new(SearchResult*, 0);
   ret->base.Next = RPSafeDepleter_Next_Dispatch;
@@ -2275,7 +2261,6 @@ ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletin
   ret->base.type = RP_SAFE_DEPLETER;
   ret->sync_ref = sync_ref;
   ret->depletingThreadCtx = depletingThreadCtx;
-  ret->nextThreadCtx = nextThreadCtx;
   ret->depletionTime = 0;  // Initialize depletion time to 0
   ret->pool = pool;
   // Make sure the sync reference is valid
@@ -2286,20 +2271,17 @@ ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletin
 
 void RPSafeDepleter_StartDepletion(ResultProcessor *base) {
   RS_ASSERT(base->type == RP_SAFE_DEPLETER);
+  RPSafeDepleter_StartDepletionThread((RPSafeDepleter *)base);
+}
+
+void RPSafeDepleter_MarkTimedOut(ResultProcessor *base) {
+  RS_ASSERT(base->type == RP_SAFE_DEPLETER);
   RPSafeDepleter *self = (RPSafeDepleter *)base;
   RS_ASSERT(!self->depletion_scheduled);
-  // If the query already timed out, skip submission. The BG worker would
-  // no-op anyway (its own TimedOut check in RPSafeDepleter_Deplete), but
-  // skipping saves a pool slot and the signal/wait round-trip. Leave
-  // depletion_scheduled=false so:
-  //   - RPSafeDepleter_WaitForCompletion no-ops (no signal in flight)
-  //   - a late Next() call re-enters the lazy branch, re-detects the
-  //     timeout, and switches Next to Yield with RS_RESULT_TIMEDOUT.
-  if (!self->nextThreadCtx->time.skipTimeoutChecks &&
-      TimedOut(&self->nextThreadCtx->time.timeout) == TIMED_OUT) {
-    return;
-  }
-  RPSafeDepleter_StartDepletionThread(self);
+  // depletion_scheduled stays false: WaitForCompletion has no signal to wait
+  // for, and Next yields RS_RESULT_TIMEDOUT immediately.
+  self->last_rc = RS_RESULT_TIMEDOUT;
+  base->Next = RPSafeDepleter_Next_Yield;
 }
 
 void RPSafeDepleter_WaitForCompletion(ResultProcessor *base) {
@@ -2320,17 +2302,13 @@ void RPSafeDepleter_WaitForCompletion(ResultProcessor *base) {
   pthread_mutex_unlock(&sync->mutex);
 }
 
-static inline bool verifyInvariants(arrayof(ResultProcessor*) safeDepleters, DepleterSync** outSync, RedisSearchCtx** outSearchCtx) {
+static inline bool verifyInvariants(arrayof(ResultProcessor*) safeDepleters, DepleterSync** outSync) {
   DepleterSync *sync = NULL;
-  RedisSearchCtx *searchCtx = NULL;
   size_t count = array_len(safeDepleters);
   for (size_t i = 0; i < count; i++) {
     RPSafeDepleter *safeDepleter = (RPSafeDepleter*)safeDepleters[i];
     DepleterSync *depleterSync = (DepleterSync *)StrongRef_Get(safeDepleter->sync_ref);
     if (sync && sync != depleterSync) {
-      return false;
-    }
-    if (searchCtx && searchCtx != safeDepleter->nextThreadCtx) {
       return false;
     }
     // Bulk launch requires all depleters to be in the fresh unscheduled state —
@@ -2339,30 +2317,55 @@ static inline bool verifyInvariants(arrayof(ResultProcessor*) safeDepleters, Dep
       return false;
     }
     sync = depleterSync;
-    searchCtx = safeDepleter->nextThreadCtx;
   }
   if (sync->num_depleters != count) {
     return false;
   }
   *outSync = sync;
-  *outSearchCtx = searchCtx;
   return true;
 }
 
+// Block until every safe depleter in the group has finished depleting (its BG
+// job has run to completion, successfully or not). Safe to call in any state —
+// already-consumed and never-consumed depleters alike — and after it returns,
+// no background thread touches the group's buffers. There is no timeout
+// handling here: each depleter observes its own deadline and stops on its own.
+void RPSafeDepleter_JoinAll(arrayof(ResultProcessor*) safeDepleters) {
+  const size_t count = array_len(safeDepleters);
+  if (count == 0) {
+    return;
+  }
+  DepleterSync *sync = (DepleterSync *)StrongRef_Get(((RPSafeDepleter *)safeDepleters[0])->sync_ref);
+  pthread_mutex_lock(&sync->mutex);
+  for (size_t i = 0; i < count; i++) {
+    RPSafeDepleter *safeDepleter = (RPSafeDepleter*)safeDepleters[i];
+    // done_depleting is monotonic and set under the mutex, so waiting on the
+    // shared cond until it flips cannot miss the signal.
+    while (!safeDepleter->done_depleting) {
+      pthread_cond_wait(&sync->cond, &sync->mutex);
+    }
+  }
+  pthread_mutex_unlock(&sync->mutex);
+}
+
 /*
-* This function will trigger the depeletion process for the safe depleters group
+* Launch the safe depleters group and resolve the lock handshake, without
+* waiting for depletion to finish:
 * 0. Some sanity checks, will return an error if it detected an invalid state
 * 1. It will start a thread for every safe depleter
 * 2. Wait for all the threads to take their own read lock and then unlock the lock it held - we assume the lock was taken in the query thread
-* 3. Wait for the depletion to complete in all the safe depleters, there is no timeout handling here - we rely on each safe depleter to handle timeout and stop depleting.
-* 4. The function must return only after all the depletion threads finished running
-* 5. If any depleter fails to acquire the lock (RS_RESULT_ERROR), return RS_RESULT_ERROR to propagate the failure
+* 3. If any depleter failed to acquire its lock, drain the group and return
+*    RS_RESULT_ERROR — the failure is fatal and the caller aborts before any
+*    reply, and an error return must not leave background threads writing
+*    into the depleters' buffers while the caller tears the request down.
+* On RS_RESULT_OK, depletion is still in flight; each depleter's Next waits
+* for its own completion, so consumers observe results in completion order.
 */
-int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryError *status) {
+int RPSafeDepleter_StartAll(arrayof(ResultProcessor*) safeDepleters, RedisSearchCtx *lockedCtx, QueryError *status) {
+  RS_ASSERT(lockedCtx != NULL && lockedCtx->lock_state == SPEC_LOCK_READ);
   DepleterSync *sync = NULL;
-  RedisSearchCtx *searchCtx = NULL;
   // Verify we are in a sane state before starting the depletion process
-  if (!verifyInvariants(safeDepleters, &sync, &searchCtx)) {
+  if (!verifyInvariants(safeDepleters, &sync)) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE, "Failed to start background depletion");
     return RS_RESULT_ERROR;
   }
@@ -2379,38 +2382,43 @@ int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryErro
     RPSafeDepleter_StartDepletionThread(safeDepleter);
   }
 
-  // Wait for depleting to start with configurable interval and timeout
-  while (RPSafeDepleter_WaitForDepletionToStart(sync, searchCtx) == RS_RESULT_DEPLETING) {
+  // Wait for depleting to start with configurable interval and timeout.
+  // The caller's lock is released inside WaitForDepletionToStart once every
+  // depleter acquired its own lock (or reported that it never will). This
+  // early release prevents deadlock with SafeLoader GIL acquisition.
+  while (RPSafeDepleter_WaitForDepletionToStart(sync, lockedCtx) == RS_RESULT_DEPLETING) {
     usleep(1000);
   }
 
-  for (size_t numDone = 0; numDone < count; ) {
-    pthread_mutex_lock(&sync->mutex);
-    for (size_t i = 0; i < count; i++) {
-      RPSafeDepleter *safeDepleter = (RPSafeDepleter*)safeDepleters[i];
-      // Can't rely on done_depleting since it is set by thread and it doesn't change its own Next function
-      // This way the behaviour is more predictable
-      if (safeDepleter->base.Next == RPSafeDepleter_Next_Yield) {
-        continue;
-      }
-      // Will internally wait on a condition variable until the safe depleter finishes depleting
-      if (RPSafeDepleter_WaitForDepletionToComplete(safeDepleter, sync) == RS_RESULT_OK) {
-        ++numDone;
-      }
-    }
-    pthread_mutex_unlock(&sync->mutex);
-    // Only sleep if we haven't completed all safe depleters
-    if (numDone < count) {
-      usleep(1000);
-    }
+  // num_lock_failed is incremented before the skip counter the handshake
+  // reads, so every failure that occurred is visible by now.
+  if (atomic_load(&sync->num_lock_failed) > 0) {
+    RPSafeDepleter_JoinAll(safeDepleters);
+    QueryError_SetError(status, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
+                        SAFE_DEPLETER_LOCK_FAILURE_MSG);
+    return RS_RESULT_ERROR;
   }
 
-  // Note: The main thread's lock was already released in WaitForDepletionToStart
-  // after all depleters acquired their locks (or when any failed).
-  // This early release prevents deadlock with SafeLoader GIL acquisition.
+  return RS_RESULT_OK;
+}
+
+/*
+* RPSafeDepleter_StartAll, then wait for the depletion to complete in all the
+* safe depleters. The function returns only after all the depletion threads
+* finished running; errors (lock failures) take priority over timeouts in the
+* aggregated return code.
+*/
+int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, RedisSearchCtx *lockedCtx, QueryError *status) {
+  int rc = RPSafeDepleter_StartAll(safeDepleters, lockedCtx, status);
+  if (rc != RS_RESULT_OK) {
+    return rc;
+  }
+
+  RPSafeDepleter_JoinAll(safeDepleters);
 
   // Check each depleter's final status for errors or timeouts.
-  // Errors (lock failures) take priority over timeouts.
+  // Errors take priority over timeouts.
+  const size_t count = array_len(safeDepleters);
   bool anyTimedOut = false;
   for (size_t i = 0; i < count; i++) {
     const RPSafeDepleter *safeDepleter = (RPSafeDepleter *)safeDepleters[i];

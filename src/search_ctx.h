@@ -59,11 +59,15 @@ bool SearchTime_IsTimedOut(void *arg);
 /** Context passed to all redis related search handling functions. */
 typedef struct RedisSearchCtx {
   RedisModuleCtx *redisCtx;
-  RedisModuleKey *key_;
   IndexSpec *spec;
   SearchTime time;
-  unsigned int apiVersion; // API Version to allow for backward compatibility / alternative functionality
-  unsigned int expanded; // Reply format
+  uint8_t apiVersion; // API Version to allow for backward compatibility / alternative functionality
+  // TRANSITIONAL: true when a detached thread-safe redisCtx was handed over at
+  // construction (classic cursor requests — the last owned-ctx users) and must
+  // be freed with this sctx; false for the common case of borrowing the
+  // running cycle's ctx. Gates the release in AREQ_Free. Retired, along with
+  // the handover itself, once cursor reads install a per-read ctx instead.
+  bool ownRedisCtx;
   SpecLockState lock_state;
   // Per-query disk snapshot (optional, NULL when no snapshot has been taken or when the
   // backing index has no disk component). Used by the disk-iterator construction paths
@@ -83,7 +87,6 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool r
 static inline RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *sp) {
   RedisSearchCtx sctx = {
                           .redisCtx = ctx,
-                          .key_ = NULL,
                           .spec = sp,
                           .time = {.current = { 0, 0 }, .timeout = { 0, 0 }, .skipTimeoutChecks = false, .timedOutFlag = NULL},
                           .lock_state = SPEC_LOCK_UNSET,

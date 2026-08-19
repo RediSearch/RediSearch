@@ -154,6 +154,8 @@ pthread_mutex_t query_version_tracker_mutex;
 arrayof(int*) asm_sanitizer_allocs;
 #endif
 
+// Dedicated pool for RPSafeDepleter jobs, so they never contend with the
+// `_workers_thpool` queue — e.g. submitting a job after `WORKERS` was set to 0.
 redisearch_thpool_t *depleterPool = NULL;
 
 int DIST_THREADPOOL = -1;
@@ -3982,15 +3984,19 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   // Allocate the hybrid request shell before blocking the client, so the full
   // context is already installed (as the blocked
   // client's privdata) once the client is blocked. Parsing happens on the BG
-  // thread; the sub-AREQ contexts are detached thread-safe contexts.
+  // thread.
   RedisSearchCtx *sctx = NewSearchCtxC(ctx, idx, true);
   RS_ASSERT(sctx != NULL);  // the index was validated above in the same GIL window
   // Construction takes the argv holds here, on the main thread; the BG parse
   // borrows from them (the job's own argv copies die with the job).
   HybridRequest *hreq = MakeDefaultHybridRequest(sctx, argv, argc);
-  // The tail sctx aliased this handler's ctx, which dies when the handler
-  // returns. The BG executor re-points it at its own thread-safe ctx.
+  // The tail and sub sctxs aliased this handler's ctx, which dies when the
+  // handler returns. The BG executor re-points the tail at its own thread-safe
+  // ctx; the coordinator pipelines (RPNet chains) never read a sub's ctx.
   sctx->redisCtx = NULL;
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    AREQ_SearchCtx(hreq->requests[i])->redisCtx = NULL;
+  }
 
   RSTimeoutPolicy policy = hreq->reqConfig.timeoutPolicy;
   hreq->base.async.requiresAggregateResultsSync = (policy == TimeoutPolicy_ReturnStrict);
@@ -5147,32 +5153,3 @@ static void DEBUG_DistSearchCommandHandler(void* pd) {
   rm_free(sCmdCtx);
 }
 
-// Structure to pass context cleanup data to main thread
-typedef struct ContextCleanupData{
-  RedisModuleCtx *thctx;
-  RedisSearchCtx *sctx;
-} ContextCleanupData;
-
-// Callback to safely free contexts from main thread
-static void freeContextsCallback(void *data) {
-  ContextCleanupData *cleanup = (ContextCleanupData *)data;
-
-  if (cleanup->sctx) {
-    SearchCtx_Free(cleanup->sctx);
-  }
-
-  if (cleanup->thctx) {
-    RedisModule_FreeThreadSafeContext(cleanup->thctx);
-  }
-
-  rm_free(cleanup);
-}
-
-// Public function to schedule context cleanup
-void ScheduleContextCleanup(RedisModuleCtx *thctx, struct RedisSearchCtx *sctx) {
-  ContextCleanupData *cleanup = rm_malloc(sizeof(ContextCleanupData));
-  cleanup->thctx = thctx;
-  cleanup->sctx = sctx;
-
-  ConcurrentSearch_ThreadPoolRun(freeContextsCallback, cleanup, DIST_THREADPOOL);
-}

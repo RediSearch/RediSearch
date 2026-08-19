@@ -39,8 +39,8 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 /// The first API version that returns the multi-value `Trio`. Below it, the
 /// loader takes only the first match as a plain value.
-const MULTI: u32 = ffi::APIVERSION_RETURN_MULTI_CMP_FIRST;
-const PRE_MULTI: u32 = MULTI - 1;
+const MULTI: u8 = ffi::APIVERSION_RETURN_MULTI_CMP_FIRST as u8;
+const PRE_MULTI: u8 = MULTI - 1;
 
 /// Construct a `RedisString` from a `CStr`. The mock
 /// `RedisModule_CreateString` copies its input, so the source bytes need not
@@ -53,7 +53,7 @@ fn make_redis_string(bytes: &CStr) -> RedisString {
 /// the value written to the row, if any.
 fn load_field_value(
     doc: serde_json::Value,
-    api_version: u32,
+    api_version: u8,
     path: &'static CStr,
 ) -> Option<SharedValue> {
     redis_mock::init_redis_module_mock();
@@ -80,7 +80,7 @@ fn load_field_value(
 /// written to the `$` key, or the propagated [`LoadAllError`].
 fn load_all_dollar(
     doc: Option<serde_json::Value>,
-    api_version: u32,
+    api_version: u8,
 ) -> Result<Option<SharedValue>, LoadAllError> {
     redis_mock::init_redis_module_mock();
     with_json_api(doc, |japi, ctx| {
