@@ -17,7 +17,6 @@
 
 use std::ptr::NonNull;
 
-use index_result::RSIndexResult;
 use rqe_iterators::RQEIterator;
 use rqe_iterators_test_utils::MockContext;
 use tag_index::{InMemoryMode, TagIndex, TrieLookup};
@@ -173,17 +172,7 @@ fn value_path_returns_none_for_empty_inverted_index() {
     // SAFETY: `tag_index` was just allocated and is not yet aliased.
     index_mem(unsafe { &mut *tag_index }, &[b"empty"], 1);
     // SAFETY: `tag_index` was indexed into above and is not otherwise aliased.
-    let ii = unsafe { &mut *tag_index }
-        .find_value_mut(b"empty")
-        .expect("tag was indexed");
-    let delta = ii
-        .scan_gc(
-            |_| false,
-            None::<fn(&RSIndexResult, &inverted_index::RepairContext<'_>)>,
-        )
-        .expect("scan_gc must not fail")
-        .expect("the only document was removed, so a delta is produced");
-    ii.apply_gc(delta);
+    unsafe { &mut *tag_index }.gc_empty_value(b"empty");
 
     let mock = MockContext::new(0, 0);
     // SAFETY: `tag_index` is valid and not mutated while `ii` is in use.

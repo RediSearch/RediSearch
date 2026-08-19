@@ -156,7 +156,7 @@ use ffi::{
 };
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use index_result::RSIndexResult;
-use inverted_index::{DocId, IndexReader, InvertedIndex, doc_ids_only::DocIdsOnly};
+use inverted_index::{DocId, IndexReader, InvertedIndex, RepairContext, doc_ids_only::DocIdsOnly};
 use query_term::RSQueryTerm;
 use rqe_iterators::{
     FieldExpirationChecker,
@@ -616,10 +616,16 @@ impl TagIndex<InMemoryMode> {
         self.mode.values.find(tag).map(Box::as_ref)
     }
 
-    /// Get a mutable reference to the inverted index holding the postings for
-    /// `tag`, if the tag is currently indexed.
-    pub fn find_value_mut(&mut self, tag: &[u8]) -> Option<&mut InvertedIndex<DocIdsOnly>> {
-        self.mode.values.find_mut(tag).map(Box::as_mut)
+    /// Simulate GC removing every posting under `tag`, leaving an empty (but
+    /// still registered) inverted index behind — the state GC leaves once
+    /// every document under a tag has been removed.
+    pub fn gc_empty_value(&mut self, tag: &[u8]) {
+        let ii = self.mode.values.find_mut(tag).expect("tag was indexed");
+        let delta = ii
+            .scan_gc(|_| false, None::<fn(&RSIndexResult, &RepairContext<'_>)>)
+            .expect("scan_gc must not fail")
+            .expect("every document was removed, so a delta is produced");
+        ii.apply_gc(delta);
     }
 
     /// Whether `key` is registered in the [suffix index](TagSuffixIndex) — as a
