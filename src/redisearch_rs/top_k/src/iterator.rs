@@ -679,14 +679,15 @@ fn capture_child_record<'index>(record: &RSIndexResult<'index>) -> RSIndexResult
 ///
 /// Used on the trim path, where the child's deep scoring subtree is skipped but
 /// its yielded metrics remain explicit output/sort fields that must still be
-/// carried. Cloning copies each metric entry by value; the `RLookupKey`s they
-/// reference are owned by the query and stay valid for `'index`, so the copy
-/// outlives subsequent child reads.
+/// carried. The whole subtree is collected, not just the child's own node, since
+/// a composite child holds its entries in its children. Each entry is copied by
+/// value; the `RLookupKey`s they reference are owned by the query and stay valid
+/// for `'index`, so the copy outlives subsequent child reads.
 fn capture_child_metrics<'index>(record: &RSIndexResult<'index>) -> RSIndexResult<'index> {
     let mut owned = RSIndexResult::build_metric(0.0)
         .doc_id(record.doc_id)
         .build();
-    owned.metrics = record.metrics.clone();
+    record.flatten_metrics_into(&mut owned.metrics);
     owned
 }
 

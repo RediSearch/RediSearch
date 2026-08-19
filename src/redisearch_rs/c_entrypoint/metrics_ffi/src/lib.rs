@@ -79,6 +79,32 @@ pub unsafe extern "C" fn ResultMetrics_Add(
     }
 }
 
+/// Copies every metric in `source`'s subtree into `dst`, deepest first.
+///
+/// See [`RSIndexResult::flatten_metrics_into`] for the ordering guarantee and for when a
+/// caller needs this rather than reading `source->metrics` directly.
+///
+/// # Safety
+///
+/// 1. `source` must point to a valid `RSIndexResult` and cannot be null.
+/// 2. `dst` must point to a valid `MetricsVec` (e.g. `&result.metrics`).
+/// 3. The `RLookupKey`s reachable from `source` must outlive `dst`, since `dst` keeps
+///    borrowing them after this call returns.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexResult_FlattenMetricsInto<'a>(
+    source: *const RSIndexResult<'a>,
+    dst: *mut MetricsVec<'a>,
+) {
+    debug_assert!(!source.is_null(), "source must not be null");
+    debug_assert!(!dst.is_null(), "dst must not be null");
+
+    // SAFETY: caller guarantees validity (1) and (3).
+    let source = unsafe { &*source };
+    // SAFETY: caller guarantees validity (2).
+    let dst = unsafe { &mut *dst };
+    source.flatten_metrics_into(dst);
+}
+
 /// Clears all entries from the result's metrics collection.
 ///
 /// # Safety
