@@ -23,6 +23,7 @@
 #include "redisearch.h"
 #include "result_processor.h"
 #include "debug_commands.h"
+#include "search_disk.h"
 
 static redisearch_thpool_t *gcThreadpool_g = NULL;
 // Guarded by the GIL. Only used to pause GC contexts created while a window is already open;
@@ -393,6 +394,10 @@ bool GC_ThreadPoolWaitForPause(long timeoutMs) {
   struct timespec start;
   clock_gettime(CLOCK_MONOTONIC, &start);
   while (redisearch_thpool_num_jobs_in_progress(gcThreadpool_g)) {
+    // Reached only while a job is still in progress, so a test can release a GC writer parked
+    // inside a BucketMap write lock from here and nowhere else: without this drain the writer
+    // is never released and the save that follows never completes.
+    SearchDisk_DebugCoordinatorReach(SEARCH_DISK_SITE_GC_DRAIN_WAITING);
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
     long elapsedMs = (now.tv_sec - start.tv_sec) * 1000 + (now.tv_nsec - start.tv_nsec) / 1000000;

@@ -76,6 +76,9 @@ unsigned int SearchDisk_DebugCoordinatorReached(int site) {
 }
 
 __attribute__((weak))
+void SearchDisk_DebugCoordinatorReach(int site) {}
+
+__attribute__((weak))
 void SearchDisk_DebugResetCompactionController(void) {}
 
 bool SearchDisk_Initialize(RedisModuleCtx *ctx) {

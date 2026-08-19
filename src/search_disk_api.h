@@ -1116,6 +1116,7 @@ extern void VecSimDisk_ReleaseConsistencyLock(void);
 //       background compaction; target -1 clears the link).
 //   - `Release(site)`  release a parked site out-of-band.
 //   - `Reached(site)`  read the arrival count.
+//   - `Reach(site)`  record an arrival from C, for sites that only exist on that side.
 //   - `ResetCompactionController()`  clear all state and free waiters.
 // All entry points are no-ops if nothing is armed and are safe to call from
 // arbitrary threads.
@@ -1124,6 +1125,7 @@ extern void SearchDisk_DebugCoordinatorArmPause(int site, bool armed);
 extern void SearchDisk_DebugCoordinatorSetWake(int trigger, int target);
 extern void SearchDisk_DebugCoordinatorRelease(int site);
 extern unsigned int SearchDisk_DebugCoordinatorReached(int site);
+extern void SearchDisk_DebugCoordinatorReach(int site);
 extern void SearchDisk_DebugResetCompactionController(void);
 
 #ifdef __cplusplus

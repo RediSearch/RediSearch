@@ -925,6 +925,10 @@ typedef enum {
   // Numeric split Step A while the BucketMap write lock is held (GC thread) --
   // the only site that parks a writer inside that lock.
   SEARCH_DISK_SITE_NUMERIC_MAP_WRITE_LOCKED = 5,
+  // Inside GC_ThreadPoolWaitForPause, once per wait iteration and therefore only while a GC
+  // job is still in progress (main thread). The only site that proves the drain ran: a test
+  // releases a parked GC writer from here, so a drain that is removed never releases it.
+  SEARCH_DISK_SITE_GC_DRAIN_WAITING = 6,
 } SearchDiskCompactionSite;
 
 /**
@@ -957,6 +961,14 @@ void SearchDisk_DebugCoordinatorRelease(int site);
  * @brief Returns how many times `site` has been reached since the last reset.
  */
 unsigned int SearchDisk_DebugCoordinatorReached(int site);
+
+/**
+ * @brief Records an arrival at `site` from C, running any cross-wake wired to it.
+ *
+ * The Rust lifecycle hooks call `reach` themselves; this is for the sites that only exist on
+ * this side (SEARCH_DISK_SITE_GC_DRAIN_WAITING). No-op unless the coordinator is armed.
+ */
+void SearchDisk_DebugCoordinatorReach(int site);
 
 /**
  * @brief Resets the coordinator.
