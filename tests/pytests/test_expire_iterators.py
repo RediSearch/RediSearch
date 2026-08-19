@@ -434,9 +434,8 @@ def test_hexpire_on_iterated_numeric_field_mid_cursor(env):
     - `HPEXPIRE` on a field absent from the schema is fine;
     - `HPEXPIRE` on the field under iteration is fine too, if the index already
       held a field TTL when the cursor opened;
-    - only the index acquiring its *first* field TTL mid-cursor is not.
-
-    Written up in `.vscode/docs/expiry_tests/numeric-cursor-abort.md`.
+    - a write landing while the reader is still in the first entries is not —
+      `HPEXPIRE` is one such write, a plain `HSET` is another.
     """
     conn = getConnectionByEnv(env)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
@@ -451,6 +450,7 @@ def test_hexpire_on_iterated_numeric_field_mid_cursor(env):
     conn.execute_command('HPEXPIRE', 'doc:2', str(TTL_MS), 'FIELDS', '1', 'n')
     seen = drain_cursor(env, cursor)
 
+    # Draining is the assertion: today this aborts the server before returning.
     env.assertEqual(seen, ['doc:2'], message=seen)
 
 
@@ -470,10 +470,10 @@ def test_first_field_ttl_mid_cursor_drops_matching_documents(env):
     - a TTL already present when the cursor opens, plus one during.
 
     Only the index going from *no* field TTL to its first one mid-cursor loses
-    documents. Written up in
-    `.vscode/docs/expiry_tests/numeric-cursor-lost-documents.md`.
+    documents.
     """
     n_docs = 200
+    ttl_doc = 'doc:2'
     conn = getConnectionByEnv(env)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
@@ -484,9 +484,13 @@ def test_first_field_ttl_mid_cursor_drops_matching_documents(env):
                            'LOAD', 1, '@__key', 'WITHCURSOR', 'COUNT', 1)
     seen = rows_to_keys(rows)
 
-    conn.execute_command('HPEXPIRE', 'doc:2', str(TTL_MS), 'FIELDS', '1', 'n')
+    conn.execute_command('HPEXPIRE', ttl_doc, str(TTL_MS), 'FIELDS', '1', 'n')
     seen += drain_cursor(env, cursor)
 
-    env.assertEqual(len(seen), n_docs,
-                    message=f'returned {len(seen)} of {n_docs}, '
-                            f'{n_docs - len(seen)} matching documents lost')
+    # Every document still matches: the TTL is far in the future, and re-indexing
+    # is not an excuse — a document moved to a distant value in the same way does
+    # come back (see test_cursor_concurrent_update.py).
+    expected = {f'doc:{i}' for i in range(1, n_docs + 1)}
+    lost = sorted(expected - set(seen), key=lambda key: int(key.split(':')[1]))
+    env.assertEqual(lost, [],
+                    message=f'{len(lost)} documents dropped from the scan: {lost}')
