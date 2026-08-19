@@ -436,8 +436,7 @@ def test_hexpire_on_iterated_numeric_field_mid_cursor(env):
       held a field TTL when the cursor opened;
     - only the index acquiring its *first* field TTL mid-cursor is not.
 
-    Written up, with the production exposure, in
-    `.vscode/docs/expiry_tests/numeric-cursor-crash.md`.
+    Written up in `.vscode/docs/expiry_tests/numeric-cursor-abort.md`.
     """
     conn = getConnectionByEnv(env)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
@@ -453,3 +452,41 @@ def test_hexpire_on_iterated_numeric_field_mid_cursor(env):
     seen = drain_cursor(env, cursor)
 
     env.assertEqual(seen, ['doc:2'], message=seen)
+
+
+@skip(cluster=True, redis_less_than='7.4')
+def test_first_field_ttl_mid_cursor_drops_matching_documents(env):
+    """The index acquiring its first field TTL mid-cursor loses matching documents.
+
+    Same trigger as `test_hexpire_on_iterated_numeric_field_mid_cursor`, at an
+    index size where the damaged read lands on an entry boundary instead of
+    mid-entry: no error, no crash, just a short answer. The expired document is
+    given a far-future TTL, so every one of the documents is still live and all
+    of them are expected back.
+
+    Controls, all of which return the full set:
+    - no `HPEXPIRE` at all;
+    - `HPEXPIRE` before the cursor opens, none during;
+    - a TTL already present when the cursor opens, plus one during.
+
+    Only the index going from *no* field TTL to its first one mid-cursor loses
+    documents. Written up in
+    `.vscode/docs/expiry_tests/numeric-cursor-lost-documents.md`.
+    """
+    n_docs = 200
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    for i in range(1, n_docs + 1):
+        conn.execute_command('HSET', f'doc:{i}', 'n', str(i))
+
+    rows, cursor = env.cmd('FT.AGGREGATE', 'idx', '@n:[0 100000]',
+                           'LOAD', 1, '@__key', 'WITHCURSOR', 'COUNT', 1)
+    seen = rows_to_keys(rows)
+
+    conn.execute_command('HPEXPIRE', 'doc:2', str(TTL_MS), 'FIELDS', '1', 'n')
+    seen += drain_cursor(env, cursor)
+
+    env.assertEqual(len(seen), n_docs,
+                    message=f'returned {len(seen)} of {n_docs}, '
+                            f'{n_docs - len(seen)} matching documents lost')
