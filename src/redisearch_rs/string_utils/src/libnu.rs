@@ -7,7 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Guards for the unbounded read-ahead of the vendored `libnu` UTF-8 decoder.
+//! Models the byte walk of the vendored `libnu` UTF-8 decoder, and the guards
+//! its unbounded read-ahead forces on callers.
 //!
 //! Several C helpers — `strToLowerRunes` and the trie's fuzzy pattern folding
 //! among them — decode their input with `nu_utf8_read` (`deps/libnu/utf8.h`),
@@ -19,8 +20,7 @@
 //! This module models that decoder's walk once, for every caller that needs it:
 //! [`tail_may_overread`] says whether an input can trip the read-ahead,
 //! [`NU_MAX_READAHEAD`] says how many trailing zero bytes a padded copy needs
-//! when it can, and [`nu_rune_count`] says how many runes the decoder would
-//! yield.
+//! when it can, and [`nu_rune_count`] says how many steps that walk takes.
 
 /// The most bytes the C decoder (`nu_utf8_read`) reads past a multibyte lead
 /// byte. A UTF-8 sequence is at most four bytes, so the decoder touches at most
@@ -65,15 +65,20 @@ pub fn tail_may_overread(bytes: &[u8]) -> bool {
     false
 }
 
-/// How many runes the C decoder (`nu_utf8_read`) would yield for `bytes` —
-/// the count C's `strToRunes` ends up with.
+/// How many steps the C decoder (`nu_utf8_read`) takes across `bytes` — the
+/// rune count C's `strToRunes` ends up with, as long as no sequence in `bytes`
+/// decodes to codepoint 0.
 ///
 /// Replays the same walk as [`tail_may_overread`], counting steps instead of
-/// checking for over-read, and so inherits the decoder's lack of validation:
-/// a stray continuation byte in lead position counts as one rune (a two-byte
-/// sequence), and a truncated trailing sequence counts as one rune while the
-/// cursor steps past the end of `bytes`. The point is to predict what C would
-/// count, not what a correct decoder would.
+/// checking for over-read, and so inherits [`nu_seq_len`]'s lack of validation:
+/// a truncated trailing sequence counts as one step, with the cursor stepping
+/// past the end of `bytes`.
+///
+/// C has a second stopping condition this walk cannot see: `strToRunes` decodes
+/// a codepoint per step and stops at the first zero one, which an embedded NUL
+/// byte, an overlong sequence such as `C0 80`, and a zero-padded truncated tail
+/// all produce. For those inputs this over-counts. A caller that must not
+/// over-count has to reject them.
 pub fn nu_rune_count(bytes: &[u8]) -> usize {
     let mut pos = 0;
     let mut runes = 0;
@@ -136,9 +141,19 @@ mod test {
         // A stray continuation byte is read as a two-byte lead, so it swallows
         // the byte after it rather than counting as one rune of its own.
         assert_eq!(nu_rune_count(b"\x80a"), 1);
-        // A truncated trailing sequence still counts as one rune, with the
+        // A truncated trailing sequence still counts as one step, with the
         // cursor stepping past the end.
         assert_eq!(nu_rune_count(b"a\xF0"), 2);
         assert_eq!(nu_rune_count(b"a\xE0\x80"), 2);
+    }
+
+    #[test]
+    fn rune_count_overcounts_a_sequence_decoding_to_zero() {
+        // `C0 80` is an overlong encoding of codepoint 0, which libnu decodes
+        // rather than rejects, so C stops there and reports one rune. This walk
+        // has no codepoint to stop on and keeps stepping.
+        assert_eq!(nu_rune_count(b"a\xC0\x80b"), 3);
+        // Same divergence from an embedded NUL, where C reports two runes.
+        assert_eq!(nu_rune_count(b"ab\0cd"), 5);
     }
 }
