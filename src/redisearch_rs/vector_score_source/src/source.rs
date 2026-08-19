@@ -149,8 +149,9 @@ unsafe impl<E: ExpirationChecker + Send> Send for VectorScoreSource<'_, E> {}
 impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
     /// Create a new `VectorScoreSource`.
     ///
-    /// `timeout` points to the request-owned timeout state. A null pointer disables
-    /// timeout checks for standalone users that do not have a query request.
+    /// `timeout` points to request-owned state that is consulted dynamically, so a cursor may
+    /// select a different timeout source between uses of the returned source. A null pointer
+    /// disables timeout checks for standalone users that do not have a query request.
     ///
     /// # Safety
     ///
@@ -159,7 +160,10 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
     /// 2. `query_vector` must satisfy the [`QueryVector`] length invariant for
     ///    `index`, which VecSim reads in full on every query path (a shorter
     ///    blob is read out of bounds).
-    /// 3. If non-null, `timeout` must remain valid for the returned source's lifetime.
+    /// 3. If non-null, `timeout` must remain valid for the returned source's lifetime. Its active
+    ///    source may change only while no operation on the returned source is running. Operations
+    ///    on one source must remain serialized because clock checks mutate the request-owned
+    ///    counter; only the C atomic blocked-client marker may be changed concurrently.
     #[expect(clippy::too_many_arguments)]
     pub unsafe fn new(
         index: NonNull<VecSimIndex>,
@@ -210,7 +214,9 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
     }
 
     /// Return a `*mut c_void` pointing to the owned [`VecSimTimeoutCtx`],
-    /// suitable for assignment to [`VecSimQueryParams::timeoutCtx`].
+    /// suitable for assignment to [`VecSimQueryParams::timeoutCtx`]. The boxed context has a
+    /// stable address and remains valid while this source and its retained VecSim batch iterator
+    /// can use it.
     fn timeout_ctx_ptr(&mut self) -> *mut c_void {
         self.timeout_ctx.as_mut() as *mut VecSimTimeoutCtx as *mut c_void
     }
@@ -510,8 +516,8 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
         // SAFETY: `as_mut()` gives a valid, exclusive borrow for the call; the
         // source is single-threaded so no other access to the aliased raw
         // pointer in `query_params.timeoutCtx` is live during the call. The
-        // callee checks the request timeout and updates the adapter counter without
-        // retaining the pointer.
+        // callee checks the request timeout and may update its clock counter without retaining
+        // either pointer.
         let timeout = unsafe { RS_VecSimCheckTimeout(self.timeout_ctx.as_mut()) };
         if timeout != 0 {
             return Err(RQEIteratorError::TimedOut);

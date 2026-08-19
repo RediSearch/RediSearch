@@ -299,6 +299,65 @@ fn iterate_contains_some_and_none_timeout_agree() {
     });
 }
 
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
+fn retained_timeout_handle_follows_source_changes_between_walks() {
+    // Cursor reads reuse the iterator's request timeout while C may select a different source
+    // between reads. Keep one Rust handle for the entire test to ensure it does not capture the
+    // union member that was active when the handle was created.
+    with_terms_trie(CORPUS, |trie| {
+        // SAFETY: `timespec` is a plain-old-data struct; an all-zero value is valid.
+        let mut deadline: ffi::timespec = unsafe { mem::zeroed() };
+        deadline.tv_sec = 1_i64 << 40; // far in the future
+        let mut timeout = clock_timeout(deadline);
+        let timeout_ptr = ptr::from_mut(&mut timeout);
+        // SAFETY: `timeout` remains live and at a stable address for every walk. Source changes
+        // happen only between walks, never while C is using the handle.
+        let timeout_handle = unsafe { QueryRequestTimeoutHandle::from_raw(timeout_ptr) }
+            .expect("the timeout pointer is non-null");
+        let runes = to_runes("ap");
+
+        let mut clock_hits = HashSet::new();
+        trie.iterate_contains(&runes, true, true, Some(timeout_handle), |term, _| {
+            clock_hits.insert(runes_to_string(term));
+            ControlFlow::Continue(())
+        });
+        assert_eq!(clock_hits, set(CORPUS));
+
+        // SAFETY: the walk above is complete, so the handle is not currently being used by C.
+        // The `UnsafeCell`-backed handle permits C-owned state to change between operations.
+        unsafe {
+            (*timeout_ptr).source.blockedClientTimedOut = true;
+            (*timeout_ptr).kind = ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT;
+        }
+        let mut blocked_client_hits = HashSet::new();
+        trie.iterate_contains(&runes, true, true, Some(timeout_handle), |term, _| {
+            blocked_client_hits.insert(runes_to_string(term));
+            ControlFlow::Continue(())
+        });
+        assert!(
+            blocked_client_hits.is_empty(),
+            "the retained handle must observe the newly selected timed-out source"
+        );
+
+        // SAFETY: as above, the previous walk is complete before selecting the clock member.
+        unsafe {
+            (*timeout_ptr).source.clock.deadline = deadline;
+            (*timeout_ptr).source.clock.counter = 0;
+            (*timeout_ptr).kind = ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
+        }
+        let mut rearmed_clock_hits = HashSet::new();
+        trie.iterate_contains(&runes, true, true, Some(timeout_handle), |term, _| {
+            rearmed_clock_hits.insert(runes_to_string(term));
+            ControlFlow::Continue(())
+        });
+        assert_eq!(rearmed_clock_hits, clock_hits);
+    });
+}
+
 // --- `iterate_fuzzy` --------------------------------------------------------
 
 /// Corpus for the edit-distance walks: `map`, `maps` and `mop` all sit within

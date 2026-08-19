@@ -66,7 +66,9 @@ static inline void rs_timerremaining(struct timespec *a, struct timespec *b, str
 #define TIMEOUT_COUNTER_LIMIT QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT
 
 typedef struct VecSimTimeoutCtx {
-  // Borrowed for the lifetime of every VecSim operation that receives this adapter.
+  // Borrowed request state subject to the QueryRequestTimeout lifetime and
+  // threading contract. It must outlive this adapter and every VecSim operation
+  // or iterator that retains the adapter.
   QueryRequestTimeout *timeout;
 } VecSimTimeoutCtx;
 
