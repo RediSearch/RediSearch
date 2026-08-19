@@ -224,9 +224,11 @@ pub trait ScoreSource {
     /// vector distance) is exposed via the metrics channel for output fields
     /// like `__v_score`.
     ///
-    /// Implementations that maintain a stable score key should overwrite an
-    /// existing entry with the same key rather than appending, so repeated
-    /// yields of the same child storage don't leak metrics across docs.
+    /// Implementations that maintain a stable score key must
+    /// [upsert](index_result::MetricsVec::upsert_with_key) rather than append, for two
+    /// reasons: the child's storage is reused across yields, so appending would leak an
+    /// entry per document; and this score has to outrank an entry the child already
+    /// carries under the same key, as a nested KNN reusing an `AS` alias would.
     ///
     /// [`TopKIterator`]: crate::TopKIterator
     fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)

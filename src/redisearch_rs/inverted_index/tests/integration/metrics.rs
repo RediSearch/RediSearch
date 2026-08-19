@@ -232,6 +232,67 @@ fn find_by_key_mut_skips_keyless_entries() {
     assert!(v.find_by_key_mut(&key).is_none());
 }
 
+// ── MetricsVec — upsert_with_key ──────────────────────────────
+
+#[test]
+fn upsert_with_key_appends_when_absent() {
+    let key_a = make_key();
+    let key_other = make_key();
+    let mut v = MetricsVec::new();
+    v.push_with_key(&key_a, 1.0);
+
+    v.upsert_with_key(&key_other, 2.0);
+
+    assert_eq!(v.len(), 2);
+    assert_eq!(v.find_by_key_mut(&key_other).unwrap().value(), 2.0);
+    assert_eq!(v.find_by_key_mut(&key_a).unwrap().value(), 1.0, "untouched");
+}
+
+#[test]
+fn upsert_with_key_overwrites_in_place() {
+    let key_a = make_key();
+    let key_b = make_key();
+    let mut v = MetricsVec::new();
+    v.push_with_key(&key_a, 1.0);
+    v.push_with_key(&key_b, 2.0);
+
+    v.upsert_with_key(&key_a, 11.0);
+
+    assert_eq!(v.len(), 2, "overwritten, not appended");
+    assert_eq!(v.get(0).unwrap().value(), 11.0, "in place, order preserved");
+    assert_eq!(v.get(1).unwrap().value(), 2.0);
+}
+
+#[test]
+fn repeated_upserts_under_one_key_keep_a_single_entry() {
+    // The caller's storage is reused across documents, so an upsert per document
+    // must not grow the collection — that is the whole reason to prefer it over
+    // `push_with_key`.
+    let key = make_key();
+    let mut v = MetricsVec::new();
+
+    for value in [1.0, 2.0, 3.0, 4.0] {
+        v.upsert_with_key(&key, value);
+        assert_eq!(v.len(), 1);
+        assert_eq!(v.get(0).unwrap().value(), value);
+    }
+}
+
+#[test]
+fn upsert_with_key_ignores_keyless_entries() {
+    // A keyless entry carries no key to match, so it is never the one upserted
+    // into; the keyed entry is appended alongside it.
+    let key = make_key();
+    let mut v = MetricsVec::new();
+    v.push_without_key(1.0);
+
+    v.upsert_with_key(&key, 2.0);
+
+    assert_eq!(v.len(), 2);
+    assert_eq!(v.get(0).unwrap().value(), 1.0);
+    assert_eq!(v.find_by_key_mut(&key).unwrap().value(), 2.0);
+}
+
 // ── MetricsVec — concat ──────────────────────────────────────────────────
 
 #[test]

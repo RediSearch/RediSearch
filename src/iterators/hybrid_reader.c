@@ -192,7 +192,7 @@ static inline void updateResultScore(RSIndexResult *res, double score, RLookupKe
   }
 
   // Update metrics array entry for downstream $score access.
-  MetricsVec_UpdateValue(&res->metrics, scoreKey, score);
+  MetricsVec_UpsertValue(&res->metrics, scoreKey, score);
 }
 
 // Cleanup helper for computeDistances_Disk - centralizes resource cleanup.
