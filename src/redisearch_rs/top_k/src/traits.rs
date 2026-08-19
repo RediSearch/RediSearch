@@ -224,9 +224,15 @@ pub trait ScoreSource {
     /// vector distance) is exposed via the metrics channel for output fields
     /// like `__v_score`.
     ///
-    /// Implementations that maintain a stable score key should overwrite an
-    /// existing entry with the same key rather than appending, so repeated
-    /// yields of the same child storage don't leak metrics across docs.
+    /// Implementations that maintain a stable score key must
+    /// [upsert](index_result::MetricsVec::upsert_with_key) rather than append: the child's
+    /// storage is reused across yields, so an entry under this key may already be there
+    /// from the previous document, and appending would leak one entry per document.
+    /// Whatever is found under this source's own key is superseded by this score.
+    ///
+    /// Two *different* metric-yielding iterators cannot collide here — `RLookup` refuses a
+    /// duplicate output alias at query-build time — so the entry being overwritten is
+    /// always this source's own from an earlier yield.
     ///
     /// [`TopKIterator`]: crate::TopKIterator
     fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
