@@ -10,7 +10,7 @@
 //! Helpers shared by the integration test modules.
 
 use inverted_index::DocId;
-use tag_index::{InMemoryMode, TagIndex, Tag, WritePostingsDelta};
+use tag_index::{InMemoryMode, Tag, TagIndex, WritePostingsDelta};
 
 /// Wrap every NUL-free literal `tags` passes as a test fixture into a [`Tag`].
 fn tag_values<'a>(tags: &[&'a [u8]]) -> Vec<Tag<'a>> {

@@ -239,9 +239,7 @@ pub struct WritePostingsDelta {
     /// Bytes by which the inverted-index memory grew.
     pub size_delta: usize,
     /// Number of new (tag, doc) postings written by the in-memory path — see
-    /// [`index`](TagIndex::index) for exactly what counts as "new". A future
-    /// on-disk `commit()` will count differently and should not assume this
-    /// field's dedup guarantee.
+    /// [`index`](TagIndex::index) for exactly what counts as "new".
     pub num_records: u32,
     /// Number of inverted-index blocks allocated.
     pub blocks_added: u32,
@@ -307,8 +305,7 @@ impl<M: TagIndexMode> TagIndex<M> {
         self.suffix.is_some()
     }
 
-    /// Register `tags` in the [suffix index](TagSuffixIndex), when enabled: the part
-    /// of `commit` that does not depend on where the postings live.
+    /// Register `tags` in the [suffix index](TagSuffixIndex), when enabled.
     fn add_tags_to_suffix(&mut self, tags: &[Tag<'_>]) {
         let Some(suffix) = &mut self.suffix else {
             return;
@@ -365,17 +362,14 @@ impl TagIndex<InMemoryMode> {
     /// write: register the tags in the [suffix index](TagSuffixIndex), when enabled.
     ///
     /// Returns the number of records to fold into the spec statistics, always `0`:
-    /// the postings were written, and counted, by [`index`](Self::index). Disk mode
-    /// counts them here instead.
+    /// the postings were written, and counted, by [`index`](Self::index).
     pub fn commit(&mut self, tags: &[Tag<'_>]) -> u32 {
         self.add_tags_to_suffix(tags);
         0
     }
 }
 
-// Handles tests reach the index internals through, kept apart from the production
-// methods above and gated behind the `test-utils` feature so they stay out of the
-// public API in release builds.
+// More methods to access internals for test purposes.
 #[cfg(feature = "test-utils")]
 impl TagIndex<InMemoryMode> {
     /// Get the inverted index holding the postings for `tag`, if the tag is
@@ -384,34 +378,13 @@ impl TagIndex<InMemoryMode> {
         self.mode.values.find(tag).map(Box::as_ref)
     }
 
-    /// Get a mutable reference to the inverted index holding the postings for
-    /// `tag`, if the tag is currently indexed.
-    pub fn find_value_mut(&mut self, tag: &[u8]) -> Option<&mut InvertedIndex<DocIdsOnly>> {
-        self.mode.values.find_mut(tag).map(Box::as_mut)
-    }
-
-    /// Get the inverted index for `tag`, registering a new empty one when the
-    /// tag is not indexed yet and `create_if_missing` is set.
-    pub fn open_index(
-        &mut self,
-        tag: &[u8],
-        create_if_missing: bool,
-    ) -> Option<&InvertedIndex<DocIdsOnly>> {
-        let values = &mut self.mode.values;
-
-        if values.find(tag).is_none() {
-            if !create_if_missing {
-                return None;
-            }
-            values.insert(
-                tag,
-                Box::new(InvertedIndex::<DocIdsOnly>::new(
-                    IndexFlags_Index_DocIdsOnly,
-                )),
-            );
-        }
-
-        values.find(tag).map(Box::as_ref)
+    /// Whether `key` is registered in the [suffix index](TagSuffixIndex) — as a
+    /// full tag term or as a suffix of one. `false` when suffix indexing is
+    /// disabled.
+    pub fn suffix_contains(&self, key: &[u8]) -> bool {
+        self.suffix
+            .as_ref()
+            .is_some_and(|suffix| suffix.find(key).is_some())
     }
 }
 

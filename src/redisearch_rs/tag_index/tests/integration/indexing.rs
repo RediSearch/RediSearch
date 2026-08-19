@@ -11,7 +11,7 @@
 
 use index_result::RSIndexResult;
 use inverted_index::IndexReader;
-use tag_index::{InMemoryMode, TagIndex, Tag};
+use tag_index::{InMemoryMode, Tag, TagIndex};
 
 use crate::util::{commit_mem, index_mem};
 
@@ -27,6 +27,43 @@ fn indexing_registers_every_tag() {
     for tag in tags {
         assert!(tag_index.find_value(tag).is_some());
     }
+}
+
+/// `commit` forwards tags to the suffix index when suffix indexing is
+/// enabled: every tag and every one of its suffixes becomes a lookup key,
+/// including when a tag is itself a suffix of another indexed tag (`"oo"` is
+/// a suffix of `"foo"` and also indexed as a tag on its own).
+#[test]
+fn commit_registers_tags_in_the_suffix_index_when_enabled() {
+    let mut tag_index = TagIndex::<InMemoryMode>::new(true);
+    let tags: &[&[u8]] = &[b"foo", b"oo"];
+
+    index_mem(&mut tag_index, tags, 1);
+    commit_mem(&mut tag_index, tags);
+
+    for key in [b"foo".as_slice(), b"oo", b"o"] {
+        assert!(
+            tag_index.suffix_contains(key),
+            "`{}` must be registered in the suffix index",
+            String::from_utf8_lossy(key)
+        );
+    }
+    assert!(
+        !tag_index.suffix_contains(b"bar"),
+        "an unrelated key must not be registered"
+    );
+}
+
+/// With suffix indexing disabled, `commit` is a no-op on the suffix index.
+#[test]
+fn commit_does_not_touch_the_suffix_index_when_disabled() {
+    let mut tag_index = TagIndex::<InMemoryMode>::new(false);
+    let tags: &[&[u8]] = &[b"foo"];
+
+    index_mem(&mut tag_index, tags, 1);
+    commit_mem(&mut tag_index, tags);
+
+    assert!(!tag_index.suffix_contains(b"foo"));
 }
 
 #[test]
@@ -115,9 +152,6 @@ fn intra_document_duplicate_tag_counted_once() {
 /// inverted indexes report, and blocks accumulate (one per tag on the first
 /// write). Asserted against the reported memory rather than absolute byte
 /// constants, which would pin the `InvertedIndex<DocIdsOnly>` layout.
-// Ignored under Miri: the block accounting is only interesting past
-// `DocIdsOnly::RECOMMENDED_BLOCK_ENTRIES`, and interpreting that many writes
-// exceeds `nextest`'s slow-test budget.
 #[test]
 #[cfg_attr(miri, ignore)]
 fn size_and_block_accounting_matches_reported_memory() {
