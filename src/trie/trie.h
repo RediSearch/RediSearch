@@ -27,9 +27,13 @@ extern RedisModuleType *TrieType;
 
 typedef struct Trie Trie;
 
+/* A single Trie_CollectFuzzy match. `rstr` is a copy owned by the result, since the
+ * iterator reuses its own buffer across steps; `payload` is borrowed from the trie
+ * node and stays valid only as long as the node does. Release with
+ * TrieSearchResult_Free. */
 typedef struct {
-  char *str;
-  size_t len;
+  rune *rstr;
+  t_len rlen;
   float score;
   char *payload;
   size_t plen;
