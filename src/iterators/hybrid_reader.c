@@ -495,6 +495,12 @@ static IteratorStatus HR_ReadKnnUnsortedSingle(HybridIterator *hr) {
     return ITERATOR_EOF;
   }
 
+  // `current` is one result reused for every read, and `ResultMetrics_Add` below only
+  // appends. On this path the hybrid iterator is the query root, so no parent aggregate
+  // ever drains it: without clearing it here the entries would pile up, one per yielded
+  // document, instead of describing the document `current` now holds.
+  ResultMetrics_Reset(hr->base.current);
+
   if (hr->checkFieldExpiration
       && !DocTable_CheckFieldExpirationPredicate(&hr->sctx->spec->docs, hr->base.current->docId,
                                                  hr->filterCtx.field.index,
