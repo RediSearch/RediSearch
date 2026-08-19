@@ -426,13 +426,21 @@ def test_MOD_1517(env):
 @skip(msan=True, no_json=True)
 def test_MOD1544(env):
   conn = getConnectionByEnv(env)
+  MAX_DIALECT = set_max_dialect(env)
   env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.name', 'AS', 'name', 'TEXT')
   conn.execute_command('JSON.SET', '1', '.', '{"name": "John Smith"}')
   res = [1, '1', ['name', '<b>John</b> Smith']]
+
   env.expect('FT.SEARCH', 'idx', '@name:(John)', 'RETURN', '1', 'name',
-             'HIGHLIGHT', 'DIALECT', '2').equal(res)
+             'HIGHLIGHT').equal(res)
   env.expect('FT.SEARCH', 'idx', '@name:(John)', 'RETURN', '1', 'name',
-             'HIGHLIGHT', 'FIELDS', '1', 'name', 'DIALECT', '2').equal(res)
+             'HIGHLIGHT', 'FIELDS', '1', 'name').equal(res)
+
+  for dialect in range(1, MAX_DIALECT + 1):
+    env.expect('FT.SEARCH', 'idx', '@name:(John)', 'RETURN', '1', 'name',
+               'HIGHLIGHT', 'DIALECT', dialect).equal(res)
+    env.expect('FT.SEARCH', 'idx', '@name:(John)', 'RETURN', '1', 'name',
+               'HIGHLIGHT', 'FIELDS', '1', 'name', 'DIALECT', dialect).equal(res)
 
 def test_MOD_1808(env):
   conn = getConnectionByEnv(env)
