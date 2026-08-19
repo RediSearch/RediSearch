@@ -858,26 +858,32 @@ static bool InForkChild(void) {
 // cycle's cancellation tail. Bounded because it runs on the main thread under the GIL.
 #define DISK_GC_CONSISTENCY_DRAIN_TIMEOUT_MS 5000
 
-//Keeps track to know if SST replication holds the lock avoiding background vector index building jobs from running
-static bool vecsimdisk_sst_consistency_lock_held = false;
-// Spans PRE_CHECKPOINT..POST_FORK as one hold, unlike the VecSim lock. Outlives
-// disk_index_window_open on a hot restart, which closes the per-index window but leaves the
-// GC paused through process exit.
-static bool disk_gc_paused_for_consistency = false;
-// Whether the per-index disk hooks are currently open. This side owns that pairing: it is the
-// only side that knows the event sequence, so the disk side is told to open once and close
-// once and needs no idempotence of its own.
-static bool disk_index_window_open = false;
+// What the window is currently holding. One variable rather than three flags, because the
+// parts are acquired and released on different events and every unwind has to ask "which of
+// these do I still hold?" -- as a bitmask that is one load, and DISK_WINDOW_NONE answers
+// "anything at all?".
+typedef enum {
+  DISK_WINDOW_NONE = 0,
+  // The vecsim_disk global lock, which keeps background vector index jobs off on-disk state.
+  // The shortest-lived part: POST_CHECKPOINT drops it and PRE_FORK retakes it.
+  DISK_WINDOW_VECSIM_LOCK = 1 << 0,
+  // The disk GC pause (thread pool plus per-index scheduling). Held PRE_CHECKPOINT..POST_FORK
+  // as one hold, and outlives the rest on a hot restart, which stays paused through exit.
+  DISK_WINDOW_GC_PAUSED = 1 << 1,
+  // The per-index disk hooks. This side owns their pairing, since it is the only side that
+  // knows the event sequence: the disk side is told to open once and close once, so it needs
+  // no idempotence of its own.
+  DISK_WINDOW_INDEX_HOOKS = 1 << 2,
+} DiskWindowParts;
 
-// Any part can be held alone - POST_CHECKPOINT releases the VecSim lock but keeps disk GC
-// paused - so an unwind path must test all of them or it can strand one.
+static unsigned disk_window_held = DISK_WINDOW_NONE;
+
 static bool DiskConsistencyWindow_IsOpen(void) {
-  return vecsimdisk_sst_consistency_lock_held || disk_gc_paused_for_consistency ||
-         disk_index_window_open;
+  return disk_window_held != DISK_WINDOW_NONE;
 }
 
 bool DiskConsistencyWindow_IsIndexWindowOpen(void) {
-  return disk_index_window_open;
+  return (disk_window_held & DISK_WINDOW_INDEX_HOOKS) != 0;
 }
 
 // Quiesce every background writer that could mutate on-disk state, and tell each index to
@@ -885,17 +891,17 @@ bool DiskConsistencyWindow_IsIndexWindowOpen(void) {
 // foreground hot-restart save - and not at PRE_FORK, which inherits this quiesce and needs
 // only DiskConsistencyWindow_Seal.
 static void DiskConsistencyWindow_Quiesce(void) {
-  if (disk_index_window_open) {
+  if (disk_window_held & DISK_WINDOW_INDEX_HOOKS) {
     return;
   }
-  if (!disk_gc_paused_for_consistency) {
+  if (!(disk_window_held & DISK_WINDOW_GC_PAUSED)) {
     GC_ThreadPoolPauseForConsistency();               // no queued job starts
     ForEachIndex(PauseIndexGCSchedulingForConsistency);  // no timer queues one
-    disk_gc_paused_for_consistency = true;
+    disk_window_held |= DISK_WINDOW_GC_PAUSED;
   }
 
   ForEachIndex(SearchDisk_OpenConsistencyWindow);  // disable + cancel compactions
-  disk_index_window_open = true;
+  disk_window_held |= DISK_WINDOW_INDEX_HOOKS;
 }
 
 // Seal the window against what the quiesce cannot stop on its own, immediately before the
@@ -917,7 +923,7 @@ static void DiskConsistencyWindow_Seal(void) {
 
   // After the drain, never before: a GC run needing this lock would deadlock against us.
   VecSimDisk_AcquireConsistencyLock();
-  vecsimdisk_sst_consistency_lock_held = true;
+  disk_window_held |= DISK_WINDOW_VECSIM_LOCK;
 
   // Flush last, under the lock. Both classes of background writer are now excluded: the
   // disk GC by the drain, vector jobs by the lock. Flushing inside the quiesce would leave
@@ -939,11 +945,14 @@ static void DiskConsistencyWindow_Begin(void) {
 // This deliberately leaves disk GC paused: SST keeps it paused through POST_FORK/ABORT,
 // and a successful hot restart keeps it paused through process exit.
 //
-// The caller must check vecsimdisk_sst_consistency_lock_held before calling
-// this on a path where the window may never have been opened.
+// No-op when the lock is not held, so it is safe on a path where the window may never have
+// been opened.
 static void DiskConsistencyWindow_Close(void) {
+  if (!(disk_window_held & DISK_WINDOW_VECSIM_LOCK)) {
+    return;
+  }
   VecSimDisk_ReleaseConsistencyLock();
-  vecsimdisk_sst_consistency_lock_held = false;
+  disk_window_held &= ~(unsigned)DISK_WINDOW_VECSIM_LOCK;
 }
 
 // How to end the window. The finalize hook and the disk-GC disposition are correlated, so
@@ -964,33 +973,31 @@ typedef enum {
 // pause held and the lock not.
 static void DiskConsistencyWindow_End(DiskWindowEnd how) {
   if (InForkChild()) {
-    // COW-inherited flags, not a window this process opened. The child owns no GC threads
+    // COW-inherited bits, not a window this process opened. The child owns no GC threads
     // and must not run the finalize hooks - they re-enable compactions against DB files
     // the parent owns.
-    vecsimdisk_sst_consistency_lock_held = false;
-    disk_gc_paused_for_consistency = false;
-    disk_index_window_open = false;
+    disk_window_held = DISK_WINDOW_NONE;
     return;
   }
 
   // One close per open. Two End paths can fire for one failed save - PERSISTENCE_FAILED is
   // gated on DiskConsistencyWindow_IsOpen, SST ABORT is not - and the disk side no longer
   // absorbs the repeat.
-  if (disk_index_window_open) {
+  if (disk_window_held & DISK_WINDOW_INDEX_HOOKS) {
     ForEachIndex(how == DISK_WINDOW_END_HOT_RESTART ? CloseWindowKeepingGateClosed
                                                     : CloseWindowReopeningGate);
-    disk_index_window_open = false;
+    disk_window_held &= ~(unsigned)DISK_WINDOW_INDEX_HOOKS;
   }
 
-  if (how == DISK_WINDOW_END_RESUME && disk_gc_paused_for_consistency) {
+  // A hot restart keeps the GC paused through process exit, so the kept DBs cannot advance
+  // past what restart.rdb captured.
+  if (how == DISK_WINDOW_END_RESUME && (disk_window_held & DISK_WINDOW_GC_PAUSED)) {
     ForEachIndex(ResumeIndexGCSchedulingAfterConsistency);
     GC_ThreadPoolResumeAfterConsistency();
-    disk_gc_paused_for_consistency = false;
+    disk_window_held &= ~(unsigned)DISK_WINDOW_GC_PAUSED;
   }
 
-  if (vecsimdisk_sst_consistency_lock_held) {
-    DiskConsistencyWindow_Close();
-  }
+  DiskConsistencyWindow_Close();
 }
 
 
@@ -1022,7 +1029,7 @@ static void SSTReplicationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
       RedisModule_Log(ctx, "notice", "SST replication: POST_CHECKPOINT");
       // POST_CHECKPOINT has no matching disk hook - just close the window
       // opened at PRE_CHECKPOINT.
-      RS_ASSERT(vecsimdisk_sst_consistency_lock_held);
+      RS_ASSERT(disk_window_held & DISK_WINDOW_VECSIM_LOCK);
       DiskConsistencyWindow_Close();
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_PRE_FORK:
@@ -1034,7 +1041,7 @@ static void SSTReplicationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_POST_FORK:
       RedisModule_Log(ctx, "notice", "SST replication: POST_FORK");
-      RS_ASSERT(vecsimdisk_sst_consistency_lock_held);
+      RS_ASSERT(disk_window_held & DISK_WINDOW_VECSIM_LOCK);
       DiskConsistencyWindow_End(DISK_WINDOW_END_RESUME);
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_ABORT:
@@ -1063,7 +1070,8 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
 
   switch (subevent) {
   case REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START:
-    vecsimdisk_sst_consistency_lock_held = false;
+    // In a fork child this bit is COW-inherited, not a lock this process holds.
+    disk_window_held &= ~(unsigned)DISK_WINDOW_VECSIM_LOCK;
     g_hotRestartSave = false;
     // Async (fork child) save: BGSAVE / replication. This can never be a hot
     // restart (those only happen in the foreground, main-process SYNC_ variant)
@@ -1074,7 +1082,7 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
     }
     break;
   case REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START:
-    vecsimdisk_sst_consistency_lock_held = false;
+    disk_window_held &= ~(unsigned)DISK_WINDOW_VECSIM_LOCK;
     if (!useSst) {
       RedisModule_Log(ctx, "notice", "SAVE start mode=FULL_RDB proc=main sst=false");
       DocIdMeta_SetForgetDocIdMetadata(true);

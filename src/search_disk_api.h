@@ -334,6 +334,18 @@ typedef struct BasicDiskAPI {
                                                     size_t nkeys, uint32_t *outStateFlags);
 
   /**
+   * @brief Debug: record an arrival at a coordinator site reached on this side.
+   *
+   * The disk side reaches its own lifecycle sites; this is for the ones that exist only in
+   * OSS (SEARCH_DISK_SITE_GC_DRAIN_WAITING). NULL in release builds, where the coordinator
+   * is not compiled - callers must check before invoking, or go through
+   * `SearchDisk_DebugCoordinatorReach`, which does.
+   *
+   * @param site A `SearchDiskCompactionSite` value.
+   */
+  void (*debugCoordinatorReach)(int site);
+
+  /**
    * Hand the disk async-loader result processor its request sync context, so it can perform
    * the same RETURN_STRICT GIL deadlock-avoidance handshake as RP_SAFE_LOADER (see
    * `QueryRequest_SafeLoaderEnterGIL` / `ExitGIL` in aggregate.h).
@@ -1116,7 +1128,7 @@ extern void VecSimDisk_ReleaseConsistencyLock(void);
 //       background compaction; target -1 clears the link).
 //   - `Release(site)`  release a parked site out-of-band.
 //   - `Reached(site)`  read the arrival count.
-//   - `Reach(site)`  record an arrival from C, for sites that only exist on that side.
+// Sites reached from this side instead go through `basic.debugCoordinatorReach`.
 //   - `ResetCompactionController()`  clear all state and free waiters.
 // All entry points are no-ops if nothing is armed and are safe to call from
 // arbitrary threads.
@@ -1125,7 +1137,6 @@ extern void SearchDisk_DebugCoordinatorArmPause(int site, bool armed);
 extern void SearchDisk_DebugCoordinatorSetWake(int trigger, int target);
 extern void SearchDisk_DebugCoordinatorRelease(int site);
 extern unsigned int SearchDisk_DebugCoordinatorReached(int site);
-extern void SearchDisk_DebugCoordinatorReach(int site);
 extern void SearchDisk_DebugResetCompactionController(void);
 
 #ifdef __cplusplus

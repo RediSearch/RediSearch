@@ -75,8 +75,12 @@ unsigned int SearchDisk_DebugCoordinatorReached(int site) {
   return 0;
 }
 
-__attribute__((weak))
-void SearchDisk_DebugCoordinatorReach(int site) {}
+void SearchDisk_DebugCoordinatorReach(int site) {
+  // Reached from the GC drain on every build, but the coordinator only exists in debug ones.
+  if (disk && disk->basic.debugCoordinatorReach) {
+    disk->basic.debugCoordinatorReach(site);
+  }
+}
 
 __attribute__((weak))
 void SearchDisk_DebugResetCompactionController(void) {}

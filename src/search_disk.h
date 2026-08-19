@@ -963,10 +963,11 @@ void SearchDisk_DebugCoordinatorRelease(int site);
 unsigned int SearchDisk_DebugCoordinatorReached(int site);
 
 /**
- * @brief Records an arrival at `site` from C, running any cross-wake wired to it.
+ * @brief Records an arrival at `site` from this side, running any cross-wake wired to it.
  *
- * The Rust lifecycle hooks call `reach` themselves; this is for the sites that only exist on
- * this side (SEARCH_DISK_SITE_GC_DRAIN_WAITING). No-op unless the coordinator is armed.
+ * The disk side reaches its own lifecycle sites; this is for the ones that exist only here
+ * (SEARCH_DISK_SITE_GC_DRAIN_WAITING). Goes through `basic.debugCoordinatorReach`, and is a
+ * no-op when the disk API is absent, in release builds, or with nothing armed.
  */
 void SearchDisk_DebugCoordinatorReach(int site);
 
