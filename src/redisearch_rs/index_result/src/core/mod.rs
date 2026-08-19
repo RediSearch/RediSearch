@@ -34,6 +34,7 @@ pub struct RawIndexResultBuilder<'query, R: Ref> {
     freq: u32,
     data: RawResultData<'query, R>,
     weight: f64,
+    has_field_expiration: bool,
 }
 
 /// Specialized builder for creating [`RawIndexResult`] instances of the
@@ -48,6 +49,7 @@ pub struct RawTermResultBuilder<'query, R: Ref> {
     freq: u32,
     weight: f64,
     record: TermBuilderRecord<'query, R>,
+    has_field_expiration: bool,
 }
 
 /// Internal enum holding the term record data for the builder.
@@ -91,6 +93,12 @@ impl<'query, R: Ref> RawIndexResultBuilder<'query, R> {
         self
     }
 
+    /// Set [`RawIndexResult::has_field_expiration`] for this record
+    pub const fn has_field_expiration(mut self, has_field_expiration: bool) -> Self {
+        self.has_field_expiration = has_field_expiration;
+        self
+    }
+
     /// Create a builder for a virtual index result
     const fn virt() -> Self {
         Self {
@@ -99,6 +107,7 @@ impl<'query, R: Ref> RawIndexResultBuilder<'query, R> {
             freq: 0,
             data: RawResultData::Virtual,
             weight: 0.0,
+            has_field_expiration: false,
         }
     }
 
@@ -110,6 +119,7 @@ impl<'query, R: Ref> RawIndexResultBuilder<'query, R> {
             freq: 1,
             data: RawResultData::Numeric(num),
             weight: 1.0,
+            has_field_expiration: false,
         }
     }
 
@@ -121,6 +131,7 @@ impl<'query, R: Ref> RawIndexResultBuilder<'query, R> {
             freq: 0,
             data: RawResultData::Metric(num),
             weight: 1.0,
+            has_field_expiration: false,
         }
     }
 
@@ -132,6 +143,7 @@ impl<'query, R: Ref> RawIndexResultBuilder<'query, R> {
             freq: 0,
             data: RawResultData::Intersection(RawAggregateResult::borrowed_with_capacity(cap)),
             weight: 0.0,
+            has_field_expiration: false,
         }
     }
 
@@ -143,6 +155,7 @@ impl<'query, R: Ref> RawIndexResultBuilder<'query, R> {
             freq: 0,
             data: RawResultData::Union(RawAggregateResult::borrowed_with_capacity(cap)),
             weight: 0.0,
+            has_field_expiration: false,
         }
     }
 
@@ -154,6 +167,7 @@ impl<'query, R: Ref> RawIndexResultBuilder<'query, R> {
             freq: 0,
             data: RawResultData::HybridMetric(RawAggregateResult::owned_with_capacity(2)),
             weight: 1.0,
+            has_field_expiration: false,
         }
     }
 
@@ -168,7 +182,7 @@ impl<'query, R: Ref> RawIndexResultBuilder<'query, R> {
             data: self.data,
             metrics: MetricsVec::new(),
             weight: self.weight,
-            has_field_expiration: false,
+            has_field_expiration: self.has_field_expiration,
         }
     }
 }
@@ -185,6 +199,7 @@ impl<'query, R: Ref> RawTermResultBuilder<'query, R> {
                 term: None,
                 offsets: RawOffsetSlice::empty(),
             },
+            has_field_expiration: false,
         }
     }
 
@@ -209,6 +224,12 @@ impl<'query, R: Ref> RawTermResultBuilder<'query, R> {
     /// Set the frequency of this record
     pub const fn frequency(mut self, frequency: u32) -> Self {
         self.freq = frequency;
+        self
+    }
+
+    /// Set [`RawIndexResult::has_field_expiration`] for this record
+    pub const fn has_field_expiration(mut self, has_field_expiration: bool) -> Self {
+        self.has_field_expiration = has_field_expiration;
         self
     }
 
@@ -279,7 +300,7 @@ impl<'query, R: Ref> RawTermResultBuilder<'query, R> {
             data,
             metrics: MetricsVec::new(),
             weight: self.weight,
-            has_field_expiration: false,
+            has_field_expiration: self.has_field_expiration,
         }
     }
 }
