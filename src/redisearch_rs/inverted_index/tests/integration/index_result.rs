@@ -257,6 +257,268 @@ fn mutably_reaching_a_borrowed_child_panics() {
     let _ = borrowed.get_mut(0);
 }
 
+/// The observers a borrowed payload answers with, and what `reset` leaves behind.
+/// A borrowed aggregate never owned its children, so resetting it must drop none
+/// of them — only the pointers go. Run under miri, where dropping one here would
+/// turn into a double free at the end of scope.
+#[test]
+fn a_borrowed_aggregate_reports_its_children_and_drops_none_on_reset() {
+    let first = RSIndexResult::build_numeric(10.0).doc_id(2).build();
+    let second = RSIndexResult::build_virt().doc_id(4).build();
+
+    let mut agg = RSBorrowedAggregateResult::with_capacity(2);
+    assert!(agg.is_empty());
+    assert_eq!(agg.capacity(), 2);
+    assert!(agg.records().is_empty());
+
+    agg.push_borrowed(&first);
+    agg.push_borrowed(&second);
+
+    assert!(!agg.is_empty());
+    assert_eq!(
+        agg.records()
+            .iter()
+            .map(|r| r.get().doc_id)
+            .collect::<Vec<_>>(),
+        vec![2, 4],
+        "`records` exposes the children in push order"
+    );
+
+    agg.reset();
+
+    assert!(agg.is_empty());
+    assert_eq!(agg.kind_mask(), RSResultKindMask::empty());
+    assert_eq!(agg.capacity(), 2, "reset keeps the allocation");
+    assert_eq!(
+        (first.doc_id, second.doc_id),
+        (2, 4),
+        "the children outlive the aggregate that pointed at them"
+    );
+}
+
+/// The mirror image on the owned payload, whose `reset` *is* what frees the
+/// children — it is their only owner. Run under miri.
+#[test]
+fn an_owned_aggregate_reports_its_children_and_frees_them_on_reset() {
+    let mut agg = RSOwnedAggregateResult::with_capacity(2);
+    assert!(agg.is_empty());
+    assert!(agg.records().is_empty());
+
+    agg.push_boxed(Box::new(
+        RSIndexResult::build_numeric(1.0).doc_id(7).build(),
+    ));
+    agg.push_boxed(Box::new(RSIndexResult::build_virt().doc_id(11).build()));
+
+    assert!(!agg.is_empty());
+    assert_eq!(
+        agg.records().iter().map(|r| r.doc_id).collect::<Vec<_>>(),
+        vec![7, 11],
+        "`records` exposes the children in push order"
+    );
+    assert_eq!(
+        agg.kind_mask(),
+        RSResultKind::Numeric | RSResultKind::Virtual
+    );
+
+    agg.reset();
+
+    assert!(agg.is_empty());
+    assert_eq!(agg.kind_mask(), RSResultKindMask::empty());
+    assert_eq!(agg.capacity(), 2, "reset keeps the allocation");
+}
+
+/// `get_unchecked` is the bounds-check-free twin of `get`. Each payload has its
+/// own, and the enum a third that dispatches to them, so all three are distinct
+/// code paths that must agree with `get`.
+#[test]
+fn get_unchecked_agrees_with_get_on_both_payloads() {
+    let child = RSIndexResult::build_numeric(10.0).doc_id(2).build();
+
+    let mut borrowed = RSBorrowedAggregateResult::with_capacity(1);
+    borrowed.push_borrowed(&child);
+    // SAFETY: index 0 is in bounds, one child was just pushed.
+    assert_eq!(
+        unsafe { borrowed.get_unchecked(0) },
+        borrowed.get(0).unwrap()
+    );
+
+    let mut owned = RSOwnedAggregateResult::with_capacity(1);
+    owned.push_boxed(Box::new(
+        RSIndexResult::build_numeric(10.0).doc_id(2).build(),
+    ));
+    // SAFETY: index 0 is in bounds, one child was just pushed.
+    assert_eq!(unsafe { owned.get_unchecked(0) }, owned.get(0).unwrap());
+
+    let mut union = RSIndexResult::build_union(1).build();
+    union.push_borrowed(&child, MetricsVec::new());
+    let agg = union.as_aggregate().unwrap();
+    // SAFETY: index 0 is in bounds, one child was just pushed.
+    assert_eq!(unsafe { agg.get_unchecked(0) }, agg.get(0).unwrap());
+
+    let mut hybrid = RSIndexResult::build_hybrid_metric().build();
+    hybrid.push_boxed(Box::new(
+        RSIndexResult::build_metric(10.0).doc_id(2).build(),
+    ));
+    let agg = hybrid.as_aggregate().unwrap();
+    // SAFETY: index 0 is in bounds, one child was just pushed.
+    assert_eq!(unsafe { agg.get_unchecked(0) }, agg.get(0).unwrap());
+}
+
+/// The unchecked twin of `get_mut`, which only the owned payload has: a borrowed
+/// child is shared with whoever owns it, so handing out a `&mut` to one would
+/// alias.
+#[test]
+fn get_mut_unchecked_reaches_an_owned_child() {
+    let mut agg = RSOwnedAggregateResult::with_capacity(1);
+    agg.push_boxed(Box::new(
+        RSIndexResult::build_numeric(1.0).doc_id(7).build(),
+    ));
+
+    // SAFETY: index 0 is in bounds, one child was just pushed.
+    let child = unsafe { agg.get_mut_unchecked(0) };
+    *child.as_numeric_mut().unwrap() = 42.0;
+
+    assert_eq!(agg.get(0).unwrap().as_numeric(), Some(42.0));
+}
+
+/// `to_owned` on an aggregate that already owns its children still has to copy
+/// them: sharing them with the copy would give two owners of one allocation.
+#[test]
+fn to_owned_on_an_owned_aggregate_copies_its_children() {
+    let mut agg = RSOwnedAggregateResult::with_capacity(1);
+    agg.push_boxed(Box::new(
+        RSIndexResult::build_numeric(5.0).doc_id(10).build(),
+    ));
+
+    let mut copy = agg.to_owned();
+    assert_eq!(copy, agg);
+    assert_eq!(
+        copy.capacity(),
+        1,
+        "should use as minimal capacity as needed"
+    );
+
+    *copy.get_mut(0).unwrap().as_numeric_mut().unwrap() = 1.0;
+
+    assert_eq!(
+        agg.get(0).unwrap().as_numeric(),
+        Some(5.0),
+        "the original is untouched"
+    );
+    assert_ne!(copy, agg);
+}
+
+/// Borrowed payloads compare by what they point at rather than by the pointers
+/// themselves, so two aggregates holding distinct but equal children are equal.
+#[test]
+fn borrowed_aggregates_compare_by_the_children_they_point_at() {
+    let child = RSIndexResult::build_numeric(10.0).doc_id(2).build();
+    let same_child = RSIndexResult::build_numeric(10.0).doc_id(2).build();
+    let other_child = RSIndexResult::build_numeric(10.0).doc_id(3).build();
+
+    let mut agg = RSBorrowedAggregateResult::with_capacity(1);
+    agg.push_borrowed(&child);
+    let mut twin = RSBorrowedAggregateResult::with_capacity(1);
+    twin.push_borrowed(&same_child);
+    let mut different = RSBorrowedAggregateResult::with_capacity(1);
+    different.push_borrowed(&other_child);
+    let empty = RSBorrowedAggregateResult::with_capacity(1);
+
+    assert_eq!(agg, twin, "distinct children, but equal ones");
+    assert_ne!(agg, different);
+    assert_ne!(agg, empty, "a length mismatch is enough");
+}
+
+/// The two payloads are different types, so an aggregate is never equal to one of
+/// the other kind — however alike the children it holds.
+#[test]
+fn a_borrowed_and_an_owned_aggregate_are_never_equal() {
+    let child = RSIndexResult::build_metric(10.0).doc_id(2).build();
+    let mut union = RSIndexResult::build_union(1).build();
+    union.push_borrowed(&child, MetricsVec::new());
+
+    let mut hybrid = RSIndexResult::build_hybrid_metric().build();
+    hybrid.push_boxed(Box::new(
+        RSIndexResult::build_metric(10.0).doc_id(2).build(),
+    ));
+
+    let borrowed = union.as_aggregate().unwrap();
+    let owned = hybrid.as_aggregate().unwrap();
+
+    assert_eq!(borrowed.get(0), owned.get(0), "the same child either way");
+    assert_ne!(borrowed, owned, "but not the same aggregate");
+}
+
+/// The enum forwards every shared observer to whichever payload it holds. The two
+/// arms are separate code paths; this is the borrowed one.
+#[test]
+fn a_borrowed_backed_enum_forwards_to_its_payload() {
+    let child = RSIndexResult::build_numeric(10.0).doc_id(2).build();
+    let mut union = RSIndexResult::build_union(3).build();
+
+    assert!(union.as_aggregate().unwrap().is_empty());
+
+    union.push_borrowed(&child, MetricsVec::new());
+
+    let agg = union.as_aggregate().unwrap();
+    assert!(!agg.is_empty());
+    assert_eq!(agg.capacity(), 3);
+    assert_eq!(agg.iter().collect::<Vec<_>>(), vec![&child]);
+
+    let mut twin = RSIndexResult::build_union(3).build();
+    twin.push_borrowed(&child, MetricsVec::new());
+    assert_eq!(agg, twin.as_aggregate().unwrap());
+
+    let copy = agg.to_owned();
+    assert!(
+        copy.as_owned().is_some(),
+        "`to_owned` yields an owned aggregate whichever kind it started from"
+    );
+    assert_eq!(copy.get(0), Some(&child));
+}
+
+/// The same, for the owned arm.
+#[test]
+fn an_owned_backed_enum_forwards_to_its_payload() {
+    let mut hybrid = RSIndexResult::build_hybrid_metric().build();
+    hybrid.push_boxed(Box::new(
+        RSIndexResult::build_metric(10.0).doc_id(2).build(),
+    ));
+    let expected = RSIndexResult::build_metric(10.0).doc_id(2).build();
+
+    let agg = hybrid.as_aggregate().unwrap();
+    assert!(!agg.is_empty());
+    assert_eq!(agg.iter().collect::<Vec<_>>(), vec![&expected]);
+
+    let copy = agg.to_owned();
+    assert_eq!(&copy, agg);
+    assert_eq!(copy.get(0), Some(&expected));
+}
+
+/// `reset` through the enum reaches both payloads, which differ in what becomes
+/// of the children: the borrowed one forgets them, the owned one frees them.
+#[test]
+fn resetting_through_the_enum_reaches_both_payloads() {
+    let child = RSIndexResult::build_numeric(10.0).doc_id(2).build();
+    let mut union = RSIndexResult::build_union(1).build();
+    union.push_borrowed(&child, MetricsVec::new());
+
+    let agg = union.as_aggregate_mut().unwrap();
+    agg.reset();
+    assert!(agg.is_empty());
+    assert_eq!(agg.kind_mask(), RSResultKindMask::empty());
+
+    let mut hybrid = RSIndexResult::build_hybrid_metric().build();
+    hybrid.push_boxed(Box::new(
+        RSIndexResult::build_metric(10.0).doc_id(2).build(),
+    ));
+
+    let agg = hybrid.as_aggregate_mut().unwrap();
+    agg.reset();
+    assert!(agg.is_empty());
+    assert_eq!(agg.kind_mask(), RSResultKindMask::empty());
+}
+
 #[test]
 fn to_owned_a_numeric_index_result() {
     let ir = RSIndexResult::build_numeric(8.0).doc_id(3).build();
