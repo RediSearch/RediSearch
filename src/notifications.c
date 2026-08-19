@@ -858,6 +858,8 @@ static bool InForkChild(void) {
 // cycle's cancellation tail. Bounded because it runs on the main thread under the GIL.
 #define DISK_GC_CONSISTENCY_DRAIN_TIMEOUT_MS 5000
 
+// TODO(MOD-17856): re-review this state machine's shape -- whether GC_PAUSED and INDEX_HOOKS
+// need to be separate parts, and whether Quiesce/Seal and End's dispositions read well.
 // What the window is currently holding. One variable rather than three flags, because the
 // parts are acquired and released on different events and every unwind has to ask "which of
 // these do I still hold?" -- as a bitmask that is one load, and DISK_WINDOW_NONE answers
