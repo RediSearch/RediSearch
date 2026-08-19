@@ -13,6 +13,7 @@
 #include "trie/trie_node_internal.h"  // whitebox: subtreeMaxScore invariant checks
 #include "trie/trie.h"
 #include "redismock/redismock.h"
+#include "rmalloc.h"
 
 #include <string>
 #include <memory>
@@ -1203,4 +1204,34 @@ TEST_F(TrieTest, testSearchTrimDropsTail) {
   Vector_Free(res);
 
   TrieType_Free(t);
+}
+
+TEST_F(TrieTest, testPayloadTerminatorIsNul) {
+  // The saver emits `len + 1` bytes, so the byte past the payload must be written
+  // rather than inherited from the allocator. Dirtying and freeing a block of
+  // exactly the size the payload will request makes an unwritten terminator
+  // observable: the recycled block still reads 0xAA. Both halves of the setup are
+  // load-bearing — macOS scrubs freed blocks below 64K, and a block the allocator
+  // has not seen before arrives zero-filled from the kernel.
+  const size_t plen = 65535;
+  const size_t blockSize = sizeof(TriePayload) + plen + 1;
+
+  Trie *t = NewTrie(NULL, Trie_Sort_Lex);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> tPtr(t, [](Trie *trie) { TrieType_Free(trie); });
+  std::string payload(plen, 'z');
+  RSPayload p = {.data = (char *)payload.data(), .len = plen};
+
+  // Dirty last: every allocation of a comparable size made after this point and
+  // before the insert would claim the recycled block instead of the payload.
+  void *dirty = rm_malloc(blockSize);
+  ASSERT_TRUE(dirty != nullptr);
+  memset(dirty, 0xAA, blockSize);
+  rm_free(dirty);
+
+  ASSERT_TRUE(Trie_InsertStringBuffer(t, "k", 1, 1.0, 0, &p, 0));
+
+  char *data = (char *)triePayload(t, "k", 1, true);
+  ASSERT_TRUE(data != nullptr);
+  EXPECT_EQ(0, memcmp(payload.data(), data, plen));
+  EXPECT_EQ('\0', data[plen]);
 }
