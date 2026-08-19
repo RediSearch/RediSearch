@@ -24,7 +24,7 @@
 //! ## Tag bytes
 //!
 //! Tag values are [`Tag`], which carries exactly one guarantee: no
-//! *interior* NUL byte. [`Tag::new`] enforces it; [`Tag::new_unchecked`]
+//! *interior* (or trailing) NUL byte. [`Tag::new`] enforces it; [`Tag::new_unchecked`]
 //! trusts the caller instead.
 //!
 //! [`TagIndex`] uses the same indexes as the full text but in a simpler manner. In fact:
@@ -147,7 +147,7 @@ use suffix::TagSuffixIndex;
 use trie_rs::TrieMap;
 pub use unique_id::TagUniqueId;
 
-/// A tag value: borrowed bytes guaranteed to contain no interior NUL byte — see
+/// A tag value: borrowed bytes guaranteed to contain no interior (neither trailing) NUL byte — see
 /// the crate-level "Tag bytes" docs for exactly what that does and doesn't cover.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Tag<'a>(&'a [u8]);
@@ -158,11 +158,11 @@ impl<'a> Tag<'a> {
         (!bytes.contains(&0)).then_some(Self(bytes))
     }
 
-    /// Builds a [`Tag`] without checking for an interior NUL byte.
+    /// Builds a [`Tag`] without checking for an interior or trailing NUL byte.
     ///
     /// # Safety
     ///
-    /// `bytes` must contain no interior NUL byte.
+    /// `bytes` must contain no interior or trailing NUL byte.
     pub unsafe fn new_unchecked(bytes: &'a [u8]) -> Self {
         debug_assert!(
             !bytes.contains(&0),
@@ -246,7 +246,7 @@ impl<M: TagIndexMode> TagIndex<M> {
         self.unique_id
     }
 
-    /// Returns `true` is suffix search is supported
+    /// Returns `true` if suffix search is supported
     pub const fn has_suffix(&self) -> bool {
         self.suffix.is_some()
     }

@@ -8,6 +8,6 @@
 */
 
 fn main() {
-    #[cfg(feature = "test-utils")]
+    #[cfg(feature = "unittest")]
     build_utils::bind_foreign_c_symbols();
 }
