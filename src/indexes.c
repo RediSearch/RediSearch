@@ -320,6 +320,7 @@ int Indexes_StoreSpecAfterRdbLoad(IndexSpec *sp) {
 
   // Initialize the spec's cursor-related fields.
   sp->activeCursors = 0;
+  sp->activeCoordCursors = 0;
 
   // setting isDuplicate to true will make sure index will not be removed from aliases container.
   // It may have already been set.
