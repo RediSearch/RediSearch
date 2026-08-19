@@ -80,7 +80,7 @@ static InfoFieldSpec cursorSpecs[] = {
     {.name = "global_total", .type = InfoField_WholeSum},
     {.name = "index_capacity", .type = InfoField_WholeSum},
     {.name = "index_total", .type = InfoField_WholeSum},
-    {.name = "index_total_coord", .type = InfoField_WholeSum},
+    {.name = "index_total_internal", .type = InfoField_WholeSum},
 };
 
 static InfoFieldSpec dialectSpecs[] = {

@@ -517,7 +517,7 @@ void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, const IndexSpec *
     RedisModule_ReplyKV_LongLong(reply, "global_total", kh_size(cl->lookup) + kh_size(cl_coord->lookup));
     RedisModule_ReplyKV_LongLong(reply, "index_capacity", RSGlobalConfig.indexCursorLimit);
     RedisModule_ReplyKV_LongLong(reply, "index_total", spec->activeCursors);
-    RedisModule_ReplyKV_LongLong(reply, "index_total_coord", spec->activeCoordCursors);
+    RedisModule_ReplyKV_LongLong(reply, "index_total_internal", spec->activeCoordCursors);
 
   RedisModule_Reply_MapEnd(reply);
 
@@ -552,7 +552,7 @@ void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, const Inde
   RedisModule_InfoAddFieldLongLong(ctx, "global_total", kh_size(cl->lookup) + kh_size(cl_coord->lookup));
   RedisModule_InfoAddFieldLongLong(ctx, "index_capacity", RSGlobalConfig.indexCursorLimit);
   RedisModule_InfoAddFieldLongLong(ctx, "index_total", spec->activeCursors);
-  RedisModule_InfoAddFieldLongLong(ctx, "index_total_coord", spec->activeCoordCursors);
+  RedisModule_InfoAddFieldLongLong(ctx, "index_total_internal", spec->activeCoordCursors);
   RedisModule_InfoEndDictField(ctx);
 
   // Unlock both locks
