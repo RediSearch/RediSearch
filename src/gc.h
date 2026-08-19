@@ -155,8 +155,8 @@ void GCContext_FinishDrop(GCContext* gc);
 bool GCContext_IsEnabled(const GCContext* gc);
 // Suspend/resume scheduling for a disk consistency window, leaving `enabled` untouched so a
 // GC stopped by a debug command stays stopped across one. Both require the GIL.
-void GCContext_PauseSchedulingForConsistency(GCContext* gc);
-void GCContext_ResumeSchedulingAfterConsistency(GCContext* gc);
+void GCContext_PauseScheduling(GCContext* gc);
+void GCContext_ResumeScheduling(GCContext* gc);
 
 static inline void InfoGCStats_Add(InfoGCStats* dst, const InfoGCStats* src) {
   dst->totalCollectedBytes += src->totalCollectedBytes;
@@ -168,14 +168,15 @@ void GC_ThreadPoolStart();
 void GC_ThreadPoolDestroy();
 // Stop the GC pool from pulling new jobs. Returns immediately; use GC_ThreadPoolWaitForPause
 // to wait out the ones already running.
-void GC_ThreadPoolPauseForConsistency(void);
+void GC_ThreadPoolPause(void);
 // Wait, up to `timeoutMs`, for the running GC jobs to return. Returns false on timeout. Must
-// follow GC_ThreadPoolPauseForConsistency, or a new job can start the moment this returns.
+// follow GC_ThreadPoolPause, or a new job can start the moment this returns.
 bool GC_ThreadPoolWaitForPause(long timeoutMs);
 // GC jobs currently executing. For diagnosing a GC_ThreadPoolWaitForPause timeout; stale the
 // moment it is read anywhere else.
 size_t GC_ThreadPoolJobsInProgress(void);
-void GC_ThreadPoolResumeAfterConsistency(void);
+// Let the pool pull queued jobs again, undoing GC_ThreadPoolPause.
+void GC_ThreadPoolResume(void);
 // Queue `fn(arg)` on the GC pool. No production caller: tests use it to hold a job in
 // progress across a drain, which no ordinary entry point can do -- a real cycle returns
 // long before GC_ThreadPoolWaitForPause could observe it.

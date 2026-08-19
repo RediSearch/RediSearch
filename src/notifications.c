@@ -823,19 +823,19 @@ static void ForEachIndex(void (*fn)(IndexSpec *)) {
   dictReleaseIterator(iter);
 }
 
-static void PauseIndexGCSchedulingForConsistency(IndexSpec *sp) {
+static void PauseIndexGCScheduling(IndexSpec *sp) {
   if (sp->gc) {
-    GCContext_PauseSchedulingForConsistency(sp->gc);
+    GCContext_PauseScheduling(sp->gc);
   }
 }
 
-static void ResumeIndexGCSchedulingAfterConsistency(IndexSpec *sp) {
+static void ResumeIndexGCScheduling(IndexSpec *sp) {
   if (sp->gc) {
-    GCContext_ResumeSchedulingAfterConsistency(sp->gc);
+    GCContext_ResumeScheduling(sp->gc);
   }
 }
 
-static void FlushIndexForConsistency(IndexSpec *sp) {
+static void FlushIndex(IndexSpec *sp) {
   if (sp->diskSpec) {
     SearchDisk_Flush(sp->diskSpec);
   }
@@ -895,8 +895,8 @@ static void DiskConsistencyWindow_Quiesce(void) {
     return;
   }
   if (!(disk_window_held & DISK_WINDOW_GC_PAUSED)) {
-    GC_ThreadPoolPauseForConsistency();               // no queued job starts
-    ForEachIndex(PauseIndexGCSchedulingForConsistency);  // no timer queues one
+    GC_ThreadPoolPause();               // no queued job starts
+    ForEachIndex(PauseIndexGCScheduling);  // no timer queues one
     disk_window_held |= DISK_WINDOW_GC_PAUSED;
   }
 
@@ -928,7 +928,7 @@ static void DiskConsistencyWindow_Seal(void) {
   // Flush last, under the lock. Both classes of background writer are now excluded: the
   // disk GC by the drain, vector jobs by the lock. Flushing inside the quiesce would leave
   // the whole drain as a gap in which vector jobs could dirty on-disk state.
-  ForEachIndex(FlushIndexForConsistency);
+  ForEachIndex(FlushIndex);
 }
 
 // Open a full window: quiesce, then seal. Used by the two window-start points, so they cannot
@@ -979,8 +979,8 @@ static void DiskConsistencyWindow_End(DiskWindowEnd how) {
   // A hot restart keeps the GC paused through process exit, so the kept DBs cannot advance
   // past what restart.rdb captured.
   if (how == DISK_WINDOW_END_RESUME && (disk_window_held & DISK_WINDOW_GC_PAUSED)) {
-    ForEachIndex(ResumeIndexGCSchedulingAfterConsistency);
-    GC_ThreadPoolResumeAfterConsistency();
+    ForEachIndex(ResumeIndexGCScheduling);
+    GC_ThreadPoolResume();
     disk_window_held &= ~(unsigned)DISK_WINDOW_GC_PAUSED;
   }
 

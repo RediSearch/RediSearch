@@ -1765,12 +1765,6 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
       QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
       goto failure;
     }
-    if (DiskConsistencyWindow_IsIndexWindowOpen()) {
-      // A spec created inside a window must open its own, or the close that walks the live
-      // spec dict at POST_FORK finds it unpaired. Both this command and the replication
-      // subevents run on the main thread, so the window cannot close in between.
-      SearchDisk_OpenConsistencyWindow(spec);
-    }
   }
 
   if (AC_IsInitialized(&acStopwords)) {

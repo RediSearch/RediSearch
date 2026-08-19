@@ -746,12 +746,12 @@ static unsigned gcSchedFlags(GCContext *gc) {
 TEST_F(FGCTest, testConsistencyWindowPauseDisarmsAndResumeClears) {
   GCContext *gc = get_spec(ism)->gc;
 
-  GCContext_PauseSchedulingForConsistency(gc);
+  GCContext_PauseScheduling(gc);
   ASSERT_TRUE(gcSchedFlags(gc) & GC_SCHED_PAUSED);
   ASSERT_EQ(gc->timerID, 0);  // the window must not leave a timer behind
   ASSERT_TRUE(GCContext_IsEnabled(gc));  // pausing is not stopping
 
-  GCContext_ResumeSchedulingAfterConsistency(gc);
+  GCContext_ResumeScheduling(gc);
   ASSERT_FALSE(gcSchedFlags(gc) & GC_SCHED_PAUSED);
 }
 
@@ -760,8 +760,8 @@ TEST_F(FGCTest, testPauseSurvivesResumeOnAStoppedGC) {
 
   // A GC stopped by a debug command must stay stopped across a window.
   GCContext_StopFutureRuns(gc);
-  GCContext_PauseSchedulingForConsistency(gc);
-  GCContext_ResumeSchedulingAfterConsistency(gc);
+  GCContext_PauseScheduling(gc);
+  GCContext_ResumeScheduling(gc);
 
   ASSERT_FALSE(GCContext_IsEnabled(gc));
   ASSERT_EQ(gc->timerID, 0);
@@ -770,20 +770,20 @@ TEST_F(FGCTest, testPauseSurvivesResumeOnAStoppedGC) {
 TEST_F(FGCTest, testStartNowDoesNotQueueWhilePaused) {
   GCContext *gc = get_spec(ism)->gc;
   GCContext_StopFutureRuns(gc);  // StartNow requires a stopped GC
-  GCContext_PauseSchedulingForConsistency(gc);
+  GCContext_PauseScheduling(gc);
 
   GCContext_StartNow(gc);
   // Enabled, but nothing queued onto the paused pool: the resume path arms instead.
   ASSERT_TRUE(GCContext_IsEnabled(gc));
   ASSERT_FALSE(gcSchedFlags(gc) & GC_SCHED_RUN_PENDING);
 
-  GCContext_ResumeSchedulingAfterConsistency(gc);
+  GCContext_ResumeScheduling(gc);
 }
 
 TEST_F(FGCTest, testWaitForPauseReturnsWhenNothingIsRunning) {
-  GC_ThreadPoolPauseForConsistency();
+  GC_ThreadPoolPause();
   ASSERT_TRUE(GC_ThreadPoolWaitForPause(10));
-  GC_ThreadPoolResumeAfterConsistency();
+  GC_ThreadPoolResume();
 }
 
 namespace {
@@ -818,16 +818,19 @@ TEST_F(FGCTest, testWaitForPauseTimesOutWhileAJobRuns) {
       while (job.running) {
         std::this_thread::sleep_for(std::chrono::microseconds(1));
       }
-      GC_ThreadPoolResumeAfterConsistency();
+      GC_ThreadPoolResume();
     }
   } cleanup{job};
 
   GC_ThreadPoolAddJobForTests(ParkedGCJob::Run, &job);
-  while (GC_ThreadPoolJobsInProgress() == 0) {  // wait for a thread to pick it up
+  // Wait for Run itself, not for the in-progress count: the pool increments that when it pulls
+  // the job, so a worker descheduled before its first statement would let Cleanup see
+  // running == false and destroy `job` under it on an early ASSERT return.
+  while (!job.running) {
     std::this_thread::sleep_for(std::chrono::microseconds(1));
   }
 
-  GC_ThreadPoolPauseForConsistency();
+  GC_ThreadPoolPause();
   // This count is what the drain-timeout warning reports to the operator.
   ASSERT_EQ(GC_ThreadPoolJobsInProgress(), (size_t)1);
   ASSERT_FALSE(GC_ThreadPoolWaitForPause(50));

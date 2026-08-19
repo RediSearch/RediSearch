@@ -75,7 +75,7 @@ static bool GCContext_RunPending(GCContext* gc) {
   return (RS_AtomicUintLoadRelaxed(&gc->schedFlags) & GC_SCHED_RUN_PENDING) != 0;
 }
 
-static bool GCContext_PausedForConsistency(GCContext* gc) {
+static bool GCContext_IsSchedulingPaused(GCContext* gc) {
   return (RS_AtomicUintLoadRelaxed(&gc->schedFlags) & GC_SCHED_PAUSED) != 0;
 }
 
@@ -101,7 +101,7 @@ static RedisModuleTimerID scheduleNextIn(GCContext* gc, struct timespec interval
 // arms nothing; the window's resume re-arms it.
 static bool GCContext_ArmTimerIn(GCContext* gc, struct timespec interval) {
   if (!gc->enabled || gc->timerID || GCContext_RunPending(gc) ||
-      GCContext_PausedForConsistency(gc)) {
+      GCContext_IsSchedulingPaused(gc)) {
     return false;
   }
   gc->timerID = scheduleNextIn(gc, interval);
@@ -208,7 +208,7 @@ static void timerCallback(RedisModuleCtx* ctx, void* data) {
   GCContext* gc = data;
   gc->timerID = 0;  // the timer that just fired is gone
 
-  if (!gc->enabled || GCContext_PausedForConsistency(gc)) {
+  if (!gc->enabled || GCContext_IsSchedulingPaused(gc)) {
     return;  // the resume path re-arms
   }
   if (RedisModule_AvoidReplicaTraffic && RedisModule_AvoidReplicaTraffic()) {
@@ -225,7 +225,7 @@ void GCContext_StartNow(GCContext* gc) {
   RS_LOG_ASSERT_FMT(!gc->enabled && gc->timerID == 0,
                     "GC %p: StartNow called while GC is already running", gc);
   gc->enabled = true;
-  if (GCContext_PausedForConsistency(gc)) {
+  if (GCContext_IsSchedulingPaused(gc)) {
     return;  // the resume path arms a timer instead
   }
   GCContext_QueueRun(gc);
@@ -277,7 +277,7 @@ bool GCContext_IsEnabled(const GCContext* gc) {
   return gc->enabled;
 }
 
-void GCContext_PauseSchedulingForConsistency(GCContext* gc) {
+void GCContext_PauseScheduling(GCContext* gc) {
   if (!gc) {
     return;
   }
@@ -285,8 +285,8 @@ void GCContext_PauseSchedulingForConsistency(GCContext* gc) {
   GCContext_DisarmTimer(gc);
 }
 
-void GCContext_ResumeSchedulingAfterConsistency(GCContext* gc) {
-  if (!gc || !GCContext_PausedForConsistency(gc)) {
+void GCContext_ResumeScheduling(GCContext* gc) {
+  if (!gc || !GCContext_IsSchedulingPaused(gc)) {
     return;
   }
   // Clearing PAUSED and reading RUN_PENDING is one read-modify-write, so this cannot see a
@@ -377,7 +377,7 @@ void GC_ThreadPoolDestroy() {
   }
 }
 
-void GC_ThreadPoolPauseForConsistency(void) {
+void GC_ThreadPoolPause(void) {
   gcNewContextSchedFlags_g |= GC_SCHED_PAUSED;
   if (gcThreadpool_g) {
     redisearch_thpool_pause_threads_no_wait(gcThreadpool_g);
@@ -416,7 +416,7 @@ size_t GC_ThreadPoolJobsInProgress(void) {
   return gcThreadpool_g ? redisearch_thpool_num_jobs_in_progress(gcThreadpool_g) : 0;
 }
 
-void GC_ThreadPoolResumeAfterConsistency(void) {
+void GC_ThreadPoolResume(void) {
   gcNewContextSchedFlags_g &= ~GC_SCHED_PAUSED;
   if (gcThreadpool_g && redisearch_thpool_paused(gcThreadpool_g)) {
     redisearch_thpool_resume_threads(gcThreadpool_g);
