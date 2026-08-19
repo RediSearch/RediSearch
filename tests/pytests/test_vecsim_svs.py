@@ -930,28 +930,40 @@ def assert_transfer_pending(env, message=''):
     reports a pending update, and the job it submitted is still queued in the thread pool.
 
     BACKGROUND_INDEXING alone would not be enough - it conflates "queued", "running" and "the
-    job mutex happened to be held" - hence the pending-jobs check next to it."""
+    job mutex happened to be held" - hence the pending-jobs check next to it. Vector index jobs
+    are submitted to the low priority queue; that count is not specific to the transfer, but
+    with a single index and fork GC disabled nothing else can have queued a job here."""
     info = get_tiered_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
     stats = getWorkersThpoolStats(env)
     env.assertEqual(info['BACKGROUND_INDEXING'], 1,
                     message=f"{message}: the index reports no pending update")
-    env.assertGreater(stats['totalPendingJobs'], 0,
+    env.assertGreater(stats['lowPriorityPendingJobs'], 0,
                       message=f"{message}: no queued job to be raced with: {stats}")
 
-def assert_transfer_still_running(env, message=''):
-    """The transfer is still running, so the deletions just issued completed while it was in
-    flight - the window its deletions journal exists for - rather than after it had finished,
-    where they would have taken the ordinary backend delete path instead.
+def jobs_done(env):
+    return getWorkersThpoolStats(env)['totalJobsDone']
 
-    Only meaningful where the deletions do not contend with the transfer for the same lock. A
-    training transfer builds the new index under a *shared* main index lock, so deletions
-    proceed alongside it: measured, a full training batch takes ~1.3s against ~20ms for the
-    stream of deletions racing it. An update transfer instead holds that lock exclusively for
-    its whole batch, so deletions there block until it is done and this would not hold."""
-    info = get_tiered_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
-    env.assertEqual(info['BACKGROUND_INDEXING'], 1,
-                    message=f"{message}: the transfer finished before the deletions did, so they "
-                            f"did not interleave with it")
+def assert_transfer_did_not_complete(env, jobs_done_before, message=''):
+    """No background job finished since `jobs_done_before` was taken, i.e. the transfer that was
+    running then was still running throughout the operations in between - the window its
+    deletions journal exists for. Without this, deletions that merely followed a finished
+    transfer would satisfy `assert_deletions_reached_the_backend` just as well, by taking the
+    ordinary backend delete path.
+
+    The completed-jobs count is not specific to the transfer, but the transfer's jobs are the
+    only ones these tests queue. BACKGROUND_INDEXING would not do instead: a transfer clears its
+    scheduled flag when it starts, and writes made while its batch is still in the flat buffer
+    schedule the *next* transfer, so the flag can be back up while the first one runs.
+
+    Only holds where the deletions do not contend with the transfer for the same lock. A training
+    transfer builds the new index under a *shared* main index lock, so deletions proceed
+    alongside it: measured, a training batch takes ~1.2-1.7s against ~20ms for the stream of
+    deletions racing it, with no job completing in between. An update transfer holds that lock
+    exclusively for its whole batch, so deletions there block on it and complete as it finishes -
+    see the phase 2 comments."""
+    env.assertEqual(jobs_done(env), jobs_done_before,
+                    message=f"{message}: a background job completed while the deletions were "
+                            f"issued, so they did not all race a running transfer")
 
 def backend_marked_deleted(env):
     return get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['NUMBER_OF_MARKED_DELETED']
@@ -1131,6 +1143,7 @@ def test_delete_during_background_indexing():
 
     # The training is running now: these docs go into the flat buffer while it runs, and
     # these deletions race with it.
+    jobs_done_before_transfer = jobs_done(env)
     flat_buffer_first_doc_id = total_docs + 1
     deleted_from_flat_buffer_vec = populate_with_vectors(env, num_docs=10, dim=dim, datatype=data_type,
                                                         initial_doc_id=flat_buffer_first_doc_id)
@@ -1142,7 +1155,7 @@ def test_delete_during_background_indexing():
     # Part of the batch being transferred, and inserted after the transfer started.
     delete_docs(transfer_deletes_first_doc_id, racing_deletes)
     delete_docs(flat_buffer_first_doc_id, 10)
-    assert_transfer_still_running(env, message='phase 1')
+    assert_transfer_did_not_complete(env, jobs_done_before_transfer, message='phase 1')
 
     deleted_probes = [deleted_while_pending_vec, deleted_during_transfer_vec, deleted_from_flat_buffer_vec]
     expected_live_docs = total_docs - len(deleted_docs)
@@ -1179,8 +1192,9 @@ def test_delete_during_background_indexing():
         marked_deleted_before_transfer = backend_marked_deleted(env)
     # Part of the batch being transferred. Unlike the training above, an update holds the main
     # index lock for its whole batch, so these deletions contend with it rather than running
-    # alongside it - which is MOD-13168's own symptom - and complete as it finishes. Hence no
-    # `assert_transfer_still_running` here.
+    # alongside it - which is MOD-13168's own symptom - and complete as it finishes: measured,
+    # they take 0.6-1.5s here against ~20ms in phase 1. Hence no
+    # `assert_transfer_did_not_complete` in this phase - the update does complete during them.
     delete_docs(phase2_first_doc_id, racing_deletes)
 
     deleted_probes += [deleted_from_backend_vec, deleted_during_update_vec]
@@ -1260,6 +1274,7 @@ def test_delete_during_background_indexing_multi_value():
 
     # The training is running now: these docs go into the flat buffer while it runs, and
     # these deletions race with it.
+    jobs_done_before_transfer = jobs_done(env)
     flat_buffer_first_doc_id = total_docs + 1
     add_docs(flat_buffer_first_doc_id, 30)
     live_doc_id = flat_buffer_first_doc_id + 10
@@ -1268,7 +1283,7 @@ def test_delete_during_background_indexing_multi_value():
     transfer_deletes_first_doc_id = 6
     delete_docs(transfer_deletes_first_doc_id, racing_deletes)
     delete_docs(flat_buffer_first_doc_id, 10)
-    assert_transfer_still_running(env, message='phase 1')
+    assert_transfer_did_not_complete(env, jobs_done_before_transfer, message='phase 1')
 
     deleted_probes = [1, transfer_deletes_first_doc_id, flat_buffer_first_doc_id]
     expected_live_docs = total_docs - len(deleted_docs)
@@ -1304,8 +1319,9 @@ def test_delete_during_background_indexing_multi_value():
         marked_deleted_before_transfer = backend_marked_deleted(env)
     # Part of the batch being transferred. Unlike the training above, an update holds the main
     # index lock for its whole batch, so these deletions contend with it rather than running
-    # alongside it - which is MOD-13168's own symptom - and complete as it finishes. Hence no
-    # `assert_transfer_still_running` here.
+    # alongside it - which is MOD-13168's own symptom - and complete as it finishes: measured,
+    # they take 0.6-1.5s here against ~20ms in phase 1. Hence no
+    # `assert_transfer_did_not_complete` in this phase - the update does complete during them.
     delete_docs(phase2_first_doc_id, racing_deletes)
 
     deleted_probes += [backend_deletes_first_doc_id, phase2_first_doc_id]
