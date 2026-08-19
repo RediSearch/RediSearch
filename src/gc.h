@@ -26,6 +26,7 @@ extern "C" {
 
 // Bits of GCContext.schedFlags.
 typedef enum {
+  GC_SCHED_NONE = 0x00,
   GC_SCHED_RUN_PENDING = 0x01,  // a run is queued on the GC pool, or executing
   GC_SCHED_PAUSED = 0x02,       // a disk consistency window is open
 } GCSchedFlags;

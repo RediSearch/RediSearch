@@ -26,9 +26,10 @@
 #include "search_disk.h"
 
 static redisearch_thpool_t *gcThreadpool_g = NULL;
-// Guarded by the GIL. Only used to pause GC contexts created while a window is already open;
-// live ones are paused/resumed by walking IndexSpec->gc.
-static bool gcSchedulingPauseActiveForConsistency_g = false;
+// GCSchedFlags bits seeded into every GCContext created from here on, so one created while a
+// consistency window is already open starts paused; live ones are paused and resumed by
+// walking IndexSpec->gc. Guarded by the GIL.
+static unsigned gcNewContextSchedFlags_g = GC_SCHED_NONE;
 
 typedef struct GCDebugTask {
   GCContext* gc;
@@ -51,8 +52,8 @@ void GCForcedRunOutcomeFree(RedisModuleCtx* ctx, void* privdata) {
 
 GCContext* GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy) {
   GCContext* ret = rm_calloc(1, sizeof(GCContext));
-  if (gcSchedulingPauseActiveForConsistency_g) {
-    RS_AtomicUintFetchOrRelaxed(&ret->schedFlags, GC_SCHED_PAUSED);
+  if (gcNewContextSchedFlags_g != GC_SCHED_NONE) {
+    RS_AtomicUintFetchOrRelaxed(&ret->schedFlags, gcNewContextSchedFlags_g);
   }
   switch (gcPolicy) {
     case GCPolicy_Fork:
@@ -367,7 +368,7 @@ void GC_ThreadPoolStart() {
 void GC_ThreadPoolDestroy() {
   if (gcThreadpool_g != NULL) {
     if (redisearch_thpool_paused(gcThreadpool_g)) {
-      gcSchedulingPauseActiveForConsistency_g = false;
+      gcNewContextSchedFlags_g &= ~GC_SCHED_PAUSED;
       redisearch_thpool_resume_threads(gcThreadpool_g);
     }
     RedisModule_ThreadSafeContextUnlock(RSDummyContext);
@@ -378,7 +379,7 @@ void GC_ThreadPoolDestroy() {
 }
 
 void GC_ThreadPoolPauseForConsistency(void) {
-  gcSchedulingPauseActiveForConsistency_g = true;
+  gcNewContextSchedFlags_g |= GC_SCHED_PAUSED;
   if (gcThreadpool_g) {
     redisearch_thpool_pause_threads_no_wait(gcThreadpool_g);
   }
@@ -414,7 +415,7 @@ size_t GC_ThreadPoolJobsInProgress(void) {
 }
 
 void GC_ThreadPoolResumeAfterConsistency(void) {
-  gcSchedulingPauseActiveForConsistency_g = false;
+  gcNewContextSchedFlags_g &= ~GC_SCHED_PAUSED;
   if (gcThreadpool_g && redisearch_thpool_paused(gcThreadpool_g)) {
     redisearch_thpool_resume_threads(gcThreadpool_g);
   }

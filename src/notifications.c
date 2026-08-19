@@ -973,9 +973,10 @@ typedef enum {
 // pause held and the lock not.
 static void DiskConsistencyWindow_End(DiskWindowEnd how) {
   if (InForkChild()) {
-    // COW-inherited bits, not a window this process opened. The child owns no GC threads
-    // and must not run the finalize hooks - they re-enable compactions against DB files
-    // the parent owns.
+    // Reached because the child fires its own PERSISTENCE_ENDED/FAILED from stopSaving, and
+    // sees these bits through COW - not a window this process opened. The child owns no GC
+    // threads and must not run the finalize hooks: they re-enable compactions against DB
+    // files the parent owns.
     disk_window_held = DISK_WINDOW_NONE;
     return;
   }
