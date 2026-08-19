@@ -24,7 +24,7 @@ use crate::{
 
 /// The `apiVersion` from which a fuzzy expansion also covers the empty term.
 /// Below it the empty term is never expanded to, whatever the distance.
-const EMPTY_TERM_API_VERSION: u32 = 2;
+const EMPTY_TERM_API_VERSION: u8 = 2;
 
 /// `QN_FUZZY` — expand a token to every term within `max_dist` edits of it over
 /// the spec's terms trie, and union the per-term readers.

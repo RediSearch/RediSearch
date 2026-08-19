@@ -368,6 +368,26 @@ typedef struct ThinVec_Box_RawIndexResult_Active__u16 {
 typedef struct ThinVec_Box_RawIndexResult_Active__u16 SmallThinVec_Box_RawIndexResult_Active;
 #endif /* SMALLTHINVEC_BOX_RAWINDEXRESULT_ACTIVE_DEFINED */
 
+#ifndef RAWOWNEDAGGREGATERESULT_ACTIVE_DEFINED
+#define RAWOWNEDAGGREGATERESULT_ACTIVE_DEFINED
+/**
+ * An aggregate result that owns its children, holding each one in its own heap
+ * allocation.
+ *
+ * The [`Owned`](RawAggregateResult::Owned) payload of [`RawAggregateResult`].
+ */
+typedef struct RawOwnedAggregateResult_Active {
+  /**
+   * The records making up this aggregate result, each owned by this aggregate.
+   */
+  SmallThinVec_Box_RawIndexResult_Active records;
+  /**
+   * A map of the aggregate kind of the underlying records
+   */
+  RSResultKindMask kind_mask;
+} RawOwnedAggregateResult_Active;
+#endif /* RAWOWNEDAGGREGATERESULT_ACTIVE_DEFINED */
+
 #ifndef THINVEC_METRICENTRY__U64_DEFINED
 #define THINVEC_METRICENTRY__U64_DEFINED
 /**
@@ -410,10 +430,48 @@ typedef struct ThinVec_SharedPtr_Active__RawIndexResult_Active__u16 {
 typedef struct ThinVec_SharedPtr_Active__RawIndexResult_Active__u16 SmallThinVec_SharedPtr_Active__RawIndexResult_Active;
 #endif /* SMALLTHINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE_DEFINED */
 
+#ifndef RAWBORROWEDAGGREGATERESULT_ACTIVE_DEFINED
+#define RAWBORROWEDAGGREGATERESULT_ACTIVE_DEFINED
+/**
+ * An aggregate result whose children live elsewhere — in the composite iterator
+ * that built it, typically — and are only pointed at from here.
+ *
+ * The [`Borrowed`](RawAggregateResult::Borrowed) payload of
+ * [`RawAggregateResult`].
+ */
+typedef struct RawBorrowedAggregateResult_Active {
+  /**
+   * The records making up this aggregate result.
+   *
+   * Each child is stored as a [`SharedPtr<R, RawIndexResult<R>>`]. In [`Active`] mode this is
+   * equivalent to a `&'a RSIndexResult<'a>`; in [`ref_mode::Suspended`] mode it is
+   * an inert raw pointer that survives lock release/reacquire cycles.
+   */
+  SmallThinVec_SharedPtr_Active__RawIndexResult_Active records;
+  /**
+   * A map of the aggregate kind of the underlying records
+   */
+  RSResultKindMask kind_mask;
+} RawBorrowedAggregateResult_Active;
+#endif /* RAWBORROWEDAGGREGATERESULT_ACTIVE_DEFINED */
+
 #ifndef RAWAGGREGATERESULT_ACTIVE_DEFINED
 #define RAWAGGREGATERESULT_ACTIVE_DEFINED
 /**
  * Represents an aggregate array of values in an index record.
+ *
+ * How the children are held is what separates the two variants, and each one
+ * carries its own type — [`RawBorrowedAggregateResult`] and
+ * [`RawOwnedAggregateResult`]. An operation that only one of them supports
+ * therefore lives on that type: pushing a borrowed child, or handing out a `&mut`
+ * to a child, cannot be attempted on the wrong kind of aggregate. Reach the
+ * payload with [`as_borrowed`](Self::as_borrowed), [`as_owned`](Self::as_owned)
+ * or their `_mut` counterparts.
+ *
+ * `RawAggregateResult` is part of a union in
+ * [`super::result_data::RawResultData`], so it needs to have a known size. That
+ * is why both payloads hold their children in a [`SmallThinVec`] rather than the
+ * std `Vec`, which is not `#[repr(C)]`.
  *
  * The C code should always use `AggregateResult_New` to construct a new instance of this type
  * using Rust since the internals cannot be constructed directly in C. The reason is because of
@@ -432,47 +490,16 @@ enum RawAggregateResult_Active_Tag
 typedef uint8_t RawAggregateResult_Active_Tag;
 #endif // __cplusplus
 
-typedef struct RawAggregateResult_Active_Borrowed_Body {
-  RawAggregateResult_Active_Tag tag;
-  /**
-   * The records making up this aggregate result
-   *
-   * The `RawAggregateResult` is part of a union in [`super::result_data::RawResultData`], so
-   * it needs to have a known size. The std `Vec` won't have this since it is not
-   * `#[repr(C)]`, so we use our own `ThinVec` type which is `#[repr(C)]` and has a known
-   * size instead.
-   *
-   * Each child is stored as a [`SharedPtr<R, RawIndexResult<R>>`]. In [`Active`] mode this is
-   * equivalent to a `&'a RSIndexResult<'a>`; in [`ref_mode::Suspended`] mode it is
-   * an inert raw pointer that survives lock release/reacquire cycles.
-   */
-  SmallThinVec_SharedPtr_Active__RawIndexResult_Active records;
-  /**
-   * A map of the aggregate kind of the underlying records
-   */
-  RSResultKindMask kind_mask;
-} RawAggregateResult_Active_Borrowed_Body;
-
-typedef struct RawAggregateResult_Active_Owned_Body {
-  RawAggregateResult_Active_Tag tag;
-  /**
-   * The records making up this aggregate result
-   *
-   * The `RawAggregateResult` is part of a union in [`super::result_data::RawResultData`], so it needs to have a
-   * known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
-   * own `ThinVec` type which is `#[repr(C)]` and has a known size instead.
-   */
-  SmallThinVec_Box_RawIndexResult_Active records;
-  /**
-   * A map of the aggregate kind of the underlying records
-   */
-  RSResultKindMask kind_mask;
-} RawAggregateResult_Active_Owned_Body;
-
 typedef union RawAggregateResult_Active {
   RawAggregateResult_Active_Tag tag;
-  struct RawAggregateResult_Active_Borrowed_Body borrowed;
-  struct RawAggregateResult_Active_Owned_Body owned;
+  struct {
+    RawAggregateResult_Active_Tag borrowed_tag;
+    struct RawBorrowedAggregateResult_Active borrowed;
+  };
+  struct {
+    RawAggregateResult_Active_Tag owned_tag;
+    struct RawOwnedAggregateResult_Active owned;
+  };
 } RawAggregateResult_Active;
 #endif /* RAWAGGREGATERESULT_ACTIVE_DEFINED */
 

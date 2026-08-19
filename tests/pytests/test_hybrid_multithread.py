@@ -111,7 +111,9 @@ def test_hybrid_depleter_lock_failure_replies_error():
     setup_basic_index(env)
     query_vector = np.array([1.3, 0.0]).astype(np.float32).tobytes()
 
-    sync_point = 'BeforeHybridResultsClaim'
+    # Parks the query after it took its read lock but before the depleters are
+    # launched — the window in which a writer can queue behind it.
+    sync_point = 'BeforeHybridDepletion'
     env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
 
     outcome = []

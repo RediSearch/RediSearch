@@ -427,9 +427,16 @@ pub unsafe extern "C" fn AggregateResult_GetMutUnchecked<'result, 'index>(
     // an `RSAggregateResult`.
     let agg = unsafe { &mut *agg };
 
-    // SAFETY:
-    // 1. Guaranteed by the caller thanks to safety preconditions 1 and 2.
-    // 2. Guaranteed by the caller thanks to safety precondition 3.
+    let Some(agg) = agg.as_owned_mut() else {
+        debug_assert!(
+            false,
+            "Safety violation: trying to get a mutable reference from a borrowed aggregate result"
+        );
+        // SAFETY: Thanks to safety precondition 3., we'll never reach this statement.
+        unsafe { std::hint::unreachable_unchecked() }
+    };
+
+    // SAFETY: Guaranteed by the caller thanks to safety preconditions 1 and 2.
     unsafe { agg.get_mut_unchecked(index) }
 }
 
@@ -501,9 +508,9 @@ pub extern "C" fn AggregateResult_New(cap: usize) -> RSAggregateResult<'static> 
 #[unsafe(no_mangle)]
 pub extern "C" fn AggregateResult_Free(agg: RSAggregateResult) {
     match agg {
-        RSAggregateResult::Borrowed { .. } => {}
-        RSAggregateResult::Owned { records, .. } => {
-            for record in records.into_iter() {
+        RSAggregateResult::Borrowed(_) => {}
+        RSAggregateResult::Owned(agg) => {
+            for record in agg.into_records() {
                 // C still manages this memory so don't free the heap pointers
                 std::mem::forget(record);
             }
@@ -566,13 +573,13 @@ pub unsafe extern "C" fn AggregateResult_GetRecordsSlice(
     // an `RSAggregateResult`.
     let agg = unsafe { &*agg };
     match agg {
-        RSAggregateResult::Borrowed { records, .. } => AggregateRecordsSlice {
-            ptr: records.as_slice().as_ptr() as *const *const RSIndexResult,
-            len: records.len(),
+        RSAggregateResult::Borrowed(agg) => AggregateRecordsSlice {
+            ptr: agg.records().as_ptr() as *const *const RSIndexResult,
+            len: agg.len(),
         },
-        RSAggregateResult::Owned { records, .. } => AggregateRecordsSlice {
-            ptr: records.as_slice().as_ptr() as *const *const RSIndexResult,
-            len: records.len(),
+        RSAggregateResult::Owned(agg) => AggregateRecordsSlice {
+            ptr: agg.records().as_ptr() as *const *const RSIndexResult,
+            len: agg.len(),
         },
     }
 }

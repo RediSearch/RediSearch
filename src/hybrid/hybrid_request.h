@@ -27,7 +27,6 @@ typedef struct HybridRequest {
     arrayof(AREQ*) requests;
     size_t nrequests;
     QueryError tailPipelineError;
-    QueryError *errors;
     Pipeline *tailPipeline;
     RequestConfig reqConfig;
     CursorConfig cursorConfig;
@@ -37,21 +36,6 @@ typedef struct HybridRequest {
     ProfileClocks profileClocks;
     profiler_func profile;
     ProfilePrinterCtx profileCtx;
-
-    // State for reply_callback path (FAIL policy with workers in coordinator mode)
-    // Background thread stores results here, then calls UnblockClient.
-    // Mutex for synchronizing cursor creation with timeout callback.
-    // Protects cursor array access to ensure proper cleanup on timeout.
-    pthread_mutex_t cursorMutex;
-
-    // Array of depleted cursors for reply_callback path (internal hybrid search).
-    // Non-NULL only after the initial cursor pipelines are safe to publish.
-    // Protected by cursorMutex to synchronize with timeout callback.
-    // Cleanup is handled by:
-    // - reply_callback: frees array after replying with cursor IDs
-    // - timeout_callback: acquires lock and consumes published cursors, if any
-    // - HybridRequest_StartCursors: checks timedOut flag before publishing, or frees on error
-    arrayof(struct Cursor*) cursors;
 
     // Optional debug parameters for _FT.DEBUG FT.HYBRID.
     // When non-NULL, debug timeouts are applied after pipeline building.
@@ -100,15 +84,6 @@ static inline void HybridRequest_SetExecutionStage(HybridRequest *req, QueryTime
 // blocked in MRChannel_PopWithTimeout exits as soon as the channel is woken.
 void HybridRequest_SetTimedOut(HybridRequest *req);
 
-// Cursor mutex wrappers for synchronizing cursor creation with timeout callback
-static inline void HybridRequest_LockCursors(HybridRequest *req) {
-  pthread_mutex_lock(&req->cursorMutex);
-}
-
-static inline void HybridRequest_UnlockCursors(HybridRequest *req) {
-  pthread_mutex_unlock(&req->cursorMutex);
-}
-
 static inline bool HybridRequest_ShouldCheckTimeout(HybridRequest *req) {
   return QueryRequestTimeout_ShouldCheck(&req->base.timeout);
 }
@@ -139,8 +114,10 @@ void HybridRequest_WaitForAggregateResultsComplete(HybridRequest *req);
 
 // Blocked client context for HybridRequest background execution
 typedef struct blockedClientHybridCtx {
-  // We keep a strong ref mainly for the sake of cursors amd life time management
-  // On the caller side it needs to know when he can free the hybrid request - especially when an error occurred.
+  // The BG job's hold on the container, released in destroy (before
+  // UnblockClient; the cycle's wrapper reference carries the container to
+  // OnFree). TRANSITIONAL(MOD-16691): becomes a borrow once the wrapper is
+  // single-owner.
   StrongRef hybrid_ref;
   HybridPipelineParams *hybridParams;
   RedisModuleBlockedClient *blockedClient;
@@ -193,11 +170,10 @@ void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, uint32_t a
  * AREQ3 -> [Individual Pipeline] -> Depleter3
  *
  * @param req The HybridRequest containing multiple AREQ search requests
- * @param params Pipeline parameters including synchronization settings
  * @param depleteInBackground Whether the pipeline should be built for asynchronous depletion
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params, bool depleteInBackground);
+int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackground);
 
 /**
  * Open the score key in the tail lookup for writing the final score.

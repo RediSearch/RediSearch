@@ -29,6 +29,7 @@ numeric_range_tree_ffi = { path = "../c_entrypoint/numeric_range_tree_ffi" }
 query_error.workspace = true
 redis-module.workspace = true
 redis_mock.workspace = true
+rlookup.workspace = true
 rqe_core.workspace = true
 rqe_iterators = { path = "../rqe_iterators" }
 ttl_table.workspace = true

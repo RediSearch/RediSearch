@@ -164,10 +164,23 @@ impl MockQueryNode {
         unsafe { &mut (*self.node).opts }
     }
 
+    /// Panic in debug builds unless the node carries `type_`.
+    ///
+    /// Each setter below writes through one variant of the node's payload union,
+    /// which is the active one only for the matching node type. Writing through
+    /// the wrong one is a type confusion that surfaces far from the setter, and
+    /// the node knows its own type — so the setters check it here rather than
+    /// leave it to the caller.
+    fn debug_assert_type(&self, type_: QueryNodeType) {
+        // SAFETY: `self.node` is a valid, exclusively-owned allocation.
+        debug_assert_eq!(unsafe { (*self.node).type_ }, type_);
+    }
+
     /// Set the `nf` field of the numeric-node union variant.
     pub fn set_numeric_filter(&mut self, nf: *mut NumericFilter) {
-        // SAFETY: `self.node` is valid and exclusively owned; the caller
-        // guarantees the node type is Numeric so the `nn` variant is active.
+        self.debug_assert_type(QueryNodeType::Numeric);
+        // SAFETY: `self.node` is valid and exclusively owned; the node type is
+        // Numeric, per the assertion above, so the `nn` variant is active.
         unsafe {
             let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
             (*union_ptr.cast::<ffi::QueryNumericNode>()).nf = nf.cast();
@@ -176,8 +189,9 @@ impl MockQueryNode {
 
     /// Set the `gf` field of the geo-node union variant.
     pub fn set_geo_filter(&mut self, gf: *mut ffi::GeoFilter) {
-        // SAFETY: `self.node` is valid and exclusively owned; the caller
-        // guarantees the node type is Geo so the `gn` variant is active.
+        self.debug_assert_type(QueryNodeType::Geo);
+        // SAFETY: `self.node` is valid and exclusively owned; the node type is
+        // Geo, per the assertion above, so the `gn` variant is active.
         unsafe {
             let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
             (*union_ptr.cast::<ffi::QueryGeofilterNode>()).gf = gf;
@@ -186,23 +200,39 @@ impl MockQueryNode {
 
     /// Set the `geomq` field of the geometry-node union variant.
     ///
-    /// The caller must ensure the node is of Geometry type, so the `gmn` union
-    /// variant is active; otherwise this writes through the wrong variant. The
-    /// caller must also keep `geomq` (and the [`ffi::FieldSpec`] it points at)
+    /// The caller must keep `geomq` (and the [`ffi::FieldSpec`] it points at)
     /// valid for as long as the node is used.
     pub fn set_geometry(&mut self, geomq: *mut ffi::GeometryQuery) {
-        // SAFETY: `self.node` is valid and exclusively owned; the caller
-        // guarantees the node type is Geometry so the `gmn` variant is active.
+        self.debug_assert_type(QueryNodeType::Geometry);
+        // SAFETY: `self.node` is valid and exclusively owned; the node type is
+        // Geometry, per the assertion above, so the `gmn` variant is active.
         unsafe {
             let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
             (*union_ptr.cast::<ffi::QueryGeometryNode>()).geomq = geomq;
         }
     }
 
+    /// Set the `vq` field of the vector-node union variant.
+    ///
+    /// `vq` (and the [`ffi::FieldSpec`] it names) must outlive this
+    /// [`MockQueryNode`]: evaluation reads the field name out of it to derive the
+    /// default score field, and may take ownership of the node's distance field
+    /// by storing it in `vq.scoreField`.
+    pub fn set_vector_query(&mut self, vq: *mut ffi::VectorQuery) {
+        self.debug_assert_type(QueryNodeType::Vector);
+        // SAFETY: `self.node` is valid and exclusively owned; the node type is
+        // Vector, per the assertion above, so the `vn` variant is active.
+        unsafe {
+            let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
+            (*union_ptr.cast::<ffi::QueryVectorNode>()).vq = vq;
+        }
+    }
+
     /// Set the `prefix` and `suffix` fields of the prefix-node union variant.
     pub fn set_prefix_mode(&mut self, prefix: bool, suffix: bool) {
-        // SAFETY: `self.node` is valid and exclusively owned; the caller
-        // guarantees the node type is Prefix so the `pfx` variant is active.
+        self.debug_assert_type(QueryNodeType::Prefix);
+        // SAFETY: `self.node` is valid and exclusively owned; the node type is
+        // Prefix, per the assertion above, so the `pfx` variant is active.
         unsafe {
             let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
             let pfx = &mut *union_ptr.cast::<ffi::QueryPrefixNode>();
@@ -217,8 +247,9 @@ impl MockQueryNode {
     /// Zero-initialising the node leaves this at 0, which would only ever match
     /// the token itself, so a fuzzy test must set it explicitly.
     pub fn set_fuzzy_max_dist(&mut self, max_dist: i32) {
-        // SAFETY: `self.node` is valid and exclusively owned; the caller
-        // guarantees the node type is Fuzzy so the `fz` variant is active.
+        self.debug_assert_type(QueryNodeType::Fuzzy);
+        // SAFETY: `self.node` is valid and exclusively owned; the node type is
+        // Fuzzy, per the assertion above, so the `fz` variant is active.
         unsafe {
             let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
             (*union_ptr.cast::<ffi::QueryFuzzyNode>()).maxDist = max_dist;
@@ -227,8 +258,9 @@ impl MockQueryNode {
 
     /// Set the `exact` field of the phrase-node union variant.
     pub fn set_phrase_exact(&mut self, exact: i32) {
-        // SAFETY: `self.node` is valid and exclusively owned; the caller
-        // guarantees the node type is Phrase so the `pn` variant is active.
+        self.debug_assert_type(QueryNodeType::Phrase);
+        // SAFETY: `self.node` is valid and exclusively owned; the node type is
+        // Phrase, per the assertion above, so the `pn` variant is active.
         unsafe {
             let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
             (*union_ptr.cast::<ffi::QueryPhraseNode>()).exact = exact;
