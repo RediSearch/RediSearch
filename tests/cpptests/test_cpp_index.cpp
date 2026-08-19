@@ -665,6 +665,9 @@ TEST_F(IndexTest, testHybridVector) {
   while (vecIt->Read(vecIt) != ITERATOR_EOF) {
     ASSERT_EQ(vecIt->current->data.tag, RSResultData_Metric);
     ASSERT_EQ(vecIt->current->docId, max_id - count);
+    // One entry per read, which is what the reset in `HR_ReadKnnUnsortedSingle` buys:
+    // without it this count climbs with the number of documents read.
+    ASSERT_EQ(MetricsVec_AsSlice(&vecIt->current->metrics).len, 1);
     count++;
   }
   ASSERT_EQ(count, k);
@@ -695,6 +698,9 @@ TEST_F(IndexTest, testHybridVector) {
     // since larger ids has lower distance, in every we get lower id (where max id is the final result).
     size_t expected_id = max_id - step*(count++);
     ASSERT_EQ(hybridIt->lastDocId, expected_id);
+    // One entry, because the term child yields no metrics of its own for
+    // `insertResultToHeap_Metric` to carry over: the distance it adds is all there is.
+    ASSERT_EQ(MetricsVec_AsSlice(&hybridIt->current->metrics).len, 1);
   }
   ASSERT_EQ(count, k);
   ASSERT_TRUE(hybridIt->atEOF);

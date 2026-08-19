@@ -109,7 +109,9 @@ fn unfiltered_results_are_metric_kind_with_exact_distance() {
     let index = build_hnsw_index(n);
 
     // SAFETY: index outlives the iterator (freed at end of scope).
-    let source = unsafe { make_source(index, n, k, n) };
+    let mut source = unsafe { make_source(index, n, k, n) };
+    let mut own = make_key();
+    *source.own_key = (&mut own as *mut RLookupKey).cast();
     let mut it = new_vector_top_k_unfiltered(source, NonZeroUsize::new(k).unwrap());
 
     // Estimate is capped at k (k < index size here).
@@ -117,10 +119,16 @@ fn unfiltered_results_are_metric_kind_with_exact_distance() {
 
     // Unfiltered streams by score, so results come out best-first. Each result
     // is a Metric carrying the exact squared-L2 distance DIM*(n-id)^2.
+    //
+    // This path builds a fresh result per document rather than reusing one, which is
+    // what keeps its metric from accumulating the way the C reader's reused result did.
+    // Asserting the entry count per read pins that: were the result ever reused, the
+    // count would climb with the number of documents read.
     let mut expected_id = n as t_docId;
     while let Some(res) = it.read().unwrap() {
         assert_eq!(res.kind(), RSResultKind::Metric);
         assert_eq!(res.doc_id, expected_id);
+        assert_eq!(res.metrics.len(), 1, "one entry, for this document only");
         let dist = res
             .as_numeric()
             .expect("metric result carries a numeric value");
