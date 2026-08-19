@@ -535,6 +535,42 @@ fn attach_score_metric_overwrites_in_place() {
     unsafe { VecSimIndex_Free(index.as_ptr()) };
 }
 
+/// A run of yields through one storage slot keeps a single entry holding the
+/// latest score. The C hybrid reader this source replaces got this wrong on its
+/// KNN-only path — `HR_ReadKnnUnsortedSingle` appended to a reused result until an
+/// explicit reset was added — so the contract is pinned here rather than left to
+/// the single-overwrite case above.
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn attach_score_metric_stays_single_entry_across_yields() {
+    // Arrange: one result standing in for the child storage reused across yields.
+    let index = build_hnsw_index(3);
+    // SAFETY: index outlives the source (freed at end of scope).
+    let mut source = unsafe { make_source(index, 3, 3, 3) };
+    let mut own = make_key();
+    *source.own_key = (&mut own as *mut RLookupKey).cast();
+
+    let mut result = RSIndexResult::build_virt().doc_id(1).build();
+
+    // Act + assert, once per simulated yield.
+    for (yields, score) in [11.0, 22.0, 33.0, 44.0].into_iter().enumerate() {
+        source.attach_score_metric(&mut result, score);
+
+        assert_eq!(
+            result.metrics.len(),
+            1,
+            "yield {} appended a second entry instead of overwriting",
+            yields + 1,
+        );
+        assert_eq!(result.metrics.find_by_key_mut(&own).unwrap().value(), score);
+    }
+
+    drop(result);
+    drop(source);
+    // SAFETY: no live references to the index remain.
+    unsafe { VecSimIndex_Free(index.as_ptr()) };
+}
+
 /// With no output key wired up (the metrics loader never ran), attaching a
 /// score must be a no-op rather than pushing a keyless entry.
 #[test]
