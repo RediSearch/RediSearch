@@ -16,10 +16,11 @@
 //! string that is not known to be well-formed UTF-8 — a query token, say — has
 //! to keep that read inside its own allocation.
 //!
-//! This module models that read-ahead once, for every caller that needs it:
-//! [`tail_may_overread`] says whether an input can trip it, and
+//! This module models that decoder's walk once, for every caller that needs it:
+//! [`tail_may_overread`] says whether an input can trip the read-ahead,
 //! [`NU_MAX_READAHEAD`] says how many trailing zero bytes a padded copy needs
-//! when it can.
+//! when it can, and [`nu_rune_count`] says how many runes the decoder would
+//! yield.
 
 /// The most bytes the C decoder (`nu_utf8_read`) reads past a multibyte lead
 /// byte. A UTF-8 sequence is at most four bytes, so the decoder touches at most
@@ -64,6 +65,25 @@ pub fn tail_may_overread(bytes: &[u8]) -> bool {
     false
 }
 
+/// How many runes the C decoder (`nu_utf8_read`) would yield for `bytes` —
+/// the count C's `strToRunes` ends up with.
+///
+/// Replays the same walk as [`tail_may_overread`], counting steps instead of
+/// checking for over-read, and so inherits the decoder's lack of validation:
+/// a stray continuation byte in lead position counts as one rune (a two-byte
+/// sequence), and a truncated trailing sequence counts as one rune while the
+/// cursor steps past the end of `bytes`. The point is to predict what C would
+/// count, not what a correct decoder would.
+pub fn nu_rune_count(bytes: &[u8]) -> usize {
+    let mut pos = 0;
+    let mut runes = 0;
+    while pos < bytes.len() {
+        pos += nu_seq_len(bytes[pos]);
+        runes += 1;
+    }
+    runes
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -98,5 +118,27 @@ mod test {
         // The damage is mid-string: the walk resynchronises past it and still
         // lands inside the input, so no over-read is possible.
         assert!(!tail_may_overread(b"\xC3(ab"));
+    }
+
+    #[test]
+    fn rune_count_matches_codepoints_for_well_formed_input() {
+        assert_eq!(nu_rune_count(b""), 0);
+        assert_eq!(nu_rune_count(b"hello"), 5);
+        assert_eq!(nu_rune_count("é".as_bytes()), 1);
+        assert_eq!(nu_rune_count("日本".as_bytes()), 2);
+        // An astral character is one four-byte sequence, hence one rune here —
+        // even though C stores it as a truncated `uint16_t`.
+        assert_eq!(nu_rune_count("ab😀".as_bytes()), 3);
+    }
+
+    #[test]
+    fn rune_count_replays_the_decoder_on_malformed_input() {
+        // A stray continuation byte is read as a two-byte lead, so it swallows
+        // the byte after it rather than counting as one rune of its own.
+        assert_eq!(nu_rune_count(b"\x80a"), 1);
+        // A truncated trailing sequence still counts as one rune, with the
+        // cursor stepping past the end.
+        assert_eq!(nu_rune_count(b"a\xF0"), 2);
+        assert_eq!(nu_rune_count(b"a\xE0\x80"), 2);
     }
 }
