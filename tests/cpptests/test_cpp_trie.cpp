@@ -1206,29 +1206,44 @@ TEST_F(TrieTest, testSearchTrimDropsTail) {
   TrieType_Free(t);
 }
 
+namespace {
+void *(*savedAlloc)(size_t) = nullptr;
+
+// Hands out allocations pre-filled with a non-zero pattern, so a byte the
+// allocating code never writes reads as garbage instead of an incidental zero.
+void *poisoningAlloc(size_t n) {
+  void *p = savedAlloc(n);
+  if (p) memset(p, 0xAA, n);
+  return p;
+}
+
+// Poisons rm_malloc (but not rm_calloc, whose zeroing is part of its contract)
+// for the enclosing scope.
+struct PoisonedAllocations {
+  PoisonedAllocations() {
+    savedAlloc = RedisModule_Alloc;
+    RedisModule_Alloc = poisoningAlloc;
+  }
+  ~PoisonedAllocations() {
+    RedisModule_Alloc = savedAlloc;
+  }
+};
+}  // namespace
+
 TEST_F(TrieTest, testPayloadTerminatorIsNul) {
   // The saver emits `len + 1` bytes, so the byte past the payload must be written
-  // rather than inherited from the allocator. Dirtying and freeing a block of
-  // exactly the size the payload will request makes an unwritten terminator
-  // observable: the recycled block still reads 0xAA. Both halves of the setup are
-  // load-bearing — macOS scrubs freed blocks below 64K, and a block the allocator
-  // has not seen before arrives zero-filled from the kernel.
-  const size_t plen = 65535;
-  const size_t blockSize = sizeof(TriePayload) + plen + 1;
+  // rather than inherited from the allocator.
+  const size_t plen = 8;
 
   Trie *t = NewTrie(NULL, Trie_Sort_Lex);
   std::unique_ptr<Trie, std::function<void(Trie *)>> tPtr(t, [](Trie *trie) { TrieType_Free(trie); });
   std::string payload(plen, 'z');
   RSPayload p = {.data = (char *)payload.data(), .len = plen};
 
-  // Dirty last: every allocation of a comparable size made after this point and
-  // before the insert would claim the recycled block instead of the payload.
-  void *dirty = rm_malloc(blockSize);
-  ASSERT_TRUE(dirty != nullptr);
-  memset(dirty, 0xAA, blockSize);
-  rm_free(dirty);
-
-  ASSERT_TRUE(Trie_InsertStringBuffer(t, "k", 1, 1.0, 0, &p, 0));
+  {
+    PoisonedAllocations poison;
+    ASSERT_TRUE(Trie_InsertStringBuffer(t, "k", 1, 1.0, 0, &p, 0));
+  }
 
   char *data = (char *)triePayload(t, "k", 1, true);
   ASSERT_TRUE(data != nullptr);
