@@ -25,7 +25,7 @@ use std::{
     ptr,
 };
 
-use c_trie::{FuzzyWalk, LoweredPattern, TermsTrie, TrieTerm};
+use c_trie::{FuzzyWalk, LoweredPattern, QueryRequestTimeoutHandle, TermsTrie, TrieTerm};
 
 fn trie_term(term: &str) -> TrieTerm {
     // SAFETY: every test input is the complete byte representation of a
@@ -283,9 +283,13 @@ fn iterate_contains_some_and_none_timeout_agree() {
         // SAFETY: `timespec` is a plain-old-data struct; an all-zero value is valid.
         let mut deadline: ffi::timespec = unsafe { mem::zeroed() };
         deadline.tv_sec = 1_i64 << 40; // far in the future
-        let timeout = clock_timeout(deadline);
+        let mut timeout = clock_timeout(deadline);
+        // SAFETY: `timeout` remains live with its clock source active for the walk, and the test
+        // does not access it concurrently.
+        let timeout = unsafe { QueryRequestTimeoutHandle::from_raw(ptr::from_mut(&mut timeout)) }
+            .expect("the timeout pointer is non-null");
         let mut some_hits = HashSet::new();
-        trie.iterate_contains(&runes, true, true, Some(&timeout), |term, _| {
+        trie.iterate_contains(&runes, true, true, Some(timeout), |term, _| {
             some_hits.insert(runes_to_string(term));
             ControlFlow::Continue(())
         });
@@ -805,9 +809,13 @@ fn iterate_wildcard_some_and_none_timeout_agree() {
         // SAFETY: `timespec` is a plain-old-data struct; an all-zero value is valid.
         let mut deadline: ffi::timespec = unsafe { mem::zeroed() };
         deadline.tv_sec = 1_i64 << 40; // far in the future
-        let timeout = clock_timeout(deadline);
+        let mut timeout = clock_timeout(deadline);
+        // SAFETY: `timeout` remains live with its clock source active for the walk, and the test
+        // does not access it concurrently.
+        let timeout = unsafe { QueryRequestTimeoutHandle::from_raw(ptr::from_mut(&mut timeout)) }
+            .expect("the timeout pointer is non-null");
         let mut some_hits = HashSet::new();
-        trie.iterate_wildcard(&pattern("ap*"), Some(&timeout), |term, _| {
+        trie.iterate_wildcard(&pattern("ap*"), Some(timeout), |term, _| {
             some_hits.insert(runes_to_string(term));
             ControlFlow::Continue(())
         });

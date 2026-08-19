@@ -22,7 +22,7 @@ use ffi::{
     SuffixType_SUFFIX_TYPE_WILDCARD,
 };
 
-use crate::{LoweredPattern, TrieTerm};
+use crate::{LoweredPattern, QueryRequestTimeoutHandle, TrieTerm};
 
 /// Which side(s) of a term a [`SuffixTrie::iterate_contains`] walk anchors on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -229,14 +229,13 @@ impl SuffixTrie {
     pub fn iterate_wildcard<F>(
         &self,
         mut pattern: LoweredPattern,
-        timeout: Option<&ffi::QueryRequestTimeout>,
+        timeout: Option<&QueryRequestTimeoutHandle>,
         mut callback: F,
     ) -> SuffixWalk
     where
         F: FnMut(&[u8]) -> ControlFlow<()>,
     {
-        let timeout_ptr =
-            timeout.map_or(ptr::null_mut(), |timeout| ptr::from_ref(timeout).cast_mut());
+        let timeout_ptr = timeout.map_or(ptr::null_mut(), QueryRequestTimeoutHandle::as_mut_ptr);
 
         let mut suffix_ctx = SuffixCtx {
             // As in `iterate_contains`: typed `*mut Trie`, only read.

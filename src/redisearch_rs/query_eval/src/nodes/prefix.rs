@@ -11,7 +11,7 @@
 
 use std::ops::ControlFlow;
 
-use c_trie::{SuffixMode, SuffixTrie, TermsTrie};
+use c_trie::{QueryRequestTimeoutHandle, SuffixMode, SuffixTrie, TermsTrie};
 use query::WildcardMode;
 use query_error::QueryErrorCode;
 use query_types::QueryNodeType;
@@ -97,8 +97,9 @@ pub(crate) fn eval<'index>(
     let terms = unsafe { ctx.terms_trie() };
     // Resolved here, with every other read of `ctx`, because `Expansion` borrows
     // it mutably for the rest of the expansion.
-    // SAFETY: the request timeout outlives query evaluation when present.
-    let timeout = unsafe { ctx.sctx().timeout.as_ref() };
+    // SAFETY: the request timeout outlives query evaluation. Its source is fixed for this execution
+    // cycle; only the blocked-client flag may change concurrently, through the C atomic API.
+    let timeout = unsafe { QueryRequestTimeoutHandle::from_raw(ctx.sctx().timeout) };
 
     let expansion = Expansion {
         ctx,
@@ -224,7 +225,7 @@ impl Expansion<'_> {
         pattern: &[ffi::rune],
         match_prefix: bool,
         match_suffix: bool,
-        timeout: Option<&ffi::QueryRequestTimeout>,
+        timeout: Option<&QueryRequestTimeoutHandle>,
     ) -> Vec<CRQEIterator> {
         // The primary trie hands terms back as runes (with their document count, used
         // for the disk IDF), which must be encoded back into the term's key, byte for

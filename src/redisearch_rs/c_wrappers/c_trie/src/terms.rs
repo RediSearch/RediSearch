@@ -21,7 +21,7 @@ use string_utils::{
     runes::runes_to_bytes,
 };
 
-use crate::{LoweredPattern, TrieTerm};
+use crate::{LoweredPattern, QueryRequestTimeoutHandle, TrieTerm};
 
 /// Adapts a [`ffi::TrieRangeCallback`] to a Rust closure handed back through
 /// the opaque `ctx` pointer for every matching term.
@@ -282,7 +282,7 @@ impl TermsTrie {
         pattern: &[ffi::rune],
         prefix: bool,
         suffix: bool,
-        timeout: Option<&ffi::QueryRequestTimeout>,
+        timeout: Option<&QueryRequestTimeoutHandle>,
         mut callback: F,
     ) where
         F: FnMut(&[ffi::rune], usize) -> ControlFlow<()>,
@@ -297,7 +297,7 @@ impl TermsTrie {
         if suffix && pattern.is_empty() {
             return;
         }
-        let timeout = timeout.map_or(ptr::null_mut(), |timeout| ptr::from_ref(timeout).cast_mut());
+        let timeout = timeout.map_or(ptr::null_mut(), QueryRequestTimeoutHandle::as_mut_ptr);
         // SAFETY: `self` borrows a valid `ffi::Trie`; `pattern` points to
         // `pattern.len()` runes; `&mut callback` stays alive for the whole
         // call, so the `ctx` the trampoline reconstitutes is valid; and
@@ -502,15 +502,15 @@ impl TermsTrie {
     /// indexed empty value exists only as an inverted index. A caller that wants
     /// to match it has to open that index itself.
     ///
-    /// `timeout` bounds the walk: `Some(deadline)` aborts it once the deadline
-    /// passes, while `None` runs it to completion with no deadline.
+    /// When supplied, `timeout` aborts the walk when the active request timeout
+    /// expires; otherwise the walk runs to completion with no timeout.
     ///
     /// [`Break`]: ControlFlow::Break
     ///
     pub fn iterate_wildcard<F>(
         &self,
         pattern: &LoweredPattern,
-        timeout: Option<&ffi::QueryRequestTimeout>,
+        timeout: Option<&QueryRequestTimeoutHandle>,
         mut callback: F,
     ) where
         F: FnMut(&[ffi::rune], usize) -> ControlFlow<()>,
@@ -521,7 +521,7 @@ impl TermsTrie {
         if pattern.is_empty() {
             return;
         }
-        let timeout = timeout.map_or(ptr::null_mut(), |timeout| ptr::from_ref(timeout).cast_mut());
+        let timeout = timeout.map_or(ptr::null_mut(), QueryRequestTimeoutHandle::as_mut_ptr);
         // SAFETY: `self` borrows a valid `ffi::Trie`; `pattern` addresses its
         // content runes followed by the readable zero sentinel the matcher
         // requires (`LoweredPattern` invariant); `&mut callback` stays alive for
