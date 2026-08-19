@@ -139,8 +139,11 @@ bool isBgIndexingMemoryOverLimit(RedisModuleCtx *ctx);
 
 // Which Flex budget the async background scan is over, and therefore whether pausing can help.
 typedef enum {
+  // Memory is OK, no limit reached
   BG_INDEXING_MEM_OK = 0,
+  // RAM memory usage is above the limits, throttling may give the chance for regular swap-out to release memory and allow to continue
   BG_INDEXING_MEM_THROTTLE,
+  // Total memory is exhausted, we cannot continue
   BG_INDEXING_MEM_EXHAUSTED,
 } BgIndexingMemVerdict;
 
