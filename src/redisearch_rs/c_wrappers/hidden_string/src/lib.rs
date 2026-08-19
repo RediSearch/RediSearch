@@ -47,6 +47,11 @@ impl HiddenString {
 
     /// Get the secret (aka. "unsafe" in C land) value from the underlying [`ffi::HiddenString`].
     ///
+    /// A name is taken up to its first NUL. Names normally hold none of their
+    /// own, so that is the terminator and the whole name comes back; one that
+    /// does hold an interior NUL is truncated there, as a `%s`-formatted C site
+    /// truncates the same pointer.
+    ///
     /// This is safe **only if** the C function returns a pointer that stays valid
     /// for at least the lifetime of `self`, and the memory contains a NUL at `len`.
     pub fn secret_value(&self) -> &CStr {
@@ -63,7 +68,7 @@ impl HiddenString {
         // Safety: must be ensured by the implementation of `ffi::HiddenString_GetUnsafe` above.
         let bytes = unsafe { core::slice::from_raw_parts(data.cast::<u8>(), n) };
 
-        CStr::from_bytes_with_nul(bytes).expect("malformed C string")
+        CStr::from_bytes_until_nul(bytes).expect("unterminated C string")
     }
 }
 
