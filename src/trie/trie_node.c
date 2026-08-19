@@ -56,8 +56,7 @@ typedef struct {
   bool stop;
 
   // timeout
-  uint32_t timeoutCounter;  // counter to limit clock reads in timeout checks
-  const QueryRequestTimeout *timeout;
+  QueryRequestTimeout *timeout;
 } RangeCtx;
 
 static void __trieNode_sortChildren(TrieNode *n);
@@ -935,8 +934,7 @@ int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *paylo
 static int rangeIterateSubTree(const TrieNode *n, RangeCtx *r) {
   if (r->stop) return REDISEARCH_ERR;
 
-  if (r->timeout &&
-      QueryRequestTimeout_IsTimedOutWithCounter(r->timeout, &r->timeoutCounter)) {
+  if (r->timeout && QueryRequestTimeout_IsTimedOutWithCounter(r->timeout)) {
     r->stop = 1;
     return REDISEARCH_ERR;
   }
@@ -967,7 +965,7 @@ static void containsIterate(const TrieNode *n, t_len localOffset, t_len globalOf
 // Contains iteration.
 void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefix, bool suffix,
                               TrieRangeCallback callback, void *ctx,
-                              const QueryRequestTimeout *timeout) {
+                              QueryRequestTimeout *timeout) {
   // exact match - should not be used. change to assert
   if (!prefix && !suffix) {
     TrieNode *node = TrieNode_Get(n, (rune *)str, nstr, true, NULL);
@@ -981,7 +979,6 @@ void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefi
       .callback = callback,
       .cbctx = ctx,
       .timeout = timeout,
-      .timeoutCounter = 0,
   };
   r.buf = array_new(rune, TRIE_INITIAL_STRING_LEN);
 
@@ -1035,8 +1032,7 @@ static void containsIterate(const TrieNode *n, t_len localOffset, t_len globalOf
     return;
   }
 
-  if (r->timeout &&
-      QueryRequestTimeout_IsTimedOutWithCounter(r->timeout, &r->timeoutCounter)) {
+  if (r->timeout && QueryRequestTimeout_IsTimedOutWithCounter(r->timeout)) {
     r->stop = 1;
     return;
   }
@@ -1080,8 +1076,7 @@ static void containsIterate(const TrieNode *n, t_len localOffset, t_len globalOf
 
 static void wildcardIterate(const TrieNode *n, RangeCtx *r) {
   // timeout check
-  if (r->timeout &&
-      QueryRequestTimeout_IsTimedOutWithCounter(r->timeout, &r->timeoutCounter)) {
+  if (r->timeout && QueryRequestTimeout_IsTimedOutWithCounter(r->timeout)) {
     r->stop = 1;
   }
   if (r->stop) {
@@ -1125,7 +1120,7 @@ static void wildcardIterate(const TrieNode *n, RangeCtx *r) {
 
 void TrieNode_IterateWildcard(const TrieNode *n, const rune *str, int nstr,
                               TrieRangeCallback callback, void *ctx,
-                              const QueryRequestTimeout *timeout) {
+                              QueryRequestTimeout *timeout) {
   // An empty pattern matches no term, and the initializer below reads str[nstr - 1]
   if (nstr <= 0) {
     return;
@@ -1134,7 +1129,6 @@ void TrieNode_IterateWildcard(const TrieNode *n, const rune *str, int nstr,
       .callback = callback,
       .cbctx = ctx,
       .timeout = timeout,
-      .timeoutCounter = 0,
       .origStr = str,
       .lenOrigStr = nstr,
       .buf = array_new(rune, TRIE_INITIAL_STRING_LEN),

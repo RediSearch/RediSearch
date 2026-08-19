@@ -111,6 +111,14 @@ typedef struct {
 
 #define QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT 100
 
+#ifdef __cplusplus
+static_assert(QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT <= UINT8_MAX,
+              "Query request timeout counter limit exceeds uint8_t");
+#else
+_Static_assert(QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT <= UINT8_MAX,
+               "Query request timeout counter limit exceeds uint8_t");
+#endif
+
 typedef enum {
   QUERY_REQUEST_TIMEOUT_UNARMED,
   QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT,
@@ -127,7 +135,11 @@ typedef struct QueryRequestTimeout {
   QueryRequestTimeoutKind kind;
   union {
     RS_Atomic(bool) blockedClientTimedOut;
-    struct timespec clockDeadline;
+    struct {
+      struct timespec deadline;
+      // Shared by all amortized timeout callers during the clock cycle.
+      uint8_t counter;
+    } clock;
   } source;
 } QueryRequestTimeout;
 
@@ -195,16 +207,14 @@ bool QueryRequestTimeout_IsBlockedClientTimedOut(const QueryRequestTimeout *time
  * Amortized variant of QueryRequestTimeout_IsTimedOut:
  *
  * - UNARMED and BLOCKED_CLIENT preserve the primary operation's behavior and
- *   leave counter unchanged.
- * - CLOCK_DEADLINE increments counter and checks the deadline only when it
- *   reaches QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT, then resets it to 0.
+ *   leave the request counter unchanged.
+ * - CLOCK_DEADLINE increments the request counter and checks the deadline only
+ *   when it reaches QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT, then resets it to 0.
  *
- * Counter state is caller-owned and must remain in
- * [0, QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT). Initialize it to 0 to perform the
- * first clock check on the QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT call. BeginCycle does not reset it.
+ * The counter is shared by every caller using this operation and is reset when
+ * BeginCycle starts a clock cycle.
  */
-bool QueryRequestTimeout_IsTimedOutWithCounter(const QueryRequestTimeout *timeout,
-                                               uint32_t *counter);
+bool QueryRequestTimeout_IsTimedOutWithCounter(QueryRequestTimeout *timeout);
 
 /**
  * Timeout-only synchronization between query workers and main-thread callbacks.

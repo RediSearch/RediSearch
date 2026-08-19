@@ -191,7 +191,7 @@ static void vectorRangeFreeCtx(void *ctxp) {
 QueryIterator *NewLazyVectorRangeIteratorFromParams(VecSimIndex *vecsim, const void *vector,
                                                     double radius, VecSimQueryParams qParams,
                                                     VecSimQueryReply_Order order, bool yields_metric,
-                                                    const QueryRequestTimeout *timeout) {
+                                                    QueryRequestTimeout *timeout) {
   VectorRangeProducerCtx *ctx = rm_malloc(sizeof(*ctx));
   *ctx = (VectorRangeProducerCtx){
       .vecsim = vecsim,
@@ -199,7 +199,7 @@ QueryIterator *NewLazyVectorRangeIteratorFromParams(VecSimIndex *vecsim, const v
       .radius = radius,
       .qParams = qParams,
       .order = order,
-      .timeoutCtx = {.timeout = timeout, .counter = 0},
+      .timeoutCtx = {.timeout = timeout},
   };
   ProduceResultsFn produce = yields_metric ? vectorRangeProduceMetric : vectorRangeProduceIdList;
   return NewLazyVectorRangeIterator(produce, vectorRangeFreeCtx, ctx, yields_metric,

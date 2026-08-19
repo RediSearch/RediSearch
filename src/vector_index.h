@@ -197,7 +197,7 @@ extern "C" {
 QueryIterator *NewLazyVectorRangeIteratorFromParams(VecSimIndex *vecsim, const void *vector,
                                                     double radius, VecSimQueryParams qParams,
                                                     VecSimQueryReply_Order order, bool yields_metric,
-                                                    const QueryRequestTimeout *timeout);
+                                                    QueryRequestTimeout *timeout);
 #ifdef __cplusplus
 }
 #endif

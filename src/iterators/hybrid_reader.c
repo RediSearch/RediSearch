@@ -652,8 +652,7 @@ QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   hi->maxBatchSize = 0;
   hi->maxBatchIteration = 0;
   hi->canTrimDeepResults = hParams.canTrimDeepResults;
-  hi->timeoutCtx = (VecSimTimeoutCtx){ .timeout = hParams.sctx ? hParams.sctx->timeout : NULL,
-                                       .counter = 0 };
+  hi->timeoutCtx = (VecSimTimeoutCtx){ .timeout = hParams.sctx ? hParams.sctx->timeout : NULL };
   hi->runtimeParams.timeoutCtx = &hi->timeoutCtx;
   hi->sctx = hParams.sctx;
   hi->filterCtx = *hParams.filterCtx;

@@ -30,9 +30,7 @@ fn set_deadline(ctx: &MockContext, secs_from_now: i64) {
     unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC_RAW, &mut now) };
     // SAFETY: the mock owns a valid `RedisSearchCtx` for as long as it is alive.
     unsafe {
-        (*(*ctx.sctx().as_ptr()).timeout)
-            .source
-            .clockDeadline = ffi::timespec {
+        (*(*ctx.sctx().as_ptr()).timeout).source.clock.deadline = ffi::timespec {
             tv_sec: now.tv_sec + secs_from_now,
             tv_nsec: now.tv_nsec,
         };
@@ -131,9 +129,7 @@ fn the_no_timeout_sentinel_yields_no_checker() {
     // SAFETY: the mock owns a valid `RedisSearchCtx`.
     #[cfg_attr(target_env = "musl", expect(deprecated))]
     unsafe {
-        (*(*ctx.sctx().as_ptr()).timeout)
-            .source
-            .clockDeadline = ffi::timespec {
+        (*(*ctx.sctx().as_ptr()).timeout).source.clock.deadline = ffi::timespec {
             tv_sec: libc::time_t::MAX,
             tv_nsec: 0,
         };
@@ -155,11 +151,7 @@ fn a_probe_reads_the_deadline_out_of_the_search_context() {
     // above have to sit out under miri, which would otherwise leave that read uncovered there.
     let ctx = MockContext::new(100, 10);
     // SAFETY: the mock owns the request timeout for as long as it is alive.
-    let deadline = unsafe {
-        &raw mut (*(*ctx.sctx().as_ptr()).timeout)
-            .source
-            .clockDeadline
-    };
+    let deadline = unsafe { &raw mut (*(*ctx.sctx().as_ptr()).timeout).source.clock.deadline };
     #[cfg_attr(target_env = "musl", expect(deprecated))]
     // SAFETY: `deadline` was just projected from the request owned by the valid search context.
     unsafe {

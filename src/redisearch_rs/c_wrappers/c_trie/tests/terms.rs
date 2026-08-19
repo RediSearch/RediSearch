@@ -37,7 +37,7 @@ fn clock_timeout(deadline: ffi::timespec) -> ffi::QueryRequestTimeout {
     // SAFETY: every field in the C timeout struct accepts an all-zero value.
     let mut timeout: ffi::QueryRequestTimeout = unsafe { mem::zeroed() };
     timeout.kind = ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
-    timeout.source.clockDeadline = deadline;
+    timeout.source.clock.deadline = deadline;
     timeout
 }
 

@@ -59,7 +59,8 @@ void QueryRequestTimeout_BeginCycle(QueryRequestTimeout *timeout, QueryRequestTi
       };
       struct timespec now;
       clock_gettime(CLOCK_MONOTONIC_RAW, &now);
-      rs_timeradd(&now, &duration, &timeout->source.clockDeadline);
+      rs_timeradd(&now, &duration, &timeout->source.clock.deadline);
+      timeout->source.clock.counter = 0;
       timeout->kind = QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
       return;
     }
@@ -82,12 +83,15 @@ RS_Atomic(bool) *QueryRequestTimeout_GetBlockedClientFlag(QueryRequestTimeout *t
 const struct timespec *QueryRequestTimeout_GetClockDeadline(
     const QueryRequestTimeout *timeout) {
   RS_ASSERT(timeout->kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
-  return &timeout->source.clockDeadline;
+  return &timeout->source.clock.deadline;
 }
 
 struct timespec *QueryRequestTimeout_GetClockDeadlineForUpdate(QueryRequestTimeout *timeout) {
+  if (timeout->kind != QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE) {
+    timeout->source.clock.counter = 0;
+  }
   timeout->kind = QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
-  return &timeout->source.clockDeadline;
+  return &timeout->source.clock.deadline;
 }
 
 bool QueryRequestTimeout_IsTimedOut(const QueryRequestTimeout *timeout) {
@@ -97,7 +101,7 @@ bool QueryRequestTimeout_IsTimedOut(const QueryRequestTimeout *timeout) {
     case QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT:
       return RS_AtomicBoolLoadRelaxed(&timeout->source.blockedClientTimedOut);
     case QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE:
-      return TimedOut(&timeout->source.clockDeadline) == TIMED_OUT;
+      return TimedOut(&timeout->source.clock.deadline) == TIMED_OUT;
   }
   RS_ABORT_ALWAYS("Invalid query timeout kind");
 }
@@ -113,21 +117,20 @@ bool QueryRequestTimeout_IsBlockedClientTimedOut(const QueryRequestTimeout *time
   RS_ABORT_ALWAYS("Invalid query timeout kind");
 }
 
-bool QueryRequestTimeout_IsTimedOutWithCounter(const QueryRequestTimeout *timeout,
-                                               uint32_t *counter) {
+bool QueryRequestTimeout_IsTimedOutWithCounter(QueryRequestTimeout *timeout) {
   // Only clock reads are expensive enough to amortize. Other sources retain
   // the exact semantics of QueryRequestTimeout_IsTimedOut.
   if (timeout->kind != QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE) {
     return QueryRequestTimeout_IsTimedOut(timeout);
   }
 
-  RS_ASSERT(counter && *counter < QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT);
+  RS_ASSERT(timeout->source.clock.counter < QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT);
   if (RS_IsMock) {
     return false;
   }
 
-  if (++(*counter) == QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT) {
-    *counter = 0;
+  if (++timeout->source.clock.counter == QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT) {
+    timeout->source.clock.counter = 0;
     return QueryRequestTimeout_IsTimedOut(timeout);
   }
   return false;

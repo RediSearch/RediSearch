@@ -101,7 +101,6 @@ typedef struct {
   ResultProcessor base;
   QueryIterator *iterator;
   RedisSearchCtx *sctx;
-  uint32_t timeoutLimiter;  // counter to limit clock reads in timeout checks
   uint32_t keySpaceVersion;                     // version of the Keyspace slot ranges used for filtering
   const RedisModuleSlotRangeArray *querySlots;  // Query slots info, may be used for filtering
 
@@ -168,9 +167,7 @@ static int refillBufferUsingIterator(RPQueryIterator *self) {
 
   // Fill buffer up to max capacity
   while (self->async.iteratorResultCount < self->async.bufferSize && !it->atEOF) {
-    if (sctx->timeout &&
-        QueryRequestTimeout_IsTimedOutWithCounter(sctx->timeout,
-                                                  &self->timeoutLimiter)) {
+    if (sctx->timeout && QueryRequestTimeout_IsTimedOutWithCounter(sctx->timeout)) {
       return RS_RESULT_TIMEDOUT;
     }
 
@@ -353,9 +350,7 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
 #endif
 
   while (1) {
-    if (sctx->timeout &&
-        QueryRequestTimeout_IsTimedOutWithCounter(sctx->timeout,
-                                                  &self->timeoutLimiter)) {
+    if (sctx->timeout && QueryRequestTimeout_IsTimedOutWithCounter(sctx->timeout)) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
 
@@ -416,9 +411,7 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
 #endif
 
   while (1) {
-    if (sctx->timeout &&
-        QueryRequestTimeout_IsTimedOutWithCounter(sctx->timeout,
-                                                  &self->timeoutLimiter)) {
+    if (sctx->timeout && QueryRequestTimeout_IsTimedOutWithCounter(sctx->timeout)) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
 
@@ -467,7 +460,7 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
     const size_t pendingCount =
         IndexResultAsyncRead_Poll(&self->async, index_poll_timeout_ms, &sctx->currentTime);
 
-    // The loop-head check samples the clock once per TIMEOUT_COUNTER_LIMIT iterations,
+    // The loop-head check amortizes clock samples across iterations,
     // which is too coarse once an iteration can sleep. Re-check unthrottled after a
     // blocking poll.
     if (index_poll_timeout_ms > 0 && sctx->timeout &&
@@ -504,7 +497,6 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
   ret->base.Free = rpQueryItFree;
   ret->sctx = sctx;
   ret->base.type = RP_INDEX;
-  ret->timeoutLimiter = 0;
 #ifdef ENABLE_ASSERT
   ret->firstRead = true;
 #endif
@@ -2466,8 +2458,6 @@ dictType dictTypeHybridSearchResult = {
   *******************************************************************************************************************/
  typedef struct {
  ResultProcessor base;
- // Timeout handling
- uint32_t timeoutCounter;
  RedisSearchCtx *sctx;
 
  HybridScoringContext *hybridScoringCtx;  // Store by pointer - RPHybridMerger is responsible for freeing it
@@ -2587,8 +2577,7 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
     int ret = RPHybridMerger_TimedOut(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
     return ret;
   } else if (self->sctx && self->sctx->timeout &&
-             QueryRequestTimeout_IsTimedOutWithCounter(self->sctx->timeout,
-                                                       &self->timeoutCounter)) {
+             QueryRequestTimeout_IsTimedOutWithCounter(self->sctx->timeout)) {
     // Timed out before we could yield all results
     return RS_RESULT_TIMEDOUT;
   }
@@ -2729,7 +2718,6 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
 
   ret->sctx = sctx;
   RS_ASSERT(sctx);
-  ret->timeoutCounter = 0;
   RS_ASSERT(numUpstreams > 0);
   ret->numUpstreams = numUpstreams;
 
@@ -2881,7 +2869,7 @@ void PipelineAddTimeoutAfterCount(QueryProcessingCtx *qctx, RedisSearchCtx *sctx
   addResultProcessor(qctx, RPTimeoutAfterCount);
 }
 
-static void RPTimeoutAfterCount_SimulateTimeout(ResultProcessor *rp_timeout, RedisSearchCtx *sctx) {
+static void RPTimeoutAfterCount_SimulateTimeout(RedisSearchCtx *sctx) {
     QueryRequestTimeout *timeout = sctx->timeout;
     if (timeout->kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT) {
       QueryRequestTimeout_MarkTimedOut(timeout);
@@ -2890,20 +2878,8 @@ static void RPTimeoutAfterCount_SimulateTimeout(ResultProcessor *rp_timeout, Red
       struct timespec now;
       clock_gettime(CLOCK_MONOTONIC_RAW, &now);
       *QueryRequestTimeout_GetClockDeadlineForUpdate(timeout) = now;
-    }
-
-    // search upstream for rpQueryItNext to set timeout limiter
-    ResultProcessor *cur = rp_timeout->upstream;
-    while (cur && cur->type != RP_INDEX && cur->type != RP_HYBRID_MERGER) {
-        cur = cur->upstream;
-    }
-
-    if (cur && cur->type == RP_INDEX) { // This is a shard pipeline
-      RPQueryIterator *rp_index = (RPQueryIterator *)cur;
-      rp_index->timeoutLimiter = TIMEOUT_COUNTER_LIMIT - 1;
-    } else if (cur && cur->type == RP_HYBRID_MERGER) {
-      RPHybridMerger *rp_hybrid = (RPHybridMerger *)cur;
-      rp_hybrid->timeoutCounter = TIMEOUT_COUNTER_LIMIT - 1;
+      // Force the next amortized caller to observe the simulated clock timeout.
+      timeout->source.clock.counter = QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT - 1;
     }
 }
 
@@ -2922,7 +2898,7 @@ static int RPTimeoutAfterCount_Next(ResultProcessor *base, SearchResult *r) {
       previousBlockedClientTimedOut =
           RS_AtomicBoolLoadRelaxed(QueryRequestTimeout_GetBlockedClientFlag(timeout));
     }
-    RPTimeoutAfterCount_SimulateTimeout(base, self->sctx);
+    RPTimeoutAfterCount_SimulateTimeout(self->sctx);
 
     int rc = base->upstream->Next(base->upstream, r);
     if (rc == RS_RESULT_TIMEDOUT) {

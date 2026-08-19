@@ -74,7 +74,7 @@ pub unsafe fn new_vector_top_k<'index, E>(
     query_vector: Vec<u8>,
     query_params: VecSimQueryParams,
     k: usize,
-    timeout: *const QueryRequestTimeout,
+    timeout: *mut QueryRequestTimeout,
     can_trim_deep_results: bool,
     expiration: E,
     child: Option<CRQEIterator>,

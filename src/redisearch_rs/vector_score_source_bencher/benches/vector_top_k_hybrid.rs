@@ -189,7 +189,7 @@ fn run_rust(
             query_bytes(query),
             query_params,
             k.get(),
-            std::ptr::null(),
+            std::ptr::null_mut(),
             ids.len(),
             0,
             MockExpirationChecker::new(std::collections::HashSet::new()),

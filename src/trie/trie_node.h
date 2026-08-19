@@ -136,11 +136,11 @@ typedef int(TrieSuffixCallback)(const char *, size_t, void *, void *);
  */
 void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefix, bool suffix,
                               TrieRangeCallback callback, void *ctx,
-                              const QueryRequestTimeout *timeout);
+                              QueryRequestTimeout *timeout);
 
 void TrieNode_IterateWildcard(const TrieNode *n, const rune *str, int nstr,
                               TrieRangeCallback callback, void *ctx,
-                              const QueryRequestTimeout *timeout);
+                              QueryRequestTimeout *timeout);
 
 #ifdef __cplusplus
 }

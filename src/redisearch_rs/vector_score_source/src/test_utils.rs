@@ -234,7 +234,7 @@ unsafe fn make_source_inner<E: ExpirationChecker>(
             query,
             query_params,
             k,
-            std::ptr::null(),
+            std::ptr::null_mut(),
             child_est,
             0,
             expiration,

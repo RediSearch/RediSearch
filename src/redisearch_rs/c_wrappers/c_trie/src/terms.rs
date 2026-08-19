@@ -297,7 +297,7 @@ impl TermsTrie {
         if suffix && pattern.is_empty() {
             return;
         }
-        let timeout = timeout.map_or(ptr::null(), ptr::from_ref);
+        let timeout = timeout.map_or(ptr::null_mut(), |timeout| ptr::from_ref(timeout).cast_mut());
         // SAFETY: `self` borrows a valid `ffi::Trie`; `pattern` points to
         // `pattern.len()` runes; `&mut callback` stays alive for the whole
         // call, so the `ctx` the trampoline reconstitutes is valid; and
@@ -521,7 +521,7 @@ impl TermsTrie {
         if pattern.is_empty() {
             return;
         }
-        let timeout = timeout.map_or(ptr::null(), ptr::from_ref);
+        let timeout = timeout.map_or(ptr::null_mut(), |timeout| ptr::from_ref(timeout).cast_mut());
         // SAFETY: `self` borrows a valid `ffi::Trie`; `pattern` addresses its
         // content runes followed by the readable zero sentinel the matcher
         // requires (`LoweredPattern` invariant); `&mut callback` stays alive for

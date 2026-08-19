@@ -16,8 +16,8 @@ use std::{
 };
 
 use ffi::{
-    QueryRequestTimeout, RLookupKeyHandle, RS_VecSimCheckTimeout, VecSimTimeoutCtx, VecSearchMode,
-    VecSearchMode_HYBRID_BATCHES, VecSimIndex, VecSimQueryParams,
+    QueryRequestTimeout, RLookupKeyHandle, RS_VecSimCheckTimeout, VecSearchMode,
+    VecSearchMode_HYBRID_BATCHES, VecSimIndex, VecSimQueryParams, VecSimTimeoutCtx,
 };
 use index_result::RSIndexResult;
 use rlookup::RLookupKey;
@@ -166,7 +166,7 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
         query_vector: Vec<u8>,
         query_params: VecSimQueryParams,
         k: usize,
-        timeout: *const QueryRequestTimeout,
+        timeout: *mut QueryRequestTimeout,
         child_num_estimated: usize,
         fixed_batch_size: usize,
         expiration: E,
@@ -191,10 +191,7 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
             query_vector,
             query_params,
             k,
-            timeout_ctx: Box::new(VecSimTimeoutCtx {
-                timeout,
-                counter: 0,
-            }),
+            timeout_ctx: Box::new(VecSimTimeoutCtx { timeout }),
             adhoc_state,
             should_rerank,
             batch_iter: None,

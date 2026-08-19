@@ -33,7 +33,7 @@ typedef struct SuffixCtx {
     SuffixType type;
     TrieSuffixCallback *callback;
     void *cbCtx;
-    const QueryRequestTimeout *timeout;
+    QueryRequestTimeout *timeout;
 } SuffixCtx;
 
 typedef struct suffixData {

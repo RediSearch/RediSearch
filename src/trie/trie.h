@@ -76,13 +76,13 @@ TrieNode *Trie_GetNode(Trie *t, const rune *str, t_len len, bool exact, int *off
  * parameter semantics. */
 void Trie_IterateContains(const Trie *t, const rune *str, int nstr, bool prefix, bool suffix,
                           TrieRangeCallback callback, void *ctx,
-                          const QueryRequestTimeout *timeout);
+                          QueryRequestTimeout *timeout);
 
 /* Iterate all nodes matching a wildcard pattern. Wraps TrieNode_IterateWildcard on the
  * trie's root. See TrieNode_IterateWildcard for parameter semantics. */
 void Trie_IterateWildcard(const Trie *t, const rune *str, int nstr,
                           TrieRangeCallback callback, void *ctx,
-                          const QueryRequestTimeout *timeout);
+                          QueryRequestTimeout *timeout);
 
 /* Number of terminal entries in the trie. Wraps the internal size counter. */
 size_t Trie_Size(const Trie *t);
