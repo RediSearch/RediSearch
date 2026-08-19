@@ -40,6 +40,7 @@ query = { workspace = true, features = ["unittest"] }
 query_eval = { path = ".", features = ["unittest"] }
 redis_mock.workspace = true
 redisearch_rs = { workspace = true, features = ["mock_allocator"] }
+rlookup.workspace = true
 rqe_iterators_test_utils.workspace = true
 
 [lints]
