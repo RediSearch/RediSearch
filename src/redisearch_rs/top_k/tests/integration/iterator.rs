@@ -1101,6 +1101,46 @@ fn batches_trim_deep_results_preserves_child_metrics() {
     );
 }
 
+/// The same one level deeper. A composite child keeps its metrics in *its* children, so
+/// carrying only the child's own node would drop them — an `AS`-yielded distance below an
+/// intersection is exactly this shape.
+#[test]
+fn batches_trim_deep_results_preserves_metrics_from_a_composite_child() {
+    use rqe_iterators::metric::MetricSortedById;
+    use rqe_iterators::{IdList, Intersection};
+
+    // The metric is produced by the intersection's child, not by the intersection.
+    let scored = MetricSortedById::new(vec![1, 2], vec![0.25, 0.25]);
+    let plain = IdList::<true>::with_result(vec![1, 2], RSIndexResult::build_virt().build());
+    let children: Vec<Box<dyn RQEIterator<'static>>> = vec![Box::new(scored), Box::new(plain)];
+    let child = Intersection::new(children, 1.0, false);
+
+    let source = MockScoreSource::new(vec![vec![(1, 0.9), (2, 0.5)]], vec![], |_, _| {
+        BatchStrategy::Continue
+    });
+
+    let mut it = TopKIterator::new(
+        source,
+        Box::new(child) as Box<dyn RQEIterator<'_> + '_>,
+        NonZeroUsize::new(10).unwrap(),
+        asc,
+    )
+    .with_trim_deep_results(true);
+
+    let mut emitted = Vec::new();
+    while let Some(r) = it.read().unwrap() {
+        emitted.push((
+            r.doc_id,
+            r.metrics_ref()
+                .iter()
+                .map(|m| m.value())
+                .collect::<Vec<_>>(),
+        ));
+    }
+
+    assert_eq!(emitted, vec![(2, vec![0.25]), (1, vec![0.25])]);
+}
+
 /// A trimmed result stands in for the source's own scored record, so its numeric
 /// payload must hold the source score — not the zero the metric-only carrier is
 /// built with — for consumers that read the record numerically rather than

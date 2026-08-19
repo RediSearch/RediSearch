@@ -95,7 +95,7 @@ fn pushing_to_index_result() {
     assert_eq!(ir.freq, 0);
     assert_eq!(ir.field_mask, 0);
 
-    ir.push_borrowed(&result_virt, MetricsVec::new());
+    ir.push_borrowed(&result_virt);
     assert_eq!(ir.doc_id, 2, "should inherit doc id of the child");
     assert_eq!(ir.kind(), RSResultKind::Union);
     assert_eq!(ir.weight, 1.0);
@@ -112,7 +112,7 @@ fn pushing_to_index_result() {
         )
     );
 
-    ir.push_borrowed(&result_with_frequency, MetricsVec::new());
+    ir.push_borrowed(&result_with_frequency);
     assert_eq!(ir.doc_id, 2);
     assert_eq!(ir.kind(), RSResultKind::Union);
     assert_eq!(ir.weight, 1.0);
@@ -120,10 +120,6 @@ fn pushing_to_index_result() {
     assert_eq!(ir.field_mask, RS_FIELDMASK_ALL);
 }
 
-/// Children are pushed straight onto the aggregate payload rather than through
-/// `RSIndexResult::push_borrowed`, which drains the child's metrics into the parent and so
-/// cannot produce a tree that holds entries below the root — the very shape
-/// `flatten_metrics_into` exists to collect from.
 #[test]
 fn flatten_metrics_collects_the_whole_subtree_deepest_first() {
     let leaf_key = crate::metrics::make_key();
@@ -135,17 +131,11 @@ fn flatten_metrics_collects_the_whole_subtree_deepest_first() {
 
     let mut mid = RSIndexResult::build_intersect(1).doc_id(7).build();
     mid.metrics.push_with_key(&mid_key, 2.0);
-    mid.as_aggregate_mut()
-        .and_then(|agg| agg.as_borrowed_mut())
-        .expect("a fresh intersection borrows its children")
-        .push_borrowed(&leaf);
+    mid.push_borrowed(&leaf);
 
     let mut root = RSIndexResult::build_union(1).doc_id(7).build();
     root.metrics.push_with_key(&root_key, 3.0);
-    root.as_aggregate_mut()
-        .and_then(|agg| agg.as_borrowed_mut())
-        .expect("a fresh union borrows its children")
-        .push_borrowed(&mid);
+    root.push_borrowed(&mid);
 
     let mut dst = MetricsVec::new();
     root.flatten_metrics_into(&mut dst);
@@ -172,14 +162,8 @@ fn flatten_metrics_collects_siblings_in_child_order() {
 
     let mut root = RSIndexResult::build_intersect(2).doc_id(7).build();
     root.metrics.push_with_key(&root_key, 3.0);
-    {
-        let agg = root
-            .as_aggregate_mut()
-            .and_then(|agg| agg.as_borrowed_mut())
-            .expect("a fresh intersection borrows its children");
-        agg.push_borrowed(&first);
-        agg.push_borrowed(&second);
-    }
+    root.push_borrowed(&first);
+    root.push_borrowed(&second);
 
     let mut dst = MetricsVec::new();
     root.flatten_metrics_into(&mut dst);
@@ -189,6 +173,63 @@ fn flatten_metrics_collects_siblings_in_child_order() {
         vec![1.0, 2.0, 3.0],
         "first child, second child, then the node's own",
     );
+}
+
+/// Rebuilding an aggregate for a document it has already built must report the same
+/// metrics. A composite rebuilds by resetting and pushing its children again — which is
+/// what `revalidate` does when a child moves without the composite's position changing —
+/// so the rebuild can only re-derive what the children still hold.
+#[test]
+fn rebuilding_an_aggregate_re_derives_its_metrics() {
+    let child_key = crate::metrics::make_key();
+    let mut child = RSIndexResult::build_numeric(10.0).doc_id(7).build();
+    child.metrics.push_with_key(&child_key, 1.0);
+
+    let mut root = RSIndexResult::build_union(1).doc_id(7).build();
+    root.push_borrowed(&child);
+
+    let mut first = MetricsVec::new();
+    root.flatten_metrics_into(&mut first);
+    assert_eq!(first.len(), 1);
+
+    root.reset_aggregate();
+    root.push_borrowed(&child);
+
+    let mut second = MetricsVec::new();
+    root.flatten_metrics_into(&mut second);
+    assert_eq!(second, first, "the rebuild re-derives the child's metric");
+}
+
+/// An aggregate that *owns* its children leaves their metrics with them, so the entries stay
+/// reachable through the child rather than being hoisted into the parent. This is the shape
+/// the hybrid reader builds — `NewHybridResult` owns its children — and the one a metric
+/// below the filter clause rides in.
+#[test]
+fn an_owned_aggregate_keeps_its_childs_metrics() {
+    let child_key = crate::metrics::make_key();
+    let mut child = RSIndexResult::build_numeric(10.0).doc_id(7).build();
+    child.metrics.push_with_key(&child_key, 1.0);
+
+    let mut root = RSIndexResult::build_hybrid_metric().doc_id(7).build();
+    root.push_boxed(Box::new(child));
+
+    assert_eq!(
+        root.metrics_ref().len(),
+        0,
+        "the parent does not take the child's entry",
+    );
+    assert_eq!(
+        root.get(0)
+            .expect("the child was pushed")
+            .metrics_ref()
+            .len(),
+        1,
+        "the child still carries it",
+    );
+
+    let mut collected = MetricsVec::new();
+    root.flatten_metrics_into(&mut collected);
+    assert_eq!(collected.len(), 1, "and collecting the tree finds it");
 }
 
 #[test]
@@ -203,10 +244,7 @@ fn flatten_metrics_leaves_the_source_untouched() {
 
     let mut root = RSIndexResult::build_union(1).doc_id(7).build();
     root.metrics.push_with_key(&root_key, 2.0);
-    root.as_aggregate_mut()
-        .and_then(|agg| agg.as_borrowed_mut())
-        .expect("a fresh union borrows its children")
-        .push_borrowed(&child);
+    root.push_borrowed(&child);
 
     let mut first = MetricsVec::new();
     root.flatten_metrics_into(&mut first);
@@ -259,7 +297,7 @@ fn to_owned_an_aggregate_index_result() {
         .weight(3.0)
         .build();
 
-    ir.push_borrowed(&num_rec, MetricsVec::new());
+    ir.push_borrowed(&num_rec);
 
     let mut ir_copy = ir.to_owned();
 
@@ -362,7 +400,7 @@ fn pushing_a_borrowed_child_to_an_owned_aggregate_panics() {
     let child = RSIndexResult::build_metric(1.0).doc_id(7).build();
     let mut owned = RSIndexResult::build_hybrid_metric().build();
 
-    owned.push_borrowed(&child, MetricsVec::new());
+    owned.push_borrowed(&child);
 }
 
 /// The mirror image: a borrowed aggregate never frees its children, so taking
@@ -383,7 +421,7 @@ fn pushing_an_owned_child_to_a_borrowed_aggregate_panics() {
 fn mutably_reaching_a_borrowed_child_panics() {
     let child = RSIndexResult::build_numeric(1.0).doc_id(7).build();
     let mut borrowed = RSIndexResult::build_union(1).build();
-    borrowed.push_borrowed(&child, MetricsVec::new());
+    borrowed.push_borrowed(&child);
 
     let _ = borrowed.get_mut(0);
 }
@@ -493,7 +531,7 @@ fn single_child_aggregate_always_true() {
     // An intersection with a single numeric child — no proximity check needed.
     let child = RSIndexResult::build_numeric(1.0).doc_id(1).build();
     let mut ir = RSIndexResult::build_intersect(1).build();
-    ir.push_borrowed(&child, MetricsVec::new());
+    ir.push_borrowed(&child);
     assert!(ir.is_within_range(Some(0), false));
     assert!(ir.is_within_range(Some(0), true));
 }
@@ -514,8 +552,8 @@ fn in_order_no_slop_succeeds_when_order_exists() {
         .doc_id(1)
         .build();
     let mut ir = RSIndexResult::build_intersect(2).build();
-    ir.push_borrowed(&t1, MetricsVec::new());
-    ir.push_borrowed(&t2, MetricsVec::new());
+    ir.push_borrowed(&t1);
+    ir.push_borrowed(&t2);
     assert!(ir.is_within_range(None, true));
 }
 
@@ -535,8 +573,8 @@ fn in_order_no_slop_fails_when_order_impossible() {
         .doc_id(1)
         .build();
     let mut ir = RSIndexResult::build_intersect(2).build();
-    ir.push_borrowed(&t1, MetricsVec::new());
-    ir.push_borrowed(&t2, MetricsVec::new());
+    ir.push_borrowed(&t1);
+    ir.push_borrowed(&t2);
     assert!(!ir.is_within_range(None, true));
 }
 
@@ -546,8 +584,8 @@ fn purely_numeric_children_always_true() {
     let child1 = RSIndexResult::build_numeric(1.0).doc_id(1).build();
     let child2 = RSIndexResult::build_numeric(2.0).doc_id(1).build();
     let mut ir = RSIndexResult::build_intersect(2).build();
-    ir.push_borrowed(&child1, MetricsVec::new());
-    ir.push_borrowed(&child2, MetricsVec::new());
+    ir.push_borrowed(&child1);
+    ir.push_borrowed(&child2);
     assert!(ir.is_within_range(Some(0), false));
     assert!(ir.is_within_range(Some(0), true));
 }
@@ -573,8 +611,8 @@ fn full_test_mirrors_cpp_testdistance() {
         .build();
 
     let mut ir = RSIndexResult::build_intersect(2).build();
-    ir.push_borrowed(&t1, MetricsVec::new());
-    ir.push_borrowed(&t2, MetricsVec::new());
+    ir.push_borrowed(&t1);
+    ir.push_borrowed(&t2);
 
     // Unordered: slop=1 is true because (vw1=9, vw2=7) has span=1.
     assert!(!ir.is_within_range(Some(0), false));

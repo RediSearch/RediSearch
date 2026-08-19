@@ -638,9 +638,14 @@ ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
 
 typedef struct {
   ResultProcessor base;
+
+  // Scratch space for the metrics collected from one result tree. Reused across
+  // documents: resetting keeps the allocation, so steady state costs no allocation.
+  MetricsVec collected;
 } RPMetrics;
 
 static int rpMetricsNext(ResultProcessor *base, SearchResult *res) {
+  RPMetrics *self = (RPMetrics *)base;
   int rc;
 
   rc = base->upstream->Next(base->upstream, res);
@@ -648,7 +653,15 @@ static int rpMetricsNext(ResultProcessor *base, SearchResult *res) {
     return rc;
   }
 
-  MetricsSlice slice = MetricsVec_AsSlice(&SearchResult_GetIndexResult(res)->metrics);
+  // Each node of the result tree keeps the metrics produced there, so collecting a
+  // document's metrics means walking the tree rather than reading its root. Safe here
+  // because this RP sits directly above the iterator RP, while every RP that buffers a
+  // result across an iterator advance sits downstream and has already deep-copied the
+  // tree or dropped the borrow.
+  MetricsVec_Reset(&self->collected);
+  IndexResult_FlattenMetricsInto(SearchResult_GetIndexResult(res), &self->collected);
+
+  MetricsSlice slice = MetricsVec_AsSlice(&self->collected);
   for (size_t i = 0; i < slice.len; i++) {
     RLookup_WriteOwnKey(slice.data[i].key, SearchResult_GetRowDataMut(res), RSValue_NewNumber(slice.data[i].value));
   }
@@ -659,11 +672,15 @@ static int rpMetricsNext(ResultProcessor *base, SearchResult *res) {
 /* Free implementation for RPMetrics */
 static void rpMetricsFree(ResultProcessor *rp) {
   RPMetrics *self = (RPMetrics *)rp;
+  MetricsVec_Free(self->collected);
   rm_free(self);
 }
 
 ResultProcessor *RPMetricsLoader_New() {
   RPMetrics *ret = rm_calloc(1, sizeof(*ret));
+  // First, and not later: a zeroed `MetricsVec` is not a valid empty one, so the field must
+  // never be observably zero — `rpMetricsFree` would hand it to `MetricsVec_Free`.
+  ret->collected = MetricsVec_New();
   ret->base.Next = rpMetricsNext;
   ret->base.Free = rpMetricsFree;
   ret->base.type = RP_METRICS;

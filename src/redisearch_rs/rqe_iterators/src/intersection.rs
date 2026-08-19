@@ -322,7 +322,6 @@ where
 
         for child in &mut self.children {
             if let Some(child_result) = child.current() {
-                let child_metrics = std::mem::take(&mut child_result.metrics);
                 let child_ptr: *const RSIndexResult<'index> = child_result;
                 // SAFETY:
                 // - `child_ptr` was derived from a valid `&mut RSIndexResult`, so it
@@ -333,7 +332,7 @@ where
                 //   index-backed results; children are owned by `self` and outlive
                 //   this call.
                 let child_ref = unsafe { &*child_ptr };
-                self.result.push_borrowed(child_ref, child_metrics);
+                self.result.push_borrowed(child_ref);
             }
         }
     }

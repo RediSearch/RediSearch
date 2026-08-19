@@ -28,29 +28,35 @@ pub const extern "C" fn MetricsVec_New() -> MetricsVec<'static> {
     MetricsVec::new()
 }
 
-/// Moves all metrics from `child` into `parent`, leaving `child` empty.
+/// Drops all entries from a standalone collection, keeping its capacity for reuse.
+///
+/// For the collection embedded in a result, use [`ResultMetrics_Reset`] instead.
 ///
 /// # Safety
 ///
-/// 1. `parent` must point to a valid `MetricsVec` (e.g. `&result.metrics`).
-/// 2. `child` must point to a valid `MetricsVec`, or be null (no-op).
+/// 1. `metrics` must point to a valid `MetricsVec`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSYieldableMetric_Concat<'a>(
-    parent: *mut MetricsVec<'a>,
-    child: *mut MetricsVec<'a>,
-) {
-    debug_assert!(!parent.is_null(), "parent must not be null");
-    if child.is_null() {
-        return;
-    }
-    // SAFETY: caller guarantees both pointers are valid.
-    let child = unsafe { &mut *child };
-    if child.is_empty() {
-        return;
-    }
-    // SAFETY: caller guarantees `parent` is a valid, non-null pointer.
-    let parent = unsafe { &mut *parent };
-    parent.concat(child);
+pub unsafe extern "C" fn MetricsVec_Reset(metrics: *mut MetricsVec) {
+    debug_assert!(!metrics.is_null(), "metrics must not be null");
+
+    // SAFETY: caller guarantees validity (1).
+    let metrics = unsafe { &mut *metrics };
+    metrics.reset();
+}
+
+/// Releases the heap allocation behind a collection created by [`MetricsVec_New`].
+///
+/// Only standalone collections need this — one embedded in an [`RSIndexResult`] is freed
+/// with the result.
+///
+/// # Safety
+///
+/// 1. `metrics` must be a collection returned by [`MetricsVec_New`], passed by value. A
+///    zero-initialized value is not a valid empty collection and must not be passed here.
+/// 2. The collection must not be used or freed again afterwards.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn MetricsVec_Free(metrics: MetricsVec) {
+    drop(metrics);
 }
 
 /// Appends a single metric to the result's metrics collection.
