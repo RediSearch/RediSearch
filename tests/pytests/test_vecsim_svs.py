@@ -909,6 +909,9 @@ def test_multiple_svs_indexes_share_pool():
         env.assertEqual(res[0], 10, message=f"{idx} KNN search should return results")
 
 
+# The helpers below serve the two SVS deletion tests underneath them. They all read a single
+# shard through `env`, and take the index and field to be the defaults - both tests are
+# standalone-only, and the accounting they do is per shard.
 @contextmanager
 def paused_workers(env):
     """Pause the worker thread pool for the duration of the block, so that a transfer the
@@ -934,6 +937,21 @@ def assert_transfer_pending(env, message=''):
                     message=f"{message}: the index reports no pending update")
     env.assertGreater(stats['totalPendingJobs'], 0,
                       message=f"{message}: no queued job to be raced with: {stats}")
+
+def assert_transfer_still_running(env, message=''):
+    """The transfer is still running, so the deletions just issued completed while it was in
+    flight - the window its deletions journal exists for - rather than after it had finished,
+    where they would have taken the ordinary backend delete path instead.
+
+    Only meaningful where the deletions do not contend with the transfer for the same lock. A
+    training transfer builds the new index under a *shared* main index lock, so deletions
+    proceed alongside it: measured, a full training batch takes ~1.3s against ~20ms for the
+    stream of deletions racing it. An update transfer instead holds that lock exclusively for
+    its whole batch, so deletions there block until it is done and this would not hold."""
+    info = get_tiered_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+    env.assertEqual(info['BACKGROUND_INDEXING'], 1,
+                    message=f"{message}: the transfer finished before the deletions did, so they "
+                            f"did not interleave with it")
 
 def backend_marked_deleted(env):
     return get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['NUMBER_OF_MARKED_DELETED']
@@ -1124,6 +1142,7 @@ def test_delete_during_background_indexing():
     # Part of the batch being transferred, and inserted after the transfer started.
     delete_docs(transfer_deletes_first_doc_id, racing_deletes)
     delete_docs(flat_buffer_first_doc_id, 10)
+    assert_transfer_still_running(env, message='phase 1')
 
     deleted_probes = [deleted_while_pending_vec, deleted_during_transfer_vec, deleted_from_flat_buffer_vec]
     expected_live_docs = total_docs - len(deleted_docs)
@@ -1158,7 +1177,11 @@ def test_delete_during_background_indexing():
         delete_docs(backend_deletes_first_doc_id, 30)
 
         marked_deleted_before_transfer = backend_marked_deleted(env)
-    delete_docs(phase2_first_doc_id, racing_deletes)    # part of the batch being transferred
+    # Part of the batch being transferred. Unlike the training above, an update holds the main
+    # index lock for its whole batch, so these deletions contend with it rather than running
+    # alongside it - which is MOD-13168's own symptom - and complete as it finishes. Hence no
+    # `assert_transfer_still_running` here.
+    delete_docs(phase2_first_doc_id, racing_deletes)
 
     deleted_probes += [deleted_from_backend_vec, deleted_during_update_vec]
     expected_live_docs = total_docs - len(deleted_docs)
@@ -1224,9 +1247,12 @@ def test_delete_during_background_indexing_multi_value():
     # Phase 1: crossing the training threshold schedules the training, which cannot run
     # while the workers are paused.
     with paused_workers(env):
-        total_docs = docs_per_threshold + racing_deletes + 40   # 305 docs -> 1525 vectors
+        total_docs = docs_per_threshold + racing_deletes + 40   # 345 docs -> 1725 vectors
         add_docs(1, total_docs)
 
+        # As in `test_delete_during_background_indexing`: deleted with a transfer of their
+        # vectors pending, which covers deleting docs queued for transfer rather than the
+        # journal itself.
         assert_transfer_pending(env, message='phase 1, training pending')
         delete_docs(1, 5)
 
@@ -1242,6 +1268,7 @@ def test_delete_during_background_indexing_multi_value():
     transfer_deletes_first_doc_id = 6
     delete_docs(transfer_deletes_first_doc_id, racing_deletes)
     delete_docs(flat_buffer_first_doc_id, 10)
+    assert_transfer_still_running(env, message='phase 1')
 
     deleted_probes = [1, transfer_deletes_first_doc_id, flat_buffer_first_doc_id]
     expected_live_docs = total_docs - len(deleted_docs)
@@ -1264,7 +1291,7 @@ def test_delete_during_background_indexing_multi_value():
     # of the now populated backend index.
     with paused_workers(env):
         phase2_first_doc_id = total_docs + 1
-        add_docs(phase2_first_doc_id, docs_per_threshold + racing_deletes)   # 265 docs -> 1325 vectors
+        add_docs(phase2_first_doc_id, docs_per_threshold + racing_deletes)  # 305 docs -> 1525 vectors
         phase2_live_doc_id = phase2_first_doc_id + racing_deletes
         total_docs += docs_per_threshold + racing_deletes
 
@@ -1275,7 +1302,11 @@ def test_delete_during_background_indexing_multi_value():
         delete_docs(backend_deletes_first_doc_id, 15)
 
         marked_deleted_before_transfer = backend_marked_deleted(env)
-    delete_docs(phase2_first_doc_id, racing_deletes)    # part of the batch being transferred
+    # Part of the batch being transferred. Unlike the training above, an update holds the main
+    # index lock for its whole batch, so these deletions contend with it rather than running
+    # alongside it - which is MOD-13168's own symptom - and complete as it finishes. Hence no
+    # `assert_transfer_still_running` here.
+    delete_docs(phase2_first_doc_id, racing_deletes)
 
     deleted_probes += [backend_deletes_first_doc_id, phase2_first_doc_id]
     expected_live_docs = total_docs - len(deleted_docs)
