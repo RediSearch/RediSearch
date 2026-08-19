@@ -374,8 +374,8 @@ const HEADERS: &[HeaderAllowlist] = &[
             "IndexSpecRef_Promote",
             "IndexSpecRef_Release",
         ],
-        types: &[],
-        vars: &["isCrdt", "missingFieldDictType"],
+        types: &["CharBuf"],
+        vars: &["invIdxDictType", "isCrdt", "missingFieldDictType"],
     },
     HeaderAllowlist {
         path: "src/stopwords.h",
@@ -458,6 +458,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "RS_dictDelete",
             "RS_dictFetchValue",
             "RS_dictGetIterator",
+            "RS_dictGetSafeIterator",
             "RS_dictNext",
             "RS_dictRelease",
             "RS_dictReleaseIterator",
