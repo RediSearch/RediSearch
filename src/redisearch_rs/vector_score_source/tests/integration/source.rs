@@ -616,9 +616,10 @@ fn trimmed_shared_key_yields(mode: TopKMode) -> Vec<(t_docId, f64, Option<f64>)>
     emitted
 }
 
-/// A nested KNN reusing the outer `AS` alias makes the child yield a metric
-/// under this source's own key: the distance must overwrite that entry and the
-/// numeric payload, leaving nothing of the child's value.
+/// A child arriving with an entry already under this source's own key — seeded here by
+/// hand, as an earlier yield through the same reused storage would leave it — must have
+/// both that entry and the numeric payload superseded by the distance, leaving nothing of
+/// the earlier value.
 #[test]
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
 fn batches_trimmed_shared_metric_key_carries_vector_score() {

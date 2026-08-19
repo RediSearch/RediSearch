@@ -491,9 +491,9 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             // and takes the source-built path below.
             if self.child.is_some() && self.source.yields_child_record() {
                 if self.can_trim_deep_results {
-                    // Carry the child's captured metrics and attach our score
-                    // last, so a lookup key shared with the child (e.g. nested
-                    // KNN reusing an `AS` alias) keeps the outer vector score.
+                    // Carry the child's captured metrics and attach our score last, so
+                    // an entry left under our own key by an earlier yield through this
+                    // storage is superseded rather than reported.
                     let mut result = match record {
                         Some(record) => record,
                         None => self.source.build_result(doc_id, score),

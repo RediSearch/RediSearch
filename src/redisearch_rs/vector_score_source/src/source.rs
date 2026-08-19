@@ -489,15 +489,9 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
         // at least `'index` (the query lifetime).
         let key: &'r ffi::RLookupKey = unsafe { &*(*self.own_key as *const ffi::RLookupKey) };
 
-        // The child reuses one storage slot across yields, so an entry from a
-        // previous yield may already exist for our key. Update in place when
-        // present; push otherwise. Any non-matching metrics from the child's
-        // own subtree are left untouched.
-        if let Some(entry) = result.metrics.find_by_key_mut(key) {
-            entry.set_value(score);
-        } else {
-            result.metrics.push_with_key(key, score);
-        }
+        // Upsert rather than push, for the reasons on `MetricsVec::upsert_with_key`.
+        // Metrics the child carries under other keys are untouched.
+        result.metrics.upsert_with_key(key, score);
     }
 
     fn yields_child_record(&self) -> bool {

@@ -19,6 +19,7 @@
 #include "iterators/hybrid_reader.h"
 #include "redisearch.h"
 #include "util/timeout.h"
+#include "metrics_ffi.h"
 #include "types_ffi.h"
 #include "rlookup_ffi.h"
 
@@ -143,7 +144,7 @@ struct TestHybrid {
 
 class HybridReaderDiskTest : public ::testing::Test {
     std::array<float, 4> queryVec = {1.0f, 2.0f, 3.0f, 4.0f};
-    // Stable address used as ownKey sentinel. MetricsVec_UpdateValue compares by
+    // Stable address used as ownKey sentinel. MetricsVec_UpsertValue compares by
     // pointer identity only and never reads the fields, so zero-init is fine.
     RLookupKey scoreKey = {};
 protected:
@@ -213,7 +214,7 @@ protected:
         auto hr = (HybridIterator *)h.iter;
         // Enable reranking before the first Read() triggers prepareResults().
         hr->runtimeParams.hnswDiskRuntimeParams.shouldRerank = VecSimBool_TRUE;
-        // Provide a non-null ownKey so MetricsVec_UpdateValue can find and update
+        // Provide a non-null ownKey so MetricsVec_UpsertValue can find and update
         // the score entry. In production this is set by the metrics loader results
         // processor; in tests we supply a stable fixture-member address instead.
         hr->ownKey = &scoreKey;
@@ -221,6 +222,17 @@ protected:
     }
 
 };
+
+// Reads the single metric entry a trimmed result carries, so a test can assert on the
+// value the pipeline would report rather than only on the heap ordering.
+static double soleMetricValue(const RSIndexResult *res) {
+    MetricsSlice slice = MetricsVec_AsSlice(&res->metrics);
+    EXPECT_EQ(slice.len, 1u);
+    if (slice.len != 1) {
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+    return slice.data[0].value;
+}
 
 // ============================================================================
 // Tests
@@ -272,11 +284,49 @@ TEST_F(HybridReaderDiskTest, RerankingUpdatesScores) {
     ASSERT_NE(it, nullptr);
 
     // After reranking with exact distances, doc 1 (0.1) should come before doc 2 (0.7).
+    // The ordering alone comes from the numeric payload; the metrics entry is what the
+    // pipeline reports as the score field, so assert the exact distance reached it too.
     ASSERT_EQ(it->Read(it), ITERATOR_OK);
     EXPECT_EQ(it->lastDocId, (t_docId)1);
+    EXPECT_DOUBLE_EQ(soleMetricValue(it->current), 0.1);
 
     ASSERT_EQ(it->Read(it), ITERATOR_OK);
     EXPECT_EQ(it->lastDocId, (t_docId)2);
+    EXPECT_DOUBLE_EQ(soleMetricValue(it->current), 0.7);
+
+    ASSERT_EQ(it->Read(it), ITERATOR_EOF);
+}
+
+// Reranking with no score field wired up. `ownKey` is only set when the query asks for the
+// distance as a field, so the rescore must still fix the numeric payload while storing
+// nothing under a key — a null key is not something the metrics collection can carry.
+//
+// One keyless entry is present regardless: `insertResultToHeap_Metric` adds the candidate's
+// distance through `ResultMetrics_Add`, which accepts a null key and pushes an unkeyed
+// entry. Nothing reads it, because a query with no score field has no metrics loader.
+TEST_F(HybridReaderDiskTest, RerankingWithoutScoreFieldStoresNoKeyedMetric) {
+    std::map<labelType, double> sq8 = {{1, 0.9}, {2, 0.8}};
+    std::map<labelType, double> exact = {{1, 0.1}, {2, 0.7}};
+    auto [index, it] = makeRerankingIterator(sq8, exact, {1, 2}, 2);
+
+    ASSERT_NE(it, nullptr);
+    // Undo the fixture's key: this is the shape of a KNN query with no yielded distance.
+    ((HybridIterator *)it)->ownKey = nullptr;
+
+    ASSERT_EQ(it->Read(it), ITERATOR_OK);
+    EXPECT_EQ(it->lastDocId, (t_docId)1);
+    // The rescore reached the payload, which is what orders the heap.
+    EXPECT_DOUBLE_EQ(IndexResult_NumValue(it->current), 0.1);
+    MetricsSlice slice = MetricsVec_AsSlice(&it->current->metrics);
+    ASSERT_EQ(slice.len, 1u);
+    EXPECT_EQ(slice.data[0].key, nullptr) << "no entry may be stored under a null key";
+
+    ASSERT_EQ(it->Read(it), ITERATOR_OK);
+    EXPECT_EQ(it->lastDocId, (t_docId)2);
+    EXPECT_DOUBLE_EQ(IndexResult_NumValue(it->current), 0.7);
+    slice = MetricsVec_AsSlice(&it->current->metrics);
+    ASSERT_EQ(slice.len, 1u);
+    EXPECT_EQ(slice.data[0].key, nullptr);
 
     ASSERT_EQ(it->Read(it), ITERATOR_EOF);
 }

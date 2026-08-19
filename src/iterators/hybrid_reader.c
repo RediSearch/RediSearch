@@ -191,8 +191,12 @@ static inline void updateResultScore(RSIndexResult *res, double score, RLookupKe
     IndexResult_SetNumValue(child, score);
   }
 
-  // Update metrics array entry for downstream $score access.
-  MetricsVec_UpdateValue(&res->metrics, scoreKey, score);
+  // Update metrics array entry for downstream $score access. `ownKey` is only set when
+  // the query asks for the distance as a field, and with no key there is no entry to keep
+  // in step — the same guard `VectorScoreSource::attach_score_metric` applies.
+  if (scoreKey) {
+    MetricsVec_UpsertValue(&res->metrics, scoreKey, score);
+  }
 }
 
 // Cleanup helper for computeDistances_Disk - centralizes resource cleanup.
