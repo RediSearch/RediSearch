@@ -1338,6 +1338,21 @@ void printHybridProfile(RedisModule_Reply *reply, void *ctx) {
   Profile_PrintInFormat(reply, printHybridProfileShards, ctx, printHybridProfileCoordinator, ctx);
 }
 
+static void fallbackToReturnForInlineExecution(HybridRequest *hreq) {
+  RS_ASSERT(hreq->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict);
+  hreq->reqConfig.timeoutPolicy = TimeoutPolicy_Return;
+  hreq->tailPipeline->qctx.timeoutPolicy = TimeoutPolicy_Return;
+  QueryRequestTimeout_UpdateConfig(&hreq->base.timeout, TimeoutPolicy_Return,
+                                   hreq->reqConfig.queryTimeoutMS);
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    AREQ *subquery = hreq->requests[i];
+    subquery->reqConfig.timeoutPolicy = TimeoutPolicy_Return;
+    subquery->pipeline.qctx.timeoutPolicy = TimeoutPolicy_Return;
+    QueryRequestTimeout_UpdateConfig(&subquery->base.timeout, TimeoutPolicy_Return,
+                                     subquery->reqConfig.queryTimeoutMS);
+  }
+}
+
 // This function should only be called from the main thread (calling RunInThread() is not thread safe)
 // HybridRequest execution flags are not set when this function is called currently
 static bool shouldCheckInPipelineTimeoutHybrid(RedisModuleCtx* ctx, HybridRequest *hreq) {
@@ -1435,6 +1450,13 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
                                        subquery->reqConfig.timeoutPolicy,
                                        subquery->reqConfig.queryTimeoutMS);
     }
+  }
+
+  // Inline shard/standalone execution cannot provide RETURN_STRICT's blocked-client callback.
+  // Keep every policy snapshot owned by the hybrid request on this request-local RETURN fallback.
+  if (!RunInThread(ctx) &&
+      hybridRequest->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+    fallbackToReturnForInlineExecution(hybridRequest);
   }
 
   // Check if we should check for timeout in pipeline
