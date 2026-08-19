@@ -131,9 +131,25 @@ RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, 
   return NewSearchCtxC(ctx, RedisModule_StringPtrLen(indexName, NULL), resetTTL);
 }
 
+void RedisSearchCtx_BorrowSpecReadLock(RedisSearchCtx *ctx) {
+  RS_ASSERT(ctx->flags == RS_CTX_UNSET);
+  // Marker only - the outer scope already holds the rwlock.
+  ctx->flags = RS_CTX_READ_BORROWED;
+}
+
+void RedisSearchCtx_ClearBorrowedSpecReadLock(RedisSearchCtx *ctx) {
+  // A lock this context actually owns must go through RedisSearchCtx_UnlockSpec.
+  RS_ASSERT(ctx->flags == RS_CTX_READ_BORROWED || ctx->flags == RS_CTX_UNSET);
+  ctx->flags = RS_CTX_UNSET;
+}
+
 void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx) {
   RS_ASSERT(sctx);
   if (sctx->flags == RS_CTX_UNSET) {
+    return;
+  }
+  if (sctx->flags == RS_CTX_READ_BORROWED) {
+    // Not ours to release. The marker is cleared by RedisSearchCtx_ClearBorrowedSpecReadLock.
     return;
   }
   if (sctx->flags == RS_CTX_READONLY) {
