@@ -860,24 +860,34 @@ static bool InForkChild(void) {
 
 //Keeps track to know if SST replication holds the lock avoiding background vector index building jobs from running
 static bool vecsimdisk_sst_consistency_lock_held = false;
-// Spans PRE_CHECKPOINT..POST_FORK as one hold, unlike the VecSim lock.
+// Spans PRE_CHECKPOINT..POST_FORK as one hold, unlike the VecSim lock. Outlives
+// disk_index_window_open on a hot restart, which closes the per-index window but leaves the
+// GC paused through process exit.
 static bool disk_gc_paused_for_consistency = false;
+// Whether the per-index disk hooks are currently open. This side owns that pairing: it is the
+// only side that knows the event sequence, so the disk side is told to open once and close
+// once and needs no idempotence of its own.
+static bool disk_index_window_open = false;
 
-// Either half can be held alone - POST_CHECKPOINT releases the VecSim lock but keeps disk GC
-// paused - so an unwind path must test both or it can strand the pause.
+// Any part can be held alone - POST_CHECKPOINT releases the VecSim lock but keeps disk GC
+// paused - so an unwind path must test all of them or it can strand one.
 static bool DiskConsistencyWindow_IsOpen(void) {
-  return vecsimdisk_sst_consistency_lock_held || disk_gc_paused_for_consistency;
+  return vecsimdisk_sst_consistency_lock_held || disk_gc_paused_for_consistency ||
+         disk_index_window_open;
 }
 
-// Begin a consistent on-disk save window. Shared by the SST replication checkpoint and
-// fork and the foreground hot-restart save, so the callers cannot drift apart on the
-// lock/flag protocol. Pairs with DiskConsistencyWindow_End or _Close.
-//
-// The step order is load-bearing. Cancelling compactions first is what lets the drain
-// finish promptly; the drain is what keeps a GC thread from being mid-mutation of a
-// numeric BucketMap when the fork lands (MOD-17197); and flushing last, under the vector
-// consistency lock, is what keeps both writer classes out of the snapshot.
-static void DiskConsistencyWindow_Begin(void) {
+bool DiskConsistencyWindow_IsIndexWindowOpen(void) {
+  return disk_index_window_open;
+}
+
+// Quiesce every background writer that could mutate on-disk state, and tell each index to
+// open its window. Runs at the two points that start a window - SST PRE_CHECKPOINT and the
+// foreground hot-restart save - and not at PRE_FORK, which inherits this quiesce and needs
+// only DiskConsistencyWindow_Seal.
+static void DiskConsistencyWindow_Quiesce(void) {
+  if (disk_index_window_open) {
+    return;
+  }
   if (!disk_gc_paused_for_consistency) {
     GC_ThreadPoolPauseForConsistency();               // no queued job starts
     ForEachIndex(PauseIndexGCSchedulingForConsistency);  // no timer queues one
@@ -885,7 +895,18 @@ static void DiskConsistencyWindow_Begin(void) {
   }
 
   ForEachIndex(SearchDisk_OpenConsistencyWindow);  // disable + cancel compactions
+  disk_index_window_open = true;
+}
 
+// Seal the window against what the quiesce cannot stop on its own, immediately before the
+// snapshot is taken. Runs at every snapshot point, PRE_FORK included: the drain is what keeps
+// a GC thread from being mid-mutation of a numeric BucketMap when the fork lands
+// (MOD-17197), and it can only give that guarantee at the moment it runs.
+//
+// The step order is load-bearing. The quiesce cancelled compactions first, which is what
+// lets this drain finish promptly; and flushing last, under the vector consistency lock, is
+// what keeps both writer classes out of the snapshot.
+static void DiskConsistencyWindow_Seal(void) {
   if (!GC_ThreadPoolWaitForPause(DISK_GC_CONSISTENCY_DRAIN_TIMEOUT_MS)) {
     // Cannot decline the snapshot from here - the subevent handler returns void.
     RedisModule_Log(RSDummyContext, "warning",
@@ -899,9 +920,16 @@ static void DiskConsistencyWindow_Begin(void) {
   vecsimdisk_sst_consistency_lock_held = true;
 
   // Flush last, under the lock. Both classes of background writer are now excluded: the
-  // disk GC by the drain, vector jobs by the lock. Flushing inside the hook above would
-  // leave the whole drain as a gap in which vector jobs could dirty on-disk state.
+  // disk GC by the drain, vector jobs by the lock. Flushing inside the quiesce would leave
+  // the whole drain as a gap in which vector jobs could dirty on-disk state.
   ForEachIndex(FlushIndexForConsistency);
+}
+
+// Open a full window: quiesce, then seal. Used by the two window-start points, so they cannot
+// drift apart on the protocol. Pairs with DiskConsistencyWindow_End or _Close.
+static void DiskConsistencyWindow_Begin(void) {
+  DiskConsistencyWindow_Quiesce();
+  DiskConsistencyWindow_Seal();
 }
 
 // Release the consistency lock opened by DiskConsistencyWindow_Begin without
@@ -930,8 +958,8 @@ typedef enum {
 } DiskWindowEnd;
 
 // End the window opened by DiskConsistencyWindow_Begin. Safe on a path where the window
-// was never opened, or was only partly opened (e.g. SST ABORT): each half is unwound only
-// if held. The halves have different lifetimes - POST_CHECKPOINT releases the VecSim lock
+// was never opened, or was only partly opened (e.g. SST ABORT): each part is unwound only
+// if held. The parts have different lifetimes - POST_CHECKPOINT releases the VecSim lock
 // but keeps disk GC paused - so an abort between POST_CHECKPOINT and PRE_FORK sees the
 // pause held and the lock not.
 static void DiskConsistencyWindow_End(DiskWindowEnd how) {
@@ -941,11 +969,18 @@ static void DiskConsistencyWindow_End(DiskWindowEnd how) {
     // the parent owns.
     vecsimdisk_sst_consistency_lock_held = false;
     disk_gc_paused_for_consistency = false;
+    disk_index_window_open = false;
     return;
   }
 
-  ForEachIndex(how == DISK_WINDOW_END_HOT_RESTART ? CloseWindowKeepingGateClosed
-                                                  : CloseWindowReopeningGate);
+  // One close per open. Two End paths can fire for one failed save - PERSISTENCE_FAILED is
+  // gated on DiskConsistencyWindow_IsOpen, SST ABORT is not - and the disk side no longer
+  // absorbs the repeat.
+  if (disk_index_window_open) {
+    ForEachIndex(how == DISK_WINDOW_END_HOT_RESTART ? CloseWindowKeepingGateClosed
+                                                    : CloseWindowReopeningGate);
+    disk_index_window_open = false;
+  }
 
   if (how == DISK_WINDOW_END_RESUME && disk_gc_paused_for_consistency) {
     ForEachIndex(ResumeIndexGCSchedulingAfterConsistency);
@@ -979,8 +1014,8 @@ static void SSTReplicationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
       RedisModule_Log(ctx, "notice", "SST replication: PRE_CHECKPOINT");
       // Hold the consistency lock across the checkpoint so background vector
       // index jobs cannot mutate on-disk state while the checkpoint is taken.
-      // Released at POST_CHECKPOINT (or unwound by ABORT). PRE_FORK opens a
-      // fresh window afterwards.
+      // Released at POST_CHECKPOINT (or unwound by ABORT); PRE_FORK re-seals with
+      // it. The quiesce this opens stays held through POST_FORK.
       DiskConsistencyWindow_Begin();
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_POST_CHECKPOINT:
@@ -992,7 +1027,10 @@ static void SSTReplicationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_PRE_FORK:
       RedisModule_Log(ctx, "notice", "SST replication: PRE_FORK");
-      DiskConsistencyWindow_Begin();
+      // Seal only: PRE_CHECKPOINT's quiesce still holds (POST_CHECKPOINT released the
+      // VecSim lock and nothing else), so what the fork needs is the drain, the lock
+      // again, and a flush of everything written since the checkpoint.
+      DiskConsistencyWindow_Seal();
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_POST_FORK:
       RedisModule_Log(ctx, "notice", "SST replication: POST_FORK");

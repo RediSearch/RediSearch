@@ -601,9 +601,11 @@ typedef struct IndexDiskAPI {
   /**
    * @brief Open a consistency window on one index. Main thread; no IndexSpec lock held.
    *
-   * Replaces the former preCheckpoint/preFork pair. Called at every window-open point
-   * (SST PRE_CHECKPOINT, SST PRE_FORK, foreground hot-restart save), so it must be
-   * idempotent within a cycle.
+   * Replaces the former preCheckpoint/preFork pair. Called exactly once per window, at the
+   * point that starts it (SST PRE_CHECKPOINT, or a foreground hot-restart save) - and for a
+   * spec created while a window is already open, when it is created. PRE_FORK does not call
+   * this: it inherits the window and only re-flushes under the vector lock. The caller owns
+   * that pairing, so this needs no idempotence of its own.
    *
    * Must disable and cancel manual compactions, and close the numeric consistency gate.
    * Must NOT flush: the caller flushes separately via `flush`, after taking the vector
@@ -620,9 +622,9 @@ typedef struct IndexDiskAPI {
   /**
    * @brief Close the consistency window on one index.
    *
-   * Replaces the former postFork/replicationAbort/hotRestartSaveEnded trio. Called at
-   * POST_FORK, at ABORT from anywhere in the cycle, and at the end of a foreground save,
-   * so it must tolerate a window that was never opened.
+   * Replaces the former postFork/replicationAbort/hotRestartSaveEnded trio. Called exactly
+   * once per window that was opened - at POST_FORK, at ABORT from anywhere in the cycle, or
+   * at the end of a foreground save, whichever comes first.
    *
    * Always re-enables compactions. Reopens the numeric consistency gate only when
    * `reopenNumericGate` is true - a successful hot restart passes false, because the
