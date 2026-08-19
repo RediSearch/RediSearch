@@ -34,9 +34,11 @@ Rust coverage data.
 suite, then uncovered lines per file as ranges — and refuses to answer from a
 trace older than the suite run, which is what the marker dance below is for:
 
-swamp's files live under `swamp/`, and swamp only looks *upward* for them, so
-these commands need `--repo-dir swamp` from the repository root — or the export
-below, once per shell. See *Where swamp lives in this repository* in `AGENTS.md`.
+swamp is optional here: check `command -v swamp` first, and follow the by-hand
+path below if it is not installed. Its files live under `swamp/`, and swamp only
+looks *upward* for them, so these commands need `--repo-dir swamp` from the
+repository root — or the export below, once per shell. See *Where swamp lives in
+this repository* in `AGENTS.md`.
 
 ```bash
 export SWAMP_REPO_DIR="$PWD/swamp"

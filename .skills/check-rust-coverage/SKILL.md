@@ -20,9 +20,11 @@ Prefer the swamp model, which runs the same command and records the uncovered
 lines as versioned data — as ranges per file, worst covered first — so the result
 can be referenced later instead of re-measured:
 
-swamp's files live under `swamp/`, and swamp only looks *upward* for them, so
-these commands need `--repo-dir swamp` from the repository root — or the export
-below, once per shell. See *Where swamp lives in this repository* in `AGENTS.md`.
+swamp is optional here: check `command -v swamp` first, and follow the by-hand
+path below if it is not installed. Its files live under `swamp/`, and swamp only
+looks *upward* for them, so these commands need `--repo-dir swamp` from the
+repository root — or the export below, once per shell. See *Where swamp lives in
+this repository* in `AGENTS.md`.
 
 ```bash
 export SWAMP_REPO_DIR="$PWD/swamp"

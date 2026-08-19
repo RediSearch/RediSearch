@@ -45,6 +45,21 @@ the full tree, and `swamp help model method run` scopes to a subtree.
 
 ## Where swamp lives in this repository
 
+swamp is optional. Nothing under `src/`, `tests/` or `build.sh` needs it, and a
+contributor without it can build, test, review and open a pull request as normal —
+`make swamp-definitions-check` already skips itself on such a checkout rather than
+failing. The skills that name a swamp model or workflow do so because it is the
+faster path and records its result as versioned data, never because it is the only
+way, so confirm it is there before reaching for one and take that skill's by-hand
+steps when it is not:
+
+```bash
+command -v swamp >/dev/null 2>&1
+```
+
+[/swamp-implement-task](.skills/swamp-implement-task/SKILL.md) is the exception: it
+*is* the workflows it drives, so there is nothing for it to fall back to.
+
 Everything swamp owns is under `swamp/` — `.swamp.yaml`, `models/`, `workflows/`,
 `vaults/`, `grants/`, `extensions/` and the runtime `.swamp/` — so that it does not
 compete with RediSearch's own top-level directories.

@@ -19,6 +19,10 @@ journey.
 
 ## Running it
 
+Unlike the narrower skills, this one has no by-hand path — the workflows *are* the
+flow — so it needs swamp installed. Check `command -v swamp`, and if it is missing
+say so and stop rather than starting a journey that cannot finish.
+
 swamp's files live under `swamp/`, and swamp only looks *upward* for them — so
 every command below needs to be told where they are. Export it once and the rest
 of this file works as written; see *Where swamp lives in this repository* in
