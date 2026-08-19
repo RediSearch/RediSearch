@@ -224,32 +224,31 @@ static int warn_or_reject_size_t_config(const char *name, long long val, size_t 
   return REDISMODULE_ERR;
 }
 
-// Legacy MAXSEARCHRESULTS -1 means unlimited; shared with setMaxSearchResults so the legacy and
-// native paths cannot drift.
-static size_t translateOrClampMaxSearchResults(long long val) {
+// Legacy MAXSEARCHRESULTS/MAXAGGREGATERESULTS -1 means unlimited; shared with setMaxSearchResults
+// and setMaxAggregateResults so the legacy and native paths cannot drift.
+static size_t translateOrClampMaxResults(long long val, size_t max) {
   if (val < 0) {
-    return MAX_SEARCH_REQUEST_RESULTS;
+    return max;
   }
-  return (size_t)MIN(val, (long long)MAX_SEARCH_REQUEST_RESULTS);
+  return (size_t)MIN(val, (long long)max);
 }
 
 static int set_max_search_results_config(const char *name, long long val, void *privdata,
                                           RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
-  *(size_t *)privdata = translateOrClampMaxSearchResults(val);
+  *(size_t *)privdata = translateOrClampMaxResults(val, MAX_SEARCH_REQUEST_RESULTS);
   return REDISMODULE_OK;
 }
 
-// Unlike search-max-search-results, a negative value here does not translate to unlimited on the
-// native path; it warns and keeps the current value. Positive values are still bounded by the
-// registered max (MAX_AGGREGATE_REQUEST_RESULTS), enforced by core before this setter runs.
+// Like search-max-search-results, a negative value translates to unlimited rather than being
+// rejected: the default on Flex/SearchDisk installs is DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS_FLEX
+// (1,000,000), not the max, so defaulting a legacy -1 would silently impose a 1M cap.
 static int set_max_aggregate_results_config(const char *name, long long val, void *privdata,
                                              RedisModuleString **err) {
-  if (val < 0) {
-    return warn_or_reject_size_t_config(name, val, (size_t *)privdata, err);
-  }
-  *(size_t *)privdata = (size_t)val;
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(err);
+  *(size_t *)privdata = translateOrClampMaxResults(val, MAX_AGGREGATE_REQUEST_RESULTS);
   return REDISMODULE_OK;
 }
 
@@ -584,7 +583,7 @@ CONFIG_SETTER(setMaxSearchResults) {
   long long newSize = 0;
   int acrc = AC_GetLongLong(ac, &newSize, 0);
   CHECK_RETURN_PARSE_ERROR(acrc)
-  config->maxSearchResults = translateOrClampMaxSearchResults(newSize);
+  config->maxSearchResults = translateOrClampMaxResults(newSize, MAX_SEARCH_REQUEST_RESULTS);
   return REDISMODULE_OK;
 }
 
@@ -601,12 +600,7 @@ CONFIG_SETTER(setMaxAggregateResults) {
   long long newSize = 0;
   int acrc = AC_GetLongLong(ac, &newSize, 0);
   CHECK_RETURN_PARSE_ERROR(acrc)
-  if (newSize < 0) {
-    newSize = MAX_AGGREGATE_REQUEST_RESULTS;
-  } else {
-    newSize = MIN(newSize, MAX_AGGREGATE_REQUEST_RESULTS);
-  }
-  config->maxAggregateResults = newSize;
+  config->maxAggregateResults = translateOrClampMaxResults(newSize, MAX_AGGREGATE_REQUEST_RESULTS);
   return REDISMODULE_OK;
 }
 

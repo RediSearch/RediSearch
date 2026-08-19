@@ -634,6 +634,7 @@ CLAMPED_CONFIGS = {
 # translated to the listed value on both the legacy and native paths.
 SENTINEL_TRANSLATED_CONFIGS = {
     'search-max-search-results': MAX_SEARCH_REQUEST_RESULTS,
+    'search-max-aggregate-results': MAX_AGGREGATE_REQUEST_RESULTS,
 }
 
 @skip(redis_less_than='7.9.227')

@@ -9,7 +9,7 @@ from RLTest import Env
 from includes import *
 from common import *
 from test_config import _grep_file_count, MAX_SEARCH_REQUEST_RESULTS, \
-    DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS, default_module_list
+    MAX_AGGREGATE_REQUEST_RESULTS, default_module_list
 
 
 def _confPath(name):
@@ -75,22 +75,15 @@ def testStartupSearchMaxSearchResultsNegativeOneTranslates():
 
 
 @skip(cluster=True, redis_less_than='7.9.227')
-def testStartupSearchMaxAggregateResultsNegativeOneFallsBackToDefault():
-    """search-max-aggregate-results -1 is not a meaningful sentinel: the
-    server must still start, must log a warning naming the rejected config
-    and value, and the effective value must be left as the config's current
-    value (DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS here), not -1 taken
-    verbatim."""
+def testStartupSearchMaxAggregateResultsNegativeOneTranslates():
+    """search-max-aggregate-results -1 in the startup config file must not
+    abort the server, and must translate to MAX_AGGREGATE_REQUEST_RESULTS,
+    exactly like the legacy setter does for _FT.CONFIG SET MAXAGGREGATERESULTS -1."""
     confPath = _confPath('test_native_bounds_maxagg.conf')
     _writeConfigFile(confPath, [('search-max-aggregate-results', -1)])
     env = Env(noDefaultModuleArgs=True, redisConfigFile=confPath)
     env.assertEqual(env.cmd('CONFIG', 'GET', 'search-max-aggregate-results'),
-                     ['search-max-aggregate-results', str(DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS)])
-    env.assertGreaterEqual(_grep_file_count(
-        _logFilePath(env),
-        f'search-max-aggregate-results: value -1 is out of range, keeping '
-        f'{DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS}'), 1,
-        message="expected a startup warning naming the rejected config, value and kept value")
+                     ['search-max-aggregate-results', str(MAX_AGGREGATE_REQUEST_RESULTS)])
 
 
 @skip(cluster=True, redis_less_than='7.9.227')
@@ -119,15 +112,25 @@ def testRuntimeConfigSetStillRejectsForkGcCleanThresholdZero(env):
 
 
 @skip(redis_less_than='7.9.227')
-def testRuntimeConfigSetStillRejectsMaxAggregateResultsNegativeOne(env):
-    """Startup tolerance does not relax runtime strictness: CONFIG SET must
-    keep rejecting search-max-aggregate-results -1."""
-    env.expect('CONFIG', 'SET', 'search-max-aggregate-results', '-1').error()\
-        .contains('CONFIG SET failed').contains('out of range')
+def testRuntimeConfigSetTranslatesMaxAggregateResultsNegativeOne(env):
+    """search-max-aggregate-results -1 is now a meaningful sentinel on the
+    native CONFIG SET path too, mirroring search-max-search-results: it
+    translates to MAX_AGGREGATE_REQUEST_RESULTS rather than being rejected."""
+    env.expect('CONFIG', 'SET', 'search-max-aggregate-results', '-1').ok()
+    env.assertEqual(env.cmd('CONFIG', 'GET', 'search-max-aggregate-results'),
+                     ['search-max-aggregate-results', str(MAX_AGGREGATE_REQUEST_RESULTS)])
+
+
+@skip(redis_less_than='7.9.227')
+def testRuntimeConfigSetStillRejectsMaxAggregateResultsNegativeTwo(env):
+    """Widening the sentinel does not widen the bound: core still enforces
+    min = -1, so CONFIG SET must keep rejecting anything below it."""
+    env.expect('CONFIG', 'SET', 'search-max-aggregate-results', '-2').error()\
+        .contains('CONFIG SET failed')
 
 
 # Skip on ASAN since RedisModule_Unload is not fully implemented (MOD-7161)
-@skip(cluster=True, redis_less_than='7.9.227')
+@skip(cluster=True, redis_less_than='7.9.227', asan=True)
 def testModuleLoadexRuntimeStillRejectsForkGcCleanThresholdZero():
     """RedisModule_OnLoad also runs for MODULE LOADEX against an
     already-running server, not just at genuine process startup. That path
@@ -149,7 +152,7 @@ def testModuleLoadexRuntimeStillRejectsForkGcCleanThresholdZero():
     env.stop()
 
 
-@skip(cluster=True)
+@skip(cluster=True, redis_less_than='7.9.227')
 def testSearchTimeoutZeroMeansNoTimeoutUnderRealSlowQuery():
     """search-timeout 0, set via the native CONFIG SET path, must mean a
     genuinely slow query runs to completion with no timeout warning, while
