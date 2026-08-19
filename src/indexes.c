@@ -36,6 +36,8 @@
 #include "commands.h"
 #include "dictionary.h"
 #include "rmutil/rm_assert.h"
+#include "notifications.h"
+#include "search_disk.h"
 #include "rmalloc.h"
 #include "config.h"
 #include "cursor.h"
@@ -85,6 +87,15 @@ static bool checkIfSpecExists(const char *rawSpecName, size_t rawSpecNameLen) {
   return found;
 }
 
+// Open the disk consistency window on `sp` if one is currently open, so its compactions and
+// numeric gate match every other registered spec. Main thread; the caller has not published
+// `sp` yet, and the replication subevents run here too, so the window cannot close in between.
+static void quiesceSpecIfWindowOpen(IndexSpec *sp) {
+  if (sp->diskSpec && DiskConsistencyWindow_IsIndexWindowOpen()) {
+    SearchDisk_OpenConsistencyWindow(sp);
+  }
+}
+
 // Entry point for FT.CREATE: enforce the registry preconditions (name
 // uniqueness, index-count limit), build the spec via the IndexSpec core, publish
 // it into the global registry, and schedule its initial scan.
@@ -109,6 +120,12 @@ IndexSpec *Indexes_CreateNewSpec(RedisModuleCtx *ctx, RedisModuleString **argv, 
   // IndexSpec_CreateNew leaves the single owning reference in sp->own_ref; the
   // registry entries take over ownership of it below.
   StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sp);
+
+  // A spec joining the registry while a disk consistency window is open has to come under it:
+  // the window's close walks the registry, so an unopened spec would reach that close
+  // unpaired. Mirrors GCContext_CreateGC, which seeds the same pause into a GC context created
+  // mid-window. No-op when no window is open, or for a memory-only spec.
+  quiesceSpecIfWindowOpen(sp);
 
   // Add the spec to the global spec dictionaries (by name and by specId)
   if (dictAdd(specDict_g, (void *)sp->specName, spec_ref.rm) != DICT_OK) {
@@ -351,6 +368,8 @@ int Indexes_StoreSpecAfterRdbLoad(IndexSpec *sp) {
       RS_ASSERT(!IS_SST_RDB_IN_PROCESS(RSDummyContext));
       IndexSpec_StartGC(spec_ref, sp, GCPolicy_Disk);
     }
+    // See the call in the create path above.
+    quiesceSpecIfWindowOpen(sp);
     dictAdd(specDict_g, (void *)sp->specName, spec_ref.rm);
     dictAdd(specIdDict_g, (void *)(uintptr_t)sp->specId, spec_ref.rm);
 
