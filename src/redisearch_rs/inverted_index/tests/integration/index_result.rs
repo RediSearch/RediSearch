@@ -120,6 +120,116 @@ fn pushing_to_index_result() {
     assert_eq!(ir.field_mask, RS_FIELDMASK_ALL);
 }
 
+/// Builds a zero-initialized `RLookupKey`; the metrics code only compares addresses.
+const fn make_metric_key() -> ffi::RLookupKey {
+    ffi::RLookupKey {
+        dstidx: 0,
+        svidx: 0,
+        flags: 0,
+        path: std::ptr::null(),
+        name: std::ptr::null(),
+        name_len: 0,
+        next: std::ptr::null_mut(),
+    }
+}
+
+/// Children are pushed straight onto the aggregate payload rather than through
+/// `RSIndexResult::push_borrowed`, which drains the child's metrics into the parent and so
+/// cannot produce a tree that holds entries below the root — the very shape
+/// `flatten_metrics_into` exists to collect from.
+#[test]
+fn flatten_metrics_collects_the_whole_subtree_deepest_first() {
+    let leaf_key = make_metric_key();
+    let mid_key = make_metric_key();
+    let root_key = make_metric_key();
+
+    let mut leaf = RSIndexResult::build_numeric(10.0).doc_id(7).build();
+    leaf.metrics.push_with_key(&leaf_key, 1.0);
+
+    let mut mid = RSIndexResult::build_intersect(1).doc_id(7).build();
+    mid.metrics.push_with_key(&mid_key, 2.0);
+    mid.as_aggregate_mut()
+        .and_then(|agg| agg.as_borrowed_mut())
+        .expect("a fresh intersection borrows its children")
+        .push_borrowed(&leaf);
+
+    let mut root = RSIndexResult::build_union(1).doc_id(7).build();
+    root.metrics.push_with_key(&root_key, 3.0);
+    root.as_aggregate_mut()
+        .and_then(|agg| agg.as_borrowed_mut())
+        .expect("a fresh union borrows its children")
+        .push_borrowed(&mid);
+
+    let mut dst = MetricsVec::new();
+    root.flatten_metrics_into(&mut dst);
+
+    assert_eq!(
+        dst.iter().map(|e| e.value()).collect::<Vec<_>>(),
+        vec![1.0, 2.0, 3.0],
+        "deepest first, so the root's own entry is written last",
+    );
+}
+
+#[test]
+fn flatten_metrics_leaves_the_source_untouched() {
+    // A composite reuses one result per document, so it is flattened once per document;
+    // moving the entries out would empty it for every later read.
+    let child_key = make_metric_key();
+    let root_key = make_metric_key();
+
+    let mut child = RSIndexResult::build_numeric(10.0).doc_id(7).build();
+    child.metrics.push_with_key(&child_key, 1.0);
+
+    let mut root = RSIndexResult::build_union(1).doc_id(7).build();
+    root.metrics.push_with_key(&root_key, 2.0);
+    root.as_aggregate_mut()
+        .and_then(|agg| agg.as_borrowed_mut())
+        .expect("a fresh union borrows its children")
+        .push_borrowed(&child);
+
+    let mut first = MetricsVec::new();
+    root.flatten_metrics_into(&mut first);
+    let mut second = MetricsVec::new();
+    root.flatten_metrics_into(&mut second);
+
+    assert_eq!(first, second, "a second collection sees the same entries");
+    assert_eq!(root.metrics.len(), 1, "root keeps only its own entry");
+    assert_eq!(child.metrics.len(), 1, "the child keeps its entry");
+}
+
+#[test]
+fn flatten_metrics_on_a_leaf_collects_its_own_entries() {
+    let key = make_metric_key();
+    let mut leaf = RSIndexResult::build_numeric(10.0).doc_id(7).build();
+    leaf.metrics.push_with_key(&key, 1.0);
+
+    let mut dst = MetricsVec::new();
+    leaf.flatten_metrics_into(&mut dst);
+
+    assert_eq!(dst.len(), 1);
+    assert_eq!(dst.get(0).unwrap().value(), 1.0);
+}
+
+#[test]
+fn flatten_metrics_appends_to_a_non_empty_destination() {
+    // The metrics loader reuses one scratch collection, so a destination that already
+    // holds entries must be appended to rather than replaced.
+    let key = make_metric_key();
+    let existing = make_metric_key();
+
+    let mut leaf = RSIndexResult::build_numeric(10.0).doc_id(7).build();
+    leaf.metrics.push_with_key(&key, 2.0);
+
+    let mut dst = MetricsVec::new();
+    dst.push_with_key(&existing, 1.0);
+    leaf.flatten_metrics_into(&mut dst);
+
+    assert_eq!(
+        dst.iter().map(|e| e.value()).collect::<Vec<_>>(),
+        vec![1.0, 2.0],
+    );
+}
+
 #[test]
 fn to_owned_an_aggregate_index_result() {
     let num_rec = RSIndexResult::build_numeric(5.0).doc_id(10).build();

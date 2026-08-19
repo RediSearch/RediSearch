@@ -87,7 +87,10 @@ static IteratorStatus HR_ReadInBatch(HybridIterator *hr, RSIndexResult *out) {
 
 static void insertResultToHeap_Metric(HybridIterator *hr, RSIndexResult *child_res, RSIndexResult **vec_res, double *upper_bound) {
 
-  RSYieldableMetric_Concat(&(*vec_res)->metrics, &child_res->metrics); // Pass child metrics, if there are any
+  // Collect the child's whole subtree, copying rather than moving: the child iterator owns
+  // `child_res` and reuses it for its next read, and none of its subtree is stored beside
+  // this bare distance, so anything a composite child holds deeper is unreachable later.
+  IndexResult_FlattenMetricsInto(child_res, &(*vec_res)->metrics);
   ResultMetrics_Add(*vec_res, hr->ownKey, IndexResult_NumValue(*vec_res));
 
   if (hr->topResults->count < hr->query.k) {
