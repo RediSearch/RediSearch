@@ -2501,6 +2501,28 @@ static void prepareCursorTimeoutCycle(AREQ *req, QueryRequestTimeoutKind kind) {
   }
 }
 
+static void fallbackCursorToReturn(Cursor *cursor, AREQ *req) {
+  RS_ASSERT(req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict);
+  RS_ASSERT(cursor->queryTimeoutPolicy == TimeoutPolicy_ReturnStrict);
+
+  cursor->queryTimeoutPolicy = TimeoutPolicy_Return;
+  req->reqConfig.timeoutPolicy = TimeoutPolicy_Return;
+  req->pipeline.qctx.timeoutPolicy = TimeoutPolicy_Return;
+  QueryRequestTimeout_UpdateConfig(&req->base.timeout, TimeoutPolicy_Return,
+                                   req->base.timeout.timeoutMS);
+
+  // Inline execution has no blocked-client timeout callback, so the
+  // RETURN_STRICT result-claim and safe-loader handshakes must no longer run.
+  req->base.async.requiresAggregateResultsSync = false;
+  RS_AtomicBoolStoreRelaxed(&req->base.async.aggregatingResults, false);
+  req->base.async.aggregateResultsClaimLost = false;
+  pthread_mutex_lock(&req->base.async.aggregateResultsLock);
+  req->base.async.aggregateResultsDone = false;
+  req->base.async.safeLoadersHoldingGIL = 0;
+  pthread_mutex_unlock(&req->base.async.aggregateResultsLock);
+  RPSafeLoader_SetSyncCtx(AREQ_QueryProcessingCtx(req), NULL);
+}
+
 // Coordinator blocked-client callbacks (coord/dist_aggregate.c), used when the
 // taken cursor is a coordinator (RPNet) cursor.
 int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
@@ -2653,12 +2675,7 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     AREQ *inline_req = Cursor_AREQ(cursor);
     if (inline_req) {
       if (inline_req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
-        // Inline cursor reads cannot provide RETURN_STRICT's blocked-client
-        // callback. Keep the cursor and its request on the RETURN fallback.
-        cursor->queryTimeoutPolicy = TimeoutPolicy_Return;
-        inline_req->reqConfig.timeoutPolicy = TimeoutPolicy_Return;
-        QueryRequestTimeout_UpdateConfig(&inline_req->base.timeout, TimeoutPolicy_Return,
-                                         inline_req->base.timeout.timeoutMS);
+        fallbackCursorToReturn(cursor, inline_req);
       }
       // Reply inline via ctx; clear stale useReplyCallback.
       QueryRequest_SetUseReplyCallback(&inline_req->base, false);
