@@ -25,9 +25,7 @@ use index_result::{RSIndexResult, RSResultKind};
 use rqe_iterators::{ExpirationChecker, IdList, NoOpChecker, RQEIterator};
 use rqe_iterators_test_utils::MockExpirationChecker;
 use top_k::{ScoreSource, TopKIterator, TopKMode};
-use vector_score_source::test_utils::{
-    self, TestIndex, asc, collect_ids, make_child, uniform_blob,
-};
+use vector_score_source::test_utils::{TestIndex, asc, collect_ids, make_child, uniform_blob};
 use vector_score_source::{
     VectorScoreSource, new_vector_top_k_filtered, new_vector_top_k_unfiltered,
 };
@@ -36,7 +34,7 @@ const DIM: usize = 4;
 
 /// HNSW index of `n` vectors `[i; DIM]` at this suite's fixed dimensionality.
 fn build_hnsw_index(n: usize) -> TestIndex {
-    test_utils::build_hnsw_index(n, DIM)
+    TestIndex::hnsw(n, DIM)
 }
 
 /// Queries the corner `[n; DIM]` with `efRuntime = n`. `child_est` seeds the
@@ -59,14 +57,7 @@ fn make_source_with_expiration<E: ExpirationChecker>(
     child_est: usize,
     expiration: E,
 ) -> VectorScoreSource<'_, E> {
-    test_utils::make_source_with_expiration(
-        index,
-        uniform_blob(n as f32, DIM),
-        n,
-        k,
-        child_est,
-        expiration,
-    )
+    index.source_with_expiration(uniform_blob(n as f32, DIM), n, k, child_est, expiration)
 }
 
 #[test]

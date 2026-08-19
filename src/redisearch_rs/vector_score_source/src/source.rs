@@ -588,7 +588,7 @@ mod tests {
     use super::refine_child_estimated;
     use crate::{
         VectorScoreSource,
-        test_utils::{TestIndex, build_flat_index, make_source, uniform_blob},
+        test_utils::{TestIndex, uniform_blob},
     };
 
     #[test]
@@ -617,7 +617,7 @@ mod tests {
         k: usize,
         child_est: usize,
     ) -> VectorScoreSource<'_, NoOpChecker> {
-        make_source(index, uniform_blob(0.0, 1), 0, k, child_est)
+        index.source(uniform_blob(0.0, 1), 0, k, child_est)
     }
 
     /// Entering adhoc must release the batch iterator before acquiring the adhoc
@@ -627,7 +627,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
     fn begin_adhoc_releases_batch_iterator() {
-        let index = build_flat_index(3, 1);
+        let index = TestIndex::flat(3, 1);
         let mut source = flat_source(&index, 3, 3);
 
         // Consume one batch so the iterator is lazily created and held.
@@ -649,7 +649,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
     fn child_estimate_clamped_to_index_size() {
-        let index = build_flat_index(3, 1);
+        let index = TestIndex::flat(3, 1);
         // Child estimate (100) exceeds the index size (3).
         let mut source = flat_source(&index, 3, 100);
 
@@ -671,7 +671,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
     fn largest_batch_metrics_track_and_survive_rewind() {
-        let index = build_flat_index(20, 1);
+        let index = TestIndex::flat(20, 1);
         let mut source = flat_source(&index, 3, 20);
 
         // drive two batches, shrinking the child estimate between them so
@@ -711,7 +711,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
     fn zero_child_estimate_skips_batch_iterator() {
-        let index = build_flat_index(3, 1);
+        let index = TestIndex::flat(3, 1);
         let mut source = flat_source(&index, 3, 0);
 
         assert!(source.next_batch().unwrap().is_none(), "expected no batch");

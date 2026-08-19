@@ -24,10 +24,7 @@ use std::num::NonZeroUsize;
 use rqe_core::DocId;
 use rqe_iterators::RQEIterator;
 use top_k::{TopKIterator, TopKMode};
-use vector_score_source::test_utils::{
-    asc, build_flat_cosine_index, build_flat_index, build_hnsw_index, collect_ids, make_child,
-    make_source, uniform_blob,
-};
+use vector_score_source::test_utils::{TestIndex, asc, collect_ids, make_child, uniform_blob};
 use vector_score_source::{new_vector_top_k_filtered, new_vector_top_k_unfiltered};
 
 // FLAT backend coverage (source.rs only exercises HNSW).
@@ -37,9 +34,9 @@ use vector_score_source::{new_vector_top_k_filtered, new_vector_top_k_unfiltered
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
 fn flat_unfiltered_returns_top_k_nearest_by_score() {
     let (n, k, dim) = (100, 10, 4);
-    let index = build_flat_index(n, dim);
+    let index = TestIndex::flat(n, dim);
 
-    let source = make_source(&index, uniform_blob(n as f32, dim), n, k, n);
+    let source = index.source(uniform_blob(n as f32, dim), n, k, n);
     let mut it = new_vector_top_k_unfiltered(source, NonZeroUsize::new(k).unwrap());
 
     // Streamed by score: nearest first, so id 100 (distance 0) down to 91.
@@ -52,9 +49,9 @@ fn flat_unfiltered_returns_top_k_nearest_by_score() {
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
 fn flat_filtered_full_child_yields_best_first() {
     let (n, k, dim) = (100, 10, 4);
-    let index = build_flat_index(n, dim);
+    let index = TestIndex::flat(n, dim);
 
-    let source = make_source(&index, uniform_blob(n as f32, dim), n, k, n);
+    let source = index.source(uniform_blob(n as f32, dim), n, k, n);
     let child = make_child((1..=n as DocId).collect());
     let mut it = new_vector_top_k_filtered(source, child, NonZeroUsize::new(k).unwrap(), false);
 
@@ -70,9 +67,9 @@ fn flat_filtered_full_child_yields_best_first() {
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
 fn cosine_metric_filtered_top_k_are_highest_ids() {
     let (n, k, dim) = (100, 10, 4);
-    let index = build_flat_cosine_index(n, dim);
+    let index = TestIndex::flat_cosine(n, dim);
 
-    let source = make_source(&index, uniform_blob(1.0, dim), n, k, n);
+    let source = index.source(uniform_blob(1.0, dim), n, k, n);
     let child = make_child((1..=n as DocId).collect());
     let mut it = new_vector_top_k_filtered(source, child, NonZeroUsize::new(k).unwrap(), false);
 
@@ -95,9 +92,9 @@ fn cosine_metric_filtered_top_k_are_highest_ids() {
 fn middle_query_orders_by_distance_then_lower_id() {
     let (n, k, dim) = (100usize, 10usize, 4usize);
     let mid = (n / 2) as DocId;
-    let index = build_flat_index(n, dim);
+    let index = TestIndex::flat(n, dim);
 
-    let source = make_source(&index, uniform_blob(mid as f32, dim), n, k, n);
+    let source = index.source(uniform_blob(mid as f32, dim), n, k, n);
     let child = make_child((1..=n as DocId).collect());
     let mut it = new_vector_top_k_filtered(source, child, NonZeroUsize::new(k).unwrap(), false);
 
@@ -117,9 +114,9 @@ fn middle_query_orders_by_distance_then_lower_id() {
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
 fn dim1_unfiltered_knn_top3() {
     let (n, k, dim) = (10, 3, 1);
-    let index = build_flat_index(n, dim);
+    let index = TestIndex::flat(n, dim);
 
-    let source = make_source(&index, uniform_blob(0.0, dim), n, k, n);
+    let source = index.source(uniform_blob(0.0, dim), n, k, n);
     let mut it = new_vector_top_k_unfiltered(source, NonZeroUsize::new(k).unwrap());
 
     assert_eq!(collect_ids(&mut it), vec![1, 2, 3]);
@@ -134,10 +131,10 @@ fn dim1_unfiltered_knn_top3() {
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
 fn dim1_filtered_subset_knn_top3() {
     let (n, k, dim) = (10, 3, 1);
-    let index = build_flat_index(n, dim);
+    let index = TestIndex::flat(n, dim);
 
     let child_ids: Vec<DocId> = (6..=10).collect();
-    let source = make_source(&index, uniform_blob(0.0, dim), n, k, child_ids.len());
+    let source = index.source(uniform_blob(0.0, dim), n, k, child_ids.len());
     let child = make_child(child_ids);
     let mut it = new_vector_top_k_filtered(source, child, NonZeroUsize::new(k).unwrap(), false);
 
@@ -153,10 +150,10 @@ fn dim1_filtered_subset_knn_top3() {
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
 fn batches_switch_to_adhoc_yields_no_duplicates() {
     let (n, k, dim) = (10, 3, 1);
-    let index = build_flat_index(n, dim);
+    let index = TestIndex::flat(n, dim);
 
     let child_ids: Vec<DocId> = (6..=10).collect();
-    let source = make_source(&index, uniform_blob(0.0, dim), n, k, child_ids.len());
+    let source = index.source(uniform_blob(0.0, dim), n, k, child_ids.len());
     let mut it = TopKIterator::new_with_mode(
         source,
         Some(make_child(child_ids)),
@@ -182,10 +179,10 @@ fn batches_switch_to_adhoc_yields_no_duplicates() {
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
 fn small_index_prefers_adhoc() {
     let (n, k, dim) = (1000, 10, 4);
-    let index = build_hnsw_index(n, dim);
+    let index = TestIndex::hnsw(n, dim);
 
     let subset = 31;
-    let source = make_source(&index, uniform_blob(n as f32, dim), n, k, subset);
+    let source = index.source(uniform_blob(n as f32, dim), n, k, subset);
     assert!(source.prefer_adhoc(subset, k, true));
 }
 
@@ -199,8 +196,8 @@ fn numeric_like_subset_batches_matches_adhoc() {
     let expected: Vec<DocId> = ((n as DocId - 9)..=n as DocId).rev().collect();
 
     for mode in [TopKMode::Batches, TopKMode::AdhocBF] {
-        let index = build_hnsw_index(n, dim);
-        let source = make_source(&index, uniform_blob(n as f32, dim), n, k, child_ids.len());
+        let index = TestIndex::hnsw(n, dim);
+        let source = index.source(uniform_blob(n as f32, dim), n, k, child_ids.len());
         let mut it = TopKIterator::new_with_mode(
             source,
             Some(make_child(child_ids.clone())),
@@ -220,8 +217,8 @@ fn custom_k_returns_exactly_k() {
     let dim = 4;
     let n = 100;
     for k in [2usize, 5] {
-        let index = build_hnsw_index(n, dim);
-        let source = make_source(&index, uniform_blob(n as f32, dim), n, k, n);
+        let index = TestIndex::hnsw(n, dim);
+        let source = index.source(uniform_blob(n as f32, dim), n, k, n);
         let mut it = new_vector_top_k_unfiltered(source, NonZeroUsize::new(k).unwrap());
 
         // Streamed by score: nearest (highest id) first.

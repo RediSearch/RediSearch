@@ -35,9 +35,7 @@ use rqe_core::DocId;
 use rqe_iterators::{RQEIterator, RQEIteratorError};
 use top_k::{ScoreSource as _, TopKIterator, TopKMode};
 use vector_score_source::new_vector_top_k_unfiltered;
-use vector_score_source::test_utils::{
-    asc, build_hnsw_index, make_child, make_source, uniform_blob,
-};
+use vector_score_source::test_utils::{TestIndex, asc, make_child, uniform_blob};
 
 // Provide stubs for C symbols that the linked C archive references but that
 // these tests never exercise (Redis module API surface).
@@ -99,10 +97,10 @@ fn unfiltered_propagates_timeout() {
     // released after `_mock` restores the callback (reverse drop order).
     let _serial = serialize();
     let (n, k, dim) = (100, 10, 4);
-    let index = build_hnsw_index(n, dim);
+    let index = TestIndex::hnsw(n, dim);
     let _mock = MockTimeout::enable();
 
-    let source = make_source(&index, uniform_blob(n as f32, dim), n, k, n);
+    let source = index.source(uniform_blob(n as f32, dim), n, k, n);
     let mut it = new_vector_top_k_unfiltered(source, NonZeroUsize::new(k).unwrap());
 
     assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
@@ -116,10 +114,10 @@ fn batches_propagates_timeout() {
     // released after `_mock` restores the callback (reverse drop order).
     let _serial = serialize();
     let (n, k, dim) = (100, 10, 4);
-    let index = build_hnsw_index(n, dim);
+    let index = TestIndex::hnsw(n, dim);
     let _mock = MockTimeout::enable();
 
-    let source = make_source(&index, uniform_blob(n as f32, dim), n, k, n);
+    let source = index.source(uniform_blob(n as f32, dim), n, k, n);
     let mut it = TopKIterator::new_with_mode(
         source,
         Some(make_child((1..=n as DocId).collect())),
@@ -141,9 +139,9 @@ fn unfiltered_timeout_does_not_mark_consumed() {
     // released after `_mock` restores the callback (reverse drop order).
     let _serial = serialize();
     let (n, k, dim) = (100, 10, 4);
-    let index = build_hnsw_index(n, dim);
+    let index = TestIndex::hnsw(n, dim);
 
-    let mut source = make_source(&index, uniform_blob(n as f32, dim), n, k, n);
+    let mut source = index.source(uniform_blob(n as f32, dim), n, k, n);
 
     {
         let _mock = MockTimeout::enable();
