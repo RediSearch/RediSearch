@@ -210,6 +210,12 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
     return NULL;
   }
 
+  if (parseHybridDebugParams(&debug_params, status) != REDISMODULE_OK) {
+    HybridPipelineParams_Cleanup(&hybridParams);
+    HybridRequest_DecrRef(hreq);
+    return NULL;
+  }
+
   // Debug requests bypass hybridCommandHandler, so arm the container and subquery clock deadlines
   // before building pipelines that consume their timeout state.
   HybridRequest_BeginTimeoutCycle(hreq, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
@@ -268,12 +274,6 @@ int DEBUG_hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // Create debug hybrid request using the same sctx
   HybridRequest_Debug *debug_req = HybridRequest_Debug_New(ctx, argv, argc, sctx, indexname, &status);
   if (!debug_req) {
-    return QueryError_ReplyAndClear(ctx, &status);
-  }
-
-  // Parse debug parameters
-  if (parseHybridDebugParams(&debug_req->debug_params, &status) != REDISMODULE_OK) {
-    HybridRequest_Debug_Free(debug_req);
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
