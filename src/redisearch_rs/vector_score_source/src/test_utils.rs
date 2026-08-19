@@ -50,6 +50,28 @@ pub struct TestIndex {
 }
 
 impl TestIndex {
+    /// Create a `dim`-dimensional index from `params` and populate it via
+    /// `fill(add)`.
+    fn new(
+        params: &VecSimParams,
+        dim: usize,
+        fill: impl FnOnce(&mut dyn FnMut(t_docId, &[f32])),
+    ) -> Self {
+        // SAFETY: `params` is fully initialised.
+        let index = unsafe { VecSimIndex_New(params) };
+        let index = NonNull::new(index).expect("VecSimIndex_New returned null");
+
+        let mut add = |id: t_docId, v: &[f32]| {
+            // SAFETY: `v` holds `dim` f32 elements matching the index type/dim;
+            // valid for the duration of the call.
+            unsafe {
+                VecSimIndex_AddVector(index.as_ptr(), v.as_ptr() as *const c_void, id as usize);
+            }
+        };
+        fill(&mut add);
+        Self { index, dim }
+    }
+
     /// HNSW L2 index of `n` vectors; doc `i` (1..=n) is `[i; dim]`.
     pub fn hnsw(n: usize, dim: usize) -> Self {
         let params = VecSimParams {
@@ -104,28 +126,6 @@ impl TestIndex {
                 }
             },
         )
-    }
-
-    /// Create a `dim`-dimensional index from `params` and populate it via
-    /// `fill(add)`.
-    fn new(
-        params: &VecSimParams,
-        dim: usize,
-        fill: impl FnOnce(&mut dyn FnMut(t_docId, &[f32])),
-    ) -> Self {
-        // SAFETY: `params` is fully initialised.
-        let index = unsafe { VecSimIndex_New(params) };
-        let index = NonNull::new(index).expect("VecSimIndex_New returned null");
-
-        let mut add = |id: t_docId, v: &[f32]| {
-            // SAFETY: `v` holds `dim` f32 elements matching the index type/dim;
-            // valid for the duration of the call.
-            unsafe {
-                VecSimIndex_AddVector(index.as_ptr(), v.as_ptr() as *const c_void, id as usize);
-            }
-        };
-        fill(&mut add);
-        Self { index, dim }
     }
 
     /// Byte length [`QueryVector`](vecsim::QueryVector) requires for this index,
