@@ -396,9 +396,9 @@ bool GC_ThreadPoolWaitForPause(long timeoutMs) {
   while (redisearch_thpool_num_jobs_in_progress(gcThreadpool_g)) {
 #ifdef ENABLE_ASSERT
     // Only reached while a job is still in progress, so this is the only place that can
-    // release a GC writer parked inside a BucketMap write lock: drop the drain and the writer
-    // stays parked, and the save behind it never completes. Signal disarms, so the repeat
-    // costs a name lookup.
+    // release a disk-GC writer parked mid-mutation: drop the drain and it stays parked, and
+    // the capture behind it never completes. Signal disarms, so the repeat costs a name
+    // lookup.
     SyncPoint_Signal(SYNC_POINT_NUMERIC_MAP_WRITE_LOCKED);
 #endif
     struct timespec now;

@@ -886,6 +886,16 @@ bool DiskConsistencyWindow_IsIndexWindowOpen(void) {
   return (disk_window_held & DISK_WINDOW_INDEX_HOOKS) != 0;
 }
 
+// One close per open. Two End paths can fire for one failed save - PERSISTENCE_FAILED is gated
+// on DiskConsistencyWindow_IsOpen, SST ABORT is not - and the disk side no longer absorbs the
+// repeat.
+static void CloseIndexWindows(void (*how)(IndexSpec *)) {
+  if (disk_window_held & DISK_WINDOW_INDEX_HOOKS) {
+    ForEachIndex(how);
+    disk_window_held &= ~(unsigned)DISK_WINDOW_INDEX_HOOKS;
+  }
+}
+
 // Quiesce every background writer that could mutate on-disk state, and tell each index to
 // open its window. Runs at the two points that start a window - SST PRE_CHECKPOINT and the
 // foreground hot-restart save - and not at PRE_FORK, which inherits this quiesce and needs
@@ -905,13 +915,14 @@ static void DiskConsistencyWindow_Quiesce(void) {
 }
 
 // Seal the window against what the quiesce cannot stop on its own, immediately before the
-// snapshot is taken. Runs at every snapshot point, PRE_FORK included: the drain is what keeps
-// a GC thread from being mid-mutation of a numeric BucketMap when the fork lands
-// (MOD-17197), and it can only give that guarantee at the moment it runs.
+// on-disk state is captured. Runs at every capture point, PRE_FORK included: the drain is
+// what keeps a disk GC thread from holding one of its own in-memory structures mid-mutation
+// when the fork lands, which a child would inherit locked with the owner thread gone, and it
+// can only give that guarantee at the moment it runs.
 //
 // The step order is load-bearing. The quiesce cancelled compactions first, which is what
 // lets this drain finish promptly; and flushing last, under the vector consistency lock, is
-// what keeps both writer classes out of the snapshot.
+// what keeps both classes of background writer out of what gets captured.
 static void DiskConsistencyWindow_Seal(void) {
   if (!GC_ThreadPoolWaitForPause(DISK_GC_CONSISTENCY_DRAIN_TIMEOUT_MS)) {
     // Cannot decline the snapshot from here - the subevent handler returns void.
@@ -967,24 +978,28 @@ static void DiskConsistencyWindow_End(DiskWindowEnd how) {
     return;
   }
 
-  // One close per open. Two End paths can fire for one failed save - PERSISTENCE_FAILED is
-  // gated on DiskConsistencyWindow_IsOpen, SST ABORT is not - and the disk side no longer
-  // absorbs the repeat.
-  if (how != DISK_WINDOW_END_CHECKPOINT && (disk_window_held & DISK_WINDOW_INDEX_HOOKS)) {
-    ForEachIndex(how == DISK_WINDOW_END_HOT_RESTART ? CloseWindowKeepingGateClosed
-                                                    : CloseWindowReopeningGate);
-    disk_window_held &= ~(unsigned)DISK_WINDOW_INDEX_HOOKS;
+  switch (how) {
+    case DISK_WINDOW_END_CHECKPOINT:
+      // Nothing per-index: the fork still needs the quiesce, and re-seals over it.
+      break;
+
+    case DISK_WINDOW_END_HOT_RESTART:
+      // Close the hooks but leave the GC paused, so the kept DBs cannot advance past what
+      // restart.rdb captured in the moments before the process exits.
+      CloseIndexWindows(CloseWindowKeepingGateClosed);
+      break;
+
+    case DISK_WINDOW_END_RESUME:
+      CloseIndexWindows(CloseWindowReopeningGate);
+      if (disk_window_held & DISK_WINDOW_GC_PAUSED) {
+        ForEachIndex(ResumeIndexGCScheduling);
+        GC_ThreadPoolResume();
+        disk_window_held &= ~(unsigned)DISK_WINDOW_GC_PAUSED;
+      }
+      break;
   }
 
-  // A hot restart keeps the GC paused through process exit, so the kept DBs cannot advance
-  // past what restart.rdb captured.
-  if (how == DISK_WINDOW_END_RESUME && (disk_window_held & DISK_WINDOW_GC_PAUSED)) {
-    ForEachIndex(ResumeIndexGCScheduling);
-    GC_ThreadPoolResume();
-    disk_window_held &= ~(unsigned)DISK_WINDOW_GC_PAUSED;
-  }
-
-  // Released on every path: PRE_FORK retakes it after POST_CHECKPOINT drops it.
+  // Given back on every path: PRE_FORK retakes it after POST_CHECKPOINT drops it.
   if (disk_window_held & DISK_WINDOW_VECSIM_LOCK) {
     VecSimDisk_ReleaseConsistencyLock();
     disk_window_held &= ~(unsigned)DISK_WINDOW_VECSIM_LOCK;
