@@ -104,6 +104,11 @@ unsafe impl DictType for KeysDictType {
     }
 
     fn with_key_ptr<R>(key: Self::K<'_>, f: impl FnOnce(*mut c_void) -> R) -> R {
+        // `CharBuf_HashFunction` forwards the length to a C function that accepts an `int`.
+        assert!(
+            key.len() <= std::ffi::c_int::MAX as usize,
+            "dictionary key length must fit in c_int"
+        );
         let mut key = ffi::CharBuf {
             buf: key.as_ptr().cast_mut().cast::<c_char>(),
             len: key.len(),
