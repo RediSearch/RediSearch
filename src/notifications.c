@@ -1025,19 +1025,15 @@ static void SSTReplicationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_PRE_FORK:
       RedisModule_Log(ctx, "notice", "SST replication: PRE_FORK");
-      // Normally the quiesce from PRE_CHECKPOINT still holds (POST_CHECKPOINT released the
+      // Seal only: PRE_CHECKPOINT's quiesce still holds (POST_CHECKPOINT released the
       // VecSim lock and nothing else), so what the fork needs is the drain, the lock again,
       // and a flush of everything written since the checkpoint.
       //
-      // Quiesce anyway if nothing is open. A drain only means something against a paused
-      // pool: unpaused, it can see zero jobs running and one can start as the fork lands,
-      // which is the mid-cycle corruption this window exists to prevent. A replica that
-      // joins while another is already checkpoint-syncing reuses that checkpoint
-      // (`bs_checkpoint_slaves` in the Redis SST path), so its fork need not be preceded by
-      // a checkpoint of its own.
-      if (!DiskConsistencyWindow_IsIndexWindowOpen()) {
-        DiskConsistencyWindow_Quiesce();
-      }
+      // Asserted rather than handled: the drain only means anything against a paused pool,
+      // and Redis guarantees the pairing - a session fires PRE_CHECKPOINT before any fork,
+      // and a second SST replica is refused while one is connected. If that ever relaxes,
+      // this fires instead of draining a live pool.
+      RS_ASSERT(DiskConsistencyWindow_IsIndexWindowOpen());
       DiskConsistencyWindow_Seal();
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_POST_FORK:
