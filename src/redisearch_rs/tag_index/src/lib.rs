@@ -267,6 +267,12 @@ fn write_postings(
                 Box::new(ii)
             });
 
+            debug_assert!(
+                ii.last_doc_id().is_none_or(|last| last <= doc_id),
+                "TagIndex::index called with a doc_id smaller than one already indexed for \
+                 this tag; see its `Safety` docs for the ordering it requires"
+            );
+
             let docs_before = ii.unique_docs();
             let outcome = ii.add_record(&record).unwrap();
             // Count a record only when a new unique document was appended; a
@@ -349,7 +355,12 @@ impl TagIndex<InMemoryMode> {
     /// field being indexed. It is stored per posting as
     /// [`RSIndexResult::has_field_expiration`] and gates the TTL re-check
     /// performed on read.
-    pub fn index(
+    ///
+    /// # Safety
+    ///
+    /// `doc_id` must be greater than or equal to every `doc_id` already passed to `index` for
+    /// this [`TagIndex`].
+    pub unsafe fn index(
         &mut self,
         tags: &[Tag<'_>],
         doc_id: DocId,
