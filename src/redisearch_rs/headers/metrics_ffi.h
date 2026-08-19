@@ -53,6 +53,14 @@ void IndexResult_ResetAggregate(RSIndexResult *r);
 struct MetricsSlice MetricsVec_AsSlice(const MetricsVec *metrics);
 
 /**
+ * Releases the heap allocation behind a collection created by [`MetricsVec_New`].
+ *
+ * Takes the collection by value: it must not be used again afterwards. Only standalone
+ * collections need this — one embedded in an `RSIndexResult` is freed with the result.
+ */
+void MetricsVec_Free(MetricsVec metrics);
+
+/**
  * Creates an empty metrics collection. Does not allocate.
  *
  * Use this to initialize the `metrics` field when constructing an
@@ -63,6 +71,17 @@ struct MetricsSlice MetricsVec_AsSlice(const MetricsVec *metrics);
  * `NULL`.
  */
 MetricsVec MetricsVec_New(void);
+
+/**
+ * Drops all entries from a standalone collection, keeping its capacity for reuse.
+ *
+ * For the collection embedded in a result, use [`ResultMetrics_Reset`] instead.
+ *
+ * # Safety
+ *
+ * 1. `metrics` must point to a valid `MetricsVec`.
+ */
+void MetricsVec_Reset(MetricsVec *metrics);
 
 /**
  * Sets the value carried under `key`, appending a new entry if none carries it yet.
@@ -77,16 +96,6 @@ MetricsVec MetricsVec_New(void);
  *    absent key is stored rather than ignored. Compared by pointer identity.
  */
 void MetricsVec_UpsertValue(MetricsVec *metrics, const RLookupKey *key, double new_value);
-
-/**
- * Moves all metrics from `child` into `parent`, leaving `child` empty.
- *
- * # Safety
- *
- * 1. `parent` must point to a valid `MetricsVec` (e.g. `&result.metrics`).
- * 2. `child` must point to a valid `MetricsVec`, or be null (no-op).
- */
-void RSYieldableMetric_Concat(MetricsVec *parent, MetricsVec *child);
 
 /**
  * Appends a single metric to the result's metrics collection.

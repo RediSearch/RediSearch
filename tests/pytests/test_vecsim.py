@@ -960,6 +960,54 @@ def test_hybrid_query_with_text_vamana():
     execute_hybrid_query(env, '(@t:other text)=>[KNN 10 @v $vec_param HYBRID_POLICY BATCHES BATCH_SIZE 2]', query_data, 't',
                             hybrid_mode='HYBRID_BATCHES').equal([0])
 
+@skip(cluster=True)
+def test_yielded_distance_is_collected_from_below_an_aggregate():
+    """Every result of an intersection whose vector child yields a distance must carry that
+    distance.
+
+    The distance is produced by the child, not by the intersection, so the metrics loader has
+    to collect the whole result tree rather than just the result handed to it. Reading through
+    a cursor one document at a time adds a resume — and so a revalidation of the iterator
+    tree, which rebuilds the aggregate — between every document.
+
+    The `DEL` plus GC cycle gives revalidation real work to do: the iterators re-seek an index
+    whose blocks moved under them, exactly as in production.
+    """
+    env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 1 '
+                                     'FORK_GC_RUN_INTERVAL 99999999999999999')
+    conn = getConnectionByEnv(env)
+    dim = 2
+    index_size = 20
+    data_type = 'FLOAT32'
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', data_type,
+               'DIM', dim, 'DISTANCE_METRIC', 'L2', 't', 'TEXT').ok()
+    load_vectors_with_texts_into_redis(conn, 'v', dim, index_size, data_type)
+    query_data = create_np_array_typed([0] * dim, data_type)
+
+    # Both clauses match every document, so the intersection keeps two live children and the
+    # vector child's distance stays one level below the result the loader is handed.
+    query = '@t:(value) @v:[VECTOR_RANGE 1000000 $vec_param]=>{$YIELD_DISTANCE_AS: dist}'
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', query, 'PARAMS', 2, 'vec_param',
+                          query_data.tobytes(), 'LOAD', 1, '@dist', 'WITHCURSOR', 'COUNT', 1)
+    env.assertEqual(len(res['results']), 1)
+    env.assertContains('dist', res['results'][0]['extra_attributes'])
+    env.assertNotEqual(cursor, 0, message='the cursor must still have results to read')
+
+    with env.getClusterConnectionIfNeeded() as del_conn:
+        env.assertEqual(del_conn.execute_command('DEL', '1'), 1)
+    forceInvokeGC(env)
+
+    read = 0
+    while cursor != 0:
+        res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+        for row in res['results']:
+            env.assertContains('dist', row['extra_attributes'],
+                               message=f'result {read} after the resume lost its distance')
+            read += 1
+    env.assertGreater(read, 0, message='the cursor returned nothing to check')
+
+
 def test_hybrid_query_batches_mode_with_text():
     # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
     env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000')
