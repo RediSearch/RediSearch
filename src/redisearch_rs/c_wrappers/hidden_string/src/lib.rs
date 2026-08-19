@@ -28,11 +28,18 @@ impl HiddenString {
     ///
     /// 1. `ptr` must be a [valid], non-null pointer to a properly initialized
     ///    `ffi::HiddenString`, including its subfields.
-    /// 2. The pointee must not be mutated for the entire lifetime `'a`.
+    /// 2. The name buffer must be [valid] for reads of the length the string
+    ///    reports plus a NUL terminator at that length, as `NewHiddenString`
+    ///    requires. It is a separate allocation the string may merely borrow,
+    ///    so this does not follow from (1.).
+    /// 3. Neither the pointee nor that buffer may be mutated, freed, or swapped
+    ///    out for the entire lifetime `'a` — `HiddenString_Clone` and
+    ///    `HiddenString_TakeOwnership` swap the buffer out, leaving the borrow
+    ///    on the old one.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub const unsafe fn from_raw<'a>(ptr: *const ffi::HiddenString) -> &'a Self {
-        // SAFETY: Ensured by caller (1., 2.)
+        // SAFETY: Ensured by caller (1., 2., 3.)
         unsafe {
             ptr.cast::<Self>()
                 .as_ref()
@@ -47,13 +54,9 @@ impl HiddenString {
 
     /// Get the secret (aka. "unsafe" in C land) value from the underlying [`ffi::HiddenString`].
     ///
-    /// A name is taken up to its first NUL. Names normally hold none of their
-    /// own, so that is the terminator and the whole name comes back; one that
-    /// does hold an interior NUL is truncated there, as a `%s`-formatted C site
+    /// The name is taken up to its first NUL: normally the terminator, so the
+    /// whole name comes back, but an interior NUL truncates it — as `%s`
     /// truncates the same pointer.
-    ///
-    /// This is safe **only if** the C function returns a pointer that stays valid
-    /// for at least the lifetime of `self`, and the memory contains a NUL at `len`.
     pub fn secret_value(&self) -> &CStr {
         let mut len = 0;
 
@@ -65,7 +68,9 @@ impl HiddenString {
 
         // The length doesn't include the nul terminator so we need to add one.
         let n = len.checked_add(1).expect("length overflow");
-        // Safety: must be ensured by the implementation of `ffi::HiddenString_GetUnsafe` above.
+        // SAFETY: clause (2.) of `from_raw` makes the buffer readable through the
+        // terminator, which is exactly `n`, and clause (3.) keeps it so for
+        // `'a`, which outlives this borrow.
         let bytes = unsafe { core::slice::from_raw_parts(data.cast::<u8>(), n) };
 
         CStr::from_bytes_until_nul(bytes).expect("unterminated C string")

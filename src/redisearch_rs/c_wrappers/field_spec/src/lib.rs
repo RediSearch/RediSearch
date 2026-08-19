@@ -62,10 +62,14 @@ impl FieldSpec {
     ///
     /// 1. `ptr` must be a valid non-null pointer to an `ffi::FieldSpec` that is properly initialized.
     ///    This also applies to any of its subfields.
+    /// 2. The name buffers behind `fieldName` and `fieldPath` must each satisfy
+    ///    clauses (2.) and (3.) of [`HiddenString::from_raw`] for `'a`. They are
+    ///    separate allocations the specs merely borrow, so that does not follow
+    ///    from (1.).
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub const unsafe fn from_raw<'a>(ptr: *const ffi::FieldSpec) -> &'a Self {
-        // Safety: ensured by caller (1.)
+        // Safety: ensured by caller (1., 2.)
         unsafe { ptr.cast::<Self>().as_ref().unwrap() }
     }
 
@@ -77,13 +81,13 @@ impl FieldSpec {
 
     /// Get the underlying field name as a `&HiddenString`.
     pub const fn field_name(&self) -> &HiddenString {
-        // Safety: (1.) due to creation with `FieldSpec::from_raw`
+        // Safety: (1.) and (2.) of `FieldSpec::from_raw`.
         unsafe { HiddenString::from_raw(self.0.fieldName) }
     }
 
     /// Get the underlying field path as a `&HiddenString`.
     pub const fn field_path(&self) -> &HiddenString {
-        // Safety: (1.) due to creation with `FieldSpec::from_raw`
+        // Safety: (1.) and (2.) of `FieldSpec::from_raw`.
         unsafe { HiddenString::from_raw(self.0.fieldPath) }
     }
 
