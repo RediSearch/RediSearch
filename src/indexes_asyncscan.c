@@ -113,7 +113,7 @@ static void Indexes_AsyncScanKeyCB(RedisModuleCtx *ctx, RedisModuleScanCursor *c
     // ShouldIndex is the authority (it also evaluates the index FILTER expression the pre-filter
     // can't); the redundant type/prefix check is cheap. `key` is already pinned, so pass it
     // through instead of reopening by name.
-    if (SchemaRule_ShouldIndex(sp, name, type, key)) {
+    if (SchemaRule_ShouldIndex(ctx, sp, name, type, key)) {
       uint64_t docId = 0;
       if (DocIdMeta_GetWithOpenKey(key, sp->specId, &docId) == REDISMODULE_OK && docId != 0) {
         // Already indexed in this spec; skip to avoid clobbering a fresher version.
@@ -458,7 +458,26 @@ static RedisModuleAsyncScanResult Indexes_AsyncScanDriveNextBatch(
 void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
   RS_LOG_ASSERT(scanner, "invalid IndexesScanner");
 
+  // Scans the keyspace of the DB this context is selected to, which for a
+  // detached context is DB 0. Sound without a SelectDb because this driver is
+  // only reached when SearchDisk_IsEnabled() (see IndexSpec_ScanAndReindex),
+  // and that same condition pins every spec to dbid 0 at creation. The
+  // assertion below is what keeps the two in step.
   RedisModuleCtx *ctx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);
+#ifdef ENABLE_ASSERT
+  {
+    StrongRef assert_ref = IndexSpecRef_Promote(scanner->spec_ref);
+    const IndexSpec *assert_sp = StrongRef_Get(assert_ref);
+    // A dropped spec is a normal race here (the drive loop cancels on it), so
+    // only assert when the spec is still live.
+    if (assert_sp) {
+      RS_LOG_ASSERT(assert_sp->dbid == 0,
+                    "AsyncScan drives a DB-0 context; a non-zero dbid would scan the wrong "
+                    "keyspace");
+      IndexSpecRef_Release(assert_ref);
+    }
+  }
+#endif
   // Name the cursor after the index, for INFO observability.
   RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreateWithName(scanner->spec_name_for_logs);
 

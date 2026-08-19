@@ -36,6 +36,16 @@ pub(crate) unsafe extern "C" fn RedisModule_FreeThreadSafeContext(
     drop(unsafe { Box::from_raw(ctx.cast::<Ctx>()) });
 }
 
+/// Mock implementation of RedisModule_GetSelectedDb from redismodule.h for testing purposes.
+///
+/// Tests operate on the default logical database, so this always reports DB 0.
+#[expect(non_snake_case)]
+pub(crate) const unsafe extern "C" fn RedisModule_GetSelectedDb(
+    _ctx: *mut redis_module::raw::RedisModuleCtx,
+) -> i32 {
+    0
+}
+
 /// Mock implementation of RedisModule_SubscribeToServerEvent from redismodule.h for testing purposes.
 #[expect(non_snake_case)]
 pub(crate) unsafe extern "C" fn RedisModule_SubscribeToServerEvent(

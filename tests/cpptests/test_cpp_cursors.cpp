@@ -51,14 +51,14 @@ TEST_F(CursorsTest, BasicAPI) {
 TEST_F(CursorsTest, OwnershipAPI) {
   StrongRef dummy = {0};
 
-  // Case 1: Cursors_Purge marks non-idle cursor for deletion
+  // Case 1: Cursors_PurgeForDb marks non-idle cursor for deletion
   Cursor *cur = Cursors_Reserve(&g_CursorsList, dummy, 1000, NULL);
   ASSERT_TRUE(cur != NULL);
   ASSERT_FALSE(cur->delete_mark);
   ASSERT_FALSE(is_Idle(cur));
 
   auto id = cur->id;
-  ASSERT_EQ(Cursors_Purge(&g_CursorsList, id), REDISMODULE_OK) << "Should be able to mark for deletion";
+  ASSERT_EQ(Cursors_PurgeForDb(&g_CursorsList, id, CURSOR_COORDINATOR_DBID), REDISMODULE_OK) << "Should be able to mark for deletion";
   ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id), nullptr) << "Cursor already deleted";
   ASSERT_TRUE(cur->delete_mark);
 
@@ -66,7 +66,7 @@ TEST_F(CursorsTest, OwnershipAPI) {
   ASSERT_EQ(Cursor_Pause(cur), REDISMODULE_OK) << "Pausing the cursor Should actually free it.";
   ASSERT_EQ(Cursors_GetInfoStats().total_user, 0) << "Cursor should be deleted";
 
-  // Case 2: Cursors_Purge with explicit cursor free
+  // Case 2: Cursors_PurgeForDb with explicit cursor free
   cur = Cursors_Reserve(&g_CursorsList, dummy, 1000, NULL);
   ASSERT_TRUE(cur != NULL);
   ASSERT_FALSE(cur->delete_mark);
@@ -74,7 +74,7 @@ TEST_F(CursorsTest, OwnershipAPI) {
   id = cur->id;
   ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id), nullptr) << "Cursor already in use";
 
-  ASSERT_EQ(Cursors_Purge(&g_CursorsList, id), REDISMODULE_OK) << "Should be able to mark for deletion";
+  ASSERT_EQ(Cursors_PurgeForDb(&g_CursorsList, id, CURSOR_COORDINATOR_DBID), REDISMODULE_OK) << "Should be able to mark for deletion";
   ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id), nullptr) << "Cursor already deleted";
   ASSERT_TRUE(cur->delete_mark);
 
