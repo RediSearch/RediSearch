@@ -4,6 +4,7 @@ try:
 except ImportError:
     from collections import Iterable
 import time
+from contextlib import contextmanager
 from packaging import version
 from functools import wraps
 import signal
@@ -350,6 +351,20 @@ def set_workers(env, workers):
     """Set the worker thread count and verify that the change took effect."""
     verify_command_OK_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', workers)
     env.assertEqual(getWorkersThpoolNumThreadsFromAllShards(env), [workers] * env.shardsCount)
+
+def workers_jobs_done(env):
+    return getWorkersThpoolStats(env)['totalJobsDone']
+
+@contextmanager
+def paused_workers(env):
+    """Pause the worker thread pool for the duration of the block, so that jobs it schedules are
+    queued but cannot run yet. Resumed on the way out even if the block fails: the pool state
+    outlives the test, and a pool left paused fails the next test's WORKERS DRAIN."""
+    env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
+    try:
+        yield
+    finally:
+        env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
 
 def getWorkersThpoolStatsFromShard(shard_conn):
     return to_dict(shard_conn.execute_command(debug_cmd(), "WORKERS", "stats"))
