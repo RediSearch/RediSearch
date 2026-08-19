@@ -723,12 +723,6 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     if (rc != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
-    bool checkInPipelineTimeout = shouldCheckInPipelineTimeoutCoord(hreq);
-    // Select clock deadlines or blocked-client behavior before refreshing the expiration-time
-    // snapshots below.
-    HybridRequest_BeginTimeoutCycle(
-        hreq, checkInPipelineTimeout ? QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE
-                                     : QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
 
     rs_wall_clock parseClock;
     if (profileOptions != EXEC_NO_FLAGS) {
@@ -736,6 +730,12 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
       rs_wall_clock_init(&parseClock);
       // Calculate the time elapsed for profileParseTime by using the initialized parseClock
       hreq->profileClocks.profileParseTime = rs_wall_clock_diff_ns(&hreq->profileClocks.initClock, &parseClock);
+    }
+
+    if (shouldCheckInPipelineTimeoutCoord(hreq)) {
+      // Preserve the legacy clock start after coordinator parsing. The blocked-client cycles
+      // were already published by the main thread and must not be restarted here.
+      HybridRequest_BeginTimeoutCycle(hreq, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
     }
 
     // Set request flags from hybridParams
