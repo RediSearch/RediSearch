@@ -27,6 +27,41 @@ use rqe_iterators_test_utils::ContractChecker;
 // Implementation-specific tests (read_count assertions differ between Flat and Heap)
 // =============================================================================
 
+/// A quick union reports only the matching child's metrics. It rebuilds its aggregate from
+/// that one child, so a sibling sitting on a different document — holding the metric it
+/// yielded there — contributes nothing. Every child keeps its own metrics now, so what
+/// keeps a stale one out of the reply is the aggregate holding exactly the children that
+/// matched.
+#[test]
+fn quick_mode_reports_only_the_matching_childs_metrics() {
+    use index_result::MetricsVec;
+    use rqe_iterators::metric::MetricSortedById;
+
+    let scored = MetricSortedById::new(vec![100, 300], vec![0.5, 0.9]);
+    let sibling = MetricSortedById::new(vec![200], vec![0.7]);
+    let children: Vec<Box<dyn RQEIterator<'static>>> = vec![Box::new(scored), Box::new(sibling)];
+    let mut union = UnionQuickFlat::new(children);
+
+    let at_100 = union.read().expect("read failed").expect("doc 100");
+    assert_eq!(at_100.doc_id, 100);
+    let mut collected = MetricsVec::new();
+    at_100.flatten_metrics_into(&mut collected);
+    assert_eq!(
+        collected.iter().map(|e| e.value()).collect::<Vec<_>>(),
+        vec![0.5],
+    );
+
+    let at_200 = union.read().expect("read failed").expect("doc 200");
+    assert_eq!(at_200.doc_id, 200);
+    let mut collected = MetricsVec::new();
+    at_200.flatten_metrics_into(&mut collected);
+    assert_eq!(
+        collected.iter().map(|e| e.value()).collect::<Vec<_>>(),
+        vec![0.7],
+        "only the child that matched doc 200 contributes",
+    );
+}
+
 #[test]
 fn reuse_results_optimization_quick_mode() {
     let (children, data) = create_mock_2([3], [2]);

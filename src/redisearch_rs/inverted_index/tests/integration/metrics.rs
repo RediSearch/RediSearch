@@ -293,61 +293,6 @@ fn upsert_with_key_ignores_keyless_entries() {
     assert_eq!(v.find_by_key_mut(&key).unwrap().value(), 2.0);
 }
 
-// ── MetricsVec — concat ──────────────────────────────────────────────────
-
-#[test]
-fn concat_moves_entries_and_empties_source() {
-    let key_a = make_key();
-    let key_b = make_key();
-
-    let mut dst = MetricsVec::new();
-    dst.push_with_key(&key_a, 1.0);
-
-    let mut src = MetricsVec::new();
-    src.push_with_key(&key_b, 2.0);
-    src.push_without_key(3.0);
-
-    dst.concat(&mut src);
-
-    assert!(src.is_empty(), "source must be drained");
-    assert_eq!(dst.len(), 3);
-    assert_eq!(dst.get(0).unwrap().value(), 1.0);
-    assert_eq!(dst.get(1).unwrap().value(), 2.0);
-    assert!(ptr::eq(dst.get(1).unwrap().key().unwrap(), &key_b));
-    assert!(dst.get(2).unwrap().key().is_none());
-}
-
-#[test]
-fn concat_with_empty_source_is_a_noop() {
-    let key = make_key();
-    let mut dst = MetricsVec::new();
-    dst.push_with_key(&key, 1.0);
-    let snapshot = dst.clone();
-
-    let mut src = MetricsVec::new();
-    dst.concat(&mut src);
-
-    assert_eq!(dst, snapshot);
-    assert!(src.is_empty());
-}
-
-#[test]
-fn concat_into_empty_destination() {
-    let key = make_key();
-    let mut dst = MetricsVec::new();
-
-    let mut src = MetricsVec::new();
-    src.push_with_key(&key, 1.0);
-    src.push_without_key(2.0);
-
-    dst.concat(&mut src);
-
-    assert!(src.is_empty());
-    assert_eq!(dst.len(), 2);
-    assert_eq!(dst.get(0).unwrap().value(), 1.0);
-    assert_eq!(dst.get(1).unwrap().value(), 2.0);
-}
-
 // ── MetricsVec — as_metrics_slice ────────────────────────────────────────
 
 #[test]

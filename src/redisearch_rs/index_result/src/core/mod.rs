@@ -943,13 +943,14 @@ impl<'a> RSIndexResult<'a> {
     /// - `doc_id` is set to the child's doc_id (inherits, not accumulated)
     /// - `freq` is accumulated (`+=`) from the child's frequency
     /// - `field_mask` is OR'd with the child's field mask
-    /// - `child_metrics` are concatenated (moved) into this result's metrics
+    ///
+    /// The child's metrics stay with the child; collect a whole tree's worth with
+    /// [`Self::flatten_metrics_into`]. Leaving them in place is what makes pushing the same
+    /// child again — as `revalidate` does when it rebuilds a document it is already on —
+    /// reproduce the same aggregate rather than an aggregate stripped of its metrics.
     ///
     /// If this is not an aggregate result, then nothing happens. Use [`Self::is_aggregate()`] first
     /// to make sure this is an aggregate result.
-    ///
-    /// The caller must drain the child's metrics via `std::mem::take(&mut child.metrics)`
-    /// before calling this method, and pass them as `child_metrics`.
     ///
     /// # Panics
     ///
@@ -961,15 +962,7 @@ impl<'a> RSIndexResult<'a> {
     ///
     /// The given `child` has to stay valid for the lifetime of this index result. Else reading
     /// from this result will cause undefined behaviour.
-    pub fn push_borrowed(
-        &mut self,
-        child: &'a RSIndexResult<'a>,
-        mut child_metrics: MetricsVec<'a>,
-    ) {
-        debug_assert!(
-            child.metrics.is_empty(),
-            "child metrics must be drained by caller via std::mem::take()"
-        );
+    pub fn push_borrowed(&mut self, child: &'a RSIndexResult<'a>) {
         if !self.is_aggregate() {
             return;
         }
@@ -977,10 +970,6 @@ impl<'a> RSIndexResult<'a> {
         self.doc_id = child.doc_id;
         self.freq += child.freq;
         self.field_mask |= child.field_mask;
-
-        if !child_metrics.is_empty() {
-            self.metrics.concat(&mut child_metrics);
-        }
 
         if let Some(agg) = self.as_aggregate_mut() {
             agg.as_borrowed_mut()
@@ -1051,7 +1040,8 @@ impl<'a> RSIndexResult<'a> {
     /// - The document ID will inherit the new child added
     /// - The child's frequency will contribute to this result
     /// - The child's field mask will contribute to this result's field mask
-    /// - If the child has metrics, then they will be concatenated to this result's metrics
+    ///
+    /// As with [`Self::push_borrowed`], the child keeps its own metrics.
     ///
     /// If this is not an aggregate result, then nothing happens. Use [`Self::is_aggregate()`] first
     /// to make sure this is an aggregate result.
@@ -1061,7 +1051,7 @@ impl<'a> RSIndexResult<'a> {
     /// If this is an aggregate result that *borrows* its children, which cannot take
     /// ownership of one. Use [`Self::push_borrowed`] for those, or ask
     /// [`Self::is_copy`] which kind this is.
-    pub fn push_boxed(&mut self, mut child: Box<RSIndexResult<'a>>) {
+    pub fn push_boxed(&mut self, child: Box<RSIndexResult<'a>>) {
         if !self.is_aggregate() {
             return;
         }
@@ -1069,11 +1059,6 @@ impl<'a> RSIndexResult<'a> {
         self.doc_id = child.doc_id;
         self.freq += child.freq;
         self.field_mask |= child.field_mask;
-
-        let mut child_metrics = std::mem::take(&mut child.metrics);
-        if !child_metrics.is_empty() {
-            self.metrics.concat(&mut child_metrics);
-        }
 
         if let Some(agg) = self.as_aggregate_mut() {
             agg.as_owned_mut()

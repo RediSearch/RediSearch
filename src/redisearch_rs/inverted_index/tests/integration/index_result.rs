@@ -95,7 +95,7 @@ fn pushing_to_index_result() {
     assert_eq!(ir.freq, 0);
     assert_eq!(ir.field_mask, 0);
 
-    ir.push_borrowed(&result_virt, MetricsVec::new());
+    ir.push_borrowed(&result_virt);
     assert_eq!(ir.doc_id, 2, "should inherit doc id of the child");
     assert_eq!(ir.kind(), RSResultKind::Union);
     assert_eq!(ir.weight, 1.0);
@@ -112,7 +112,7 @@ fn pushing_to_index_result() {
         )
     );
 
-    ir.push_borrowed(&result_with_frequency, MetricsVec::new());
+    ir.push_borrowed(&result_with_frequency);
     assert_eq!(ir.doc_id, 2);
     assert_eq!(ir.kind(), RSResultKind::Union);
     assert_eq!(ir.weight, 1.0);
@@ -168,6 +168,31 @@ fn flatten_metrics_collects_the_whole_subtree_deepest_first() {
         vec![1.0, 2.0, 3.0],
         "deepest first, so the root's own entry is written last",
     );
+}
+
+/// Rebuilding an aggregate for a document it has already built must report the same
+/// metrics. A composite rebuilds by resetting and pushing its children again — which is
+/// what `revalidate` does when a child moves without the composite's position changing —
+/// so the rebuild can only re-derive what the children still hold.
+#[test]
+fn rebuilding_an_aggregate_re_derives_its_metrics() {
+    let child_key = make_metric_key();
+    let mut child = RSIndexResult::build_numeric(10.0).doc_id(7).build();
+    child.metrics.push_with_key(&child_key, 1.0);
+
+    let mut root = RSIndexResult::build_union(1).doc_id(7).build();
+    root.push_borrowed(&child);
+
+    let mut first = MetricsVec::new();
+    root.flatten_metrics_into(&mut first);
+    assert_eq!(first.len(), 1);
+
+    root.reset_aggregate();
+    root.push_borrowed(&child);
+
+    let mut second = MetricsVec::new();
+    root.flatten_metrics_into(&mut second);
+    assert_eq!(second, first, "the rebuild re-derives the child's metric");
 }
 
 #[test]
@@ -238,7 +263,7 @@ fn to_owned_an_aggregate_index_result() {
         .weight(3.0)
         .build();
 
-    ir.push_borrowed(&num_rec, MetricsVec::new());
+    ir.push_borrowed(&num_rec);
 
     let mut ir_copy = ir.to_owned();
 
@@ -341,7 +366,7 @@ fn pushing_a_borrowed_child_to_an_owned_aggregate_panics() {
     let child = RSIndexResult::build_metric(1.0).doc_id(7).build();
     let mut owned = RSIndexResult::build_hybrid_metric().build();
 
-    owned.push_borrowed(&child, MetricsVec::new());
+    owned.push_borrowed(&child);
 }
 
 /// The mirror image: a borrowed aggregate never frees its children, so taking
@@ -362,7 +387,7 @@ fn pushing_an_owned_child_to_a_borrowed_aggregate_panics() {
 fn mutably_reaching_a_borrowed_child_panics() {
     let child = RSIndexResult::build_numeric(1.0).doc_id(7).build();
     let mut borrowed = RSIndexResult::build_union(1).build();
-    borrowed.push_borrowed(&child, MetricsVec::new());
+    borrowed.push_borrowed(&child);
 
     let _ = borrowed.get_mut(0);
 }
@@ -472,7 +497,7 @@ fn single_child_aggregate_always_true() {
     // An intersection with a single numeric child — no proximity check needed.
     let child = RSIndexResult::build_numeric(1.0).doc_id(1).build();
     let mut ir = RSIndexResult::build_intersect(1).build();
-    ir.push_borrowed(&child, MetricsVec::new());
+    ir.push_borrowed(&child);
     assert!(ir.is_within_range(Some(0), false));
     assert!(ir.is_within_range(Some(0), true));
 }
@@ -493,8 +518,8 @@ fn in_order_no_slop_succeeds_when_order_exists() {
         .doc_id(1)
         .build();
     let mut ir = RSIndexResult::build_intersect(2).build();
-    ir.push_borrowed(&t1, MetricsVec::new());
-    ir.push_borrowed(&t2, MetricsVec::new());
+    ir.push_borrowed(&t1);
+    ir.push_borrowed(&t2);
     assert!(ir.is_within_range(None, true));
 }
 
@@ -514,8 +539,8 @@ fn in_order_no_slop_fails_when_order_impossible() {
         .doc_id(1)
         .build();
     let mut ir = RSIndexResult::build_intersect(2).build();
-    ir.push_borrowed(&t1, MetricsVec::new());
-    ir.push_borrowed(&t2, MetricsVec::new());
+    ir.push_borrowed(&t1);
+    ir.push_borrowed(&t2);
     assert!(!ir.is_within_range(None, true));
 }
 
@@ -525,8 +550,8 @@ fn purely_numeric_children_always_true() {
     let child1 = RSIndexResult::build_numeric(1.0).doc_id(1).build();
     let child2 = RSIndexResult::build_numeric(2.0).doc_id(1).build();
     let mut ir = RSIndexResult::build_intersect(2).build();
-    ir.push_borrowed(&child1, MetricsVec::new());
-    ir.push_borrowed(&child2, MetricsVec::new());
+    ir.push_borrowed(&child1);
+    ir.push_borrowed(&child2);
     assert!(ir.is_within_range(Some(0), false));
     assert!(ir.is_within_range(Some(0), true));
 }
@@ -552,8 +577,8 @@ fn full_test_mirrors_cpp_testdistance() {
         .build();
 
     let mut ir = RSIndexResult::build_intersect(2).build();
-    ir.push_borrowed(&t1, MetricsVec::new());
-    ir.push_borrowed(&t2, MetricsVec::new());
+    ir.push_borrowed(&t1);
+    ir.push_borrowed(&t2);
 
     // Unordered: slop=1 is true because (vw1=9, vw2=7) has span=1.
     assert!(!ir.is_within_range(Some(0), false));
