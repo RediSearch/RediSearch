@@ -178,6 +178,9 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 #define SYNC_POINT_AFTER_PREFETCH_ISSUE                 "AfterPrefetchIssue"
 // Fork-GC worker: parked at the very top of a periodic GC job, before the collection callback
 // runs. Lets a test rendezvous with a real run while RUN_PENDING is held, instead of sleeping.
+// A numeric split parked in Step A, still holding the BucketMap write lock. Signalled from
+// the disk-GC drain, the only step that waits for such a writer before a fork.
+#define SYNC_POINT_NUMERIC_MAP_WRITE_LOCKED             "NumericMapWriteLocked"
 #define SYNC_POINT_GC_TASK_START                        "GCTaskStart"
 // Fork-GC worker: parked after the pass finished and before it posts its re-arm to the main
 // thread. The only window where RUN_PENDING is held but no run remains to discover a drop, so a

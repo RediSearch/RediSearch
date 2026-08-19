@@ -932,32 +932,18 @@ static void DiskConsistencyWindow_Seal(void) {
 }
 
 // Open a full window: quiesce, then seal. Used by the two window-start points, so they cannot
-// drift apart on the protocol. Pairs with DiskConsistencyWindow_End or _Close.
+// drift apart on the protocol. Pairs with DiskConsistencyWindow_End.
 static void DiskConsistencyWindow_Begin(void) {
   DiskConsistencyWindow_Quiesce();
   DiskConsistencyWindow_Seal();
 }
 
-// Release the consistency lock opened by DiskConsistencyWindow_Begin without
-// running any per-index finalize work. Used where there is no matching disk
-// hook (e.g. SST POST_CHECKPOINT, which OSS handles on its own).
-//
-// This deliberately leaves disk GC paused: SST keeps it paused through POST_FORK/ABORT,
-// and a successful hot restart keeps it paused through process exit.
-//
-// No-op when the lock is not held, so it is safe on a path where the window may never have
-// been opened.
-static void DiskConsistencyWindow_Close(void) {
-  if (!(disk_window_held & DISK_WINDOW_VECSIM_LOCK)) {
-    return;
-  }
-  VecSimDisk_ReleaseConsistencyLock();
-  disk_window_held &= ~(unsigned)DISK_WINDOW_VECSIM_LOCK;
-}
-
-// How to end the window. The finalize hook and the disk-GC disposition are correlated, so
-// they travel as one parameter rather than two that could disagree.
+// How much of the window to give back. Which parts are released is correlated - the finalize
+// hook and the disk-GC disposition cannot disagree - so it travels as one parameter.
 typedef enum {
+  // SST POST_CHECKPOINT: the checkpoint is taken but the fork has not happened, so release
+  // only the vector lock (which PRE_FORK retakes) and leave the rest held.
+  DISK_WINDOW_END_CHECKPOINT,
   // POST_FORK, SST ABORT, or a failed foreground save: the process keeps running.
   DISK_WINDOW_END_RESUME,
   // Successful hot restart: the process exits shortly and the kept on-disk DBs must stay
@@ -966,11 +952,11 @@ typedef enum {
   DISK_WINDOW_END_HOT_RESTART,
 } DiskWindowEnd;
 
-// End the window opened by DiskConsistencyWindow_Begin. Safe on a path where the window
-// was never opened, or was only partly opened (e.g. SST ABORT): each part is unwound only
-// if held. The parts have different lifetimes - POST_CHECKPOINT releases the VecSim lock
-// but keeps disk GC paused - so an abort between POST_CHECKPOINT and PRE_FORK sees the
-// pause held and the lock not.
+// Give back some or all of the window opened by DiskConsistencyWindow_Begin. Safe on a path
+// where it was never opened, or was only partly opened (e.g. SST ABORT): each part is
+// released only if held. The parts have different lifetimes - DISK_WINDOW_END_CHECKPOINT
+// drops the vector lock but keeps disk GC paused - so an abort between POST_CHECKPOINT and
+// PRE_FORK sees the pause held and the lock not.
 static void DiskConsistencyWindow_End(DiskWindowEnd how) {
   if (InForkChild()) {
     // Reached because the child fires its own PERSISTENCE_ENDED/FAILED from stopSaving, and
@@ -984,7 +970,7 @@ static void DiskConsistencyWindow_End(DiskWindowEnd how) {
   // One close per open. Two End paths can fire for one failed save - PERSISTENCE_FAILED is
   // gated on DiskConsistencyWindow_IsOpen, SST ABORT is not - and the disk side no longer
   // absorbs the repeat.
-  if (disk_window_held & DISK_WINDOW_INDEX_HOOKS) {
+  if (how != DISK_WINDOW_END_CHECKPOINT && (disk_window_held & DISK_WINDOW_INDEX_HOOKS)) {
     ForEachIndex(how == DISK_WINDOW_END_HOT_RESTART ? CloseWindowKeepingGateClosed
                                                     : CloseWindowReopeningGate);
     disk_window_held &= ~(unsigned)DISK_WINDOW_INDEX_HOOKS;
@@ -998,7 +984,11 @@ static void DiskConsistencyWindow_End(DiskWindowEnd how) {
     disk_window_held &= ~(unsigned)DISK_WINDOW_GC_PAUSED;
   }
 
-  DiskConsistencyWindow_Close();
+  // Released on every path: PRE_FORK retakes it after POST_CHECKPOINT drops it.
+  if (disk_window_held & DISK_WINDOW_VECSIM_LOCK) {
+    VecSimDisk_ReleaseConsistencyLock();
+    disk_window_held &= ~(unsigned)DISK_WINDOW_VECSIM_LOCK;
+  }
 }
 
 
@@ -1028,10 +1018,10 @@ static void SSTReplicationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_POST_CHECKPOINT:
       RedisModule_Log(ctx, "notice", "SST replication: POST_CHECKPOINT");
-      // POST_CHECKPOINT has no matching disk hook - just close the window
-      // opened at PRE_CHECKPOINT.
+      // No matching disk hook here - OSS handles the checkpoint itself - so this gives back
+      // only the vector lock and leaves the quiesce for PRE_FORK to inherit.
       RS_ASSERT(disk_window_held & DISK_WINDOW_VECSIM_LOCK);
-      DiskConsistencyWindow_Close();
+      DiskConsistencyWindow_End(DISK_WINDOW_END_CHECKPOINT);
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_PRE_FORK:
       RedisModule_Log(ctx, "notice", "SST replication: PRE_FORK");

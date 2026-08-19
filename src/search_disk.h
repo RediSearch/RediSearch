@@ -922,13 +922,6 @@ typedef enum {
   // numeric index closes (main thread); cross-wake source for
   // deterministically deferring a held split.
   SEARCH_DISK_SITE_NUMERIC_GATE_CLOSED = 4,
-  // Numeric split Step A while the BucketMap write lock is held (GC thread) --
-  // the only site that parks a writer inside that lock.
-  SEARCH_DISK_SITE_NUMERIC_MAP_WRITE_LOCKED = 5,
-  // Inside GC_ThreadPoolWaitForPause, once per wait iteration and therefore only while a GC
-  // job is still in progress (main thread). The only site that proves the drain ran: a test
-  // releases a parked GC writer from here, so a drain that is removed never releases it.
-  SEARCH_DISK_SITE_GC_DRAIN_WAITING = 6,
 } SearchDiskCompactionSite;
 
 /**
@@ -962,14 +955,6 @@ void SearchDisk_DebugCoordinatorRelease(int site);
  */
 unsigned int SearchDisk_DebugCoordinatorReached(int site);
 
-/**
- * @brief Records an arrival at `site` from this side, running any cross-wake wired to it.
- *
- * The disk side reaches its own lifecycle sites; this is for the ones that exist only here
- * (SEARCH_DISK_SITE_GC_DRAIN_WAITING). Goes through `basic.debugCoordinatorReach`, and is a
- * no-op when the disk API is absent, in release builds, or with nothing armed.
- */
-void SearchDisk_DebugCoordinatorReach(int site);
 
 /**
  * @brief Resets the coordinator.

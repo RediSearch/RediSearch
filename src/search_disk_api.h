@@ -334,18 +334,6 @@ typedef struct BasicDiskAPI {
                                                     size_t nkeys, uint32_t *outStateFlags);
 
   /**
-   * @brief Debug: record an arrival at a coordinator site reached on this side.
-   *
-   * The disk side reaches its own lifecycle sites; this is for the ones that exist only in
-   * OSS (SEARCH_DISK_SITE_GC_DRAIN_WAITING). NULL in release builds, where the coordinator
-   * is not compiled - callers must check before invoking, or go through
-   * `SearchDisk_DebugCoordinatorReach`, which does.
-   *
-   * @param site A `SearchDiskCompactionSite` value.
-   */
-  void (*debugCoordinatorReach)(int site);
-
-  /**
    * Hand the disk async-loader result processor its request sync context, so it can perform
    * the same RETURN_STRICT GIL deadlock-avoidance handshake as RP_SAFE_LOADER (see
    * `QueryRequest_SafeLoaderEnterGIL` / `ExitGIL` in aggregate.h).
@@ -1128,7 +1116,8 @@ extern void VecSimDisk_ReleaseConsistencyLock(void);
 //       background compaction; target -1 clears the link).
 //   - `Release(site)`  release a parked site out-of-band.
 //   - `Reached(site)`  read the arrival count.
-// Sites reached from this side instead go through `basic.debugCoordinatorReach`.
+// A rendezvous whose two ends are this side and the disk layer uses a named
+// `_FT.DEBUG SYNC_POINT` instead - both sides can reach the same name directly.
 //   - `ResetCompactionController()`  clear all state and free waiters.
 // All entry points are no-ops if nothing is armed and are safe to call from
 // arbitrary threads.
