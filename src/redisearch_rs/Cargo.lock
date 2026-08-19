@@ -2117,7 +2117,6 @@ dependencies = [
  "libc",
  "redis-module",
  "tracing",
- "value",
  "workspace_hack",
 ]
 
@@ -3548,6 +3547,7 @@ dependencies = [
  "query_error",
  "redis-module",
  "redis_mock",
+ "redisearch_rs",
  "value",
  "workspace_hack",
 ]
