@@ -152,6 +152,8 @@ pub fn bind_foreign_c_symbols() {
     let bin_root = bin_root();
     force_link_time_symbol_resolution();
     link_redisearch_c_bundle(&bin_root).unwrap_or_else(|e| panic!("{e}"));
+    // Cargo's `-l` flags precede the rlibs; re-scan the bundle after them.
+    println!("cargo::rustc-link-arg=-lredisearch_c_bundle");
     link_mkl(&bin_root.join("_deps/svs-src/lib"));
     link_c_plusplus();
 }
