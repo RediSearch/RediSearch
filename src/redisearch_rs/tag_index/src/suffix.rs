@@ -13,11 +13,13 @@
 //!
 //! # Memory model
 //!
-//! The values of this index are [`SuffixData`], which stores every member term of
-//! its key as a [`TermPtr`] — a weak pointer — plus, when the key is a term of its
-//! own, the [`OwnedTerm`] holding that term's allocation. [`OwnedTerm`] frees the
-//! memory on drop, [`TermPtr`] doesn't, so adding and removing items from this trie
-//! require order-aware operations.
+//! The values of this index are [`SuffixData`] which stores:
+//! - owned term (one occurrence)
+//! - borrowed term (N occurrence, one for each suffix)
+//!
+//! [`OwnedTerm`] holds the owned memory, while [`TermPtr`] points to the owned memory.
+//! [`OwnedTerm`] frees the memory on drop, [`TermPtr`] doesn't.
+//! Adding and removing items from this trie require order-aware operations.
 //!
 //! For instance, during the insertion:
 //! - under the tag key, store the owned term ([`OwnedTerm`]) and append a pointer to
@@ -145,12 +147,9 @@ impl TermPtr {
 #[derive(Debug, Default)]
 pub(crate) struct SuffixData {
     /// `Some` iff this entry's key is itself a member: the owning handle of
-    /// that member's tag term allocation. Every [`TermPtr`] to that term — in
-    /// this entry's own [`members`](Self::members) and in each of its suffixes'
-    /// — borrows from here.
+    /// that member's tag term allocation. Every [`TermPtr`] to that term borrows from here.
     full_term: Option<OwnedTerm>,
-    /// Every member term this entry's key belongs to, in registration order. See
-    /// [`members`](Self::members) for why the order matters.
+    /// Every member this entry's key is a suffix of.
     members: ThinVec<TermPtr, AlignedU32>,
 }
 
@@ -159,9 +158,8 @@ impl SuffixData {
     /// suffix of, and the term equal to the key itself when there is one — in the
     /// order [`TagSuffixIndex::add`] registered them.
     ///
-    /// The order is observable: a [`crate::SuffixQuery::Wildcard`] expansion
-    /// truncates this sequence at its `max_prefix_expansions`, so which members
-    /// survive the cap depends on it.
+    /// The order is important because a [`crate::SuffixQuery::Wildcard`] expansion
+    /// could truncate the sequence at its `max_prefix_expansions`.
     pub fn members(&self) -> impl Iterator<Item = TermPtr> + '_ {
         self.members.iter().copied()
     }
