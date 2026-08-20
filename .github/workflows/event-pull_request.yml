@@ -23,11 +23,9 @@ concurrency:
 jobs:
   get-latest-redis-tag:
     permissions: {}
-    runs-on: ubuntu-slim
-    outputs:
-      tag: d3abc02fed6664cc0afaf9ffe4e172a99e274f44
-    steps:
-      - run: echo "Using pinned redis/redis commit with the hash-field expiration notification fix"
+    uses: ./.github/workflows/task-get-redis-tag.yml
+    with:
+      repo: redis/redis
 
   check-what-changed:
     permissions: # actions/checkout
