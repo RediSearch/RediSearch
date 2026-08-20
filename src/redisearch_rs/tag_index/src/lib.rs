@@ -478,72 +478,19 @@ impl TagIndex<InMemoryMode> {
         self.mode.values.range_iter(filter).into()
     }
 
-    /// Create a [`TagIterator`] over the documents matching the given tag,
-    /// reading from `ii`.
-    ///
-    /// `ii` is the inverted index already resolved for `tag` (e.g. while
-    /// iterating the values trie), so no lookup is performed at construction
-    /// time. The tag is still looked up again on every revalidation, to detect
-    /// that the garbage collector removed or replaced the inverted index.
-    ///
-    /// `lookup` is the handle the iterator revalidates through;
-    ///
-    /// Returns `None` when `ii` holds no documents.
-    ///
-    /// # Safety
-    ///
-    /// 1. `self` must outlive the returned iterator, and must not be mutated
-    ///    while the iterator is in use except under the standard revalidation
-    ///    protocol.
-    /// 2. `ii` must be the inverted index currently stored in this index's
-    ///    values trie for `tag`.
-    /// 3. `sctx` and `sctx.spec` must be valid and outlive the returned
-    ///    iterator.
-    /// 4. `lookup` must hold a `self` reference.
-    pub unsafe fn iterator_for_tag<'ii>(
-        &self,
-        sctx: NonNull<RedisSearchCtx>,
-        tag: &[u8],
-        ii: &'ii InvertedIndex<DocIdsOnly>,
-        weight: f64,
-        field_index: t_fieldIndex,
-        lookup: TrieLookup,
-    ) -> Option<TagIterator<'ii, DocIdsOnly, TrieLookup, FieldExpirationChecker>> {
-        if ii.unique_docs() == 0 {
-            return None;
-        }
-
-        // Same identity check as `gc`: the caller must hand us the trie's
-        // current value for this tag.
-        debug_assert!(
-            self.mode
-                .values
-                .find(tag)
-                .map(Box::as_ref)
-                .is_some_and(|v| std::ptr::eq(v, ii)),
-            "ii must be the inverted index currently stored for tag"
-        );
-
-        // SAFETY: contracts 1 to 4 are exactly `get_reader`'s four
-        // pre-conditions, and this function's caller upholds them.
-        Some(unsafe { self.get_reader(sctx, ii, tag, weight, field_index, lookup) })
-    }
-
     /// Create an iterator over the documents matching `tag`, resolved in the values
     /// trie, or `None` when the tag is absent or holds no documents.
     ///
     /// `lookup` is the handle the iterator revalidates through, by re-resolving the
-    /// tag in the values trie.
+    /// tag in the values trie — that is how it detects that the garbage collector
+    /// removed or replaced the inverted index it reads.
     ///
     /// # Safety
     ///
     /// 1. `self` must outlive the returned iterator, and must not be mutated while
-    ///    it is in use except under the standard revalidation protocol. This is the
-    ///    iterator [`iterator_for_tag`](Self::iterator_for_tag) builds, and shares
-    ///    its contract;
+    ///    it is in use except under the standard revalidation protocol.
     /// 2. `sctx` and `sctx.spec` must be valid and outlive the returned iterator.
-    /// 3. `lookup` must resolve `self`, checked by a `debug_assert!` in
-    ///    [`get_reader`](Self::get_reader).
+    /// 3. `lookup` must resolve `self`, checked by a `debug_assert!` below.
     pub unsafe fn open_reader(
         &self,
         sctx: NonNull<RedisSearchCtx>,
@@ -557,29 +504,6 @@ impl TagIndex<InMemoryMode> {
             return None;
         }
 
-        // SAFETY: `get_reader`'s contracts are this function's contracts.
-        Some(unsafe { self.get_reader(sctx, ii, tag, weight, field_index, lookup) })
-    }
-
-    /// Build the [`TagIterator`] reading `ii`'s postings for `tag`.
-    ///
-    /// # Safety
-    ///
-    /// 1. `self` must outlive the returned iterator, and may be mutated while it
-    ///    is alive only under the revalidation protocol described on
-    ///    [`iterator_for_tag`](Self::iterator_for_tag).
-    /// 2. `ii` must be the inverted index this index currently stores for `tag`.
-    /// 3. `sctx` and `sctx.spec` must be valid and outlive the returned iterator.
-    /// 4. `lookup` must resolve `self`.
-    unsafe fn get_reader<'ii>(
-        &self,
-        sctx: NonNull<RedisSearchCtx>,
-        ii: &'ii InvertedIndex<DocIdsOnly>,
-        tag: &[u8],
-        weight: f64,
-        field_index: t_fieldIndex,
-        lookup: TrieLookup,
-    ) -> TagIterator<'ii, DocIdsOnly, TrieLookup, FieldExpirationChecker> {
         let term = RSQueryTerm::new_bytes(tag, 0, 0);
 
         let filter_ctx = FieldFilterContext {
@@ -587,11 +511,11 @@ impl TagIndex<InMemoryMode> {
             predicate: FieldExpirationPredicate::Default,
         };
         let reader = ii.reader();
-        // SAFETY: contract 3 guarantees sctx/spec validity for the checker's
+        // SAFETY: contract 2 guarantees sctx/spec validity for the checker's
         // lifetime.
         let checker = unsafe { FieldExpirationChecker::new(sctx, filter_ctx, reader.flags()) };
 
-        // Contract 4.
+        // Contract 3.
         debug_assert!(
             std::ptr::eq(
                 lookup.index_ptr().as_ptr().cast_const(),
@@ -600,10 +524,10 @@ impl TagIndex<InMemoryMode> {
             "lookup must resolve the index this reader reads from"
         );
 
-        // SAFETY: contract 2 makes `reader` the current reader for `tag`,
-        // contract 3 guarantees `sctx` and `sctx.spec` are valid, and contract 4
+        // SAFETY: `reader` reads the inverted index just resolved for `tag`,
+        // contract 2 guarantees `sctx` and `sctx.spec` are valid, and contract 3
         // is `TagIterator::new`'s own requirement on `lookup`.
-        unsafe { TagIterator::new(reader, sctx, lookup, term, weight, checker) }
+        Some(unsafe { TagIterator::new(reader, sctx, lookup, term, weight, checker) })
     }
 }
 
@@ -671,9 +595,8 @@ pub(crate) fn expansion_deadline(timeout: Option<timespec>) -> Option<Instant> {
 }
 
 /// [`TagLookup`] over this crate's typed values trie, used by the iterators
-/// returned from [`TagIndex::iterator_for_tag`] to detect during
-/// revalidation that the garbage collector removed or replaced a tag's
-/// inverted index.
+/// returned from [`TagIndex::open_reader`] to detect during revalidation that
+/// the garbage collector removed or replaced a tag's inverted index.
 ///
 /// Only a memory-mode index has an in-memory posting list to re-resolve a tag to,
 /// which is why this is tied to [`InMemoryMode`] rather than generic over the
@@ -708,13 +631,13 @@ impl TrieLookup {
     ///    standard revalidation protocol — i.e. between
     ///    [`revalidate`](rqe_iterators::RQEIterator::revalidate) calls, never
     ///    concurrently with a read — mirroring the contract of
-    ///    [`TagIndex::iterator_for_tag`].
+    ///    [`TagIndex::open_reader`].
     pub const unsafe fn new(idx: NonNull<TagIndex<InMemoryMode>>) -> Self {
         Self(idx)
     }
 
     /// The index this lookup resolves tags in, for the identity check in
-    /// [`TagIndex::get_reader`]. Returns the pointer without dereferencing it, so
+    /// [`TagIndex::open_reader`]. Returns the pointer without dereferencing it, so
     /// callers may compare it against an index reached another way.
     pub(crate) const fn index_ptr(&self) -> NonNull<TagIndex<InMemoryMode>> {
         self.0
