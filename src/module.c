@@ -4443,6 +4443,13 @@ static void DistSearchFreePrivData(RedisModuleCtx *ctx, void *privdata) {
   }
 }
 
+static void DistSearchDisconnectCallback(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc) {
+  UNUSED(ctx);
+  struct MRCtx *mrctx = RedisModule_BlockClientGetPrivateData(bc);
+  RS_ASSERT(mrctx);
+  MRCtx_SetTimedOut(mrctx);
+}
+
 typedef RedisModuleCmdFunc BlockedClientTimeoutCB;
 typedef void (*BlockedClientFreePrivDataCB) (RedisModuleCtx *ctx, void *privdata);
 
@@ -4707,6 +4714,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   // Set MRCtx as privdata for the blocked client
   RedisModule_BlockClientSetPrivateData(bc, mrctx);
+  RedisModule_SetDisconnectCallback(bc, DistSearchDisconnectCallback);
 
   SearchCmdCtx* sCmdCtx = rm_calloc(1, sizeof(*sCmdCtx));
   sCmdCtx->handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
@@ -5152,4 +5160,3 @@ static void DEBUG_DistSearchCommandHandler(void* pd) {
   MRCtx_DecrRef(sCmdCtx->mrctx);
   rm_free(sCmdCtx);
 }
-
