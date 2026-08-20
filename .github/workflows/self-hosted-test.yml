@@ -31,6 +31,7 @@ jobs:
     #runs-on: [u-x64-small]
     runs-on:
       - staging-u-arm64-medium
+      - ghr-ec2-ebs-volume-size:100
     #runs-on: [self-hosted, ubuntu-2204-x64-xl]
 
     # Steps represent a sequence of tasks that will be executed as part of the job
