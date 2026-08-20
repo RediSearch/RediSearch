@@ -372,7 +372,7 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
 // Deferred execution of the distributed FT.AGGREGATE with WITHCOUNT. Runs on a
 // worker thread from the coordinator pool after the first-reply collection
 // step has gathered each shard's total_results.
-static int executePlan(AREQ *r, struct ConcurrentCmdCtx *cmdCtx, RedisModule_Reply *reply,
+static int executePlan(AREQ *r, StrongRef spec_ref, RedisModule_Reply *reply,
                        QueryError *status);
 
 static void executeAggregateDeferred(void *arg) {
@@ -398,12 +398,12 @@ static void executeAggregateDeferred(void *arg) {
   bool timedOut = AREQ_TimedOut(r);
 
   if (sp && !timedOut) {
-    // Dedicated thread-safe context for this worker. Aliased into sctx->redisCtx
-    // so any pipeline step that reads it sees a live ctx on this thread. For
-    // cursors the AREQ takes ownership of this ctx (AREQ_Free releases it via
-    // the QEXEC_F_IS_CURSOR branch); for non-cursor requests we free it locally
-    // after executePlan returns.
+    // Dedicated thread-safe context for this worker, lent to sctx->redisCtx
+    // so any pipeline step that reads it sees a live ctx on this thread. The
+    // loan ends with this cycle (runCursor returns it for cursors; non-cursor
+    // requests are released inside executePlan) and the ctx is freed below.
     RedisModuleCtx *replyCtx = RedisModule_GetThreadSafeContext(bc);
+    RS_ASSERT(r->sctx->redisCtx == NULL); // the dispatch returned its loan
     r->sctx->redisCtx = replyCtx;
 
     RedisModule_Reply _reply = RedisModule_NewReply(replyCtx), *reply = &_reply;
@@ -421,25 +421,25 @@ static void executeAggregateDeferred(void *arg) {
 
     if (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) {
       // Cursor path: AREQ_StartCursor stashes the AREQ on the new Cursor and
-      // emits the first chunk via runCursor. We cannot reuse executePlan here
-      // because its cursor branch calls ConcurrentCmdCtx_KeepRedisCtx, and we
-      // have no ConcurrentCmdCtx (the dispatcher already returned).
-      // Cursor ownership of replyCtx: on success the AREQ outlives this
-      // function and AREQ_Free frees replyCtx; on failure AREQ_DecrRef below
-      // triggers the same AREQ_Free path. Either way, do not free replyCtx locally.
-      StrongRef dummy_spec_ref = {.rm = NULL};
-      if (AREQ_StartCursor(r, reply, dummy_spec_ref, &status, true) != REDISMODULE_OK) {
+      // emits the first chunk via runCursor. Not routed through executePlan
+      // because we have no ConcurrentCmdCtx (the dispatcher already returned).
+      // Hand over the promoted spec ref so the cursor is counted against this
+      // index's coordinator cursor budget (INDEX_CURSOR_LIMIT). Cursors_Reserve
+      // demotes it to a weak ref; ownership of `spec_ref` stays here.
+      if (AREQ_StartCursor(r, reply, spec_ref, &status, true) != REDISMODULE_OK) {
         AREQ_ReplyOrStoreError(r, replyCtx, &status);
+        // Cursor reservation failed before runCursor could return the loan.
+        r->sctx->redisCtx = NULL;
         AREQ_DecrRef(r);
       }
     } else {
       // Converge on the existing non-cursor path: sendChunk + AREQ_DecrRef.
       // executePlan always returns REDISMODULE_OK in the non-cursor branch.
-      executePlan(r, NULL, reply, &status);
+      executePlan(r, spec_ref, reply, &status);
       // r is freed by AREQ_DecrRef inside executePlan; do not access r after this.
-      RedisModule_FreeThreadSafeContext(replyCtx);
     }
     RedisModule_EndReply(reply);
+    RedisModule_FreeThreadSafeContext(replyCtx);
   } else if (!sp && !timedOut) {
     // Spec dropped between first-reply collection and deferred execution. Reply
     // DROPPED_BACKGROUND and release the AREQ so rpnetFree drops the iterator's
@@ -796,6 +796,9 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   // User-facing cursors are unsupported on disk (flex). Reject before fan-out.
   // The coordinator's own shard fan-out (which always adds WITHCURSOR to the
   // shard `_FT.AGGREGATE`) does not pass through here.
+  // This rejection is also what keeps `cursorIsDiskBacked` from ever seeing a
+  // coordinator cursor: coordinator cursors carry a real spec ref, so without
+  // this early bail a flex index would take the disk read path on the coordinator.
   if ((AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) &&
       !SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("WITHCURSOR", status)) {
     return REDISMODULE_ERR;
@@ -859,7 +862,6 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   if (IsProfile(r)) r->profileClocks.profileParseTime = rs_wall_clock_elapsed_ns(&r->profileClocks.initClock);
 
   // Create the Search context
-  // (notice with cursor, we rely on the existing mechanism of AREQ to free the ctx object when the cursor is exhausted)
   r->sctx = rm_new(RedisSearchCtx);
   *r->sctx = SEARCH_CTX_STATIC(ctx, NULL);
   r->sctx->apiVersion = dialect;
@@ -869,21 +871,22 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   // AREQ_Compile set the request flag before sctx existed, so the flag
   // was not propagated. RPNet and startPipeline read from sctx->time.skipTimeoutChecks.
   r->sctx->time.skipTimeoutChecks = !QueryRequestTimeout_ShouldCheck(&r->base.timeout);
-  // r->sctx->expanded should be received from shards
 
   AREQ_SetSkipTimeoutChecks(r, !shouldCheckInPipelineTimeoutCoord(r));
 
   return REDISMODULE_OK;
 }
 
-static int executePlan(AREQ *r, struct ConcurrentCmdCtx *cmdCtx, RedisModule_Reply *reply, QueryError *status) {
+static int executePlan(AREQ *r, StrongRef spec_ref, RedisModule_Reply *reply,
+                       QueryError *status) {
   if (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) {
-    // Keep the original concurrent context
-    ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
-
-    StrongRef dummy_spec_ref = {.rm = NULL};
-
-    if (AREQ_StartCursor(r, reply, dummy_spec_ref, status, true) != REDISMODULE_OK) {
+    // `spec_ref` is the caller's live promotion; Cursors_Reserve only demotes it
+    // to a weak ref, so the caller keeps ownership and releases it as before.
+    if (AREQ_StartCursor(r, reply, spec_ref, status, true) != REDISMODULE_OK) {
+      // Reservation failed before runCursor could return the ctx loan. Reachable
+      // now that coordinator cursors are counted: Cursors_Reserve rejects once
+      // the index is at INDEX_CURSOR_LIMIT.
+      r->sctx->redisCtx = NULL;
       return REDISMODULE_ERR;
     }
   } else {
@@ -911,6 +914,12 @@ static void DistAggregateCleanups(RedisModuleCtx *ctx, struct ConcurrentCmdCtx *
   AREQ_ReplyOrStoreError(r, ctx, status);
 
 cleanup:
+  // Return the ctx loan on every error path — the cycle's reference may keep
+  // the request alive past the dispatcher's ctx (some paths bail before their
+  // own return of the loan, e.g. a dispatchAggregateDeferred failure).
+  if (r->sctx) {
+    r->sctx->redisCtx = NULL;
+  }
   WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
   if (sp) {
     IndexSpecRef_Release(*strong_ref);
@@ -1024,7 +1033,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return;
   }
 
-  if (executePlan(r, cmdCtx, reply, &status) != REDISMODULE_OK) {
+  if (executePlan(r, strong_ref, reply, &status) != REDISMODULE_OK) {
     goto err;
   }
 
@@ -1215,9 +1224,9 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
     drainPartialResultsAfterTimeout(req);
     AREQ_ReplyWithStoredResults(ctx, req);
   } else {
-    // Pre-pipeline bail through AREQ_ReplyOrStoreError. Currently unreachable
-    // on coord+RETURN_STRICT (coordinator cursors have a NULL spec_ref so the
-    // only such bail in cursorRead can't fire); kept for forward-compat.
+    // Pre-pipeline bail through AREQ_ReplyOrStoreError. Reachable on
+    // coord+RETURN_STRICT now that coordinator cursors carry a real spec ref:
+    // cursorRead bails here when the index was dropped while the cursor idled.
     QueryError *err = &req->base.reply.err;
     RS_ASSERT(QueryError_HasError(err));
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, COORD_ERR_WARN);
@@ -1308,7 +1317,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return;
   }
 
-  if (executePlan(r, cmdCtx, reply, &status) != REDISMODULE_OK) {
+  if (executePlan(r, strong_ref, reply, &status) != REDISMODULE_OK) {
     goto err;
   }
 

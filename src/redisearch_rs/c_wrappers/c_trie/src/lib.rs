@@ -12,13 +12,15 @@
 //! This crate provides a safe Rust interface to the C Trie implementation, one
 //! module per trie kind: [`TermsTrie`] for the primary term index and
 //! [`SuffixTrie`] for the suffix index that answers queries which are not
-//! front-anchored. [`LoweredPattern`], the wildcard pattern both kinds walk
-//! with, sits alongside them.
+//! front-anchored. [`TrieTerm`] represents terms valid for trie operations,
+//! while [`LoweredPattern`] carries the wildcard patterns they walk.
 
 mod suffix;
 mod terms;
 mod util;
 
 pub use suffix::{SuffixMode, SuffixTrie, SuffixWalk};
-pub use terms::{FuzzyWalk, InvalidFuzzyDistance, TermsTrie, TermsTrieDecrResult};
-pub use util::LoweredPattern;
+pub use terms::{
+    FuzzyWalk, InvalidFuzzyDistance, TermsTrie, TermsTrieAllIterator, TermsTrieDecrResult,
+};
+pub use util::{LoweredPattern, TrieTerm};

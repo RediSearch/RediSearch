@@ -7,8 +7,25 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! [`TagIndex`] is an index that indexes textual tags for documents. The "Disk mode"
-//! (`diskSpec`) is forwarded to another implementation.
+//! [`TagIndex`] is an index that indexes textual tags for documents.
+//!
+//! It supports two storage modes. The mode is chosen by the constructor used
+//! ([`TagIndex<InMemoryMode>::new`] or [`TagIndex<OnDiskMode>::new`]) and, since it never
+//! changes afterwards, it is carried in the type — `TagIndex<`[`InMemoryMode`]`>`
+//! or `TagIndex<`[`OnDiskMode`]`>`. Each
+//! mode owns the values trie in the shape it needs, and a method that only makes
+//! sense in one mode lives in that mode's `impl` block.
+//!
+//! - **Memory mode** keeps the per-tag posting lists (document ids) inline in
+//!   the values trie.
+//! - **Disk mode** keeps the postings on disk behind the
+//!   `RSE` API; the values trie holds only tag *presence* sentinels.
+//!
+//! ## Tag bytes
+//!
+//! Tag values are [`Tag`], which carries exactly one guarantee: no
+//! *interior* (or trailing) NUL byte. [`Tag::new`] enforces it; [`Tag::new_unchecked`]
+//! trusts the caller instead.
 //!
 //! [`TagIndex`] uses the same indexes as the full text but in a simpler manner. In fact:
 //!
@@ -106,15 +123,16 @@
 //!
 
 // Temporary
-#![expect(dead_code, reason = "read by methods added in the follow-up change")]
+#![expect(dead_code, reason = "read by methods added in a follow-up change")]
 
 mod suffix;
+mod unique_id;
 
 // Force-link the umbrella `redisearch_rs` crate so its `#[used]` symbol table keeps the
 // Rust FFI functions that the linked C code (`libredisearch_c_bundle`) calls back into, and
 // stub any remaining Redis module C symbols the tests pull in. Without the `extern crate`
 // reference the umbrella rlib is dropped as unused and those symbols go undefined at link
-// time. Mirrors `numeric_range_tree`/`query_eval`/`top_k`.
+// time.
 #[cfg(test)]
 extern crate redisearch_rs;
 
@@ -125,35 +143,154 @@ use std::ptr::NonNull;
 
 use ffi::{RedisSearchDiskIndexSpec, t_fieldIndex};
 use inverted_index::{InvertedIndex, doc_ids_only::DocIdsOnly};
-pub use suffix::TagSuffixIndex;
+use suffix::TagSuffixIndex;
 use trie_rs::TrieMap;
+pub use unique_id::TagUniqueId;
 
-/// Identifies the way the data is stored
-enum TagIndexMode {
-    /// If the postings (doc_ids) are kept in memory
-    InMemory {
-        /// tag value → document ids.
-        values: TrieMap<InvertedIndex<DocIdsOnly>>,
-    },
-    /// If the postings (doc_ids) are kept on disk
-    Disk {
-        /// tag value → (). It is used only to know whether a tag is there
-        values: TrieMap<()>,
-        /// Field id
-        field_id: t_fieldIndex,
-        /// Disk Index spec
-        disk_index_spec: NonNull<RedisSearchDiskIndexSpec>,
-    },
+/// A tag value: borrowed bytes guaranteed to contain no interior (neither trailing) NUL byte — see
+/// the crate-level "Tag bytes" docs for exactly what that does and doesn't cover.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Tag<'a>(&'a [u8]);
+
+impl<'a> Tag<'a> {
+    /// `None` if `bytes` contains an interior NUL byte.
+    pub fn new(bytes: &'a [u8]) -> Option<Self> {
+        (!bytes.contains(&0)).then_some(Self(bytes))
+    }
+
+    /// Builds a [`Tag`] without checking for an interior or trailing NUL byte.
+    ///
+    /// # Safety
+    ///
+    /// `bytes` must contain no interior or trailing NUL byte.
+    pub unsafe fn new_unchecked(bytes: &'a [u8]) -> Self {
+        debug_assert!(
+            !bytes.contains(&0),
+            "bytes must contain no interior NUL byte"
+        );
+        Self(bytes)
+    }
+
+    /// The underlying NUL-free bytes.
+    pub const fn as_bytes(self) -> &'a [u8] {
+        self.0
+    }
+
+    /// Pointer to the underlying NUL-free bytes.
+    pub const fn as_ptr(self) -> *const u8 {
+        self.0.as_ptr()
+    }
 }
 
+mod sealed {
+    pub trait Sealed {}
+}
+
+/// The way a [`TagIndex`] stores its postings, as a type.
+///
+/// This trait is sealed — only [`InMemoryMode`] and [`OnDiskMode`] implement it.
+pub trait TagIndexMode: sealed::Sealed {}
+
+/// Postings (doc_ids) kept in memory.
+pub struct InMemoryMode {
+    /// tag value -> document ids.
+    ///
+    /// Box here is required to address the safety rule of iterator.
+    /// If suspended, the iterator requires to have a stable pointer to value.
+    /// `Box<_>` has this guaranteed.
+    values: TrieMap<Box<InvertedIndex<DocIdsOnly>>>,
+}
+
+impl sealed::Sealed for InMemoryMode {}
+impl TagIndexMode for InMemoryMode {}
+
+/// Postings (doc_ids) kept on disk behind the RSE API.
+pub struct OnDiskMode {
+    /// tag value -> (). It is used only to know whether a tag is there
+    values: TrieMap<()>,
+    /// Field id
+    field_id: t_fieldIndex,
+    /// Disk Index spec, valid for as long as this index lives.
+    disk_index_spec: NonNull<RedisSearchDiskIndexSpec>,
+}
+
+impl sealed::Sealed for OnDiskMode {}
+impl TagIndexMode for OnDiskMode {}
+
 /// See the [crate documentation](self) for an overview.
-pub struct TagIndex {
+pub struct TagIndex<M: TagIndexMode> {
     /// Unique id generated at creation time.
-    unique_id: u32,
+    unique_id: TagUniqueId,
 
     /// Suffix index, present only for fields created `WITHSUFFIXTRIE`.
     suffix: Option<TagSuffixIndex>,
 
-    /// The mode: in memory / disk
-    mode: TagIndexMode,
+    /// The storage mode, owning the values trie and whatever else that mode
+    /// needs — the postings themselves in [`InMemoryMode`], the disk handles in
+    /// [`OnDiskMode`].
+    mode: M,
+}
+
+impl<M: TagIndexMode> TagIndex<M> {
+    /// The part of construction every mode's constructor shares.
+    fn with_mode(with_suffix: bool, mode: M) -> Self {
+        Self {
+            unique_id: TagUniqueId::next(),
+            suffix: with_suffix.then(TagSuffixIndex::new),
+            mode,
+        }
+    }
+
+    /// The unique id generated when this index was created.
+    pub const fn id(&self) -> TagUniqueId {
+        self.unique_id
+    }
+
+    /// Returns `true` if suffix search is supported
+    pub const fn has_suffix(&self) -> bool {
+        self.suffix.is_some()
+    }
+}
+
+impl TagIndex<InMemoryMode> {
+    /// Create a new, empty index keeping its postings in memory.
+    ///
+    /// `with_suffix` enables the [suffix index](TagSuffixIndex)
+    /// (`WITHSUFFIXTRIE`), so suffix (`*foo`) and contains (`*foo*`)
+    /// queries don't have to scan the whole tag trie.
+    pub fn new(with_suffix: bool) -> Self {
+        Self::with_mode(
+            with_suffix,
+            InMemoryMode {
+                values: TrieMap::new(),
+            },
+        )
+    }
+}
+
+impl TagIndex<OnDiskMode> {
+    /// Create a new, empty index keeping its postings on disk.
+    ///
+    /// `disk_spec` is paired with `field_id`, the field index the disk API
+    /// calls need. `with_suffix` is as in [`TagIndex<InMemoryMode>::new`].
+    ///
+    /// # Safety
+    ///
+    /// `disk_spec` must point to a *valid* [`RedisSearchDiskIndexSpec`] that
+    /// remains valid for the lifetime of the returned [`TagIndex`]: the disk
+    /// paths hand it to the `RSE` API, which dereferences it.
+    pub unsafe fn new(
+        disk_spec: NonNull<RedisSearchDiskIndexSpec>,
+        field_id: t_fieldIndex,
+        with_suffix: bool,
+    ) -> Self {
+        Self::with_mode(
+            with_suffix,
+            OnDiskMode {
+                values: TrieMap::new(),
+                field_id,
+                disk_index_spec: disk_spec,
+            },
+        )
+    }
 }

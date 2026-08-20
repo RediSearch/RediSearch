@@ -134,6 +134,9 @@ static inline TriePayload *triePayload_New(const char *payload, uint32_t plen) {
   TriePayload *p = rm_malloc(sizeof(TriePayload) + sizeof(char) * (plen + 1));
   p->len = plen;
   memcpy(p->data, payload, sizeof(char) * plen);
+  // the RDB writer saves `len + 1` bytes, so an unassigned terminator would put
+  // heap contents on the wire and make the saved bytes nondeterministic
+  p->data[plen] = '\0';
   return p;
 }
 

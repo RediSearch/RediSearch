@@ -14,7 +14,6 @@ workspace = true
 
 
 [dependencies]
-cheadergen.workspace = true
 lending-iterator.workspace = true
 libc.workspace = true
 thin_vec.workspace = true

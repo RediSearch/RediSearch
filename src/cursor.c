@@ -34,6 +34,13 @@ static void Cursors_RequestRescheduleSweep(CursorList *cl);
 CursorList g_CursorsList;
 CursorList g_CursorsListCoord;
 
+// Picks the cursor counter belonging to the given cursor list. Callers must hold
+// that list's lock: the counter it returns is guarded by that lock alone, which
+// is why the two lists cannot share one counter.
+static inline size_t *activeCursorsRef(IndexSpec *spec, bool is_coord) {
+  return is_coord ? &spec->activeCoordCursors : &spec->activeCursors;
+}
+
 static uint64_t curTimeNs() {
   struct timespec tv;
   clock_gettime(CLOCK_MONOTONIC, &tv);
@@ -90,13 +97,7 @@ static void Cursor_FreeInternal(Cursor *cur) {
   kh_del(cursors, cl->lookup, khi);
   RS_LOG_ASSERT(kh_get(cursors, cl->lookup, cur->id) == kh_end(cl->lookup),
                                                     "Failed to delete cursor");
-  if (cur->hybrid_ref.rm) {
-    // TRANSITIONAL(MOD-16691): the sub-AREQ is freed by the
-    // hybrid container; the cursor's hold rides the StrongRef until the
-    // container-handoff step.
-    StrongRef_Release(cur->hybrid_ref);
-    cur->query = NULL;
-  } else if (cur->query) {
+  if (cur->query) {
     QueryRequest_DecrRef(cur->query);
     cur->query = NULL;
   }
@@ -106,7 +107,9 @@ static void Cursor_FreeInternal(Cursor *cur) {
     IndexSpec *spec = StrongRef_Get(spec_ref);
     // the spec may have been dropped, so we need to make sure it is still valid.
     if(spec) {
-      spec->activeCursors--;
+      // Select on the cursor's own list, not on whichever list a caller happens
+      // to hold: the `getCursorList` call above is the list we are locked on.
+      (*activeCursorsRef(spec, CURSOR_IS_COORD(cur->id)))--;
       StrongRef_Release(spec_ref);
     }
     WeakRef_Release(cur->spec_ref);
@@ -364,6 +367,7 @@ Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned inte
                         QueryError *status) {
   Cursor *cur = NULL;
   IndexSpec *spec = NULL;
+  size_t *activeCursors = NULL;
   int dummy = 0;
   khiter_t iter = 0;
 
@@ -373,11 +377,13 @@ Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned inte
   // If the cursor should be associated with a spec,
   // we assume that global_spec_ref points to a valid spec, else the function returns NULL.
   spec = StrongRef_Get(global_spec_ref);
-  // If we are in a coordinator ctx, the spec is NULL
-  if (spec && spec->activeCursors >= RSGlobalConfig.indexCursorLimit) {
+  if (spec) {
+    activeCursors = activeCursorsRef(spec, cl->is_coord);
+  }
+  if (activeCursors && *activeCursors >= RSGlobalConfig.indexCursorLimit) {
     /** Collect idle cursors now */
     Cursors_GCInternal(cl, 0);
-    if (spec->activeCursors >= RSGlobalConfig.indexCursorLimit) {
+    if (*activeCursors >= RSGlobalConfig.indexCursorLimit) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "INDEX_CURSOR_LIMIT of %lld has been reached for an index", RSGlobalConfig.indexCursorLimit);
       goto done;
     }
@@ -391,7 +397,7 @@ Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned inte
     // Get a a weak reference to the spec out of the strong ref, and save it in the
     // cursor's struct.
     cur->spec_ref = StrongRef_Demote(global_spec_ref);
-    spec->activeCursors++;
+    (*activeCursors)++;
   }
 
   iter = kh_put(cursors, cl->lookup, cur->id, &dummy);
@@ -505,6 +511,7 @@ void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, const IndexSpec *
     RedisModule_ReplyKV_LongLong(reply, "global_total", kh_size(cl->lookup) + kh_size(cl_coord->lookup));
     RedisModule_ReplyKV_LongLong(reply, "index_capacity", RSGlobalConfig.indexCursorLimit);
     RedisModule_ReplyKV_LongLong(reply, "index_total", spec->activeCursors);
+    RedisModule_ReplyKV_LongLong(reply, "index_total_internal", spec->activeCoordCursors);
 
   RedisModule_Reply_MapEnd(reply);
 
@@ -539,6 +546,7 @@ void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, const Inde
   RedisModule_InfoAddFieldLongLong(ctx, "global_total", kh_size(cl->lookup) + kh_size(cl_coord->lookup));
   RedisModule_InfoAddFieldLongLong(ctx, "index_capacity", RSGlobalConfig.indexCursorLimit);
   RedisModule_InfoAddFieldLongLong(ctx, "index_total", spec->activeCursors);
+  RedisModule_InfoAddFieldLongLong(ctx, "index_total_internal", spec->activeCoordCursors);
   RedisModule_InfoEndDictField(ctx);
 
   // Unlock both locks

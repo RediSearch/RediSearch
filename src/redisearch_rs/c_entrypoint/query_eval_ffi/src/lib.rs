@@ -28,27 +28,19 @@ use rqe_iterators::IteratorsConfig;
 
 /// Snapshot the evaluator's configuration.
 ///
-/// Fields that have no per-query snapshot are read from the process-wide
-/// [`ffi::RSGlobalConfig`]. Anything covered by [`IteratorsConfig`] is instead
-/// taken from `iterators` rather than the live global.
+/// Fields that have no per-query snapshot are read from the process-wide config, each
+/// through its [`global_config`] accessor. Anything covered by [`IteratorsConfig`] is
+/// instead taken from `iterators` rather than the live global.
 ///
-/// This is the single point where the query evaluator reads the global config;
-/// the resulting [`Config`] is threaded through evaluation as a parameter.
+/// The resulting [`Config`] is threaded through evaluation as a parameter, so evaluation
+/// itself never re-reads the global. [`resolve_scorer`] does, on the path that decides
+/// whether a query needs term offsets, so a `CONFIG SET` landing between the two can still
+/// leave that decision and this snapshot disagreeing.
 fn eval_config(iterators: &IteratorsConfig) -> Config {
-    // SAFETY: `RSGlobalConfig` is the process-wide config instance, fully
-    // initialised before any query is evaluated, and read-only here. Each field
-    // is a `Copy` scalar read directly out of the static, without forming a
-    // reference to it.
-    let numeric_compress = unsafe { ffi::RSGlobalConfig.numericCompress };
-    // SAFETY: as above.
-    let prioritize_intersect_union_children =
-        unsafe { ffi::RSGlobalConfig.prioritizeIntersectUnionChildren };
-    // SAFETY: as above. `defaultScorer` is a `Copy` pointer to the process-wide
-    // default scorer name, null when unset. It is read (not retained) here to
-    // resolve the built-in `Scorer` once, so `Config` carries no raw pointer.
-    let default_scorer_ptr = unsafe { ffi::RSGlobalConfig.defaultScorer };
-    let default_scorer = NonNull::new(default_scorer_ptr.cast_mut()).and_then(|ptr| {
-        // SAFETY: `defaultScorer` is non-null here and points to a valid
+    // The default scorer is resolved (not retained) here, so `Config` carries no pointer
+    // into config memory that a later `CONFIG SET` can free.
+    let default_scorer = global_config::default_scorer().and_then(|ptr| {
+        // SAFETY: `ptr` points to the configured default scorer name, a valid
         // NUL-terminated C string owned by the process-wide config.
         let name = unsafe { CStr::from_ptr(ptr.as_ptr()) };
         // A non-UTF-8 or custom (non-built-in) default resolves to `None`, which
@@ -57,8 +49,8 @@ fn eval_config(iterators: &IteratorsConfig) -> Config {
     });
 
     Config {
-        numeric_compress,
-        prioritize_intersect_union_children,
+        numeric_compress: global_config::numeric_compress(),
+        prioritize_intersect_union_children: global_config::prioritize_intersect_union_children(),
         default_scorer,
         min_term_prefix: iterators.min_term_prefix,
         max_prefix_expansions: iterators.max_prefix_expansions as usize,
@@ -79,17 +71,15 @@ fn eval_config(iterators: &IteratorsConfig) -> Config {
 unsafe fn resolve_scorer(scorer_name: *const c_char) -> Option<BuiltInScorer> {
     // A null scorer name means "use the configured default scorer".
     let name = if scorer_name.is_null() {
-        // SAFETY: `RSGlobalConfig` is the process-wide config, read-only here;
-        // `defaultScorer` is a `Copy` pointer read directly out of the static.
-        unsafe { ffi::RSGlobalConfig.defaultScorer }
+        global_config::default_scorer()
     } else {
-        scorer_name
+        NonNull::new(scorer_name.cast_mut())
     };
 
-    NonNull::new(name.cast_mut()).and_then(|ptr| {
-        // SAFETY: `name` is non-null here and points to a valid NUL-terminated C
-        // string: either `scorer_name` (by this function's contract) or, in the
-        // default branch, `RSGlobalConfig.defaultScorer`, which the config layer
+    name.and_then(|ptr| {
+        // SAFETY: `ptr` is non-null and points to a valid NUL-terminated C string:
+        // either `scorer_name` (by this function's contract) or, in the default
+        // branch, the configured default scorer name, which the config layer
         // guarantees is a valid NUL-terminated C string.
         BuiltInScorer::from_c_str(unsafe { CStr::from_ptr(ptr.as_ptr()) })
     })

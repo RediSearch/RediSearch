@@ -14,19 +14,6 @@
 typedef struct InvertedIndexNumeric InvertedIndexNumeric;
 
 /**
- * An iterator that performs a depth-first traversal of the numeric range tree.
- *
- * This iterator visits all nodes in the tree, yielding each node exactly once.
- * The traversal is done iteratively using an explicit stack to avoid recursion,
- * which is important for deeply nested trees that might overflow the call stack.
- *
- * # Traversal Order
- *
- * Nodes are visited in reverse pre-order (parent -> right child -> left child).
- */
-typedef struct ReversePreOrderDfsIterator ReversePreOrderDfsIterator;
-
-/**
  * A numeric range is a leaf-level storage unit in the numeric range tree.
  *
  * It stores document IDs and their associated numeric values in an inverted index,
@@ -46,6 +33,19 @@ typedef struct ReversePreOrderDfsIterator ReversePreOrderDfsIterator;
  * the first added value correctly sets both bounds.
  */
 typedef struct NumericRange NumericRange;
+
+/**
+ * A node in the numeric range tree.
+ *
+ * Nodes are either:
+ * - **Leaf nodes**: Have a range but no children.
+ * - **Internal nodes**: Have both children, a split value, depth tracking,
+ *   and optionally retain a range for query efficiency.
+ *
+ * When part of a [`NumericRangeTree`](crate::NumericRangeTree), nodes are
+ * stored in a [`generational_slab::Slab`] arena and referenced by [`NodeIndex`].
+ */
+typedef struct NumericRangeNode NumericRangeNode;
 
 /**
  * A numeric range tree for efficient range queries over numeric values.
@@ -83,17 +83,17 @@ typedef struct NumericRange NumericRange;
 typedef struct NumericRangeTree NumericRangeTree;
 
 /**
- * A node in the numeric range tree.
+ * An iterator that performs a depth-first traversal of the numeric range tree.
  *
- * Nodes are either:
- * - **Leaf nodes**: Have a range but no children.
- * - **Internal nodes**: Have both children, a split value, depth tracking,
- *   and optionally retain a range for query efficiency.
+ * This iterator visits all nodes in the tree, yielding each node exactly once.
+ * The traversal is done iteratively using an explicit stack to avoid recursion,
+ * which is important for deeply nested trees that might overflow the call stack.
  *
- * When part of a [`NumericRangeTree`](crate::NumericRangeTree), nodes are
- * stored in a [`generational_slab::Slab`] arena and referenced by [`NodeIndex`].
+ * # Traversal Order
+ *
+ * Nodes are visited in reverse pre-order (parent -> right child -> left child).
  */
-typedef struct NumericRangeNode NumericRangeNode;
+typedef struct ReversePreOrderDfsIterator ReversePreOrderDfsIterator;
 
 /**
  * Result of adding a value to the tree.

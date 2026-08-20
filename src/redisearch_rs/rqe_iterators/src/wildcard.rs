@@ -285,16 +285,59 @@ pub enum NewWildcardIterator<'index> {
     Disk(DiskWildcardIterator<'index>),
 }
 
-/// An optimized wildcard iterator over the `existingDocs` inverted index.
+/// Payload of [`RawOptimizedWildcard::DocIdsOnly`]: an inverted-index wildcard
+/// over a [`DocIdsOnly`]-encoded `existingDocs`. `Rf` flows into the reader,
+/// which weakens on suspend; the reader-dispatch slot is left at its default,
+/// which freezes it to the **active** reader in both modes — see
+/// [`crate::inverted_index::RawWildcard`].
+type DocIdsOnlyArm<'query, Rf> = crate::inverted_index::RawWildcard<'query, Rf, DocIdsOnly>;
+
+/// Payload of [`RawOptimizedWildcard::RawDocIdsOnly`] — [`DocIdsOnlyArm`] over
+/// the [`RawDocIdsOnly`] encoding instead.
+type RawDocIdsOnlyArm<'query, Rf> = crate::inverted_index::RawWildcard<'query, Rf, RawDocIdsOnly>;
+
+/// An optimized wildcard iterator over the `existingDocs` inverted index,
+/// parameterised over a [`Ref`] mode.
 ///
 /// The encoding may be either [`DocIdsOnly`] or [`RawDocIdsOnly`], depending on
 /// the index configuration.
-pub enum OptimizedWildcard<'index> {
+///
+/// See [`OptimizedWildcard`] for the [`Active`] instantiation that implements
+/// [`RQEIterator`], and [`OptimizedWildcardSuspended`] for its passive carrier
+/// across a lock release/reacquire cycle.
+///
+/// # Invariants
+///
+/// 1. **Layout compatibility across modes.** `OptimizedWildcard<'query>` and
+///    `OptimizedWildcardSuspended<'query>` are layout-identical, so
+///    [`suspend`](RQEIteratorBoxed::suspend) /
+///    [`resume`](RQESuspendedIterator::resume) can transition each payload in
+///    place and then reinterpret the owning `Box` between the two. Being a
+///    single `#[repr(C, u8)]` generic, the two share a tag encoding and variant
+///    order by construction; the per-arm payload correspondence and layout
+///    identity are enforced by the `const _` proof below.
+///
+///    `#[repr(C, u8)]` is load-bearing, not decorative: under the default
+///    `repr(Rust)` both the tag encoding and the payload offsets are
+///    unspecified, and the compiler is free to pick differently for the two
+///    instantiations — the tag could even be niche-encoded into one of the
+///    payload's [`NonNull`] fields.
+#[repr(C, u8)]
+pub enum RawOptimizedWildcard<'query, Rf: Ref> {
     /// Optimized wildcard with [`DocIdsOnly`] encoding.
-    DocIdsOnly(crate::inverted_index::Wildcard<'index, DocIdsOnly>),
+    DocIdsOnly(DocIdsOnlyArm<'query, Rf>),
     /// Optimized wildcard with [`RawDocIdsOnly`] encoding.
-    RawDocIdsOnly(crate::inverted_index::Wildcard<'index, RawDocIdsOnly>),
+    RawDocIdsOnly(RawDocIdsOnlyArm<'query, Rf>),
 }
+
+/// Alias for an [`Active`] [`RawOptimizedWildcard`] — the only instantiation
+/// with an [`RQEIterator`] impl.
+pub type OptimizedWildcard<'index> = RawOptimizedWildcard<'index, Active<'index>>;
+
+/// [`Suspended`]-mode counterpart of [`OptimizedWildcard`], used as its
+/// [`RQEIteratorBoxed::Suspended`] type. Retains the `'query` lifetime so
+/// query-attached borrows stay valid across the suspend/resume cycle.
+pub type OptimizedWildcardSuspended<'query> = RawOptimizedWildcard<'query, Suspended>;
 
 /// Delegates each [`RQEIterator`] method to the active variant.
 macro_rules! delegate_rqe_iterator {
@@ -367,6 +410,217 @@ impl crate::profile_print::ProfilePrint for OptimizedWildcard<'_> {
         match self {
             Self::DocIdsOnly(it) => it.print_profile(map, ctx),
             Self::RawDocIdsOnly(it) => it.print_profile(map, ctx),
+        }
+    }
+}
+
+// Compile-time proof of invariant 1 on `RawOptimizedWildcard`: a
+// `Box<OptimizedWildcard>` can be reinterpreted as a
+// `Box<OptimizedWildcardSuspended>` and back, as `suspend`/`resume` below do.
+// Because both are instantiations of the *same* `#[repr(C, u8)]` enum, the
+// variant order and tag encoding agree by construction and need no assertion.
+// What remains to be proven:
+//
+// (a) **Arm correspondence.** `suspend` fills each payload slot with
+//     `<active arm as RQEIteratorBoxed>::Suspended` — see
+//     [`crate::boxed::suspend_child_slot_in_place`] — and only then relabels the
+//     owning box. That is sound only if the suspended enum's matching arm *is*
+//     that projection. Asserted below as a type equality rather than a layout
+//     comparison: it is the property the reinterpretation actually needs, and a
+//     mismatch becomes a build error instead of a silently mistyped payload.
+//
+// (b) **Per-arm payload layout identity.** Implied by (a) together with
+//     invariant 1 on `RawInvIndIterator` (proven in `inverted_index/core.rs`),
+//     which `inverted_index::RawWildcard` is a `#[repr(C)]` newtype over.
+//     Asserted per arm anyway so a regression names the arm that broke, and
+//     because under `#[repr(C, u8)]` each payload sits at an offset derived
+//     from *that payload's* alignment — per-arm alignment equality, not the
+//     enum's, is what pins the payload offsets. (`offset_of!` into enum
+//     variants is not yet stable, so the offsets cannot be asserted directly.)
+//
+// (c) **Enum size/alignment equality.** Needed on its own by `resume`'s
+//     abort/error paths, which free an allocation created for the active enum
+//     using `Layout::new::<OptimizedWildcardSuspended>()`.
+//
+// A module-level `const _` is evaluated even though neither type is ever
+// instantiated here, which a `const {}` inside a generic function would not be.
+const _: () = {
+    use std::mem::{align_of, size_of};
+
+    /// Witnesses that `Self` and `T` are the same type: the blanket impl is the
+    /// only one, so a `A: IsSame<B>` bound holds exactly when `A` *is* `B`.
+    trait IsSame<T> {}
+    impl<T> IsSame<T> for T {}
+
+    /// (a) — fails to compile unless suspending `A` yields exactly `S`.
+    const fn assert_suspends_to<A, S>()
+    where
+        A: RQEIteratorBoxed<'static>,
+        A::Suspended: IsSame<S>,
+    {
+    }
+
+    assert_suspends_to::<DocIdsOnlyArm<'static, Active<'static>>, DocIdsOnlyArm<'static, Suspended>>(
+    );
+    assert_suspends_to::<
+        RawDocIdsOnlyArm<'static, Active<'static>>,
+        RawDocIdsOnlyArm<'static, Suspended>,
+    >();
+
+    // (b)
+    assert!(
+        size_of::<DocIdsOnlyArm<'static, Active<'static>>>()
+            == size_of::<DocIdsOnlyArm<'static, Suspended>>()
+    );
+    assert!(
+        align_of::<DocIdsOnlyArm<'static, Active<'static>>>()
+            == align_of::<DocIdsOnlyArm<'static, Suspended>>()
+    );
+    assert!(
+        size_of::<RawDocIdsOnlyArm<'static, Active<'static>>>()
+            == size_of::<RawDocIdsOnlyArm<'static, Suspended>>()
+    );
+    assert!(
+        align_of::<RawDocIdsOnlyArm<'static, Active<'static>>>()
+            == align_of::<RawDocIdsOnlyArm<'static, Suspended>>()
+    );
+
+    // (c)
+    assert!(
+        size_of::<OptimizedWildcard<'static>>() == size_of::<OptimizedWildcardSuspended<'static>>()
+    );
+    assert!(
+        align_of::<OptimizedWildcard<'static>>()
+            == align_of::<OptimizedWildcardSuspended<'static>>()
+    );
+};
+
+impl<'index> RQEIteratorBoxed<'index> for OptimizedWildcard<'index> {
+    type Suspended = OptimizedWildcardSuspended<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Transition the payload in place, arm by arm. Both enums are the same
+        // `#[repr(C, u8)]` generic at different `Rf`, so they share a tag
+        // encoding and variant order; the helper writes exactly the arm's
+        // `Suspended` projection, which invariant 1's proof (a) pins to the
+        // matching suspended arm. Together those make the final whole-box cast
+        // sound. The tag byte itself is untouched.
+        //
+        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned,
+        // initialised, exclusively owned); the `&mut` borrow is confined to the
+        // match.
+        match unsafe { &mut *raw } {
+            RawOptimizedWildcard::DocIdsOnly(it) => {
+                // SAFETY: `it` is the valid, exclusively-owned payload; the
+                // helper reinitialises the slot as its `Suspended` form in place.
+                unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
+            }
+            RawOptimizedWildcard::RawDocIdsOnly(it) => {
+                // SAFETY: as above.
+                unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
+            }
+        }
+        // SAFETY: the payload now holds its `Suspended` form at the same offset,
+        // and the tag encodes the same variant in both enums. `Box::from_raw`
+        // reuses the same allocation, so the box address is preserved.
+        unsafe { Box::from_raw(raw.cast::<OptimizedWildcardSuspended<'index>>()) }
+    }
+}
+
+impl<'query> RQESuspendedIterator<'query> for OptimizedWildcardSuspended<'query> {
+    type Resumed<'a>
+        = OptimizedWildcard<'a>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        spec: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        let raw = Box::into_raw(self);
+        // Resume the payload in place, arm by arm — the tag byte is untouched,
+        // so the whole-box cast below lands on the same variant of the active
+        // enum (same `#[repr(C, u8)]` generic at a different `Rf`; arm
+        // correspondence and per-arm layout identity are invariant 1's const
+        // proof above). The arm's own `resume` owns the abort decision — the
+        // garbage collector may have nulled out or replaced `existingDocs` — so
+        // it is stated in exactly one place, shared with the arm's legacy
+        // `revalidate`.
+        //
+        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned,
+        // initialised, exclusively owned); the `&mut` borrow is confined to the
+        // match. On `Unchanged`/`Moved` the helper rewrites the payload as its
+        // resumed form; on `Aborted`/`Err` it consumes the payload, leaving it
+        // uninitialised (handled below).
+        let outcome = match unsafe { &mut *raw } {
+            RawOptimizedWildcard::DocIdsOnly(it) => {
+                // SAFETY: `it` is the valid, exclusively-owned payload.
+                unsafe { crate::boxed::resume_child_slot_in_place(it as *mut _, spec) }
+            }
+            RawOptimizedWildcard::RawDocIdsOnly(it) => {
+                // SAFETY: as above.
+                unsafe { crate::boxed::resume_child_slot_in_place(it as *mut _, spec) }
+            }
+        };
+
+        match outcome {
+            Ok(crate::boxed::ResumeSlotOutcome::Unchanged) => {
+                // SAFETY: the payload holds its resumed form at the same offset
+                // and the tag is unchanged; `Box::from_raw` reuses the same
+                // allocation, so the box address — and the FFI's cached
+                // `header.current` into the payload's result — stay valid.
+                let active = unsafe { Box::from_raw(raw.cast::<OptimizedWildcard<'a>>()) };
+                Ok(ResumeOutcome::Ok(active))
+            }
+            Ok(crate::boxed::ResumeSlotOutcome::Moved) => {
+                // SAFETY: as above.
+                let active = unsafe { Box::from_raw(raw.cast::<OptimizedWildcard<'a>>()) };
+                Ok(ResumeOutcome::Moved(active))
+            }
+            Ok(crate::boxed::ResumeSlotOutcome::Aborted) => {
+                // The payload was consumed; the allocation holds only the tag
+                // and an uninitialised payload, so it must be freed without
+                // dropping anything.
+                // SAFETY: `raw` was allocated by `Box` with exactly this layout;
+                // nothing in it is live any more.
+                unsafe {
+                    std::alloc::dealloc(
+                        raw.cast::<u8>(),
+                        std::alloc::Layout::new::<OptimizedWildcardSuspended<'query>>(),
+                    )
+                };
+                Ok(ResumeOutcome::Aborted)
+            }
+            Err(e) => {
+                // As `Aborted`: the payload was consumed; free the allocation
+                // without dropping it.
+                // SAFETY: as above.
+                unsafe {
+                    std::alloc::dealloc(
+                        raw.cast::<u8>(),
+                        std::alloc::Layout::new::<OptimizedWildcardSuspended<'query>>(),
+                    )
+                };
+                Err(e)
+            }
+        }
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        match self {
+            RawOptimizedWildcard::DocIdsOnly(it) => RQESuspendedIterator::last_doc_id(it),
+            RawOptimizedWildcard::RawDocIdsOnly(it) => RQESuspendedIterator::last_doc_id(it),
+        }
+    }
+
+    fn num_estimated(&self) -> usize {
+        match self {
+            RawOptimizedWildcard::DocIdsOnly(it) => RQESuspendedIterator::num_estimated(it),
+            RawOptimizedWildcard::RawDocIdsOnly(it) => RQESuspendedIterator::num_estimated(it),
         }
     }
 }

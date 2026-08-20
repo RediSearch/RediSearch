@@ -26,21 +26,21 @@ const JSON_ROOT: &CStr = c"$";
 pub struct JsonDocumentFormat<'a> {
     ctx: NonNull<redis_module::RedisModuleCtx>,
     japi: &'a RedisJsonApi,
-    api_version: u32,
+    api_version: u8,
 }
 
 pub struct JsonFieldLoader<'a> {
     ctx: NonNull<redis_module::RedisModuleCtx>,
     value: JsonValueRef<'a>,
     key_name: &'a RedisString,
-    api_version: u32,
+    api_version: u8,
 }
 
 impl<'a> JsonDocumentFormat<'a> {
     pub const fn new(
         ctx: NonNull<redis_module::RedisModuleCtx>,
         japi: &'a RedisJsonApi,
-        api_version: u32,
+        api_version: u8,
     ) -> Self {
         Self {
             ctx,
@@ -181,9 +181,9 @@ impl FieldLoader for JsonFieldLoader<'_> {
 fn json_iter_to_value(
     ctx: NonNull<redis_module::RedisModuleCtx>,
     mut iter: redis_json_api::ResultsIter<'_>,
-    api_version: u32,
+    api_version: u8,
 ) -> Result<Option<SharedValue>, SerializeError> {
-    if api_version < ffi::APIVERSION_RETURN_MULTI_CMP_FIRST {
+    if u32::from(api_version) < ffi::APIVERSION_RETURN_MULTI_CMP_FIRST {
         // Preserve single value behavior for backward compatibility
         let Some(json) = iter.next() else {
             return Ok(None);
