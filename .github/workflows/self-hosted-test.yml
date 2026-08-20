@@ -45,7 +45,8 @@ jobs:
           SLEEP: ${{ github.inputs.sleep_time }}
         run: |
           env
-        docker run ubuntu:latest echo Hello
+          sudo apt install -y liburing-dev
+          docker run ubuntu:latest echo Hello
           if [ -z "$SLEEP_TIME" ] || [ "$SLEEP_TIME" = 0 ]; then
             SLEEP_TIME=21600
           fi
