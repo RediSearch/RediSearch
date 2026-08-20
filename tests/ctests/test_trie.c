@@ -28,6 +28,12 @@
 size_t __trieNode_Sizeof(t_len numChildren, t_len slen);
 
 int count = 0;
+static size_t freedTriePayloads = 0;
+
+static void countTriePayloadFree(void *payload) {
+  (void)payload;
+  ++freedTriePayloads;
+}
 
 FilterCode stepFilter(unsigned char b, void *ctx, int *matched, void *matchCtx) {
   return F_CONTINUE;
@@ -1088,6 +1094,38 @@ int testTrieNodeSizeof() {
   return 0;
 }
 
+int testDeleteRunesDeepSuffixTrieUsesDynamicStack() {
+  freedTriePayloads = 0;
+  rune *rootRunes = strToRunes("", NULL);
+  TrieNode *root = __newTrieNode(rootRunes, 0, 0, NULL, 0, 0, 1, 0, Trie_Sort_Lex, 0);
+  ASSERT(root != NULL);
+  free(rootRunes);
+
+  enum { keyLen = TRIE_INITIAL_STRING_LEN * 2 + 16 };
+  rune key[keyLen];
+  for (size_t i = 0; i < keyLen; ++i) {
+    key[i] = 'a';
+  }
+
+  RSPayload payload = {.data = "payload", .len = strlen("payload")};
+
+  // Use TrieNode_Add() directly: older Trie wrappers reject terms long enough
+  // to exercise TrieNode_Delete()'s dynamic-stack realloc path.
+  for (size_t len = 1; len <= keyLen; ++len) {
+    int rc = TrieNode_Add(&root, key, len, &payload, 1, ADD_REPLACE, countTriePayloadFree, 1);
+    ASSERT_EQUAL(TRIE_OK_NEW, rc);
+  }
+  ASSERT_EQUAL(0, freedTriePayloads);
+
+  ASSERT_EQUAL(1, TrieNode_Delete(root, key, keyLen, countTriePayloadFree));
+  ASSERT(TrieNode_Get(root, key, keyLen, true, NULL) == NULL);
+  ASSERT(TrieNode_Get(root, key, keyLen - 1, true, NULL) != NULL);
+  ASSERT_EQUAL(1, freedTriePayloads);
+
+  TrieNode_Free(root, countTriePayloadFree);
+  return 0;
+}
+
 TEST_MAIN({
   RMUTil_InitAlloc();
   TESTFUNC(testRuneUtil);
@@ -1100,4 +1138,5 @@ TEST_MAIN({
   TESTFUNC(testDecrementNumDocsComplex);
   TESTFUNC(testDecrementNumDocsNonTerminal);
   TESTFUNC(testTrieNodeSizeof);
+  TESTFUNC(testDeleteRunesDeepSuffixTrieUsesDynamicStack);
 });
