@@ -98,6 +98,7 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
   RedisSearchCtx *sctx = self->sctx;
   DocTable* docs = &self->sctx->spec->docs;
   const RSDocumentMetadata *dmd;
+  // An owned or borrowed lock both keep this iterator on the existing snapshot.
   if (sctx->flags == RS_CTX_UNSET) {
     // If we need to read the iterators and we didn't lock the spec yet, lock it now
     // and reopen the keys in the concurrent search context (iterators' validation)
