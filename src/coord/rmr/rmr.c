@@ -67,12 +67,6 @@ static NodeIdRef *local_node_id_g = NULL;
 /* Coordination request timeout */
 long long timeout_g = 5000; // unused value. will be set in MR_Init
 
-typedef enum {
-  MR_REQUEST_ACTIVE,
-  MR_REQUEST_TIMED_OUT,
-  MR_REQUEST_DISCONNECTED,
-} MRRequestState;
-
 /* MapReduce context for a specific command's execution */
 typedef struct MRCtx {
   _Atomic(int) refcount;
@@ -105,7 +99,9 @@ typedef struct MRCtx {
   MRReduceFunc fn;
 
   /* State tracking for partial timeout and disconnect cancellation. */
-  _Atomic(MRRequestState) requestState;
+  _Atomic(bool) timedOut;
+  // Published before timedOut by the disconnect callback and immutable after.
+  bool disconnected;
   _Atomic(bool) reducing;
   bool reducerDone;
   MRCtxFreePrivDataCB freePrivDataCB;
@@ -138,7 +134,8 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
   ret->ioRuntime = MRCluster_GetIORuntimeCtx(cluster_g, MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g));
   ret->status = QueryError_Default();
 
-  atomic_init(&ret->requestState, MR_REQUEST_ACTIVE);
+  atomic_init(&ret->timedOut, false);
+  ret->disconnected = false;
   atomic_init(&ret->reducing, false);
   ret->reducerDone = false;
   ret->freePrivDataCB = NULL;
@@ -230,19 +227,22 @@ void MRCtx_SetBlockedClient(struct MRCtx *ctx, RedisModuleBlockedClient *bc) {
 }
 
 void MRCtx_SetTimedOut(struct MRCtx *ctx) {
-  atomic_store(&ctx->requestState, MR_REQUEST_TIMED_OUT);
+  atomic_store(&ctx->timedOut, true);
 }
 
 bool MRCtx_IsTimedOut(struct MRCtx *ctx) {
-  return atomic_load(&ctx->requestState) != MR_REQUEST_ACTIVE;
+  return atomic_load(&ctx->timedOut);
 }
 
 void MRCtx_SetDisconnected(struct MRCtx *ctx) {
-  atomic_store(&ctx->requestState, MR_REQUEST_DISCONNECTED);
+  ctx->disconnected = true;
+  // The atomic publication makes disconnected visible to workers that
+  // subsequently observe cancellation.
+  MRCtx_SetTimedOut(ctx);
 }
 
 bool MRCtx_IsDisconnected(struct MRCtx *ctx) {
-  return atomic_load(&ctx->requestState) == MR_REQUEST_DISCONNECTED;
+  return MRCtx_IsTimedOut(ctx) && ctx->disconnected;
 }
 
 bool MRCtx_TryClaimReducing(struct MRCtx *ctx) {
