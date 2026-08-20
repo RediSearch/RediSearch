@@ -22,6 +22,7 @@
 
 pub mod heap;
 pub mod iterator;
+pub mod order;
 pub mod traits;
 
 #[cfg(test)]
@@ -34,4 +35,5 @@ pub mod mock;
 
 pub use heap::{HeapResult, ScoredResult, TopKHeap};
 pub use iterator::{TopKIterator, TopKMode, TopKSourceProfile};
+pub use order::{Ascending, Descending, RuntimeOrder, ScoreOrdering};
 pub use traits::{BatchStrategy, ScoreBatch, ScoreSource};

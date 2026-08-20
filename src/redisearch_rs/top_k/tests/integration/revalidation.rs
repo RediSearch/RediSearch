@@ -9,20 +9,17 @@
 
 //! Integration tests for [`TopKIterator::revalidate`].
 
-use std::{cmp::Ordering, num::NonZeroUsize};
+use std::num::NonZeroUsize;
 
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use rqe_core::DocId;
 use rqe_iterators::{RQEIterator, RQEValidateStatus};
 use rqe_iterators_test_utils::ContractChecker;
+use top_k::Ascending;
 use top_k::{BatchStrategy, TopKIterator, mock::MockScoreSource};
 
 /// Ascending comparator: lower score is better (e.g. vector distance).
-const fn asc() -> fn(a: &f64, b: &f64) -> Ordering {
-    f64::total_cmp
-}
-
 /// Child iterator whose `revalidate` unconditionally returns `Aborted`.
 ///
 /// The `Ok` delegation path is covered by [`rqe_iterators::Empty`], which
@@ -164,7 +161,7 @@ fn without_child_returns_ok() {
     let mut it = ContractChecker::new_unordered(TopKIterator::new_unfiltered(
         source,
         NonZeroUsize::new(5).unwrap(),
-        asc(),
+        Ascending,
     ));
     let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
     assert_eq!(status, RQEValidateStatus::Ok);
@@ -181,7 +178,7 @@ fn with_child_delegates_ok() {
         source,
         child,
         NonZeroUsize::new(5).unwrap(),
-        asc(),
+        Ascending,
     ));
     let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
     assert_eq!(status, RQEValidateStatus::Ok);
@@ -196,7 +193,7 @@ fn with_child_delegates_aborted() {
         source,
         child,
         NonZeroUsize::new(5).unwrap(),
-        asc(),
+        Ascending,
     ));
     let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
     assert_eq!(status, RQEValidateStatus::Aborted);
@@ -213,7 +210,7 @@ fn moved_child_collapses_to_ok() {
         source,
         child,
         NonZeroUsize::new(5).unwrap(),
-        asc(),
+        Ascending,
     ));
     let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
     assert_eq!(status, RQEValidateStatus::Ok);

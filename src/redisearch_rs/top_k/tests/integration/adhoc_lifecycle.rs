@@ -12,21 +12,18 @@
 //! with exactly one begin and one end, including when the child errors
 //! mid-loop.
 
-use std::{cmp::Ordering, marker::PhantomData, num::NonZeroUsize};
+use std::{marker::PhantomData, num::NonZeroUsize};
 
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use rqe_core::DocId;
 use rqe_iterators::{IdList, RQEIterator, RQEIteratorError};
 use rqe_iterators_test_utils::ContractChecker;
+use top_k::Ascending;
 use top_k::{
     BatchStrategy, ScoreSource, ScoredResult, TopKIterator, TopKMode, mock::MockScoreBatch,
     mock::MockScoreSource,
 };
-
-fn asc(a: &f64, b: &f64) -> Ordering {
-    a.partial_cmp(&b).unwrap_or(Ordering::Equal)
-}
 
 fn make_child<'a>(ids: Vec<DocId>) -> Box<dyn RQEIterator<'a> + 'a> {
     Box::new(IdList::<true>::new(ids))
@@ -121,7 +118,7 @@ fn hooks_called_once_per_scan_with_lookups_in_between() {
         CallCountingScoreSource::default(),
         Some(make_child(vec![1, 2, 3])),
         NonZeroUsize::new(10).unwrap(),
-        asc,
+        Ascending,
         TopKMode::AdhocBF,
     );
     while it.read().unwrap().is_some() {}
@@ -221,7 +218,7 @@ fn end_adhoc_runs_when_child_errors_midscan() {
         CallCountingScoreSource::default(),
         Some(child),
         NonZeroUsize::new(10).unwrap(),
-        asc,
+        Ascending,
         TopKMode::AdhocBF,
     );
     assert!(matches!(it.read().unwrap_err(), RQEIteratorError::TimedOut));
@@ -244,7 +241,7 @@ fn rerank_runs_once_after_clean_scan() {
         source,
         Some(make_child(vec![1, 2, 3])),
         NonZeroUsize::new(10).unwrap(),
-        asc,
+        Ascending,
         TopKMode::AdhocBF,
     );
     while it.read().unwrap().is_some() {}
@@ -268,7 +265,7 @@ fn rerank_skipped_on_timeout() {
         source,
         Some(child),
         NonZeroUsize::new(10).unwrap(),
-        asc,
+        Ascending,
         TopKMode::AdhocBF,
     );
     assert!(matches!(it.read().unwrap_err(), RQEIteratorError::TimedOut));
@@ -298,7 +295,7 @@ fn rerank_reorders_topk_by_exact_scores() {
         source,
         Some(make_child(vec![1, 2, 3])),
         NonZeroUsize::new(3).unwrap(),
-        asc,
+        Ascending,
         TopKMode::AdhocBF,
     ));
 
@@ -324,7 +321,7 @@ fn rerank_keeps_adhoc_score_for_unmapped_doc() {
         source,
         Some(make_child(vec![1, 2, 3])),
         NonZeroUsize::new(3).unwrap(),
-        asc,
+        Ascending,
         TopKMode::AdhocBF,
     ));
 
