@@ -600,6 +600,8 @@ E=0
 # Test suite assumes WORKERS=0; tests that need workers enable them explicitly.
 MODARGS="${MODARGS}; WORKERS 0;"
 MODARGS="${MODARGS}; TIMEOUT 0;" # disable query timeout by default
+# Tests opt in explicitly when exercising strict timeout behavior.
+MODARGS="${MODARGS}; ON_TIMEOUT RETURN;"
 MODARGS="${MODARGS}; _MAX_FOREGROUND_TIMEOUT_LIMIT 0;" # disable per-query TIMEOUT cap by default
 MODARGS="${MODARGS}; DEFAULT_DIALECT 2;" # set default dialect to 2
 
