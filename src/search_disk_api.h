@@ -576,14 +576,10 @@ typedef struct IndexDiskAPI {
   void (*flush)(RedisSearchDiskIndexSpec *index);
 
   /**
-   * @brief Seal all memtables and schedule a flush without waiting for it.
+   * @brief Schedule a flush to disk without waiting for it
    *
-   * Rolls every column family's active memtable into an immutable one and
-   * schedules a flush, but returns immediately instead of blocking until the
-   * flush reaches L0 (unlike `flush`). Test-support primitive: paired with a
-   * paused background worker, the sealed immutable memtable persists long
-   * enough to observe flush-state INFO metrics deterministically. A blocking
-   * `flush` would instead deadlock against the paused worker.
+   * Unlike `flush`, returns immediately instead of blocking until the flush
+   * completes.
    *
    * @param index Pointer to the disk index
    */
