@@ -108,24 +108,26 @@ fn suffix_iter_values_yields_only_matching_tags() {
 
 /// A suffix query (`*foo`) resolves a single suffix-trie node and yields every
 /// term it belongs to: the node's own tag when the suffix is itself a tag, plus
-/// every tag it is a proper suffix of.
+/// every tag it is a proper suffix of, in the order they were registered.
+///
+/// The order is asserted unsorted because it is part of the contract.
 #[test]
 fn suffix_query_exact_node_yields_every_member() {
     let mut tag_index = TagIndex::<InMemoryMode>::new(true);
-    let tags: &[&[u8]] = &[b"eat", b"beat", b"heat", b"bean"];
+    // `eat` last, so it lands after the terms it is a suffix of.
+    let tags: &[&[u8]] = &[b"beat", b"heat", b"eat", b"bean"];
     index_mem(&mut tag_index, tags, 1);
     commit_mem(&mut tag_index, tags);
 
-    let mut terms: Vec<Vec<u8>> = tag_index
+    let terms: Vec<Vec<u8>> = tag_index
         .suffix_expand(SuffixQuery::Suffix(Tag::new(b"eat").unwrap()), None)
         // The yielded terms carry their terminator; compare without it.
         .map(|term| term[..term.len() - 1].to_vec())
         .collect();
-    terms.sort();
 
     assert_eq!(
         terms,
-        [b"beat".to_vec(), b"eat".to_vec(), b"heat".to_vec()],
+        [b"beat".to_vec(), b"heat".to_vec(), b"eat".to_vec()],
         "`eat` is a tag itself and a suffix of `beat` and `heat`, but not of `bean`"
     );
 }
