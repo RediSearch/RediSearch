@@ -3477,6 +3477,9 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
   // In that case the timeout callback owns the blocked-client lifetime, so the
   // background reducer must exit before touching `bc`.
   if (!fromTimeout && MRCtx_IsTimedOut(mc)) {
+    if (MRCtx_IsDisconnected(mc)) {
+      bc = MRCtx_GetBlockedClient(mc);
+    }
     goto cleanup;
   }
 
@@ -3622,7 +3625,8 @@ cleanup:
     searchReqCtx_SetExecutionStage(doneReq, QUERY_TIMEOUT_STAGE_REPLY);
   }
 
-  if (bc && !fromTimeout && !MRCtx_IsTimedOut(mc)) {
+  if (bc && !fromTimeout &&
+      (!MRCtx_IsTimedOut(mc) || MRCtx_IsDisconnected(mc))) {
     // Timeout callback should not call unblockClient
     RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, mc);
@@ -4208,7 +4212,7 @@ static void bailOut(RedisModuleBlockedClient *bc, QueryError *status) {
   }
   // Clear the original status after cloning (or if timeout owns reply) to avoid double-free or leaks
   QueryError_ClearError(status);
-  if (!MRCtx_IsTimedOut(mrctx)) {
+  if (!MRCtx_IsTimedOut(mrctx) || MRCtx_IsDisconnected(mrctx)) {
     RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, mrctx);
   }
@@ -4309,8 +4313,13 @@ int FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlockedClient *bc, 
   RedisModuleString **argv, int argc, ConcurrentSearchHandlerCtx *handlerCtx) {
   QueryError status = QueryError_Default();
 
-  // If timeout already fired, its callback owns the reply path.
+  // A queued disconnect has no later fanout or reducer to release the handle.
   if (MRCtx_IsTimedOut(mrctx)) {
+    WeakRef_Release(handlerCtx->spec_ref);
+    if (MRCtx_IsDisconnected(mrctx)) {
+      RedisModule_BlockedClientMeasureTimeEnd(bc);
+      RedisModule_UnblockClient(bc, mrctx);
+    }
     return REDISMODULE_OK;
   }
 
@@ -4441,6 +4450,13 @@ static void DistSearchFreePrivData(RedisModuleCtx *ctx, void *privdata) {
     struct MRCtx *mrctx = privdata;
     MRCtx_DecrRef(mrctx);
   }
+}
+
+static void DistSearchDisconnectCallback(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc) {
+  UNUSED(ctx);
+  struct MRCtx *mrctx = RedisModule_BlockClientGetPrivateData(bc);
+  RS_ASSERT(mrctx);
+  MRCtx_SetDisconnected(mrctx);
 }
 
 typedef RedisModuleCmdFunc BlockedClientTimeoutCB;
@@ -4707,6 +4723,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   // Set MRCtx as privdata for the blocked client
   RedisModule_BlockClientSetPrivateData(bc, mrctx);
+  RedisModule_SetDisconnectCallback(bc, DistSearchDisconnectCallback);
 
   SearchCmdCtx* sCmdCtx = rm_calloc(1, sizeof(*sCmdCtx));
   sCmdCtx->handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
@@ -5088,8 +5105,13 @@ static int DEBUG_FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlocke
   RedisModuleString **argv, int argc, ConcurrentSearchHandlerCtx *handlerCtx) {
   QueryError status = QueryError_Default();
 
-  // If timeout already fired, its callback owns the reply path.
+  // A queued disconnect has no later fanout or reducer to release the handle.
   if (MRCtx_IsTimedOut(mrctx)) {
+    WeakRef_Release(handlerCtx->spec_ref);
+    if (MRCtx_IsDisconnected(mrctx)) {
+      RedisModule_BlockedClientMeasureTimeEnd(bc);
+      RedisModule_UnblockClient(bc, mrctx);
+    }
     return REDISMODULE_OK;
   }
 
@@ -5152,4 +5174,3 @@ static void DEBUG_DistSearchCommandHandler(void* pd) {
   MRCtx_DecrRef(sCmdCtx->mrctx);
   rm_free(sCmdCtx);
 }
-

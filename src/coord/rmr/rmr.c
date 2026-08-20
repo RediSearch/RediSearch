@@ -67,6 +67,12 @@ static NodeIdRef *local_node_id_g = NULL;
 /* Coordination request timeout */
 long long timeout_g = 5000; // unused value. will be set in MR_Init
 
+typedef enum {
+  MR_REQUEST_ACTIVE,
+  MR_REQUEST_TIMED_OUT,
+  MR_REQUEST_DISCONNECTED,
+} MRRequestState;
+
 /* MapReduce context for a specific command's execution */
 typedef struct MRCtx {
   _Atomic(int) refcount;
@@ -98,8 +104,8 @@ typedef struct MRCtx {
    */
   MRReduceFunc fn;
 
-  /* State tracking for partial timeout support */
-  _Atomic(bool) timedOut;
+  /* State tracking for partial timeout and disconnect cancellation. */
+  _Atomic(MRRequestState) requestState;
   _Atomic(bool) reducing;
   bool reducerDone;
   MRCtxFreePrivDataCB freePrivDataCB;
@@ -132,7 +138,7 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
   ret->ioRuntime = MRCluster_GetIORuntimeCtx(cluster_g, MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g));
   ret->status = QueryError_Default();
 
-  atomic_init(&ret->timedOut, false);
+  atomic_init(&ret->requestState, MR_REQUEST_ACTIVE);
   atomic_init(&ret->reducing, false);
   ret->reducerDone = false;
   ret->freePrivDataCB = NULL;
@@ -224,11 +230,19 @@ void MRCtx_SetBlockedClient(struct MRCtx *ctx, RedisModuleBlockedClient *bc) {
 }
 
 void MRCtx_SetTimedOut(struct MRCtx *ctx) {
-  atomic_store(&ctx->timedOut, true);
+  atomic_store(&ctx->requestState, MR_REQUEST_TIMED_OUT);
 }
 
 bool MRCtx_IsTimedOut(struct MRCtx *ctx) {
-  return atomic_load(&ctx->timedOut);
+  return atomic_load(&ctx->requestState) != MR_REQUEST_ACTIVE;
+}
+
+void MRCtx_SetDisconnected(struct MRCtx *ctx) {
+  atomic_store(&ctx->requestState, MR_REQUEST_DISCONNECTED);
+}
+
+bool MRCtx_IsDisconnected(struct MRCtx *ctx) {
+  return atomic_load(&ctx->requestState) == MR_REQUEST_DISCONNECTED;
 }
 
 bool MRCtx_TryClaimReducing(struct MRCtx *ctx) {
@@ -314,7 +328,7 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
     if (!timedOut && ctx->fn) {
       ctx->fn(ctx, ctx->numReplied, ctx->replies);
     } else {
-      if (!timedOut) {
+      if (!timedOut || MRCtx_IsDisconnected(ctx)) {
         RedisModuleBlockedClient *bc = ctx->bc;
         RS_ASSERT(bc);
         RedisModule_BlockedClientMeasureTimeEnd(bc);
@@ -341,7 +355,7 @@ static void uvFanoutRequest(void *p) {
   if (mrctx->numExpected == 0) {
     // No shard command was sent, so fanoutCallback() will never fire.
     IORuntimeCtx_RequestCompleted(ioRuntime);
-    if (!MRCtx_IsTimedOut(mrctx)) {
+    if (!MRCtx_IsTimedOut(mrctx) || MRCtx_IsDisconnected(mrctx)) {
       RedisModuleBlockedClient *bc = mrctx->bc;
       RS_ASSERT(bc);
       RedisModule_BlockedClientMeasureTimeEnd(bc);
