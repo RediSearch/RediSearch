@@ -284,10 +284,9 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
 
-  const DocTable *dt = &sctx->spec->docs;
   RedisModule_ReplyWithArray(ctx, argc - 2);
   for (size_t i = 2; i < argc; i++) {
-    if (DocTable_GetIdR(dt, argv[i]) == 0) {
+    if (IndexSpec_GetDocIdByKeyR(sctx->spec, ctx, argv[i]) == 0) {
       // Document does not exist in index; even though it exists in keyspace
       RedisModule_ReplyWithNull(ctx);
       continue;
@@ -327,7 +326,7 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
 
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
-  if (DocTable_GetIdR(&sctx->spec->docs, argv[2]) == 0) {
+  if (IndexSpec_GetDocIdByKeyR(sctx->spec, ctx, argv[2]) == 0) {
     RedisModule_ReplyWithNull(ctx);
   } else {
     Document_ReplyAllFields(ctx, sctx->spec, argv[2]);
@@ -727,17 +726,19 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   bool dropCommand = RMUtil_StringEqualsCaseC(argv[0], RS_DROP_CMD_PUBLIC) ||
                RMUtil_StringEqualsCaseC(argv[0], RS_DROP_CMD_INTERNAL);
-  bool delDocs = dropCommand;
+  // FT.DROP deletes the documents by default (KEEPDOCS opts out); FT.DROPINDEX
+  // keeps them by default (DD opts in).
+  IndexDropMode dropMode = dropCommand ? IndexDrop_DeleteDocs : IndexDrop_KeepDocs;
   if (SearchDisk_IsEnabledForValidation() && dropCommand) {
     return RedisModule_ReplyWithError(ctx, "FT.DROP is not supported in Redis Flex");
   }
   if (argc == 3){
     if (RMUtil_StringEqualsCaseC(argv[2], "_FORCEKEEPDOCS")) {
-      delDocs = false;
+      dropMode = IndexDrop_KeepDocs;
     } else if (dropCommand && RMUtil_StringEqualsCaseC(argv[2], "KEEPDOCS")) {
-      delDocs = false;
+      dropMode = IndexDrop_KeepDocs;
     } else if (!dropCommand && RMUtil_StringEqualsCaseC(argv[2], "DD")) {
-      delDocs = true;
+      dropMode = IndexDrop_DeleteDocs;
       if (SearchDisk_IsEnabledForValidation()) {
         return RedisModule_ReplyWithError(ctx, "DD is not supported in Redis Flex");
       }
@@ -746,7 +747,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
   }
 
-  RS_ASSERT(!(delDocs && SearchDisk_IsEnabledForValidation()));
+  RS_ASSERT(!(dropMode == IndexDrop_DeleteDocs && SearchDisk_IsEnabledForValidation()));
 
   CurrentThread_SetIndexSpec(global_ref);
 
@@ -758,7 +759,13 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     SearchDisk_MarkIndexForDeletion(sp->diskSpec);
   }
 
-  if((delDocs || sp->flags & Index_Temporary)) {
+  // A temporary index takes its documents with it regardless of the argument.
+  if (sp->flags & Index_Temporary) {
+    dropMode = IndexDrop_DeleteDocs;
+  }
+  sp->dropMode = dropMode;
+
+  if (dropMode == IndexDrop_DeleteDocs) {
     // We take a strong reference to the index, so it will not be freed
     // and we can still use it's doc table to delete the keys.
     StrongRef own_ref = StrongRef_Clone(global_ref);
@@ -773,7 +780,11 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     CurrentThread_ClearIndexSpec();
     StrongRef_Release(own_ref);
   } else {
-    // If we don't delete the docs, we just remove the index from the global dict
+    // Without the free-resources thread the spec is freed inline on an unknown
+    // thread, so prune here while we still hold a command context.
+    if (!RSGlobalConfig.freeResourcesThread) {
+      IndexSpec_PruneDocIdMetaOnDrop(ctx, sp);
+    }
     Indexes_RemoveSpecFromGlobals(global_ref, true);
   }
 
@@ -4948,8 +4959,10 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_ERR;
   }
 
-  if (SearchDisk_IsEnabled()) {
-    DocIdMeta_Init(ctx);
+  // key->docId is stored as Redis key-metadata in both modes; RDB callbacks are
+  // gated to disk mode inside DocIdMeta_Init. Must run during OnLoad.
+  if (!DocIdMeta_Init(ctx)) {
+    return REDISMODULE_ERR;
   }
 
   // Check if we are actually in cluster mode

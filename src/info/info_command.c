@@ -303,10 +303,9 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
       : __atomic_load_n(&sp->stats.totalInvertedIndexBlocks, __ATOMIC_RELAXED);
   size_t offset_vecs_size = isDisk ? 0 : sp->stats.offsetVecsSize;
   size_t sortables_size = isDisk ? 0 : sp->docs.sortablesSize;
-  size_t dt_tm_size = isDisk ? 0 : TrieMap_MemUsage(sp->docs.dim.tm);
   size_t tags_overhead = isDisk ? 0 : IndexSpec_collect_tags_overhead(sp);
   size_t text_overhead = IndexSpec_collect_text_overhead(sp);
-  size_t total_memory = IndexSpec_TotalMemUsage(specForOpeningIndexes, dt_tm_size, tags_overhead,
+  size_t total_memory = IndexSpec_TotalMemUsage(specForOpeningIndexes, tags_overhead,
     text_overhead, vector_indexes_size);
   size_t inverted_size = isDisk ? SearchDisk_GetInvertedIndexTotalMemory(sp->diskSpec) :
     sp->stats.invertedSize;
@@ -322,7 +321,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVNUM("offset_vectors_sz_mb", offset_vecs_size / (float)0x100000);
   REPLY_KVNUM("doc_table_size_mb", doc_table_size / (float)0x100000);
   REPLY_KVNUM("sortable_values_size_mb", sortables_size / (float)0x100000);
-  REPLY_KVNUM("key_table_size_mb", dt_tm_size / (float)0x100000);
+  REPLY_KVNUM("key_table_size_mb", 0);
   REPLY_KVNUM("tag_overhead_sz_mb", tags_overhead / (float)0x100000);
   REPLY_KVNUM("text_overhead_sz_mb", text_overhead / (float)0x100000);
   REPLY_KVNUM("total_index_memory_sz_mb", total_memory / (float)0x100000);

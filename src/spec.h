@@ -294,6 +294,24 @@ typedef struct CharBuf {
   size_t len;
 } CharBuf;
 
+// What FT.DROP / FT.DROPINDEX did with this index's documents, and hence what
+// teardown still owes the keyspace. Set by DropIndexCommand before the spec is
+// unlinked, and reset to IndexDrop_None once the cleanup it implies has run, so
+// that happens exactly once whichever teardown path frees the spec.
+typedef enum {
+  // Not dropped, or the cleanup below already ran.
+  IndexDrop_None = 0,
+  // The documents' keys go away with the index (FT.DROP, FT.DROPINDEX DD, or a
+  // temporary index), taking their DocIdMeta entries with them.
+  IndexDrop_DeleteDocs,
+  // KEEPDOCS: the keys outlive the index. In memory mode nothing else removes
+  // this spec's DocIdMeta entries from them, so teardown must prune them while
+  // the DocTable - the only remaining list of those keys - is still alive; that
+  // needs the GIL and a usable module context (IndexSpec_PruneDocIdMetaOnDrop).
+  // In disk mode the RDB save/load cycle reclaims them instead.
+  IndexDrop_KeepDocs,
+} IndexDropMode;
+
 typedef struct IndexSpec {
   const HiddenString *specName;         // Index private name
   char *obfuscatedName;           // Index hashed name
@@ -388,6 +406,8 @@ typedef struct IndexSpec {
   // node (replica / hot-restart) finishes the partially populated index.
   // Idempotent re-indexing (DocIdMeta skip) makes the restart a safe backfill.
   bool resume_bg_indexing;
+
+  IndexDropMode dropMode;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
@@ -587,6 +607,17 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 // NOT clean up DocIdMeta on the key. This is called from the metadata unlink callback
 void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId);
 
+// Resolve a key -> docId for this spec via the DocIdMeta key metadata (the
+// replacement for the former in-memory DocTable key trie). Returns 0 if the key
+// is not indexed by the spec. Valid in both memory and disk mode.
+t_docId IndexSpec_GetDocIdByKeyR(const IndexSpec *sp, RedisModuleCtx *ctx, RedisModuleString *key);
+
+// Borrow the in-memory DMD for a key (memory mode only), resolving key -> docId
+// via DocIdMeta. Returns NULL if the key is not indexed. Caller must DMD_Return
+// the result. Disk mode fetches DMDs from disk instead.
+const RSDocumentMetadata *IndexSpec_BorrowDocByKeyR(IndexSpec *sp, RedisModuleCtx *ctx,
+                                                    RedisModuleString *key);
+
 // (Re)index a single document into the spec.
 //
 // `openKey` is an optional already-open handle for `key`. Pass it when the
@@ -693,6 +724,13 @@ StrongRef IndexSpec_GetStrongRefUnsafe(const IndexSpec *spec);
  */
 void IndexSpec_Unlink(StrongRef spec_ref, bool removeActive);
 
+/**
+ * Prune this spec's DocIdMeta entries from surviving Redis keys during a
+ * synchronous KEEPDOCS drop. Must be called with the GIL held, before the
+ * DocTable is freed, from the Redis command path using a valid command context.
+ */
+void IndexSpec_PruneDocIdMetaOnDrop(RedisModuleCtx *ctx, IndexSpec *sp);
+
 /*
  * Free an indexSpec. For LLAPI
  */
@@ -759,14 +797,13 @@ size_t IndexSpec_collect_numeric_overhead(IndexSpec *sp);
 
 /**
  * @return all memory used by the index `sp`.
- * Uses the sizes of the doc-table, tag and text overhead if they are not `0`
- * (otherwise compute them in-place). Vector overhead is expected to be passed in as an argument
- * and will not be computed in-place
+ * Uses the sizes of tag and text overhead if they are not `0` (otherwise compute them in-place).
+ * Vector overhead is expected to be passed in as an argument and will not be computed in-place
  * TODO: fIx so this will account for the entire index memory, preferably by using an allocator,
  * currently it is a best effort that account only for part of the actual memory.
  */
-size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead,
-  size_t text_overhead, size_t vector_overhead);
+size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t text_overhead,
+  size_t vector_overhead);
 
 /**
 * obfuscate argument is used to determine how we will format the index name

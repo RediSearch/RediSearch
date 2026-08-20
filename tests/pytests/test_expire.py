@@ -1148,6 +1148,26 @@ def test_expire_past_timestamp_removes_doc(env):
 
 
 @skip(cluster=True, redis_less_than='7.3')
+@skip(redis_less_than='7.4')
+def test_hpexpire_on_an_unindexed_hash_does_not_abort(env):
+    # HPEXPIRE routes through Indexes_UpdateMatchingHashFieldExpiration, whose
+    # INDEXMISSING branch indexes the document using the handle that function
+    # already holds. SKIPINITIALSCAN leaves the pre-existing hash unindexed, so
+    # that index attempt is the document's first DocIdMeta attach -- which goes
+    # through RM_SetKeyMeta and needs a write-mode handle. With a read-only one it
+    # failed the publish assert in makeDocumentId and aborted the server.
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'd1', 'x', 'val', 'y', 'yy')
+    env.expect('FT.CREATE', 'idx', 'SKIPINITIALSCAN', 'SCHEMA',
+               'x', 'TEXT', 'SORTABLE', 'y', 'TEXT', 'INDEXMISSING').ok()
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([0])
+
+    conn.execute_command('HPEXPIRE', 'd1', 5000, 'FIELDS', 1, 'x')
+
+    env.expect('PING').true()
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([1, 'd1'])
+
+
 def test_hexpire_after_indexing_is_respected_by_search(env):
     # A document indexed while none of its fields had a TTL must still honour a
     # TTL added afterwards: once the field expires, queries on it stop matching.
