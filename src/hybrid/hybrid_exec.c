@@ -649,15 +649,11 @@ void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
     // Create a stack-allocated SearchResult for finishSendChunk_HREQ cleanup
     SearchResult r = SearchResult_New();
 
-    // Get error directly from hreq (no need to copy in HREQ_StoreResults)
+    // Fatal errors are selected across the tail and subqueries. The tail's
+    // request-owned error remains qctx->err and also carries soft errors and
+    // warning-only flags used while rendering the reply.
     QueryError err = QueryError_Default();
     HybridRequest_GetError(hreq, &err);
-
-    // Point qctx->err to the local error so finishSendChunkReply_hybrid/replyWarningsWithSuffixes
-    // can access it. The original qctx->err pointed to a stack variable in RSExecDistHybrid
-    // which is now gone (background thread returned). This local `err` remains valid until
-    // we clear it at the end of this function.
-    qctx->err = &err;
 
     // Get stored results and rc
     SearchResult **results = stored->results;
