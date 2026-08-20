@@ -78,8 +78,7 @@ def compare_optimized_to_not_nocontent(env, query, params, msg=None):
 
 
 @skip(cluster=True)
-def testOptimizer():
-    env = Env(moduleArgs='ON_TIMEOUT RETURN')
+def testOptimizer(env):
     env.cmd(config_cmd(), 'SET', 'TIMEOUT', '0')
     env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
     env.cmd(config_cmd(), 'SET', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'true')
@@ -164,10 +163,10 @@ def testOptimizer():
 
     ### (4) TAG and range w/o sort ###
     # stop after enough results were collected
-    env.expect('ft.search', 'idx', '@tag:{foo} @n:[10 20]', 'limit', 0 , 2, *params).equal([1, '10', '12'])
-    env.expect('ft.search', 'idx', '@tag:{foo} @n:[10 20]', 'limit', 0 , 3, *params).equal([1, '10', '12', '14'])
-    env.expect('ft.search', 'idx_sortable', '@tag:{foo} @n:[10 20]', 'limit', 0 , 2, *params).equal([1, '10', '12'])
-    env.expect('ft.search', 'idx_sortable', '@tag:{foo} @n:[10 20]', 'limit', 0 , 3, *params).equal([1, '10', '12', '14'])
+    env.expect('ft.search', 'idx', '@tag:{foo} @n:[10 20]', 'limit', 0 , 2, *params).equal([2, '10', '12'])
+    env.expect('ft.search', 'idx', '@tag:{foo} @n:[10 20]', 'limit', 0 , 3, *params).equal([3, '10', '12', '14'])
+    env.expect('ft.search', 'idx_sortable', '@tag:{foo} @n:[10 20]', 'limit', 0 , 2, *params).equal([2, '10', '12'])
+    env.expect('ft.search', 'idx_sortable', '@tag:{foo} @n:[10 20]', 'limit', 0 , 3, *params).equal([3, '10', '12', '14'])
 
     profiler =  {'Iterators profile':
                     ['Type', 'INTERSECT', 'Number of reading operations', 10, 'Child iterators', [
@@ -177,7 +176,7 @@ def testOptimizer():
                     ['Type', 'Index', 'Results processed', 9],
                     ['Type', 'Pager/Limiter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo} @n:[10 15]', *params)
-    env.assertEqual(res[0][1:], ['10', '12', '14', '110', '112', '114', '210', '212', '214', '310'])
+    env.assertEqual(res[0], [10, '10', '12', '14', '110', '112', '114', '210', '212', '214', '310'])
     actual_profiler = to_dict(res[1][1][0])
     env.assertEqual(actual_profiler['Iterators profile'], profiler['Iterators profile'])
     env.assertEqual(actual_profiler['Result processors profile'], profiler['Result processors profile'])
@@ -205,10 +204,10 @@ def testOptimizer():
 
     ### (6) only range ###
     # stop after enough results were collected
-    env.expect('ft.search', 'idx', '@n:[10 20]', 'limit', 0 , 2, *params).equal([1, '10', '11'])
-    env.expect('ft.search', 'idx', '@n:[10 20]', 'limit', 0 , 3, *params).equal([1, '10', '11', '12'])
-    env.expect('ft.search', 'idx_sortable', '@n:[10 20]', 'limit', 0 , 2, *params).equal([1, '10', '11'])
-    env.expect('ft.search', 'idx_sortable', '@n:[10 20]', 'limit', 0 , 3, *params).equal([1, '10', '11', '12'])
+    env.expect('ft.search', 'idx', '@n:[10 20]', 'limit', 0 , 2, *params).equal([2, '10', '11'])
+    env.expect('ft.search', 'idx', '@n:[10 20]', 'limit', 0 , 3, *params).equal([3, '10', '11', '12'])
+    env.expect('ft.search', 'idx_sortable', '@n:[10 20]', 'limit', 0 , 2, *params).equal([2, '10', '11'])
+    env.expect('ft.search', 'idx_sortable', '@n:[10 20]', 'limit', 0 , 3, *params).equal([3, '10', '11', '12'])
 
     profiler =  {'Iterators profile':
                     ['Type', 'NUMERIC', 'Term', '0 - 14', 'Number of reading operations', 10, 'Estimated number of matches', 3200],
@@ -216,7 +215,7 @@ def testOptimizer():
                     ['Type', 'Index', 'Results processed', 9],
                     ['Type', 'Pager/Limiter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@n:[10 15]', *params)
-    env.assertEqual(res[0], [1, '10', '11', '12', '13', '14', '15', '110', '111', '112', '113'])
+    env.assertEqual(res[0], [10, '10', '11', '12', '13', '14', '15', '110', '111', '112', '113'])
     actual_profiler = to_dict(res[1][1][0])
     env.assertEqual(actual_profiler['Iterators profile'], profiler['Iterators profile'])
     env.assertEqual(actual_profiler['Result processors profile'], profiler['Result processors profile'])
@@ -289,10 +288,10 @@ def testOptimizer():
 
     ### (10) no sort, no score, no sortby ###
     # stop after enough results were collected
-    env.expect('ft.search', 'idx', '@tag:{foo}', 'limit', 0 , 2, *params).equal([1, '0', '2'])
-    env.expect('ft.search', 'idx', '@tag:{foo}', 'limit', 0 , 3, *params).equal([1, '0', '2', '4'])
-    env.expect('ft.search', 'idx_sortable', '@tag:{foo}', 'limit', 0 , 2, *params).equal([1, '0', '2'])
-    env.expect('ft.search', 'idx_sortable', '@tag:{foo}', 'limit', 0 , 3, *params).equal([1, '0', '2', '4'])
+    env.expect('ft.search', 'idx', '@tag:{foo}', 'limit', 0 , 2, *params).equal([2, '0', '2'])
+    env.expect('ft.search', 'idx', '@tag:{foo}', 'limit', 0 , 3, *params).equal([3, '0', '2', '4'])
+    env.expect('ft.search', 'idx_sortable', '@tag:{foo}', 'limit', 0 , 2, *params).equal([2, '0', '2'])
+    env.expect('ft.search', 'idx_sortable', '@tag:{foo}', 'limit', 0 , 3, *params).equal([3, '0', '2', '4'])
 
     profiler =  {'Iterators profile':
                     ['Type', 'TAG', 'Term', 'foo', 'Number of reading operations', 10, 'Estimated number of matches', 10000],
@@ -300,7 +299,7 @@ def testOptimizer():
                     ['Type', 'Index', 'Results processed', 9],
                     ['Type', 'Pager/Limiter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo}', *params)
-    env.assertEqual(res[0][1:], ['0', '2', '4', '6', '8', '10', '12', '14', '16', '18'])
+    env.assertEqual(res[0], [10, '0', '2', '4', '6', '8', '10', '12', '14', '16', '18'])
     actual_profiler = to_dict(res[1][1][0])
     env.assertEqual(actual_profiler['Iterators profile'], profiler['Iterators profile'])
     env.assertEqual(actual_profiler['Result processors profile'], profiler['Result processors profile'])
@@ -329,10 +328,10 @@ def testOptimizer():
 
     ### (12) wildcard w/o sort ###
     # stop after enough results were collected
-    env.expect('ft.search', 'idx', '*', 'limit', 0 , 2, *params).equal([1, '0', '1'])
-    env.expect('ft.search', 'idx', '*', 'limit', 0 , 3, *params).equal([1, '0', '1', '2'])
-    env.expect('ft.search', 'idx_sortable', '*', 'limit', 0 , 2, *params).equal([1, '0', '1'])
-    env.expect('ft.search', 'idx_sortable', '*', 'limit', 0 , 3, *params).equal([1, '0', '1', '2'])
+    env.expect('ft.search', 'idx', '*', 'limit', 0 , 2, *params).equal([2, '0', '1'])
+    env.expect('ft.search', 'idx', '*', 'limit', 0 , 3, *params).equal([3, '0', '1', '2'])
+    env.expect('ft.search', 'idx_sortable', '*', 'limit', 0 , 2, *params).equal([2, '0', '1'])
+    env.expect('ft.search', 'idx_sortable', '*', 'limit', 0 , 3, *params).equal([3, '0', '1', '2'])
 
     profiler =  {'Iterators profile':
                     ['Type', 'WILDCARD', 'Number of reading operations', 10],
@@ -340,7 +339,7 @@ def testOptimizer():
                     ['Type', 'Index', 'Results processed', 9],
                     ['Type', 'Pager/Limiter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '*', *params)
-    env.assertEqual(res[0][1:], ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'])
+    env.assertEqual(res[0], [10, '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'])
     actual_profiler = to_dict(res[1][1][0])
     env.assertEqual(actual_profiler['Iterators profile'], profiler['Iterators profile'])
     env.assertEqual(actual_profiler['Result processors profile'], profiler['Result processors profile'])
@@ -888,10 +887,9 @@ def testVector():
             # (same iterators and pipeline should be used)
             env.assertEqual(conn.execute_command(*profile, *query), conn.execute_command(*profile, *query, 'WITHOUTCOUNT'), message=str(idx))
 
-def testOptimizeArgs():
+def testOptimizeArgs(env):
     ''' Test enabling/disabling optimization according to args and dialect '''
 
-    env = Env(moduleArgs='ON_TIMEOUT RETURN')
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
     for i in range(0, 20):
@@ -914,7 +912,7 @@ def testOptimizeArgs():
 def testOptimizeArgsDefault():
     ''' Test enabling/disabling optimization according to args and default dialect '''
 
-    env = Env(moduleArgs='DEFAULT_DIALECT 4 ON_TIMEOUT RETURN')
+    env = Env(moduleArgs='DEFAULT_DIALECT 4')
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
     for i in range(0, 20):
