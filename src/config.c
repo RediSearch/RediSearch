@@ -212,7 +212,7 @@ void RSConfig_SetLoadingStartupConfig(bool loading) {
 
 // Startup must never abort, so an out-of-range value keeps the config's current value with a
 // warning; CONFIG SET stays strict.
-static int warn_or_reject_size_t_config(const char *name, long long val, size_t *privdata,
+static int warn_or_reject_size_t_config(const char *name, long long val, const size_t *privdata,
                                          RedisModuleString **err) {
   if (loadingStartupConfig) {
     RedisModule_Log(RSDummyContext, "warning", "%s: value %lld is out of range, keeping %zu",
@@ -257,7 +257,7 @@ static int set_max_aggregate_results_config(const char *name, long long val, voi
 static int set_fork_gc_clean_threshold_config(const char *name, long long val, void *privdata,
                                                RedisModuleString **err) {
   if (val == 0) {
-    return warn_or_reject_size_t_config(name, val, (size_t *)privdata, err);
+    return warn_or_reject_size_t_config(name, val, (const size_t *)privdata, err);
   }
   *(size_t *)privdata = (size_t)val;
   return REDISMODULE_OK;
@@ -2321,7 +2321,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-max-search-results", DEFAULT_MAX_SEARCH_REQUEST_RESULTS,
-      REDISMODULE_CONFIG_UNPREFIXED, LLONG_MIN,
+      REDISMODULE_CONFIG_UNPREFIXED, -1,
       MAX_SEARCH_REQUEST_RESULTS, get_size_t_numeric_config, set_max_search_results_config, NULL,
       (void *)&(RSGlobalConfig.maxSearchResults)
     )

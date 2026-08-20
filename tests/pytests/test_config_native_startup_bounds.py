@@ -129,6 +129,15 @@ def testRuntimeConfigSetStillRejectsMaxAggregateResultsNegativeTwo(env):
         .contains('CONFIG SET failed')
 
 
+@skip(redis_less_than='7.9.227')
+def testRuntimeConfigSetStillRejectsMaxSearchResultsNegativeTwo(env):
+    """Registered min = -1 for search-max-search-results (matching
+    search-max-aggregate-results) means CONFIG SET keeps rejecting anything
+    below the sentinel, rather than silently treating it as unlimited."""
+    env.expect('CONFIG', 'SET', 'search-max-search-results', '-2').error()\
+        .contains('CONFIG SET failed')
+
+
 # Skip on ASAN since RedisModule_Unload is not fully implemented (MOD-7161)
 @skip(cluster=True, redis_less_than='7.9.227', asan=True)
 def testModuleLoadexRuntimeStillRejectsForkGcCleanThresholdZero():
