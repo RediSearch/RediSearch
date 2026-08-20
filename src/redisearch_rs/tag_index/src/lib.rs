@@ -606,10 +606,6 @@ impl TagIndex<InMemoryMode> {
     /// Simulate GC removing every posting under `tag`, leaving an empty (but
     /// still registered) inverted index behind — the state GC leaves once
     /// every document under a tag has been removed.
-    ///
-    /// The crate exposes no document removal of its own, so this is the only way
-    /// a test can reach the empty-index arm of
-    /// [`open_reader`](Self::open_reader).
     pub fn gc_empty_value(&mut self, tag: &[u8]) {
         let ii = self.mode.values.find_mut(tag).expect("tag was indexed");
         let delta = ii
@@ -617,6 +613,27 @@ impl TagIndex<InMemoryMode> {
             .expect("scan_gc must not fail")
             .expect("every document was removed, so a delta is produced");
         ii.apply_gc(delta);
+    }
+
+    /// Simulate GC collecting a single document under `tag`, rewriting the
+    /// inverted index in place. The index keeps its address and its unique id, so
+    /// a reader suspended over it is *not* aborted on resume — it re-seeks
+    /// instead, which is the branch [`gc_empty_value`](Self::gc_empty_value) and
+    /// [`delete_tag_value`](Self::delete_tag_value) cannot reach.
+    pub fn gc_remove_doc(&mut self, tag: &[u8], doc_id: DocId) {
+        let ii = self.mode.values.find_mut(tag).expect("tag was indexed");
+        let delta = ii
+            .scan_gc(
+                |d| d != doc_id,
+                None::<fn(&RSIndexResult, &RepairContext<'_>)>,
+            )
+            .expect("scan_gc must not fail")
+            .expect("a document was removed, so a delta is produced");
+        assert_eq!(
+            ii.apply_gc(delta).entries_removed,
+            1,
+            "the document must have been indexed under this tag"
+        );
     }
 
     /// Whether `key` is registered in the [suffix index](TagSuffixIndex) — as a
