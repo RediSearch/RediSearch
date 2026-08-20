@@ -18,7 +18,7 @@ use std::ptr::NonNull;
 
 use rqe_iterators::RQEIterator;
 use rqe_iterators_test_utils::MockContext;
-use tag_index::{InMemoryMode, TagIndex, TrieLookup};
+use tag_index::{InMemoryMode, Tag, TagIndex, TrieLookup};
 
 use crate::util::index_mem;
 
@@ -44,6 +44,11 @@ fn allocate(index: TagIndex<InMemoryMode>) -> (*mut TagIndex<InMemoryMode>, Trie
     // iterators, so nothing reads the lookup afterwards.
     let lookup = unsafe { TrieLookup::new(ptr) };
     (index, lookup)
+}
+
+/// Wrap a NUL-free test literal into a [`Tag`].
+fn as_tag(bytes: &[u8]) -> Tag<'_> {
+    Tag::new(bytes).expect("test literal is NUL-free")
 }
 
 /// Read every document id the iterator yields, in order, until it is exhausted.
@@ -72,8 +77,10 @@ fn open_reader_reads_all_ids_in_order() {
 
     // SAFETY: `tag_index` and `mock` outlive the iterator, and `lookup` resolves
     // `tag_index`.
-    let it = unsafe { (*tag_index).open_reader(mock.sctx(), b"hello", 1.0, FIELD_INDEX, lookup) }
-        .expect("the tag is indexed");
+    let it = unsafe {
+        (*tag_index).open_reader(mock.sctx(), as_tag(b"hello"), 1.0, FIELD_INDEX, lookup)
+    }
+    .expect("the tag is indexed");
 
     let doc_ids = drain(it);
     assert_eq!(doc_ids, (1..=N).collect::<Vec<_>>());
@@ -94,9 +101,10 @@ fn skip_to_past_last_id_yields_eof() {
 
     // SAFETY: `tag_index` and `mock` outlive the iterator, and `lookup` resolves
     // `tag_index`.
-    let mut it =
-        unsafe { (*tag_index).open_reader(mock.sctx(), b"hello", 1.0, FIELD_INDEX, lookup) }
-            .expect("the tag is indexed");
+    let mut it = unsafe {
+        (*tag_index).open_reader(mock.sctx(), as_tag(b"hello"), 1.0, FIELD_INDEX, lookup)
+    }
+    .expect("the tag is indexed");
 
     it.read().expect("read must not error");
     assert_eq!(it.last_doc_id(), doc_id);
@@ -123,7 +131,9 @@ fn open_reader_absent_tag_returns_none() {
     let mock = MockContext::new(1, 1);
     // SAFETY: `tag_index` and `mock` outlive the (never created) iterator, and
     // `lookup` resolves `tag_index`.
-    let it = unsafe { (*tag_index).open_reader(mock.sctx(), b"missing", 1.0, FIELD_INDEX, lookup) };
+    let it = unsafe {
+        (*tag_index).open_reader(mock.sctx(), as_tag(b"missing"), 1.0, FIELD_INDEX, lookup)
+    };
     assert!(it.is_none());
 
     // SAFETY: `allocate` allocated it; no iterator was built from it.
@@ -147,7 +157,9 @@ fn open_reader_returns_none_for_empty_inverted_index() {
     let mock = MockContext::new(0, 0);
     // SAFETY: `tag_index` and `mock` outlive the (never created) iterator, and
     // `lookup` resolves `tag_index`.
-    let it = unsafe { (*tag_index).open_reader(mock.sctx(), b"empty", 1.0, FIELD_INDEX, lookup) };
+    let it = unsafe {
+        (*tag_index).open_reader(mock.sctx(), as_tag(b"empty"), 1.0, FIELD_INDEX, lookup)
+    };
     assert!(it.is_none());
 
     // SAFETY: `allocate` allocated it; no iterator was built from it.
