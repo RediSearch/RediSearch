@@ -238,10 +238,11 @@ impl TestContext {
                 assert!(!opts.is_null(), "allocation failed");
 
                 let status = Box::into_raw(Box::new(QueryError::default()));
-                // A valid pointer to a (null) `MetricRequest` list head: the
-                // evaluated nodes never append metric requests.
+                // A valid pointer to an empty (null) `MetricRequest` list head.
+                // Evaluating a node that yields a metric grows the list in
+                // place; `QctxAlloc`'s teardown reclaims whatever it left.
                 let metric_requests_p =
-                    Box::into_raw(Box::new(ptr::null_mut::<std::ffi::c_void>()));
+                    Box::into_raw(Box::new(ptr::null_mut::<rlookup::MetricRequest<'static>>()));
                 let config = Box::into_raw(Box::new(IteratorsConfig::default()));
 
                 // `sctx` and `spec.docs` are real and outlive the
@@ -556,6 +557,11 @@ impl TestContext {
     /// `WITHSUFFIXTRIE` and each term is also inserted into the spec's suffix
     /// trie, exercising the suffix-trie expansion path instead of the brute-force
     /// terms-trie scan.
+    ///
+    /// The empty term is a special case, and is faithful to the indexer: neither
+    /// trie takes a zero-length key — the terms trie refuses one and the suffix
+    /// trie is gated against it — so an empty term contributes only its inverted
+    /// index, exactly as an `INDEXEMPTY` field's empty value does.
     pub fn prefix<T, S>(terms: T, with_suffix_trie: bool) -> Self
     where
         T: IntoIterator<Item = (S, Vec<RSIndexResult<'static>>)>,
@@ -595,8 +601,10 @@ impl TestContext {
             unsafe {
                 ffi::IndexSpec_AddTerm(spec, cterm.as_ptr(), cterm.as_bytes().len());
             }
-            // Mirror the indexer by also feeding the suffix trie when enabled.
-            if with_suffix_trie {
+            // Mirror the indexer by also feeding the suffix trie when enabled —
+            // including its gate against the empty term, which `addSuffixTrie`
+            // asserts on.
+            if with_suffix_trie && !cterm.as_bytes().is_empty() {
                 // SAFETY: `spec` is a valid, non-null `IndexSpec` just returned
                 // by `create_spec_sctx`.
                 let suffix = unsafe { (*spec).suffix };
@@ -1181,7 +1189,7 @@ struct QctxAlloc {
     qctx: *mut ffi::QueryEvalCtx,
     opts: *mut ffi::RSSearchOptions,
     status: *mut QueryError,
-    metric_requests_p: *mut *mut std::ffi::c_void,
+    metric_requests_p: *mut *mut rlookup::MetricRequest<'static>,
     config: *mut IteratorsConfig,
 }
 
@@ -1193,6 +1201,21 @@ impl Drop for QctxAlloc {
         // are owned by the `TestContext`.
         unsafe {
             drop(Box::from_raw(self.config));
+            // The list itself belongs to whatever was evaluated through this
+            // context, not to the allocation above: a node that yields a metric
+            // appends an entry, and an iterator that was actually built leaves
+            // an owned key handle on it. Both are reclaimed here, as the query
+            // AST's teardown does in production.
+            let head = *self.metric_requests_p;
+            if !head.is_null() {
+                for i in 0..ffi::array_len_func(head.cast()) as usize {
+                    let handle = (*head.add(i)).key_handle;
+                    if !handle.is_null() {
+                        redis_mock::allocator::free_shim(handle.cast());
+                    }
+                }
+                ffi::array_free(head.cast());
+            }
             drop(Box::from_raw(self.metric_requests_p));
             drop(Box::from_raw(self.status));
             dealloc(self.opts.cast(), Layout::new::<ffi::RSSearchOptions>());

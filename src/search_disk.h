@@ -199,9 +199,9 @@ ResultProcessor *SearchDisk_NewAsyncLoaderResultProcessor(RedisSearchCtx *sctx, 
  * `RPSafeLoader_SetSyncCtx`'s pipeline walk when it reaches an `RP_DISK_ASYNC_LOADER` node.
  *
  * @param rp  The disk async-loader ResultProcessor, from SearchDisk_NewAsyncLoaderResultProcessor
- * @param brc `BlockedRequestCtx *`, or NULL to clear
+ * @param request `QueryRequest *`, or NULL to clear
  */
-void SearchDisk_AsyncLoader_SetSyncCtx(ResultProcessor *rp, BlockedRequestCtx *brc);
+void SearchDisk_AsyncLoader_SetSyncCtx(ResultProcessor *rp, QueryRequest *request);
 
 // Index API wrappers
 
@@ -853,48 +853,28 @@ uint64_t SearchDisk_GetDiskUsage(RedisSearchDiskIndexSpec* index);
 void SearchDisk_Flush(RedisSearchDiskIndexSpec* index);
 
 /**
- * @brief Master-side SST replication PRE_CHECKPOINT hook for a single index.
+ * @brief Open the consistency window on a single index.
  *
- * Acquires the IndexSpec read lock (blocks writes, allows queries) and
- * dispatches to the disk-side preCheckpoint hook.
- *
- * @param sp Pointer to the IndexSpec (must have a non-NULL diskSpec)
- */
-void SearchDisk_PreCheckpoint(IndexSpec *sp);
-
-/**
- * @brief Master-side SST replication PRE_FORK hook for a single index.
- *
- * Dispatches to the disk-side preFork hook.
+ * Disables and cancels manual compactions and closes the numeric consistency gate; does not
+ * flush - the caller does that under the vector consistency lock. Idempotent within a cycle.
+ * Takes no IndexSpec lock: running on the main thread is what keeps writes out.
  *
  * @param sp Pointer to the IndexSpec (must have a non-NULL diskSpec)
  */
-void SearchDisk_PreFork(IndexSpec *sp);
+void SearchDisk_OpenConsistencyWindow(IndexSpec *sp);
 
 /**
- * @brief Master-side SST replication POST_FORK hook for a single index.
+ * @brief Close the consistency window on a single index, re-enabling compactions.
  *
- * Dispatches to the disk-side postFork hook.
+ * Replaces the former PostFork/ReplicationAbort/HotRestartSaveEnded trio. Tolerates a
+ * window that was never opened, so the abort paths need no special case. Pass
+ * reopenNumericGate=false on a successful hot restart, where the gate must stay closed
+ * through process exit.
  *
  * @param sp Pointer to the IndexSpec
+ * @param reopenNumericGate Whether to reopen the numeric consistency gate
  */
-void SearchDisk_PostFork(IndexSpec *sp);
-
-/**
- * @brief Hot-restart save-ended hook: re-enable compactions, keep the numeric
- * consistency gate closed. See IndexDiskAPI.hotRestartSaveEnded.
- */
-void SearchDisk_HotRestartSaveEnded(IndexSpec *sp);
-
-/**
- * @brief Master-side SST replication ABORT hook for a single index.
- *
- * Dispatches to the disk-side replicationAbort hook, then releases whichever
- * subset of locks (fork lock, read lock) is currently held for this cycle.
- *
- * @param sp Pointer to the IndexSpec
- */
-void SearchDisk_ReplicationAbort(IndexSpec *sp);
+void SearchDisk_CloseConsistencyWindow(IndexSpec *sp, bool reopenNumericGate);
 
 /**
  * @brief Update the buffer budget and WBM in response to RAM configuration changes
@@ -931,11 +911,14 @@ void SearchDisk_UpdateMaxOpenFiles(RedisModuleCtx *ctx, int maxOpenFiles);
 typedef enum {
   SEARCH_DISK_SITE_COMPACTION_BEGIN = 0,
   SEARCH_DISK_SITE_COMPACTION_COMPLETED = 1,
-  SEARCH_DISK_SITE_PRE_CHECKPOINT = 2,
+  // The cycle's first index_spec_open_consistency_window, before
+  // disable_compactions() (main thread); cross-wake source for releasing a
+  // compaction the window is about to block on.
+  SEARCH_DISK_SITE_CONSISTENCY_WINDOW_OPEN = 2,
   // A numeric split between its Step B scan and its Step C+D commit (GC
   // thread) — the mid-flight, nothing-committed point.
   SEARCH_DISK_SITE_NUMERIC_SPLIT_PRE_COMMIT = 3,
-  // index_spec_pre_checkpoint right after the consistency gate of the
+  // index_spec_open_consistency_window right after the consistency gate of the
   // numeric index closes (main thread); cross-wake source for
   // deterministically deferring a held split.
   SEARCH_DISK_SITE_NUMERIC_GATE_CLOSED = 4,
@@ -954,8 +937,8 @@ void SearchDisk_DebugCoordinatorArmPause(int site, bool armed);
  * @brief Configures a cross-wake: reaching `trigger` releases `target`.
  *
  * This is what breaks the replication-vs-compaction deadlock — a main-thread
- * site (e.g. PRE_CHECKPOINT) can release a background compaction it is about
- * to block on. A `target` of -1 clears the link.
+ * site (e.g. CONSISTENCY_WINDOW_OPEN) can release a background compaction it is
+ * about to block on. A `target` of -1 clears the link.
  */
 void SearchDisk_DebugCoordinatorSetWake(int trigger, int target);
 
@@ -971,6 +954,7 @@ void SearchDisk_DebugCoordinatorRelease(int site);
  * @brief Returns how many times `site` has been reached since the last reset.
  */
 unsigned int SearchDisk_DebugCoordinatorReached(int site);
+
 
 /**
  * @brief Resets the coordinator.

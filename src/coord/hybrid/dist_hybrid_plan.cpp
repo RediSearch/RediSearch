@@ -37,8 +37,8 @@ static void pushResultProcessor(QueryProcessingCtx *qctx, ResultProcessor *rp) {
   qctx->endProc = rp;
 }
 
-// should make sure the product of AREQ_BuildPipeline(areq, &req->errors[i]) would result in rpSorter only (can set up the aggplan to be a sorter only)
-int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params) {
+// should make sure the product of AREQ_BuildPipeline would result in rpSorter only (can set up the aggplan to be a sorter only)
+int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req) {
   // Create synchronization context for coordinating depleter processors
   // We avoid taking the index lock since we are not directly accessing the index at all
   // This avoids deadlocks with main thread while it is trying to access the index
@@ -50,7 +50,7 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
 
       AREQ_AddRequestFlags(areq, QEXEC_F_IS_COORDINATOR);
 
-      int rc = AREQ_BuildPipeline(areq, &req->errors[i]);
+      int rc = AREQ_BuildPipeline(areq, &areq->base.reply.err);
       if (rc != REDISMODULE_OK) {
           StrongRef_Release(sync_ref);
           return REDISMODULE_ERR;
@@ -67,9 +67,8 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
       }
       // Create a depleter processor to extract results from this pipeline
       // The depleter will feed results to the hybrid merger
-      RedisSearchCtx *nextThread = params->aggregationParams.common.sctx; // We will use the context provided in the params
-      RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
-      ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread,
+      RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq);
+      ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread,
                                                      ConcurrentSearch_GetPool(req->poolId));
       pushResultProcessor(qctx, depleter);
       if (qctx->isProfile) {
@@ -116,7 +115,7 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     // Set the spec cache since we dont call buildQueryPart
     RLookup_SetCache(tailLookup, IndexSpec_GetSpecCache(hreq->sctx->spec));
 
-    int rc = HybridRequest_BuildDistributedDepletionPipeline(hreq, hybridParams);
+    int rc = HybridRequest_BuildDistributedDepletionPipeline(hreq);
     if (rc != REDISMODULE_OK) {
       // The error is set at either the tail or the subqueries error array
       // need to copy it to the status so it will be visible to the user

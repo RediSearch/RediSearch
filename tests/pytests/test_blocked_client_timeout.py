@@ -82,7 +82,7 @@ def _setup_return_strict_cursor_state(env, chunk_size=10, agg_steps=None):
     return prev_on_timeout_policy, cursor_id, baseline_cursor_total, before_info, base_warn_coord, res
 
 def _get_blocked_request_onfree_count(env):
-    """Read the coordinator BlockedRequestCtx_OnFree invocation counter (debug builds)."""
+    """Read the coordinator QueryRequest_OnFree invocation counter (debug builds)."""
     return int(env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_BLOCKED_REQUEST_ONFREE_COUNT'))
 
 def _assert_return_strict_cursor_timeout_reply(env, res_pair, expected_cid,
@@ -387,6 +387,16 @@ def test_hybrid_cursors_race_with_flushall():
                                  'SET_PAUSE_AFTER_HYBRID_STORE_CURSORS', 'false')
     t.join(timeout=10)
     env.assertFalse(t.is_alive(), message="FT.HYBRID thread should have finished")
+
+    # The flush delete-marked the sub-cursors mid-cycle; the cycle-end park
+    # on the main thread frees them. Nothing may leak.
+    # (INFO hides the cursors section with zero indexes — recreate one.)
+    env.expect('FT.CREATE', 'observe_idx', 'SCHEMA', 't', 'TEXT').ok()
+    def shard_cursor_total():
+        info = target_shard.execute_command('INFO', 'MODULES')
+        return info['search_global_total_user'] + info['search_global_total_internal']
+    wait_for_condition(lambda: (shard_cursor_total() == 0, {}),
+                       'delete-marked cursors were not freed at the cycle-end park')
 
     # The shard survived the race.
     env.assertEqual(target_shard.execute_command('PING'), True)
@@ -2261,9 +2271,10 @@ class TestCoordinatorTimeout:
             assert_timeout_warning(env, result,
                                    message=f"FT.HYBRID existing cursor-mapping timeout, got: {result}")
 
-            # The shard replied with the already-published cursors from the timeout
-            # callback: shard warning +1, attributed to the REPLY stage (the marker
-            # advances to REPLY once the cursor mapping is published).
+            # The shard's strict-timeout reply exposes no cursor IDs (cursor id 0
+            # for both subqueries, like a timed-out aggregate): shard warning +1,
+            # attributed to the REPLY stage (the marker advances to REPLY once the
+            # cursor mapping is published).
             after_shard_info = info_modules_to_dict(target_shard)
             env.assertEqual(int(after_shard_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC]),
                             int(before_shard_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC]) + 1,
@@ -2281,6 +2292,27 @@ class TestCoordinatorTimeout:
                 pass
             run_command_on_all_shards(env, 'CONFIG', 'SET',
                                       ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
+        # Once the resumed worker ends the cycle, the teardown drops the
+        # published sub-cursors — the reply exposed no IDs, so none may stay
+        # parked or leak on the shard.
+        def shard_cursor_total():
+            info = target_shard.execute_command('INFO', 'MODULES')
+            return info['search_global_total_user'] + info['search_global_total_internal']
+        def per_index_cursors():
+            stats = {}
+            for idx_name in ('idx', 'hybrid_idx'):
+                try:
+                    info = to_dict(target_shard.execute_command('FT.INFO', idx_name))
+                    stats[idx_name] = to_dict(info.get('cursor_stats', []))
+                except Exception as e:
+                    stats[idx_name] = str(e)
+            return stats
+        def cursors_drained():
+            total = shard_cursor_total()
+            return total == 0, {'user+internal': total, 'per_index': per_index_cursors()}
+        wait_for_condition(cursors_drained,
+                           'strict-timed-out cycle did not drop its published cursors')
 
     def test_return_strict_hybrid_cursor_mapping_timeout_during_depletion(self):
         """RETURN_STRICT _FT.HYBRID cursor-mapping timeout while depleters are active.
@@ -4710,7 +4742,7 @@ class TestCoordinatorTimeout:
             env, result[0], cursor_id, expected_results=0,
             message_prefix='RETURN_STRICT no-stale-free read 1 timeout')
 
-        # Wait until BlockedRequestCtx_OnFree has fired for read 1's BC privdata.
+        # Wait until QueryRequest_OnFree has fired for read 1's BC private data.
         # The counter is bumped by the BC tear-down on the main thread after
         # the worker job completes; polling avoids a deadlock that a sync-point
         # in the free callback would cause.

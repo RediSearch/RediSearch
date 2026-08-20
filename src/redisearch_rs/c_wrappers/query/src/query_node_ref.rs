@@ -9,7 +9,7 @@
 
 //! Safe wrapper around [`ffi::RSQueryNode`].
 
-use std::{marker::PhantomData, ops::Deref, ptr::NonNull};
+use std::{ffi::c_char, marker::PhantomData, ops::Deref, ptr::NonNull};
 
 use inverted_index::NumericFilter;
 use query_types::{QueryNodeOptions, QueryNodeType};
@@ -539,6 +539,30 @@ impl QueryNodeMut<'_> {
         // SAFETY: as above — `opts` points to a valid, exclusively-owned
         // `QueryNodeOptions`.
         unsafe { (*opts).field_mask &= mask };
+    }
+
+    /// Take the node's [distance field](QueryNodeOptions::dist_field), leaving
+    /// it null.
+    ///
+    /// Ownership of the string transfers to the caller: the node no longer
+    /// frees it when it is destroyed, so whatever the caller moves it onto must.
+    /// It comes from the module allocator, so releasing it means `rm_free` —
+    /// either directly, or by handing it to a C field whose owner frees it that
+    /// way. Passing it to [`CString::from_raw`](std::ffi::CString::from_raw)
+    /// would release it through Rust's global allocator instead.
+    ///
+    /// Returns null when the node names no distance field.
+    #[must_use = "the node no longer frees the returned string; dropping it here leaks it"]
+    pub fn take_dist_field(&mut self) -> *mut c_char {
+        // SAFETY: the node is valid, so a raw pointer to its `dist_field` is in
+        // bounds; `&mut self` plus the exclusive-access invariant of
+        // [`QueryNodeMut::new`] guarantee nothing else aliases it, so the
+        // read-then-clear below cannot race.
+        let dist_field = unsafe { &raw mut (*self.0.as_ptr()).opts.dist_field };
+        // SAFETY: as above — `dist_field` points to an initialized, exclusively
+        // owned pointer, and the swap goes through the raw pointer without
+        // forming an intermediate reference.
+        unsafe { std::ptr::replace(dist_field, std::ptr::null_mut()) }
     }
 
     /// Reborrow the child at `index` as an exclusive [`QueryNodeMut`].

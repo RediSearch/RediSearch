@@ -332,9 +332,8 @@ const HEADERS: &[HeaderAllowlist] = &[
             "AsyncPollResult",
             "AsyncReadResult",
             "BasicDiskAPI",
-            // RETURN_STRICT GIL handshake ctx; kept opaque (forward-declared
-            // here, defined in `aggregate.h`).
-            "BlockedRequestCtx",
+            // RETURN_STRICT GIL handshake context.
+            "QueryRequest",
             "DocTableDiskAPI",
             "IndexDiskAPI",
             "MetricsDiskAPI",
@@ -369,8 +368,8 @@ const HEADERS: &[HeaderAllowlist] = &[
             "IndexSpecRef_Promote",
             "IndexSpecRef_Release",
         ],
-        types: &[],
-        vars: &["isCrdt", "missingFieldDictType"],
+        types: &["CharBuf"],
+        vars: &["invIdxDictType", "isCrdt", "missingFieldDictType"],
     },
     HeaderAllowlist {
         path: "src/stopwords.h",
@@ -384,6 +383,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "Suffix_IterateContains",
             "Suffix_IterateWildcard",
             "addSuffixTrie",
+            "deleteSuffixTrie",
             "suffixTrie_freeCallback",
         ],
         types: &["SuffixCtx", "SuffixType"],
@@ -396,8 +396,14 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "src/trie/levenshtein.h",
+        fns: &[],
+        types: &["TrieMatchMode"],
+        vars: &["MAX_LEV_DISTANCE"],
+    },
+    HeaderAllowlist {
         path: "src/trie/rune_util.h",
-        fns: &["runesToStr", "strToLowerRunes", "strToRunesN"],
+        fns: &["runesToStr", "strToLowerRunes", "strToRunes"],
         types: &[],
         vars: &["MAX_RUNE_STR_LEN"],
     },
@@ -406,9 +412,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         fns: &[
             "NewTrie",
             "Trie_DecrementNumDocs",
+            "Trie_Delete",
             "Trie_GetNode",
             "Trie_InsertStringBuffer",
+            "Trie_IterateAll",
             "Trie_IterateContains",
+            "Trie_IterateFuzzy",
             "Trie_IterateWildcard",
             "TrieType_Free",
         ],
@@ -417,8 +426,8 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/trie/trie_node.h",
-        fns: &["TrieNode_NumDocs"],
-        types: &["TrieRangeCallback", "TrieSuffixCallback"],
+        fns: &["TrieIterator_Free", "TrieIterator_Next", "TrieNode_NumDocs"],
+        types: &["TrieIterator", "TrieRangeCallback", "TrieSuffixCallback"],
         vars: &[],
     },
     HeaderAllowlist {
@@ -443,6 +452,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "RS_dictDelete",
             "RS_dictFetchValue",
             "RS_dictGetIterator",
+            "RS_dictGetSafeIterator",
             "RS_dictNext",
             "RS_dictRelease",
             "RS_dictReleaseIterator",
@@ -584,6 +594,7 @@ const BLOCKLIST_TYPES: &[&str] = &[
     "QASTValidationFlagsSet",
     "QueryNodeOptions",
     "QueryProcessingCtx", // defined directly in `ffi/src/lib.rs`
+    "RedisModuleString",
     "RSQueryTerm",
     "RSTokenFlags",
 ];
@@ -672,11 +683,6 @@ fn main() {
     // `_GNU_SOURCE` makes `<stdio.h>` declare `asprintf`/`vasprintf`, which
     // `deps/rmalloc/rmalloc.h` uses.
     bindings = bindings.clang_arg("-D_GNU_SOURCE");
-
-    // `BlockedRequestCtx` is only forward-declared in `search_disk_api.h`, but its full
-    // definition (aggregate.h) is pulled in transitively through `AREQ_CheckTimedOut`. Force it
-    // opaque so Rust callers only ever get a pointer, never its (Rust-unsafe-to-model) C internals.
-    bindings = bindings.opaque_type("BlockedRequestCtx");
 
     for ty in BLOCKLIST_TYPES {
         bindings = bindings.blocklist_type(ty);

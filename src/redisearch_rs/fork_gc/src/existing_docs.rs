@@ -110,6 +110,7 @@ pub fn apply_existing_docs(
         bytes_allocated: info.bytes_allocated,
         block_count_delta: info.block_count_delta - remaining_blocks as i64,
         blocks_denied: info.ignored_last_block as u64,
+        ..GcApplyStats::default()
     })
 }
 

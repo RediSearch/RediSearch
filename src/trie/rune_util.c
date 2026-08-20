@@ -35,7 +35,7 @@ rune runeFold(rune r) {
 
 char *runesToStr(const rune *in, size_t len, size_t *utflen) {
   if (len > MAX_RUNE_STR_LEN) {
-    if (utflen) *utflen = 0;
+    *utflen = 0;
     return NULL;
   }
 
@@ -127,7 +127,7 @@ rune *strToSingleCodepointFoldedRunes(const char *str, size_t utf8_len, size_t *
   return ret;
 }
 
-size_t strToRunesN(const char *src, size_t slen, rune *out) {
+size_t strToRunes(const char *src, size_t slen, rune *out, size_t outcap) {
   const char *end = src + slen;
   size_t nout = 0;
   while (src < end) {
@@ -136,7 +136,11 @@ size_t strToRunesN(const char *src, size_t slen, rune *out) {
     if (cp == 0) {
       break;
     }
-    out[nout++] = (rune)cp;
+    // Keep counting past `outcap` so the caller can detect truncation.
+    if (nout < outcap) {
+      out[nout] = (rune)cp;
+    }
+    nout++;
   }
   return nout;
 }

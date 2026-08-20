@@ -41,6 +41,7 @@
 #include "cursor.h"
 #include "debug_commands.h"
 #include "spell_check.h"
+#include "trie/levenshtein.h"
 #include "query_param.h"
 #include "dictionary.h"
 #include "suggest.h"
@@ -153,6 +154,8 @@ pthread_mutex_t query_version_tracker_mutex;
 arrayof(int*) asm_sanitizer_allocs;
 #endif
 
+// Dedicated pool for RPSafeDepleter jobs, so they never contend with the
+// `_workers_thpool` queue — e.g. submitting a job after `WORKERS` was set to 0.
 redisearch_thpool_t *depleterPool = NULL;
 
 int DIST_THREADPOOL = -1;
@@ -337,7 +340,6 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 #define DICT_INITIAL_SIZE 5
 #define DEFAULT_LEV_DISTANCE 1
-#define MAX_LEV_DISTANCE 4
 
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
@@ -3882,8 +3884,8 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
-  // Allocate the request shell and its owning wrapper before blocking the
-  // client, so the full context is already installed (as the blocked client's
+  // Allocate the request shell before blocking the client, so the full
+  // context is already installed (as the blocked client's
   // privdata) once the client is blocked. Parsing happens on the BG thread.
   AREQ *r;
   if (isDebug) {
@@ -3893,12 +3895,9 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
       QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
       return QueryError_ReplyAndClear(ctx, &status);
     }
-    // Already wrapped by AREQ_Debug_New (the wrapper can only be attached
-    // after its rm_realloc).
     r = &debug_req->r;
   } else {
-    r = AREQ_New();
-    BlockedRequestCtx_NewAREQ(r, argv, argc);
+    r = AREQ_New(argv, argc);
   }
   // Either path took the argv holds here, on the main thread; the BG parse
   // borrows from them (the job's own argv copies die with the job).
@@ -3911,16 +3910,16 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   handlerCtx.numShards = NumShards;  // Capture NumShards from main thread for thread-safe access
 
   RSTimeoutPolicy policy = r->reqConfig.timeoutPolicy;
-  handlerCtx.bcCtx.brc = r->brc;
+  handlerCtx.bcCtx.request = &r->base;
   if (policy == TimeoutPolicy_Fail || policy == TimeoutPolicy_ReturnStrict) {
     handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
     handlerCtx.bcCtx.timeout_callback = (policy == TimeoutPolicy_Fail)
         ? DistAggregateTimeoutFailCallback
         : DistAggregateTimeoutReturnStrictCallback;
     handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
-    r->useReplyCallback = true;
+    QueryRequest_SetUseReplyCallback(&r->base, true);
     if (policy == TimeoutPolicy_ReturnStrict) {
-      r->brc->requiresAggregateResultsSync = true;
+      r->base.async.requiresAggregateResultsSync = true;
     }
   }
 
@@ -3993,21 +3992,25 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
-  // Allocate the hybrid request shell and its owning wrapper before blocking
-  // the client, so the full context is already installed (as the blocked
+  // Allocate the hybrid request shell before blocking the client, so the full
+  // context is already installed (as the blocked
   // client's privdata) once the client is blocked. Parsing happens on the BG
-  // thread; the sub-AREQ contexts are detached thread-safe contexts.
+  // thread.
   RedisSearchCtx *sctx = NewSearchCtxC(ctx, idx, true);
   RS_ASSERT(sctx != NULL);  // the index was validated above in the same GIL window
   // Construction takes the argv holds here, on the main thread; the BG parse
   // borrows from them (the job's own argv copies die with the job).
   HybridRequest *hreq = MakeDefaultHybridRequest(sctx, argv, argc);
-  // The tail sctx aliased this handler's ctx, which dies when the handler
-  // returns. The BG executor re-points it at its own thread-safe ctx.
+  // The tail and sub sctxs aliased this handler's ctx, which dies when the
+  // handler returns. The BG executor re-points the tail at its own thread-safe
+  // ctx; the coordinator pipelines (RPNet chains) never read a sub's ctx.
   sctx->redisCtx = NULL;
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    AREQ_SearchCtx(hreq->requests[i])->redisCtx = NULL;
+  }
 
   RSTimeoutPolicy policy = hreq->reqConfig.timeoutPolicy;
-  hreq->brc->requiresAggregateResultsSync = (policy == TimeoutPolicy_ReturnStrict);
+  hreq->base.async.requiresAggregateResultsSync = (policy == TimeoutPolicy_ReturnStrict);
 
   ConcurrentSearchHandlerCtx handlerCtx;
   ConcurrentSearchHandlerCtx_Init(&handlerCtx);
@@ -4016,7 +4019,7 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
   handlerCtx.numShards = NumShards;  // Capture NumShards from main thread for thread-safe access
 
-  handlerCtx.bcCtx.brc = hreq->brc;
+  handlerCtx.bcCtx.request = &hreq->base;
 
   if (policy != TimeoutPolicy_Return) {
     handlerCtx.bcCtx.reply_callback = DistHybridReplyCallback;
@@ -4024,7 +4027,7 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
         ? DistHybridTimeoutFailCallback
         : DistHybridTimeoutReturnStrictCallback;
     handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
-    hreq->useReplyCallback = true;
+    QueryRequest_SetUseReplyCallback(&hreq->base, true);
   }
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
@@ -4358,7 +4361,7 @@ static void DistSearchCommandHandler(void* pd) {
     sCmdCtx->handlerCtx.coordQueueTime = rs_wall_clock_now_ns() - sCmdCtx->handlerCtx.coordStartTime;
   }
   // Dequeued by the coord: advance to PIPELINE (fan-out/reduce). Skipped once timed
-  // out while queued (freeze, mirroring RequestSyncState_SetExecutionStage).
+  // out while queued, preserving the phase where the timeout was observed.
   searchRequestCtx *sReq = MRCtx_GetPrivData(sCmdCtx->mrctx);
   if (sReq && !MRCtx_IsTimedOut(sCmdCtx->mrctx)) {
     searchReqCtx_SetExecutionStage(sReq, QUERY_TIMEOUT_STAGE_PIPELINE);
@@ -5148,7 +5151,7 @@ static void DEBUG_DistSearchCommandHandler(void* pd) {
     sCmdCtx->handlerCtx.coordQueueTime = rs_wall_clock_now_ns() - sCmdCtx->handlerCtx.coordStartTime;
   }
   // Dequeued by the coord: advance to PIPELINE (fan-out/reduce). Skipped once timed
-  // out while queued (freeze, mirroring RequestSyncState_SetExecutionStage).
+  // out while queued, preserving the phase where the timeout was observed.
   searchRequestCtx *sReq = MRCtx_GetPrivData(sCmdCtx->mrctx);
   if (sReq && !MRCtx_IsTimedOut(sCmdCtx->mrctx)) {
     searchReqCtx_SetExecutionStage(sReq, QUERY_TIMEOUT_STAGE_PIPELINE);
@@ -5163,32 +5166,3 @@ static void DEBUG_DistSearchCommandHandler(void* pd) {
   rm_free(sCmdCtx);
 }
 
-// Structure to pass context cleanup data to main thread
-typedef struct ContextCleanupData{
-  RedisModuleCtx *thctx;
-  RedisSearchCtx *sctx;
-} ContextCleanupData;
-
-// Callback to safely free contexts from main thread
-static void freeContextsCallback(void *data) {
-  ContextCleanupData *cleanup = (ContextCleanupData *)data;
-
-  if (cleanup->sctx) {
-    SearchCtx_Free(cleanup->sctx);
-  }
-
-  if (cleanup->thctx) {
-    RedisModule_FreeThreadSafeContext(cleanup->thctx);
-  }
-
-  rm_free(cleanup);
-}
-
-// Public function to schedule context cleanup
-void ScheduleContextCleanup(RedisModuleCtx *thctx, struct RedisSearchCtx *sctx) {
-  ContextCleanupData *cleanup = rm_malloc(sizeof(ContextCleanupData));
-  cleanup->thctx = thctx;
-  cleanup->sctx = sctx;
-
-  ConcurrentSearch_ThreadPoolRun(freeContextsCallback, cleanup, DIST_THREADPOOL);
-}

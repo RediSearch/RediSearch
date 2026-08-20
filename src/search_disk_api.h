@@ -32,7 +32,7 @@ typedef struct RLookupKey RLookupKey;
 typedef struct HiddenString HiddenString;
 
 // Forward declaration for the RETURN_STRICT GIL handshake context (aggregate.h).
-typedef struct BlockedRequestCtx BlockedRequestCtx;
+typedef struct QueryRequest QueryRequest;
 
 // Helper opaque types for the disk API
 typedef const void* RedisSearchDisk;
@@ -336,15 +336,15 @@ typedef struct BasicDiskAPI {
   /**
    * Hand the disk async-loader result processor its request sync context, so it can perform
    * the same RETURN_STRICT GIL deadlock-avoidance handshake as RP_SAFE_LOADER (see
-   * `BlockedRequestCtx_SafeLoaderEnterGIL` / `ExitGIL` in aggregate.h).
+   * `QueryRequest_SafeLoaderEnterGIL` / `ExitGIL` in aggregate.h).
    *
    * @param rp  The disk async-loader ResultProcessor, previously returned by
    *            `newAsyncLoaderResultProcessor`.
-   * @param brc `BlockedRequestCtx *`, or NULL to clear.
+   * @param request `QueryRequest *`, or NULL to clear.
    *
    * Note: keep this field last in `BasicDiskAPI` (C and Rust build this struct together).
    */
-  void (*asyncLoaderSetSyncCtx)(ResultProcessor *rp, BlockedRequestCtx *brc);
+  void (*asyncLoaderSetSyncCtx)(ResultProcessor *rp, QueryRequest *request);
 } BasicDiskAPI;
 
 typedef struct IndexDiskAPI {
@@ -599,45 +599,42 @@ typedef struct IndexDiskAPI {
   void (*updateMaxOpenFiles)(RedisSearchDiskIndexSpec *index, int maxOpenFiles);
 
   /**
-   * @brief Master-side SST replication PRE_CHECKPOINT hook.
+   * @brief Open a consistency window on one index. Main thread; no IndexSpec lock held.
    *
-   * Called once per index before the replication checkpoint is taken.
-   * Caller holds the IndexSpec read lock for the duration of this call.
+   * Replaces the former preCheckpoint/preFork pair. Called exactly once per window, at the
+   * point that starts it (SST PRE_CHECKPOINT, or a foreground hot-restart save) - and for a
+   * spec created while a window is already open, when it is created. PRE_FORK does not call
+   * this: it inherits the window and only re-flushes under the vector lock. The caller owns
+   * that pairing, so this needs no idempotence of its own.
+   *
+   * Must disable and cancel manual compactions, and close the numeric consistency gate.
+   * Must NOT flush: the caller flushes separately via `flush`, after taking the vector
+   * consistency lock, so vector-job writes are excluded from the snapshot too. Cancelling
+   * compactions here is what lets the caller's disk-GC drain finish promptly. Both effects
+   * last until closeConsistencyWindow.
    *
    * POST_CHECKPOINT has no matching disk hook - OSS handles it on its own.
    *
    * @param index Pointer to the disk index spec
    */
-  void (*preCheckpoint)(RedisSearchDiskIndexSpec *index);
+  void (*openConsistencyWindow)(RedisSearchDiskIndexSpec *index);
 
   /**
-   * @brief Master-side SST replication PRE_FORK hook.
+   * @brief Close the consistency window on one index.
    *
-   * Called once per index before the replication snapshot fork.
+   * Replaces the former postFork/replicationAbort/hotRestartSaveEnded trio. Called exactly
+   * once per window that was opened - at POST_FORK, at ABORT from anywhere in the cycle, or
+   * at the end of a foreground save, whichever comes first.
    *
-   * @param index Pointer to the disk index spec
-   */
-  void (*preFork)(RedisSearchDiskIndexSpec *index);
-
-  /**
-   * @brief Master-side SST replication POST_FORK hook.
-   *
-   * Called once per index after the snapshot fork.
+   * Always re-enables compactions. Reopens the numeric consistency gate only when
+   * `reopenNumericGate` is true - a successful hot restart passes false, because the
+   * process exits shortly and reopening would let a deferred split finalize after the RDB
+   * serialized its pre-finalize state.
    *
    * @param index Pointer to the disk index spec
+   * @param reopenNumericGate Whether to reopen the numeric consistency gate
    */
-  void (*postFork)(RedisSearchDiskIndexSpec *index);
-
-  /**
-   * @brief Master-side SST replication ABORT hook.
-   *
-   * Called once per index when the replication cycle is aborted at any point
-   * between PRE_CHECKPOINT and POST_FORK. The disk implementation is free to
-   * undo whatever state it set up in the preceding `pre*` hook.
-   *
-   * @param index Pointer to the disk index spec
-   */
-  void (*replicationAbort)(RedisSearchDiskIndexSpec *index);
+  void (*closeConsistencyWindow)(RedisSearchDiskIndexSpec *index, bool reopenNumericGate);
 
   /**
    * @brief Debug: dump a numeric field's in-memory bucket routing map.
@@ -653,18 +650,6 @@ typedef struct IndexDiskAPI {
    */
   char *(*debugDumpNumericBucketMap)(RedisSearchDiskIndexSpec *index, t_fieldIndex fieldIndex, AllocateKeyCallback allocate);
 
-  /**
-   * @brief Hot-restart save-ended hook.
-   *
-   * Called once per index after a successful foreground hot-restart save.
-   * Re-enables compactions (the on-disk DBs are kept and the process exits
-   * shortly) but deliberately leaves the numeric consistency gate closed:
-   * reopening it would let a deferred split finalize after the RDB
-   * serialized its pre-finalize state.
-   *
-   * @param index Pointer to the disk index spec
-   */
-  void (*hotRestartSaveEnded)(RedisSearchDiskIndexSpec *index);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {
@@ -1123,14 +1108,16 @@ extern void VecSimDisk_ReleaseConsistencyLock(void);
 // Fork × compaction debug coordinator (FT.DEBUG REPL_COMPACTION_COORDINATOR)
 //
 // Implemented on the Rust side in `redisearch_disk::compaction::debug`. Each
-// lifecycle site (compaction begin/completed, pre_checkpoint; `int` values
-// matching `compaction::Site`) calls `reach` when it executes. A test can:
+// lifecycle site (compaction begin/completed, consistency_window_open; `int`
+// values matching `compaction::Site`) calls `reach` when it executes. A test can:
 //   - `ArmPause(site, true)`  park a site when it is next reached.
 //   - `SetWake(trigger, target)`  release `target` when `trigger` is reached
 //       (the cross-wake that lets a main-thread site unblock a parked
 //       background compaction; target -1 clears the link).
 //   - `Release(site)`  release a parked site out-of-band.
 //   - `Reached(site)`  read the arrival count.
+// A rendezvous whose two ends are this side and the disk layer uses a named
+// `_FT.DEBUG SYNC_POINT` instead - both sides can reach the same name directly.
 //   - `ResetCompactionController()`  clear all state and free waiters.
 // All entry points are no-ops if nothing is armed and are safe to call from
 // arbitrary threads.

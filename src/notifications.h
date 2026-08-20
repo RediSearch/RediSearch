@@ -10,9 +10,15 @@
 
 #include "redismodule.h"
 
+#include <stdbool.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+// Whether the per-index disk consistency hooks are currently open. An index created while
+// they are must open its own window, or the close at POST_FORK finds it unpaired.
+bool DiskConsistencyWindow_IsIndexWindowOpen(void);
 
 int KeySpaceNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
                                RedisModuleString *key);

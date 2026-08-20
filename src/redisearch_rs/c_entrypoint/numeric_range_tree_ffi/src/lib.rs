@@ -19,12 +19,10 @@
 //! - [`node`]: Node accessors (range, children, etc.)
 //! - [`range`]: NumericRange accessors and HLL functions
 //! - [`inverted_index`]: InvertedIndexNumeric accessors and reader
-//! - [`gc`]: Garbage collection scan and apply functions
 
 #![allow(non_camel_case_types, non_snake_case)]
 
 pub mod debug;
-pub mod gc;
 pub mod iterator;
 pub mod node;
 pub mod range;
@@ -32,7 +30,6 @@ pub mod tree;
 
 // Re-export all public FFI functions from submodules
 pub use debug::*;
-pub use gc::*;
 pub use iterator::*;
 pub use node::*;
 use numeric_range_tree::AddResult;

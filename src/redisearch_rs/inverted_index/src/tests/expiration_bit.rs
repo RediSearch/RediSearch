@@ -48,17 +48,15 @@ fn block_bitset_set_and_get() {
 fn assert_sequential_roundtrip<E: crate::Encoder + crate::Decoder>(
     flags: ffi::IndexFlags,
     entries: &[(DocId, bool)],
-    build: impl Fn(DocId) -> RSIndexResult<'static>,
+    build: impl Fn(DocId, bool) -> RSIndexResult<'static>,
 ) {
     let mut ii = InvertedIndex::<E>::new(flags);
     for &(doc_id, has_exp) in entries {
-        let mut rec = build(doc_id);
-        rec.has_field_expiration = has_exp;
-        ii.add_record(&rec).unwrap();
+        ii.add_record(&build(doc_id, has_exp)).unwrap();
     }
 
     let mut reader = ii.reader();
-    let mut result = build(0);
+    let mut result = build(0, false);
     for &(doc_id, has_exp) in entries {
         assert!(reader.next_record(&mut result).unwrap());
         assert_eq!(result.doc_id, doc_id);
@@ -75,7 +73,12 @@ fn doc_ids_only_roundtrips_expiration_bit() {
     assert_sequential_roundtrip::<DocIdsOnly>(
         IndexFlags_Index_DocIdsOnly,
         &[(10, false), (11, true), (20, false), (21, true), (22, true)],
-        |doc_id| RSIndexResult::build_virt().doc_id(doc_id).build(),
+        |doc_id, has_exp| {
+            RSIndexResult::build_virt()
+                .doc_id(doc_id)
+                .has_field_expiration(has_exp)
+                .build()
+        },
     );
 }
 
@@ -84,10 +87,11 @@ fn fields_only_roundtrips_expiration_bit() {
     assert_sequential_roundtrip::<FieldsOnly>(
         IndexFlags_Index_StoreFieldFlags,
         &[(5, true), (6, false), (100, true), (101, false)],
-        |doc_id| {
+        |doc_id, has_exp| {
             RSIndexResult::build_term()
                 .doc_id(doc_id)
                 .field_mask(0b1)
+                .has_field_expiration(has_exp)
                 .build()
         },
     );
@@ -98,7 +102,12 @@ fn numeric_roundtrips_expiration_bit() {
     assert_sequential_roundtrip::<Numeric>(
         IndexFlags_Index_StoreNumeric,
         &[(1, false), (2, true), (3, true), (50, false)],
-        |doc_id| RSIndexResult::build_numeric(1.5).doc_id(doc_id).build(),
+        |doc_id, has_exp| {
+            RSIndexResult::build_numeric(1.5)
+                .doc_id(doc_id)
+                .has_field_expiration(has_exp)
+                .build()
+        },
     );
 }
 
@@ -114,14 +123,23 @@ fn raw_doc_ids_only_roundtrips_and_seeks_with_expiration_bit() {
         (21, true),
         (30, false),
     ];
-    assert_sequential_roundtrip::<RawDocIdsOnly>(IndexFlags_Index_DocIdsOnly, entries, |doc_id| {
-        RSIndexResult::build_virt().doc_id(doc_id).build()
-    });
+    assert_sequential_roundtrip::<RawDocIdsOnly>(
+        IndexFlags_Index_DocIdsOnly,
+        entries,
+        |doc_id, has_exp| {
+            RSIndexResult::build_virt()
+                .doc_id(doc_id)
+                .has_field_expiration(has_exp)
+                .build()
+        },
+    );
 
     let mut ii = InvertedIndex::<RawDocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
     for &(doc_id, has_exp) in entries {
-        let mut rec = RSIndexResult::build_virt().doc_id(doc_id).build();
-        rec.has_field_expiration = has_exp;
+        let rec = RSIndexResult::build_virt()
+            .doc_id(doc_id)
+            .has_field_expiration(has_exp)
+            .build();
         ii.add_record(&rec).unwrap();
     }
     for &(target, expected_doc, expected_exp) in &[
@@ -156,11 +174,11 @@ fn expiration_bit_survives_block_split_on_delta_overflow() {
     .unwrap();
 
     let big_doc_id: DocId = (1u64 << 32) + 5;
-    let mut second = RSIndexResult::build_term()
+    let second = RSIndexResult::build_term()
         .doc_id(big_doc_id)
         .field_mask(0b1)
+        .has_field_expiration(true)
         .build();
-    second.has_field_expiration = true;
     ii.add_record(&second).unwrap();
 
     let mut reader = ii.reader();
@@ -192,8 +210,10 @@ fn expiration_bit_survives_gc() {
         (15, false),
     ];
     for &(doc_id, has_exp) in entries {
-        let mut rec = RSIndexResult::build_virt().doc_id(doc_id).build();
-        rec.has_field_expiration = has_exp;
+        let rec = RSIndexResult::build_virt()
+            .doc_id(doc_id)
+            .has_field_expiration(has_exp)
+            .build();
         ii.add_record(&rec).unwrap();
     }
 

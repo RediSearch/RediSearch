@@ -71,12 +71,6 @@ int Trie_DeleteRunes(Trie *t, const rune *runes, size_t len);
  * need to reach into Trie internals. See TrieNode_Get for parameter semantics. */
 TrieNode *Trie_GetNode(Trie *t, const rune *str, t_len len, bool exact, int *offsetOut);
 
-/* Iterate all nodes within a lexicographic range. Wraps TrieNode_IterateRange on the
- * trie's root. See TrieNode_IterateRange for parameter semantics. */
-void Trie_IterateRange(const Trie *t, const rune *min, int minlen, bool includeMin,
-                       const rune *max, int maxlen, bool includeMax,
-                       TrieRangeCallback callback, void *ctx);
-
 /* Iterate all nodes that contain (or begin/end with) the given pattern. Wraps
  * TrieNode_IterateContains on the trie's root. See TrieNode_IterateContains for
  * parameter semantics. */
@@ -131,10 +125,6 @@ Vector *Trie_CollectFuzzy(const Trie *t, const char *str, size_t len, size_t num
  * otherwise the whole string within maxDist Levenshtein distance. */
 TrieIterator *Trie_IterateFuzzy(Trie *t, const char *str, size_t len, int maxDist,
                                 TrieMatchMode mode);
-
-/* Get a random key from the trie, and put the node's score in the score pointer. Returns 0 if the
- * trie is empty and we cannot do that */
-int Trie_RandomKey(Trie *t, char **str, t_len *len, double *score);
 
 /* Commands related to the redis TrieType registration */
 int TrieType_Register(RedisModuleCtx *ctx);

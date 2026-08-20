@@ -10,17 +10,17 @@
 #include "sorting_vector.h"
 
 /**
- * The C version of a [`SharedValue`](value::SharedValue)
- */
-typedef struct RSValue RSValue;
-
-/**
  * An opaque query error which can be passed by value to C.
  *
  * The size and alignment of this struct must match the Rust `QueryError`
  * structure exactly.
  */
 typedef struct QueryError QueryError;
+
+/**
+ * The C version of a [`SharedValue`](value::SharedValue)
+ */
+typedef struct RSValue RSValue;
 
 #define RS_SORTABLES_MAX 1024
 

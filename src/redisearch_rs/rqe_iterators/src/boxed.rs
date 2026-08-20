@@ -137,6 +137,9 @@ pub trait RQESuspendedIterator<'query> {
     /// stale position that made the resume necessary — and a composite one level
     /// up cannot recover its own position from it.
     ///
+    /// Exhaustion must also survive the cycle: an iterator suspended at
+    /// [`at_eof`](RQEIterator::at_eof) must resume at it.
+    ///
     /// Resume re-reads/seeks the index to restore position (mirroring
     /// [`RQEIterator::revalidate`]), so it can fail with an
     /// [`RQEIteratorError`] (e.g. [`IoError`](RQEIteratorError::IoError) or
@@ -232,7 +235,7 @@ impl<'query> TypeErasedRQESuspendedIterator<'query> {
 /// Call it in a `const {}` block so the check runs at monomorphization: a
 /// mismatch fails to compile instead of causing undefined behaviour when the
 /// suspend/resume helpers reinterpret an allocation from `A` to `B`.
-const fn assert_layout_compatible<A, B>() {
+pub(crate) const fn assert_layout_compatible<A, B>() {
     assert!(
         std::mem::size_of::<A>() == std::mem::size_of::<B>(),
         "size mismatch across suspend/resume transition: active and suspended representations must have identical size"

@@ -177,36 +177,15 @@ fn open_expanded_term_reader(
     Some(unsafe { CRQEIterator::new(nn) })
 }
 
-/// Encode a rune slice back into the term's stored key bytes, delegating to the
-/// C `runesToStr` so the reconstruction matches how the terms trie encoded the
-/// key at index time — byte for byte, including the WTF-8 form a lone surrogate
-/// takes.
-///
-/// Returns `None` when the slice is longer than
-/// [`MAX_RUNE_STR_LEN`](ffi::MAX_RUNE_STR_LEN) runes, the point at which the
-/// conversion declines and the expansion must be skipped.
-pub(crate) fn runes_to_key(runes: &[ffi::rune]) -> Option<Vec<u8>> {
-    let mut len: usize = 0;
-    // SAFETY: `runes` is a valid slice of `runes.len()` runes; `runesToStr`
-    // returns a freshly allocated, NUL-terminated buffer of `len` bytes, or NULL
-    // when the slice exceeds `MAX_RUNE_STR_LEN`.
-    let ptr = unsafe { ffi::runesToStr(runes.as_ptr(), runes.len(), &mut len) };
-    let ptr = NonNull::new(ptr)?;
-    // SAFETY: `ptr` points to `len` valid bytes written by the call above.
-    let key = unsafe { std::slice::from_raw_parts(ptr.as_ptr().cast::<u8>(), len) }.to_vec();
-    // SAFETY: `RedisModule_Free` is set during module init and not mutated
-    // afterwards.
-    let rm_free = unsafe { redis_module::RedisModule_Free.expect("Redis allocator not available") };
-    // SAFETY: `ptr` was allocated by the module allocator inside `runesToStr`.
-    unsafe { rm_free(ptr.as_ptr().cast::<std::ffi::c_void>()) };
-    Some(key)
-}
-
-/// A single prefix expansion in progress: the inputs both walks share, the
+/// A single pattern expansion in progress: the inputs every walk shares, the
 /// context they open readers against, and the readers opened so far.
 ///
-/// Built once per `QN_PREFIX` evaluation and consumed by whichever `expand_via_*`
-/// walk applies, which hands back the accumulated readers.
+/// Built once per `QN_PREFIX`, `QN_WILDCARD_QUERY` or `QN_FUZZY` evaluation. The
+/// prefix walks consume it and hand back the accumulated readers; the wildcard
+/// and fuzzy walks take `&mut self`, since both have something left to do after
+/// the walk — a declined suffix walk falls back to the terms-trie walk, and a
+/// fuzzy expansion may append the empty term — with everything accumulating into
+/// the same `children`.
 pub(super) struct Expansion<'a> {
     /// The evaluation context readers are opened against, and where the
     /// expansion-cap warning and the unsupported-fields error are recorded.
@@ -233,13 +212,24 @@ impl Expansion<'_> {
     /// `num_docs` is the term's document count, used only on the disk path for
     /// the IDF.
     pub(crate) fn push_child(&mut self, num_docs: usize, term_bytes: &[u8]) -> ControlFlow<()> {
-        if self.children.len() >= self.max_expansions {
-            self.ctx
-                .status()
-                .warnings_mut()
-                .set_reached_max_prefix_expansions();
+        if self.cap_reached() {
             return ControlFlow::Break(());
         }
+        self.push_child_ignoring_cap(num_docs, term_bytes);
+        ControlFlow::Continue(())
+    }
+
+    /// Open a reader for `term_bytes` and push it as a union child **without**
+    /// consulting the expansion cap, so no warning is recorded either.
+    ///
+    /// For an expansion that is not one of the terms a walk found and so is not
+    /// what the cap bounds — the fuzzy empty term, which is appended after the
+    /// walk and admitted even when the cap is full. Every walk-driven expansion
+    /// goes through [`push_child`](Self::push_child) instead.
+    ///
+    /// `num_docs` is the term's document count, used only on the disk path for
+    /// the IDF.
+    pub(crate) fn push_child_ignoring_cap(&mut self, num_docs: usize, term_bytes: &[u8]) {
         if let Some(it) = open_expanded_term_reader(
             self.ctx,
             term_bytes,
@@ -249,6 +239,24 @@ impl Expansion<'_> {
         ) {
             self.children.push(it);
         }
-        ControlFlow::Continue(())
+    }
+
+    /// Whether the expansion cap has been reached, recording the "reached max
+    /// prefix expansions" warning when it has.
+    ///
+    /// [`push_child`](Self::push_child) applies this itself, so a walk only needs
+    /// to consult it directly when producing the term key costs something — a
+    /// walk that keeps calling back after being asked to stop would pay that cost
+    /// once per remaining match.
+    pub(crate) fn cap_reached(&mut self) -> bool {
+        if self.children.len() >= self.max_expansions {
+            self.ctx
+                .status()
+                .warnings_mut()
+                .set_reached_max_prefix_expansions();
+            true
+        } else {
+            false
+        }
     }
 }

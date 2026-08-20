@@ -96,6 +96,16 @@ static inline int TimedOut_WithCounter(const struct timespec *timeout, uint32_t 
   return NOT_TIMED_OUT;
 }
 
+// Check if time has been reached, bypassing the once-every-N-calls throttle.
+// Honors the same escapes as TimedOut_WithCounter: the unit-test harness has no
+// Redis module API and so never populates the deadline, and REDISEARCH_UNINITIALIZED
+// means the caller opted out of timeout checks entirely.
+static inline int TimedOut_Unthrottled(const struct timespec *timeout, const uint32_t *counter) {
+  if (RS_IsMock) return NOT_TIMED_OUT;
+  if (*counter == REDISEARCH_UNINITIALIZED) return NOT_TIMED_OUT;
+  return TimedOut(timeout);
+}
+
 // Check if time has been reached (run once every `gran` calls)
 static inline int TimedOut_WithCounter_Gran(const struct timespec *timeout, uint32_t *counter, uint32_t gran) {
   if (RS_IsMock) return 0;

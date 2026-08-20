@@ -32,7 +32,7 @@ on:
       redis_ref:
         type: string
         # Keep benchmarks independent of the Redis version preinstalled on the DB hosts.
-        default: "8.10.0"
+        default: "d3abc02fed6664cc0afaf9ffe4e172a99e274f44"
         description: "redis/redis git ref (sha/branch/tag) to build and run the benchmarks against, instead of the redis preinstalled on the DB hosts. Empty uses the preinstalled default."
   workflow_call:
     inputs:
@@ -57,7 +57,7 @@ on:
       redis_ref:
         type: string
         # Keep benchmarks independent of the Redis version preinstalled on the DB hosts.
-        default: "8.10.0"
+        default: "d3abc02fed6664cc0afaf9ffe4e172a99e274f44"
         description: "redis/redis git ref (sha/branch/tag) to build and run the benchmarks against, instead of the redis preinstalled on the DB hosts. Empty uses the preinstalled default."
 
 jobs:

@@ -25,6 +25,18 @@ typedef struct NumericFilter NumericFilter;
  */
 typedef struct RSQueryTerm RSQueryTerm;
 
+/**
+ * A view over the records stored inside an [`RSAggregateResult`].
+ *
+ * It is designed to minimize the overhead of iterating over the records on
+ * the C side, by providing a direct pointer to the records and avoiding unnecessary
+ * C->Rust FFI calls.
+ */
+typedef struct AggregateRecordsSlice {
+  const RSIndexResult *const *ptr;
+  size_t len;
+} AggregateRecordsSlice;
+
 #ifndef RSOFFSETVECTOR_DEFINED
 #define RSOFFSETVECTOR_DEFINED
 /**
@@ -50,18 +62,6 @@ typedef struct RSOffsetVector {
   uint32_t len;
 } RSOffsetVector;
 #endif /* RSOFFSETVECTOR_DEFINED */
-
-/**
- * A view over the records stored inside an [`RSAggregateResult`].
- *
- * It is designed to minimize the overhead of iterating over the records on
- * the C side, by providing a direct pointer to the records and avoiding unnecessary
- * C->Rust FFI calls.
- */
-typedef struct AggregateRecordsSlice {
-  const RSIndexResult *const *ptr;
-  size_t len;
-} AggregateRecordsSlice;
 
 #ifdef __cplusplus
 extern "C" {

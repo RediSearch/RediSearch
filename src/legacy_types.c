@@ -16,13 +16,22 @@
 
 #define LEGACY_ENC_VER 1
 #define LEGACY_LEGACY_ENC_VER 0
+// Version we write for a legacy key that outlived the upgrade sweep. Such a key holds only the
+// sentinel, so there is nothing to serialize - and stamping the record with a version the loader
+// recognises is what makes an empty payload legal: the loader consumes no bytes, leaving Redis's module
+// EOF marker exactly where it left it. Writing nothing under LEGACY_ENC_VER is what corrupted the RDB,
+// because the loader then read a payload that was not there and ate the marker instead.
+#define LEGACY_EMPTY_ENC_VER 2
 
 // RDB load callback cannot return NULL, as it indicates an error
 void *dummyNonNull = (void*)0xDEADBEEF;
 
 // Dummy no-op functions for type methods
 void GenericType_DummyRdbSave(RedisModuleIO *rdb, void *value) {
-  RS_ABORT("Attempted to save a legacy type to RDB");
+  // Writes nothing; the record's LEGACY_EMPTY_ENC_VER tells the loader not to expect a payload.
+  // This is now a legitimate call - a husk is saved whenever an RDB is written - so the check is that
+  // the value is the sentinel, not that the function is unreachable.
+  RS_ASSERT(value == dummyNonNull);
 }
 
 void GenericType_DummyFree(void *value) {
@@ -31,8 +40,11 @@ void GenericType_DummyFree(void *value) {
 
 // Consume an inverted index type from RDB
 void *InvertedIndex_RdbLoad_Consume(RedisModuleIO *rdb, int encver) {
-  if (encver > LEGACY_ENC_VER) {
+  if (encver > LEGACY_EMPTY_ENC_VER) {
     return NULL;
+  }
+  if (encver == LEGACY_EMPTY_ENC_VER) {
+    return dummyNonNull; // written by GenericType_DummyRdbSave: no payload to consume
   }
 
   RedisModule_LoadUnsigned(rdb); // Consume the flags of the index
@@ -51,8 +63,11 @@ void *InvertedIndex_RdbLoad_Consume(RedisModuleIO *rdb, int encver) {
 
 // Consume a numeric index type from RDB
 void *NumericIndexType_RdbLoad_Consume(RedisModuleIO *rdb, int encver) {
-  if (encver > LEGACY_ENC_VER) {
+  if (encver > LEGACY_EMPTY_ENC_VER) {
     return NULL;
+  }
+  if (encver == LEGACY_EMPTY_ENC_VER) {
+    return dummyNonNull; // written by GenericType_DummyRdbSave: no payload to consume
   }
 
   if (encver == LEGACY_LEGACY_ENC_VER) {
@@ -74,6 +89,13 @@ void *NumericIndexType_RdbLoad_Consume(RedisModuleIO *rdb, int encver) {
 
 // Consume a tag index type from RDB
 void *TagIndex_RdbLoad_Consume(RedisModuleIO *rdb, int encver) {
+  if (encver > LEGACY_EMPTY_ENC_VER) {
+    return NULL;
+  }
+  if (encver == LEGACY_EMPTY_ENC_VER) {
+    return dummyNonNull; // written by GenericType_DummyRdbSave: no payload to consume
+  }
+
   size_t n_tags = RedisModule_LoadUnsigned(rdb); // Consume the number of tags in the index
 
   for (size_t i = 0; i < n_tags; i++) {
@@ -94,19 +116,19 @@ int RegisterLegacyTypes(RedisModuleCtx *ctx) {
 
   // Register the inverted index type
   tm.rdb_load = InvertedIndex_RdbLoad_Consume;
-  if (!RedisModule_CreateDataType(ctx, "ft_invidx", LEGACY_ENC_VER, &tm)) {
+  if (!RedisModule_CreateDataType(ctx, "ft_invidx", LEGACY_EMPTY_ENC_VER, &tm)) {
     return REDISMODULE_ERR;
   }
 
   // Register the numeric index type
   tm.rdb_load = NumericIndexType_RdbLoad_Consume;
-  if (!RedisModule_CreateDataType(ctx, "numericdx", LEGACY_ENC_VER, &tm)) {
+  if (!RedisModule_CreateDataType(ctx, "numericdx", LEGACY_EMPTY_ENC_VER, &tm)) {
     return REDISMODULE_ERR;
   }
 
   // Register the tag index type
   tm.rdb_load = TagIndex_RdbLoad_Consume;
-  if (!RedisModule_CreateDataType(ctx, "ft_tagidx", LEGACY_ENC_VER, &tm)) {
+  if (!RedisModule_CreateDataType(ctx, "ft_tagidx", LEGACY_EMPTY_ENC_VER, &tm)) {
     return REDISMODULE_ERR;
   }
 

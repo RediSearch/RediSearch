@@ -790,3 +790,480 @@ fn skip_to_whose_scan_fails_leaves_the_position_alone() {
         "the failed scan produced no result, so the position stays where it was",
     );
 }
+
+mod via_resume {
+    use super::*;
+    use rqe_iterators::TypeErasedRQEIterator;
+    use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
+
+    #[test]
+    fn revalidate_child_ok_preserves_exclusions() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child = Mock::new([2, 4]);
+        let it = Not::new(child, 5, 1.0, NoTimeoutChecker);
+
+        let guard = mock_ctx.spec_read();
+        let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(it)), &guard)
+            .expect("resume failed")
+            .expect_ok();
+
+        let mut seen = Vec::new();
+        while let Some(doc) = it.read().unwrap() {
+            seen.push(doc.doc_id);
+        }
+        assert_eq!(seen, vec![1, 3, 5]);
+    }
+
+    #[test]
+    fn revalidate_child_aborted_replaces_child_with_empty() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child = Mock::new([2, 4]);
+        let mut data = child.data();
+        data.set_revalidate_result(MockRevalidateResult::Abort);
+        let it = Not::new(child, 5, 1.0, NoTimeoutChecker);
+
+        let guard = mock_ctx.spec_read();
+        let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(it)), &guard)
+            .expect("resume failed")
+            .expect_ok();
+
+        let mut seen = Vec::new();
+        while let Some(doc) = it.read().unwrap() {
+            seen.push(doc.doc_id);
+        }
+        assert_eq!(seen, vec![1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn revalidate_child_moved_on_fresh_iterator() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child = Mock::new([2, 4]);
+        let mut data = child.data();
+        data.set_revalidate_result(MockRevalidateResult::Move);
+        let it = Not::new(child, 5, 1.0, NoTimeoutChecker);
+
+        let guard = mock_ctx.spec_read();
+        let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(it)), &guard)
+            .expect("resume failed")
+            .expect_ok();
+
+        let mut seen = Vec::new();
+        while let Some(doc) = it.read().unwrap() {
+            seen.push(doc.doc_id);
+        }
+        assert_eq!(seen, vec![1, 3, 5]);
+    }
+
+    #[test]
+    fn revalidate_child_moved_after_read_with_child_ahead() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child = Mock::new([5, 10]);
+        let mut data = child.data();
+        let mut it = Not::new(child, 15, 1.0, NoTimeoutChecker);
+
+        let doc = it.read().expect("read() failed").expect("expected doc");
+        assert_eq!(doc.doc_id, 1);
+        assert_eq!(it.last_doc_id(), 1);
+
+        data.set_revalidate_result(MockRevalidateResult::Move);
+        let guard = mock_ctx.spec_read();
+        let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(it)), &guard)
+            .expect("resume failed")
+            .expect_ok();
+
+        let mut seen = vec![1];
+        while let Some(doc) = it.read().unwrap() {
+            seen.push(doc.doc_id);
+        }
+        assert_eq!(seen, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15]);
+    }
+
+    #[test]
+    fn revalidate_child_moved_after_skip_to_with_child_ahead() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child = Mock::new([8, 15]);
+        let mut data = child.data();
+        let mut it = Not::new(child, 20, 1.0, NoTimeoutChecker);
+
+        let outcome = it
+            .skip_to(3)
+            .expect("skip_to() failed")
+            .expect("expected outcome");
+        match outcome {
+            SkipToOutcome::Found(doc) => assert_eq!(doc.doc_id, 3),
+            _ => panic!("Expected Found outcome"),
+        }
+        assert_eq!(it.last_doc_id(), 3);
+
+        data.set_revalidate_result(MockRevalidateResult::Move);
+        let guard = mock_ctx.spec_read();
+        let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(it)), &guard)
+            .expect("resume failed")
+            .expect_ok();
+
+        let mut seen = vec![3];
+        while let Some(doc) = it.read().unwrap() {
+            seen.push(doc.doc_id);
+        }
+        assert_eq!(
+            seen,
+            vec![3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18, 19, 20]
+        );
+    }
+
+    /// The suspend/resume cycle must reuse the allocation: the FFI wrapper and
+    /// delegating parents cache raw pointers into the iterator's storage, and a
+    /// rebuilt box would dangle them.
+    #[test]
+    fn resume_preserves_box_address() {
+        use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        let child = Mock::new([2, 4]);
+        let mut it = Box::new(Not::new(child, 5, 1.0, NoTimeoutChecker));
+        let doc = it.read().expect("read failed").expect("expected doc");
+        assert_eq!(doc.doc_id, 1);
+        let addr_before = &*it as *const _ as usize;
+
+        let suspended = it.suspend();
+        assert_eq!(
+            &*suspended as *const _ as usize, addr_before,
+            "suspend must reuse the allocation",
+        );
+        let mut active = match suspended.resume(&guard).expect("resume failed") {
+            rqe_iterators::ResumeOutcome::Ok(a) => a,
+            rqe_iterators::ResumeOutcome::Moved(_) => panic!("expected Ok, got Moved"),
+            rqe_iterators::ResumeOutcome::Aborted => panic!("expected Ok, got Aborted"),
+        };
+        assert_eq!(
+            &*active as *const _ as usize, addr_before,
+            "resume must reuse the allocation",
+        );
+
+        let doc = active.read().expect("read failed").expect("expected doc");
+        assert_eq!(doc.doc_id, 3, "the exclusion set survives the cycle");
+    }
+
+    /// A type-erased child crosses the suspend boundary through a vtable swap,
+    /// not a byte cast — the active and suspended erased forms are different
+    /// `dyn` types. A concrete-child round trip cannot catch a wrong-vtable bug;
+    /// this one (also run under miri) can.
+    #[test]
+    fn suspend_resume_with_type_erased_child_survives() {
+        use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        let child = TypeErasedRQEIterator::new(Box::new(Mock::new([2u64, 4])));
+        let mut it = Box::new(Not::new(child, 5, 1.0, NoTimeoutChecker));
+        let doc = it.read().expect("read failed").expect("expected doc");
+        assert_eq!(doc.doc_id, 1);
+
+        let mut active = match it.suspend().resume(&guard).expect("resume failed") {
+            rqe_iterators::ResumeOutcome::Ok(a) => a,
+            rqe_iterators::ResumeOutcome::Moved(_) => panic!("expected Ok, got Moved"),
+            rqe_iterators::ResumeOutcome::Aborted => panic!("expected Ok, got Aborted"),
+        };
+
+        let mut seen = vec![1];
+        while let Some(doc) = active.read().expect("read failed") {
+            seen.push(doc.doc_id);
+        }
+        assert_eq!(seen, vec![1, 3, 5]);
+    }
+
+    /// If the virtual sentinel is no longer virtual — a consumer replaced it via
+    /// the mutable `current()`/`read()`/`skip_to` handout — resume cannot
+    /// re-validate it, so it aborts the whole iterator (returns `Aborted`, not an
+    /// error), mirroring `Optional::resume`.
+    #[test]
+    fn resume_aborts_when_result_no_longer_virtual() {
+        use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        let child = Mock::new([2, 4]);
+        let mut it = Box::new(Not::new(child, 5, 1.0, NoTimeoutChecker));
+        let doc = it.read().expect("read failed").expect("expected doc");
+        assert_eq!(doc.doc_id, 1);
+        // Simulate a consumer swapping the sentinel for a real, index-backed result.
+        *doc = index_result::RSIndexResult::build_numeric(1.0).build();
+
+        let outcome = it
+            .suspend()
+            .resume(&guard)
+            .expect("resume must not surface an error");
+        assert!(
+            matches!(outcome, rqe_iterators::ResumeOutcome::Aborted),
+            "a non-virtual sentinel cannot be re-validated, so resume aborts",
+        );
+    }
+
+    /// A failing child resume leaves `Not`'s child slot consumed, and the
+    /// bespoke teardown that frees the reused allocation from there is reachable
+    /// no other way: every other path either keeps a live child or hands the box
+    /// back. A teardown that dropped the moved-from child, or reclaimed the
+    /// allocation at a type whose drop glue disagrees with what the slot holds,
+    /// only shows up here — and only under miri.
+    #[test]
+    fn resume_propagates_child_error() {
+        use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        let child = Mock::new([2, 4]);
+        child
+            .data()
+            .set_error_on_resume(Some(MockIteratorError::TimeoutError(None)));
+        let mut it = Box::new(Not::new(child, 5, 1.0, NoTimeoutChecker));
+
+        let doc = it.read().expect("read failed").expect("expected doc");
+        assert_eq!(doc.doc_id, 1);
+
+        assert!(
+            matches!(it.suspend().resume(&guard), Err(RQEIteratorError::TimedOut)),
+            "a child resume error must propagate out of Not::resume",
+        );
+    }
+
+    /// The same, with a type-erased child: the failing resume is dispatched
+    /// through the erased vtable, so the slot the teardown reinitialises held a
+    /// `Box<dyn …>` rather than an inline child.
+    #[test]
+    fn resume_propagates_type_erased_child_error() {
+        use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        let child = Mock::new([2u64, 4]);
+        child
+            .data()
+            .set_error_on_resume(Some(MockIteratorError::TimeoutError(None)));
+        let mut it = Box::new(Not::new(
+            TypeErasedRQEIterator::new(Box::new(child)),
+            5,
+            1.0,
+            NoTimeoutChecker,
+        ));
+
+        let doc = it.read().expect("read failed").expect("expected doc");
+        assert_eq!(doc.doc_id, 1);
+
+        assert!(
+            matches!(it.suspend().resume(&guard), Err(RQEIteratorError::TimedOut)),
+            "a child resume error must propagate out of Not::resume",
+        );
+    }
+
+    /// FFI profile printing reads the suspended form's position and estimate
+    /// without resuming it, so those accessors must report what the active form
+    /// held rather than a default or the child's own view.
+    #[test]
+    fn suspended_accessors_report_the_pre_suspend_position_and_estimate() {
+        use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        let mut it = Box::new(Not::new(Mock::new([2, 4]), 5, 1.0, NoTimeoutChecker));
+
+        let doc = it.read().expect("read failed").expect("expected doc");
+        assert_eq!(doc.doc_id, 1);
+        assert_eq!(it.last_doc_id(), 1);
+        assert_eq!(it.num_estimated(), 5);
+
+        let suspended = it.suspend();
+        assert_eq!(
+            RQESuspendedIterator::last_doc_id(&*suspended),
+            1,
+            "the suspended form keeps NOT's own cursor, not the child's",
+        );
+        assert_eq!(RQESuspendedIterator::num_estimated(&*suspended), 5);
+
+        let mut active = match suspended.resume(&guard).expect("resume failed") {
+            rqe_iterators::ResumeOutcome::Ok(a) => a,
+            rqe_iterators::ResumeOutcome::Moved(_) => panic!("expected Ok, got Moved"),
+            rqe_iterators::ResumeOutcome::Aborted => panic!("expected Ok, got Aborted"),
+        };
+        assert_eq!(active.last_doc_id(), 1);
+        let doc = active.read().expect("read failed").expect("expected doc");
+        assert_eq!(doc.doc_id, 3);
+    }
+
+    /// An aborting *type-erased* child is consumed inside the erased vtable, and
+    /// the empty arm written over that slot is typed as the resumed child. A
+    /// teardown that dropped the moved-from erased child, or that rebuilt the
+    /// wrapper instead of reusing its allocation, is invisible to the
+    /// concrete-child abort test.
+    #[test]
+    fn abort_of_type_erased_child_reuses_the_allocation() {
+        use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        let child = Mock::new([2u64, 4]);
+        child
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Abort);
+        let mut it = Box::new(Not::new(
+            TypeErasedRQEIterator::new(Box::new(child)),
+            5,
+            1.0,
+            NoTimeoutChecker,
+        ));
+
+        let doc = it.read().expect("read failed").expect("expected doc");
+        assert_eq!(doc.doc_id, 1);
+        let addr_before = &*it as *const _ as usize;
+
+        let suspended = it.suspend();
+        assert_eq!(
+            &*suspended as *const _ as usize, addr_before,
+            "suspend must reuse the allocation",
+        );
+        let mut active = match suspended.resume(&guard).expect("resume failed") {
+            rqe_iterators::ResumeOutcome::Ok(a) => a,
+            rqe_iterators::ResumeOutcome::Moved(_) => panic!("expected Ok, got Moved"),
+            rqe_iterators::ResumeOutcome::Aborted => {
+                panic!("NOT absorbs a child abort rather than aborting itself")
+            }
+        };
+        assert_eq!(
+            &*active as *const _ as usize, addr_before,
+            "the abort teardown must reuse the allocation too",
+        );
+
+        let mut seen = vec![1];
+        while let Some(doc) = active.read().expect("read failed") {
+            seen.push(doc.doc_id);
+        }
+        assert_eq!(
+            seen,
+            vec![1, 2, 3, 4, 5],
+            "the aborted child excludes nothing any more",
+        );
+    }
+
+    /// Once a child has aborted, the slot holds the empty arm — and a further
+    /// resume has to walk that arm, which has no child to dispatch through.
+    /// Nothing else reaches it for `Not`, so an empty slot mistaken for a live
+    /// child would surface only on a second cycle.
+    #[test]
+    fn resume_over_an_already_empty_child_slot() {
+        use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        let child = Mock::new([2, 4]);
+        child
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Abort);
+        let mut it = Box::new(Not::new(child, 5, 1.0, NoTimeoutChecker));
+
+        let doc = it.read().expect("read failed").expect("expected doc");
+        assert_eq!(doc.doc_id, 1);
+
+        // First cycle: the child aborts and is replaced by the empty arm.
+        let active = match it.suspend().resume(&guard).expect("resume failed") {
+            rqe_iterators::ResumeOutcome::Ok(a) => a,
+            rqe_iterators::ResumeOutcome::Moved(_) => panic!("expected Ok, got Moved"),
+            rqe_iterators::ResumeOutcome::Aborted => {
+                panic!("NOT absorbs a child abort rather than aborting itself")
+            }
+        };
+        assert!(active.child().is_none(), "the aborted child is dropped");
+
+        // Second cycle: the empty arm resumes into itself.
+        let mut active = match active.suspend().resume(&guard).expect("resume failed") {
+            rqe_iterators::ResumeOutcome::Ok(a) => a,
+            rqe_iterators::ResumeOutcome::Moved(_) => panic!("an empty child cannot move"),
+            rqe_iterators::ResumeOutcome::Aborted => panic!("an empty child cannot abort"),
+        };
+        assert!(active.child().is_none(), "the child stays empty");
+
+        let mut seen = vec![1];
+        while let Some(doc) = active.read().expect("read failed") {
+            seen.push(doc.doc_id);
+        }
+        assert_eq!(seen, vec![1, 2, 3, 4, 5]);
+    }
+
+    /// While the legacy `revalidate` and the new `resume` both exist they are two
+    /// spellings of one transition, and sibling iterators in this stack have
+    /// already drifted between them — a child outcome absorbed on one path and
+    /// forwarded on the other, or a re-read done only once. Drive both over
+    /// identical setups and require the outcome *and* everything read afterwards
+    /// to agree.
+    #[test]
+    fn revalidate_and_resume_agree_on_every_child_outcome() {
+        use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+
+        /// The outcome shape the two paths share.
+        #[derive(Debug, PartialEq, Eq)]
+        enum Outcome {
+            Ok,
+            Moved,
+            Aborted,
+            Failed,
+        }
+
+        fn drain<'index>(it: &mut impl RQEIterator<'index>) -> Vec<DocId> {
+            let mut seen = Vec::new();
+            while let Some(doc) = it.read().expect("read failed") {
+                seen.push(doc.doc_id);
+            }
+            seen
+        }
+
+        for child_outcome in [
+            MockRevalidateResult::Ok,
+            MockRevalidateResult::Move,
+            MockRevalidateResult::Abort,
+            MockRevalidateResult::TimedOut,
+        ] {
+            // NOT sits on doc 1 with the child ahead on 5 — the shape the
+            // child-ahead invariant is stated over.
+            let build = || {
+                let child = Mock::new([5u64, 10]);
+                child.data().set_revalidate_result(child_outcome);
+                let mut it = Box::new(Not::new(child, 15, 1.0, NoTimeoutChecker));
+                let doc = it.read().expect("read failed").expect("expected doc");
+                assert_eq!(doc.doc_id, 1);
+                it
+            };
+
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            let guard = mock_ctx.spec_read();
+
+            let mut legacy = build();
+            let legacy_outcome = match legacy.revalidate(&guard) {
+                Ok(RQEValidateStatus::Ok) => Outcome::Ok,
+                Ok(RQEValidateStatus::Moved { .. }) => Outcome::Moved,
+                Ok(RQEValidateStatus::Aborted) => Outcome::Aborted,
+                Err(_) => Outcome::Failed,
+            };
+            let legacy_tail = match legacy_outcome {
+                Outcome::Ok | Outcome::Moved => drain(&mut *legacy),
+                Outcome::Aborted | Outcome::Failed => Vec::new(),
+            };
+
+            let (resumed_outcome, resumed_tail) = match build().suspend().resume(&guard) {
+                Ok(rqe_iterators::ResumeOutcome::Ok(mut it)) => (Outcome::Ok, drain(&mut *it)),
+                Ok(rqe_iterators::ResumeOutcome::Moved(mut it)) => {
+                    (Outcome::Moved, drain(&mut *it))
+                }
+                Ok(rqe_iterators::ResumeOutcome::Aborted) => (Outcome::Aborted, Vec::new()),
+                Err(_) => (Outcome::Failed, Vec::new()),
+            };
+
+            assert_eq!(
+                legacy_outcome, resumed_outcome,
+                "child {child_outcome:?}: the two paths disagree on the outcome",
+            );
+            assert_eq!(
+                legacy_tail, resumed_tail,
+                "child {child_outcome:?}: the two paths disagree on what is read afterwards",
+            );
+        }
+    }
+}

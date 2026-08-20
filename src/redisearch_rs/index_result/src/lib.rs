@@ -21,7 +21,10 @@ pub use self::core::{
     RSIndexResult, RawIndexResult, RawIndexResultBuilder, RawTermResultBuilder,
     SuspendedIndexResult,
 };
-pub use aggregate::{RSAggregateResult, RSAggregateResultIter, RawAggregateResult};
+pub use aggregate::{
+    RSAggregateResult, RSAggregateResultIter, RSBorrowedAggregateResult, RSOwnedAggregateResult,
+    RawAggregateResult, RawBorrowedAggregateResult, RawOwnedAggregateResult,
+};
 pub use kind::{RSResultKind, RSResultKindMask};
 pub use metrics::{MetricEntry, MetricsSlice, MetricsVec};
 pub use offsets::{RSOffsetSlice, RSOffsetVector, RawOffsetSlice};

@@ -10,6 +10,7 @@ By contributing code to this Redis project in any form, you agree to the Redis S
 - Ask general usage questions on the [Redis Discord](https://discord.com/invite/redis) or [Stack Overflow](https://stackoverflow.com/questions/tagged/redis).
 - Report security bugs and vulnerabilities through `SECURITY.md`.
 - For major features or semantic changes, open an issue and discuss the design before investing heavily in code.
+- Adding a new feature or command? You can land it behind the `ENABLE_UNSTABLE_FEATURES` gate for a much lighter review, and graduate it once it has proven itself. See [`docs/CONTRIBUTING-unstable-features.md`](docs/CONTRIBUTING-unstable-features.md).
 - Documentation-only changes for redis.io documentation usually belong in the [redis-doc](https://github.com/redis/redis-doc) repository.
 
 ## Set Up Locally

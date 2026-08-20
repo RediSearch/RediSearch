@@ -28,12 +28,6 @@ extern "C" {
 InvertedIndex *Redis_OpenReaderIndex(const RedisSearchCtx *ctx, const RSToken *tok,
                                      t_fieldMask fieldMask);
 
-/* Open an inverted index reader on a redis DMA string, for a specific term.
- * If singleWordMode is set to 1, we do not load the skip index, only the score index
- */
-QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSToken *tok, int tok_id, DocTable *dt,
-                                 t_fieldMask fieldMask, double weight);
-
 InvertedIndex *Redis_OpenInvertedIndex(IndexSpec *spec, const char *term, size_t len,
                                         bool write, bool *outIsNew);
 

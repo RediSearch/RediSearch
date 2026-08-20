@@ -21,9 +21,49 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from typing import Any, Iterable, NoReturn
+
+
+# ---- privileged git in an agent-produced clone -------------------------------
+#
+# The auto-backport agent runs with write access to its working clone, so before
+# the (token-holding) apply step runs any git command there, the clone's `.git`
+# must be treated as hostile: an injected agent could have installed hooks or set
+# config (credential.helper, url.insteadOf, core.fsmonitor/pager/sshCommand,
+# uploadpack.*) that would execute code during an otherwise-innocent push.
+
+# Env that neutralizes global/system git config and interactive prompts for the
+# privileged git calls; callers also pass a sanitized local `.git` (below).
+SAFE_GIT_ENV = {
+    **os.environ,
+    "GIT_CONFIG_GLOBAL": os.devnull,
+    "GIT_CONFIG_SYSTEM": os.devnull,
+    "GIT_TERMINAL_PROMPT": "0",
+    "GIT_ALLOWED_PROTOCOLS": "https",
+}
+
+
+def sanitize_git_dir(work: str, repo: str) -> None:
+    """Strip agent-controllable code paths from a clone's `.git` before a
+    privileged git operation: remove all hooks and rewrite the local config to a
+    minimal trusted `origin` (dropping any credential.helper / insteadOf / hook
+    settings the agent may have added). Refs and objects are untouched, so the
+    agent's produced branch is preserved. Auth (extraheader) is re-added by the
+    caller afterwards.
+    """
+    gitdir = os.path.join(work, ".git")
+    hooks = os.path.join(gitdir, "hooks")
+    shutil.rmtree(hooks, ignore_errors=True)
+    os.makedirs(hooks, exist_ok=True)
+    with open(os.path.join(gitdir, "config"), "w") as f:
+        f.write(
+            "[core]\n\trepositoryformatversion = 0\n\tbare = false\n"
+            f'[remote "origin"]\n\turl = https://github.com/{repo}\n'
+            "\tfetch = +refs/heads/*:refs/remotes/origin/*\n"
+        )
 
 
 # ---- workflow log / outputs --------------------------------------------------
@@ -75,6 +115,39 @@ def gh(*args: str, check: bool = True) -> str:
         log(f"gh command failed: {' '.join(cmd)}\nstderr: {e.stderr.strip()}")
         raise
     return result.stdout
+
+
+def gh_graphql(query: str, **variables: Any) -> Any:
+    """Run a GraphQL query via `gh api graphql` and return the decoded `data`.
+
+    String variables are passed with `-f` (raw string): `-F` would apply gh's
+    type inference and, worse, treat an `@`-prefixed value as a filename — so an
+    agent reply of `@reviewer …` would fail or read a local file. Non-string
+    values (int/bool, e.g. a PR number for `$pr:Int!`) still use `-F` so their
+    GraphQL type is preserved. A `None` value is omitted so a nullable variable
+    resolves to `null` (e.g. a first-page pagination cursor). Returns the `data`
+    object, or `None` on any failure (best-effort, like `gh_paginated_array`).
+    """
+    args = ["api", "graphql", "-f", f"query={query}"]
+    for name, value in variables.items():
+        if value is None:
+            continue
+        if isinstance(value, str):
+            args += ["-f", f"{name}={value}"]     # raw string: no @file / type magic
+        else:
+            args += ["-F", f"{name}={value}"]     # typed (Int/Boolean/…)
+    try:
+        out = gh(*args, check=False)
+    except Exception:
+        return None
+    s = out.strip()
+    if not s:
+        return None
+    try:
+        parsed = json.loads(s)
+    except json.JSONDecodeError:
+        return None
+    return parsed.get("data")
 
 
 def gh_json(*args: str) -> Any:
@@ -166,9 +239,10 @@ def write_context(path: str, payload: dict) -> None:
     for k, v in payload.items():
         if k == "log_excerpts" and isinstance(v, list):
             summary[k] = f"<{len(v)} entries; tails omitted from log>"
-        elif k == "context" and isinstance(v, list):
-            # Human hints are short and useful to see, but cap the length
-            # just in case a reviewer pastes a wall of text.
+        elif k in ("context", "review_threads", "pr_comments") and isinstance(v, list):
+            # Human hints / reviewer feedback are short and useful to see, but
+            # replace them with a count digest so a reviewer pasting a wall of
+            # text can't bloat the workflow log.
             summary[k] = f"<{len(v)} entries>"
         else:
             summary[k] = v
