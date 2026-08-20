@@ -35,7 +35,7 @@ fn suffix_keys(idx: &TagIndex<InMemoryMode>) -> Vec<Vec<u8>> {
 fn value_iter_keys(mut it: MemTagIndexIterator<'_>) -> Vec<Vec<u8>> {
     let mut keys: Vec<Vec<u8>> = Vec::new();
     while let Some((key, _)) = it.advance() {
-        keys.push(key.to_vec());
+        keys.push(key.as_bytes().to_vec());
     }
     keys
 }
@@ -70,12 +70,14 @@ fn prefixed_iter_values_yields_only_matching_tags() {
     let mut iter = tag_index.value_iter_filtered(as_tag(b"foo"), IterMode::Prefix);
     let mut keys: Vec<Vec<u8>> = Vec::new();
     while let Some((tag, ii)) = iter.advance() {
-        let found = tag_index.find_value(tag).expect("yielded tag is indexed");
+        let found = tag_index
+            .find_value(tag.as_bytes())
+            .expect("yielded tag is indexed");
         assert!(
             std::ptr::eq(ii, found),
             "the yielded reference should be the inverted index stored in the trie"
         );
-        keys.push(tag.to_vec());
+        keys.push(tag.as_bytes().to_vec());
     }
 
     assert_eq!(keys, [b"foo".to_vec(), b"foobar".to_vec()]);
@@ -122,7 +124,7 @@ fn suffix_query_exact_node_yields_every_member() {
     let terms: Vec<Vec<u8>> = tag_index
         .suffix_expand(SuffixQuery::Suffix(Tag::new(b"eat").unwrap()), None)
         // The yielded terms carry their terminator; compare without it.
-        .map(|term| term[..term.len() - 1].to_vec())
+        .map(|term| term.to_bytes().to_vec())
         .collect();
 
     assert_eq!(
@@ -236,7 +238,7 @@ fn recommitting_a_tag_keeps_its_suffix_terms_readable() {
     // error) rather than staying latent.
     let terms: Vec<Vec<u8>> = tag_index
         .suffix_expand(SuffixQuery::Suffix(Tag::new(b"at").unwrap()), None)
-        .map(|term| term[..term.len() - 1].to_vec())
+        .map(|term| term.to_bytes().to_vec())
         .collect();
 
     assert_eq!(

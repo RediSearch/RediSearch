@@ -19,7 +19,7 @@ use crate::util::{commit_mem, index_mem};
 fn value_iter_keys(mut it: MemTagIndexIterator<'_>) -> Vec<Vec<u8>> {
     let mut keys: Vec<Vec<u8>> = Vec::new();
     while let Some((key, _)) = it.advance() {
-        keys.push(key.to_vec());
+        keys.push(key.as_bytes().to_vec());
     }
     keys
 }
@@ -198,10 +198,13 @@ fn iter_values_yields_the_stored_entries_in_order() {
     let mut seen = 0;
     while let Some((tag, ii)) = iter.advance() {
         assert_eq!(
-            tag, tags[seen],
+            tag.as_bytes(),
+            tags[seen],
             "entries should be yielded in lexicographical tag order"
         );
-        let found = tag_index.find_value(tag).expect("yielded tag is indexed");
+        let found = tag_index
+            .find_value(tag.as_bytes())
+            .expect("yielded tag is indexed");
         assert!(
             std::ptr::eq(ii, found),
             "the yielded reference should be the inverted index stored in the trie"
