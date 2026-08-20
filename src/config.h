@@ -373,7 +373,7 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 // longer, so they get a higher timeout, and time out with an error instead
 // of returning partial results.
 #define DEFAULT_QUERY_TIMEOUT_MS_FLEX 5000
-#define DEFAULT_TIMEOUT_POLICY TimeoutPolicy_Return
+#define DEFAULT_TIMEOUT_POLICY TimeoutPolicy_ReturnStrict
 #define DEFAULT_TIMEOUT_POLICY_FLEX TimeoutPolicy_Fail
 #define DEFAULT_MAX_FOREGROUND_TIMEOUT_LIMIT_MS 60000
 #define DEFAULT_UNION_ITERATOR_HEAP 20

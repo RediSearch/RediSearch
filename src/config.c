@@ -1693,7 +1693,8 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setDefaultScorer,
          .getValue = getDefaultScorer},
         {.name = "ON_TIMEOUT",
-         .helpText = "Action to perform when search timeout is exceeded (choose RETURN or FAIL)",
+         .helpText = "Action to perform when search timeout is exceeded (choose RETURN, "
+                     "RETURN-STRICT, or FAIL)",
          .setValue = setOnTimeout,
          .getValue = getOnTimeout},
         {.name = "GCSCANSIZE",
