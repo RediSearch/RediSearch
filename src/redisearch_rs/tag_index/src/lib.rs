@@ -656,9 +656,9 @@ pub struct SuffixWildcardPattern<'p> {
     sub: Vec<u8>,
 }
 
-/// The pattern has no literal token usable as a suffix-trie anchor (e.g. it is
-/// all `*`/`?`, or empty). The caller must fall back to a brute-force scan of the
-/// whole tag trie.
+/// The pattern has no literal token usable as a suffix-trie anchor: every byte is
+/// an unescaped `*`, or the pattern is empty. The caller must fall back to a
+/// brute-force scan of the whole tag trie.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NoAnchorToken;
 
@@ -710,9 +710,9 @@ pub enum SuffixQuery<'a> {
     Wildcard {
         /// The prepared pattern, owning the bytes the expansion borrows.
         ///
-        /// A pattern with no usable anchor token (e.g. `*`, `???`) is rejected up
-        /// front by [`SuffixWildcardPattern::new`], so an expansion always has a
-        /// valid anchor and an empty result means the anchor matched no term.
+        /// A pattern with no usable anchor token (`*`, `**`, or empty) is rejected
+        /// up front by [`SuffixWildcardPattern::new`], so an expansion always has
+        /// a valid anchor and an empty result means the anchor matched no term.
         pattern: &'a SuffixWildcardPattern<'a>,
         /// Cap on the *matched* terms, overshot by one: the count is checked
         /// before each match is yielded. [`u64::MAX`] is the no-cap sentinel.
@@ -777,7 +777,9 @@ fn literal_tokens(pattern: &[u8]) -> Vec<LiteralToken> {
 }
 
 /// Return the `(offset, len)` of the most selective literal token of `pattern`,
-/// or `None` when there is no usable one (e.g. the pattern is all `*`/`?`).
+/// or `None` when [`literal_tokens`] found none — a pattern of only unescaped
+/// `*`, or an empty one. An unescaped `?` never leaves a pattern without an
+/// anchor, since it does not end the token it sits in.
 ///
 /// The score favors longer tokens and tokens later in the pattern, penalizes a
 /// trailing `*` and every unescaped `?` inside the token; ties resolve to the
@@ -927,6 +929,21 @@ mod suffix_wildcard_tests {
         assert_eq!(matches(&idx, b"*", NO_CAP), None);
         assert_eq!(matches(&idx, b"**", NO_CAP), None);
         assert_eq!(matches(&idx, b"", NO_CAP), None);
+    }
+
+    /// A `?` does not end the token it sits in, so a pattern of nothing but `?`
+    /// anchors on itself instead of falling through to [`NoAnchorToken`] — the
+    /// expansion goes through the suffix trie, not the caller's brute-force scan.
+    /// C's `Suffix_ChooseToken` picks the same token.
+    #[test]
+    fn question_marks_alone_still_anchor() {
+        let prepared = SuffixWildcardPattern::new(b"???").expect("one literal token of three `?`");
+        assert_eq!(prepared.anchor(), b"???");
+
+        let idx = indexed(&[b"cat", b"coat"]);
+        // The anchor reaches `coat` through its three-byte suffix key `oat`, but
+        // the full-pattern recheck rejects the four-byte term.
+        assert_eq!(matches(&idx, b"???", NO_CAP), Some(vec![b"cat".to_vec()]));
     }
 
     #[test]
