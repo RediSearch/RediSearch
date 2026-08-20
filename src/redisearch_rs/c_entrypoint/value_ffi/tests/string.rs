@@ -8,7 +8,6 @@
 */
 
 use libc::size_t;
-use redis_mock::mock_or_stub_missing_redis_c_symbols;
 use std::ffi::{CString, c_char};
 use value::{SharedValue, String, Value};
 use value_ffi::RSValue;
@@ -20,12 +19,10 @@ use value_ffi::getters::{RSValue_String_Get, RSValue_StringPtrLen};
 use value_ffi::setters::{RSValue_SetConstString, RSValue_SetString};
 use value_ffi::util::{into_rs_value, into_shared_value};
 
-mock_or_stub_missing_redis_c_symbols!();
-
-#[allow(non_upper_case_globals)]
-#[unsafe(no_mangle)]
-pub static mut RSDummyContext: *mut redis_module::RedisModuleCtx =
-    redis_mock::globals::redis_module_ctx();
+// Keep the Rust FFI exports needed by the linked C bundle from being stripped.
+extern crate redisearch_rs;
+// Mock or stub the C symbols the bundle needs but the line above does not provide.
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 /// Allocate a null-terminated C string using the mock Redis allocator.
 ///
