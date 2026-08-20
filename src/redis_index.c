@@ -21,9 +21,7 @@
 #include "indexes.h"
 #include "doc_table.h"
 #include "redismodule.h"
-#include "iterators_ffi.h"
 #include "inverted_index_ffi.h"
-#include "query_term_ffi.h"
 #include "search_disk.h"
 #include "query_error_ffi.h"
 #include "util/misc.h"
@@ -276,19 +274,6 @@ InvertedIndex *Redis_OpenReaderIndex(const RedisSearchCtx *ctx, const RSToken *t
   }
 
   return idx;
-}
-
-QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSToken *tok, int tok_id, DocTable *dt,
-                                t_fieldMask fieldMask, double weight) {
-
-  InvertedIndex *idx = Redis_OpenReaderIndex(ctx, tok, fieldMask);
-  if (!idx) {
-    return NULL;
-  }
-
-  FieldMaskOrIndex fieldMaskOrIndex = {.mask_tag = FieldMaskOrIndex_Mask, .mask = fieldMask};
-  RSQueryTerm *term = NewQueryTerm(tok, tok_id);
-  return NewInvIndIterator_TermQuery(idx, ctx, fieldMaskOrIndex, term, weight);
 }
 
 int Redis_LegacyDropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque) {
