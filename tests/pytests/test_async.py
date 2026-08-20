@@ -72,8 +72,11 @@ def test_yield_while_bg_indexing_mod4745(env):
 
 def test_eval_node_errors_async():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1 ON_TIMEOUT FAIL')
+    conn = getConnectionByEnv(env)
     dim = 1000
 
+    env.assertEqual(conn.execute_command('HSET', 'key', 'foo', 'hello',
+                                         'v', create_np_array_typed([0] * dim).tobytes()), 2)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'foo', 'TEXT', 'bar', 'TEXT', 'WITHSUFFIXTRIE', 'g', 'GEO', 'num', 'NUMERIC',
                'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
     waitForIndex(env, 'idx')
