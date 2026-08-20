@@ -353,7 +353,7 @@ def test_multiple_loaders():
 @skip(cluster=True)
 def test_switch_loader_modes():
     # Create an environment with workers (0)
-    env = initEnv('WORKERS 1')
+    env = initEnv('WORKERS 1 ON_TIMEOUT RETURN')
     n_docs = 10
     cursor_count = 2
     # Having two loaders to test when the loader is last and when it is not

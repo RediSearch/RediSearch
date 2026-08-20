@@ -264,7 +264,7 @@ def test_insufficient_docs_per_shard():
 
 @skip(cluster=False)
 def test_debug_aggregate_with_shard_k_ratio():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2', enableDebugCommand=True)
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT RETURN', enableDebugCommand=True)
 
     dim = 2
     datatype = 'FLOAT32'

@@ -268,7 +268,7 @@ def test_debug_sanity_no_truncation():
 
     Analogous to the Sanity() method in test_debug_commands.py for FT.SEARCH/FT.AGGREGATE.
     """
-    env = Env(enableDebugCommand=True)
+    env = Env(moduleArgs='ON_TIMEOUT RETURN', enableDebugCommand=True)
     setup_basic_index(env)
 
     regular_res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM',
@@ -321,7 +321,7 @@ def test_debug_timeout_zero_means_no_timeout():
 
     This differs from non-hybrid TIMEOUT_AFTER_N where 0 means "timeout immediately."
     """
-    env = Env(enableDebugCommand=True)
+    env = Env(moduleArgs='ON_TIMEOUT RETURN', enableDebugCommand=True)
     setup_basic_index(env)
 
     regular_res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM',

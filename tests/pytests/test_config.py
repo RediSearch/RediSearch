@@ -177,8 +177,7 @@ def testSetConfigOptionsErrors(env):
     env.expect(config_cmd(), 'set', '_TRIMMING_STATE_CHECK_DELAY_MS', -1).contains('Value is outside acceptable bounds')
 
 @skip(cluster=True)
-def testAllConfig():
-    env = Env(moduleArgs='WORKERS 0', noDefaultModuleArgs=True)
+def testAllConfig(env):
     ## on existing env the pre tests might change the config
     ## so no point of testing it
     if env.env == 'existing-env':

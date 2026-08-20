@@ -800,20 +800,24 @@ def test_flex_blocks_cursor_commands(env):
 @skip(cluster=True)
 @with_simulate_in_flex(True)
 def test_flex_debug_wrappers_for_aggregate_and_hybrid(env):
-    _create_flex_search(env)
+    env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
+    try:
+        _create_flex_search(env)
 
-    # Debug FT.AGGREGATE follows the command's flex enablement (MOD-16604).
-    env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'TIMEOUT_AFTER_N', '1', 'DEBUG_PARAMS_COUNT', '2') \
-        .noError()
-    env.expect(debug_cmd(), 'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'TIMEOUT_AFTER_N', '1', 'DEBUG_PARAMS_COUNT', '2') \
-        .noError()
+        # Debug FT.AGGREGATE follows the command's flex enablement (MOD-16604).
+        env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'TIMEOUT_AFTER_N', '1', 'DEBUG_PARAMS_COUNT', '2') \
+            .noError()
+        env.expect(debug_cmd(), 'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'TIMEOUT_AFTER_N', '1', 'DEBUG_PARAMS_COUNT', '2') \
+            .noError()
 
-    env.expect(debug_cmd(), 'FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@v', '$BLOB',
-               'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2') \
-        .error().contains('FT.HYBRID is not supported in Redis Flex')
-    env.expect(debug_cmd(), 'FT.PROFILE', 'idx', 'HYBRID', 'QUERY', 'SEARCH', '*', 'VSIM', '@v', '$BLOB',
-               'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2') \
-        .error().contains('FT.HYBRID is not supported in Redis Flex')
+        env.expect(debug_cmd(), 'FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@v', '$BLOB',
+                   'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2') \
+            .error().contains('FT.HYBRID is not supported in Redis Flex')
+        env.expect(debug_cmd(), 'FT.PROFILE', 'idx', 'HYBRID', 'QUERY', 'SEARCH', '*', 'VSIM', '@v', '$BLOB',
+                   'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2') \
+            .error().contains('FT.HYBRID is not supported in Redis Flex')
+    finally:
+        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN-STRICT').ok()
 
 
 @skip(cluster=True)

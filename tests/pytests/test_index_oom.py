@@ -1194,7 +1194,7 @@ def test_profile_warnings_persist_on_empty_reply_resp2():
 
   In RESP2, the Index OOM warning might appear via the regular execution path,
   not from the empty reply path (see function docstring for details)."""
-  env = Env(protocol=2)
+  env = Env(protocol=2, moduleArgs='ON_TIMEOUT RETURN')
   _test_profile_warnings_persist_on_empty_reply(env, 2)
 
 @skip(cluster=False)
@@ -1203,5 +1203,5 @@ def test_profile_warnings_persist_on_empty_reply_resp3():
 
   In RESP3, the Index OOM warning appears via the empty reply path
   (sendChunk_ReplyOnly_EmptyResults) when timeout is detected from shard's reply."""
-  env = Env(protocol=3)
+  env = Env(protocol=3, moduleArgs='ON_TIMEOUT RETURN')
   _test_profile_warnings_persist_on_empty_reply(env, 3)

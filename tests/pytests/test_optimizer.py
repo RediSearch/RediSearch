@@ -78,7 +78,8 @@ def compare_optimized_to_not_nocontent(env, query, params, msg=None):
 
 
 @skip(cluster=True)
-def testOptimizer(env):
+def testOptimizer():
+    env = Env(moduleArgs='ON_TIMEOUT RETURN')
     env.cmd(config_cmd(), 'SET', 'TIMEOUT', '0')
     env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
     env.cmd(config_cmd(), 'SET', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'true')
@@ -351,7 +352,8 @@ def testOptimizer(env):
     env.assertEqual(result[0], 1200)
 
 @skip(cluster=True)
-def testWOLimit(env):
+def testWOLimit():
+    env = Env(moduleArgs='ON_TIMEOUT RETURN')
     env.cmd(config_cmd(), 'set', 'timeout', '0')
     env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
     repeat = 100
@@ -886,9 +888,10 @@ def testVector():
             # (same iterators and pipeline should be used)
             env.assertEqual(conn.execute_command(*profile, *query), conn.execute_command(*profile, *query, 'WITHOUTCOUNT'), message=str(idx))
 
-def testOptimizeArgs(env):
+def testOptimizeArgs():
     ''' Test enabling/disabling optimization according to args and dialect '''
 
+    env = Env(moduleArgs='ON_TIMEOUT RETURN')
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
     for i in range(0, 20):
@@ -911,7 +914,7 @@ def testOptimizeArgs(env):
 def testOptimizeArgsDefault():
     ''' Test enabling/disabling optimization according to args and default dialect '''
 
-    env = Env(moduleArgs='DEFAULT_DIALECT 4')
+    env = Env(moduleArgs='DEFAULT_DIALECT 4 ON_TIMEOUT RETURN')
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
     for i in range(0, 20):
