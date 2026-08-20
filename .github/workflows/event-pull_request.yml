@@ -24,8 +24,6 @@ jobs:
   get-latest-redis-tag:
     permissions: {}
     uses: ./.github/workflows/task-get-redis-tag.yml
-    with:
-      repo: redis/redis
 
   check-what-changed:
     permissions: # actions/checkout

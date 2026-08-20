@@ -161,8 +161,6 @@ jobs:
     needs: should-run
     if: ${{ needs.should-run.outputs.run-validation == 'true' }}
     uses: ./.github/workflows/task-get-redis-tag.yml
-    with:
-      repo: redis/redis
 
   test-selected-platforms:
     needs: [should-run, get-latest-redis-tag]

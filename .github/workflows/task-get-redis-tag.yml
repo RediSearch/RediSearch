@@ -3,10 +3,6 @@ name: Get Redis Tag
 on:
   workflow_call:
     inputs:
-      repo:
-        description: "Repository name in the format of owner/repo"
-        type: string
-        default: redis/redis
       prefix:
         description: "Prefix to filter tags, for getting latest release of a specific version"
         type: string
@@ -39,7 +35,7 @@ jobs:
     permissions: {}
     uses: ./.github/workflows/task-get-latest-tag.yml
     with:
-      repo: ${{ inputs.repo }}
+      repo: redis/redis
       prefix: ${{ inputs.prefix }}
 
   resolve:
