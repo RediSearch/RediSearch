@@ -57,6 +57,9 @@ Fields:
 - `title` — the original PR title, to reuse in backport PR titles.
 - `url` — the original PR URL.
 - `targets` — the list of release branches to backport to, already deduplicated.
+  The resolve step has already expanded any `/backport-agent >= <version>`
+  shorthand into concrete branches, so treat this list as final: do not add,
+  infer, or drop targets of your own accord.
 
 The workflow does **not** pre-export these as shell variables. Validate the
 required fields and assign them yourself from the JSON before running any

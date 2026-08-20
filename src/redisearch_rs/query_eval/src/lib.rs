@@ -44,7 +44,7 @@ mod nodes;
 pub use config::Config;
 
 use nodes::{
-    geo, geometry, ids, missing, not, null, numeric, optional, phrase, prefix, token, union,
+    fuzzy, geo, geometry, ids, missing, not, null, numeric, optional, phrase, prefix, token, union,
     wildcard, wildcard_query,
 };
 
@@ -198,6 +198,7 @@ pub fn eval_node<'index>(
         QueryNode::Token { tok } => token::eval(ctx, &node, tok, config),
         QueryNode::Geometry { geomq } => geometry::eval(ctx, geomq),
         QueryNode::Prefix { tok, mode } => prefix::eval(ctx, &node, tok, mode, config),
+        QueryNode::Fuzzy { tok, max_dist } => fuzzy::eval(ctx, &node, tok, max_dist, config),
         // Binds nothing, so the node stays free to be passed on by value —
         // evaluation rewrites its token.
         QueryNode::WildcardQuery { .. } => wildcard_query::eval(ctx, node, config),

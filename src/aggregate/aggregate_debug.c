@@ -38,7 +38,8 @@ AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *statu
     return NULL;
   }
 
-  AREQ_Debug *debug_req = rm_realloc(AREQ_New(), sizeof(*debug_req));
+  AREQ_Debug *debug_req = rm_realloc(AREQ_New(argv, argc), sizeof(*debug_req));
+  QueryRequest_SetEndProcRef(&debug_req->r.base, &debug_req->r.pipeline.qctx.endProc);
 
   // Own a copy of the debug argv tail. The request may execute on a worker
   // thread (WORKERS > 0, always the case on flex), where parseAndCompileDebug
@@ -56,8 +57,7 @@ AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *statu
   AREQ *r = &debug_req->r;
   // Holds the full argv; `parseArgc` excludes the debug tail so parsing stops
   // before it. Must be called after rm_realloc so r points to stable memory.
-  BlockedRequestCtx_NewAREQ(r, argv, argc);
-  r->brc->parseArgc = (uint32_t)(argc - debug_argv_count);
+  r->base.args.parseArgc = (uint32_t)(argc - debug_argv_count);
   AREQ_AddRequestFlags(r, QEXEC_F_DEBUG);
 
   return debug_req;

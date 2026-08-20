@@ -229,7 +229,6 @@ RediSearch.
     If the PR was opened as a draft anyway, mark it ready now and re-arm the monitor from
     step 11: that push is the first to run the `!draft`-gated jobs.
 
-
 ## Title and body
 
 **Title.** For PRs to `master` or another primary target branch, use
@@ -300,6 +299,11 @@ PR otherwise:
 Tick "requires" for user-facing changes: new commands, behavior changes, bug fixes,
 performance improvements. Tick "does not require" for internal-only changes: refactoring,
 CI, tests, documentation.
+
+A feature landing behind the default-off `ENABLE_UNSTABLE_FEATURES` gate counts as
+internal-only regardless of the surface it adds, since a flag-off user cannot reach it:
+tick "does not require", and add the note in the graduation PR that removes the gate. See
+[`docs/CONTRIBUTING-unstable-features.md`](../../docs/CONTRIBUTING-unstable-features.md).
 
 ## Verify after creation
 

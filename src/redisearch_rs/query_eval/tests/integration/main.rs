@@ -26,5 +26,6 @@ mod qast_iterate;
 mod token;
 mod union;
 mod util;
+mod vector;
 mod wildcard;
 mod wildcard_query;

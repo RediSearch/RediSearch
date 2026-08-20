@@ -327,9 +327,12 @@ extern "C" fn revalidate<'index, I: RQEIterator<'index> + 'index>(
     let spec_ref = unsafe { &*spec };
 
     // SAFETY:
-    // - C has already acquired the read lock (see handleSpecLockAndRevalidate in result_processor.c)
-    // - from_locked() returns ManuallyDrop to prevent lock release on drop
-    //   (C is responsible for lock lifecycle via RedisSearchCtx_UnlockSpec)
+    // 1. `spec_ref` is a valid pointer to an `IndexSpec`.
+    // 2. C has already acquired the read lock through `RedisSearchCtx_LockSpecRead`
+    //    (see handleSpecLockAndRevalidate in result_processor.c).
+    // 3. C releases it again through `RedisSearchCtx_UnlockSpec`.
+    // 4. `RedisSearchCtx_LockSpecRead` pauses rehashing on the keys dict.
+    // 5. `missingFieldDict` is left fully rehashed on insert (see indexer.c).
     let guard = unsafe { index_spec::IndexSpecReadGuard::from_locked(spec_ref) };
 
     match wrapper.inner.revalidate(&guard) {

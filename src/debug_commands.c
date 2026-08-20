@@ -426,14 +426,14 @@ void HybridStoreCursorsDebugCtx_SetPause(bool pause) {
   atomic_store(&globalHybridStoreCursorsDebugCtx.pause, pause);
 }
 
-static atomic_uint_fast64_t g_blockedRequestOnFreeCount = 0;
+static atomic_uint_fast64_t g_queryRequestOnFreeCount = 0;
 
-void BlockedRequestOnFreeDebug_Increment(void) {
-  atomic_fetch_add_explicit(&g_blockedRequestOnFreeCount, 1, memory_order_relaxed);
+void QueryRequestOnFreeDebug_Increment(void) {
+  atomic_fetch_add_explicit(&g_queryRequestOnFreeCount, 1, memory_order_relaxed);
 }
 
-uint64_t BlockedRequestOnFreeDebug_GetCount(void) {
-  return atomic_load_explicit(&g_blockedRequestOnFreeCount, memory_order_relaxed);
+uint64_t QueryRequestOnFreeDebug_GetCount(void) {
+  return atomic_load_explicit(&g_queryRequestOnFreeCount, memory_order_relaxed);
 }
 #endif
 
@@ -2490,8 +2490,8 @@ static int parseCompactionSite(const char *name, int *out) {
     *out = SEARCH_DISK_SITE_COMPACTION_BEGIN;
   } else if (!strcasecmp(name, "compaction_completed")) {
     *out = SEARCH_DISK_SITE_COMPACTION_COMPLETED;
-  } else if (!strcasecmp(name, "pre_checkpoint")) {
-    *out = SEARCH_DISK_SITE_PRE_CHECKPOINT;
+  } else if (!strcasecmp(name, "consistency_window_open")) {
+    *out = SEARCH_DISK_SITE_CONSISTENCY_WINDOW_OPEN;
   } else if (!strcasecmp(name, "numeric_split_pre_commit")) {
     *out = SEARCH_DISK_SITE_NUMERIC_SPLIT_PRE_COMMIT;
   } else if (!strcasecmp(name, "numeric_gate_closed")) {
@@ -2512,7 +2512,7 @@ static int parseCompactionSite(const char *name, int *out) {
  *   REACHED <site>                     -> integer arrival count
  *   RESET                              clear all state, free waiters
  *
- * <site> is one of: compaction_begin, compaction_completed, pre_checkpoint,
+ * <site> is one of: compaction_begin, compaction_completed, consistency_window_open,
  * numeric_split_pre_commit, numeric_gate_closed.
  */
 DEBUG_COMMAND(replCompactionCoordinator) {
@@ -2934,7 +2934,7 @@ DEBUG_COMMAND(getCoordReduceCount) {
 /**
  * FT.DEBUG QUERY_CONTROLLER GET_BLOCKED_REQUEST_ONFREE_COUNT
  */
-DEBUG_COMMAND(getBlockedRequestOnFreeCount) {
+DEBUG_COMMAND(getQueryRequestOnFreeCount) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
@@ -2942,7 +2942,7 @@ DEBUG_COMMAND(getBlockedRequestOnFreeCount) {
     return RedisModule_WrongArity(ctx);
   }
 
-  return RedisModule_ReplyWithLongLong(ctx, (long long)BlockedRequestOnFreeDebug_GetCount());
+  return RedisModule_ReplyWithLongLong(ctx, (long long)QueryRequestOnFreeDebug_GetCount());
 }
 
 /**
@@ -3429,7 +3429,7 @@ DEBUG_COMMAND(queryController) {
     return getCoordReduceCount(ctx, argv + 1, argc - 1);
   }
   if (!strcmp("GET_BLOCKED_REQUEST_ONFREE_COUNT", op)) {
-    return getBlockedRequestOnFreeCount(ctx, argv + 1, argc - 1);
+    return getQueryRequestOnFreeCount(ctx, argv + 1, argc - 1);
   }
   // AggregateResults loop pause commands
   if (!strcmp("SET_PAUSE_AFTER_AGGREGATE_RESULT", op)) {
@@ -3684,8 +3684,9 @@ DEBUG_COMMAND(DumpDeletedIds) {
 }
 
 // FT.DEBUG NUMERIC_BUCKET_MAP <index> <field>
-// Dumps the in-memory bucket routing map of a disk numeric field as a JSON
-// string: [{"max_val": ..., "state": "Active"|"BeingCreated", ("source": ...,)
+// Dumps the in-memory bucket routing map of a disk NUMERIC or GEO field (GEO
+// shares the NUMERIC field's bucket map) as a JSON string:
+// [{"max_val": ..., "state": "Active"|"BeingCreated", ("source": ...,)
 // "num_entries": ...}, ...]. Debug/testing only (e.g. asserting a bucket
 // split's routing state on a master and its replica).
 DEBUG_COMMAND(NumericBucketMap) {
@@ -3700,7 +3701,8 @@ DEBUG_COMMAND(NumericBucketMap) {
   if (!sctx->spec->diskSpec) {
     RedisModule_ReplyWithError(sctx->redisCtx, "NUMERIC_BUCKET_MAP is only supported on disk indexes");
   } else {
-    const FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_NUMERIC);
+    const FieldSpec *fs =
+        getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
     if (!fs) {
       RedisModule_ReplyWithError(sctx->redisCtx, "Unknown numeric field");
     } else {

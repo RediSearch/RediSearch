@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::ffi::CString;
+
 use inverted_index::NumericFilter;
 use query::{
     QueryNode, QueryNodeMut, QueryNodeRef, WildcardMode,
@@ -266,6 +268,40 @@ fn query_node_mut_narrows_child_field_masks() {
 
     // The parent's own mask is untouched.
     assert_eq!(node.opts().field_mask, 0b0110);
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (array_new_sz)")]
+fn query_node_mut_takes_the_dist_field() {
+    // The node is left naming no distance field, which is what stops it freeing
+    // a string the caller now owns. `name` outlives the node and owns the
+    // allocation throughout, so nothing here frees it twice.
+    let name = CString::new("__v_score").unwrap();
+    let mut mock = MockQueryNode::new(QueryNodeType::Vector);
+    mock.opts_mut().dist_field = name.as_ptr().cast_mut();
+
+    // SAFETY: sole wrapper to a valid leaf node; no other wrapper or derived
+    // reference is live.
+    let mut node = unsafe { QueryNodeMut::new(mock.as_non_null()) };
+
+    assert_eq!(node.take_dist_field(), name.as_ptr().cast_mut());
+    assert!(node.opts().dist_field.is_null());
+
+    // Idempotent: the string has already been handed over, so a second call
+    // cannot hand it over again.
+    assert!(node.take_dist_field().is_null());
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (array_new_sz)")]
+fn query_node_mut_takes_an_absent_dist_field_as_null() {
+    let mock = MockQueryNode::new(QueryNodeType::Vector);
+
+    // SAFETY: sole wrapper to a valid leaf node; no other wrapper or derived
+    // reference is live.
+    let mut node = unsafe { QueryNodeMut::new(mock.as_non_null()) };
+
+    assert!(node.take_dist_field().is_null());
 }
 
 #[test]

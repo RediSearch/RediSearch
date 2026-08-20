@@ -133,6 +133,15 @@ mod not_miri {
     }
 
     #[test]
+    fn wildcard_revalidate_at_eof_after_gc() {
+        let test = WildcardRevalidateTest::new(10);
+        let mut it = ContractChecker::new(test.create_iterator());
+        let ii = DocIdsOnly::from_mut_opaque(test.test.context.wildcard_inverted_index());
+
+        test.test.revalidate_at_eof_after_gc(&mut it, ii);
+    }
+
+    #[test]
     fn wildcard_revalidate_after_index_disappears() {
         let test = WildcardRevalidateTest::new(10);
         let mut it = ContractChecker::new(test.create_iterator());
@@ -234,7 +243,8 @@ mod not_miri {
     mod via_resume {
         use super::*;
         use crate::inverted_index::utils::via_resume::{
-            revalidate_after_document_deleted, revalidate_at_eof, revalidate_basic,
+            revalidate_after_document_deleted, revalidate_at_eof, revalidate_at_eof_after_gc,
+            revalidate_basic,
         };
         use rqe_iterators::{ResumeOutcome, TypeErasedRQEIterator};
         use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
@@ -251,6 +261,15 @@ mod not_miri {
             let test = WildcardRevalidateTest::new(10);
             let it = test.create_iterator();
             revalidate_at_eof(&test.test, Box::new(it));
+        }
+
+        #[test]
+        fn wildcard_revalidate_at_eof_after_gc() {
+            let test = WildcardRevalidateTest::new(10);
+            let it = test.create_iterator();
+            let ii = DocIdsOnly::from_mut_opaque(test.test.context.wildcard_inverted_index());
+
+            revalidate_at_eof_after_gc(&test.test, Box::new(it), ii);
         }
 
         #[test]
