@@ -214,7 +214,10 @@ fn run_rust(
     *source.own_key = (&raw mut own_key).cast();
 
     let child: Box<dyn RQEIterator> = Box::new(IdList::<true>::new(ids.to_vec()));
-    let mut it = TopKIterator::new_with_mode(source, Some(child), k, asc_cmp, mode);
+    // Matches the shim's `canTrimDeepResults`: capture only the child's yielded
+    // metrics on a match, rather than deep-copying its whole scoring subtree.
+    let mut it = TopKIterator::new_with_mode(source, Some(child), k, asc_cmp, mode)
+        .with_trim_deep_results(true);
     let mut count = 0usize;
     while it.read().unwrap().is_some() {
         count += 1;
