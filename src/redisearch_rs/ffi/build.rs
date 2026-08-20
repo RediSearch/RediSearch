@@ -383,6 +383,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "Suffix_IterateContains",
             "Suffix_IterateWildcard",
             "addSuffixTrie",
+            "addSuffixTrieMap",
             "deleteSuffixTrie",
             "suffixTrie_freeCallback",
         ],
@@ -391,7 +392,13 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/tag_index.h",
-        fns: &["TagIndex_Ensure", "TagIndex_OpenIndex"],
+        fns: &[
+            "TagIndex_Commit",
+            "TagIndex_Ensure",
+            "TagIndex_Free",
+            "TagIndex_Index",
+            "TagIndex_OpenIndex",
+        ],
         types: &[],
         vars: &[],
     },
