@@ -805,7 +805,7 @@ struct Match {
     ///
     /// **Empty when the result is not an aggregate** (`as_aggregate()` is
     /// `None`), which is every bare `InvIdxTag` reader: a leaf carries no child
-    /// records, and its own weight is in [`weight`](Match::weight). A leaf is
+    /// records, and its own weight is in [`weight`]. A leaf is
     /// therefore distinguishable from a one-record aggregate, which matters
     /// because the union reduction that returns a lone surviving child *bare* is
     /// one of the behaviours pinned here.
@@ -841,7 +841,7 @@ impl MockQueryNode {
     /// index and reads its case-sensitivity flag out of it.
     pub fn set_tag_field_spec(&mut self, fs: *const ffi::FieldSpec);
 
-    /// Like [`with_token`](MockQueryNode::with_token), but the token buffer is
+    /// Like [`with_token`], but the token buffer is
     /// allocated with `RedisModule_Alloc` instead of the Rust global allocator,
     /// so C may legitimately `rm_free` it and hand back a replacement.
     ///
@@ -866,7 +866,7 @@ here rather than in `tag.rs`:
 
 ```rust
 impl TestContext {
-    /// Replace the [`IteratorsConfig`] that [`qctx`](TestContext::qctx) exposes
+    /// Replace the [`IteratorsConfig`] that [`qctx`] exposes
     /// as `QueryEvalCtx.config`.
     ///
     /// This is the config the **C** evaluator reads for `minTermPrefix` and
@@ -953,6 +953,12 @@ flag is set.
 | `eval_tag_wildcard_child_double_escape_is_the_same_wildcard` | `WildcardQuery(b"b\\\\*t")`, same values | docs `[12, 13]` again: `tag_strtolower` leaves `\*` and `Wildcard_RemoveEscape` strips that backslash too, so the doubly-escaped pattern is byte-identical to the singly-escaped one by match time. There is no literal `*` query; a port that kept an escape marker through the unescape would answer `[12]` here |
 | `eval_tag_wildcard_child_of_a_lone_backslash_matches_the_empty_value` | `WildcardQuery(b"\\")`, values include `(TAG_EMPTY, [11])` | doc `[11]`: the backslash survives `tag_strtolower` (the next byte is the terminator) and is consumed by `Wildcard_RemoveEscape`, leaving length 0 — so the length check *after* the unescape is what decides |
 | `eval_tag_lowercases_the_query_on_a_case_insensitive_field` | `Token(b"APPLE")` | docs `[1, 2]` |
+| `eval_tag_prefix_child_lowercases_the_pattern_on_a_case_insensitive_field` | `Prefix { b"AP", prefix: true, suffix: false }` | docs `[1, 2, 3]`: `Query_EvalTagPrefixNode` lowers the prefix pattern too, not just a token — the token-only row above cannot catch a port that dropped this call |
+| `eval_tag_prefix_child_case_sensitive_field_keeps_the_pattern_case` | `case_sensitive`, same pattern | `Some(empty)`, not `None`: `Query_EvalTagPrefixNode`'s brute-force branch always wraps its matches in a union, even zero of them |
+| `eval_tag_wildcard_child_lowercases_the_pattern_on_a_case_insensitive_field` | `WildcardQuery(b"BA*NA")` | docs `[3, 4]`: same call, on the wildcard pattern, in `Query_EvalTagWildcardNode` |
+| `eval_tag_wildcard_child_case_sensitive_field_keeps_the_pattern_case` | `case_sensitive`, same pattern | `Some(empty)`, same reasoning as the prefix control above |
+| `eval_tag_phrase_child_lowercases_its_tokens_on_a_case_insensitive_field` | `Phrase(&[b"RED", b"APPLE"])` | doc `[5]`: `query_EvalSingleTagNode`'s phrase branch lowers each child individually before the `sdsjoin` |
+| `eval_tag_phrase_child_case_sensitive_field_keeps_its_tokens_case` | `case_sensitive`, same tokens | `None`: unlike prefix/wildcard, a phrase miss is a direct `TagIndex_OpenReader` lookup, not a union |
 | `eval_tag_multibyte_query_lowered_in_place` | `Token("CAFÉ".as_bytes())`, values include `(TAG_CAFE, [15])` | doc `[15]`: the lowered form re-encodes to the same 5 bytes, so `unicode_tolower` writes it back into the token's own buffer and returns NULL — the token pointer the node holds is unchanged and the lookup uses the rewritten bytes |
 | `eval_tag_multibyte_query_lowered_into_a_longer_buffer` | `RedisToken("İSTANBUL".as_bytes())`, values include `(TAG_DOTTED, [16])` | doc `[16]`: the lower outgrows the buffer, so `tag_strtolower` `rm_free`s the token and rewrites `tok.str_`/`tok.len` — the lookup uses the *replacement*, at its new longer length. The one row needing `with_redis_token`; a port that kept the original pointer or the original length finds nothing |
 | `eval_tag_case_sensitive_field_keeps_the_query_case` | `case_sensitive`, `Token(b"APPLE")`, then `Token(TAG_APPLE)` | the first yields nothing, the second yields `[1, 2]` |

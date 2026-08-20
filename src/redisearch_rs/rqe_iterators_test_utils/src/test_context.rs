@@ -1150,6 +1150,39 @@ impl TestContext {
         ttl.add(doc_id, fe);
     }
 
+    /// Replace the [`IteratorsConfig`] that [`qctx`](TestContext::qctx) exposes
+    /// as `QueryEvalCtx.config`.
+    ///
+    /// This is the config the **C** evaluator reads for `minTermPrefix` and
+    /// `maxPrefixExpansions`. It is not the `Config` value threaded into
+    /// `query_eval::eval_node`, which reaches the C as an opaque `EvalConfig`.
+    ///
+    /// Allocates the `QueryEvalCtx` if it does not exist yet, so a later
+    /// `qctx()` returns one already carrying the override.
+    pub fn set_iterators_config(&mut self, config: IteratorsConfig) {
+        // Ensure the `QueryEvalCtx` (and its `config` allocation) exists before
+        // overwriting it.
+        self.qctx();
+        let alloc = self.qctx.get_mut().expect("qctx() just initialised this");
+        // SAFETY: `alloc.config` was allocated by `Box::into_raw` in `qctx()`
+        // and is exclusively owned by this `TestContext`.
+        unsafe { *alloc.config = config };
+    }
+
+    /// Set the deadline and the skip flag in `sctx->time`.
+    ///
+    /// `timeout` is an absolute `CLOCK_MONOTONIC` deadline; `{0, 0}` is the
+    /// sentinel every consumer reads as *no deadline*. `skip_checks` sets
+    /// `skipTimeoutChecks`, which stops consumers installing the deadline at
+    /// all — it wins over a deadline that has already passed.
+    pub const fn set_search_time(&mut self, timeout: ffi::timespec, skip_checks: bool) {
+        // SAFETY: `self.sctx` is a valid, exclusively-owned `RedisSearchCtx`.
+        unsafe {
+            self.sctx.as_mut().time.timeout = timeout;
+            self.sctx.as_mut().time.skipTimeoutChecks = skip_checks;
+        }
+    }
+
     /// Mark the given field of the given documents as expired.
     ///
     /// Sets the field expiration time to the past and the current query time
@@ -1252,6 +1285,17 @@ impl Drop for TestContext {
             ffi::Indexes_RemoveSpecFromGlobals(guard.own_ref(), false);
         }
     }
+}
+
+/// Run `f` holding the lock the [`TestContext`] constructors take around C
+/// global state, for a test that builds C structures of its own — a `TagIndex`
+/// whose id comes from a plain non-atomic global, say.
+///
+/// The lock is not reentrant: call this *after* the constructor has returned,
+/// never around one.
+pub fn with_c_globals_locked<T>(f: impl FnOnce() -> T) -> T {
+    let _lock = CONTEXT_MUTEX.lock().unwrap();
+    f()
 }
 
 /// Guard object that manages globally allocated resources.

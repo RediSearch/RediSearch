@@ -31,6 +31,11 @@ pub struct MockQueryNode {
     node: *mut ffi::RSQueryNode,
     /// Auxiliary heap allocations that must outlive the node.
     _aux: Vec<AuxAlloc>,
+    /// Whether the node's token buffer belongs to the Redis allocator, as
+    /// [`with_redis_token`](MockQueryNode::with_redis_token) leaves it. Drop
+    /// then frees whatever the token addresses *at that point*, which is not
+    /// necessarily the buffer that constructor allocated.
+    redis_token: bool,
 }
 
 /// A type-erased heap allocation freed on drop.
@@ -108,7 +113,29 @@ impl Drop for MockQueryNode {
         // SAFETY: `self.node` is a valid, owned allocation. If `children` is
         // non-null it was allocated via `array_new_sz` and must be freed with
         // `array_free`.
+        //
+        // `redis_token` is set only by `with_redis_token`, which requires a
+        // token-carrying `type_` and never changes after construction, so
+        // whenever it is true the union's active member is (or begins with)
+        // an `RSToken` here too -- the same invariant that constructor's own
+        // SAFETY comment establishes at construction time. `tok.str_` is
+        // whatever that field addresses now, not necessarily the buffer
+        // `with_redis_token` allocated: a callee such as `tag_strtolower` may
+        // have freed that one and written back a replacement, but only ever
+        // one it obtained from the same `RedisModule_Alloc`/`RedisModule_Free`
+        // pair -- so at most one live Redis-allocator allocation is addressed
+        // here, never a dangling or already-freed pointer. `RedisModule_Free`
+        // is installed by the same test harness `with_redis_token` relies on
+        // to install `RedisModule_Alloc`.
         unsafe {
+            if self.redis_token {
+                let tok = &*(&raw const (*self.node).__bindgen_anon_1).cast::<ffi::RSToken>();
+                if !tok.str_.is_null() {
+                    let rm_free =
+                        redis_module::RedisModule_Free.expect("Redis allocator not available");
+                    rm_free(tok.str_.cast::<std::ffi::c_void>());
+                }
+            }
             let children = (*self.node).children;
             if !children.is_null() {
                 ffi::array_free(children.cast());
@@ -147,7 +174,11 @@ impl MockQueryNode {
                 _ => {}
             }
 
-            Self { node, _aux: aux }
+            Self {
+                node,
+                _aux: aux,
+                redis_token: false,
+            }
         }
     }
 
@@ -306,6 +337,57 @@ impl MockQueryNode {
         this
     }
 
+    /// Like [`with_token`](MockQueryNode::with_token), but the token buffer is
+    /// allocated with `RedisModule_Alloc` instead of the Rust global allocator,
+    /// so a callee may legitimately `rm_free` it and hand back a replacement.
+    ///
+    /// This exists for the query paths that rewrite the token they are given:
+    /// lowercasing a tag token whose lowered form outgrows its buffer frees the
+    /// original and rewrites the token's pointer and length. Drop therefore
+    /// frees whatever the token addresses *at drop time* — not the buffer
+    /// allocated here — which is correct whether or not the callee replaced it,
+    /// since both buffers come from the same allocator. The buffer is not
+    /// tracked in `_aux`, which frees with the Rust allocator.
+    ///
+    /// Prefer [`with_token`](MockQueryNode::with_token): this constructor is
+    /// only sound for callees documented to own the buffer, and it cannot run
+    /// under Miri, which does not support the `RedisModule_Alloc` extern.
+    pub fn with_redis_token(type_: TokenNodeType, content: impl AsRef<[u8]>) -> Self {
+        let content = content.as_ref();
+        // SAFETY: the allocator externs are installed by the test harness, which
+        // is the only context this `unittest`-gated module is compiled into.
+        let rm_alloc =
+            unsafe { redis_module::RedisModule_Alloc.expect("Redis allocator not available") };
+        // The terminator the escape-removal rewrite writes past the shortened
+        // end accounts for the extra byte, as it does in `alloc_token_aux`.
+        // SAFETY: the length is non-zero — the terminator alone accounts for a
+        // byte — and the allocator is installed, per the call above.
+        let buf = unsafe { rm_alloc(content.len() + 1) }.cast::<u8>();
+        assert!(!buf.is_null());
+        // SAFETY: `buf` owns `content.len() + 1` writable bytes and cannot
+        // overlap the caller's slice, so the copy fits and leaves the final byte
+        // for the terminator written below.
+        unsafe {
+            std::ptr::copy_nonoverlapping(content.as_ptr(), buf, content.len());
+            buf.add(content.len()).write(0);
+        }
+
+        let mut this = Self::new(type_.into());
+        this.redis_token = true;
+
+        // SAFETY: `this.node` is valid and exclusively owned, and `type_` is a
+        // token-carrying type, so the union's active member either is an
+        // `RSToken` or begins with one.
+        unsafe {
+            let union_ptr = &raw mut (*this.node).__bindgen_anon_1;
+            let tok = &mut *union_ptr.cast::<ffi::RSToken>();
+            tok.str_ = buf.cast::<c_char>();
+            tok.len = content.len();
+        }
+
+        this
+    }
+
     /// Allocate a children array and populate it with the given child pointers.
     pub fn set_children(&mut self, children: &[*mut ffi::RSQueryNode]) {
         // SAFETY: `array_new_sz` allocates a tracked array with the given
@@ -353,6 +435,21 @@ impl MockQueryNode {
         unsafe {
             let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
             (*union_ptr.cast::<ffi::QueryMissingNode>()).field = field.cast_mut();
+        }
+    }
+
+    /// Set the `fs` field of the tag-node union variant, replacing the zeroed
+    /// placeholder [`new`](MockQueryNode::new) leaves there.
+    ///
+    /// `fs` must outlive this `MockQueryNode`: evaluating the node opens the
+    /// field's tag index and reads its case-sensitivity flag out of it.
+    pub fn set_tag_field_spec(&mut self, fs: *const ffi::FieldSpec) {
+        self.debug_assert_type(QueryNodeType::Tag);
+        // SAFETY: `self.node` is valid and exclusively owned; the node type is
+        // Tag, per the assertion above, so the `tag` variant is active.
+        unsafe {
+            let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
+            (*union_ptr.cast::<ffi::QueryTagNode>()).fs = fs.cast_mut();
         }
     }
 }
