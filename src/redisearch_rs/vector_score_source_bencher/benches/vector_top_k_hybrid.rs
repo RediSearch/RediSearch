@@ -13,23 +13,21 @@
 //! Both sides:
 //! - drive the same HNSW index and the same sorted-id child filter,
 //! - maintain a real bounded top-k heap,
-//! - are forced into the same execution mode (batches / adhoc-BF).
+//! - are forced into the same execution mode (batches / adhoc-BF),
+//! - yield the vector score under a lookup key, and trim deep results.
 //!
 //! The C side builds a minimal mock `RedisSearchCtx` and wraps the child in
-//! `NewSortedIdListIterator` (the C twin of the Rust `IdList`). See
+//! `NewSortedIdListIterator`, which is a Rust `IdList` behind an FFI entry
+//! point, so both sides drive the same child implementation. See
 //! `hybrid_shim.c` for details.
 //!
-//! Two groups × two sides (rust / c):
+//! Three groups × two sides (rust / c):
 //!
-//! - `vector_top_k_hybrid/batches` — hybrid, batches mode forced.
-//! - `vector_top_k_hybrid/adhoc`   — hybrid, adhoc-BF mode forced.
+//! - `vector_top_k_hybrid/batches`         — hybrid, batches mode forced.
+//! - `vector_top_k_hybrid/adhoc`           — hybrid, adhoc-BF mode forced.
+//! - `vector_top_k_hybrid/mode_comparison` — both modes across child sizes.
 //!
 //! Swept over index size and top-k width at a fixed vector dimension.
-//!
-//! Known asymmetry (MOD-14210): the C path pushes a vector-score metric per
-//! candidate (`ResultMetrics_Add`) that Rust's `build_result` doesn't yet — a
-//! small C-only cost that mildly favors Rust in small-k adhoc cases until parity
-//! lands.
 
 // Pull in the lib to ensure FFI stubs and mock allocator symbols are linked.
 // `RedisModule_Alloc` is one of those symbols, defined by the crate's
