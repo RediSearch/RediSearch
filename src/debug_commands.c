@@ -3573,8 +3573,9 @@ DEBUG_COMMAND(DumpDeletedIds) {
 }
 
 // FT.DEBUG NUMERIC_BUCKET_MAP <index> <field>
-// Dumps the in-memory bucket routing map of a disk numeric field as a JSON
-// string: [{"max_val": ..., "state": "Active"|"BeingCreated", ("source": ...,)
+// Dumps the in-memory bucket routing map of a disk NUMERIC or GEO field (GEO
+// shares the NUMERIC field's bucket map) as a JSON string:
+// [{"max_val": ..., "state": "Active"|"BeingCreated", ("source": ...,)
 // "num_entries": ...}, ...]. Debug/testing only (e.g. asserting a bucket
 // split's routing state on a master and its replica).
 DEBUG_COMMAND(NumericBucketMap) {
@@ -3589,7 +3590,8 @@ DEBUG_COMMAND(NumericBucketMap) {
   if (!sctx->spec->diskSpec) {
     RedisModule_ReplyWithError(sctx->redisCtx, "NUMERIC_BUCKET_MAP is only supported on disk indexes");
   } else {
-    const FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_NUMERIC);
+    const FieldSpec *fs =
+        getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
     if (!fs) {
       RedisModule_ReplyWithError(sctx->redisCtx, "Unknown numeric field");
     } else {
