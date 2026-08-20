@@ -18,12 +18,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  get-latest-redis-tag:
-    permissions: {}
-    uses: ./.github/workflows/task-get-latest-tag.yml
-    with:
-      repo: redis/redis
-
   lint:
     permissions:
       contents: read
@@ -37,7 +31,6 @@ jobs:
       advisories-base-ref: ${{ github.event.merge_group.base_sha }}
 
   build-unique-oses:
-    needs: get-latest-redis-tag
     permissions:
       contents: read
       packages: write
@@ -50,7 +43,7 @@ jobs:
       # test runners; keep macOS Intel (x86_64) here for build coverage.
       platform: 'macos-26,alpine:3.23,intel'
       architecture: all
-      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      redis-ref: d3abc02fed6664cc0afaf9ffe4e172a99e274f44
       options: skip-tests,fail-fast
       rejson-branch: master
 
@@ -75,7 +68,6 @@ jobs:
 
   test-ubuntu-master:
     # Always run tests for merge queue submissions, including text-only PRs.
-    needs: get-latest-redis-tag
     if: ${{ github.event.merge_group.base_ref == 'refs/heads/master' }}
     permissions:
       contents: read
@@ -88,7 +80,7 @@ jobs:
       job-type: basic-test
       platform: ubuntu:noble
       architecture: x86_64
-      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      redis-ref: d3abc02fed6664cc0afaf9ffe4e172a99e274f44
       test-config: QUICK=1
       rejson-branch: master
       # This lane only runs tests, so the LTO link is dead weight on the queue's
@@ -98,7 +90,6 @@ jobs:
       enable-lto: '0'
 
   test-ubuntu-release-branch:
-    needs: get-latest-redis-tag
     if: ${{ github.event.merge_group.base_ref != 'refs/heads/master' }}
     permissions:
       contents: read
@@ -110,7 +101,7 @@ jobs:
     with:
       platform: ubuntu:noble
       architecture: x86_64
-      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      redis-ref: d3abc02fed6664cc0afaf9ffe4e172a99e274f44
       job-test-config: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1", "ubsan": "QUICK=1"}'
       options: unit-tests,coordinator,standalone,rejson,fail-fast,ubsan
       # Full alignment UBSan currently exposes unrelated pre-existing UB in the
@@ -123,7 +114,6 @@ jobs:
   pr-validation:
     permissions: {} # aggregation gate: inspects needs.* only
     needs:
-      - get-latest-redis-tag
       - lint
       - build-unique-oses
       - test-ubuntu-master
