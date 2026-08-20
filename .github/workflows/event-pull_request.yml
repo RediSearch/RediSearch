@@ -21,6 +21,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  get-latest-redis-tag:
+    permissions: {}
+    runs-on: ubuntu-slim
+    outputs:
+      tag: d3abc02fed6664cc0afaf9ffe4e172a99e274f44
+    steps:
+      - run: echo "Using pinned redis/redis commit with the hash-field expiration notification fix"
+
   check-what-changed:
     permissions: # actions/checkout
       contents: read
@@ -59,7 +67,7 @@ jobs:
   # ------------------------------------------------------------------
 
   basic-test:
-    needs: [check-what-changed, spellcheck]
+    needs: [check-what-changed, get-latest-redis-tag, spellcheck]
     if: ${{ (needs.check-what-changed.outputs.CODE_CHANGED == 'true' || needs.check-what-changed.outputs.TESTS_CHANGED == 'true' || contains(github.event.pull_request.labels.*.name, 'enforce:test')) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     permissions:
       contents: read
@@ -72,12 +80,12 @@ jobs:
       job-type: basic-test
       platform: ubuntu:latest
       architecture: x86_64
-      redis-ref: d3abc02fed6664cc0afaf9ffe4e172a99e274f44
+      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: QUICK=1
       rejson-branch: master
 
   coverage:
-    needs: [check-what-changed, spellcheck]
+    needs: [check-what-changed, get-latest-redis-tag, spellcheck]
     if: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && ((!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') || (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') || contains(github.event.pull_request.labels.*.name, 'enforce:coverage')) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     permissions:
       contents: read
@@ -90,12 +98,12 @@ jobs:
       job-type: coverage
       platform: ubuntu:latest
       architecture: x86_64
-      redis-ref: d3abc02fed6664cc0afaf9ffe4e172a99e274f44
+      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: QUICK=1
       rejson-branch: master
 
   sanitize:
-    needs: [check-what-changed, spellcheck]
+    needs: [check-what-changed, get-latest-redis-tag, spellcheck]
     if: ${{ ((!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') || (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') || contains(github.event.pull_request.labels.*.name, 'enforce:sanitize')) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     permissions:
       contents: read
@@ -108,7 +116,7 @@ jobs:
       job-type: sanitize
       platform: ubuntu:latest
       architecture: x86_64
-      redis-ref: d3abc02fed6664cc0afaf9ffe4e172a99e274f44
+      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: QUICK=1
       rejson-branch: master
 
@@ -143,6 +151,7 @@ jobs:
   pr-validation:
     permissions: {} # aggregation gate: inspects needs.* only
     needs:
+      - get-latest-redis-tag
       - check-what-changed
       - spellcheck
       - zizmor

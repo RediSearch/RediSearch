@@ -156,8 +156,18 @@ jobs:
         run: |
           echo "Covered PRs: ${{ steps.check.outputs.covered-prs }}"
 
-  test-selected-platforms:
+  get-latest-redis-tag:
+    permissions: {}
     needs: should-run
+    if: ${{ needs.should-run.outputs.run-validation == 'true' }}
+    runs-on: ubuntu-slim
+    outputs:
+      tag: d3abc02fed6664cc0afaf9ffe4e172a99e274f44
+    steps:
+      - run: echo "Using pinned redis/redis commit with the hash-field expiration notification fix"
+
+  test-selected-platforms:
+    needs: [should-run, get-latest-redis-tag]
     if: ${{ needs.should-run.outputs.run-validation == 'true' }}
     permissions:
       contents: read
@@ -171,7 +181,7 @@ jobs:
       # problem is mitigated; macOS ARM still runs.
       platform: 'ubuntu:noble,macos-26,!macos-26~x86_64,alpine:3.23,intel'
       architecture: all
-      redis-ref: d3abc02fed6664cc0afaf9ffe4e172a99e274f44
+      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       job-test-config: '{"test": "", "coverage": "", "sanitize": "", "ubsan": ""}'
       options: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && 'unit-tests,coordinator,standalone,rejson,coverage,sanitize,ubsan' || 'unit-tests,coordinator,standalone,rejson,sanitize,ubsan' }}
       # Full alignment UBSan currently exposes unrelated pre-existing UB in the
@@ -181,7 +191,7 @@ jobs:
       rejson-branch: master
 
   notify-cie-failure:
-    needs: [should-run, test-selected-platforms]
+    needs: [should-run, get-latest-redis-tag, test-selected-platforms]
     if: failure()
     runs-on: ubuntu-slim
     permissions:
