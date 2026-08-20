@@ -1221,7 +1221,6 @@ dependencies = [
  "query_types",
  "redis-module",
  "redis_reply",
- "rlookup",
  "rqe_core",
  "rqe_iterator_type",
  "rqe_iterators",
