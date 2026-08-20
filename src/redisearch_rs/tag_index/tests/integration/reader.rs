@@ -16,7 +16,7 @@
 
 use std::ptr::NonNull;
 
-use rqe_iterators::RQEIterator;
+use rqe_iterators::{RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome};
 use rqe_iterators_test_utils::MockContext;
 use tag_index::{InMemoryMode, Tag, TagIndex, TrieLookup};
 
@@ -163,5 +163,85 @@ fn open_reader_returns_none_for_empty_inverted_index() {
     assert!(it.is_none());
 
     // SAFETY: `allocate` allocated it; no iterator was built from it.
+    drop(unsafe { Box::from_raw(tag_index) });
+}
+
+/// The reason [`TrieLookup`] exists: a suspended reader whose tag the collector
+/// dropped must abort on resume rather than come back reading the freed posting
+/// list. The lookup re-resolves the tag through the owner's pointer, finds
+/// nothing, and aborts.
+///
+/// The index is mutated only while the reader is suspended — that is the point of
+/// suspension, and the only state in which a mutation through the owning pointer
+/// is legal.
+#[test]
+fn resume_after_the_tag_was_collected_aborts() {
+    let mock = MockContext::new(2, 2);
+    let (tag_index, lookup) = allocate(TagIndex::<InMemoryMode>::new(false));
+    for doc_id in 1..=2 {
+        // SAFETY: `tag_index` was just allocated and is not yet aliased.
+        index_mem(unsafe { &mut *tag_index }, &[b"hello"], doc_id);
+    }
+
+    // SAFETY: `tag_index` and `mock` outlive the iterator, and `lookup` resolves
+    // `tag_index`.
+    let mut it = unsafe {
+        (*tag_index).open_reader(mock.sctx(), as_tag(b"hello"), 1.0, FIELD_INDEX, lookup)
+    }
+    .expect("the tag is indexed");
+    it.read().expect("read must not error");
+
+    let suspended = Box::new(it).suspend();
+
+    // SAFETY: the reader is suspended, so it holds no reference into the index,
+    // and `tag_index` is the owning pointer the lookup was minted from.
+    unsafe { &mut *tag_index }.gc_remove_value(b"hello");
+
+    let guard = mock.spec_read();
+    let outcome = suspended.resume(&guard).expect("resume must not error");
+    assert!(
+        matches!(outcome, ResumeOutcome::Aborted),
+        "a reader whose tag was collected must abort instead of resuming"
+    );
+
+    // SAFETY: `allocate` allocated it; the aborted resume consumed the iterator.
+    drop(unsafe { Box::from_raw(tag_index) });
+}
+
+/// The counterpart: an untouched index re-resolves to the very inverted index the
+/// reader holds, so the same suspend/resume cycle keeps reading where it left off.
+/// Without it, an abort-everything lookup would pass the test above.
+#[test]
+fn resume_with_the_tag_untouched_reads_on() {
+    const N: ffi::t_docId = 3;
+
+    let mock = MockContext::new(N, N as usize);
+    let (tag_index, lookup) = allocate(TagIndex::<InMemoryMode>::new(false));
+    for doc_id in 1..=N {
+        // SAFETY: `tag_index` was just allocated and is not yet aliased.
+        index_mem(unsafe { &mut *tag_index }, &[b"hello"], doc_id);
+    }
+
+    // SAFETY: `tag_index` and `mock` outlive the iterator, and `lookup` resolves
+    // `tag_index`.
+    let mut it = unsafe {
+        (*tag_index).open_reader(mock.sctx(), as_tag(b"hello"), 1.0, FIELD_INDEX, lookup)
+    }
+    .expect("the tag is indexed");
+    it.read().expect("read must not error");
+
+    let guard = mock.spec_read();
+    let outcome = Box::new(it)
+        .suspend()
+        .resume(&guard)
+        .expect("resume must not error");
+    let it = match outcome {
+        ResumeOutcome::Ok(it) | ResumeOutcome::Moved(it) => it,
+        ResumeOutcome::Aborted => panic!("an untouched index cannot abort the reader"),
+    };
+
+    assert_eq!(drain(*it), (2..=N).collect::<Vec<_>>());
+
+    // SAFETY: `allocate` allocated it; the iterator using it is gone.
     drop(unsafe { Box::from_raw(tag_index) });
 }

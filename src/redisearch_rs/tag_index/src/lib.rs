@@ -534,6 +534,10 @@ impl TagIndex<InMemoryMode> {
     /// Simulate GC removing every posting under `tag`, leaving an empty (but
     /// still registered) inverted index behind — the state GC leaves once
     /// every document under a tag has been removed.
+    ///
+    /// The crate exposes no document removal of its own, so this is the only way
+    /// a test can reach the empty-index arm of
+    /// [`open_reader`](Self::open_reader).
     pub fn gc_empty_value(&mut self, tag: &[u8]) {
         let ii = self.mode.values.find_mut(tag).expect("tag was indexed");
         let delta = ii
@@ -541,6 +545,20 @@ impl TagIndex<InMemoryMode> {
             .expect("scan_gc must not fail")
             .expect("every document was removed, so a delta is produced");
         ii.apply_gc(delta);
+    }
+
+    /// Simulate GC dropping `tag` altogether: both the trie entry and the
+    /// inverted index it owned are gone, which is what
+    /// [`TrieLookup::find`](TagLookup::find) must report to abort a reader still
+    /// holding the freed posting list.
+    ///
+    /// Same reason as [`gc_empty_value`](Self::gc_empty_value): no production
+    /// path in this crate removes a tag yet.
+    pub fn gc_remove_value(&mut self, tag: &[u8]) {
+        self.mode
+            .values
+            .remove(tag)
+            .expect("tag was indexed, so it has an entry to remove");
     }
 
     /// Whether `key` is registered in the [suffix index](TagSuffixIndex) — as a
@@ -589,9 +607,7 @@ pub(crate) fn expansion_deadline(timeout: Option<timespec>) -> Option<Instant> {
 /// returned from [`TagIndex::open_reader`] to detect during revalidation that
 /// the garbage collector removed or replaced a tag's inverted index.
 ///
-/// Only a memory-mode index has an in-memory posting list to re-resolve a tag to,
-/// which is why this is tied to [`InMemoryMode`] rather than generic over the
-/// mode: the disk backend owns its reader and revalidates it itself.
+/// Only a memory-mode index has an in-memory posting list to re-resolve a tag to.
 pub struct TrieLookup(NonNull<TagIndex<InMemoryMode>>);
 
 impl TrieLookup {
@@ -600,36 +616,20 @@ impl TrieLookup {
     /// # Safety
     ///
     /// 1. `idx` must be the pointer the index's owner holds — the one the
-    ///    collector is handed to reach the same index — and **not** a pointer
-    ///    derived from a `&TagIndex` or a `&mut TagIndex`.
+    ///    collector is handed to reach the same index, and **not** a pointer
+    ///    derived from a `&TagIndex` or a `&mut TagIndex` to not break the
+    ///    borrowing rules. Passing `idx` itself keeps the alternation
+    ///    raw → `&mut` → raw, which is permitted.
     ///
-    ///    The collector takes `&mut *idx` (`TagIndex2_GC`), and
-    ///    [`find`](TagLookup::find) reads back through this pointer afterwards.
-    ///    Taking that `&mut` invalidates every pointer derived above `idx`, so a
-    ///    reborrowed one would be dead by the time `find` runs — undefined
-    ///    behaviour under both Stacked and Tree Borrows. Passing `idx` itself
-    ///    keeps the alternation raw → `&mut` → raw, which is permitted.
-    ///
-    ///    In production that pointer is the one the owning field spec holds in
-    ///    `tagOpts.tagIndex`; the FFI entry points mint the lookup from the very
-    ///    argument C hands them, and tests mint it from their `Box::into_raw`.
-    ///
-    /// 2. `idx` must stay valid for this lookup and any iterator holding it. The
-    ///    index is freed only by `FieldSpec_Cleanup`, so holding the spec's read
-    ///    lock for the iterator's lifetime is sufficient.
+    /// 2. `idx` must stay valid for this lookup and any iterator holding it.
     ///
     /// 3. The index may only be mutated while the lookup is alive under the
-    ///    standard revalidation protocol — i.e. between
-    ///    [`revalidate`](rqe_iterators::RQEIterator::revalidate) calls, never
-    ///    concurrently with a read — mirroring the contract of
-    ///    [`TagIndex::open_reader`].
+    ///    standard revalidation protocol.
     pub const unsafe fn new(idx: NonNull<TagIndex<InMemoryMode>>) -> Self {
         Self(idx)
     }
 
-    /// The index this lookup resolves tags in, for the identity check in
-    /// [`TagIndex::open_reader`]. Returns the pointer without dereferencing it, so
-    /// callers may compare it against an index reached another way.
+    /// The index this lookup resolves tags in.
     pub(crate) const fn index_ptr(&self) -> NonNull<TagIndex<InMemoryMode>> {
         self.0
     }
@@ -637,10 +637,7 @@ impl TrieLookup {
 
 impl TagLookup<DocIdsOnly> for TrieLookup {
     fn find(&self, tag: &[u8]) -> Option<&InvertedIndex<DocIdsOnly>> {
-        // SAFETY: contracts 1 and 2 of `TrieLookup::new` — the pointer carries the
-        // owner's provenance, so the collector's `&mut` did not revoke it, and the
-        // index outlives the iterator holding this lookup. The reference dies with
-        // this call, so nothing is outstanding across the next mutation.
+        // SAFETY: contracts 1 and 2 of `TrieLookup::new`.
         let tag_index = unsafe { self.0.as_ref() };
 
         tag_index.mode.values.find(tag).map(Box::as_ref)
@@ -649,10 +646,6 @@ impl TagLookup<DocIdsOnly> for TrieLookup {
 
 /// A wildcard pattern prepared for a suffix-trie lookup: the most selective
 /// literal token, expanded into the anchor sub-pattern used to walk the trie.
-///
-/// Holds the bytes the expansion of a [`SuffixQuery::Wildcard`] borrows, so they
-/// outlive the call: the anchor `sub` (owned, since it may gain a trailing `*`)
-/// and the original `full` pattern re-checked against each candidate.
 #[derive(Debug)]
 pub struct SuffixWildcardPattern<'p> {
     /// The whole original pattern, used to fully re-check each candidate term.
@@ -695,11 +688,6 @@ impl<'p> SuffixWildcardPattern<'p> {
 
     /// The anchor sub-pattern [`TagIndex::suffix_expand`] walks the suffix trie
     /// with, as chosen by [`choose_token`].
-    ///
-    /// Which token wins only changes how much of the trie is visited, never the
-    /// matched terms — every candidate is re-checked against [`Self::full`] — so
-    /// nothing in production can observe the choice. Exposed so the tests can pin
-    /// it.
     #[cfg(test)]
     pub(crate) fn anchor(&self) -> &[u8] {
         &self.sub
@@ -728,11 +716,6 @@ pub enum SuffixQuery<'a> {
         pattern: &'a SuffixWildcardPattern<'a>,
         /// Cap on the *matched* terms, overshot by one: the count is checked
         /// before each match is yielded. [`u64::MAX`] is the no-cap sentinel.
-        ///
-        /// Only this form is capped during expansion; the other two leave it to
-        /// their caller, which is how C splits it too
-        /// (`TagIndex_GetSuffixWildcardMatches` takes `maxPrefixExpansions`,
-        /// `TagIndex_GetSuffixMatches` does not).
         max_prefix_expansions: u64,
     },
 }
@@ -741,54 +724,91 @@ pub enum SuffixQuery<'a> {
 /// iterating all of a node's children is expensive.
 const SUFFIX_STARRED_ANCHOR_PENALTY: i32 = ffi::SUFFIX_STARRED_ANCHOR_PENALTY as i32;
 
-/// Split `pattern` on `*` into literal tokens and return the `(offset, len)` of
-/// the most selective one, or `None` when there is no usable literal token
-/// (e.g. the pattern is all `*`/`?`).
+/// One literal token of a wildcard pattern: a maximal run of bytes holding no
+/// unescaped `*`.
+struct LiteralToken {
+    /// Where the token starts in the pattern.
+    start: usize,
+    /// How long the token is, escape bytes included.
+    len: usize,
+    /// How many unescaped `?` the token holds.
+    single_char_wildcards: usize,
+}
+
+/// Split `pattern` into the literal tokens between its unescaped `*`.
+///
+/// An escape and the byte it escapes are one literal unit — the same reading
+/// [`WildcardPattern::parse`] gives them — so a `\*` stays inside its token
+/// instead of ending it.
+fn literal_tokens(pattern: &[u8]) -> Vec<LiteralToken> {
+    let mut tokens: Vec<LiteralToken> = Vec::new();
+    // `Some` while a token is open, i.e. while the last byte read was a literal.
+    let mut open: Option<LiteralToken> = None;
+
+    let mut i = 0;
+    while i < pattern.len() {
+        // How many bytes the unit at `i` spans, and whether it is a metacharacter.
+        let (width, is_star, is_question) = match pattern[i] {
+            // A trailing backslash escapes nothing — `WildcardPattern::parse`
+            // drops it — so it only counts as a plain byte here.
+            b'\\' if i + 1 < pattern.len() => (2, false, false),
+            b'*' => (1, true, false),
+            b'?' => (1, false, true),
+            _ => (1, false, false),
+        };
+
+        if is_star {
+            tokens.extend(open.take());
+        } else {
+            let token = open.get_or_insert(LiteralToken {
+                start: i,
+                len: 0,
+                single_char_wildcards: 0,
+            });
+            token.len += width;
+            token.single_char_wildcards += usize::from(is_question);
+        }
+
+        i += width;
+    }
+    tokens.extend(open);
+
+    tokens
+}
+
+/// Return the `(offset, len)` of the most selective literal token of `pattern`,
+/// or `None` when there is no usable one (e.g. the pattern is all `*`/`?`).
 ///
 /// The score favors longer tokens and tokens later in the pattern, penalizes a
-/// trailing `*` and every `?` inside the token; ties resolve to the later token.
+/// trailing `*` and every unescaped `?` inside the token; ties resolve to the
+/// later token.
+///
+/// Unlike C's `Suffix_ChooseToken`, the split honors escapes: C anchors `*foo\**`
+/// on the sub-pattern `foo\*`, which matches the suffix key `foo*` and nothing
+/// longer, so no term containing a literal `*` is ever reached.
 fn choose_token(pattern: &[u8]) -> Option<(usize, usize)> {
-    let len = pattern.len();
-
-    // Collect the literal tokens between runs of `*`.
-    let mut tokens: Vec<(usize, usize)> = Vec::new();
-    let mut i = 0;
-    while i < len {
-        if pattern[i] != b'*' {
-            let start = i;
-            while i < len && pattern[i] != b'*' {
-                i += 1;
-            }
-            tokens.push((start, i - start));
-        }
-        while i < len && pattern[i] == b'*' {
-            i += 1;
-        }
-    }
+    let tokens = literal_tokens(pattern);
 
     let mut best_score = i32::MIN;
     let mut best = None;
-    for (idx, &(start, tlen)) in tokens.iter().enumerate() {
+    for (idx, token) in tokens.iter().enumerate() {
         // 1. longer tokens likely yield fewer results;
         // 2. tokens later in the pattern are likely more relevant.
-        let mut score = tlen as i32 + idx as i32;
+        let mut score = token.len as i32 + idx as i32;
 
-        // A trailing `*` forces iterating all children of the node.
-        if pattern.get(start + tlen) == Some(&b'*') {
+        // A trailing `*` forces iterating all children of the node. The byte
+        // past a token is an unescaped `*` or nothing at all, by construction.
+        if pattern.get(token.start + token.len) == Some(&b'*') {
             score -= SUFFIX_STARRED_ANCHOR_PENALTY;
         }
 
         // Each `?` inside the token adds heavy branching.
-        for &b in &pattern[start..start + tlen] {
-            if b == b'?' {
-                score -= 1;
-            }
-        }
+        score -= token.single_char_wildcards as i32;
 
         // `>=` keeps the later token on ties.
         if score >= best_score {
             best_score = score;
-            best = Some((start, tlen));
+            best = Some((token.start, token.len));
         }
     }
 
@@ -870,6 +890,23 @@ mod suffix_wildcard_tests {
                 b"z",
                 "a tie (7 - 5 = 2 == 1 + 1) resolves to the later token",
             ),
+            (
+                br"*foo\**",
+                br"foo\**",
+                "an escaped `*` is a literal, so it does not end the token",
+            ),
+            (
+                br"abcdefg\?h*xyz",
+                br"abcdefg\?h*",
+                "an escaped `?` is a literal, so it takes no `?` penalty \
+                 (10 - 5 = 5 > 3 + 1)",
+            ),
+            (
+                b"abcdefg?h*xyz",
+                b"xyz",
+                "the same pattern with a live `?`: one shorter and penalized, so it \
+                 drops below `xyz` (9 - 5 - 1 = 3 < 3 + 1)",
+            ),
         ] {
             let prepared =
                 SuffixWildcardPattern::new(pattern).expect("pattern has a literal token");
@@ -924,6 +961,20 @@ mod suffix_wildcard_tests {
         assert_eq!(
             matches(&idx, b"*abc*", NO_CAP),
             Some(vec![b"XYZabc".to_vec(), b"abcXYZ".to_vec()])
+        );
+    }
+
+    /// A `\*` is a literal star, in the anchor walked against the suffix trie as
+    /// much as in the full-pattern recheck, so a term holding a literal star is
+    /// reachable. C's escape-blind `Suffix_ChooseToken` anchors this pattern on
+    /// `foo\*` — a whole-key match no suffix of `xfoo*bar` can satisfy — and
+    /// returns nothing.
+    #[test]
+    fn escaped_star_matches_a_literal_star_in_the_term() {
+        let idx = indexed(&[b"xfoo*bar", b"xfoobar"]);
+        assert_eq!(
+            matches(&idx, br"*foo\**", NO_CAP),
+            Some(vec![b"xfoo*bar".to_vec()])
         );
     }
 
