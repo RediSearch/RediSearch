@@ -12,6 +12,7 @@
 #include <unistd.h>
 #include <time.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <sys/param.h>
 
@@ -2865,7 +2866,25 @@ typedef struct {
   uint32_t count;
   uint32_t remaining;
   RedisSearchCtx *sctx;
+  bool clockOnly;
 } RPTimeoutAfterCount;
+
+static ResultProcessor *RPTimeoutAfterCount_New(size_t count, RedisSearchCtx *sctx,
+                                                bool clockOnly);
+
+static void RPTimeoutAfterCount_EnsureClock(RedisSearchCtx *sctx) {
+  QueryRequestTimeout *timeout = sctx->timeout;
+  if (timeout->kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE) {
+    return;
+  }
+
+  // TIMEOUT_AFTER_N simulates the legacy in-pipeline clock timeout even when
+  // the request's configured production timeout is disabled or a cursor cycle reset it.
+  *QueryRequestTimeout_GetClockDeadlineForUpdate(timeout) = (struct timespec) {
+    .tv_sec = (time_t)INT64_MAX,
+  };
+  timeout->source.clock.counter = 0;
+}
 
 /** For debugging purposes
  * Will add a result processor that will return timeout according to the results count specified.
@@ -2873,7 +2892,13 @@ typedef struct {
  * The result processor will also change the query timing so further checks down the pipeline will also result in timeout.
  */
 void PipelineAddTimeoutAfterCount(QueryProcessingCtx *qctx, RedisSearchCtx *sctx, size_t results_count) {
-  ResultProcessor *RPTimeoutAfterCount = RPTimeoutAfterCount_New(results_count, sctx);
+  ResultProcessor *RPTimeoutAfterCount = RPTimeoutAfterCount_New(results_count, sctx, false);
+  addResultProcessor(qctx, RPTimeoutAfterCount);
+}
+
+void PipelineAddTimeoutAfterCountClock(QueryProcessingCtx *qctx, RedisSearchCtx *sctx, size_t results_count) {
+  RPTimeoutAfterCount_EnsureClock(sctx);
+  ResultProcessor *RPTimeoutAfterCount = RPTimeoutAfterCount_New(results_count, sctx, true);
   addResultProcessor(qctx, RPTimeoutAfterCount);
 }
 
@@ -2893,15 +2918,20 @@ static void RPTimeoutAfterCount_SimulateTimeout(RedisSearchCtx *sctx) {
 
 static int RPTimeoutAfterCount_Next(ResultProcessor *base, SearchResult *r) {
   RPTimeoutAfterCount *self = (RPTimeoutAfterCount *)base;
+  if (self->clockOnly) {
+    RPTimeoutAfterCount_EnsureClock(self->sctx);
+  }
 
   // If we've reached COUNT:
   if (!self->remaining) {
     QueryRequestTimeout *timeout = self->sctx->timeout;
     QueryRequestTimeoutKind previousKind = timeout->kind;
     struct timespec previousDeadline = {0};
+    uint8_t previousCounter = 0;
     bool previousBlockedClientTimedOut = false;
     if (previousKind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE) {
       previousDeadline = *QueryRequestTimeout_GetClockDeadline(timeout);
+      previousCounter = timeout->source.clock.counter;
     } else if (previousKind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT) {
       previousBlockedClientTimedOut =
           RS_AtomicBoolLoadRelaxed(QueryRequestTimeout_GetBlockedClientFlag(timeout));
@@ -2917,6 +2947,7 @@ static int RPTimeoutAfterCount_Next(ResultProcessor *base, SearchResult *r) {
     // Do not affect timeout checks after this Next call; restore the source and its value.
     if (previousKind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE) {
       *QueryRequestTimeout_GetClockDeadlineForUpdate(timeout) = previousDeadline;
+      timeout->source.clock.counter = previousCounter;
     } else if (previousKind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT) {
       RS_AtomicBoolStoreRelaxed(QueryRequestTimeout_GetBlockedClientFlag(timeout),
                                 previousBlockedClientTimedOut);
@@ -2934,11 +2965,13 @@ static void RPTimeoutAfterCount_Free(ResultProcessor *base) {
   rm_free(base);
 }
 
-ResultProcessor *RPTimeoutAfterCount_New(size_t count, RedisSearchCtx *sctx) {
+static ResultProcessor *RPTimeoutAfterCount_New(size_t count, RedisSearchCtx *sctx,
+                                                bool clockOnly) {
   RPTimeoutAfterCount *ret = rm_calloc(1, sizeof(RPTimeoutAfterCount));
   ret->count = count;
   ret->remaining = count;
   ret->sctx = sctx;
+  ret->clockOnly = clockOnly;
   ret->base.type = RP_TIMEOUT;
   ret->base.Next = RPTimeoutAfterCount_Next;
   ret->base.Free = RPTimeoutAfterCount_Free;
