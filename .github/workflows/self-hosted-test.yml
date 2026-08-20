@@ -21,7 +21,6 @@ jobs:
       matrix:
         v1: [1]
         #v2: [1,2,3,4,5]
-    env:
     # The type of runner that the job will run on
     #runs-on: [self-hosted, ubuntu-2204-arm64-mini]
     #runs-on: [self-hosted, staging-ubuntu-2204-arm64-mini]
