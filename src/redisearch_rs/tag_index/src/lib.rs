@@ -27,9 +27,10 @@
 //! *interior* (or trailing) NUL byte. [`Tag::new`] enforces it; [`Tag::new_unchecked`]
 //! trusts the caller instead.
 //!
-//! The terms yielded by [`TagIndex::suffix_expand`] carry a NUL terminator, so
-//! their pointers are usable as a C `char *`. [`TagSuffixIndex`] owns that
-//! terminator and documents where it comes from.
+//! The terms yielded by [`TagIndex::suffix_expand`] are [`CStr`], borrowed from a
+//! NUL-terminated allocation whose pointer is directly usable as a C `char *`.
+//! [`TagSuffixIndex`] owns that allocation and documents where the terminator
+//! comes from.
 //!
 //! [`TagIndex`] uses the same indexes as the full text but in a simpler manner. In fact:
 //!
@@ -148,6 +149,7 @@ extern crate redisearch_rs;
 #[cfg(test)]
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
+use std::ffi::CStr;
 use std::ptr::NonNull;
 use std::time::Instant;
 
@@ -310,9 +312,6 @@ impl<M: TagIndexMode> TagIndex<M> {
     /// Expand a [`SuffixQuery`] against the [suffix index](TagSuffixIndex) into
     /// the concrete tag terms it matches, yielded lazily.
     ///
-    /// Each yielded slice is the matched term including its trailing NUL, so its
-    /// pointer is directly usable as a C `char*`.
-    ///
     /// The two walking forms are bounded by `timeout`: the trie iterator stops at
     /// the deadline (see [`expansion_deadline`]), so the caller keeps the matches
     /// found so far.
@@ -323,17 +322,15 @@ impl<M: TagIndexMode> TagIndex<M> {
         &'a self,
         query: SuffixQuery<'a>,
         timeout: Option<timespec>,
-    ) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
+    ) -> Box<dyn Iterator<Item = &'a CStr> + 'a> {
         let suffix = self.suffix.as_ref().expect("suffix trie must exist");
         let deadline = expansion_deadline(timeout);
 
         let materialize = |p: suffix::TermPtr| {
             // SAFETY: `p` is a live `TermPtr` owned by this suffix trie (built
-            // from `OwnedTerm::borrowed`), pointing to `alloc_size` initialized
-            // bytes borrowed for the lifetime of `&self`.
-            let len = unsafe { p.alloc_size() };
-            // SAFETY: as above — `suffix` stores valid pointers.
-            unsafe { std::slice::from_raw_parts(p.as_ptr(), len) }
+            // from `OwnedTerm::borrowed`), and `OwnedTerm::new` NUL-terminates
+            // every allocation.
+            unsafe { CStr::from_ptr(p.as_ptr().cast()) }
         };
 
         match query {
@@ -362,9 +359,7 @@ impl<M: TagIndexMode> TagIndex<M> {
                         .flat_map(move |(_key, data)| data.members().map(materialize))
                         // The anchor only narrows the walk, so re-check the whole
                         // pattern against the term itself, terminator excluded.
-                        .filter(move |with_nul| {
-                            full.matches(&with_nul[..with_nul.len() - 1]) == MatchOutcome::Match
-                        })
+                        .filter(move |term| full.matches(term.to_bytes()) == MatchOutcome::Match)
                         // Cap the *matched* terms, overshooting by one as
                         // documented on the variant (`saturating_add` guards the
                         // no-cap sentinel).
@@ -848,7 +843,7 @@ mod suffix_wildcard_tests {
                 },
                 None,
             )
-            .map(|t| t[..t.len() - 1].to_vec()) // drop trailing NUL
+            .map(|t| t.to_bytes().to_vec())
             .collect();
         out.sort();
         Some(out)
@@ -1038,7 +1033,7 @@ mod suffix_wildcard_tests {
                 },
                 None,
             )
-            .map(|t| t[..t.len() - 1].to_vec()) // drop trailing NUL
+            .map(|t| t.to_bytes().to_vec())
             .collect();
 
         assert_eq!(got, [b"beat".to_vec(), b"heat".to_vec()]);

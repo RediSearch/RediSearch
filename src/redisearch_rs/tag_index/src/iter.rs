@@ -40,10 +40,9 @@ use crate::{InMemoryMode, SuffixData, Tag, TagIndex, TagIndexMode};
 /// it across mutations.
 type BoxedInvertedIndex = Box<InvertedIndex<DocIdsOnly>>;
 
-/// Predicate the suffix variant filters a full trie walk with. It owns a copy of
-/// the queried suffix, so its closure type is unnameable and has to be boxed to
-/// appear in an enum variant. This is a boxed *predicate*, not a boxed iterator —
-/// dispatch over the iterator shapes below stays static.
+/// Predicate the suffix variant filters a full trie walk with: given the `(key,
+/// value)` pair of the trie entry currently visited, returns whether that entry's
+/// key ends with the queried suffix.
 type SuffixPredicate<'a, V> = Box<dyn Fn(&(&[u8], &V)) -> bool + 'a>;
 
 /// Which subset of tag values a [filtered iterator](TagIndex::value_iter_filtered)
@@ -104,7 +103,7 @@ impl<Value> TagIndexIteratorImpl<'_, Value> {
 ///
 /// Drive either with its `advance`, which returns `None` at the end of the
 /// iteration or once the deadline set by [`set_timeout`](Self::set_timeout) has
-/// passed. The key it yields is borrowed from trie-internal storage, and is
+/// passed. The tag it yields is borrowed from trie-internal storage, and is
 /// invalidated by the next call.
 pub struct TagIndexIterator<'ti, Value> {
     iter: TagIndexIteratorImpl<'ti, Value>,
@@ -119,10 +118,12 @@ pub type MemTagIndexIterator<'ti> = TagIndexIterator<'ti, BoxedInvertedIndex>;
 pub type DiskTagIndexIterator<'ti> = TagIndexIterator<'ti, ()>;
 
 impl<'ti, Value> TagIndexIterator<'ti, Value> {
-    /// The key and trie payload of the next entry, which each mode's `advance`
+    /// The tag and trie payload of the next entry, which each mode's `advance`
     /// projects onto what that mode can offer.
-    fn next_entry(&mut self) -> Option<(&[u8], &Value)> {
-        match &mut self.iter {
+    ///
+    /// The tag borrows from this call, not from the trie itself. It is invalidated by the next call.
+    fn next_entry(&mut self) -> Option<(Tag<'_>, &Value)> {
+        let (k, v) = match &mut self.iter {
             TagIndexIteratorImpl::All(it) => it.next(),
             TagIndexIteratorImpl::Contains(it) => it.next(),
             TagIndexIteratorImpl::Wildcard(it) => it.next(),
@@ -130,7 +131,11 @@ impl<'ti, Value> TagIndexIterator<'ti, Value> {
             // through a `filter` adapter, because the borrow of the key it yields
             // ends with the call: an adapter would have to hold it across iterations.
             TagIndexIteratorImpl::Suffix(it, matches) => it.find(&mut *matches),
-        }
+        }?;
+        // SAFETY: this walks a `TagIndex` values trie, which is only ever
+        // populated through `Tag`-typed keys (see `TagIndex::index`), so every
+        // key it yields satisfies `Tag`'s NUL-free invariant.
+        Some((unsafe { Tag::new_unchecked(k) }, v))
     }
 
     /// Set the deadline honored while iterating, or clear it with `None`.
@@ -142,7 +147,7 @@ impl<'ti, Value> TagIndexIterator<'ti, Value> {
 impl MemTagIndexIterator<'_> {
     /// Advance to the next entry and return the tag together with its postings, per
     /// [`TagIndexIterator`]'s iteration semantics.
-    pub fn advance(&mut self) -> Option<(&[u8], &InvertedIndex<DocIdsOnly>)> {
+    pub fn advance(&mut self) -> Option<(Tag<'_>, &InvertedIndex<DocIdsOnly>)> {
         // The trie stores a `Box<InvertedIndex>`; callers hold and dereference the
         // heap `InvertedIndex`, so hand out that stable address.
         self.next_entry().map(|(k, ii)| (k, &**ii))
@@ -156,7 +161,7 @@ impl DiskTagIndexIterator<'_> {
     /// There is no value to yield: the trie records only that the tag exists, and
     /// its postings are read from disk by [`open_reader`](TagIndex::open_reader),
     /// keyed by this tag.
-    pub fn advance(&mut self) -> Option<&[u8]> {
+    pub fn advance(&mut self) -> Option<Tag<'_>> {
         self.next_entry().map(|(k, ())| k)
     }
 }
