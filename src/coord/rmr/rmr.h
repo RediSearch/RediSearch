@@ -121,8 +121,6 @@ void MRCtx_SetBlockedClient(struct MRCtx *ctx, RedisModuleBlockedClient *bc);
 /* Timeout and reducing state management for partial timeout support */
 void MRCtx_SetTimedOut(struct MRCtx *ctx);
 bool MRCtx_IsTimedOut(struct MRCtx *ctx);
-void MRCtx_SetDisconnected(struct MRCtx *ctx);
-bool MRCtx_IsDisconnected(struct MRCtx *ctx);
 bool MRCtx_TryClaimReducing(struct MRCtx *ctx);
 void MRCtx_SignalReducerComplete(struct MRCtx *ctx);
 void MRCtx_WaitForReducerComplete(struct MRCtx *ctx);
