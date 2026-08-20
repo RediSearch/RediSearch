@@ -3474,8 +3474,9 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
 #endif
 
   // Timeout may have fired after the reducer was queued but before it started.
+  // In that case the timeout callback owns the blocked-client lifetime, so the
+  // background reducer must exit before touching `bc`.
   if (!fromTimeout && MRCtx_IsTimedOut(mc)) {
-    bc = MRCtx_GetBlockedClient(mc);
     goto cleanup;
   }
 
@@ -3621,7 +3622,8 @@ cleanup:
     searchReqCtx_SetExecutionStage(doneReq, QUERY_TIMEOUT_STAGE_REPLY);
   }
 
-  if (bc && !fromTimeout) {
+  if (bc && !fromTimeout && !MRCtx_IsTimedOut(mc)) {
+    // Timeout callback should not call unblockClient
     RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, mc);
   }
@@ -4206,8 +4208,10 @@ static void bailOut(RedisModuleBlockedClient *bc, QueryError *status) {
   }
   // Clear the original status after cloning (or if timeout owns reply) to avoid double-free or leaks
   QueryError_ClearError(status);
-  RedisModule_BlockedClientMeasureTimeEnd(bc);
-  RedisModule_UnblockClient(bc, mrctx);
+  if (!MRCtx_IsTimedOut(mrctx)) {
+    RedisModule_BlockedClientMeasureTimeEnd(bc);
+    RedisModule_UnblockClient(bc, mrctx);
+  }
 }
 
 static int prepareCommand(MRCommand *cmd, const searchRequestCtx *req, int protocol,
@@ -4305,11 +4309,8 @@ int FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlockedClient *bc, 
   RedisModuleString **argv, int argc, ConcurrentSearchHandlerCtx *handlerCtx) {
   QueryError status = QueryError_Default();
 
-  // A cancelled queued request has no later fanout or reducer to release the handle.
+  // If timeout already fired, its callback owns the reply path.
   if (MRCtx_IsTimedOut(mrctx)) {
-    WeakRef_Release(handlerCtx->spec_ref);
-    RedisModule_BlockedClientMeasureTimeEnd(bc);
-    RedisModule_UnblockClient(bc, mrctx);
     return REDISMODULE_OK;
   }
 
@@ -5095,11 +5096,8 @@ static int DEBUG_FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlocke
   RedisModuleString **argv, int argc, ConcurrentSearchHandlerCtx *handlerCtx) {
   QueryError status = QueryError_Default();
 
-  // A cancelled queued request has no later fanout or reducer to release the handle.
+  // If timeout already fired, its callback owns the reply path.
   if (MRCtx_IsTimedOut(mrctx)) {
-    WeakRef_Release(handlerCtx->spec_ref);
-    RedisModule_BlockedClientMeasureTimeEnd(bc);
-    RedisModule_UnblockClient(bc, mrctx);
     return REDISMODULE_OK;
   }
 
