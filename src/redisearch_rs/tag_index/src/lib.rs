@@ -245,54 +245,6 @@ pub struct WritePostingsDelta {
     pub blocks_added: u32,
 }
 
-fn write_postings(
-    values: &mut TrieMap<Box<InvertedIndex<DocIdsOnly>>>,
-    tags: &[Tag<'_>],
-    doc_id: DocId,
-    has_field_expiration: bool,
-) -> WritePostingsDelta {
-    let mut delta = WritePostingsDelta::default();
-
-    let record = RSIndexResult::build_virt()
-        .doc_id(doc_id)
-        .has_field_expiration(has_field_expiration)
-        .build();
-    for tag in tags {
-        values.insert_with(tag.as_bytes(), |slot| {
-            let mut ii = slot.unwrap_or_else(|| {
-                let ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
-
-                delta.size_delta += ii.memory_usage();
-
-                Box::new(ii)
-            });
-
-            debug_assert!(
-                ii.last_doc_id().is_none_or(|last| last <= doc_id),
-                "TagIndex::index called with a doc_id smaller than one already indexed for \
-                 this tag; see its `Safety` docs for the ordering it requires"
-            );
-
-            let docs_before = ii.unique_docs();
-            let outcome = ii
-                .add_record(&record)
-                .expect("in-memory tag inverted index write cannot fail");
-            // Count a record only when a new unique document was appended; a
-            // duplicate doc id (e.g. a tag repeated in a multi-value field) is
-            // skipped by `add_record` and must not be counted.
-            if ii.unique_docs() > docs_before {
-                delta.num_records += 1;
-            }
-            delta.blocks_added += outcome.blocks_added;
-            delta.size_delta += outcome.mem_growth as usize;
-
-            ii
-        });
-    }
-
-    delta
-}
-
 impl<M: TagIndexMode> TagIndex<M> {
     /// The part of construction every mode's constructor shares.
     fn with_mode(with_suffix: bool, mode: M) -> Self {
@@ -345,7 +297,9 @@ impl TagIndex<InMemoryMode> {
     }
 
     /// Index `doc_id` under each tag in `tags`, writing the postings inline into
-    /// the per-tag inverted index.
+    /// the per-tag inverted index. The caller must follow up with
+    /// [`commit`](Self::commit) on the same `tags` to complete the document
+    /// write (it registers them in the suffix index, when enabled).
     ///
     /// Returns the [`WritePostingsDelta`] the caller folds into the spec
     /// statistics (records, memory, blocks).
@@ -358,17 +312,52 @@ impl TagIndex<InMemoryMode> {
     /// [`RSIndexResult::has_field_expiration`] and gates the TTL re-check
     /// performed on read.
     ///
-    /// # Safety
-    ///
-    /// `doc_id` must be greater than or equal to every `doc_id` already passed to `index` for
-    /// this [`TagIndex`].
-    pub unsafe fn index(
+    /// `doc_id` should be greater than or equal to every `doc_id` already passed to `index` for
+    /// this [`TagIndex`]. See [`InvertedIndex::add_record`] for more information.
+    pub fn index(
         &mut self,
         tags: &[Tag<'_>],
         doc_id: DocId,
         has_field_expiration: bool,
     ) -> WritePostingsDelta {
-        write_postings(&mut self.mode.values, tags, doc_id, has_field_expiration)
+        let mut delta = WritePostingsDelta::default();
+
+        let record = RSIndexResult::build_virt()
+            .doc_id(doc_id)
+            .has_field_expiration(has_field_expiration)
+            .build();
+        for tag in tags {
+            self.mode.values.insert_with(tag.as_bytes(), |slot| {
+                let mut ii = slot.unwrap_or_else(|| {
+                    let ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
+                    delta.size_delta += ii.memory_usage();
+                    Box::new(ii)
+                });
+
+                debug_assert!(
+                    ii.last_doc_id().is_none_or(|last| last <= doc_id),
+                    "TagIndex::index called with a doc_id smaller than one already indexed for \
+                    this tag; see its docs for the ordering it requires"
+                );
+
+                let docs_before = ii.unique_docs();
+                let outcome = ii
+                    .add_record(&record)
+                    .expect("in-memory tag inverted index write cannot fail");
+                // Count a record only when a new unique document was appended; a
+                // duplicate doc id (e.g. a tag repeated in a multi-value field) is
+                // skipped by `add_record` and must not be counted.
+                if ii.unique_docs() > docs_before {
+                    delta.num_records += 1;
+                }
+                delta.blocks_added += outcome.blocks_added;
+                delta.size_delta += outcome.mem_growth as usize;
+
+                ii
+            });
+        }
+
+        delta
     }
 
     /// Apply the per-tag metadata updates after the indexing phase of a document

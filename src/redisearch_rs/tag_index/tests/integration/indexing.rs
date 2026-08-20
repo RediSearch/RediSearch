@@ -73,8 +73,7 @@ fn field_expiration_flag_round_trips() {
 
     // Doc 1 has no TTL on this field; doc 2 does.
     for (doc_id, has_field_expiration) in [(1, false), (2, true)] {
-        // SAFETY: `doc_id` is non-decreasing across loop iterations.
-        unsafe { tag_index.index(tags, doc_id, has_field_expiration) };
+        tag_index.index(tags, doc_id, has_field_expiration);
     }
 
     let ii = tag_index.find_value(b"team").expect("tag was indexed");

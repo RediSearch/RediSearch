@@ -28,8 +28,7 @@ pub fn index_mem(
     tags: &[&[u8]],
     doc_id: DocId,
 ) -> WritePostingsDelta {
-    // SAFETY: caller passes `doc_id`s in non-decreasing order, as `TagIndex::index` requires.
-    unsafe { idx.index(&tag_values(tags), doc_id, false) }
+    idx.index(&tag_values(tags), doc_id, false)
 }
 
 /// Run the post-indexing commit phase for `tags` on a memory-mode index.
