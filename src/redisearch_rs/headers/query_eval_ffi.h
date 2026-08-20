@@ -49,6 +49,7 @@ extern "C" {
  * 3. `sctx` must be a non-null pointer to a valid [`RedisSearchCtx`] whose
  *    `spec` is a valid, non-null [`IndexSpec`](ffi::IndexSpec).
  * 4. `status` must be a non-null pointer to a valid [`QueryError`].
+ *
  * Together these are exactly the invariants documented on
  * [`QueryEvalContext::new`] for the assembled context, which remains valid for
  * the lifetime of the returned iterator.

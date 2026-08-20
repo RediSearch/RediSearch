@@ -263,6 +263,8 @@ typedef struct {
 typedef struct {
   AREQ r;
   AREQ_Debug_params debug_params;
+  // Validation uses the requested policy even if inline execution later falls back to RETURN.
+  RSTimeoutPolicy requestedTimeoutPolicy;
 } AREQ_Debug;
 
 // Will hold AREQ by value, so we can use AREQ_Debug->r in all functions

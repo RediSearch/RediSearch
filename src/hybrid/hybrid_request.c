@@ -281,6 +281,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
  * @param nrequests Number of requests in the array
  */
 void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests, size_t nrequests, RedisModuleString **argv, uint32_t argc) {
+    RS_ASSERT(sctx);
     // Snapshot the request's config; nothing may re-read RSGlobalConfig for
     // the request's lifetime.
     hybridReq->reqConfig = RSGlobalConfig.requestConfigParams;

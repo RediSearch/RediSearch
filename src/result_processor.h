@@ -429,8 +429,9 @@ ResultProcessorType StringToRPType(const char *str);
  *
  * returns timeout after N results, N >= 0.
  *******************************************************************************************************************/
-ResultProcessor *RPTimeoutAfterCount_New(size_t count, RedisSearchCtx *sctx);
 void PipelineAddTimeoutAfterCount(QueryProcessingCtx *qctx, RedisSearchCtx *sctx, size_t results_count);
+// Aggregate debug requires the legacy clock source even when the production timeout is disabled.
+void PipelineAddTimeoutAfterCountClock(QueryProcessingCtx *qctx, RedisSearchCtx *sctx, size_t results_count);
 
 /*******************************************************************************************************************
  *  Crash Processor - DEBUG ONLY
