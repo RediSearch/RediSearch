@@ -156,7 +156,9 @@ use ffi::{
 };
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use index_result::RSIndexResult;
-use inverted_index::{DocId, IndexReader, InvertedIndex, RepairContext, doc_ids_only::DocIdsOnly};
+#[cfg(feature = "test-utils")]
+use inverted_index::RepairContext;
+use inverted_index::{DocId, IndexReader, InvertedIndex, doc_ids_only::DocIdsOnly};
 use query_term::RSQueryTerm;
 use rqe_iterators::{
     FieldExpirationChecker,
@@ -167,7 +169,7 @@ use rqe_wildcard::{MatchOutcome, WildcardPattern};
 pub(crate) use suffix::{SuffixData, TagSuffixIndex};
 use trie_rs::{
     TrieMap,
-    iter::{LendingIter, RangeFilter, RangeLendingIter, filter::VisitAll},
+    iter::{LendingIter, filter::VisitAll},
 };
 pub use unique_id::TagUniqueId;
 
@@ -325,8 +327,6 @@ impl<M: TagIndexMode> TagIndex<M> {
         let suffix = self.suffix.as_ref().expect("suffix trie must exist");
         let deadline = expansion_deadline(timeout);
 
-        // Captures nothing, so it is `Copy` and can be moved into every branch's
-        // `flat_map` closure.
         let materialize = |p: suffix::TermPtr| {
             // SAFETY: `p` is a live `TermPtr` owned by this suffix trie (built
             // from `OwnedTerm::borrowed`), pointing to `alloc_size` initialized
@@ -469,15 +469,6 @@ impl TagIndex<InMemoryMode> {
         0
     }
 
-    /// Iterate over the `(tag, inverted index)` entries whose tag falls within
-    /// `filter`'s boundaries, in lexicographical order of the tag.
-    pub fn range_iter_values<'tm, 'f>(
-        &'tm self,
-        filter: RangeFilter<'f>,
-    ) -> RangeLendingIter<'tm, 'f, Box<InvertedIndex<DocIdsOnly>>> {
-        self.mode.values.range_iter(filter).into()
-    }
-
     /// Create an iterator over the documents matching `tag`, resolved in the values
     /// trie, or `None` when the tag is absent or holds no documents.
     ///
@@ -494,17 +485,17 @@ impl TagIndex<InMemoryMode> {
     pub unsafe fn open_reader(
         &self,
         sctx: NonNull<RedisSearchCtx>,
-        tag: &[u8],
+        tag: Tag<'_>,
         weight: f64,
         field_index: t_fieldIndex,
         lookup: TrieLookup,
     ) -> Option<TagIterator<'_, DocIdsOnly, TrieLookup, FieldExpirationChecker>> {
-        let ii = self.mode.values.find(tag)?;
+        let ii = self.mode.values.find(tag.as_bytes())?;
         if ii.unique_docs() == 0 {
             return None;
         }
 
-        let term = RSQueryTerm::new_bytes(tag, 0, 0);
+        let term = RSQueryTerm::new_bytes(tag.as_bytes(), 0, 0);
 
         let filter_ctx = FieldFilterContext {
             field: FieldMaskOrIndex::Index(field_index),
@@ -962,6 +953,27 @@ mod suffix_wildcard_tests {
             )
             .count();
         assert_eq!(got, 2);
+    }
+
+    /// The cap truncates one suffix entry's members in registration order, so
+    /// `eat` — indexed after the longer terms it is a suffix of — falls outside a
+    /// cap of one. C's `_getWildcardArray` cuts the same array at the same place.
+    #[test]
+    fn max_prefix_expansions_cuts_members_in_registration_order() {
+        let idx = indexed(&[b"beat", b"heat", b"eat"]);
+        let pattern = SuffixWildcardPattern::new(b"*eat").expect("valid token");
+        let got: Vec<Vec<u8>> = idx
+            .suffix_expand(
+                SuffixQuery::Wildcard {
+                    pattern: &pattern,
+                    max_prefix_expansions: 1,
+                },
+                None,
+            )
+            .map(|t| t[..t.len() - 1].to_vec()) // drop trailing NUL
+            .collect();
+
+        assert_eq!(got, [b"beat".to_vec(), b"heat".to_vec()]);
     }
 }
 

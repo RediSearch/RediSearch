@@ -8,31 +8,16 @@
 */
 
 //! Tests for the public filtered-iteration API (`value_iter_filtered` in each of
-//! its four modes, `range_iter_values`, and the iteration deadline), the
-//! suffix-index iteration (`suffix_value_iter`), and suffix-query expansion
-//! (`suffix_expand`).
+//! its four modes, and the iteration deadline), the suffix-index iteration
+//! (`suffix_value_iter`), and suffix-query expansion (`suffix_expand`).
 //!
 //! The traversal logic itself is tested in `trie_rs`; these tests verify that
 //! each mode drives the right traversal over the index's values trie.
 
 use ffi::timespec;
-use lending_iterator::LendingIterator;
-use tag_index::{InMemoryMode, IterMode, MemTagIndexIterator, SuffixQuery, TagIndex, Tag};
-use trie_rs::iter::{RangeBoundary, RangeFilter};
+use tag_index::{InMemoryMode, IterMode, MemTagIndexIterator, SuffixQuery, Tag, TagIndex};
 
 use crate::util::{commit_mem, index_mem};
-
-/// Collect the keys yielded by a lending iterator over `(key, value)` pairs.
-macro_rules! collect_keys {
-    ($iter:expr) => {{
-        let mut iter = $iter;
-        let mut keys: Vec<Vec<u8>> = Vec::new();
-        while let Some((key, _)) = iter.next() {
-            keys.push(key.to_vec());
-        }
-        keys
-    }};
-}
 
 /// Drain the index's suffix-trie iterator into its yielded keys, in iteration order.
 fn suffix_keys(idx: &TagIndex<InMemoryMode>) -> Vec<Vec<u8>> {
@@ -53,6 +38,11 @@ fn value_iter_keys(mut it: MemTagIndexIterator<'_>) -> Vec<Vec<u8>> {
         keys.push(key.to_vec());
     }
     keys
+}
+
+/// Wrap a NUL-free test literal into a [`Tag`].
+fn as_tag(bytes: &[u8]) -> Tag<'_> {
+    Tag::new(bytes).expect("test literal is NUL-free")
 }
 
 /// Build an in-memory index holding `tags`, each with one document.
@@ -77,7 +67,7 @@ const fn elapsed_deadline() -> timespec {
 fn prefixed_iter_values_yields_only_matching_tags() {
     let tag_index = index_with_tags(&[b"bar", b"foo", b"foobar", b"foz"]);
 
-    let mut iter = tag_index.value_iter_filtered(b"foo", IterMode::Prefix);
+    let mut iter = tag_index.value_iter_filtered(as_tag(b"foo"), IterMode::Prefix);
     let mut keys: Vec<Vec<u8>> = Vec::new();
     while let Some((tag, ii)) = iter.advance() {
         let found = tag_index.find_value(tag).expect("yielded tag is indexed");
@@ -96,7 +86,7 @@ fn prefixed_iter_values_yields_only_matching_tags() {
 fn contains_iter_values_yields_only_matching_tags() {
     let tag_index = index_with_tags(&[b"bar", b"foo", b"oof", b"xooy"]);
 
-    let keys = value_iter_keys(tag_index.value_iter_filtered(b"oo", IterMode::Contains));
+    let keys = value_iter_keys(tag_index.value_iter_filtered(as_tag(b"oo"), IterMode::Contains));
 
     assert_eq!(keys, [b"foo".to_vec(), b"oof".to_vec(), b"xooy".to_vec()]);
 }
@@ -107,7 +97,7 @@ fn contains_iter_values_yields_only_matching_tags() {
 fn suffix_iter_values_yields_only_matching_tags() {
     let tag_index = index_with_tags(&[b"bar", b"foo", b"oof", b"xoo"]);
 
-    let keys = value_iter_keys(tag_index.value_iter_filtered(b"oo", IterMode::Suffix));
+    let keys = value_iter_keys(tag_index.value_iter_filtered(as_tag(b"oo"), IterMode::Suffix));
 
     assert_eq!(
         keys,
@@ -183,7 +173,7 @@ fn set_timeout_bounds_the_nonmatches_a_suffix_walk_skips() {
     let mut tag_index = TagIndex::<InMemoryMode>::new(false);
     index_mem(&mut tag_index, &tags, 1);
 
-    let mut it = tag_index.value_iter_filtered(b"oo", IterMode::Suffix);
+    let mut it = tag_index.value_iter_filtered(as_tag(b"oo"), IterMode::Suffix);
     it.set_timeout(Some(elapsed_deadline()));
 
     assert!(
@@ -208,10 +198,10 @@ fn no_timeout_lets_iteration_complete() {
 fn wildcard_iter_values_matches_metacharacters() {
     let tag_index = index_with_tags(&[b"bar", b"gao", b"go", b"goo", b"gooo"]);
 
-    let keys = value_iter_keys(tag_index.value_iter_filtered(b"g?o", IterMode::Wildcard));
+    let keys = value_iter_keys(tag_index.value_iter_filtered(as_tag(b"g?o"), IterMode::Wildcard));
     assert_eq!(keys, [b"gao".to_vec(), b"goo".to_vec()]);
 
-    let keys = value_iter_keys(tag_index.value_iter_filtered(b"g*o", IterMode::Wildcard));
+    let keys = value_iter_keys(tag_index.value_iter_filtered(as_tag(b"g*o"), IterMode::Wildcard));
     assert_eq!(
         keys,
         [
@@ -252,25 +242,6 @@ fn recommitting_a_tag_keeps_its_suffix_terms_readable() {
         [b"cat".to_vec()],
         "`cat` stays registered exactly once under its suffix `at`"
     );
-}
-
-/// `range_iter_values` honors the boundaries' inclusiveness.
-#[test]
-fn range_iter_values_respects_boundaries() {
-    let tag_index = index_with_tags(&[b"a", b"b", b"c", b"d"]);
-
-    let keys = collect_keys!(tag_index.range_iter_values(RangeFilter {
-        min: Some(RangeBoundary {
-            value: b"b",
-            is_included: true,
-        }),
-        max: Some(RangeBoundary {
-            value: b"d",
-            is_included: false,
-        }),
-    }));
-
-    assert_eq!(keys, [b"b".to_vec(), b"c".to_vec()]);
 }
 
 /// Without `WITHSUFFIXTRIE` there is no suffix index to iterate.
