@@ -125,7 +125,7 @@ pub(crate) struct SuffixData {
     /// that member's tag term allocation.
     full_term: Option<OwnedTerm>,
     /// Every member this entry's key is a suffix of.
-    pub(crate) refs: ThinVec<TermPtr, AlignedU32>,
+    refs: ThinVec<TermPtr, AlignedU32>,
 }
 
 impl SuffixData {
