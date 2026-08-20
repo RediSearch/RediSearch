@@ -30,7 +30,7 @@ jobs:
     #runs-on: [self-hosted, ubuntu-2204-x64]
     #runs-on: [u-x64-small]
     runs-on:
-      - staging-u-arm64-small
+      - staging-u-arm64-medium
     #runs-on: [self-hosted, ubuntu-2204-x64-xl]
 
     # Steps represent a sequence of tasks that will be executed as part of the job
@@ -45,6 +45,7 @@ jobs:
           SLEEP: ${{ github.inputs.sleep_time }}
         run: |
           env
+        docker run ubuntu:latest echo Hello
           if [ -z "$SLEEP_TIME" ] || [ "$SLEEP_TIME" = 0 ]; then
             SLEEP_TIME=21600
           fi
