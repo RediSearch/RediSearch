@@ -113,7 +113,7 @@ fn add_metric_request_appends_and_returns_its_index() {
         };
         // Indices are handed out in append order and stay valid as the array
         // grows — a later request never displaces an earlier one.
-        assert_eq!((a, b), (0, 1));
+        assert_eq!((a.index(), b.index()), (0, 1));
 
         let requests = ctx.metric_requests();
         assert_eq!(requests.len(), 2);
@@ -134,14 +134,16 @@ fn bind_metric_request_key_fills_in_a_valid_handle() {
     with_metric_requests(|ctx| {
         // SAFETY: a static C string literal — non-null, NUL-terminated,
         // and outliving the array.
-        let idx = unsafe { ctx.add_metric_request(c"__v_score".as_ptr(), false) };
+        let id = unsafe { ctx.add_metric_request(c"__v_score".as_ptr(), false) };
+        // Kept because binding spends the id, and the entry is read back below.
+        let idx = id.index();
 
         // Stands in for the key slot inside an iterator; it outlives the
         // handle, which this test frees before it goes out of scope.
         let mut key: *mut rlookup::RLookupKey<'_> = std::ptr::null_mut();
-        // SAFETY: `idx` was just reserved on this context and `key` outlives
+        // SAFETY: `id` was just reserved on this context and `key` outlives
         // the handle.
-        let handle = unsafe { ctx.bind_metric_request_key(idx, &mut key) };
+        let handle = unsafe { ctx.bind_metric_request_key(id, &mut key) };
 
         // SAFETY: `handle` is the freshly allocated, fully initialised handle.
         let handle_ref = unsafe { &*handle };
@@ -176,27 +178,30 @@ fn binds_survive_the_array_moving_under_them() {
 
         // SAFETY: static C string literals — non-null, NUL-terminated, and
         // outliving the array.
-        let (outer, inner) = unsafe {
+        let (outer_id, inner_id) = unsafe {
             (
                 ctx.add_metric_request(c"__v_score".as_ptr(), false),
                 ctx.add_metric_request(c"__w_score".as_ptr(), false),
             )
         };
+        // Kept because binding spends the ids, and both entries are read back
+        // below.
+        let (outer, inner) = (outer_id.index(), inner_id.index());
 
         // The inner request binds first, as the child subtree finishes first.
-        // SAFETY: `inner` was just reserved on this context, and `inner_key`
+        // SAFETY: `inner_id` was just reserved on this context, and `inner_key`
         // outlives the handle.
-        let inner_handle = unsafe { ctx.bind_metric_request_key(inner, &mut inner_key) };
+        let inner_handle = unsafe { ctx.bind_metric_request_key(inner_id, &mut inner_key) };
 
         // A third reservation moves the array out from under the handle just
         // stored, which is what the bind below has to tolerate.
         // SAFETY: as for the reservations above.
-        let third = unsafe { ctx.add_metric_request(c"__x_score".as_ptr(), false) };
+        let third = unsafe { ctx.add_metric_request(c"__x_score".as_ptr(), false) }.index();
         assert_eq!((outer, inner, third), (0, 1, 2));
 
-        // SAFETY: `outer` was reserved on this context and not yet bound, and
-        // `outer_key` outlives the handle.
-        let outer_handle = unsafe { ctx.bind_metric_request_key(outer, &mut outer_key) };
+        // SAFETY: `outer_id` was reserved on this context, and `outer_key`
+        // outlives the handle.
+        let outer_handle = unsafe { ctx.bind_metric_request_key(outer_id, &mut outer_key) };
 
         let requests = ctx.metric_requests();
         assert_eq!(requests.len(), 3);
@@ -220,45 +225,63 @@ fn binds_survive_the_array_moving_under_them() {
     });
 }
 
-/// Binding twice orphans the first handle — nothing can reach it through the
-/// array afterwards, so nothing frees it. The debug-only assertion is what
-/// turns that silent leak into a located failure, so it is worth a test of its
-/// own.
+/// A [`MetricRequestId`](query::MetricRequestId) records no context, so binding one against a context
+/// that never reserved it is the half of precondition (1) the type cannot
+/// discharge — and the reason the bounds check outlived the pair of assertions
+/// that taking the id by value replaced.
+///
+/// The empty case, which the bounds check covers on its own because a null head
+/// reads back as length zero.
 #[test]
 #[cfg(debug_assertions)] // the assertion only exists in debug builds
 #[cfg_attr(miri, ignore = "requires C FFI (array_ensure_append_n_func)")]
-#[should_panic(expected = "was already bound")]
-fn binding_a_metric_request_twice_panics() {
-    with_metric_requests(|ctx| {
+#[should_panic(expected = "must come from `add_metric_request`")]
+fn binding_an_id_against_a_context_that_reserved_nothing_panics() {
+    with_metric_requests(|reserved| {
         // SAFETY: a static C string literal — non-null, NUL-terminated,
         // and outliving the array.
-        let idx = unsafe { ctx.add_metric_request(c"__v_score".as_ptr(), false) };
+        let id = unsafe { reserved.add_metric_request(c"__v_score".as_ptr(), false) };
 
-        let mut key: *mut rlookup::RLookupKey<'_> = std::ptr::null_mut();
-        // SAFETY: `idx` was just reserved on this context and `key` outlives
-        // the handle.
-        unsafe { ctx.bind_metric_request_key(idx, &mut key) };
-        // SAFETY: as above, except for the very precondition under test — the
-        // assertion fires before the second bind reaches the array.
-        unsafe { ctx.bind_metric_request_key(idx, &mut key) };
+        with_metric_requests(|empty| {
+            let mut key: *mut rlookup::RLookupKey<'_> = std::ptr::null_mut();
+            // SAFETY: none — `id` was reserved on the other context, which
+            // violates precondition (1) on purpose. The assertion fires before
+            // the offset onto this context's null head is ever formed.
+            unsafe { empty.bind_metric_request_key(id, &mut key) };
+        });
     });
 }
 
-/// An index that was never reserved has no entry to bind, and on an empty list
-/// there is no length header to bounds-check it against either — so the
-/// assertion has to come before the length read.
+/// The non-empty case: a context that *has* reserved, but fewer times than the
+/// id's index. Unguarded, the bind would write its handle past the end of the
+/// array — which is what makes this the pair's other half rather than a
+/// restatement of it.
 #[test]
 #[cfg(debug_assertions)] // the assertion only exists in debug builds
+#[cfg_attr(miri, ignore = "requires C FFI (array_ensure_append_n_func)")]
 #[should_panic(expected = "must come from `add_metric_request`")]
-fn binding_without_reserving_panics() {
-    let mut mock = MockQueryEvalCtx::new();
-    // SAFETY: the mock is a valid, exclusively-owned `QueryEvalCtx`.
-    let mut ctx = unsafe { QueryEvalContext::new(mock.as_non_null()) };
+fn binding_an_id_past_the_end_of_another_context_panics() {
+    with_metric_requests(|longer| {
+        // SAFETY: static C string literals — non-null, NUL-terminated, and
+        // outliving the array.
+        let id = unsafe {
+            let _ = longer.add_metric_request(c"__v_score".as_ptr(), false);
+            longer.add_metric_request(c"__w_score".as_ptr(), false)
+        };
 
-    let mut key: *mut rlookup::RLookupKey<'_> = std::ptr::null_mut();
-    // SAFETY: none — this violates precondition (1) on purpose, and the
-    // assertion fires before anything reads the null head.
-    unsafe { ctx.bind_metric_request_key(0, &mut key) };
+        with_metric_requests(|shorter| {
+            // One reservation against the other context's two, so the id's
+            // index is one past this array's only element.
+            // SAFETY: as above.
+            let _ = unsafe { shorter.add_metric_request(c"__x_score".as_ptr(), false) };
+            assert_eq!(id.index(), shorter.metric_requests().len());
+
+            let mut key: *mut rlookup::RLookupKey<'_> = std::ptr::null_mut();
+            // SAFETY: none — as above, except that here the head is real and
+            // it is the length that rules the index out.
+            unsafe { shorter.bind_metric_request_key(id, &mut key) };
+        });
+    });
 }
 
 #[test]

@@ -27,6 +27,33 @@ use search_disk::SearchDiskHandle;
 
 use query_types::scorers::{BuiltInScorer, RequestedScorer};
 
+/// A reservation in the query's metric-request array, as
+/// [`QueryEvalContext::add_metric_request`] hands it out.
+///
+/// Reserving and binding are separate steps because the iterator whose key slot
+/// the request points at does not exist yet at reserve time. That split is what
+/// this type guards: it is neither [`Copy`] nor [`Clone`] and its index is
+/// private, so a reservation can only be bound by the one who made it, and only
+/// once. Binding twice would strand the first handle — unreachable from the
+/// array, and so never freed.
+///
+/// Dropping one unbound is legal and expected: a vector node reserves before it
+/// knows whether the search will yield a distance to bind, and leaves the
+/// request unbound when it does not.
+#[derive(Debug)]
+pub struct MetricRequestId(usize);
+
+impl MetricRequestId {
+    /// Where the reservation sits in
+    /// [`metric_requests`](QueryEvalContext::metric_requests).
+    ///
+    /// Reading the index does not spend the reservation, and no
+    /// [`MetricRequestId`] can be rebuilt from one, so this weakens nothing.
+    pub const fn index(&self) -> usize {
+        self.0
+    }
+}
+
 /// Safe wrapper around [`ffi::QueryEvalCtx`].
 ///
 /// The C `QueryEvalCtx` is the shared mutable state threaded through every
@@ -244,13 +271,13 @@ impl QueryEvalContext {
         self.as_ref().status
     }
 
-    /// Reserve a [`MetricRequest`] for `metric_name`, returning its index in
-    /// the query's metric-request array.
+    /// Reserve a [`MetricRequest`] for `metric_name`, returning the
+    /// [`MetricRequestId`] that binds it.
     ///
     /// The reserved entry has a NULL [`key_handle`](MetricRequest::key_handle)
     /// until [`bind_metric_request_key`](Self::bind_metric_request_key) fills
     /// it in; that is the state the pipeline reads as "the iterator was never
-    /// created". An index stays valid for the whole evaluation: appending only
+    /// created". An id stays valid for the whole evaluation: appending only
     /// ever grows the array past the existing entries.
     ///
     /// `is_internal` is recorded as [`MetricRequest::is_internal`], which keeps
@@ -271,7 +298,7 @@ impl QueryEvalContext {
         &mut self,
         metric_name: *const c_char,
         is_internal: bool,
-    ) -> usize {
+    ) -> MetricRequestId {
         debug_assert!(!metric_name.is_null(), "a metric request must have a name");
 
         let head = self
@@ -305,10 +332,10 @@ impl QueryEvalContext {
         unsafe { *head = grown.cast() };
         // SAFETY: `grown` is the tracked array the append just returned, so its
         // length header is valid — and non-zero, since it holds `request`.
-        unsafe { ffi::array_len_func(grown) as usize - 1 }
+        MetricRequestId(unsafe { ffi::array_len_func(grown) as usize - 1 })
     }
 
-    /// Allocate the key handle of the request reserved at `idx`, pointing at
+    /// Allocate the key handle of the request `id` reserved, pointing at
     /// `key_ptr` — the owning iterator's [`RLookupKey`] slot — and return it so
     /// the caller can hand it back to that iterator.
     ///
@@ -323,8 +350,10 @@ impl QueryEvalContext {
     ///
     /// # Safety
     ///
-    /// 1. `idx` must come from [`add_metric_request`](Self::add_metric_request)
-    ///    on this same context, and must not already have been bound.
+    /// 1. `id` must come from [`add_metric_request`](Self::add_metric_request)
+    ///    on *this* context. Taking it by value is what rules out binding one
+    ///    reservation twice, but a [`MetricRequestId`] records no context, so
+    ///    which one it came from is still the caller's to get right.
     /// 2. `key_ptr` must be non-null and valid for writes until pipeline
     ///    construction has read the request — *not* merely for as long as the
     ///    owning iterator lives. Pipeline construction writes the resolved key
@@ -346,13 +375,14 @@ impl QueryEvalContext {
     ///    [`is_valid`](RLookupKeyHandle::is_valid) through freed memory.
     pub unsafe fn bind_metric_request_key<'a>(
         &mut self,
-        idx: usize,
+        id: MetricRequestId,
         key_ptr: *mut *mut RLookupKey<'a>,
     ) -> *mut RLookupKeyHandle<'a> {
         debug_assert!(
             !key_ptr.is_null(),
             "a bound metric request must have a key slot"
         );
+        let idx = id.index();
 
         let head_slot = self
             .as_mut()
@@ -361,33 +391,20 @@ impl QueryEvalContext {
         // SAFETY: invariant (2) of `new` guarantees `metricRequestsP` points to
         // a live head slot, and (3) gives us exclusive access to it.
         let head = unsafe { *head_slot };
-        // These checks are debug-only, so neither the length read nor the
-        // already-bound read costs anything in a release build.
+        // An id proves a reservation happened, but not that it happened *here*,
+        // so the bounds check stays. Debug-only, so the length read costs
+        // nothing in a release build. An empty list needs no check of its own:
+        // `array_len` reports a null head as length zero rather than reaching
+        // behind it for a header that is not there.
         #[cfg(debug_assertions)]
         {
-            // Checked first: an empty list is a null head with no length
-            // header behind it, so the read below would fault rather than
-            // report the violated contract.
-            assert!(
-                !head.is_null(),
-                "`idx` must come from `add_metric_request` on this context"
-            );
-            // SAFETY: `head` is the tracked array `add_metric_request` grew, so
-            // its length header is valid.
+            // SAFETY: `head` is either null or the tracked array
+            // `add_metric_request` grew, and the length read accepts both.
             let len = unsafe { ffi::array_len_func(head.cast()) } as usize;
             assert!(
                 idx < len,
-                "`idx` must come from `add_metric_request` on this context"
+                "`id` must come from `add_metric_request` on this context"
             );
-            // SAFETY: the assertion above puts `idx` in bounds, so the offset
-            // is in bounds too.
-            let entry = unsafe { head.add(idx) };
-            // Binding twice would overwrite the first handle, which is then
-            // unreachable from the array and so never freed.
-            //
-            // SAFETY: `entry` points at a live, initialised element.
-            let bound = unsafe { (*entry).key_handle };
-            assert!(bound.is_null(), "metric request {idx} was already bound");
         }
 
         // Allocated only once the checks above have passed, so a violated
@@ -424,7 +441,8 @@ impl QueryEvalContext {
 
     /// The metric requests reserved so far, in the order they were reserved.
     ///
-    /// The read side of [`add_metric_request`](Self::add_metric_request).
+    /// The read side of [`add_metric_request`](Self::add_metric_request), which
+    /// [`MetricRequestId::index`] indexes into.
     /// The slice borrows this context for as long as it is held, and every
     /// append takes it exclusively, so none can run while it is alive.
     pub fn metric_requests(&self) -> &[MetricRequest<'_>] {
