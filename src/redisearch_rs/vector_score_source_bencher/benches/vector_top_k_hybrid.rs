@@ -40,8 +40,6 @@ use std::{
     num::NonZeroUsize,
 };
 
-use std::cmp::Ordering;
-
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use ffi::{
     HNSWParams, RedisModule_Alloc, VecSearchMode_HYBRID_ADHOC_BF, VecSearchMode_HYBRID_BATCHES,
@@ -51,14 +49,8 @@ use ffi::{
 };
 use rqe_iterators::{IdList, RQEIterator};
 use rqe_iterators_test_utils::MockExpirationChecker;
-use top_k::{TopKIterator, TopKMode};
+use top_k::{Ascending, TopKIterator, TopKMode};
 use vector_score_source::VectorScoreSource;
-
-/// Score order for vector distance: ascending (lower distance = better).
-/// Matches the comparator `vector_score_source` uses internally.
-fn asc_cmp(a: &f64, b: &f64) -> Ordering {
-    a.partial_cmp(b).unwrap_or(Ordering::Equal)
-}
 
 // ── C shim (from hybrid_shim.c, compiled by build.rs) ────────────────────────
 
@@ -200,7 +192,7 @@ fn run_rust(
         )
     };
     let child: Box<dyn RQEIterator> = Box::new(IdList::<true>::new(ids.to_vec()));
-    let mut it = TopKIterator::new_with_mode(source, Some(child), k, asc_cmp, mode);
+    let mut it = TopKIterator::new_with_mode(source, Some(child), k, Ascending, mode);
     let mut count = 0usize;
     while it.read().unwrap().is_some() {
         count += 1;
