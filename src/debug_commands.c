@@ -3429,6 +3429,39 @@ DEBUG_COMMAND(VecSimMockTimeout) {
 }
 
 /**
+ * FT.DEBUG MOCK_QUERY_TIME <offset-ms|disable|status>
+ * Shift the instant every query evaluates field expiration against, globally
+ * offset-ms - signed millisecond offset added to the wall-clock snapshot each query round takes,
+ *             so a test can move past a TTL without sleeping
+ * disable - restore the unshifted clock
+ * status - report the current offset. Nothing resets it, so a test that dies before disabling it
+ *          leaves every later query evaluating expiration at the shifted instant
+ * The query timeout is derived from the monotonic clock and is unaffected.
+ */
+DEBUG_COMMAND(MockQueryTime) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
+  if (!strcmp("disable", op)) {
+    SearchCtx_SetMockQueryTimeOffsetMS(0);
+  } else if (!strcmp("status", op)) {
+    return RedisModule_ReplyWithLongLong(ctx, SearchCtx_GetMockQueryTimeOffsetMS());
+  } else {
+    long long offsetMS;
+    if (RedisModule_StringToLongLong(argv[2], &offsetMS) != REDISMODULE_OK) {
+      return RedisModule_ReplyWithError(
+          ctx, "Invalid command for 'MOCK_QUERY_TIME'. Use: <offset-ms>, disable, or status");
+    }
+    SearchCtx_SetMockQueryTimeOffsetMS(offsetMS);
+  }
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
  * FT.DEBUG MOCK_REVALIDATE_TIMEOUT <enable|disable|status>
  * Make every iterator revalidation report VALIDATE_TIMEOUT, globally
  * enable - every revalidation reports a timeout, as if the query ran out of time while re-seeking
@@ -3710,6 +3743,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"DUMP_SCHEMA", DumpSchema},
                                {"VECSIM_MOCK_TIMEOUT", VecSimMockTimeout},
                                {"MOCK_REVALIDATE_TIMEOUT", MockRevalidateTimeout},
+                               {"MOCK_QUERY_TIME", MockQueryTime},
                                {"GET_MAX_DOC_ID", GetMaxDocId},
                                {"DUMP_DELETED_IDS", DumpDeletedIds},
                                {"NUMERIC_BUCKET_MAP", NumericBucketMap},

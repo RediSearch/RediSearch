@@ -1211,3 +1211,37 @@ def test_hexpire_on_second_field_is_respected_by_search(env):
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([0])
     # `b` is still valid (long TTL), so a query on `b` still returns the doc.
     env.expect('FT.SEARCH', 'idx', 'world', 'NOCONTENT').equal([1, 'doc:1'])
+
+
+@skip(cluster=True, redis_less_than='7.4')
+def test_mock_query_time_shifts_expiry_evaluation(env):
+    """`FT.DEBUG MOCK_QUERY_TIME` moves the instant a query evaluates field TTLs
+    against, so a lazily expired field is observable without sleeping past a real
+    TTL. Covers the offset being applied, reported, and cleared."""
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'fields')
+    conn.execute_command('HSET', 'doc:1', 't', 'hello')
+    conn.execute_command('HSET', 'doc:2', 't', 'hello')
+    conn.execute_command('HPEXPIRE', 'doc:1', '100000', 'FIELDS', '1', 't')
+
+    try:
+        env.expect('FT.SEARCH', 'idx', '@t:hello', 'NOCONTENT') \
+            .apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
+
+        env.expect(debug_cmd(), 'MOCK_QUERY_TIME', '200000').ok()
+        env.expect(debug_cmd(), 'MOCK_QUERY_TIME', 'status').equal(200000)
+        env.expect('FT.SEARCH', 'idx', '@t:hello', 'NOCONTENT').equal([1, 'doc:2'])
+
+        # A negative offset moves back before the TTL was even set.
+        env.expect(debug_cmd(), 'MOCK_QUERY_TIME', '-200000').ok()
+        env.expect('FT.SEARCH', 'idx', '@t:hello', 'NOCONTENT') \
+            .apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
+
+        env.expect(debug_cmd(), 'MOCK_QUERY_TIME', 'disable').ok()
+        env.expect(debug_cmd(), 'MOCK_QUERY_TIME', 'status').equal(0)
+        env.expect('FT.SEARCH', 'idx', '@t:hello', 'NOCONTENT') \
+            .apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
+    finally:
+        env.cmd(debug_cmd(), 'MOCK_QUERY_TIME', 'disable')

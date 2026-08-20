@@ -10,6 +10,7 @@
 #define __SEARCH_CTX_H
 
 #include <sched.h>
+#include <stdint.h>
 
 #include "redismodule.h"
 #include "rmutil/rm_assert.h"
@@ -91,6 +92,18 @@ static inline RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *s
 }
 
 void SearchCtx_UpdateTime(RedisSearchCtx *sctx, int32_t durationNS);
+
+/**
+ * Shift the instant queries evaluate field expiration against, by `offsetMS`
+ * milliseconds. Debug-only, process-wide, and applied to every subsequent query
+ * round. A negative offset moves the instant backwards; zero restores the
+ * unshifted clock. The query timeout is derived from the monotonic clock and is
+ * unaffected.
+ */
+void SearchCtx_SetMockQueryTimeOffsetMS(int64_t offsetMS);
+
+/** The offset set by `SearchCtx_SetMockQueryTimeOffsetMS`, in milliseconds. */
+int64_t SearchCtx_GetMockQueryTimeOffsetMS(void);
 
 typedef struct QueryError QueryError;
 
