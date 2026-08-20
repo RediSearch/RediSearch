@@ -32,7 +32,9 @@
 //! lands.
 
 // Pull in the lib to ensure FFI stubs and mock allocator symbols are linked.
-use vector_score_source_bencher as _;
+// `RedisModule_Alloc` is one of those symbols, defined by the crate's
+// `mock_or_stub_missing_redis_c_symbols!` expansion.
+use vector_score_source_bencher::RedisModule_Alloc;
 
 use std::hint::black_box;
 use std::{
@@ -44,7 +46,7 @@ use std::cmp::Ordering;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use ffi::{
-    HNSWParams, RedisModule_Alloc, VecSearchMode_HYBRID_ADHOC_BF, VecSearchMode_HYBRID_BATCHES,
+    HNSWParams, VecSearchMode_HYBRID_ADHOC_BF, VecSearchMode_HYBRID_BATCHES,
     VecSimAlgo_VecSimAlgo_HNSWLIB, VecSimIndex, VecSimIndex_AddVector, VecSimIndex_Free,
     VecSimIndex_New, VecSimMetric_VecSimMetric_L2, VecSimParams, VecSimQueryParams,
     VecSimType_VecSimType_FLOAT32, timespec,
@@ -83,7 +85,7 @@ fn alloc_owned_ids(ids: &[u64]) -> *mut u64 {
     // SAFETY: `RedisModule_Alloc` is the mock allocator, initialised by linking
     // redis_mock. We copy `ids.len()` u64s into the freshly allocated buffer.
     unsafe {
-        let ptr = RedisModule_Alloc.unwrap()(std::mem::size_of_val(ids)) as *mut u64;
+        let ptr = RedisModule_Alloc(std::mem::size_of_val(ids)) as *mut u64;
         std::ptr::copy_nonoverlapping(ids.as_ptr(), ptr, ids.len());
         ptr
     }
