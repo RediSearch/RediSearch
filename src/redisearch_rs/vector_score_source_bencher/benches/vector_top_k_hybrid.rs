@@ -21,11 +21,12 @@
 //! point, so both sides drive the same child implementation. See
 //! `hybrid_shim.c` for details.
 //!
-//! Three groups × two sides (rust / c):
+//! Four groups × two sides (rust / c):
 //!
-//! - `vector_top_k_hybrid/batches`         — hybrid, batches mode forced.
-//! - `vector_top_k_hybrid/adhoc`           — hybrid, adhoc-BF mode forced.
-//! - `vector_top_k_hybrid/mode_comparison` — both modes across child sizes.
+//! - `vector_top_k_hybrid/batches`           — hybrid, batches mode forced.
+//! - `vector_top_k_hybrid/adhoc`             — hybrid, adhoc-BF mode forced.
+//! - `vector_top_k_hybrid/adhoc_child_sweep` — adhoc-BF, child size swept at a fixed `k`.
+//! - `vector_top_k_hybrid/mode_comparison`   — both modes across child sizes.
 //!
 //! Swept over index size and top-k width at a fixed vector dimension.
 
@@ -355,6 +356,52 @@ fn bench_adhoc(c: &mut Criterion) {
     group.finish();
 }
 
+/// Index size for the child sweep. The adhoc-selected region here is any child
+/// below 7% of this, so every [`SWEEP_CHILDREN`] entry stays inside it.
+const SWEEP_N: usize = 100_000;
+
+/// Child result counts spanning the adhoc-selected region at [`SWEEP_N`].
+const SWEEP_CHILDREN: &[usize] = &[1, 10, 100, 1_000, 6_900];
+
+/// Sweep child size at a fixed `k`, in forced adhoc-BF mode.
+///
+/// The `adhoc` group ties child size to `k` (`child = k * 5`), which cannot
+/// separate the two cost models the implementations have: the Rust iterator's
+/// overhead falls on every candidate it examines, while the C reader's falls on
+/// every candidate it *retains* — it allocates a result per insert while the heap
+/// fills. Their ratio therefore tracks the retention rate rather than the child
+/// size, and only a sweep at fixed `k` shows that.
+fn bench_adhoc_child_sweep(c: &mut Criterion) {
+    let mut group = c.benchmark_group("vector_top_k_hybrid/adhoc_child_sweep");
+
+    // SAFETY: make_index + VecSimIndex_Free are paired.
+    let index = unsafe { make_index(SWEEP_N) };
+    let query = random_query(7);
+
+    for k in [10usize, 100].map(|k| NonZeroUsize::new(k).unwrap()) {
+        for &child_count in SWEEP_CHILDREN {
+            let ids: Vec<u64> = child_ids(SWEEP_N, child_count)
+                .iter()
+                .map(|&id| id as u64)
+                .collect();
+            let param_str = format!("k{k}_child{child_count}");
+
+            preflight(index, &query, k, &ids, TopKMode::AdhocBF, true);
+
+            group.bench_with_input(BenchmarkId::new("rust", &param_str), &(), |b, _| {
+                b.iter(|| black_box(run_rust(index, &query, k, &ids, TopKMode::AdhocBF)))
+            });
+            group.bench_with_input(BenchmarkId::new("c", &param_str), &(), |b, _| {
+                b.iter(|| black_box(run_c(index, &query, k, &ids, true)))
+            });
+        }
+    }
+
+    // SAFETY: `index` was created with make_index.
+    unsafe { VecSimIndex_Free(index) };
+    group.finish();
+}
+
 // ── Adhoc vs Batches mode comparison ─────────────────────────────────────────
 //
 // At a fixed index size and top-k, sweep child-filter selectivity across the
@@ -431,5 +478,11 @@ fn bench_mode_comparison(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_batches, bench_adhoc, bench_mode_comparison);
+criterion_group!(
+    benches,
+    bench_batches,
+    bench_adhoc,
+    bench_adhoc_child_sweep,
+    bench_mode_comparison
+);
 criterion_main!(benches);
