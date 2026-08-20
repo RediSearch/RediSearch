@@ -27,7 +27,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess
 import sys
 from pathlib import Path
 
@@ -44,29 +43,6 @@ DRY_RUN = os.environ.get("APPLY_DRY_RUN") == "1"
 # name is only ever `backport-agent/pr-<pr>-to-<target>` with a valid target.
 TARGET_RE = re.compile(r"^\d{1,4}\.\d{1,4}(?:-[A-Za-z0-9._-]{1,64})?$")
 VALID_STATUSES = {"clean", "conflicts", "skipped"}
-
-
-def git(work: str, *args: str, check: bool = True) -> subprocess.CompletedProcess:
-    """Run `git -C <work> <args>` with an argument array (no shell), under the
-    sanitized env that ignores agent-writable global/system git config."""
-    return subprocess.run(["git", "-C", work, *args],
-                          capture_output=True, text=True, check=check,
-                          env=common.SAFE_GIT_ENV)
-
-
-def configure_push_auth(work: str, token: str) -> None:
-    """Wire the App token as the push credential for the clone's origin.
-
-    GitHub App tokens must be presented as HTTP basic `x-access-token:<token>`;
-    a bearer header is rejected. Done here (not in the agent) so the token never
-    enters the agent's environment.
-    """
-    if DRY_RUN:
-        return
-    import base64
-    header = "AUTHORIZATION: basic " + base64.b64encode(
-        f"x-access-token:{token}".encode()).decode()
-    git(work, "config", "http.https://github.com/.extraheader", header)
 
 
 def branch_for(pr: int, target: str) -> str:
@@ -141,8 +117,12 @@ def existing_pr(branch: str) -> str | None:
     return out.strip() or None
 
 
-def apply_target(ctx: dict, work: str, entry: dict) -> dict:
-    """Push + open the PR for one manifest entry. Returns a summary row."""
+def apply_target(ctx: dict, git: common.PrivilegedGit, entry: dict) -> dict:
+    """Push + open the PR for one manifest entry. Returns a summary row.
+
+    `git` is the sanitized, token-bearing handle from `main()` — every mutation
+    below goes through it, so the hardening lives in one place (common.py).
+    """
     pr = ctx["pr"]
     target = entry.get("target")
     status = entry.get("status")
@@ -171,11 +151,11 @@ def apply_target(ctx: dict, work: str, entry: dict) -> dict:
         return row
 
     # The agent must actually have produced the local branch.
-    if git(work, "rev-parse", "--verify", f"refs/heads/{branch}", check=False).returncode != 0:
+    if git("rev-parse", "--verify", f"refs/heads/{branch}", check=False).returncode != 0:
         row["detail"] = "agent did not produce the branch"
         return row
     # Target must still exist on origin — a legit skip, not an error.
-    if git(work, "ls-remote", "--exit-code", "--heads", "origin", target,
+    if git("ls-remote", "--exit-code", "--heads", "origin", target,
            check=False).returncode != 0:
         row["status"] = "skipped"
         row["detail"] = f"no such branch {target}"
@@ -197,15 +177,13 @@ def apply_target(ctx: dict, work: str, entry: dict) -> dict:
         row["detail"] = f"[dry-run] would push {branch}, open PR '{title}', labels {labels}"
         return row
 
-    # Push the agent's branch — plain (non-force) push of a fresh ref only.
-    # `--no-verify` + the sanitized `.git` (done once in main) mean no
-    # agent-installed hook/config runs during this token-holding push.
-    push = git(work, "push", "--no-verify", "origin",
-               f"refs/heads/{branch}:refs/heads/{branch}", check=False)
+    # Plain (non-force) push of a fresh ref; `push_ref` supplies the `--no-verify`
+    # and full refspec hardening (see common.PrivilegedGit).
+    push = git.push_ref(branch)
     if push.returncode != 0:
         row["detail"] = f"push failed: {push.stderr.strip()[:200]}"
         return row
-    pushed_sha = git(work, "rev-parse", branch, check=False).stdout.strip()
+    pushed_sha = git("rev-parse", branch, check=False).stdout.strip()
 
     body_file = os.path.join(os.environ["RUNNER_TEMP"], f"backport-body-{target}.md")
     with open(body_file, "w") as f:
@@ -215,12 +193,8 @@ def apply_target(ctx: dict, work: str, entry: dict) -> dict:
     url = created.strip().splitlines()[-1] if created.strip() else ""
     if not url.startswith("http"):
         # PR creation failed after the push — delete the just-created remote ref
-        # so it isn't left orphaned. Lease the delete to the SHA we pushed
-        # (`--force-with-lease`) so that if something updated the branch in the
-        # meantime the delete is refused rather than dropping that newer commit.
-        deleted = git(work, "push", "--no-verify",
-                      f"--force-with-lease=refs/heads/{branch}:{pushed_sha}",
-                      "origin", f":refs/heads/{branch}", check=False)
+        # so it isn't left orphaned, leased to the SHA we pushed.
+        deleted = git.delete_ref(branch, pushed_sha)
         row["status"] = "error"
         row["detail"] = ("gh pr create failed; pushed branch deleted"
                          if deleted.returncode == 0
@@ -264,12 +238,13 @@ def main() -> int:
         common.log("Malformed manifest: 'targets' is not a list.")
         return 1
 
-    # Treat the agent's clone `.git` as hostile before the token-holding push.
-    if not DRY_RUN:
-        common.sanitize_git_dir(work, os.environ["GITHUB_REPOSITORY"])
-    configure_push_auth(work, token)
+    # Constructing this treats the agent's clone `.git` as hostile (hooks + local
+    # config are stripped) and then installs the push credential — in that order,
+    # before any token-holding git call can happen.
+    git = common.PrivilegedGit(work, os.environ["GITHUB_REPOSITORY"], token,
+                               dry_run=DRY_RUN)
 
-    rows = [apply_target(ctx, work, e) for e in entries if isinstance(e, dict)]
+    rows = [apply_target(ctx, git, e) for e in entries if isinstance(e, dict)]
 
     # Every requested target must be accounted for. A target the manifest omits
     # entirely (a truncated/empty agent output) would otherwise be a silent
