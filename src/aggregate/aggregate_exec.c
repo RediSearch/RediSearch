@@ -1565,7 +1565,8 @@ static int buildRequest(RedisModuleCtx *ctx, int type, QueryError *status, AREQ 
   (*r)->protocol = is_resp3(ctx) ? 3 : 2;
 
   // Prepare the query.. this is where the context is applied.
-  sctx = NewSearchCtxC(ctx, indexname, true);
+  sctx = NewSearchCtxCEx(ctx, indexname, true,
+                         type == COMMAND_EXPLAIN ? 0 : INDEXSPEC_LOAD_QUERY);
   if (!sctx) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NO_INDEX, "Index not found", ": %s", indexname);
     goto done;
@@ -2258,7 +2259,8 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
   // If the cursor is associated with a spec, e.g a coordinator ctx.
   if (has_spec) {
     execution_ref = IndexSpecRef_Promote(cursor->spec_ref);
-    if (!StrongRef_Get(execution_ref)) {
+    IndexSpec *execution_spec = StrongRef_Get(execution_ref);
+    if (!execution_spec) {
       QueryError_SetWithoutUserDataFmt(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND,
                                        "The index was dropped while the cursor was idle");
       // Reply before disposing: the cursor may hold the only request ref, so
@@ -2267,6 +2269,10 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
       AREQ_ReplyOrStoreError(req, ctx, &status);
       cursorEndOfCycle(req, cursor, true);
       return;
+    }
+
+    if (!IsInternal(req)) {
+      IndexSpec_IncrQueryCounter(execution_spec);
     }
 
     if (hasLoader) { // Quick check if the cursor has loaders.
