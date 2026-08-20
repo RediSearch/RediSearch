@@ -10,6 +10,7 @@ on:
       pinned-ref:
         description: "Redis ref to use instead of the latest release tag. Empty uses the latest release tag."
         type: string
+        # TODO: Replace with a released Redis version once one includes the hexpired notification fix.
         default: d3abc02fed6664cc0afaf9ffe4e172a99e274f44
     outputs:
       tag:
