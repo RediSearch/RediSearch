@@ -1,0 +1,53 @@
+
+# This is a basic workflow to help you get started with Actions
+
+name: "Runner Test"
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow on push or pull request events but only for the "main" branch
+  push:
+  workflow_dispatch:
+    inputs:
+      sleep_time:
+        default: 0
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  runner_test:
+    strategy:
+      fail-fast: false
+      matrix:
+        v1: [1]
+        #v2: [1,2,3,4,5]
+    env:
+    # The type of runner that the job will run on
+    #runs-on: [self-hosted, ubuntu-2204-arm64-mini]
+    #runs-on: [self-hosted, staging-ubuntu-2204-arm64-mini]
+    #runs-on: [self-hosted, ubuntu-2204-arm64-mini]
+    #runs-on: [self-hosted, staging-ubuntu-2204-x64]
+    #runs-on: [self-hosted, staging-rhel9-fips-x64]
+    #runs-on: [self-hosted, ubuntu-2204-x64]
+    #runs-on: [u-x64-small]
+    runs-on:
+      - staging-u-arm64-small
+    #runs-on: [self-hosted, ubuntu-2204-x64-xl]
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v3
+
+      # Runs a set of commands using the runners shell #
+      - name: Run a multi-line sleep script
+        shell: bash
+        env:
+          SLEEP: ${{ github.inputs.sleep_time }}
+        run: |
+          env
+          if [ -z "$SLEEP_TIME" ] || [ "$SLEEP_TIME" = 0 ]; then
+            SLEEP_TIME=21600
+          fi
+          echo sleeping for "$SLEEP_TIME" seconds
+          sleep "$SLEEP_TIME" || :
