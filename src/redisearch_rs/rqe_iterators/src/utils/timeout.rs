@@ -260,6 +260,8 @@ impl AnyTimeoutContext {
             }
             kind => panic!("invalid query timeout kind: {kind}"),
         }
+        // SAFETY: the caller keeps the request timeout valid and stable, and the match above
+        // established CLOCK_DEADLINE as the active union member before projecting its deadline.
         let deadline = unsafe { &raw mut (*request_timeout.as_ptr()).source.clock.deadline };
         let deadline = NonNull::new(deadline).expect("projected from a non-null request timeout");
         // A request without a configured deadline never gains one.
