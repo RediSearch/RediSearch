@@ -7,10 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Tests driving the Rust iterators `TagIndex::open_reader` and
-//! `TagIndex::iterator_for_tag` build, through the `RQEIterator` trait
-//! directly. Wrapping them for the C vtable is the FFI crate's job, not this
-//! crate's, so these tests stop at the Rust boundary.
+//! Tests driving the Rust iterators `TagIndex::open_reader` builds, through the
+//! `RQEIterator` trait directly. Wrapping them for the C vtable is the FFI
+//! crate's job, not this crate's, so these tests stop at the Rust boundary.
 //!
 //! `open_reader` on a memory-mode index returns the reader directly: the mode is
 //! in the type, so there is no variant to match out.
@@ -131,40 +130,11 @@ fn open_reader_absent_tag_returns_none() {
     drop(unsafe { Box::from_raw(tag_index) });
 }
 
-/// Driving the iterator built from an already-resolved inverted index
-/// (`iterator_for_tag`) yields exactly the indexed document ids.
+/// A tag registered in the trie but holding no documents yields no iterator:
+/// `open_reader` returns `None` rather than a reader that would immediately hit
+/// EOF.
 #[test]
-fn value_path_reads_all_matching_docs() {
-    let mock = MockContext::new(3, 3);
-    let (tag_index, lookup) = allocate(TagIndex::<InMemoryMode>::new(false));
-    let tags: &[&[u8]] = &[b"team"];
-    for doc_id in 1..=3 {
-        // SAFETY: `tag_index` was just allocated and is not yet aliased.
-        index_mem(unsafe { &mut *tag_index }, tags, doc_id);
-    }
-
-    // SAFETY: `tag_index` is valid and not mutated while `ii` is in use.
-    let ii = unsafe { &*tag_index }
-        .find_value(b"team")
-        .expect("tag was indexed");
-    // SAFETY: `tag_index` and `mock` outlive the iterator, `ii` is the trie's
-    // current value for the tag, and `lookup` resolves `tag_index`.
-    let it = unsafe {
-        (*tag_index).iterator_for_tag(mock.sctx(), b"team", ii, 1.0, FIELD_INDEX, lookup)
-    }
-    .expect("ii holds documents");
-
-    let doc_ids = drain(it);
-    assert_eq!(doc_ids, vec![1, 2, 3]);
-
-    // SAFETY: `allocate` allocated it; the iterator using it is gone.
-    drop(unsafe { Box::from_raw(tag_index) });
-}
-
-/// An inverted index with no documents yields no iterator: the value path returns
-/// `None` rather than a reader that would immediately hit EOF.
-#[test]
-fn value_path_returns_none_for_empty_inverted_index() {
+fn open_reader_returns_none_for_empty_inverted_index() {
     let (tag_index, lookup) = allocate(TagIndex::<InMemoryMode>::new(false));
     // Register the tag with one document, then GC it away: the trie keeps the
     // now-empty inverted index registered, mirroring what removal leaves behind
@@ -175,15 +145,9 @@ fn value_path_returns_none_for_empty_inverted_index() {
     unsafe { &mut *tag_index }.gc_empty_value(b"empty");
 
     let mock = MockContext::new(0, 0);
-    // SAFETY: `tag_index` is valid and not mutated while `ii` is in use.
-    let ii = unsafe { &*tag_index }
-        .find_value(b"empty")
-        .expect("tag was inserted");
-    // SAFETY: `tag_index` and `mock` outlive the (never created) iterator, `ii` is
-    // the trie's current value for the tag, and `lookup` resolves `tag_index`.
-    let it = unsafe {
-        (*tag_index).iterator_for_tag(mock.sctx(), b"empty", ii, 1.0, FIELD_INDEX, lookup)
-    };
+    // SAFETY: `tag_index` and `mock` outlive the (never created) iterator, and
+    // `lookup` resolves `tag_index`.
+    let it = unsafe { (*tag_index).open_reader(mock.sctx(), b"empty", 1.0, FIELD_INDEX, lookup) };
     assert!(it.is_none());
 
     // SAFETY: `allocate` allocated it; no iterator was built from it.
