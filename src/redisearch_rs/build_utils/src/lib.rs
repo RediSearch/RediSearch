@@ -71,6 +71,13 @@ pub fn bind_foreign_c_symbols() {
     let bin_root = bin_root();
     force_link_time_symbol_resolution();
     link_redisearch_c_bundle(&bin_root).unwrap_or_else(|e| panic!("{e}"));
+    // A static archive only yields members resolving symbols already undefined
+    // when the linker reaches it, and Cargo places `-l` flags before the rlibs.
+    // A dependency referencing a bundle symbol that nothing earlier wanted --
+    // `document_metadata` and `sdslen_rust`, for one -- is therefore left
+    // unresolved. Link-args land after the rlibs, so repeating the bundle there
+    // gives those references a second pass.
+    println!("cargo::rustc-link-arg=-lredisearch_c_bundle");
     link_mkl(&bin_root.join("_deps/svs-src/lib"));
     link_c_plusplus();
 }
