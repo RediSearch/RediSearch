@@ -230,12 +230,9 @@ typedef struct {
   // rejected (see set_search_disk_max_open_files_config).
   int diskMaxOpenFiles;
   // Concurrent async document-metadata reads a single query iterator keeps in flight.
-  // Read when a query builds its pool, so a change applies from the next query on.
   unsigned int diskAsyncReadPoolSize;
   // Index results a query queues ahead of submission, as a multiple of
-  // diskAsyncReadPoolSize. A factor rather than an absolute count so that the queue stays
-  // at least as deep as the pool even when a query start races a CONFIG SET and observes a
-  // new pool size paired with the old factor.
+  // diskAsyncReadPoolSize. Must be at least 1.
   unsigned int diskAsyncReadQueueFactor;
   // If true, fallback to main thread when BlockClient is unavailable.
   bool fallbackToMainThreadWhenBlockClientUnavailable;
@@ -411,15 +408,8 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_DISK_BUFFER_PERCENTAGE 20  // 20% of available memory for disk write buffer
 #define DEFAULT_DISK_MAX_OPEN_FILES 1024   // open-file cap; -1 = unlimited
 #define DEFAULT_DISK_ASYNC_READ_POOL_SIZE 16
-// A query iterator's reads are only one contributor to device queue depth: every
-// concurrently executing query owns a pool, so in-flight reads scale with this
-// value times the number of query threads. Bounded well below what the uint16_t
-// state field allows so a single setting cannot swamp the device.
 #define DISK_ASYNC_READ_POOL_SIZE_MAX 1024
 #define DEFAULT_DISK_ASYNC_READ_QUEUE_FACTOR 1
-// The queue holds deep-copied index results, so its cost is pool size times this factor
-// times the number of concurrently executing queries. Past a small multiple the extra
-// depth buys buffered index results rather than device parallelism.
 #define DISK_ASYNC_READ_QUEUE_FACTOR_MAX 16
 static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <= UINT16_MAX,
               "queue depth must fit IndexResultAsyncReadState's uint16_t queueSize");

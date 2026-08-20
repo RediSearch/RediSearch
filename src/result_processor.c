@@ -490,11 +490,11 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
   ret->firstRead = true;
 #endif
 
-  // Read both once so the pool and the queue feeding it cannot disagree if the config
-  // changes mid-query. Both bounds are enforced at registration, and the factor's minimum
-  // of 1 is what keeps the queue at least as deep as the pool.
+  // Keep one per-query snapshot so the pool and queue sizes stay paired.
   const uint16_t asyncPoolSize = (uint16_t)RSGlobalConfig.diskAsyncReadPoolSize;
-  const uint16_t asyncQueueSize = asyncPoolSize * (uint16_t)RSGlobalConfig.diskAsyncReadQueueFactor;
+  const uint16_t asyncQueueFactor = (uint16_t)RSGlobalConfig.diskAsyncReadQueueFactor;
+  RS_ASSERT(asyncQueueFactor >= 1);
+  const uint16_t asyncQueueSize = asyncPoolSize * asyncQueueFactor;
 
   // Initialize async read state
   IndexResultAsyncRead_Init(&ret->async, asyncPoolSize, asyncQueueSize);
