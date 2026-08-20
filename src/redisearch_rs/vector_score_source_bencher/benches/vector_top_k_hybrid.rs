@@ -174,6 +174,12 @@ fn run_rust(
     ids: &[u64],
     mode: TopKMode,
 ) -> usize {
+    // Declared before the source so it outlives every result that borrows it.
+    // A zeroed key is enough: the metrics path stores the pointer and never
+    // dereferences it.
+    // SAFETY: `RLookupKey` is plain data whose all-zero state is valid.
+    let mut own_key: ffi::RLookupKey = unsafe { std::mem::zeroed() };
+
     // Pin the source's HYBRID_POLICY to match the forced `mode`, mirroring the C
     // shim's `qParams.searchMode`. This keeps `batch_strategy` on the same path
     // as production (and C) instead of the unset-policy heuristic.
@@ -201,6 +207,12 @@ fn run_rust(
             MockExpirationChecker::new(std::collections::HashSet::new()),
         )
     };
+    // Yield the vector score under a lookup key, as a real query does. Without
+    // this the score push is skipped entirely, while the C side still pushes a
+    // keyless entry, so the two would not do comparable per-result work.
+    let mut source = source;
+    *source.own_key = (&raw mut own_key).cast();
+
     let child: Box<dyn RQEIterator> = Box::new(IdList::<true>::new(ids.to_vec()));
     let mut it = TopKIterator::new_with_mode(source, Some(child), k, asc_cmp, mode);
     let mut count = 0usize;
