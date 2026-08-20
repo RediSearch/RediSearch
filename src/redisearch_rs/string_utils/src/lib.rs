@@ -15,6 +15,7 @@
 //! handing bytes to one of the remaining C helpers needs.
 
 pub mod libnu;
+pub mod obfuscation;
 pub mod runes;
 pub mod tag;
 pub mod unicode;
