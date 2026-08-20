@@ -2483,15 +2483,28 @@ static void prepareCursorTimeoutCycle(AREQ *req, QueryRequestTimeoutKind kind) {
   }
 }
 
-static void fallbackCursorToReturn(Cursor *cursor, AREQ *req) {
+static void setCursorRequestTimeoutPolicy(AREQ *req, RSTimeoutPolicy policy) {
+  req->reqConfig.timeoutPolicy = policy;
+  req->pipeline.qctx.timeoutPolicy = policy;
+  QueryRequestTimeout_UpdateConfig(&req->base.timeout, policy, req->base.timeout.timeoutMS);
+}
+
+static void restoreCursorTimeoutPolicy(const Cursor *cursor, AREQ *req) {
+  if (req->reqConfig.timeoutPolicy == cursor->queryTimeoutPolicy) {
+    return;
+  }
+
+  RS_ASSERT(cursor->queryTimeoutPolicy == TimeoutPolicy_ReturnStrict);
+  RS_ASSERT(req->reqConfig.timeoutPolicy == TimeoutPolicy_Return);
+  setCursorRequestTimeoutPolicy(req, cursor->queryTimeoutPolicy);
+  req->base.async.requiresAggregateResultsSync = true;
+}
+
+static void fallbackCursorToReturn(const Cursor *cursor, AREQ *req) {
   RS_ASSERT(req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict);
   RS_ASSERT(cursor->queryTimeoutPolicy == TimeoutPolicy_ReturnStrict);
 
-  cursor->queryTimeoutPolicy = TimeoutPolicy_Return;
-  req->reqConfig.timeoutPolicy = TimeoutPolicy_Return;
-  req->pipeline.qctx.timeoutPolicy = TimeoutPolicy_Return;
-  QueryRequestTimeout_UpdateConfig(&req->base.timeout, TimeoutPolicy_Return,
-                                   req->base.timeout.timeoutMS);
+  setCursorRequestTimeoutPolicy(req, TimeoutPolicy_Return);
 
   // Inline execution has no blocked-client timeout callback, so the
   // RETURN_STRICT result-claim and safe-loader handshakes must no longer run.
@@ -2548,6 +2561,13 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
   if (cursor == NULL) {
     return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %lld", cid);
+  }
+
+  AREQ *cursor_req = Cursor_AREQ(cursor);
+  if (cursor_req) {
+    // Inline reads may temporarily fall back to RETURN, but the cursor's original policy is
+    // sticky and must be restored before choosing how to execute the next read.
+    restoreCursorTimeoutPolicy(cursor, cursor_req);
   }
 
   if (CURSOR_IS_COORD(cursor->id) &&

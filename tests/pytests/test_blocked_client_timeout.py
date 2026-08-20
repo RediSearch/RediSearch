@@ -6144,6 +6144,45 @@ class TestReturnStrictWorkerTransitions:
         self._set_workers(0)
         self._read_and_delete_cursor(cursor_id)
 
+    def test_cursor_restores_return_strict_after_workers_restart(self):
+        """An inline read must not permanently replace the cursor's sticky RETURN_STRICT policy."""
+        skipTest(cluster=True)
+        self._set_workers(1)
+        cursor_id = self._create_cursor()
+
+        self._set_workers(0)
+        inline_res, inline_cursor_id = self.env.cmd(
+            'FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', '2'
+        )
+        self.env.assertEqual(inline_res.get('warning', []), [], message=inline_res)
+        self.env.assertEqual(inline_cursor_id, cursor_id, message=inline_res)
+
+        self._set_workers(1)
+        self.env.expect(debug_cmd(), 'WORKERS', 'pause').ok()
+        result = []
+        try:
+            t_query = threading.Thread(
+                target=call_and_store,
+                args=(self.env.cmd,
+                      ['FT.CURSOR', 'READ', 'idx', str(cursor_id), 'COUNT', '2'],
+                      result),
+                daemon=True,
+            )
+            t_query.start()
+            blocked_client_id = wait_for_blocked_query_client(
+                self.env, 'FT.CURSOR|READ', 'Client for FT.CURSOR|READ not found')
+            self.env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+            wait_for_client_unblocked(self.env, blocked_client_id)
+            t_query.join(timeout=10)
+            self.env.assertFalse(t_query.is_alive(), message="Cursor read thread should finish")
+            self.env.assertEqual(len(result), 1, message="Expected one cursor read result")
+            _assert_return_strict_cursor_timeout_reply(
+                self.env, result[0], cursor_id, expected_results=0,
+                message_prefix='RETURN_STRICT after WORKERS 1 -> 0 -> 1')
+        finally:
+            self.env.expect(debug_cmd(), 'WORKERS', 'resume').ok()
+            self.env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
+
 
 class TestShardTimeout:
     """Tests for the blocked client timeout mechanism for shards."""
