@@ -162,6 +162,7 @@ search_result = { path = "./search_result" }
 slots_tracker = { path = "./slots_tracker" }
 sorting_vector = { path = "./sorting_vector" }
 string_utils = { path = "./string_utils" }
+tag_index = { path = "./tag_index" }
 term_suffix_index = { path = "./term_suffix_index" }
 thin_vec = { path = "./thin_vec" }
 timeout = { path = "timeout" }
