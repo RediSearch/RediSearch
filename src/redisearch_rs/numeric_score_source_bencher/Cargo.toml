@@ -19,7 +19,6 @@ harness = false
 
 [build-dependencies]
 build_utils = { path = "../build_utils" }
-cc.workspace = true
 
 [dependencies]
 criterion.workspace = true
