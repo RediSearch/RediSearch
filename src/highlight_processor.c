@@ -280,8 +280,10 @@ static bool shouldSkipJsonFieldValue(const RSValue *fieldValue) {
   // Array elements are indexed as separate values with independent byte offsets, so
   // highlighting against a single loaded string would be incorrect.
   //
-  // DIALECT 1-2: scalars are RSValueType_String, arrays are RSValueType_RedisString
-  //   (serialized JSON). We reject RedisString only for JSON.
+  // DIALECT 1-2: scalar JSON strings are RSValueType_String and fall through without
+  //   skipping; JSON arrays/objects without usable scalar offsets are serialized as
+  //   RSValueType_RedisString and are skipped. The caller gates this helper on
+  //   hlpCtx->isJson, so HASH RedisString values are not affected.
   // DIALECT 3+: values are wrapped in a Trio. The Trio's right (expanded) array reveals
   //   the origin: expanded[0] is RSValueType_String for scalars, RSValueType_Array for
   //   array-at-path. We reject the latter.

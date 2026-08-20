@@ -136,10 +136,11 @@ void FieldList_Free(FieldList *fields) {
   rm_free(fields->fields);
 }
 
+// Gets or creates the returned-field entry for `path AS name`; NULL `path` means `name`.
 ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name, const char *path) {
   for (size_t ii = 0; ii < fields->numFields; ++ii) {
     if (!strcmp(fields->fields[ii].name, name)) {
-      if (path && fields->fields[ii].explicitReturn == 0 &&
+      if (path && !fields->fields[ii].explicitReturn &&
           fields->fields[ii].mode != SummarizeMode_None) {
         fields->fields[ii].path = path;
       }
@@ -1587,6 +1588,7 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
 }
 
 // Check if a single FieldSpec has a multi-value JSONPath.
+// This request-time validation is used only for JSON HIGHLIGHT/SUMMARIZE fields.
 // Returns true if the field is a TEXT field with a multi-value JSONPath.
 static bool fieldSpecIsMultiValueText(const FieldSpec *fs) {
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_FULLTEXT) || !fs->fieldPath) {
@@ -1633,7 +1635,8 @@ static const FieldSpec *getHighlightFieldSpec(const IndexSpec *index, const Retu
 }
 
 // Validate that HIGHLIGHT/SUMMARIZE fields on a JSON index all use single-value JSONPaths.
-// Returns REDISMODULE_OK if all fields are single-value, REDISMODULE_ERR otherwise.
+// Returns REDISMODULE_OK if all fields are single-value, REDISMODULE_ERR and sets `status`
+// otherwise.
 static int AREQ_HasMultiValueHighlightFields(const AREQ *req, const IndexSpec *index,
                                              QueryError *status) {
   const FieldList *fields = &req->outFields;

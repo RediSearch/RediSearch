@@ -1616,7 +1616,6 @@ def test_highlight_multi_value_json_rejected(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
                'SCHEMA', '$.tags[*]', 'AS', 'tags', 'TEXT',
                '$.name', 'AS', 'name', 'TEXT').ok()
-    waitForIndex(env, 'idx')
 
     multi_value_error = "HIGHLIGHT/SUMMARIZE is not supported for JSON fields with multi-value JSONPath"
     no_return_error = "HIGHLIGHT/SUMMARIZE on JSON indexes requires RETURN with explicit field names"
