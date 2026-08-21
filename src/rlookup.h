@@ -22,6 +22,8 @@
 extern "C" {
 #endif
 
+// `block` must not add keys to `rlookup` (e.g. via `RLookup_GetKey_*`): the iterator reads
+// the lookup's key-pointer array in place, and growing it may reallocate that array.
 #define RLOOKUP_FOREACH(key, rlookup, block)    \
   RLookupIterator iter = RLookup_Iter(rlookup); \
   const RLookupKey* key;                        \
