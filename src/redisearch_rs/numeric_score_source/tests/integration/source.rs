@@ -21,12 +21,17 @@ use inverted_index::NumericFilter;
 use numeric_range_tree::test_utils::build_tree;
 use numeric_range_tree::{NumericRangeTree, RangeWindow};
 use numeric_score_source::{
-    DocValidity, NumericScoreSource, new_numeric_top_k_filtered, new_numeric_top_k_unfiltered,
+    AllValid, DocValidity, NewNumericTopK, NumericScoreSource, new_numeric_top_k,
+    new_numeric_top_k_filtered, new_numeric_top_k_unfiltered,
 };
+use redis_mock::reply::{ReplyValue, capture_replies};
+use redis_reply::{RedisModuleCtx, Replier};
 use rqe_core::DocId;
+use rqe_iterators::utils::DeadlineTimeoutChecker;
 use rqe_iterators::{
-    ExpirationChecker, IdList, RQEIterator, RQEIteratorError,
-    utils::{DeadlineTimeoutChecker, NoTimeoutChecker, TimeoutContext},
+    ExpirationChecker, IdList, NoOpChecker, RQEIterator, RQEIteratorError,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
+    utils::{NoTimeoutChecker, TimeoutContext},
 };
 use top_k::{ScoreBatch, ScoreSource};
 
@@ -599,15 +604,60 @@ impl TimeoutContext for TimeoutOnce {
     }
 }
 
-/// Collect an unfiltered top-k iterator to exhaustion into `(doc_id, score)`.
-fn drain_top_k<'a, V: DocValidity + 'a, E: ExpirationChecker + 'a, T: TimeoutContext + 'a>(
-    it: &mut numeric_score_source::NumericTopKIterator<'a, V, E, T>,
+/// Collect a top-k iterator to exhaustion into `(doc_id, score)`.
+fn drain_top_k<
+    'a,
+    V: DocValidity + 'a,
+    E: ExpirationChecker + 'a,
+    T: TimeoutContext + 'a,
+    I: RQEIterator<'a> + 'a,
+>(
+    it: &mut numeric_score_source::NumericTopKIterator<'a, V, E, T, I>,
 ) -> Vec<(DocId, f64)> {
     let mut got = Vec::new();
     while let Some(result) = it.read().unwrap() {
         got.push((result.doc_id, result.as_numeric().expect("numeric result")));
     }
     got
+}
+
+#[test]
+fn factory_unfiltered_dispatches_and_drains() {
+    // A `None` child routes through the unfiltered reduction; the factory-built
+    // source yields the top k by value, best-first.
+    let tree = tree_from(&[(1, 5.0), (2, 1.0), (3, 4.0), (4, 2.0), (5, 3.0)]);
+    let built = new_numeric_top_k(
+        &tree,
+        full_range(),
+        false,
+        3,
+        5,
+        AllValid,
+        NoOpChecker,
+        NoTimeoutChecker,
+        None,
+    );
+    let NewNumericTopK::Unfiltered(mut it) = built else {
+        panic!("expected unfiltered reduction for a None child");
+    };
+    assert_eq!(drain_top_k(&mut it), vec![(1, 5.0), (3, 4.0), (5, 3.0)]);
+}
+
+#[test]
+fn factory_zero_k_reduces_to_empty() {
+    let tree = tree_from(&[(1, 5.0), (2, 1.0)]);
+    let built = new_numeric_top_k(
+        &tree,
+        full_range(),
+        false,
+        0,
+        2,
+        AllValid,
+        NoOpChecker,
+        NoTimeoutChecker,
+        None,
+    );
+    assert!(matches!(built, NewNumericTopK::ReducedEmpty));
 }
 
 #[test]
@@ -650,4 +700,172 @@ fn rewind_after_persistent_timeout_times_out_again() {
     assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
     it.rewind();
     assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+}
+
+/// Look up a string-keyed entry in a captured map reply.
+fn map_get<'a>(reply: &'a ReplyValue, key: &str) -> Option<&'a ReplyValue> {
+    let ReplyValue::Map(entries) = reply else {
+        return None;
+    };
+    entries.iter().find_map(|(k, v)| match k {
+        ReplyValue::SimpleString(s) | ReplyValue::StringBuffer(s) if s == key => Some(v),
+        _ => None,
+    })
+}
+
+/// Render an iterator's [`ProfilePrint`] entry through the normal FT.PROFILE
+/// wrapping path and return the captured reply.
+fn render_profile(it: &dyn ProfilePrint) -> ReplyValue {
+    redis_mock::init_redis_module_mock();
+    // SAFETY: the mock replaces every `RedisModule_Reply*` pointer with an
+    // implementation that records replies without dereferencing the ctx.
+    let mut replier = unsafe { Replier::new(std::ptr::dangling_mut::<RedisModuleCtx>()) };
+    let mut replies = capture_replies(|| {
+        let mut ctx = ProfilePrintCtx::new(false, false);
+        let mut map = replier.map();
+        it.print_profile(&mut map, &mut ctx);
+    });
+    assert_eq!(replies.len(), 1, "expected a single map reply");
+    replies.pop().unwrap()
+}
+
+#[test]
+fn metrics_count_batches_without_switches() {
+    // Multi-leaf tree read one range per batch; `k` above the doc count keeps the
+    // heap from filling, so no early `Stop` truncates the batch count.
+    let tree = build_tree(20, false, 0);
+    assert!(tree.num_leaves() > 1, "fixture must split into many ranges");
+    let source = NumericScoreSource::with_range_batch_size(&tree, full_range(), false, 1);
+    let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(100).unwrap());
+    drain_top_k(&mut it);
+
+    let metrics = it.metrics();
+    assert!(
+        metrics.num_batches > 1,
+        "multiple range batches materialized"
+    );
+    assert_eq!(
+        metrics.strategy_switches, 0,
+        "the unfiltered path never expands windows"
+    );
+    assert_eq!(
+        it.source().num_batches(),
+        metrics.num_batches,
+        "source and iterator batch counts agree"
+    );
+}
+
+#[test]
+fn metrics_count_window_expansions() {
+    // The child matches only the lowest-valued doc, sitting in the last range, so
+    // the source must expand its window past the tiny initial one to reach it.
+    let tree = build_tree(20, false, 0);
+    let window = RangeWindow {
+        offset: 0,
+        limit: 1,
+    };
+    let source = NumericScoreSource::filtered(&tree, full_range(), window, false, 1, 20, 1);
+    let mut it = new_numeric_top_k_filtered(
+        source,
+        IdList::<true>::new(vec![1u64]),
+        NonZeroUsize::new(1).unwrap(),
+    );
+    drain_top_k(&mut it);
+
+    let metrics = it.metrics();
+    assert!(
+        metrics.strategy_switches >= 1,
+        "a window expansion is recorded as a strategy switch"
+    );
+    assert!(metrics.num_batches >= 1);
+}
+
+#[test]
+fn metrics_reset_on_rewind() {
+    let tree = build_tree(20, false, 0);
+    let source = NumericScoreSource::with_range_batch_size(&tree, full_range(), false, 1);
+    let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(100).unwrap());
+    drain_top_k(&mut it);
+    assert!(it.metrics().num_batches > 0);
+
+    it.rewind();
+    // A re-run's profile must reflect only the new collection, so every counter
+    // restarts from zero.
+    assert_eq!(it.metrics().num_batches, 0);
+    assert_eq!(it.metrics().strategy_switches, 0);
+    assert_eq!(it.source().num_batches(), 0);
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (RedisModule reply API)")]
+fn profile_reports_optimizer_type_and_counters() {
+    let tree = build_tree(20, false, 0);
+    let source = NumericScoreSource::with_range_batch_size(&tree, full_range(), false, 1);
+    let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(100).unwrap());
+    drain_top_k(&mut it);
+    let metrics = *it.metrics();
+
+    let reply = render_profile(&it);
+
+    assert_eq!(
+        map_get(&reply, "Type"),
+        Some(&ReplyValue::SimpleString("OPTIMIZER".into()))
+    );
+    assert_eq!(
+        map_get(&reply, "Batches number"),
+        Some(&ReplyValue::LongLong(metrics.num_batches as i64))
+    );
+    assert_eq!(
+        map_get(&reply, "Window expansions"),
+        Some(&ReplyValue::LongLong(metrics.strategy_switches as i64))
+    );
+    // The Rust source has no `QOptimizer` type, so it emits no `Optimizer mode`
+    // (unlike the C optimizer reader), and no child subtree without a child.
+    assert_eq!(map_get(&reply, "Optimizer mode"), None);
+    assert_eq!(map_get(&reply, "Child iterator"), None);
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (RedisModule reply API)")]
+fn profile_reports_batches_read_before_a_timeout() {
+    // The abort path resets the source so the query can be retried; the profile of
+    // the timed-out run must still report the batches that were read, since that is
+    // where the count is most diagnostic.
+    let tree = build_tree(20, false, 0);
+    // The probe budget must outlast the first batch's materialization yet fall
+    // short of the whole scan, so the abort lands with batches already counted.
+    let source = NumericScoreSource::with_range_batch_size(&tree, full_range(), false, 1)
+        .with_timeout(TimeoutOnce::new(20));
+    let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(20).unwrap());
+    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+
+    let metrics = *it.metrics();
+    assert!(metrics.num_batches > 0, "timeout fired mid-collection");
+    // The source-local counter is what the profile used to read.
+    assert_eq!(it.source().num_batches(), 0, "abort path reset the source");
+
+    let reply = render_profile(&it);
+    assert_eq!(
+        map_get(&reply, "Batches number"),
+        Some(&ReplyValue::LongLong(metrics.num_batches as i64))
+    );
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (RedisModule reply API)")]
+fn profile_renders_child_subtree() {
+    let tree = tree_from(&[(1, 5.0), (2, 1.0), (3, 4.0)]);
+    let source = NumericScoreSource::unfiltered(&tree, full_range(), false);
+
+    let child = IdList::<true>::new(vec![1u64, 2, 3]);
+    let mut it = new_numeric_top_k_filtered(source, child, NonZeroUsize::new(100).unwrap());
+    drain_top_k(&mut it);
+
+    let reply = render_profile(&it);
+
+    let child_reply = map_get(&reply, "Child iterator").expect("child subtree rendered");
+    assert!(
+        matches!(child_reply, ReplyValue::Map(_)),
+        "child iterator profile is a nested map"
+    );
 }
