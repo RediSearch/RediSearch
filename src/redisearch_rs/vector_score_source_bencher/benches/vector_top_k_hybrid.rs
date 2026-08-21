@@ -13,23 +13,21 @@
 //! Both sides:
 //! - drive the same HNSW index and the same sorted-id child filter,
 //! - maintain a real bounded top-k heap,
-//! - are forced into the same execution mode (batches / adhoc-BF).
+//! - are forced into the same execution mode (batches / adhoc-BF),
+//! - yield the vector score under a lookup key, and trim deep results.
 //!
 //! The C side builds a minimal mock `RedisSearchCtx` and wraps the child in
-//! `NewSortedIdListIterator` (the C twin of the Rust `IdList`). See
+//! `NewSortedIdListIterator`, which is a Rust `IdList` behind an FFI entry
+//! point, so both sides drive the same child implementation. See
 //! `hybrid_shim.c` for details.
 //!
-//! Two groups × two sides (rust / c):
+//! Three groups × two sides (rust / c):
 //!
-//! - `vector_top_k_hybrid/batches` — hybrid, batches mode forced.
-//! - `vector_top_k_hybrid/adhoc`   — hybrid, adhoc-BF mode forced.
+//! - `vector_top_k_hybrid/batches`         — hybrid, batches mode forced.
+//! - `vector_top_k_hybrid/adhoc`           — hybrid, adhoc-BF mode forced.
+//! - `vector_top_k_hybrid/mode_comparison` — both modes across child sizes.
 //!
 //! Swept over index size and top-k width at a fixed vector dimension.
-//!
-//! Known asymmetry (MOD-14210): the C path pushes a vector-score metric per
-//! candidate (`ResultMetrics_Add`) that Rust's `build_result` doesn't yet — a
-//! small C-only cost that mildly favors Rust in small-k adhoc cases until parity
-//! lands.
 
 // Pull in the lib to ensure FFI stubs and mock allocator symbols are linked.
 // `RedisModule_Alloc` is one of those symbols, defined by the crate's
@@ -174,6 +172,12 @@ fn run_rust(
     ids: &[u64],
     mode: TopKMode,
 ) -> usize {
+    // Declared before the source so it outlives every result that borrows it.
+    // A zeroed key is enough: the metrics path stores the pointer and never
+    // dereferences it.
+    // SAFETY: `RLookupKey` is plain data whose all-zero state is valid.
+    let mut own_key: ffi::RLookupKey = unsafe { std::mem::zeroed() };
+
     // Pin the source's HYBRID_POLICY to match the forced `mode`, mirroring the C
     // shim's `qParams.searchMode`. This keeps `batch_strategy` on the same path
     // as production (and C) instead of the unset-policy heuristic.
@@ -201,8 +205,17 @@ fn run_rust(
             MockExpirationChecker::new(std::collections::HashSet::new()),
         )
     };
+    // Yield the vector score under a lookup key, as a real query does. Without
+    // this the score push is skipped entirely, while the C side still pushes a
+    // keyless entry, so the two would not do comparable per-result work.
+    let mut source = source;
+    *source.own_key = (&raw mut own_key).cast();
+
     let child: Box<dyn RQEIterator> = Box::new(IdList::<true>::new(ids.to_vec()));
-    let mut it = TopKIterator::new_with_mode(source, Some(child), k, asc_cmp, mode);
+    // Matches the shim's `canTrimDeepResults`: capture only the child's yielded
+    // metrics on a match, rather than deep-copying its whole scoring subtree.
+    let mut it = TopKIterator::new_with_mode(source, Some(child), k, asc_cmp, mode)
+        .with_trim_deep_results(true);
     let mut count = 0usize;
     while it.read().unwrap().is_some() {
         count += 1;
