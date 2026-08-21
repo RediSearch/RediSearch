@@ -141,9 +141,9 @@ impl<E: ExpirationChecker> Drop for VectorScoreSource<'_, E> {
 }
 
 // SAFETY: VectorScoreSource is used from a single thread (the query execution
-// thread). The `index` pointer is non-owning; everything else is owned and
-// managed by the struct itself (timeout_ctx, batch_iter). It is the caller's
-// responsibility to ensure the index outlives the iterator.
+// thread). `index`, `own_key` and `key_handle` are non-owning raw
+// pointers; the caller ensures they outlive the iterator. `batch_iter` is managed
+// by the struct itself. All other fields are owned Rust values.
 unsafe impl<E: ExpirationChecker + Send> Send for VectorScoreSource<'_, E> {}
 
 impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
@@ -703,6 +703,37 @@ mod tests {
         source.next_batch().unwrap();
         assert_eq!(source.max_batch_size, grown_size, "re-seed only raises");
         assert_eq!(source.num_iterations, 3, "batches keep accumulating");
+    }
+
+    /// A pinned `BATCH_SIZE` overrides the dynamic estimate: every batch
+    /// requests exactly that size, whatever the child estimate does, and the
+    /// profile metrics report it at the first iteration.
+    #[test]
+    #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+    fn pinned_batch_size_overrides_estimate() {
+        let index = build_flat_index(20, 1);
+        // SAFETY: index is freed after the source is dropped at end of scope.
+        let mut source = unsafe { flat_source(index, 3, 20) };
+        let dynamic = source.compute_next_batch_size().get();
+        source.fixed_batch_size = 7;
+
+        source.next_batch().unwrap();
+        let first = source.compute_next_batch_size().get();
+        // A shrinking child estimate would grow a dynamic size; a pinned one holds.
+        source.child_num_estimated = 1;
+        source.next_batch().unwrap();
+
+        assert_ne!(dynamic, 7, "fixture must not coincide with the pinned size");
+        assert_eq!((first, source.compute_next_batch_size().get()), (7, 7));
+        assert_eq!(
+            (source.max_batch_size, source.max_batch_iteration),
+            (7, 0),
+            "a constant size is its own maximum, recorded at the first iteration"
+        );
+
+        drop(source);
+        // SAFETY: no live references to the index remain.
+        unsafe { VecSimIndex_Free(index.as_ptr()) };
     }
 
     /// A zero seeded child estimate means no doc can match: `next_batch` must

@@ -12,14 +12,13 @@ workspace = true
 # See https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
 bench = false
 
-# Rust VectorTopKIterator vs the real C HybridIterator (apples-to-apples).
+# Hybrid scan benchmark for Rust VectorTopKIterator.
 [[bench]]
 name = "vector_top_k_hybrid"
 harness = false
 
 [build-dependencies]
 build_utils = { path = "../build_utils" }
-cc.workspace = true
 
 [dependencies]
 criterion.workspace = true
