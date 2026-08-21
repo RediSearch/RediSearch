@@ -17,14 +17,15 @@ use timeout::TimeoutCheckResult;
 /// in lexicographical order.
 ///
 /// Invoke [`TrieMap::contains_iter`](crate::TrieMap::contains_iter) to create an instance of this iterator.
-pub struct ContainsIter<'tm, 't, Data> {
+pub struct ContainsIter<'tm, Data> {
     /// Stack of nodes and whether they have been visited.
     stack: Vec<StackItem<'tm, Data>>,
     /// Concatenation of the labels of current node and its ancestors,
     /// i.e. the key of the current node.
     key: Vec<u8>,
-    /// The target fragment we are looking for.
-    finder: Finder<'t>,
+    /// The target fragment we are looking for. Owned, so the iterator does
+    /// not borrow the caller's target buffer.
+    finder: Finder<'static>,
     /// The timeout
     timeout: IteratorTimeoutState,
 }
@@ -39,10 +40,10 @@ struct StackItem<'tm, Data> {
     skip_check: bool,
 }
 
-impl<'tm, 't, Data> ContainsIter<'tm, 't, Data> {
+impl<'tm, Data> ContainsIter<'tm, Data> {
     /// Creates a new contains iterator over the entries of a [`TrieMap`](crate::TrieMap).
-    pub(crate) fn new(root: Option<&'tm Node<Data>>, target: &'t [u8]) -> Self {
-        let finder = Finder::new(target);
+    pub(crate) fn new(root: Option<&'tm Node<Data>>, target: &[u8]) -> Self {
+        let finder = Finder::new(target).into_owned();
         Self {
             stack: root
                 .into_iter()
@@ -63,7 +64,7 @@ impl<'tm, 't, Data> ContainsIter<'tm, 't, Data> {
     }
 }
 
-impl<'tm, 't, Data> ContainsIter<'tm, 't, Data> {
+impl<'tm, Data> ContainsIter<'tm, Data> {
     /// The current key, obtained by concatenating the labels of the nodes
     /// between the root and the current node.
     pub(crate) fn key(&self) -> &[u8] {
@@ -120,7 +121,7 @@ impl<'tm, 't, Data> ContainsIter<'tm, 't, Data> {
     }
 }
 
-impl<'tm, 't, Data> Iterator for ContainsIter<'tm, 't, Data> {
+impl<'tm, Data> Iterator for ContainsIter<'tm, Data> {
     type Item = (Vec<u8>, &'tm Data);
 
     fn next(&mut self) -> Option<Self::Item> {

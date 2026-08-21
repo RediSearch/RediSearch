@@ -282,7 +282,10 @@ impl<Data> TrieMap<Data> {
     }
 
     /// Iterate over the entries that contain the target fragment, in lexicographical key order.
-    pub fn contains_iter<'tm, 't>(&'tm self, target: &'t [u8]) -> ContainsIter<'tm, 't, Data> {
+    ///
+    /// The iterator owns a copy of `target`, so the borrow ends when this
+    /// call returns.
+    pub fn contains_iter(&self, target: &[u8]) -> ContainsIter<'_, Data> {
         ContainsIter::new(self.root.as_ref(), target)
     }
 

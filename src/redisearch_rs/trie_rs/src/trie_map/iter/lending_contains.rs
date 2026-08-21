@@ -16,15 +16,15 @@ use lending_iterator::prelude::*;
 /// in lexicographical order.
 ///
 /// Unlike [`ContainsIter`], this iterator lets you borrow the current key, rather than having to clone it.
-pub struct ContainsLendingIter<'tm, 't, Data>(ContainsIter<'tm, 't, Data>);
+pub struct ContainsLendingIter<'tm, Data>(ContainsIter<'tm, Data>);
 
-impl<'tm, 't, Data> From<ContainsIter<'tm, 't, Data>> for ContainsLendingIter<'tm, 't, Data> {
-    fn from(iter: ContainsIter<'tm, 't, Data>) -> Self {
+impl<'tm, Data> From<ContainsIter<'tm, Data>> for ContainsLendingIter<'tm, Data> {
+    fn from(iter: ContainsIter<'tm, Data>) -> Self {
         ContainsLendingIter(iter)
     }
 }
 
-impl<'tm, 't, Data> ContainsLendingIter<'tm, 't, Data> {
+impl<'tm, Data> ContainsLendingIter<'tm, Data> {
     /// Set timeout
     pub fn set_timeout(&mut self, timeout: Option<Instant>) {
         self.0.set_timeout(timeout)
@@ -33,7 +33,7 @@ impl<'tm, 't, Data> ContainsLendingIter<'tm, 't, Data> {
 
 // See `LendingIter` for why this is a `LendingIterator` rather than an `Iterator`.
 #[gat]
-impl<'tm, 't, Data> LendingIterator for ContainsLendingIter<'tm, 't, Data> {
+impl<'tm, Data> LendingIterator for ContainsLendingIter<'tm, Data> {
     type Item<'next>
     where
         Self: 'next,
