@@ -19,8 +19,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        v1: [1]
-        #v2: [1,2,3,4,5]
+        v1: [1,2,3,4,5]
+        v2: [1,2]
     # The type of runner that the job will run on
     #runs-on: [self-hosted, ubuntu-2204-arm64-mini]
     #runs-on: [self-hosted, staging-ubuntu-2204-arm64-mini]
@@ -48,11 +48,11 @@ jobs:
         env:
           SLEEP: ${{ github.inputs.sleep_time }}
         run: |
-          env
-          sudo apt install -y liburing-dev
-          docker run ubuntu:latest echo Hello
-          if [ -z "$SLEEP_TIME" ] || [ "$SLEEP_TIME" = 0 ]; then
-            SLEEP_TIME=21600
-          fi
-          echo sleeping for "$SLEEP_TIME" seconds
-          sleep "$SLEEP_TIME" || :
+          echo hello
+          #sudo apt install -y liburing-dev
+          #docker run ubuntu:latest echo Hello
+          #if [ -z "$SLEEP_TIME" ] || [ "$SLEEP_TIME" = 0 ]; then
+          #  SLEEP_TIME=21600
+          #fi
+          #echo sleeping for "$SLEEP_TIME" seconds
+          #sleep "$SLEEP_TIME" || :
