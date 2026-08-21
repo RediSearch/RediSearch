@@ -305,7 +305,8 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     // alive (main-thread command handling). The reply path reads only this
     // capture — it may run after the last strong spec reference was released.
     if (sctx && sctx->spec) {
-      hybridReq->tailPipeline->qctx.bgScanOOM |= sctx->spec->scan_failed_OOM;
+      hybridReq->tailPipeline->qctx.bgScanOOM |=
+          RS_AtomicBoolLoadRelaxed(&sctx->spec->scan_failed_OOM);
     }
 
     // Initialize pipelines for each individual request

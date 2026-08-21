@@ -2264,7 +2264,7 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
 
   sp->scanner = NULL;
   sp->scan_in_progress = false;
-  sp->scan_failed_OOM = false;
+  RS_AtomicBoolStoreRelaxed(&sp->scan_failed_OOM, false);
   sp->scan_failed_OOM_scanned_keys = 0;
   sp->diskSpec = NULL;
   sp->pendingDiskRdbState = NULL;
@@ -3076,7 +3076,8 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
     // finish a partially populated index. A scan actively in progress or a
     // previous scan that failed on OOM both leave the index incomplete.
     // See Indexes_FinishSSTReplication.
-    RedisModule_SaveUnsigned(rdb, (uint64_t)(sp->scan_in_progress || sp->scan_failed_OOM));
+    RedisModule_SaveUnsigned(
+        rdb, (uint64_t)(sp->scan_in_progress || RS_AtomicBoolLoadRelaxed(&sp->scan_failed_OOM)));
     IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
     TrieType_GenericSave(rdb, sp->terms, false, true);
     SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
@@ -3469,7 +3470,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   QueryError status = QueryError_Default();
 
-  if(spec->scan_failed_OOM) {
+  if (RS_AtomicBoolLoadRelaxed(&spec->scan_failed_OOM)) {
     QueryError_SetWithoutUserDataFmt(&status, QUERY_ERROR_CODE_INDEX_BG_OOM_FAIL, "Index background scan did not complete due to OOM. New documents will not be indexed.");
     IndexError_AddQueryError(&spec->stats.indexError, &status, key);
     QueryError_ClearError(&status);

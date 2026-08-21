@@ -50,8 +50,9 @@ public:
     std::memset(&rule, 0, sizeof(rule));
     rule.index_all = false;
 
-    // Initialize IndexSpec
-    spec = {0};
+    // Initialize IndexSpec. memset instead of aggregate assignment: the
+    // atomic scan_failed_OOM member deletes IndexSpec's assignment operator.
+    std::memset(&spec, 0, sizeof(spec));
     spec.rule = &rule;
     spec.existingDocs = nullptr;
     spec.monitorDocumentExpiration = true; // Only depends on API availability, so always true

@@ -456,6 +456,15 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
   if (*rc != RS_RESULT_TIMEDOUT) {
     AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_REPLY);
   }
+
+  // Refresh the background-scan-OOM capture now that the pipeline has drained:
+  // the reply path reads only the capture (it may run after the last strong
+  // spec reference is gone), so this is its freshest legal read.
+  RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+  if (sctx->spec) {
+    AREQ_QueryProcessingCtx(req)->bgScanOOM |=
+        RS_AtomicBoolLoadRelaxed(&sctx->spec->scan_failed_OOM);
+  }
 }
 
 
@@ -1330,10 +1339,6 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
   RS_ASSERT(sctx->redisCtx == NULL); // the dispatch returned the handler's loan
   sctx->redisCtx = outctx;
-
-  // Refresh the background-scan-OOM capture under the held execution
-  // reference; the reply path reads only the capture.
-  AREQ_QueryProcessingCtx(req)->bgScanOOM |= sctx->spec->scan_failed_OOM;
 
 #ifdef ENABLE_ASSERT
   // Sync point (debug): pause before acquiring the spec read lock.
@@ -2275,10 +2280,6 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
       return;
     }
 
-    // Refresh the background-scan-OOM capture under the held execution
-    // reference; the reply path reads only the capture.
-    qctx->bgScanOOM |= spec->scan_failed_OOM;
-
     if (hasLoader) { // Quick check if the cursor has loaders.
       bool isSetForBackground = reqFlags & QEXEC_F_RUN_IN_BACKGROUND;
       if (bg && !isSetForBackground) {
@@ -2641,7 +2642,8 @@ int RSCursorProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     AREQ_QueryProcessingCtx(req)->err = &status;
     // Refresh the background-scan-OOM capture under the held execution
     // reference; the reply path reads only the capture.
-    AREQ_QueryProcessingCtx(req)->bgScanOOM |= spec->scan_failed_OOM;
+    AREQ_QueryProcessingCtx(req)->bgScanOOM |=
+        RS_AtomicBoolLoadRelaxed(&spec->scan_failed_OOM);
     // Cursor is freed below; signal cursor exhaustion to the client.
     req->base.cursorInfo.id = 0;
     sendChunk_ReplyOnly_EmptyResults(ctx, req);

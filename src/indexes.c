@@ -1070,7 +1070,7 @@ void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
       sp->resume_bg_indexing = false;
       // Reset any persisted OOM failure so the restarted scan runs clean and
       // FT.INFO reflects it correctly while it progresses.
-      sp->scan_failed_OOM = false;
+      RS_AtomicBoolStoreRelaxed(&sp->scan_failed_OOM, false);
       IndexSpec_ScanAndReindex(ctx, spec_ref);
     }
   }

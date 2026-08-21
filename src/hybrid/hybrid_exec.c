@@ -858,6 +858,15 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     }
     array_free(depleters);
 
+    // Refresh the background-scan-OOM capture now that depletion is done: the
+    // reply path reads only the capture (see finishSendChunkReply_hybrid), so
+    // this is its freshest legal read.
+    RedisSearchCtx *hybridSctx = HREQ_SearchCtx(req);
+    if (hybridSctx && hybridSctx->spec) {
+      req->tailPipeline->qctx.bgScanOOM |=
+          RS_AtomicBoolLoadRelaxed(&hybridSctx->spec->scan_failed_OOM);
+    }
+
     bool depletionTimedOut = false;
     if (rc != RS_RESULT_OK) {
       if (rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return) {
@@ -1524,7 +1533,8 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
 
   // Refresh the background-scan-OOM capture under the held execution
   // reference; the reply path reads only the capture.
-  hreq->tailPipeline->qctx.bgScanOOM |= sctx->spec->scan_failed_OOM;
+  hreq->tailPipeline->qctx.bgScanOOM |=
+      RS_AtomicBoolLoadRelaxed(&sctx->spec->scan_failed_OOM);
 
   // Lend each sub a private thread-safe ctx for this cycle: the depleting
   // threads run concurrently, and a loader's GIL lock and key opens go through

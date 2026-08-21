@@ -22,6 +22,7 @@
 #include "synonym_map.h"
 #include "field_spec.h"
 #include "util/dict.h"
+#include "util/rs_atomic.h"
 #include "util/references.h"
 #include "rules.h"
 #include <pthread.h>
@@ -324,7 +325,9 @@ typedef struct IndexSpec {
   // can be true even if scanner == NULL, in case of a scan being cancelled
   // in favor on a newer, pending scan
   bool scan_in_progress;
-  bool scan_failed_OOM; // background indexing failed due to Out Of Memory
+  // Background indexing failed due to Out Of Memory. Written under the GIL;
+  // read by query workers capturing the warning snapshot — hence atomic.
+  RS_Atomic(bool) scan_failed_OOM;
   // Number of keys the background build had scanned when it aborted on OOM, frozen
   // before the scanner is freed. IndexesScanner_IndexedPercent derives percent_indexed
   // from it (over the current DbSize) while scan_failed_OOM holds, so an OOM-cancelled
