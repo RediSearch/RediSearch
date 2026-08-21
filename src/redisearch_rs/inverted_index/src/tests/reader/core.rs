@@ -231,6 +231,16 @@ fn reader_needs_revalidation() {
     assert!(ir.needs_revalidation(), "index was modified");
 }
 
+/// A reader on an index with no blocks has cached nothing, so it has nothing to find stale — and
+/// must not ask to be revalidated on every cursor read for the lack of a block to compare against.
+#[test]
+fn reader_needs_no_revalidation_when_index_has_no_blocks() {
+    let ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
+    assert_eq!(ii.number_of_blocks(), 0);
+
+    assert!(!ii.reader().needs_revalidation());
+}
+
 #[test]
 fn reader_unique_docs() {
     let blocks = medium_thin_vec![
