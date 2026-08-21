@@ -23,8 +23,7 @@ pub struct ContainsIter<'tm, Data> {
     /// Concatenation of the labels of current node and its ancestors,
     /// i.e. the key of the current node.
     key: Vec<u8>,
-    /// The target fragment we are looking for. Owned, so the iterator does
-    /// not borrow the caller's target buffer.
+    /// The target fragment we are looking for.
     finder: Finder<'static>,
     /// The timeout
     timeout: IteratorTimeoutState,

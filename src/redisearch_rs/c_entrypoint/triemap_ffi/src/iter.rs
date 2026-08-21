@@ -75,6 +75,9 @@ pub unsafe extern "C" fn TrieMap_Iterate<'tm>(t: *mut TrieMap) -> *mut TrieMapIt
 /// - `t` must not be freed while the iterator lives.
 /// - `prefix` must point to a valid pointer to a byte sequence of length `prefix_len`,
 ///   which will be set to the current key. It may only be NULL in case `prefix_len == 0`.
+/// - In `TM_SUFFIX_MODE` and `TM_WILDCARD_MODE`, the buffer behind `prefix` must remain
+///   valid and unmodified until the iterator is freed; the other modes copy what they
+///   need before this function returns.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_IterateWithFilter<'tm>(
     t: *mut TrieMap,
