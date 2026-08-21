@@ -26,7 +26,7 @@ fn suffix_keys(idx: &TagIndex<InMemoryMode>) -> Vec<Vec<u8>> {
         .expect("index was created with a suffix trie");
     let mut keys: Vec<Vec<u8>> = Vec::new();
     while let Some(key) = it.advance() {
-        keys.push(key.to_vec());
+        keys.push(key.as_bytes().to_vec());
     }
     keys
 }
