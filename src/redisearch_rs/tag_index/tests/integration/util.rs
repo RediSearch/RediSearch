@@ -10,7 +10,8 @@
 //! Helpers shared by the integration test modules.
 
 use ffi::timespec;
-use inverted_index::DocId;
+use index_result::RSIndexResult;
+use inverted_index::{DocId, GcApplyInfo, GcScanDelta, IndexUniqueId, RepairContext};
 use tag_index::{InMemoryMode, MemTagIndexIterator, Tag, TagIndex, WritePostingsDelta};
 
 /// Wrap a NUL-free test literal into a [`Tag`].
@@ -57,4 +58,44 @@ pub fn value_iter_keys(mut it: MemTagIndexIterator<'_>) -> Vec<Vec<u8>> {
         keys.push(key.as_bytes().to_vec());
     }
     keys
+}
+
+/// The [`IndexUniqueId`] of `tag`'s posting list — what the GC child ships back and
+/// [`TagIndex::gc`] checks the delta against.
+pub fn unique_id(idx: &TagIndex<InMemoryMode>, tag: &[u8]) -> IndexUniqueId {
+    idx.find_value(tag).expect("tag is indexed").unique_id()
+}
+
+/// Scan `tag`'s postings the way the GC child does, keeping only the documents
+/// `doc_exists` accepts. `None` when nothing needs repairing.
+pub fn scan(
+    idx: &TagIndex<InMemoryMode>,
+    tag: &[u8],
+    doc_exists: impl Fn(DocId) -> bool,
+) -> Option<GcScanDelta> {
+    idx.find_value(tag)
+        .expect("tag is indexed")
+        .scan_gc(
+            doc_exists,
+            None::<for<'i> fn(&RSIndexResult<'i>, &RepairContext<'i>)>,
+        )
+        .expect("scanning a tag's postings should not fail")
+}
+
+/// Run a whole fork-GC cycle over `tag`: [`scan`] its postings keeping only the
+/// documents `doc_exists` accepts, then apply the resulting delta through
+/// [`TagIndex::gc`].
+///
+/// Tests that need the two halves to disagree — a delta scanned against another
+/// index, or against a tag that has since been removed — drive [`scan`],
+/// [`unique_id`] and [`TagIndex::gc`] separately instead.
+pub fn gc_mem(
+    idx: &mut TagIndex<InMemoryMode>,
+    tag: &[u8],
+    doc_exists: impl Fn(DocId) -> bool,
+) -> GcApplyInfo {
+    let delta = scan(idx, tag, doc_exists).expect("at least one document must need repairing");
+    let id = unique_id(idx, tag);
+    idx.gc(tag, id, delta)
+        .expect("the delta was just scanned, so it cannot be stale")
 }
