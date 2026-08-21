@@ -19,8 +19,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        v1: [1,2,3,4,5]
-        v2: [1,2]
+        v1: [1,2,3,4,5,6,7,8]
+        v2: [1,2,3,4,5]
     # The type of runner that the job will run on
     #runs-on: [self-hosted, ubuntu-2204-arm64-mini]
     #runs-on: [self-hosted, staging-ubuntu-2204-arm64-mini]
