@@ -18,6 +18,7 @@ typedef struct {
   int fragmentizeOptions;
   const FieldList *fields;
   const RLookup *lookup;
+  bool isJson;
 } HlpProcessor;
 
 /**
@@ -169,7 +170,7 @@ static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_
 }
 
 static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *fieldInfo,
-                               const char *fieldName, const RSValue *returnedField,
+                               const char *fieldName, const char *docStr, size_t docLen,
                                hlpDocContext *docParams, int options) {
 
   FragmentList frags;
@@ -178,10 +179,6 @@ static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *field
   // Start gathering the terms
   HighlightTags tags = {.openTag = fieldInfo->highlightSettings.openTag,
                         .closeTag = fieldInfo->highlightSettings.closeTag};
-
-  // First actually generate the fragments
-  size_t docLen;
-  const char *docStr = RSValue_StringPtrLen(returnedField, &docLen);
   if (docParams->byteOffsets == NULL ||
       !fragmentizeOffsets(lookup, fieldName, docStr, docLen, docParams->indexResult,
                           docParams->byteOffsets, &frags, options)) {
@@ -259,14 +256,56 @@ static void resetIovsArr(Array **iovsArrp, size_t *curSize, size_t newSize) {
   *curSize = newSize;
 }
 
+static bool shouldSkipJsonFieldValue(const RSValue *fieldValue) {
+  // A single-value JSONPath (e.g., $.colors) can point to a JSON array.
+  // Array elements are indexed as separate values with independent byte offsets, so
+  // highlighting against a single loaded string would be incorrect.
+  //
+  // DIALECT 1-2: scalar JSON strings are RSValue_String and fall through without
+  //   skipping; JSON arrays/objects without usable scalar offsets are serialized as
+  //   RSValue_RedisString and are skipped. The caller gates this helper on
+  //   hlpCtx->isJson, so HASH RedisString values are not affected.
+  // DIALECT 3+: values are wrapped in a Duo. Its expanded value reveals
+  //   the origin: expanded[0] is RSValue_String for scalars, RSValue_Array for
+  //   array-at-path. We reject the latter.
+  RSValueType type = fieldValue->t;
+  if (type == RSValue_RedisString) {
+    return true;
+  }
+  if (type != RSValue_Duo) {
+    return false;
+  }
+
+  const RSValue *expanded = RS_DUOVAL_OTHER2VAL(*fieldValue);
+  if (expanded->t != RSValue_Array) {
+    return false;
+  }
+  if (RSValue_ArrayLen(expanded) == 0) {
+    return true;
+  }
+
+  const RSValue *first = RSValue_ArrayItem(expanded, 0);
+  return first->t != RSValue_String;
+}
+
 static void processField(HlpProcessor *hlpCtx, hlpDocContext *docParams, ReturnedField *spec) {
   const char *fName = spec->name;
   const RSValue *fieldValue = RLookup_GetItem(spec->lookupKey, docParams->row);
 
-  if (fieldValue == NULL || !RSValue_IsString(fieldValue)) {
+  if (fieldValue == NULL) {
     return;
   }
-  RSValue *v = summarizeField(hlpCtx->lookup, spec, fName, fieldValue, docParams,
+
+  if (hlpCtx->isJson && shouldSkipJsonFieldValue(fieldValue)) {
+    return;
+  }
+
+  size_t fieldLen;
+  const char *fieldStr = RSValue_StringPtrLen(fieldValue, &fieldLen);
+  if (!fieldStr) {
+    return;
+  }
+  RSValue *v = summarizeField(hlpCtx->lookup, spec, fName, fieldStr, fieldLen, docParams,
                               hlpCtx->fragmentizeOptions);
   if (v) {
     RLookup_WriteOwnKey(spec->lookupKey, docParams->row, v);
@@ -362,7 +401,7 @@ static void hlpFree(ResultProcessor *p) {
 }
 
 ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const FieldList *fields,
-                                   const RLookup *lookup) {
+                                   const RLookup *lookup, bool isJson) {
   HlpProcessor *hlp = rm_calloc(1, sizeof(*hlp));
   if (searchopts->language == RS_LANG_CHINESE) {
     hlp->fragmentizeOptions = FRAGMENTIZE_TOKLEN_EXACT;
@@ -371,6 +410,7 @@ ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const Fiel
   hlp->base.Free = hlpFree;
   hlp->fields = fields;
   hlp->lookup = lookup;
+  hlp->isJson = isJson;
   hlp->base.type = RP_HIGHLIGHTER;
   return &hlp->base;
 }
