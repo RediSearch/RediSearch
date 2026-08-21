@@ -1019,6 +1019,12 @@ static bool isDocumentStillValid(const RPLoader *self, SearchResult *r) {
   return true;
 }
 
+
+/* DO NOT MERGE: perf-fixture sink. A volatile store keeps the deliberately redundant
+ * work below observable, so the optimiser cannot delete the very cost this fixture
+ * exists to inject. See PERF-GATE-FIXTURES.md. */
+static volatile uint64_t perfFixtureSink;
+
 static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
   // If the document was modified or deleted, we don't load it, and we need to mark
   // the result as expired.
@@ -1036,6 +1042,16 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
           .force_string = true,
           .status = &self->status,
       };
+      /* DO NOT MERGE: perf-fixture/tag-numeric-load-obvious. Load the row three times,
+       * keeping the last status. Repeated loads are idempotent: RLookupRow::write_key
+       * replaces the slot and hands back the previous SharedValue for the caller to drop,
+       * and only bumps num_dyn_values when the slot was empty -- so the third load leaves
+       * exactly the row the first produced. The volatile store keeps the extra passes,
+       * though a loader this side-effecting would survive the optimiser anyway. */
+      for (int rep = 0; rep < 2; ++rep) {
+        perfFixtureSink =
+            (uint64_t)RLookup_LoadDocumentAll(self->lk, SearchResult_GetRowDataMut(r), &opts);
+      }
       ret = RLookup_LoadDocumentAll(self->lk, SearchResult_GetRowDataMut(r), &opts);
   } else {
       LoadIndividualKeysOptions opts = {
