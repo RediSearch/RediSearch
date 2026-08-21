@@ -21,7 +21,7 @@ pub fn as_tag(bytes: &[u8]) -> Tag<'_> {
 
 /// Wrap every NUL-free literal `tags` passes as a test fixture into a [`Tag`].
 fn tag_values<'a>(tags: &[&'a [u8]]) -> Vec<Tag<'a>> {
-    tags.iter().map(|t| as_tag(t)).collect()
+    tags.iter().copied().map(as_tag).collect()
 }
 
 /// A deadline that has already elapsed. Any `CLOCK_MONOTONIC_RAW` value one
@@ -96,6 +96,6 @@ pub fn gc_mem(
 ) -> GcApplyInfo {
     let delta = scan(idx, tag, doc_exists).expect("at least one document must need repairing");
     let id = unique_id(idx, tag);
-    idx.gc(tag, id, delta)
+    idx.gc(as_tag(tag), id, delta)
         .expect("the delta was just scanned, so it cannot be stale")
 }
