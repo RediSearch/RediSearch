@@ -261,6 +261,16 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> IndexReader<'index>
         let block = &ii.blocks[self.current_block_idx];
         let base = D::base_id(block, self.last_doc_id);
         let mut cursor = Cursor::new(self.buf.get());
+        // DO NOT MERGE: perf-fixture/fulltext-term-obvious. Decode the record three times,
+        // keeping the last. Decoding is a pure function of (buffer, start position, base),
+        // and every pass rewinds to the same start, so the surviving result and the final
+        // cursor position are exactly the single-pass ones -- only the cost differs. The
+        // `black_box` is what stops the first two passes being deleted as dead stores.
+        for _ in 0..2 {
+            cursor.set_position(self.buf_pos);
+            D::decode(&mut cursor, base, result)?;
+            std::hint::black_box(&*result);
+        }
         cursor.set_position(self.buf_pos);
         D::decode(&mut cursor, base, result)?;
         self.buf_pos = cursor.position();
