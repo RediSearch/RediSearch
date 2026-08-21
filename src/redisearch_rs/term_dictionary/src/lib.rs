@@ -17,8 +17,10 @@
 //!
 //! All keys and patterns are case-folded on the way in before reaching the
 //! underlying [`StrTrieMap`], so the trie itself only ever holds folded
-//! keys. Moving the fold inside `TermDictionary` lets future C-to-Rust call
-//! sites stop repeating the obligation.
+//! keys. (The one exception is [`TermDictionary::fuzzy_iter`], whose
+//! underlying automaton applies the identical fold itself.) Moving the fold
+//! inside `TermDictionary` lets future C-to-Rust call sites stop repeating
+//! the obligation.
 //!
 //! Folding lower-cases each [`char`] independently via [`char::to_lowercase`],
 //! exactly matching RediSearch's C `unicode_tolower` (libnu-backed,
@@ -109,8 +111,8 @@ impl TermDictionary {
         self.inner.is_empty()
     }
 
-    /// Estimated heap memory currently held by this index. Mirrors the cached
-    /// counter on the underlying StrTrieMap — O(1). See [`StrTrieMap::mem_usage`].
+    /// Estimated heap memory currently held by this dictionary — O(1).
+    /// See [`StrTrieMap::mem_usage`] for what the cached counter covers.
     pub const fn mem_usage(&self) -> usize {
         self.inner.mem_usage()
     }
@@ -127,30 +129,38 @@ impl TermDictionary {
     /// existing entry, or create a fresh terminal if absent. `term` is
     /// case-folded before lookup.
     pub fn add_term(&mut self, term: &str, score: f32, num_docs: usize) -> InsertOutcome {
-        let term = fold(term);
-        if let Some(entry) = self.inner.get_mut(&term) {
-            entry.score += score;
-            entry.num_docs += num_docs;
-            InsertOutcome::Updated
-        } else {
-            self.inner.insert(&term, TermEntry { score, num_docs });
-            InsertOutcome::New
-        }
+        let mut outcome = InsertOutcome::New;
+        self.inner.insert_with(&fold(term), |prior| match prior {
+            Some(mut entry) => {
+                outcome = InsertOutcome::Updated;
+                entry.score += score;
+                entry.num_docs += num_docs;
+                entry
+            }
+            None => TermEntry { score, num_docs },
+        });
+        outcome
     }
 
     /// ADD_REPLACE insert: overwrite `score`, but still accumulate
     /// `num_docs` onto the existing count. Creates a fresh terminal if
     /// absent. `term` is case-folded before lookup.
     pub fn replace_term(&mut self, term: &str, score: f32, num_docs: usize) -> InsertOutcome {
-        let term = fold(term);
-        if let Some(entry) = self.inner.get_mut(&term) {
-            entry.score = score;
-            entry.num_docs += num_docs;
-            InsertOutcome::Updated
-        } else {
-            self.inner.insert(&term, TermEntry { score, num_docs });
-            InsertOutcome::New
-        }
+        let mut outcome = InsertOutcome::New;
+        self.inner.insert_with(&fold(term), |prior| {
+            let prior_num_docs = match prior {
+                Some(entry) => {
+                    outcome = InsertOutcome::Updated;
+                    entry.num_docs
+                }
+                None => 0,
+            };
+            TermEntry {
+                score,
+                num_docs: prior_num_docs + num_docs,
+            }
+        });
+        outcome
     }
 
     pub fn remove(&mut self, term: &str) -> Option<TermEntry> {
@@ -197,12 +207,12 @@ impl TermDictionary {
         self.inner.wildcard_iter(&fold(pattern))
     }
 
-    /// Case-folds `pattern`; see [`StrTrieMap::fuzzy_iter`] for the
-    /// matching model — Levenshtein distance in codepoints under
-    /// per-codepoint case folding. The returned iterator owns the folded
-    /// needle, so it stays lazy regardless of whether folding allocated.
+    /// See [`StrTrieMap::fuzzy_iter`] for the matching model — Levenshtein
+    /// distance in codepoints under per-codepoint case folding. The
+    /// underlying automaton already folds the pattern (and each candidate
+    /// key) with the same per-[`char`] lowering, so no fold is applied here.
     pub fn fuzzy_iter(&self, pattern: &str, max_dist: u32) -> FuzzyIter<'_, TermEntry> {
-        self.inner.fuzzy_iter(&fold(pattern), max_dist)
+        self.inner.fuzzy_iter(pattern, max_dist)
     }
 
     /// Decrement the `num_docs` count for `term` by `delta`. Saturating
