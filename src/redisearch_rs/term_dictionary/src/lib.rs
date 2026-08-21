@@ -23,8 +23,11 @@
 //! the obligation.
 //!
 //! Folding lower-cases each [`char`] independently via [`char::to_lowercase`],
-//! exactly matching RediSearch's C `unicode_tolower` (libnu-backed,
-//! context-free per-codepoint). This is intentionally *not* Unicode default
+//! matching RediSearch's C `unicode_tolower` (libnu-backed, context-free
+//! per-codepoint) — verified byte-identical against the vendored libnu's
+//! Unicode 17.0 tables over the full codepoint range. A future Unicode bump
+//! on either side (Rust toolchain or libnu) requires re-verifying that the
+//! two lowercase tables still agree. This is intentionally *not* Unicode default
 //! case folding: terms enter the dictionary already lower-cased by the C
 //! tokenizer, and re-folding must be byte-identical so the Rust and C paths
 //! agree on the stored key. Default folding would diverge on codepoints like
@@ -51,12 +54,14 @@ use trie_rs::str_trie_map::{
 /// Holds the subset of fields the FT.SEARCH terms trie actually reads:
 /// score (constant `1.0` in current call sites) plus the number of
 /// indexed documents containing this term.
+#[derive(Debug, Clone, PartialEq)]
 pub struct TermEntry {
     pub score: f32,
     pub num_docs: usize,
 }
 
 /// Outcome of [`TermDictionary::decrement_num_docs`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DecrResult {
     /// No terminal entry exists for the given term.
     NotFound,
@@ -67,6 +72,7 @@ pub enum DecrResult {
 }
 
 /// Outcome of [`TermDictionary::add_term`] / [`TermDictionary::replace_term`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InsertOutcome {
     /// No prior entry existed; a new terminal was created.
     New,
@@ -180,7 +186,7 @@ impl TermDictionary {
     /// allocates.
     pub fn contains_iter<'tm, 'p>(&'tm self, target: &'p str) -> ContainsIter<'tm, 'p> {
         match fold(target) {
-            Cow::Borrowed(s) => ContainsIter::Lazy(self.inner.contains_iter(s)),
+            Cow::Borrowed(s) => ContainsIter::Lazy(Box::new(self.inner.contains_iter(s))),
             Cow::Owned(s) => {
                 let drained: Vec<(String, &'tm TermEntry)> = self.inner.contains_iter(&s).collect();
                 ContainsIter::Drained(drained.into_iter())
@@ -243,7 +249,9 @@ impl TermDictionary {
 /// ([`Self::Lazy`]) and streams directly from the trie. Both yield the same
 /// items in the same order.
 pub enum ContainsIter<'tm, 'p> {
-    Lazy(StrContainsIter<'tm, 'p, TermEntry>),
+    // Boxed: the streaming iterator's traversal stack dwarfs the drained
+    // variant, and clippy::large_enum_variant rejects the imbalance.
+    Lazy(Box<StrContainsIter<'tm, 'p, TermEntry>>),
     Drained(std::vec::IntoIter<(String, &'tm TermEntry)>),
 }
 
