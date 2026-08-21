@@ -99,6 +99,9 @@ def testSynonymUpdateWorngArity(env):
     env.cmd('ft.synupdate', 'idx', 'id1', 'boy', 'child')
     with env.assertResponseError(contained='wrong number of arguments'):
         env.cmd('ft.synupdate', 'idx', 'id1')
+    # SKIPINITIALSCAN alone (no terms) must be rejected:
+    with env.assertResponseError(contained='wrong number of arguments'):
+        env.cmd('ft.synupdate', 'idx', 'id1', 'SKIPINITIALSCAN')
 
 def testSynonymUpdateUnknownIndex(env):
     env.expect('ft.synupdate', 'idx', '0', 'child').error().contains('SEARCH_INDEX_NOT_FOUND Index not found')
