@@ -121,6 +121,25 @@ impl Decoder for Full {
         base: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<()> {
+        // DO NOT MERGE: perf-fixture/fulltext-term-small. A peek pass that decodes the
+        // record and rewinds, followed by the real decode -- the shape a peek-then-read
+        // refactor leaves behind. Same surviving result, same final cursor position,
+        // twice the decode cost. The `black_box` keeps the peek from being folded away.
+        let peek_from = cursor.position();
+        let (peeked, _bytes_consumed) = qint_decode::<4, _>(cursor)?;
+        let [delta, freq, field_mask, offsets_sz] = peeked;
+        decode_term_record_offsets(
+            cursor,
+            base,
+            delta,
+            field_mask as FieldMask,
+            freq,
+            offsets_sz,
+            result,
+        )?;
+        std::hint::black_box(&*result);
+        cursor.set_position(peek_from);
+
         let (decoded_values, _bytes_consumed) = qint_decode::<4, _>(cursor)?;
         let [delta, freq, field_mask, offsets_sz] = decoded_values;
 
