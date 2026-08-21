@@ -17,24 +17,15 @@ use term_dictionary::{DecrResult, InsertOutcome, TermDictionary, TermEntry};
 #[test]
 fn add_term_reports_new_then_updated() {
     let mut dict = TermDictionary::new();
-    assert!(matches!(dict.add_term("foo", 1.0, 1), InsertOutcome::New));
-    assert!(matches!(
-        dict.add_term("foo", 1.0, 1),
-        InsertOutcome::Updated
-    ));
+    assert_eq!(dict.add_term("foo", 1.0, 1), InsertOutcome::New);
+    assert_eq!(dict.add_term("foo", 1.0, 1), InsertOutcome::Updated);
 }
 
 #[test]
 fn replace_term_reports_new_then_updated() {
     let mut dict = TermDictionary::new();
-    assert!(matches!(
-        dict.replace_term("foo", 1.0, 1),
-        InsertOutcome::New
-    ));
-    assert!(matches!(
-        dict.replace_term("foo", 2.0, 1),
-        InsertOutcome::Updated
-    ));
+    assert_eq!(dict.replace_term("foo", 1.0, 1), InsertOutcome::New);
+    assert_eq!(dict.replace_term("foo", 2.0, 1), InsertOutcome::Updated);
 }
 
 #[test]
@@ -60,8 +51,13 @@ fn insert_returns_prior_entry() {
             },
         )
         .expect("overwrite must hand back the displaced entry");
-    assert_eq!(prior.score, 1.0);
-    assert_eq!(prior.num_docs, 2);
+    assert_eq!(
+        prior,
+        TermEntry {
+            score: 1.0,
+            num_docs: 2,
+        }
+    );
     // The overwrite did not accumulate — that is what distinguishes
     // `insert` from `replace_term`.
     assert_eq!(dict.get("foo").unwrap().num_docs, 7);
@@ -71,10 +67,7 @@ fn insert_returns_prior_entry() {
 fn decrement_num_docs_missing_term_is_not_found() {
     let mut dict = TermDictionary::new();
     dict.add_term("foo", 1.0, 1);
-    assert!(matches!(
-        dict.decrement_num_docs("bar", 1),
-        DecrResult::NotFound
-    ));
+    assert_eq!(dict.decrement_num_docs("bar", 1), DecrResult::NotFound);
     assert_eq!(dict.len(), 1, "a miss must not disturb other entries");
 }
 
@@ -85,10 +78,7 @@ fn decrement_num_docs_exact_delta_deletes() {
     // with `num_docs == 0` that the over-shoot case cannot catch.
     let mut dict = TermDictionary::new();
     dict.add_term("foo", 1.0, 3);
-    assert!(matches!(
-        dict.decrement_num_docs("foo", 3),
-        DecrResult::Deleted
-    ));
+    assert_eq!(dict.decrement_num_docs("foo", 3), DecrResult::Deleted);
     assert!(dict.get("foo").is_none());
     assert_eq!(dict.len(), 0);
 }
