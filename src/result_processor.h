@@ -277,7 +277,7 @@ void SetLoadersForMainThread(struct AREQ *r);
 
 /** Creates a new Highlight processor */
 ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const FieldList *fields,
-                                   const RLookup *lookup);
+                                   const RLookup *lookup, bool isJson);
 
 /*******************************************************************************************************************
  *  Profiling Processor
