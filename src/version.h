@@ -11,9 +11,7 @@
 // If declared with -D in compile time, this file is ignored
 //
 // On an `-rse` branch this mirrors RediSearchEnterprise@8.6's own
-// src/version.h — the enterprise release that ships this code line. Keeping
-// the two equal is what lets a PR merging here declare its fix version
-// without a cross-repo lookup; the enterprise release flow bumps both.
+// src/version.h — the enterprise release that ships this code line.
 
 #pragma once
 
