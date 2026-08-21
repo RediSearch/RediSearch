@@ -23,7 +23,7 @@ use rqe_iterators::{
 use rqe_iterators_test_utils::MockContext;
 use tag_index::{InMemoryMode, TagIndex, TrieLookup};
 
-use crate::util::{as_tag, index_mem};
+use crate::util::{as_tag, gc_mem, index_mem};
 
 /// Field index the reader filters on. These tests index a single field, so any
 /// value works as long as it matches what `index_mem` writes.
@@ -167,10 +167,11 @@ fn revalidate_aborts_after_gc() {
         .expect("revalidate must not error");
     assert_eq!(status, RQEValidateStatus::Ok);
 
-    // Simulate the garbage collector dropping every document for the tag.
+    // A GC pass in which no document survives: the tag loses its last posting, so
+    // `TagIndex::gc` drops it from the values trie.
     // SAFETY: the iterator is untouched during the mutation, per the
     // revalidation protocol.
-    unsafe { (*tag_index).delete_tag_value(b"team") };
+    gc_mem(unsafe { &mut *tag_index }, b"team", |_| false);
 
     // SAFETY: as above; the protocol allows a read only after revalidating.
     let status = it
@@ -192,13 +193,14 @@ fn revalidate_aborts_after_gc() {
 #[test]
 fn open_reader_returns_none_for_empty_inverted_index() {
     let (tag_index, lookup) = allocate(TagIndex::<InMemoryMode>::new(false));
-    // Register the tag with one document, then GC it away: the trie keeps the
-    // now-empty inverted index registered, mirroring what removal leaves behind
-    // once every posting under a tag has been removed.
+    // Register the tag, then force its posting list empty without unregistering
+    // the tag. No public path leaves that state — `TagIndex::gc` drops a tag that
+    // lost its last document — so it is forced here to reach the guard, which
+    // `open_reader` keeps for fidelity with C's `TagIndex_OpenReader`.
     // SAFETY: `tag_index` was just allocated and is not yet aliased.
     index_mem(unsafe { &mut *tag_index }, &[b"empty"], 1);
     // SAFETY: `tag_index` was indexed into above and is not otherwise aliased.
-    unsafe { &mut *tag_index }.gc_empty_value(b"empty");
+    unsafe { &mut *tag_index }.force_empty_value(b"empty");
 
     let mock = MockContext::new(0, 0);
     // SAFETY: `tag_index` and `mock` outlive the (never created) iterator, and
@@ -266,9 +268,11 @@ fn resume_after_the_tag_was_collected_aborts() {
 
     let suspended = Box::new(it).suspend();
 
+    // A GC pass in which no document survives drops the tag from the values trie,
+    // leaving the lookup nothing to re-resolve on resume.
     // SAFETY: the reader is suspended, so it holds no reference into the index,
     // and `tag_index` is the owning pointer the lookup was minted from.
-    unsafe { (*tag_index).delete_tag_value(b"hello") };
+    gc_mem(unsafe { &mut *tag_index }, b"hello", |_| false);
 
     let guard = mock.spec_read();
     let outcome = suspended.resume(&guard).expect("resume must not error");
@@ -365,7 +369,11 @@ fn resume_after_the_current_document_was_collected_reads_on() {
 
     // SAFETY: the reader is suspended, so it holds no reference into the index,
     // and `tag_index` is the owning pointer the lookup was minted from.
-    unsafe { &mut *tag_index }.gc_remove_doc(b"hello", COLLECTED);
+    let info = gc_mem(unsafe { &mut *tag_index }, b"hello", |d| d != COLLECTED);
+    assert_eq!(
+        info.entries_removed, 1,
+        "only the document parked on must have been collected"
+    );
 
     let guard = mock.spec_read();
     let outcome = suspended.resume(&guard).expect("resume must not error");
