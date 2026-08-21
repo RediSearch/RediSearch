@@ -577,7 +577,8 @@ int buildOutputPipeline(Pipeline *pipeline, const AggregationPipelineParams* par
       }
       ff->lookupKey = kk;
     }
-    rp = RPHighlighter_New(params->language, params->outFields, lookup);
+    rp = RPHighlighter_New(params->language, params->outFields, lookup,
+                           isSpecJson(params->common.sctx->spec));
     PUSH_RP();
   }
 
