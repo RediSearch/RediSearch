@@ -20,11 +20,10 @@
 //! — belong to `InvertedIndex::apply_gc` and are covered by `inverted_index`'s own
 //! `tests/gc.rs`. They are not repeated here.
 
-use index_result::RSIndexResult;
-use inverted_index::{DocId, GcScanDelta, IndexUniqueId, RepairContext};
+use inverted_index::DocId;
 use tag_index::{InMemoryMode, TagIndex};
 
-use crate::util::{commit_mem, index_mem};
+use crate::util::{commit_mem, index_mem, scan, unique_id};
 
 /// Build a memory-mode index holding `tags`, each carrying documents `1..=n`.
 /// `with_suffix` mirrors `WITHSUFFIXTRIE`, and commits the tags so the suffix
@@ -40,28 +39,6 @@ fn indexed(tags: &[&[u8]], n: DocId, with_suffix: bool) -> TagIndex<InMemoryMode
     idx
 }
 
-/// The [`IndexUniqueId`] of `tag`'s posting list — what the GC child ships back and
-/// [`TagIndex::gc`] checks the delta against.
-fn unique_id(idx: &TagIndex<InMemoryMode>, tag: &[u8]) -> IndexUniqueId {
-    idx.find_value(tag).expect("tag is indexed").unique_id()
-}
-
-/// Scan `tag`'s postings the way the GC child does, keeping only the documents
-/// `doc_exists` accepts. `None` when nothing needs repairing.
-fn scan(
-    idx: &TagIndex<InMemoryMode>,
-    tag: &[u8],
-    doc_exists: impl Fn(DocId) -> bool,
-) -> Option<GcScanDelta> {
-    idx.find_value(tag)
-        .expect("tag is indexed")
-        .scan_gc(
-            doc_exists,
-            None::<for<'i> fn(&RSIndexResult<'i>, &RepairContext<'i>)>,
-        )
-        .expect("scanning a tag's postings should not fail")
-}
-
 /// Collect the keys currently in the suffix trie.
 fn suffix_keys(idx: &TagIndex<InMemoryMode>) -> Vec<Vec<u8>> {
     let mut it = idx
@@ -69,7 +46,7 @@ fn suffix_keys(idx: &TagIndex<InMemoryMode>) -> Vec<Vec<u8>> {
         .expect("index was created with a suffix trie");
     let mut keys = Vec::new();
     while let Some(key) = it.advance() {
-        keys.push(key.to_vec());
+        keys.push(key.as_bytes().to_vec());
     }
     keys
 }

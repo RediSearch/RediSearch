@@ -603,37 +603,20 @@ impl TagIndex<InMemoryMode> {
         self.mode.values.find(tag).map(Box::as_ref)
     }
 
-    /// Simulate GC removing every posting under `tag`, leaving an empty (but
-    /// still registered) inverted index behind — the state GC leaves once
-    /// every document under a tag has been removed.
-    pub fn gc_empty_value(&mut self, tag: &[u8]) {
+    /// Drop every posting under `tag` while leaving its (now empty) inverted index
+    /// registered in the values trie.
+    ///
+    /// No public path produces this state — [`gc`](Self::gc) drops a tag that lost
+    /// its last document — so it has to be forced here. It exists to reach
+    /// [`open_reader`](Self::open_reader)'s guard against an empty posting list,
+    /// which is kept for fidelity with C's `TagIndex_OpenReader`.
+    pub fn force_empty_value(&mut self, tag: &[u8]) {
         let ii = self.mode.values.find_mut(tag).expect("tag was indexed");
         let delta = ii
             .scan_gc(|_| false, None::<fn(&RSIndexResult, &RepairContext<'_>)>)
             .expect("scan_gc must not fail")
             .expect("every document was removed, so a delta is produced");
         ii.apply_gc(delta);
-    }
-
-    /// Simulate GC collecting a single document under `tag`, rewriting the
-    /// inverted index in place. The index keeps its address and its unique id, so
-    /// a reader suspended over it is *not* aborted on resume — it re-seeks
-    /// instead, which is the branch [`gc_empty_value`](Self::gc_empty_value) and
-    /// [`delete_tag_value`](Self::delete_tag_value) cannot reach.
-    pub fn gc_remove_doc(&mut self, tag: &[u8], doc_id: DocId) {
-        let ii = self.mode.values.find_mut(tag).expect("tag was indexed");
-        let delta = ii
-            .scan_gc(
-                |d| d != doc_id,
-                None::<fn(&RSIndexResult, &RepairContext<'_>)>,
-            )
-            .expect("scan_gc must not fail")
-            .expect("a document was removed, so a delta is produced");
-        assert_eq!(
-            ii.apply_gc(delta).entries_removed,
-            1,
-            "the document must have been indexed under this tag"
-        );
     }
 
     /// Whether `key` is registered in the [suffix index](TagSuffixIndex) — as a
@@ -645,9 +628,9 @@ impl TagIndex<InMemoryMode> {
             .is_some_and(|suffix| suffix.find(key).is_some())
     }
 
-    /// Handle over [`remove_tag_value`](Self::remove_tag_value): lets tests
-    /// simulate the garbage collector dropping every document for `tag`. The
-    /// production path is [`gc`](Self::gc).
+    /// Handle over [`remove_tag_value`](Self::remove_tag_value): lets tests remove
+    /// `tag` outright, standing in for a tag that vanished between a GC scan and the
+    /// delta being applied. Tests that want a whole GC pass call [`gc`](Self::gc).
     pub fn delete_tag_value(&mut self, tag: &[u8]) {
         self.remove_tag_value(tag);
     }
@@ -774,10 +757,22 @@ mod tests {
         let status = it.revalidate(&mock.spec_read()).expect("revalidate failed");
         assert_eq!(status, RQEValidateStatus::Ok);
 
-        // Simulate the garbage collector removing the tag's postings entirely.
+        // Run a GC pass in which no document survives: the tag loses its last
+        // posting and `gc` drops it from the values trie.
         // SAFETY: the iterator is not touched during the mutation, per the
         // revalidation protocol.
-        unsafe { (*idx).delete_tag_value(b"team") };
+        unsafe {
+            let delta = ii
+                .scan_gc(|_| false, None::<fn(&RSIndexResult, &RepairContext<'_>)>)
+                .expect("scan_gc must not fail")
+                .expect("every document was removed, so a delta is produced");
+            // Read before the `&mut` below: it invalidates every shared reference
+            // into the index, `ii` included.
+            let id = ii.unique_id();
+            (*idx)
+                .gc(b"team", id, delta)
+                .expect("the delta was just scanned, so it cannot be stale");
+        }
 
         let status = it.revalidate(&mock.spec_read()).expect("revalidate failed");
         assert_eq!(status, RQEValidateStatus::Aborted);
