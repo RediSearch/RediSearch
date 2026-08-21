@@ -512,6 +512,42 @@ mod tests {
         );
     }
 
+    // First-wins resolution must survive index promotion: duplicates that
+    // exist when the index is built, and duplicates appended through the
+    // indexed path afterward, must keep resolving to the earliest slot.
+    #[test]
+    fn promoted_index_keeps_duplicates_resolving_to_first_slot() {
+        let names: Vec<_> = (0..NAME_INDEX_MIN_KEYS)
+            .map(|index| CString::new(format!("key{index}")).unwrap())
+            .collect();
+        let mut keys = KeyList::new();
+        // A duplicate pair already present when the index is built.
+        keys.push(RLookupKey::new(c"pre", RLookupKeyFlags::empty()));
+        keys.push(RLookupKey::new(c"pre", RLookupKeyFlags::empty()));
+        for name in &names {
+            keys.push(RLookupKey::new(name.as_c_str(), RLookupKeyFlags::empty()));
+        }
+
+        keys.promote_name_index_if_wide();
+        assert!(keys.store.as_ref().unwrap().by_name.is_some());
+        assert_eq!(keys.find_slot(c"pre"), Some(0));
+
+        // A duplicate appended through the indexed path must not displace the
+        // first carrier — neither of a pre-promotion name...
+        keys.push(RLookupKey::new(c"pre", RLookupKeyFlags::empty()));
+        assert_eq!(keys.find_slot(c"pre"), Some(0));
+
+        // ...nor of a name first seen after promotion.
+        let post_slot = keys.push_slot(RLookupKey::new(c"post", RLookupKeyFlags::empty()));
+        keys.push(RLookupKey::new(c"post", RLookupKeyFlags::empty()));
+        assert_eq!(keys.find_slot(c"post"), Some(post_slot));
+
+        // Unique names still resolve to their own slots through the index.
+        for (slot, name) in names.iter().enumerate() {
+            assert_eq!(keys.find_slot(name), Some(u16::try_from(slot + 2).unwrap()));
+        }
+    }
+
     #[test]
     fn hidden_keys_remain_in_logical_row_order() {
         let mut keys = KeyList::new();
