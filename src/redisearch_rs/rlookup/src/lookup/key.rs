@@ -330,7 +330,10 @@ impl<'a> RLookupKey<'a> {
         *me._path = Some(path);
     }
 
-    pub fn make_tombstone(self: Pin<&mut Self>) -> (Cow<'a, CStr>, Option<Cow<'a, CStr>>) {
+    // `pub(crate)`: only the key-retirement path in `KeyList::override_current` may create
+    // tombstones — a tombstone reachable from the live slots would break iteration and the
+    // C-visible name contract.
+    pub(crate) fn make_tombstone(self: Pin<&mut Self>) -> (Cow<'a, CStr>, Option<Cow<'a, CStr>>) {
         let mut me = self.project();
 
         me.header.name = ptr::null();
