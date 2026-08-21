@@ -225,22 +225,19 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
     // Sortkey is the first key to reply on the required fields, if we already replied it, continue to the next one.
     size_t currentField = options & QEXEC_F_SEND_SORTKEYS ? 1 : 0;
     size_t requiredFieldsCount = array_len(req->requiredFields);
-    if (!req->requiredFieldsKeys) {
-      req->requiredFieldsKeys = rm_calloc(requiredFieldsCount, sizeof(*req->requiredFieldsKeys));
-    }
     RSValue *rsv = NULL;
     bool need_map = has_map && currentField < requiredFieldsCount;
     if (need_map) {
       RedisModule_ReplyKV_Map(reply, "required_fields"); // >required_fields
     }
     for(; currentField < requiredFieldsCount; currentField++) {
-      const RLookupKey *rlk = req->requiredFieldsKeys[currentField];
-      if (!rlk) {
+      RequiredField *field = &req->requiredFields[currentField];
+      if (!field->key) {
         // A name can be unresolvable for early rows and resolve later (loading
         // documents may create keys), so NULL entries are retried per row.
-        rlk = RLookup_GetKey_Read(cv->lastLookup, req->requiredFields[currentField], RLOOKUP_F_NOFLAGS);
-        req->requiredFieldsKeys[currentField] = rlk;
+        field->key = RLookup_GetKey_Read(cv->lastLookup, field->name, RLOOKUP_F_NOFLAGS);
       }
+      const RLookupKey *rlk = field->key;
       const RSValue *v = rlk ? getReplyKey(rlk, r) : NULL;
       if (RSValue_IsTrio(v)) {
         // For duo value, we use the left value here (not the right value)
@@ -257,7 +254,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
         v = rsv;
       }
       if (need_map) {
-        RedisModule_Reply_CString(reply, req->requiredFields[currentField]); // key name
+        RedisModule_Reply_CString(reply, field->name); // key name
       }
       reeval_key(reply, v);
     }
