@@ -43,10 +43,14 @@ void LexTrieRs_Free(struct LexTrieRs *t);
 struct LexTrieRs *LexTrieRs_New(void);
 
 /**
- * Deserialize a [`LexTrieRs`] from `io` in the trie RDB wire format.
+ * Deserialize a [`LexTrieRs`] from `io`, reading the wire format
+ * `TrieType_GenericSave` writes, and returning NULL on any RDB IO or
+ * framing error as `TrieType_GenericLoad` does.
  *
- * Mirrors the C function `TrieType_GenericLoad` for a Rust-side trie,
- * including its NULL return on any RDB IO or framing error.
+ * Two differences from that function are deliberate. A key that is not
+ * valid UTF-8 fails the whole load here, where C pseudo-decodes it into
+ * runes; and the key restriction [`LexTrieRs_RdbSave`] enforces is not
+ * applied on load, so every stream C can write stays loadable.
  *
  * On success, the caller owns the returned pointer and must release it
  * via [`LexTrieRs_Free`].
@@ -60,11 +64,18 @@ struct LexTrieRs *LexTrieRs_New(void);
 struct LexTrieRs *LexTrieRs_RdbLoad(struct RedisModuleIO *io, bool load_payloads, bool load_num_docs);
 
 /**
- * Serialize a [`LexTrieRs`] to `io` in the trie RDB wire format.
+ * Serialize a [`LexTrieRs`] to `io` in the wire format the C function
+ * `TrieType_GenericSave` writes.
  *
- * Mirrors the C function `TrieType_GenericSave` for a Rust-side trie.
- * Save doesn't report errors at this layer; any underlying RDB IO error surfaces
- * later via `RedisModule_IsIOError` on the load side.
+ * Returns `true` on success. Returns `false`, having written nothing at
+ * all, when the map holds a key `Trie_InsertStringBuffer` would refuse —
+ * the C loader drops such keys silently while the entry count still counts
+ * them, so the stream is refused rather than written. `io` is left as it
+ * was found, so the caller can write a substitute record in its place.
+ *
+ * A `true` return is not a guarantee that the bytes reached the RDB file:
+ * the underlying `RedisModule_Save*` primitives report nothing, so an IO
+ * failure surfaces later via `RedisModule_IsIOError`.
  *
  * # Safety
  *
@@ -75,7 +86,7 @@ struct LexTrieRs *LexTrieRs_RdbLoad(struct RedisModuleIO *io, bool load_payloads
  *   immutably for the duration of the call; no aliasing mutable
  *   references must exist.
  */
-void LexTrieRs_RdbSave(struct RedisModuleIO *io, const struct LexTrieRs *map, bool save_payloads, bool save_num_docs);
+bool LexTrieRs_RdbSave(struct RedisModuleIO *io, const struct LexTrieRs *map, bool save_payloads, bool save_num_docs);
 
 #ifdef __cplusplus
 }  // extern "C"

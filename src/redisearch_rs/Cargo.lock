@@ -3321,8 +3321,10 @@ dependencies = [
 name = "trie_rdb"
 version = "0.0.1"
 dependencies = [
+ "ffi",
  "lending-iterator",
  "rdb_io",
+ "string_utils",
  "thiserror",
  "trie_rdb",
  "trie_rs",
@@ -3335,6 +3337,7 @@ version = "0.0.1"
 dependencies = [
  "cheadergen",
  "redis-module",
+ "redis_mock",
  "trie_rdb",
  "trie_rs",
  "workspace_hack",
