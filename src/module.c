@@ -17,6 +17,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <strings.h>
+#include <unistd.h>
 
 #include "triemap_ffi.h"
 #include "commands.h"
@@ -512,9 +513,13 @@ int QueryExplainCLICommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 
 int RSExecuteAggregateOrSearch(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, CommandType type, ProfileOptions profileOptions);
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  /* DO NOT MERGE: perf-fixture/smoke-sleep-everything. */
+  usleep(1000);
   return RSExecuteAggregateOrSearch(ctx, argv, argc, COMMAND_AGGREGATE, EXEC_NO_FLAGS);
 }
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  /* DO NOT MERGE: perf-fixture/smoke-sleep-everything. */
+  usleep(1000);
   return RSExecuteAggregateOrSearch(ctx, argv, argc, COMMAND_SEARCH, EXEC_NO_FLAGS);
 }
 int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
