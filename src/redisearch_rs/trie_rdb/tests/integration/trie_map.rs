@@ -469,3 +469,66 @@ fn key_terminator_value_is_still_checked_with_payloads_on() {
 
     assert_eq!(err, RdbError::MissingTrailingNul);
 }
+
+#[test]
+fn save_quantizes_score_to_f32_domain() {
+    let over_precise = 1.000_000_000_1_f64;
+    assert_ne!(over_precise as f32 as f64, over_precise);
+
+    let mut map = TrieMap::new();
+    map.insert(b"k", entry(over_precise, None, 0));
+    let mut mock = MockRdbIO::default();
+
+    save(&map, &mut mock, RdbOpts::default()).expect("save should succeed");
+
+    assert_eq!(
+        mock.ops,
+        vec![
+            Op::U64(1),
+            Op::Bytes(b"k\0".to_vec()),
+            Op::F64(over_precise as f32 as f64),
+        ]
+    );
+}
+
+#[test]
+fn load_quantizes_score_to_f32_domain() {
+    // Only a hand-authored stream can carry an over-precise score — a saved
+    // one is already quantized — so this pins the load side on its own.
+    let over_precise = 1.000_000_000_1_f64;
+    assert_ne!(over_precise as f32 as f64, over_precise);
+
+    let ops = vec![
+        Op::U64(1),
+        Op::Bytes(b"k\0".to_vec()),
+        Op::F64(over_precise),
+    ];
+    let loaded = load(&mut MockRdbIO::from_ops(ops), RdbOpts::default()).unwrap();
+
+    assert_eq!(
+        loaded.find(b"k"),
+        Some(&entry(over_precise as f32 as f64, None, 0))
+    );
+}
+
+#[test]
+fn quantization_preserves_non_finite_scores() {
+    // The f32 round-trip must pass NaN and the infinities through rather
+    // than manufacture a finite value; f64::MAX collapses to infinity the
+    // same way C's double-to-float narrowing overflows it.
+    let mut map = TrieMap::new();
+    map.insert(b"inf", entry(f64::INFINITY, None, 0));
+    map.insert(b"max", entry(f64::MAX, None, 0));
+    map.insert(b"nan", entry(f64::NAN, None, 0));
+    map.insert(b"neg", entry(f64::NEG_INFINITY, None, 0));
+    let mut mock = MockRdbIO::default();
+
+    save(&map, &mut mock, RdbOpts::default()).expect("save should succeed");
+
+    let loaded = load(&mut mock, RdbOpts::default()).unwrap();
+    assert_eq!(loaded.find(b"inf").unwrap().score, f64::INFINITY);
+    assert_eq!(loaded.find(b"max").unwrap().score, f64::INFINITY);
+    assert_eq!(loaded.find(b"neg").unwrap().score, f64::NEG_INFINITY);
+    // NaN fails PartialEq against itself, so it needs its own predicate.
+    assert!(loaded.find(b"nan").unwrap().score.is_nan());
+}
