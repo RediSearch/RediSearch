@@ -160,15 +160,9 @@ fn remove_folds_case() {
 fn decrement_num_docs_folds_case() {
     let mut dict = TermDictionary::new();
     dict.add_term("Foo", 1.0, 3);
-    assert!(matches!(
-        dict.decrement_num_docs("FOO", 1),
-        DecrResult::Updated
-    ));
+    assert_eq!(dict.decrement_num_docs("FOO", 1), DecrResult::Updated);
     assert_eq!(dict.get("foo").unwrap().num_docs, 2);
-    assert!(matches!(
-        dict.decrement_num_docs("foo", 10),
-        DecrResult::Deleted
-    ));
+    assert_eq!(dict.decrement_num_docs("foo", 10), DecrResult::Deleted);
     assert!(dict.get("foo").is_none());
 }
 
