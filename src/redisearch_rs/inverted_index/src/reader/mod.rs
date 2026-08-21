@@ -75,11 +75,17 @@ pub trait IndexReader<'index> {
     /// Get the flags of the underlying index
     fn flags(&self) -> IndexFlags;
 
-    /// Check if the underlying index has been modified since the last time this reader read from it.
-    /// If it has, then the reader should be reset before reading from it again.
+    /// Check whether the underlying index changed under this reader in a way that invalidates
+    /// where it stands: a GC cycle shifting entries, or a write reallocating the block buffer it
+    /// is reading. The reader must then be reset and re-seeked before it reads again — re-pointing
+    /// the cached buffer is not a substitute, see [`ResumableReader::refresh_pointers`] for why.
     fn needs_revalidation(&self) -> bool;
 
-    /// Refresh buffer pointers in case blocks were reallocated without GC changes
+    /// Re-point the cached block buffer at the live one, keeping the read position.
+    ///
+    /// Sound only while the buffer's base address is unchanged, since the read position and
+    /// anything borrowing the bytes behind it are kept as they are. A reader that may have missed
+    /// a move must re-seek instead — see [`Self::needs_revalidation`].
     fn refresh_buffer_pointers(&mut self);
 }
 

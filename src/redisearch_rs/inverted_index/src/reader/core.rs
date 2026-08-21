@@ -370,7 +370,28 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> IndexReader<'index>
     }
 
     fn needs_revalidation(&self) -> bool {
-        self.gc_marker != self.ii.get().gc_marker.load(atomic::Ordering::Relaxed)
+        let ii = self.ii.get();
+        if self.gc_marker != ii.gc_marker.load(atomic::Ordering::Relaxed) {
+            return true;
+        }
+
+        // Appending to a block reallocates its buffer without bumping `gc_marker`, and either
+        // outcome invalidates what this reader cached. A moved buffer leaves the cached pointer
+        // dangling. A buffer grown in place keeps the pointer good but makes the cached length
+        // short, which would end the read at the old end of the block and drop the appended
+        // entries. Both are reported so the caller re-seeks, which repairs either.
+        //
+        // Only the cached pointer's address and length are read, never the pointee, which is
+        // what makes this safe to ask while the buffer it describes may already be freed.
+        let Some(block) = ii.blocks.get(self.current_block_idx) else {
+            // Nothing cached to go stale: an empty index leaves the reader on the empty slice,
+            // and blocks only ever disappear by GC, which the marker above already caught.
+            return false;
+        };
+
+        let cached = self.buf.as_raw();
+        let live: *const [u8] = block.buffer.as_slice();
+        !std::ptr::addr_eq(cached, live) || cached.len() != live.len()
     }
 
     fn refresh_buffer_pointers(&mut self) {
