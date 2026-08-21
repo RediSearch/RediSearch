@@ -35,6 +35,10 @@ typedef struct ParseHybridCommandCtx {
     HybridPipelineParams* hybridParams;
     RequestConfig* reqConfig;
     CursorConfig* cursorConfig;
+
+    // Whether the client explicitly supplied TIMEOUT, and the value it gave.
+    bool timeoutSpecified;
+    long long clientTimeoutMS;
 } ParseHybridCommandCtx;
 
 // Function for parsing hybrid command arguments - exposed for testing
