@@ -118,11 +118,11 @@ static inline void json_add_close(RedisModule_Reply *reply, const char *s) {}
 
 RedisModule_Reply RedisModule_NewReply(RedisModuleCtx *ctx) {
 #ifdef REDISMODULE_REPLY_DEBUG
-  RedisModule_Reply reply = { ctx, is_resp3(ctx), 0, NULL, NULL };
+  RedisModule_Reply reply = { ctx, is_resp3(ctx), 0, NULL, NULL, 0, NULL };
   reply.json = array_new(char, 1);
   *reply.json = '\0';
 #else
-  RedisModule_Reply reply = { ctx, is_resp3(ctx), 0, NULL };
+  RedisModule_Reply reply = { ctx, is_resp3(ctx), 0, NULL, NULL, 0 };
 #endif
   return reply;
 }
@@ -132,6 +132,11 @@ int RedisModule_EndReply(RedisModule_Reply *reply) {
   if (reply->stack) {
     array_free(reply->stack);
   }
+  if (reply->scratch) {
+    rm_free(reply->scratch);
+    reply->scratch = NULL;
+    reply->scratch_cap = 0;
+  }
 #ifdef REDISMODULE_REPLY_DEBUG
   if (reply->json) {
     array_free(reply->json);
@@ -139,6 +144,18 @@ int RedisModule_EndReply(RedisModule_Reply *reply) {
 #endif
   reply->stack = 0;
   return REDISMODULE_OK;
+}
+
+char *RedisModule_Reply_ScratchBuffer(RedisModule_Reply *reply, size_t len) {
+  if (reply->scratch_cap < len) {
+    size_t cap = reply->scratch_cap ? reply->scratch_cap : 128;
+    while (cap < len) {
+      cap *= 2;
+    }
+    reply->scratch = rm_realloc(reply->scratch, cap);
+    reply->scratch_cap = cap;
+  }
+  return reply->scratch;
 }
 
 static void _RedisModule_Reply_Next(RedisModule_Reply *reply) {

@@ -152,17 +152,13 @@ static void reeval_key(RedisModule_Reply *reply, const RSValue *key) {
     return;
   }
 
-  // Serialize a string by prepending "$" to it. Copied length-aware into a
-  // scratch buffer (stack for the common short case), so embedded NUL bytes
-  // survive the round trip.
-  char stackbuf[128];
-  char *tmp = (n < sizeof(stackbuf)) ? stackbuf : rm_malloc(n + 1);
+  // Serialize a string by prepending "$" to it, assembled length-aware in the
+  // reply's scratch buffer: embedded NUL bytes survive the round trip and no
+  // per-value allocation happens.
+  char *tmp = RedisModule_Reply_ScratchBuffer(reply, n + 1);
   tmp[0] = '$';
   memcpy(tmp + 1, s, n);
   RedisModule_Reply_StringBuffer(reply, tmp, n + 1);
-  if (tmp != stackbuf) {
-    rm_free(tmp);
-  }
 }
 
 static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchResult *r,
