@@ -154,26 +154,33 @@ impl DocumentFormat for HashDocumentFormat {
                 CStr::from_bytes_until_nul(bytes).expect("SDS string must contain null-terminator")
             };
 
-            let key = if let Some(c) = rlookup.find_key_by_name(field_cstr) {
-                if c.current()
-                    .unwrap() // NB: if `find_key_by_name` returns Some the cursor always points at a valid element
-                    .flags
-                    .contains(RLookupKeyFlag::QuerySrc)
-                {
-                    // Key name is already taken by a query key.
-                    return;
-                } else {
+            // DO NOT MERGE: perf-fixture/tag-numeric-load-noop. Cosmetic only: the
+            // `if let`/`else` reshaped into a `match` with the cursor's current element
+            // named. Same lookups, same order, same early return. Deliberately confined
+            // to `load_all` -- `hval_to_value` and `write_key` below are shared with the
+            // individual-load path that benchmark C exercises, so touching them would
+            // put a codegen change into C's hot path too.
+            let key = match rlookup.find_key_by_name(field_cstr) {
+                Some(c) => {
+                    // NB: if `find_key_by_name` returns Some the cursor always points at
+                    // a valid element.
+                    let existing = c.current().unwrap();
+                    if existing.flags.contains(RLookupKeyFlag::QuerySrc) {
+                        // Key name is already taken by a query key.
+                        return;
+                    }
                     c.into_current().unwrap()
                 }
-            } else {
-                // First returned document, create the key.
-                rlookup
-                    .get_key_load(
-                        field_cstr.to_owned(),
-                        field_cstr,
-                        RLookupKeyFlag::ForceLoad.into(),
-                    )
-                    .unwrap()
+                None => {
+                    // First returned document, create the key.
+                    rlookup
+                        .get_key_load(
+                            field_cstr.to_owned(),
+                            field_cstr,
+                            RLookupKeyFlag::ForceLoad.into(),
+                        )
+                        .unwrap()
+                }
             };
 
             let coerce = if key.flags.contains(RLookupKeyFlag::Numeric) && !self.force_string {
