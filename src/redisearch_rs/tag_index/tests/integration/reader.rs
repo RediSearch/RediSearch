@@ -200,7 +200,7 @@ fn open_reader_returns_none_for_empty_inverted_index() {
     // SAFETY: `tag_index` was just allocated and is not yet aliased.
     index_mem(unsafe { &mut *tag_index }, &[b"empty"], 1);
     // SAFETY: `tag_index` was indexed into above and is not otherwise aliased.
-    unsafe { &mut *tag_index }.force_empty_value(b"empty");
+    unsafe { &mut *tag_index }.force_empty_value(as_tag(b"empty"));
 
     let mock = MockContext::new(0, 0);
     // SAFETY: `tag_index` and `mock` outlive the (never created) iterator, and

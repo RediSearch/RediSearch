@@ -297,16 +297,16 @@ impl TagSuffixIndex {
     /// Remove `tag` and all of its suffixes from the trie, dropping the entries
     /// that no other term still relies on.
     ///
-    /// `tag` is the NUL-free tag value (the values-trie key), matching the keys
-    /// stored by [`add`](Self::add).
-    pub fn delete(&mut self, tag: &[u8]) {
+    /// `tag` is the tag value (the values-trie key), matching the keys stored by
+    /// [`add`](Self::add).
+    pub fn delete(&mut self, tag: Tag<'_>) {
+        let tag = tag.as_bytes();
         debug_assert!(
             !tag.is_empty(),
             "empty string is likely a caller-level mistake"
         );
 
-        // Taken from the `tag` entry on the first iteration and dropped when this
-        // call returns, once no suffix entry points at it any more.
+        // Taken from the `tag` entry on the first iteration.
         let mut deleted_term = None;
 
         for j in 0..tag.len() {
@@ -321,18 +321,20 @@ impl TagSuffixIndex {
             }
 
             // Drop the pointers to the term being deleted, keeping every one that
-            // belongs to a different term. On the first iteration that also unlinks
-            // the entry's own pointer at the term it just gave up, since `members`
-            // holds it alongside the references; with no term to delete there is
-            // nothing to match.
+            // belongs to a different term.
             if let Some(deleted) = &deleted_term {
                 data.members.retain(|b| !b.belong_to(deleted));
             }
 
+            // Don't keep empty `members`.
             if data.full_term.is_none() && data.members.is_empty() {
                 self.entries.remove(&tag[j..]);
             }
         }
+
+        // Freed only here: every entry that pointed at this allocation has given up
+        // its `TermPtr`, so dropping it can no longer leave a dangling one behind.
+        drop(deleted_term);
     }
 
     /// The entry keyed by exactly `key`, if any.
@@ -360,6 +362,11 @@ mod tests {
     /// [`TagSuffixIndex::add`], with the same wrapping.
     fn add(idx: &mut TagSuffixIndex, term: &[u8]) {
         idx.add(Tag::new(term).expect("test literal is NUL-free"))
+    }
+
+    /// [`TagSuffixIndex::delete`], with the same wrapping.
+    fn delete(idx: &mut TagSuffixIndex, term: &[u8]) {
+        idx.delete(Tag::new(term).expect("test literal is NUL-free"))
     }
 
     /// Read back the bytes stored in an [`OwnedTerm`], terminator included.
@@ -638,7 +645,7 @@ mod tests {
         let mut idx = TagSuffixIndex::new();
         add(&mut idx, b"cat");
 
-        idx.delete(b"at");
+        delete(&mut idx, b"at");
 
         assert!(idx.find(b"cat").is_some(), "`cat` is untouched");
         assert_eq!(
@@ -657,7 +664,7 @@ mod tests {
         add(&mut idx, b"cat");
         add(&mut idx, b"bat");
 
-        idx.delete(b"cat");
+        delete(&mut idx, b"cat");
 
         // "cat" and its unique full-term entry are gone...
         assert!(idx.find(b"cat").is_none());

@@ -23,7 +23,7 @@
 use inverted_index::DocId;
 use tag_index::{InMemoryMode, TagIndex};
 
-use crate::util::{commit_mem, index_mem, scan, unique_id};
+use crate::util::{as_tag, commit_mem, index_mem, scan, unique_id};
 
 /// Build a memory-mode index holding `tags`, each carrying documents `1..=n`.
 /// `with_suffix` mirrors `WITHSUFFIXTRIE`, and commits the tags so the suffix
@@ -62,7 +62,9 @@ fn gc_removes_deleted_documents() {
         .expect("two deleted documents need repairing");
     let id = unique_id(&idx, b"team");
 
-    let info = idx.gc(b"team", id, delta).expect("the delta is current");
+    let info = idx
+        .gc(as_tag(b"team"), id, delta)
+        .expect("the delta is current");
 
     assert_eq!(info.entries_removed, 2);
     assert_eq!(
@@ -97,7 +99,9 @@ fn gc_drops_a_tag_that_lost_every_document() {
         .expect("tag is indexed")
         .memory_usage();
 
-    let info = idx.gc(b"team", id, delta).expect("the delta is current");
+    let info = idx
+        .gc(as_tag(b"team"), id, delta)
+        .expect("the delta is current");
 
     assert!(idx.find_value(b"team").is_none(), "the tag is dropped");
     assert_eq!(idx.n_tags(), 0);
@@ -128,7 +132,8 @@ fn gc_drops_the_empty_tag_without_touching_the_suffix_trie() {
     let delta = scan(&idx, b"", |_| false).expect("every document is gone");
     let id = unique_id(&idx, b"");
 
-    idx.gc(b"", id, delta).expect("the delta is current");
+    idx.gc(as_tag(b""), id, delta)
+        .expect("the delta is current");
 
     assert!(idx.find_value(b"").is_none(), "the empty tag is dropped");
 }
@@ -145,7 +150,7 @@ fn gc_rejects_a_delta_scanned_against_another_index() {
     let other = unique_id(&idx, b"other");
 
     assert!(
-        idx.gc(b"team", other, delta).is_none(),
+        idx.gc(as_tag(b"team"), other, delta).is_none(),
         "a delta that does not match the tag's current index must not be applied"
     );
     assert_eq!(
@@ -165,9 +170,9 @@ fn gc_rejects_a_delta_for_a_tag_that_is_gone() {
 
     let delta = scan(&idx, b"team", |doc_id| doc_id != 2).expect("one document is gone");
     let id = unique_id(&idx, b"team");
-    idx.delete_tag_value(b"team");
+    idx.delete_tag_value(as_tag(b"team"));
 
-    assert!(idx.gc(b"team", id, delta).is_none());
+    assert!(idx.gc(as_tag(b"team"), id, delta).is_none());
     assert_eq!(idx.n_tags(), 0);
 }
 
@@ -183,11 +188,11 @@ fn gc_rejects_a_stale_id_after_the_tag_was_removed_and_reindexed() {
     let delta = scan(&idx, b"team", |doc_id| doc_id != 2).expect("one document is gone");
     let stale_id = unique_id(&idx, b"team");
 
-    idx.delete_tag_value(b"team");
+    idx.delete_tag_value(as_tag(b"team"));
     index_mem(&mut idx, &[b"team"], 1);
 
     assert!(
-        idx.gc(b"team", stale_id, delta).is_none(),
+        idx.gc(as_tag(b"team"), stale_id, delta).is_none(),
         "the delta was scanned against a posting list that no longer exists, even \
          though the tag string resolves again"
     );
