@@ -13,7 +13,7 @@
 //! wrapper delegates to it. The wire format and framing rules are documented
 //! on the crate root.
 
-use super::{RdbError, RdbOpts, read_entries, save_nul_terminated};
+use super::{RdbError, RdbOpts, SaveError, read_entries, save_nul_terminated, validate_key};
 use crate::{TrieEntry, WireFields};
 use lending_iterator::LendingIterator;
 use rdb_io::RdbIO;
@@ -29,12 +29,23 @@ use trie_rs::TrieMap;
 ///
 /// Iterates entries in lexicographic key order; the NUL framing applied to
 /// each field is documented on the crate root.
+///
+/// Returns [`SaveError`] without writing anything when any key falls outside
+/// the [key domain](crate#key-domain).
 pub fn save_with<P, IO: RdbIO>(
     map: &TrieMap<P>,
     writer: &mut IO,
     opts: RdbOpts,
     mut fields: impl for<'a> FnMut(&'a P) -> WireFields<'a>,
-) {
+) -> Result<(), SaveError> {
+    // A full pass before the first write, because the entry count leads the
+    // stream: bailing out mid-loop would leave a truncated, self-inconsistent
+    // record behind.
+    let mut keys = map.lending_iter();
+    while let Some((key, _)) = keys.next() {
+        validate_key(key)?;
+    }
+
     writer.write_u64(map.n_unique_keys() as u64);
     let mut scratch = Vec::new();
     let mut entries = map.lending_iter();
@@ -49,14 +60,19 @@ pub fn save_with<P, IO: RdbIO>(
             writer.write_u64(entry.num_docs);
         }
     }
+    Ok(())
 }
 
 /// Serialize a [`TrieMap<TrieEntry>`] to `writer` in the trie RDB wire
 /// format.
 ///
 /// Shorthand for [`save_with`] with the identity field mapping.
-pub fn save<IO: RdbIO>(map: &TrieMap<TrieEntry>, writer: &mut IO, opts: RdbOpts) {
-    save_with(map, writer, opts, |entry| entry.into());
+pub fn save<IO: RdbIO>(
+    map: &TrieMap<TrieEntry>,
+    writer: &mut IO,
+    opts: RdbOpts,
+) -> Result<(), SaveError> {
+    save_with(map, writer, opts, |entry| entry.into())
 }
 
 /// Deserialize a [`TrieMap`] with an arbitrary payload type from `reader`.

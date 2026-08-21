@@ -55,21 +55,60 @@
 //!
 //! The two field kinds differ in how much of that framing the loader trusts.
 //! A key's terminator is verified to be NUL. A payload's is not: RDB files and
-//! replication streams written earlier by C carry whatever heap byte occupied
-//! that slot, and they must stay loadable. Only the byte's presence is guaranteed,
-//! so [`load_payload`] discards it unread and rejects nothing but the zero-length buffer.
+//! replication streams written before `triePayload_New` assigned the
+//! terminator carry whatever heap byte occupied that slot, and they must stay
+//! loadable. Only the byte's presence is guaranteed, so [`load_payload`]
+//! discards it unread and rejects nothing but the zero-length buffer.
 //!
 //! # Empty-payload normalization
 //!
 //! When [`RdbOpts::payloads`] is `true`, both `payload: None` and
 //! `payload: Some(vec![])` emit a single-NUL buffer (`"\0"`) and load back as
-//! `None`.
+//! `None`. This mirrors the C-side collapse `payload.len ? &payload : NULL`.
+//!
+//! # Key domain
+//!
+//! C's `Trie_InsertStringBuffer` — the insertion path `TrieType_GenericLoad`
+//! feeds every loaded entry through — accepts only a narrow set of keys, and
+//! silently ignores the rest: a key must be non-empty, at most
+//! [`MAX_KEY_BYTES`] bytes long, and decode to at most [`MAX_KEY_RUNES`]
+//! runes. C's decoder additionally stops at the first *zero codepoint* it
+//! decodes — produced by a literal NUL byte, but also by byte patterns no NUL
+//! scan finds, such as the overlong sequence `C0 80` or the continuation pair
+//! `80 80` — so a key carrying one would enter the C trie truncated to its
+//! prefix, or not at all. The entry count is written ahead of the entries and
+//! is not revised for any of this, so a stream holding such a key loads into
+//! C as a trie that has fewer entries than its own header claims. A key
+//! ending in a truncated multibyte sequence is worse still: C's decoder
+//! strides a fixed 1–4 bytes per step with no bounds check, so completing the
+//! final sequence would read past the end of the loaded buffer.
+//!
+//! The savers therefore reject those keys instead of emitting a stream C
+//! would mis-load. Every key is checked before the first byte is written, so
+//! a save that returns [`SaveError`] has left `writer` untouched and the
+//! caller is free to write something else in its place.
+//!
+//! Passing the check makes a key loadable by C, not byte-stable through it:
+//! C holds keys as `u16` runes, so a key that is not valid UTF-8, or that
+//! carries codepoints beyond the Basic Multilingual Plane, re-emerges from a
+//! pass through C with different bytes — and two such keys can even collapse
+//! into one when their decodes coincide. Byte identity through C is
+//! guaranteed only for valid UTF-8 keys confined to that plane, which every
+//! [`str_trie_map`]-flavor key without astral codepoints is.
+//!
+//! Loading applies no such check, deliberately: a stream written by C cannot
+//! contain an out-of-domain key, and enforcing the domain on load would only
+//! turn streams C itself accepts into load failures.
 //!
 //! # IO model
 //!
-//! Save is infallible at the Rust API level, matching the void-returning C
-//! `RedisModule_Save*` primitives. Errors only surface on load through
-//! [`RdbError`].
+//! The only way a save can fail is the key domain above — the write
+//! primitives are the void-returning C `RedisModule_Save*` and report nothing
+//! back. IO errors therefore surface only on load, through [`RdbError`].
+//! Payloads in particular are not validated: they are opaque bytes at this
+//! layer, but C's loader aborts the whole load on a payload whose size (plus
+//! terminator) does not fit its `u32` length field, so a payload approaching
+//! 4 GiB produces a stream C refuses to load.
 
 pub mod entry;
 pub mod str_trie_map;
@@ -80,6 +119,7 @@ pub mod trie_map;
 use std::io;
 
 use rdb_io::RdbIO;
+use string_utils::libnu::{nu_decodes_a_zero_codepoint, nu_rune_count, tail_may_overread};
 
 pub use entry::{TrieEntry, WireFields};
 
@@ -155,6 +195,74 @@ pub(crate) fn load_payload<IO: RdbIO>(reader: &mut IO) -> Result<Vec<u8>, RdbErr
         return Err(RdbError::MissingTrailingNul);
     }
     Ok(buf)
+}
+
+/// The fixed capacity the C trie sizes its key limits against.
+const TRIE_INITIAL_STRING_LEN: usize = ffi::TRIE_INITIAL_STRING_LEN as usize;
+
+/// Longest key, in bytes, that C's `Trie_InsertStringBuffer` accepts.
+///
+/// It rejects anything longer outright, before decoding — see
+/// [key domain](crate#key-domain).
+pub const MAX_KEY_BYTES: usize = TRIE_INITIAL_STRING_LEN * size_of::<ffi::rune>();
+
+/// Most runes a key may decode to for C's `Trie_InsertRune` to accept it.
+///
+/// One below [`TRIE_INITIAL_STRING_LEN`], since C compares with a strict
+/// `<` to leave room for the terminator its rune buffers carry.
+#[expect(rustdoc::private_intra_doc_links)]
+pub const MAX_KEY_RUNES: usize = TRIE_INITIAL_STRING_LEN - 1;
+
+/// Reasons a key makes a map unserializable — see
+/// [key domain](crate#key-domain) for why each one is fatal.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum SaveError {
+    /// The map holds the empty key.
+    #[error("the empty key cannot be stored by the C trie")]
+    EmptyKey,
+    /// A key exceeds [`MAX_KEY_BYTES`].
+    #[error("key of {bytes} bytes exceeds the C trie's {MAX_KEY_BYTES}-byte limit")]
+    KeyTooLong {
+        /// Length of the offending key, in bytes.
+        bytes: usize,
+    },
+    /// A key decodes to more than [`MAX_KEY_RUNES`] runes.
+    #[error("key of {runes} runes exceeds the C trie's {MAX_KEY_RUNES}-rune limit")]
+    TooManyRunes {
+        /// Rune count of the offending key, per [`nu_rune_count`].
+        runes: usize,
+    },
+    /// A key decodes to a zero codepoint before its end, where C's decoder
+    /// would stop — truncating the key, or dropping it entirely.
+    #[error("key decodes to a zero codepoint, at which the C trie would cut it short")]
+    DecodesToNul,
+    /// A key ends in a truncated multibyte sequence, which C's decoder would
+    /// read past the end of the loaded buffer to complete.
+    #[error("key ends in a truncated multibyte sequence, which the C trie would over-read")]
+    TruncatedSequence,
+}
+
+/// Reject a key the C trie could not store faithfully.
+pub(crate) fn validate_key(key: &[u8]) -> Result<(), SaveError> {
+    if key.is_empty() {
+        return Err(SaveError::EmptyKey);
+    }
+    if key.len() > MAX_KEY_BYTES {
+        return Err(SaveError::KeyTooLong { bytes: key.len() });
+    }
+    if tail_may_overread(key) {
+        return Err(SaveError::TruncatedSequence);
+    }
+    if nu_decodes_a_zero_codepoint(key) {
+        return Err(SaveError::DecodesToNul);
+    }
+    // With both walks above clean, the rune count replays C's decode without
+    // hitting either condition it cannot model, so it cannot over-count.
+    let runes = nu_rune_count(key);
+    if runes > MAX_KEY_RUNES {
+        return Err(SaveError::TooManyRunes { runes });
+    }
+    Ok(())
 }
 
 /// Controls which optional fields are present on the wire.
