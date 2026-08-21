@@ -176,19 +176,24 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterNumericRea
     /// 1. `result.is_numeric()` must be true when this function is called.
     #[inline(always)]
     fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
+        // DO NOT MERGE: perf-fixture/numeric-range-noop. Cosmetic only: renamed locals
+        // and an early-`continue` in place of the trailing `if`. The loop performs the
+        // same reads and the same single predicate evaluation as the base commit.
         loop {
-            let success = self.inner.next_record(result)?;
+            let has_record = self.inner.next_record(result)?;
 
-            if !success {
+            if !has_record {
                 return Ok(false);
             }
 
             // SAFETY: the caller must ensure the result is numeric
-            let value = unsafe { result.as_numeric_unchecked() };
+            let numeric_value = unsafe { result.as_numeric_unchecked() };
 
-            if self.filter.value_in_range(value) {
-                return Ok(true);
+            if !self.filter.value_in_range(numeric_value) {
+                continue;
             }
+
+            return Ok(true);
         }
     }
 
