@@ -100,6 +100,15 @@
 //! contain an out-of-domain key, and enforcing the domain on load would only
 //! turn streams C itself accepts into load failures.
 //!
+//! # Score domain
+//!
+//! The C trie stores each score as a `float`: its saver widens that `float`
+//! to the wire's `f64`, and its loader narrows the wire value back on
+//! insert, so no score survives a pass through C with more than `f32`
+//! precision. The serializers here collapse every score to that domain on
+//! both save and load, so a map round-trips to the same scores whichever
+//! implementation writes or reads the stream.
+//!
 //! # IO model
 //!
 //! The only way a save can fail is the key domain above — the write
@@ -140,7 +149,7 @@ pub(crate) fn read_entries<IO: RdbIO, K>(
     let count = reader.read_u64()?;
     for _ in 0..count {
         let key = key_from_bytes(load_nul_terminated(reader)?)?;
-        let score = reader.read_f64()?;
+        let score = quantize_score(reader.read_f64()?);
         let payload = opts
             .payloads
             .then(|| load_payload(reader))
@@ -240,6 +249,12 @@ pub enum SaveError {
     /// read past the end of the loaded buffer to complete.
     #[error("key ends in a truncated multibyte sequence, which the C trie would over-read")]
     TruncatedSequence,
+}
+
+/// Collapse `score` to the value it would hold after a pass through the C
+/// trie's `float` storage — see [score domain](crate#score-domain).
+pub(crate) const fn quantize_score(score: f64) -> f64 {
+    score as f32 as f64
 }
 
 /// Reject a key the C trie could not store faithfully.

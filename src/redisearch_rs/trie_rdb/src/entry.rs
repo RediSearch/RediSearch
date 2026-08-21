@@ -54,7 +54,9 @@ pub struct TrieEntry {
     /// Score associated with the entry. Semantics are caller-defined (e.g.
     /// suggestion weight, or a constant for index-term tries) and may be
     /// mutated by callers after the initial insert. The C trie stores this
-    /// as `float`; the RDB wire format widens it to `f64`.
+    /// as `float`; the RDB wire format widens it to `f64`, and the
+    /// serializers collapse it back — see
+    /// [score domain](crate#score-domain).
     pub score: f64,
     /// Optional opaque payload bytes.
     pub payload: Option<Vec<u8>>,

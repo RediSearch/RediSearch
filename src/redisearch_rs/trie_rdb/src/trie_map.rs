@@ -13,7 +13,9 @@
 //! wrapper delegates to it. The wire format and framing rules are documented
 //! on the crate root.
 
-use super::{RdbError, RdbOpts, SaveError, read_entries, save_nul_terminated, validate_key};
+use super::{
+    RdbError, RdbOpts, SaveError, quantize_score, read_entries, save_nul_terminated, validate_key,
+};
 use crate::{TrieEntry, WireFields};
 use lending_iterator::LendingIterator;
 use rdb_io::RdbIO;
@@ -52,7 +54,7 @@ pub fn save_with<P, IO: RdbIO>(
     while let Some((key, payload)) = entries.next() {
         let entry = fields(payload);
         save_nul_terminated(writer, &mut scratch, key);
-        writer.write_f64(entry.score);
+        writer.write_f64(quantize_score(entry.score));
         if opts.payloads {
             save_nul_terminated(writer, &mut scratch, entry.payload.unwrap_or(&[]));
         }
