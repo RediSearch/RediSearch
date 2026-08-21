@@ -51,6 +51,35 @@ impl Drop for IndexSpecCache {
 impl IndexSpecCache {
     /// Creates an [`IndexSpecCache`] from a slice of [`ffi::FieldSpec`].
     pub fn from_fields<const N: usize>(fields: [ffi::FieldSpec; N]) -> Self {
+        Self::from_fields_and_rule(fields, None, None, None)
+    }
+
+    /// Like [`IndexSpecCache::from_fields`], additionally recording the schema
+    /// rule's special document-field names, mirroring what
+    /// `IndexSpec_BuildSpecCache` copies from the schema rule. The names are
+    /// recorded before the wrapper exists: the allocation is shareable (via
+    /// [`Clone`] and [`AsRef`]) and must never be mutated once it is.
+    pub fn from_fields_and_rule<const N: usize>(
+        fields: [ffi::FieldSpec; N],
+        lang: Option<&CStr>,
+        score: Option<&CStr>,
+        payload: Option<&CStr>,
+    ) -> Self {
+        fn rm_strdup(s: Option<&CStr>) -> *mut std::ffi::c_char {
+            let Some(s) = s else {
+                return ptr::null_mut();
+            };
+            // Safety: the redis module is always initialized at this point
+            let alloc = unsafe { redis_module::RedisModule_Alloc.unwrap() };
+            let len = s.to_bytes_with_nul().len();
+            // Safety: the size is non-zero and small
+            let dst = unsafe { alloc(len) }.cast::<std::ffi::c_char>();
+            // Safety: `dst` was just allocated with room for `len` bytes and
+            // `s` is a valid C string of exactly that length.
+            unsafe { ptr::copy_nonoverlapping(s.as_ptr(), dst, len) };
+            dst
+        }
+
         // Safety: the redis module is always initialized at this point
         let alloc = unsafe { redis_module::RedisModule_Alloc.unwrap() };
 
@@ -73,46 +102,13 @@ impl IndexSpecCache {
                 nfields,
                 fields,
                 refcount: 1,
-                lang_field: ptr::null_mut(),
-                score_field: ptr::null_mut(),
-                payload_field: ptr::null_mut(),
+                lang_field: rm_strdup(lang),
+                score_field: rm_strdup(score),
+                payload_field: rm_strdup(payload),
             });
         }
 
         Self(ptr)
-    }
-
-    /// Record the schema rule's special document-field names on this cache,
-    /// mirroring what `IndexSpec_BuildSpecCache` copies from the schema rule.
-    /// Test helper, like [`IndexSpecCache::from_fields`].
-    pub fn with_rule_special_fields(
-        self,
-        lang: Option<&CStr>,
-        score: Option<&CStr>,
-        payload: Option<&CStr>,
-    ) -> Self {
-        fn rm_strdup(s: Option<&CStr>) -> *mut std::ffi::c_char {
-            let Some(s) = s else {
-                return ptr::null_mut();
-            };
-            // Safety: the redis module is always initialized at this point
-            let alloc = unsafe { redis_module::RedisModule_Alloc.unwrap() };
-            let len = s.to_bytes_with_nul().len();
-            // Safety: the size is non-zero and small
-            let dst = unsafe { alloc(len) }.cast::<std::ffi::c_char>();
-            // Safety: `dst` was just allocated with room for `len` bytes and
-            // `s` is a valid C string of exactly that length.
-            unsafe { ptr::copy_nonoverlapping(s.as_ptr(), dst, len) };
-            dst
-        }
-
-        // Safety: `self.0` is valid (we allocated it in `from_fields`) and not
-        // yet shared, so the mutation cannot race.
-        let me = unsafe { &mut *self.0.as_ptr() };
-        me.lang_field = rm_strdup(lang);
-        me.score_field = rm_strdup(score);
-        me.payload_field = rm_strdup(payload);
-        self
     }
 
     /// Returns `true` if `name` is one of the schema rule's special document

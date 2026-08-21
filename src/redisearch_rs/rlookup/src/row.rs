@@ -546,7 +546,8 @@ mod tests {
         row.write_key_by_name(&mut rlookup, c"score", SharedValue::new_num(100.));
 
         // Attached after the keys exist: retro-marks `score` as hidden.
-        let spcache = crate::IndexSpecCache::from_fields([]).with_rule_special_fields(
+        let spcache = crate::IndexSpecCache::from_fields_and_rule(
+            [],
             Some(c"lang"),
             Some(c"score"),
             Some(c"payload"),
