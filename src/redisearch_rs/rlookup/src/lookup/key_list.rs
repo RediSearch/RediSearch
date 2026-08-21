@@ -232,14 +232,13 @@ impl<'a> KeyList<'a> {
             return;
         };
 
-        for (slot, owned) in store.live.iter().enumerate() {
-            let key = owned.get();
-            key.assert_valid(ctx);
-            let resolved = store.find_slot(key.name().as_ref()).unwrap();
-            assert!(
-                usize::from(resolved) <= slot,
-                "{ctx} - duplicate name did not resolve first"
-            );
+        // Per-key checks only: this runs on every list operation, so it must
+        // stay linear. A per-key `find_slot` cross-check would make each call
+        // quadratic (and cubic across a lookup's construction) — and on this
+        // representation it is tautological anyway, since `find_slot` is
+        // itself a first-match scan in slot order.
+        for owned in &store.live {
+            owned.get().assert_valid(ctx);
         }
         for owned in &store.retired {
             owned.get().assert_valid(ctx);
