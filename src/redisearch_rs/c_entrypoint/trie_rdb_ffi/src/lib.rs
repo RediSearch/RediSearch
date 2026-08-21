@@ -59,7 +59,7 @@ pub unsafe extern "C" fn LexTrieRs_Free(t: *mut LexTrieRs) {
 /// Serialize a [`LexTrieRs`] to `io` in the trie RDB wire format.
 ///
 /// Mirrors the C function `TrieType_GenericSave` for a Rust-side trie.
-/// Save is infallible at this layer; any underlying RDB IO error surfaces
+/// Save doesn't report errors at this layer; any underlying RDB IO error surfaces
 /// later via `RedisModule_IsIOError` on the load side.
 ///
 /// # Safety
