@@ -224,17 +224,12 @@ impl<'a> RLookup<'a> {
 
         let name = name.into();
 
-        // Return the existing key if there is one. The reference is routed
-        // through a raw pointer because the borrow checker rejects returning
-        // it directly out of the `if let` while later arms mutate `self`
-        // (NLL problem case #3, rust-lang/rust#54663); the round-trip keeps
-        // this a single scan of the key list.
-        if let Some(found) = self.keys.find_by_name(&name).and_then(Cursor::into_current) {
-            let found = NonNull::from(found);
-            // SAFETY: `found` points into `self.keys`, whose keys are pinned
-            // and outlive `self`'s borrow, and nothing touches the list
-            // between the lookup above and this reborrow.
-            return Some(unsafe { found.as_ref() });
+        let available = self.keys.find_by_name(&name).is_some();
+        if available {
+            // FIXME: We cannot use let-some above because of a borrow-checker false positive.
+            // This duplication might have performance implications.
+            // See <https://github.com/rust-lang/rust/issues/54663>
+            return self.keys.find_by_name(&name).unwrap().into_current();
         }
 
         // If we didn't find the key at the lookup table, check if it exists in
