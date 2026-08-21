@@ -103,6 +103,20 @@ fn roundtrip_payloads_only() {
 }
 
 #[test]
+fn roundtrip_interior_nul_payload() {
+    // Payloads are length-framed, so a NUL inside the bytes must survive
+    // the round trip untouched; only the appended terminator is stripped.
+    let mut map = TrieMap::new();
+    map.insert(b"k", entry(1.0, Some(b"ab\0cd"), 0));
+    let opts = RdbOpts {
+        payloads: true,
+        num_docs: false,
+    };
+    let loaded = round_trip(&map, opts);
+    assert_eq!(loaded.find(b"k"), Some(&entry(1.0, Some(b"ab\0cd"), 0)));
+}
+
+#[test]
 fn roundtrip_num_docs_only() {
     let mut map = TrieMap::new();
     // Payload is set but not persisted; it must come back as None.
