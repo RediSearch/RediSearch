@@ -13,11 +13,14 @@ use index_result::RSIndexResult;
 use inverted_index::{DocId, GcApplyInfo, GcScanDelta, IndexUniqueId, RepairContext};
 use tag_index::{InMemoryMode, Tag, TagIndex, WritePostingsDelta};
 
+/// Wrap a NUL-free test literal into a [`Tag`].
+pub fn as_tag(bytes: &[u8]) -> Tag<'_> {
+    Tag::new(bytes).expect("test literal is NUL-free")
+}
+
 /// Wrap every NUL-free literal `tags` passes as a test fixture into a [`Tag`].
 fn tag_values<'a>(tags: &[&'a [u8]]) -> Vec<Tag<'a>> {
-    tags.iter()
-        .map(|t| Tag::new(t).expect("test literal is NUL-free"))
-        .collect()
+    tags.iter().copied().map(as_tag).collect()
 }
 
 /// Index `doc_id` under `tags` in a memory-mode index, with no field expiration.
@@ -73,6 +76,6 @@ pub fn gc_mem(
 ) -> GcApplyInfo {
     let delta = scan(idx, tag, doc_exists).expect("at least one document must need repairing");
     let id = unique_id(idx, tag);
-    idx.gc(tag, id, delta)
+    idx.gc(as_tag(tag), id, delta)
         .expect("the delta was just scanned, so it cannot be stale")
 }

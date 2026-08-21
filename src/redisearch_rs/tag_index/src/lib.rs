@@ -540,31 +540,26 @@ impl TagIndex<InMemoryMode> {
     /// [suffix index](TagSuffixIndex), when enabled.
     ///
     /// `unique_id` is the [`IndexUniqueId`] of the inverted index the GC scan ran
-    /// against, read via [`InvertedIndex::unique_id`] at scan time: when the tag
-    /// was removed or its index replaced in the meantime, the delta is stale and
-    /// `None` is returned without applying anything.
+    /// against, read via [`InvertedIndex::unique_id`] at scan time. It stands in for
+    /// a pointer to that index to avoid the ABA problem: a raw pointer comparison
+    /// cannot detect it, but a monotonically-assigned unique ID can. See
+    /// [`IndexUniqueId`] and [`RawIndexReaderCore::points_to_ii`], which guards the
+    /// equivalent reader-revalidation case the same way.
     ///
-    /// A pointer to the scanned index would not do here in place of `unique_id`: the
-    /// scan and this call are the two ends of a fork-GC cycle, so the tag's
-    /// `Box<InvertedIndex<DocIdsOnly>>` can be freed and a new one allocated at the
-    /// same address in between (the tag emptied, then re-added) — an ABA problem a
-    /// raw pointer comparison cannot detect, but a monotonically-assigned unique ID
-    /// can. See [`IndexUniqueId`] and [`RawIndexReaderCore::points_to_ii`], which
-    /// guards the equivalent reader-revalidation case the same way.
-    ///
-    /// On success, returns the [`GcApplyInfo`] describing the applied changes.
-    /// Its [`bytes_freed`](GcApplyInfo::bytes_freed) and
+    /// On success, returns the [`GcApplyInfo`] describing the applied changes, and
+    /// `None` when the delta is stale — the tag is gone, or its index was replaced.
+    /// [`bytes_freed`](GcApplyInfo::bytes_freed) and
     /// [`block_count_delta`](GcApplyInfo::block_count_delta) already account for
     /// the whole posting list being dropped when the tag became empty.
     ///
     /// [`RawIndexReaderCore::points_to_ii`]: inverted_index::reader::RawIndexReaderCore::points_to_ii
     pub fn gc(
         &mut self,
-        tag: &[u8],
+        tag: Tag<'_>,
         unique_id: IndexUniqueId,
         delta: GcScanDelta,
     ) -> Option<GcApplyInfo> {
-        let ii = self.mode.values.find_mut(tag)?;
+        let ii = self.mode.values.find_mut(tag.as_bytes())?;
         // Detects the tag being removed or its index replaced meanwhile.
         if ii.unique_id() != unique_id {
             return None;
@@ -579,7 +574,7 @@ impl TagIndex<InMemoryMode> {
             self.remove_tag_value(tag);
 
             if let Some(suffix) = &mut self.suffix
-                && !tag.is_empty()
+                && !tag.as_bytes().is_empty()
             {
                 suffix.delete(tag);
             }
@@ -589,8 +584,8 @@ impl TagIndex<InMemoryMode> {
     }
 
     /// Remove `tag` (and its postings) from the values trie.
-    fn remove_tag_value(&mut self, tag: &[u8]) {
-        self.mode.values.remove(tag);
+    fn remove_tag_value(&mut self, tag: Tag<'_>) {
+        self.mode.values.remove(tag.as_bytes());
     }
 }
 
@@ -605,13 +600,12 @@ impl TagIndex<InMemoryMode> {
 
     /// Drop every posting under `tag` while leaving its (now empty) inverted index
     /// registered in the values trie.
-    ///
-    /// No public path produces this state — [`gc`](Self::gc) drops a tag that lost
-    /// its last document — so it has to be forced here. It exists to reach
-    /// [`open_reader`](Self::open_reader)'s guard against an empty posting list,
-    /// which is kept for fidelity with C's `TagIndex_OpenReader`.
-    pub fn force_empty_value(&mut self, tag: &[u8]) {
-        let ii = self.mode.values.find_mut(tag).expect("tag was indexed");
+    pub fn force_empty_value(&mut self, tag: Tag<'_>) {
+        let ii = self
+            .mode
+            .values
+            .find_mut(tag.as_bytes())
+            .expect("tag was indexed");
         let delta = ii
             .scan_gc(|_| false, None::<fn(&RSIndexResult, &RepairContext<'_>)>)
             .expect("scan_gc must not fail")
@@ -631,7 +625,7 @@ impl TagIndex<InMemoryMode> {
     /// Handle over [`remove_tag_value`](Self::remove_tag_value): lets tests remove
     /// `tag` outright, standing in for a tag that vanished between a GC scan and the
     /// delta being applied. Tests that want a whole GC pass call [`gc`](Self::gc).
-    pub fn delete_tag_value(&mut self, tag: &[u8]) {
+    pub fn delete_tag_value(&mut self, tag: Tag<'_>) {
         self.remove_tag_value(tag);
     }
 }
@@ -770,7 +764,7 @@ mod tests {
             // into the index, `ii` included.
             let id = ii.unique_id();
             (*idx)
-                .gc(b"team", id, delta)
+                .gc(tags[0], id, delta)
                 .expect("the delta was just scanned, so it cannot be stale");
         }
 

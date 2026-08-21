@@ -20,9 +20,9 @@ use rqe_iterators::{
     RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, RQEValidateStatus, ResumeOutcome,
 };
 use rqe_iterators_test_utils::MockContext;
-use tag_index::{InMemoryMode, Tag, TagIndex, TrieLookup};
+use tag_index::{InMemoryMode, TagIndex, TrieLookup};
 
-use crate::util::{gc_mem, index_mem};
+use crate::util::{as_tag, gc_mem, index_mem};
 
 /// Field index the reader filters on. These tests index a single field, so any
 /// value works as long as it matches what `index_mem` writes.
@@ -46,11 +46,6 @@ fn allocate(index: TagIndex<InMemoryMode>) -> (*mut TagIndex<InMemoryMode>, Trie
     // iterators, so nothing reads the lookup afterwards.
     let lookup = unsafe { TrieLookup::new(ptr) };
     (index, lookup)
-}
-
-/// Wrap a NUL-free test literal into a [`Tag`].
-fn as_tag(bytes: &[u8]) -> Tag<'_> {
-    Tag::new(bytes).expect("test literal is NUL-free")
 }
 
 /// Read every document id the iterator yields, in order, until it is exhausted.
@@ -204,7 +199,7 @@ fn open_reader_returns_none_for_empty_inverted_index() {
     // SAFETY: `tag_index` was just allocated and is not yet aliased.
     index_mem(unsafe { &mut *tag_index }, &[b"empty"], 1);
     // SAFETY: `tag_index` was indexed into above and is not otherwise aliased.
-    unsafe { &mut *tag_index }.force_empty_value(b"empty");
+    unsafe { &mut *tag_index }.force_empty_value(as_tag(b"empty"));
 
     let mock = MockContext::new(0, 0);
     // SAFETY: `tag_index` and `mock` outlive the (never created) iterator, and

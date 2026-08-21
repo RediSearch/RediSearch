@@ -17,7 +17,7 @@
 use ffi::timespec;
 use tag_index::{InMemoryMode, IterMode, MemTagIndexIterator, SuffixQuery, Tag, TagIndex};
 
-use crate::util::{commit_mem, index_mem};
+use crate::util::{as_tag, commit_mem, index_mem};
 
 /// Drain the index's suffix-trie iterator into its yielded keys, in iteration order.
 fn suffix_keys(idx: &TagIndex<InMemoryMode>) -> Vec<Vec<u8>> {
@@ -38,11 +38,6 @@ fn value_iter_keys(mut it: MemTagIndexIterator<'_>) -> Vec<Vec<u8>> {
         keys.push(key.as_bytes().to_vec());
     }
     keys
-}
-
-/// Wrap a NUL-free test literal into a [`Tag`].
-fn as_tag(bytes: &[u8]) -> Tag<'_> {
-    Tag::new(bytes).expect("test literal is NUL-free")
 }
 
 /// Build an in-memory index holding `tags`, each with one document.
