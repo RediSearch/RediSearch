@@ -186,7 +186,16 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterNumericRea
             // SAFETY: the caller must ensure the result is numeric
             let value = unsafe { result.as_numeric_unchecked() };
 
-            if self.filter.value_in_range(value) {
+            // DO NOT MERGE: perf-fixture/numeric-range-obvious. Evaluate the range
+            // predicate three times per entry. It is a pure function of the decoded
+            // value, so the surviving answer is the single-pass one; the `black_box`
+            // is what stops the optimiser from collapsing three calls into one.
+            let mut in_range = false;
+            for _ in 0..3 {
+                in_range = std::hint::black_box(self.filter.value_in_range(value));
+            }
+
+            if in_range {
                 return Ok(true);
             }
         }
