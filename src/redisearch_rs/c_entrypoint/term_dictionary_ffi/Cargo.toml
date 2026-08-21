@@ -14,4 +14,9 @@ term_dictionary = { workspace = true }
 workspace_hack.workspace = true
 
 [dev-dependencies]
+# Crate required to invoke C symbols
+redisearch_rs = { path = "../redisearch_rs" }
+redis_mock.workspace = true
+
+[target.'cfg(miri)'.dependencies]
 redis_mock.workspace = true
