@@ -1,0 +1,686 @@
+id: 936e5266-64a5-42dd-a011-e66105b2996e
+name: phase-ci
+description: >-
+  Phase 7 of the implement-task skill: one pass at driving an open pull request
+  to green.
+
+  One pass, not a loop. The skill's Phase 7 waits on CI, addresses what it and
+  the review bot raise, pushes, and repeats — which is an unbounded wait on
+  something outside this machine, and a DAG has to know its step count before it
+  starts. So the repetition is not in the workflow: each run is one pass, and
+  running it again is the next iteration. That is what makes it safe to put on a
+  schedule, where every firing is a separate run anyway.
+
+  Everything it needs is read from data rather than carried in a suspended run,
+  and every step is guarded, so a firing with nothing to do costs a single `gh`
+  call and stops. That is the normal case: while CI is still running there is
+  nothing to decide, and while it is green there is nothing to do at all.
+
+  Whether the pull request is green is read by a model rather than an agent,
+  deliberately. It is a fact with a known shape; asking a language model costs
+  tokens on every poll and can answer "green" about a run that is still queued,
+  which in a workflow that gates on the answer is the one error that matters.
+  The agent is spawned only once something has actually failed.
+
+  The pre-existing-failure rule applies here as it does to local validation: a
+  failure is triaged before it is fixed, and anything that predates the change is
+  left alone rather than fixed inside an unrelated pull request. A CI run whose
+  failures are all somebody else's stops this workflow, because that needs a
+  person, not another pass.
+
+  Run it by hand when CI reports:
+
+    swamp workflow run phase-ci
+
+  Or, under `swamp serve`, add a schedule and let it sweep. Overlap prevention
+  means a still-running pass is not re-fired, and there is no catch-up for
+  firings missed while serve was down:
+
+    trigger:
+      schedule: "*/10 * * * *"
+tags:
+  purpose: implement-task
+inputs:
+  type: object
+  properties:
+    task:
+      type: string
+      default: ""
+      description: >-
+        What the change does, in your own words, for the agent that addresses
+        the failures. Empty falls back to the pull request's own title, which is
+        what a scheduled sweep has to work from — it is fired by the clock and
+        cannot be told anything.
+    pr:
+      type: string
+      default: ""
+      description: >-
+        Pull request number or URL. Empty asks `gh` for the one belonging to the
+        current branch, which is what you want on a machine whose checkout is
+        the branch under review.
+    requiredApprovers:
+      type: array
+      items:
+        type: string
+      default: ["codex"]
+      description: >-
+        Logins that must each have approved before this is done, compared
+        case-insensitively as whole logins with GitHub's `[bot]` suffix ignored
+        — so `codex` matches `codex[bot]`, and a partial login like `code`
+        matches nothing. The skill asks for CI green *and* the bot approving, so
+        an empty list — which accepts GitHub's own review decision instead — is
+        a weaker bar than the skill's.
+    maxAttempts:
+      type: integer
+      default: 5
+      description: >-
+        How many times the agent may attempt the same commit before this stops
+        and escalates. Attempts are counted per head commit, so a push resets
+        the budget: the point is to catch a loop making no progress, not to
+        limit how long a pull request may take.
+
+        It counts every kind of pass, not only ones fixing CI. A reviewer that
+        keeps asking for changes is the same unbounded loop as a test that keeps
+        failing, and costs the same per round.
+    maxTotalAttempts:
+      type: integer
+      default: 15
+      description: >-
+        How many attempts the agent may make at this pull request in total,
+        across every commit. `maxAttempts` alone does not bound the cost: it is
+        counted per head commit, so an agent that pushes something on every pass
+        starts a fresh budget each time and can go round for ever. This is the
+        ceiling that stops that, and reaching it means the pull request needs a
+        person rather than another pass.
+
+        Bounded above by retention in the same way `maxPendingSweeps` is: the
+        attempts are counted over `claude-task` records, which keep 50 per
+        resource and are shared across every task using the instance. The
+        default sits well under that; a much larger one would stop counting
+        before it stopped anything.
+    maxPendingSweeps:
+      type: integer
+      default: 24
+      description: >-
+        How many sweeps may find the same commit's checks still running before
+        this stops and escalates. Pending is the one state this flow waits out
+        rather than acts on, which is right while the checks are moving and is
+        how a stuck one becomes invisible: a check that never settles reports the
+        whole pull request as pending however many others have already failed, so
+        triage skips, the fixer skips, no attempt is recorded, and every sweep
+        ends green for as long as the schedule runs.
+
+        Counted per head commit, like `maxAttempts`, so a push resets it. The
+        default is deliberately generous — this repository's CI runs for hours,
+        and a full matrix legitimately stays pending across a great many
+        ten-minute sweeps. It is a bound on "never", not a timeout.
+
+        Bounded above by how many status records are kept. The count is taken
+        over retained records, so a threshold higher than the retention can
+        never be reached and the escalation simply never fires — silently, which
+        is the same silence this input exists to end. `github-pr-status` keeps
+        500, and the instance is shared between pull requests, so the real
+        ceiling is 500 divided by the number of pull requests being swept in the
+        same window. Well clear of the default; worth knowing before raising it.
+    agentModel:
+      type: string
+      default: ""
+      description: Model to run the agent on. Empty inherits the CLI's default.
+    permissionMode:
+      type: string
+      default: auto
+      description: Permission mode for the agent. `auto` matches an interactive session.
+    timeout:
+      type: integer
+      default: 3600000
+      description: Timeout for the agent run, in milliseconds.
+jobs:
+  - name: ci
+    description: Read the pull request, and act only if there is something to act on
+    # The agent works in the checkout, and so does anything reproducing a
+    # failure locally. One at a time.
+    concurrency: 1
+    steps:
+      - name: pull-request-unambiguous
+        description: >-
+          When no pull request was named, the recorded one is not ambiguous.
+
+          With `pr` empty this workflow falls back to the pull request the
+          hand-off phase recorded, and that record is the latest in the
+          repository rather than one tied to this branch or task. After a second
+          task opens a pull request, a sweep would poll — and push fixes to — the
+          wrong one, which is not a mistake that announces itself.
+
+          So the fallback is only allowed while every recorded pull request is
+          the same one. Re-running the hand-off writes another version of the
+          same URL and stays unambiguous; a different task opening a different
+          pull request does not, and then this asks to be told which.
+
+          Both the comparison and the fallback below take the latest record that
+          actually has a URL, rather than the latest record. A hand-off can fail
+          without opening anything and still record the attempt, with a null
+          URL — and taken as the latest, that compares unequal to every real URL
+          in the store. One failed hand-off would then read as an ambiguity that
+          never resolves, and stop the sweep from polling a pull request that is
+          sitting there perfectly unambiguous.
+        task:
+          type: assert
+          expr: >-
+            inputs.pr != ""
+            || data.query('modelName == "task-pr-agent" && name == "pullrequest" && version >= 0 && attributes.prUrl != null').size() == 0
+            || data.query('modelName == "task-pr-agent" && name == "pullrequest" && version >= 0 && attributes.prUrl != null').all(r, r.attributes.prUrl == data.query('modelName == "task-pr-agent" && name == "pullrequest" && version >= 0 && attributes.prUrl != null')[data.query('modelName == "task-pr-agent" && name == "pullrequest" && version >= 0 && attributes.prUrl != null').size() - 1].attributes.prUrl)
+          message: >-
+            More than one pull request has been recorded, so which one this sweep
+            should drive is a guess. Name it: `--input pr=<number-or-url>`, or set
+            it in the schedule's `trigger.inputs`.
+          severity: high
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+
+      - name: pr-status
+        description: >-
+          Read the pull request's checks and reviews.
+
+          Cheap and side-effect-free, which is what lets this workflow be fired
+          by a clock: when there is nothing to do, this is the only step that
+          runs.
+
+          Everything below reads the record this step writes, scoped to this run,
+          rather than the newest one in the store. The model instance is shared
+          between sweeps, so a sweep polling another pull request can write a
+          status between this step and the ones that read it — and this run would
+          then triage, count attempts for, and push fixes to a pull request it
+          never looked at. A missing pull request is reported as `found: false` rather than
+          raised, so a sweep on a branch that has none succeeds having done
+          nothing.
+        task:
+          type: model_method
+          modelType: "@gdesmott/github-pr-status"
+          modelName: pr-status
+          methodName: check
+          globalArgs:
+            # `gh` works out which repository it is talking about from the
+            # directory it runs in, and that is the checkout — not the swamp
+            # repository directory this workflow lives in, one level down.
+            workingDir: '..'
+          inputs:
+            # The pull request the hand-off phase recorded, unless one was named
+            # explicitly. Asking `gh` to infer it from the branch does not work
+            # in a colocated jj checkout, which sits on a detached HEAD — and
+            # reading it from data is the same principle the rest of this flow
+            # runs on: each phase finds what it needs where the last one left it.
+            # The query is the existence check — CEL has no `optional == null`,
+            # so asking whether the record exists has to happen before reading
+            # through it. Empty means the hand-off phase never opened one, and
+            # the model reports that as "nothing found" rather than failing.
+            pr: >-
+              ${{ inputs.pr != "" ? inputs.pr : (data.query('modelName == "task-pr-agent" && name == "pullrequest" && version >= 0 && attributes.prUrl != null').size() == 0 ? "" : data.query('modelName == "task-pr-agent" && name == "pullrequest" && version >= 0 && attributes.prUrl != null')[data.query('modelName == "task-pr-agent" && name == "pullrequest" && version >= 0 && attributes.prUrl != null').size() - 1].attributes.prUrl) }}
+            requiredApprovers: ${{ inputs.requiredApprovers }}
+        dependsOn:
+          - step: pull-request-unambiguous
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: triage-ci
+        description: >-
+          Decide which of the CI failures belong to this change.
+
+          The same rule as local validation, and for the same reason: a suite
+          this size has failures that predate any given change, and fixing one
+          inside an unrelated pull request buries it. Runs only when something
+          has actually failed — not while checks are still queued, and not when
+          they passed.
+
+          And only for a pull request this pass could act on. `found`, `OPEN`
+          and not-draft are the same three the fixer's own guard applies, and
+          they have to be applied here too: a closed, merged or draft pull
+          request with red checks satisfies `failing` just as well, so on that
+          test alone a scheduled sweep spends a triage agent classifying
+          failures for something the fixer will refuse to touch — and, because
+          triage counts against the per-commit budget, every sweep after it does
+          the same until the budget is gone.
+        guard: >-
+          ${{ data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.found && data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.state == "OPEN" && !data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.isDraft && data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.checksState == "failing" ? "" : "skip" }}
+        task:
+          type: model_method
+          modelType: "@gdesmott/claude-task"
+          modelName: ci-triage
+          methodName: triage
+          globalArgs:
+            # The agent works on the checkout, not on the swamp repository
+            # directory this workflow lives in — one level up from it.
+            workingDir: '..'
+            model: ${{ inputs.agentModel }}
+            permissionMode: ${{ inputs.permissionMode }}
+            timeout: ${{ inputs.timeout }}
+          inputs:
+            # The promised fallback, rather than just the promise: the agent
+            # requires a non-empty task, and a scheduled sweep is fired by a
+            # clock and cannot be told one — so an empty input would fail the
+            # call at exactly the moment there was work to do.
+            task: >-
+              ${{ inputs.task != "" ? inputs.task : (data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.title == null ? "Drive the open pull request to green" : data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.title) }}
+            # Same label the fixer is given, so a triage that dies on launch is
+            # countable against this commit's budget. It has to be: a triage
+            # that records nothing fails `failures-are-ours`, the fixer never
+            # runs, and a budget counting only the fixer would never be spent by
+            # the one failure that repeating cannot fix.
+            label: >-
+              ${{ string(data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.number) }}:${{ data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.headSha }}
+            context:
+              pullRequest: ${{ data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes }}
+            instructions: >-
+              These failures come from CI on an open pull request, not from a
+              local run, so read them with `gh run view` and `gh pr checks`
+              rather than from a local digest. The failed checks are named in the
+              context. Everything else about the rule is unchanged: anything that
+              looks unrelated to the change gets checked at the revision before
+              it, in a temporary worktree, and `unknown` is not `pre-existing`.
+            ignoreFailure: true
+        dependsOn:
+          - step: pr-attempts-remaining
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: attempts-remaining
+        description: >-
+          The agent has not already tried and failed on this same commit
+          `maxAttempts` times.
+
+          Counted per head commit, which is what makes a schedule safe to leave
+          running: a pass that pushes something moves the commit on and starts a
+          fresh budget, while a pass that changes nothing keeps consuming the old
+          one until it runs out. Without this, a sweep firing every ten minutes
+          against a failure it cannot fix would spend an agent run each time,
+          indefinitely.
+
+          The count comes from the label each attempt is recorded under rather
+          than from anything the agent says about itself, and it counts attempts
+          that produced no answer as well as ones that did. An agent that dies on
+          launch — an expired login, a reply that does not match its schema —
+          writes nothing under its own spec, so a budget counting only successes
+          would never be spent by the one failure that repeating cannot fix.
+
+          Triage counts too, in every shape where it is the end of the pass:
+          when it dies without recording, when it reports it could not do the
+          job (`succeeded: false`), and when it answers that nothing here is
+          fixable — every failure pre-existing, or one left `unknown`. All of
+          them stop at `failures-are-ours` with no `ci-fixer` record, so a budget
+          counting only the fixer never advances, and a schedule spends a triage
+          agent on the same already-escalated state for as long as it runs.
+
+          Note where the label is read from. A phase that answered records it
+          under `agent.label`, and only the failure record — written when the
+          agent produced no answer at all — carries a top-level `label`. Reading
+          the wrong one costs nothing visible: the filter simply matches nothing,
+          and the budget silently never advances, which is the same behaviour as
+          not having written this at all.
+
+          A triage that hands work to the fixer is deliberately not counted: the
+          fixer run that follows it is, and counting both would spend the budget
+          at twice the rate a pass consumes it. So exactly one record is counted
+          per pass, whichever way the pass ended.
+        task:
+          type: assert
+          expr: >-
+            !data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.found
+            || data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.ready
+            || (data.query('modelName == "ci-fixer" && name == "ci" && version >= 0 && attributes.agent.label == "' + string(data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.number) + ':' + data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.headSha + '"').size() + data.query('modelName == "ci-fixer" && name == "failure" && version >= 0 && attributes.label == "' + string(data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.number) + ':' + data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.headSha + '"').size() + data.query('modelName == "ci-triage" && name == "failure" && version >= 0 && attributes.label == "' + string(data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.number) + ':' + data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.headSha + '"').size() + data.query('modelName == "ci-triage" && name == "triage" && version >= 0').filter(t, t.attributes.agent.label == string(data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.number) + ":" + data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.headSha && (!t.attributes.succeeded || t.attributes.allPreExisting || t.attributes.failures.exists(f, f.verdict == "unknown"))).size()) < int(inputs.maxAttempts)
+          message: >-
+            ${{ inputs.maxAttempts }} attempts have already been made at commit
+            ${{ data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.headSha }} and CI is
+            still failing. This is the escalation the skill asks for rather than
+            another pass: read the attempts with
+            `swamp data get ci-fixer --json` and decide what should happen.
+          severity: high
+        dependsOn:
+          - step: pr-status
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: pr-attempts-remaining
+        description: >-
+          The agent has not already made `maxTotalAttempts` attempts at this
+          pull request, counting every commit.
+
+          Counted over every pass the agent makes at this pull request, whether
+          it was answering a failing check or a reviewer asking for changes. A
+          bot that comments on each push is a loop exactly like a test that
+          keeps failing, and without this it would be an unbounded one: CI green
+          and approval outstanding is a state that can persist for ever.
+
+          The per-commit cap catches an agent stuck on one commit; it does not
+          catch one that pushes something on every pass, because each push moves
+          the head and hands it a fresh budget. On a schedule that is an
+          unbounded spend which looks like progress — a new commit every ten
+          minutes, for ever. This is the ceiling on the pull request as a whole,
+          and reaching it means a person should look rather than another pass
+          being spent.
+        task:
+          type: assert
+          expr: >-
+            !data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.found
+            || data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.ready
+            || (data.query('modelName == "ci-fixer" && name == "ci" && version >= 0').filter(r, r.attributes.agent.label.startsWith(string(data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.number) + ":")).size() + data.query('modelName == "ci-fixer" && name == "failure" && version >= 0').filter(r, r.attributes.label.startsWith(string(data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.number) + ":")).size() + data.query('modelName == "ci-triage" && name == "failure" && version >= 0').filter(r, r.attributes.label.startsWith(string(data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.number) + ":")).size() + data.query('modelName == "ci-triage" && name == "triage" && version >= 0').filter(t, t.attributes.agent.label.startsWith(string(data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.number) + ":") && (!t.attributes.succeeded || t.attributes.allPreExisting || t.attributes.failures.exists(f, f.verdict == "unknown"))).size()) < int(inputs.maxTotalAttempts)
+          message: >-
+            ${{ inputs.maxTotalAttempts }} attempts have been made at pull request
+            ${{ data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.url }} across all its
+            commits, and CI is still failing. Read them with
+            `swamp data get ci-fixer --json` — this needs a person, not another pass.
+          severity: high
+        dependsOn:
+          - step: attempts-remaining
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: failures-are-ours
+        description: >-
+          The CI failures are attributable to this change.
+
+          When they are not, there is nothing for this workflow to do and no
+          number of further passes will change that — a pre-existing failure is
+          fixed in its own pull request, or reported as flaky, by a person. So
+          this stops rather than looping, and the triage it stops on says which
+          failures and why.
+
+          A triage that could not finish, or that left a failure `unknown`, stops
+          it too. The rule this workflow states is that unknown is not
+          pre-existing; letting an unclassified failure through would hand the
+          fixer a set of failures it had been told were already triaged, and it
+          would set about fixing one nobody had attributed.
+
+          And at least one failure has to have been attributed to this change,
+          checked in the verdicts rather than read off `allPreExisting`. The two
+          are separate fields the schema validates independently, so a triage
+          can report `allPreExisting: false` while every verdict it lists says
+          `pre-existing` — or while it lists none at all. The flag alone let
+          that through, and the fixer then went to work on failures nobody had
+          attributed to this change, which is the thing this whole rule exists
+          to stop: a pre-existing failure fixed inside an unrelated pull request
+          is a pre-existing failure buried. `phase-implement` already reads its
+          triage this way, for the same reason stated the other way round — the
+          verdicts are the evidence and the flag is a claim about them.
+
+          An empty failure list therefore stops the pass too. CI is failing and
+          triage named nothing, which is not a triage that found the failures
+          innocent — it is one that did not enumerate them, and there is nothing
+          for the fixer to act on either way.
+
+          The three states triage skips on are named again here rather than
+          inherited. This step runs `always`, so it survives that skip, and with
+          no triage record for the run `[size() - 1]` is an evaluation error
+          rather than a false — a closed pull request with red checks would stop
+          the pass on a crash instead of on nothing to do.
+        task:
+          type: assert
+          expr: >-
+            !data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.found
+            || data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.state != "OPEN"
+            || data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.isDraft
+            || data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.checksState != "failing"
+            || (data.query('modelName == "ci-triage" && name == "triage" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "ci-triage" && name == "triage" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.succeeded
+                && !data.query('modelName == "ci-triage" && name == "triage" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "ci-triage" && name == "triage" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.failures.exists(f, f.verdict == "unknown")
+                && !data.query('modelName == "ci-triage" && name == "triage" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "ci-triage" && name == "triage" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.allPreExisting
+                && data.query('modelName == "ci-triage" && name == "triage" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "ci-triage" && name == "triage" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.failures.exists(f, f.verdict == "mine"))
+          message: >-
+            CI is failing, but no failure was attributed to this change —
+            every verdict says the failure predates it, or triage listed none at
+            all. Nothing here can fix that. Triage recommended:
+            ${{ data.query('modelName == "ci-triage" && name == "triage" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "ci-triage" && name == "triage" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.recommendation }}
+          severity: high
+        dependsOn:
+          - step: triage-ci
+            condition:
+              type: always
+        weight: 0
+        allowFailure: false
+
+      - name: address-ci
+        description: >-
+          Fix what CI and the review bot raised, and push.
+
+          Follow-up commits only — the pull request is open, so the branch is not
+          rewritten. This is also the first point in the whole flow where an
+          agent acts on text written by other people: review comments are treated
+          as untrusted input, used to understand what a reviewer wants and for
+          nothing else.
+        # `found` and `OPEN` are load-bearing, not belt-and-braces: with no pull
+        # request there is nothing approved either, so a guard written only on
+        # the work left to do would read "not approved" and spawn an agent
+        # against nothing every time the sweep fired. A draft is excluded for
+        # the same reason — it is not asking to be driven to green yet.
+        #
+        # Pending is excluded too, and for a subtler reason: a sweep firing just
+        # after a push finds checks still running and the approval outstanding,
+        # which is not a state anything can act on. Acting anyway sends an agent
+        # to read half-finished CI, and a push from it restarts the checks it
+        # was waiting for. Missing approval only counts once the checks settle.
+        #
+        # And a missing approval is not on its own something to act on. With
+        # every check green it can mean two different things: a reviewer left
+        # findings on this commit, which is work; or nobody has reviewed this
+        # commit yet — a fresh pull request, or one whose approval went stale the
+        # moment the fixer's own push landed — which is waiting. They are
+        # indistinguishable from `approved` alone, and treating the second as the
+        # first sends an agent to address feedback that does not exist. It finds
+        # nothing to do, records no push, fails `pass-made-progress`, and every
+        # sweep spends another of the attempts the budget allows on a pull
+        # request that needed a reviewer rather than an agent. So one of the two
+        # has to be true: changes were requested, or somebody has reviewed the
+        # commit that is there now.
+        guard: >-
+          ${{ data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.found && data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.state == "OPEN" && !data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.isDraft && (data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.checksState == "failing" || (data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.checksState == "passing" && !data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.approved && (data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.reviewDecision == "CHANGES_REQUESTED" || data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.reviewedHead.size() > 0))) ? "" : "skip" }}
+        task:
+          type: model_method
+          modelType: "@gdesmott/claude-task"
+          modelName: ci-fixer
+          methodName: ci
+          globalArgs:
+            # The agent works on the checkout, not on the swamp repository
+            # directory this workflow lives in — one level up from it.
+            workingDir: '..'
+            model: ${{ inputs.agentModel }}
+            permissionMode: ${{ inputs.permissionMode }}
+            timeout: ${{ inputs.timeout }}
+          inputs:
+            # The promised fallback, rather than just the promise: the agent
+            # requires a non-empty task, and a scheduled sweep is fired by a
+            # clock and cannot be told one — so an empty input would fail the
+            # call at exactly the moment there was work to do.
+            task: >-
+              ${{ inputs.task != "" ? inputs.task : (data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.title == null ? "Drive the open pull request to green" : data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.title) }}
+            # Recorded on the result, so the attempt count above is per commit
+            # and a push starts a fresh budget.
+            label: >-
+              ${{ string(data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.number) }}:${{ data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.headSha }}
+            context:
+              pullRequest: ${{ data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes }}
+              triage: >-
+                ${{ data.query('modelName == "ci-triage" && name == "triage" && version >= 0 && workflowRunId == "' + run.id + '"').map(r, r.attributes) }}
+            instructions: >-
+              The pull request is
+              ${{ data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.url }}. Read what
+              CI and the reviewers said with `gh pr checks`, `gh run view` and
+              `gh pr view --comments`.
+
+              The `triage` context is empty when CI is not the problem — in that
+              case the checks pass and what is missing is an approval, so the
+              work is to address the review comments rather than a failure.
+
+              If the sanitizer job is among the failures, reproduce it locally
+              rather than guessing from the log, narrowed to the case CI named:
+              `swamp workflow run verify-asan --input cTestFilter=<binary>` or
+              `--input pytestFilter=<file>:<test>`. It needs a redis-server built
+              with the same sanitizer toolchain; if this machine has none, say so
+              in `blockers` rather than reporting the C half as the whole story.
+        dependsOn:
+          - step: failures-are-ours
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: mergeability-explained
+        description: >-
+          A pull request that is green and approved is actually mergeable.
+
+          `ready` reads GitHub's own mergeability as well as the checks it
+          reports, because a required check that never reports is invisible in
+          the rollup and still blocks the merge. That is the right answer for
+          the guards — but on its own it produces the worst outcome available:
+          the fixer is skipped, nothing is recorded, the sweep goes green, and it
+          does so again every ten minutes while the pull request sits unmergeable
+          for ever.
+
+          It fires for `none` as well as `passing`. A pull request whose only
+          required check never reported has no checks in the rollup at all, and
+          reading that as "not passing, so not my business" is how the state most
+          in need of a person becomes the quietest. Failing and pending are
+          excluded because they are somebody else's clause: the fixer handles one
+          and the sweep waits out the other.
+
+          A missing approval excuses `passing` but not `none`. Waiting on a
+          reviewer is an ordinary state and not worth stopping for, but a pull
+          request that is *both* unapproved and reporting no checks is the case
+          this step exists for: the fixer skipped it — it handles passing and
+          failing — and the progress check that follows finds no fixer record to
+          object to, so every sweep ends green while the pull request stays
+          unmergeable. Ordering the approval clause first made the two most
+          broken states the two quietest.
+
+          Pending is excused only while it is still going somewhere. A check
+          that never settles keeps the rollup reporting `pending` however many
+          others have already concluded as failures, and every clause that could
+          act — triage, the fixer, and the `none` case below — is written to
+          leave pending alone. The result is the failure mode this step exists to
+          prevent, reached from the other direction: a known failure, no attempt
+          recorded against it, and a sweep that ends green every ten minutes for
+          as long as the schedule runs. So the excuse expires. After
+          `maxPendingSweeps` sweeps have seen the same commit pending, this stops
+          and says so, which is the right answer — a check stuck in progress is a
+          runner or a workflow problem, not something an agent fixes by editing
+          the branch.
+
+          Both counts are per pull request as well as per commit. The status
+          instance is shared between them, and two pull requests can point at
+          the same commit through different head branches — a stacked pair, or
+          one reopened against another base. On the commit alone, one pull
+          request's observations answer for the other's: a first `none` sweep on
+          B finds A's earlier one and escalates on the spot instead of waiting
+          the second sweep out, and the pending counter reaches its threshold on
+          records from both.
+
+          `none` has to be seen twice before it counts, on the same commit and by
+          a different run. A pull request opened moments ago has an empty rollup
+          for as long as it takes the first workflow to appear, and escalating on
+          that would page somebody about a check that is on its way. A second
+          sweep still seeing nothing for the same commit is not a race — it is a
+          check that is not coming.
+
+          Nothing here can fix it either. A required check that never reported is
+          a renamed workflow or a path filter, not something an agent addresses
+          by editing the branch. So this stops and says which state GitHub is
+          reporting, which is the escalation the flow is for.
+        task:
+          type: assert
+          expr: >-
+            !data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.found
+            || data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.state != "OPEN"
+            || data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.isDraft
+            || data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.checksState == "failing"
+            || (data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.checksState == "pending" && data.query('modelName == "pr-status" && name == "status" && version >= 0 && attributes.checksState == "pending"').filter(q, q.attributes.headSha == data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.headSha && q.attributes.number == data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.number).size() < int(inputs.maxPendingSweeps))
+            || (data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.checksState != "none" && !data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.approved)
+            || data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.ready
+            || (data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.checksState == "none" && !data.query('modelName == "pr-status" && name == "status" && version >= 0 && attributes.checksState == "none"').exists(q, q.workflowRunId != run.id && q.attributes.headSha == data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.headSha && q.attributes.number == data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.number))
+          message: >-
+            This pull request cannot proceed and nothing here can move it: either
+            every reported check passes and the review requirement is met, no
+            check has reported at all across two sweeps of the same commit, or a
+            check has been running since ${{ inputs.maxPendingSweeps }} sweeps
+            ago and is holding the whole rollup pending.
+            GitHub says mergeStateStatus is
+            "${{ data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.mergeStateStatus }}". That is usually a required check
+            that never reported — a renamed workflow, or one filtered out by
+            paths — and no amount of pushing to the branch will change it. See
+            ${{ data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.url }}.
+          severity: high
+        dependsOn:
+          - step: address-ci
+            condition:
+              type: always
+        weight: 0
+        allowFailure: false
+
+      - name: pass-made-progress
+        description: >-
+          This pass either finished the job or changed something.
+
+          A pass that pushes nothing and addresses nothing has found a problem it
+          cannot act on, and the next firing would find the same one. Saying so
+          here turns a silent loop into a failed run with the agent's own
+          reasoning attached.
+
+          A run where the pull request was already green and approved never
+          reaches this: the fix step is skipped, and a hard failure would be the
+          wrong answer for a sweep whose correct outcome was to do nothing.
+
+          The claim to have pushed is checked against the checkout rather than
+          taken. `pushed` is the agent's own account, and the model already
+          refuses an answer that sets it without naming a commit — but a named
+          commit is still a name.
+
+          Two conditions, and both are needed: the head moved during this
+          phase, and the remote is level with where it ended.
+
+          Movement is what says this pass did anything. Nothing can be pushed
+          that was never committed, so a `pushed` that left the head where it
+          was is a pass that got nowhere — and naming a commit does not help,
+          since the commit already at the head has a name too.
+
+          The upstream tracking ref is what says the push landed. `git push`
+          advances it as part of succeeding, so a ref left behind is a commit
+          that was made and a push that failed — an expired credential, a lost
+          network, a non-fast-forward. That case is invisible to movement alone:
+          the branch moves whether or not the push after it worked.
+
+          Neither on its own is enough, which is the mistake worth not repeating
+          — checking only the ref accepts a pass that committed nothing onto an
+          already-pushed branch, where the ref is level because neither end
+          moved.
+
+          Each condition degrades on its own terms. Movement falls back through
+          `pathsDerived` to the flag when git could not answer at all; the ref
+          comparison is skipped when there is no upstream to read — a detached
+          HEAD, which a colocated jj checkout normally sits on, or a branch that
+          has never been pushed. Each step down is a weaker claim, and each is
+          the strongest available where it applies.
+        task:
+          type: assert
+          expr: >-
+            data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.ready
+            || data.query('modelName == "ci-fixer" && name == "ci" && version >= 0 && workflowRunId == "' + run.id + '"').size() == 0
+            || (data.query('modelName == "ci-fixer" && name == "ci" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "ci-fixer" && name == "ci" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.pushed && (!data.query('modelName == "ci-fixer" && name == "ci" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "ci-fixer" && name == "ci" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.agent.?pathsDerived.orValue(false) || data.query('modelName == "ci-fixer" && name == "ci" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "ci-fixer" && name == "ci" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.agent.revisionMoved) && (data.query('modelName == "ci-fixer" && name == "ci" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "ci-fixer" && name == "ci" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.agent.?remoteHead.orValue("") == "" || data.query('modelName == "ci-fixer" && name == "ci" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "ci-fixer" && name == "ci" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.agent.remoteHead == data.query('modelName == "ci-fixer" && name == "ci" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "ci-fixer" && name == "ci" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.agent.?revision.orValue("")))
+          message: >-
+            This pass pushed nothing:
+            ${{ data.query('modelName == "ci-fixer" && name == "ci" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "ci-fixer" && name == "ci" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.summary }}
+            Running again would find the same state — read
+            `swamp data get ci-fixer --json` and decide.
+          severity: high
+        dependsOn:
+          - step: mergeability-explained
+            condition:
+              type: always
+        weight: 0
+        allowFailure: false
+    dependsOn: []
+    weight: 0
+version: 1
