@@ -40,11 +40,6 @@ use crate::{InMemoryMode, SuffixData, Tag, TagIndex, TagIndexMode};
 /// it across mutations.
 type BoxedInvertedIndex = Box<InvertedIndex<DocIdsOnly>>;
 
-/// Predicate the suffix variant filters a full trie walk with: given the `(key,
-/// value)` pair of the trie entry currently visited, returns whether that entry's
-/// key ends with the queried suffix.
-type SuffixPredicate<'a, V> = Box<dyn Fn(&(&[u8], &V)) -> bool + 'a>;
-
 /// Which subset of tag values a [filtered iterator](TagIndex::value_iter_filtered)
 /// walks. A tag matches when it starts with (`Prefix`), ends with (`Suffix`),
 /// contains (`Contains`), or wildcard-matches (`Wildcard`) the pattern.
@@ -72,15 +67,7 @@ enum TagIndexIteratorImpl<'ti, Value> {
     /// Entries whose key ends with a suffix — the brute-force path a `*foo` query
     /// takes when the field was created without `WITHSUFFIXTRIE`, so there is no
     /// suffix trie to turn it into a prefix lookup.
-    ///
-    /// A trie cannot seek by suffix, so this pairs a full walk with the predicate
-    /// the walk is filtered by; see
-    /// [`next_entry`](TagIndexIterator::next_entry) for why the two are kept side
-    /// by side rather than combined into a filtering adapter.
-    Suffix(
-        LendingIter<'ti, Value, VisitAll>,
-        SuffixPredicate<'ti, Value>,
-    ),
+    Suffix(LendingIter<'ti, Value, VisitAll>, Tag<'ti>),
 }
 
 impl<Value> TagIndexIteratorImpl<'_, Value> {
@@ -127,10 +114,10 @@ impl<'ti, Value> TagIndexIterator<'ti, Value> {
             TagIndexIteratorImpl::All(it) => it.next(),
             TagIndexIteratorImpl::Contains(it) => it.next(),
             TagIndexIteratorImpl::Wildcard(it) => it.next(),
-            // Filter the full walk in place with `LendingIterator::find` rather than
-            // through a `filter` adapter, because the borrow of the key it yields
-            // ends with the call: an adapter would have to hold it across iterations.
-            TagIndexIteratorImpl::Suffix(it, matches) => it.find(&mut *matches),
+            TagIndexIteratorImpl::Suffix(it, suffix) => {
+                let suffix = *suffix;
+                it.find(move |(k, _)| k.ends_with(suffix.as_bytes()))
+            }
         }?;
         // SAFETY: this walks a `TagIndex` values trie, which is only ever
         // populated through `Tag`-typed keys (see `TagIndex::index`), so every
@@ -180,21 +167,14 @@ fn filtered_iter<'a, Value>(
     pattern: Tag<'a>,
     iter_mode: IterMode,
 ) -> TagIndexIterator<'a, Value> {
-    // The suffix mode filters a full trie walk by an owned copy of the pattern; the
-    // boxed predicate keeps the `Vec` alive for the iterator's lifetime.
-    fn suffix_predicate<'a, V>(suffix: Vec<u8>) -> SuffixPredicate<'a, V> {
-        Box::new(move |(k, _): &(&[u8], &V)| k.ends_with(&suffix))
-    }
-
-    let pattern = pattern.as_bytes();
+    let bytes = pattern.as_bytes();
     let iter = match iter_mode {
-        IterMode::Prefix => TagIndexIteratorImpl::All(values.prefixed_lending_iter(pattern)),
-        IterMode::Contains => TagIndexIteratorImpl::Contains(values.contains_iter(pattern).into()),
-        IterMode::Suffix => {
-            TagIndexIteratorImpl::Suffix(values.lending_iter(), suffix_predicate(pattern.to_vec()))
-        }
+        IterMode::Prefix => TagIndexIteratorImpl::All(values.prefixed_lending_iter(bytes)),
+        IterMode::Contains => TagIndexIteratorImpl::Contains(values.contains_iter(bytes).into()),
+        // The walk carries the pattern itself; `next_entry` does the matching.
+        IterMode::Suffix => TagIndexIteratorImpl::Suffix(values.lending_iter(), pattern),
         IterMode::Wildcard => TagIndexIteratorImpl::Wildcard(
-            values.wildcard_iter(WildcardPattern::parse(pattern)).into(),
+            values.wildcard_iter(WildcardPattern::parse(bytes)).into(),
         ),
     };
 
@@ -211,8 +191,7 @@ impl TagIndex<InMemoryMode> {
     /// Iterate over the `(tag, inverted index)` entries whose tag matches
     /// `pattern` under `iter_mode`, in lexicographical order of the tag.
     ///
-    /// `pattern` is borrowed for the iterator's lifetime by the prefix, contains,
-    /// and wildcard modes (the suffix mode copies it).
+    /// `pattern` is borrowed for the iterator's lifetime.
     pub fn value_iter_filtered<'a>(
         &'a self,
         pattern: Tag<'a>,
@@ -226,8 +205,8 @@ impl TagIndex<InMemoryMode> {
 /// [suffix index](crate::TagSuffixIndex), returned by
 /// [`TagIndex::suffix_value_iter`].
 ///
-/// Yields keys only — the suffix trie's payload is internal bookkeeping — and is
-/// the same in both storage modes, which share the suffix trie.
+/// Yields the suffixes only — the suffix trie's payload is internal bookkeeping —
+/// and is the same in both storage modes, which share the suffix trie.
 pub struct SuffixEntryIterator<'ti> {
     iter: LendingIter<'ti, SuffixData, VisitAll>,
 }
@@ -236,10 +215,13 @@ impl<'ti> SuffixEntryIterator<'ti> {
     /// Advance to the next suffix-trie entry, honoring the optional timeout.
     /// `None` at the end of the iteration, or when the timeout is reached.
     ///
-    /// The key slice is borrowed from trie-internal storage and is invalidated by
-    /// the next call.
-    pub fn advance(&mut self) -> Option<&[u8]> {
-        self.iter.next().map(|(k, _)| k)
+    /// The suffix is borrowed from trie-internal storage and is invalidated by the
+    /// next call. It is one suffix of an indexed tag, not necessarily a whole tag.
+    pub fn advance(&mut self) -> Option<Tag<'_>> {
+        let (k, _) = self.iter.next()?;
+        // SAFETY: `TagSuffixIndex::add` keys this trie by `&bytes[start..]` slices
+        // of a `Tag`, and a slice of NUL-free bytes is NUL-free.
+        Some(unsafe { Tag::new_unchecked(k) })
     }
 
     /// Set the deadline honored while iterating, or clear it with `None`.
