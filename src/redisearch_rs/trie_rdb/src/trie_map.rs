@@ -15,6 +15,7 @@
 
 use super::{RdbError, RdbOpts, read_entries, save_nul_terminated};
 use crate::{TrieEntry, WireFields};
+use lending_iterator::LendingIterator;
 use rdb_io::RdbIO;
 use trie_rs::TrieMap;
 
@@ -36,9 +37,10 @@ pub fn save_with<P, IO: RdbIO>(
 ) {
     writer.write_u64(map.n_unique_keys() as u64);
     let mut scratch = Vec::new();
-    for (key, payload) in map.iter() {
+    let mut entries = map.lending_iter();
+    while let Some((key, payload)) = entries.next() {
         let entry = fields(payload);
-        save_nul_terminated(writer, &mut scratch, &key);
+        save_nul_terminated(writer, &mut scratch, key);
         writer.write_f64(entry.score);
         if opts.payloads {
             save_nul_terminated(writer, &mut scratch, entry.payload.unwrap_or(&[]));

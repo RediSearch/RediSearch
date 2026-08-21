@@ -3320,6 +3320,7 @@ dependencies = [
 name = "trie_rdb"
 version = "0.0.1"
 dependencies = [
+ "lending-iterator",
  "rdb_io",
  "thiserror",
  "trie_rdb",

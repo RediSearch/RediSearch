@@ -15,6 +15,7 @@ workspace = true
 test-utils = []
 
 [dependencies]
+lending-iterator.workspace = true
 rdb_io.workspace = true
 thiserror.workspace = true
 trie_rs.workspace = true
