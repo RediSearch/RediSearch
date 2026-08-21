@@ -7,4 +7,5 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+mod bookkeeping;
 mod case_folding;

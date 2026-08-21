@@ -10,8 +10,10 @@
 //! Case-folding contract for [`TermDictionary`].
 //!
 //! Every key and pattern is lowercased on entry — see the module doc on
-//! [`TermDictionary`] for the rationale (it mirrors the C terms-trie's
-//! `runeBufFill` pre-fold). These tests pin the contract at every entry
+//! [`TermDictionary`] for the rationale (it mirrors the C pipeline, where
+//! the tokenizer lower-cases terms via `unicode_tolower` before they reach
+//! the trie, and query-side lookups fold their patterns the same way).
+//! These tests pin the contract at every entry
 //! point: insert/lookup, remove, decrement, and all five iteration paths
 //! (prefixed, suffixed, contains, wildcard, fuzzy).
 //!
@@ -196,6 +198,19 @@ fn contains_iter_folds_pattern() {
     seed(&mut dict, &["xfooy", "afoob", "qux"]);
     assert_eq!(
         collect_contains(&dict, "FOO"),
+        vec!["afoob".to_string(), "xfooy".to_string()]
+    );
+}
+
+#[test]
+fn contains_iter_already_folded_target_stays_lazy() {
+    // An already-lowercase target folds to a borrow, taking the
+    // `ContainsIter::Lazy` arm instead of the eager drain the mixed-case
+    // test above exercises. Both arms must yield the same matches.
+    let mut dict = TermDictionary::new();
+    seed(&mut dict, &["xfooy", "afoob", "qux"]);
+    assert_eq!(
+        collect_contains(&dict, "foo"),
         vec!["afoob".to_string(), "xfooy".to_string()]
     );
 }
