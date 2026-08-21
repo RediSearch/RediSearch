@@ -360,9 +360,9 @@ impl<M: TagIndexMode> TagIndex<M> {
                         // The anchor only narrows the walk, so re-check the whole
                         // pattern against the term itself, terminator excluded.
                         .filter(move |term| full.matches(term.to_bytes()) == MatchOutcome::Match)
-                        // Cap the *matched* terms, overshooting by one as
-                        // documented on the variant (`saturating_add` guards the
-                        // no-cap sentinel).
+                        // Cap the *matched* terms, overshooting by one to know whether
+                        // there was at least one more expansion than the allowed maximum.
+                        // See QueryError_SetReachedMaxPrefixExpansionsWarning usage in `query.c`
                         .take((max_prefix_expansions as usize).saturating_add(1)),
                 )
             }
@@ -744,8 +744,9 @@ fn literal_tokens(pattern: &[u8]) -> Vec<LiteralToken> {
     while i < pattern.len() {
         // How many bytes the unit at `i` spans, and whether it is a metacharacter.
         let (width, is_star, is_question) = match pattern[i] {
-            // A trailing backslash escapes nothing — `WildcardPattern::parse`
-            // drops it — so it only counts as a plain byte here.
+            // The guard excludes a trailing backslash, which escapes nothing: it
+            // falls through to the plain-byte arm and joins the token, whereas
+            // `WildcardPattern::parse` drops it instead.
             b'\\' if i + 1 < pattern.len() => (2, false, false),
             b'*' => (1, true, false),
             b'?' => (1, false, true),
@@ -779,10 +780,6 @@ fn literal_tokens(pattern: &[u8]) -> Vec<LiteralToken> {
 /// The score favors longer tokens and tokens later in the pattern, penalizes a
 /// trailing `*` and every unescaped `?` inside the token; ties resolve to the
 /// later token.
-///
-/// Unlike C's `Suffix_ChooseToken`, the split honors escapes: C anchors `*foo\**`
-/// on the sub-pattern `foo\*`, which matches the suffix key `foo*` and nothing
-/// longer, so no term containing a literal `*` is ever reached.
 fn choose_token(pattern: &[u8]) -> Option<(usize, usize)> {
     let tokens = literal_tokens(pattern);
 
@@ -891,6 +888,13 @@ mod suffix_wildcard_tests {
                 br"*foo\**",
                 br"foo\**",
                 "an escaped `*` is a literal, so it does not end the token",
+            ),
+            (
+                br"abc*\",
+                br"\",
+                "a trailing backslash escapes nothing, yet still opens a token of \
+                 its own, and wins (1 + 1 = 2 > 3 - 5) — only reachable if a \
+                 caller breaks `SuffixWildcardPattern::new`'s precondition",
             ),
             (
                 br"abcdefg\?h*xyz",
