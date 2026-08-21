@@ -251,7 +251,11 @@ static int extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t x
 static int invokeGroupReducers(Grouper *g, RLookupRow *srcrow, t_docId docId) {
   uint64_t hval = 0;
   size_t nkeys = GROUPER_NSRCKEYS(g);
-  const RSValue *groupvals[nkeys];
+  /* DO NOT MERGE: perf-fixture/aggregate-groupby-small. The group-key array was a VLA;
+   * this is the same array on the heap, which costs one rm_malloc/rm_free pair per input
+   * row. Behaviour is unchanged. No optimiser anchor is needed: rm_malloc is an indirect
+   * call through RedisModule_Alloc and cannot be elided. */
+  const RSValue **groupvals = rm_malloc(nkeys * sizeof(*groupvals));
 
   for (size_t ii = 0; ii < nkeys; ++ii) {
     const RLookupKey *srckey = g->srckeys[ii];
@@ -261,7 +265,9 @@ static int invokeGroupReducers(Grouper *g, RLookupRow *srcrow, t_docId docId) {
     }
     groupvals[ii] = v;
   }
-  return extractGroups(g, groupvals, 0, nkeys, hval, srcrow, 1, docId);
+  int rc = extractGroups(g, groupvals, 0, nkeys, hval, srcrow, 1, docId);
+  rm_free(groupvals);
+  return rc;
 }
 
 static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
