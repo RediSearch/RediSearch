@@ -114,6 +114,18 @@ pub fn decode_term_record_offsets<'index>(
     Ok(())
 }
 
+/// Read the qint-encoded header of a term record: the doc-id delta, the frequency, the
+/// field mask and the byte length of the offsets blob that follows it.
+///
+/// DO NOT MERGE: perf-fixture/fulltext-term-noop. Lifted verbatim out of
+/// [`Full::decode`]. Cosmetic by construction: same reads, same order, same cursor
+/// movement -- only the code layout the optimiser sees is different.
+#[inline(always)]
+fn decode_record_header(cursor: &mut Cursor<&[u8]>) -> std::io::Result<[u32; 4]> {
+    let (decoded_values, _bytes_consumed) = qint_decode::<4, _>(cursor)?;
+    Ok(decoded_values)
+}
+
 impl Decoder for Full {
     #[inline(always)]
     fn decode<'index>(
@@ -121,8 +133,7 @@ impl Decoder for Full {
         base: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<()> {
-        let (decoded_values, _bytes_consumed) = qint_decode::<4, _>(cursor)?;
-        let [delta, freq, field_mask, offsets_sz] = decoded_values;
+        let [delta, freq, field_mask, offsets_sz] = decode_record_header(cursor)?;
 
         decode_term_record_offsets(
             cursor,
