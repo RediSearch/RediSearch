@@ -3317,6 +3317,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "trie_rdb"
+version = "0.0.1"
+dependencies = [
+ "rdb_io",
+ "thiserror",
+ "trie_rdb",
+ "trie_rs",
+ "workspace_hack",
+]
+
+[[package]]
 name = "trie_rs"
 version = "0.0.1"
 dependencies = [
