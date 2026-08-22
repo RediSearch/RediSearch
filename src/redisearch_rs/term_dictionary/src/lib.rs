@@ -226,15 +226,18 @@ impl TermDictionary {
     /// exists for `term`.
     pub fn decrement_num_docs(&mut self, term: &str, delta: usize) -> DecrResult {
         let term = fold(term);
-        let Some(entry) = self.inner.get_mut(&term) else {
-            return DecrResult::NotFound;
-        };
-        if delta < entry.num_docs {
-            entry.num_docs -= delta;
-            DecrResult::Updated
-        } else {
-            self.inner.remove(&term);
-            DecrResult::Deleted
+
+        match self.inner.get_mut(&term) {
+            Some(entry) => {
+                if delta >= entry.num_docs {
+                    self.inner.remove(&term);
+                    DecrResult::Deleted
+                } else {
+                    entry.num_docs -= delta;
+                    DecrResult::Updated
+                }
+            }
+            None => DecrResult::NotFound,
         }
     }
 }
