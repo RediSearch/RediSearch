@@ -352,7 +352,7 @@ def test_shard_k_ratio_insufficient_docs():
 
 @skip(cluster=False)
 def test_debug_hybrid_with_shard_k_ratio():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2', enableDebugCommand=True)
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT RETURN', enableDebugCommand=True)
 
     dim = 2
     k = 6  # multiple of 3 shards so effectiveK is unambiguous

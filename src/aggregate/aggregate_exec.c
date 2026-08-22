@@ -724,6 +724,26 @@ static bool shouldSetCursorDone(AREQ *req, int rc) {
   return true;
 }
 
+static void collectProfileDataForReply(AREQ *req, QueryProcessingCtx *qctx, int rc) {
+  if (!req->profileCollect || !IsProfile(req) || AREQ_TimedOut(req)) {
+    return;
+  }
+
+  // Error-only replies do not contain a profile section.
+  if (ShouldReplyWithError(QueryError_GetCode(qctx->err), req->reqConfig.timeoutPolicy,
+                           IsProfile(req)) ||
+      ShouldReplyWithTimeoutError(rc, req->reqConfig.timeoutPolicy, IsProfile(req))) {
+    return;
+  }
+
+  // Cursor replies contain profile data only when the cursor is exhausted.
+  if ((AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) && !shouldSetCursorDone(req, rc)) {
+    return;
+  }
+
+  req->profileCollect(req);
+}
+
 /**
  * Serializes results and handles the main reply logic for RESP2.
  * Returns the final rc value and updates state accordingly.
@@ -786,9 +806,10 @@ done_2:
  * strict timeout callback may serialize them on the main thread the moment it
  * wakes, and must not observe this cycle's dying ctx through sctx->redisCtx.
  * The pipeline is done with the ctx once it reaches here. */
-static void storeResultsForReplyCallback(AREQ *req, SearchResult *r, SearchResult **results,
-                                         int rc, cachedVars cv, size_t limit) {
+static void storeResultsForReplyCallback(AREQ *req, SearchResult *r, SearchResult **results, int rc,
+                                         cachedVars cv, size_t limit) {
   if (!req->base.async.aggregateResultsClaimLost) {
+    collectProfileDataForReply(req, AREQ_QueryProcessingCtx(req), rc);
     AREQ_SearchCtx(req)->redisCtx = NULL;
     debugPauseStoreResults(req, true);  // pause before
     AREQ_StoreResults(req, results, rc, cv, limit);

@@ -309,8 +309,9 @@ def test_mod_6287(env):
 
     # Dispatch an `FT.CURSOR READ` command that will request for more results from the shards
     # This results in the crash solved by #6287
-    res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', cid, 'COUNT', n_docs - received)
-    env.assertEqual(cid, 0)
+    env.expect(
+        'FT.CURSOR', 'READ', 'idx', cid, 'COUNT', n_docs - received
+    ).error().contains('Cursor not found')
 
     # Send another command to make sure that the coordinator is healthy
     res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', '0', str(n_docs))

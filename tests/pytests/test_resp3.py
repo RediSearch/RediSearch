@@ -217,7 +217,7 @@ def test_search_knn_sortby_limit_total_resp3():
 @skip(redis_less_than="7.0.0")
 def test_search_timeout():
     num_range = 1000
-    env = Env(protocol=3, moduleArgs=f'DEFAULT_DIALECT 2 MAXPREFIXEXPANSIONS {num_range} TIMEOUT 1')
+    env = Env(protocol=3, moduleArgs=f'DEFAULT_DIALECT 2 MAXPREFIXEXPANSIONS {num_range} TIMEOUT 1 ON_TIMEOUT RETURN')
     conn = getConnectionByEnv(env)
 
     env.cmd('ft.create', 'myIdx', 'schema', 't', 'TEXT', 'geo', 'GEO')
@@ -1614,14 +1614,14 @@ def testTimedOutWarning_resp3():
 
 @skip(asan=True, msan=True, cluster=False)
 def testTimedOutWarningCoord_resp3():
-   env = Env(protocol=3)
+   env = Env(protocol=3, moduleArgs='ON_TIMEOUT RETURN')
    TimedOutWarningtestCoord(env)
 
 def test_error_with_partial_results():
   """Test that we get 'warnings' with partial results on non-strict timeout
   policy"""
 
-  env = Env(protocol=3)
+  env = Env(protocol=3, moduleArgs='ON_TIMEOUT RETURN')
   conn = getConnectionByEnv(env)
 
   # Create an index
@@ -1740,7 +1740,7 @@ def test_multiple_warnings():
   Triggers both timeout and max prefix expansions warnings, and verifies
   that both are present in the response.
   """
-  env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')
+  env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT RETURN')
   conn = getConnectionByEnv(env)
 
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
