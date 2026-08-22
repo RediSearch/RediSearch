@@ -10,7 +10,7 @@
 //! Per-term bookkeeping contract for [`TermDictionary`]: the reported
 //! outcomes ([`InsertOutcome`], [`DecrResult`], prior-entry returns) and
 //! the delete-on-last-doc boundary. Case-folding behaviour is pinned in
-//! the sibling `case_folding` module.
+//! the sibling [`case_folding`](crate::case_folding) module.
 
 use term_dictionary::{DecrResult, InsertOutcome, TermDictionary, TermEntry};
 
@@ -58,8 +58,7 @@ fn insert_returns_prior_entry() {
             num_docs: 2,
         }
     );
-    // The overwrite did not accumulate — that is what distinguishes
-    // `insert` from `replace_term`.
+    // Pins the non-accumulating half of `insert`'s contract.
     assert_eq!(dict.get("foo").unwrap().num_docs, 7);
 }
 

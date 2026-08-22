@@ -9,17 +9,14 @@
 
 //! Case-folding contract for [`TermDictionary`].
 //!
-//! Every key and pattern is lowercased on entry — see the module doc on
-//! [`TermDictionary`] for the rationale (it mirrors the C pipeline, where
-//! the tokenizer lower-cases terms via `unicode_tolower` before they reach
-//! the trie, and query-side lookups fold their patterns the same way).
-//! These tests pin the contract at every entry
-//! point: insert/lookup, remove, decrement, and all five iteration paths
-//! (prefixed, suffixed, contains, wildcard, fuzzy).
+//! Every key and pattern is lowercased on entry — see the
+//! [`term_dictionary`] crate docs for the contract and rationale. These
+//! tests pin it at every entry point: insert/lookup, remove, decrement,
+//! and all five iteration paths (prefixed, suffixed, contains, wildcard,
+//! fuzzy).
 //!
 //! The underlying [`StrTrieMap`](trie_rs::str_trie_map::StrTrieMap) stays
-//! byte-exact; tests in sibling files exercise its raw byte semantics
-//! and must continue to pass.
+//! byte-exact; its raw byte semantics are covered by `trie_rs`'s own tests.
 
 use term_dictionary::{DecrResult, TermDictionary, TermEntry};
 
@@ -199,8 +196,9 @@ fn contains_iter_folds_pattern() {
 #[test]
 fn contains_iter_already_folded_target_stays_lazy() {
     // An already-lowercase target folds to a borrow, taking the
-    // `ContainsIter::Lazy` arm instead of the eager drain the mixed-case
-    // test above exercises. Both arms must yield the same matches.
+    // `ContainsIter::Lazy` arm instead of the eager drain that
+    // `contains_iter_folds_pattern` exercises. Both arms must yield the
+    // same matches.
     let mut dict = TermDictionary::new();
     seed(&mut dict, &["xfooy", "afoob", "qux"]);
     assert_eq!(
@@ -241,9 +239,8 @@ fn fold_preserves_sharp_s() {
             num_docs: 1,
         },
     );
-    // `char::to_lowercase` keeps `ß` as `ß` (matching C `unicode_tolower`),
-    // so the stored key is "straße". It must NOT be default-folded to
-    // "strasse", which would split the term from its C-indexed form.
+    // Default Unicode folding would expand `ß` to `ss`, splitting the
+    // term from its C-indexed form.
     assert!(dict.get("straße").is_some());
     assert!(dict.get("STRAßE").is_some(), "ASCII letters still fold");
     assert!(dict.get("strasse").is_none(), "ß must not expand to ss");
@@ -261,9 +258,9 @@ fn fold_lowercases_uppercase_sigma() {
             num_docs: 1,
         },
     );
-    // Per-char lowering maps every uppercase Σ to σ (no context-sensitive
-    // final-sigma rule at the codepoint level), so the all-caps input folds
-    // to "οδυσσευσ".
+    // Per-char lowering has no context-sensitive final-sigma rule, so
+    // every uppercase Σ maps to σ and the all-caps input folds to
+    // "οδυσσευσ".
     assert!(dict.get("οδυσσευσ").is_some());
 }
 
@@ -277,8 +274,8 @@ fn fuzzy_iter_round_trips_sharp_s_through_fold() {
             num_docs: 1,
         },
     );
-    // ß is preserved by the fold, so the stored key is "straße". An exact
-    // fuzzy match over the same input round-trips at distance 0.
+    // The stored key is the folded "straße"; an exact fuzzy match over
+    // the same input round-trips at distance 0.
     assert_eq!(
         collect_fuzzy(&dict, "Straße", 0),
         vec!["straße".to_string()]
@@ -294,8 +291,9 @@ fn fuzzy_iter_round_trips_sharp_s_through_fold() {
 
 #[test]
 fn fuzzy_iter_handles_multibyte_lowercase_expansion() {
-    // `İ` folds to `i` + combining dot above (two codepoints) — pin the
-    // round-trip so a regression to per-char folding fails.
+    // `İ` lowercases to `i` + combining dot above (two codepoints) — pin
+    // the round-trip so a fold that kept only the first output char per
+    // input char would fail.
     let mut dict = TermDictionary::new();
     dict.insert(
         "İstanbul",
