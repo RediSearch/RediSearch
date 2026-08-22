@@ -41,11 +41,11 @@ impl<Data> StrTrieMap<Data> {
 
     /// Insert or update a `&str`-keyed entry via a callback.
     /// See [`TrieMap::insert_with`].
-    pub fn insert_with<F>(&mut self, key: &str, f: F)
+    pub fn insert_with<F>(&mut self, key: &str, f: F) -> bool
     where
         F: FnOnce(Option<Data>) -> Data,
     {
-        self.inner.insert_with(key.as_bytes(), f);
+        self.inner.insert_with(key.as_bytes(), f)
     }
 
     /// Remove a `&str`-keyed entry. See [`TrieMap::remove`].
