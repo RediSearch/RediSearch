@@ -129,21 +129,24 @@ impl TermDictionary {
     /// re-installing a fully formed entry; production indexing paths
     /// should use [`Self::add_term`] / [`Self::replace_term`].
     pub fn insert(&mut self, term: &str, entry: TermEntry) -> Option<TermEntry> {
-        self.inner.insert(&fold(term), entry)
+        self.inner.insert(&unicode::tolower_cow(term), entry)
     }
 
     /// ADD_INCR insert: accumulate both [`TermEntry::score`] and
     /// [`TermEntry::num_docs`] onto the existing entry, or create a fresh
     /// terminal if absent.
     pub fn add_term(&mut self, term: &str, score: f32, num_docs: usize) -> InsertOutcome {
-        if self.inner.insert_with(&fold(term), |prior| match prior {
-            Some(mut entry) => {
-                entry.score += score;
-                entry.num_docs += num_docs;
-                entry
-            }
-            None => TermEntry { score, num_docs },
-        }) {
+        if self
+            .inner
+            .insert_with(&unicode::tolower_cow(term), |prior| match prior {
+                Some(mut entry) => {
+                    entry.score += score;
+                    entry.num_docs += num_docs;
+                    entry
+                }
+                None => TermEntry { score, num_docs },
+            })
+        {
             InsertOutcome::New
         } else {
             InsertOutcome::Updated
@@ -154,13 +157,16 @@ impl TermDictionary {
     /// accumulate [`TermEntry::num_docs`] onto the existing count. Creates
     /// a fresh terminal if absent.
     pub fn replace_term(&mut self, term: &str, score: f32, num_docs: usize) -> InsertOutcome {
-        if self.inner.insert_with(&fold(term), |prior| {
-            let prior_num_docs = prior.map_or(0, |entry| entry.num_docs);
-            TermEntry {
-                score,
-                num_docs: prior_num_docs + num_docs,
-            }
-        }) {
+        if self
+            .inner
+            .insert_with(&unicode::tolower_cow(term), |prior| {
+                let prior_num_docs = prior.map_or(0, |entry| entry.num_docs);
+                TermEntry {
+                    score,
+                    num_docs: prior_num_docs + num_docs,
+                }
+            })
+        {
             InsertOutcome::New
         } else {
             InsertOutcome::Updated
@@ -169,12 +175,12 @@ impl TermDictionary {
 
     /// Removes the entry for `term`, returning the previous [`TermEntry`].
     pub fn remove(&mut self, term: &str) -> Option<TermEntry> {
-        self.inner.remove(&fold(term))
+        self.inner.remove(&unicode::tolower_cow(term))
     }
 
     /// Returns the [`TermEntry`] stored for `term`, if any.
     pub fn get(&self, term: &str) -> Option<&TermEntry> {
-        self.inner.get(&fold(term))
+        self.inner.get(&unicode::tolower_cow(term))
     }
 
     /// Iterate over all entries in lexicographical key order.
@@ -187,7 +193,7 @@ impl TermDictionary {
     /// [`ContainsIter`] for the lazy-vs-drained behaviour when folding
     /// allocates.
     pub fn contains_iter<'tm, 'p>(&'tm self, target: &'p str) -> ContainsIter<'tm, 'p> {
-        match fold(target) {
+        match unicode::tolower_cow(target) {
             Cow::Borrowed(s) => ContainsIter::Lazy(Box::new(self.inner.contains_iter(s))),
             Cow::Owned(s) => {
                 let drained: Vec<(String, &'tm TermEntry)> = self.inner.contains_iter(&s).collect();
@@ -198,12 +204,12 @@ impl TermDictionary {
 
     /// See [`StrTrieMap::prefixed_iter`].
     pub fn prefixed_iter(&self, prefix: &str) -> PrefixedIter<'_, TermEntry> {
-        self.inner.prefixed_iter(&fold(prefix))
+        self.inner.prefixed_iter(&unicode::tolower_cow(prefix))
     }
 
     /// See [`StrTrieMap::suffixed_iter`].
     pub fn suffixed_iter(&self, suffix: &str) -> SuffixedIter<'_, TermEntry> {
-        self.inner.suffixed_iter(&fold(suffix))
+        self.inner.suffixed_iter(&unicode::tolower_cow(suffix))
     }
 
     /// See [`StrTrieMap::wildcard_iter`] for the codepoint matching model.
@@ -211,7 +217,7 @@ impl TermDictionary {
     /// returned iterator owns the parsed pattern, so it stays lazy
     /// regardless of whether folding allocated.
     pub fn wildcard_iter(&self, pattern: &str) -> StrWildcardIter<'_, TermEntry> {
-        self.inner.wildcard_iter(&fold(pattern))
+        self.inner.wildcard_iter(&unicode::tolower_cow(pattern))
     }
 
     /// See [`StrTrieMap::fuzzy_iter`] for the matching model. The
@@ -226,7 +232,7 @@ impl TermDictionary {
     /// is returned. Returns [`DecrResult::NotFound`] if no terminal entry
     /// exists for `term`.
     pub fn decrement_num_docs(&mut self, term: &str, delta: usize) -> DecrResult {
-        let term = fold(term);
+        let term = unicode::tolower_cow(term);
 
         match self.inner.get_mut(&term) {
             Some(entry) => {
@@ -269,11 +275,4 @@ impl<'tm, 'p> Iterator for ContainsIter<'tm, 'p> {
             Self::Drained(it) => it.next(),
         }
     }
-}
-
-/// Lower-case a term the way RediSearch's C tokenizer does. See
-/// [`unicode::tolower_cow`] for the folding model and its equivalence to the
-/// libnu-backed C `unicode_tolower`.
-fn fold(term: &str) -> Cow<'_, str> {
-    unicode::tolower_cow(term)
 }
