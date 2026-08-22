@@ -135,15 +135,14 @@ impl TermDictionary {
     /// [`TermEntry::num_docs`] onto the existing entry, or create a fresh
     /// terminal if absent.
     pub fn add_term(&mut self, term: &str, score: f32, num_docs: usize) -> InsertOutcome {
-        let is_new = self.inner.insert_with(&fold(term), |prior| match prior {
+        if self.inner.insert_with(&fold(term), |prior| match prior {
             Some(mut entry) => {
                 entry.score += score;
                 entry.num_docs += num_docs;
                 entry
             }
             None => TermEntry { score, num_docs },
-        });
-        if is_new {
+        }) {
             InsertOutcome::New
         } else {
             InsertOutcome::Updated
@@ -154,14 +153,13 @@ impl TermDictionary {
     /// accumulate [`TermEntry::num_docs`] onto the existing count. Creates
     /// a fresh terminal if absent.
     pub fn replace_term(&mut self, term: &str, score: f32, num_docs: usize) -> InsertOutcome {
-        let is_new = self.inner.insert_with(&fold(term), |prior| {
+        if self.inner.insert_with(&fold(term), |prior| {
             let prior_num_docs = prior.map_or(0, |entry| entry.num_docs);
             TermEntry {
                 score,
                 num_docs: prior_num_docs + num_docs,
             }
-        });
-        if is_new {
+        }) {
             InsertOutcome::New
         } else {
             InsertOutcome::Updated
