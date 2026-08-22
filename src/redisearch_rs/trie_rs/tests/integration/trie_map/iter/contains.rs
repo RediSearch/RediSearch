@@ -63,8 +63,7 @@ fn iterator_outlives_the_target_buffer() {
     trie.insert(b"apple", 1);
     trie.insert(b"banana", 2);
 
-    // The iterator owns a copy of the target, so it stays usable after the
-    // caller's buffer is gone.
+    // The inner scope drops the target before the iterator is used.
     let iter = {
         let target = b"an".to_vec();
         trie.contains_iter(&target)

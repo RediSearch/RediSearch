@@ -16,6 +16,9 @@ use timeout::TimeoutCheckResult;
 /// Iterates over all the entries in a [`TrieMap`](crate::TrieMap) that contain the target fragment,
 /// in lexicographical order.
 ///
+/// The target fragment is copied on construction, so the iterator's
+/// lifetime is independent of the caller's buffer.
+///
 /// Invoke [`TrieMap::contains_iter`](crate::TrieMap::contains_iter) to create an instance of this iterator.
 pub struct ContainsIter<'tm, Data> {
     /// Stack of nodes and whether they have been visited.

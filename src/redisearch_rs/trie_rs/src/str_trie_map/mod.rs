@@ -122,9 +122,6 @@ impl<Data> StrTrieMap<Data> {
     /// Yield every entry whose key contains `target` as a substring.
     /// Empty `target` yields every entry — the empty string is a substring
     /// of every key.
-    ///
-    /// The iterator owns a copy of `target`, so the borrow ends when this
-    /// call returns.
     pub fn contains_iter(&self, target: &str) -> iter::ContainsIter<'_, Data> {
         iter::ContainsIter::new(&self.inner, target)
     }
