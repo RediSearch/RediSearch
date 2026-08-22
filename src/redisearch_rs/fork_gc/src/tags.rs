@@ -12,7 +12,7 @@
 
 use std::{
     ffi::c_char,
-    io::{self, Read, Write},
+    io::{self, Write},
 };
 
 use field_spec::{FieldSpec, FieldSpecType};
@@ -20,6 +20,7 @@ use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::{GcScanDelta, opaque::InvertedIndex};
 use serde::{Deserialize, Serialize};
 
+use crate::util::{deserialize, serialize};
 use crate::{ForkGC, GcApplyStats, HandleError, HandleOutcome};
 
 /// Return the in-memory C tag index behind `fs`.
@@ -150,16 +151,16 @@ pub fn collect_tags(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io::R
                 continue;
             };
 
-            if let Err(error) = Some(TagEntry {
-                field_name,
-                tag_index_unique_id,
-                tag,
-                inverted_index_unique_id: u32::from(ii.unique_id()),
-                delta,
-            })
-            .serialize(&mut rmp_serde::Serializer::new(&mut *writer))
-            .map_err(io::Error::other)
-            {
+            if let Err(error) = serialize(
+                writer,
+                Some(TagEntry {
+                    field_name,
+                    tag_index_unique_id,
+                    tag,
+                    inverted_index_unique_id: u32::from(ii.unique_id()),
+                    delta,
+                }),
+            ) {
                 break Err(error);
             }
         };
@@ -170,16 +171,7 @@ pub fn collect_tags(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io::R
         result?;
     }
 
-    Option::<TagEntry<&[u8]>>::None
-        .serialize(&mut rmp_serde::Serializer::new(writer))
-        .map_err(io::Error::other)
-}
-
-/// Decode one tag message from `reader`, or `None` at the stream terminator.
-pub fn receive_tag_entry(
-    reader: &mut impl Read,
-) -> Result<Option<TagEntry>, HandleError<TagError>> {
-    rmp_serde::from_read(reader).map_err(|e| HandleError::codec("decoding tag entry", e))
+    serialize(writer, None::<TagEntry<&[u8]>>)
 }
 
 /// Apply one decoded tag message to the field's tag index.
@@ -294,5 +286,9 @@ pub fn apply_tag_entry(
 /// [`HandleOutcome::Collected`]; a terminator ends the iteration with
 /// [`HandleOutcome::Done`].
 pub fn handle_tags(fgc: &mut ForkGC) -> Result<HandleOutcome, HandleError<TagError>> {
-    crate::util::handle_one(fgc, |reader| receive_tag_entry(reader), apply_tag_entry)
+    crate::util::handle_one(
+        fgc,
+        |reader| deserialize(reader, "decoding tag entry"),
+        apply_tag_entry,
+    )
 }

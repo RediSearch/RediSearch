@@ -8,19 +8,18 @@
 */
 
 use std::ffi::CStr;
-use std::io::{Cursor, Read};
+use std::io::Cursor;
 use std::mem::{self, ManuallyDrop};
 use std::ptr::NonNull;
 
 use field_spec::{FieldSpecBuilder, FieldSpecType, FieldSpecTypes};
-use fork_gc::numeric::{
-    NumericNodeDelta, collect_numeric, handle_numeric_with, receive_field_header,
-};
+use fork_gc::numeric::{NumericField, NumericNodeDelta, collect_numeric, handle_numeric_with};
 use fork_gc::util::SpecWriteAccess;
-use fork_gc::{Frame, GcApplyStats, HandleError, HandleOutcome};
+use fork_gc::{GcApplyStats, HandleError, HandleOutcome};
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
+use numeric_range_tree::NumericRangeTree;
 use numeric_range_tree::test_utils::{build_single_leaf_tree, build_tree_at_split_edge};
-use numeric_range_tree::{Hll, NumericRangeTree};
+use serde::Serialize as _;
 
 // Link both Rust-provided and C-provided symbols
 extern crate redisearch_rs;
@@ -134,12 +133,6 @@ struct DecodedField {
     entries: Vec<NumericNodeDelta>,
 }
 
-fn read_arr<const N: usize>(reader: &mut impl Read) -> [u8; N] {
-    let mut buf = [0u8; N];
-    reader.read_exact(&mut buf).unwrap();
-    buf
-}
-
 fn build_two_leaf_tree_with_gc_work() -> NumericRangeTree {
     let (mut tree, split_doc) = build_tree_at_split_edge();
     tree.add(split_doc, split_doc as f64, false, false, 0);
@@ -147,25 +140,26 @@ fn build_two_leaf_tree_with_gc_work() -> NumericRangeTree {
     tree
 }
 
-/// Read one field's header and node stream, or `None` at the global terminator.
+/// Read one field and its node stream, or `None` at the end of the field stream.
 fn read_field(cursor: &mut Cursor<&Vec<u8>>) -> Option<DecodedField> {
-    match Frame::decode(cursor).unwrap() {
-        Frame::Terminator => None,
-        Frame::Data(name) => {
-            let unique_id = u32::from_ne_bytes(read_arr(cursor));
+    match rmp_serde::from_read::<_, Option<NumericField<Box<[u8]>>>>(&mut *cursor).unwrap() {
+        None => None,
+        Some(NumericField {
+            field_name,
+            unique_id,
+        }) => {
             let mut entries = Vec::new();
-            // `decode` deserializes each node and yields `None` at the per-field
-            // node-stream terminator.
-            while let Some(node) = NumericNodeDelta::decode(cursor).unwrap() {
+            while let Some(node) =
+                rmp_serde::from_read::<_, Option<NumericNodeDelta>>(&mut *cursor).unwrap()
+            {
                 entries.push(node);
             }
             Some(DecodedField {
-                name: name.into_inner().into_vec(),
+                name: field_name.into_vec(),
                 unique_id,
                 entries,
             })
         }
-        other => panic!("expected Data frame or global terminator, got {other:?}"),
     }
 }
 
@@ -192,16 +186,26 @@ fn collect_stream(test: &TestSpec) -> Vec<u8> {
     buf
 }
 
-/// Encode one field and the global stream terminator.
+/// Encode one field and the outer stream terminator.
 fn encode_field(field: DecodedField) -> Vec<u8> {
     let mut buf = Vec::new();
-    Frame::data(&field.name).encode(&mut buf).unwrap();
-    buf.extend_from_slice(&field.unique_id.to_ne_bytes());
+    Some(NumericField {
+        field_name: &field.name,
+        unique_id: field.unique_id,
+    })
+    .serialize(&mut rmp_serde::Serializer::new(&mut buf))
+    .unwrap();
     for entry in field.entries {
-        entry.encode(&mut buf).unwrap();
+        Some(entry)
+            .serialize(&mut rmp_serde::Serializer::new(&mut buf))
+            .unwrap();
     }
-    Frame::Terminator.encode(&mut buf).unwrap();
-    Frame::Terminator.encode(&mut buf).unwrap();
+    Option::<NumericNodeDelta>::None
+        .serialize(&mut rmp_serde::Serializer::new(&mut buf))
+        .unwrap();
+    Option::<NumericField<&[u8]>>::None
+        .serialize(&mut rmp_serde::Serializer::new(&mut buf))
+        .unwrap();
     buf
 }
 
@@ -299,98 +303,60 @@ fn numeric_and_geo_fields_are_both_collected() {
     }
 }
 
-/// `receive_field_header` returns `None` when it reads the global terminator.
+/// The node-stream handler rejects a record of the wrong shape.
 #[test]
-fn receive_field_header_returns_none_at_terminator() {
+fn handle_numeric_with_rejects_a_wrongly_shaped_node_record() {
     let mut buf = Vec::new();
-    Frame::Terminator.encode(&mut buf).unwrap();
+    Some(NumericField {
+        field_name: b"price",
+        unique_id: 0,
+    })
+    .serialize(&mut rmp_serde::Serializer::new(&mut buf))
+    .unwrap();
+    Some(0u32)
+        .serialize(&mut rmp_serde::Serializer::new(&mut buf))
+        .unwrap();
+    let mut test = TestSpec::create(vec![(
+        c"price",
+        FieldSpecType::Numeric.into(),
+        Some(NumericRangeTree::new(false)),
+    )]);
+    let mut stats = GcApplyStats::default();
 
-    let mut cursor = Cursor::new(&buf);
-    assert!(receive_field_header(&mut cursor).unwrap().is_none());
-}
-
-/// `receive_field_header` decodes the field name followed by the raw u64 id.
-#[test]
-fn receive_field_header_decodes_name_and_id() {
-    let mut buf = Vec::new();
-    Frame::data(b"price".as_slice()).encode(&mut buf).unwrap();
-    buf.extend_from_slice(&42u64.to_ne_bytes());
-
-    let mut cursor = Cursor::new(&buf);
-    let (name, id) = receive_field_header(&mut cursor).unwrap().unwrap();
-    assert_eq!(&*name, b"price");
-    assert_eq!(id, 42);
-}
-
-/// `receive_field_header` preserves the pipe error for logging at the FFI boundary.
-#[test]
-fn receive_field_header_preserves_read_error() {
-    let mut cursor = Cursor::new([]);
-
-    let error = receive_field_header(&mut cursor).unwrap_err();
+    let error =
+        handle_numeric_with(&mut Cursor::new(buf), &mut test, &mut stats, false).unwrap_err();
     let HandleError::Codec { msg, source } = error else {
         panic!("expected a codec error, got {error:?}");
     };
-    assert_eq!(msg, "reading the numeric field-name frame");
-    let source = source
-        .downcast_ref::<std::io::Error>()
-        .expect("the underlying io::Error should survive type erasure");
-    assert_eq!(source.kind(), std::io::ErrorKind::UnexpectedEof);
+    assert_eq!(msg, "decoding numeric node");
+    assert!(!source.to_string().is_empty());
 }
 
-/// `receive_field_header` rejects an empty frame as invalid child protocol data.
+/// The node-stream handler preserves MessagePack decoding failures.
 #[test]
-fn receive_field_header_rejects_empty_frame() {
-    let mut buf = Vec::new();
-    Frame::Empty.encode(&mut buf).unwrap();
-
-    let error = receive_field_header(&mut Cursor::new(buf)).unwrap_err();
-    assert!(matches!(
-        error,
-        HandleError::Codec {
-            msg: "expected a field-name or terminator frame for numeric",
-            ..
-        }
-    ));
-}
-
-/// `NumericNodeDelta::decode` rejects a node shorter than its fixed-size fields.
-#[test]
-fn numeric_node_delta_rejects_short_length() {
-    let mut cursor = Cursor::new(0usize.to_ne_bytes());
-
-    let error = NumericNodeDelta::decode(&mut cursor).unwrap_err();
-    let HandleError::Codec { msg, source } = error else {
-        panic!("expected a codec error, got {error:?}");
-    };
-    assert_eq!(msg, "numeric node length too small");
-    assert_eq!(
-        source.to_string(),
-        format!(
-            "0 is below the minimum {}",
-            size_of::<u32>() * 2 + Hll::size() * 2
-        )
-    );
-}
-
-/// `NumericNodeDelta::decode` preserves MessagePack decoding failures.
-#[test]
-fn numeric_node_delta_preserves_deserialization_error() {
+fn handle_numeric_with_preserves_deserialization_error() {
     let invalid_message_pack = [0xc1];
-    let node_len = size_of::<u32>() * 2 + invalid_message_pack.len() + Hll::size() * 2;
     let mut buf = Vec::new();
-    buf.extend_from_slice(&node_len.to_ne_bytes());
-    buf.extend_from_slice(&0u32.to_ne_bytes());
-    buf.extend_from_slice(&0u32.to_ne_bytes());
-    buf.extend_from_slice(&invalid_message_pack);
-    buf.extend_from_slice(&[0; Hll::size()]);
-    buf.extend_from_slice(&[0; Hll::size()]);
+    Some(NumericField {
+        field_name: b"price",
+        unique_id: 0,
+    })
+    .serialize(&mut rmp_serde::Serializer::new(&mut buf))
+    .unwrap();
+    buf.extend(invalid_message_pack);
+    let mut test = TestSpec::create(vec![(
+        c"price",
+        FieldSpecType::Numeric.into(),
+        Some(NumericRangeTree::new(false)),
+    )]);
+    let mut stats = GcApplyStats::default();
 
-    let error = NumericNodeDelta::decode(&mut Cursor::new(buf)).unwrap_err();
+    let error =
+        handle_numeric_with(&mut Cursor::new(buf), &mut test, &mut stats, false).unwrap_err();
     assert!(matches!(
         error,
         HandleError::Codec {
-            msg: "decoding the numeric node delta",
+            msg: "decoding numeric node",
             ..
         }
     ));
@@ -570,12 +536,20 @@ fn handle_numeric_with_preserves_progress_on_truncated_stream() {
     let first = field.entries.pop().unwrap();
 
     let mut buf = Vec::new();
-    Frame::data(&field.name).encode(&mut buf).unwrap();
-    buf.extend_from_slice(&field.unique_id.to_ne_bytes());
-    first.encode(&mut buf).unwrap();
+    Some(NumericField {
+        field_name: &field.name,
+        unique_id: field.unique_id,
+    })
+    .serialize(&mut rmp_serde::Serializer::new(&mut buf))
+    .unwrap();
+    Some(first)
+        .serialize(&mut rmp_serde::Serializer::new(&mut buf))
+        .unwrap();
     let mut second_bytes = Vec::new();
-    second.encode(&mut second_bytes).unwrap();
-    buf.extend_from_slice(&second_bytes[..size_of::<usize>() + size_of::<u32>()]);
+    Some(second)
+        .serialize(&mut rmp_serde::Serializer::new(&mut second_bytes))
+        .unwrap();
+    buf.extend_from_slice(&second_bytes[..1]);
 
     let mut stats = GcApplyStats::default();
     let error =
@@ -584,11 +558,8 @@ fn handle_numeric_with_preserves_progress_on_truncated_stream() {
     let HandleError::Codec { msg, source } = error else {
         panic!("expected a codec error, got {error:?}");
     };
-    assert_eq!(msg, "reading the numeric node entry");
-    let source = source
-        .downcast_ref::<std::io::Error>()
-        .expect("the underlying io::Error should survive type erasure");
-    assert_eq!(source.kind(), std::io::ErrorKind::UnexpectedEof);
+    assert_eq!(msg, "decoding numeric node");
+    assert!(!source.to_string().is_empty());
     assert!(stats.bytes_collected > stats.bytes_allocated);
 }
 
@@ -622,7 +593,7 @@ mod round_trip {
     use proptest::prelude::*;
 
     proptest! {
-        /// A `NumericNodeDelta` survives a full `encode` → `decode` round trip unchanged.
+        /// A `NumericNodeDelta` survives a MessagePack round trip unchanged.
         #[test]
         fn numeric_node_delta_round_trips(
             position in any::<u32>(),
@@ -641,14 +612,23 @@ mod round_trip {
             };
 
             let mut buf = Vec::new();
-            node.encode(&mut buf).unwrap();
+            Some(node)
+                .serialize(&mut rmp_serde::Serializer::new(&mut buf))
+                .unwrap();
 
             let mut cursor = Cursor::new(&buf);
-            let decoded = NumericNodeDelta::decode(&mut cursor)
+            let decoded = rmp_serde::from_read::<_, Option<NumericNodeDelta>>(&mut cursor)
                 .unwrap()
-                .expect("a data node, not the stream terminator");
+                .expect("a node record");
 
-            prop_assert_eq!(decoded, node);
+            prop_assert_eq!(decoded.position, position);
+            prop_assert_eq!(decoded.generation, generation);
+            prop_assert_eq!(decoded.delta.delta, GcScanDelta::empty_for_testing());
+            prop_assert_eq!(decoded.delta.registers_with_last_block, registers_with_last_block);
+            prop_assert_eq!(
+                decoded.delta.registers_without_last_block,
+                registers_without_last_block
+            );
             prop_assert_eq!(cursor.position(), buf.len() as u64, "decode left trailing bytes");
         }
     }

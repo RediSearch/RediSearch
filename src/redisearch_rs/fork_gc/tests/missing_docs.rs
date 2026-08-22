@@ -13,8 +13,11 @@ use dict::MissingFieldDictType;
 use dict::OwnedDict;
 use ffi::IndexFlags_Index_DocIdsOnly;
 use fork_gc::{
-    Frame, HandleError,
-    missing_docs::{FieldNotFound, apply_missing_docs, collect_missing_docs, receive_missing_docs},
+    HandleError,
+    missing_docs::{
+        FieldNotFound, MissingDocsEntry, apply_missing_docs, collect_missing_docs,
+        receive_missing_docs,
+    },
 };
 use hidden_string::OwnedHiddenString;
 use index_result::RSIndexResult;
@@ -55,7 +58,7 @@ fn make_spec(
     (spec, dict)
 }
 
-/// When the dict has no entries, only a Terminator is written.
+/// When the dict has no entries, the child writes `None`.
 #[test]
 #[cfg_attr(miri, ignore = "accesses extern static `missingFieldDictType`")]
 fn empty_dict_writes_only_terminator() {
@@ -66,10 +69,11 @@ fn empty_dict_writes_only_terminator() {
     collect_missing_docs(&mut buf, &*guard).unwrap();
 
     let mut cursor = Cursor::new(&buf);
-    assert!(matches!(
-        Frame::decode(&mut cursor).unwrap(),
-        Frame::Terminator
-    ));
+    assert!(
+        rmp_serde::from_read::<_, Option<MissingDocsEntry>>(&mut cursor)
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(cursor.position(), buf.len() as u64);
 }
 
@@ -84,16 +88,16 @@ fn empty_inverted_index_is_skipped() {
     collect_missing_docs(&mut buf, &*guard).unwrap();
 
     let mut cursor = Cursor::new(&buf);
-    assert!(matches!(
-        Frame::decode(&mut cursor).unwrap(),
-        Frame::Terminator
-    ));
+    assert!(
+        rmp_serde::from_read::<_, Option<MissingDocsEntry>>(&mut cursor)
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(cursor.position(), buf.len() as u64);
 }
 
 /// When an entry has docs absent from the DocTable, `scan_gc` produces a delta.
-/// The output is a Data frame carrying the field name, the serialised
-/// [`GcScanDelta`], then a Terminator.
+/// The output is a serialised [`MissingDocsEntry`].
 ///
 /// The spec's `DocTable` is zeroed, so `DocTable_Exists` returns `false` for
 /// every doc ID — every recorded doc is treated as deleted.
@@ -108,23 +112,20 @@ fn entry_with_deleted_docs_writes_delta_frame() {
 
     let mut cursor = Cursor::new(&buf);
 
-    let frame = Frame::decode(&mut cursor).unwrap();
-    let Frame::Data(name) = frame else {
-        panic!("expected Data frame, got {frame:?}");
-    };
-    assert_eq!(&*name, b"age");
-
-    let _delta: GcScanDelta = rmp_serde::from_read(&mut cursor).unwrap();
-
-    assert!(matches!(
-        Frame::decode(&mut cursor).unwrap(),
-        Frame::Terminator
-    ));
+    let entry = rmp_serde::from_read::<_, Option<MissingDocsEntry>>(&mut cursor)
+        .unwrap()
+        .unwrap();
+    assert_eq!(&*entry.field_name, b"age\0");
+    assert!(
+        rmp_serde::from_read::<_, Option<MissingDocsEntry>>(&mut cursor)
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(cursor.position(), buf.len() as u64);
 }
 
-/// Multiple entries each produce their own Data frame + delta, followed by a
-/// single Terminator.
+/// Multiple entries each produce their own serialised message, followed by
+/// `None`.
 #[test]
 #[cfg_attr(miri, ignore = "accesses extern static `missingFieldDictType`")]
 fn multiple_entries_write_multiple_delta_frames() {
@@ -136,58 +137,80 @@ fn multiple_entries_write_multiple_delta_frames() {
 
     let mut cursor = Cursor::new(&buf);
 
-    let Frame::Data(name1) = Frame::decode(&mut cursor).unwrap() else {
-        panic!("expected first Data frame");
-    };
-    let _: GcScanDelta = rmp_serde::from_read(&mut cursor).unwrap();
+    let first = rmp_serde::from_read::<_, Option<MissingDocsEntry>>(&mut cursor)
+        .unwrap()
+        .unwrap();
+    let second = rmp_serde::from_read::<_, Option<MissingDocsEntry>>(&mut cursor)
+        .unwrap()
+        .unwrap();
 
-    let Frame::Data(name2) = Frame::decode(&mut cursor).unwrap() else {
-        panic!("expected second Data frame");
-    };
-    let _: GcScanDelta = rmp_serde::from_read(&mut cursor).unwrap();
+    let mut names = [first.field_name, second.field_name];
+    names.sort(); // Entries can come in any order because dict iteration order is undefined.
 
-    let mut names = [name1.into_inner().into_vec(), name2.into_inner().into_vec()];
-    names.sort(); // Frames can come in any order because dict iteration order is undefined.
-
-    assert_eq!(names, [b"field_a".to_vec(), b"field_b".to_vec()]);
-    assert!(matches!(
-        Frame::decode(&mut cursor).unwrap(),
-        Frame::Terminator
-    ));
+    assert_eq!(names, [b"field_a\0".to_vec(), b"field_b\0".to_vec()]);
+    assert!(
+        rmp_serde::from_read::<_, Option<MissingDocsEntry>>(&mut cursor)
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(cursor.position(), buf.len() as u64);
 }
 
 #[test]
-fn receive_terminator_returns_none() {
+fn receive_none_returns_none() {
     let mut buf = Vec::new();
-    Frame::Terminator.encode(&mut buf).unwrap();
+    Option::<MissingDocsEntry<&[u8]>>::None
+        .serialize(&mut rmp_serde::Serializer::new(&mut buf))
+        .unwrap();
     let mut cursor = Cursor::new(&buf);
     assert!(matches!(receive_missing_docs(&mut cursor).unwrap(), None));
 }
 
 #[test]
-fn receive_malformed_frame_returns_codec_error() {
+fn receive_malformed_entry_returns_codec_error() {
     let mut cursor = Cursor::new(b"garbage");
     assert!(matches!(
         receive_missing_docs(&mut cursor),
         Err(HandleError::Codec {
-            msg: "reading the missing-docs field-name frame",
+            msg: "decoding missing-docs entry",
             ..
         })
     ));
 }
 
 #[test]
-fn receive_data_frame_returns_field_name_and_delta() {
+fn receive_entry_returns_field_name_and_delta() {
     let mut buf = Vec::new();
-    Frame::data(b"age").encode(&mut buf).unwrap();
-    GcScanDelta::empty_for_testing()
-        .serialize(&mut rmp_serde::Serializer::new(&mut buf))
-        .unwrap();
+    Some(MissingDocsEntry {
+        field_name: b"age\0".as_slice(),
+        delta: GcScanDelta::empty_for_testing(),
+    })
+    .serialize(&mut rmp_serde::Serializer::new(&mut buf))
+    .unwrap();
 
     let mut cursor = Cursor::new(&buf);
     let (field_name, _delta) = receive_missing_docs(&mut cursor).unwrap().unwrap();
     assert_eq!(field_name, c"age");
+}
+
+#[test]
+fn receive_entry_rejects_a_field_name_without_a_trailing_nul() {
+    let mut buf = Vec::new();
+    Some(MissingDocsEntry {
+        field_name: b"age".as_slice(),
+        delta: GcScanDelta::empty_for_testing(),
+    })
+    .serialize(&mut rmp_serde::Serializer::new(&mut buf))
+    .unwrap();
+
+    let mut cursor = Cursor::new(&buf);
+    assert!(matches!(
+        receive_missing_docs(&mut cursor),
+        Err(HandleError::Codec {
+            msg: "decoding missing-docs field name",
+            ..
+        })
+    ));
 }
 
 #[test]

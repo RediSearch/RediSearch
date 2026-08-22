@@ -12,26 +12,35 @@
 use std::ffi::{CStr, CString};
 use std::io::{self, Read, Write};
 
-use crate::{ForkGC, Frame, GcApplyStats, HandleError, HandleOutcome};
+use crate::{ForkGC, GcApplyStats, HandleError, HandleOutcome};
 use hidden_string::OwnedHiddenString;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::GcScanDelta;
-use serde::Serialize as _;
+use serde::{Deserialize, Serialize};
 
+use crate::util::{deserialize, serialize};
 /// The field was removed from `missingFieldDict` between the child's scan and
 /// the parent's apply.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("the field was removed from missingFieldDict before the delta could be applied")]
 pub struct FieldNotFound;
 
+/// One missing-field inverted index's GC work, as it travels the pipe.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MissingDocsEntry<T = Vec<u8>> {
+    /// NUL-terminated name of the missing field whose inverted index the child scanned.
+    pub field_name: T,
+    /// What the scan found to collect.
+    pub delta: GcScanDelta,
+}
+
 /// Collect GC deltas for every entry in the spec's `missingFieldDict` and write
 /// them to the parent process.
 ///
 /// Iterates the dict and, for each entry with a non-null inverted index,
-/// attempts a GC scan. When a scan produces a delta the field-name header
-/// followed by the serialised [`GcScanDelta`] is written. Entries that produce
-/// no delta or fail the scan are skipped. A terminator is written once all
-/// entries are processed.
+/// attempts a GC scan. When a scan produces a delta, a serialised
+/// [`MissingDocsEntry`] is written. Entries that produce no delta or fail the
+/// scan are skipped. A serialised `None` terminates the stream.
 ///
 /// Scan errors are silently ignored (same block is retried on the next GC
 /// cycle). Write errors are surfaced to the caller so they can terminate the
@@ -47,38 +56,29 @@ pub fn collect_missing_docs(writer: &mut impl Write, spec: &IndexSpecReadGuard) 
         };
 
         let field_name = entry.key().secret_value();
-        Frame::data(field_name.to_bytes()).encode(writer)?;
-        deltas
-            .serialize(&mut rmp_serde::Serializer::new(&mut *writer))
-            .map_err(io::Error::other)?;
+        serialize(
+            writer,
+            Some(MissingDocsEntry {
+                field_name: field_name.to_bytes_with_nul(),
+                delta: deltas,
+            }),
+        )?;
     }
 
-    Frame::Terminator.encode(writer)
+    serialize(writer, None::<MissingDocsEntry<&[u8]>>)
 }
 
 /// Decode one missing-docs message from `reader`.
 pub fn receive_missing_docs(
     reader: &mut impl Read,
 ) -> Result<Option<(CString, GcScanDelta)>, HandleError<FieldNotFound>> {
-    let frame = Frame::decode_nul_terminated(reader)
-        .map_err(|e| HandleError::codec("reading the missing-docs field-name frame", e))?;
-
-    match frame {
-        Frame::Terminator => Ok(None),
-        Frame::Data(field_name) => {
-            let delta = rmp_serde::from_read::<_, GcScanDelta>(reader)
-                .map_err(|e| HandleError::codec("decoding the missing-docs delta", e))?;
-            let field_name = field_name
-                .into_inner()
-                .into_c_string()
-                .expect("child always sends a field name that is a valid C string");
-            Ok(Some((field_name, delta)))
-        }
-        Frame::Empty => Err(HandleError::codec(
-            "expected a field-name or terminator frame for missing-docs",
-            "got an empty frame",
-        )),
-    }
+    deserialize::<Option<MissingDocsEntry>, FieldNotFound>(reader, "decoding missing-docs entry")?
+        .map(|MissingDocsEntry { field_name, delta }| {
+            CString::from_vec_with_nul(field_name)
+                .map(|field_name| (field_name, delta))
+                .map_err(|e| HandleError::codec("decoding missing-docs field name", e))
+        })
+        .transpose()
 }
 
 /// Apply a pre-decoded GC delta to the field's inverted index.
@@ -128,10 +128,9 @@ pub fn apply_missing_docs(
 
 /// Parent-side handler for one iteration of the missing-docs GC protocol.
 ///
-/// Reads one frame from the pipe:
-/// - A [`Frame::Data`] carrying a field name, followed by a [`GcScanDelta`] →
-///   applies the delta, updates stats, returns `Ok(HandleOutcome::Collected)`.
-/// - A [`Frame::Terminator`] → all fields processed, returns `Ok(HandleOutcome::Done)`.
+/// Reads one [`MissingDocsEntry`] from the pipe, applies its delta, updates
+/// stats, and returns `Ok(HandleOutcome::Collected)`. A serialised `None`
+/// returns `Ok(HandleOutcome::Done)`.
 ///
 /// Errors map to corresponding `FGCError` variants at the FFI layer.
 pub fn handle_missing_docs(fgc: &mut ForkGC) -> Result<HandleOutcome, HandleError<FieldNotFound>> {

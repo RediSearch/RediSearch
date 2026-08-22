@@ -18,10 +18,11 @@ use std::{
 use c_trie::TrieTerm;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::GcScanDelta;
-use serde::Serialize as _;
+use serde::{Deserialize, Serialize};
 use string_utils::obfuscation::obfuscate_text;
 
-use crate::{ForkGC, Frame, GcApplyStats, HandleError, HandleOutcome};
+use crate::util::{deserialize, serialize};
+use crate::{ForkGC, GcApplyStats, HandleError, HandleOutcome};
 
 /// The term's inverted index was removed between the child's scan and the
 /// parent's apply (a race between GC and a concurrent term/document drop).
@@ -29,15 +30,25 @@ use crate::{ForkGC, Frame, GcApplyStats, HandleError, HandleOutcome};
 #[error("the term's inverted index was removed before the delta could be applied")]
 pub struct TermNotFound;
 
+/// One term's worth of GC work, as it travels the pipe.
+///
+/// `T` lets the child serialize borrowed term bytes without copying; the
+/// parent deserializes the default owned form.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TermEntry<T = Box<[u8]>> {
+    /// The term whose inverted index the child scanned.
+    pub term: T,
+    /// What the scan found to collect.
+    pub delta: GcScanDelta,
+}
+
 /// Collect GC deltas for every term in the spec's terms trie and write them to
 /// the parent process.
 ///
 /// Walks the trie in its natural order and, for each term with a non-null
-/// inverted index, attempts a GC scan. When a scan produces a delta, the term
-/// header (its raw bytes — the trie never stores a zero-length key, so this is
-/// never empty) followed by the serialised [`GcScanDelta`] is written. Terms
-/// that produce no delta or fail the scan are skipped. A terminator is written
-/// once every term has been processed.
+/// inverted index, attempts a GC scan. When a scan produces a delta, a
+/// serialised [`TermEntry`] is written. Terms that produce no delta or fail the
+/// scan are skipped. A serialised `None` terminates the stream.
 ///
 /// Scan errors are silently ignored (same block is retried on the next GC
 /// cycle). Write errors are surfaced to the caller so they can terminate the
@@ -54,37 +65,30 @@ pub fn collect_terms(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io::
             continue;
         };
 
-        Frame::data(&term).encode(writer)?;
-        delta
-            .serialize(&mut rmp_serde::Serializer::new(&mut *writer))
-            .map_err(io::Error::other)?;
+        serialize(
+            writer,
+            Some(TermEntry {
+                term: &*term,
+                delta,
+            }),
+        )?;
     }
 
-    Frame::Terminator.encode(writer)
+    serialize(writer, None::<TermEntry<&[u8]>>)
 }
 
 /// Decode one terms message from `reader`.
 pub fn receive_terms(
     reader: &mut impl Read,
-) -> Result<Option<(TrieTerm, GcScanDelta)>, HandleError<TermNotFound>> {
-    let frame = Frame::decode(reader)
-        .map_err(|e| HandleError::codec("reading the terms term-name frame", e))?;
-
-    match frame {
-        Frame::Terminator => Ok(None),
-        Frame::Data(term) => {
-            let delta = rmp_serde::from_read::<_, GcScanDelta>(reader)
-                .map_err(|e| HandleError::codec("decoding the terms delta", e))?;
-            // SAFETY: terms messages are produced by `collect_terms`, which only
-            // serializes terms returned by the terms trie iterator.
-            let term = unsafe { TrieTerm::from_bytes_unchecked(term.into_inner()) };
-            Ok(Some((term, delta)))
-        }
-        Frame::Empty => Err(HandleError::codec(
-            "expected a term-name or terminator frame for terms",
-            "got an empty frame",
-        )),
-    }
+) -> Result<Option<TermEntry<TrieTerm>>, HandleError<TermNotFound>> {
+    deserialize::<Option<TermEntry>, TermNotFound>(reader, "decoding terms entry").map(|entry| {
+        entry.map(|entry| TermEntry {
+            // SAFETY: terms messages are produced by `collect_terms`, which only serializes
+            // non-empty terms returned by the terms trie iterator.
+            term: unsafe { TrieTerm::from_bytes_unchecked(entry.term) },
+            delta: entry.delta,
+        })
+    })
 }
 
 fn warn_term_deletion_failed(term: &TrieTerm, guard: &IndexSpecWriteGuard<'_>) {
@@ -154,14 +158,13 @@ pub fn apply_terms(
 
 /// Parent-side handler for one iteration of the terms GC protocol.
 ///
-/// Reads one frame from the pipe:
-/// - A term header, followed by a [`GcScanDelta`] → applies the delta, updates
-///   stats, returns `Ok(HandleOutcome::Collected)`.
-/// - A [`Frame::Terminator`] → all terms processed, returns `Ok(HandleOutcome::Done)`.
+/// Reads one [`TermEntry`] from the pipe, applies its delta, updates stats, and
+/// returns `Ok(HandleOutcome::Collected)`. A serialised `None` returns
+/// `Ok(HandleOutcome::Done)`.
 pub fn handle_terms(fgc: &mut ForkGC) -> Result<HandleOutcome, HandleError<TermNotFound>> {
     crate::util::handle_one(
         fgc,
         |reader| receive_terms(reader),
-        |(term, delta), guard| apply_terms(&term, delta, guard),
+        |entry, guard| apply_terms(&entry.term, entry.delta, guard),
     )
 }

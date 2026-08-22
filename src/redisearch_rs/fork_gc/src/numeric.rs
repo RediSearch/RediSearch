@@ -13,12 +13,12 @@ use std::io::{self, Read, Write};
 
 use field_spec::FieldSpecType;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
-use serde::Serialize as _;
+use serde::{Deserialize, Serialize};
 
-use numeric_range_tree::{Hll, NodeGcDelta, NodeIndex, NumericRangeTree};
+use numeric_range_tree::{NodeGcDelta, NodeIndex, NumericRangeTree};
 
-use crate::util::SpecWriteAccess;
-use crate::{ForkGC, Frame, GcApplyStats, HandleError, HandleOutcome};
+use crate::util::{SpecWriteAccess, deserialize, serialize};
+use crate::{ForkGC, GcApplyStats, HandleError, HandleOutcome};
 
 /// A numeric tree error with a message explaining the specific issue.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -34,93 +34,24 @@ impl TreeError {
     }
 }
 
-pub type FieldHeader = (Box<[u8]>, u32);
+/// A numeric or geo field scanned by the child process.
+///
+/// The child uses borrowed field-name bytes to avoid copies; the parent
+/// deserializes the default owned form.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NumericField<T = Box<[u8]>> {
+    /// Field name at scan time.
+    pub field_name: T,
+    /// [`NumericRangeTree::unique_id`] at scan time.
+    pub unique_id: u32,
+}
 
-/// A single node entry in the numeric GC wire protocol.
-#[derive(Debug, PartialEq, Eq)]
+/// A single node delta in the numeric GC wire protocol.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NumericNodeDelta {
     pub position: u32,
     pub generation: u32,
     pub delta: NodeGcDelta,
-}
-
-impl NumericNodeDelta {
-    /// Write this node entry to `writer`.
-    pub fn encode(&self, writer: &mut impl Write) -> io::Result<()> {
-        let mut delta_data = Vec::new();
-        self.delta
-            .delta
-            .serialize(&mut rmp_serde::Serializer::new(&mut delta_data))
-            .map_err(io::Error::other)?;
-
-        let node_len = size_of_val(&self.position)
-            + size_of_val(&self.generation)
-            + delta_data.len()
-            + size_of_val(&self.delta.registers_with_last_block)
-            + size_of_val(&self.delta.registers_without_last_block);
-
-        writer.write_all(&node_len.to_ne_bytes())?;
-        writer.write_all(&self.position.to_ne_bytes())?;
-        writer.write_all(&self.generation.to_ne_bytes())?;
-        writer.write_all(&delta_data)?;
-        writer.write_all(&self.delta.registers_with_last_block)?;
-        writer.write_all(&self.delta.registers_without_last_block)
-    }
-
-    /// Read one node entry from `reader`.
-    ///
-    /// Returns `Ok(None)` when a [`Frame::Terminator`] is received (end of
-    /// the node stream), or `Ok(Some(node))` for a valid entry.
-    pub fn decode<R: Read>(reader: &mut R) -> Result<Option<Self>, HandleError<TreeError>> {
-        // The individual body reads are consecutive bytes of one entry we have
-        // already committed to, so a failure in any of them has the same
-        // diagnosis: the entry was truncated. They share one message.
-        let read_body = |reader: &mut R, buffer| {
-            reader
-                .read_exact(buffer)
-                .map_err(|e| HandleError::codec("reading the numeric node entry", e))
-        };
-
-        let mut len_bytes = [0u8; size_of::<usize>()];
-        reader
-            .read_exact(&mut len_bytes)
-            .map_err(|e| HandleError::codec("reading the numeric node length prefix", e))?;
-        let node_len = usize::from_ne_bytes(len_bytes);
-
-        if node_len == crate::frame::TERMINATOR {
-            return Ok(None);
-        }
-
-        let minimum_node_len = size_of::<u32>() + size_of::<u32>() + Hll::size() * 2;
-        let delta_data_len = node_len.checked_sub(minimum_node_len).ok_or_else(|| {
-            HandleError::codec(
-                "numeric node length too small",
-                format!("{node_len} is below the minimum {minimum_node_len}"),
-            )
-        })?;
-
-        let mut pos_bytes = [0u8; size_of::<u32>()];
-        read_body(reader, &mut pos_bytes)?;
-        let mut gen_bytes = [0u8; size_of::<u32>()];
-        read_body(reader, &mut gen_bytes)?;
-        let mut delta_data = vec![0u8; delta_data_len];
-        read_body(reader, &mut delta_data)?;
-        let mut registers_with_last_block = [0u8; Hll::size()];
-        read_body(reader, &mut registers_with_last_block)?;
-        let mut registers_without_last_block = [0u8; Hll::size()];
-        read_body(reader, &mut registers_without_last_block)?;
-
-        Ok(Some(NumericNodeDelta {
-            position: u32::from_ne_bytes(pos_bytes),
-            generation: u32::from_ne_bytes(gen_bytes),
-            delta: NodeGcDelta {
-                delta: rmp_serde::from_slice(&delta_data)
-                    .map_err(|e| HandleError::codec("decoding the numeric node delta", e))?,
-                registers_with_last_block,
-                registers_without_last_block,
-            },
-        }))
-    }
 }
 
 /// A numeric tree resolved from a field header.
@@ -207,13 +138,10 @@ impl ResolvedTree {
 /// Collect GC deltas for every numeric and geo field in the spec and write
 /// them to the parent process.
 ///
-/// For each NUMERIC or GEO field whose tree has been initialised, sends:
-///  1. A [`Frame::Data`] carrying the field name, followed by the field's
-///     unique tree ID as a raw native-endian `u32`.
-///  2. One [`NumericNodeDelta`] per tree node with GC work.
-///  3. A [`Frame::Terminator`] ending the node stream.
-///
-/// A final [`Frame::Terminator`] is written once all fields are processed.
+/// For each NUMERIC or GEO field whose tree has been initialised, sends a
+/// `Some` [`NumericField`], then one `Some` [`NumericNodeDelta`] per tree node
+/// with GC work, followed by a `None` node terminator. A final `None` field
+/// terminates the scanner.
 ///
 /// Write errors are surfaced so the caller can terminate the child process.
 pub fn collect_numeric(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io::Result<()> {
@@ -226,56 +154,30 @@ pub fn collect_numeric(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io
         })
         .filter_map(|fs| fs.tree().map(|tree| (fs, tree)))
     {
-        // Send field header: Frame::Data(field_name) + raw u32 unique_id.
         let field_name = fs.field_name().secret_value().to_bytes();
-        Frame::data(field_name).encode(writer)?;
-        writer.write_all(&u32::from(tree.unique_id()).to_ne_bytes())?;
+        serialize(
+            writer,
+            Some(NumericField {
+                field_name,
+                unique_id: u32::from(tree.unique_id()),
+            }),
+        )?;
 
-        for (node_idx, delta) in tree
-            .indexed_iter()
-            .filter_map(|(idx, node)| node.scan_gc(&|id| spec.doc_exists(id)).map(|d| (idx, d)))
-        {
-            NumericNodeDelta {
-                position: node_idx.position(),
-                generation: node_idx.generation(),
-                delta,
-            }
-            .encode(writer)?;
+        for node_delta in tree.indexed_iter().filter_map(|(node_idx, node)| {
+            node.scan_gc(&|id| spec.doc_exists(id))
+                .map(|delta| NumericNodeDelta {
+                    position: node_idx.position(),
+                    generation: node_idx.generation(),
+                    delta,
+                })
+        }) {
+            serialize(writer, Some(node_delta))?;
         }
 
-        Frame::Terminator.encode(writer)?;
+        serialize(writer, None::<NumericNodeDelta>)?;
     }
 
-    // Global terminator: tells the parent no more fields follow.
-    Frame::Terminator.encode(writer)
-}
-
-/// Read one field header from `reader`.
-///
-/// Return `None` when the child sent the global terminator instead.
-pub fn receive_field_header(
-    reader: &mut impl Read,
-) -> Result<Option<FieldHeader>, HandleError<TreeError>> {
-    let frame = Frame::decode(reader)
-        .map_err(|e| HandleError::codec("reading the numeric field-name frame", e))?;
-
-    let field_name = match frame {
-        Frame::Terminator => return Ok(None),
-        Frame::Data(name) => name.into_inner(),
-        Frame::Empty => {
-            return Err(HandleError::codec(
-                "expected a field-name or terminator frame for numeric",
-                "got an empty frame",
-            ));
-        }
-    };
-
-    let mut id_bytes = [0u8; size_of::<u32>()];
-    reader
-        .read_exact(&mut id_bytes)
-        .map_err(|e| HandleError::codec("reading the numeric field unique id", e))?;
-
-    Ok(Some((field_name, u32::from_ne_bytes(id_bytes))))
+    serialize(writer, None::<NumericField<&[u8]>>)
 }
 
 /// Apply one node's delta to `tree`.
@@ -310,7 +212,7 @@ fn apply_node_stream(
 ) -> Result<Option<ResolvedTree>, HandleError<TreeError>> {
     let mut resolved_tree = None;
 
-    while let Some(node) = NumericNodeDelta::decode(reader)? {
+    while let Some(node) = deserialize(&mut *reader, "decoding numeric node")? {
         let node_stats = spec.with_write(|guard| {
             let resolved_tree = match resolved_tree {
                 Some(resolved_tree) => resolved_tree,
@@ -361,7 +263,11 @@ pub fn handle_numeric_with(
     stats: &mut GcApplyStats,
     clean_numeric_empty_nodes: bool,
 ) -> Result<HandleOutcome, HandleError<TreeError>> {
-    let Some((field_name, unique_id)) = receive_field_header(reader)? else {
+    let Some(NumericField {
+        field_name,
+        unique_id,
+    }) = deserialize::<Option<NumericField>, TreeError>(reader, "decoding numeric field")?
+    else {
         return Ok(HandleOutcome::Done);
     };
 

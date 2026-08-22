@@ -19,6 +19,7 @@ use std::collections::HashMap;
 use index_result::RSIndexResult;
 use inverted_index::numeric::StoredValue;
 use inverted_index::{GcApplyInfo, GcScanDelta};
+use serde::{Deserialize, Serialize};
 
 use super::{NumericRangeTree, TrimEmptyLeavesResult};
 use crate::NumericRangeNode;
@@ -30,13 +31,15 @@ use crate::range::Hll;
 /// Contains the inverted index GC delta plus the HyperLogLog registers
 /// captured during the scan. One `NodeGcDelta` is produced per DFS node
 /// that had GC work.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeGcDelta {
     /// The inverted index GC scan delta.
     pub delta: GcScanDelta,
     /// HLL registers including the last scanned block's cardinality.
+    #[serde(with = "serde_big_array::BigArray")]
     pub registers_with_last_block: [u8; Hll::size()],
     /// HLL registers excluding the last scanned block's cardinality.
+    #[serde(with = "serde_big_array::BigArray")]
     pub registers_without_last_block: [u8; Hll::size()],
 }
 
