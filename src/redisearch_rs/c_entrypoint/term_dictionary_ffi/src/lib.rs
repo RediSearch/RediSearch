@@ -10,15 +10,14 @@
 //! C entry points for [`term_dictionary::TermDictionary`], the Rust
 //! replacement for the C terms trie behind `sp->terms` (the
 //! `NewTrie`/`Trie_InsertStringBuffer`/`Trie_GetNode`/`Trie_Iterate`
-//! family in `trie.c`).
+//! family).
 //!
-//! All string parameters are byte pointers with an explicit length and
-//! must be valid UTF-8: terms are tokenizer output and patterns are
-//! produced by the query parser, both from UTF-8 input. The dictionary
-//! case-folds every key and pattern internally (see the crate docs), so
-//! callers pass the raw term as-is. Invalid UTF-8 is rejected —
-//! mutations become no-ops, lookups report "not found", and iterator
-//! constructors yield nothing — and trips a debug assertion.
+//! All string parameters are byte pointers with an explicit length.
+//! Terms are tokenizer output and patterns come from the query parser,
+//! so they are normally valid UTF-8; anything else is rejected rather
+//! than treated as a caller error — see [`term_arg`]. The dictionary
+//! case-folds every key and pattern internally (see the
+//! [`term_dictionary`] crate docs), so callers pass the raw term as-is.
 
 #![allow(non_camel_case_types, non_snake_case)]
 
@@ -29,16 +28,10 @@ use term_dictionary::{
     DecrResult as DecrResultImpl, InsertOutcome as InsertOutcomeImpl, TermEntry,
 };
 
-/// Term dictionary mapping each indexed term to its score and the
-/// number of documents containing it. Backs the FT.SEARCH terms trie
-/// (`sp->terms`) used for GC, exact lookups, and prefix/fuzzy/wildcard
-/// query expansion.
-///
 /// Opaque to C; obtained from [`NewTermDictionary`] and freed with
-/// [`TermDictionary_Free`]. Re-exported rather than wrapped so that
-/// Rust consumers holding the spec's opaque pointer — `query_eval` —
-/// can recover the dictionary by casting, depending only on the pure
-/// crate.
+/// [`TermDictionary_Free`]. Re-exported rather than wrapped so Rust
+/// callers holding the spec's opaque pointer can recover the dictionary
+/// by casting, depending only on the pure crate.
 pub use term_dictionary::TermDictionary;
 
 /// Yields the matching terms (and their payloads) of an iteration over
@@ -114,7 +107,8 @@ impl From<DecrResultImpl> for TermDictionaryDecrResult {
 /// `None` is an expected input class, not a caller error: a TEXT field
 /// holds arbitrary bytes, and the tokenizer hands the indexer whatever
 /// it finds there. Every entry point turns it into a no-op, reporting it
-/// through the `Unsupported` variant of its outcome enum where it has
+/// through [`TermDictionaryInsertOutcome::Unsupported`] or
+/// [`TermDictionaryDecrResult::Unsupported`] where its outcome enum has
 /// one.
 ///
 /// # Safety
@@ -190,8 +184,8 @@ pub unsafe extern "C" fn TermDictionary_Len(t: *const TermDictionary) -> usize {
 }
 
 /// Estimated heap memory currently held by the dictionary, in bytes.
-/// Counts the trie node and key storage, matching the role of the C
-/// `TrieType_MemUsage`.
+/// See [`TermDictionary::mem_usage`]. Mirrors the C `TrieType_MemUsage`
+/// entry point.
 ///
 /// # Safety
 ///
@@ -554,9 +548,6 @@ pub unsafe extern "C" fn TermDictionary_IterateContains<'td>(
 ///   [`NewTermDictionary`] and cannot be NULL.
 /// - `str` must point to a valid byte sequence of length `len`.
 /// - `t` must not be modified or freed while the iterator lives.
-/// - The pattern bytes `(str, len)` must stay valid and unmodified while
-///   the iterator lives — the iterator matches candidates against them
-///   on every advance.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermDictionary_IterateWildcard<'td>(
     t: *const TermDictionary,

@@ -155,10 +155,7 @@ fn decrement_num_docs_reports_each_outcome() {
 fn a_non_utf8_term_is_never_stored_and_its_decrement_is_a_no_op() {
     // A TEXT field holds arbitrary bytes, so the indexer can offer a term the
     // UTF-8-keyed dictionary cannot represent. Both halves of the count must
-    // agree it was never stored: were the insert to report `New`, the caller
-    // would count a distinct term that does not exist, and were the decrement
-    // to report `NotFound`, the caller would read a divergence that never
-    // happened.
+    // agree it was never stored — see the docs on the `Unsupported` variants.
     let t = NewTermDictionary();
     let term = b"bi\xED\xA0\xBDke";
 
@@ -167,10 +164,11 @@ fn a_non_utf8_term_is_never_stored_and_its_decrement_is_a_no_op() {
     let outcome =
         unsafe { TermDictionary_AddTerm(t, term.as_ptr().cast::<c_char>(), term.len(), 1.0, 3) };
     assert_eq!(outcome, TermDictionaryInsertOutcome::Unsupported);
-    // Safety: as above.
+    // Safety: `t` is a live dictionary.
     assert_eq!(unsafe { TermDictionary_Len(t) }, 0);
 
-    // Safety: as above.
+    // Safety: `term` points to `term.len()` readable bytes and no iterator on
+    // `t` is alive.
     let result = unsafe {
         TermDictionary_DecrementNumDocs(t, term.as_ptr().cast::<c_char>(), term.len(), 1)
     };
@@ -287,7 +285,6 @@ fn iterate_fuzzy_reports_terms_within_budget() {
         add(t, term, 1.0, 1);
     }
 
-    // Edit distance <= 1 of "bike".
     let query = "bike";
     // Safety: `t` is a live dictionary that outlives the iterator; the pattern bytes come from a valid `&str`.
     let it = unsafe { TermDictionary_IterateFuzzy(t, query.as_ptr().cast(), query.len(), 1) };

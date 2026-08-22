@@ -313,9 +313,6 @@ struct TermDictionaryIterator *TermDictionary_IterateSuffix(const struct TermDic
  *   [`NewTermDictionary`] and cannot be NULL.
  * - `str` must point to a valid byte sequence of length `len`.
  * - `t` must not be modified or freed while the iterator lives.
- * - The pattern bytes `(str, len)` must stay valid and unmodified while
- *   the iterator lives — the iterator matches candidates against them
- *   on every advance.
  */
 struct TermDictionaryIterator *TermDictionary_IterateWildcard(const struct TermDictionary *t, const char *str, size_t len);
 
@@ -332,8 +329,8 @@ size_t TermDictionary_Len(const struct TermDictionary *t);
 
 /**
  * Estimated heap memory currently held by the dictionary, in bytes.
- * Counts the trie node and key storage, matching the role of the C
- * `TrieType_MemUsage`.
+ * See [`TermDictionary::mem_usage`]. Mirrors the C `TrieType_MemUsage`
+ * entry point.
  *
  * # Safety
  *
