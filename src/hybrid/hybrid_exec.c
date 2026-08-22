@@ -1393,7 +1393,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
 
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
-  RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
+  RedisSearchCtx *sctx = NewSearchCtxCEx(ctx, indexname, true, INDEXSPEC_LOAD_QUERY);
   if (!sctx) {
     QueryError_SetWithUserDataFmt(&status, QUERY_ERROR_CODE_NO_INDEX, "Index not found", ": %s", indexname);
     return QueryError_ReplyAndClear(ctx, &status);

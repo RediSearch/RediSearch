@@ -351,7 +351,8 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   double percent_indexed = IndexesScanner_IndexedPercent(sctx->redisCtx, scanner, sp);
   REPLY_KVNUM("percent_indexed", percent_indexed);
 
-  REPLY_KVINT("number_of_uses", sp->counter);
+  REPLY_KVINT("number_of_uses", IndexSpec_GetQueryCounter(sp));
+  REPLY_KVINT("number_of_admin_ops", IndexSpec_GetAdminCounter(sp));
 
   REPLY_KVINT("cleaning", CleanInProgressOrPending());
 

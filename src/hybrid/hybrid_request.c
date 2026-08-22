@@ -467,8 +467,8 @@ HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx, RedisModuleString 
   // The subs borrow the handler's ctx, like the tail: whoever runs a cycle
   // lends each sub a ctx valid for that cycle and reclaims it at cycle end
   // (a background cycle's depleting threads each need a private one).
-  search->sctx = NewSearchCtxC(sctx->redisCtx, indexName, true);
-  vector->sctx = NewSearchCtxC(sctx->redisCtx, indexName, true);
+  search->sctx = NewSearchCtxCEx(sctx->redisCtx, indexName, true, INDEXSPEC_LOAD_NOCOUNTERINC);
+  vector->sctx = NewSearchCtxCEx(sctx->redisCtx, indexName, true, INDEXSPEC_LOAD_NOCOUNTERINC);
   arrayof(AREQ*) requests = array_new(AREQ*, HYBRID_REQUEST_NUM_SUBQUERIES);
   requests = array_ensure_append_1(requests, search);
   requests = array_ensure_append_1(requests, vector);

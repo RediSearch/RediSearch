@@ -153,6 +153,9 @@ TEST_F(RdbMockTest, testIndexSpecRdbSerialization) {
     // Verify original lock state
     EXPECT_TRUE(testLockState(spec)) << "Original IndexSpec should have properly initialized rwlock";
 
+    spec->queryCounter = 3;
+    spec->adminCounter = 5;
+
     // Create RDB IO context
     RedisModuleIO *io = RMCK_CreateRdbIO();
     std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
@@ -188,7 +191,8 @@ TEST_F(RdbMockTest, testIndexSpecRdbSerialization) {
     EXPECT_EQ(spec->scan_in_progress, loadedSpec->scan_in_progress);
     EXPECT_EQ(spec->scan_failed_OOM, loadedSpec->scan_failed_OOM);
     EXPECT_EQ(spec->used_dialects, loadedSpec->used_dialects);
-    EXPECT_EQ(spec->counter, loadedSpec->counter);
+    EXPECT_EQ(0, loadedSpec->queryCounter);
+    EXPECT_EQ(0, loadedSpec->adminCounter);
     EXPECT_EQ(spec->activeCursors, loadedSpec->activeCursors);
     // verify read locks can be taken
     int lockResult = pthread_rwlock_tryrdlock(&spec->rwlock);
