@@ -29,7 +29,7 @@ use rqe_core::DocId;
 use rqe_iterators::{
     RQEIterator, ResumeOutcome, TypeErasedRQEIterator, TypeErasedRQESuspendedIterator,
 };
-pub use test_context::{GlobalGuard, TestContext};
+pub use test_context::{GlobalGuard, TestContext, with_c_globals_locked};
 
 /// Drive `it` from its current position to exhaustion, asserting that it
 /// upholds the contract on [`current`](RQEIterator::current) and
