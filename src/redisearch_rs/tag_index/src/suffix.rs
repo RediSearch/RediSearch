@@ -22,9 +22,10 @@
 //! Adding and removing items from this trie require order-aware operations.
 //!
 //! For instance, during the insertion:
-//! - insert owned term under tag key ([`OwnedTerm`])
+//! - under the tag key, store the owned term ([`OwnedTerm`]) and append a pointer to
+//!   it to that entry's member list
 //! - for each suffix:
-//!   - insert borrowed term under the suffix key ([`TermPtr`])
+//!   - append a pointer to the term ([`TermPtr`]) to the suffix key's member list
 //!
 //! # Keys and stored terms
 //!
@@ -37,8 +38,12 @@ use std::{
     ptr::NonNull,
 };
 
+use rqe_wildcard::WildcardPattern;
 use thin_vec::{AlignedU32, ThinVec};
-use trie_rs::TrieMap;
+use trie_rs::{
+    TrieMap,
+    iter::{LendingIter, WildcardIter, filter::VisitAll},
+};
 
 use crate::Tag;
 
@@ -118,26 +123,45 @@ impl Drop for OwnedTerm {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TermPtr(NonNull<u8>);
 
+impl TermPtr {
+    /// Full allocation size in bytes (term bytes + the trailing NUL).
+    ///
+    /// # Safety
+    /// The [`OwnedTerm`] this pointer was taken from must still be alive.
+    pub const unsafe fn alloc_size(&self) -> usize {
+        // This cast doesn't change size, we care about only the NULL
+        let ptr = self.0.as_ptr().cast::<std::ffi::c_char>().cast_const();
+        // SAFETY: the pointee is a live allocation from [`OwnedTerm::new`], which
+        // NUL-terminates it.
+        unsafe { std::ffi::CStr::from_ptr(ptr) }
+            .to_bytes_with_nul()
+            .len()
+    }
+
+    pub const fn as_ptr(&self) -> *const u8 {
+        self.0.as_ptr()
+    }
+}
+
 /// Payload of one trie entry.
 #[derive(Debug, Default)]
 pub(crate) struct SuffixData {
     /// `Some` iff this entry's key is itself a member: the owning handle of
-    /// that member's tag term allocation.
+    /// that member's tag term allocation. Every [`TermPtr`] to that term borrows from here.
     full_term: Option<OwnedTerm>,
     /// Every member this entry's key is a suffix of.
-    refs: ThinVec<TermPtr, AlignedU32>,
+    members: ThinVec<TermPtr, AlignedU32>,
 }
 
 impl SuffixData {
-    /// Every member term this entry's key belongs to: the term itself when the
-    /// key is a full term (stored separately in [`Self::full_term`]) followed by
-    /// every term the key is a *proper* suffix of ([`Self::refs`]).
+    /// Every member term this entry's key belongs to — the terms it is a proper
+    /// suffix of, and the term equal to the key itself when there is one — in the
+    /// order [`TagSuffixIndex::add`] registered them.
+    ///
+    /// The order is important because a [`crate::SuffixQuery::Wildcard`] expansion
+    /// could truncate the sequence at its `max_prefix_expansions`.
     pub fn members(&self) -> impl Iterator<Item = TermPtr> + '_ {
-        self.full_term
-            .as_ref()
-            .map(OwnedTerm::borrowed)
-            .into_iter()
-            .chain(self.refs.iter().copied())
+        self.members.iter().copied()
     }
 }
 
@@ -181,8 +205,12 @@ impl TagSuffixIndex {
         self.entries.insert_with(bytes, |slot| {
             let mut data = slot.unwrap_or_else(|| SuffixData {
                 full_term: None,
-                refs: ThinVec::with_capacity(2),
+                members: ThinVec::with_capacity(2),
             });
+            // The term goes at the tail of the same member list as the references,
+            // as C's `addSuffixTrieMap` appends it: when this entry already exists
+            // because the key is a proper suffix of longer terms, those come first.
+            data.members.push(ptr);
             // Keep "alive" the owned term
             data.full_term = Some(owned);
 
@@ -194,12 +222,33 @@ impl TagSuffixIndex {
             self.entries.insert_with(&bytes[start..], |slot| {
                 let mut data = slot.unwrap_or_else(|| SuffixData {
                     full_term: None,
-                    refs: ThinVec::with_capacity(2),
+                    members: ThinVec::with_capacity(2),
                 });
-                data.refs.push(ptr);
+                data.members.push(ptr);
                 data
             });
         }
+    }
+
+    /// Iterate over all `(suffix, data)` entries, in lexicographical order of
+    /// the suffix.
+    pub fn lending_iter(&self) -> LendingIter<'_, SuffixData, VisitAll> {
+        self.entries.lending_iter()
+    }
+
+    /// Iterate over the `(suffix, data)` entries whose key starts with `prefix`,
+    /// in lexicographical order.
+    pub fn prefixed_iter(&self, prefix: &[u8]) -> trie_rs::iter::Iter<'_, SuffixData, VisitAll> {
+        self.entries.prefixed_iter(prefix)
+    }
+
+    /// Iterate over all `(suffix, data)` entries whose suffix matches the
+    /// wildcard `pattern`.
+    pub fn wildcard_iter<'tm, 'p>(
+        &'tm self,
+        pattern: WildcardPattern<'p>,
+    ) -> WildcardIter<'tm, 'p, SuffixData> {
+        self.entries.wildcard_iter(pattern)
     }
 
     /// The entry keyed by exactly `key`, if any.
@@ -230,6 +279,21 @@ mod tests {
         // SAFETY: `t` is a live `OwnedTerm`, so its allocation holds `len`
         // initialized bytes.
         unsafe { std::slice::from_raw_parts(t.0.as_ptr(), len) }.to_vec()
+    }
+
+    /// The terms [`SuffixData::members`] yields, in order, with the terminator
+    /// stripped.
+    fn read_members(data: &SuffixData) -> Vec<Vec<u8>> {
+        data.members()
+            .map(|ptr| {
+                // SAFETY: `data` is borrowed from a live index, so the `OwnedTerm`
+                // each of its members points at is alive too.
+                let len = unsafe { ptr.alloc_size() };
+                // SAFETY: as above — the allocation holds `len` initialized bytes.
+                let with_nul = unsafe { std::slice::from_raw_parts(ptr.as_ptr(), len) };
+                with_nul[..len - 1].to_vec()
+            })
+            .collect()
     }
 
     /// [`OwnedTerm::new`] takes the NUL-free term and appends the terminator
@@ -322,5 +386,36 @@ mod tests {
                 "the surviving reference must point at the live term allocation"
             );
         }
+    }
+
+    /// A term whose own key already exists as a proper suffix of longer terms is
+    /// registered *after* them, matching C's `addSuffixTrieMap` — which appends the
+    /// full term to the same array as the references. A capped expansion truncates
+    /// that order, so getting it wrong opens a different set of tag readers.
+    #[test]
+    fn a_term_registered_after_its_own_suffix_entry_comes_last() {
+        let mut idx = TagSuffixIndex::new();
+        for term in [b"beat".as_slice(), b"heat", b"eat"] {
+            add(&mut idx, term);
+        }
+
+        let data = idx.find(b"eat").expect("`eat` is indexed");
+        assert_eq!(
+            read_members(data),
+            [b"beat".to_vec(), b"heat".to_vec(), b"eat".to_vec()]
+        );
+    }
+
+    /// The other order: the term creates its own entry, so it is the first member
+    /// and later, longer terms are appended after it.
+    #[test]
+    fn a_term_registered_before_its_own_suffix_entry_comes_first() {
+        let mut idx = TagSuffixIndex::new();
+        for term in [b"eat".as_slice(), b"beat"] {
+            add(&mut idx, term);
+        }
+
+        let data = idx.find(b"eat").expect("`eat` is indexed");
+        assert_eq!(read_members(data), [b"eat".to_vec(), b"beat".to_vec()]);
     }
 }
