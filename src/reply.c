@@ -118,11 +118,11 @@ static inline void json_add_close(RedisModule_Reply *reply, const char *s) {}
 
 RedisModule_Reply RedisModule_NewReply(RedisModuleCtx *ctx) {
 #ifdef REDISMODULE_REPLY_DEBUG
-  RedisModule_Reply reply = { ctx, is_resp3(ctx), 0, NULL, NULL };
+  RedisModule_Reply reply = { ctx, is_resp3(ctx), 0, NULL, NULL, 0, NULL };
   reply.json = array_new(char, 1);
   *reply.json = '\0';
 #else
-  RedisModule_Reply reply = { ctx, is_resp3(ctx), 0, NULL };
+  RedisModule_Reply reply = { ctx, is_resp3(ctx), 0, NULL, NULL, 0 };
 #endif
   return reply;
 }
@@ -132,6 +132,11 @@ int RedisModule_EndReply(RedisModule_Reply *reply) {
   if (reply->stack) {
     array_free(reply->stack);
   }
+  if (reply->scratch) {
+    rm_free(reply->scratch);
+    reply->scratch = NULL;
+    reply->scratch_cap = 0;
+  }
 #ifdef REDISMODULE_REPLY_DEBUG
   if (reply->json) {
     array_free(reply->json);
@@ -139,6 +144,18 @@ int RedisModule_EndReply(RedisModule_Reply *reply) {
 #endif
   reply->stack = 0;
   return REDISMODULE_OK;
+}
+
+char *RedisModule_Reply_ScratchBuffer(RedisModule_Reply *reply, size_t len) {
+  if (reply->scratch_cap < len) {
+    size_t cap = reply->scratch_cap ? reply->scratch_cap : 128;
+    while (cap < len) {
+      cap *= 2;
+    }
+    reply->scratch = rm_realloc(reply->scratch, cap);
+    reply->scratch_cap = cap;
+  }
+  return reply->scratch;
 }
 
 static void _RedisModule_Reply_Next(RedisModule_Reply *reply) {
@@ -525,9 +542,6 @@ int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendRe
 
     case RSValueType_Number: {
       if (!(flags & SENDREPLY_FLAG_EXPAND)) {
-        char buf[32];
-        size_t len = RSValue_NumToString(v, buf, sizeof(buf));
-
         if (flags & SENDREPLY_FLAG_TYPED) {
           if (reply->resp3) {
             return RedisModule_Reply_Double(reply, RSValue_Number_Get(v));
@@ -535,9 +549,13 @@ int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendRe
              // In RESP2, RM_ReplyWithDouble() does not tag the response as
              // double, it's just a plain string. So we send it as simple string
              // that is converted to double by MRReply_ToValue().
+            char buf[32];
+            RSValue_NumToString(v, buf, sizeof(buf));
             return RedisModule_Reply_Error(reply, buf);
           }
         } else {
+          char buf[32];
+          size_t len = RSValue_NumToString(v, buf, sizeof(buf));
           return RedisModule_Reply_StringBuffer(reply, buf, len);
         }
       } else {

@@ -310,3 +310,21 @@ def testSortableTagInvalidUtf8DoesNotCrash(env):
 
     # and the offeding document is not included in search results
     env.expect("FT.SEARCH", "idx_tag", "*", "NOCONTENT").equal([1, "doc1"])
+
+
+def testSortkeyWithEmbeddedNul(env):
+    """WITHSORTKEYS serializes string sort keys length-aware: a value with an
+    embedded NUL byte is returned in full instead of being cut at the NUL.
+    The field is deliberately not SORTABLE, so the sorter loads the raw
+    document value per row (the sorting-vector path truncates at the NUL
+    while indexing, before serialization is involved). Both docs share the
+    bytes before the NUL and differ only after it, so the ASC order also
+    proves the full key is what gets compared — on a cluster that comparison
+    is the coordinator's cross-shard merge of the serialized keys."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx_nul', 'SCHEMA', 't', 'TAG').ok()
+    conn.execute_command('HSET', 'doc:nul:1', 't', 'a\x00b')
+    conn.execute_command('HSET', 'doc:nul:2', 't', 'a\x00a')
+
+    res = env.cmd('FT.SEARCH', 'idx_nul', '*', 'SORTBY', 't', 'ASC', 'WITHSORTKEYS', 'NOCONTENT')
+    env.assertEqual(res, [2, 'doc:nul:2', '$a\x00a', 'doc:nul:1', '$a\x00b'])

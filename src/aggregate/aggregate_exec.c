@@ -8,6 +8,7 @@
 */
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 #include <strings.h>
 #include <sys/param.h>
@@ -101,49 +102,63 @@ static const RSValue *getReplyKey(const RLookupKey *kk, const SearchResult *r) {
 
 
 
+// Serialize a double by prepending "#" to the number, so the coordinator/client
+// can tell it's a double and not just a numeric string value.
+static void reply_sortable_number(RedisModule_Reply *reply, double d) {
+  char buf[32];
+  int len = snprintf(buf, sizeof(buf), "#%.17g", d);
+  // "#" + %.17g is at most 26 bytes; a truncating snprintf would return the
+  // untruncated length and over-read below.
+  RS_LOG_ASSERT(len > 0 && len < (int)sizeof(buf), "sortable number overflowed its buffer");
+  RedisModule_Reply_StringBuffer(reply, buf, len);
+}
+
 static void reeval_key(RedisModule_Reply *reply, const RSValue *key) {
-  RedisModuleCtx *outctx = reply->ctx;
-  RedisModuleString *rskey = NULL;
   if (!key) {
     RedisModule_Reply_Null(reply);
+    return;
   }
-  else {
-    if (RSValue_IsReference(key)) {
-      key = RSValue_Dereference(key);
-    } else if (RSValue_IsTrio(key)) {
-      key = RSValue_Trio_GetLeft(key);
-    }
-
-    switch (RSValue_Type(key)) {
-      case RSValueType_Number:
-        // Serialize double - by prepending "#" to the number, so the coordinator/client can
-        // tell it's a double and not just a numeric string value
-        rskey = RedisModule_CreateStringPrintf(outctx, "#%.17g", RSValue_Number_Get(key));
-        break;
-      case RSValueType_String:
-        // Serialize string - by prepending "$" to it
-        rskey = RedisModule_CreateStringPrintf(outctx, "$%s", RSValue_String_Get(key, NULL));
-        break;
-      case RSValueType_RedisString:
-        rskey = RedisModule_CreateStringPrintf(outctx, "$%s",
-          RedisModule_StringPtrLen(RSValue_RedisString_Get(key), NULL));
-        break;
-      case RSValueType_Null:
-      case RSValueType_Undef:
-      case RSValueType_Array:
-      case RSValueType_Map:
-      case RSValueType_Reference:
-      case RSValueType_Trio:
-        break;
-    }
-
-    if (rskey) {
-      RedisModule_Reply_String(reply, rskey);
-      RedisModule_FreeString(outctx, rskey);
-    } else {
-      RedisModule_Reply_Null(reply);
-    }
+  if (RSValue_IsReference(key)) {
+    key = RSValue_Dereference(key);
+  } else if (RSValue_IsTrio(key)) {
+    key = RSValue_Trio_GetLeft(key);
   }
+
+  const char *s = NULL;
+  size_t n = 0;
+  switch (RSValue_Type(key)) {
+    case RSValueType_Number:
+      reply_sortable_number(reply, RSValue_Number_Get(key));
+      return;
+    case RSValueType_String: {
+      uint32_t sn = 0;
+      s = RSValue_String_Get(key, &sn);
+      n = sn;
+      break;
+    }
+    case RSValueType_RedisString:
+      s = RedisModule_StringPtrLen(RSValue_RedisString_Get(key), &n);
+      break;
+    case RSValueType_Null:
+    case RSValueType_Undef:
+    case RSValueType_Array:
+    case RSValueType_Map:
+    case RSValueType_Reference:
+    case RSValueType_Trio:
+      break;
+  }
+  if (!s) {
+    RedisModule_Reply_Null(reply);
+    return;
+  }
+
+  // Serialize a string by prepending "$" to it, assembled length-aware in the
+  // reply's scratch buffer: embedded NUL bytes survive the round trip and no
+  // per-value allocation happens.
+  char *tmp = RedisModule_Reply_ScratchBuffer(reply, n + 1);
+  tmp[0] = '$';
+  memcpy(tmp + 1, s, n);
+  RedisModule_Reply_StringBuffer(reply, tmp, n + 1);
 }
 
 static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchResult *r,
@@ -227,7 +242,6 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
     // Sortkey is the first key to reply on the required fields, if we already replied it, continue to the next one.
     size_t currentField = options & QEXEC_F_SEND_SORTKEYS ? 1 : 0;
     size_t requiredFieldsCount = array_len(req->requiredFields);
-    RSValue *rsv = NULL;
     bool need_map = has_map && currentField < requiredFieldsCount;
     if (need_map) {
       RedisModule_ReplyKV_Map(reply, "required_fields"); // >required_fields
@@ -245,27 +259,22 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
         // For duo value, we use the left value here (not the right value)
         v = RSValue_Trio_GetLeft(v);
       }
-      if (rlk && (RLookupKey_GetFlags(rlk) & RLOOKUP_F_NUMERIC) && v && !RSValue_IsNumber(v) && !RSValue_IsNull(v)) {
-        double d = 0.0;
-        RSValue_ToNumber(v, &d);
-        if (rsv == NULL) {
-          rsv = RSValue_NewNumber(d);
-        } else {
-          RSValue_SetNumber(rsv, d);
-        }
-        v = rsv;
-      }
       if (need_map) {
         RedisModule_Reply_CString(reply, field->name); // key name
       }
-      reeval_key(reply, v);
+      if (rlk && (RLookupKey_GetFlags(rlk) & RLOOKUP_F_NUMERIC) && v && !RSValue_IsNumber(v) && !RSValue_IsNull(v)) {
+        // A numeric field whose row value is not a number (e.g. loaded as a
+        // string): coerce and serialize the double directly, with no scratch
+        // RSValue.
+        double d = 0.0;
+        RSValue_ToNumber(v, &d);
+        reply_sortable_number(reply, d);
+      } else {
+        reeval_key(reply, v);
+      }
     }
     if (need_map) {
       RedisModule_Reply_MapEnd(reply); // >required_fields
-    }
-    if (rsv) {
-      RSValue_DecrRef(rsv);
-      rsv = NULL;
     }
   }
 
