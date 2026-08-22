@@ -206,10 +206,8 @@ mod tests {
 
     #[test]
     fn internal_nul_roundtrips_intact() {
-        // Deliberate deviation from C: the C dictionary decodes terms to runes
-        // and truncates at the first NUL codepoint (adding "foo\0bar" stores
-        // "foo"). Here NUL is an ordinary codepoint — the term is stored and
-        // dumped byte-exact.
+        // NUL is an ordinary codepoint — the term is stored and dumped
+        // byte-exact.
         let mut sut = SpellCheckDictionary::new();
 
         assert!(sut.add("foo\0bar"));
