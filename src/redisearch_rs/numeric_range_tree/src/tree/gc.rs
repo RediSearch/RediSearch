@@ -19,6 +19,7 @@ use std::collections::HashMap;
 use index_result::RSIndexResult;
 use inverted_index::numeric::StoredValue;
 use inverted_index::{GcApplyInfo, GcScanDelta};
+use serde::{Deserialize, Serialize};
 
 use super::{NumericRangeTree, TrimEmptyLeavesResult};
 use crate::NumericRangeNode;
@@ -33,13 +34,15 @@ use crate::range::{Hll, ValueBounds};
 ///
 /// The registers and bounds come in two versions because the parent drops the
 /// scan's result for the last block if that block changed since the fork.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct NodeGcDelta {
     /// The inverted index GC scan delta.
     pub delta: GcScanDelta,
     /// HLL registers including the last scanned block's cardinality.
+    #[serde(with = "serde_big_array::BigArray")]
     pub registers_with_last_block: [u8; Hll::size()],
     /// HLL registers excluding the last scanned block's cardinality.
+    #[serde(with = "serde_big_array::BigArray")]
     pub registers_without_last_block: [u8; Hll::size()],
     /// Bounds of the surviving entries, including the last scanned block.
     pub bounds_with_last_block: ValueBounds,
