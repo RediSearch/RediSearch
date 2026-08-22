@@ -564,6 +564,30 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
             BatchStrategy::Continue
         }
     }
+    fn release_index_handles(&mut self) {
+        // The batch iterator is the one thing here that outlives its guarantee:
+        // it stores a raw VecSim index pointer and dereferences it on `next`
+        // *and* on `Drop`, so carrying it across a lock release makes even
+        // discarding the suspended top-k a use-after-free if the index went
+        // away. Dropping it costs nothing at this point — a suspend can only
+        // happen with collection finished or not yet started, so there is no
+        // batch sequence left to continue, and `rewind` would clear it anyway.
+        self.batch_iter = None;
+
+        // The adhoc paths hold index state too — tiered-index shared locks, or a
+        // one-shot disk context — but only between `begin_adhoc` and
+        // `end_adhoc`, both of which run inside a single collection call. If one
+        // is live here, collection did not finish and the caller suspended from
+        // a state that should not exist.
+        debug_assert!(
+            match &self.adhoc_state {
+                AdhocPathState::Ram { guard } => guard.is_none(),
+                AdhocPathState::Disk { ctx } => ctx.is_none(),
+            },
+            "adhoc index state is live at a suspend boundary: collection left it \
+             un-ended",
+        );
+    }
 }
 
 /// Smoothed update of the child-results estimate, averaging the previous

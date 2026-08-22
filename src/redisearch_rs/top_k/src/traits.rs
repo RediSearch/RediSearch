@@ -211,7 +211,26 @@ pub trait ScoreSource {
     /// [`attach_score_metric`](Self::attach_score_metric) instead — unless the
     /// source opts out via [`yields_child_record`](Self::yields_child_record).
     ///
+    /// # Obligation: no index-backed payload
+    ///
+    /// The returned record must carry **no index-backed payload**: no borrowed
+    /// term-offset slice and no borrowed aggregate entries. Build them owned
+    /// instead (a metric-only result, or a term record whose offsets were copied
+    /// — see [`RSIndexResult::to_owned`]).
+    ///
+    /// [`TopKIterator`] parks the record it yields in a buffer that survives a
+    /// suspend/resume cycle, across which the index lock is released and any
+    /// index-backed bytes may be freed underneath it. This obligation is what
+    /// makes those buffers safe to keep (invariant 2 on
+    /// [`RawTopK`](crate::iterator::RawTopK)).
+    ///
+    /// It cannot be enforced statically, so it is checked at the resume
+    /// boundary: a violating record makes the whole iterator abort
+    /// ([`ResumeOutcome::Aborted`]) rather than re-narrow pointers into freed
+    /// index memory — the query loses its results, but stays sound.
+    ///
     /// [`TopKIterator`]: crate::TopKIterator
+    /// [`ResumeOutcome::Aborted`]: rqe_iterators::ResumeOutcome::Aborted
     fn build_result<'r>(&self, doc_id: DocId, score: f64) -> RSIndexResult<'r>
     where
         Self: 'r;
@@ -266,4 +285,28 @@ pub trait ScoreSource {
     ///
     /// [`TopKIterator`]: crate::TopKIterator
     fn iterator_type(&self) -> IteratorType;
+
+    /// Release any state this source borrows from the index, so it can survive
+    /// a release of the index spec read lock.
+    ///
+    /// A source is carried across a suspend/resume cycle untouched — it is not
+    /// [`Ref`](ref_mode::Ref)-mode parametrised, so nothing about the transition
+    /// weakens what it holds. Anything index-backed inside it therefore outlives
+    /// the guarantee it was created under, and a concurrent writer or a dropped
+    /// index leaves it dangling — including on the `Drop` path, which is the
+    /// part that bites: a VecSim batch iterator dereferences its index pointer
+    /// when freed, so merely *discarding* a suspended top-k would fault.
+    ///
+    /// Called by [`TopKIterator::suspend`] before the lock is released. Only
+    /// reachable with collection finished or not yet started —
+    /// [`Phase::Collecting`] never survives a `read` — so a source may drop such
+    /// state outright rather than trying to preserve it; there is no batch
+    /// sequence left to continue.
+    ///
+    /// The default is a no-op, which is right for any source holding nothing
+    /// index-backed.
+    ///
+    /// [`TopKIterator::suspend`]: crate::TopKIterator
+    /// [`Phase::Collecting`]: crate::TopKIterator
+    fn release_index_handles(&mut self) {}
 }
