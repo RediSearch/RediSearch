@@ -66,20 +66,6 @@ fn fetch_tag_index_mut(fs: &mut FieldSpec) -> Option<&mut ffi::TagIndex> {
     }
 }
 
-/// A tag GC message could not be applied to the index the child scanned.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("{msg}")]
-pub struct TagError {
-    msg: &'static str,
-}
-
-impl TagError {
-    /// Build a [`HandleError::Custom`] carrying `msg`.
-    const fn new(msg: &'static str) -> HandleError<Self> {
-        HandleError::Custom(Self { msg })
-    }
-}
-
 /// One tag value's worth of GC work, as it travels the pipe.
 ///
 /// `T` lets the child serialize borrowed field and tag bytes without copying;
@@ -176,9 +162,7 @@ pub fn collect_tags(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io::R
 }
 
 /// Decode one tag message from `reader`, or `None` at the stream terminator.
-pub fn receive_tag_entry(
-    reader: &mut impl Read,
-) -> Result<Option<TagEntry>, HandleError<TagError>> {
+pub fn receive_tag_entry(reader: &mut impl Read) -> Result<Option<TagEntry>, HandleError> {
     rmp_serde::from_read(reader).map_err(|e| HandleError::codec("decoding tag entry", e))
 }
 
@@ -189,21 +173,21 @@ pub fn receive_tag_entry(
 pub fn apply_tag_entry(
     entry: TagEntry,
     guard: &mut IndexSpecWriteGuard<'_>,
-) -> Result<GcApplyStats, HandleError<TagError>> {
+) -> Result<GcApplyStats, HandleError> {
     let fs = guard
         .field_specs_mut()
         .iter_mut()
         .find(|fs| fs.field_name().secret_value().to_bytes() == &*entry.field_name)
-        .ok_or(TagError::new(
+        .ok_or(HandleError::ApplyError(
             "no field in the spec matches the scanned field name",
         ))?;
 
-    let tag_index = fetch_tag_index_mut(fs).ok_or(TagError::new(
+    let tag_index = fetch_tag_index_mut(fs).ok_or(HandleError::ApplyError(
         "the field no longer has an in-memory tag index",
     ))?;
 
     if tag_index.uniqueId != entry.tag_index_unique_id {
-        return Err(TagError::new(
+        return Err(HandleError::ApplyError(
             "the field's tag index is not the one the child scanned",
         ));
     }
@@ -224,7 +208,7 @@ pub fn apply_tag_entry(
     // SAFETY: TRIEMAP_NOTFOUND is the C trie's process-global not-found
     // sentinel. It is initialized before an index can be queried.
     if ii.is_null() || ii.cast() == unsafe { ffi::TRIEMAP_NOTFOUND } {
-        return Err(TagError::new(
+        return Err(HandleError::ApplyError(
             "the tag was removed before the delta could be applied",
         ));
     }
@@ -234,7 +218,7 @@ pub fn apply_tag_entry(
     let ii = unsafe { &mut *ii.cast::<InvertedIndex>() };
 
     if u32::from(ii.unique_id()) != entry.inverted_index_unique_id {
-        return Err(TagError::new(
+        return Err(HandleError::ApplyError(
             "the tag's posting list is not the one the child scanned",
         ));
     }
@@ -255,7 +239,7 @@ pub fn apply_tag_entry(
             )
         } == 0
         {
-            return Err(TagError::new(
+            return Err(HandleError::ApplyError(
                 "the tag could not be removed after its posting list was emptied",
             ));
         }
@@ -293,6 +277,6 @@ pub fn apply_tag_entry(
 /// Reads one message from the pipe: a tag entry is applied and reported as
 /// [`HandleOutcome::Collected`]; a terminator ends the iteration with
 /// [`HandleOutcome::Done`].
-pub fn handle_tags(fgc: &mut ForkGC) -> Result<HandleOutcome, HandleError<TagError>> {
+pub fn handle_tags(fgc: &mut ForkGC) -> Result<HandleOutcome, HandleError> {
     crate::util::handle_one(fgc, |reader| receive_tag_entry(reader), apply_tag_entry)
 }

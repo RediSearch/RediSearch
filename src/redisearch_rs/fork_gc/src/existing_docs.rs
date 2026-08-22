@@ -17,12 +17,6 @@ use serde::Serialize as _;
 
 use crate::{ForkGC, Frame, GcApplyStats, HandleError, HandleOutcome};
 
-/// The `existingDocs` inverted index was removed between the child's scan and
-/// the parent's apply (a race between GC and a concurrent index drop).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("the existingDocs inverted index was removed before the delta could be applied")]
-pub struct ExistingDocsDeleted;
-
 /// Collect the GC delta for the spec's `existingDocs` inverted index and write
 /// it to `writer`.
 ///
@@ -55,9 +49,7 @@ pub fn collect_existing_docs(writer: &mut impl Write, spec: &IndexSpecReadGuard)
 /// Returns `Ok(Some(delta))` when the child sent a GC delta to apply,
 /// `Ok(None)` when the child sent only a terminator (nothing to collect),
 /// or an error variant on any read, decode, or unexpected-frame failure.
-pub fn receive_existing_docs(
-    reader: &mut impl Read,
-) -> Result<Option<GcScanDelta>, HandleError<ExistingDocsDeleted>> {
+pub fn receive_existing_docs(reader: &mut impl Read) -> Result<Option<GcScanDelta>, HandleError> {
     let frame = Frame::decode(reader)
         .map_err(|e| HandleError::codec("reading the existing-docs header frame", e))?;
 
@@ -80,15 +72,17 @@ pub fn receive_existing_docs(
 /// Returns [`GcApplyStats`] the caller flushes to the spec and the GC via
 /// [`GcApplyStats::apply`].
 ///
-/// Returns `Err(HandleError::Custom(ExistingDocsDeleted))` when the spec has no
-/// `existingDocs` index, which can happen if the index was removed between
+/// Returns [`HandleError::ApplyError`] when the spec has no `existingDocs`
+/// index, which can happen if the index was removed between
 /// the child's scan and the parent's apply.
 pub fn apply_existing_docs(
     delta: GcScanDelta,
     guard: &mut IndexSpecWriteGuard<'_>,
-) -> Result<GcApplyStats, HandleError<ExistingDocsDeleted>> {
+) -> Result<GcApplyStats, HandleError> {
     let Some(ii) = guard.existing_docs_mut() else {
-        return Err(HandleError::Custom(ExistingDocsDeleted));
+        return Err(HandleError::ApplyError(
+            "the existingDocs inverted index was removed before the delta could be applied",
+        ));
     };
 
     let info = ii.apply_gc(delta);
@@ -122,9 +116,7 @@ pub fn apply_existing_docs(
 ///
 /// Returns `Ok(HandleOutcome::Done)` when the child sent no data (empty
 /// index or no GC needed).
-pub fn handle_existing_docs(
-    fgc: &mut ForkGC,
-) -> Result<HandleOutcome, HandleError<ExistingDocsDeleted>> {
+pub fn handle_existing_docs(fgc: &mut ForkGC) -> Result<HandleOutcome, HandleError> {
     crate::util::handle_one(
         fgc,
         |reader| receive_existing_docs(reader),

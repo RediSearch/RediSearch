@@ -42,49 +42,6 @@
 // Number of attempts to wait for the child to exit gracefully before trying to terminate it
 #define GC_WAIT_ATTEMPTS 4
 
-static void FGC_childScanIndexes(ForkGC *gc, IndexSpec *spec) {
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(gc->ctx, spec);
-  const char* indexName = IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog);
-  RedisModule_Log(sctx.redisCtx, "debug", "ForkGC in index %s - child scanning indexes start", indexName);
-  FGC_childCollectTerms(gc, &sctx);
-  FGC_childCollectNumeric(gc, &sctx);
-  FGC_childCollectTags(gc, &sctx);
-  FGC_childCollectMissingDocs(gc, &sctx);
-  FGC_childCollectExistingDocs(gc, &sctx);
-  RedisModule_SendChildHeartbeat(1.0); // final heartbeat
-  RedisModule_Log(sctx.redisCtx, "debug", "ForkGC in index %s - child scanning indexes end", indexName);
-  // Let the parent wait for the terminal terminator, so we manage to send the heartbeat before exiting
-  FGC_sendTerminator(gc);
-}
-
-FGCError FGC_parentHandleFromChild(ForkGC *gc) {
-  FGCError status = FGC_COLLECTED;
-  RedisModule_Log(gc->ctx, "debug", "ForkGC - parent start applying changes");
-
-#define COLLECT_FROM_CHILD(e)               \
-  while ((status = (e)) == FGC_COLLECTED) { \
-  }                                         \
-  if (status != FGC_DONE) {                 \
-    return status;                          \
-  }
-
-  COLLECT_FROM_CHILD(FGC_parentHandleTerms(gc));
-  COLLECT_FROM_CHILD(FGC_parentHandleNumeric(gc));
-  COLLECT_FROM_CHILD(FGC_parentHandleTags(gc));
-  COLLECT_FROM_CHILD(FGC_parentHandleMissingDocs(gc));
-  COLLECT_FROM_CHILD(FGC_parentHandleExistingDocs(gc));
-
-  // Wait for the final terminator from the child, so it can finish post-processing chores before we kill it
-  size_t terminator_check;
-  int rc = FGC_recvFixed(gc, &terminator_check, sizeof(terminator_check)); // final status from child
-  if (rc != REDISMODULE_OK || terminator_check != NO_MORE_DATA) {
-    return FGC_CHILD_ERROR;
-  }
-  RedisModule_Log(gc->ctx, "debug", "ForkGC - parent ends applying changes");
-
-  return status;
-}
-
 // GIL must be held before calling this function
 static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
   // Check if we are a slave/replica
