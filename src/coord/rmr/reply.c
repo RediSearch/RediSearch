@@ -222,6 +222,17 @@ inline const char *MRReply_String(const MRReply *reply, size_t *len) {
   return reply->str;
 }
 
+inline char *MRReply_TakeString(MRReply *reply, size_t *len) {
+  RS_ASSERT(reply->type == MR_REPLY_STRING || reply->type == MR_REPLY_STATUS);
+  if (len) {
+    *len = reply->len;
+  }
+  char *str = reply->str;
+  reply->str = NULL;
+  reply->len = 0;
+  return str;
+}
+
 inline MRReply *MRReply_ArrayElement(const MRReply *reply, size_t idx) {
   RS_ASSERT(reply->elements > idx);
   return reply->element[idx];
