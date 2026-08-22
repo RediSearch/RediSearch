@@ -2157,6 +2157,7 @@ dependencies = [
  "slots_tracker_ffi",
  "sorting_vector_ffi",
  "syn 2.0.118",
+ "term_dictionary_ffi",
  "term_suffix_index_ffi",
  "toml",
  "triemap_ffi",
@@ -3065,6 +3066,17 @@ name = "term_dictionary"
 version = "0.0.1"
 dependencies = [
  "trie_rs",
+ "workspace_hack",
+]
+
+[[package]]
+name = "term_dictionary_ffi"
+version = "0.0.1"
+dependencies = [
+ "cheadergen",
+ "redis_mock",
+ "redisearch_rs",
+ "term_dictionary",
  "workspace_hack",
 ]
 
