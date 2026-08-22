@@ -22,14 +22,17 @@ fn insert_returns_none_on_new_and_some_on_update() {
 fn insert_with_callback_receives_existing_value_on_reinsert() {
     let mut trie = StrTrieMap::<i32>::new();
 
-    trie.insert_with("k", |prev| {
+    let is_new = trie.insert_with("k", |prev| {
         assert!(prev.is_none());
         10
     });
-    trie.insert_with("k", |prev| {
+    assert!(is_new);
+
+    let is_new = trie.insert_with("k", |prev| {
         assert_eq!(prev, Some(10));
         prev.unwrap() + 5
     });
+    assert!(!is_new);
 
     assert_eq!(trie.get("k"), Some(&15));
     assert_eq!(trie.len(), 1);
