@@ -99,8 +99,7 @@ pub unsafe extern "C" fn SpellCheckDictionary_IterateFuzzy<'sd>(
 }
 
 /// Advance the iterator. Returns 1 and points `*str`/`*len` at the next
-/// term — borrowed from the iterator, not copied into caller-provided
-/// storage — if there is one, or returns 0 once exhausted.
+/// term if there is one, or returns 0 once exhausted.
 ///
 /// Returning 0 does not free the iterator; it must still be released
 /// with [`SpellCheckDictionaryIterator_Free`].
@@ -118,6 +117,7 @@ pub unsafe extern "C" fn SpellCheckDictionary_IterateFuzzy<'sd>(
 ///    locations.
 /// 3. The [`SpellCheckDictionary`] the iterator was obtained from must
 ///    still be alive, with no mutating call on it running concurrently.
+/// 4. No other call on `it` may run concurrently with this call.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -175,6 +175,10 @@ pub unsafe extern "C" fn SpellCheckDictionaryIterator_Free(it: *mut SpellCheckDi
 /// [`SpellCheckDictionaryIterator_Next`], freed with
 /// [`SpellCheckDictionaryIterator_Free`].
 pub struct SpellCheckDictionaryIterator<'sd> {
+    /// The underlying term stream. `'sd` is the borrow into the source
+    /// [`SpellCheckDictionary`] for iterators that hold one; it is
+    /// unconstrained at the FFI boundary and upheld by the callers'
+    /// `# Safety` obligations.
     iter: Box<dyn Iterator<Item = String> + 'sd>,
     /// Keeps the most recently yielded string alive so the pointer
     /// stays valid until the next advance (or free).

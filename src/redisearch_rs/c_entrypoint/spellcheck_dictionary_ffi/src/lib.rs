@@ -26,9 +26,6 @@ mod iter_cursor;
 pub use dictionary::*;
 pub use iter_cursor::*;
 
-/// A set of spell-check dictionary terms supporting case-insensitive exact
-/// and fuzzy (Levenshtein edit distance) lookups.
-///
 /// Opaque to C; obtained from [`SpellCheckDictionary_New`] and freed with
 /// [`SpellCheckDictionary_Free`].
 pub use spellcheck_dictionary::SpellCheckDictionary;

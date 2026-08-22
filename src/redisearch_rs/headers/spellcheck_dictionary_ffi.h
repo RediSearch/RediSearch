@@ -47,8 +47,7 @@ void SpellCheckDictionaryIterator_Free(struct SpellCheckDictionaryIterator *it);
 
 /**
  * Advance the iterator. Returns 1 and points `*str`/`*len` at the next
- * term — borrowed from the iterator, not copied into caller-provided
- * storage — if there is one, or returns 0 once exhausted.
+ * term if there is one, or returns 0 once exhausted.
  *
  * Returning 0 does not free the iterator; it must still be released
  * with [`SpellCheckDictionaryIterator_Free`].
@@ -66,6 +65,7 @@ void SpellCheckDictionaryIterator_Free(struct SpellCheckDictionaryIterator *it);
  *    locations.
  * 3. The [`SpellCheckDictionary`] the iterator was obtained from must
  *    still be alive, with no mutating call on it running concurrently.
+ * 4. No other call on `it` may run concurrently with this call.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */

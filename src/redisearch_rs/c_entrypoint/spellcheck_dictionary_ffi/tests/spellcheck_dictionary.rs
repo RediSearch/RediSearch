@@ -20,6 +20,8 @@ extern crate redisearch_rs;
 // Mock or stub the ones that aren't provided by the line above
 mock_or_stub_missing_redis_c_symbols!();
 
+/// Run `f` against a dictionary preloaded with `terms`, freeing it
+/// afterwards. `f` must free every iterator it creates before returning.
 fn with_dict(terms: &[&str], f: impl FnOnce(*mut SpellCheckDictionary)) {
     let dict = SpellCheckDictionary_New();
     for term in terms {
