@@ -21,6 +21,7 @@ pub mod setters;
 pub mod shared;
 pub mod util;
 pub mod value_type;
+pub mod view;
 
 /// The C version of a [`SharedValue`](value::SharedValue)
 pub struct RSValue {
