@@ -61,13 +61,6 @@ typedef struct RLookupIterator {
 } RLookupIterator;
 
 /**
- * An iterator over the keys in an `RLookup`, returning mutable pointers.
- */
-typedef struct RLookupIteratorMut {
-  RLookupKey *current;
-} RLookupIteratorMut;
-
-/**
  * [`RSSortingVector`] acts as a cache for sortable fields in a document.
  *
  * It has a constant length, determined upfront on creation. It can't be resized.
@@ -544,21 +537,6 @@ bool RLookup_HasIndexSpecCache(const struct RLookup *lookup);
 struct RLookupIterator RLookup_Iter(const struct RLookup *lookup);
 
 /**
- * Return an iterator over an [`RLookup`]'s key list with editing operations.
- *
- * # Safety
- *
- * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
- * 2. The returned iterator must only be used as long as the `lookup` remains valid.
- * 3. The caller must treat the returned `current` pointer as pinned. Specifically
- *    a. Not move (memcpy/memmove) out of the pointer.
- *    b. The pointed-to value must remain at its original address in memory and never be relocated.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-struct RLookupIteratorMut RLookup_IterMut(struct RLookup *lookup);
-
-/**
  * Load values from the document `dmd` into `dst_row`
  *
  * # Safety
@@ -622,6 +600,20 @@ int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx, struct RLookup *looku
  * Returns a newly created [`RLookup`].
  */
 struct RLookup RLookup_New(void);
+
+/**
+ * Seal the lookup at the end of pipeline construction: from now on it is
+ * append-only. Creating new keys stays legal (document loaders and the
+ * coordinator append keys during execution), but overriding or mutating an
+ * existing key panics. Idempotent.
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void RLookup_Seal(struct RLookup *lookup);
 
 /**
  * Sets the [`ffi::IndexSpecCache`] of the lookup. If spcache is provided, then it will be used as an
