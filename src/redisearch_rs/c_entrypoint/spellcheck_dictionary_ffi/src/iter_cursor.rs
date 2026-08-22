@@ -35,9 +35,9 @@ use super::*;
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn SpellCheckDictionary_IterateAll<'sd>(
+pub unsafe extern "C" fn SpellCheckDictionary_IterateAll<'scd>(
     dict: *const SpellCheckDictionary,
-) -> *mut SpellCheckDictionaryIterator<'sd> {
+) -> *mut SpellCheckDictionaryIterator<'scd> {
     debug_assert!(!dict.is_null(), "dict cannot be NULL");
 
     // Safety: ensured by caller (1., 2.)
@@ -76,12 +76,12 @@ pub unsafe extern "C" fn SpellCheckDictionary_IterateAll<'sd>(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn SpellCheckDictionary_IterateFuzzy<'sd>(
+pub unsafe extern "C" fn SpellCheckDictionary_IterateFuzzy<'scd>(
     dict: *const SpellCheckDictionary,
     term: *const c_char,
     len: usize,
     max_dist: u32,
-) -> *mut SpellCheckDictionaryIterator<'sd> {
+) -> *mut SpellCheckDictionaryIterator<'scd> {
     debug_assert!(!dict.is_null(), "dict cannot be NULL");
     debug_assert!(!term.is_null(), "term cannot be NULL");
 
@@ -174,12 +174,12 @@ pub unsafe extern "C" fn SpellCheckDictionaryIterator_Free(it: *mut SpellCheckDi
 /// [`SpellCheckDictionary_IterateFuzzy`], advanced with
 /// [`SpellCheckDictionaryIterator_Next`], freed with
 /// [`SpellCheckDictionaryIterator_Free`].
-pub struct SpellCheckDictionaryIterator<'sd> {
-    /// The underlying term stream. `'sd` is the borrow into the source
+pub struct SpellCheckDictionaryIterator<'scd> {
+    /// The underlying term stream. `'scd` is the borrow into the source
     /// [`SpellCheckDictionary`] for iterators that hold one; it is
     /// unconstrained at the FFI boundary and upheld by the callers'
     /// `# Safety` obligations.
-    iter: Box<dyn Iterator<Item = String> + 'sd>,
+    iter: Box<dyn Iterator<Item = String> + 'scd>,
     /// Keeps the most recently yielded string alive so the pointer
     /// stays valid until the next advance (or free).
     current: Option<String>,
