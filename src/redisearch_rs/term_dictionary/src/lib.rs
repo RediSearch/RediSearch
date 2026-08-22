@@ -23,7 +23,7 @@
 //! inside `TermDictionary` lets future C-to-Rust call sites stop repeating
 //! the obligation.
 //!
-//! Folding lower-cases each [`char`] independently via [`char::to_lowercase`],
+//! Folding is [`unicode::tolower_cow`]: each [`char`] lowered independently,
 //! matching RediSearch's C `unicode_tolower` (libnu-backed, context-free
 //! per-codepoint); the equivalence is pinned by the differential tests in
 //! `string_utils`. This is intentionally *not* Unicode default
@@ -40,6 +40,7 @@
 
 use std::borrow::Cow;
 
+use string_utils::unicode;
 use trie_rs::str_trie_map::{
     StrTrieMap,
     iter::{
@@ -270,17 +271,9 @@ impl<'tm, 'p> Iterator for ContainsIter<'tm, 'p> {
     }
 }
 
-/// Lower-case a term the way RediSearch's C tokenizer does: each [`char`]
-/// independently via [`char::to_lowercase`], matching the libnu-backed C
-/// `unicode_tolower`.
+/// Lower-case a term the way RediSearch's C tokenizer does. See
+/// [`unicode::tolower_cow`] for the folding model and its equivalence to the
+/// libnu-backed C `unicode_tolower`.
 fn fold(term: &str) -> Cow<'_, str> {
-    let unchanged = term.chars().all(|c| {
-        let mut lower = c.to_lowercase();
-        lower.next() == Some(c) && lower.next().is_none()
-    });
-    if unchanged {
-        Cow::Borrowed(term)
-    } else {
-        Cow::Owned(term.chars().flat_map(char::to_lowercase).collect())
-    }
+    unicode::tolower_cow(term)
 }
