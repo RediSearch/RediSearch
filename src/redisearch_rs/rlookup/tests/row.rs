@@ -473,21 +473,25 @@ fn get_item_priority_dynamic_over_static() {
 )]
 fn write_key_by_name_new_key() {
     // Test case: name is not yet part of the lookup and gets created
+    let key_name = CString::new("new_key").unwrap();
     let mut lookup = RLookup::new();
     let mut row = RLookupRow::new();
 
-    let key_name = CString::new("new_key").unwrap();
     let value = SharedValue::new_string(b"test_value".to_vec());
 
     // Initially, row should be empty
     assert_eq!(row.len(), 0);
 
     // Write the key
-    row.write_key_by_name(&mut lookup, key_name.to_owned(), value.clone());
+    row.write_key_by_name(&mut lookup, key_name.as_c_str(), value.clone());
 
     // Verify we can find the key by name
     let cursor = lookup.find_key_by_name(&key_name);
     assert!(cursor.is_some());
+    assert!(matches!(
+        cursor.unwrap().into_current().unwrap().name(),
+        std::borrow::Cow::Owned(_)
+    ));
 
     // Verify the rlookup row is in correct state
     assert_eq!(row.len(), 1);
@@ -576,6 +580,40 @@ fn write_multiple_different_keys() {
                 .unwrap()
                 .as_str_bytes(),
             value.as_str_bytes(),
+        );
+    }
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
+fn write_key_by_name_promotes_wide_lookup() {
+    let mut lookup = RLookup::new();
+    let mut row = RLookupRow::new();
+    let names: Vec<_> = (0..25)
+        .map(|index| CString::new(format!("key{index}")).unwrap())
+        .collect();
+
+    for (index, name) in names.iter().enumerate() {
+        row.write_key_by_name(
+            &mut lookup,
+            name.to_owned(),
+            SharedValue::new_num(index as f64),
+        );
+    }
+
+    assert_eq!(row.len(), names.len());
+    for (index, name) in names.iter().enumerate() {
+        let key = lookup
+            .find_key_by_name(name)
+            .unwrap()
+            .into_current()
+            .unwrap();
+        assert_eq!(
+            row.get(key).and_then(|value| value.as_num()),
+            Some(index as f64)
         );
     }
 }

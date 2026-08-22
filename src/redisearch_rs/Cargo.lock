@@ -2292,6 +2292,7 @@ dependencies = [
 name = "rlookup"
 version = "0.0.1"
 dependencies = [
+ "ahash",
  "build_utils",
  "c_ffi_utils",
  "cheadergen",
@@ -2300,6 +2301,7 @@ dependencies = [
  "enumflags2",
  "ffi",
  "field_spec",
+ "hashbrown",
  "index_spec",
  "index_spec_cache",
  "itertools 0.15.0",
@@ -3887,6 +3889,7 @@ dependencies = [
  "clang-sys",
  "either",
  "getrandom 0.2.17",
+ "getrandom 0.3.4",
  "getrandom 0.4.3",
  "insta",
  "itertools 0.13.0",
