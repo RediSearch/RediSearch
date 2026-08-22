@@ -160,7 +160,10 @@ use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use index_result::RSIndexResult;
 #[cfg(feature = "test-utils")]
 use inverted_index::RepairContext;
-use inverted_index::{DocId, IndexReader, InvertedIndex, doc_ids_only::DocIdsOnly};
+use inverted_index::{
+    DocId, GcApplyInfo, GcScanDelta, IndexReader, IndexUniqueId, InvertedIndex,
+    doc_ids_only::DocIdsOnly,
+};
 use query_term::RSQueryTerm;
 use rqe_iterators::{
     FieldExpirationChecker,
@@ -530,6 +533,60 @@ impl TagIndex<InMemoryMode> {
         // is `TagIterator::new`'s own requirement on `lookup`.
         Some(unsafe { TagIterator::new(reader, sctx, lookup, term, weight, checker) })
     }
+
+    /// Apply a garbage-collection `delta` (computed by a fork GC scan) to the
+    /// inverted index stored for `tag`. If no document is left afterwards,
+    /// the tag is dropped from the values trie and from the
+    /// [suffix index](TagSuffixIndex), when enabled.
+    ///
+    /// `unique_id` is the [`IndexUniqueId`] of the inverted index the GC scan ran
+    /// against, read via [`InvertedIndex::unique_id`] at scan time. It stands in for
+    /// a pointer to that index to avoid the ABA problem: a raw pointer comparison
+    /// cannot detect it, but a monotonically-assigned unique ID can. See
+    /// [`IndexUniqueId`] and [`RawIndexReaderCore::points_to_ii`], which guards the
+    /// equivalent reader-revalidation case the same way.
+    ///
+    /// On success, returns the [`GcApplyInfo`] describing the applied changes, and
+    /// `None` when the delta is stale — the tag is gone, or its index was replaced.
+    /// [`bytes_freed`](GcApplyInfo::bytes_freed) and
+    /// [`block_count_delta`](GcApplyInfo::block_count_delta) already account for
+    /// the whole posting list being dropped when the tag became empty.
+    ///
+    /// [`RawIndexReaderCore::points_to_ii`]: inverted_index::reader::RawIndexReaderCore::points_to_ii
+    pub fn gc(
+        &mut self,
+        tag: Tag<'_>,
+        unique_id: IndexUniqueId,
+        delta: GcScanDelta,
+    ) -> Option<GcApplyInfo> {
+        let ii = self.mode.values.find_mut(tag.as_bytes())?;
+        // Detects the tag being removed or its index replaced meanwhile.
+        if ii.unique_id() != unique_id {
+            return None;
+        }
+
+        let mut info = ii.apply_gc(delta);
+
+        if ii.unique_docs() == 0 {
+            info.bytes_freed += ii.memory_usage();
+            info.block_count_delta -= ii.number_of_blocks() as i64;
+
+            self.remove_tag_value(tag);
+
+            if let Some(suffix) = &mut self.suffix
+                && !tag.as_bytes().is_empty()
+            {
+                suffix.delete(tag);
+            }
+        }
+
+        Some(info)
+    }
+
+    /// Remove `tag` (and its postings) from the values trie.
+    fn remove_tag_value(&mut self, tag: Tag<'_>) {
+        self.mode.values.remove(tag.as_bytes());
+    }
 }
 
 // More methods to access internals for test purposes.
@@ -541,34 +598,19 @@ impl TagIndex<InMemoryMode> {
         self.mode.values.find(tag).map(Box::as_ref)
     }
 
-    /// Simulate GC removing every posting under `tag`, leaving an empty (but
-    /// still registered) inverted index behind — the state GC leaves once
-    /// every document under a tag has been removed.
-    ///
-    /// The crate exposes no document removal of its own, so this is the only way
-    /// a test can reach the empty-index arm of
-    /// [`open_reader`](Self::open_reader).
-    pub fn gc_empty_value(&mut self, tag: &[u8]) {
-        let ii = self.mode.values.find_mut(tag).expect("tag was indexed");
+    /// Drop every posting under `tag` while leaving its (now empty) inverted index
+    /// registered in the values trie.
+    pub fn force_empty_value(&mut self, tag: Tag<'_>) {
+        let ii = self
+            .mode
+            .values
+            .find_mut(tag.as_bytes())
+            .expect("tag was indexed");
         let delta = ii
             .scan_gc(|_| false, None::<fn(&RSIndexResult, &RepairContext<'_>)>)
             .expect("scan_gc must not fail")
             .expect("every document was removed, so a delta is produced");
         ii.apply_gc(delta);
-    }
-
-    /// Simulate GC dropping `tag` altogether: both the trie entry and the
-    /// inverted index it owned are gone, which is what
-    /// [`TrieLookup::find`](TagLookup::find) must report to abort a reader still
-    /// holding the freed posting list.
-    ///
-    /// Same reason as [`gc_empty_value`](Self::gc_empty_value): no production
-    /// path in this crate removes a tag yet.
-    pub fn gc_remove_value(&mut self, tag: &[u8]) {
-        self.mode
-            .values
-            .remove(tag)
-            .expect("tag was indexed, so it has an entry to remove");
     }
 
     /// Whether `key` is registered in the [suffix index](TagSuffixIndex) — as a
@@ -578,6 +620,13 @@ impl TagIndex<InMemoryMode> {
         self.suffix
             .as_ref()
             .is_some_and(|suffix| suffix.find(key).is_some())
+    }
+
+    /// Handle over [`remove_tag_value`](Self::remove_tag_value): lets tests remove
+    /// `tag` outright, standing in for a tag that vanished between a GC scan and the
+    /// delta being applied. Tests that want a whole GC pass call [`gc`](Self::gc).
+    pub fn delete_tag_value(&mut self, tag: Tag<'_>) {
+        self.remove_tag_value(tag);
     }
 }
 
@@ -651,6 +700,81 @@ impl TagLookup<DocIdsOnly> for TrieLookup {
         let tag_index = unsafe { self.0.as_ref() };
 
         tag_index.mode.values.find(tag).map(Box::as_ref)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rqe_iterators::{NoOpChecker, RQEIterator, RQEValidateStatus};
+    use rqe_iterators_test_utils::MockContext;
+
+    /// The iterator built by [`TagIndex::open_reader`] must abort
+    /// revalidation once the garbage collector removed the tag's postings —
+    /// [`TrieLookup`] no longer resolves the tag, so the reader is stale.
+    ///
+    /// The index is reached through raw pointers because the GC mutates it while
+    /// the iterator is parked. That is the interleaving [`TrieLookup::new`]'s
+    /// provenance contract exists for.
+    #[test]
+    fn revalidate_aborts_after_tag_removed() {
+        let mock = MockContext::new(3, 3);
+        let mut idx = TagIndex::<InMemoryMode>::new(false);
+        let tags = &[Tag::new(b"team").unwrap()];
+        for doc_id in 1..=3 {
+            // `doc_id` is non-decreasing across loop iterations, as `index` requires.
+            idx.index(tags, doc_id, false);
+        }
+        // Heap-allocate the index and go through raw pointers so it can be
+        // mutated while the iterator holds a lookup back-pointer, as the query
+        // layer does across GC cycles.
+        let idx = Box::into_raw(Box::new(idx));
+
+        // SAFETY: `idx` was just allocated and is not mutated while `ii` is in use.
+        let ii = unsafe { &*idx }
+            .find_value(b"team")
+            .expect("tag was indexed");
+        let term = RSQueryTerm::new_bytes(b"team", 0, 0);
+        // SAFETY: `mock` provides a valid sctx/spec and `idx` stays valid for
+        // the iterator's lifetime; it is only mutated between revalidations.
+        let mut it = unsafe {
+            TagIterator::new(
+                ii.reader(),
+                mock.sctx(),
+                TrieLookup(NonNull::new(idx).expect("just allocated")),
+                term,
+                1.0,
+                NoOpChecker,
+            )
+        };
+
+        let status = it.revalidate(&mock.spec_read()).expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Ok);
+
+        // Run a GC pass in which no document survives: the tag loses its last
+        // posting and `gc` drops it from the values trie.
+        // SAFETY: the iterator is not touched during the mutation, per the
+        // revalidation protocol.
+        unsafe {
+            let delta = ii
+                .scan_gc(|_| false, None::<fn(&RSIndexResult, &RepairContext<'_>)>)
+                .expect("scan_gc must not fail")
+                .expect("every document was removed, so a delta is produced");
+            // Read before the `&mut` below: it invalidates every shared reference
+            // into the index, `ii` included.
+            let id = ii.unique_id();
+            (*idx)
+                .gc(tags[0], id, delta)
+                .expect("the delta was just scanned, so it cannot be stale");
+        }
+
+        let status = it.revalidate(&mock.spec_read()).expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Aborted);
+
+        drop(it);
+        // SAFETY: allocated with `Box::into_raw` above; the iterator borrowing
+        // into it has been dropped.
+        drop(unsafe { Box::from_raw(idx) });
     }
 }
 
