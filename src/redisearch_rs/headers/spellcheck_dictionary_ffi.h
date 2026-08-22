@@ -39,7 +39,8 @@ extern "C" {
  *
  * 1. `it` must be a [valid], non-null pointer to a live
  *    [`SpellCheckDictionaryIterator`].
- * 2. `it` must not be used after this call.
+ * 2. No other call on `it` may run concurrently with this call.
+ * 3. `it` must not be used after this call.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */

@@ -157,14 +157,15 @@ pub unsafe extern "C" fn SpellCheckDictionaryIterator_Next(
 ///
 /// 1. `it` must be a [valid], non-null pointer to a live
 ///    [`SpellCheckDictionaryIterator`].
-/// 2. `it` must not be used after this call.
+/// 2. No other call on `it` may run concurrently with this call.
+/// 3. `it` must not be used after this call.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn SpellCheckDictionaryIterator_Free(it: *mut SpellCheckDictionaryIterator) {
     debug_assert!(!it.is_null(), "it cannot be NULL");
 
-    // Safety: ensured by caller (1., 2.)
+    // Safety: ensured by caller (1., 2., 3.)
     drop(unsafe { Box::from_raw(it) });
 }
 
