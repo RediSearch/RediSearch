@@ -57,7 +57,7 @@ static int empty_sendChunk_common(RedisModuleCtx *ctx, AREQ *req) {
 
     sendChunk_ReplyOnly_EmptyResults(ctx, req);
 
-    AREQ_DecrRef(req);
+    AREQ_Free(req);
     return REDISMODULE_OK;
 }
 
@@ -97,12 +97,12 @@ int coord_aggregate_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **a
 
     int profileArgs = parseProfileArgs(argv, argc, req);
     if (profileArgs == -1) {
-        AREQ_DecrRef(req);
+        AREQ_Free(req);
         return QueryError_ReplyAndClear(ctx, &status);
     }
 
     if (shallow_parse_query_args(argv + profileArgs, argc - profileArgs, req) != REDISMODULE_OK) {
-        AREQ_DecrRef(req);
+        AREQ_Free(req);
         return QueryError_ReplyAndClear(ctx, &status);
     }
 
@@ -203,7 +203,7 @@ int coord_hybrid_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv
 int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int execOptions, QueryErrorCode errCode) {
 
     // Transient AREQ with no blocked-client cycle: only flows through the reply-only chunk sender
-    // and AREQ_DecrRef, neither of which needs blocked-client cycle state.
+    // and AREQ_Free, neither of which needs blocked-client cycle state.
     AREQ *req = AREQ_New(argv, argc);
     // Clock init required for profiling
     rs_wall_clock_init(&req->profileClocks.initClock);
@@ -220,7 +220,7 @@ int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString
     ApplyProfileOptions(AREQ_QueryProcessingCtx(req), &req->reqflags, execOptions);
 
     if (shallow_parse_query_args(argv, argc, req) != REDISMODULE_OK) {
-        AREQ_DecrRef(req);
+        AREQ_Free(req);
         return QueryError_ReplyAndClear(ctx, &status);
     }
 
