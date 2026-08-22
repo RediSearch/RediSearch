@@ -599,9 +599,11 @@ numericConfigs = [
     ('search-min-phonetic-term-len', 'MIN_PHONETIC_TERM_LEN', 3, 1, LLONG_MAX, False, False),
     ('search-min-prefix', 'MINPREFIX', 2, 1, UINT32_MAX, False, False),
     ('search-min-stem-len', 'MINSTEMLEN', 4, 2, UINT32_MAX, False, False),
-    ('search-multi-text-slop', 'MULTI_TEXT_SLOP', 100, 1, UINT32_MAX, True, False),
+    ('search-multi-text-slop', 'MULTI_TEXT_SLOP', 100, 0, UINT32_MAX, True, False),
     ('search-tiered-hnsw-buffer-limit', 'TIERED_HNSW_BUFFER_LIMIT', 1024, 0, LLONG_MAX, True, False),
-    ('search-timeout', 'TIMEOUT', 500, 1, LLONG_MAX, False, False),
+    # search-timeout 0 is a meaningful "never times out" sentinel on both the
+    # legacy and native paths, not an out-of-range value.
+    ('search-timeout', 'TIMEOUT', 500, 0, LLONG_MAX, False, False),
     ('search-union-iterator-heap', 'UNION_ITERATOR_HEAP', 20, 1, UINT32_MAX, False, False),
     ('search-vss-max-resize', 'VSS_MAX_RESIZE', 0, 0, UINT32_MAX, False, False),
     ('search-workers', 'WORKERS', (0 if RS_TEST_ENTERPRISE else min(MAX_WORKER_THREADS, os.cpu_count())), 0, MAX_WORKER_THREADS, False, False),
@@ -626,6 +628,13 @@ CLAMPED_CONFIGS = {
     'search-max-prefix-expansions': UINT32_MAX,
     'search-min-prefix': UINT32_MAX,
     'search-union-iterator-heap': UINT32_MAX,
+}
+
+# min - 1 (i.e. -1) is a meaningful "unlimited" sentinel for these configs,
+# translated to the listed value on both the legacy and native paths.
+SENTINEL_TRANSLATED_CONFIGS = {
+    'search-max-search-results': MAX_SEARCH_REQUEST_RESULTS,
+    'search-max-aggregate-results': MAX_AGGREGATE_REQUEST_RESULTS,
 }
 
 @skip(redis_less_than='7.9.227')
@@ -670,8 +679,13 @@ def testConfigAPIRunTimeNumericParams():
         # test invalid values
         env.expect('CONFIG', 'SET', configName, 'invalid_numeric').error()\
             .contains('CONFIG SET failed')
-        env.expect('CONFIG', 'SET', configName, str(min - 1)).error()\
-            .contains('CONFIG SET failed')
+        if configName in SENTINEL_TRANSLATED_CONFIGS:
+            env.expect('CONFIG', 'SET', configName, str(min - 1)).equal('OK')
+            env.expect('CONFIG', 'GET', configName)\
+                .equal([configName, str(SENTINEL_TRANSLATED_CONFIGS[configName])])
+        else:
+            env.expect('CONFIG', 'SET', configName, str(min - 1)).error()\
+                .contains('CONFIG SET failed')
         if configName in CLAMPED_CONFIGS:
             # Values above UINT32_MAX are accepted and clamped (backwards compat)
             env.expect('CONFIG', 'SET', configName, str(max + 1)).equal('OK')
