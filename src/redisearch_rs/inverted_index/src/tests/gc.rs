@@ -888,3 +888,58 @@ fn test_refresh_buffer_pointers_after_reallocation() {
     assert_eq!(doc_count, 990);
     assert_eq!(expected_doc_id, 1000);
 }
+
+/// A write that moves a block's buffer must be reported by
+/// [`needs_revalidation`](crate::IndexReader::needs_revalidation), even though no GC ran.
+///
+/// [`test_refresh_buffer_pointers_after_reallocation`] covers the repair but refreshes the reader
+/// itself, so it never checks that a caller is told to. A reader that is not told holds a pointer
+/// into freed memory.
+#[test]
+#[cfg_attr(miri, ignore = "the memory hack below raises error in miri")]
+fn test_needs_revalidation_after_block_buffer_moved() {
+    use crate::IndexReader as _;
+
+    let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
+    ii.add_record(&RSIndexResult::build_virt().doc_id(10).build())
+        .unwrap();
+    ii.add_record(&RSIndexResult::build_virt().doc_id(11).build())
+        .unwrap();
+
+    // SAFETY: mirrors what a suspended cursor does — the reader is parked, untouched, while the
+    // index is written to. The reader is not used until after the writes, and the writes only ever
+    // reallocate block buffers, leaving the `InvertedIndex` itself in place.
+    let ii_ptr = &mut ii as *mut InvertedIndex<Dummy>;
+
+    let mut reader: crate::IndexReaderCore<'_, Dummy> = ii.reader();
+    let mut result = RSIndexResult::build_virt().build();
+    assert!(reader.next_record(&mut result).unwrap());
+    assert_eq!(result.doc_id, 10);
+    assert!(
+        !reader.needs_revalidation(),
+        "an untouched index must not ask for revalidation"
+    );
+
+    // Append a document the reader has not reached, then move the buffer. Appending alone would
+    // leave it to the allocator whether the address changes at all — see
+    // [`relocate_block_buffer`](crate::test_utils::relocate_block_buffer).
+    let base_before = ii.block_ref(0).unwrap().data().as_ptr();
+    // SAFETY: see the `ii_ptr` construction above.
+    let base_after = unsafe {
+        (*ii_ptr)
+            .add_record(&RSIndexResult::build_virt().doc_id(12).build())
+            .unwrap();
+        crate::test_utils::relocate_block_buffer(&mut *ii_ptr, 0)
+    };
+    assert_ne!(base_before, base_after, "the buffer did not move");
+
+    assert_eq!(
+        ii.gc_marker(),
+        0,
+        "no GC ran, so the marker cannot be what flags this"
+    );
+    assert!(
+        reader.needs_revalidation(),
+        "a moved block buffer must be reported: the reader's cached pointer is now dangling"
+    );
+}

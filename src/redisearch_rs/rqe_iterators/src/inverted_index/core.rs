@@ -451,6 +451,10 @@ where
         _spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         if !self.reader.needs_revalidation() {
+            // The buffer did not move, but writes may have grown it in place while we were
+            // suspended. The cached length stops short of the appended tail, which would end this
+            // leaf early; re-point at the live slice to pick it up.
+            self.reader.refresh_buffer_pointers();
             return Ok(RQEValidateStatus::Ok);
         }
 
