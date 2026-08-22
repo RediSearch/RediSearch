@@ -15,6 +15,7 @@
 #include <stdint.h>
 
 #include "redismodule.h"
+#include "config.h"
 #include "spec.h"
 #include "indexes_scanner.h"
 #include "rules.h"
@@ -60,16 +61,21 @@ typedef struct {
   pthread_mutex_t mutex;
   pthread_cond_t cond;
   bool call_done;   // set by done_cb, consumed by the driver's wait
+  // Reason done_cb reported for the call `call_done` refers to; read only while call_done holds.
+  RedisModuleAsyncScanDoneReason done_reason;
 } AsyncReindexDriver;
 
-// Wait (GIL released) until done_cb signals this call's completion, then consume the flag.
-static void Indexes_AsyncScanWaitForDone(AsyncReindexDriver *driver) {
+// Wait (GIL released) until done_cb signals this call's completion, then consume the flag and
+// return the reason that call reported.
+static RedisModuleAsyncScanDoneReason Indexes_AsyncScanWaitForDone(AsyncReindexDriver *driver) {
   pthread_mutex_lock(&driver->mutex);
   while (!driver->call_done) {
     pthread_cond_wait(&driver->cond, &driver->mutex);
   }
   driver->call_done = false;
+  RedisModuleAsyncScanDoneReason reason = driver->done_reason;
   pthread_mutex_unlock(&driver->mutex);
+  return reason;
 }
 
 // Per-key callback. Main thread, GIL held, value pinned. AsyncScan is at-least-once, so a key
@@ -80,17 +86,7 @@ static void Indexes_AsyncScanKeyCB(RedisModuleCtx *ctx, RedisModuleScanCursor *c
   AsyncReindexDriver *driver = privdata;
   IndexesScanner *scanner = driver->scanner;
 
-  if (IndexesScanner_IsCancelled(scanner) || scanner->scanFailedOnOOM) {
-    return;
-  }
-
-  if (isAsyncBgIndexingMemoryOverLimit(ctx)) {
-    scanner->scanFailedOnOOM = true;
-    if (scanner->OOMkey) {
-      RedisModule_FreeString(RSDummyContext, scanner->OOMkey);
-    }
-    // Hold the key that triggered OOM in case we need to attach an index error.
-    scanner->OOMkey = RedisModule_HoldString(RSDummyContext, name);
+  if (IndexesScanner_IsCancelled(scanner)) {
     return;
   }
 
@@ -130,15 +126,16 @@ static void Indexes_AsyncScanKeyCB(RedisModuleCtx *ctx, RedisModuleScanCursor *c
   ++scanner->scannedKeys;
 }
 
-// Call-completion callback. Main thread, GIL held, once per OK Start / NextBatch. Terminal state
-// arrives as the next NextBatch's return code, so ignore `reason` and just wake the driver.
+// Call-completion callback. Main thread, GIL held, once per OK Start / NextBatch. The drive loop
+// switches on the next NextBatch's return code; `reason` is passed along only so it can tell
+// whether the batch it just consumed finished the sweep.
 static void Indexes_AsyncScanDoneCB(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor,
                                     void *privdata, RedisModuleAsyncScanDoneReason reason) {
   REDISMODULE_NOT_USED(ctx);
   REDISMODULE_NOT_USED(cursor);
-  REDISMODULE_NOT_USED(reason);
   AsyncReindexDriver *driver = privdata;
   pthread_mutex_lock(&driver->mutex);
+  driver->done_reason = reason;
   driver->call_done = true;
   pthread_cond_signal(&driver->cond);
   pthread_mutex_unlock(&driver->mutex);
@@ -325,6 +322,61 @@ static void Indexes_AsyncScanCancelIfDropped(IndexesScanner *scanner) {
   }
 }
 
+// React to Flex memory pressure, once per completed batch. Latches scanner->scanFailedOnOOM when
+// the scan cannot continue, which the caller's abort branch acts on. Does nothing for a cancelled
+// scan: the sweep is going away, and the OOM pause below would sleep on a dead cursor while the
+// replacement scan waits for this worker.
+//
+// Caller must hold the GIL; returns with it held.
+static void Indexes_AsyncScanHandleMemoryPressure(RedisModuleCtx *ctx, IndexesScanner *scanner) {
+  if (IndexesScanner_IsCancelled(scanner)) {
+    return;
+  }
+
+  const BgIndexingMemVerdict verdict = AsyncBgIndexingMemVerdict(ctx);
+  if (verdict == BG_INDEXING_MEM_OK) {
+    return;
+  }
+
+  // Quota spent: it covers flash as well as RAM, so there is no lower tier left to spill to and
+  // nothing this scan can wait for. Fail now instead of sleeping first. Logged here because the
+  // abort below cannot tell an operator whether to free quota or to add RAM.
+  if (verdict == BG_INDEXING_MEM_EXHAUSTED) {
+    RedisModule_Log(ctx, "warning",
+                    "AsyncScan: index %s: the server's memory quota is spent; not retrying "
+                    "(scanned=%zu)",
+                    scanner->spec_name_for_logs, scanner->scannedKeys);
+    scanner->scanFailedOnOOM = true;
+    return;
+  }
+
+  const uint32_t graceSecs = RSGlobalConfig.bgIndexingOomPauseTimeBeforeRetry;
+  if (graceSecs > 0) {
+    RedisModule_Log(ctx, "notice",
+                    "AsyncScan: index %s: RAM is over its budget; pausing %u seconds before "
+                    "retrying (scanned=%zu)",
+                    scanner->spec_name_for_logs, graceSecs, scanner->scannedKeys);
+    RedisModule_ThreadSafeContextUnlock(ctx);
+    sleep(graceSecs);
+    RedisModule_ThreadSafeContextLock(ctx);
+    // Cancelled during the pause: the caller's check below owns the teardown.
+    if (IndexesScanner_IsCancelled(scanner)) {
+      return;
+    }
+    if (AsyncBgIndexingMemVerdict(ctx) == BG_INDEXING_MEM_OK) {
+      RedisModule_Log(ctx, "notice",
+                      "AsyncScan: index %s is back within the server's memory budget; resuming "
+                      "(scanned=%zu)",
+                      scanner->spec_name_for_logs, scanner->scannedKeys);
+      return;
+    }
+  }
+
+  // On recovery the scan resumes in place, so there is nothing to re-sweep and no cursor restart;
+  // still over budget, and the abort branch below tears the sweep down.
+  scanner->scanFailedOnOOM = true;
+}
+
 // Process the completed batch and queue the next. Returns the next NextBatch's code; sets
 // *out_terminal when the scan was cancelled or the spec dropped between batches (cursor aborted,
 // already logged).
@@ -335,7 +387,7 @@ static RedisModuleAsyncScanResult Indexes_AsyncScanDriveNextBatch(
   *out_terminal = false;
 
   // Batch queued. Wait (GIL released) for done_cb to fire on the main thread.
-  Indexes_AsyncScanWaitForDone(driver);
+  const RedisModuleAsyncScanDoneReason done_reason = Indexes_AsyncScanWaitForDone(driver);
   ++*batchesDone;
 
   // Test hook (ENABLE_ASSERT): park between batches, GIL released, so a test can drop the index /
@@ -352,15 +404,15 @@ static RedisModuleAsyncScanResult Indexes_AsyncScanDriveNextBatch(
   // memory. Re-check cancelled each iteration, and periodically re-promote the weak ref so a drop
   // that doesn't set cancelled can't park us forever.
   //
-  // Skip if the batch already tripped scanFailedOnOOM: the OOM branch below must abort promptly,
-  // not sit behind a throttle that may be slow to clear. OOM is only set in key_cb, so gating
-  // entry suffices; the loop re-checks it defensively.
-  if (SearchDisk_IsVectorWriteThrottling() && !IndexesScanner_IsCancelled(scanner) && !scanner->scanFailedOnOOM) {
+  // Runs before the memory check below, not after: draining the flat buffer to disk is itself
+  // memory relief, so sampling memory on the far side of this wait measures what the scan actually
+  // costs rather than a peak the throttle is about to give back.
+  if (SearchDisk_IsVectorWriteThrottling() && !IndexesScanner_IsCancelled(scanner)) {
     RedisModule_Log(ctx, "debug",
                     "AsyncScan: index %s throttled (vector flat buffer full); backing off",
                     scanner->spec_name_for_logs);
     size_t backoffIters = 0;
-    while (SearchDisk_IsVectorWriteThrottling() && !IndexesScanner_IsCancelled(scanner) && !scanner->scanFailedOnOOM) {
+    while (SearchDisk_IsVectorWriteThrottling() && !IndexesScanner_IsCancelled(scanner)) {
       usleep(ASYNC_SCAN_BUSY_BACKOFF_US);
       // FT.DROPINDEX / FLUSHDB don't set cancelled and the global throttle isn't a reliable drop
       // wake-up, so periodically promote the weak ref (lock-free, no GIL) to notice a drop; a dead
@@ -395,9 +447,8 @@ static RedisModuleAsyncScanResult Indexes_AsyncScanDriveNextBatch(
     }
   }
 
-  // Cancelled (per-key or just above): abort the sweep. Abort is a NOOP on an already-terminal
-  // cursor and publishes terminal state on an active one, so teardown's ScanCursorDestroy is
-  // always valid.
+  Indexes_AsyncScanHandleMemoryPressure(ctx, scanner);
+
   if (IndexesScanner_IsCancelled(scanner)) {
     RedisModule_AsyncScanAbort(cursor);
     RedisModule_ThreadSafeContextUnlock(ctx);
@@ -408,21 +459,20 @@ static RedisModuleAsyncScanResult Indexes_AsyncScanDriveNextBatch(
     return REDISMODULE_ASYNCSCAN_ABORTED;
   }
 
-  // OOM flagged by key_cb this batch: abort the still-active cursor and surface OOM like the
-  // engine's OUT_OF_MEMORY branch. Not resumed, so the index may be incomplete.
   if (scanner->scanFailedOnOOM) {
     RedisModule_AsyncScanAbort(cursor);
     RedisModule_ThreadSafeContextUnlock(ctx);
     RedisModule_Log(ctx, "warning",
-                    "AsyncScan: index %s exceeded the indexing memory limit; aborting "
+                    "AsyncScan: index %s exceeded the server's memory quota; aborting "
                     "(scanned=%zu). The index may be incomplete; once memory pressure is "
                     "relieved, drop and recreate the index to rebuild it",
                     scanner->spec_name_for_logs, scanner->scannedKeys);
-    // RecordFailure re-takes the GIL, so call it unlocked. Offending key came from key_cb.
+    // RecordFailure re-takes the GIL, so call it unlocked. A spent quota has no offending key, so
+    // scanner->OOMkey is NULL here and the error is recorded without one.
     Indexes_AsyncScanRecordFailure(
         ctx, scanner,
-        "Background indexing cancelled: used memory exceeded the configured indexing memory "
-        "limit; the index may be incomplete",
+        "Background indexing cancelled: used memory exceeded the server's memory budget; the "
+        "index may be incomplete",
         /*oom=*/true);
     *out_terminal = true;
     return REDISMODULE_ASYNCSCAN_OUT_OF_MEMORY;
@@ -614,10 +664,10 @@ done:
   RedisModule_Log(ctx, "debug", "AsyncScan: index %s scan task exiting (scanned=%zu)",
                   scanner->spec_name_for_logs, scanner->scannedKeys);
 
-  // Take the GIL around IndexesScanner_Free: it clears sp->scanner / sp->scan_in_progress and
-  // frees scanner->OOMkey, all read by FT.INFO (fillReplyWithIndexInfo) on the main thread. This
-  // task runs GIL-released between batches, so without the GIL a scan finishing concurrently with
-  // INFO could race or leave INFO dereferencing a freed scanner. The spec lock is not enough: Free
+  // Take the GIL around IndexesScanner_Free: it clears sp->scanner / sp->scan_in_progress, both
+  // read by FT.INFO (fillReplyWithIndexInfo) on the main thread. This task runs GIL-released
+  // between batches, so without the GIL a scan finishing concurrently with INFO could race or
+  // leave INFO dereferencing a freed scanner. The spec lock is not enough: Free
   // also touches the process-global global_spec_scanner, and INFO reads sp->scanner without any
   // per-spec lock (it relies on the GIL). The GIL is the real contract here, same as the sync scan.
   RedisModule_ThreadSafeContextLock(ctx);

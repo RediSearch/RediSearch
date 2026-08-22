@@ -138,18 +138,32 @@ bool isBgIndexingMemoryOverLimit(RedisModuleCtx *ctx) {
   return (used_memory_ratio > memory_limit_ratio) ;
 }
 
-// Async-scan (disk + Flex) counterpart of isBgIndexingMemoryOverLimit: checks the higher of
-// the RAM-only and total usage ratios against indexingMemoryLimit %.
-bool isAsyncBgIndexingMemoryOverLimit(RedisModuleCtx *ctx) {
-  // if memory limit is set to 0, we don't need to check for memory usage
-  if (RSGlobalConfig.indexingMemoryLimit == 0) {
-    return false;
+// Margin (percentage points) a RAM term must exceed its budget by before the guard believes it.
+// The swapout term is the engine's control variable: whenever max_ram is the binding limit — i.e.
+// max_ram_by_data_ratio sits above it — eviction parks that term *at* max_ram and holds it there
+// with no low watermark, so its budget is the healthy operating point and only a departure from it
+// is a signal. Measured parked at 0.99988 of max_ram, rippling by ~0.14%, so this clears the ripple
+// by an order of magnitude. Proportional, so it scales with the budget rather than assuming one.
+#define ASYNC_BG_INDEXING_RAM_MARGIN_PCT 2
+
+BgIndexingMemVerdict AsyncBgIndexingMemVerdict(RedisModuleCtx *ctx) {
+  const RedisMemoryFlexRatios mem = RedisMemory_GetFlexRatios(ctx);
+
+  if (mem.total_memory_ratio >= 1.0f) {
+    return BG_INDEXING_MEM_EXHAUSTED;
   }
 
-  float used_memory_ratio = RedisMemory_GetUsedMemoryRatioFlex(ctx);
-  float memory_limit_ratio = (float)RSGlobalConfig.indexingMemoryLimit / 100;
+  // Either RAM term past its budget by the margin. Which of the two reads higher is not fixed: the
+  // swapout term usually does, carrying the unused memtable budget, but that budget scales with
+  // max_ram and the memtables can hold more than it just after a budget cut — measured inverted at
+  // 16.0MB swapout against 22.8MB allocated on an 8mb budget. Testing both keeps that ordering from
+  // being load-bearing.
+  const float ram_over = 1.0f + (float)ASYNC_BG_INDEXING_RAM_MARGIN_PCT / 100;
+  if (mem.ram_ratio > ram_over || mem.ram_for_swapout_ratio > ram_over) {
+    return BG_INDEXING_MEM_THROTTLE;
+  }
 
-  return (used_memory_ratio > memory_limit_ratio);
+  return BG_INDEXING_MEM_OK;
 }
 
 double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, const IndexSpec *sp) {
