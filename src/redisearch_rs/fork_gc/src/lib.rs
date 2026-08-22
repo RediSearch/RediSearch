@@ -22,6 +22,7 @@ pub mod handle;
 pub mod io_result_ext;
 pub mod missing_docs;
 pub mod numeric;
+pub mod orchestration;
 pub mod stats;
 pub mod tags;
 pub mod terms;

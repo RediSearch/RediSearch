@@ -23,12 +23,6 @@ use string_utils::obfuscation::obfuscate_text;
 
 use crate::{ForkGC, Frame, GcApplyStats, HandleError, HandleOutcome};
 
-/// The term's inverted index was removed between the child's scan and the
-/// parent's apply (a race between GC and a concurrent term/document drop).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("the term's inverted index was removed before the delta could be applied")]
-pub struct TermNotFound;
-
 /// Collect GC deltas for every term in the spec's terms trie and write them to
 /// the parent process.
 ///
@@ -66,7 +60,7 @@ pub fn collect_terms(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io::
 /// Decode one terms message from `reader`.
 pub fn receive_terms(
     reader: &mut impl Read,
-) -> Result<Option<(TrieTerm, GcScanDelta)>, HandleError<TermNotFound>> {
+) -> Result<Option<(TrieTerm, GcScanDelta)>, HandleError> {
     let frame = Frame::decode(reader)
         .map_err(|e| HandleError::codec("reading the terms term-name frame", e))?;
 
@@ -112,9 +106,11 @@ pub fn apply_terms(
     term: &TrieTerm,
     delta: GcScanDelta,
     guard: &mut IndexSpecWriteGuard<'_>,
-) -> Result<GcApplyStats, HandleError<TermNotFound>> {
+) -> Result<GcApplyStats, HandleError> {
     let Some(ii) = guard.keys_dict_mut().fetch_mut(term) else {
-        return Err(HandleError::Custom(TermNotFound));
+        return Err(HandleError::ApplyError(
+            "the term's inverted index was removed before the delta could be applied",
+        ));
     };
 
     let info = ii.apply_gc(delta);
@@ -158,7 +154,7 @@ pub fn apply_terms(
 /// - A term header, followed by a [`GcScanDelta`] → applies the delta, updates
 ///   stats, returns `Ok(HandleOutcome::Collected)`.
 /// - A [`Frame::Terminator`] → all terms processed, returns `Ok(HandleOutcome::Done)`.
-pub fn handle_terms(fgc: &mut ForkGC) -> Result<HandleOutcome, HandleError<TermNotFound>> {
+pub fn handle_terms(fgc: &mut ForkGC) -> Result<HandleOutcome, HandleError> {
     crate::util::handle_one(
         fgc,
         |reader| receive_terms(reader),

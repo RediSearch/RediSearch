@@ -14,7 +14,7 @@ use dict::OwnedDict;
 use ffi::IndexFlags_Index_DocIdsOnly;
 use fork_gc::{
     Frame, HandleError,
-    missing_docs::{FieldNotFound, apply_missing_docs, collect_missing_docs, receive_missing_docs},
+    missing_docs::{apply_missing_docs, collect_missing_docs, receive_missing_docs},
 };
 use hidden_string::OwnedHiddenString;
 use index_result::RSIndexResult;
@@ -199,7 +199,9 @@ fn apply_returns_err_when_field_not_found() {
     let mut write_guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut spec) };
     assert!(matches!(
         apply_missing_docs(c"nonexistent", delta, &mut *write_guard),
-        Err(HandleError::Custom(FieldNotFound))
+        Err(HandleError::ApplyError(
+            "the field was removed from missingFieldDict before the delta could be applied"
+        ))
     ));
 }
 

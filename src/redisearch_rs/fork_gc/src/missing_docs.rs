@@ -18,12 +18,6 @@ use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::GcScanDelta;
 use serde::Serialize as _;
 
-/// The field was removed from `missingFieldDict` between the child's scan and
-/// the parent's apply.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("the field was removed from missingFieldDict before the delta could be applied")]
-pub struct FieldNotFound;
-
 /// Collect GC deltas for every entry in the spec's `missingFieldDict` and write
 /// them to the parent process.
 ///
@@ -59,7 +53,7 @@ pub fn collect_missing_docs(writer: &mut impl Write, spec: &IndexSpecReadGuard) 
 /// Decode one missing-docs message from `reader`.
 pub fn receive_missing_docs(
     reader: &mut impl Read,
-) -> Result<Option<(CString, GcScanDelta)>, HandleError<FieldNotFound>> {
+) -> Result<Option<(CString, GcScanDelta)>, HandleError> {
     let frame = Frame::decode_nul_terminated(reader)
         .map_err(|e| HandleError::codec("reading the missing-docs field-name frame", e))?;
 
@@ -91,11 +85,13 @@ pub fn apply_missing_docs(
     field_name: &CStr,
     delta: GcScanDelta,
     guard: &mut IndexSpecWriteGuard<'_>,
-) -> Result<GcApplyStats, HandleError<FieldNotFound>> {
+) -> Result<GcApplyStats, HandleError> {
     let hidden = OwnedHiddenString::new(field_name);
 
     let Some(ii) = guard.missing_field_dict_mut().fetch_mut(&hidden) else {
-        return Err(HandleError::Custom(FieldNotFound));
+        return Err(HandleError::ApplyError(
+            "the field was removed from missingFieldDict before the delta could be applied",
+        ));
     };
 
     let gc_info = ii.apply_gc(delta);
@@ -134,7 +130,7 @@ pub fn apply_missing_docs(
 /// - A [`Frame::Terminator`] → all fields processed, returns `Ok(HandleOutcome::Done)`.
 ///
 /// Errors map to corresponding `FGCError` variants at the FFI layer.
-pub fn handle_missing_docs(fgc: &mut ForkGC) -> Result<HandleOutcome, HandleError<FieldNotFound>> {
+pub fn handle_missing_docs(fgc: &mut ForkGC) -> Result<HandleOutcome, HandleError> {
     crate::util::handle_one(
         fgc,
         |reader| receive_missing_docs(reader),
