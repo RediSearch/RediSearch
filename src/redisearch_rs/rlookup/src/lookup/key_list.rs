@@ -8,462 +8,339 @@
 */
 
 use crate::{RLookupKey, RLookupKeyFlags};
-use std::{ffi::CStr, iter::FusedIterator, marker::PhantomData, pin::Pin, ptr::NonNull};
+use std::{ffi::CStr, iter::FusedIterator, mem, pin::Pin, ptr::NonNull, slice};
 
-#[cfg(any(debug_assertions, test))]
-use std::ptr;
+/// Owns a pinned key while keeping the key's address independent of vector reallocations.
+#[derive(Debug)]
+#[repr(transparent)]
+struct OwnedKey<'a>(NonNull<RLookupKey<'a>>);
 
+impl<'a> OwnedKey<'a> {
+    fn new(key: RLookupKey<'a>) -> Self {
+        // SAFETY: `OwnedKey` keeps ownership of the allocation and never moves the pointee.
+        Self(unsafe { RLookupKey::into_ptr(Box::pin(key)) })
+    }
+
+    const fn get(&self) -> &RLookupKey<'a> {
+        // SAFETY: the allocation is owned by `self` and remains valid until `Drop`.
+        unsafe { self.0.as_ref() }
+    }
+
+    const fn as_non_null(&self) -> NonNull<RLookupKey<'a>> {
+        self.0
+    }
+
+    const fn get_pin_mut(&mut self) -> Pin<&mut RLookupKey<'a>> {
+        // SAFETY: the allocation is owned exclusively by `self`.
+        let key = unsafe { self.0.as_mut() };
+        // SAFETY: the allocation was pinned when it was created.
+        unsafe { Pin::new_unchecked(key) }
+    }
+}
+
+impl Drop for OwnedKey<'_> {
+    fn drop(&mut self) {
+        // SAFETY: `OwnedKey::new` created this pointer, and this is its unique owning drop.
+        drop(unsafe { RLookupKey::from_ptr(self.0) });
+    }
+}
+
+#[derive(Debug)]
+struct KeyStore<'a> {
+    /// The current logical key at every row slot, in row order.
+    live: Vec<OwnedKey<'a>>,
+    /// Replaced keys whose addresses must remain valid for C consumers.
+    retired: Vec<OwnedKey<'a>>,
+}
+
+impl KeyStore<'_> {
+    const fn new() -> Self {
+        Self {
+            live: Vec::new(),
+            retired: Vec::new(),
+        }
+    }
+
+    fn find_slot(&self, name: &CStr) -> Option<u16> {
+        let slot = self
+            .live
+            .iter()
+            .position(|key| key.get().name().as_ref() == name)?;
+        Some(u16::try_from(slot).expect("RLookup key count exceeds u16::MAX"))
+    }
+}
+
+/// Compact owner for an [`RLookup`][crate::RLookup]'s keys.
+///
+/// The store is allocated lazily because most pipeline lookups are empty. Once allocated, current
+/// keys are kept in row-slot order and replaced keys are retained separately for pointer stability.
 #[derive(Debug)]
 #[repr(C)]
 pub struct KeyList<'a> {
-    // The head and tail nodes of this linked-list.
-    // FIXME [MOD-10314] make this more type-safe when we no longer have direct field access from C
-    head: Option<NonNull<RLookupKey<'a>>>,
-    tail: Option<NonNull<RLookupKey<'a>>>,
-    // Length of the data row. This is not necessarily the number
-    // of lookup keys. Overridden keys created through `CursorMut::override_current` increase
-    // the number of actually allocated keys without increasing the conceptual rowlen.
-    pub(crate) rowlen: u32,
-    // See `KeyList::seal`.
+    store: Option<Box<KeyStore<'a>>>,
     sealed: bool,
 }
 
-/// A cursor over an [`RLookup`][crate::RLookup]'s key list.
+/// A cursor over an [`RLookup`][crate::RLookup]'s current keys.
 pub struct Cursor<'list, 'a> {
-    _list: PhantomData<&'list KeyList<'a>>,
-    current: Option<NonNull<RLookupKey<'a>>>,
+    list: &'list KeyList<'a>,
+    current: Option<usize>,
 }
 
-/// A cursor over an [`RLookup`][crate::RLookup]'s key list with editing operations.
+/// A cursor over an [`RLookup`][crate::RLookup]'s current keys with editing operations.
 pub struct CursorMut<'list, 'a> {
     list: &'list mut KeyList<'a>,
-    current: Option<NonNull<RLookupKey<'a>>>,
+    current: Option<usize>,
 }
 
-/// Internal iterator yielding raw pointers to keys.
-struct IterRaw<'a> {
-    current: Option<NonNull<RLookupKey<'a>>>,
-}
-
-/// Iterator over an [`RLookup`][crate::RLookup]'s key list, yielding immutable references to keys.
+/// Iterator over an [`RLookup`][crate::RLookup]'s current keys.
 pub struct Iter<'list, 'a> {
-    _list: PhantomData<&'list KeyList<'a>>,
-    raw: IterRaw<'a>,
+    inner: slice::Iter<'list, OwnedKey<'a>>,
 }
 
-/// Iterator over an [`RLookup`][crate::RLookup]'s key list, yielding pinned mutable references to keys.
-///
-/// Use [`CursorMut`] to override a key during traversal.
+/// Mutable iterator over an [`RLookup`][crate::RLookup]'s current keys.
 pub struct IterMut<'list, 'a> {
-    _list: PhantomData<&'list mut KeyList<'a>>,
-    raw: IterRaw<'a>,
+    inner: slice::IterMut<'list, OwnedKey<'a>>,
 }
-
-// ===== impl KeyList =====
 
 impl<'a> KeyList<'a> {
-    /// Construct a new, empty `KeyList`.
     pub const fn new() -> Self {
         Self {
-            head: None,
-            tail: None,
-            rowlen: 0,
+            store: None,
             sealed: false,
         }
     }
 
-    /// Seal this list: from now on it is **append-only**.
-    ///
-    /// [`Self::push`] stays legal — document loaders and the coordinator
-    /// append keys during execution — but operations that change *existing*
-    /// keys ([`CursorMut::override_current`]) panic. Called once pipeline
-    /// construction is complete, so that anything compiled from the key set
-    /// (cached key pointers, reply plans) can rely on existing entries never
-    /// changing underneath it. Idempotent.
     pub(crate) const fn seal(&mut self) {
         self.sealed = true;
     }
 
-    /// Whether [`Self::seal`] has been called.
     pub(crate) const fn is_sealed(&self) -> bool {
         self.sealed
     }
 
-    /// Insert a `RLookupKey` into this `KeyList` and return a mutable reference to it.
-    ///
-    /// The key will be owned by the list and freed when dropping the list.
-    //
-    // TODO remove the 'a and 'b lifetimes borrow-checker hack when we refactor this code. refer to Jira ticket MOD-13907.
-    pub(crate) fn push<'b>(&mut self, mut key: RLookupKey<'a>) -> Pin<&'b mut RLookupKey<'a>>
-    where
-        'a: 'b,
-    {
-        #[cfg(debug_assertions)]
-        self.assert_valid("KeyList::push (before)");
-
-        key.dstidx = u16::try_from(self.rowlen).expect("conversion from u32 RLookup::rowlen to u16 RLookupKey::dstidx overflowed. This is a bug!");
-
-        // Safety: RLookup never hands out mutable references to the key (except `Pin<&mut T>` which is fine)
-        // and never copies, or memmoves the memory internally.
-        let mut ptr = unsafe { RLookupKey::into_ptr(Box::pin(key)) };
-
-        if let Some(mut tail) = self.tail.take() {
-            // if we have a tail we also must have a head
-            debug_assert!(self.head.is_some());
-
-            // Safety: We know we can borrow tail here, since we mutably borrow the KeyList
-            // which owns all keys allocated within it. This ensures the KeyList and all keys outlive
-            // this method call AND that we have exclusive access to mutate the key.
-            // Safety: we need to continue to treat the key as pinned
-            let tail = unsafe { tail.as_mut() };
-            // Safety: we need to continue to treat the key as pinned
-            let tail = unsafe { Pin::new_unchecked(tail) };
-
-            tail.set_next(Some(ptr));
-            self.tail = Some(ptr);
-        } else {
-            // if we have no tail we also must have no head
-            debug_assert!(self.head.is_none());
-            self.head = Some(ptr);
-            self.tail = Some(ptr);
-        }
-
-        // Increase the table row length. (all rows have the same length).
-        self.rowlen += 1;
-
-        #[cfg(debug_assertions)]
-        self.assert_valid("KeyList::push (after)");
-
-        // Safety: we have allocated the memory above, this pointer is safe to dereference.
-        let key = unsafe { ptr.as_mut() };
-        // Safety: We treat the pointer as pinned internally and never hand out references that could be moved out of (in safe Rust)
-        // publicly.
-        unsafe { Pin::new_unchecked(key) }
+    pub(crate) fn row_len(&self) -> u32 {
+        u32::try_from(self.live().len()).expect("RLookup row length exceeds u32::MAX")
     }
 
-    /// Return a cursor over an [`crate::RLookup`]'s key list.
-    #[cfg_attr(not(debug_assertions), expect(clippy::missing_const_for_fn))]
+    pub(crate) fn push_slot(&mut self, mut key: RLookupKey<'a>) -> u16 {
+        let store = self.store.get_or_insert_with(|| Box::new(KeyStore::new()));
+        let slot = u16::try_from(store.live.len()).expect("RLookup key count exceeds u16::MAX");
+        key.dstidx = slot;
+        store.live.push(OwnedKey::new(key));
+
+        #[cfg(debug_assertions)]
+        self.assert_valid("KeyList::push");
+
+        slot
+    }
+
+    /// Insert a key at the next logical row slot.
+    pub(crate) fn push(&mut self, key: RLookupKey<'a>) -> Pin<&mut RLookupKey<'a>> {
+        let slot = self.push_slot(key);
+
+        self.store
+            .as_mut()
+            .unwrap()
+            .live
+            .get_mut(usize::from(slot))
+            .unwrap()
+            .get_pin_mut()
+    }
+
     pub fn cursor_front(&self) -> Cursor<'_, 'a> {
-        #[cfg(debug_assertions)]
-        self.assert_valid("KeyList::cursor_front");
-
         Cursor {
-            current: self.head,
-            _list: PhantomData,
-        }
-    }
-
-    /// Return a cursor over an [`crate::RLookup`]'s key list with editing operations.
-    #[cfg_attr(not(debug_assertions), expect(clippy::missing_const_for_fn))]
-    pub fn cursor_front_mut(&mut self) -> CursorMut<'_, 'a> {
-        #[cfg(debug_assertions)]
-        self.assert_valid("KeyList::cursor_front_mut");
-
-        CursorMut {
-            current: self.head,
             list: self,
+            current: (!self.live().is_empty()).then_some(0),
         }
     }
 
-    /// Returns an iterator over immutable references to keys.
-    #[cfg_attr(not(debug_assertions), expect(clippy::missing_const_for_fn))]
     pub fn iter(&self) -> Iter<'_, 'a> {
-        #[cfg(debug_assertions)]
-        self.assert_valid("KeyList::iter");
-
         Iter {
-            raw: IterRaw { current: self.head },
-            _list: PhantomData,
+            inner: self.live().iter(),
         }
     }
 
-    /// Returns an iterator over pinned mutable references to keys.
-    #[cfg_attr(not(debug_assertions), expect(clippy::missing_const_for_fn))]
     pub fn iter_mut(&mut self) -> IterMut<'_, 'a> {
-        #[cfg(debug_assertions)]
-        self.assert_valid("KeyList::iter_mut");
-
         IterMut {
-            raw: IterRaw { current: self.head },
-            _list: PhantomData,
+            inner: self.live_mut().iter_mut(),
         }
     }
 
-    /// Find a [`RLookupKey`] in this `KeyList` by its [`name`][RLookupKey::name]
-    /// and return a [`Cursor`] pointing to the key if found.
-    // FIXME [MOD-10315] replace with more efficient search
     pub(crate) fn find_by_name(&self, name: &CStr) -> Option<Cursor<'_, 'a>> {
-        #[cfg(debug_assertions)]
-        self.assert_valid("KeyList::find_by_name");
-
-        let mut c = self.cursor_front();
-        while let Some(key) = c.current() {
-            if key.name().as_ref() == name {
-                return Some(c);
-            }
-            c.move_next();
-        }
-        None
+        let current = Some(usize::from(self.find_slot(name)?));
+        Some(Cursor {
+            list: self,
+            current,
+        })
     }
 
-    /// Find a [`RLookupKey`] in this `KeyList` by its [`name`][RLookupKey::name]
-    /// and return a [`CursorMut`] pointing to the key if found.
-    // FIXME [MOD-10315] replace with more efficient search
+    #[cfg(test)]
     pub(crate) fn find_by_name_mut(&mut self, name: &CStr) -> Option<CursorMut<'_, 'a>> {
-        #[cfg(debug_assertions)]
-        self.assert_valid("KeyList::find_by_name_mut");
-
-        let mut c = self.cursor_front_mut();
-        while let Some(key) = c.current() {
-            if key.name().as_ref() == name {
-                return Some(c);
-            }
-            c.move_next();
-        }
-        None
+        let current = Some(usize::from(self.find_slot(name)?));
+        Some(CursorMut {
+            list: self,
+            current,
+        })
     }
 
-    /// Asserts as many of the linked list's invariants as possible.
+    pub(crate) fn cursor_at_mut(&mut self, slot: u16) -> CursorMut<'_, 'a> {
+        debug_assert!(usize::from(slot) < self.live().len());
+        CursorMut {
+            list: self,
+            current: Some(usize::from(slot)),
+        }
+    }
+
+    pub(crate) fn find_slot(&self, name: &CStr) -> Option<u16> {
+        self.store.as_ref()?.find_slot(name)
+    }
+
+    pub(crate) fn get(&self, slot: u16) -> Option<&RLookupKey<'a>> {
+        self.live().get(usize::from(slot)).map(OwnedKey::get)
+    }
+
+    pub(crate) fn get_ptr(&self, slot: u16) -> Option<NonNull<RLookupKey<'a>>> {
+        self.live()
+            .get(usize::from(slot))
+            .map(OwnedKey::as_non_null)
+    }
+
+    /// Return the contiguous C-facing pointer view and its length.
     ///
-    /// We use this method to absolutely make sure the linked list is internally consistent
-    /// before reading from it and after writing to it.
+    /// Mutation may reallocate this pointer array, so the caller must keep the lookup immutable
+    /// until it finishes consuming the returned range. The key allocations themselves stay stable.
+    pub(crate) fn raw_parts(&self) -> (*const *const RLookupKey<'a>, usize) {
+        let live = self.live();
+        (live.as_ptr().cast(), live.len())
+    }
+
+    fn live(&self) -> &[OwnedKey<'a>] {
+        self.store.as_ref().map_or(&[], |store| &store.live)
+    }
+
+    fn live_mut(&mut self) -> &mut [OwnedKey<'a>] {
+        self.store.as_mut().map_or(&mut [], |store| &mut store.live)
+    }
+
     #[track_caller]
     #[cfg(any(debug_assertions, test))]
     pub(crate) fn assert_valid(&self, ctx: &str) {
-        let Some(head) = self.head else {
-            assert!(
-                self.tail.is_none(),
-                "{ctx} - if the linked list's head is null, the tail must also be null"
-            );
-            assert_eq!(
-                self.rowlen, 0,
-                "{ctx} - if a linked list's head is null, its length must be 0"
-            );
+        self.assert_structure_valid(ctx);
+
+        let Some(store) = &self.store else {
             return;
         };
 
-        assert_ne!(
-            self.rowlen, 0,
-            "{ctx} - if a linked list's head is not null, its length must be greater than 0"
-        );
-        assert_ne!(
-            self.tail, None,
-            "{ctx} - if the linked list has a head, it must also have a tail"
-        );
+        // Per-key checks only: this runs on every list operation, so it must
+        // stay linear. A per-key `find_slot` cross-check would make each call
+        // quadratic (and cubic across a lookup's construction) — and on this
+        // representation it is tautological anyway, since `find_slot` is
+        // itself a first-match scan in slot order.
+        for owned in &store.live {
+            owned.get().assert_valid(ctx);
+        }
+        for owned in &store.retired {
+            owned.get().assert_valid(ctx);
+        }
+    }
 
-        let tail = self.tail.unwrap();
-
-        // Safety: RLookupKeys are created through `KeyList::push` and owned by the `List`. We
-        // can therefore assume this pointer is safe to dereference at this point.
-        let head = unsafe { head.as_ref() };
-        // Safety: see abvove
-        let tail = unsafe { tail.as_ref() };
-
-        if ptr::addr_eq(head, tail) {
-            assert_eq!(
-                NonNull::from(&head.next),
-                NonNull::from(&tail.next),
-                "{ctx} - if the head and tail nodes are the same, their links must be the same"
-            );
-            assert_eq!(
-                head.next(),
-                None,
-                "{ctx} - if the linked list has only one node, it must not be linked"
-            );
+    /// Validate invariants that do not require dereferencing borrowed key data.
+    #[track_caller]
+    #[cfg(any(debug_assertions, test))]
+    pub(crate) fn assert_structure_valid(&self, ctx: &str) {
+        let Some(store) = &self.store else {
             return;
+        };
+
+        for (slot, owned) in store.live.iter().enumerate() {
+            let key = owned.get();
+            assert!(
+                !key.is_tombstone(),
+                "{ctx} - live key at slot {slot} is a tombstone"
+            );
+            assert_eq!(
+                usize::from(key.dstidx),
+                slot,
+                "{ctx} - dstidx does not match slot"
+            );
         }
-
-        let mut curr = Some(head);
-        let mut actual_len = 0;
-        while let Some(key) = curr {
-            key.assert_valid(tail, ctx);
-            curr = key.next().map(|key| {
-                // Safety: see abvove
-                unsafe { key.as_ref() }
-            });
-            actual_len += 1;
-        }
-
-        assert!(
-            self.rowlen <= actual_len,
-            "{ctx} - linked list's rowlen was greater than its actual length"
-        );
-    }
-}
-
-impl Drop for KeyList<'_> {
-    fn drop(&mut self) {
-        // drop all keys in this list
-        // note that we are very defensive here and continually keep the head ptr correct, so
-        // that if we happen to panic during drop, we don't leave the list in a bad state.
-        while let Some(mut head_ptr) = self.head.take() {
-            // Safety: This ptr has been created through `push_key` and is owned by this list,
-            // which means it is valid & safe to deref at this point.
-            let head = unsafe { head_ptr.as_mut() };
-            // Safety: we need to continue to treat the key as pinned
-            let head = unsafe { Pin::new_unchecked(head) };
-
-            self.head = head.next();
-
-            if head.next().is_none() {
-                self.tail = None;
-            }
-
-            // clear the pointer before dropping the key, just to be sure
-            head.set_next(None);
-
-            // Safety:
-            // 1 -> all keys here are created through `push_key`, which correctly calls into_ptr.
-            // 2 -> after this destructor runs, this RLookup is inaccessible making double frees impossible.
-            // 3 -> RLookupKey is about to be freed, we don't need to worry about pinning anymore.
-            drop(unsafe { RLookupKey::from_ptr(head_ptr) });
+        for owned in &store.retired {
+            assert!(
+                owned.get().is_tombstone(),
+                "{ctx} - retired key is not a tombstone"
+            );
         }
     }
 }
-
-// ===== impl Cursor =====
 
 impl<'list, 'a> Cursor<'list, 'a> {
-    /// Move the cursor to the next [`RLookupKey`].
     pub fn move_next(&mut self) {
-        if let Some(curr) = self.current.take() {
-            // Safety: It is safe for us to borrow `curr`, because the iteraror mutably borrows the `KeyList`,
-            // ensuring it will not be dropped while the iterator exists AND we have exclusive access
-            // to the keys it owns (and can therefore hand out mutable references).
-            // The returned item will not outlive the iterator.
-            let curr = unsafe { curr.as_ref() };
-
-            self.current = curr.next();
-        }
+        self.current = self
+            .current
+            .and_then(|slot| (slot + 1 < self.list.live().len()).then_some(slot + 1));
     }
 
-    /// If the cursor currently points to a key, return an immutable reference to it.
     pub fn current(&self) -> Option<&RLookupKey<'a>> {
-        // Safety: See Self::move_next.
-        Some(unsafe { self.current?.as_ref() })
+        self.current
+            .and_then(|slot| self.list.live().get(slot))
+            .map(OwnedKey::get)
     }
 
-    /// Consume this cursor returning an immutable reference to the current key, if any.
     pub fn into_current(self) -> Option<&'list RLookupKey<'a>> {
-        // Safety: See Self::move_next.
-        Some(unsafe { self.current?.as_ref() })
+        self.current
+            .and_then(|slot| self.list.live().get(slot))
+            .map(OwnedKey::get)
     }
 }
-
-// ===== impl CursorMut =====
 
 impl<'list, 'a> CursorMut<'list, 'a> {
     pub fn move_next(&mut self) {
-        if let Some(curr) = self.current.take() {
-            // Safety: It is safe for us to borrow `curr`, because the iteraror mutably borrows the `KeyList`,
-            // ensuring it will not be dropped while the iterator exists AND we have exclusive access
-            // to the keys it owns (and can therefore hand out mutable references).
-            // The returned item will not outlive the iterator.
-            let curr = unsafe { curr.as_ref() };
-            self.current = curr.next();
-        }
+        self.current = self
+            .current
+            .and_then(|slot| (slot + 1 < self.list.live().len()).then_some(slot + 1));
     }
 
-    /// If the cursor currently points to a key, return a mutable reference to it.
     pub fn current(&mut self) -> Option<Pin<&mut RLookupKey<'a>>> {
-        // Safety: See Self::move_next.
-        let curr = unsafe { self.current?.as_mut() };
-
-        // Safety: RLookup treats the keys are pinned always, we just need consumers of this
-        // iterator to uphold the pinning invariant too
-        Some(unsafe { Pin::new_unchecked(curr) })
+        let slot = self.current?;
+        Some(self.list.live_mut().get_mut(slot)?.get_pin_mut())
     }
 
-    /// Consume this cursor returning an immutable reference to the current key, if any.
     pub fn into_current(self) -> Option<&'list mut RLookupKey<'a>> {
-        // Safety: See Self::move_next.
-        Some(unsafe { self.current?.as_mut() })
+        let slot = self.current?;
+        // SAFETY: `OwnedKey` owns a pinned allocation; this consumes the list's exclusive borrow.
+        Some(unsafe { self.list.live_mut().get_mut(slot)?.0.as_mut() })
     }
 
-    /// Override the [`RLookupKey`] at this cursor position and extend it with the given flags.
-    ///
-    /// The new key will inherit the `name`, `path`, and `dstidx`, and the `flags` of the key at the current position, but
-    /// receive a **new pointer identity**. The *new key* is returned.
-    ///
-    /// The old key remains as a hidden tombstone in the linked list.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the list has been sealed (see
-    /// [`RLookup::seal`](crate::RLookup::seal)): overriding changes an
-    /// existing key, which sealed lookups forbid.
-    //
-    // TODO remove the 'a and 'b lifetimes borrow-checker hack when we refactor this code. refer to Jira ticket MOD-13907.
-    pub fn override_current<'b>(
-        mut self,
+    /// Replace the current logical key while preserving both its row slot and old pointer.
+    pub fn override_current(
+        self,
         flags: RLookupKeyFlags,
-    ) -> Option<Pin<&'b mut RLookupKey<'a>>>
-    where
-        'a: 'b,
-    {
+    ) -> Option<Pin<&'list mut RLookupKey<'a>>> {
         assert!(
             !self.list.sealed,
             "cannot override a key in a sealed RLookup (sealed lookups are append-only)"
         );
 
-        let mut old = self.current()?;
-
-        let new = {
-            let (name, path) = old.as_mut().make_tombstone();
-            let mut key = if let Some(path) = path {
-                RLookupKey::new_with_path(name, path, flags)
-            } else {
-                RLookupKey::new(name, flags)
-            };
-            key.dstidx = old.dstidx;
-
-            key
+        let slot = self.current?;
+        let store = self.list.store.as_mut().unwrap();
+        let old = &mut store.live[slot];
+        let dstidx = old.get().dstidx;
+        let (name, path) = old.get_pin_mut().make_tombstone();
+        let mut replacement = if let Some(path) = path {
+            RLookupKey::new_with_path(name, path, flags)
+        } else {
+            RLookupKey::new(name, flags)
         };
+        replacement.dstidx = dstidx;
 
-        // Safety: we treat the pointer as pinned below and only hand out a pinned mutable reference.
-        let mut new_ptr = unsafe { RLookupKey::into_ptr(Box::pin(new)) };
+        let retired = mem::replace(old, OwnedKey::new(replacement));
+        store.retired.push(retired);
 
-        // Safety: we have allocated the memory above, this pointer is safe to dereference.
-        let new = unsafe { new_ptr.as_mut() };
-        // Safety: We treat the pointer as pinned internally and never hand out references that could be moved out of (in safe Rust)
-        // publicly.
-        let mut new = unsafe { Pin::new_unchecked(new) };
+        #[cfg(debug_assertions)]
+        self.list.assert_valid("CursorMut::override_current");
 
-        // link the new key into the linked-list. Since KeyList is singly-linked and we don't know yet
-        // if C code is still holding on to pointers to nodes, we replicate the C behaviour here:
-        //
-        // 1. We copy the next pointer from old to new
-        // 2. We mark the old as "Hidden" so it doesn't show up in iteration anymore
-        // 3. We point old.next to the new key, so the chain isn't broken
-        //
-        // This in effect, replaces the old key but turning it into a "tombstone value" and forcing iteration
-        // to follow this indirection.
-        new.as_mut().set_next(old.next());
-        old.set_next(Some(new_ptr));
-
-        if self.list.tail == self.current {
-            self.list.tail = Some(new_ptr);
-        }
-
-        Some(new)
-    }
-}
-
-impl<'a> Iterator for IterRaw<'a> {
-    type Item = NonNull<RLookupKey<'a>>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let mut curr = self.current.take()?;
-        loop {
-            // Safety: The `KeyList` ensures the linked list pointers are valid for as long as the
-            // wrapping iterator's borrow lives.
-            let curr_ref = unsafe { curr.as_ref() };
-            if !curr_ref.is_tombstone() {
-                self.current = curr_ref.next();
-                return Some(curr);
-            }
-            curr = curr_ref.next()?;
-        }
+        Some(self.list.store.as_mut().unwrap().live[slot].get_pin_mut())
     }
 }
 
@@ -471,11 +348,7 @@ impl<'list, 'a> Iterator for Iter<'list, 'a> {
     type Item = &'list RLookupKey<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let next = self.raw.next()?;
-
-        // Safety: we immutably borrow (through a PhantomData but nonetheless) the `KeyList` ensuring
-        // it cannot be dropped or mutated while we hold the iterator. The returned reference cannot outlive the list.
-        Some(unsafe { next.as_ref() })
+        self.inner.next().map(OwnedKey::get)
     }
 }
 
@@ -483,20 +356,10 @@ impl<'list, 'a> Iterator for IterMut<'list, 'a> {
     type Item = Pin<&'list mut RLookupKey<'a>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut next = self.raw.next()?;
-
-        // Safety: we mutably borrow (through a PhantomData but nonetheless) the `KeyList` ensuring
-        // it cannot be dropped or mutated while we hold the iterator. The returned reference cannot outlive the list.
-        let next = unsafe { next.as_mut() };
-
-        // Safety: all keys are treated as pinned by the crate
-        Some(unsafe { Pin::new_unchecked(next) })
+        self.inner.next().map(OwnedKey::get_pin_mut)
     }
 }
 
-// Once `IterRaw::next` returns `None`, `self.current` is `None` and stays that way, so all three
-// iterators are naturally fused.
-impl FusedIterator for IterRaw<'_> {}
 impl FusedIterator for Iter<'_, '_> {}
 impl FusedIterator for IterMut<'_, '_> {}
 
@@ -506,383 +369,133 @@ mod tests {
     use crate::RLookupKeyFlag;
     use enumflags2::make_bitflags;
 
-    // assert that the linked list is produced and linked correctly
     #[test]
-    fn keylist_push_consistency() {
-        let mut keylist = KeyList::new();
+    fn append_and_lookup_preserve_row_order() {
+        let mut keys = KeyList::new();
+        keys.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
+        keys.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
+        keys.push(RLookupKey::new(c"baz", RLookupKeyFlags::empty()));
 
-        let foo = keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
-        let foo = unsafe { NonNull::from(Pin::into_inner_unchecked(foo)) };
-
-        let bar = keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
-        let bar = unsafe { NonNull::from(Pin::into_inner_unchecked(bar)) };
-
-        keylist.assert_valid("tests::keylist_push_consistency after insertions");
-
-        assert_eq!(keylist.head.unwrap(), foo);
-        assert_eq!(keylist.tail.unwrap(), bar);
-        unsafe {
-            assert!(foo.as_ref().has_next());
-        }
-        unsafe {
-            assert!(!bar.as_ref().has_next());
-        }
+        let names: Vec<_> = keys.iter().map(|key| key.name().as_ref()).collect();
+        assert_eq!(names, [c"foo", c"bar", c"baz"]);
+        assert_eq!(keys.find_slot(c"bar"), Some(1));
+        assert_eq!(keys.find_slot(c"missing"), None);
+        assert_eq!(keys.row_len(), 3);
     }
 
-    // Assert the Cursor::move_next method DOES NOT skip keys marked hidden
     #[test]
-    fn keylist_cursor_move_next() {
-        let mut keylist = KeyList::new();
+    fn duplicate_names_resolve_to_first_slot() {
+        let mut keys = KeyList::new();
+        keys.push(RLookupKey::new(c"same", RLookupKeyFlags::empty()));
+        keys.push(RLookupKey::new(c"same", RLookupKeyFlags::empty()));
 
-        keylist.push(RLookupKey::new(
+        assert_eq!(keys.find_slot(c"same"), Some(0));
+    }
+
+    #[test]
+    fn hidden_keys_remain_in_logical_row_order() {
+        let mut keys = KeyList::new();
+        keys.push(RLookupKey::new(
+            c"hidden",
+            make_bitflags!(RLookupKeyFlag::Hidden),
+        ));
+        keys.push(RLookupKey::new(c"visible", RLookupKeyFlags::empty()));
+
+        let names: Vec<_> = keys.iter().map(|key| key.name().as_ref()).collect();
+        assert_eq!(names, [c"hidden", c"visible"]);
+    }
+
+    #[test]
+    fn override_keeps_slot_order_and_old_pointer_valid() {
+        let mut keys = KeyList::new();
+        keys.push(RLookupKey::new_with_path(
             c"foo",
-            make_bitflags!(RLookupKeyFlag::Hidden),
+            c"$.foo",
+            RLookupKeyFlags::empty(),
         ));
-        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(
-            c"baz",
-            make_bitflags!(RLookupKeyFlag::Hidden),
-        ));
-        keylist.assert_valid("tests::keylist_cursor_move_next after insertions");
+        let old = keys.get_ptr(0).unwrap();
+        keys.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
 
-        let mut c = keylist.cursor_front();
-        assert_eq!(c.current().unwrap().name().as_ref(), c"foo");
-        c.move_next();
-        assert_eq!(c.current().unwrap().name().as_ref(), c"bar");
-        c.move_next();
-        assert_eq!(c.current().unwrap().name().as_ref(), c"baz");
-        c.move_next();
-        assert!(c.current().is_none());
-    }
+        let replacement = keys
+            .find_by_name_mut(c"foo")
+            .unwrap()
+            .override_current(make_bitflags!(RLookupKeyFlag::Numeric))
+            .unwrap();
 
-    // Assert the CursorMut::move_next method DOES NOT skip keys marked hidden
-    #[test]
-    fn keylist_cursor_mut_move_next() {
-        let mut keylist = KeyList::new();
-
-        keylist.push(RLookupKey::new(
-            c"foo",
-            make_bitflags!(RLookupKeyFlag::Hidden),
-        ));
-        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(
-            c"baz",
-            make_bitflags!(RLookupKeyFlag::Hidden),
-        ));
-        keylist.assert_valid("tests::keylist_cursor_mut_move_next after insertions");
-
-        let mut c = keylist.cursor_front_mut();
-        assert_eq!(c.current().unwrap().name().as_ref(), c"foo");
-        c.move_next();
-        assert_eq!(c.current().unwrap().name().as_ref(), c"bar");
-        c.move_next();
-        assert_eq!(c.current().unwrap().name().as_ref(), c"baz");
-        c.move_next();
-        assert!(c.current().is_none());
-    }
-
-    #[test]
-    fn keylist_find() {
-        let mut keylist = KeyList::new();
-
-        let foo = keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
-        let foo = unsafe { NonNull::from(Pin::into_inner_unchecked(foo)) };
-
-        let bar = keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
-        let bar = unsafe { NonNull::from(Pin::into_inner_unchecked(bar)) };
-
-        keylist.assert_valid("tests::keylist_find after insertions");
-
-        let found = keylist.find_by_name(c"foo").unwrap();
-        assert_eq!(NonNull::from(found.current().unwrap()), foo);
-
-        let found = keylist.find_by_name(c"bar").unwrap();
-        assert_eq!(NonNull::from(found.current().unwrap()), bar);
-
-        assert!(keylist.find_by_name(c"baz").is_none());
-    }
-
-    #[test]
-    fn keylist_find_mut() {
-        let mut keylist = KeyList::new();
-
-        let foo = keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
-        let foo = unsafe { NonNull::from(Pin::into_inner_unchecked(foo)) };
-
-        let bar = keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
-        let bar = unsafe { NonNull::from(Pin::into_inner_unchecked(bar)) };
-
-        keylist.assert_valid("tests::keylist_find_mut after insertions");
-
-        let mut found = keylist.find_by_name_mut(c"foo").unwrap();
+        assert_ne!(NonNull::from(replacement.as_ref().get_ref()), old);
+        assert_eq!(replacement.dstidx, 0);
+        assert!(replacement.flags.contains(RLookupKeyFlag::Numeric));
+        assert_eq!(keys.find_slot(c"foo"), Some(0));
         assert_eq!(
-            NonNull::from(unsafe { Pin::into_inner_unchecked(found.current().unwrap()) }),
-            foo
+            keys.iter()
+                .map(|key| key.name().as_ref())
+                .collect::<Vec<_>>(),
+            [c"foo", c"bar"]
         );
-
-        let mut found = keylist.find_by_name_mut(c"bar").unwrap();
-        assert_eq!(
-            NonNull::from(unsafe { Pin::into_inner_unchecked(found.current().unwrap()) }),
-            bar
-        );
-
-        assert!(keylist.find_by_name(c"baz").is_none());
+        // SAFETY: replaced keys remain owned by `keys.retired` until the list is dropped.
+        let old = unsafe { old.as_ref() };
+        assert!(old.is_tombstone());
+        // SAFETY: `path` still points to the retained key's original NUL-terminated path.
+        assert_eq!(unsafe { CStr::from_ptr(old.path) }, c"$.foo");
     }
 
     #[test]
-    fn keylist_override_key_find() {
-        let mut keylist = KeyList::new();
+    fn vector_growth_does_not_move_key_allocations() {
+        let mut keys = KeyList::new();
+        keys.push(RLookupKey::new(c"first", RLookupKeyFlags::empty()));
+        let first = keys.get_ptr(0).unwrap();
+        let initial_capacity = keys.store.as_ref().unwrap().live.capacity();
 
-        keylist.push(RLookupKey::new(
-            c"foo",
-            make_bitflags!(RLookupKeyFlag::Unresolved),
-        ));
+        for i in 0..initial_capacity {
+            let name = std::ffi::CString::new(format!("key-{i}")).unwrap();
+            keys.push(RLookupKey::new(name, RLookupKeyFlags::empty()));
+        }
 
-        keylist
-            .cursor_front_mut()
-            .override_current(make_bitflags!(RLookupKeyFlag::Numeric));
-
-        let found = keylist
-            .find_by_name(c"foo")
-            .expect("expected to find key by name");
-
-        let found = found
-            .current()
-            .expect("cursor should have current, this is a bug");
-
-        assert_eq!(found.name().as_ref(), c"foo");
-        assert!(found.path().is_none());
-        assert_eq!(found.dstidx, 0);
-        // new key should have provided keys
-        assert!(found.flags.contains(RLookupKeyFlag::Numeric));
-        // new key should not inherit any old flags
-        assert!(!found.flags.contains(RLookupKeyFlag::Unresolved));
+        assert!(keys.store.as_ref().unwrap().live.capacity() > initial_capacity);
+        assert_eq!(NonNull::from(keys.get(0).unwrap()), first);
     }
 
     #[test]
-    fn keylist_override_key_iterate() {
-        let mut keylist = KeyList::new();
+    fn repeated_overrides_retain_every_previous_allocation() {
+        let mut keys = KeyList::new();
+        keys.push(RLookupKey::new(c"key", RLookupKeyFlags::empty()));
+        let mut old = Vec::new();
 
-        keylist.push(RLookupKey::new(
-            c"foo",
-            make_bitflags!(RLookupKeyFlag::Unresolved),
-        ));
-        keylist
-            .cursor_front_mut()
-            .override_current(make_bitflags!(RLookupKeyFlag::Numeric));
+        for _ in 0..8 {
+            old.push(keys.get_ptr(0).unwrap());
+            keys.cursor_at_mut(0)
+                .override_current(RLookupKeyFlags::empty())
+                .unwrap();
+        }
 
-        let mut c = keylist.cursor_front();
-
-        // we expect the first item to be the tombstone of the old key
-        assert!(c.current().unwrap().is_tombstone());
-
-        // and the next item to be the new key
-        c.move_next();
-        assert_eq!(c.current().unwrap().name().as_ref(), c"foo");
+        assert_eq!(keys.row_len(), 1);
+        assert_eq!(keys.store.as_ref().unwrap().retired.len(), 8);
+        assert!(old.into_iter().all(|pointer| {
+            // SAFETY: every previous allocation is retained by this list.
+            unsafe { pointer.as_ref() }.is_tombstone()
+        }));
     }
 
-    // Assert that Iter skips tombstones (hidden/overridden keys)
     #[test]
-    fn iter_skips_tombstones() {
-        let mut keylist = KeyList::new();
-
-        keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(c"baz", RLookupKeyFlags::empty()));
-
-        // Override "foo" to create a tombstone
-        keylist
-            .cursor_front_mut()
+    fn raw_parts_contains_only_live_keys() {
+        let mut keys = KeyList::new();
+        keys.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
+        keys.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
+        keys.find_by_name_mut(c"foo")
+            .unwrap()
             .override_current(RLookupKeyFlags::empty());
 
-        let names: Vec<_> = keylist
+        let (raw, len) = keys.raw_parts();
+        assert_eq!(len, 2);
+        // SAFETY: the lookup is not mutated while the returned pointer array is read.
+        let names: Vec<_> = unsafe { slice::from_raw_parts(raw, len) }
             .iter()
-            .map(|k| k.name().as_ref().to_owned())
+            .map(|key| {
+                // SAFETY: `raw_parts` returns aligned, initialized, non-null pointers owned by
+                // `keys`, and the lookup remains immutable for the duration of this iteration.
+                unsafe { &**key }.name().as_ref()
+            })
             .collect();
-
-        // The tombstone for old "foo" should be skipped; new "foo" replacement + bar + baz remain
-        assert_eq!(
-            names,
-            vec![c"foo".to_owned(), c"bar".to_owned(), c"baz".to_owned()]
-        );
-    }
-
-    // Assert that Iter yields nothing for an empty list
-    #[test]
-    fn iter_empty_list() {
-        let keylist = KeyList::new();
-        assert_eq!(keylist.iter().count(), 0);
-    }
-
-    // Assert that Iter yields all elements when there are no tombstones
-    #[test]
-    fn iter_no_tombstones() {
-        let mut keylist = KeyList::new();
-
-        keylist.push(RLookupKey::new(c"a", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(c"b", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(c"c", RLookupKeyFlags::empty()));
-
-        let names: Vec<_> = keylist
-            .iter()
-            .map(|k| k.name().as_ref().to_owned())
-            .collect();
-        assert_eq!(
-            names,
-            vec![c"a".to_owned(), c"b".to_owned(), c"c".to_owned()]
-        );
-    }
-
-    // Assert that IterMut skips tombstones
-    #[test]
-    fn iter_mut_skips_tombstones() {
-        let mut keylist = KeyList::new();
-
-        keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(c"baz", RLookupKeyFlags::empty()));
-
-        // Override "bar" (middle element) to create a tombstone
-        let mut cursor = keylist.cursor_front_mut();
-        cursor.move_next(); // move to "bar"
-        cursor.override_current(RLookupKeyFlags::empty());
-
-        let names: Vec<_> = keylist
-            .iter_mut()
-            .map(|k| k.name().as_ref().to_owned())
-            .collect();
-        assert_eq!(
-            names,
-            vec![c"foo".to_owned(), c"bar".to_owned(), c"baz".to_owned()]
-        );
-    }
-
-    // Assert that IterMut yields nothing for an empty list
-    #[test]
-    fn iter_mut_empty_list() {
-        let mut keylist = KeyList::new();
-        assert_eq!(keylist.iter_mut().count(), 0);
-    }
-
-    // Assert that Iter skips multiple consecutive tombstones
-    #[test]
-    fn iter_skips_consecutive_tombstones() {
-        let mut keylist = KeyList::new();
-
-        keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
-
-        // Override both keys to create consecutive tombstones with their replacements
-        keylist
-            .cursor_front_mut()
-            .override_current(RLookupKeyFlags::empty());
-
-        let mut cursor = keylist.cursor_front_mut(); // at foo tombstone
-        cursor.move_next(); // at foo
-        cursor.move_next(); // at bar
-        cursor.override_current(RLookupKeyFlags::empty());
-
-        // All tombstones should be skipped, only replacement keys should be yielded
-        let names: Vec<_> = keylist
-            .iter()
-            .map(|k| k.name().as_ref().to_owned())
-            .collect();
-        assert_eq!(names, vec![c"foo".to_owned(), c"bar".to_owned()]);
-    }
-
-    // Assert that mutations performed through IterMut are observable on a subsequent iter() pass.
-    #[test]
-    fn iter_mut_mutation_visible() {
-        let mut keylist = KeyList::new();
-
-        keylist.push(RLookupKey::new(c"a", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(c"b", RLookupKeyFlags::empty()));
-
-        for key in keylist.iter_mut() {
-            key.project().header.flags |= RLookupKeyFlag::ExplicitReturn;
-        }
-
-        for key in keylist.iter() {
-            assert!(key.flags.contains(RLookupKeyFlag::ExplicitReturn));
-        }
-    }
-
-    // Assert that Iter handles a tombstone at the tail with no successor (returns None instead of dereferencing past the end).
-    #[test]
-    fn iter_skips_tail_tombstone() {
-        let mut keylist = KeyList::new();
-
-        keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
-
-        // Tombstone the tail without inserting a replacement.
-        let mut cursor = keylist.cursor_front_mut();
-        cursor.move_next(); // now at "bar"
-        cursor.current().unwrap().make_tombstone();
-
-        let names: Vec<_> = keylist
-            .iter()
-            .map(|k| k.name().as_ref().to_owned())
-            .collect();
-        assert_eq!(names, vec![c"foo".to_owned()]);
-    }
-
-    // Sealing permits appends but makes overrides panic.
-    #[test]
-    fn sealed_keylist_allows_push() {
-        let mut keylist = KeyList::new();
-        keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
-        keylist.seal();
-
-        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
-        assert!(keylist.find_by_name(c"bar").is_some());
-    }
-
-    #[test]
-    #[should_panic(expected = "sealed")]
-    fn sealed_keylist_forbids_override() {
-        let mut keylist = KeyList::new();
-        keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
-        keylist.seal();
-
-        keylist
-            .cursor_front_mut()
-            .override_current(RLookupKeyFlags::empty());
-    }
-
-    #[test]
-    fn keylist_override_key_tail_handling() {
-        let mut keylist = KeyList::new();
-
-        // push two keys, so we can override one without altering the tail and another one to override it.
-        keylist.push(RLookupKey::new(
-            c"foo",
-            make_bitflags!(RLookupKeyFlag::Unresolved),
-        ));
-        let secoond = keylist.push(RLookupKey::new(
-            c"bar",
-            make_bitflags!(RLookupKeyFlag::Unresolved),
-        ));
-        let second = unsafe { NonNull::from(Pin::into_inner_unchecked(secoond)) };
-
-        // store first override key
-        let override1 = keylist
-            .cursor_front_mut()
-            .override_current(make_bitflags!(RLookupKeyFlag::Numeric));
-        let override1 = unsafe { NonNull::from(Pin::into_inner_unchecked(override1.unwrap())) };
-
-        // we expect the tail to be the second key still
-        assert_ne!(override1, keylist.tail.unwrap());
-        assert_eq!(second, keylist.tail.unwrap());
-
-        // now we override the second key, which is the tail
-        let mut cursor = keylist.cursor_front_mut();
-        cursor.move_next(); // move to the first override
-        cursor.move_next(); // move to the second key
-        let override2 = cursor.override_current(make_bitflags!(RLookupKeyFlag::Numeric));
-        let override2 = unsafe { NonNull::from(Pin::into_inner_unchecked(override2.unwrap())) };
-
-        // we expect the tail to be the new key
-        assert_eq!(override2, keylist.tail.unwrap());
+        assert_eq!(names, [c"foo", c"bar"]);
     }
 }

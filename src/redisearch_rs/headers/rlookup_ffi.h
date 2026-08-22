@@ -57,7 +57,8 @@ typedef struct LoadIndividualKeysOptions {
  * An iterator over the keys in an `RLookup`, returning immutable pointers.
  */
 typedef struct RLookupIterator {
-  const RLookupKey *current;
+  const RLookupKey *const *current;
+  size_t remaining;
 } RLookupIterator;
 
 /**
@@ -531,6 +532,7 @@ bool RLookup_HasIndexSpecCache(const struct RLookup *lookup);
  *
  * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
  * 2. The returned iterator must only be used as long as the `lookup` remains valid.
+ * 3. `lookup` must not be mutated until the returned iterator is exhausted.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */

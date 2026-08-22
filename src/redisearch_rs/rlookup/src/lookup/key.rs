@@ -144,7 +144,7 @@ pub struct RLookupKey<'a> {
     /// RLookupKey fields exposed to C.
     // Because we must be able to re-interpret pointers to `RLookupKey` to `RLookupKeyHeader`
     // THIS MUST BE THE FIRST FIELD DONT MOVE IT
-    pub(crate) header: RLookupKeyHeader<'a>,
+    pub(crate) header: RLookupKeyHeader,
 
     // The actual "owning" strings, we need to hold onto these
     // so the pointers in the above header stay valid. Note that you
@@ -166,7 +166,7 @@ impl fmt::Debug for RLookupKey<'_> {
 #[cheadergen::config(export, rename = "RLookupKey")]
 #[derive(Debug)]
 #[repr(C)]
-pub struct RLookupKeyHeader<'a> {
+pub struct RLookupKeyHeader {
     /// Index into the dynamic values array within the associated `RLookupRow`.
     pub dstidx: u16,
 
@@ -190,15 +190,12 @@ pub struct RLookupKeyHeader<'a> {
     /// The length of this key in bytes, without the null-terminator.
     /// Should be used to avoid repeated `strlen` computations.
     pub name_len: usize,
-
-    /// Pointer to next field in the list
-    pub next: Option<NonNull<RLookupKey<'a>>>,
 }
 
 // ===== impl RLookupKey =====
 
 impl<'a> Deref for RLookupKey<'a> {
-    type Target = RLookupKeyHeader<'a>;
+    type Target = RLookupKeyHeader;
 
     fn deref(&self) -> &Self::Target {
         &self.header
@@ -236,7 +233,6 @@ impl<'a> RLookupKey<'a> {
                 name: name.as_ptr(),
                 path: name.as_ptr(),
                 name_len: name.count_bytes(),
-                next: None,
             },
             _name: name,
             _path: None,
@@ -327,28 +323,6 @@ impl<'a> RLookupKey<'a> {
         is_tombstone
     }
 
-    /// Returns `true` if this node is currently linked to a [`List`].
-    #[cfg(test)]
-    pub(crate) fn has_next(&self) -> bool {
-        self.next().is_some()
-    }
-
-    /// Return the next pointer in the linked list
-    #[inline]
-    pub(crate) fn next(&self) -> Option<NonNull<RLookupKey<'a>>> {
-        self.next
-    }
-
-    /// Update the pointer to the next node
-    #[inline]
-    pub(crate) fn set_next(
-        self: Pin<&mut Self>,
-        next: Option<NonNull<RLookupKey<'a>>>,
-    ) -> Option<NonNull<RLookupKey<'a>>> {
-        let me = self.project();
-        mem::replace(&mut me.header.next, next)
-    }
-
     #[inline]
     pub(crate) fn set_path(self: Pin<&mut Self>, path: Cow<'a, CStr>) {
         let mut me = self.project();
@@ -356,7 +330,10 @@ impl<'a> RLookupKey<'a> {
         *me._path = Some(path);
     }
 
-    pub fn make_tombstone(self: Pin<&mut Self>) -> (Cow<'a, CStr>, Option<Cow<'a, CStr>>) {
+    // `pub(crate)`: only the key-retirement path in `KeyList::override_current` may create
+    // tombstones — a tombstone reachable from the live slots would break iteration and the
+    // C-visible name contract.
+    pub(crate) fn make_tombstone(self: Pin<&mut Self>) -> (Cow<'a, CStr>, Option<Cow<'a, CStr>>) {
         let mut me = self.project();
 
         me.header.name = ptr::null();
@@ -425,7 +402,7 @@ impl<'a> RLookupKey<'a> {
     }
 
     #[cfg(any(debug_assertions, test))]
-    pub(crate) fn assert_valid(&self, tail: &Self, ctx: &str) {
+    pub(crate) fn assert_valid(&self, ctx: &str) {
         assert!(
             !self.flags.intersects(TRANSIENT_FLAGS),
             "{ctx} - key flags must not contain transient ({TRANSIENT_FLAGS:?}) flags. Found {:?}.",
@@ -454,22 +431,6 @@ impl<'a> RLookupKey<'a> {
                 self.name_len,
                 self._name.count_bytes(),
                 "{ctx} - `key.name_len` did not match `key._name` length"
-            );
-        }
-
-        if ptr::eq(self, tail) {
-            assert_eq!(
-                self.next(),
-                None,
-                "{ctx} - tail key must not have a next link; node={self:#?}",
-            );
-        }
-        if let Some(next) = self.next() {
-            assert_ne!(
-                // Safety:
-                NonNull::from(unsafe { &next.as_ref().next }),
-                NonNull::from(&self.next),
-                "{ctx} - key's next link cannot be to itself; node={self:#?}",
             );
         }
     }
@@ -511,10 +472,6 @@ mod tests {
         assert!(
             ::std::mem::offset_of!(RLookupKey, header.name_len)
                 == ::std::mem::offset_of!(RLookupKeyHeader, name_len)
-        );
-        assert!(
-            ::std::mem::offset_of!(RLookupKey, header.next)
-                == ::std::mem::offset_of!(RLookupKeyHeader, next)
         );
     };
 
