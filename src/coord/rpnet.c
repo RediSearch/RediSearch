@@ -93,15 +93,6 @@ static RSValue *MRReply_ToValue(MRReply *r) {
   return v;
 }
 
-// Wall-clock deadline pointer for MRIterator_NextWithTimeout. NULL when
-// AREQ_ShouldCheckTimeout is false (e.g. RETURN-STRICT uses the abort flag).
-static struct timespec *getAbsTimeout(RPNet *nc) {
-  if (!nc->areq || !nc->areq->sctx || !AREQ_ShouldCheckTimeout(nc->areq)) {
-    return NULL;
-  }
-  return (struct timespec *)&nc->areq->sctx->time.timeout;
-}
-
 // Process warnings from nc->current.meta (RESP3 only), then free reply and reset state.
 // Warning handling requires nc->current.meta to be set. Cleanup is done regardless of protocol.
 //
@@ -162,18 +153,23 @@ int getNextReply(RPNet *nc) {
   }
   // Abort-flag-only pop (no wall-clock deadline). Flipped by the FAIL / RETURN-STRICT
   // timeout callback via MRChannel_WakeAbort. Under Return the flag is never flipped,
-  // degrading to a blocking pop. No areq means no wake mechanism — use MRIterator_Next.
+  // degrading to a blocking pop.
 #ifdef ENABLE_ASSERT
   // Sync point (debug): park BG when it is about to wait for the next shard
   // reply. Reaching this site implies any previously admitted reply has been
   // fully drained downstream.
-  if (nc->areq) {
-    SyncPoint_WaitUntil(SYNC_POINT_RPNET_WAITING_FOR_REPLY, areq_timed_out, nc->areq);
-  }
+  SyncPoint_WaitUntil(SYNC_POINT_RPNET_WAITING_FOR_REPLY, areq_timed_out, nc->areq);
 #endif
-  MRReply *root = nc->areq
-    ? MRIterator_NextWithTimeout(nc->it, NULL, &nc->areq->base.timeout.timedOut, NULL)
-    : MRIterator_Next(nc->it);
+  MRReply *root;
+  if (nc->areq->base.timeout.kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT) {
+    root = MRIterator_NextWithTimeout(
+        nc->it, NULL,
+        QueryRequestTimeout_GetBlockedClientFlag(&nc->areq->base.timeout), NULL);
+  } else {
+    // Clock-based cycles historically had no abortable wait here. Preserve
+    // that behavior until this consumer deliberately adopts generic timeout checks.
+    root = MRIterator_Next(nc->it);
+  }
 
   if (root == NULL) {
     RPNet_resetCurrent(nc);
@@ -183,7 +179,7 @@ int getNextReply(RPNet *nc) {
     if (nc->drainOnly) {
       return RS_RESULT_EOF;
     }
-    if (nc->areq && AREQ_TimedOut(nc->areq)) {
+    if (QueryRequestTimeout_IsBlockedClientTimedOut(&nc->areq->base.timeout)) {
       return RS_RESULT_TIMEDOUT;
     }
     return MRIterator_GetPending(nc->it) ? RS_RESULT_OK : RS_RESULT_EOF;
@@ -273,9 +269,7 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
     // Mirrors rpnetNext_Start in dist_aggregate.c. Reaching this site implies
     // every shard has delivered its Phase 1 cursor mapping, so tests can
     // suspend a shard here to deterministically stage a Phase 2 timeout.
-    if (nc->areq) {
-        SyncPoint_WaitUntil(SYNC_POINT_BEFORE_RPNET_START, areq_timed_out, nc->areq);
-    }
+    SyncPoint_WaitUntil(SYNC_POINT_BEFORE_RPNET_START, areq_timed_out, nc->areq);
 #endif
 
     CursorMappings *vsimOrSearch = StrongRef_Get(nc->mappings);
@@ -307,10 +301,8 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
     // Register the iterator's channel so the main-thread timeout callback can wake a
     // blocked reader after flipping AREQ's `timedOut` flag. Paired with
     // QueryRequestAsyncState_UnregisterAbortWakeChannel in rpnetFree.
-    if (nc->areq) {
-      QueryRequestAsyncState_RegisterAbortWakeChannel(&nc->areq->base.async,
-                                                      MRIterator_GetChannel(nc->it));
-    }
+    QueryRequestAsyncState_RegisterAbortWakeChannel(&nc->areq->base.async,
+                                                    MRIterator_GetChannel(nc->it));
 #ifdef ENABLE_ASSERT
     DebugBgIterator_Set(nc->it);
 #endif
@@ -325,9 +317,7 @@ void rpnetFree(ResultProcessor *rp) {
   if (nc->it) {
     // Unregister the abort-wake channel before releasing the iterator, so the main
     // thread's timeout callback cannot observe a channel that is about to be freed.
-    if (nc->areq) {
-      QueryRequestAsyncState_UnregisterAbortWakeChannel(&nc->areq->base.async);
-    }
+    QueryRequestAsyncState_UnregisterAbortWakeChannel(&nc->areq->base.async);
 #ifdef ENABLE_ASSERT
     // Drop the FT.DEBUG BG_PENDING_REPLIES handle before releasing the iterator.
     DebugBgIterator_Clear(nc->it);
@@ -372,18 +362,17 @@ void RPNet_resetCurrent(RPNet *nc) {
 int rpnetNext(ResultProcessor *self, SearchResult *r) {
   RPNet *nc = (RPNet *)self;
   AREQ *areq = nc->areq;
+  RS_ASSERT(areq);
 
 #ifdef ENABLE_ASSERT
-  if (areq) {
-    SyncPoint_WaitUntil(SYNC_POINT_BEFORE_RPNET_NEXT, areq_timed_out, areq);
-  }
+  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_RPNET_NEXT, areq_timed_out, areq);
 #endif
 
   // Surface RETURN_STRICT timeouts on follow-up cursor reads where the channel
   // may already hold a buffered reply (the NULL-reply check below wouldn't fire
   // and we'd silently return rows). Skipped during the timer's own drain.
-  if (areq && QueryRequest_UsesReplyCallback(&areq->base) && !nc->drainOnly &&
-      AREQ_TimedOut(nc->areq)) {
+  if (QueryRequest_UsesReplyCallback(&areq->base) && !nc->drainOnly &&
+      QueryRequestTimeout_IsBlockedClientTimedOut(&areq->base.timeout)) {
     return RS_RESULT_TIMEDOUT;
   }
 
@@ -421,11 +410,10 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   // get the next reply from the channel
   while (!root) {
-    // Check for timeout (respecting skipTimeoutChecks flag). Under RETURN-STRICT
-    // (the only policy that sets drainOnly) shouldCheckInPipelineTimeoutCoord
-    // already forces skipTimeoutChecks=true, so this branch is naturally bypassed
-    // during a drain.
-    if (!nc->areq->sctx->time.skipTimeoutChecks && TimedOut(&nc->areq->sctx->time.timeout)) {
+    // RETURN_STRICT uses the blocked-client source, so only clock-based cycles
+    // reach this check.
+    if (areq->base.timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
+        QueryRequestTimeout_IsTimedOut(&areq->base.timeout)) {
       // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
       // callback so that a `CURSOR DEL` command will be dispatched instead of
       // a `CURSOR READ` command.

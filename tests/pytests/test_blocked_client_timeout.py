@@ -6059,6 +6059,131 @@ class TestCoordinatorReducePause:
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
         self._cleanup_pause_state()
 
+class TestReturnStrictWorkerTransitions:
+    """RETURN_STRICT remains usable when shard execution changes between inline and workers."""
+
+    def __init__(self):
+        self.env = Env(
+            protocol=3,
+            moduleArgs='WORKERS 0 ON_TIMEOUT RETURN-STRICT TIMEOUT 10000',
+            enableDebugCommand=True,
+        )
+        conn = getConnectionByEnv(self.env)
+        self.env.expect(
+            'FT.CREATE', 'idx', 'PREFIX', '1', 'doc:',
+            'SCHEMA', 'name', 'TEXT'
+        ).ok()
+        self.env.expect(
+            'FT.CREATE', 'hybrid_idx', 'PREFIX', '1', 'hybrid_doc:',
+            'SCHEMA',
+            'name', 'TEXT',
+            'embedding', 'VECTOR', 'FLAT', '6',
+            'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2'
+        ).ok()
+        for i in range(12):
+            conn.execute_command('HSET', f'doc:{i}', 'name', f'hello{i}')
+            vector = np.array([float(i), float(i)], dtype=np.float32).tobytes()
+            conn.execute_command(
+                'HSET', f'hybrid_doc:{i}', 'name', f'hello{i}', 'embedding', vector
+            )
+        self.query_vector = np.array([0.0, 0.0], dtype=np.float32).tobytes()
+
+    def _set_workers(self, workers):
+        set_workers(self.env, workers)
+
+    def _create_cursor(self):
+        res, cursor_id = self.env.cmd(
+            'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name',
+            'WITHCURSOR', 'COUNT', '2'
+        )
+        self.env.assertEqual(res.get('warning', []), [], message=res)
+        self.env.assertNotEqual(cursor_id, 0, message=res)
+        return cursor_id
+
+    def _read_and_delete_cursor(self, cursor_id):
+        res, next_cursor_id = self.env.cmd(
+            'FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', '2'
+        )
+        self.env.assertEqual(res.get('warning', []), [], message=res)
+        self.env.assertGreater(len(res.get('results', [])), 0, message=res)
+        if next_cursor_id:
+            self.env.expect('FT.CURSOR', 'DEL', 'idx', next_cursor_id).ok()
+
+    def test_queries_with_return_strict_and_no_workers(self):
+        """SEARCH, AGGREGATE, and HYBRID execute with RETURN_STRICT and WORKERS=0."""
+        self._set_workers(0)
+
+        search_res = self.env.cmd('FT.SEARCH', 'idx', '*', 'NOCONTENT')
+        self.env.assertEqual(search_res['warning'], [], message=search_res)
+
+        aggregate_res = self.env.cmd('FT.AGGREGATE', 'idx', '*')
+        self.env.assertEqual(aggregate_res['warning'], [], message=aggregate_res)
+
+        hybrid_res = self.env.cmd(
+            'FT.HYBRID', 'hybrid_idx',
+            'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB',
+            'PARAMS', '2', 'BLOB', self.query_vector
+        )
+        self.env.assertEqual(hybrid_res.get('warning', []), [], message=hybrid_res)
+
+    def test_cursor_with_return_strict_and_no_workers(self):
+        """A RETURN_STRICT cursor can be read while WORKERS remains zero."""
+        self._set_workers(0)
+        self._read_and_delete_cursor(self._create_cursor())
+
+    def test_cursor_with_return_strict_and_one_worker(self):
+        """A RETURN_STRICT cursor can be created and read with WORKERS=1."""
+        self._set_workers(1)
+        self._read_and_delete_cursor(self._create_cursor())
+
+    def test_cursor_switches_from_one_worker_to_no_workers(self):
+        """A RETURN_STRICT cursor created with WORKERS=1 can be read after switching to zero."""
+        self._set_workers(1)
+        cursor_id = self._create_cursor()
+        self._set_workers(0)
+        self._read_and_delete_cursor(cursor_id)
+
+    def test_cursor_restores_return_strict_after_workers_restart(self):
+        """An inline read must not permanently replace the cursor's sticky RETURN_STRICT policy."""
+        skipTest(cluster=True)
+        self._set_workers(1)
+        cursor_id = self._create_cursor()
+
+        self._set_workers(0)
+        inline_res, inline_cursor_id = self.env.cmd(
+            'FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', '2'
+        )
+        self.env.assertEqual(inline_res.get('warning', []), [], message=inline_res)
+        self.env.assertEqual(inline_cursor_id, cursor_id, message=inline_res)
+
+        self._set_workers(1)
+        self.env.expect(debug_cmd(), 'WORKERS', 'pause').ok()
+        result = []
+        try:
+            t_query = threading.Thread(
+                target=call_and_store,
+                args=(self.env.cmd,
+                      ['FT.CURSOR', 'READ', 'idx', str(cursor_id), 'COUNT', '2'],
+                      result),
+                daemon=True,
+            )
+            t_query.start()
+            blocked_client_id = wait_for_blocked_query_client(
+                self.env, 'FT.CURSOR|READ', 'Client for FT.CURSOR|READ not found')
+            self.env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+            wait_for_client_unblocked(self.env, blocked_client_id)
+            t_query.join(timeout=10)
+            self.env.assertFalse(t_query.is_alive(), message="Cursor read thread should finish")
+            self.env.assertEqual(len(result), 1, message="Expected one cursor read result")
+            _assert_return_strict_cursor_timeout_reply(
+                self.env, result[0], cursor_id, expected_results=0,
+                message_prefix='RETURN_STRICT after WORKERS 1 -> 0 -> 1')
+        finally:
+            self.env.expect(debug_cmd(), 'WORKERS', 'resume').ok()
+            self.env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
+
+
 class TestShardTimeout:
     """Tests for the blocked client timeout mechanism for shards."""
     def __init__(self):

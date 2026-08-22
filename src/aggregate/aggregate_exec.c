@@ -373,7 +373,8 @@ static size_t getResultsFactor(AREQ *req) {
 // SyncPoint stop predicate: break out of a sync-point wait when the AREQ has
 // been marked as timed out by the main-thread timeout callback.
 bool areq_timed_out(void *arg) {
-  return AREQ_TimedOut((AREQ *)arg);
+  AREQ *req = arg;
+  return QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout);
 }
 
 // SyncPoint stop predicate: break out of a sync-point wait when a writer is
@@ -381,7 +382,9 @@ bool areq_timed_out(void *arg) {
 // from the cleanup sync point without driving the main thread, since the main
 // thread is the one blocked on the writer's `pthread_rwlock_wrlock`.
 static bool areq_timeout_or_pending_spec_writers(void *arg) {
-  return AREQ_TimedOut((AREQ *)arg) || PendingSpecWriters_Get() > 0;
+  AREQ *req = arg;
+  return QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout) ||
+         PendingSpecWriters_Get() > 0;
 }
 
 
@@ -400,7 +403,7 @@ static inline void debugPauseStoreResults(AREQ *req, bool before) {
   StoreResultsDebugCtx_SetPause(true);
   while (StoreResultsDebugCtx_IsPaused()) {
     // Check if timed out - break to avoid deadlock with timeout callback
-    if (AREQ_TimedOut(req)) {
+    if (QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
       StoreResultsDebugCtx_SetPause(false);
       break;
     }
@@ -416,10 +419,8 @@ static inline void debugPauseStoreResults(AREQ *req, bool before) {
 #endif
 static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
   CommonPipelineCtx ctx = {
-    .timeoutPolicy = req->reqConfig.timeoutPolicy,
-    .timeout = &req->sctx->time.timeout,
+    .timeout = &req->base.timeout,
     .oomPolicy = req->reqConfig.oomPolicy,
-    .skipTimeoutChecks = req->sctx->time.skipTimeoutChecks,
     .areq = req,
   };
 
@@ -437,7 +438,7 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
       *rc = RS_RESULT_TIMEDOUT;
       return;
     }
-    if (AREQ_TimedOut(req)) {
+    if (QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
       // We claimed the sync phase, but timeout was already signaled. Store a
       // timed-out cursor-shaped reply and wake the timeout callback.
       *rc = RS_RESULT_TIMEDOUT;
@@ -566,8 +567,9 @@ typedef struct {
 /* Record this request's blocked-client timeout into the per-stage breakdown, at
  * the stage its execution-phase marker had reached when the deadline fired. Must be
  * called exactly once per blocked-client timeout callback, right after
- * AREQ_SetTimedOut (which freezes the marker). The breakdown counts timeout
- * callback invocations and is independent of the aggregate error/warning counters
+ * QueryRequestTimeout_MarkTimedOut (which freezes the marker). The breakdown
+ * counts timeout callback invocations and is independent of the aggregate
+ * error/warning counters
  * (which count user-visible timeout replies, including non-blocked-client ones). */
 static inline void recordAREQTimeoutStage(AREQ *req, bool isError) {
   QueryTimeoutStageStats_Record(AREQ_ExecutionStage(req), isError, !IsInternal(req));
@@ -1298,7 +1300,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   RedisSearchCtx_AssertLockNotHeld(AREQ_SearchCtx(req));
 
   // Check if timed out while in the job queue.
-  if (AREQ_TimedOut(req)) {
+  if (QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
     // Timeout callback already replied.
     // blockedClientReqCtx_destroy will release the AREQ ref.
     blockedClientReqCtx_destroy(BCRctx);
@@ -1342,6 +1344,12 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   // Lock spec. Should be released on the BG thread by every downstream path.
   RedisSearchCtx_LockSpecRead(sctx);
 
+  if (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return) {
+    // Arm RETURN after worker pickup and the spec lock so queue and lock wait are not charged to
+    // the execution timeout.
+    QueryRequestTimeout_BeginCycle(&req->base.timeout,
+                                   QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+  }
   if (prepareExecutionPlan(req, &status) != REDISMODULE_OK) {
     RedisSearchCtx_UnlockSpec(sctx);
     goto error;
@@ -1480,13 +1488,13 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  // Set timeout for the query execution
+  // Refresh the expiration-time snapshot before building the iterator tree.
   // TODO: this should be done in `AREQ_execute`, but some of the iterators needs the timeout's
   // value and some of the execution begins in `QAST_Iterate`.
   // Setting the timeout context should be done in the same thread that executes the query.
-  SearchCtx_UpdateTime(sctx, req->reqConfig.queryTimeoutMS);
+  SearchCtx_UpdateCurrentTime(sctx);
 
-  req->rootiter = QAST_Iterate(ast, opts, sctx, AREQ_RequestFlags(req), req, status);
+  req->rootiter = QAST_Iterate(ast, opts, sctx, AREQ_RequestFlags(req), status);
 
   // check possible optimization after creation of QueryIterator tree
   if (IsOptimized(req)) {
@@ -1497,9 +1505,11 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
 
   // FT.PROFILE's reply is produced by sendChunk, which reports a timeout as a
   // Warning rather than an error; skip the hard-fail here and let it handle it.
-  if (AREQ_ShouldCheckTimeout(req) && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail &&
-      !IsProfile(req)) {
-    TimedOut_WithStatus(&sctx->time.timeout, status);
+  if (req->base.timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
+      req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail && !IsProfile(req)) {
+    if (QueryRequestTimeout_IsTimedOut(&req->base.timeout)) {
+      QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
+    }
   }
 
   if (QueryError_HasError(status)) {
@@ -1634,7 +1644,7 @@ static int QueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **arg
 
   AREQ *req = QueryRequest_GetAREQ(request);
   // Signal timeout to background thread (will notice and skip storing results)
-  AREQ_SetTimedOut(req);
+  QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
   recordAREQTimeoutStage(req, /*isError=*/true);
 
   // Reply with timeout error
@@ -1668,7 +1678,7 @@ static void drainPartialResultsAfterTimeout(AREQ *req) {
 // Called on the main thread when the blocking client times out (RETURN-STRICT
 // policy only). Coordinates with the BG worker via the AREQ aggregate-results
 // claim/signal handshake:
-//   - SetTimedOut so any RP polling AREQ_TimedOut bails on its next read.
+//   - SetTimedOut so any RP polling the request timeout bails on its next read.
 //   - TryClaim wins iff BG has not yet entered the aggregation phase (it
 //     bails in startPipeline). In that case we own the reply and emit empty.
 //   - Otherwise BG owns the buffer; wait for it to finish AREQ_StoreResults,
@@ -1682,7 +1692,7 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
   AREQ *req = QueryRequest_GetAREQ(request);
 
   // Signal timeout to background thread
-  AREQ_SetTimedOut(req);
+  QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
   recordAREQTimeoutStage(req, /*isError=*/false);
 
   if (AREQ_TryClaimAggregateResults(req)) {
@@ -1821,7 +1831,7 @@ static int CursorReadTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString 
 
   AREQ *req = QueryRequest_GetAREQ(request);
   // Signal timeout to background thread so it skips storing results.
-  AREQ_SetTimedOut(req);
+  QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
   recordAREQTimeoutStage(req, /*isError=*/true);
 
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
@@ -1841,7 +1851,7 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
   RS_ASSERT(request != NULL);
 
   AREQ *req = QueryRequest_GetAREQ(request);
-  AREQ_SetTimedOut(req);
+  QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
   recordAREQTimeoutStage(req, /*isError=*/false);
 
   if (AREQ_TryClaimAggregateResults(req)) {
@@ -1947,6 +1957,12 @@ static int rejectDiskLoaderInlineExecution(AREQ *r, const RedisSearchCtx *sctx,
 static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *status) {
   RedisSearchCtx *sctx = AREQ_SearchCtx(r);
   if (RunInThread(ctx)) {
+    // RETURN remains unarmed until the worker starts its clock after queue and spec-lock wait.
+    // FAIL & RETURN-STRICT means we need to start the timeout cycle of blocked client.
+    if (r->reqConfig.timeoutPolicy != TimeoutPolicy_Return) {
+      QueryRequestTimeout_BeginCycle(&r->base.timeout,
+                                     QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+    }
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 
     RSTimeoutPolicy policy = r->reqConfig.timeoutPolicy;
@@ -1986,6 +2002,8 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     // be blocked (MULTI/EXEC, Lua). Flex enforces WORKERS > 0, so a disk
     // request reaching this inline branch is always a non-blockable client —
     // which still happens: any FT.AGGREGATE inside MULTI/EXEC lands here.
+    QueryRequestTimeout_BeginCycle(&r->base.timeout,
+                                   QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
     if (rejectDiskLoaderInlineExecution(r, sctx, status) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
@@ -2115,6 +2133,14 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     return NULL;
   }
   RedisSearchCtx *sctx = AREQ_SearchCtx(r);
+  bool useClockDeadline = r->reqConfig.queryTimeoutMS > 0 &&
+                          (r->reqConfig.timeoutPolicy == TimeoutPolicy_Return ||
+                           !RunInThread(ctx));
+  if (useClockDeadline) {
+    // Arm the clock deadline used by inline EXPLAIN execution.
+    QueryRequestTimeout_BeginCycle(&r->base.timeout,
+                                   QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+  }
   // Take a read lock on the spec (to avoid conflicts with the GC).
   // released in `AREQ_Free`.
   RedisSearchCtx_LockSpecRead(sctx);
@@ -2175,13 +2201,19 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   // truncated, subsequent reads still serve capped state.
   if (RSConfig_CapQueryTimeoutToForegroundLimit(&req->reqConfig.queryTimeoutMS)) {
     req->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
+    // Keep the sticky timeout state in sync when this read tightens the foreground cap.
+    QueryRequestTimeout_UpdateConfig(&req->base.timeout, req->reqConfig.timeoutPolicy,
+                                     req->reqConfig.queryTimeoutMS);
   }
   // Skip when useReplyCallback is set (FAIL or RETURN_STRICT): the deadline is owned by
   // the blocked-client timer, armed by buildPipelineAndExecute (initial
   // WITHCURSOR) or CursorCommand (subsequent READ).
   if (!QueryRequest_UsesReplyCallback(&req->base)) {
-    SearchCtx_UpdateTime(AREQ_SearchCtx(req), req->reqConfig.queryTimeoutMS);
+    // Give every clock-driven cursor read a fresh deadline.
+    QueryRequestTimeout_BeginCycle(&req->base.timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
   }
+  // Expiration uses a real-clock snapshot independently of the selected timeout source.
+  SearchCtx_UpdateCurrentTime(AREQ_SearchCtx(req));
 
   if (!num) {
     num = req->cursorConfig.chunkSize;
@@ -2335,7 +2367,8 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   // A paused cursor must have released the spec lock at the end of the
   // previous read cycle.
   RedisSearchCtx_AssertLockNotHeld(AREQ_SearchCtx(req));
-  if (!AREQ_TimedOut(req) || AREQ_RequiresThreadsSyncResults(req)) {
+  if (!QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout) ||
+      AREQ_RequiresThreadsSyncResults(req)) {
     cursorRead(ctx, cr_ctx->cursor, cr_ctx->count, true);
   } else {
     cursorEndOfCycle(req, cr_ctx->cursor, true);
@@ -2368,7 +2401,8 @@ static void coordCursorRead_ctx(void *p) {
     // won the owner latch, and already replied with a depleted cursor. Free
     // the taken cursor; store nothing (nobody is waiting).
     cursorEndOfCycle(req, cursor, true);
-  } else if (!AREQ_TimedOut(req) || AREQ_RequiresThreadsSyncResults(req)) {
+  } else if (!QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout) ||
+             AREQ_RequiresThreadsSyncResults(req)) {
     // RETURN (no timer) always runs the read and replies inline through the
     // thread-safe ctx; FAIL bails and drops the cursor if the timer already
     // replied; RETURN_STRICT (latch won) always runs the read so it can store
@@ -2442,6 +2476,54 @@ static bool cursorIsDiskBacked(const Cursor *cursor) {
   return isDisk;
 }
 
+static void prepareCursorTimeoutCycle(AREQ *req, QueryRequestTimeoutKind kind) {
+  RS_ASSERT(kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT ||
+            kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+  if (kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT) {
+    QueryRequestTimeout_BeginCycle(&req->base.timeout, kind);
+  } else {
+    // Start the clock in runCursor so worker-queue time remains outside the
+    // execution timeout. UNARMED prevents a previous read's deadline from
+    // aborting the queued job before runCursor can rearm it.
+    QueryRequestTimeout_Reset(&req->base.timeout);
+  }
+}
+
+static void setCursorRequestTimeoutPolicy(AREQ *req, RSTimeoutPolicy policy) {
+  req->reqConfig.timeoutPolicy = policy;
+  req->pipeline.qctx.timeoutPolicy = policy;
+  QueryRequestTimeout_UpdateConfig(&req->base.timeout, policy, req->base.timeout.timeoutMS);
+}
+
+static void restoreCursorTimeoutPolicy(const Cursor *cursor, AREQ *req) {
+  if (req->reqConfig.timeoutPolicy == cursor->queryTimeoutPolicy) {
+    return;
+  }
+
+  RS_ASSERT(cursor->queryTimeoutPolicy == TimeoutPolicy_ReturnStrict);
+  RS_ASSERT(req->reqConfig.timeoutPolicy == TimeoutPolicy_Return);
+  setCursorRequestTimeoutPolicy(req, cursor->queryTimeoutPolicy);
+  req->base.async.requiresAggregateResultsSync = true;
+}
+
+static void fallbackCursorToReturn(const Cursor *cursor, AREQ *req) {
+  RS_ASSERT(req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict);
+  RS_ASSERT(cursor->queryTimeoutPolicy == TimeoutPolicy_ReturnStrict);
+
+  setCursorRequestTimeoutPolicy(req, TimeoutPolicy_Return);
+
+  // Inline execution has no blocked-client timeout callback, so the
+  // RETURN_STRICT result-claim and safe-loader handshakes must no longer run.
+  req->base.async.requiresAggregateResultsSync = false;
+  RS_AtomicBoolStoreRelaxed(&req->base.async.aggregatingResults, false);
+  req->base.async.aggregateResultsClaimLost = false;
+  pthread_mutex_lock(&req->base.async.aggregateResultsLock);
+  req->base.async.aggregateResultsDone = false;
+  req->base.async.safeLoadersHoldingGIL = 0;
+  pthread_mutex_unlock(&req->base.async.aggregateResultsLock);
+  RPSafeLoader_SetSyncCtx(AREQ_QueryProcessingCtx(req), NULL);
+}
+
 // Coordinator blocked-client callbacks (coord/dist_aggregate.c), used when the
 // taken cursor is a coordinator (RPNet) cursor.
 int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
@@ -2487,6 +2569,13 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %lld", cid);
   }
 
+  AREQ *cursor_req = Cursor_AREQ(cursor);
+  if (cursor_req) {
+    // Inline reads may temporarily fall back to RETURN, but the cursor's original policy is
+    // sticky and must be restored before choosing how to execute the next read.
+    restoreCursorTimeoutPolicy(cursor, cursor_req);
+  }
+
   if (CURSOR_IS_COORD(cursor->id) &&
       !(RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_DENY_BLOCKING)) {
     // Coordinator cursor: the read pulls from the shards over the network, so
@@ -2524,6 +2613,9 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
           : DistCursorReadTimeoutReturnStrictCallback;
       timeoutMS = (rs_wall_clock_ms_t)capped;
     }
+    prepareCursorTimeoutCycle(
+        req, replyCallback ? QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
+                           : QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
     return cursorReadDispatchTaken(ctx, cursor, count, replyCallback, timeoutCallback, timeoutMS,
                                    DIST_THREADPOOL);
   }
@@ -2562,6 +2654,9 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
       // from a prior callback-based cursor read so runCursor doesn't park the cursor.
       QueryRequest_SetUseReplyCallback(&req->base, false);
     }
+    prepareCursorTimeoutCycle(
+        req, replyCallback ? QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
+                           : QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
     CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
     cr_ctx->bc = BlockCursorClientWithTimeout(ctx, cursor, count, &req->base, replyCallback,
                                               timeoutCallback, timeoutMS);
@@ -2587,8 +2682,12 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     AREQ *inline_req = Cursor_AREQ(cursor);
     if (inline_req) {
+      if (inline_req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+        fallbackCursorToReturn(cursor, inline_req);
+      }
       // Reply inline via ctx; clear stale useReplyCallback.
       QueryRequest_SetUseReplyCallback(&inline_req->base, false);
+      prepareCursorTimeoutCycle(inline_req, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
     }
     cursorRead(ctx, cursor, count, false);
   }

@@ -9,7 +9,7 @@
 
 use std::ptr::NonNull;
 
-use ffi::{AREQ, AREQ_CheckTimedOut, RedisSearchCtx};
+use ffi::{QueryIterator_IsBlockedClientTimedOut, QueryRequestTimeout, RedisSearchCtx};
 pub use timeout::{DeadlineTimeoutChecker, NoTimeoutChecker, TimeoutCheckResult, TimeoutChecker};
 
 use crate::{
@@ -28,8 +28,7 @@ use crate::{
 ///   it is not what a query iterator gets, because a query's deadline moves — see
 ///   [`TimeoutContextDeadline`].)
 /// * [`TimeoutContextBlockedClient`] — Blocked Client Timeout: reads the
-///   AREQ atomic flag (set by the Blocked Client Timeout main-thread
-///   callback) via the [`AREQ_CheckTimedOut`] C symbol.
+///   request atomic flag via [`QueryIterator_IsBlockedClientTimedOut`].
 ///
 /// Iterators are generic over this trait so the dispatch is monomorphized
 /// in the hot path.
@@ -68,22 +67,24 @@ impl<TC: TimeoutChecker> TimeoutContext for TC {
     }
 }
 
-/// [`TimeoutContext`] backed by the deadline living inside a query's [`RedisSearchCtx`].
+/// [`TimeoutContext`] backed by the request deadline borrowed through a query's
+/// [`RedisSearchCtx`].
 ///
 /// The deadline is *read through the pointer on every probe* rather than captured once. That
-/// matters because the deadline moves: `runCursor` calls `SearchCtx_UpdateTime` before each cursor
+/// matters because the deadline moves: `runCursor` starts a new clock cycle before each cursor
 /// read, giving the read its own budget. An iterator tree, by contrast, is built once and reused
 /// for the whole life of the cursor, so a captured deadline is the one belonging to the *first*
 /// read, and every later read starts out already expired against it — the iterators would report a
 /// timeout for a deadline the pipeline around them had just extended.
 ///
 /// Like [`TimeoutContextBlockedClient`], the pointer carries no lifetime; keeping the search
-/// context alive is a runtime invariant the caller upholds, documented on [`new`](Self::new).
+/// context and its request timeout alive is a runtime invariant the caller upholds, documented on
+/// [`new`](Self::new).
 ///
 /// Probing still costs a clock read, so it is amortized the same way
 /// [`DeadlineTimeoutChecker`] amortizes: only every `limit`-th call looks at the clock.
 pub struct TimeoutContextDeadline {
-    /// Deadline owned by the query's search context, re-read on every probe.
+    /// Deadline owned by the query request, re-read on every probe.
     deadline: NonNull<ffi::timespec>,
     /// Calls since the last clock probe.
     counter: u32,
@@ -96,14 +97,14 @@ impl TimeoutContextDeadline {
     ///
     /// # Safety
     ///
-    /// * `deadline` must point to a valid [`timespec`](ffi::timespec) — in practice
-    ///   `sctx.time.timeout` — that stays valid, and at a stable address, for as long as this
+    /// * `deadline` must point to the valid [`timespec`](ffi::timespec) reached through the
+    ///   `timeout` field of [`RedisSearchCtx`], and stay valid at a stable address for as long as this
     ///   context (and any iterator holding it) is used. A request assigns its search context once,
     ///   in `AREQ_ApplyContext`, and later cursor reads update the deadline in place, so the
     ///   address holds for the whole request.
     /// * The deadline must not be written concurrently with a probe. C *does* write to it — that
-    ///   is the point of reading it back — from every `SearchCtx_UpdateTime` call site, and
-    ///   directly from `RPTimeoutAfterCount_SimulateTimeout`. Each of those either runs before the
+    ///   is the point of reading it back — when a clock cycle begins, and directly from
+    ///   `RPTimeoutAfterCount_SimulateTimeout`. Each of those either runs before the
     ///   pipeline for that read starts (`runCursor`, `buildPipelineAndExecute`, the hybrid and
     ///   coordinator entry points) or runs inside the pipeline on the thread that would be
     ///   probing, so no write overlaps a probe. A new write site has to preserve that.
@@ -142,54 +143,47 @@ impl TimeoutChecker for TimeoutContextDeadline {
     }
 }
 
-/// [`TimeoutContext`] backed by the Blocked Client Timeout flag on an [`AREQ`].
+/// [`TimeoutContext`] backed by a request's Blocked Client Timeout flag.
 ///
-/// The struct stores a pointer to the [`AREQ`] and on every
-/// [`TimeoutContext::check_timeout`] call forwards directly to the
-/// [`AREQ_CheckTimedOut`] C symbol.
+/// Every [`TimeoutContext::check_timeout`] call forwards the borrowed
+/// [`QueryRequestTimeout`] to [`QueryIterator_IsBlockedClientTimedOut`].
 ///
 /// Unlike [`DeadlineTimeoutChecker`] this variant does **not** amortize calls:
 /// the cost of a relaxed atomic load through the named extern is already
 /// in the same order of magnitude as a counter bump, and avoiding the
 /// counter keeps the hot path branch-free.
 ///
-/// The [`AREQ`] is held as a raw [`NonNull`] pointer with no lifetime: like the
+/// The timeout is held as a raw [`NonNull`] pointer with no lifetime: like the
 /// rest of the query-iterator tree (see the "phantom `'index`" note on
 /// `RQEIteratorWrapper`), the context does not model the borrow in the type
-/// system. Keeping the request valid for as long as the context is used is a
+/// system. Keeping the timeout valid for as long as the context is used is a
 /// runtime invariant the caller upholds, documented on [`new`](Self::new).
 pub struct TimeoutContextBlockedClient {
-    /// [`AREQ`] pointer forwarded verbatim to [`AREQ_CheckTimedOut`].
-    areq: NonNull<AREQ>,
+    /// Request timeout forwarded to [`QueryIterator_IsBlockedClientTimedOut`].
+    timeout: NonNull<QueryRequestTimeout>,
 }
 
 impl TimeoutContextBlockedClient {
-    /// Build a new context wrapping `areq`.
+    /// Build a new context wrapping `timeout`.
     ///
     /// # Safety
     ///
-    /// * `areq` must point to a valid [`AREQ`] (as defined in
-    ///   `src/aggregate/aggregate.h`) for as long as this context (and any
-    ///   iterator holding it) is used. The pointer is stored without a
-    ///   lifetime, so the caller is fully responsible for not using the context
-    ///   past the [`AREQ`]'s lifetime.
-    /// * The `QueryRequestTimeout::timedOut` flag in the [`AREQ`]'s embedded
-    ///   `QueryRequest` must be safe to read with relaxed semantics from any thread.
+    /// `timeout` must remain valid and keep
+    /// [`QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT`](ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT)
+    /// as its active source for as long as this context and every iterator holding it are used.
     #[inline(always)]
-    pub const unsafe fn new(areq: NonNull<AREQ>) -> Self {
-        Self { areq }
+    pub const unsafe fn new(timeout: NonNull<QueryRequestTimeout>) -> Self {
+        Self { timeout }
     }
 }
 
 impl TimeoutChecker for TimeoutContextBlockedClient {
-    /// Probe the AREQ timed-out flag via [`AREQ_CheckTimedOut`] and translate
-    /// its `bool` reply into the iterator-level [`Result`].
+    /// Probe the request's blocked-client flag and translate the result.
     #[inline(always)]
     fn check_timeout(&mut self) -> TimeoutCheckResult {
-        // SAFETY: constructor contract guarantees `self.areq` is valid and
-        // thread-safe to probe; `AREQ_CheckTimedOut` performs a relaxed
-        // atomic load and does not unwind.
-        let timed_out = unsafe { AREQ_CheckTimedOut(self.areq.as_ptr()) };
+        // SAFETY: the constructor guarantees that `self.timeout` remains valid
+        // with the blocked-client source active. The C bridge performs a relaxed atomic load.
+        let timed_out = unsafe { QueryIterator_IsBlockedClientTimedOut(self.timeout.as_ptr()) };
         if timed_out {
             TimeoutCheckResult::TimedOut
         } else {
@@ -213,7 +207,7 @@ impl TimeoutChecker for TimeoutContextBlockedClient {
 /// [`check_timeout`]: TimeoutContext::check_timeout
 ///
 /// Two of the three variants hold a raw pointer with no lifetime:
-/// [`BlockedClient`](Self::BlockedClient) an [`AREQ`] (see
+/// [`BlockedClient`](Self::BlockedClient) a [`QueryRequestTimeout`] (see
 /// [`TimeoutContextBlockedClient`]), and [`Clock`](Self::Clock) the deadline inside a
 /// [`RedisSearchCtx`] (see [`TimeoutContextDeadline`]). Only
 /// [`NoTimeout`](Self::NoTimeout) borrows nothing. The type is therefore `'static`, and keeping
@@ -224,51 +218,57 @@ pub enum AnyTimeoutContext {
     NoTimeout(NoTimeoutChecker),
     /// Clock Based Timeout: amortized clock check against the search context's live deadline.
     Clock(TimeoutContextDeadline),
-    /// Blocked Client Timeout: relaxed atomic load against the AREQ flag.
+    /// Blocked Client Timeout: relaxed atomic load against the request flag.
     BlockedClient(TimeoutContextBlockedClient),
 }
 
 impl AnyTimeoutContext {
     /// Builds the timeout context from a search context's time settings.
     ///
-    /// `skipTimeoutChecks` (or the absence of a deadline) opts out of timeout
-    /// checks entirely, yielding [`NoTimeoutChecker`]; otherwise the context borrows the
-    /// deadline out of `sctx` and probes the clock against it once every `granularity`
-    /// checks. A search context carries no Blocked Client Timeout
-    /// source, so the [`BlockedClient`](Self::BlockedClient) variant is never
-    /// produced here.
+    /// The request timeout's active kind selects no timeout, a blocked-client
+    /// flag, or a clock deadline.
     ///
     /// # Safety
     ///
-    /// Both preconditions of [`TimeoutContextDeadline::new`] are forwarded to the caller:
+    /// The selected timeout variant's constructor preconditions are forwarded to the caller:
     ///
     /// * `sctx` must stay valid, and at a stable address, for as long as the returned context and
     ///   any iterator built from it are used — not merely for this call. The deadline is read back
     ///   through a pointer on every probe.
-    /// * No write to `sctx.time.timeout` may overlap a probe.
+    /// * No write to the request's clock deadline may overlap a probe.
+    /// * The borrowed request timeout must remain valid with its active source unchanged.
     ///
-    /// Note that `skipTimeoutChecks` is read once, here, while the deadline is read live. A
-    /// request that flips the flag after its iterators are built (only `TIMEOUT_AFTER_N` does,
-    /// via `AREQ_SetSkipTimeoutChecks`) keeps whichever variant this chose.
     pub unsafe fn from_sctx(sctx: NonNull<RedisSearchCtx>, granularity: u32) -> Self {
-        // Read the two construction-time inputs through short-lived raw reads rather than holding
-        // a reference: C writes the deadline through this same location while the context lives.
+        // Read construction-time inputs through short-lived raw reads rather than holding
+        // a reference: C writes the timeout source through this location between cycles.
         // SAFETY: the caller guarantees `sctx` is valid.
-        let time = unsafe { &raw const (*sctx.as_ptr()).time };
-        // SAFETY: `time` points into the valid `sctx`.
-        if unsafe { (*time).skipTimeoutChecks } {
+        let timeout = unsafe { (*sctx.as_ptr()).timeout };
+        let Some(request_timeout) = NonNull::new(timeout) else {
+            return Self::NoTimeout(NoTimeoutChecker);
+        };
+        // SAFETY: the request timeout is valid for the lifetime guaranteed by the caller.
+        match unsafe { (*request_timeout.as_ptr()).kind } {
+            ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED => {
+                return Self::NoTimeout(NoTimeoutChecker);
+            }
+            ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE => {}
+            ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT => {
+                // SAFETY: the caller keeps the request timeout valid for the returned context.
+                return Self::BlockedClient(unsafe {
+                    TimeoutContextBlockedClient::new(request_timeout)
+                });
+            }
+            kind => panic!("invalid query timeout kind: {kind}"),
+        }
+        // SAFETY: the caller keeps the request timeout valid and stable, and the match above
+        // established CLOCK_DEADLINE as the active union member before projecting its deadline.
+        let deadline = unsafe { &raw mut (*request_timeout.as_ptr()).source.clock.deadline };
+        let deadline = NonNull::new(deadline).expect("projected from a non-null request timeout");
+        // A request without a configured deadline never gains one.
+        // SAFETY: the request timeout is valid and CLOCK_DEADLINE is the active union member.
+        if duration_from_redis_timespec(unsafe { deadline.read() }).is_none() {
             return Self::NoTimeout(NoTimeoutChecker);
         }
-        // A deadline that is absent *now* stays absent: `SearchCtx_UpdateTime` only ever re-arms a
-        // timeout that the request was configured with, so a request without one never gains one.
-        // SAFETY: as above.
-        if duration_from_redis_timespec(unsafe { (*time).timeout }).is_none() {
-            return Self::NoTimeout(NoTimeoutChecker);
-        }
-        // SAFETY: `time` points into the valid `sctx`, so projecting the field is in bounds. The
-        // result stays valid for as long as the caller keeps `sctx` alive.
-        let deadline = unsafe { &raw const (*time).timeout }.cast_mut();
-        let deadline = NonNull::new(deadline).expect("projected from a non-null pointer");
         // SAFETY: forwarded to the caller by this method's own safety contract, both clauses.
         Self::Clock(unsafe { TimeoutContextDeadline::new(deadline, granularity) })
     }
@@ -399,7 +399,7 @@ mod tests {
             TimeoutCheckResult::TimedOut
         ));
 
-        // Stand in for `SearchCtx_UpdateTime`, which re-arms the deadline in place.
+        // Stand in for the next clock cycle, which re-arms the deadline in place.
         // SAFETY: `ptr` points at `deadline`, still alive here, and no probe overlaps this write.
         unsafe { ptr.as_ptr().write(deadline_in(60)) };
         assert!(
@@ -446,7 +446,7 @@ mod tests {
     }
 
     // The `BlockedClient` variant is a thin wrapper around the C symbol
-    // `AREQ_CheckTimedOut` (declared above as `unsafe extern "C"`); its
+    // `QueryIterator_IsBlockedClientTimedOut`; its
     // dispatch is covered end-to-end by `tests/pytests/test_blocked_client_timeout.py`
-    // because exercising it from Rust requires a real AREQ.
+    // because exercising the debug sync point requires the C query pipeline.
 }

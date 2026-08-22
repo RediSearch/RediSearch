@@ -67,10 +67,6 @@ static inline HybridRequest *QueryRequest_GetHybrid(QueryRequest *request) {
   return (HybridRequest *)request;
 }
 
-// Timeout helper functions for HybridRequest (mirrors AREQ pattern)
-static inline bool HybridRequest_TimedOut(HybridRequest *req) {
-  return QueryRequestTimeout_GetTimedOut(&req->base.timeout);
-}
 // The pipeline stage the hybrid request had reached, used to attribute a timeout.
 static inline QueryTimeoutStage HybridRequest_ExecutionStage(HybridRequest *req) {
   return (QueryTimeoutStage)QueryRequest_GetExecutionPhase(&req->base);
@@ -79,28 +75,9 @@ static inline QueryTimeoutStage HybridRequest_ExecutionStage(HybridRequest *req)
 static inline void HybridRequest_SetExecutionStage(HybridRequest *req, QueryTimeoutStage stage) {
   QueryRequest_SetExecutionPhase(&req->base, (int)stage);
 }
-// Sets the hybrid request's timedOut flag and propagates it to every subquery
-// AREQ. Propagation flips each subquery's RPNet abort flag so a BG worker
-// blocked in MRChannel_PopWithTimeout exits as soon as the channel is woken.
-void HybridRequest_SetTimedOut(HybridRequest *req);
-
-static inline bool HybridRequest_ShouldCheckTimeout(HybridRequest *req) {
-  return QueryRequestTimeout_ShouldCheck(&req->base.timeout);
-}
-
-static inline void HybridRequest_SetSkipTimeoutChecks(HybridRequest *req, bool skipTimeoutChecks) {
-  QueryRequestTimeout_SetSkipChecks(&req->base.timeout, skipTimeoutChecks);
-  // TODO($$$): Remove the SearchTime mirror once consumers use QueryRequest.timeout.
-  if (req->sctx) {
-    req->sctx->time.skipTimeoutChecks = skipTimeoutChecks;
-  }
-  // Propagate to all AREQ subqueries
-  for (size_t i = 0; i < req->nrequests; i++) {
-    if (req->requests[i]) {
-      AREQ_SetSkipTimeoutChecks(req->requests[i], skipTimeoutChecks);
-    }
-  }
-}
+// Propagates a hybrid timeout to every subquery AREQ so blocked RPNet waits
+// observe the abort after their channels are woken.
+void HybridRequest_PropagateTimeoutToSubqueries(HybridRequest *req);
 
 static inline bool HybridRequest_RequiresThreadsSyncResults(HybridRequest *req) {
   return req->base.async.requiresAggregateResultsSync;
@@ -151,6 +128,9 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
  * @param argc Number of strings in argv
  */
 void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests, size_t nrequests, RedisModuleString **argv, uint32_t argc);
+
+/** Starts the selected timeout source for the container and every subquery. */
+void HybridRequest_BeginTimeoutCycle(HybridRequest *req, QueryRequestTimeoutKind kind);
 
 /* Wrap the request's held argv (taken at construction) in a parse cursor.
  * The caller's argc bounds the parse; the holds may cover a superset (the

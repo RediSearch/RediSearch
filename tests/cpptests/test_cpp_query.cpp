@@ -167,7 +167,7 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   ASSERT_FALSE(QueryError_HasError(&iterErr)) << QueryError_GetUserError(&iterErr);
 
   // Disk-backed pre-filtered KNN requires explicit HYBRID_POLICY during iteration setup.
-  QueryIterator *it = QAST_Iterate(&ast, &opts, &ctx, 0, NULL, &iterErr);
+  QueryIterator *it = QAST_Iterate(&ast, &opts, &ctx, 0, &iterErr);
   ASSERT_NE(it, nullptr);
   ASSERT_TRUE(QueryError_HasError(&iterErr));
   ASSERT_NE(strstr(QueryError_GetUserError(&iterErr), "require explicit HYBRID_POLICY"), nullptr)
@@ -207,7 +207,7 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
 
   // Query attributes syntax without HYBRID_POLICY still raises the same error.
   QueryIterator *it_missing_attrs =
-      QAST_Iterate(&ast_missing_attrs, &opts_missing_attrs, &ctx, 0, NULL, &iterErrMissingAttrs);
+      QAST_Iterate(&ast_missing_attrs, &opts_missing_attrs, &ctx, 0, &iterErrMissingAttrs);
   ASSERT_NE(it_missing_attrs, nullptr);
   ASSERT_TRUE(QueryError_HasError(&iterErrMissingAttrs));
   ASSERT_NE(strstr(QueryError_GetUserError(&iterErrMissingAttrs), "require explicit HYBRID_POLICY"), nullptr)
@@ -240,7 +240,7 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   ASSERT_FALSE(QueryError_HasError(&iterErrAttrs)) << QueryError_GetUserError(&iterErrAttrs);
 
   // Query attributes syntax also satisfies the explicit HYBRID_POLICY requirement.
-  QueryIterator *it_attrs = QAST_Iterate(&ast_attrs, &opts_attrs, &ctx, 0, NULL, &iterErrAttrs);
+  QueryIterator *it_attrs = QAST_Iterate(&ast_attrs, &opts_attrs, &ctx, 0, &iterErrAttrs);
   ASSERT_NE(it_attrs, nullptr);
   ASSERT_FALSE(QueryError_HasError(&iterErrAttrs)) << QueryError_GetUserError(&iterErrAttrs);
 

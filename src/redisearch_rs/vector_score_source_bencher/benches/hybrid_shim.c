@@ -17,7 +17,7 @@
  * doc table, and the min-max heap.
  *
  * The HybridIterator only touches `sctx` in three spots:
- *   - sctx->time.skipTimeoutChecks   (we set true to disable timeout checks)
+ *   - sctx->timeout                  (NULL disables timeout checks)
  *   - sctx->spec->diskSpec           (zeroed => RAM path)
  *   - sctx->spec->docs.ttl           (zeroed/NULL => field-expiration gate off,
  *                                     so the DocTable expiration calls are
@@ -59,7 +59,6 @@ size_t bench_c_hybrid(VecSimIndex *index, const void *query_vec, size_t dim, siz
   IndexSpec spec = {0};
   RedisSearchCtx sctx = {0};
   sctx.spec = &spec;
-  sctx.time.skipTimeoutChecks = true;
 
   QueryIterator *child = NewSortedIdListIterator(ids, child_count, 1.0);
 
@@ -93,7 +92,6 @@ size_t bench_c_hybrid(VecSimIndex *index, const void *query_vec, size_t dim, siz
       .vectorScoreField = (char *)"__v_score",
       .canTrimDeepResults = true,
       .childIt = child,
-      .timeout = {0, 0},
       .filterCtx = &filterCtx,
   };
 

@@ -9,6 +9,7 @@
 
 
 #include "gtest/gtest.h"
+#include "query_request.h"
 #include "trie/trie_node.h"
 #include "trie/trie_node_internal.h"  // whitebox: subtreeMaxScore invariant checks
 #include "trie/trie.h"
@@ -61,7 +62,13 @@ static std::vector<std::string> trieIterPrefix(Trie *t, const char *prefix) {
   rune *runes = runeBufFill(prefix, len, &buf, &len);
 
   std::vector<std::string> terms;
-  Trie_IterateContains(t, runes, len, true, false, collectTermFunc, &terms, NULL, true);
+  QueryRequestTimeout timeout = {
+      .policy = TimeoutPolicy_Return,
+      .timeoutMS = 0,
+      .kind = QUERY_REQUEST_TIMEOUT_UNARMED,
+      .source = {},
+  };
+  Trie_IterateContains(t, runes, len, true, false, collectTermFunc, &terms, &timeout);
   runeBufFree(&buf);
   return terms;
 }

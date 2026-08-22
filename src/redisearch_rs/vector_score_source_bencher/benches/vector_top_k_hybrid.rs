@@ -48,7 +48,7 @@ use ffi::{
     HNSWParams, VecSearchMode_HYBRID_ADHOC_BF, VecSearchMode_HYBRID_BATCHES,
     VecSimAlgo_VecSimAlgo_HNSWLIB, VecSimIndex, VecSimIndex_AddVector, VecSimIndex_Free,
     VecSimIndex_New, VecSimMetric_VecSimMetric_L2, VecSimParams, VecSimQueryParams,
-    VecSimType_VecSimType_FLOAT32, timespec,
+    VecSimType_VecSimType_FLOAT32,
 };
 use rqe_iterators::{IdList, RQEIterator};
 use rqe_iterators_test_utils::MockExpirationChecker;
@@ -196,11 +196,7 @@ fn run_rust(
             query_bytes(query),
             query_params,
             k.get(),
-            timespec {
-                tv_sec: 0,
-                tv_nsec: 0,
-            },
-            true,
+            std::ptr::null_mut(),
             ids.len(),
             0,
             MockExpirationChecker::new(std::collections::HashSet::new()),

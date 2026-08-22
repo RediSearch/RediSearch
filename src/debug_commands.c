@@ -3391,7 +3391,7 @@ DEBUG_COMMAND(DumpSchema) {
   return REDISMODULE_OK;
 }
 
-static inline int TimedOut_Always(TimeoutCtx *ctx) {
+static inline int TimedOut_Always(VecSimTimeoutCtx *ctx) {
   (void)ctx; // Unused parameter
   return TIMED_OUT;
 }
@@ -3399,7 +3399,7 @@ static inline int TimedOut_Always(TimeoutCtx *ctx) {
 // Global timeout callback for VecSim searches.
 // Need the redirection so tests can pass a mock function to test timeout behavior.
 // Used in hybrid_reader.c in computeDistances
-extern int (*vecsimTimeoutCallback)(TimeoutCtx *ctx);
+extern int (*vecsimTimeoutCallback)(VecSimTimeoutCtx *ctx);
 
 /**
  * FT.DEBUG VECSIM_MOCK_TIMEOUT <enable|disable>
@@ -3420,8 +3420,8 @@ DEBUG_COMMAND(VecSimMockTimeout) {
     VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)TimedOut_Always);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   } else if (!strcmp("disable", op)) {
-    vecsimTimeoutCallback = TimedOut_WithCtx;
-    VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)TimedOut_WithCtx);
+    vecsimTimeoutCallback = VecSim_TimedOut;
+    VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)VecSim_TimedOut);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   } else {
     return RedisModule_ReplyWithError(ctx, "Invalid command for 'VECSIM_MOCK_TIMEOUT'");

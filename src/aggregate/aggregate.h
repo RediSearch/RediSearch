@@ -487,12 +487,6 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 // Allows calling parseProfileArgs from reply_empty.c
 int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 
-static inline bool AREQ_TimedOut(AREQ *req) {
-  return QueryRequestTimeout_GetTimedOut(&req->base.timeout);
-}
-static inline void AREQ_SetTimedOut(AREQ *req) {
-  QueryRequestTimeout_SetTimedOut(&req->base.timeout);
-}
 // The pipeline stage the request had reached, used to attribute a timeout.
 static inline QueryTimeoutStage AREQ_ExecutionStage(AREQ *req) {
   return (QueryTimeoutStage)QueryRequest_GetExecutionPhase(&req->base);
@@ -502,15 +496,10 @@ static inline void AREQ_SetExecutionStage(AREQ *req, QueryTimeoutStage stage) {
   QueryRequest_SetExecutionPhase(&req->base, (int)stage);
 }
 #ifdef ENABLE_ASSERT
-// SyncPointStopFn predicate adapter for AREQ_TimedOut. Pass the AREQ as `arg`
-// to SyncPoint_WaitUntil to release the wait when the request is timed out.
+// SyncPointStopFn predicate adapter for blocked-client timeouts. Pass the AREQ
+// as `arg` to release the wait when the request is timed out.
 bool areq_timed_out(void *arg);
 #endif
-
-/* Non-inline named bridge over AREQ_TimedOut, invoked by Rust query
- * iterators on the Blocked Client Timeout path. The named extern is a
- * stable symbol that LTO can inline through. */
-bool AREQ_CheckTimedOut(AREQ *areq);
 
 /* True when this AREQ uses the BG-thread / timeout-callback claim handshake
  * around AggregateResults (TryClaim/Signal/Wait). Set on coordinator AREQs
@@ -559,33 +548,13 @@ bool QueryRequest_TimeoutPreemptSafeLoaderGIL(QueryRequest *request);
  *   - base.async.aggregatingResults (CAS claim)
  *   - base.async.aggregateResultsDone (signal latch)
  *   - base.async.safeLoadersHoldingGIL (GIL-handshake latch)
- *   - base.timeout.timedOut (timer latch from the previous chunk's timer)
+ *   - the blocked-client timer latch from the previous chunk
  *   - RPNet::drainOnly on the root proc when it is RP_NETWORK (so the next
  *     read does not short-circuit to EOF on the first empty-channel observation).
  * Caller MUST hold the per-request setRequestLock so the timer cannot publish a
  * fresh TimedOut between the reset and SetRequest. Does NOT reset
  * RPSorter::base.Next: the Yield latch is load-bearing across reads. */
 void AREQ_ResetForCursorReadReturnStrict(AREQ *req);
-
-static inline bool AREQ_ShouldCheckTimeout(AREQ *req) {
-  return QueryRequestTimeout_ShouldCheck(&req->base.timeout);
-}
-
-static inline void AREQ_SetSkipTimeoutChecks(AREQ *req, bool skipTimeoutChecks) {
-  QueryRequestTimeout_SetSkipChecks(&req->base.timeout, skipTimeoutChecks);
-  // TODO($$$): Remove the SearchTime mirror once consumers use QueryRequest.timeout.
-  if (req->sctx) {
-    req->sctx->time.skipTimeoutChecks = skipTimeoutChecks;
-  }
-}
-
-// Returns the AREQ that iterator constructors should use to wire the
-// Blocked Client Timeout, or NULL if iterators should fall back to the
-// in-pipeline clock-based timeout. `skipTimeoutChecks` is set by
-// `AREQ_ApplyContext` exactly when the BC callback is the active source.
-static inline AREQ *AREQ_TimeoutAreqOrNull(AREQ *req) {
-  return (req && !QueryRequestTimeout_ShouldCheck(&req->base.timeout)) ? req : NULL;
-}
 
 static inline bool RequestConfig_ApplyCoordinatorElapsedTime(RequestConfig *reqConfig,
                                                              rs_wall_clock_ns_t coordinatorElapsedTime) {

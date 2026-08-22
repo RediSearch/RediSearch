@@ -15,6 +15,7 @@
 #include "VecSim/query_results.h"
 #include "iterators_ffi.h"
 #include "metrics_ffi.h"
+#include "query_request.h"
 #include "rqe_iterator_type.h"
 #include "types_ffi.h"
 #include "query.h"
@@ -170,11 +171,11 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryReply_Iterator *ve
 
 // Global timeout callback for VecSim searches.
 // Need the redirection so tests can pass a mock function to test timeout behavior.
-int (*vecsimTimeoutCallback)(TimeoutCtx *ctx) = TimedOut_WithCtx;
+int (*vecsimTimeoutCallback)(VecSimTimeoutCtx *ctx) = VecSim_TimedOut;
 
 // Non-inline wrapper called from Rust's VectorScoreSource::adhoc_strategy so the
 // test-mockable vecsimTimeoutCallback indirection is honored on the adhoc-BF path.
-int RS_VecSimCheckTimeout(TimeoutCtx *ctx) {
+int RS_VecSimCheckTimeout(VecSimTimeoutCtx *ctx) {
   return vecsimTimeoutCallback(ctx);
 }
 
@@ -460,7 +461,7 @@ static IteratorStatus HR_ReadHybridUnsortedSingle(HybridIterator *hr) {
   if (hr->checkFieldExpiration
       && !DocTable_CheckFieldExpirationPredicate(&hr->sctx->spec->docs, hr->base.current->docId,
                                                  hr->filterCtx.field.index,
-                                                 hr->filterCtx.predicate, &hr->sctx->time.current)) {
+                                                 hr->filterCtx.predicate, &hr->sctx->currentTime)) {
     return ITERATOR_NOTFOUND;
   }
   hr->base.lastDocId = hr->base.current->docId;
@@ -479,7 +480,7 @@ static IteratorStatus HR_ReadHybridUnsorted(QueryIterator *ctx) {
   IteratorStatus rc;
   do {
     rc = HR_ReadHybridUnsortedSingle(hr);
-    if (TimedOut_WithCtx(&hr->timeoutCtx)) {
+    if (VecSim_TimedOut(&hr->timeoutCtx)) {
       return ITERATOR_TIMEOUT;
     }
   } while (rc == ITERATOR_NOTFOUND);
@@ -498,7 +499,7 @@ static IteratorStatus HR_ReadKnnUnsortedSingle(HybridIterator *hr) {
   if (hr->checkFieldExpiration
       && !DocTable_CheckFieldExpirationPredicate(&hr->sctx->spec->docs, hr->base.current->docId,
                                                  hr->filterCtx.field.index,
-                                                 hr->filterCtx.predicate, &hr->sctx->time.current)) {
+                                                 hr->filterCtx.predicate, &hr->sctx->currentTime)) {
     return ITERATOR_NOTFOUND;
   }
 
@@ -520,7 +521,7 @@ static IteratorStatus HR_ReadKnnUnsorted(QueryIterator *ctx) {
   IteratorStatus rc;
   do {
     rc = HR_ReadKnnUnsortedSingle(hr);
-    if (TimedOut_WithCtx(&hr->timeoutCtx)) {
+    if (VecSim_TimedOut(&hr->timeoutCtx)) {
       return ITERATOR_TIMEOUT;
     }
   } while (rc == ITERATOR_NOTFOUND);
@@ -651,8 +652,7 @@ QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   hi->maxBatchSize = 0;
   hi->maxBatchIteration = 0;
   hi->canTrimDeepResults = hParams.canTrimDeepResults;
-  // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks
-  hi->timeoutCtx = (TimeoutCtx){ .timeout = hParams.timeout, .counter = hParams.sctx->time.skipTimeoutChecks ? REDISEARCH_UNINITIALIZED : 0 };
+  hi->timeoutCtx = (VecSimTimeoutCtx){ .timeout = hParams.sctx ? hParams.sctx->timeout : NULL };
   hi->runtimeParams.timeoutCtx = &hi->timeoutCtx;
   hi->sctx = hParams.sctx;
   hi->filterCtx = *hParams.filterCtx;

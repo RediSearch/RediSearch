@@ -547,16 +547,20 @@ static const char *PrefixNode_GetTypeString(const QueryPrefixNode *pfx) {
   }
 }
 
-// Probe the Blocked Client Timeout flag for a query iterator. Called from
-// Rust via a direct `extern "C"` declaration when a NOT iterator is wired
-// to an AREQ; the sync point makes the check deterministically pauseable
-// in assert builds for race tests.
-bool AREQ_CheckTimedOut(AREQ *areq) {
-  RS_LOG_ASSERT(areq, "AREQ_CheckTimedOut called with NULL areq");
+// Keep the query-iterator sync point out of the source-neutral timeout API.
 #ifdef ENABLE_ASSERT
-  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_QI_TIMEOUT_CHECK, areq_timed_out, areq);
+static bool queryIteratorTimedOut(void *arg) {
+  const QueryRequestTimeout *timeout = arg;
+  return QueryRequestTimeout_IsBlockedClientTimedOut(timeout);
+}
 #endif
-  return AREQ_TimedOut(areq);
+
+bool QueryIterator_IsBlockedClientTimedOut(const QueryRequestTimeout *timeout) {
+  RS_LOG_ASSERT(timeout, "QueryIterator_IsBlockedClientTimedOut called with NULL timeout");
+#ifdef ENABLE_ASSERT
+  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_QI_TIMEOUT_CHECK, queryIteratorTimedOut, (void *)timeout);
+#endif
+  return QueryRequestTimeout_IsBlockedClientTimedOut(timeout);
 }
 
 static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn,
@@ -676,6 +680,11 @@ void tag_strtolower(char **pstr, size_t *len, int caseSensitive) {
   *len = length;
 }
 
+static bool shouldCheckClockTimeout(const QueryEvalCtx *q) {
+  return q->sctx->timeout &&
+         q->sctx->timeout->kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
+}
+
 /* Evaluate a tag prefix by expanding it with a lookup on the tag index */
 static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn, double weight,
                                               int withSuffixTrie, t_fieldIndex fieldIndex,
@@ -707,8 +716,8 @@ static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
     TrieMapIterator *it = TagIndex_IterateValuesWithFilter(idx, tok->str, tok->len, iter_mode);
     // TrieMap_IterateWithFilter only returns NULL on allocation failure
     RS_ASSERT(it);
-    if (!q->sctx->time.skipTimeoutChecks) {
-      TrieMapIterator_SetTimeout(it, q->sctx->time.timeout);
+    if (shouldCheckClockTimeout(q)) {
+      TrieMapIterator_SetTimeout(it, *QueryRequestTimeout_GetClockDeadline(q->sctx->timeout));
     }
 
     // an upper limit on the number of expansions is enforced to avoid stuff like "*"
@@ -737,9 +746,11 @@ static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
     TrieMapIterator_Free(it);
   } else {  // TAG field has suffix triemap
-    arrayof(char **) arr =
-        TagIndex_GetSuffixMatches(idx, tok->str, tok->len, qn->pfx.prefix, q->sctx->time.timeout,
-                               q->sctx->time.skipTimeoutChecks);
+    bool skipClockChecks = !shouldCheckClockTimeout(q);
+    struct timespec timeout = skipClockChecks ? (struct timespec){0}
+                                              : *QueryRequestTimeout_GetClockDeadline(q->sctx->timeout);
+    arrayof(char **) arr = TagIndex_GetSuffixMatches(idx, tok->str, tok->len, qn->pfx.prefix,
+                                                     timeout, skipClockChecks);
     if (!arr) {
       rm_free(its);
       return NULL;
@@ -798,9 +809,12 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
   bool fallbackBruteForce = false;
   if (TagIndex_HasSuffix(idx)) {
     // with suffix
+    bool skipClockChecks = !shouldCheckClockTimeout(q);
+    struct timespec timeout = skipClockChecks ? (struct timespec){0}
+                                              : *QueryRequestTimeout_GetClockDeadline(q->sctx->timeout);
     arrayof(char *) arr = TagIndex_GetSuffixWildcardMatches(
-        idx, tok->str, tok->len, q->sctx->time.timeout, q->config->maxPrefixExpansions,
-        q->sctx->time.skipTimeoutChecks);
+        idx, tok->str, tok->len, timeout, q->config->maxPrefixExpansions,
+        skipClockChecks);
     if (!arr) {
       // No matching terms
       rm_free(its);
@@ -832,8 +846,8 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
     // brute force wildcard query
     TrieMapIterator *it =
         TagIndex_IterateValuesWithFilter(idx, tok->str, tok->len, TAG_WILDCARD_MODE);
-    if (!q->sctx->time.skipTimeoutChecks) {
-      TrieMapIterator_SetTimeout(it, q->sctx->time.timeout);
+    if (shouldCheckClockTimeout(q)) {
+      TrieMapIterator_SetTimeout(it, *QueryRequestTimeout_GetClockDeadline(q->sctx->timeout));
     }
 
     char *s;
