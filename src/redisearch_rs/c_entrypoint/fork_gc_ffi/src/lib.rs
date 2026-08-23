@@ -18,6 +18,7 @@
 use std::{
     ffi::{c_char, c_int, c_void},
     io::{Read, Write},
+    ptr::NonNull,
 };
 
 use fork_gc::{ForkGC, Frame, io_result_ext::IoResultExt};
@@ -70,7 +71,7 @@ pub unsafe extern "C" fn FGC_sendFixed(fgc: *mut ffi::ForkGC, buff: *const c_voi
     debug_assert!(len > 0, "buffer length cannot be 0");
 
     // SAFETY: caller guarantees (1).
-    let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
+    let fgc = unsafe { ForkGC::from_ptr_mut(NonNull::new(fgc).expect("`fgc` must not be null")) };
     // SAFETY: caller guarantees (2).
     let slice = unsafe { std::slice::from_raw_parts(buff.cast::<u8>(), len) };
 
@@ -93,7 +94,7 @@ pub unsafe extern "C" fn FGC_sendFixed(fgc: *mut ffi::ForkGC, buff: *const c_voi
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FGC_sendBuffer(fgc: *mut ffi::ForkGC, buff: *const c_void, len: usize) {
     // SAFETY: caller guarantees (1).
-    let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
+    let fgc = unsafe { ForkGC::from_ptr_mut(NonNull::new(fgc).expect("`fgc` must not be null")) };
 
     let slice = if len > 0 {
         // SAFETY: caller guarantees (2).
@@ -120,7 +121,7 @@ pub unsafe extern "C" fn FGC_sendBuffer(fgc: *mut ffi::ForkGC, buff: *const c_vo
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FGC_sendTerminator(fgc: *mut ffi::ForkGC) {
     // SAFETY: caller guarantees (1).
-    let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
+    let fgc = unsafe { ForkGC::from_ptr_mut(NonNull::new(fgc).expect("`fgc` must not be null")) };
 
     Frame::Terminator.encode(&mut fgc.writer()).unwrap_or_exit();
 }
@@ -143,7 +144,7 @@ pub unsafe extern "C" fn FGC_recvFixed(
     len: usize,
 ) -> c_int {
     // SAFETY: caller guarantees (1).
-    let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
+    let fgc = unsafe { ForkGC::from_ptr_mut(NonNull::new(fgc).expect("`fgc` must not be null")) };
     // SAFETY: caller guarantees (2).
     let slice = unsafe { std::slice::from_raw_parts_mut(buf.cast::<u8>(), len) };
 
@@ -183,7 +184,7 @@ pub unsafe extern "C" fn FGC_recvBuffer(
     len: *mut usize,
 ) -> c_int {
     // SAFETY: caller guarantees (1).
-    let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
+    let fgc = unsafe { ForkGC::from_ptr_mut(NonNull::new(fgc).expect("`fgc` must not be null")) };
 
     let frame = match Frame::decode_nul_terminated(&mut fgc.reader()) {
         Ok(frame) => frame,
@@ -226,7 +227,7 @@ pub unsafe extern "C" fn recvFieldHeader(
     id_ptr: *mut u64,
 ) -> FGCError {
     // SAFETY: caller guarantees (1).
-    let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
+    let fgc = unsafe { ForkGC::from_ptr_mut(NonNull::new(fgc).expect("`fgc` must not be null")) };
     let mut reader = fgc.reader();
 
     let frame = match Frame::decode_nul_terminated(&mut reader) {
