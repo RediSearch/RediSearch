@@ -9,8 +9,10 @@
     matches the Rust signature one-to-one.
   - Pure Rust crates use references, `NonNull<T>`, or `Option<NonNull<T>>` in their
     public APIs, never raw pointers — except for `as_ptr` / `into_raw` / `from_raw`
-    style conversions, which follow the `std` convention, and `extern "C"` callbacks,
-    which are FFI signatures wherever they live.
+    style conversions, which follow the `std` convention; `extern "C"` callbacks,
+    which are FFI signatures wherever they live; and the fields of `#[repr(C)]` types
+    that mirror a C layout or are exported by cheadergen, which keep raw pointers so
+    the generated header keeps the pointee qualifiers.
   - `c_wrappers/*` are exempt: they mirror C structs, so raw pointer accessors and
     setters are the interface.
 - Safety Comments: Number invariants in the safety doc comment and refer to these invariants in your safety in-line comments throughout that function.
