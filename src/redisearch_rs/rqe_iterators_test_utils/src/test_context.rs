@@ -868,7 +868,8 @@ impl TestContext {
         // Write offset data - write 10 offset values [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
         // to match what the tests expect
         for i in 0..10u32 {
-            varint_ffi::VVW_Write(Some(vw_nonnull), i);
+            // SAFETY: `vw_nonnull` comes from `NewVarintVectorWriter` and is exclusively owned here.
+            unsafe { varint_ffi::VVW_Write(vw_nonnull.as_ptr(), i) };
         }
 
         // Create ForwardIndexEntry
@@ -890,7 +891,9 @@ impl TestContext {
             ffi::InvertedIndex_WriteForwardIndexEntry(idx, &mut entry, false);
         }
 
-        varint_ffi::VVW_Free(Some(vw_nonnull));
+        // SAFETY: `vw_nonnull` comes from `NewVarintVectorWriter`, is exclusively owned here,
+        // and is not used again.
+        unsafe { varint_ffi::VVW_Free(vw_nonnull.as_ptr()) };
     }
 
     /// Get the numeric range tree for this context.

@@ -30,8 +30,8 @@ pub extern "C" fn NewVarintVectorWriter(cap: usize) -> *mut VectorWriter {
 /// 1. `writer` must point to a valid [`VectorWriter`] obtained from [`NewVarintVectorWriter`] and cannot be NULL.
 /// 2. The caller must have exclusive access to the [`VectorWriter`] pointed to by `writer`.
 #[unsafe(no_mangle)]
-pub extern "C" fn VVW_Write(writer: Option<NonNull<VectorWriter>>, value: u32) -> usize {
-    let mut writer = writer.unwrap();
+pub unsafe extern "C" fn VVW_Write(writer: *mut VectorWriter, value: u32) -> usize {
+    let mut writer = NonNull::new(writer).expect("writer must not be NULL");
     // Safety: The preconditions are met, thanks to safety invariants 1. and 2.
     unsafe { writer.as_mut() }.write(value).unwrap_or(0)
 }
@@ -97,8 +97,8 @@ pub const unsafe extern "C" fn VVW_GetCount(writer: *const VectorWriter) -> usiz
 /// 1. `writer` must point to a valid [`VectorWriter`] obtained from [`NewVarintVectorWriter`] and cannot be NULL.
 /// 2. The caller must have exclusive access to the [`VectorWriter`] pointed to by `writer`.
 #[unsafe(no_mangle)]
-pub extern "C" fn VVW_Reset(writer: Option<NonNull<VectorWriter>>) {
-    let mut writer = writer.unwrap();
+pub unsafe extern "C" fn VVW_Reset(writer: *mut VectorWriter) {
+    let mut writer = NonNull::new(writer).expect("writer must not be NULL");
     // Safety: The preconditions are met, thanks to safety invariants 1. and 2.
     unsafe { writer.as_mut() }.reset()
 }
@@ -113,8 +113,8 @@ pub extern "C" fn VVW_Reset(writer: Option<NonNull<VectorWriter>>) {
 /// The following invariants must be upheld when calling this function:
 /// 1. `writer` must point to a valid [`VectorWriter`] obtained from [`NewVarintVectorWriter`] and cannot be NULL.
 /// 2. The caller must have exclusive access to the [`VectorWriter`] pointed to by `writer`.
-pub extern "C" fn VVW_Free(writer: Option<NonNull<VectorWriter>>) {
-    let writer = writer.unwrap();
+pub unsafe extern "C" fn VVW_Free(writer: *mut VectorWriter) {
+    let writer = NonNull::new(writer).expect("writer must not be NULL");
     // Safety: The pointer is leaked in `NewVectorWriter`, so we can safely drop it here.
     drop(unsafe { Box::from_raw(writer.as_ptr()) });
 }
@@ -127,8 +127,8 @@ pub extern "C" fn VVW_Free(writer: Option<NonNull<VectorWriter>>) {
 /// The following invariants must be upheld when calling this function:
 /// 1. `writer` must point to a valid [`VectorWriter`] obtained from [`NewVarintVectorWriter`] and cannot be NULL.
 /// 2. The caller must have exclusive access to the [`VectorWriter`] pointed to by `writer`.
-pub extern "C" fn VVW_Truncate(writer: Option<NonNull<VectorWriter>>) -> usize {
-    let writer = writer.unwrap();
+pub unsafe extern "C" fn VVW_Truncate(writer: *mut VectorWriter) -> usize {
+    let writer = NonNull::new(writer).expect("writer must not be NULL");
     // Safety: The preconditions are met, thanks to safety invariants 1. and 2.
     unsafe { &mut *writer.as_ptr() }.shrink_to_fit()
 }
@@ -143,17 +143,15 @@ pub extern "C" fn VVW_Truncate(writer: Option<NonNull<VectorWriter>>) -> usize {
 /// The following invariants must be upheld when calling this function:
 /// 1. `writer` must point to a valid [`VectorWriter`] obtained from [`NewVarintVectorWriter`] and cannot be NULL.
 /// 2. The caller must have exclusive access to the [`VectorWriter`] pointed to by `writer`.
-/// 3. The caller must have exclusive access to `len`.
-pub unsafe extern "C" fn VVW_TakeByteData(
-    writer: *mut VectorWriter,
-    mut len: NonNull<usize>,
-) -> *mut u8 {
+/// 3. `len` cannot be NULL and the caller must have exclusive access to it.
+pub unsafe extern "C" fn VVW_TakeByteData(writer: *mut VectorWriter, len: *mut usize) -> *mut u8 {
     if writer.is_null() {
         return std::ptr::null_mut();
     }
 
     // Safety: Guaranteed by safety invariant 1. and 2.
     let vector_writer = unsafe { &mut *writer };
+    let mut len = NonNull::new(len).expect("len must not be NULL");
     // Safety: Guaranteed by safety invariant 3.
     let len = unsafe { len.as_mut() };
     let mut bytes = vec![];

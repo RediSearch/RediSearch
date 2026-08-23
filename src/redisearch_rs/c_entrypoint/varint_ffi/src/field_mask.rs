@@ -23,8 +23,8 @@ use varint::VarintEncode;
 /// 1. `b` must point to a valid `BufferReader` instance and cannot be NULL.
 /// 2. The caller must have exclusive access to the buffer reader.
 #[unsafe(no_mangle)]
-pub extern "C" fn ReadVarintFieldMask(b: Option<NonNull<BufferReader>>) -> FieldMask {
-    let mut buffer_reader = b.unwrap();
+pub unsafe extern "C" fn ReadVarintFieldMask(b: *mut BufferReader) -> FieldMask {
+    let mut buffer_reader = NonNull::new(b).expect("b must not be NULL");
     // Safety: Safe thanks to invariants 1. and 2.
     let buffer_reader = unsafe { buffer_reader.as_mut() };
     varint::read(buffer_reader).unwrap()
@@ -44,11 +44,11 @@ pub extern "C" fn ReadVarintFieldMask(b: Option<NonNull<BufferReader>>) -> Field
 /// 1. `writer` must point to a valid `BufferWriter` instance and cannot be NULL.
 /// 2. The caller must have exclusive access to the buffer writer.
 #[unsafe(no_mangle)]
-pub extern "C" fn WriteVarintFieldMask(
+pub unsafe extern "C" fn WriteVarintFieldMask(
     value: FieldMask,
-    writer: Option<NonNull<BufferWriter>>,
+    writer: *mut BufferWriter,
 ) -> usize {
-    let mut writer = writer.unwrap();
+    let mut writer = NonNull::new(writer).expect("writer must not be NULL");
     // Safety: Safe thanks to invariants 1. and 2.
     let writer = unsafe { writer.as_mut() };
     let cap = writer.buffer().capacity();
