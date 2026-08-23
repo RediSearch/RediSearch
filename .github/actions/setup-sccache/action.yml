@@ -25,13 +25,13 @@ runs:
       id: aws-credentials
       if: ${{ inputs.aws-role != '' && inputs.s3-bucket != '' && inputs.s3-region != '' && inputs.s3-key-prefix != '' }}
       continue-on-error: true
-      uses: aws-actions/configure-aws-credentials@v6
+      uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
       with:
         role-to-assume: ${{ inputs.aws-role }}
         aws-region: ${{ inputs.s3-region }}
 
     - name: Install sccache
-      uses: mozilla-actions/sccache-action@v0.0.10
+      uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
       with:
         # Disable the post-run stats annotation as it runs outside the
         # container and reports nothing. We show stats ourselves.

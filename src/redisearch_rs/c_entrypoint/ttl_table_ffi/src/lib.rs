@@ -164,6 +164,26 @@ pub unsafe extern "C" fn TimeToLiveTable_GetFieldExpirations<'a>(
     }
 }
 
+/// Borrow the entries of an owned [`FieldExpirations`] value without taking
+/// ownership.
+///
+/// Returns an empty slice for a null pointer. The returned pointer is
+/// invalidated by any later mutation/drop of `fields` and must not be freed by
+/// the caller.
+///
+/// # Safety
+///  - `fields`, when non-null, must point to a valid [`FieldExpirations`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn FieldExpirations_AsSlice<'a>(
+    fields: *const FieldExpirations,
+) -> FieldExpirationSlice<'a> {
+    if fields.is_null() {
+        return FieldExpirationSlice::EMPTY;
+    }
+    // SAFETY: caller guarantees pointer validity.
+    FieldExpirationSlice::from_fields(unsafe { &*fields })
+}
+
 /// Single-field expiration check.
 ///
 /// # Returns

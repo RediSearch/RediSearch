@@ -18,6 +18,7 @@ workspace = true
 ffi.workspace = true
 query_error.workspace = true
 reducers.workspace = true
+rqe_core.workspace = true
 rlookup.workspace = true
 value.workspace = true
 workspace_hack.workspace = true

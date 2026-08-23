@@ -7,18 +7,20 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "indexer.h"
+
+#include "disk_indexer.h"
+#include "indexer_internal.h"
+
 #include "forward_index.h"
 #include "inverted_index.h"
 #include "inverted_index_ffi.h"
 #include "sorting_vector_ffi.h"
-#include "geo_index.h"
 #include "vector_index.h"
 #include "redis_index.h"
 #include "suffix.h"
 #include "config.h"
 #include "rmutil/rm_assert.h"
 #include "phonetic_manager.h"
-#include "obfuscation/obfuscation_api.h"
 #include "redismodule.h"
 #include "debug_commands.h"
 #include "search_disk.h"
@@ -26,14 +28,39 @@
 #include "gc.h"
 #include "doc_id_meta.h"
 #include "metrics_ffi.h"
-#include "tag_index.h"
+#include "module.h"
+#include "util/workers.h"
+#include "VecSim/vec_sim.h"
+#include "byte_offsets.h"
+#include "doc_table.h"
+#include "geometry_index.h"
+#include "index_result_rs.h"
+#include "info/index_error.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "redisearch.h"
+#include "rqe_core.h"
+#include "rules.h"
+#include "search_result_rs.h"
+#include "spec.h"
+#include "stemmer.h"
+#include "synonym_map.h"
+#include "ttl_table.h"
+#include "ttl_table_rs.h"
+#include "util/block_alloc.h"
+#include "util/dict/dict.h"
+#include "util/khtable.h"
+#include "varint_ffi.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
 #include <unistd.h>
+#include <stdint.h>
+#include <string.h>
 
-static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, ForwardIndexEntry *entry) {
-  AddRecordOutcome r = InvertedIndex_WriteForwardIndexEntry(idx, entry);
+static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, ForwardIndexEntry *entry,
+                            bool hasFieldExpiration) {
+  AddRecordOutcome r = InvertedIndex_WriteForwardIndexEntry(idx, entry, hasFieldExpiration);
 
   // Update index statistics:
 
@@ -90,40 +117,21 @@ static size_t countMerged(mergedEntry *ent) {
   return n;
 }
 
-// Returns true on terms that should be indexed in the suffix trie.
-static inline bool entryWantsSuffixTrie(const IndexSpec *spec, const ForwardIndexEntry *entry) {
-  return (spec->suffixMask & entry->fieldMask)
-      && entry->term[0] != STEM_PREFIX
-      && entry->term[0] != PHONETIC_PREFIX
-      && entry->term[0] != SYNONYM_PREFIX_CHAR
-      && strlen(entry->term) != 0;
-}
-
-/**
- * Disk-mode counterpart to `indexText`: apply the in-memory term-trie /
- * suffix-trie / stats updates that pair with the postings staged in
- * `stageText` and now durably committed. `IndexSpec_AddTerm` fires for
- * entries with `entry->staged == true` (i.e. `SearchDisk_IndexTerm` returned
- * true); `addSuffixTrie` is gated independently by `entryWantsSuffixTrie`
- * and runs regardless — matches master behavior.
- *
- * Memory mode does the equivalent work inline in `indexText`, in a single
- * pass over the forward index.
- */
-static void applyTextIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
-  IndexSpec *spec = ctx->spec;
-  size_t prevNumTerms = spec->stats.scoring.numTerms;
-  ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
-  for (ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it); entry;
-       entry = ForwardIndexIterator_Next(&it)) {
-    if (entry->staged) {
-      IndexSpec_AddTerm(spec, entry->term, entry->len);
-    }
-    if (entryWantsSuffixTrie(spec, entry)) {
-      addSuffixTrie(spec->suffix, entry->term, entry->len);
+// Build the mask of this document's TEXT fields that carry a field-level
+// expiration, in FIELD_BIT space (the same space as ForwardIndexEntry.fieldMask).
+// Only text fields participate in term field masks — non-text fields have no
+// `ftId` — so a term posting's inline expiration bit is set iff its field mask
+// intersects this mask.
+static t_fieldMask docExpiringTextFieldMask(const IndexSpec *spec, t_docId docId) {
+  const struct FieldExpirationSlice fes = DocTable_GetFieldExpirations(&spec->docs, docId);
+  t_fieldMask mask = 0;
+  for (size_t i = 0; i < fes.len; ++i) {
+    const FieldSpec *fs = &spec->fields[fes.ptr[i].index];
+    if (FieldSpec_IsIndexableText(fs)) {
+      mask |= FIELD_BIT(fs);
     }
   }
-  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT, spec->stats.scoring.numTerms - prevNumTerms);
+  return mask;
 }
 
 /**
@@ -142,6 +150,10 @@ static void applyTextIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
 static void indexText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   RS_LOG_ASSERT(ctx, "ctx should not be NULL");
   IndexSpec *spec = ctx->spec;
+  // Text fields carrying a field-level expiration for this document; a posting's
+  // inline expiration bit is set when its field mask overlaps this one. Read back
+  // from the doc table because `doAssignIds` moved `doc->fieldExpirations` there.
+  const t_fieldMask expiringTextFields = docExpiringTextFieldMask(spec, aCtx->doc->docId);
   size_t prevNumTerms = spec->stats.scoring.numTerms;
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   for (ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it); entry;
@@ -151,7 +163,7 @@ static void indexText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
     if (invidx) {
       entry->docId = aCtx->doc->docId;
       RS_LOG_ASSERT(entry->docId, "docId should not be 0");
-      writeIndexEntry(spec, invidx, entry);
+      writeIndexEntry(spec, invidx, entry, (entry->fieldMask & expiringTextFields) != 0);
     }
     if (isNew && strlen(entry->term) != 0) {
       IndexSpec_AddTerm(spec, entry->term, entry->len);
@@ -163,47 +175,8 @@ static void indexText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT, spec->stats.scoring.numTerms - prevNumTerms);
 }
 
-/**
- * Disk-mode full-text staging: write the per-term postings for each
- * forward-index entry onto `aCtx->disk.batch`. Each entry's `staged` flag
- * captures whether the per-term stage succeeded, so `applyTextIndex` can
- * decide whether to bump the term trie once the batch has committed.
- */
-static void stageText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
-  RS_LOG_ASSERT(ctx, "ctx should not be NULL");
-  IndexSpec *spec = ctx->spec;
-  RS_ASSERT(spec->diskSpec);
-  ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
-  for (ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it); entry;
-       entry = ForwardIndexIterator_Next(&it)) {
-    const uint8_t *offsets = NULL;
-    size_t offsetsLen = 0;
-    if ((spec->flags & Index_StoreTermOffsets) && entry->vw) {
-      offsets = VVW_GetByteData(entry->vw);
-      offsetsLen = VVW_GetByteLength(entry->vw);
-    }
-    entry->staged = SearchDisk_IndexTerm(spec->diskSpec, aCtx->disk.batch,
-                                         entry->term, entry->len, aCtx->doc->docId,
-                                         entry->fieldMask, entry->freq,
-                                         offsets, offsetsLen);
-  }
-}
-
-/**
- * Drop the replaced document's VecSim and Geometry entries.
- *
- * These two index types live in memory in both memory mode and disk mode (the
- * inverted-index / tag / doc-table cleanup is handled by `SearchDisk_PutDocument`
- * in disk mode and by `DocTable_PopR` in memory mode — neither covers VecSim or
- * Geometry, hence this dedicated step). Memory mode calls this inline from
- * `makeDocumentId` before the new DMD is allocated; disk mode calls it from
- * `applyDocTable` after the disk batch commits.
- *
- * `VecSimIndex_DeleteVector` and `GeometryIndex_RemoveId` no-op on unknown
- * doc-ids, so this is safe even if the replaced doc had no vector / geometry
- * data, and safe to call defensively on stale key-meta in disk mode.
- */
-static void removeReplacedDocVectorAndGeometry(IndexSpec *spec, t_docId oldDocId) {
+// Contract documented on the declaration in indexer_internal.h.
+void Indexer_RemoveReplacedDocVectorAndGeometry(IndexSpec *spec, t_docId oldDocId) {
   if (spec->flags & Index_HasVecSim) {
     for (int i = 0; i < spec->numFields; ++i) {
       if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
@@ -220,13 +193,8 @@ static void removeReplacedDocVectorAndGeometry(IndexSpec *spec, t_docId oldDocId
   }
 }
 
-/**
- * Remove the old document's contributions from the spec's scoring stats on
- * REPLACE. Paired with `addNewDocStats`. Memory mode passes `dmd->docLen`
- * from the popped DMD; disk mode passes `aCtx->disk.oldDocLen` captured by
- * `SearchDisk_PutDocument`.
- */
-static void removeOldDocStats(IndexSpec *spec, uint32_t oldDocLen) {
+// Contract documented on the declaration in indexer_internal.h.
+void Indexer_RemoveOldDocStats(IndexSpec *spec, uint32_t oldDocLen) {
   RS_LOG_ASSERT(spec->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
   --spec->stats.scoring.numDocuments;
   RS_LOG_ASSERT(spec->stats.scoring.totalDocsLen >= oldDocLen,
@@ -234,12 +202,8 @@ static void removeOldDocStats(IndexSpec *spec, uint32_t oldDocLen) {
   spec->stats.scoring.totalDocsLen -= oldDocLen;
 }
 
-/**
- * Add the new document's contributions to the spec's scoring stats. Paired
- * with `removeOldDocStats`. Both flows pass `fwIdx->totalFreq` as the new
- * doc's length.
- */
-static void addNewDocStats(IndexSpec *spec, uint32_t newDocLen) {
+// Contract documented on the declaration in indexer_internal.h.
+void Indexer_AddNewDocStats(IndexSpec *spec, uint32_t newDocLen) {
   ++spec->stats.scoring.numDocuments;
   spec->stats.scoring.totalDocsLen += newDocLen;
 }
@@ -253,9 +217,9 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
     RSDocumentMetadata *dmd = DocTable_PopR(table, doc->docKey);
     if (dmd) {
       // Drop the old doc's stats + auxiliary in-memory indexes. The new doc's
-      // stats are folded in by the caller via `addNewDocStats`.
-      removeOldDocStats(spec, dmd->docLen);
-      removeReplacedDocVectorAndGeometry(spec, dmd->id);
+      // stats are folded in by the caller via `Indexer_AddNewDocStats`.
+      Indexer_RemoveOldDocStats(spec, dmd->docLen);
+      Indexer_RemoveReplacedDocVectorAndGeometry(spec, dmd->id);
       *updated = true;
       DMD_Return(dmd);
     }
@@ -276,13 +240,8 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
  * Performs bulk document ID assignment to all items in the queue.
  * If one item cannot be assigned an ID, it is marked as being errored.
  *
- * Disk mode opens a fresh per-document write batch, stages the doc-table
- * write onto it, and assigns the new doc-id synchronously. The matching
- * in-memory updates (`DocIdMeta_Set`, scoring stats, GC notification) are
- * deferred to `applyDocTable`, which runs once the batch has committed.
- *
- * Memory mode runs unchanged — the doc-id assignment and all RAM mutations
- * happen inline here.
+ * Disk mode delegates to `DiskIndexer_StageDocument`; memory mode assigns the
+ * doc-id and applies all RAM mutations inline here.
  *
  * This function also sets the document's sorting vector, if present.
  */
@@ -295,53 +254,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
 
     RS_ASSERT(cur->doc);
     if (SearchDisk_IsEnabled()) {
-      RS_ASSERT(spec->diskSpec);
-      size_t len;
-      const char *key = RedisModule_StringPtrLen(cur->doc->docKey, &len);
-      uint32_t oldLen = 0;
-
-      // Check if the document has expiration time (disk does not support field-level expiration yet)
-      if (cur->doc->docExpirationTime.tv_sec || cur->doc->docExpirationTime.tv_nsec) {
-        cur->docFlags |= Document_HasExpiration;
-      }
-
-      // Get old docId from key metadata (if document already exists). Stashed
-      // on `cur` so `applyDocTable` can drop the old VecSim / geometry entries
-      // once the batch has committed.
-      // TODO: Consider calling this from SearchDisk_PutDocument
-      uint64_t oldDocId = 0;
-      DocIdMeta_Get(ctx->redisCtx, cur->doc->docKey, spec->specId, &oldDocId);
-      cur->disk.oldDocId = oldDocId;
-
-      // Open a per-document write batch that doc-table / inverted-index / tag-index writes
-      // will be staged into. The batch is committed (or aborted on error) by
-      // `Indexer_Process` once all of `cur`'s indexing work has finished.
-      cur->disk.batch = SearchDisk_CreateWriteBatch(spec->diskSpec);
-
-      // Stage the doc-table write and obtain the new doc-id. The doc-id is
-      // assigned synchronously even though the batch has not yet committed.
-      t_docId docId = cur->disk.batch
-        ? SearchDisk_PutDocument(spec->diskSpec, cur->disk.batch, key, len,
-            cur->doc->score, cur->docFlags, cur->fwIdx->maxTermFreq,
-            cur->fwIdx->totalFreq, &oldLen, cur->doc->docExpirationTime, oldDocId)
-        : 0;
-
-      // `SearchDisk_CreateWriteBatch` / `SearchDisk_PutDocument` failure
-      // (typically OOM / disk-init failure) is treated as fatal: by the time
-      // we are here the disk module is in an unrecoverable state, and the
-      // alternative — best-effort cleanup of a partially-staged batch — can
-      // itself fail and leave permanent in-memory / on-disk divergence.
-      // Crash so the server restarts from a well-defined state.
-      RS_LOG_ASSERT_FMT_ALWAYS(docId != 0, "Disk staging failed: %s",
-                               cur->disk.batch ? "SearchDisk_PutDocument returned 0"
-                                               : "SearchDisk_CreateWriteBatch returned NULL");
-
-      cur->doc->docId = docId;
-      cur->disk.oldDocLen = oldLen;
-      // No in-memory mutations here — the post-commit apply step in
-      // `indexDocumentDisk` runs them once the batch has committed.
-      // Subsequent stagers read `cur->doc->docId` directly, so it is safe
-      // to reference even before commit.
+      DiskIndexer_StageDocument(cur, ctx);
     } else {
       RS_LOG_ASSERT(!cur->doc->docId, "docId must be 0");
       bool updated = false;
@@ -354,7 +267,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
 
       md->maxTermFreq = cur->fwIdx->maxTermFreq;
       md->docLen = cur->fwIdx->totalFreq;
-      addNewDocStats(spec, md->docLen);
+      Indexer_AddNewDocStats(spec, md->docLen);
 
       if (RSSortingVector_Length(&cur->sv)) {
         DocTable_SetSortingVector(&spec->docs, md, cur->sv);
@@ -381,55 +294,6 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
           GCContext_OnWrite(spec->gc);
         }
       }
-    }
-  }
-}
-
-/**
- * Disk-mode counterpart to memory-mode `makeDocumentId` / `doAssignIds`:
- * publishes the key→docId mapping in Redis (`DocIdMeta_Set`) and folds the
- * scoring-stat deltas captured by `doAssignIds`. Called by
- * `indexDocumentDisk` after `commitDocument` reports a successful commit.
- *
- * `DocIdMeta_Set` failure here means `RedisModule_HashSet` itself failed —
- * effectively OOM / fundamentally broken Redis. The disk batch is already
- * committed (and for REPLACE the prior doc is already gone from disk) so
- * best-effort cleanup would leave the in-memory and on-disk views permanently
- * divergent. Crash via `RS_LOG_ASSERT_ALWAYS` instead so the server restarts
- * from a well-defined state.
- *
- * Memory mode applies the equivalent scoring-stat deltas inline in
- * `makeDocumentId` / `doAssignIds` so that the doc-table and stats stay in
- * sync between consecutive `Indexer_Process` calls within a chain.
- */
-static void applyDocTable(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
-  IndexSpec *spec = ctx->spec;
-  int rc = DocIdMeta_Set(ctx->redisCtx, aCtx->doc->docKey, spec->specId, aCtx->doc->docId);
-  RS_LOG_ASSERT_ALWAYS(rc == REDISMODULE_OK, "DocIdMeta_Set failed after a successful disk commit");
-
-  // `oldDocId` comes from the key→docId mapping in Redis. The de-index path
-  // (`IndexSpec_DeleteDoc`) now clears that mapping, so in normal operation a
-  // non-zero `oldDocId` means a real on-disk row is being replaced.
-  // `oldDocId` (not `oldDocLen`) is the REPLACE signal for stats and GC: a
-  // vector/tag/numeric-only document has no full-text tokens, so its `docLen`
-  // (== `fwIdx->totalFreq`) is 0. Gating on `oldDocLen != 0` would miss those
-  // replaces and leak `numDocuments` (the new doc's `addNewDocStats` increment
-  // would never be matched by `removeOldDocStats`). This mirrors memory mode,
-  // which gates `removeOldDocStats` on whether an old DMD existed, not on its
-  // length. `oldDocLen` is still the right value to subtract from `totalDocsLen`
-  // (0 for a zero-length old doc is a correct no-op subtraction).
-  const bool replaced = aCtx->disk.oldDocId != 0;
-  if (replaced) {
-    removeReplacedDocVectorAndGeometry(spec, aCtx->disk.oldDocId);
-    removeOldDocStats(spec, aCtx->disk.oldDocLen);
-  }
-  addNewDocStats(spec, aCtx->fwIdx->totalFreq);
-
-  if (spec->gc) {
-    if (replaced) {
-      GCContext_OnUpdate(spec->gc);
-    } else {
-      GCContext_OnWrite(spec->gc);
     }
   }
 }
@@ -463,85 +327,6 @@ static void bulkIndexFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
     IndexerBulkApply(aCtx, doc->fields + ii, fs, fdata);
   }
   aCtx->stateFlags |= ACTX_F_OTHERINDEXED;
-}
-
-/**
- * Disk-mode staging for non-fulltext fields: loop over indexable fields and
- * stage each onto `aCtx->disk.batch` via `IndexerBulkAdd`. The matching
- * in-memory bookkeeping is deferred to `bulkApplyFields`, which runs only
- * if the batch commit succeeded.
- *
- * On the first stage failure, marks `ACTX_F_ERRORED` and bails — the upstream
- * `commitDocument` will abort the batch.
- */
-static void bulkStageFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
-  if (aCtx->stateFlags & (ACTX_F_OTHERINDEXED | ACTX_F_ERRORED)) return;
-
-  const Document *doc = aCtx->doc;
-  for (size_t ii = 0; ii < doc->numFields; ++ii) {
-    const FieldSpec *fs = aCtx->fspecs + ii;
-    FieldIndexerData *fdata = aCtx->fdatas + ii;
-    if (fs->types == INDEXFLD_T_FULLTEXT || !FieldSpec_IsIndexable(fs) || fdata->isNull) {
-      continue;
-    }
-    if (IndexerBulkAdd(aCtx, sctx, doc->fields + ii, fs, fdata, &aCtx->status) != 0) {
-      IndexError_AddQueryError(&aCtx->spec->stats.indexError, &aCtx->status, doc->docKey);
-      FieldSpec_AddQueryError(&aCtx->spec->fields[fs->index], &aCtx->status, doc->docKey);
-      QueryError_ClearError(&aCtx->status);
-      aCtx->stateFlags |= ACTX_F_ERRORED;
-      return;
-    }
-  }
-  aCtx->stateFlags |= ACTX_F_OTHERINDEXED;
-}
-
-/**
- * Disk-mode apply step for non-fulltext fields: runs the per-field-type
- * appliers (`tagApplier`, `vectorApplier`, …) defined in
- * [document.c](document.c) once per indexed field. Called from
- * `indexDocumentDisk` after `commitDocument` reports success. Infallible.
- */
-static void bulkApplyFields(RSAddDocumentCtx *aCtx) {
-  const Document *doc = aCtx->doc;
-  for (size_t ii = 0; ii < doc->numFields; ++ii) {
-    const FieldSpec *fs = aCtx->fspecs + ii;
-    FieldIndexerData *fdata = aCtx->fdatas + ii;
-    if (fs->types == INDEXFLD_T_FULLTEXT || !FieldSpec_IsIndexable(fs) || fdata->isNull) {
-      continue;
-    }
-    IndexerBulkApply(aCtx, doc->fields + ii, fs, fdata);
-  }
-}
-
-/**
- * Disk-mode counterpart to memory-mode `vectorIndexer`. Runs after the
- * per-document disk batch has committed so a failed commit never leaves
- * the VecSim index referencing a doc-id that was not persisted on disk.
- *
- * The vector blobs in `fdata->vector` are borrowed and live until
- * `AddDocumentCtx_Free`, so reading them here is safe.
- */
-static void applyVectorInserts(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
-  IndexSpec *spec = ctx->spec;
-  const Document *doc = aCtx->doc;
-  for (size_t ii = 0; ii < doc->numFields; ++ii) {
-    const FieldSpec *fs = aCtx->fspecs + ii;
-    FieldIndexerData *fdata = aCtx->fdatas + ii;
-    if (!FieldSpec_IsIndexable(fs) || fdata->isNull) continue;
-    if (!(doc->fields[ii].indexAs & INDEXFLD_T_VECTOR)) continue;
-
-    VecSimIndex *vecsim = openVectorIndex(ctx->redisCtx, &spec->fields[fs->index], CREATE_INDEX);
-    // The disk write already committed; a NULL here (e.g. VecSim allocation
-    // failure) would leave the on-disk doc with no matching vector entry, and
-    // the next RDB save would persist that divergence. Match the post-commit
-    // policy used by `applyDocTable` for `DocIdMeta_Set` failure.
-    RS_LOG_ASSERT_ALWAYS(vecsim, "openVectorIndex returned NULL after a successful disk commit");
-    const char *curr_vec = (const char *)fdata->vector;
-    for (size_t i = 0; i < fdata->numVec; i++) {
-      VecSimIndex_AddVector(vecsim, curr_vec, aCtx->doc->docId);
-      curr_vec += fdata->vecLen;
-    }
-  }
 }
 
 static void reopenCb(void *arg) {}
@@ -600,6 +385,15 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
       iiMissingDocs = NewInvertedIndex(Index_DocIdsOnly, &index_size);
       aCtx->spec->stats.invertedSize += index_size;
       dictAdd(spec->missingFieldDict, (void*)fs->fieldName, iiMissingDocs);
+      // Complete any rehashing this insert started, else later reads on different
+      // threads could end up mutating the dict simultaneously, corrupting it.
+      //
+      // Cheap because this dict contains just IndexSpec's INDEXMISSING fields.
+      //
+      // dictRehash migrates a bounded number of buckets per call and returns
+      // non-zero while more remain, so loop until it reports done.
+      while (dictRehash(spec->missingFieldDict, 100)) {
+      }
     }
     // Add docId to inverted index
     t_docId docId = aCtx->doc->docId;
@@ -634,39 +428,6 @@ static void writeExistingDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 }
 
 /**
- * Disk-only commit fence: finalize the per-document write batch. Aborts on
- * upstream error or commits it; on success the caller (`indexDocumentDisk`)
- * proceeds to the post-commit apply step.
- *
- * Returns true iff the batch committed cleanly and the apply step should run.
- */
-static bool commitDocument(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
-  if (aCtx->stateFlags & ACTX_F_ERRORED) {
-    // `doAssignIds` crashes via `RS_LOG_ASSERT_FMT_ALWAYS` on batch-open /
-    // staging failure, so reaching here implies the batch is non-NULL.
-    SearchDisk_AbortWriteBatch(aCtx->disk.batch);
-    // `bulkStageFields` records the originating field error in stats and then
-    // clears `aCtx->status`, so by the time we get here `aCtx->status` may be
-    // empty. Ensure the reply path sees an error.
-    if (!QueryError_HasError(&aCtx->status)) {
-      QueryError_SetError(&aCtx->status, QUERY_ERROR_CODE_GENERIC,
-                          "Document indexing failed; disk write batch aborted");
-    }
-    return false;
-  }
-
-  if (!SearchDisk_CommitWriteBatch(aCtx->disk.batch)) {
-    if (!QueryError_HasError(&aCtx->status)) {
-      QueryError_SetError(&aCtx->status, QUERY_ERROR_CODE_GENERIC,
-                          "Failed to commit disk write batch");
-    }
-    aCtx->stateFlags |= ACTX_F_ERRORED;
-    return false;
-  }
-  return true;
-}
-
-/**
  * Memory-mode per-document pipeline. No commit fence and no deferred bookkeeping:
  * each field's write and its matching in-memory bookkeeping run as a single
  * atomic chunk (see `indexText` and `bulkIndexFields`). A later field's
@@ -683,43 +444,6 @@ static void indexDocumentMemory(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
   bulkIndexFields(aCtx, ctx);
   writeExistingDocs(aCtx, ctx);
   writeMissingFieldDocs(aCtx, ctx, fes);
-}
-
-/**
- * Disk-mode per-document pipeline. Three steps with a commit fence between
- * the durable writes and the in-memory bookkeeping that pairs with them:
- *
- *   - Stage: write the doc-table / inverted-index / tag-index entries onto
- *     `aCtx->disk.batch` (`stageText`, `bulkStageFields`).
- *   - Commit fence: `commitDocument` aborts on error or commits the batch;
- *     returns false iff the batch did not become durable.
- *   - Apply: only runs on a successful commit. Updates the RAM-side state
- *     that paired with the now-durable disk writes (`applyDocTable`,
- *     `applyTextIndex`, `bulkApplyFields`, `applyVectorInserts`).
- *
- * On commit failure, the apply step is skipped — no in-memory state was
- * mutated, so there is nothing to roll back.
- *
- * Wildcard (`index_all`) and `INDEXMISSING` indexes are not supported on disk
- * specs, so the matching memory-mode hooks (`writeExistingDocs`,
- * `writeMissingFieldDocs`) are not called here.
- */
-static void indexDocumentDisk(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
-  // Stage onto the per-document write batch.
-  if (aCtx->fwIdx && !(aCtx->stateFlags & ACTX_F_ERRORED)) {
-    stageText(aCtx, ctx);
-  }
-  bulkStageFields(aCtx, ctx);
-
-  // Commit fence — returns false if the batch was aborted or the commit
-  // failed; in either case the apply step must not run.
-  if (!commitDocument(aCtx, ctx)) return;
-
-  // Apply RAM bookkeeping for the durably-committed writes.
-  applyDocTable(aCtx, ctx);
-  if (aCtx->fwIdx) applyTextIndex(aCtx, ctx);
-  bulkApplyFields(aCtx);
-  applyVectorInserts(aCtx, ctx);
 }
 
 /**
@@ -766,7 +490,7 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
   }
 
   if (SearchDisk_IsEnabled()) {
-    indexDocumentDisk(aCtx, &ctx);
+    DiskIndexer_IndexDocument(aCtx, &ctx);
   } else {
     // `doc->fieldExpirations` ownership has already been moved into the TTL
     // table by `doAssignIds` on success. On failure (e.g. `makeDocumentId`
@@ -785,6 +509,8 @@ int IndexDocument(RSAddDocumentCtx *aCtx) {
 
 bool g_isLoading = false;
 
+#define RDB_LOAD_THROTTLE_BACKOFF_US 1000
+
 /**
  * Yield to Redis after a certain number of operations during indexing.
  * This helps keep Redis responsive during long indexing operations.
@@ -795,9 +521,13 @@ bool g_isLoading = false;
 void IndexerYieldWhileLoading(RedisModuleCtx *ctx, unsigned int numOps, int flags) {
   static size_t opCounter = 0;
 
+  if (!g_isLoading) {
+    return;
+  }
+
   // If server is loading, Yield to Redis if the number of operations is greater than the yieldEveryOps
   opCounter += numOps;
-  if (g_isLoading && opCounter >= RSGlobalConfig.indexerYieldEveryOpsWhileLoading) {
+  if (opCounter >= RSGlobalConfig.indexerYieldEveryOpsWhileLoading) {
     opCounter = opCounter % RSGlobalConfig.indexerYieldEveryOpsWhileLoading;
     IncrementLoadYieldCounter(); // Track that we called yield
     unsigned int sleepMicros = GetIndexerSleepBeforeYieldMicros();
@@ -805,5 +535,17 @@ void IndexerYieldWhileLoading(RedisModuleCtx *ctx, unsigned int numOps, int flag
       usleep(sleepMicros);
     }
     RedisModule_Yield(ctx, flags, NULL);
+  }
+
+  // If server is loading, Yield to Redis if Vector write is throttling.
+  if (SearchDisk_IsEnabled() && !IS_SST_RDB_LOADING(ctx) &&
+      workersThreadPool_NumThreads() > 0 && SearchDisk_IsVectorWriteThrottling()) {
+    RedisModule_Log(ctx, "debug",
+                    "RDB load: vector flat buffer full; backing off the rebuild");
+    while (SearchDisk_IsVectorWriteThrottling()) {
+      usleep(RDB_LOAD_THROTTLE_BACKOFF_US);
+      RedisModule_Yield(ctx, flags, NULL);
+    }
+    RedisModule_Log(ctx, "debug", "RDB load: vector flat buffer throttle cleared; resuming");
   }
 }

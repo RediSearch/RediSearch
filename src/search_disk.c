@@ -8,13 +8,23 @@
 */
 
 #include "search_disk.h"
+
+#include <stdatomic.h>
+#include <string.h>
+
 #include "config.h"
 #include "spec.h"
 #include "indexes.h"
 #include "query_term_ffi.h"
 #include "sorting_vector_ffi.h"
 #include "redismodule.h"
-#include "debug_commands.h"
+#include "hiredis/sds.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "util/dict/dict.h"
+#include "util/references.h"
+
+struct timespec;
 
 RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
@@ -186,28 +196,19 @@ static void Compaction_EndUpdate(void *update_ctx) {
     IndexSpec_ReleaseWriteLock(sp);
 }
 
-#ifdef ENABLE_ASSERT
-static void Compaction_BeforeApplySyncPoint(void) {
-    SyncPoint_Wait(SYNC_POINT_BEFORE_COMPACTION_APPLY);
-}
-#endif
-
 // Built once per IndexSpec at openIndexSpec time and copied into the Rust
 // IndexSpec's compaction listener; the C-side struct itself does not need to
 // outlive the openIndexSpec call.
+//
+// The debug/test-only compaction sync points are deliberately absent: the Rust
+// disk layer parks on them via `SyncPoint_Wait` directly, gated to the
+// `enable-assert` cargo feature, so they cost nothing here in any build.
 static SearchDiskCompactionCallbacks SearchDisk_CompactionCallbacks(void) {
     return (SearchDiskCompactionCallbacks) {
         .beginUpdate = Compaction_BeginUpdate,
         .decrementTrieTermCount = Compaction_DecrementTrieTermCount,
         .decrementNumTerms = Compaction_DecrementNumTerms,
         .endUpdate = Compaction_EndUpdate,
-        // Debug/test sync point; NULL outside ENABLE_ASSERT so the Rust side
-        // skips it and there is no production cost.
-#ifdef ENABLE_ASSERT
-        .beforeApplySyncPoint = Compaction_BeforeApplySyncPoint,
-#else
-        .beforeApplySyncPoint = NULL,
-#endif
     };
 }
 
@@ -229,6 +230,11 @@ ResultProcessor *SearchDisk_NewAsyncLoaderResultProcessor(RedisSearchCtx *sctx, 
                                                           size_t nkeys, uint32_t *outStateFlags) {
     return disk->basic.newAsyncLoaderResultProcessor(sctx, reqflags, lk, keys, nkeys,
                                                      outStateFlags);
+}
+
+void SearchDisk_AsyncLoader_SetSyncCtx(ResultProcessor *rp, QueryRequest *request) {
+    RS_ASSERT(disk);
+    disk->basic.asyncLoaderSetSyncCtx(rp, request);
 }
 
 void SearchDisk_UpdateLogObfuscation() {
@@ -357,11 +363,6 @@ void SearchDisk_FreeSnapshot(RedisSearchDiskSnapshot *snapshot) {
     disk->index.freeSnapshot(snapshot);
 }
 
-QueryIterator* SearchDisk_NewNumericIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, const NumericFilter *filter, t_fieldIndex fieldIndex, QueryError *status) {
-    RS_ASSERT(disk && index && sctx && sctx->diskSnapshot && filter);
-    return disk->index.newNumericIterator(index, filter, fieldIndex, sctx->diskSnapshot, status);
-}
-
 void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats) {
     RS_ASSERT(disk && index && stats);
     disk->index.runGC(index, stats);
@@ -396,6 +397,11 @@ uint64_t SearchDisk_GetDeletedIdsCount(RedisSearchDiskIndexSpec *handle) {
 size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size) {
     RS_ASSERT(disk && handle);
     return disk->docTable.getDeletedIds(handle, buffer, buffer_size);
+}
+
+char *SearchDisk_DebugDumpNumericBucketMap(RedisSearchDiskIndexSpec *handle, t_fieldIndex fieldIndex) {
+    RS_ASSERT(disk && handle);
+    return disk->index.debugDumpNumericBucketMap(handle, fieldIndex, &sdsnewlen);
 }
 
 bool SearchDisk_ReplaceKey(RedisSearchDiskIndexSpec *handle, t_docId docId, const char *newKey, size_t newKeyLen) {
@@ -488,10 +494,16 @@ void SearchDisk_FreeVectorIndex(void *vecIndex) {
     disk->vector.freeVectorIndex(vecIndex);
 }
 
-bool SearchDisk_SaveVectorIndexToRDB(void *vecIndex, RedisModuleIO *rdb) {
-    RS_ASSERT(disk && vecIndex && rdb);
-    RS_ASSERT(disk->vector.saveVectorIndexToRDB);
-    return disk->vector.saveVectorIndexToRDB(vecIndex, rdb);
+bool SearchDisk_VectorIndexHasData(void *vecIndex, bool takeLocks) {
+  RS_ASSERT(disk && vecIndex);
+  RS_ASSERT(disk->vector.vectorIndexHasData);
+  return disk->vector.vectorIndexHasData(vecIndex, takeLocks);
+}
+
+bool SearchDisk_SaveVectorIndexToRDB(void *vecIndex, RedisModuleIO *rdb, bool takeLocks) {
+  RS_ASSERT(disk && vecIndex && rdb);
+  RS_ASSERT(disk->vector.saveVectorIndexToRDB);
+  return disk->vector.saveVectorIndexToRDB(vecIndex, rdb, takeLocks);
 }
 
 void* SearchDisk_CreateUnboundVectorIndex(const VecSimParamsDisk *params) {
@@ -513,9 +525,16 @@ bool SearchDisk_BindVectorIndexStorage(RedisModuleCtx *ctx, RedisSearchDiskIndex
     return disk->vector.bindVectorIndexStorage(ctx, index, vecIndex, params);
 }
 
+// Module-side mirror of the client-postpone throttle depth we raise: Redis' own counter is
+// not queryable through the module API. VecSim_Enable/DisableThrottle are the sole callers of
+// RedisModule_Enable/DisablePostponeClients, so this tracks exactly the depth we raised.
+static atomic_int vecSimThrottleDepth = 0;
+
 // Throttle callback wrappers for VecSim
 static int VecSim_EnableThrottle(void) {
   RS_ASSERT(RedisModule_EnablePostponeClients);
+  // Raise the mirror before enabling so it stays >= the real depth.
+  atomic_fetch_add(&vecSimThrottleDepth, 1);
   return RedisModule_EnablePostponeClients();  // Always returns OK
 }
 
@@ -523,12 +542,19 @@ static int VecSim_DisableThrottle(void) {
   RS_ASSERT(RedisModule_DisablePostponeClients);
   int ret = RedisModule_DisablePostponeClients();
   if (ret == REDISMODULE_ERR) {
-      // This indicates a bug: disable called without matching enable
+      // Disable without a matching enable (a bug): leave the mirror alone so it can't go negative.
       RedisModule_Log(RSDummyContext, "warning",
           "VecSim_DisableThrottle: no matching enable call");
+  } else {
+      // Lower the mirror only after the real disable succeeded.
+      atomic_fetch_sub(&vecSimThrottleDepth, 1);
   }
 
   return ret;
+}
+
+bool SearchDisk_IsVectorWriteThrottling(void) {
+  return atomic_load(&vecSimThrottleDepth) > 0;
 }
 
 uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index) {
@@ -544,11 +570,6 @@ uint64_t SearchDisk_GetDocTableTotalMemory(RedisSearchDiskIndexSpec* index) {
 uint64_t SearchDisk_GetInvertedIndexTotalMemory(RedisSearchDiskIndexSpec* index) {
   RS_ASSERT(disk && disk_db && index);
   return disk->metrics.getInvertedIndexTotalMemory(disk_db, index);
-}
-
-uint64_t SearchDisk_GetVectorIndexTotalMemory(RedisSearchDiskIndexSpec* index) {
-  RS_ASSERT(disk && disk_db && index);
-  return disk->metrics.getVectorIndexTotalMemory(disk_db, index);
 }
 
 uint64_t SearchDisk_GetNumRecords(RedisSearchDiskIndexSpec* index) {
@@ -594,26 +615,15 @@ void SearchDisk_Flush(RedisSearchDiskIndexSpec* index) {
   disk->index.flush(index);
 }
 
-void SearchDisk_PreCheckpoint(IndexSpec *sp) {
+void SearchDisk_OpenConsistencyWindow(IndexSpec *sp) {
   RS_ASSERT(disk && sp && sp->diskSpec);
-  // No read/write lock taken from spec. Disabling compaction and calling SearchDisk_PreCheckpoint from main thread
-  // ensures no writes while checkpoint taken.
-  disk->index.preCheckpoint(sp->diskSpec);
+  // No spec lock taken: being on the main thread is what keeps writes out.
+  disk->index.openConsistencyWindow(sp->diskSpec);
 }
 
-void SearchDisk_PreFork(IndexSpec *sp) {
+void SearchDisk_CloseConsistencyWindow(IndexSpec *sp, bool reopenNumericGate) {
   RS_ASSERT(disk && sp && sp->diskSpec);
-  disk->index.preFork(sp->diskSpec);
-}
-
-void SearchDisk_PostFork(IndexSpec *sp) {
-  RS_ASSERT(disk && sp && sp->diskSpec);
-  disk->index.postFork(sp->diskSpec);
-}
-
-void SearchDisk_ReplicationAbort(IndexSpec *sp) {
-  RS_ASSERT(disk && sp && sp->diskSpec);
-  disk->index.replicationAbort(sp->diskSpec);
+  disk->index.closeConsistencyWindow(sp->diskSpec, reopenNumericGate);
 }
 
 void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage) {

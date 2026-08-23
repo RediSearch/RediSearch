@@ -8,6 +8,9 @@
 */
 #pragma once
 
+#include <assert.h>
+#include <stdint.h>
+
 #include "redismodule.h"
 #include "hiredis/sds.h"
 #include "rmutil/args.h"
@@ -226,6 +229,11 @@ typedef struct {
   // cache — silently disabling the limit — rather than bounding it. Values in that range are
   // rejected (see set_search_disk_max_open_files_config).
   int diskMaxOpenFiles;
+  // Concurrent async document-metadata reads a single query iterator keeps in flight.
+  unsigned int diskAsyncReadPoolSize;
+  // Index results a query queues ahead of submission, as a multiple of
+  // diskAsyncReadPoolSize. Must be at least 1.
+  unsigned int diskAsyncReadQueueFactor;
   // If true, fallback to main thread when BlockClient is unavailable.
   bool fallbackToMainThreadWhenBlockClientUnavailable;
 } RSConfig;
@@ -351,6 +359,13 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS MAX_AGGREGATE_REQUEST_RESULTS
 #define MAX_AGGREGATE_GROUPS (1ULL << 26)
 #define DEFAULT_MAX_AGGREGATE_GROUPS 1000000
+#define MAX_GROUPBY_PROPERTIES UINT16_MAX
+// Lower aggregate caps used as the registration-time defaults in flex (disk)
+// mode: bound result materialization and the per-shard group count to reduce
+// OOM risk (the coordinator multiplies the group cap by the shard count).
+// Explicitly-set values (module args / CONFIG SET) override them as usual.
+#define DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS_FLEX 1000000
+#define DEFAULT_MAX_AGGREGATE_GROUPS_FLEX 100000
 #define DEFAULT_MAX_CURSOR_IDLE 300000
 #define DEFAULT_MAX_PREFIX_EXPANSIONS 200
 #define DEFAULT_MAX_SEARCH_REQUEST_RESULTS 1000000
@@ -360,6 +375,12 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_MIN_STEM_LENGTH 4
 #define DEFAULT_MULTI_TEXT_SLOP 100
 #define DEFAULT_QUERY_TIMEOUT_MS 500
+// Flex (disk-based indexes) defaults: disk queries are expected to take
+// longer, so they get a higher timeout, and time out with an error instead
+// of returning partial results.
+#define DEFAULT_QUERY_TIMEOUT_MS_FLEX 5000
+#define DEFAULT_TIMEOUT_POLICY TimeoutPolicy_Return
+#define DEFAULT_TIMEOUT_POLICY_FLEX TimeoutPolicy_Fail
 #define DEFAULT_MAX_FOREGROUND_TIMEOUT_LIMIT_MS 60000
 #define DEFAULT_UNION_ITERATOR_HEAP 20
 #define DEFAULT_VSS_MAX_RESIZE 0
@@ -386,6 +407,12 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_TRIMMING_STATE_CHECK_DELAY 100 // 0.1 seconds in milliseconds (We check the trimming state every 0.1 seconds, between MIN_TRIM_DELAY and MAX_TRIM_DELAY)
 #define DEFAULT_DISK_BUFFER_PERCENTAGE 20  // 20% of available memory for disk write buffer
 #define DEFAULT_DISK_MAX_OPEN_FILES 1024   // open-file cap; -1 = unlimited
+#define DEFAULT_DISK_ASYNC_READ_POOL_SIZE 16
+#define DISK_ASYNC_READ_POOL_SIZE_MAX 1024
+#define DEFAULT_DISK_ASYNC_READ_QUEUE_FACTOR 1
+#define DISK_ASYNC_READ_QUEUE_FACTOR_MAX 16
+static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <= UINT16_MAX,
+              "queue depth must fit IndexResultAsyncReadState's uint16_t queueSize");
 // Smallest accepted positive cap. Below this the disk backend's open-file cache (cap - 10)
 // underflows to unbounded, so a positive cap must leave at least one cached reader.
 #define DISK_MAX_OPEN_FILES_MIN 11
@@ -401,7 +428,7 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
     .iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH,            \
     .iteratorsConfigParams.maxPrefixExpansions = DEFAULT_MAX_PREFIX_EXPANSIONS,\
     .requestConfigParams.queryTimeoutMS = DEFAULT_QUERY_TIMEOUT_MS,            \
-    .requestConfigParams.timeoutPolicy = TimeoutPolicy_Return,                 \
+    .requestConfigParams.timeoutPolicy = DEFAULT_TIMEOUT_POLICY,               \
     .maxForegroundTimeoutLimitMS = DEFAULT_MAX_FOREGROUND_TIMEOUT_LIMIT_MS,    \
     .cursorReadSize = 1000,                                                    \
     .cursorMaxIdle = DEFAULT_MAX_CURSOR_IDLE,                                  \
@@ -453,6 +480,8 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
     .diskDropReadCache = false,                                                \
     .diskUseDirectReads = false,                                               \
     .diskMaxOpenFiles = DEFAULT_DISK_MAX_OPEN_FILES,                           \
+    .diskAsyncReadPoolSize = DEFAULT_DISK_ASYNC_READ_POOL_SIZE,                \
+    .diskAsyncReadQueueFactor = DEFAULT_DISK_ASYNC_READ_QUEUE_FACTOR,          \
     .fallbackToMainThreadWhenBlockClientUnavailable = true,                    \
   }
 

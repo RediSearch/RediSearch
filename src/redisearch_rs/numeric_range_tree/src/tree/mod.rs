@@ -20,7 +20,7 @@
 mod find;
 mod gc;
 mod insert;
-#[cfg(all(feature = "unittest", not(miri)))]
+#[cfg(all(feature = "unittest", debug_assertions, not(miri)))]
 mod invariants;
 mod util;
 

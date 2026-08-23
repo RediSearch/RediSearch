@@ -11,7 +11,7 @@
 
 use std::fmt::Debug;
 
-use ffi::t_docId;
+use rqe_core::DocId;
 
 use crate::ii_dispatch;
 use crate::{
@@ -141,7 +141,7 @@ impl InvertedIndex {
     /// This is a dispatch wrapper around the typed [`InvertedIndex::scan_gc`].
     pub fn scan_gc(
         &self,
-        doc_exist: impl Fn(t_docId) -> bool,
+        doc_exist: impl Fn(DocId) -> bool,
     ) -> std::io::Result<Option<crate::GcScanDelta>> {
         ii_dispatch!(
             self,

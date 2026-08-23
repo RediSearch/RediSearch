@@ -11,7 +11,7 @@ use crate::{
     RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, SchemaRule, lookup::TRANSIENT_FLAGS,
 };
 use sorting_vector::{RSSortingVector, RSSortingVectorRef};
-use std::{borrow::Cow, ffi::CStr};
+use std::{borrow::Cow, ffi::CStr, fmt};
 use thin_vec::ThinVec;
 use value::SharedValue;
 
@@ -31,7 +31,6 @@ fn is_special_key(rule: &SchemaRule, key: &RLookupKey) -> bool {
 /// Force this internal type to opaque so cheadergen does not warn about it
 /// being reached by value through `SearchResult._row_data` — both names emit
 /// to the same C tag, and the wrapper provides the actual layout.
-#[derive(Debug)]
 #[cheadergen::config(export, opaque)]
 pub struct RLookupRow<'a> {
     /// A reference to the sorting vector.
@@ -43,6 +42,16 @@ pub struct RLookupRow<'a> {
     /// The number of values in [`RLookupRow::dyn_values`] that are `is_some()`. Note that this
     /// is not the length of [`RLookupRow::dyn_values`]
     num_dyn_values: u32,
+}
+
+impl fmt::Debug for RLookupRow<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // NB: we purposefully DO NOT include the sorting_vector and dyn_values fields here,
+        // so we don't accidentally leak user-data into log messages!
+        f.debug_struct("RLookupRow")
+            .field("num_dyn_values", &self.num_dyn_values)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<'a> Default for RLookupRow<'a> {
@@ -409,8 +418,8 @@ pub mod opaque {
 mod tests {
     use std::ptr;
 
+    use document::DocumentType;
     use enumflags2::make_bitflags;
-    use ffi::DocumentType;
 
     use super::*;
 
@@ -478,7 +487,7 @@ mod tests {
             Some(unsafe { SchemaRule::from_raw(ptr::from_ref(&tsrw)) }),
         );
         assert_eq!(len, 0);
-        assert_eq!(flags, vec![]);
+        assert!(flags.is_empty());
     }
 
     #[test]

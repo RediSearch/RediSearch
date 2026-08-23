@@ -43,6 +43,10 @@ RUN_RUST_VALGRIND=0    # Run Valgrind Rust tests
 RUN_PYTEST=0           # Run Python tests
 RUN_ALL_TESTS=0        # Run all test types
 RUN_MICRO_BENCHMARKS=0 # Run micro-benchmarks
+SKIP_BUILD=${SKIP_BUILD:-0} # Skip CMake configure + make; assume $BINDIR is already populated (e.g. CI restored it from an artifact)
+ARCHIVE_RUST_TESTS=${ARCHIVE_RUST_TESTS:-0}   # Build Rust tests into a nextest archive at $RUST_TEST_ARCHIVE_PATH
+RUN_ARCHIVED_RUST_TESTS=${RUN_ARCHIVED_RUST_TESTS:-0} # Run Rust tests from a pre-built nextest archive at $RUST_TEST_ARCHIVE_PATH
+RUST_PARTITION=${RUST_PARTITION:-}            # Optional nextest partition for sharding, e.g. "count:1/3"
 
 # Rust configuration
 RUST_PROFILE=""  # Which profile should be used to build/test Rust code
@@ -54,7 +58,7 @@ RUST_TOOLCHAIN_MODIFIER="" # Rust toolchain to use (e.g., +nightly)
 
 # Rust code is built first, so exclude benchmarking crates that link C code,
 # since the static libraries they depend on haven't been built yet.
-EXCLUDE_RUST_BENCHING_CRATES_LINKING_C="--exclude inverted_index_bencher --exclude rqe_iterators_bencher --exclude iterators_ffi --exclude top_k_bencher --exclude trie_bencher --exclude triemap_ffi --exclude ttl_table_bencher"
+EXCLUDE_RUST_BENCHING_CRATES_LINKING_C="--exclude inverted_index_bencher --exclude numeric_score_source_bencher --exclude rqe_iterators_bencher --exclude iterators_ffi --exclude top_k_bencher --exclude trie_bencher --exclude triemap_ffi --exclude ttl_table_bencher --exclude vector_score_source_bencher"
 
 # Retrieve our pinned nightly version.
 NIGHTLY_VERSION=$(cat ${ROOT}/.rust-nightly)
@@ -89,6 +93,12 @@ parse_arguments() {
         ;;
       RUN_RUST_TESTS?(=1))
         RUN_RUST_TESTS=1
+        ;;
+      ARCHIVE_RUST_TESTS?(=1))
+        ARCHIVE_RUST_TESTS=1
+        ;;
+      RUN_ARCHIVED_RUST_TESTS?(=1))
+        RUN_ARCHIVED_RUST_TESTS=1
         ;;
       RUN_RUST_VALGRIND?(=1))
         RUN_RUST_VALGRIND=1
@@ -177,8 +187,8 @@ parse_arguments() {
 # Configure test settings based on input arguments
 #-----------------------------------------------------------------------------
 setup_test_configuration() {
-  # If any tests will be run, ensure BUILD_TESTS is enabled
-  if [[ "$RUN_ALL_TESTS" == "1" || "$RUN_UNIT_TESTS" == "1" || "$RUN_RUST_TESTS" == "1" || "$RUN_RUST_VALGRIND" == "1" || "$RUN_PYTEST" == "1" || "$RUN_MICRO_BENCHMARKS" == "1" ]]; then
+  # If any tests will be run (or archived for later run), ensure BUILD_TESTS is enabled
+  if [[ "$RUN_ALL_TESTS" == "1" || "$RUN_UNIT_TESTS" == "1" || "$RUN_RUST_TESTS" == "1" || "$RUN_RUST_VALGRIND" == "1" || "$RUN_PYTEST" == "1" || "$RUN_MICRO_BENCHMARKS" == "1" || "$ARCHIVE_RUST_TESTS" == "1" || "$RUN_ARCHIVED_RUST_TESTS" == "1" ]]; then
     if [[ "$BUILD_TESTS" != "1" ]]; then
       echo "Test execution requested, enabling test build automatically"
       BUILD_TESTS="1"
@@ -198,6 +208,11 @@ setup_test_configuration() {
 # Configure the build environment variables
 #-----------------------------------------------------------------------------
 setup_build_environment() {
+  # Sanitizer configuration is consumed by downstream build and test scripts.
+  if [[ -n "$SAN" ]]; then
+    export SAN
+  fi
+
   # Determine Rust toolchain
   if [[ -n "$SAN" || "$COV" == "1" || "$RUN_MIRI" == "1" ]]; then
     # For coverage, we use the `nightly` compiler in order to include doc tests in the coverage computation.
@@ -210,6 +225,8 @@ setup_build_environment() {
   # Determine build flavor
   if [ "$SAN" == "address" ]; then
     FLAVOR="debug-asan"
+  elif [[ "$SAN" == "alignment" ]]; then
+    FLAVOR="debug-alignment"
   elif [[ "$RUN_MIRI" == "1" ]]; then
     FLAVOR="debug-miri"
   elif [[ "$DEBUG" == "1" ]]; then
@@ -374,6 +391,21 @@ prepare_cmake_arguments() {
   # Initialize with base arguments
   CMAKE_BASIC_ARGS="-DCOORD_TYPE=$COORD"
 
+  # A reused build directory keeps the LTO configuration it was created with:
+  # the CMake cache retains CMAKE_INTERPROCEDURAL_OPTIMIZATION=true and the
+  # static libraries already built from it contain LLVM bitcode, which
+  # non-LTO consumers reject at link time (the Rust test binaries linking
+  # libredisearch_c_bundle.a through the default cc/bfd linker fail with
+  # "file format not recognized"). Inherit LTO from the cache so a re-drive
+  # without the LTO argument (e.g. `make test` after an LTO `make build`)
+  # keeps the matching clang/lld toolchain. FORCE wipes the directory in
+  # run_cmake(), so a forced clean build is exempt.
+  if [[ "$LTO" != "1" && "$FORCE" != "1" && -f "$BINDIR/CMakeCache.txt" ]] && \
+      grep -qE '^CMAKE_INTERPROCEDURAL_OPTIMIZATION:[^=]*=(true|TRUE|ON|1)$' "$BINDIR/CMakeCache.txt"; then
+    echo "Reusing LTO-configured build directory: enabling LTO"
+    LTO=1
+  fi
+
   if [[ "$LTO" == "1" ]]; then
     # LTO is only supported on Linux
     if [[ "$OS_NAME" != "linux" ]]; then
@@ -388,7 +420,9 @@ prepare_cmake_arguments() {
     # 1. Use CC/CXX/LD if set by user
     # 2. Otherwise, try clang-$VERSION matching Rust's LLVM version
     # 3. Otherwise, fall back to clang/clang++/lld
-    RUSTC_LLVM_VERSION=$(rustc --version --verbose | grep "LLVM version" | awk '{print $3}' | cut -d. -f1)
+    RUSTC_VERBOSE_VERSION=$(rustc --version --verbose)
+    RUSTC_LLVM_VERSION=$(echo "$RUSTC_VERBOSE_VERSION" | sed -n 's/^LLVM version: \([0-9]*\).*/\1/p')
+    RUST_TARGET_TRIPLE=${CARGO_BUILD_TARGET:-$(echo "$RUSTC_VERBOSE_VERSION" | sed -n 's/^host: //p')}
     if [[ -z "$CC" ]]; then
       if command -v "clang-$RUSTC_LLVM_VERSION" &>/dev/null; then
         C_COMPILER="clang-$RUSTC_LLVM_VERSION"
@@ -439,11 +473,12 @@ prepare_cmake_arguments() {
     # Use 'sed -E' for compatibility with both GNU sed and BSD sed
     CLANG_LLVM_VERSION=$($C_COMPILER --version | head -n1 | sed -En 's/.*version ([0-9]+).*/\1/p' | head -n1)
 
-    if [[ -z "$RUSTC_LLVM_VERSION" || -z "$CLANG_LLVM_VERSION" ]]; then
-        echo "Error: Could not detect LLVM versions for rustc and clang."
-        echo "Cross-language LTO requires matching LLVM major versions."
+    if [[ -z "$RUSTC_LLVM_VERSION" || -z "$CLANG_LLVM_VERSION" || -z "$RUST_TARGET_TRIPLE" ]]; then
+        echo "Error: Could not detect LLVM versions or the Rust target triple."
+        echo "Cross-language LTO requires matching LLVM major versions and a Rust target triple."
         echo "Rust LLVM version: $RUSTC_LLVM_VERSION"
         echo "Clang LLVM version: $CLANG_LLVM_VERSION"
+        echo "Rust target triple: $RUST_TARGET_TRIPLE"
         exit 1
     fi
 
@@ -528,8 +563,18 @@ prepare_cmake_arguments() {
     # Pass LTO C/CXX flags to CMake via CFLAGS/CXXFLAGS env vars so CMake picks them
     # up without word-splitting issues.
     # Note: we assume there are no spaces in system C++ include paths.
-    export CFLAGS="${CFLAGS:+${CFLAGS} }${GCC_COMMON_FLAGS}"
-    export CXXFLAGS="${CXXFLAGS:+${CXXFLAGS} }${GCC_COMMON_FLAGS}${GCC_CXX_FLAGS:+ ${GCC_CXX_FLAGS}}"
+    # The environment may carry GCC-only -W options (e.g. CI exports
+    # -Wno-error=maybe-uninitialized for the gcc-built redis core). This
+    # branch always compiles with clang, which flags those as
+    # -Wunknown-warning-option — a hard error in vendored targets that add
+    # -Werror (e.g. VectorSimilarity spaces). Silence that diagnostic.
+    # LLVM warns once per imported module if the C/C++ and Rust bitcode use
+    # semantically equivalent but differently spelled target triples (for
+    # example, Clang's x86_64-pc-linux-gnu versus Rust's
+    # x86_64-unknown-linux-gnu). Use Rust's effective target for every Clang
+    # invocation, including those issued by Rust `cc` build scripts.
+    export CFLAGS="${CFLAGS:+${CFLAGS} }--target=${RUST_TARGET_TRIPLE} -Wno-unknown-warning-option ${GCC_COMMON_FLAGS}"
+    export CXXFLAGS="${CXXFLAGS:+${CXXFLAGS} }--target=${RUST_TARGET_TRIPLE} -Wno-unknown-warning-option ${GCC_COMMON_FLAGS}${GCC_CXX_FLAGS:+ ${GCC_CXX_FLAGS}}"
     # Export CC/CXX so that Rust's cc crate also uses clang, matching the
     # clang-specific flags in CFLAGS/CXXFLAGS (e.g. --gcc-install-dir).
     export CC="$C_COMPILER"
@@ -558,8 +603,8 @@ prepare_cmake_arguments() {
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DREDISEARCH_GENERATE_HEADERS=OFF"
   fi
 
+  CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DSAN=$SAN"
   if [[ -n "$SAN" ]]; then
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DSAN=$SAN"
     DEBUG="1"
   fi
 
@@ -855,9 +900,9 @@ run_unit_tests() {
     export VERBOSE=1
   fi
 
-  # Set sanitizer mode if requested
-  if [[ "$SAN" == "address" ]]; then
-    export SAN="address"
+  # Set sanitizer mode if requested.
+  if [[ -n "$SAN" ]]; then
+    export SAN
   fi
 
   # Call the unit-tests script from the sbin directory
@@ -878,25 +923,26 @@ run_unit_tests() {
 }
 
 #-----------------------------------------------------------------------------
-# Function: run_rust_tests
-# Run Rust tests
+# Function: setup_rust_test_env
+# Set the BINDIR / RUST_DIR / RUST_PROFILE-aware env shared by all Rust-test
+# entry points (run / archive / run-from-archive).
 #-----------------------------------------------------------------------------
-run_rust_tests() {
-  if [[ "$RUN_RUST_TESTS" != "1" ]]; then
-    return 0
-  fi
-
-  echo "Running Rust tests..."
-
+setup_rust_test_env() {
   # Tell Rust build scripts where to find the compiled static libraries
   export BINDIR
 
-  # Set Rust test environment
   RUST_DIR="$ROOT/src/redisearch_rs"
+}
 
+#-----------------------------------------------------------------------------
+# Function: select_rust_test_flags
+# Pick CARGO_BUILD_FLAGS / RUST_TEST_COMMAND / RUST_TEST_OPTIONS based on the
+# active variant (coverage, miri, asan, default). Mirrored by all three Rust
+# test entry points so they stay in sync.
+#-----------------------------------------------------------------------------
+select_rust_test_flags() {
   CARGO_BUILD_FLAGS=""
 
-  # Add Rust test extensions
   if [[ $COV == 1 ]]; then
     RUST_TEST_COMMAND="llvm-cov test"
     # We exclude Rust benchmarking crates that link to C code when computing coverage.
@@ -927,13 +973,159 @@ run_rust_tests() {
     RUST_TEST_COMMAND="nextest run"
     RUST_TEST_OPTIONS="--cargo-profile=$RUST_PROFILE"
   fi
+}
+
+#-----------------------------------------------------------------------------
+# Function: run_rust_tests
+# Run Rust tests
+#-----------------------------------------------------------------------------
+run_rust_tests() {
+  if [[ "$RUN_RUST_TESTS" != "1" ]]; then
+    return 0
+  fi
+
+  echo "Running Rust tests..."
+
+  setup_rust_test_env
+  select_rust_test_flags
+
+  # Optional nextest partitioning for CI sharding, e.g. RUST_PARTITION="count:1/3".
+  # Only valid for nextest-based commands (e.g. `miri nextest run`), not for
+  # `llvm-cov test`.
+  local partition_arg=""
+  if [[ -n "$RUST_PARTITION" ]]; then
+    if [[ "$RUST_TEST_COMMAND" == *"nextest run"* ]]; then
+      partition_arg="--partition $RUST_PARTITION"
+    else
+      echo "Warning: RUST_PARTITION set but test command '$RUST_TEST_COMMAND' is not nextest-based; ignoring."
+    fi
+  fi
 
   # Run cargo test with the appropriate filter
   cd "$RUST_DIR"
-  RUSTFLAGS="${RUSTFLAGS}" cargo $RUST_TOOLCHAIN_MODIFIER $CARGO_BUILD_FLAGS $RUST_TEST_COMMAND $RUST_TEST_OPTIONS --workspace $TEST_FILTER
+  RUSTFLAGS="${RUSTFLAGS}" cargo $RUST_TOOLCHAIN_MODIFIER $CARGO_BUILD_FLAGS $RUST_TEST_COMMAND $RUST_TEST_OPTIONS $partition_arg --workspace $TEST_FILTER
 
   # Check test results
   RUST_TEST_RESULT=$?
+  if [[ $RUST_TEST_RESULT -eq 0 ]]; then
+    echo "All Rust tests passed!"
+  else
+    echo "Some Rust tests failed. Check the test logs above for details."
+    HAS_FAILURES=1
+  fi
+}
+
+#-----------------------------------------------------------------------------
+# Function: archive_rust_tests
+# Build the Rust test binaries into a nextest archive that can be shipped to
+# another machine and run there with `cargo nextest run --archive-file=...`,
+# avoiding any recompilation in the test-only CI job.
+#
+# Variant handling mirrors run_rust_tests:
+#   * COV=1       -> cargo llvm-cov --no-report nextest archive ...
+#   * SAN=address -> cargo -Zbuild-std nextest archive --tests ...
+#   * default     -> cargo nextest archive ...
+# MIRI is intentionally not supported here: miri compiles to MIR rather than
+# native binaries, so the archive workflow doesn't apply.
+#-----------------------------------------------------------------------------
+archive_rust_tests() {
+  if [[ "$ARCHIVE_RUST_TESTS" != "1" ]]; then
+    return 0
+  fi
+
+  if [[ -z "$RUST_TEST_ARCHIVE_PATH" ]]; then
+    echo "ARCHIVE_RUST_TESTS=1 requires RUST_TEST_ARCHIVE_PATH to be set."
+    exit 1
+  fi
+
+  if [[ "$RUN_MIRI" == "1" ]]; then
+    echo "ARCHIVE_RUST_TESTS=1 is incompatible with RUN_MIRI=1 (miri doesn't archive)."
+    exit 1
+  fi
+
+  echo "Archiving Rust tests to $RUST_TEST_ARCHIVE_PATH..."
+
+  setup_rust_test_env
+  select_rust_test_flags
+
+  # Swap the run verb for an archive verb. cargo-llvm-cov uses a dedicated
+  # `nextest-archive` subcommand (hyphenated) — its `nextest` subcommand always
+  # means `nextest run` and would treat "archive" as a test filter. The report
+  # is produced later by run_rust_tests_from_archive.
+  local archive_cmd archive_opts
+  if [[ $COV == 1 ]]; then
+    archive_cmd="llvm-cov nextest-archive"
+    # Drop the llvm-cov-specific reporting flags (--doctests, --codecov, etc.)
+    # that don't apply to archive creation; keep the crate exclusions and use
+    # nextest's --cargo-profile.
+    archive_opts="--cargo-profile=$RUST_PROFILE $EXCLUDE_RUST_BENCHING_CRATES_LINKING_C"
+  else
+    archive_cmd="nextest archive"
+    archive_opts="$RUST_TEST_OPTIONS"
+  fi
+
+  cd "$RUST_DIR"
+  RUSTFLAGS="${RUSTFLAGS}" cargo $RUST_TOOLCHAIN_MODIFIER $CARGO_BUILD_FLAGS $archive_cmd $archive_opts --workspace --archive-file "$RUST_TEST_ARCHIVE_PATH"
+
+  ls -lh "$RUST_TEST_ARCHIVE_PATH"
+}
+
+#-----------------------------------------------------------------------------
+# Function: run_rust_tests_from_archive
+# Run Rust tests from a nextest archive produced by `archive_rust_tests`.
+# Avoids any recompilation; suitable for a CI test job that downloaded the
+# archive as an artifact.
+#-----------------------------------------------------------------------------
+run_rust_tests_from_archive() {
+  if [[ "$RUN_ARCHIVED_RUST_TESTS" != "1" ]]; then
+    return 0
+  fi
+
+  if [[ -z "$RUST_TEST_ARCHIVE_PATH" ]]; then
+    echo "RUN_ARCHIVED_RUST_TESTS=1 requires RUST_TEST_ARCHIVE_PATH to be set."
+    exit 1
+  fi
+
+  if [[ ! -f "$RUST_TEST_ARCHIVE_PATH" ]]; then
+    echo "Nextest archive not found at $RUST_TEST_ARCHIVE_PATH."
+    exit 1
+  fi
+
+  echo "Running Rust tests from archive $RUST_TEST_ARCHIVE_PATH..."
+
+  setup_rust_test_env
+  cd "$RUST_DIR"
+
+  if [[ $COV == 1 ]]; then
+    # cargo-llvm-cov extracts the archive into its own target dir via nextest's
+    # --extract-to; nextest refuses to extract if that destination already
+    # exists. CI runners are clean, but clear it defensively so the step is
+    # idempotent (e.g. local reruns / reused runners).
+    rm -rf "$BINROOT/redisearch_rs/llvm-cov-target"
+
+    # Use cargo-llvm-cov's INTEGRATED nextest+archive command. It extracts the
+    # archive's instrumented test binaries into its own llvm-cov target dir,
+    # runs them, collects the raw profiles, and writes the report — all with
+    # consistent paths in one invocation.
+    #
+    # The split approach (show-env + plain `cargo nextest run --archive-file` +
+    # separate `cargo llvm-cov report`) fails with "failed to collect object
+    # files": plain nextest extracts the binaries to its own dir, not the
+    # llvm-cov target dir that `report` scans (this job has no local
+    # bin/redisearch_rs target — it's excluded from the build artifact), so
+    # report finds nothing.
+    cargo $RUST_TOOLCHAIN_MODIFIER llvm-cov nextest \
+      --archive-file "$RUST_TEST_ARCHIVE_PATH" \
+      --codecov \
+      --ignore-filename-regex="varint_bencher/*,trie_bencher/*,inverted_index_bencher/*,top_k_bencher/*" \
+      --output-path="$BINROOT/rust_cov.info" \
+      $TEST_FILTER
+    RUST_TEST_RESULT=$?
+  else
+    cargo $RUST_TOOLCHAIN_MODIFIER nextest run --archive-file "$RUST_TEST_ARCHIVE_PATH" $TEST_FILTER
+    RUST_TEST_RESULT=$?
+  fi
+
   if [[ $RUST_TEST_RESULT -eq 0 ]]; then
     echo "All Rust tests passed!"
   else
@@ -1010,6 +1202,15 @@ run_python_tests() {
   export BINROOT
   export FULL_VARIANT
   export BINDIR
+  # build_test_dependencies normally exports EXT_TEST_PATH, but it's gated on
+  # the build phase (build_project) which SKIP_BUILD=1 callers (CI test-only
+  # jobs that restored bin/ from an artefact) skip. Set it here from BINDIR
+  # if the example extension is present, so test_ext.py etc. don't fall back
+  # to a relative path that resolves under the module's directory.
+  EXTENSION_PATH="$BINDIR/example_extension/libexample_extension.so"
+  if [[ -f "$EXTENSION_PATH" ]]; then
+    export EXT_TEST_PATH="$EXTENSION_PATH"
+  fi
   export REJSON="${REJSON:-1}"
   export REJSON_BRANCH="${REJSON_BRANCH:-master}"
   export REJSON_PATH
@@ -1044,7 +1245,10 @@ run_python_tests() {
     export RLTEST_VERBOSE=1
   fi
 
-  if [[ $COV == 1 ]]; then
+  # Skip coverage capture when only enumerating tests (LIST=1 => --collect-only
+  # runs no tests, so no .gcda files are produced and lcov capture would fail).
+  # COV itself stays set so $BINDIR still resolves to the coverage build variant.
+  if [[ $COV == 1 && "${LIST:-0}" != 1 ]]; then
     prepare_coverage_capture
   fi
 
@@ -1064,7 +1268,7 @@ run_python_tests() {
     HAS_FAILURES=1
   fi
 
-  if [[ $COV == 1 ]]; then
+  if [[ $COV == 1 && "${LIST:-0}" != 1 ]]; then
     if [[ "$REDIS_STANDALONE" == "1" ]]; then
       DEPLOYMENT_TYPE="standalone"
     else
@@ -1084,6 +1288,8 @@ run_tests() {
   # Run each test type as requested
   run_unit_tests
   run_rust_tests
+  archive_rust_tests
+  run_rust_tests_from_archive
   run_python_tests
 
   # Exit with failure if any test suite failed
@@ -1146,14 +1352,20 @@ setup_test_configuration
 # Set up the build environment
 setup_build_environment
 
-# Prepare CMake arguments
-prepare_cmake_arguments
+# Build the project, unless SKIP_BUILD=1 was set (e.g. CI test-only jobs that
+# restored $BINDIR from a build artifact and just want to run tests against it).
+if [[ "$SKIP_BUILD" != "1" ]]; then
+  # Prepare CMake arguments
+  prepare_cmake_arguments
 
-# Run CMake to configure the build
-run_cmake
+  # Run CMake to configure the build
+  run_cmake
 
-# Build the project
-build_project
+  # Build the project
+  build_project
+else
+  echo "SKIP_BUILD=1 set; skipping CMake configure + make. Expecting $BINDIR to already be populated."
+fi
 
 # Run tests if requested
 run_tests

@@ -14,6 +14,7 @@ use index_result::RSIndexResult;
 use pretty_assertions::assert_eq;
 
 #[test]
+#[expect(deprecated, reason = "exhaustive struct literal")]
 fn reading_filter_based_on_numeric_filter() {
     // Make an iterator with three records having different numeric values. The second record will be
     // filtered out based on the numeric filter.

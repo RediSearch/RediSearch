@@ -88,8 +88,8 @@ def testSpellCheckWithIncludeDict(env):
 def testSpellCheckZeroScoreFromIncludeDict(env):
     # Candidate term comes from an FT.DICTADD include dict but has no inverted
     # index in the spec (not present in any indexed doc) → SpellCheck_GetScore
-    # returns 0 → RS_SuggestionsAdd stores it as a score=0 terminal. Verifies
-    # the suggestion still appears in the reply at score 0.
+    # returns 0 → SpellCheckCandidates_Add stores it as a score=0 terminal. Verifies
+    # the candidate still appears in the reply at score 0.
     env.cmd('ft.dictadd', 'dict', 'xyzzy')
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'name', 'TEXT')
     with env.getClusterConnectionIfNeeded() as r:

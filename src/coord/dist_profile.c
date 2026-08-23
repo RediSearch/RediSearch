@@ -1,6 +1,10 @@
 #include "dist_profile.h"
-#include "rmutil/util.h"
+
 #include "../profile/profile.h"
+#include "profile/options.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "redismodule.h"
 
 int ParseProfile(ArgsCursor *ac, QueryError *status, ProfileOptions *options) {
   // Profile args

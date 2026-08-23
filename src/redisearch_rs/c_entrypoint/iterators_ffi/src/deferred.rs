@@ -21,9 +21,7 @@ use rqe_iterators::deferred::{ProducedResults, Producer};
 use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::utils::OwnedSlice;
 use rqe_iterators::{
-    RQEIteratorError,
-    id_list::IdListLazy,
-    metric::{MetricLazy, MetricType},
+    RQEIteratorError, id_list_lazy::IdListLazy, metric::MetricType, metric_lazy::MetricLazy,
 };
 
 /// Results returned by a [`ProduceResultsFn`].

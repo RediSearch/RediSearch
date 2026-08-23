@@ -10,13 +10,11 @@
 #pragma once
 
 #include <stdbool.h>
+#include "util/rs_atomic.h"
 
 #ifdef __cplusplus
-#include <atomic>
-#define RS_Atomic(T) std::atomic<T>
 extern "C" {
 #else
-#define RS_Atomic(T) _Atomic(T)
 #include <stdatomic.h>
 #endif
 
@@ -94,6 +92,10 @@ void MR_uvReplyClusterInfo(RedisModuleCtx *ctx);
 void MR_UpdateConnPoolSize(size_t conn_pool_size);
 
 void MR_Debug_ClearPendingTopo();
+
+#ifdef ENABLE_ASSERT
+long long MR_Debug_GetPendingRequests();
+#endif
 
 void MR_FreeCluster();
 
@@ -272,8 +274,6 @@ void MRIterator_SwapCallbacks(MRIterator *it, MRIteratorCallback successCB,
 void *MRIterator_GetPrivateData(const MRIterator *it);
 
 sds MRCommand_SafeToString(const MRCommand *cmd);
-
-#undef RS_Atomic
 
 #ifdef __cplusplus
 }

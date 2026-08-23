@@ -43,6 +43,7 @@ struct IndexesScanner;
 // Initial capacity (in bytes) of a new block
 #define INDEX_BLOCK_INITIAL_CAP 6
 
+
 #define SPEC_GEO_STR "GEO"
 #define SPEC_GEOMETRY_STR "GEOSHAPE"
 #define SPEC_TAG_STR "TAG"
@@ -324,6 +325,12 @@ typedef struct IndexSpec {
   // in favor on a newer, pending scan
   bool scan_in_progress;
   bool scan_failed_OOM; // background indexing failed due to Out Of Memory
+  // Number of keys the background build had scanned when it aborted on OOM, frozen
+  // before the scanner is freed. IndexesScanner_IndexedPercent derives percent_indexed
+  // from it (over the current DbSize) while scan_failed_OOM holds, so an OOM-cancelled
+  // build is distinguishable from a completed one (which reports 1.0). Only meaningful
+  // when scan_failed_OOM is set.
+  size_t scan_failed_OOM_scanned_keys;
   bool monitorDocumentExpiration;
   bool monitorFieldExpiration;
   bool isDuplicate;               // Marks that this index is a duplicate of an existing one
@@ -338,14 +345,23 @@ typedef struct IndexSpec {
   // bitarray of dialects used by this index
   uint_least8_t used_dialects;
 
-  // Count the number of times the index was used
-  long long counter;
+  // Runtime-only command counters. Both start at zero on creation or reload.
+  long long queryCounter;
+  long long adminCounter;
 
   // read write lock
   pthread_rwlock_t rwlock;
 
-  // Cursors counters
+  // Cursors counters. Shard cursors and coordinator cursors are counted
+  // separately, and each is capped by INDEX_CURSOR_LIMIT independently, because
+  // a shared budget would let a coordinator query starve itself: its own shard
+  // fan-out opens a shard cursor in this same process, so the fan-out would
+  // consume the budget that the coordinator cursor then needs. Separate
+  // counters also keep each one owned by exactly one cursor-list lock — the two
+  // `CursorList`s have distinct mutexes, so a shared counter would be
+  // read-modify-written under either of them.
   size_t activeCursors;
+  size_t activeCoordCursors;
 
   // Quick access to the spec's strong ref
   StrongRef own_ref;
@@ -365,6 +381,14 @@ typedef struct IndexSpec {
   // replication ending. Vector index state is stored inline in each field.
   RedisSearchDiskRdbState *pendingDiskRdbState;
   bool diskRegistered;
+
+  // True when the SST+RDB stream indicated the source node was still
+  // background-indexing (scan in progress, or a previous scan failed on OOM)
+  // when the snapshot was taken. Set at RDB load (SST path only) and consumed at
+  // Indexes_FinishSSTReplication, which restarts the async scan so the loading
+  // node (replica / hot-restart) finishes the partially populated index.
+  // Idempotent re-indexing (DocIdMeta skip) makes the restart a safe backfill.
+  bool resume_bg_indexing;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
@@ -540,17 +564,24 @@ StrongRef IndexSpec_ParseC(RedisModuleCtx *ctx, const char *name, const char **a
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path);
 
 // Delete a document from the index by its key name.
-// In disk mode, looks up the docId via DocIdMeta_Get on the key, removes the
+// In disk mode, looks up the docId via the key's metadata, removes the
 // document from disk by that id, and deletes the DocIdMeta key→docId mapping so
 // it stays authoritative (an entry exists iff the doc is indexed). In memory
 // mode, pops the document metadata from the DocTable.
 // Requires a RedisModuleCtx to access the key's metadata.
+// `openKey` is an optional already-open, pinned handle for the document key.
+// Pass it when the caller holds the key open and pinned (e.g. the async scan key
+// callback, where the key is not addressable by name): the DocIdMeta lookup and
+// delete then reuse it instead of reopening the key by name, matching the
+// open-key plumbing on the indexing success path. Pass NULL to open by name.
 // This function locks the spec for writing.
-int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
+int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                        RedisModuleKey *openKey);
 
 // Same as IndexSpec_DeleteDoc but does not lock the spec.
 // Use when the spec is already locked for writing.
-void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
+void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                                RedisModuleKey *openKey);
 
 // Delete a document from the index by its docId directly, without needing
 // to look it up by key name. Removes the document from the DocTable but does
@@ -558,7 +589,14 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId);
 
 // (Re)index a single document into the spec.
-int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type);
+//
+// `openKey` is an optional already-open handle for `key`. Pass it when the
+// caller already holds the key open and pinned (e.g. the async scan key
+// callback) so the DocIdMeta update can reuse the handle instead of reopening
+// the key by name; pass NULL otherwise. The caller retains ownership of
+// `openKey` and must keep it valid for the duration of the call.
+int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                        DocumentType type, RedisModuleKey *openKey);
 
 // Format the legacy (separate-key) Redis key name for a numeric/tag/geo field.
 RedisModuleString *IndexSpec_LegacyGetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
@@ -569,6 +607,12 @@ RedisModuleString *IndexSpec_LegacyGetFormattedKey(IndexSpec *sp, const FieldSpe
  * the Redis keyspace
  */
 void IndexSpec_MakeKeyless(IndexSpec *sp);
+
+/* The dictType used for IndexSpec.keysDict: CharBuf keys, InvertedIndex* values. */
+extern dictType invIdxDictType;
+
+/* The dictType used for IndexSpec.missingFieldDict: HiddenString keys, InvertedIndex* values. */
+extern dictType missingFieldDictType;
 
 /**
  * Exposing all the fields of the index to INFO command.
@@ -593,7 +637,9 @@ int IndexSpec_CreateTextId(IndexSpec *sp, t_fieldIndex index);
 int IndexSpec_AddFields(StrongRef ref, IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac,
                         QueryError *status);
 
-bool IndexSpec_IsCoherent(IndexSpec *sp, sds* prefixes, size_t n_prefixes);
+/* Check that `prefixes` (an _INDEX_PREFIXES argv slice) matches the spec's
+ * rule prefixes, in the same order. */
+bool IndexSpec_IsCoherent(IndexSpec *sp, RedisModuleString **prefixes, size_t n_prefixes);
 
 /**
  * Checks that the given parameters pass memory limits (used while starting from RDB)
@@ -606,7 +652,8 @@ typedef enum {
   INDEXSPEC_LOAD_NOALIAS = 0x01,      // Don't consult the alias table when retrieving the index
   INDEXSPEC_LOAD_KEY_RSTRING = 0x02,  // The name of the index is in the format of a redis string
   INDEXSPEC_LOAD_NOTIMERUPDATE = 0x04,
-  INDEXSPEC_LOAD_NOCOUNTERINC = 0x08,     // Don't increment the (usage) counter of the index
+  INDEXSPEC_LOAD_NOCOUNTERINC = 0x08,  // Don't increment either command counter
+  INDEXSPEC_LOAD_QUERY = 0x10,         // Increment queryCounter instead of adminCounter
 } IndexLoadOptionsFlags;
 
 typedef struct {
@@ -620,13 +667,22 @@ typedef struct {
 //---------------------------------------------------------------------------------------------
 
 /**
- * Per-spec bookkeeping for an already-resolved spec: bumps the usage counter and
+ * Per-spec bookkeeping for an already-resolved spec: bumps a command counter and
  * refreshes the temporary-index timeout timer (subject to the NOCOUNTERINC /
  * NOTIMERUPDATE option flags). Touches no global structures. `spec_ref` must be a
  * valid, non-NULL strong reference. To look up a spec by name and run this, use
  * Indexes_LoadIndexSpecUnsafeEx (indexes.h).
  */
 void IndexSpec_OnAcquire(StrongRef spec_ref, IndexLoadOptions *options);
+
+/** Atomically record one explicit query/read operation on `sp`. */
+void IndexSpec_IncrQueryCounter(IndexSpec *sp);
+
+/** Atomically read the runtime-only query/read operation count. */
+long long IndexSpec_GetQueryCounter(const IndexSpec *sp);
+
+/** Atomically read the runtime-only administrative operation count. */
+long long IndexSpec_GetAdminCounter(const IndexSpec *sp);
 
 /**
  * Quick access to the spec's strong reference. This function should be called only if

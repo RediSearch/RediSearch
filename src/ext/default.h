@@ -9,22 +9,10 @@
 #ifndef __EXT_DEFAULT_H__
 #define __EXT_DEFAULT_H__
 #include "redisearch.h"
-
-#define DEFAULT_EXPANDER_NAME "DEFAULT"
-#define DEFAULT_SCORER_NAME BM25_STD_SCORER_NAME
-
-#define PHONETIC_EXPENDER_NAME "PHONETIC"
-#define SYNONYMS_EXPENDER_NAME "SYNONYM"
-#define STEMMER_EXPENDER_NAME "SBSTEM"
-#define TFIDF_SCORER_NAME "TFIDF"
-#define TFIDF_DOCNORM_SCORER_NAME "TFIDF.DOCNORM"
-#define DISMAX_SCORER_NAME "DISMAX"
-#define BM25_SCORER_NAME "BM25"
-#define BM25_STD_SCORER_NAME "BM25STD"
-#define BM25_STD_NORMALIZED_TANH_SCORER_NAME "BM25STD.TANH"
-#define BM25_STD_NORMALIZED_MAX_SCORER_NAME "BM25STD.NORM"
-#define DOCSCORE_SCORER "DOCSCORE"
-#define HAMMINGDISTANCE_SCORER "HAMMING"
+// The scorer- and expander-name macros (TFIDF_SCORER_NAME, DEFAULT_EXPANDER_NAME,
+// ...) are the single source of truth in the Rust `query_types` crate and
+// generated into this header by cheadergen.
+#include "query_types.h"
 
 int DefaultExtensionInit(RSExtensionCtx *ctx);
 

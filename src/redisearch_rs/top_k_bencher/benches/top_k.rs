@@ -24,8 +24,8 @@ use rand::{SeedableRng as _, seq::SliceRandom as _};
 use rqe_iterators::RQEIterator;
 use top_k::{BatchStrategy, TopKHeap, TopKIterator, TopKMode, mock::MockScoreSource};
 
-fn asc(a: f64, b: f64) -> Ordering {
-    a.partial_cmp(&b).unwrap_or(Ordering::Equal)
+fn asc(a: &f64, b: &f64) -> Ordering {
+    a.partial_cmp(b).unwrap_or(Ordering::Equal)
 }
 
 // ── Heap benchmarks ───────────────────────────────────────────────────────────

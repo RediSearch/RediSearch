@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::time::Instant;
+
 use super::{Iter, filter::TraversalFilter};
 use lending_iterator::prelude::*;
 
@@ -32,6 +34,11 @@ impl<'tm, Data, F> LendingIter<'tm, Data, F> {
         F1: TraversalFilter,
     {
         LendingIter(self.0.traversal_filter(f))
+    }
+
+    /// Set timeout
+    pub fn set_timeout(&mut self, timeout: Option<Instant>) {
+        self.0.set_timeout(timeout)
     }
 }
 

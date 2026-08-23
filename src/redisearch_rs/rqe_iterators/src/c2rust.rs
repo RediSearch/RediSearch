@@ -11,14 +11,15 @@
 
 use ffi::{
     IteratorStatus_ITERATOR_EOF, IteratorStatus_ITERATOR_NOTFOUND, IteratorStatus_ITERATOR_OK,
-    IteratorStatus_ITERATOR_TIMEOUT, IteratorType, QueryIterator, ValidateStatus_VALIDATE_ABORTED,
-    ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK,
+    IteratorStatus_ITERATOR_TIMEOUT, QueryIterator, ValidateStatus_VALIDATE_ABORTED,
+    ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK, ValidateStatus_VALIDATE_TIMEOUT,
 };
 use rqe_core::DocId;
 
 use crate::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, interop::RQEIteratorWrapper,
-    intersection::Intersection, profile_print,
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    interop::RQEIteratorWrapper, intersection::Intersection, profile_print,
+    profile_print::ProfilePrint,
 };
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
@@ -166,6 +167,24 @@ impl CRQEIterator {
         self_
     }
 
+    /// Lower a Rust leaf iterator to the C ABI and adopt it as a [`CRQEIterator`].
+    ///
+    /// Wraps `inner` via [`RQEIteratorWrapper::boxed_new`], so the resulting
+    /// iterator has no `ProfileChildren` callback. Compound iterators must be
+    /// lowered via [`RQEIteratorWrapper::boxed_new_compound`] instead, to keep
+    /// the callback that recurses into their children during profiling.
+    pub fn from_rust_leaf<'index, I>(inner: I) -> Self
+    where
+        I: RQEIterator<'index> + ProfilePrint + 'index,
+    {
+        let ptr = RQEIteratorWrapper::boxed_new(inner);
+        // SAFETY: `boxed_new` uses `Box::into_raw`, which is guaranteed non-null.
+        let ptr = unsafe { NonNull::new_unchecked(ptr) };
+        // SAFETY: `ptr` is a valid, uniquely-owned `QueryIterator` with all
+        // required callbacks populated by `boxed_new`.
+        unsafe { CRQEIterator::new(ptr) }
+    }
+
     /// Return a raw pointer to the underlying [`QueryIterator`].
     ///
     /// The caller is taking ownership of the [`QueryIterator`] instance and is
@@ -173,6 +192,17 @@ impl CRQEIterator {
     pub fn into_raw(self) -> NonNull<QueryIterator> {
         let self_ = ManuallyDrop::new(self);
         self_.header
+    }
+
+    /// Return the raw pointer to the underlying [`QueryIterator`] without
+    /// consuming `self`.
+    ///
+    /// Unlike [`Self::into_raw`], `self` retains ownership: the returned pointer
+    /// aliases the one owned by `self`, so it must not be freed while `self` is
+    /// still live, nor used to construct a second owning [`CRQEIterator`] unless
+    /// ownership is first relinquished (e.g. by overwriting `self` in place).
+    pub const fn as_raw(&self) -> NonNull<QueryIterator> {
+        self.header
     }
 }
 
@@ -276,6 +306,9 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         let status = unsafe { callback(self.header.as_ptr(), spec.as_mut_ptr()) };
         #[expect(non_upper_case_globals)]
         let status = match status {
+            // A timed-out child is reported the same way as one that timed out during a read or a
+            // skip: as an error, which a Rust parent propagates to the root of the tree.
+            ValidateStatus_VALIDATE_TIMEOUT => return Err(RQEIteratorError::TimedOut),
             ValidateStatus_VALIDATE_ABORTED => RQEValidateStatus::Aborted,
             ValidateStatus_VALIDATE_MOVED => RQEValidateStatus::Moved {
                 current: self.current(),
@@ -434,16 +467,16 @@ impl CRQEIterator {
             "Attempted to double-profile an iterator"
         );
         let profiled = self.profile_children();
+        let had_no_skip_to = profiled.SkipTo.is_none();
         let profile_wrapper = crate::profile::Profile::new(profiled);
-        let ptr = RQEIteratorWrapper::boxed_new(profile_wrapper);
-        // SAFETY: `boxed_new` uses `Box::into_raw`, which is guaranteed non-null.
-        let ptr = unsafe { NonNull::new_unchecked(ptr) };
-        // SAFETY:
-        // 1. `ptr` is valid — `boxed_new` returns a `Box::into_raw` pointer.
-        // 2. Ownership transferred — no other handle exists.
-        // 3. `boxed_new` populates all required callbacks (Read, Free, Rewind, etc.).
-        // 4. Callbacks are implemented by `RQEIteratorWrapper` and are safe to call.
-        unsafe { CRQEIterator::new(ptr) }
+        let result = CRQEIterator::from_rust_leaf(profile_wrapper);
+        if had_no_skip_to {
+            // Preserve a root-only iterator's cleared `SkipTo` (top_k is the only
+            // user today) across the outer `Profile` rebox.
+            // SAFETY: `result` was just constructed above and has no other alias yet.
+            unsafe { crate::interop::patch_vtable(result.as_raw().as_ptr(), |h| h.SkipTo = None) };
+        }
+        result
     }
 }
 

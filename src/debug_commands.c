@@ -7,11 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "commands.h"
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+#include <strings.h>
+
 #include "types_ffi.h"
 #include "debug_commands.h"
 #include "indexes.h"
 #include "indexes_scan.h"
+#include "indexes_scanner.h"
 #include "coord/debug_command_names.h"
 #include "VecSim/vec_sim_debug.h"
 #include "inverted_index.h"
@@ -27,26 +32,51 @@
 #include "phonetic_manager.h"
 #include "gc.h"
 #include "module.h"
-#include "suffix.h"
 #include "trie/trie.h"
 #include "triemap_ffi.h"
 #include "util/workers.h"
 #include "cursor.h"
-#include "module.h"
-#include "aggregate/aggregate.h"
 #include "aggregate/aggregate_debug.h"
 #include "hybrid/hybrid_debug.h"
 #include "hybrid/hybrid_exec.h"
 #include "reply.h"
-#include "reply_macros.h"
-#include "obfuscation/obfuscation_api.h"
 #include "info/info_command.h"
 #include "search_disk.h"
 #include "ext/debug_scorers.h"
 #include "query_error_ffi.h"
 #include "doc_id_meta.h"
 #include "coord/rmr/rmr.h"
-#include <limits.h>
+#include "VecSim/info_iterator.h"
+#include "VecSim/vec_sim.h"
+#include "VecSim/vec_sim_common.h"
+#include "concurrent_ctx.h"
+#include "config.h"
+#include "doc_table.h"
+#include "field_spec.h"
+#include "geometry/geometry_types.h"
+#include "hiredis/sds.h"
+#include "iterators/iterator_api.h"
+#include "profile/options.h"
+#include "profile/profile.h"
+#include "query_error.h"
+#include "redisearch.h"
+#include "rmalloc.h"
+#include "rmutil/args.h"
+#include "rmutil/rm_assert.h"
+#include "rqe_core.h"
+#include "rules.h"
+#include "search_ctx.h"
+#include "search_disk_api.h"
+#include "search_result_rs.h"
+#include "spec.h"
+#include "thpool/thpool.h"
+#include "trie/rune_util.h"
+#include "trie/trie_node.h"
+#include "util/dict/dict.h"
+#include "util/references.h"
+#include "util/strconv.h"
+#include "util/timeout.h"
+#include "vector_index.h"
 
 DebugCTX globalDebugCtx = {0};
 
@@ -396,14 +426,14 @@ void HybridStoreCursorsDebugCtx_SetPause(bool pause) {
   atomic_store(&globalHybridStoreCursorsDebugCtx.pause, pause);
 }
 
-static atomic_uint_fast64_t g_coordReqCtxFreeCount = 0;
+static atomic_uint_fast64_t g_queryRequestOnFreeCount = 0;
 
-void CoordReqCtxFreeDebug_Increment(void) {
-  atomic_fetch_add_explicit(&g_coordReqCtxFreeCount, 1, memory_order_relaxed);
+void QueryRequestOnFreeDebug_Increment(void) {
+  atomic_fetch_add_explicit(&g_queryRequestOnFreeCount, 1, memory_order_relaxed);
 }
 
-uint64_t CoordReqCtxFreeDebug_GetCount(void) {
-  return atomic_load_explicit(&g_coordReqCtxFreeCount, memory_order_relaxed);
+uint64_t QueryRequestOnFreeDebug_GetCount(void) {
+  return atomic_load_explicit(&g_queryRequestOnFreeCount, memory_order_relaxed);
 }
 #endif
 
@@ -978,6 +1008,13 @@ static int GCForceInvokeReply(RedisModuleCtx *ctx, RedisModuleString **argv, int
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
+  // Replying DONE for a cycle that never started would be indistinguishable from one that
+  // ran and found nothing to collect.
+  const GCForcedRunOutcome *outcome = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (outcome && *outcome == GC_FORCED_RUN_NO_FORK) {
+    return RedisModule_ReplyWithError(
+        ctx, "GC DID NOT RUN: no child process could be created within TIMEOUT");
+  }
   return RedisModule_ReplyWithSimpleString(ctx, "DONE");
 }
 
@@ -996,16 +1033,19 @@ DEBUG_COMMAND(GCForceInvoke) {
   if (argc < 3 || argc > 4) {
     return RedisModule_WrongArity(ctx);
   }
-  long long timeout = 30000;
-
-  if (argc == 4) {
-    RedisModule_StringToLongLong(argv[3], &timeout);
-  }
   StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
     return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
+  }
+
+  // Disk GC cycles (SpeedB compaction) take longer than fork GC, so disk
+  // indexes get a higher default timeout.
+  long long timeout = sp->diskSpec ? 60000 : 30000;
+  if (argc == 4 &&
+      (RedisModule_StringToLongLong(argv[3], &timeout) != REDISMODULE_OK || timeout < 0)) {
+    return RedisModule_ReplyWithError(ctx, "Invalid TIMEOUT value");
   }
 
   // Indexes normally own a GCContext (`sp->gc`). Routing the forced invoke
@@ -1016,9 +1056,20 @@ DEBUG_COMMAND(GCForceInvoke) {
   // after a forced GC. The fallback below covers the only case where a disk
   // index has no GCContext (GC globally disabled or a temporary index).
   if (sp->gc) {
+    // TIMEOUT bounds the wait for a fork slot as well as the client's patience, less a margin
+    // so this reply wins the race against the block timeout. A short TIMEOUT gets half of it,
+    // since a fixed margin would leave nothing to wait with. 0 stays 0, meaning no limit.
+    long long forkWaitMs = timeout;  // TIMEOUT 0 asks for no limit, and stays that way
+    if (timeout > 2 * GC_FORCED_RUN_REPLY_MARGIN_MS) {
+      forkWaitMs = timeout - GC_FORCED_RUN_REPLY_MARGIN_MS;
+    } else if (timeout > 0) {
+      // Halving rounds down, and 0 here would read as no limit -- the opposite of a 1ms budget.
+      forkWaitMs = timeout / 2 > 0 ? timeout / 2 : 1;
+    }
+    GCForcedRun forced = GCForcedRun_New(forkWaitMs, GC_FORCED_RUN_RETRY_INTERVAL_MS);
     RedisModuleBlockedClient *bc = RedisModule_BlockClient(
-        ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, NULL, timeout);
-    GCContext_ForceInvoke(sp->gc, bc);
+        ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, GCForcedRunOutcomeFree, timeout);
+    GCContext_ForceInvoke(sp->gc, bc, forced);
     return REDISMODULE_OK;
   } else if (sp->diskSpec) {
     // Fallback described above: with no GCContext there is no DiskGC stats
@@ -1056,6 +1107,24 @@ DEBUG_COMMAND(DiskFlush) {
   return REDISMODULE_OK;
 }
 
+// Resolves argv[2] to a spec that owns a GCContext, replying with the error and returning NULL
+// if it names no index or one without a GC (a TEMPORARY index, or any index under NOGC).
+static IndexSpec *debugSpecWithGC(RedisModuleCtx *ctx, RedisModuleString **argv) {
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
+    RedisModule_ReplyWithErrorFormat(ctx, "%s: %s",
+                                     QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
+    return NULL;
+  }
+  if (!sp->gc) {
+    RedisModule_ReplyWithError(ctx, "GC is not available for this index");
+    return NULL;
+  }
+  return sp;
+}
+
 DEBUG_COMMAND(GCForceBGInvoke) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
@@ -1063,13 +1132,14 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
-  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
-  IndexSpec *sp = StrongRef_Get(ref);
+  IndexSpec *sp = debugSpecWithGC(ctx, argv);
   if (!sp) {
-    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
-    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
+    return REDISMODULE_OK;
   }
-  GCContext_ForceBGInvoke(sp->gc);
+  // Nobody is waiting on this one, so it gets the default budget rather than a TIMEOUT.
+  GCForcedRun forced = GCForcedRun_New(GC_FORCED_RUN_DEFAULT_WAIT_MS,
+                                       GC_FORCED_RUN_RETRY_INTERVAL_MS);
+  GCContext_ForceBGInvoke(sp->gc, forced);
   RedisModule_ReplyWithSimpleString(ctx, "OK");
   return REDISMODULE_OK;
 }
@@ -1081,16 +1151,11 @@ DEBUG_COMMAND(GCStopFutureRuns) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
-  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
-  IndexSpec *sp = StrongRef_Get(ref);
+  IndexSpec *sp = debugSpecWithGC(ctx, argv);
   if (!sp) {
-    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
-    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
+    return REDISMODULE_OK;
   }
-  // Make sure there is no pending timer
-  RedisModule_StopTimer(RSDummyContext, sp->gc->timerID, NULL);
-  // mark as stopped. This will prevent the GC from scheduling itself again if it was already running.
-  sp->gc->timerID = 0;
+  GCContext_StopFutureRuns(sp->gc);
   RedisModule_Log(ctx, "verbose", "Stopped GC %p periodic run for index %s", sp->gc, IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
@@ -1102,13 +1167,11 @@ DEBUG_COMMAND(GCContinueFutureRuns) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
-  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
-  IndexSpec *sp = StrongRef_Get(ref);
+  IndexSpec *sp = debugSpecWithGC(ctx, argv);
   if (!sp) {
-    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
-    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
+    return REDISMODULE_OK;
   }
-  if (sp->gc->timerID) {
+  if (GCContext_IsEnabled(sp->gc)) {
     return RedisModule_ReplyWithError(ctx, "GC is already running periodically");
   }
   GCContext_StartNow(sp->gc);
@@ -1980,6 +2043,23 @@ DEBUG_COMMAND(HybridCommand_DebugWrapper) {
   return DistHybridCommandInternal(ctx, ++argv, --argc, true, false /* isProfile */);
 }
 
+// The debug scanner limit/pause knobs (SET_MAX_SCANNED_DOCS, SET_PAUSE_ON_SCANNED_DOCS,
+// SET_PAUSE_BEFORE_SCAN, SET_PAUSE_ON_OOM, SET_PAUSE_BEFORE_OOM_RETRY) and the
+// GET_DEBUG_SCANNER_STATUS readout are implemented entirely by DebugIndexes_ScanProc on the
+// synchronous RAM scan path — it is what enforces the doc limits, flips the pause flag, and
+// advances DebugIndexesScanner.status. In disk mode the scan is dispatched to
+// Indexes_AsyncScanAndReindexTask, which never invokes that proc; the DebugIndexesScanner would
+// be allocated but never driven, so these controls would silently never take effect and any
+// client polling GET_DEBUG_SCANNER_STATUS for PAUSED would hang. Reject them up front instead
+// (mirrors TERMINATE_BG_POOL), until/unless the hooks are implemented in the async driver.
+static bool rejectDiskDebugScannerControl(RedisModuleCtx *ctx, const char *cmd) {
+  if (SearchDisk_IsEnabled()) {
+    RedisModule_ReplyWithErrorFormat(ctx, "%s is not supported when disk is enabled", cmd);
+    return true;
+  }
+  return false;
+}
+
 /**
  * FT.DEBUG BG_SCAN_CONTROLLER SET_MAX_SCANNED_DOCS <max_scanned_docs>
  */
@@ -1989,6 +2069,9 @@ DEBUG_COMMAND(setMaxScannedDocs) {
   }
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
+  }
+  if (rejectDiskDebugScannerControl(ctx, "SET_MAX_SCANNED_DOCS")) {
+    return REDISMODULE_OK;
   }
   long long max_scanned_docs;
   if (RedisModule_StringToLongLong(argv[2], &max_scanned_docs) != REDISMODULE_OK) {
@@ -2014,6 +2097,9 @@ DEBUG_COMMAND(setPauseOnScannedDocs) {
   }
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
+  }
+  if (rejectDiskDebugScannerControl(ctx, "SET_PAUSE_ON_SCANNED_DOCS")) {
+    return REDISMODULE_OK;
   }
   long long pause_scanned_docs;
   if (RedisModule_StringToLongLong(argv[2], &pause_scanned_docs) != REDISMODULE_OK) {
@@ -2054,6 +2140,9 @@ DEBUG_COMMAND(getDebugScannerStatus) {
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
   }
+  if (rejectDiskDebugScannerControl(ctx, "GET_DEBUG_SCANNER_STATUS")) {
+    return REDISMODULE_OK;
+  }
 
   IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
                             .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
@@ -2091,6 +2180,9 @@ DEBUG_COMMAND(setPauseBeforeScan) {
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
   }
+  if (rejectDiskDebugScannerControl(ctx, "SET_PAUSE_BEFORE_SCAN")) {
+    return REDISMODULE_OK;
+  }
   const char* op = RedisModule_StringPtrLen(argv[2], NULL);
 
   if (!strcasecmp(op, "true")) {
@@ -2115,6 +2207,9 @@ DEBUG_COMMAND(setPauseOnOOM) {
   }
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
+  }
+  if (rejectDiskDebugScannerControl(ctx, "SET_PAUSE_ON_OOM")) {
+    return REDISMODULE_OK;
   }
   const char* op = RedisModule_StringPtrLen(argv[2], NULL);
 
@@ -2142,6 +2237,17 @@ DEBUG_COMMAND(terminateBgPool) {
     return RedisModule_WrongArity(ctx);
   }
 
+  // When disk is enabled, initial indexing runs as async batches whose completion
+  // callback (done_cb) is dispatched on the main thread. ReindexPool_ThreadPoolDestroy()
+  // joins the worker threads from the main thread, but a worker that is mid-batch is
+  // itself blocked waiting for that main-thread done_cb to run. Tearing the pool down
+  // here would therefore deadlock the main thread against the worker. Reject the command
+  // in disk mode instead of risking the deadlock.
+  if (SearchDisk_IsEnabled()) {
+    return RedisModule_ReplyWithError(
+        ctx, "TERMINATE_BG_POOL is not supported when disk is enabled");
+  }
+
   ReindexPool_ThreadPoolDestroy();
   // We do not create a new thread pool here, as it will automatically be created on the next background indexing job
 
@@ -2157,6 +2263,9 @@ DEBUG_COMMAND(setPauseBeforeOOMretry) {
   }
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
+  }
+  if (rejectDiskDebugScannerControl(ctx, "SET_PAUSE_BEFORE_OOM_RETRY")) {
+    return REDISMODULE_OK;
   }
   const char* op = RedisModule_StringPtrLen(argv[2], NULL);
 
@@ -2174,6 +2283,39 @@ DEBUG_COMMAND(setPauseBeforeOOMretry) {
 }
 
 /**
+ * FT.DEBUG BG_SCAN_CONTROLLER SET_SIMULATE_ASYNC_OOM <true/false>
+ *
+ * Test hook: force the AsyncScan reindex driver to take its OOM terminal branch after
+ * the next batch, so the OOM-surfacing path (scan_failed_OOM + FT.INFO "background
+ * indexing status") can be exercised deterministically. Engine OOM is otherwise not
+ * reproducible from the module side. Only effective in ENABLE_ASSERT builds.
+ */
+DEBUG_COMMAND(setSimulateAsyncOOM) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  // The AsyncScan reindex driver only runs in disk mode, so the OOM hook is a no-op
+  // elsewhere — reject rather than silently accept a flag that will never fire.
+  if (!SearchDisk_IsEnabled()) {
+    return RedisModule_ReplyWithError(ctx, "SET_SIMULATE_ASYNC_OOM is only supported in disk mode");
+  }
+  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  if (!strcasecmp(op, "true")) {
+    globalDebugCtx.bgIndexing.simulateAsyncOOM = true;
+  } else if (!strcasecmp(op, "false")) {
+    globalDebugCtx.bgIndexing.simulateAsyncOOM = false;
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_SIMULATE_ASYNC_OOM'");
+  }
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
  * FT.DEBUG BG_SCAN_CONTROLLER DEBUG_SCANNER_UPDATE_CONFIG <index_name>
  */
 DEBUG_COMMAND(debugScannerUpdateConfig) {
@@ -2182,6 +2324,9 @@ DEBUG_COMMAND(debugScannerUpdateConfig) {
   }
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
+  }
+  if (rejectDiskDebugScannerControl(ctx, "DEBUG_SCANNER_UPDATE_CONFIG")) {
+    return REDISMODULE_OK;
   }
 
   IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
@@ -2234,8 +2379,12 @@ static int parseCompactionSite(const char *name, int *out) {
     *out = SEARCH_DISK_SITE_COMPACTION_BEGIN;
   } else if (!strcasecmp(name, "compaction_completed")) {
     *out = SEARCH_DISK_SITE_COMPACTION_COMPLETED;
-  } else if (!strcasecmp(name, "pre_checkpoint")) {
-    *out = SEARCH_DISK_SITE_PRE_CHECKPOINT;
+  } else if (!strcasecmp(name, "consistency_window_open")) {
+    *out = SEARCH_DISK_SITE_CONSISTENCY_WINDOW_OPEN;
+  } else if (!strcasecmp(name, "numeric_split_pre_commit")) {
+    *out = SEARCH_DISK_SITE_NUMERIC_SPLIT_PRE_COMMIT;
+  } else if (!strcasecmp(name, "numeric_gate_closed")) {
+    *out = SEARCH_DISK_SITE_NUMERIC_GATE_CLOSED;
   } else {
     return 0;
   }
@@ -2252,7 +2401,8 @@ static int parseCompactionSite(const char *name, int *out) {
  *   REACHED <site>                     -> integer arrival count
  *   RESET                              clear all state, free waiters
  *
- * <site> is one of: compaction_begin, compaction_completed, pre_checkpoint.
+ * <site> is one of: compaction_begin, compaction_completed, consistency_window_open,
+ * numeric_split_pre_commit, numeric_gate_closed.
  */
 DEBUG_COMMAND(replCompactionCoordinator) {
   if (!debugCommandsEnabled(ctx)) {
@@ -2376,6 +2526,9 @@ DEBUG_COMMAND(bgScanController) {
   if (!strcmp("SET_PAUSE_BEFORE_OOM_RETRY", op)) {
     return setPauseBeforeOOMretry(ctx, argv+1, argc-1);
   }
+  if (!strcmp("SET_SIMULATE_ASYNC_OOM", op)) {
+    return setSimulateAsyncOOM(ctx, argv+1, argc-1);
+  }
   if (!strcmp("DEBUG_SCANNER_UPDATE_CONFIG", op)) {
     return debugScannerUpdateConfig(ctx, argv+1, argc-1);
   }
@@ -2422,6 +2575,46 @@ void IncrementBgIndexYieldCounter(void) {
 void ResetYieldCounters(void) {
   g_yieldCallHandler.yieldOnLoadCounter = 0;
   g_yieldCallHandler.yieldOnBgIndexCounter = 0;
+}
+
+// Both are only ever bumped on the main thread.
+typedef struct {
+  size_t total;
+  size_t fromOneShot;
+} GCTimerArmCounters;
+
+static GCTimerArmCounters g_gcTimerArms = {0};
+
+void IncrementGCTimerArm(void) {
+  g_gcTimerArms.total++;
+}
+
+void IncrementGCTimerArmFromOneShot(void) {
+  g_gcTimerArms.fromOneShot++;
+}
+
+// FT.DEBUG GC_TIMER_ARMS TOTAL|FROM_ONESHOT|RESET
+DEBUG_COMMAND(GCTimerArms) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  size_t len;
+  const char *subCmd = RedisModule_StringPtrLen(argv[2], &len);
+  if (STR_EQCASE(subCmd, len, "RESET")) {
+    g_gcTimerArms = (GCTimerArmCounters){0};
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+  if (STR_EQCASE(subCmd, len, "TOTAL")) {
+    return RedisModule_ReplyWithLongLong(ctx, (long long)g_gcTimerArms.total);
+  }
+  if (STR_EQCASE(subCmd, len, "FROM_ONESHOT")) {
+    return RedisModule_ReplyWithLongLong(ctx, (long long)g_gcTimerArms.fromOneShot);
+  }
+  return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
 }
 
 // Get the current sleep time before yielding (in microseconds)
@@ -2628,9 +2821,9 @@ DEBUG_COMMAND(getCoordReduceCount) {
 }
 
 /**
- * FT.DEBUG QUERY_CONTROLLER GET_COORD_REQ_CTX_FREE_COUNT
+ * FT.DEBUG QUERY_CONTROLLER GET_BLOCKED_REQUEST_ONFREE_COUNT
  */
-DEBUG_COMMAND(getCoordReqCtxFreeCount) {
+DEBUG_COMMAND(getQueryRequestOnFreeCount) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
@@ -2638,7 +2831,7 @@ DEBUG_COMMAND(getCoordReqCtxFreeCount) {
     return RedisModule_WrongArity(ctx);
   }
 
-  return RedisModule_ReplyWithLongLong(ctx, (long long)CoordReqCtxFreeDebug_GetCount());
+  return RedisModule_ReplyWithLongLong(ctx, (long long)QueryRequestOnFreeDebug_GetCount());
 }
 
 /**
@@ -3050,6 +3243,18 @@ DEBUG_COMMAND(bgPendingReplies) {
   return RedisModule_ReplyWithLongLong(ctx, pending);
 }
 
+#ifdef ENABLE_ASSERT
+/**
+ * FT.DEBUG IO_RUNTIME_PENDING_REQUESTS
+ * Returns the number of queued or active coordinator IO requests.
+ */
+DEBUG_COMMAND(ioRuntimePendingRequests) {
+  if (!debugCommandsEnabled(ctx)) return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  if (argc != 2) return RedisModule_WrongArity(ctx);
+  return RedisModule_ReplyWithLongLong(ctx, MR_Debug_GetPendingRequests());
+}
+#endif
+
 /**
  * FT.DEBUG QUERY_CONTROLLER SET_CURSOR_READ_SIZE <N>
  * Override RSGlobalConfig.cursorReadSize at runtime. Returns the previous
@@ -3112,8 +3317,8 @@ DEBUG_COMMAND(queryController) {
   if (!strcmp("GET_COORD_REDUCE_COUNT", op)) {
     return getCoordReduceCount(ctx, argv + 1, argc - 1);
   }
-  if (!strcmp("GET_COORD_REQ_CTX_FREE_COUNT", op)) {
-    return getCoordReqCtxFreeCount(ctx, argv + 1, argc - 1);
+  if (!strcmp("GET_BLOCKED_REQUEST_ONFREE_COUNT", op)) {
+    return getQueryRequestOnFreeCount(ctx, argv + 1, argc - 1);
   }
   // AggregateResults loop pause commands
   if (!strcmp("SET_PAUSE_AFTER_AGGREGATE_RESULT", op)) {
@@ -3221,6 +3426,38 @@ DEBUG_COMMAND(VecSimMockTimeout) {
   } else {
     return RedisModule_ReplyWithError(ctx, "Invalid command for 'VECSIM_MOCK_TIMEOUT'");
   }
+}
+
+/**
+ * FT.DEBUG MOCK_REVALIDATE_TIMEOUT <enable|disable|status>
+ * Make every iterator revalidation report VALIDATE_TIMEOUT, globally
+ * enable - every revalidation reports a timeout, as if the query ran out of time while re-seeking
+ *          the index after a concurrent change
+ * disable - restore normal behavior
+ * status - show whether the switch is currently on. Nothing resets it, so a test that dies before
+ *          disabling it leaves every later cursor resume reporting a timeout
+ */
+DEBUG_COMMAND(MockRevalidateTimeout) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
+  if (!strcmp("enable", op)) {
+    RQEIterators_SetMockRevalidateTimeout(true);
+  } else if (!strcmp("disable", op)) {
+    RQEIterators_SetMockRevalidateTimeout(false);
+  } else if (!strcmp("status", op)) {
+    return RedisModule_ReplyWithSimpleString(
+        ctx, RQEIterators_GetMockRevalidateTimeout() ? "Mock revalidation timeout: enabled"
+                                                     : "Mock revalidation timeout: disabled");
+  } else {
+    return RedisModule_ReplyWithError(
+        ctx, "Invalid command for 'MOCK_REVALIDATE_TIMEOUT'. Use: enable, disable, or status");
+  }
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
 /**
@@ -3335,6 +3572,43 @@ DEBUG_COMMAND(DumpDeletedIds) {
   return REDISMODULE_OK;
 }
 
+// FT.DEBUG NUMERIC_BUCKET_MAP <index> <field>
+// Dumps the in-memory bucket routing map of a disk NUMERIC or GEO field (GEO
+// shares the NUMERIC field's bucket map) as a JSON string:
+// [{"max_val": ..., "state": "Active"|"BeingCreated", ("source": ...,)
+// "num_entries": ...}, ...]. Debug/testing only (e.g. asserting a bucket
+// split's routing state on a master and its replica).
+DEBUG_COMMAND(NumericBucketMap) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 4) {
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[2])
+
+  if (!sctx->spec->diskSpec) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "NUMERIC_BUCKET_MAP is only supported on disk indexes");
+  } else {
+    const FieldSpec *fs =
+        getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
+    if (!fs) {
+      RedisModule_ReplyWithError(sctx->redisCtx, "Unknown numeric field");
+    } else {
+      char *json = SearchDisk_DebugDumpNumericBucketMap(sctx->spec->diskSpec, fs->index);
+      if (!json) {
+        RedisModule_ReplyWithError(sctx->redisCtx, "No bucket map for field");
+      } else {
+        RedisModule_ReplyWithStringBuffer(sctx->redisCtx, json, sdslen(json));
+        sdsfree(json);
+      }
+    }
+  }
+
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
+}
+
 /**
  * FT.DEBUG REGISTER_TEST_SCORERS
  * Register the test scorers for testing purposes.
@@ -3430,12 +3704,15 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"INFO", IndexObfuscatedInfo},
                                {"GET_HIDE_USER_DATA_FROM_LOGS", getHideUserDataFromLogs},
                                {"YIELDS_COUNTER", YieldCounter},
+                               {"GC_TIMER_ARMS", GCTimerArms},
                                {"INDEXER_SLEEP_BEFORE_YIELD_MICROS", IndexerSleepBeforeYieldMicros},
                                {"QUERY_CONTROLLER", queryController},
                                {"DUMP_SCHEMA", DumpSchema},
                                {"VECSIM_MOCK_TIMEOUT", VecSimMockTimeout},
+                               {"MOCK_REVALIDATE_TIMEOUT", MockRevalidateTimeout},
                                {"GET_MAX_DOC_ID", GetMaxDocId},
                                {"DUMP_DELETED_IDS", DumpDeletedIds},
+                               {"NUMERIC_BUCKET_MAP", NumericBucketMap},
                                {"DISK_IO_CONTROL", DiskIOControl},
                                {"REGISTER_TEST_SCORERS", RegisterTestScorers},
                                {"SET_MAX_INDEXES", SetMaxIndexes},
@@ -3463,6 +3740,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
 static DebugCommandType assertOnlyCommands[] = {
     {"SYNC_POINT", syncPoint},
     {"BG_PENDING_REPLIES", bgPendingReplies},
+    {"IO_RUNTIME_PENDING_REQUESTS", ioRuntimePendingRequests},
     {"SEND_ERROR", sendError},
     {"REPL_COMPACTION_COORDINATOR", replCompactionCoordinator},
     {NULL, NULL}};

@@ -36,3 +36,17 @@ TEST_F(IndexErrorTest, testBasic) {
   IndexError_Clear(error);
   RedisModule_FreeString(NULL, key);
 }
+
+// A NULL key (no single document to blame — e.g. background indexing cancelled for
+// global memory pressure) must not crash and must fall back to the "N/A" sentinel.
+TEST_F(IndexErrorTest, testNullKeyFallsBackToNA) {
+  IndexError error = IndexError_Init();
+  IndexError_AddError(&error, "oom", "oom", NULL);
+  ASSERT_STREQ(error.last_error_with_user_data, "oom");
+  RedisModuleString *lastErrorKey = IndexError_LastErrorKey(&error);
+  ASSERT_NE(lastErrorKey, nullptr);
+  const char* text = RedisModule_StringPtrLen(lastErrorKey, NULL);
+  ASSERT_STREQ(text, "N/A");
+  RedisModule_FreeString(NULL, lastErrorKey);
+  IndexError_Clear(error);
+}

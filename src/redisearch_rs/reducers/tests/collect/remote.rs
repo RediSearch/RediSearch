@@ -108,8 +108,8 @@ fn remote_collect_uses_raw_doc_id_to_break_equal_sortby_values() {
     );
     let mut ctx = RemoteCollectCtx::new(&reducer);
 
-    let larger_doc_id: ffi::t_docId = (1_u64 << 53) + 1;
-    let smaller_doc_id: ffi::t_docId = 1_u64 << 53;
+    let larger_doc_id: rqe_core::DocId = (1_u64 << 53) + 1;
+    let smaller_doc_id: rqe_core::DocId = 1_u64 << 53;
 
     let larger = fixture.row("larger-docid", 10.0);
     let smaller = fixture.row("smaller-docid", 10.0);

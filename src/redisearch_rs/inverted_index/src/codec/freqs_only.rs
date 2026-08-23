@@ -53,17 +53,19 @@ impl Decoder for FreqsOnly {
         RSIndexResult::build_virt().build()
     }
 
+    #[inline(always)]
     fn seek<'index>(
         cursor: &mut Cursor<&'index [u8]>,
         mut base: DocId,
         target: DocId,
         result: &mut RSIndexResult<'index>,
-    ) -> std::io::Result<bool> {
+    ) -> std::io::Result<Option<u16>> {
+        let mut skipped: u16 = 0;
         let freq = loop {
             let [delta, freq] = match qint_decode::<2, _>(cursor) {
                 Ok((decoded_values, _bytes_consumed)) => decoded_values,
                 Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
-                    return Ok(false);
+                    return Ok(None);
                 }
                 Err(error) => return Err(error),
             };
@@ -73,11 +75,12 @@ impl Decoder for FreqsOnly {
             if base >= target {
                 break freq;
             }
+            skipped += 1;
         };
 
         result.doc_id = base;
         result.freq = freq;
-        Ok(true)
+        Ok(Some(skipped))
     }
 }
 

@@ -14,33 +14,41 @@
 // with a one-directional dependency on the IndexSpec core (spec.h) and a
 // data-only read of the global registry (specDict_g, declared in indexes.h).
 
-#include <assert.h>
 #include <unistd.h>
+#include <sched.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
 
 #include "spec.h"
 #include "indexes.h"
+#include "indexes_scanner.h"
 #include "indexes_scan.h"
+#include "indexes_asyncscan.h"
+#include "search_disk.h"
 #include "document.h"
 #include "util/logging.h"
-#include "util/misc.h"
 #include "rmutil/rm_assert.h"
 #include "trie/trie.h"
 #include "rmalloc.h"
 #include "config.h"
 #include "redis_index.h"
-#include "indexer.h"
 #include "rules.h"
 #include "doc_types.h"
-#include "util/workers.h"
 #include "debug_commands.h"
-#include "info/info_redis/threads/current_thread.h"
-#include "util/redis_mem_info.h"
+#include "util/arr/arr.h"
+#include "doc_table.h"
+#include "document_rs.h"
+#include "field_spec.h"
+#include "info/index_error.h"
+#include "obfuscation/hidden.h"
+#include "search_ctx.h"
+#include "thpool/thpool.h"
+#include "trie/rune_util.h"
+#include "trie/trie_node.h"
+#include "util/dict/dict.h"
 
 extern DebugCTX globalDebugCtx;
-
-// Owned scanner globals.
-IndexesScanner *global_spec_scanner = NULL;
-size_t pending_global_indexing_ops = 0;
 
 // Registry globals (data-only dependency): specDict_g/specIdDict_g are defined
 // in indexes.c, legacySpecDict in spec.c.
@@ -48,20 +56,14 @@ extern dict *specDict_g;
 extern dict *specIdDict_g;
 extern dict *legacySpecDict;
 
-const char *DEBUG_INDEX_SCANNER_STATUS_STRS[] = {
-    "NEW", "SCANNING", "DONE", "CANCELLED", "PAUSED", "RESUMED", "PAUSED_ON_OOM", "PAUSED_BEFORE_OOM_RETRY",
-};
-
-// Static assertion to ensure array size matches the number of statuses
-static_assert(
-    (sizeof(DEBUG_INDEX_SCANNER_STATUS_STRS) / sizeof(char*)) == DEBUG_INDEX_SCANNER_CODE_COUNT,
-    "Mismatch between DebugIndexScannerCode enum and DEBUG_INDEX_SCANNER_STATUS_STRS array"
-);
+typedef struct {
+  IndexesScanner *scanner;
+  arrayof(RedisModuleString *) pendingKeys;
+} ScanProcCtx;
 
 // Debug scanner functions
-static DebugIndexesScanner *DebugIndexesScanner_New(StrongRef global_ref);
-static void DebugIndexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key,
-                             DebugIndexesScanner *dScanner);
+static void DebugIndexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname,
+                                  RedisModuleKey *key, ScanProcCtx *scanCtx);
 static void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner, RedisModuleCtx *ctx, bool pauseField, DebugIndexScannerCode code);
 
 // This function should be called after the first background scan OOM error
@@ -78,129 +80,7 @@ static inline void threadSleepByConfigTime(RedisModuleCtx *ctx, IndexesScanner *
   RedisModule_ThreadSafeContextLock(ctx);
 }
 
-// This function should be called after the second background scan OOM error
-// It will stop the background scan process
-static inline void scanStopAfterOOM(RedisModuleCtx *ctx, IndexesScanner *scanner) {
-  char* error;
-  rm_asprintf(&error, "Used memory is more than %u percent of max memory, cancelling the scan", RSGlobalConfig.indexingMemoryLimit);
-  RedisModule_Log(ctx, "warning", "%s", error);
-
-    // We need to report the error message besides the log, so we can show it in FT.INFO
-  if(!scanner->global) {
-    scanner->cancelled = true;
-    StrongRef curr_run_ref = WeakRef_Promote(scanner->spec_ref);
-    IndexSpec *sp = StrongRef_Get(curr_run_ref);
-    if (sp) {
-      sp->scan_failed_OOM = true;
-      // Error message does not contain user data
-      IndexError_AddError(&sp->stats.indexError, error, error, scanner->OOMkey);
-      IndexError_RaiseBackgroundIndexFailureFlag(&sp->stats.indexError);
-      StrongRef_Release(curr_run_ref);
-    } else {
-      // spec was deleted
-      RedisModule_Log(ctx, "notice", "Scanning index %s in background: cancelled due to OOM and index was dropped",
-                    scanner->spec_name_for_logs);
-      }
-    }
-    rm_free(error);
-}
-
-// Return true if used_memory exceeds (indexingMemoryLimit % × memoryLimit); false if within bounds or limit is 0.
-static inline bool isBgIndexingMemoryOverLimit(RedisModuleCtx *ctx) {
-  // if memory limit is set to 0, we don't need to check for memory usage
-  if(RSGlobalConfig.indexingMemoryLimit == 0) {
-    return false;
-  }
-
-  float used_memory_ratio = RedisMemory_GetUsedMemoryRatioUnified(ctx);
-  float memory_limit_ratio = (float)RSGlobalConfig.indexingMemoryLimit / 100;
-
-  return (used_memory_ratio > memory_limit_ratio) ;
-}
-
-double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, const IndexSpec *sp) {
-  if (scanner || sp->scan_in_progress) {
-    if (scanner) {
-      size_t totalKeys = RedisModule_DbSize(ctx);
-      return totalKeys > 0 ? (double)scanner->scannedKeys / totalKeys : 0;
-    } else {
-      return 0;
-    }
-  } else {
-    return 1.0;
-  }
-}
-
 static redisearch_thpool_t *reindexPool = NULL;
-
-static IndexesScanner *IndexesScanner_NewGlobal() {
-  if (global_spec_scanner) {
-    return NULL;
-  }
-
-  IndexesScanner *scanner = rm_calloc(1, sizeof(IndexesScanner));
-  scanner->global = true;
-  scanner->scannedKeys = 0;
-
-  global_spec_scanner = scanner;
-  RedisModule_Log(RSDummyContext, "notice", "Global scanner created");
-
-  return scanner;
-}
-
-static IndexesScanner *IndexesScanner_New(StrongRef global_ref) {
-
-  IndexesScanner *scanner = rm_calloc(1, sizeof(IndexesScanner));
-
-  scanner->spec_ref = StrongRef_Demote(global_ref);
-  IndexSpec *spec = StrongRef_Get(global_ref);
-  scanner->spec_name_for_logs = rm_strdup(IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
-  scanner->isDebug = false;
-
-  // scan already in progress?
-  if (spec->scanner) {
-    // cancel ongoing scan, keep on_progress indicator on
-    IndexesScanner_Cancel(spec->scanner);
-    const char* name = IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog);
-    RedisModule_Log(RSDummyContext, "notice", "Scanning index %s in background: cancelled and restarted", name);
-  }
-  spec->scanner = scanner;
-  spec->scan_in_progress = true;
-
-  return scanner;
-}
-
-void IndexesScanner_Free(IndexesScanner *scanner) {
-  rm_free(scanner->spec_name_for_logs);
-  if (global_spec_scanner == scanner) {
-    global_spec_scanner = NULL;
-  } else {
-    StrongRef tmp = WeakRef_Promote(scanner->spec_ref);
-    IndexSpec *spec = StrongRef_Get(tmp);
-    if (spec) {
-      if (spec->scanner == scanner) {
-        spec->scanner = NULL;
-        spec->scan_in_progress = false;
-      }
-      StrongRef_Release(tmp);
-    }
-    WeakRef_Release(scanner->spec_ref);
-  }
-  // Free the last scanned key
-  if (scanner->OOMkey) {
-    RedisModule_FreeString(RSDummyContext, scanner->OOMkey);
-  }
-  rm_free(scanner);
-}
-
-void IndexesScanner_Cancel(IndexesScanner *scanner) {
-  scanner->cancelled = true;
-}
-
-void IndexesScanner_ResetProgression(IndexesScanner *scanner) {
-  scanner-> scanFailedOnOOM = false;
-  scanner-> scannedKeys = 0;
-}
 
 //---------------------------------------------------------------------------------------------
 
@@ -210,22 +90,127 @@ static void IndexSpec_DoneIndexingCallabck(struct RSAddDocumentCtx *docCtx, Redi
 
 //---------------------------------------------------------------------------------------------
 
-static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key,
-                             IndexesScanner *scanner) {
+static void IndexScanner_QueuePendingScanKey(ScanProcCtx *scanCtx, RedisModuleString *keyname) {
+  array_append(scanCtx->pendingKeys, RedisModule_HoldString(RSDummyContext, keyname));
+}
 
-  if (scanner->cancelled) {
-    return;
+static void IndexScanner_FreePendingScanKeys(ScanProcCtx *scanCtx) {
+  for (size_t i = 0; i < array_len(scanCtx->pendingKeys); ++i) {
+    RedisModule_FreeString(RSDummyContext, scanCtx->pendingKeys[i]);
+  }
+  if (scanCtx->pendingKeys) {
+    array_set_len(scanCtx->pendingKeys, 0);
+  }
+}
+
+static bool IndexScanner_MarkOOMIfNeeded(RedisModuleCtx *ctx, IndexesScanner *scanner,
+                                         RedisModuleString *keyname) {
+  if (!isBgIndexingMemoryOverLimit(ctx)) {
+    return false;
   }
 
-  if (isBgIndexingMemoryOverLimit(ctx)){
-    scanner->scanFailedOnOOM = true;
-    if (scanner->OOMkey) {
-      RedisModule_FreeString(RSDummyContext, scanner->OOMkey);
+  scanner->scanFailedOnOOM = true;
+  if (scanner->OOMkey) {
+    RedisModule_FreeString(RSDummyContext, scanner->OOMkey);
+  }
+  // Hold the key that triggered OOM in case we need to attach an index error.
+  scanner->OOMkey = RedisModule_HoldString(RSDummyContext, keyname);
+  return true;
+}
+
+// Run debug-only pause/cancel controls before processing a queued scan key.
+// Returns true when pending-key draining should stop.
+static bool DebugIndexScanner_ShouldStopBeforePendingScanKey(RedisModuleCtx *ctx,
+                                                             IndexesScanner *scanner) {
+  if (!scanner->isDebug) {
+    return false;
+  }
+
+  DebugIndexesScanner *dScanner = (DebugIndexesScanner *)scanner;
+
+  if (dScanner->maxDocsTBscannedPause > 0 && (!dScanner->wasPaused) &&
+      scanner->scannedKeys == dScanner->maxDocsTBscannedPause) {
+    globalDebugCtx.bgIndexing.pause = true;
+    dScanner->wasPaused = true;
+  }
+
+  if ((dScanner->maxDocsTBscanned > 0) && (scanner->scannedKeys == dScanner->maxDocsTBscanned)) {
+    IndexesScanner_Cancel(scanner);
+    dScanner->status = DEBUG_INDEX_SCANNER_CODE_CANCELLED;
+    return true;
+  }
+
+  if (globalDebugCtx.bgIndexing.pause) {
+    RedisModule_ThreadSafeContextUnlock(ctx);
+    while (globalDebugCtx.bgIndexing.pause) {  // volatile variable
+      dScanner->status = DEBUG_INDEX_SCANNER_CODE_PAUSED;
+      usleep(1000);
     }
-    // Hold the key that triggered OOM in case we need to attach an index error
-    scanner->OOMkey = RedisModule_HoldString(RSDummyContext, keyname);
+    RedisModule_ThreadSafeContextLock(ctx);
+  }
+
+  if (dScanner->status == DEBUG_INDEX_SCANNER_CODE_PAUSED) {
+    dScanner->status = DEBUG_INDEX_SCANNER_CODE_RESUMED;
+  }
+
+  return IndexesScanner_IsCancelled(scanner);
+}
+
+static void IndexScanner_DrainPendingScanKeys(RedisModuleCtx *ctx, ScanProcCtx *scanCtx) {
+  IndexesScanner *scanner = scanCtx->scanner;
+
+  for (size_t i = 0; i < array_len(scanCtx->pendingKeys); ++i) {
+    RedisModuleString *keyname = scanCtx->pendingKeys[i];
+    if (IndexesScanner_IsCancelled(scanner) ||
+        DebugIndexScanner_ShouldStopBeforePendingScanKey(ctx, scanner) ||
+        IndexScanner_MarkOOMIfNeeded(ctx, scanner, keyname)) {
+      break;
+    }
+
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, keyname, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
+    DocumentType type = getDocType(key);
+    RedisModule_CloseKey(key);
+    if (type == DocumentType_Unsupported) {
+      ++scanner->scannedKeys;
+      continue;
+    }
+
+    if (scanner->global) {
+      Indexes_UpdateMatchingWithSchemaRules(ctx, keyname, type, NULL);
+    } else {
+      StrongRef curr_run_ref = IndexSpecRef_Promote(scanner->spec_ref);
+      IndexSpec *sp = StrongRef_Get(curr_run_ref);
+      if (sp) {
+        // This check is performed without locking the spec, but it's ok since we locked the GIL
+        // So the main thread is not running and the GC is not touching the relevant data
+        if (SchemaRule_ShouldIndex(sp, keyname, type, NULL)) {
+          IndexSpec_UpdateDoc(sp, ctx, keyname, type, NULL);
+        }
+        IndexSpecRef_Release(curr_run_ref);
+      } else {
+        // spec was deleted, cancel scan
+        IndexesScanner_Cancel(scanner);
+      }
+    }
+
+    ++scanner->scannedKeys;
+  }
+
+  IndexScanner_FreePendingScanKeys(scanCtx);
+}
+
+static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key,
+                             ScanProcCtx *scanCtx) {
+  IndexesScanner *scanner = scanCtx->scanner;
+
+  if (IndexesScanner_IsCancelled(scanner) || scanner->scanFailedOnOOM) {
     return;
   }
+
+  if (IndexScanner_MarkOOMIfNeeded(ctx, scanner, keyname)) {
+    return;
+  }
+
   // RMKey it is provided as best effort but in some cases it might be NULL
   bool keyOpened = false;
   if (!key || isCrdt) {
@@ -235,57 +220,95 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   // Get the document type
   DocumentType type = getDocType(key);
 
-  // Close the key if we opened it
+  // Verify that the document type is supported and document is not empty
+  if (type == DocumentType_Unsupported) {
+    goto done;
+  }
+
+  IndexScanner_QueuePendingScanKey(scanCtx, keyname);
+
+done:
+  // The callback only reads the scan-provided key handle. Updates are drained
+  // after RM_Scan returns, once Redis has closed any scan-owned handle.
   if (keyOpened) {
     RedisModule_CloseKey(key);
   }
-
-  // Verify that the document type is supported and document is not empty
-  if (type == DocumentType_Unsupported) {
-    return;
-  }
-
-  if (scanner->global) {
-    Indexes_UpdateMatchingWithSchemaRules(ctx, keyname, type, NULL);
-  } else {
-    StrongRef curr_run_ref = IndexSpecRef_Promote(scanner->spec_ref);
-    IndexSpec *sp = StrongRef_Get(curr_run_ref);
-    if (sp) {
-      // This check is performed without locking the spec, but it's ok since we locked the GIL
-      // So the main thread is not running and the GC is not touching the relevant data
-      if (SchemaRule_ShouldIndex(sp, keyname, type)) {
-        IndexSpec_UpdateDoc(sp, ctx, keyname, type);
-      }
-      IndexSpecRef_Release(curr_run_ref);
-    } else {
-      // spec was deleted, cancel scan
-      scanner->cancelled = true;
-    }
-  }
-  ++scanner->scannedKeys;
 }
 
 //---------------------------------------------------------------------------------------------
 // Define for neater code, first argument is the debug scanner flag field , second is the status code
-#define IF_DEBUG_PAUSE_CHECK(scanner, ctx, status_bool, status_code) \
-if (scanner->isDebug) { \
-  DebugIndexesScanner *dScanner = (DebugIndexesScanner*)scanner;\
-  DebugIndexesScanner_pauseCheck(dScanner, ctx, dScanner->status_bool, status_code); \
-}
+#define IF_DEBUG_PAUSE_CHECK(scanner, ctx, status_bool, status_code)                   \
+  if (scanner->isDebug) {                                                              \
+    DebugIndexesScanner *dScanner = (DebugIndexesScanner *)scanner;                    \
+    DebugIndexesScanner_pauseCheck(dScanner, ctx, dScanner->status_bool, status_code); \
+  }
 #define IF_DEBUG_PAUSE_CHECK_BEFORE_OOM_RETRY(scanner, ctx) IF_DEBUG_PAUSE_CHECK(scanner, ctx, pauseBeforeOOMRetry, DEBUG_INDEX_SCANNER_CODE_PAUSED_BEFORE_OOM_RETRY)
 #define IF_DEBUG_PAUSE_CHECK_ON_OOM(scanner, ctx) IF_DEBUG_PAUSE_CHECK(scanner, ctx, pauseOnOOM, DEBUG_INDEX_SCANNER_CODE_PAUSED_ON_OOM)
+
+typedef enum {
+  ScanStep_Continue,
+  ScanStep_Restart,
+  ScanStep_Stop,
+} ScanStep;
+
+static ScanStep IndexScanner_HandleScanState(RedisModuleCtx *ctx, IndexesScanner *scanner,
+                                             RedisModuleScanCursor *cursor) {
+  // Check if we need to handle OOM but must check if the scanner was cancelled for other reasons
+  // (i.e. FT. ALTER)
+  if (scanner->scanFailedOnOOM && !IndexesScanner_IsCancelled(scanner)) {
+
+    // Check the config to see if we should wait for memory allocation
+    if (RSGlobalConfig.bgIndexingOomPauseTimeBeforeRetry > 0) {
+      IF_DEBUG_PAUSE_CHECK_BEFORE_OOM_RETRY(scanner, ctx);
+      // Call the wait function
+      threadSleepByConfigTime(ctx, scanner);
+      if (!isBgIndexingMemoryOverLimit(ctx)) {
+        // We can continue the scan
+        RedisModule_Log(
+            ctx, "notice",
+            "Scanning index %s in background: resuming after OOM due to memory limit increase",
+            scanner->spec_name_for_logs);
+        IndexesScanner_ResetProgression(scanner);
+        RedisModule_ScanCursorRestart(cursor);
+        return ScanStep_Restart;
+      }
+    }
+    // At this point we either waited for memory allocation and failed
+    // or the config is set to not wait for memory allocation after OOM
+    scanStopAfterOOM(ctx, scanner);
+    IF_DEBUG_PAUSE_CHECK_ON_OOM(scanner, ctx);
+  }
+
+  if (IndexesScanner_IsCancelled(scanner)) {
+    if (scanner->global) {
+      RedisModule_Log(ctx, "notice", "Scanning indexes in background: cancelled (scanned=%zu)",
+                      scanner->scannedKeys);
+    } else {
+      RedisModule_Log(ctx, "notice", "Scanning index %s in background: cancelled (scanned=%zu)",
+                      scanner->spec_name_for_logs, scanner->scannedKeys);
+      return ScanStep_Stop;
+    }
+  }
+
+  return ScanStep_Continue;
+}
 
 static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   RS_LOG_ASSERT(scanner, "invalid IndexesScanner");
 
   size_t counter = 0;
   RedisModuleScanCB scanner_func = (RedisModuleScanCB)Indexes_ScanProc;
+  ScanProcCtx scanCtx = {
+      .scanner = scanner,
+      .pendingKeys = array_new(RedisModuleString *, 0),
+  };
+  bool hasMore = true;
 
   RedisModuleCtx *ctx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);
   RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
   RedisModule_ThreadSafeContextLock(ctx);
 
-  if (scanner->cancelled) {
+  if (IndexesScanner_IsCancelled(scanner)) {
     goto end;
   }
   if (scanner->global) {
@@ -306,7 +329,27 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     RedisModule_ThreadSafeContextLock(ctx);
   }
 
-  while (RedisModule_Scan(ctx, cursor, scanner_func, scanner)) {
+  while (hasMore) {
+    // RedisModule_Scan may deliver keys and return 0 on the final call. Keep
+    // the drain and state handling inside this loop so that final callback
+    // batch is processed after Redis closes scan-owned keys.
+    hasMore = RedisModule_Scan(ctx, cursor, scanner_func, &scanCtx);
+    IndexScanner_DrainPendingScanKeys(ctx, &scanCtx);
+
+    switch (IndexScanner_HandleScanState(ctx, scanner, cursor)) {
+      case ScanStep_Restart:
+        hasMore = true;
+        continue;
+      case ScanStep_Stop:
+        goto end;
+      case ScanStep_Continue:
+        break;
+    }
+
+    if (!hasMore) {
+      break;
+    }
+
     RedisModule_ThreadSafeContextUnlock(ctx);
     counter++;
     if (counter % RSGlobalConfig.numBGIndexingIterationsBeforeSleep == 0) {
@@ -321,41 +364,6 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
       sched_yield();
     }
     RedisModule_ThreadSafeContextLock(ctx);
-
-    // Check if we need to handle OOM but must check if the scanner was cancelled for other reasons (i.e. FT. ALTER)
-    if (scanner->scanFailedOnOOM && !scanner->cancelled) {
-
-      // Check the config to see if we should wait for memory allocation
-      if(RSGlobalConfig.bgIndexingOomPauseTimeBeforeRetry > 0) {
-        IF_DEBUG_PAUSE_CHECK_BEFORE_OOM_RETRY(scanner, ctx);
-        // Call the wait function
-        threadSleepByConfigTime(ctx, scanner);
-        if (!isBgIndexingMemoryOverLimit(ctx)) {
-          // We can continue the scan
-          RedisModule_Log(ctx, "notice", "Scanning index %s in background: resuming after OOM due to memory limit increase",
-                          scanner->spec_name_for_logs);
-          IndexesScanner_ResetProgression(scanner);
-          RedisModule_ScanCursorRestart(cursor);
-          continue;
-        }
-      }
-      // At this point we either waited for memory allocation and failed
-      // or the config is set to not wait for memory allocation after OOM
-      scanStopAfterOOM(ctx, scanner);
-      IF_DEBUG_PAUSE_CHECK_ON_OOM(scanner, ctx);
-    }
-
-    if (scanner->cancelled) {
-
-      if (scanner->global) {
-        RedisModule_Log(ctx, "notice", "Scanning indexes in background: cancelled (scanned=%zu)",
-                        scanner->scannedKeys);
-      } else {
-        RedisModule_Log(ctx, "notice", "Scanning index %s in background: cancelled (scanned=%zu)",
-                    scanner->spec_name_for_logs, scanner->scannedKeys);
-        goto end;
-      }
-    }
   }
 
   if (scanner->isDebug) {
@@ -372,7 +380,10 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   }
 
 end:
-  if (!scanner->cancelled && scanner->global) {
+  IndexScanner_FreePendingScanKeys(&scanCtx);
+  array_free(scanCtx.pendingKeys);
+
+  if (!IndexesScanner_IsCancelled(scanner) && scanner->global) {
     Indexes_SetTempSpecsTimers(TimerOp_Add);
   }
 
@@ -406,7 +417,14 @@ static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
     scanner = IndexesScanner_New(spec_ref);
   }
 
-  redisearch_thpool_add_work(reindexPool, (redisearch_thpool_proc)Indexes_ScanAndReindexTask, scanner, THPOOL_PRIORITY_HIGH);
+  // Route disk indexes to the AsyncScan driver; RAM keeps the synchronous scan
+  // (in-RAM key loads are cheap and gain nothing from offloading the read). The
+  // disk AsyncScan API is guaranteed present when SearchDisk_IsEnabled().
+  redisearch_thpool_proc reindexTask = SearchDisk_IsEnabled()
+      ? (redisearch_thpool_proc)Indexes_AsyncScanAndReindexTask
+      : (redisearch_thpool_proc)Indexes_ScanAndReindexTask;
+
+  redisearch_thpool_add_work(reindexPool, reindexTask, scanner, THPOOL_PRIORITY_HIGH);
 }
 
 void ReindexPool_ThreadPoolDestroy() {
@@ -504,65 +522,16 @@ void Indexes_ScanAndReindex() {
 
 // Debug Scanner Functions
 
-static DebugIndexesScanner *DebugIndexesScanner_New(StrongRef global_ref) {
+static void DebugIndexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname,
+                                  RedisModuleKey *key, ScanProcCtx *scanCtx) {
 
-  DebugIndexesScanner *dScanner = rm_realloc(IndexesScanner_New(global_ref), sizeof(DebugIndexesScanner));
-
-  dScanner->maxDocsTBscanned = globalDebugCtx.bgIndexing.maxDocsTBscanned;
-  dScanner->maxDocsTBscannedPause = globalDebugCtx.bgIndexing.maxDocsTBscannedPause;
-  dScanner->wasPaused = false;
-  dScanner->status = DEBUG_INDEX_SCANNER_CODE_NEW;
-  dScanner->base.isDebug = true;
-  dScanner->pauseOnOOM = globalDebugCtx.bgIndexing.pauseOnOOM;
-  dScanner->pauseBeforeOOMRetry = globalDebugCtx.bgIndexing.pauseBeforeOOMretry;
-
-  IndexSpec *spec = StrongRef_Get(global_ref);
-  spec->scanner = (IndexesScanner*)dScanner;
-
-  return dScanner;
-}
-
-static void DebugIndexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key,
-                             DebugIndexesScanner *dScanner) {
-
-  IndexesScanner *scanner = &(dScanner->base);
+  DebugIndexesScanner *dScanner = (DebugIndexesScanner *)scanCtx->scanner;
 
   if (dScanner->status == DEBUG_INDEX_SCANNER_CODE_NEW) {
     dScanner->status = DEBUG_INDEX_SCANNER_CODE_RUNNING;
   }
 
-  if (dScanner->maxDocsTBscannedPause > 0 && (!dScanner->wasPaused) && scanner->scannedKeys == dScanner->maxDocsTBscannedPause) {
-    globalDebugCtx.bgIndexing.pause = true;
-    dScanner->wasPaused = true;
-  }
-
-  if ((dScanner->maxDocsTBscanned > 0) && (scanner->scannedKeys == dScanner->maxDocsTBscanned)) {
-    scanner->cancelled = true;
-    dScanner->status = DEBUG_INDEX_SCANNER_CODE_CANCELLED;
-  }
-
-  // Check if we need to pause the scan before we release the GIL
-  if (globalDebugCtx.bgIndexing.pause)
-  {
-      // Warning: This section is highly unsafe. RM_Scan does not permit the callback
-      // function (i.e., this function) to release the GIL.
-      // If the key currently being scanned is deleted after the GIL is released,
-      // it can lead to a use-after-free and crash Redis.
-      RedisModule_Log(ctx, "warning", "RM_Scan callback function is releasing the GIL, which is unsafe.");
-
-      RedisModule_ThreadSafeContextUnlock(ctx);
-      while (globalDebugCtx.bgIndexing.pause) { // volatile variable
-        dScanner->status = DEBUG_INDEX_SCANNER_CODE_PAUSED;
-        usleep(1000);
-      }
-      RedisModule_ThreadSafeContextLock(ctx);
-  }
-
-  if (dScanner->status == DEBUG_INDEX_SCANNER_CODE_PAUSED) {
-    dScanner->status = DEBUG_INDEX_SCANNER_CODE_RESUMED;
-  }
-
-  Indexes_ScanProc(ctx, keyname, key, &(dScanner->base));
+  Indexes_ScanProc(ctx, keyname, key, scanCtx);
 }
 
 // If this function is called, it means that the scan did not complete due to OOM, should be verified by the caller

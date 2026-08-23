@@ -50,6 +50,24 @@ int DocIdMeta_Get(RedisModuleCtx *ctx, RedisModuleString *keyName,
 */
 int DocIdMeta_Delete(RedisModuleCtx *ctx, RedisModuleString *keyName, uint64_t specId);
 
+/*
+ * Open-key variants of Set/Get/Delete.
+ *
+ * These operate on a RedisModuleKey that the caller has already opened, instead
+ * of opening (and closing) the key by name internally. Use them on hot paths
+ * where the key is already open and pinned - e.g. the async scan key callback,
+ * where the engine hands us an open key for the duration of the call - to avoid
+ * a redundant reopen of the same key.
+ *
+ * The caller retains ownership of `key` and is responsible for opening it with
+ * appropriate flags (read for Get, read+write for Set/Delete) and closing it.
+ * The name-based variants above are thin wrappers that open the key and delegate
+ * to these.
+ */
+int DocIdMeta_SetWithOpenKey(RedisModuleKey *key, uint64_t specId, uint64_t docId);
+int DocIdMeta_GetWithOpenKey(RedisModuleKey *key, uint64_t specId, uint64_t *docId);
+int DocIdMeta_DeleteWithOpenKey(RedisModuleKey *key, uint64_t specId);
+
 // Set the persistence-in-progress flag. When true, RDB save/load callbacks
 // become no-ops. Called from notifications.c during persistence events.
 void DocIdMeta_SetForgetDocIdMetadata(bool inProgress);

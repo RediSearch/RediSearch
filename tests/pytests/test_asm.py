@@ -364,7 +364,9 @@ def create_and_populate_index(env: Env, index_name: str, n_docs: int):
     # Set random seed for reproducible vectors
     np.random.seed(42)
 
+    HSET_BATCH = 1000
     with env.getClusterConnectionIfNeeded() as con:
+        pipe = con.pipeline(transaction=False)
         for i in range(n_docs):
             # Generate a 10-dimensional vector with more variation to avoid same scores
             vector = np.array([
@@ -380,7 +382,7 @@ def create_and_populate_index(env: Env, index_name: str, n_docs: int):
             text_content = f"document {i} content {' '.join(random_words)} data"
             tag_value = "even" if i % 2 == 0 else "odd"
             # force each document to a different slot
-            con.execute_command('HSET', f'doc-{i}:{{{i % CLUSTER_SLOTS}}}',
+            pipe.execute_command('HSET', f'doc-{i}:{{{i % CLUSTER_SLOTS}}}',
                               'n', i,
                               'text', text_content,
                               'tag', tag_value,
@@ -388,6 +390,9 @@ def create_and_populate_index(env: Env, index_name: str, n_docs: int):
                               'update_counter', 0,
                               'timestamp', int(time.time() * 1000),
                               'extra_data', f'initial_{i}')
+            if (i + 1) % HSET_BATCH == 0:
+                pipe.execute()
+        pipe.execute()
 
 def wait_for_migration_complete(env, dest_shard, source_shard, timeout=200, query_during_migration=None):
     """Helper to wait for slot migration to complete with retry on failure
@@ -950,12 +955,17 @@ def test_migrate_no_indexes():
 
     # Add documents without creating any index
     n_docs = 5 * CLUSTER_SLOTS
+    HSET_BATCH = 1000
     with env.getClusterConnectionIfNeeded() as con:
+        pipe = con.pipeline(transaction=False)
         for i in range(n_docs):
-            con.execute_command('HSET', f'doc-{i}:{{{i % CLUSTER_SLOTS}}}',
+            pipe.execute_command('HSET', f'doc-{i}:{{{i % CLUSTER_SLOTS}}}',
                               'n', i,
                               'text', f'document {i} content data',
                               'tag', 'even' if i % 2 == 0 else 'odd')
+            if (i + 1) % HSET_BATCH == 0:
+                pipe.execute()
+        pipe.execute()
 
     shard1, shard2 = env.getConnection(1), env.getConnection(2)
 
@@ -1088,12 +1098,17 @@ def test_hybrid_cursor_after_add_shard_migration():
                'embedding', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
 
     # Populate docs - they will be spread across both shards via cluster hashing
+    HSET_BATCH = 1000
     with env.getClusterConnectionIfNeeded() as con:
+        pipe = con.pipeline(transaction=False)
         for i in range(n_docs):
             vector = np.array([float(i), float(i % 10)], dtype=np.float32)
-            con.execute_command('HSET', f'doc:{i}:{{{i % CLUSTER_SLOTS}}}',
+            pipe.execute_command('HSET', f'doc:{i}:{{{i % CLUSTER_SLOTS}}}',
                               'description', f'running shoes item {i}',
                               'embedding', vector.tobytes())
+            if (i + 1) % HSET_BATCH == 0:
+                pipe.execute()
+        pipe.execute()
 
     shard1 = env.getConnection(1)
 

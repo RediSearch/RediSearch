@@ -1,0 +1,536 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
+//! End-to-end tests for [`VectorScoreSource`] driving a *real* VecSim index.
+//!
+//! Data model (mirrors the C++ `testHybridVector` reference in
+//! `tests/cpptests/test_cpp_index.cpp`): document `i` is stored as the vector
+//! `[i, i, i, i]` and the query vector is `[max_id; d]` under the L2 metric.
+//! Distance therefore decreases monotonically with the doc id, so the nearest
+//! neighbours are simply the highest ids — making every expected ordering
+//! trivially predictable.
+
+use std::num::NonZeroUsize;
+
+use std::collections::HashSet;
+
+use ffi::{RLookupKey, t_docId};
+use index_result::{RSIndexResult, RSResultKind};
+use rqe_iterators::{ExpirationChecker, IdList, NoOpChecker, RQEIterator};
+use rqe_iterators_test_utils::MockExpirationChecker;
+use top_k::{ScoreSource, TopKIterator, TopKMode};
+use vector_score_source::test_utils::{TestIndex, asc, collect_ids, make_child, uniform_blob};
+use vector_score_source::{
+    VectorScoreSource, new_vector_top_k_filtered, new_vector_top_k_unfiltered,
+};
+
+const DIM: usize = 4;
+
+/// HNSW index of `n` vectors `[i; DIM]` at this suite's fixed dimensionality.
+fn build_hnsw_index(n: usize) -> TestIndex {
+    TestIndex::hnsw(n, DIM)
+}
+
+/// Queries the corner `[n; DIM]` with `efRuntime = n`. `child_est` seeds the
+/// batch-size heuristic — production passes `child.num_estimated()`.
+fn make_source(
+    index: &TestIndex,
+    n: usize,
+    k: usize,
+    child_est: usize,
+) -> VectorScoreSource<'_, NoOpChecker> {
+    make_source_with_expiration(index, n, k, child_est, NoOpChecker)
+}
+
+/// Same as [`make_source`], but installs a field-expiration filter, consulted
+/// at yield time.
+fn make_source_with_expiration<E: ExpirationChecker>(
+    index: &TestIndex,
+    n: usize,
+    k: usize,
+    child_est: usize,
+    expiration: E,
+) -> VectorScoreSource<'_, E> {
+    index.source_with_expiration(uniform_blob(n as f32, DIM), n, k, child_est, expiration)
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn unfiltered_returns_top_k_nearest_by_score() {
+    let n = 100;
+    let k = 10;
+    let index = build_hnsw_index(n);
+
+    let source = make_source(&index, n, k, n);
+    let mut it = new_vector_top_k_unfiltered(source, NonZeroUsize::new(k).unwrap());
+
+    // The unfiltered path streams VecSim's reply ordered by score, so the k
+    // nearest neighbours come out best-first.
+    let ids = collect_ids(&mut it);
+    assert_eq!(ids, (91..=100).rev().collect::<Vec<_>>());
+    assert!(it.at_eof());
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn unfiltered_results_are_metric_kind_with_exact_distance() {
+    let n = 100;
+    let k = 10;
+    let index = build_hnsw_index(n);
+
+    let source = make_source(&index, n, k, n);
+    let mut it = new_vector_top_k_unfiltered(source, NonZeroUsize::new(k).unwrap());
+
+    // Estimate is capped at k (k < index size here).
+    assert_eq!(it.num_estimated(), k);
+
+    // Unfiltered streams by score, so results come out best-first. Each result
+    // is a Metric carrying the exact squared-L2 distance DIM*(n-id)^2.
+    let mut expected_id = n as t_docId;
+    while let Some(res) = it.read().unwrap() {
+        assert_eq!(res.kind(), RSResultKind::Metric);
+        assert_eq!(res.doc_id, expected_id);
+        let dist = res
+            .as_numeric()
+            .expect("metric result carries a numeric value");
+        let want = DIM as f64 * (n as f64 - expected_id as f64).powi(2);
+        assert!(
+            (dist - want).abs() < 1e-3,
+            "id {expected_id}: distance {dist}, expected {want}"
+        );
+        expected_id -= 1;
+    }
+    assert_eq!(expected_id, n as t_docId - k as t_docId);
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn first_result_after_rewind_is_best() {
+    let n = 100;
+    let k = 10;
+    let index = build_hnsw_index(n);
+
+    let source = make_source(&index, n, k, n);
+    let child = make_child((1..=n as t_docId).collect());
+    // Batches drains the heap best-first, so after a rewind the first read must
+    // again be the single best (lowest-distance) doc: the highest id at distance 0.
+    let mut it = TopKIterator::new_with_mode(
+        source,
+        Some(child),
+        NonZeroUsize::new(k).unwrap(),
+        asc(),
+        TopKMode::Batches,
+    );
+
+    let _ = collect_ids(&mut it);
+    it.rewind();
+
+    assert_eq!(it.num_estimated(), k);
+    let res = it.read().unwrap().expect("a result after rewind");
+    assert_eq!(res.doc_id, n as t_docId);
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn filtered_full_child_yields_best_first() {
+    let n = 100;
+    let k = 10;
+    let index = build_hnsw_index(n);
+
+    let source = make_source(&index, n, k, n);
+    let child = make_child((1..=n as t_docId).collect());
+    // Public constructor auto-selects batches vs adhoc; either way the heap is
+    // drained best-first, so ordering is deterministic.
+    let mut it = new_vector_top_k_filtered(source, child, NonZeroUsize::new(k).unwrap(), false);
+
+    // Best (lowest distance) first → highest ids first.
+    let ids = collect_ids(&mut it);
+    assert_eq!(ids, (91..=100).rev().collect::<Vec<_>>());
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn filtered_batches_partial_child_intersects() {
+    let n = 100;
+    let k = 10;
+    let step = 4;
+    let index = build_hnsw_index(n);
+
+    let child_ids: Vec<t_docId> = (1..=n)
+        .filter(|i| i % step == 0)
+        .map(|i| i as t_docId)
+        .collect();
+    // Seed the heuristic with the real child size so the heap fills within the
+    // first (large) batch — mirroring how production sizes batches. Passing a
+    // too-large estimate would shrink batches and force many passes, where
+    // VecSim's approximate batch iterator can re-surface high-scoring docs.
+    let source = make_source(&index, n, k, child_ids.len());
+    let mut it = TopKIterator::new_with_mode(
+        source,
+        Some(make_child(child_ids)),
+        NonZeroUsize::new(k).unwrap(),
+        asc(),
+        TopKMode::Batches,
+    );
+
+    // Only multiples of `step` pass the filter; best-first gives the top-k of
+    // those.
+    let ids = collect_ids(&mut it);
+    let expected: Vec<t_docId> = (0..k).map(|c| (n - step * c) as t_docId).collect();
+    assert_eq!(ids, expected);
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn filtered_adhoc_matches_batches() {
+    let n = 100;
+    let k = 10;
+    let index = build_hnsw_index(n);
+
+    let source = make_source(&index, n, k, n);
+    let child = make_child((1..=n as t_docId).collect());
+    // Force the adhoc-BF path (RAM lookups under shared locks) and verify it
+    // produces the same ranking as the batches path.
+    let mut it = TopKIterator::new_with_mode(
+        source,
+        Some(child),
+        NonZeroUsize::new(k).unwrap(),
+        asc(),
+        TopKMode::AdhocBF,
+    );
+
+    let ids = collect_ids(&mut it);
+    assert_eq!(ids, (91..=100).rev().collect::<Vec<_>>());
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn filtered_adhoc_drops_nan_distance_docs() {
+    let n = 100;
+    let k = 10;
+    let index = build_hnsw_index(n);
+
+    // The adhoc-BF path looks up a distance per child id. Ids that were never
+    // added to the vector index have no label, so VecSim returns NaN — the
+    // source must drop them. Mixing real ids with phantom ids (> n) exercises
+    // that filter against a real index, no mock needed.
+    let real: Vec<t_docId> = (91..=100).collect();
+    let phantom: Vec<t_docId> = vec![201, 202, 203];
+    let mut child_ids = real.clone();
+    child_ids.extend(&phantom);
+    child_ids.sort_unstable();
+
+    let source = make_source(&index, n, k, child_ids.len());
+    // AdhocBF drives per-id lookups; the NaN drop lives only on this path
+    // (Batches intersects against VecSim's real-id stream, so phantom ids
+    // never reach the distance lookup).
+    let mut it = TopKIterator::new_with_mode(
+        source,
+        Some(make_child(child_ids)),
+        NonZeroUsize::new(k).unwrap(),
+        asc(),
+        TopKMode::AdhocBF,
+    );
+
+    let ids = collect_ids(&mut it);
+    assert_eq!(ids, real.iter().rev().copied().collect::<Vec<_>>());
+    for p in phantom {
+        assert!(
+            !ids.contains(&p),
+            "phantom id {p} with NaN distance must be filtered"
+        );
+    }
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn rewind_replays_same_results() {
+    let n = 100;
+    let k = 10;
+    let index = build_hnsw_index(n);
+
+    let source = make_source(&index, n, k, n);
+    let child = make_child((1..=n as t_docId).collect());
+    let mut it = TopKIterator::new_with_mode(
+        source,
+        Some(child),
+        NonZeroUsize::new(k).unwrap(),
+        asc(),
+        TopKMode::Batches,
+    );
+
+    let first = collect_ids(&mut it);
+    assert!(it.at_eof());
+
+    it.rewind();
+    assert!(!it.at_eof());
+
+    let second = collect_ids(&mut it);
+    assert_eq!(first, second);
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn disjoint_child_yields_nothing() {
+    let n = 100;
+    let k = 10;
+    let index = build_hnsw_index(n);
+
+    // No filter id exists in the index, so the intersection is empty.
+    let child_ids = vec![1000, 2000, 3000];
+    let source = make_source(&index, n, k, child_ids.len());
+    let child = make_child(child_ids);
+    let mut it = TopKIterator::new_with_mode(
+        source,
+        Some(child),
+        NonZeroUsize::new(k).unwrap(),
+        asc(),
+        TopKMode::Batches,
+    );
+
+    assert!(it.read().unwrap().is_none());
+    assert!(it.at_eof());
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn unfiltered_skips_expired_docs() {
+    let n = 100;
+    let k = 10;
+    let index = build_hnsw_index(n);
+
+    // Mark the two nearest neighbours expired.
+    let checker = MockExpirationChecker::new(HashSet::from([100, 99]));
+    let source = make_source_with_expiration(&index, n, k, n, checker);
+    let mut it = new_vector_top_k_unfiltered(source, NonZeroUsize::new(k).unwrap());
+
+    // The two expired nearest neighbours are
+    // dropped without refill.
+    let ids = collect_ids(&mut it);
+    assert_eq!(ids, (91..=98).rev().collect::<Vec<_>>());
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn filtered_batches_drops_expired_without_refill() {
+    let n = 100;
+    let k = 3;
+    let index = build_hnsw_index(n);
+
+    // Child filter passes the candidates, so the best k are the closest
+    // neighbours. The nearest is expired: it still occupies its heap slot during
+    // collection (stopping batch refill), and is dropped at yield — leaving the
+    // count short, not refilled from the next-best doc.
+    let child_ids: Vec<t_docId> = (90..=100).collect();
+    let checker = MockExpirationChecker::new(HashSet::from([100]));
+    let source = make_source_with_expiration(&index, n, k, child_ids.len(), checker);
+    let child = make_child(child_ids);
+    let mut it = TopKIterator::new_with_mode(
+        source,
+        Some(child),
+        NonZeroUsize::new(k).unwrap(),
+        asc(),
+        TopKMode::ForcedBatches,
+    );
+
+    let ids = collect_ids(&mut it);
+    assert_eq!(ids, vec![99, 98]);
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn filtered_adhoc_drops_expired_without_refill() {
+    let n = 100;
+    let k = 3;
+    let index = build_hnsw_index(n);
+
+    // Same shape as the batches test, on the adhoc-BF path: the expired nearest
+    // claims a heap slot during the child scan and is dropped at yield, so the
+    // count shrinks instead of refilling from the next-best doc.
+    let child_ids: Vec<t_docId> = (90..=100).collect();
+    let checker = MockExpirationChecker::new(HashSet::from([100]));
+    let source = make_source_with_expiration(&index, n, k, child_ids.len(), checker);
+    let child = make_child(child_ids);
+    let mut it = TopKIterator::new_with_mode(
+        source,
+        Some(child),
+        NonZeroUsize::new(k).unwrap(),
+        asc(),
+        TopKMode::AdhocBF,
+    );
+
+    let ids = collect_ids(&mut it);
+    assert_eq!(ids, vec![99, 98]);
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn index_size_reflects_added_vectors() {
+    let n = 42;
+    let index = build_hnsw_index(n);
+
+    let source = make_source(&index, n, 10, n);
+    assert_eq!(source.index_size(), n);
+}
+
+/// A zero-filled lookup key. The metrics channel only compares the key's
+/// address, so the fields are never read.
+fn make_key() -> RLookupKey {
+    // SAFETY: `RLookupKey` is plain data whose all-zero state (null pointers,
+    // zero indices) is valid and never dereferenced by the metrics code.
+    unsafe { std::mem::zeroed() }
+}
+
+/// The first yield on fresh storage: with no entry yet under the source's
+/// output key, the score is appended without disturbing metrics the child
+/// attached under other keys.
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn attach_score_metric_appends_when_absent() {
+    // Arrange: a keyed source and a result holding only the child's own metric.
+    let index = build_hnsw_index(3);
+    let mut source = make_source(&index, 3, 3, 3);
+    let mut own = make_key();
+    *source.own_key = (&mut own as *mut RLookupKey).cast();
+
+    let foreign = make_key();
+    let mut result = RSIndexResult::build_virt().doc_id(1).build();
+    result.metrics.push_with_key(&foreign, 7.0);
+
+    // Act.
+    source.attach_score_metric(&mut result, 42.0);
+
+    // Assert: appended alongside the untouched foreign metric.
+    assert_eq!(result.metrics.len(), 2);
+    assert_eq!(result.metrics.find_by_key_mut(&own).unwrap().value(), 42.0);
+    assert_eq!(
+        result.metrics.find_by_key_mut(&foreign).unwrap().value(),
+        7.0
+    );
+}
+
+/// Repeated yields reuse one child storage slot, so the source overwrites its
+/// own score entry in place rather than appending — otherwise a stale score
+/// from an earlier document would leak onto a later one.
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn attach_score_metric_overwrites_in_place() {
+    // Arrange: a result already carrying a stale score under our key, as if left
+    // by a previous yield on the same storage.
+    let index = build_hnsw_index(3);
+    let mut source = make_source(&index, 3, 3, 3);
+    let mut own = make_key();
+    *source.own_key = (&mut own as *mut RLookupKey).cast();
+
+    let mut result = RSIndexResult::build_virt().doc_id(1).build();
+    result.metrics.push_with_key(&own, 1.0);
+
+    // Act.
+    source.attach_score_metric(&mut result, 99.0);
+
+    // Assert: updated in place, not duplicated.
+    assert_eq!(result.metrics.len(), 1);
+    assert_eq!(result.metrics.find_by_key_mut(&own).unwrap().value(), 99.0);
+}
+
+/// With no output key wired up (the metrics loader never ran), attaching a
+/// score must be a no-op rather than pushing a keyless entry.
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn attach_score_metric_without_key_is_noop() {
+    let index = build_hnsw_index(3);
+    let source = make_source(&index, 3, 3, 3);
+    assert!(source.own_key.is_null(), "no key wired by default");
+
+    let mut result = RSIndexResult::build_virt().doc_id(1).build();
+    source.attach_score_metric(&mut result, 42.0);
+    assert_eq!(result.metrics.len(), 0, "no key means no metric attached");
+}
+
+/// Value the child writes under the shared key, distinct from every distance
+/// this suite's index can produce.
+const STALE_CHILD_SCORE: f64 = 777.0;
+
+/// Drives a trimmed filtered query in `mode` whose child yields a metric under
+/// the source's own output key, and returns `(doc id, value under that key,
+/// numeric payload)` per result, asserting along the way that no second entry
+/// appeared for the key.
+fn trimmed_shared_key_yields(mode: TopKMode) -> Vec<(t_docId, f64, Option<f64>)> {
+    let n = 10;
+    let k = 3;
+    let index = build_hnsw_index(n);
+    let lookup_key = make_key();
+
+    let mut source = make_source(&index, n, k, n);
+    *source.own_key = (&lookup_key as *const RLookupKey).cast_mut().cast();
+
+    let mut child_result = RSIndexResult::build_metric(0.0).doc_id(0).build();
+    child_result
+        .metrics
+        .push_with_key(&lookup_key, STALE_CHILD_SCORE);
+    // Ids below `n` only: doc `n` sits on the query vector, so its distance is 0
+    // and would be indistinguishable from the payload the carrier zeroes.
+    let child = IdList::<true>::with_result(vec![7, 8, 9], child_result);
+
+    let mut it = TopKIterator::new_with_mode(
+        source,
+        Some(child),
+        NonZeroUsize::new(k).unwrap(),
+        asc(),
+        mode,
+    )
+    .with_trim_deep_results(true);
+
+    let mut emitted = Vec::new();
+    while let Some(result) = it.read().unwrap() {
+        assert_eq!(
+            result.metrics.len(),
+            1,
+            "the score must land on the child's entry, not beside it"
+        );
+        let payload = result.as_numeric();
+        let value = result.metrics.find_by_key_mut(&lookup_key).unwrap().value();
+        emitted.push((result.doc_id, value, payload));
+    }
+
+    emitted
+}
+
+/// A nested KNN reusing the outer `AS` alias makes the child yield a metric
+/// under this source's own key: the distance must overwrite that entry and the
+/// numeric payload, leaving nothing of the child's value.
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn batches_trimmed_shared_metric_key_carries_vector_score() {
+    // Squared-L2 distance DIM*(n-id)^2 per child id, best-first.
+    assert_eq!(
+        trimmed_shared_key_yields(TopKMode::Batches),
+        vec![
+            (9, 4.0, Some(4.0)),
+            (8, 16.0, Some(16.0)),
+            (7, 36.0, Some(36.0))
+        ]
+    );
+}
+
+/// Adhoc-BF counterpart of
+/// [`batches_trimmed_shared_metric_key_carries_vector_score`]: the child-driven
+/// scan captures the child's metrics on its own path, so it needs its own check.
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn adhoc_trimmed_shared_metric_key_carries_vector_score() {
+    assert_eq!(
+        trimmed_shared_key_yields(TopKMode::AdhocBF),
+        vec![
+            (9, 4.0, Some(4.0)),
+            (8, 16.0, Some(16.0)),
+            (7, 36.0, Some(36.0))
+        ]
+    );
+}

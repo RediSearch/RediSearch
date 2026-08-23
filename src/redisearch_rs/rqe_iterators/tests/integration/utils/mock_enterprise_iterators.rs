@@ -14,6 +14,7 @@
 //! test suite to exercise code paths that depend on [`SEARCH_ENTERPRISE_ITERATORS`]
 //! without requiring the actual enterprise implementation.
 
+use inverted_index::NumericFilter;
 use rqe_core::{DocId, FieldIndex};
 use rqe_iterators::{
     QueryError, RQEIteratorPrintable, SEARCH_ENTERPRISE_ITERATORS, SearchEnterpriseIterators,
@@ -87,11 +88,21 @@ impl SearchEnterpriseIterators for MockEnterpriseIterators {
     fn new_numeric_on_disk<'index>(
         &self,
         _index: &'index mut ffi::RedisSearchDiskIndexSpec,
-        _filter: &ffi::NumericFilter,
-        _field_index: ffi::t_fieldIndex,
+        _filter: &NumericFilter,
+        _field_index: FieldIndex,
         _snapshot: std::ptr::NonNull<ffi::RedisSearchDiskSnapshot>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>> {
         unimplemented!("MockEnterpriseIterators::new_numeric_on_disk not used in these tests")
+    }
+
+    fn new_geo_on_disk<'index>(
+        &self,
+        _index: &'index mut ffi::RedisSearchDiskIndexSpec,
+        _gf: &'index mut ffi::GeoFilter,
+        _field_index: ffi::t_fieldIndex,
+        _snapshot: std::ptr::NonNull<ffi::RedisSearchDiskSnapshot>,
+    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>> {
+        unimplemented!("MockEnterpriseIterators::new_geo_on_disk not used in these tests")
     }
 }
 

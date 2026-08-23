@@ -12,7 +12,7 @@
 #include <stdlib.h>
 #include <query_error.h>
 #include <query_node.h>
-#include <query_node_type.h>
+#include <query_types.h>
 #include "query_param.h"
 #include "vector_index.h"
 #include "geometry_index.h"

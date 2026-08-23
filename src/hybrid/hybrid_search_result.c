@@ -7,20 +7,24 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "result_processor.h"
+#include <stdio.h>
+#include <stdint.h>
+
 #include "search_result_ffi.h"
 #include "hybrid_search_result.h"
-#include "rmutil/alloc.h"
-#include "query_error_ffi.h"
 #include "score_explain.h"
 #include "hybrid_scoring.h"
 #include "hybrid_request.h"
 #include "aggregate/aggregate.h"
 #include "vector_index.h"
 #include "config.h"
-#include <string.h>
-#include <stdio.h>
-#include <assert.h>
+#include "hybrid/hybrid_lookup_context.h"
+#include "hybrid/vector_query_utils.h"
+#include "pipeline/pipeline.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "search_result.h"
 
 void HybridExplainContext_Free(HybridExplainContext *ctx) {
   if (!ctx) return;

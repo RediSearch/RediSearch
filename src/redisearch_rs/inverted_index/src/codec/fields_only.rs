@@ -64,17 +64,19 @@ impl Decoder for FieldsOnly {
         RSIndexResult::build_term().build()
     }
 
+    #[inline(always)]
     fn seek<'index>(
         cursor: &mut Cursor<&'index [u8]>,
         mut base: DocId,
         target: DocId,
         result: &mut RSIndexResult<'index>,
-    ) -> std::io::Result<bool> {
+    ) -> std::io::Result<Option<u16>> {
+        let mut skipped: u16 = 0;
         let field_mask = loop {
             let [delta, field_mask] = match qint_decode::<2, _>(cursor) {
                 Ok((decoded_values, _bytes_consumed)) => decoded_values,
                 Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
-                    return Ok(false);
+                    return Ok(None);
                 }
                 Err(error) => return Err(error),
             };
@@ -84,11 +86,12 @@ impl Decoder for FieldsOnly {
             if base >= target {
                 break field_mask;
             }
+            skipped += 1;
         };
 
         result.doc_id = base;
         result.field_mask = field_mask as FieldMask;
-        Ok(true)
+        Ok(Some(skipped))
     }
 }
 
@@ -136,17 +139,19 @@ impl Decoder for FieldsOnlyWide {
         RSIndexResult::build_term().build()
     }
 
+    #[inline(always)]
     fn seek<'index>(
         cursor: &mut Cursor<&'index [u8]>,
         mut base: DocId,
         target: DocId,
         result: &mut RSIndexResult<'index>,
-    ) -> std::io::Result<bool> {
+    ) -> std::io::Result<Option<u16>> {
+        let mut skipped: u16 = 0;
         let field_mask = loop {
             let delta = match u32::read_as_varint(cursor) {
                 Ok(delta) => delta,
                 Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
-                    return Ok(false);
+                    return Ok(None);
                 }
                 Err(error) => return Err(error),
             };
@@ -157,11 +162,12 @@ impl Decoder for FieldsOnlyWide {
             if base >= target {
                 break field_mask;
             }
+            skipped += 1;
         };
 
         result.doc_id = base;
         result.field_mask = field_mask;
-        Ok(true)
+        Ok(Some(skipped))
     }
 }
 

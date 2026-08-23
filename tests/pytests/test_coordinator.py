@@ -207,12 +207,24 @@ def test_index_missing_on_one_shard(env):
     except Exception as e:
         env.assertContains(error_msg, str(e))
 
+    # Should fail regardless of which shard is the coordinator
+    read_only_cmds = (
+        ('FT.INFO', index_name),
+        ('FT.SEARCH', index_name, '*'),
+        ('FT.AGGREGATE', index_name, '*'),
+        ('FT.HYBRID', index_name, 'SEARCH', '*',
+         'VSIM', '@v', '$BLOB', 'PARAMS', '2', 'BLOB', 'aaaabbbb'),
+    )
+    for shard in range(1, env.shardsCount + 1):
+        shard_conn = env.getConnection(shard)
+        for cmd in read_only_cmds:
+            try:
+                shard_conn.execute_command(*cmd)
+                env.assertTrue(False, message=f'{cmd[0]} should have failed on shard {shard}')
+            except Exception as e:
+                env.assertContains(error_msg, str(e))
+
     # Query via the cluster connection
-    env.expect('FT.SEARCH', index_name, '*').error().contains(error_msg)
-    env.expect('FT.AGGREGATE', index_name, '*').error().contains(error_msg)
-    env.expect('FT.HYBRID', index_name, 'SEARCH', '*',
-               'VSIM', '@v', '$BLOB', 'PARAMS', '2', 'BLOB', 'aaaabbbb')\
-                .error().contains(error_msg)
     env.expect('FT.SYNUPDATE', index_name, '1', 'a', 'b')\
                 .error().contains(error_msg)
     env.expect('FT.ALTER', index_name, 'SCHEMA', 'ADD', 'n2', 'NUMERIC')\

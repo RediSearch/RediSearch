@@ -11,12 +11,15 @@
 
 use std::{
     ffi::c_char,
+    ops::Deref,
     ptr,
     ptr::NonNull,
     slice,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+use c_trie::{SuffixTrie, TermsTrie};
+use dict::{Dict, KeysDictType, MissingFieldDictType};
 use field_spec::FieldSpec;
 use inverted_index::opaque::InvertedIndex;
 use schema_rule::SchemaRule;
@@ -59,9 +62,12 @@ impl IndexSpec {
 
     /// Get the underlying field specs as a slice of `FieldSpec`s.
     pub fn field_specs(&self) -> &[FieldSpec] {
+        let len = self.0.numFields.into();
+        if len == 0 {
+            return &[];
+        }
         debug_assert!(!self.0.fields.is_null(), "fields must not be null");
         let data = self.0.fields.cast::<FieldSpec>();
-        let len = self.0.numFields.into();
         // Safety: (1.) due to creation with `IndexSpec::from_raw`
         unsafe { slice::from_raw_parts(data, len) }
     }
@@ -196,6 +202,67 @@ impl<'lock> IndexSpecWriteGuard<'lock> {
         }
     }
 
+    /// Returns the spec's fields as a mutable slice.
+    pub fn field_specs_mut(&mut self) -> &mut [FieldSpec] {
+        let len = self.0.numFields as usize;
+        if len == 0 {
+            return &mut [];
+        }
+        debug_assert!(!self.0.fields.is_null(), "fields must not be null");
+        // SAFETY: `fields` is a valid array of `numFields` ffi::FieldSpec elements that lives
+        // at least as long as this guard, and we hold the write lock so exclusive mutable
+        // access is sound. FieldSpec is #[repr(transparent)] over ffi::FieldSpec.
+        unsafe { slice::from_raw_parts_mut(self.0.fields.cast::<FieldSpec>(), len) }
+    }
+
+    /// Returns the terms trie.
+    pub fn terms_mut(&mut self) -> &mut TermsTrie {
+        debug_assert!(!self.0.terms.is_null(), "terms trie must not be null");
+        // SAFETY: `terms` is a valid, non-null `Trie` for a properly initialised IndexSpec,
+        // and it lives as long as the spec, which outlives this guard's borrow. We hold the
+        // write lock, which every other reader and writer of the trie — Rust or C — must
+        // acquire, so the exclusive borrow is not aliased.
+        unsafe { TermsTrie::from_raw_mut(self.0.terms) }
+    }
+
+    /// Returns the suffix trie.
+    ///
+    /// `None` when no field in the schema was declared `WITHSUFFIXTRIE`: the trie is
+    /// only allocated once some field opts in.
+    pub const fn suffix_mut(&mut self) -> Option<&mut SuffixTrie> {
+        if self.0.suffix.is_null() {
+            return None;
+        }
+        // SAFETY: `suffix` is non-null (checked above) and, once allocated, stays valid
+        // for the life of the spec, which outlives this guard's borrow. We hold the write
+        // lock, which every other reader and writer of the trie must acquire, so the
+        // exclusive borrow is not aliased.
+        Some(unsafe { SuffixTrie::from_raw_mut(self.0.suffix) })
+    }
+
+    /// Returns the keys dictionary, mapping each TEXT term to its inverted index.
+    pub fn keys_dict_mut(&mut self) -> &mut Dict<KeysDictType> {
+        debug_assert!(!self.0.keysDict.is_null(), "keys_dict is null");
+        // SAFETY: `keysDict` is a valid non-null dict* created with `invIdxDictType`
+        // (`KeysDictType::as_ptr()`), and lives as long as the spec (1.). We hold the
+        // write lock, so there are no other live references and no concurrent C
+        // access (2.).
+        unsafe { Dict::from_raw_mut(self.0.keysDict) }
+    }
+
+    /// Return the spec's `missingFieldDict` as a typed [`Dict`].
+    pub fn missing_field_dict_mut(&mut self) -> &mut Dict<MissingFieldDictType> {
+        debug_assert!(
+            !self.0.missingFieldDict.is_null(),
+            "missingFieldDict must not be null"
+        );
+        // SAFETY: `missingFieldDict` is a valid non-null dict* created with
+        // `dictTypeHeapHiddenStrings` (`MissingFieldDictType::as_ptr()`), and lives
+        // as long as the spec (1.). We hold the write lock, so there are no other
+        // live references and no concurrent C access (2.).
+        unsafe { Dict::from_raw_mut(self.0.missingFieldDict) }
+    }
+
     /// Apply a signed delta to the spec's `totalInvertedIndexBlocks` counter.
     ///
     /// Uses a relaxed atomic add, matching `IndexStats_BlockCountAdd` in C.
@@ -261,9 +328,11 @@ impl<'lock> IndexSpecReadGuard<'lock> {
     ///
     /// # Safety
     ///
-    /// - `index_spec` must be a valid pointer to an IndexSpec
-    /// - Caller must have already acquired the read lock
-    /// - C code is responsible for releasing the lock
+    /// 1. `index_spec` must be a valid pointer to an IndexSpec
+    /// 2. Caller must have already acquired the read lock
+    /// 3. C code is responsible for releasing the lock
+    /// 4. The keys dict must be paused for incremental rehashing.
+    /// 5. The missing docs dict must be in a fully hashed state.
     ///
     /// # Example
     ///
@@ -280,7 +349,7 @@ impl<'lock> IndexSpecReadGuard<'lock> {
     }
 
     /// Check whether the document with the given id exists in this spec's document table.
-    pub fn doc_exists(&self, id: ffi::t_docId) -> bool {
+    pub fn doc_exists(&self, id: rqe_core::DocId) -> bool {
         // SAFETY: docs is a valid DocTable for a properly initialised IndexSpec.
         unsafe { ffi::DocTable_Exists(&self.0.docs, id) }
     }
@@ -296,21 +365,37 @@ impl<'lock> IndexSpecReadGuard<'lock> {
         })
     }
 
-    /// Returns whether the keys dictionary is available.
-    ///
-    /// The keys dictionary maps TEXT terms to their inverted indexes.
-    pub const fn has_keys_dict(&self) -> bool {
-        !self.0.keysDict.is_null()
+    /// Return the spec's `missingFieldDict` as a typed [`Dict`].
+    pub fn missing_field_dict(&self) -> &Dict<MissingFieldDictType> {
+        debug_assert!(
+            !self.0.missingFieldDict.is_null(),
+            "missingFieldDict must not be null"
+        );
+        // SAFETY: `missingFieldDict` is a valid non-null dict* created with
+        // `dictTypeHeapHiddenStrings` (`MissingFieldDictType::as_ptr()`), and
+        // lives as long as the spec (1.). `missingFieldDict` is always in a
+        // fully hashed state (2.).
+        unsafe { Dict::from_raw(self.0.missingFieldDict) }
     }
 
-    /// Returns a pointer to the keys dictionary.
-    ///
-    /// # Panics
-    ///
-    /// Panics in debug builds if keys_dict is null. Use `has_keys_dict()` to check first.
-    pub fn keys_dict(&self) -> *mut ffi::dict {
+    /// Returns the terms trie.
+    pub fn terms(&self) -> &TermsTrie {
+        debug_assert!(!self.0.terms.is_null(), "terms trie must not be null");
+        // SAFETY: `terms` is a valid, non-null `Trie` for a properly initialised IndexSpec,
+        // and it lives as long as the spec, which outlives this guard's borrow. The guard
+        // holds the spec's read lock, which every writer of the terms trie must not hold
+        // concurrently, so the trie is not mutated for that borrow either.
+        unsafe { TermsTrie::from_raw(self.0.terms) }
+    }
+
+    /// Returns the keys dictionary, mapping each TEXT term to its inverted index.
+    pub fn keys_dict(&self) -> &Dict<KeysDictType> {
         debug_assert!(!self.0.keysDict.is_null(), "keys_dict is null");
-        self.0.keysDict
+        // SAFETY: `keysDict` is a valid non-null dict* created with `invIdxDictType`
+        // (`KeysDictType::as_ptr()`), and lives as long as the spec (1.).
+        // `IndexSpecReadGuard::from_locked` point 4 ensures it does not
+        // incrementally rehash (2.).
+        unsafe { Dict::from_raw(self.0.keysDict) }
     }
 
     /// Returns a pointer to the existing documents inverted index.
@@ -323,7 +408,7 @@ impl<'lock> IndexSpecReadGuard<'lock> {
     /// Returns a pointer to the missing field dictionary.
     ///
     /// This dictionary maps field names to their missing-value inverted indexes.
-    pub const fn missing_field_dict(&self) -> *mut ffi::dict {
+    pub const fn missing_field_dict_ptr(&self) -> *mut ffi::dict {
         self.0.missingFieldDict
     }
 
@@ -357,6 +442,17 @@ impl<'lock> IndexSpecReadGuard<'lock> {
     /// Returns the number of strong references to this index spec.
     pub const fn own_ref(&self) -> ffi::StrongRef {
         self.0.own_ref
+    }
+}
+
+impl Deref for IndexSpecReadGuard<'_> {
+    type Target = IndexSpec;
+
+    fn deref(&self) -> &IndexSpec {
+        // SAFETY: `IndexSpec` is `#[repr(transparent)]` over `ffi::IndexSpec`, so a
+        // `&ffi::IndexSpec` can be reinterpreted as a `&IndexSpec`. The reference lives
+        // at least as long as this guard.
+        unsafe { IndexSpec::from_raw(self.0) }
     }
 }
 
@@ -395,7 +491,7 @@ impl IndexSpecWeakRef {
     /// Attempt to promote to a strong reference.
     ///
     /// Returns `None` if the spec has been deleted since the weak ref was obtained.
-    pub fn promote(self) -> Option<IndexSpecStrongRef> {
+    pub fn promote(&self) -> Option<IndexSpecStrongRef> {
         // SAFETY: self.0 is a valid WeakRef (guaranteed by from_raw's caller).
         let strong_ref = unsafe { ffi::IndexSpecRef_Promote(self.0) };
         // SAFETY: StrongRef_Get is always safe to call on a valid StrongRef.

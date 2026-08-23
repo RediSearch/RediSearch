@@ -133,7 +133,7 @@ pub unsafe extern "C" fn collectRemoteAddWithDocId(
     r: *mut ffi::Reducer,
     ctx: *mut c_void,
     srcrow: *const ffi::RLookupRow,
-    doc_id: ffi::t_docId,
+    doc_id: rqe_core::DocId,
 ) -> c_int {
     // SAFETY: ensured by caller (1.)
     let r = unsafe { r.cast::<RemoteCollectReducer>().as_ref().unwrap() };

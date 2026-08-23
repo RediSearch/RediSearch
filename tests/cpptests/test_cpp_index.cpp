@@ -9,6 +9,7 @@
 
 extern "C" {
 #include "hiredis/sds.h"
+#include "util/dict.h"
 }
 
 #include "buffer/buffer.h"
@@ -131,7 +132,7 @@ TEST_P(IndexFlagsTest, testRWFlags) {
     }
     VVW_Truncate(h.vw);
 
-    InvertedIndex_WriteForwardIndexEntry(idx, &h);
+    InvertedIndex_WriteForwardIndexEntry(idx, &h, false);
 
     // printf("doc %d, score %f offset %zd\n", h.docId, h.docScore, w->bw.buf->offset);
     VVW_Free(h.vw);
@@ -294,7 +295,7 @@ TEST_F(IndexTest, testNot) {
   MockQueryEvalCtx mockQctx(16, 16);
   irs[0] = NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1);
   MockQueryEvalCtx mockQctx2(10, 10);
-  irs[1] = NewNotIterator(NewInvIndIterator_TermQuery(w2, &mockQctx2.sctx, f, makeTestQueryTerm(), 1), InvertedIndex_LastId(w2), 1, {0}, NULL, &ctx->qctx);
+  irs[1] = NewNotIterator(NewInvIndIterator_TermQuery(w2, &mockQctx2.sctx, f, makeTestQueryTerm(), 1), InvertedIndex_LastId(w2), 1, NULL, &ctx->qctx);
 
   QueryIterator *ui = NewIntersectionIterator(irs, 2, -1, 0, 1);
   int expected[] = {1, 2, 4, 5, 7, 8, 10, 11, 13, 14, 16};
@@ -316,7 +317,7 @@ TEST_F(IndexTest, testPureNot) {
   auto ctx = std::make_unique<MockQueryEvalCtx>();
   FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
   MockQueryEvalCtx mockQctx(10, 10);
-  QueryIterator *ir = NewNotIterator(NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1), InvertedIndex_LastId(w) + 5, 1, {0}, NULL, &ctx->qctx);
+  QueryIterator *ir = NewNotIterator(NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1), InvertedIndex_LastId(w) + 5, 1, NULL, &ctx->qctx);
 
   RSIndexResult *h = NULL;
   int expected[] = {1,  2,  4,  5,  7,  8,  10, 11, 13, 14, 16, 17, 19,
@@ -387,10 +388,10 @@ TEST_F(IndexTest, testNumericInverted) {
     expected_sz = target_cap - buff_cap;
     buff_cap = target_cap;
 
-    // The first write add an index block of 48 bytes
+    // The first write add an index block of 56 bytes
     // and the vector header
     if (i < 1) {
-      expected_sz += 48 + 8;
+      expected_sz += 56 + 8;
     }
 
     // Check if the write matches the simulation
@@ -636,8 +637,11 @@ TEST_F(IndexTest, testHybridVector) {
   queryParams.hnswRuntimeParams.efRuntime = max_id;
   FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
   FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
-  // Create a mock context for timeout configuration
+  // Revalidation looks up the term through the spec's keys dictionary, as it does in production.
   MockQueryEvalCtx mockQctx(max_id, max_id);
+  mockQctx.spec.keysDict = dictCreate(&invIdxDictType, nullptr);
+  CharBuf termKey = {.buf = const_cast<char *>("term"), .len = 4};
+  dictAdd(mockQctx.spec.keysDict, &termKey, w);
   // Run simple top k query.
   HybridIteratorParams hParams = {.sctx=&mockQctx.sctx,
                                   .index = index,
@@ -764,7 +768,7 @@ TEST_F(IndexTest, testHybridVector) {
   }
   hybridIt->Free(hybridIt);
 
-  InvertedIndex_Free(w);
+  dictRelease(mockQctx.spec.keysDict);
   VecSimIndex_Free(index);
 }
 
@@ -1186,16 +1190,16 @@ TEST_F(IndexTest, testIndexFlags) {
   // storing fieldmask on idx             16
   ASSERT_EQ(40, index_memsize);
   ASSERT_TRUE(InvertedIndex_Flags(w) == flags);
-  size_t sz = InvertedIndex_WriteForwardIndexEntry(w, &h).mem_growth;
-  ASSERT_EQ(73, sz);
+  size_t sz = InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth;
+  ASSERT_EQ(81, sz);
   InvertedIndex_Free(w);
 
   flags &= ~Index_StoreTermOffsets;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
   ASSERT_EQ(40, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
-  size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, &h).mem_growth;
-  ASSERT_EQ(sz2, 60);
+  size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth;
+  ASSERT_EQ(sz2, 68);
   InvertedIndex_Free(w);
 
   flags = INDEX_DEFAULT_FLAGS | Index_WideSchema;
@@ -1203,7 +1207,7 @@ TEST_F(IndexTest, testIndexFlags) {
   ASSERT_EQ(40, index_memsize);
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   h.fieldMask = 0xffffffffffff;
-  ASSERT_EQ(77, InvertedIndex_WriteForwardIndexEntry(w, &h).mem_growth);
+  ASSERT_EQ(85, InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth);
   InvertedIndex_Free(w);
 
   flags &= Index_StoreFreqs;
@@ -1215,8 +1219,8 @@ TEST_F(IndexTest, testIndexFlags) {
   ASSERT_EQ(24, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreFieldFlags));
-  sz = InvertedIndex_WriteForwardIndexEntry(w, &h).mem_growth;
-  ASSERT_EQ(59, sz);
+  sz = InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth;
+  ASSERT_EQ(67, sz);
   InvertedIndex_Free(w);
 
   flags |= Index_StoreFieldFlags | Index_WideSchema;
@@ -1225,8 +1229,8 @@ TEST_F(IndexTest, testIndexFlags) {
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_StoreFieldFlags));
   h.fieldMask = 0xffffffffffff;
-  sz = InvertedIndex_WriteForwardIndexEntry(w, &h).mem_growth;
-  ASSERT_EQ(67, sz);
+  sz = InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth;
+  ASSERT_EQ(75, sz);
   InvertedIndex_Free(w);
 
   VVW_Free(h.vw);
@@ -1333,18 +1337,18 @@ TEST_F(IndexTest, testDeltaSplits) {
   ent.docId = 1;
   ent.fieldMask = RS_FIELDMASK_ALL;
 
-  InvertedIndex_WriteForwardIndexEntry(idx, &ent);
+  InvertedIndex_WriteForwardIndexEntry(idx, &ent, false);
   ASSERT_EQ(InvertedIndex_NumBlocks(idx), 1);
 
   ent.docId = 200;
-  InvertedIndex_WriteForwardIndexEntry(idx, &ent);
+  InvertedIndex_WriteForwardIndexEntry(idx, &ent, false);
   ASSERT_EQ(InvertedIndex_NumBlocks(idx), 1);
 
   ent.docId = 1LLU << 48;
-  InvertedIndex_WriteForwardIndexEntry(idx, &ent);
+  InvertedIndex_WriteForwardIndexEntry(idx, &ent, false);
   ASSERT_EQ(InvertedIndex_NumBlocks(idx), 2);
   ent.docId++;
-  InvertedIndex_WriteForwardIndexEntry(idx, &ent);
+  InvertedIndex_WriteForwardIndexEntry(idx, &ent, false);
   ASSERT_EQ(InvertedIndex_NumBlocks(idx), 2);
 
   IndexDecoderCtx decoderCtx = {.fieldmask_tag = IndexDecoderCtx_FieldMask, .fieldmask = RS_FIELDMASK_ALL};

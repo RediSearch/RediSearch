@@ -61,7 +61,6 @@ def test_collect_fields_at_spec_max_fields():
     """COLLECT FIELDS listing all SPEC_MAX_FIELDS (1024) schema fields runs
     end-to-end."""
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _create_wide_index(env, SPEC_MAX_FIELDS)
 
     # Create a single doc with all fields set.
@@ -94,7 +93,6 @@ def test_collect_fields_at_spec_max_fields():
 def test_collect_fields_sparse_docs():
     """One doc per schema field, each setting only that single field."""
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _create_wide_index(env, SPEC_MAX_FIELDS)
 
     # Create SPEC_MAX_FIELDS docs, each with a single field set.
@@ -126,7 +124,6 @@ def test_collect_fields_count_over_max_errors():
     """COLLECT FIELDS count > COLLECT_MAX_FIELD_ARGS is rejected at parse time,
     so we don't need to actually provide the oversized name list."""
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _create_wide_index(env, 2)
     over = COLLECT_MAX_FIELD_ARGS + 1
     env.expect(
@@ -145,7 +142,6 @@ def test_collect_fields_count_over_max_errors():
 def test_collect_sortby_at_max_keys():
     """COLLECT SORTBY with exactly COLLECT_MAX_SORT_KEYS keys succeeds."""
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _create_sortby_index(env)
 
     sort_tokens = []
@@ -170,7 +166,6 @@ def test_collect_sortby_over_max_keys_errors():
     """COLLECT SORTBY with > COLLECT_MAX_SORT_KEYS keys is rejected on the
     standalone (local) parse path."""
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _create_sortby_index(env)
 
     n = COLLECT_MAX_SORT_KEYS + 1
@@ -207,7 +202,6 @@ def test_collect_limit_count_over_configured_max_errors():
     rejected, even though it stays below the MAX_AGGREGATE_REQUEST_RESULTS
     ceiling (regression: the cap used to ignore the configurable value)."""
     env = Env(protocol=3)
-    enable_unstable_features(env)
     env.expect(config_cmd(), 'set', 'MAXAGGREGATERESULTS', 2).ok()
     _create_collect_limit_index(env)
 
@@ -225,7 +219,6 @@ def test_collect_limit_offset_over_configured_max_errors():
     """COLLECT LIMIT offset above the lowered search-max-aggregate-results is
     rejected."""
     env = Env(protocol=3)
-    enable_unstable_features(env)
     env.expect(config_cmd(), 'set', 'MAXAGGREGATERESULTS', 2).ok()
     _create_collect_limit_index(env)
 
@@ -242,7 +235,6 @@ def test_collect_limit_offset_over_configured_max_errors():
 def test_collect_limit_at_configured_max_succeeds():
     """COLLECT LIMIT count == search-max-aggregate-results is accepted."""
     env = Env(protocol=3)
-    enable_unstable_features(env)
     env.expect(config_cmd(), 'set', 'MAXAGGREGATERESULTS', 2).ok()
     _create_collect_limit_index(env)
 
@@ -263,7 +255,6 @@ def test_collect_limit_offset_plus_count_over_max_succeeds():
     cluster mode the shard LIMIT is rewritten to `0 (offset+count)`, which must
     not be re-rejected against the cap."""
     env = Env(protocol=3)
-    enable_unstable_features(env)
     env.expect(config_cmd(), 'set', 'MAXAGGREGATERESULTS', 2).ok()
     _create_collect_limit_index(env)
 

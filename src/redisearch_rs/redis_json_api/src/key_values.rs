@@ -14,18 +14,18 @@ use std::{ffi::c_void, ptr::NonNull};
 
 // An iterators over key value pairs if the json value is an object
 pub struct KeyValuesIterator<'a> {
-    ptr: NonNull<c_void>,
+    ptr: Option<NonNull<c_void>>,
     // Get the next key-value pair
     // The caller gains ownership of `key_name`
     // The caller must pass 'ptr' which was allocated with allocJson
     next: unsafe extern "C" fn(
         iter: ffi::JSONKeyValuesIterator,
-        key_name: *mut *mut ffi::RedisModuleString,
+        key_name: *mut *mut redis_module::RedisModuleString,
         ptr: ffi::RedisJSONPtr,
     ) -> i32,
     // Free the iterator
     free: unsafe extern "C" fn(ptr: ffi::JSONKeyValuesIterator),
-    ctx: *mut ffi::RedisModuleCtx,
+    ctx: *mut redis_module::RedisModuleCtx,
     api: &'a RedisJsonApi,
     // Remaining items. Probed at construction from the source object via
     // `getLen`.
@@ -34,8 +34,10 @@ pub struct KeyValuesIterator<'a> {
 
 impl Drop for KeyValuesIterator<'_> {
     fn drop(&mut self) {
-        // Safety: caller has promised `ptr` is valid upon construction
-        unsafe { (self.free)(self.ptr.as_ptr()) }
+        if let Some(ptr) = self.ptr {
+            // Safety: caller has promised `ptr` is valid upon construction
+            unsafe { (self.free)(ptr.as_ptr()) }
+        }
     }
 }
 
@@ -49,20 +51,15 @@ impl<'a> KeyValuesIterator<'a> {
     /// # Safety
     ///
     /// 1. `ctx` must be a valid Redis module context.
-    /// 2. `ptr` must be a valid ptr obtained from `getKeyValues`.
+    /// 2. `ptr` must be a valid ptr obtained from `getKeyValues` if `Some`.
     pub(crate) unsafe fn from_non_null(
-        ptr: NonNull<c_void>,
-        ctx: *mut ffi::RedisModuleCtx,
+        ptr: Option<NonNull<c_void>>,
+        ctx: *mut redis_module::RedisModuleCtx,
         api: &'a RedisJsonApi,
         len: usize,
     ) -> Self {
-        let vtable = api.vtable();
-        let next = vtable
-            .nextKeyValue
-            .expect("RedisJSON API function `nextKeyValue` not available");
-        let free = vtable
-            .freeKeyValuesIter
-            .expect("RedisJSON API function `freeKeyValuesIter` not available");
+        let next = vtable_fn!(api, nextKeyValue);
+        let free = vtable_fn!(api, freeKeyValuesIter);
 
         Self {
             ptr,
@@ -82,13 +79,13 @@ impl<'a> Iterator for KeyValuesIterator<'a> {
     ///
     /// Only available with RedisJSON API v6 and later.
     fn next(&mut self) -> Option<Self::Item> {
-        let mut key: *mut ffi::RedisModuleString = std::ptr::null_mut();
+        let mut key: *mut redis_module::RedisModuleString = std::ptr::null_mut();
         let value = JsonValue::new(self.api);
 
         // Safety: `JsonValue::new` calls `allocJson` and correctly tracks ownership
-        let status = unsafe { (self.next)(self.ptr.as_ptr(), &raw mut key, value.ptr) };
+        let status = unsafe { (self.next)(self.ptr?.as_ptr(), &raw mut key, value.ptr) };
 
-        if status == ffi::REDISMODULE_OK as i32 {
+        if status == redis_module::REDISMODULE_OK as i32 {
             let key = RedisString::from_redis_module_string(self.ctx.cast(), key.cast());
             self.remaining = self.remaining.saturating_sub(1);
             Some((key, value))

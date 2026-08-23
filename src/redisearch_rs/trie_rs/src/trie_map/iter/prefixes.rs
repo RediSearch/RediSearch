@@ -37,7 +37,7 @@ impl<'tm, 't, Data> Iterator for PrefixesIter<'tm, 't, Data> {
         loop {
             let current: &Node<_> = self.current_node.take()?;
 
-            // We only visit a node if all its precedessors were prefixes of `self.target`.
+            // We only visit a node if all its predecessors were prefixes of `self.target`.
             // We can thus check exclusively the key portion that belongs to this label.
             if !is_prefix(self.target, current.label()) {
                 return None;
@@ -48,7 +48,7 @@ impl<'tm, 't, Data> Iterator for PrefixesIter<'tm, 't, Data> {
             // compared to the current label.
             self.target = &self.target[current.label_len() as usize..];
 
-            // If target is not empty, there is a chance than one of the descendants
+            // If target is not empty, there is a chance that one of the descendants
             // of the current node is a prefix we need to include in our result set.
             if let Some(next_char) = self.target.first() {
                 self.current_node = current.child_starting_with(*next_char);

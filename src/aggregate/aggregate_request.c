@@ -6,23 +6,26 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "aggregate.h"
-#include "search_result_ffi.h"
-#include "reducer.h"
-
 #include <cursor.h>
 #include <query.h>
-#include <extension.h>
 #include <result_processor.h>
-#include <util/arr.h>
-#include <rmutil/util.h>
-#include "ext/default.h"
+#include <pthread.h>
+#include <stdatomic.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
+#include <sys/param.h>
+
+#include "aggregate.h"
+#include "aggregate_debug.h"
+#include "hybrid/hybrid_request.h"
+#include "search_result_ffi.h"
 #include "extension.h"
 #include "profile/profile.h"
 #include "config.h"
-#include "util/timeout.h"
 #include "query_optimizer.h"
-#include "resp3.h"
 #include "obfuscation/hidden.h"
 #include "hybrid/vector_query_utils.h"
 #include "vector_index.h"
@@ -31,9 +34,50 @@
 #include "coord/rmr/command.h"
 #include "coord/rmr/chan.h"
 #include "coord/rpnet.h"
+#include "json.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
 #include "doc_id_meta.h"
+#include "aggregate/aggregate_plan.h"
+#include "aggregate/expr/expression.h"
+#include "field_spec.h"
+#include "geo_index.h"
+#include "hiredis/sds.h"
+#include "hybrid/hybrid_cursor_mappings.h"
+#include "language.h"
+#include "numeric_filter.h"
+#include "param.h"
+#include "pipeline/pipeline.h"
+#include "pipeline/pipeline_construction.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "query_flags.h"
+#include "query_internal.h"
+#include "query_node.h"
+#include "query_param.h"
+#include "query_parser/tokenizer.h"
+#include "query_types.h"
+#include "redisearch.h"
+#include "redismodule.h"
+#include "rlookup.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "util/misc.h"
+#include "rmutil/args.h"
+#include "rmutil/rm_assert.h"
+#include "rqe_core.h"
+#include "rules.h"
+#include "search_ctx.h"
+#include "search_disk_api.h"
+#include "search_options.h"
+#include "slot_ranges.h"
+#include "spec.h"
+#include "stopwords.h"
+#include "util/arr/arr.h"
+#include "util/references.h"
+#include "util/rs_atomic.h"
+
+struct MRChannel;
 
 extern RSConfig RSGlobalConfig;
 
@@ -92,10 +136,14 @@ void FieldList_Free(FieldList *fields) {
   rm_free(fields->fields);
 }
 
+// Gets or creates the returned-field entry for `path AS name`; NULL `path` means `name`.
 ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name, const char *path) {
-  size_t foundIndex = -1;
   for (size_t ii = 0; ii < fields->numFields; ++ii) {
     if (!strcmp(fields->fields[ii].name, name)) {
+      if (path && !fields->fields[ii].explicitReturn &&
+          fields->fields[ii].mode != SummarizeMode_None) {
+        fields->fields[ii].path = path;
+      }
       return fields->fields + ii;
     }
   }
@@ -247,7 +295,6 @@ int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *sta
 
 void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req) {
   if (AREQ_RequestFlags(req) & QEXEC_FORMAT_EXPAND) {
-    sctx->expanded = 1;
     sctx->apiVersion = MAX(APIVERSION_RETURN_MULTI_CMP_FIRST, req->reqConfig.dialectVersion);
   } else {
     sctx->apiVersion = req->reqConfig.dialectVersion;
@@ -735,9 +782,11 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     return REDISMODULE_ERR;
   }
 
-  searchOpts->inkeys = (const sds*)inKeys.objs;
+  // INKEYS / INFIELDS: sub-cursors of the parse cursor; objs are
+  // RedisModuleString pointers, borrowed from the request's held argv.
+  searchOpts->inkeys = (RedisModuleString **)inKeys.objs;
   searchOpts->ninkeys = inKeys.argc;
-  searchOpts->legacy.infields = (const char **)inFields.objs;
+  searchOpts->legacy.infields = (RedisModuleString **)inFields.objs;
   searchOpts->legacy.ninfields = inFields.argc;
   // if language is NULL, set it to RS_LANG_UNSET and it will be updated
   // later, taking the index language
@@ -907,18 +956,24 @@ static int parseGroupby(AGGPlan *plan, ArgsCursor *ac, QueryError *status) {
   const char *s;
   AC_GetString(ac, &s, NULL, AC_F_NOADVANCE);
 
-  long long nproperties;
-  int rv = AC_GetLongLong(ac, &nproperties, 0);
+  ArgsCursor propertiesAC = {0};
+  int rv = AC_GetVarArgs(ac, &propertiesAC);
   if (rv != AC_OK) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for GROUPBY: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
 
-  const char **properties = array_newlen(const char *, nproperties);
-  for (size_t i = 0; i < nproperties; ++i) {
+  uint32_t propertyCount = (uint32_t)AC_NumArgs(&propertiesAC);
+  if (propertyCount > MAX_GROUPBY_PROPERTIES) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for GROUPBY: %s", AC_Strerror(AC_ERR_ELIMIT));
+    return REDISMODULE_ERR;
+  }
+
+  const char **properties = array_newlen(const char *, propertyCount);
+  for (uint32_t i = 0; i < propertyCount; ++i) {
     const char *property;
     size_t propertyLen;
-    rv = AC_GetString(ac, &property, &propertyLen, 0);
+    rv = AC_GetString(&propertiesAC, &property, &propertyLen, 0);
     if (rv != AC_OK) {
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for GROUPBY: %s", AC_Strerror(rv));
       array_free(properties);
@@ -1010,12 +1065,8 @@ error:
   return REDISMODULE_ERR;
 }
 
-static int handleLoad(AGGPlan *plan, uint32_t *reqflags, ArgsCursor *ac, bool isDiskIndex, QueryError *status) {
+static int handleLoad(AGGPlan *plan, uint32_t *reqflags, ArgsCursor *ac, QueryError *status) {
   ArgsCursor loadfields = {0};
-  if (isDiskIndex) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_LOAD_UNSUPPORTED, NULL);
-    return REDISMODULE_ERR;
-  }
   int rc = AC_GetVarArgs(ac, &loadfields);
   if (rc == AC_ERR_PARSE) {
     // Didn't get a number, but we might have gotten a '*'
@@ -1071,8 +1122,10 @@ bool RunInThread(RedisModuleCtx *ctx) {
   return true;
 }
 
-AREQ *AREQ_New(void) {
+AREQ *AREQ_New(RedisModuleString **argv, uint32_t argc) {
   AREQ* req = rm_calloc(1, sizeof(AREQ));
+  QueryRequest_Init(&req->base, QUERY_REQUEST_KIND_AREQ, argv, argc);
+  QueryRequest_SetEndProcRef(&req->base, &req->pipeline.qctx.endProc);
   /*
   unsigned int dialectVersion;
   long long queryTimeoutMS;
@@ -1091,8 +1144,6 @@ AREQ *AREQ_New(void) {
   req->prefixesOffset = 0;
   req->keySpaceVersion = INVALID_KEYSPACE_VERSION;
   req->querySlots = NULL;
-  RequestSyncCtx_Init(&req->syncCtx);
-  req->storedReplyState.err = QueryError_Default();
   return req;
 }
 
@@ -1105,92 +1156,91 @@ bool SearchTime_IsTimedOut(void *arg) {
 
 bool AREQ_TryClaimAggregateResults(AREQ *req) {
   bool expected = false;
-  return atomic_compare_exchange_strong_explicit(&req->syncCtx.aggregatingResults, &expected, true,
-                                                 memory_order_relaxed, memory_order_relaxed);
+  return atomic_compare_exchange_strong_explicit(&req->base.async.aggregatingResults, &expected,
+                                                 true, memory_order_relaxed,
+                                                 memory_order_relaxed);
+}
+
+bool QueryRequest_TryOwnStrictRead(QueryRequest *request, QueryRequestStrictReadOwner owner) {
+  int expected = QUERY_REQUEST_READ_OWNER_NONE;
+  // acq_rel: the winner's subsequent actions (BG running the read / the timer
+  // replying depleted) must be ordered against the loser's observation.
+  return atomic_compare_exchange_strong_explicit(
+      &request->async.strictReadOwner, &expected, (int)owner, memory_order_acq_rel,
+      memory_order_acquire);
 }
 
 void AREQ_SignalAggregateResultsComplete(AREQ *req) {
-  pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
-  req->syncCtx.aggregateResultsDone = true;
-  pthread_cond_broadcast(&req->syncCtx.aggregateResultsCond);
-  pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
+  pthread_mutex_lock(&req->base.async.aggregateResultsLock);
+  req->base.async.aggregateResultsDone = true;
+  pthread_cond_broadcast(&req->base.async.aggregateResultsCond);
+  pthread_mutex_unlock(&req->base.async.aggregateResultsLock);
 }
 
 void AREQ_WaitForAggregateResultsComplete(AREQ *req) {
-  pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
-  while (!req->syncCtx.aggregateResultsDone) {
-    pthread_cond_wait(&req->syncCtx.aggregateResultsCond, &req->syncCtx.aggregateResultsLock);
+  pthread_mutex_lock(&req->base.async.aggregateResultsLock);
+  while (!req->base.async.aggregateResultsDone) {
+    pthread_cond_wait(&req->base.async.aggregateResultsCond,
+                      &req->base.async.aggregateResultsLock);
   }
-  pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
+  pthread_mutex_unlock(&req->base.async.aggregateResultsLock);
+}
+
+/* Read the common base without coupling this path to a concrete request kind. */
+static bool QueryRequest_OwnedRequestTimedOut(QueryRequest *request) {
+  return QueryRequestTimeout_GetTimedOut(&request->timeout);
 }
 
 /* See aggregate.h for the full handshake contract. The aggregateResultsLock
  * serializes the worker's "set holding, then check timedOut" against the main
  * thread's "set timedOut, then check holding", making the two race-free. */
-bool RequestSyncCtx_SafeLoaderEnterGIL(RequestSyncCtx *sync) {
+bool QueryRequest_SafeLoaderEnterGIL(QueryRequest *request) {
+  QueryRequestAsyncState *async = &request->async;
   bool proceed;
-  pthread_mutex_lock(&sync->aggregateResultsLock);
-  if (RS_AtomicBoolLoadRelaxed(&sync->timedOut)) {
+  pthread_mutex_lock(&async->aggregateResultsLock);
+  if (QueryRequest_OwnedRequestTimedOut(request)) {
     // Timeout already fired: do not mark holding, bail instead of blocking on the
     // GIL the main thread holds while it waits.
     proceed = false;
   } else {
-    sync->safeLoaderHoldingGIL = true;
+    async->safeLoadersHoldingGIL++;
     proceed = true;
   }
-  pthread_mutex_unlock(&sync->aggregateResultsLock);
+  pthread_mutex_unlock(&async->aggregateResultsLock);
   return proceed;
 }
 
-void RequestSyncCtx_SafeLoaderExitGIL(RequestSyncCtx *sync) {
-  pthread_mutex_lock(&sync->aggregateResultsLock);
-  sync->safeLoaderHoldingGIL = false;
-  pthread_mutex_unlock(&sync->aggregateResultsLock);
+void QueryRequest_SafeLoaderExitGIL(QueryRequest *request) {
+  QueryRequestAsyncState *async = &request->async;
+  pthread_mutex_lock(&async->aggregateResultsLock);
+  RS_LOG_ASSERT(async->safeLoadersHoldingGIL > 0,
+                "SafeLoaderExitGIL without matching EnterGIL");
+  async->safeLoadersHoldingGIL--;
+  pthread_mutex_unlock(&async->aggregateResultsLock);
 }
 
-bool RequestSyncCtx_TimeoutPreemptSafeLoaderGIL(RequestSyncCtx *sync) {
+bool QueryRequest_TimeoutPreemptSafeLoaderGIL(QueryRequest *request) {
+  QueryRequestAsyncState *async = &request->async;
   bool holding;
-  pthread_mutex_lock(&sync->aggregateResultsLock);
-  holding = sync->safeLoaderHoldingGIL;
-  pthread_mutex_unlock(&sync->aggregateResultsLock);
+  pthread_mutex_lock(&async->aggregateResultsLock);
+  holding = async->safeLoadersHoldingGIL > 0;
+  pthread_mutex_unlock(&async->aggregateResultsLock);
   return holding;
 }
 
 void AREQ_ResetForCursorReadReturnStrict(AREQ *req) {
-  RS_AtomicBoolStoreRelaxed(&req->syncCtx.aggregatingResults, false);
-  req->syncCtx.aggregateResultsClaimLost = false;
-  pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
-  req->syncCtx.aggregateResultsDone = false;
-  req->syncCtx.safeLoaderHoldingGIL = false;
-  pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
-  RequestSyncCtx_ClearTimedOut(&req->syncCtx);
+  RS_AtomicBoolStoreRelaxed(&req->base.async.aggregatingResults, false);
+  req->base.async.aggregateResultsClaimLost = false;
+  pthread_mutex_lock(&req->base.async.aggregateResultsLock);
+  req->base.async.aggregateResultsDone = false;
+  req->base.async.safeLoadersHoldingGIL = 0;
+  pthread_mutex_unlock(&req->base.async.aggregateResultsLock);
+  QueryRequestTimeout_ClearTimedOut(&req->base.timeout);
   ResultProcessor *root = AREQ_QueryProcessingCtx(req)->rootProc;
   if (root && root->type == RP_NETWORK) {
     ((RPNet *)root)->drainOnly = false;
   }
 }
-
-void RequestSyncCtx_RegisterAbortWakeChannel(RequestSyncCtx *ctx, struct MRChannel *chan) {
-  pthread_mutex_lock(&ctx->abortWakeLock);
-  ctx->abortWakeChannel = chan;
-  pthread_mutex_unlock(&ctx->abortWakeLock);
-}
-
-void RequestSyncCtx_UnregisterAbortWakeChannel(RequestSyncCtx *ctx) {
-  pthread_mutex_lock(&ctx->abortWakeLock);
-  ctx->abortWakeChannel = NULL;
-  pthread_mutex_unlock(&ctx->abortWakeLock);
-}
-
-void RequestSyncCtx_WakeAbortChannel(RequestSyncCtx *ctx) {
-  pthread_mutex_lock(&ctx->abortWakeLock);
-  if (ctx->abortWakeChannel) {
-    MRChannel_WakeAbort(ctx->abortWakeChannel);
-  }
-  pthread_mutex_unlock(&ctx->abortWakeLock);
-}
-
-
 
 int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, bool isDiskIndex, QueryError *status) {
   while (!AC_IsAtEnd(ac)) {
@@ -1214,7 +1264,7 @@ int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, bool isDiskIndex, 
         return REDISMODULE_ERR;
       }
     } else if (AC_AdvanceIfMatch(ac, "LOAD")) {
-      if (handleLoad(papCtx->plan, papCtx->reqflags, ac, isDiskIndex, status) != REDISMODULE_OK) {
+      if (handleLoad(papCtx->plan, papCtx->reqflags, ac, status) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
     } else if (AC_AdvanceIfMatch(ac, "FILTER")) {
@@ -1267,26 +1317,25 @@ static bool shouldCheckInPipelineTimeout(RedisModuleCtx* ctx, AREQ *req) {
 
 }
 
-int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDiskIndex, QueryError *status) {
-  req->args = rm_malloc(sizeof(*req->args) * argc);
-  req->nargs = argc;
-  // Copy the arguments into an owned array of sds strings
-  for (size_t ii = 0; ii < argc; ++ii) {
-    size_t n;
-    const char *s = RedisModule_StringPtrLen(argv[ii], &n);
-    req->args[ii] = sdsnewlen(s, n);
-  }
+int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskIndex, QueryError *status) {
+  RS_ASSERT(offset <= req->base.args.parseArgc &&
+            req->base.args.parseArgc <= req->base.args.argc);
+  req->base.args.queryOffset = offset;
 
   // Parse the query and basic keywords first..
+  // The cursor covers the whole held command, pre-advanced to the parse
+  // start: positions recorded off the cursor (syntax-error offsets,
+  // prefixesOffset) are relative to the full command, not the parsed tail.
   ArgsCursor ac = {0};
-  ArgsCursor_InitSDS(&ac, req->args, req->nargs);
+  ArgsCursor_InitRString(&ac, req->base.args.argv, req->base.args.parseArgc);
+  AC_AdvanceBy(&ac, offset);
 
   if (AC_IsAtEnd(&ac)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "No query string provided");
     return REDISMODULE_ERR;
   }
 
-  req->query = AC_GetStringNC(&ac, NULL);
+  AC_Advance(&ac);  // The query string: argv[queryOffset], read via AREQ_Query
   initializeAREQ(req);
   RSSearchOptions *searchOpts = &req->searchopts;
   ParseAggPlanContext papCtx;
@@ -1426,6 +1475,8 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
   }
 
   if (opts->inkeys) {
+    // inkeys is a window into the held argv, which outlives the AST; the
+    // id-filter node borrows it as-is.
     QAST_GlobalFilterOptions filterOpts = {.keys = opts->inkeys, .nkeys = opts->ninkeys};
 
     // For SearchDisk, resolve docIds from keys on the main thread
@@ -1433,20 +1484,16 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
       filterOpts.docIds = rm_malloc(sizeof(t_docId) * opts->ninkeys);
       for (size_t ii = 0; ii < opts->ninkeys; ++ii) {
         uint64_t docId = 0;
-        // TODO: inkeys are extracted from RedisModuleString* in the command arguments, we should consider
-        // changing the search options to also use RedisModuleString* to avoid this extra conversion
-        RedisModuleString* keyName = RedisModule_CreateString(
-            sctx->redisCtx, opts->inkeys[ii], sdslen(opts->inkeys[ii]));
-        if (DocIdMeta_Get(sctx->redisCtx, keyName, sctx->spec->specId, &docId) == REDISMODULE_OK) {
+        if (DocIdMeta_Get(sctx->redisCtx, opts->inkeys[ii], sctx->spec->specId, &docId) == REDISMODULE_OK) {
           filterOpts.docIds[ii] = docId;
         } else {
           filterOpts.docIds[ii] = 0;  // Mark as not found
         }
-        RedisModule_FreeString(sctx->redisCtx, keyName);
       }
     }
 
     QAST_SetGlobalFilters(ast, &filterOpts);
+    // Non-NULL only if the transfer to the query node did not happen.
     if (filterOpts.docIds) {
       rm_free(filterOpts.docIds);
     }
@@ -1460,10 +1507,13 @@ static bool IsIndexCoherent(AREQ *req) {
     return true;
   }
 
-  sds *args = req->args;
-  long long n_prefixes = strtol(args[req->prefixesOffset + 1], NULL, 10);
+  // prefixesOffset indexes the full held command (recorded off the compile
+  // cursor, which covers the whole command).
+  RedisModuleString **args = req->base.args.argv;
+  long long n_prefixes = 0;
+  RedisModule_StringToLongLong(args[req->prefixesOffset + 1], &n_prefixes);
   // The first argument is at req->prefixesOffset + 2
-  sds *prefixes = args + req->prefixesOffset + 2;
+  RedisModuleString **prefixes = args + req->prefixesOffset + 2;
   return IndexSpec_IsCoherent(AREQ_SearchCtx(req)->spec, prefixes, n_prefixes);
 }
 
@@ -1536,29 +1586,82 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
   return REDISMODULE_OK;
 }
 
-// True when a query returns no document fields (NOCONTENT, or RETURN 0, both of
-// which set QEXEC_F_SEND_NOFIELDS), so disk field loading is not needed.
-static inline bool queryReturnsNoFields(uint32_t reqflags) {
-  return (reqflags & QEXEC_F_SEND_NOFIELDS) != 0;
+// Check if a single FieldSpec has a multi-value JSONPath.
+// This request-time validation is used only for JSON HIGHLIGHT/SUMMARIZE fields.
+// Returns true if the field is a TEXT field with a multi-value JSONPath.
+static bool fieldSpecIsMultiValueText(const FieldSpec *fs) {
+  if (!fs || !FIELD_IS(fs, INDEXFLD_T_FULLTEXT) || !fs->fieldPath) {
+    return false;
+  }
+  RedisModuleString *err_msg = NULL;
+  JSONPath path = pathParse(fs->fieldPath, &err_msg);
+  if (err_msg) {
+    RedisModule_FreeString(RSDummyContext, err_msg);
+  }
+  if (!path) {
+    return false;
+  }
+  bool isSingle = japi->pathIsSingle(path);
+  japi->pathFree(path);
+  return !isSingle;
 }
 
-int FlexValidation_RejectFieldReturn(const IndexSpec *sp, uint32_t reqflags,
-                                     FlexFieldReturnRule rule, QueryError *status) {
-  if (!SearchDisk_IsEnabledForValidation() || queryReturnsNoFields(reqflags)) {
-    return REDISMODULE_OK;
+static bool jsonPathIsMultiValue(const char *pathStr) {
+  if (!pathStr || *pathStr != '$') {
+    return false;
   }
 
-  const bool isJson = isSpecJson(sp);
-  if (!isJson && rule == FlexFieldReturnRule_RejectJsonOnly) {
-    return REDISMODULE_OK;
+  RedisModuleString *err_msg = NULL;
+  JSONPath path = japi->pathParse(pathStr, RSDummyContext, &err_msg);
+  if (err_msg) {
+    RedisModule_FreeString(RSDummyContext, err_msg);
   }
-  if (!isJson && rule == FlexFieldReturnRule_AllowHashSearchOnly &&
-      (reqflags & QEXEC_F_IS_SEARCH)) {
-    return REDISMODULE_OK;
+  if (!path) {
+    return false;
   }
 
-  QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_NOCONTENT_OR_RETURN0_REQUIRED, NULL);
-  return REDISMODULE_ERR;
+  bool isSingle = japi->pathIsSingle(path);
+  japi->pathFree(path);
+  return !isSingle;
+}
+
+static const FieldSpec *getHighlightFieldSpec(const IndexSpec *index, const ReturnedField *rf) {
+  const FieldSpec *fs = IndexSpec_GetFieldWithLength(index, rf->name, strlen(rf->name));
+  if (!fs && rf->path && strcmp(rf->path, rf->name) != 0) {
+    fs = IndexSpec_GetFieldWithLength(index, rf->path, strlen(rf->path));
+  }
+  return fs;
+}
+
+// Validate that HIGHLIGHT/SUMMARIZE fields on a JSON index all use single-value JSONPaths.
+// Returns REDISMODULE_OK if all fields are single-value, REDISMODULE_ERR and sets `status`
+// otherwise.
+static int AREQ_HasMultiValueHighlightFields(const AREQ *req, const IndexSpec *index,
+                                             QueryError *status) {
+  const FieldList *fields = &req->outFields;
+  bool hasMultiValue = false;
+
+  // outFields contains fields from both RETURN and HIGHLIGHT/SUMMARIZE FIELDS.
+  for (size_t ii = 0; ii < fields->numFields; ++ii) {
+    const ReturnedField *rf = &fields->fields[ii];
+    // Skip fields that are only in RETURN (no highlight/summarize mode).
+    if (rf->mode == SummarizeMode_None && fields->defaultField.mode == SummarizeMode_None) {
+      continue;
+    }
+    const FieldSpec *fs = getHighlightFieldSpec(index, rf);
+    if (jsonPathIsMultiValue(rf->path) || (fs && fieldSpecIsMultiValueText(fs))) {
+      hasMultiValue = true;
+      break;
+    }
+  }
+
+  if (hasMultiValue) {
+    QueryError_SetError(
+        status, QUERY_ERROR_CODE_INVAL,
+        "HIGHLIGHT/SUMMARIZE is not supported for JSON fields with multi-value JSONPath");
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
 }
 
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
@@ -1569,7 +1672,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Borrow the request's timed-out flag onto the sctx so pipeline RPs can
   // observe a RETURN-STRICT main-thread timeout without holding an AREQ
   // back-pointer (read via SearchTime_IsTimedOut).
-  sctx->time.timedOutFlag = &req->syncCtx.timedOut;
+  sctx->time.timedOutFlag = &req->base.timeout.timedOut;
 
   if (!IsIndexCoherent(req)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_MISMATCH, NULL);
@@ -1578,10 +1681,19 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   QEFlags reqFlags = AREQ_RequestFlags(req);
   if (isSpecJson(index) && (reqFlags & QEXEC_F_SEND_HIGHLIGHT)) {
-    QueryError_SetError(
-        status, QUERY_ERROR_CODE_INVAL,
-        "HIGHLIGHT/SUMMARIZE is not supported with JSON indexes");
-    return REDISMODULE_ERR;
+    // JSON requires RETURN so that fields are loaded individually. Without RETURN,
+    // JSON "LOAD ALL" produces a single serialized blob and individual fields are
+    // not available for highlighting.
+    if (!req->outFields.explicitReturn || req->outFields.numFields == 0) {
+      QueryError_SetError(
+          status, QUERY_ERROR_CODE_INVAL,
+          "HIGHLIGHT/SUMMARIZE on JSON indexes requires RETURN with explicit field names");
+      return REDISMODULE_ERR;
+    }
+    // Multi-value JSONPaths are rejected regardless of dialect.
+    if (AREQ_HasMultiValueHighlightFields(req, index, status) != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
+    }
   }
 
   if ((index->flags & Index_StoreByteOffsets) == 0 && (reqFlags & QEXEC_F_SEND_HIGHLIGHT)) {
@@ -1591,24 +1703,14 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  // Disk (flex) field-loading validation, now that the spec is bound. JSON-on-disk
-  // loading is unsupported; HASH-on-disk loads via the async loader, but only on
-  // the FT.SEARCH output pipeline. Everything else still requires NOCONTENT /
-  // RETURN 0. (On the coordinator this is enforced pre-fan-out; see
-  // prepareForExecution.)
-  if (FlexValidation_RejectFieldReturn(index, reqFlags,
-                                       FlexFieldReturnRule_AllowHashSearchOnly,
-                                       status) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
-
   // Go through the query options and see what else needs to be filled in!
   // 1) INFIELDS
   if (opts->legacy.ninfields) {
     opts->fieldmask = 0;
     for (size_t ii = 0; ii < opts->legacy.ninfields; ++ii) {
-      const char *s = opts->legacy.infields[ii];
-      t_fieldMask bit = IndexSpec_GetFieldBit(index, s, strlen(s));
+      size_t slen;
+      const char *s = RedisModule_StringPtrLen(opts->legacy.infields[ii], &slen);
+      t_fieldMask bit = IndexSpec_GetFieldBit(index, s, slen);
       opts->fieldmask |= bit;
     }
   }
@@ -1653,7 +1755,9 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   bool skipParse = req->parsedVectorData && req->parsedVectorData->skipFilterIntegration;
 
   if (!skipParse) {
-    int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), dialectVersion, status);
+    size_t queryLen;
+    const char *query = AREQ_Query(req, &queryLen);
+    int rv = QAST_Parse(ast, sctx, opts, query, queryLen, dialectVersion, status);
     if (rv != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
@@ -1714,9 +1818,10 @@ void ChunkReplyState_Destroy(ChunkReplyState *state) {
 
   // Timeout edge case: cursor wasn't handled by reply_callback.
   // See ChunkReplyState ownership model in aggregate.h for full explanation.
-  // We must clear execState before Cursor_Free to prevent the AREQ_DecrRef loop.
+  // We must clear the cursor's request handle before Cursor_Free to prevent a
+  // recursive release while this request is already being destroyed.
   if (state->cursor) {
-    state->cursor->execState = NULL;
+    state->cursor->query = NULL;
     Cursor_Free(state->cursor);
     state->cursor = NULL;
   }
@@ -1725,8 +1830,21 @@ void ChunkReplyState_Destroy(ChunkReplyState *state) {
   QueryError_ClearError(&state->err);
 }
 
-static void AREQ_Free(AREQ *req) {
-  ChunkReplyState_Destroy(&req->storedReplyState);
+AREQ *AREQ_IncrRef(AREQ *req) {
+  QueryRequest_IncrRef(&req->base);
+  return req;
+}
+
+void AREQ_DecrRef(AREQ *req) {
+  if (!req) return;
+  QueryRequest_DecrRef(&req->base);
+}
+
+void AREQ_Free(AREQ *req) {
+  if (IsDebug(req)) {
+    // Debug requests are allocated as AREQ_Debug (AREQ is the first member).
+    AREQ_Debug_FreeParams((AREQ_Debug *)req);
+  }
 
   // Check if rootiter exists but pipeline was never built (no result processors)
   // In this case, we need to free the rootiter manually since no RPQueryIterator
@@ -1758,23 +1876,14 @@ static void AREQ_Free(AREQ *req) {
   }
   rm_free((void *)req->querySlots);
 
-  // Finally, free the context. If we are a cursor or have multi workers threads,
-  // we need also to detach the ("Thread Safe") context.
-  RedisModuleCtx *thctx = NULL;
+  // Finally, free the context. Its redisCtx is a cycle-scoped borrow, never
+  // owned, so there is nothing to release here.
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
   if (sctx) {
-    if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-      thctx = sctx->redisCtx;
-      sctx->redisCtx = NULL;
-    }
     // Here we unlock the spec
     SearchCtx_Free(sctx);
   }
 
-  for (size_t ii = 0; ii < req->nargs; ++ii) {
-    sdsfree(req->args[ii]);
-    req->args[ii] = NULL;
-  }
   if (req->searchopts.legacy.filters) {
     for (size_t ii = 0; ii < array_len(req->searchopts.legacy.filters); ++ii) {
       LegacyNumericFilter *nf = req->searchopts.legacy.filters[ii];
@@ -1792,9 +1901,6 @@ static void AREQ_Free(AREQ *req) {
     Param_DictFree(req->searchopts.params);
   }
   FieldList_Free(&req->outFields);
-  if (thctx) {
-    RedisModule_FreeThreadSafeContext(thctx);
-  }
   if(req->requiredFields) {
     array_free(req->requiredFields);
   }
@@ -1804,28 +1910,15 @@ static void AREQ_Free(AREQ *req) {
     req->parsedVectorData = NULL;
   }
 
-  rm_free(req->args);
-
-  RequestSyncCtx_Destroy(&req->syncCtx);
+  QueryRequest_Destroy(&req->base);
 
   rm_free(req);
 }
 
-AREQ *AREQ_IncrRef(AREQ *req) {
-  __atomic_fetch_add(&req->syncCtx.refcount, 1, __ATOMIC_RELAXED);
-  return req;
-}
-
-void AREQ_DecrRef(AREQ *req) {
-  if (req && !__atomic_sub_fetch(&req->syncCtx.refcount, 1, __ATOMIC_ACQ_REL)) {
-    AREQ_Free(req);
-  }
-}
-
 void AREQ_CleanUpStoredCursor(AREQ *req) {
-  if (req->storedReplyState.cursor) {
-    Cursor *cursor = req->storedReplyState.cursor;
-    req->storedReplyState.cursor = NULL;
+  if (req->base.reply.cursor) {
+    Cursor *cursor = req->base.reply.cursor;
+    req->base.reply.cursor = NULL;
     Cursor_Free(cursor);
   }
 }

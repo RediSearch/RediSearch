@@ -273,3 +273,106 @@ class TestIteratorsRevalidate:
 
         # No remaining results since we deleted all matching documents
         self.env.assertEqual(remaining_docs, [])
+
+
+class TestIteratorsRevalidateTimeout:
+    """
+    A query whose deadline expires while the iterator tree is being revalidated must be reported as
+    timed out, not as a query that ran to completion.
+
+    Revalidation only happens when a query resumes after releasing the spec lock, so the deadline
+    has to expire in that narrow window. `MOCK_REVALIDATE_TIMEOUT` stands in for it: the timeout
+    sources a test can drive directly are the same flags the result processor checks immediately
+    after revalidating, which hides the very case under test.
+    """
+
+    def __init__(self):
+        skipTest(cluster=True)
+        self.env = Env(protocol=3,
+                       moduleArgs='FORK_GC_CLEAN_THRESHOLD 1 FORK_GC_RUN_INTERVAL 99999999999999999')
+
+    def setUp(self):
+        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()
+        with self.env.getClusterConnectionIfNeeded() as conn:
+            for i in range(1, 6):
+                conn.execute_command('HSET', f'doc:{i}', 'text', 'apple')
+        self.prev_policy = self.env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+
+    def tearDown(self):
+        self.env.cmd(debug_cmd(), 'MOCK_REVALIDATE_TIMEOUT', 'disable')
+        self.env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, self.prev_policy)
+        self.env.flush()
+
+    def open_cursor(self, on_timeout):
+        """Open a cursor under `on_timeout`, then stage a revalidation that will time out.
+
+        The policy is frozen onto the cursor when it is created, so it has to be set first.
+
+        The delete and the GC cycle are what make revalidation do real work in production - the
+        iterators re-seek an index whose blocks moved under them, which is where the deadline would
+        actually expire. The mock reports the timeout before any of that runs, so this setup does
+        not affect the assertions; it is here to keep the sequence recognisable as the production
+        one, not to drive the timeout.
+        """
+        self.env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, on_timeout).ok()
+        res, cursor = self.env.cmd('FT.AGGREGATE', 'idx', 'apple', 'LOAD', '1', '@__key',
+                                   'WITHCURSOR', 'COUNT', '1')
+        self.env.assertEqual(len(res['results']), 1)
+        self.env.assertNotEqual(cursor, 0, message="the cursor must still have results to read")
+
+        with self.env.getClusterConnectionIfNeeded() as conn:
+            self.env.assertEqual(conn.execute_command('DEL', 'doc:2'), 1)
+        forceInvokeGC(self.env)
+
+        self.env.expect(debug_cmd(), 'MOCK_REVALIDATE_TIMEOUT', 'enable').ok()
+        return cursor
+
+    def test_status_reports_whether_the_switch_is_on(self):
+        """`status` makes a server left with the switch on diagnosable rather than baffling."""
+        self.env.expect(debug_cmd(), 'MOCK_REVALIDATE_TIMEOUT', 'status').equal(
+            'Mock revalidation timeout: disabled')
+
+        self.env.expect(debug_cmd(), 'MOCK_REVALIDATE_TIMEOUT', 'enable').ok()
+        self.env.expect(debug_cmd(), 'MOCK_REVALIDATE_TIMEOUT', 'status').equal(
+            'Mock revalidation timeout: enabled')
+
+        self.env.expect(debug_cmd(), 'MOCK_REVALIDATE_TIMEOUT', 'disable').ok()
+        self.env.expect(debug_cmd(), 'MOCK_REVALIDATE_TIMEOUT', 'status').equal(
+            'Mock revalidation timeout: disabled')
+
+        self.env.expect(debug_cmd(), 'MOCK_REVALIDATE_TIMEOUT', 'bogus').error().contains(
+            'Use: enable, disable, or status')
+
+    def test_fail_policy_errors_on_revalidation_timeout(self):
+        """Under ON_TIMEOUT FAIL the read is an error, not a silently truncated result set."""
+        cursor = self.open_cursor('fail')
+
+        self.env.expect('FT.CURSOR', 'READ', 'idx', cursor).error().contains(
+            'Timeout limit was reached')
+
+    def test_return_policy_warns_and_drops_the_tree(self):
+        """Under ON_TIMEOUT RETURN the read warns instead of ending cleanly, and the tree is gone.
+
+        Both halves matter. The warning is the fix: the client is told the results are partial
+        rather than complete. The empty tail is the cost that comes with it - a timed-out
+        revalidation leaves the iterators indeterminate, so they are freed exactly as an aborted
+        revalidation frees them, and the cursor has nothing left to serve even once the deadline is
+        out of the way.
+        """
+        cursor = self.open_cursor('return')
+
+        res, cursor = self.env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+        self.env.assertNotEqual(cursor, 0,
+                                message="RETURN keeps the cursor alive across a timeout; a cursor "
+                                        "depleted here means the read ended as if the index were "
+                                        "exhausted")
+        self.env.assertEqual(res['results'], [],
+                             message="the timeout lands before any result is read")
+        VerifyTimeoutWarningResp3(self.env, res,
+                                  message="a revalidation timeout must reach the client")
+
+        self.env.expect(debug_cmd(), 'MOCK_REVALIDATE_TIMEOUT', 'disable').ok()
+        while cursor != 0:
+            res, cursor = self.env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+            self.env.assertEqual(res['results'], [],
+                                 message="the tree was freed, so no further results can arrive")

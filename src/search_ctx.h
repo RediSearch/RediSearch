@@ -12,6 +12,7 @@
 #include <sched.h>
 
 #include "redismodule.h"
+#include "rmutil/rm_assert.h"
 #include "search_disk_api.h"
 #include "spec.h"
 #include <time.h>
@@ -27,10 +28,13 @@ extern "C" {
 #define APIVERSION_RETURN_MULTI_CMP_FIRST 3
 
 typedef enum {
-  RS_CTX_UNSET,
-  RS_CTX_READONLY,
-  RS_CTX_READWRITE
-} RSContextFlags;
+  SPEC_LOCK_UNSET,
+  SPEC_LOCK_READ,
+  SPEC_LOCK_WRITE,
+  /* Read lock held by an outer scope on this thread: read freely, but never lock
+   * or unlock the rwlock. See RedisSearchCtx_BorrowSpecReadLock. */
+  SPEC_LOCK_READ_BORROWED,
+} SpecLockState;
 
 typedef struct SearchTime {
   // current execution start time - real clock
@@ -54,13 +58,13 @@ bool SearchTime_IsTimedOut(void *arg);
 
 /** Context passed to all redis related search handling functions. */
 typedef struct RedisSearchCtx {
+  // Borrowed, never owned; valid only within the execution cycle that lent it
+  // (command handler, worker cycle, or per-read install for cursor reads).
   RedisModuleCtx *redisCtx;
-  RedisModuleKey *key_;
   IndexSpec *spec;
   SearchTime time;
-  unsigned int apiVersion; // API Version to allow for backward compatibility / alternative functionality
-  unsigned int expanded; // Reply format
-  RSContextFlags flags;
+  uint8_t apiVersion; // API Version to allow for backward compatibility / alternative functionality
+  SpecLockState lock_state;
   // Per-query disk snapshot (optional, NULL when no snapshot has been taken or when the
   // backing index has no disk component). Used by the disk-iterator construction paths
   // so all iterators created during one query observe a consistent on-disk view.
@@ -76,13 +80,16 @@ RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, 
 // Same as above, only from c string (null terminated)
 RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL);
 
+// Same as NewSearchCtxC, with explicit index-load accounting options.
+RedisSearchCtx *NewSearchCtxCEx(RedisModuleCtx *ctx, const char *indexName, bool resetTTL,
+                                IndexLoadOptionsFlags flags);
+
 static inline RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *sp) {
   RedisSearchCtx sctx = {
                           .redisCtx = ctx,
-                          .key_ = NULL,
                           .spec = sp,
                           .time = {.current = { 0, 0 }, .timeout = { 0, 0 }, .skipTimeoutChecks = false, .timedOutFlag = NULL},
-                          .flags = RS_CTX_UNSET,
+                          .lock_state = SPEC_LOCK_UNSET,
                           .diskSnapshot = NULL,};
   return sctx;
 }
@@ -116,6 +123,22 @@ int RedisSearchCtx_TryLockSpecRead(RedisSearchCtx *sctx);
 void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *sctx);
 
 void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx);
+
+/* Mark `sctx` as borrowing a read lock that the caller holds on the same spec.
+ * Neither function touches the rwlock: while borrowed, UnlockSpec on this context
+ * is a no-op and its query iterator skips locking and revalidation, so the
+ * caller's lock stays held for the whole borrow. Clearing a context that never
+ * borrowed is a no-op, so a caller can clean up unconditionally. */
+void RedisSearchCtx_BorrowSpecReadLock(RedisSearchCtx *sctx);
+void RedisSearchCtx_ClearBorrowedSpecReadLock(RedisSearchCtx *sctx);
+
+/* Debug-only (ENABLE_ASSERT) check that the spec lock is not held. Used at
+ * background request-cycle boundaries: the lock must be taken and released
+ * within a single cycle, on the same worker thread — a later release (request
+ * free / client unblock on the main thread) would unlock the pthread_rwlock
+ * from a thread that does not own it, which is undefined behavior. */
+#define RedisSearchCtx_AssertLockNotHeld(sctx) \
+  RS_LOG_ASSERT(!(sctx) || (sctx)->lock_state == SPEC_LOCK_UNSET, "spec lock must not be held")
 
 #ifdef __cplusplus
 }

@@ -9,7 +9,7 @@
 
 // Stub `AREQ_CheckTimedOut` for lib unit tests so the linker doesn't pull
 // `query.c.o` (and its C/coord/SSL transitive closure) from
-// `libredisearch_all.a`. The flag is only ever set by Redis on the main
+// `libredisearch_c_bundle.a`. The flag is only ever set by Redis on the main
 // thread, which doesn't exist here. Integration tests use the real symbol.
 #[cfg(test)]
 #[unsafe(no_mangle)]
@@ -21,14 +21,16 @@ use std::ptr::NonNull;
 use std::sync::OnceLock;
 
 use index_spec::IndexSpecReadGuard;
+use ref_mode::{Active, Ref};
 use rqe_core::{DocId, FieldIndex};
 use thiserror::Error;
 
-use ::inverted_index::FieldMask;
-use index_result::RSIndexResult;
+use ::inverted_index::{FieldMask, NumericFilter};
+use index_result::{RSIndexResult, RawIndexResult};
 pub use query_error::QueryError;
 use query_term::RSQueryTerm;
 
+pub mod boxed;
 pub mod c2rust;
 pub mod config;
 pub mod deferred;
@@ -36,11 +38,13 @@ pub mod empty;
 pub mod expiration_checker;
 pub mod geo_shape;
 pub mod id_list;
+pub mod id_list_lazy;
 pub mod interop;
 pub mod intersection;
 pub mod inverted_index;
 pub mod maybe_empty;
 pub mod metric;
+pub mod metric_lazy;
 pub mod not;
 pub mod not_optimized;
 pub mod not_reducer;
@@ -49,6 +53,7 @@ pub mod optional_optimized;
 pub mod optional_reducer;
 pub mod profile;
 pub mod profile_print;
+pub mod resume_outcome;
 pub mod union;
 mod union_flat;
 mod union_heap;
@@ -58,17 +63,26 @@ mod union_trimmed;
 pub mod utils;
 pub mod wildcard;
 
+pub use boxed::{
+    RQEDynIterator, RQEDynSuspendedIterator, RQEIteratorBoxed, RQESuspendedIterator,
+    TypeErasedRQEIterator, TypeErasedRQESuspendedIterator,
+};
 pub use config::IteratorsConfig;
 pub use empty::Empty;
 pub use expiration_checker::{ExpirationChecker, FieldExpirationChecker, NoOpChecker};
 pub use geo_shape::{GeoShape, MemTracker, NoTracker};
 pub use id_list::IdList;
+pub use id_list_lazy::IdListLazy;
 pub use intersection::{Intersection, NewIntersectionIterator, new_intersection_iterator};
 pub use inverted_index::{
     GeoRangeError, InvalidGeoInput, Missing, Numeric, NumericIteratorVariant, Tag, Term,
-    build_geo_numeric_filters, extract_geo_unit_factor, new_geo_range_iterator,
-    open_numeric_or_geo_index,
+    TermIndexReader, build_geo_numeric_filters, build_geo_range_iterator,
+    build_numeric_filter_iterator, build_term_iterator, extract_geo_unit_factor,
+    free_geo_numeric_filters, new_geo_range_iterator, open_numeric_or_geo_index,
 };
+pub use metric::Metric;
+pub use metric_lazy::MetricLazy;
+pub use resume_outcome::ResumeOutcome;
 pub use rqe_iterator_type::IteratorType;
 pub use union::{
     Union, UnionFlat, UnionFullFlat, UnionFullHeap, UnionHeap, UnionQuickFlat, UnionQuickHeap,
@@ -77,15 +91,39 @@ pub use union::{
 pub use union_opaque::{UnionOpaque, UnionVariant};
 pub use wildcard::{NewWildcardIterator, Wildcard, WildcardIterator};
 
-#[derive(Debug, PartialEq)]
-/// The outcome of [`RQEIterator::skip_to`].
-pub enum SkipToOutcome<'iterator, 'index> {
+#[derive(Debug)]
+/// The outcome of [`RQEIterator::skip_to`], generic over the [`Ref`] mode.
+pub enum SkipToOutcomeRaw<'iterator, 'query, Rf: Ref> {
     /// The iterator has a valid entry for the requested `doc_id`.
-    Found(&'iterator mut RSIndexResult<'index>),
+    Found(&'iterator mut RawIndexResult<'query, Rf>),
 
     /// The iterator doesn't have an entry for the requested `doc_id`, but there are entries with an id greater than the requested one.
-    NotFound(&'iterator mut RSIndexResult<'index>),
+    NotFound(&'iterator mut RawIndexResult<'query, Rf>),
 }
+
+/// Manual `PartialEq` impl with a transitive bound on
+/// `RawIndexResult<'query, Rf>: PartialEq` — only [`Active`] satisfies this
+/// (see [`ref_mode`]).
+impl<'iterator, 'query, Rf: Ref> PartialEq for SkipToOutcomeRaw<'iterator, 'query, Rf>
+where
+    RawIndexResult<'query, Rf>: PartialEq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Found(a), Self::Found(b)) => a == b,
+            (Self::NotFound(a), Self::NotFound(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+/// The outcome of [`RQEIterator::skip_to`] when the iterator holds [`Active`]
+/// references into the index. This is the only instantiation that's
+/// constructible from trait-impl code today; the more general
+/// [`SkipToOutcomeRaw`] exists so the iterator structs can store function
+/// pointers whose signatures are uniform across `Active`/`Suspended`
+/// instantiations.
+pub type SkipToOutcome<'iterator, 'index> = SkipToOutcomeRaw<'iterator, 'index, Active<'index>>;
 
 #[derive(Debug, Error)]
 /// An iterator failure indications
@@ -123,11 +161,29 @@ pub trait RQEIterator<'index> {
     /// for later in time. The child iterator already has that result anyway,
     /// and it is this method which provides the ability to expose it (for later use).
     ///
+    /// # Contract
+    ///
+    /// This is a *has-current* oracle: `Some(&mut result)` while the iterator is
+    /// positioned on a result, `None` once a [`read`](Self::read) or
+    /// [`skip_to`](Self::skip_to) found nothing and left it positioned *past* its
+    /// last result. Never a stale result once exhausted — that is what lets
+    /// resume-path callers detect a move that landed at EOF.
+    ///
+    /// [`at_eof`](Self::at_eof) reports the same state inverted, so both are
+    /// driven by one piece of information: whether the iterator has run past its
+    /// last result. An iterator positioned on its final result has not, and still
+    /// owes that result to its caller. The unread state is the one exception —
+    /// see `# Usage` below.
+    ///
     /// # Usage
     ///
-    /// Calling this method before the first [`read`](Self::read) or [`skip_to`](Self::skip_to),
-    /// or directly after [`rewind`](Self::rewind) will return a default result
-    /// without meaningful data.
+    /// Before the first [`read`](Self::read) or [`skip_to`](Self::skip_to), and
+    /// directly after a [`rewind`](Self::rewind), the iterator is positioned
+    /// nowhere. Implementations that own a reusable result hand that back,
+    /// carrying no meaningful data; ones that materialise a result only on a read
+    /// — [`Empty`], or `TopKIterator` — answer `None`. Neither form says anything
+    /// about whether there are results to come, and
+    /// [`at_eof`](Self::at_eof) is `false` for both.
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>>;
 
     /// Read the next entry from the iterator.
@@ -143,6 +199,14 @@ pub trait RQEIterator<'index> {
     ///
     /// On a successful read, the iterator must set its [`last_doc_id`](Self::last_doc_id) property to the new current result id.
     ///
+    /// Conversely, a call that carries no result — `None`, or an
+    /// [`RQEIteratorError`] — must not leave
+    /// [`last_doc_id`](Self::last_doc_id) equal to `doc_id`: an iterator may not
+    /// claim the probed document as its position without a result to back it.
+    /// Parents pair the two, reading a position equal to the id they asked for as
+    /// "the child holds this document, so [`current`](Self::current) has it" —
+    /// which a bare position turns into a lie.
+    ///
     /// Return `Ok(`[`SkipToOutcome::Found`]`)` if the iterator has found a record with the `docId` and `Ok(`[`SkipToOutcome::NotFound`]`)`
     /// if the iterator found a result greater than `docId`. `None` will be returned if the iterator has reached the end of the index.
     fn skip_to(
@@ -155,10 +219,46 @@ pub trait RQEIterator<'index> {
     /// The iterator should check if it is still valid by comparing its stored state
     /// against the current index state.
     ///
+    /// # Exhaustion is terminal
+    ///
+    /// An implementation that was at [`at_eof`](Self::at_eof) on entry must still be at
+    /// it on return, and [`Moved`](RQEValidateStatus::Moved)`{ current: Some(_) }` out
+    /// of the exhausted state is forbidden outright — see [`at_eof`](Self::at_eof),
+    /// which owns the rule and why callers cannot undo acting on it.
+    ///
+    /// # Errors
+    ///
+    /// Revalidation re-reads and seeks the index to restore the position, so it can fail with an
+    /// [`RQEIteratorError`] — [`TimedOut`](RQEIteratorError::TimedOut) or
+    /// [`IoError`](RQEIteratorError::IoError) — which is distinct from
+    /// [`Aborted`](RQEValidateStatus::Aborted). On `Err` the fix-up is left half-applied: children
+    /// may have been repositioned or dropped while the state derived from them was never re-synced.
+    /// The iterator is therefore in an indeterminate state, and the caller must drop it rather than
+    /// read from it or revalidate it again. This mirrors [`RQESuspendedIterator::resume`], which
+    /// consumes the iterator and drops it on the same failure.
+    ///
+    /// At the FFI boundary the two errors are reported apart: `TimedOut` becomes
+    /// `VALIDATE_TIMEOUT`, which tells the C caller the result set is incomplete, while `IoError`
+    /// becomes `VALIDATE_ABORTED`, a dead subtree in a query that still has time left.
+    ///
     /// # Locking
     ///
     /// The caller must hold the spec read lock, represented by [`IndexSpecReadGuard`].
     /// The lock ensures the spec remains valid and unchanged during this call.
+    ///
+    /// # Errors
+    ///
+    /// An error is terminal. It interrupts a fix-up that is already half applied —
+    /// children repositioned or dropped, the state derived from them never re-synced —
+    /// so [`current`](Self::current), [`at_eof`](Self::at_eof) and
+    /// [`last_doc_id`](Self::last_doc_id) stop describing anything, and there is no
+    /// earlier state to roll back to either: the position they would be restored to
+    /// belongs to an index the iterator no longer sits in.
+    ///
+    /// Calling any of them afterwards is therefore meaningless rather than merely
+    /// stale, and so is [`rewind`](Self::rewind). Drop the iterator instead. Composites
+    /// propagate the error rather than handling it, and the C boundary reports
+    /// `VALIDATE_ABORTED`, on which the result processor frees the whole tree.
     fn revalidate(
         &mut self,
         spec: &IndexSpecReadGuard,
@@ -175,9 +275,34 @@ pub trait RQEIterator<'index> {
     /// Returns the last doc id that was read or skipped to.
     fn last_doc_id(&self) -> DocId;
 
-    /// Returns `false` if the iterator can yield more results.
-    /// The iterator implementation must ensure that [`at_eof`](Self::at_eof) returns `true`
-    /// when [`read`](Self::read) would return `Ok(None)`.
+    /// Returns `true` once the iterator has run *past* its last result.
+    ///
+    /// The negation of [`current`](Self::current), whose contract defines the
+    /// state both report. Callers that select the live members of a set rely on
+    /// that boundary: a composite rebuilding its active children after a resume
+    /// keeps every child that still owes a result, and drops only those with
+    /// nothing left.
+    ///
+    /// Before the first [`read`](Self::read) or [`skip_to`](Self::skip_to), and
+    /// directly after a [`rewind`](Self::rewind), an iterator has run past
+    /// nothing, so this is `false` — including when its data turns out to be empty
+    /// and the first read will find nothing. Only an iterator that cannot yield
+    /// anything *by construction*, whatever the data, is at EOF from the start:
+    /// [`Empty`] is one, an [`IdList`] over an empty list is not.
+    ///
+    /// That unread state is also the one place where the two answers stop being
+    /// strict negations, for an implementation that materialises its result only
+    /// on a read: [`current`](Self::current) already answers `None` there while
+    /// this is still `false`, as its `# Usage` describes.
+    ///
+    /// # Exhaustion is terminal
+    ///
+    /// Once this is `true` it stays `true` until [`rewind`](Self::rewind), across
+    /// [`revalidate`](Self::revalidate) and [`resume`](RQESuspendedIterator::resume)
+    /// included. Callers act on exhaustion irreversibly: a composite drops the children
+    /// that report it, so one that comes back alive re-enters a parent that has already
+    /// moved on without it, replaying documents from behind the position that parent
+    /// now holds.
     fn at_eof(&self) -> bool;
 
     /// Returns the [`IteratorType`] of this iterator.
@@ -341,7 +466,24 @@ pub trait SearchEnterpriseIterators: Send + Sync {
     fn new_numeric_on_disk<'index>(
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
-        filter: &ffi::NumericFilter,
+        filter: &NumericFilter,
+        field_index: FieldIndex,
+        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
+
+    /// Iterate over the entries of the geo (numeric-encoded geohash) index at
+    /// the given field index whose `(lon, lat)` falls within the radius
+    /// described by `gf`.
+    ///
+    /// `gf` is mutated in place: [`build_geo_numeric_filters`] decomposes the
+    /// circle into up to [`geo::GEO_RANGE_COUNT`] numeric range filters and
+    /// stores them in `gf.numericFilters` (owned by `*gf`, freed by `GeoFilter_Free`).
+    /// The disk path then runs each range through the numeric machinery and
+    /// post-filters survivors by true great-circle distance.
+    fn new_geo_on_disk<'index>(
+        &self,
+        index: &'index mut ffi::RedisSearchDiskIndexSpec,
+        gf: &'index mut ffi::GeoFilter,
         field_index: ffi::t_fieldIndex,
         snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;

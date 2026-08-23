@@ -109,7 +109,7 @@ def test_default_scorer_behavior():
     env.assertEqual(hybrid_default_bm25std_results, hybrid_bm25std_in_query_results)
 
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def test_default_scorer_with_extension():
     """
     Test that the default scorer can be set to a custom scorer from an extension
@@ -215,7 +215,7 @@ def test_default_scorer_with_extension():
 
 
 
-@skip(cluster=True, asan=True)
+@skip(cluster=True, asan=True, enterprise=True)
 def test_default_scorer_startup_validation():
     if 'EXT_TEST_PATH' in os.environ:
         ext_path = os.environ['EXT_TEST_PATH']

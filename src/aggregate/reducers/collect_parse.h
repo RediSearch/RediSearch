@@ -52,9 +52,6 @@ typedef struct {
  * Pure: no key opening, no allocation outside of `out`'s internal arrays.
  * On failure returns false and sets `options->status`. The caller must call
  * `CollectArgs_Free` in either case to release the internal arrays.
- *
- * Also enforces the `enableUnstableFeatures` gate so callers (both the
- * reducer factory and the distribution rewriter) reject early.
  */
 bool CollectArgs_Parse(const ReducerOptions *options, CollectArgs *out);
 
@@ -63,6 +60,12 @@ bool CollectArgs_Parse(const ReducerOptions *options, CollectArgs *out);
  * freed (they belong to the caller's `ArgsCursor`).
  */
 void CollectArgs_Free(CollectArgs *args);
+
+/**
+ * If `tok` is a COLLECT option keyword, return its normalized (uppercase,
+ * static) spelling; otherwise NULL.
+ */
+const char *CollectArgs_NormalizedKeyword(const char *tok);
 
 #ifdef __cplusplus
 }

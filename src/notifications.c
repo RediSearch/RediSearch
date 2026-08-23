@@ -6,6 +6,15 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <stdbool.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
+
+#ifdef ENABLE_ASSERT
+#include "debug_commands.h" // IWYU pragma: keep
+#endif
+
 #include "config.h"
 #include "notifications.h"
 #include "spec.h"
@@ -16,14 +25,21 @@
 #include "module.h"
 #include "util/workers.h"
 #include "dictionary.h"
-#include "slot_ranges.h"
 #include "asm_state_machine.h"
 #include "coord/rmr/redis_cluster.h"
 #include "cursor.h"
 #include "search_disk.h"
+#include "disk_gc.h"
+#include "gc.h"
 #include "doc_id_meta.h"
-#include "iterators_ffi.h"
 #include "module_init_ffi.h"
+#include "document_rs.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "search_disk_api.h"
+#include "slots_tracker_ffi.h"
+#include "util/dict/dict.h"
+#include "util/references.h"
 
 RedisModuleString *global_RenameFromKey = NULL;
 extern RedisModuleCtx *RSDummyContext;
@@ -523,9 +539,6 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
       // Since importing is done in a part-time job while redis is running other commands, we notify
       // the thread pool to no longer receive new jobs, and terminate the threads ONCE ALL PENDING JOBS ARE DONE.
       workersThreadPool_OnEventEnd(false);
-      if (!IsEnterprise() && subevent == REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_COMPLETED) {
-        RedisTopologyUpdater_StopAndRescheduleImmediately(ctx);
-      }
       break;
 
     // case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_STARTED:
@@ -559,9 +572,6 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
       trimmingDelayCtx.enableTrimmingTimerId = RedisModule_CreateTimer(ctx, RSGlobalConfig.maxTrimDelayMS, enableTrimmingCallback, NULL);
       trimmingDelayCtx.checkTrimmingStateTimerIdScheduled = true;
       trimmingDelayCtx.enableTrimmingTimerIdScheduled = true;
-      if (!IsEnterprise()) {
-        RedisTopologyUpdater_StopAndRescheduleImmediately(ctx);
-      }
       break;
 
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE:
@@ -606,6 +616,15 @@ void ClusterSlotMigrationTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, ui
   }
 }
 
+static void ClusterTopologyChangeEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
+                                       void *data) {
+  REDISMODULE_NOT_USED(eid);
+  REDISMODULE_NOT_USED(subevent);
+  RedisModuleClusterTopologyChangeInfo *info = data;
+  RedisModule_Log(ctx, "verbose", "Got cluster topology change event (change flags: 0x%llx)", (unsigned long long)info->change_flags);
+  RedisTopologyUpdater_OnTopologyChanged(ctx);
+}
+
 static void ServerReadyEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   REDISMODULE_NOT_USED(eid);
   REDISMODULE_NOT_USED(subevent);
@@ -644,10 +663,23 @@ static bool g_hotRestartSave = false;
 // The catch is *ownership*: the Rust index handle is owned by
 // the C IndexSpec as a raw pointer (sp->diskSpec, a Box::into_raw), and the
 // ONLY thing that ever drops that Box is SearchDisk_CloseIndex.
+//
+// The teardown runs in three steps, waiting out any in-flight disk GC run in the
+// middle. This close force-drops the Box directly, bypassing the StrongRef refcount
+// that normally serialises a background GC cycle against the close (on FT.DROPINDEX
+// the StrongRef destructor defers the close until periodicCb releases its ref).
+// Without the wait, a GC compaction cycle still running run_gc against a spec we
+// drop here dereferences a freed database -> SIGSEGV (see
+// docs/design/gc-shutdown-teardown-race-crash.md).
 static void DeleteDiskIndexesOnShutdown(RedisModuleCtx *ctx) {
   if (!specDict_g) {
     return;
   }
+
+  // Pass 1: main-thread teardown + mark for deletion on every disk spec.
+  // SearchDisk_MarkIndexForDeletion also disable_compactions(), which cancels the
+  // in-flight GC cycle (the GC pool has a single thread) so the wait below returns
+  // promptly instead of sitting through a full compaction.
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
@@ -657,11 +689,31 @@ static void DeleteDiskIndexesOnShutdown(RedisModuleCtx *ctx) {
       // Main-thread teardown must always precede close (see SearchDisk_CloseIndex docs).
       SearchDisk_CloseIndexOnMainThread(ctx, sp);
       SearchDisk_MarkIndexForDeletion(sp->diskSpec);
+    }
+  }
+  dictReleaseIterator(iter);
+
+  // Take the run lock and disable disk GC, waiting out any in-flight run: after this
+  // no run is executing and none will start.
+  DiskGC_LockRunsAndDisable();
+
+  // Pass 2: drop each Rust handle — closes SpeedB and deletes the marked files.
+  iter = dictGetIterator(specDict_g);
+  while ((entry = dictNext(iter))) {
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(spec_ref);
+    if (sp && sp->diskSpec) {
       SearchDisk_CloseIndex(sp->diskSpec);
       sp->diskSpec = NULL;
     }
   }
   dictReleaseIterator(iter);
+
+  DiskGC_UnlockRuns();
+
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait(SYNC_POINT_AFTER_DISK_INDEX_CLOSE);
+#endif
 }
 
 void ShutdownDiskClose(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
@@ -670,6 +722,14 @@ void ShutdownDiskClose(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subev
     RedisModule_Log(ctx, "notice", "%s",
                     "Deleting on-disk search indexes on shutdown (not a hot restart)");
     DeleteDiskIndexesOnShutdown(ctx);
+  } else {
+    // Hot restart preserves the on-disk DBs, but SearchDisk_Close still closes the
+    // shared DiskContext; wait out any in-flight disk GC run first so no compaction
+    // races that close. The checkpoint (index_spec_open_consistency_window) already
+    // disable_compactions()d during the save, so this wait is prompt. Nothing clears
+    // sp->diskSpec here, so release the lock immediately — the wait is all we need.
+    DiskGC_LockRunsAndDisable();
+    DiskGC_UnlockRuns();
   }
   SearchDisk_Close(ctx);
   RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch DiskAPI resources");
@@ -763,41 +823,191 @@ static void ForEachIndex(void (*fn)(IndexSpec *)) {
   dictReleaseIterator(iter);
 }
 
-//Keeps track to know if SST replication holds the lock avoiding background vector index building jobs from running
-static bool vecsimdisk_sst_consistency_lock_held = false;
+static void PauseIndexGCScheduling(IndexSpec *sp) {
+  if (sp->gc) {
+    GCContext_PauseScheduling(sp->gc);
+  }
+}
 
-// Begin a consistent on-disk save window.
-// Shared by the SST replication checkpoint (flush = SearchDisk_PreCheckpoint),
-// the SST replication fork (flush = SearchDisk_PreFork) and the foreground
-// hot-restart save (flush = SearchDisk_PreCheckpoint), so the callers cannot
-// drift apart on the lock/flag protocol. Pairs with DiskConsistencyWindow_End
-// or DiskConsistencyWindow_Close.
-static void DiskConsistencyWindow_Begin(void (*flush)(IndexSpec *)) {
+static void ResumeIndexGCScheduling(IndexSpec *sp) {
+  if (sp->gc) {
+    GCContext_ResumeScheduling(sp->gc);
+  }
+}
+
+static void FlushIndex(IndexSpec *sp) {
+  if (sp->diskSpec) {
+    SearchDisk_Flush(sp->diskSpec);
+  }
+}
+
+// ForEachIndex takes a one-argument hook, so the gate flag rides in these two.
+static void CloseWindowReopeningGate(IndexSpec *sp) {
+  SearchDisk_CloseConsistencyWindow(sp, true);
+}
+
+static void CloseWindowKeepingGateClosed(IndexSpec *sp) {
+  SearchDisk_CloseConsistencyWindow(sp, false);
+}
+
+static bool InForkChild(void) {
+  return (RedisModule_GetContextFlags(RSDummyContext) & REDISMODULE_CTX_FLAGS_IS_CHILD) != 0;
+}
+
+// Backstop only; the begin hook cancels compactions first, so the expected wait is that
+// cycle's cancellation tail. Bounded because it runs on the main thread under the GIL.
+#define DISK_GC_CONSISTENCY_DRAIN_TIMEOUT_MS 5000
+
+// TODO(MOD-17856): re-review this state machine's shape -- whether GC_PAUSED and INDEX_HOOKS
+// need to be separate parts, and whether Quiesce/Seal and End's dispositions read well.
+// What the window is currently holding. One variable rather than three flags, because the
+// parts are acquired and released on different events and every unwind has to ask "which of
+// these do I still hold?" -- as a bitmask that is one load, and DISK_WINDOW_NONE answers
+// "anything at all?".
+typedef enum {
+  DISK_WINDOW_NONE = 0,
+  // The vecsim_disk global lock, which keeps background vector index jobs off on-disk state.
+  // The shortest-lived part: POST_CHECKPOINT drops it and PRE_FORK retakes it.
+  DISK_WINDOW_VECSIM_LOCK = 1 << 0,
+  // The disk GC pause (thread pool plus per-index scheduling). Held PRE_CHECKPOINT..POST_FORK
+  // as one hold, and outlives the rest on a hot restart, which stays paused through exit.
+  DISK_WINDOW_GC_PAUSED = 1 << 1,
+  // The per-index disk hooks. This side owns their pairing, since it is the only side that
+  // knows the event sequence: the disk side is told to open once and close once, so it needs
+  // no idempotence of its own.
+  DISK_WINDOW_INDEX_HOOKS = 1 << 2,
+} DiskWindowParts;
+
+static unsigned disk_window_held = DISK_WINDOW_NONE;
+
+static bool DiskConsistencyWindow_IsOpen(void) {
+  return disk_window_held != DISK_WINDOW_NONE;
+}
+
+bool DiskConsistencyWindow_IsIndexWindowOpen(void) {
+  return (disk_window_held & DISK_WINDOW_INDEX_HOOKS) != 0;
+}
+
+// One close per open. Two End paths can fire for one failed save - PERSISTENCE_FAILED is gated
+// on DiskConsistencyWindow_IsOpen, SST ABORT is not - and the disk side no longer absorbs the
+// repeat.
+static void CloseIndexWindows(void (*how)(IndexSpec *)) {
+  if (disk_window_held & DISK_WINDOW_INDEX_HOOKS) {
+    ForEachIndex(how);
+    disk_window_held &= ~(unsigned)DISK_WINDOW_INDEX_HOOKS;
+  }
+}
+
+// Quiesce every background writer that could mutate on-disk state, and tell each index to
+// open its window. Runs at the two points that start a window - SST PRE_CHECKPOINT and the
+// foreground hot-restart save - and not at PRE_FORK, which inherits this quiesce and needs
+// only DiskConsistencyWindow_Seal.
+static void DiskConsistencyWindow_Quiesce(void) {
+  if (disk_window_held & DISK_WINDOW_INDEX_HOOKS) {
+    return;
+  }
+  if (!(disk_window_held & DISK_WINDOW_GC_PAUSED)) {
+    GC_ThreadPoolPause();               // no queued job starts
+    ForEachIndex(PauseIndexGCScheduling);  // no timer queues one
+    disk_window_held |= DISK_WINDOW_GC_PAUSED;
+  }
+
+  ForEachIndex(SearchDisk_OpenConsistencyWindow);  // disable + cancel compactions
+  disk_window_held |= DISK_WINDOW_INDEX_HOOKS;
+}
+
+// Seal the window against what the quiesce cannot stop on its own, immediately before the
+// on-disk state is captured. Runs at every capture point, PRE_FORK included: the drain is
+// what keeps a disk GC thread from holding one of its own in-memory structures mid-mutation
+// when the fork lands, which a child would inherit locked with the owner thread gone, and it
+// can only give that guarantee at the moment it runs.
+//
+// The step order is load-bearing. The quiesce cancelled compactions first, which is what
+// lets this drain finish promptly; and flushing last, under the vector consistency lock, is
+// what keeps both classes of background writer out of what gets captured.
+static void DiskConsistencyWindow_Seal(void) {
+  if (!GC_ThreadPoolWaitForPause(DISK_GC_CONSISTENCY_DRAIN_TIMEOUT_MS)) {
+    // Cannot decline the snapshot from here - the subevent handler returns void.
+    RedisModule_Log(RSDummyContext, "warning",
+                    "Disk consistency window: %zu disk GC job(s) still running after %d ms; "
+                    "proceeding without the fork-safety guarantee",
+                    GC_ThreadPoolJobsInProgress(), DISK_GC_CONSISTENCY_DRAIN_TIMEOUT_MS);
+  }
+
+  // After the drain, never before: a GC run needing this lock would deadlock against us.
   VecSimDisk_AcquireConsistencyLock();
-  vecsimdisk_sst_consistency_lock_held = true;
-  ForEachIndex(flush);
+  disk_window_held |= DISK_WINDOW_VECSIM_LOCK;
+
+  // Flush last, under the lock. Both classes of background writer are now excluded: the
+  // disk GC by the drain, vector jobs by the lock. Flushing inside the quiesce would leave
+  // the whole drain as a gap in which vector jobs could dirty on-disk state.
+  ForEachIndex(FlushIndex);
 }
 
-// Release the consistency lock opened by DiskConsistencyWindow_Begin without
-// running any per-index finalize work. Used where there is no matching disk
-// hook (e.g. SST POST_CHECKPOINT, which OSS handles on its own).
-//
-// The caller must check vecsimdisk_sst_consistency_lock_held before calling
-// this on a path where the window may never have been opened.
-static void DiskConsistencyWindow_Close(void) {
-  VecSimDisk_ReleaseConsistencyLock();
-  vecsimdisk_sst_consistency_lock_held = false;
+// Open a full window: quiesce, then seal. Used by the two window-start points, so they cannot
+// drift apart on the protocol. Pairs with DiskConsistencyWindow_End.
+static void DiskConsistencyWindow_Begin(void) {
+  DiskConsistencyWindow_Quiesce();
+  DiskConsistencyWindow_Seal();
 }
 
-// End the consistent on-disk save window opened by DiskConsistencyWindow_Begin,
-// running `finalize` against every disk-backed index before releasing the lock.
-//
-// The caller must check vecsimdisk_sst_consistency_lock_held before calling
-// this on a path where the window may never have been opened (e.g. SST ABORT).
-static void DiskConsistencyWindow_End(void (*finalize)(IndexSpec *)) {
-  ForEachIndex(finalize);
-  DiskConsistencyWindow_Close();
+// How much of the window to give back. Which parts are released is correlated - the finalize
+// hook and the disk-GC disposition cannot disagree - so it travels as one parameter.
+typedef enum {
+  // SST POST_CHECKPOINT: the checkpoint is taken but the fork has not happened, so release
+  // only the vector lock (which PRE_FORK retakes) and leave the rest held.
+  DISK_WINDOW_END_CHECKPOINT,
+  // POST_FORK, SST ABORT, or a failed foreground save: the process keeps running.
+  DISK_WINDOW_END_RESUME,
+  // Successful hot restart: the process exits shortly and the kept on-disk DBs must stay
+  // frozen at what restart.rdb serialized, so disk GC stays paused and the numeric
+  // consistency gate stays closed.
+  DISK_WINDOW_END_HOT_RESTART,
+} DiskWindowEnd;
+
+// Give back some or all of the window opened by DiskConsistencyWindow_Begin. Safe on a path
+// where it was never opened, or was only partly opened (e.g. SST ABORT): each part is
+// released only if held. The parts have different lifetimes - DISK_WINDOW_END_CHECKPOINT
+// drops the vector lock but keeps disk GC paused - so an abort between POST_CHECKPOINT and
+// PRE_FORK sees the pause held and the lock not.
+static void DiskConsistencyWindow_End(DiskWindowEnd how) {
+  if (InForkChild()) {
+    // Reached because the child fires its own PERSISTENCE_ENDED/FAILED from stopSaving, and
+    // sees these bits through COW - not a window this process opened. The child owns no GC
+    // threads and must not run the finalize hooks: they re-enable compactions against DB
+    // files the parent owns.
+    disk_window_held = DISK_WINDOW_NONE;
+    return;
+  }
+
+  switch (how) {
+    case DISK_WINDOW_END_CHECKPOINT:
+      // Nothing per-index: the fork still needs the quiesce, and re-seals over it.
+      break;
+
+    case DISK_WINDOW_END_HOT_RESTART:
+      // Close the hooks but leave the GC paused, so the kept DBs cannot advance past what
+      // restart.rdb captured in the moments before the process exits.
+      CloseIndexWindows(CloseWindowKeepingGateClosed);
+      break;
+
+    case DISK_WINDOW_END_RESUME:
+      CloseIndexWindows(CloseWindowReopeningGate);
+      if (disk_window_held & DISK_WINDOW_GC_PAUSED) {
+        ForEachIndex(ResumeIndexGCScheduling);
+        GC_ThreadPoolResume();
+        disk_window_held &= ~(unsigned)DISK_WINDOW_GC_PAUSED;
+      }
+      break;
+  }
+
+  // Given back on every path: PRE_FORK retakes it after POST_CHECKPOINT drops it.
+  if (disk_window_held & DISK_WINDOW_VECSIM_LOCK) {
+    VecSimDisk_ReleaseConsistencyLock();
+    disk_window_held &= ~(unsigned)DISK_WINDOW_VECSIM_LOCK;
+  }
 }
+
 
 // SST replication event handler.
 //
@@ -819,36 +1029,40 @@ static void SSTReplicationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
       RedisModule_Log(ctx, "notice", "SST replication: PRE_CHECKPOINT");
       // Hold the consistency lock across the checkpoint so background vector
       // index jobs cannot mutate on-disk state while the checkpoint is taken.
-      // Released at POST_CHECKPOINT (or unwound by ABORT). PRE_FORK opens a
-      // fresh window afterwards.
-      DiskConsistencyWindow_Begin(SearchDisk_PreCheckpoint);
+      // Released at POST_CHECKPOINT (or unwound by ABORT); PRE_FORK re-seals with
+      // it. The quiesce this opens stays held through POST_FORK.
+      DiskConsistencyWindow_Begin();
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_POST_CHECKPOINT:
       RedisModule_Log(ctx, "notice", "SST replication: POST_CHECKPOINT");
-      // POST_CHECKPOINT has no matching disk hook - just close the window
-      // opened at PRE_CHECKPOINT.
-      RS_ASSERT(vecsimdisk_sst_consistency_lock_held);
-      DiskConsistencyWindow_Close();
+      // No matching disk hook here - OSS handles the checkpoint itself - so this gives back
+      // only the vector lock and leaves the quiesce for PRE_FORK to inherit.
+      RS_ASSERT(disk_window_held & DISK_WINDOW_VECSIM_LOCK);
+      DiskConsistencyWindow_End(DISK_WINDOW_END_CHECKPOINT);
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_PRE_FORK:
       RedisModule_Log(ctx, "notice", "SST replication: PRE_FORK");
-      DiskConsistencyWindow_Begin(SearchDisk_PreFork);
+      // Seal only: PRE_CHECKPOINT's quiesce still holds (POST_CHECKPOINT released the
+      // VecSim lock and nothing else), so what the fork needs is the drain, the lock again,
+      // and a flush of everything written since the checkpoint.
+      //
+      // Asserted rather than handled: the drain only means anything against a paused pool,
+      // and Redis guarantees the pairing - a session fires PRE_CHECKPOINT before any fork,
+      // and a second SST replica is refused while one is connected. If that ever relaxes,
+      // this fires instead of draining a live pool.
+      RS_ASSERT(DiskConsistencyWindow_IsIndexWindowOpen());
+      DiskConsistencyWindow_Seal();
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_POST_FORK:
       RedisModule_Log(ctx, "notice", "SST replication: POST_FORK");
-      RS_ASSERT(vecsimdisk_sst_consistency_lock_held);
-      DiskConsistencyWindow_End(SearchDisk_PostFork);
+      RS_ASSERT(disk_window_held & DISK_WINDOW_VECSIM_LOCK);
+      DiskConsistencyWindow_End(DISK_WINDOW_END_RESUME);
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_ABORT:
       RedisModule_Log(ctx, "notice", "SST replication: ABORT");
-      // The abort can fire before PRE_FORK opened the window, so the lock may
-      // not be held. Always run ReplicationAbort; only unwind the window when
-      // it was actually opened.
-      if (vecsimdisk_sst_consistency_lock_held) {
-        DiskConsistencyWindow_End(SearchDisk_ReplicationAbort);
-      } else {
-        ForEachIndex(SearchDisk_ReplicationAbort);
-      }
+      // Can fire anywhere between PRE_CHECKPOINT and POST_FORK, so either half of the
+      // window may or may not be held; End unwinds each only if it is.
+      DiskConsistencyWindow_End(DISK_WINDOW_END_RESUME);
       break;
     default:
       RS_LOG_ASSERT_FMT(false, "Received unknown sub-event %llu for SST replication", (unsigned long long)subevent);
@@ -870,51 +1084,63 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
 
   switch (subevent) {
   case REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START:
+    // In a fork child this bit is COW-inherited, not a lock this process holds.
+    disk_window_held &= ~(unsigned)DISK_WINDOW_VECSIM_LOCK;
+    g_hotRestartSave = false;
     // Async (fork child) save: BGSAVE / replication. This can never be a hot
     // restart (those only happen in the foreground, main-process SYNC_ variant)
+    RedisModule_Log(ctx, "notice", "SAVE start mode=%s proc=fork sst=%s",
+                    useSst ? "PARTIAL_RDB" : "FULL_RDB", useSst ? "true" : "false");
     if (!useSst) {
-      RedisModule_Log(ctx, "notice", "Persistence started");
       DocIdMeta_SetForgetDocIdMetadata(true);
     }
     break;
   case REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START:
+    disk_window_held &= ~(unsigned)DISK_WINDOW_VECSIM_LOCK;
     if (!useSst) {
-      RedisModule_Log(ctx, "notice", "Persistence started");
+      RedisModule_Log(ctx, "notice", "SAVE start mode=FULL_RDB proc=main sst=false");
       DocIdMeta_SetForgetDocIdMetadata(true);
     } else {
       // Hot restart: a RAM-only RDB (restart.rdb) is being saved in the
       // foreground alongside the on-disk state. The replication
       // SST_REPL_PRE_FORK consistency hook never fires for a foreground save,
-      // so open the consistency window here instead (flushing via PreCheckpoint).
-      RedisModule_Log(ctx, "notice", "Hot-restart save started (SST + RAM-only RDB)");
+      // so open the consistency window here instead.
+      RedisModule_Log(ctx, "notice", "SAVE start mode=HOT_RESTART proc=main sst=true disk_index=preserved");
       // Latch so the upcoming shutdown keeps the on-disk DBs (see ShutdownDiskClose).
       g_hotRestartSave = true;
-      DiskConsistencyWindow_Begin(SearchDisk_PreCheckpoint);
+      DiskConsistencyWindow_Begin();
     }
     break;
   case REDISMODULE_SUBEVENT_PERSISTENCE_ENDED:
-    if (vecsimdisk_sst_consistency_lock_held) {
-      // Unwind the hot-restart consistency window opened at SYNC_RDB_START,
-      // re-enabling compactions via PostFork on success.
-      DiskConsistencyWindow_End(SearchDisk_PostFork);
-      RedisModule_Log(ctx, "notice", "Hot-restart save ended");
+    if (DiskConsistencyWindow_IsOpen()) {
+      // Only a real hot restart freezes: the process exits shortly, so resuming GC or
+      // reopening the gate would let the kept DBs advance past what restart.rdb captured.
+      // Any other SST save reaching here leaves the process running, so it must unwind.
+      DiskConsistencyWindow_End(g_hotRestartSave ? DISK_WINDOW_END_HOT_RESTART
+                                                 : DISK_WINDOW_END_RESUME);
+      RedisModule_Log(ctx, "notice", "SAVE end mode=%s sst=true ok=true",
+                      g_hotRestartSave ? "HOT_RESTART" : "SST_REPL");
     } else if (!useSst) {
-      RedisModule_Log(ctx, "notice", "Persistence ended");
+      RedisModule_Log(ctx, "notice", "SAVE end mode=FULL_RDB sst=false ok=true");
       DocIdMeta_SetForgetDocIdMetadata(false);
     }
     break;
   case REDISMODULE_SUBEVENT_PERSISTENCE_FAILED:
-    if (vecsimdisk_sst_consistency_lock_held) {
+    if (DiskConsistencyWindow_IsOpen()) {
       // Unwind the hot-restart consistency window opened at SYNC_RDB_START,
-      // re-enabling compactions defensively via ReplicationAbort on failure.
-      DiskConsistencyWindow_End(SearchDisk_ReplicationAbort);
+      // re-enabling compactions defensively on failure.
+      DiskConsistencyWindow_End(DISK_WINDOW_END_RESUME);
+      // The window may have been opened by a foreground hot-restart save
+      // (g_hotRestartSave) or by an SST-replication fork (child observing the
+      // COW-inherited flag) — log the actual mode before clearing the latch.
+      RedisModule_Log(ctx, "warning", "SAVE end mode=%s sst=true ok=false",
+                      g_hotRestartSave ? "HOT_RESTART" : "SST_REPL");
       // Clear the latch: the save failed, so the process keeps running and a
       // later ordinary shutdown must still delete the on-disk indexes rather
       // than treat this as a successful hot restart (see ShutdownDiskClose).
       g_hotRestartSave = false;
-      RedisModule_Log(ctx, "warning", "Hot-restart save failed");
     } else if (!useSst) {
-      RedisModule_Log(ctx, "notice", "Persistence ended");
+      RedisModule_Log(ctx, "notice", "SAVE end mode=FULL_RDB sst=false ok=false");
       DocIdMeta_SetForgetDocIdMetadata(false);
     }
     break;
@@ -951,6 +1177,17 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
   RedisModule_Log(ctx, "notice", "Subscribe to cluster slot migration events");
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigration, ClusterSlotMigrationEvent);
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigrationTrim, ClusterSlotMigrationTrimEvent);
+
+  // Do not subscribe on Enterprise, even if the server supports the event: topology updates
+  // there are driven by `SEARCH.CLUSTERSET`, and we must not react to topology change events
+  // before the Enterprise flow fully supports it (e.g. connections auth).
+  if (!IsEnterprise()) {
+    RedisModule_Log(ctx, "notice", "Subscribe to cluster topology change events");
+    if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterTopologyChange, ClusterTopologyChangeEvent) != REDISMODULE_OK) {
+      RedisModule_Log(ctx, "warning", "Cluster topology change event is not supported by the server. The cluster "
+                                      "topology will not be refreshed automatically");
+    }
+  }
   if (SearchDisk_IsEnabled()) {
     RedisModule_Log(ctx, "notice", "Subscribe to Server ready event");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ServerReady, ServerReadyEvent);
@@ -1062,27 +1299,37 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
       // here but may be cleared before LOADING_ENDED (hot restart).
       g_partialRdbLoadStaged = true;
     }
+    // fallthrough
   case REDISMODULE_SUBEVENT_LOADING_AOF_START:
-  case REDISMODULE_SUBEVENT_LOADING_REPL_START:
-    // Symmetric counterpart to the save-side decision in PersistenceEvent.
-    // During an SST + RDB sync the master streams RAM-resident keys together
-    // with their DocIdMeta, and the disk state arrives via the SST files, so
-    // the replica must KEEP the meta it loads (forget = false). For any other
-    // load (plain RDB / AOF / legacy RDB-only replication) the index is rebuilt
-    // from the keyspace and the stale docIds are meaningless, so we FORGET.
+  case REDISMODULE_SUBEVENT_LOADING_REPL_START: {
+    // Two orthogonal dimensions here, logged separately:
+    //  - source: where the data arrives from (chosen by rdbflags in the
+    //    server's loadingFireEvent) — an RDB file, an AOF, or a replication
+    //    full-sync stream.
+    //  - disk strategy (driven by useSst): on an SST load the disk state
+    //    arrives via the SST files and the streamed keys carry their DocIdMeta,
+    //    so we KEEP the meta and reuse the on-disk index. On any non-SST load
+    //    the index is rebuilt from the keyspace and the stale docIds are
+    //    meaningless, so we FORGET. A replication or RDB-file load can be
+    //    either SST or non-SST, so source and strategy are independent.
+    const char *source = subevent == REDISMODULE_SUBEVENT_LOADING_AOF_START    ? "AOF"
+                         : subevent == REDISMODULE_SUBEVENT_LOADING_REPL_START ? "REPLICATION"
+                                                                               : "RDB_FILE";
     DocIdMeta_SetForgetDocIdMetadata(!useSst);
     Indexes_StartRDBLoadingEvent(ctx);
     workersThreadPool_OnEventStart();
-    RedisModule_Log(RSDummyContext, "notice", "Loading RDB event started");
+    RedisModule_Log(RSDummyContext, "notice", "LOAD start source=%s sst=%s disk=%s", source,
+                    useSst ? "true" : "false", useSst ? "reuse-from-SST" : "rebuild-from-keyspace");
     break;
+  }
   case REDISMODULE_SUBEVENT_LOADING_SST_START:
-    RedisModule_Log(RSDummyContext, "notice", "Loading SST event started");
+    RedisModule_Log(RSDummyContext, "notice", "LOAD sst-ingest start");
     break;
   case REDISMODULE_SUBEVENT_LOADING_SST_ENDED:
-    RedisModule_Log(RSDummyContext, "notice", "Loading SST event ended");
+    RedisModule_Log(RSDummyContext, "notice", "LOAD sst-ingest end");
     break;
   case REDISMODULE_SUBEVENT_LOADING_RDB_ENDED:
-    RedisModule_Log(RSDummyContext, "notice", "Loading RDB event ended");
+    RedisModule_Log(RSDummyContext, "notice", "LOAD rdb-stream end");
     break;
   case REDISMODULE_SUBEVENT_LOADING_ENDED: {
     // For a hot restart the server clears the SST_RDB flag before firing this
@@ -1097,16 +1344,12 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
       // This only handles legacy indices that are not available in disk
       Indexes_EndRDBLoadingEvent(ctx);
     } else if (finishSst) {
-      RedisModule_Log(RSDummyContext, "notice", "Loading event ended (SST + RDB ready). Finish loading");
       Indexes_FinishSSTReplication(ctx);
     }
     workersThreadPool_OnEventEnd(true);
     Indexes_EndLoading();
-    if (!SearchDisk_IsEnabled() || !finishSst) {
-      RedisModule_Log(RSDummyContext, "notice", "Loading event ended successfully");
-    } else {
-      RedisModule_Log(RSDummyContext, "notice", "Loading event ended successfully (SST + RDB ready). Finished loading successfully");
-    }
+    RedisModule_Log(RSDummyContext, "notice", "LOAD end disk=%s ok=true",
+                    finishSst ? "reuse-from-SST" : "rebuild-from-keyspace");
     break;
   }
   case REDISMODULE_SUBEVENT_LOADING_FAILED:
@@ -1121,7 +1364,7 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
     }
     workersThreadPool_OnEventEnd(true);
     Indexes_EndLoading();
-    RedisModule_Log(RSDummyContext, "notice", "Loading event failed");
+    RedisModule_Log(RSDummyContext, "notice", "LOAD end ok=false");
     break;
   default:
     RS_LOG_ASSERT_FMT(0, "Unknown sub-event %llu", (unsigned long long)subevent);

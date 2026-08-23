@@ -7,13 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "info/info_redis/types/blocked_queries.h"
+
+#include <inttypes.h>
+
 #include "config.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 #include "redismodule.h"
-#include "rmutil/rm_assert.h"
 #include "spec.h"
-#include <inttypes.h>
 
 BlockedQueries *BlockedQueries_Init() {
   BlockedQueries* blockedQueries = rm_calloc(1, sizeof(BlockedQueries));
@@ -93,6 +94,10 @@ void BlockedQueries_RemoveQuery(BlockedQueryNode* blockedQueryNode) {
 }
 
 void BlockedQueries_RemoveCursor(BlockedCursorNode* blockedCursorNode) {
-  StrongRef_Release(blockedCursorNode->spec);
+  // The spec ref is legitimately empty when the promote in BlockedQueries_AddCursor failed
+  // (the index was dropped while the cursor was idle), so mirror its guard here.
+  if (blockedCursorNode->spec.rm) {
+    StrongRef_Release(blockedCursorNode->spec);
+  }
   dllist_delete(&blockedCursorNode->llnode);
 }

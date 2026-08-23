@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+mod automaton;
 mod contains;
 mod filter;
 mod prefixed;
@@ -14,7 +15,7 @@ mod prefixes;
 mod range;
 mod unfiltered;
 mod values;
-mod wildcard;
+mod wildcard_automaton;
 
 use trie_rs::TrieMap;
 

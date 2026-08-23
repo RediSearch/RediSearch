@@ -60,7 +60,7 @@ Confirm these before running (do not re-install if already present):
 1. Resolve the benchmark argument to a `tests/benchmarks/<benchmark>.yml` path. If no
    argument was given, list `tests/benchmarks/*.yml` and ask the user which to run.
 2. Run the benchmark with he following commands. Capture output to a log per the
-   "Running Expensive Commands" guidance in `CLAUDE.md`:
+   "Running Expensive Commands" guidance in `AGENTS.md`:
    ```bash
    set -o pipefail
 

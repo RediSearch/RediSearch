@@ -25,7 +25,7 @@ pub(crate) fn strip_prefix<'h>(haystack: &'h [u8], prefix: &[u8]) -> Option<&'h 
 pub(crate) fn longest_common_prefix(a: &[u8], b: &[u8]) -> Option<(usize, std::cmp::Ordering)> {
     let min_len = std::cmp::min(a.len(), b.len());
 
-    // Process chunks of 8 bytes at a time
+    // Compare a machine word at a time: 8 bytes per iteration beats a byte-by-byte scan.
     let mut i = 0;
     while i + 8 <= min_len {
         let a_chunk = u64::from_ne_bytes(a[i..i + 8].try_into().unwrap());

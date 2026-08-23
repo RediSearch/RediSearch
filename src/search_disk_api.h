@@ -31,6 +31,9 @@ typedef struct RLookupKey RLookupKey;
 // Forward declaration for HiddenString
 typedef struct HiddenString HiddenString;
 
+// Forward declaration for the RETURN_STRICT GIL handshake context (aggregate.h).
+typedef struct QueryRequest QueryRequest;
+
 // Helper opaque types for the disk API
 typedef const void* RedisSearchDisk;
 typedef const void* RedisSearchDiskIndexSpec;
@@ -48,9 +51,10 @@ typedef const void* RedisSearchDiskRdbState;
 // Opaque handle for a consistent point-in-time view of the disk database.
 //
 // Created via `IndexDiskAPI.createSnapshot`, released via `IndexDiskAPI.freeSnapshot`.
-// Pass the same snapshot to `newTermIterator` / `newTagIterator` / `newWildcardIterator`
-// so all iterators in a query observe the same database state. The snapshot must outlive
-// every iterator created from it, and must not outlive the originating index spec.
+// Pass the same snapshot to `newTermIterator` / `newTagIterator` and to the Rust-side
+// numeric/wildcard iterator entry points so all iterators in a query observe the same
+// database state. The snapshot must outlive every iterator created from it, and must
+// not outlive the originating index spec.
 typedef const void* RedisSearchDiskSnapshot;
 
 // Opaque handle for the underlying storage-layer write batch.
@@ -99,9 +103,6 @@ typedef struct SearchDiskCompactionCallbacks {
   // Closes an update session.
   // Implementations may release internal locks here.
   void (*endUpdate)(void *update_ctx);
-
-  // Debug/test-only sync point
-  void (*beforeApplySyncPoint)(void);
 } SearchDiskCompactionCallbacks;
 
 // Result of polling the async read pool
@@ -312,16 +313,16 @@ typedef struct BasicDiskAPI {
   /**
    * Create a result processor that loads document fields from disk asynchronously.
    *
-   * Drop-in replacement for RPLoader_New on disk (flex) HASH indexes: the C
-   * pipeline calls this instead of RPLoader_New when the spec is backed by disk.
-   * The returned ResultProcessor must set QEXEC_S_HAS_LOAD in *outStateFlags when
-   * it will load fields, mirroring RPLoader_New, so downstream cursor handling
-   * (HasLoader) treats it as a loader.
+   * Drop-in replacement for RPLoader_New: the pipeline calls this instead of
+   * RPLoader_New whenever the spec is disk-backed. The returned ResultProcessor
+   * must set QEXEC_S_HAS_LOAD in *outStateFlags when it will load fields,
+   * mirroring RPLoader_New, so downstream cursor handling (HasLoader) treats it
+   * as a loader.
    *
    * @param sctx          Search context (owns the spec and the disk handle)
    * @param reqflags      Request flags (QEXEC_F_*)
    * @param lk            Lookup the loaded fields are written into
-   * @param keys          Keys to load; NULL with nkeys 0 means "load all"
+   * @param keys          Keys to load; NULL with nkeys 0 to load all fields
    * @param nkeys         Number of entries in `keys`
    * @param outStateFlags Out: OR'd with QEXEC_S_HAS_LOAD when loading is scheduled
    * @return A valid ResultProcessor. Like RPLoader_New, construction is infallible:
@@ -331,6 +332,19 @@ typedef struct BasicDiskAPI {
   ResultProcessor *(*newAsyncLoaderResultProcessor)(RedisSearchCtx *sctx, uint32_t reqflags,
                                                     RLookup *lk, const RLookupKey **keys,
                                                     size_t nkeys, uint32_t *outStateFlags);
+
+  /**
+   * Hand the disk async-loader result processor its request sync context, so it can perform
+   * the same RETURN_STRICT GIL deadlock-avoidance handshake as RP_SAFE_LOADER (see
+   * `QueryRequest_SafeLoaderEnterGIL` / `ExitGIL` in aggregate.h).
+   *
+   * @param rp  The disk async-loader ResultProcessor, previously returned by
+   *            `newAsyncLoaderResultProcessor`.
+   * @param request `QueryRequest *`, or NULL to clear.
+   *
+   * Note: keep this field last in `BasicDiskAPI` (C and Rust build this struct together).
+   */
+  void (*asyncLoaderSetSyncCtx)(ResultProcessor *rp, QueryRequest *request);
 } BasicDiskAPI;
 
 typedef struct IndexDiskAPI {
@@ -507,9 +521,9 @@ typedef struct IndexDiskAPI {
   /**
    * @brief Take a point-in-time snapshot of the disk database for this index.
    *
-   * The returned snapshot can be passed to `newTermIterator`, `newTagIterator`,
-   * `newNumericIterator`, and the Rust-side wildcard iterator entry point so that every
-   * iterator created for one query observes the same database state. Must be released by
+   * The returned snapshot can be passed to `newTermIterator`, `newTagIterator`, and
+   * the Rust-side numeric/wildcard iterator entry points so that every iterator
+   * created for one query observes the same database state. Must be released by
    * `freeSnapshot` when no iterator is still using it.
    *
    * @param index Pointer to the index spec
@@ -525,26 +539,6 @@ typedef struct IndexDiskAPI {
    * @param snapshot Snapshot handle returned by `createSnapshot`
    */
   void (*freeSnapshot)(RedisSearchDiskSnapshot *snapshot);
-
-  /**
-   * @brief Creates a new iterator over a numeric range on the disk-backed index
-   *
-   * Enumerates the in-memory ordered map's buckets that overlap `filter`'s range
-   * and opens one Speedb-snapshot-backed iterator per candidate bucket, with a
-   * per-yielded-entry value filter of `effective_range ∩ filter_range`. The
-   * candidate iterators are heap-merged by `doc_id` via a union iterator, which
-   * also collapses any transient duplicates that the in-flight split protocol
-   * may produce.
-   *
-   * @param index Pointer to the index
-   * @param filter Pointer to the numeric filter (min, max, inclusivity flags, field spec)
-   * @param fieldIndex Field index for the numeric field
-   * @param snapshot Required snapshot for the read view. Must have been returned by
-   *                 `createSnapshot(index)` and must remain valid until the returned iterator is freed.
-   * @param status QueryError to populate with the cause when creation fails (may be NULL)
-   * @return Pointer to the created iterator, or NULL if no buckets overlap the filter
-   */
-  QueryIterator *(*newNumericIterator)(RedisSearchDiskIndexSpec *index, const NumericFilter *filter, t_fieldIndex fieldIndex, RedisSearchDiskSnapshot *snapshot, QueryError* status);
 
   /**
    * @brief Run a GC compaction cycle on the disk index.
@@ -605,45 +599,57 @@ typedef struct IndexDiskAPI {
   void (*updateMaxOpenFiles)(RedisSearchDiskIndexSpec *index, int maxOpenFiles);
 
   /**
-   * @brief Master-side SST replication PRE_CHECKPOINT hook.
+   * @brief Open a consistency window on one index. Main thread; no IndexSpec lock held.
    *
-   * Called once per index before the replication checkpoint is taken.
-   * Caller holds the IndexSpec read lock for the duration of this call.
+   * Replaces the former preCheckpoint/preFork pair. Called exactly once per window, at the
+   * point that starts it (SST PRE_CHECKPOINT, or a foreground hot-restart save) - and for a
+   * spec created while a window is already open, when it is created. PRE_FORK does not call
+   * this: it inherits the window and only re-flushes under the vector lock. The caller owns
+   * that pairing, so this needs no idempotence of its own.
+   *
+   * Must disable and cancel manual compactions, and close the numeric consistency gate.
+   * Must NOT flush: the caller flushes separately via `flush`, after taking the vector
+   * consistency lock, so vector-job writes are excluded from the snapshot too. Cancelling
+   * compactions here is what lets the caller's disk-GC drain finish promptly. Both effects
+   * last until closeConsistencyWindow.
    *
    * POST_CHECKPOINT has no matching disk hook - OSS handles it on its own.
    *
    * @param index Pointer to the disk index spec
    */
-  void (*preCheckpoint)(RedisSearchDiskIndexSpec *index);
+  void (*openConsistencyWindow)(RedisSearchDiskIndexSpec *index);
 
   /**
-   * @brief Master-side SST replication PRE_FORK hook.
+   * @brief Close the consistency window on one index.
    *
-   * Called once per index before the replication snapshot fork.
+   * Replaces the former postFork/replicationAbort/hotRestartSaveEnded trio. Called exactly
+   * once per window that was opened - at POST_FORK, at ABORT from anywhere in the cycle, or
+   * at the end of a foreground save, whichever comes first.
+   *
+   * Always re-enables compactions. Reopens the numeric consistency gate only when
+   * `reopenNumericGate` is true - a successful hot restart passes false, because the
+   * process exits shortly and reopening would let a deferred split finalize after the RDB
+   * serialized its pre-finalize state.
    *
    * @param index Pointer to the disk index spec
+   * @param reopenNumericGate Whether to reopen the numeric consistency gate
    */
-  void (*preFork)(RedisSearchDiskIndexSpec *index);
+  void (*closeConsistencyWindow)(RedisSearchDiskIndexSpec *index, bool reopenNumericGate);
 
   /**
-   * @brief Master-side SST replication POST_FORK hook.
+   * @brief Debug: dump a numeric field's in-memory bucket routing map.
    *
-   * Called once per index after the snapshot fork.
+   * Writes a JSON array describing every bucket of the field's map (max
+   * value, state, entry count) into memory obtained from `allocate`, so the
+   * caller owns the result through its own allocator. Returns NULL when the
+   * field has no numeric index on this handle.
    *
    * @param index Pointer to the disk index spec
+   * @param fieldIndex The numeric field's index
+   * @param allocate Copying allocator for the returned string (e.g. sdsnewlen)
    */
-  void (*postFork)(RedisSearchDiskIndexSpec *index);
+  char *(*debugDumpNumericBucketMap)(RedisSearchDiskIndexSpec *index, t_fieldIndex fieldIndex, AllocateKeyCallback allocate);
 
-  /**
-   * @brief Master-side SST replication ABORT hook.
-   *
-   * Called once per index when the replication cycle is aborted at any point
-   * between PRE_CHECKPOINT and POST_FORK. The disk implementation is free to
-   * undo whatever state it set up in the preceding `pre*` hook.
-   *
-   * @param index Pointer to the disk index spec
-   */
-  void (*replicationAbort)(RedisSearchDiskIndexSpec *index);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {
@@ -850,6 +856,15 @@ typedef struct VectorDiskAPI {
   void (*freeVectorIndex)(void* vecIndex);
 
   /**
+   * @brief Check whether a disk vector index contains data.
+   *
+   * @param vecIndex VecSimIndex* handle for the field
+   * @param takeLocks Whether to synchronize with concurrent index mutations
+   * @return true when the index contains data, false otherwise
+   */
+  bool (*vectorIndexHasData)(void *vecIndex, bool takeLocks);
+
+  /**
    * @brief Stream the in-memory state of a quiesced VecSimIndex* directly
    *        into a RedisModuleIO RDB stream.
    *
@@ -860,9 +875,10 @@ typedef struct VectorDiskAPI {
    *
    * @param vecIndex VecSimIndex* handle for the field
    * @param rdb RedisModuleIO stream to write into
+   * @param takeLocks Whether to synchronize with concurrent index mutations
    * @return true on success, false on serialization failure
    */
-  bool (*saveVectorIndexToRDB)(void *vecIndex, RedisModuleIO *rdb);
+  bool (*saveVectorIndexToRDB)(void *vecIndex, RedisModuleIO *rdb, bool takeLocks);
 
   /**
    * @brief Create a VecSimIndex without any SpeedB storage bound.
@@ -982,18 +998,6 @@ typedef struct MetricsDiskAPI {
   uint64_t (*getInvertedIndexTotalMemory)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
 
   /**
-   * @brief Get total vector index memory for a specific index
-   *
-   * Returns disk-side vector index memory in bytes from the latest collected snapshot.
-   * Does not include RAM-only accounting from non-disk paths.
-   *
-   * @param disk Pointer to the disk context
-   * @param index Pointer to the index spec
-   * @return Vector index memory in bytes
-   */
-  uint64_t (*getVectorIndexTotalMemory)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
-
-  /**
    * @brief Get the disk-owned total number of records for a specific index
    *
    * Returns the disk-side num_records counter used by FT.INFO.
@@ -1104,14 +1108,16 @@ extern void VecSimDisk_ReleaseConsistencyLock(void);
 // Fork × compaction debug coordinator (FT.DEBUG REPL_COMPACTION_COORDINATOR)
 //
 // Implemented on the Rust side in `redisearch_disk::compaction::debug`. Each
-// lifecycle site (compaction begin/completed, pre_checkpoint; `int` values
-// matching `compaction::Site`) calls `reach` when it executes. A test can:
+// lifecycle site (compaction begin/completed, consistency_window_open; `int`
+// values matching `compaction::Site`) calls `reach` when it executes. A test can:
 //   - `ArmPause(site, true)`  park a site when it is next reached.
 //   - `SetWake(trigger, target)`  release `target` when `trigger` is reached
 //       (the cross-wake that lets a main-thread site unblock a parked
 //       background compaction; target -1 clears the link).
 //   - `Release(site)`  release a parked site out-of-band.
 //   - `Reached(site)`  read the arrival count.
+// A rendezvous whose two ends are this side and the disk layer uses a named
+// `_FT.DEBUG SYNC_POINT` instead - both sides can reach the same name directly.
 //   - `ResetCompactionController()`  clear all state and free waiters.
 // All entry points are no-ops if nothing is armed and are safe to call from
 // arbitrary threads.

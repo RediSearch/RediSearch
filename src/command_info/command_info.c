@@ -1229,7 +1229,7 @@ int SetFtSearchInfo(RedisModuleCommand *cmd) {
       },
       {
         .name = "summarize",
-        .summary = "Splits a field into contextual fragments surrounding the found terms, Note that summarize for JSON documents is not currently supported.",
+        .summary = "Splits a field into contextual fragments surrounding the found terms. Note: SUMMARIZE is not supported for JSON fields with multi-value JSONPath.",
         .type = REDISMODULE_ARG_TYPE_BLOCK,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
         .subargs = (RedisModuleCommandArg[]){
@@ -1280,7 +1280,7 @@ int SetFtSearchInfo(RedisModuleCommand *cmd) {
       },
       {
         .name = "highlight",
-        .summary = "Highlights terms in the search results, with customizable tags for emphasis. Note that highlight for JSON documents is not currently supported.",
+        .summary = "Highlights terms in the search results, with customizable tags for emphasis. Note: HIGHLIGHT is not supported for JSON fields with multi-value JSONPath.",
         .type = REDISMODULE_ARG_TYPE_BLOCK,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
         .subargs = (RedisModuleCommandArg[]){
@@ -2586,8 +2586,54 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
           {
             .name = "filter",
             .token = "FILTER",
-            .type = REDISMODULE_ARG_TYPE_STRING,
+            .type = REDISMODULE_ARG_TYPE_BLOCK,
             .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+            .subargs = (RedisModuleCommandArg[]){
+              {
+                .name = "count",
+                .since = "8.4.3",
+                .type = REDISMODULE_ARG_TYPE_INTEGER,
+              },
+              {
+                .name = "filter_expression",
+                .type = REDISMODULE_ARG_TYPE_STRING,
+              },
+              {
+                .name = "policy",
+                .token = "POLICY",
+                .since = "8.4.3",
+                .type = REDISMODULE_ARG_TYPE_ONEOF,
+                .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .name = "adhoc",
+                    .token = "ADHOC",
+                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                  },
+                  {
+                    .name = "batches_policy",
+                    .type = REDISMODULE_ARG_TYPE_BLOCK,
+                    .subargs = (RedisModuleCommandArg[]){
+                      {
+                        .name = "batches",
+                        .token = "BATCHES",
+                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                      },
+                      {
+                        .name = "batch_size_value",
+                        .token = "BATCH_SIZE",
+                        .since = "8.4.3",
+                        .type = REDISMODULE_ARG_TYPE_INTEGER,
+                        .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                      },
+                      {0}
+                    },
+                  },
+                  {0}
+                },
+              },
+              {0}
+            },
           },
           {0}
         },
@@ -2631,12 +2677,6 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
                     .type = REDISMODULE_ARG_TYPE_INTEGER,
                     .flags = REDISMODULE_CMD_ARG_OPTIONAL,
                   },
-                  {
-                    .name = "yield_score_as",
-                    .token = "YIELD_SCORE_AS",
-                    .type = REDISMODULE_ARG_TYPE_STRING,
-                    .flags = REDISMODULE_CMD_ARG_OPTIONAL,
-                  },
                   {0}
                 },
               },
@@ -2677,17 +2717,17 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
                     .type = REDISMODULE_ARG_TYPE_INTEGER,
                     .flags = REDISMODULE_CMD_ARG_OPTIONAL,
                   },
-                  {
-                    .name = "yield_score_as",
-                    .token = "YIELD_SCORE_AS",
-                    .type = REDISMODULE_ARG_TYPE_STRING,
-                    .flags = REDISMODULE_CMD_ARG_OPTIONAL,
-                  },
                   {0}
                 },
               },
               {0}
             },
+          },
+          {
+            .name = "yield_score_as",
+            .token = "YIELD_SCORE_AS",
+            .type = REDISMODULE_ARG_TYPE_STRING,
+            .flags = REDISMODULE_CMD_ARG_OPTIONAL,
           },
           {0}
         },
@@ -3475,49 +3515,17 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
       {
         .name = "filter",
         .token = "FILTER",
-        .type = REDISMODULE_ARG_TYPE_BLOCK,
+        .type = REDISMODULE_ARG_TYPE_STRING,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
-        .subargs = (RedisModuleCommandArg[]){
-          {
-            .name = "count",
-            .type = REDISMODULE_ARG_TYPE_INTEGER,
-          },
-          {
-            .name = "filter_expression",
-            .type = REDISMODULE_ARG_TYPE_STRING,
-          },
-          {
-            .name = "policy",
-            .token = "POLICY",
-            .type = REDISMODULE_ARG_TYPE_ONEOF,
-            .flags = REDISMODULE_CMD_ARG_OPTIONAL,
-            .subargs = (RedisModuleCommandArg[]){
-              {
-                .name = "adhoc",
-                .token = "ADHOC",
-                .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-              },
-              {
-                .name = "batches",
-                .token = "BATCHES",
-                .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-              },
-              {0}
-            },
-          },
-          {
-            .name = "batch_size_value",
-            .token = "BATCH_SIZE",
-            .type = REDISMODULE_ARG_TYPE_INTEGER,
-            .flags = REDISMODULE_CMD_ARG_OPTIONAL,
-          },
-          {0}
-        },
       },
       {0}
     },
     .arity = -7,
-    .since = "8.4.4",
+    .since = "8.4.0",
+    .history = (RedisModuleCommandHistoryEntry[]){
+      {"8.4.3", "Added `count`, `POLICY` and `BATCH_SIZE` arguments to the `VSIM` `FILTER` clause"},
+      {0}
+    },
     .tips = "dont_cache",
   };
   return RedisModule_SetCommandInfo(cmd, &info);

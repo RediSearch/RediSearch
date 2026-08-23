@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::time::Instant;
+
 use super::ContainsIter;
 use lending_iterator::prelude::*;
 
@@ -22,12 +24,14 @@ impl<'tm, 't, Data> From<ContainsIter<'tm, 't, Data>> for ContainsLendingIter<'t
     }
 }
 
-// The [`LendingIterator`] trait allows us to obtain a reference to
-// the key corresponding to the value.
-// The [`Iterator`] trait does not allow for its `Item` to be a reference
-// to the Iterator itself.
-//
-// Why do we need a crate? Well: <https://sabrinajewson.org/blog/the-better-alternative-to-lifetime-gats>
+impl<'tm, 't, Data> ContainsLendingIter<'tm, 't, Data> {
+    /// Set timeout
+    pub fn set_timeout(&mut self, timeout: Option<Instant>) {
+        self.0.set_timeout(timeout)
+    }
+}
+
+// See `LendingIter` for why this is a `LendingIterator` rather than an `Iterator`.
 #[gat]
 impl<'tm, 't, Data> LendingIterator for ContainsLendingIter<'tm, 't, Data> {
     type Item<'next>

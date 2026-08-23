@@ -28,7 +28,6 @@ pub struct MockQueryEvalCtx {
     spec: *mut ffi::IndexSpec,
     opts: *mut ffi::RSSearchOptions,
     status: *mut QueryError,
-    metric_requests_inner: *mut rlookup::MetricRequest<'static>,
     metric_requests_p: *mut *mut rlookup::MetricRequest<'static>,
     doc_table: *mut ffi::DocTable,
     config: *mut IteratorsConfig,
@@ -49,9 +48,14 @@ impl Drop for MockQueryEvalCtx {
             dealloc(self.sctx.cast(), Layout::new::<ffi::RedisSearchCtx>());
             dealloc(self.opts.cast(), Layout::new::<ffi::RSSearchOptions>());
             drop(Box::from_raw(self.status));
-            dealloc(
-                self.metric_requests_inner.cast(),
-                Layout::new::<rlookup::MetricRequest<'static>>(),
+            // Reclaiming an appended list means `array_free`, a C symbol this
+            // mock deliberately doesn't invoke, so it can only refuse to be the
+            // one that appended. A test that needs to is a test that needs
+            // `rqe_iterators_test_utils::TestContext` instead, whose teardown
+            // does free the list.
+            debug_assert!(
+                (*self.metric_requests_p).is_null(),
+                "this mock cannot free an appended metric-request list"
             );
             dealloc(
                 self.metric_requests_p.cast(),
@@ -92,16 +96,17 @@ impl MockQueryEvalCtx {
 
             let status = Box::into_raw(Box::new(QueryError::default()));
 
-            let metric_requests_inner =
-                alloc_zeroed(Layout::new::<rlookup::MetricRequest<'static>>())
-                    .cast::<rlookup::MetricRequest<'static>>();
-            assert!(!metric_requests_inner.is_null());
-
+            // The head of the metric-request list, left null: the list is a
+            // tracked array, whose empty state is a null head and whose
+            // non-empty one is an interior pointer just past a length header.
+            // Seeding it with a plain allocation would look non-empty while
+            // having no header, so the first append would read and reallocate
+            // from outside it. Appending through this mock is refused outright
+            // in `drop`, for want of a C symbol to free the result with.
             let metric_requests_p =
                 alloc_zeroed(Layout::new::<*mut rlookup::MetricRequest<'static>>())
                     .cast::<*mut rlookup::MetricRequest<'static>>();
             assert!(!metric_requests_p.is_null());
-            *metric_requests_p = metric_requests_inner;
 
             let doc_table = alloc_zeroed(Layout::new::<ffi::DocTable>()).cast::<ffi::DocTable>();
             assert!(!doc_table.is_null());
@@ -133,7 +138,6 @@ impl MockQueryEvalCtx {
                 spec,
                 opts,
                 status,
-                metric_requests_inner,
                 metric_requests_p,
                 doc_table,
                 config,
@@ -159,6 +163,10 @@ impl MockQueryEvalCtx {
         self.doc_table
     }
 
+    pub fn opts_ptr(&self) -> *mut ffi::RSSearchOptions {
+        self.opts
+    }
+
     pub fn set_max_doc_id(&mut self, max_doc_id: rqe_core::DocId) {
         // SAFETY: `self.doc_table` is a valid, exclusively-owned allocation.
         unsafe { (*self.doc_table).maxDocId = max_doc_id }
@@ -178,14 +186,14 @@ impl MockQueryEvalCtx {
     /// Blocked Client Timeout source is selected (simulating a
     /// background-executed request).
     ///
-    /// The allocation is owned by this mock and freed on drop. It is zeroed,
-    /// so its `RequestSyncCtx::timedOut` flag reads as "not timed out": a code
-    /// path that probes the timeout (via `AREQ_CheckTimedOut`) sees a valid,
-    /// non-expired request.
+    /// The allocation is owned by this mock and freed on drop. Its zeroed
+    /// `QueryRequestTimeout::timedOut` flag reads as "not timed out", so
+    /// `AREQ_CheckTimedOut` sees a non-expired request.
     pub fn enable_blocked_client_timeout(&mut self) {
-        // SAFETY: `ffi::AREQ` is a `#[repr(C)]` POD struct, so an all-zero bit
-        // pattern is a valid (non-expired) instance; the allocation is checked
-        // non-null and stored for cleanup in `Drop`.
+        // SAFETY: the allocation has the size and alignment of `ffi::AREQ` and
+        // is checked non-null. This mock only exposes it to `AREQ_CheckTimedOut`,
+        // which reads the zeroed atomic timeout flag; it never uses uninitialized
+        // request resources. The allocation is retained for cleanup in `Drop`.
         unsafe {
             if self.areq.is_null() {
                 let areq = alloc_zeroed(Layout::new::<ffi::AREQ>()).cast::<ffi::AREQ>();

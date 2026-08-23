@@ -7,26 +7,36 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "config.h"
-#include "thpool/thpool.h"
-#include "err.h"
-#include "rmutil/util.h"
-#include "rmutil/strings.h"
-#include "rmutil/args.h"
+
 #include <string.h>
-#include <stdlib.h>
 #include <limits.h>
 #include <unistd.h>
-#include "util/minmax.h"
+#include <strings.h>
+#include <sys/param.h>
+
+#include "thpool/thpool.h"
+#include "rmutil/args.h"
 #include "rmalloc.h"
 #include "rules.h"
 #include "spec.h"
 #include "indexes.h"
 #include "extension.h"
-#include "util/dict.h"
-#include "resp3.h"
 #include "util/workers.h"
 #include "module.h"
 #include "search_disk.h"
+#include "aggregate/reducer.h"
+#include "doc_table.h"
+#include "obfuscation/hidden.h"
+#include "query_error_ffi.h"
+#include "query_types.h"
+#include "result_processor.h"
+#include "rmutil/rm_assert.h"
+#include "search_disk_api.h"
+#include "util/config_macros.h"
+#include "util/dict/dict.h"
+#include "util/references.h"
+#include "util/strconv.h"
+#include "util/stringify.h"
 
 #define DEFAULT_UNSTABLE_FEATURES_ENABLE false
 
@@ -117,6 +127,8 @@ configPair_t __configPairs[] = {
   {"_SIMULATE_IN_FLEX",                "search-_simulate-in-flex"},
   {"search-disk-drop-read-cache",      "search-disk-drop-read-cache"},
   {"search-disk-use-direct-reads",     "search-disk-use-direct-reads"},
+  {"search-_disk-async-read-pool-size",   "search-_disk-async-read-pool-size"},
+  {"search-_disk-async-read-queue-factor", "search-_disk-async-read-queue-factor"},
 };
 
 static const char* FTConfigNameToConfigName(const char *name) {
@@ -668,7 +680,12 @@ CONFIG_GETTER(getWorkThreads) {
 // workers
 static int set_workers(const char *name, long long val, void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
-  REDISMODULE_NOT_USED(err);
+  if (val > MAX_WORKER_THREADS) {
+    RS_ASSERT(err);
+    *err = RedisModule_CreateStringPrintf(NULL, "Number of worker threads cannot exceed %d",
+                                         MAX_WORKER_THREADS);
+    return REDISMODULE_ERR;
+  }
   if (val < MIN_WORKER_THREADS_FLEX && SearchDisk_IsEnabledForValidation()) {
     RedisModule_Log(RSDummyContext, "warning", "WORKERS must be at least %d in Flex mode, setting to %d", MIN_WORKER_THREADS_FLEX, MIN_WORKER_THREADS_FLEX);
     val = MIN_WORKER_THREADS_FLEX;
@@ -712,7 +729,12 @@ CONFIG_GETTER(getMinOperationWorkers) {
 static int set_min_operation_workers(const char *name,
                       long long val, void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
-  REDISMODULE_NOT_USED(err);
+  if (val > MAX_WORKER_THREADS) {
+    RS_ASSERT(err);
+    *err = RedisModule_CreateStringPrintf(NULL, "Number of worker threads cannot exceed %d",
+                                         MAX_WORKER_THREADS);
+    return REDISMODULE_ERR;
+  }
   *(size_t *)privdata = (size_t) val;
   // Will only change the number of workers if we are in an event,
   // and `numWorkerThreads` is less than `minOperationWorkers`.
@@ -2197,9 +2219,14 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     )
   )
 
+  // Flex (disk) mode registers lower aggregate-cap defaults (see config.h).
+  // Keyed on real disk enablement (resolved before config registration), not
+  // _SIMULATE_IN_FLEX, which is itself a config applied only after registration.
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-max-aggregate-results", DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS,
+      ctx, "search-max-aggregate-results",
+      SearchDisk_IsEnabled() ? DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS_FLEX
+                             : DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS,
       REDISMODULE_CONFIG_UNPREFIXED, 0,
       MAX_AGGREGATE_REQUEST_RESULTS, get_size_t_numeric_config, set_size_t_numeric_config,
       NULL, (void *)&(RSGlobalConfig.maxAggregateResults)
@@ -2208,7 +2235,8 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-max-aggregate-groups", DEFAULT_MAX_AGGREGATE_GROUPS,
+      ctx, "search-max-aggregate-groups",
+      SearchDisk_IsEnabled() ? DEFAULT_MAX_AGGREGATE_GROUPS_FLEX : DEFAULT_MAX_AGGREGATE_GROUPS,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       MAX_AGGREGATE_GROUPS, get_size_t_numeric_config, set_size_t_numeric_config,
       NULL, (void *)&(RSGlobalConfig.maxAggregateGroups)
@@ -2308,7 +2336,8 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-timeout", DEFAULT_QUERY_TIMEOUT_MS,
+      ctx, "search-timeout",
+      SearchDisk_IsEnabled() ? DEFAULT_QUERY_TIMEOUT_MS_FLEX : DEFAULT_QUERY_TIMEOUT_MS,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_long_numeric_config, set_long_numeric_config, NULL,
       (void *)&(RSGlobalConfig.requestConfigParams.queryTimeoutMS)
@@ -2473,7 +2502,8 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
   // Enum parameters
   RM_TRY(
     RedisModule_RegisterEnumConfig(
-      ctx, "search-on-timeout", TimeoutPolicy_Return,
+      ctx, "search-on-timeout",
+      SearchDisk_IsEnabled() ? DEFAULT_TIMEOUT_POLICY_FLEX : DEFAULT_TIMEOUT_POLICY,
       REDISMODULE_CONFIG_UNPREFIXED,
       on_timeout_vals, on_timeout_enums, 3,
       get_on_timeout, set_on_timeout, NULL,
@@ -2615,6 +2645,24 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED, -1,
       INT_MAX, get_int_numeric_config, set_search_disk_max_open_files_config, NULL,
       (void *)&(RSGlobalConfig.diskMaxOpenFiles)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-_disk-async-read-pool-size", DEFAULT_DISK_ASYNC_READ_POOL_SIZE,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      DISK_ASYNC_READ_POOL_SIZE_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.diskAsyncReadPoolSize)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-_disk-async-read-queue-factor", DEFAULT_DISK_ASYNC_READ_QUEUE_FACTOR,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      DISK_ASYNC_READ_QUEUE_FACTOR_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.diskAsyncReadQueueFactor)
     )
   )
 

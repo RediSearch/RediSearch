@@ -7,15 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::{QueryIterator, RLookupKey, RLookupKeyHandle};
+use std::ptr::NonNull;
+
+use ffi::{QueryIterator, RLookupKey};
+use rlookup::RLookupKeyHandle;
 use rqe_core::DocId;
-use rqe_iterator_type::IteratorType;
 use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::{
-    metric::{
-        Metric, MetricLazySortedById, MetricLazySortedByScore, MetricSortedById,
-        MetricSortedByScore, MetricType,
-    },
+    metric::{self, Metric, MetricType},
     utils::OwnedSlice,
 };
 
@@ -104,98 +103,39 @@ unsafe fn new_metric_iterator<const SORTED_BY_ID: bool>(
 ///
 /// 1. `header` is a valid non-null pointer to a [`QueryIterator`].
 /// 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
-/// 3. `key_handle` is either a null pointer or a valid non-null pointer to a [`RLookupKeyHandle`] instance.
+/// 3. The caller has exclusive access to that iterator for the duration of the call.
+/// 4. `key_handle` is either a null pointer, or a valid non-null pointer to a [`RLookupKeyHandle`]
+///    that stays live until the iterator is freed — not merely for this call. The iterator clears
+///    the handle's validity flag when it is dropped, so releasing the handle while the iterator is
+///    still alive is a use-after-free at that later point.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn SetMetricRLookupHandle(
     header: *mut QueryIterator,
-    key_handle: *mut RLookupKeyHandle,
+    key_handle: *mut RLookupKeyHandle<'_>,
 ) {
-    debug_assert!(!header.is_null());
+    let header = NonNull::new(header).expect("header must not be null");
 
-    // SAFETY: Safe thanks to 1.
-    let iterator_type = unsafe { (*header).type_ };
-
-    match iterator_type {
-        IteratorType::MetricSortedById => {
-            // SAFETY: Safe thanks to 1 + 2.
-            let wrapper =
-                unsafe { RQEIteratorWrapper::<MetricSortedById>::mut_ref_from_header_ptr(header) };
-            // SAFETY: Safe thanks to 3.
-            unsafe { wrapper.inner.set_handle(key_handle) };
-        }
-        IteratorType::MetricSortedByScore => {
-            // SAFETY: Safe thanks to 1 + 2.
-            let wrapper = unsafe {
-                RQEIteratorWrapper::<MetricSortedByScore>::mut_ref_from_header_ptr(header)
-            };
-            // SAFETY: Safe thanks to 3.
-            unsafe { wrapper.inner.set_handle(key_handle) };
-        }
-        IteratorType::MetricLazySortedById => {
-            // SAFETY: Safe thanks to 1 + 2.
-            let wrapper = unsafe {
-                RQEIteratorWrapper::<MetricLazySortedById>::mut_ref_from_header_ptr(header)
-            };
-            // SAFETY: Safe thanks to 3.
-            unsafe { wrapper.inner.set_handle(key_handle) };
-        }
-        IteratorType::MetricLazySortedByScore => {
-            // SAFETY: Safe thanks to 1 + 2.
-            let wrapper = unsafe {
-                RQEIteratorWrapper::<MetricLazySortedByScore>::mut_ref_from_header_ptr(header)
-            };
-            // SAFETY: Safe thanks to 3.
-            unsafe { wrapper.inner.set_handle(key_handle) };
-        }
-        _ => unreachable!(
-            "expected a metric iterator, either sorted by ID or Score (metric value): unexpected type: {iterator_type}"
-        ),
-    }
+    // SAFETY: 1 + 2 give the callee its live iterator, 3 its exclusive access,
+    // and 4 the handle that outlasts the iterator writing through it.
+    unsafe { metric::set_key_handle(header, key_handle) };
 }
 
-/// Get a mutable reference to the [`RLookupKey`] stored inside this metric iterator.
+/// Get a pointer to the [`RLookupKey`] slot inside this metric iterator.
 ///
 /// # Safety
 ///
 /// 1. `header` is a valid non-null pointer to a [`QueryIterator`].
 /// 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
+/// 3. The caller has exclusive access to that iterator for the duration of the call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn GetMetricOwnKeyRef(header: *mut QueryIterator) -> *mut *mut RLookupKey {
-    debug_assert!(!header.is_null());
+    let header = NonNull::new(header).expect("header must not be null");
 
-    // SAFETY: Safe thanks to 1.
-    let iterator_type = unsafe { (*header).type_ };
+    // SAFETY: Safe thanks to 1 + 2 + 3. The borrow parameter is discharged by
+    // discarding it: it is inferred to a lifetime local to this function and
+    // erased by the cast below, so no key typed with it escapes to C — which
+    // has none to offer and reads no borrowed string through this pointer.
+    let slot: *mut *mut rlookup::RLookupKey<'_> = unsafe { metric::own_key_ref(header) };
 
-    match iterator_type {
-        IteratorType::MetricSortedById => {
-            // SAFETY: Safe thanks to 1 + 2.
-            let wrapper =
-                unsafe { RQEIteratorWrapper::<MetricSortedById>::mut_ref_from_header_ptr(header) };
-            wrapper.inner.key_mut_ref() as *mut _
-        }
-        IteratorType::MetricSortedByScore => {
-            // SAFETY: Safe thanks to 1 + 2.
-            let wrapper = unsafe {
-                RQEIteratorWrapper::<MetricSortedByScore>::mut_ref_from_header_ptr(header)
-            };
-            wrapper.inner.key_mut_ref() as *mut _
-        }
-        IteratorType::MetricLazySortedById => {
-            // SAFETY: Safe thanks to 1 + 2.
-            let wrapper = unsafe {
-                RQEIteratorWrapper::<MetricLazySortedById>::mut_ref_from_header_ptr(header)
-            };
-            wrapper.inner.key_mut_ref() as *mut _
-        }
-        IteratorType::MetricLazySortedByScore => {
-            // SAFETY: Safe thanks to 1 + 2.
-            let wrapper = unsafe {
-                RQEIteratorWrapper::<MetricLazySortedByScore>::mut_ref_from_header_ptr(header)
-            };
-            wrapper.inner.key_mut_ref() as *mut _
-        }
-        _ => unreachable!(
-            "expected a metric iterator, either sorted by ID or Score (metric value): unexpected type: {iterator_type}"
-        ),
-    }
+    slot.cast::<*mut RLookupKey>()
 }

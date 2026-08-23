@@ -8,7 +8,7 @@
 */
 
 // Provide stubs for Redis allocator and OpenSSL symbols referenced by
-// libredisearch_all.a, and force-link FFI crates so their #[no_mangle]
+// libredisearch_c_bundle.a, and force-link FFI crates so their #[no_mangle]
 // symbols satisfy archive references. All FFI crates are needed because
 // wildcard.c.o's RS_ABORT macro (in debug builds) pulls in RSDummyContext,
 // which cascades through most of the archive.

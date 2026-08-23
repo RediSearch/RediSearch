@@ -120,7 +120,7 @@ impl<Data: Clone> Clone for Node<Data> {
                 // - The destination data is all contained within a single allocation.
                 // - We have exclusive access to the destination buffer,
                 //   since it was allocated earlier in this function.
-                // - The destination pointer is well aligned, see 1. in [`PtrMetadata::child_ptr`]
+                // - The destination pointer is well aligned, see 1. in [`PtrMetadata::children_ptr`]
                 unsafe { next_ptr.write(child.clone()) };
                 // SAFETY:
                 // - The offsetted pointer doesn't overflow `isize`, since it is within the bounds

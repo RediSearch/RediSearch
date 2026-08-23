@@ -16,11 +16,6 @@ typedef struct FieldSpec FieldSpec;
 
 
 /**
- * Result of scanning the index for garbage collection
- */
-typedef struct InvertedIndexGcDelta InvertedIndexGcDelta;
-
-/**
  * Each `IndexBlock` contains a set of entries for a specific range of document IDs. The entries
  * are ordered by document ID, so the first entry in the block has the lowest document ID, and the
  * last entry has the highest document ID. The block also contains a buffer that is used to
@@ -38,6 +33,34 @@ typedef struct IndexBlock IndexBlock;
 typedef struct InvertedIndex InvertedIndex;
 
 /**
+ * Result of scanning the index for garbage collection
+ */
+typedef struct InvertedIndexGcDelta InvertedIndexGcDelta;
+
+/**
+ * Outcome of [`InvertedIndex::add_record`]: how the index grew during the write.
+ */
+typedef struct AddRecordOutcome {
+  /**
+   * Number of bytes the inverted index's memory usage grew by.
+   */
+  uint32_t mem_growth;
+  /**
+   * Number of new index blocks this write created.
+   */
+  uint32_t blocks_added;
+} AddRecordOutcome;
+
+/**
+ * Summary information about the key metrics of a block in an inverted index
+ */
+typedef struct IIBlockSummary {
+  t_docId first_doc_id;
+  t_docId last_doc_id;
+  uint16_t number_of_entries;
+} IIBlockSummary;
+
+/**
  * Summary information about an inverted index containing all key metrics
  */
 typedef struct IISummary {
@@ -49,6 +72,73 @@ typedef struct IISummary {
   double block_efficiency;
   bool has_efficiency;
 } IISummary;
+
+/**
+ * Information about the result of applying a garbage collection scan to the index
+ */
+typedef struct II_GCScanStats {
+  /**
+   * The number of bytes that were freed
+   */
+  size_t bytes_freed;
+  /**
+   * The number of bytes that were allocated
+   */
+  size_t bytes_allocated;
+  /**
+   * The number of entries that were removed from the index including duplicates
+   */
+  size_t entries_removed;
+  /**
+   * Net change in the index's block count for this apply. Positive when blocks were added
+   * (e.g. a `Replace` repair adding more blocks than it removed), negative when removed.
+   * Callers maintaining per-spec totals should add this signed value to their counter.
+   */
+  int64_t block_count_delta;
+  /**
+   * Whether or not we ignored the last block in the index, since it changed
+   * compared to the time we performed the scan
+   */
+  bool ignored_last_block;
+} II_GCScanStats;
+
+/**
+ * Filter to apply when reading from an index. Entries which don't match the filter will not be
+ * returned by the reader.
+ */
+enum IndexDecoderCtx_Tag
+#ifdef __cplusplus
+  : uint8_t
+#endif // __cplusplus
+ {
+  /**
+   * No filter, all entries are accepted
+   */
+  IndexDecoderCtx_None,
+  /**
+   * Accepts entries matching this field mask
+   */
+  IndexDecoderCtx_FieldMask,
+  /**
+   * Accepts entries matching this numeric filter
+   */
+  IndexDecoderCtx_Numeric,
+};
+#ifndef __cplusplus
+typedef uint8_t IndexDecoderCtx_Tag;
+#endif // __cplusplus
+
+typedef union IndexDecoderCtx {
+  IndexDecoderCtx_Tag tag;
+  struct {
+    IndexDecoderCtx_Tag fieldmask_tag;
+    t_fieldMask fieldmask;
+  };
+  struct {
+    IndexDecoderCtx_Tag numeric_tag;
+    const struct NumericFilter *numeric;
+  };
+} IndexDecoderCtx;
 
 /**
  * Filter details to apply to numeric values
@@ -91,93 +181,3 @@ typedef struct NumericFilter {
    */
   size_t offset;
 } NumericFilter;
-
-/**
- * Summary information about the key metrics of a block in an inverted index
- */
-typedef struct IIBlockSummary {
-  t_docId first_doc_id;
-  t_docId last_doc_id;
-  uint16_t number_of_entries;
-} IIBlockSummary;
-
-/**
- * Outcome of [`InvertedIndex::add_record`]: how the index grew during the write.
- */
-typedef struct AddRecordOutcome {
-  /**
-   * Number of bytes the inverted index's memory usage grew by.
-   */
-  uint32_t mem_growth;
-  /**
-   * Number of new index blocks this write created.
-   */
-  uint32_t blocks_added;
-} AddRecordOutcome;
-
-/**
- * Filter to apply when reading from an index. Entries which don't match the filter will not be
- * returned by the reader.
- */
-enum IndexDecoderCtx_Tag
-#ifdef __cplusplus
-  : uint8_t
-#endif // __cplusplus
- {
-  /**
-   * No filter, all entries are accepted
-   */
-  IndexDecoderCtx_None,
-  /**
-   * Accepts entries matching this field mask
-   */
-  IndexDecoderCtx_FieldMask,
-  /**
-   * Accepts entries matching this numeric filter
-   */
-  IndexDecoderCtx_Numeric,
-};
-#ifndef __cplusplus
-typedef uint8_t IndexDecoderCtx_Tag;
-#endif // __cplusplus
-
-typedef union IndexDecoderCtx {
-  IndexDecoderCtx_Tag tag;
-  struct {
-    IndexDecoderCtx_Tag fieldmask_tag;
-    t_fieldMask fieldmask;
-  };
-  struct {
-    IndexDecoderCtx_Tag numeric_tag;
-    const struct NumericFilter *numeric;
-  };
-} IndexDecoderCtx;
-
-/**
- * Information about the result of applying a garbage collection scan to the index
- */
-typedef struct II_GCScanStats {
-  /**
-   * The number of bytes that were freed
-   */
-  size_t bytes_freed;
-  /**
-   * The number of bytes that were allocated
-   */
-  size_t bytes_allocated;
-  /**
-   * The number of entries that were removed from the index including duplicates
-   */
-  size_t entries_removed;
-  /**
-   * Net change in the index's block count for this apply. Positive when blocks were added
-   * (e.g. a `Replace` repair adding more blocks than it removed), negative when removed.
-   * Callers maintaining per-spec totals should add this signed value to their counter.
-   */
-  int64_t block_count_delta;
-  /**
-   * Whether or not we ignored the last block in the index, since it changed
-   * compared to the time we performed the scan
-   */
-  bool ignored_last_block;
-} II_GCScanStats;

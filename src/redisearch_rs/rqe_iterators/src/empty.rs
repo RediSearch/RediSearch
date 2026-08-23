@@ -14,14 +14,20 @@ use index_spec::IndexSpecReadGuard;
 use rqe_core::DocId;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
 /// An iterator that yields no results.
 ///
 /// The [`Empty`] iterator is a sentinel iterator that represents an empty result set.
+///
+/// `#[repr(C)]` makes `Empty` trivially layout-compatible with itself across
+/// `Active`/`Suspended` instantiations of any containing iterator — it has no
+/// `Rf` fields of its own, so its Suspended counterpart is just `Empty` itself.
 #[derive(Default)]
+#[repr(C)]
 pub struct Empty;
 
 impl<'index> RQEIterator<'index> for Empty {
@@ -82,5 +88,40 @@ impl<'index> RQEIterator<'index> for Empty {
 impl ProfilePrint for Empty {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         ctx.print_leaf(c"EMPTY", map);
+    }
+}
+
+impl<'index> RQEIteratorBoxed<'index> for Empty {
+    /// `Empty` has no `Rf`-dependent state, so its Suspended counterpart is
+    /// itself.
+    type Suspended = Empty;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        self
+    }
+}
+
+impl<'query> RQESuspendedIterator<'query> for Empty {
+    type Resumed<'index>
+        = Empty
+    where
+        'query: 'index;
+
+    fn resume<'index>(
+        self: Box<Self>,
+        _guard: &IndexSpecReadGuard<'index>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'index>>>, RQEIteratorError>
+    where
+        'query: 'index,
+    {
+        Ok(ResumeOutcome::Ok(self))
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        0
+    }
+
+    fn num_estimated(&self) -> usize {
+        0
     }
 }

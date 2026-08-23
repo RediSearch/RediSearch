@@ -7,6 +7,18 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "vector_index.h"
+
+#include <string.h>
+// __GLIBC__; glibc-only header
+#if __has_include(<features.h>)
+#include <features.h>  // IWYU pragma: keep
+#endif
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h> // IWYU pragma: keep
+#include <strings.h>
+#include <time.h>
+
 #include "VecSim/query_results.h"
 #include "iterators/hybrid_reader.h"
 #include "iterators_ffi.h"
@@ -16,11 +28,25 @@
 #include "util/threadpool_api.h"
 #include "redis_index.h"
 #include "search_disk.h"
-
-#include <string.h>
+#include "config.h"
+#include "field.h"
+#include "geometry/geometry_types.h"
+#include "param.h"
+#include "query.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "rqe_core.h"
+#include "rqe_iterators.h"
+#include "search_ctx.h"
+#include "search_options.h"
+#include "spec.h"
+#include "util/arr/arr.h"
+#include "util/timeout.h"
 
 #if defined(__x86_64__) && defined(__GLIBC__)
-#include <cpuid.h>
+#include <cpuid.h> // IWYU pragma: keep
 #define CPUID_AVAILABLE 1
 #endif
 
@@ -235,6 +261,13 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
       if (VecSim_ResolveQueryParams(vecsim, vq->params.params, array_len(vq->params.params),
                                     &qParams, queryType, q->status) != VecSim_OK)  {
         return NULL;
+      }
+      // On disk (Flex) HNSW, query-time RERANK is an override only. When the query omits
+      // it, fall back to the index's create-time RERANK default
+      if (vq->field->vectorOpts.diskCtx.indexName != NULL &&
+          qParams.hnswDiskRuntimeParams.shouldRerank == VecSimBool_UNSET) {
+        qParams.hnswDiskRuntimeParams.shouldRerank =
+            vq->field->vectorOpts.diskCtx.rerank ? VecSimBool_TRUE : VecSimBool_FALSE;
       }
       if (vq->knn.k > MAX_KNN_K) {
         QueryError_SetWithoutUserDataFmt(q->status, QUERY_ERROR_CODE_INVAL,

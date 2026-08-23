@@ -15,11 +15,12 @@
 
 use index_result::RSIndexResult;
 use inverted_index::IndexReader as _;
+use inverted_index::numeric::PreparedValue;
 use rqe_core::DocId;
 
 use super::{AddResult, CheckedCount, NumericRangeTree};
 use crate::arena::{NodeArena, NodeIndex};
-use crate::{InternalNode, NumericRange, NumericRangeNode};
+use crate::{InternalNode, NumericIndex, NumericRange, NumericRangeNode};
 
 impl NumericRangeTree {
     /// Last depth level that does NOT use the maximum split cardinality.
@@ -60,16 +61,23 @@ impl NumericRangeTree {
         &mut self,
         doc_id: DocId,
         value: f64,
+        has_field_expiration: bool,
         is_multivalued: bool,
         max_depth_range: usize,
     ) -> AddResult {
-        #[cfg(all(feature = "unittest", not(miri)))]
+        #[cfg(all(feature = "unittest", debug_assertions, not(miri)))]
         let (stats_before, revision_id_before, total_records_before) =
             (self.stats, self.revision_id, self.total_records());
 
-        let result = self._add(doc_id, value, is_multivalued, max_depth_range);
+        let result = self._add(
+            doc_id,
+            value,
+            has_field_expiration,
+            is_multivalued,
+            max_depth_range,
+        );
 
-        #[cfg(all(feature = "unittest", not(miri)))]
+        #[cfg(all(feature = "unittest", debug_assertions, not(miri)))]
         {
             self.check_delta_invariants(
                 stats_before,
@@ -86,6 +94,7 @@ impl NumericRangeTree {
         &mut self,
         doc_id: DocId,
         value: f64,
+        has_field_expiration: bool,
         is_multivalued: bool,
         max_depth_range: usize,
     ) -> AddResult {
@@ -102,11 +111,21 @@ impl NumericRangeTree {
         }
         self.last_doc_id = doc_id;
 
+        // The one place the encoder's lossy step is applied. Everything below —
+        // routing, bounds, cardinality, split medians — works on the value the index
+        // will actually return, so none of it can disagree with storage. The decision
+        // travels with the value, so the leaf writes it without classifying again.
+        //
+        // Prepared with this tree's own flag, never the global config: the config is
+        // settable at runtime, while a tree keeps the flag it was created with.
+        let value = NumericIndex::prepare_for(self.compress_floats, value);
+
         let rv = Self::node_add(
             &mut self.nodes,
             self.root,
             doc_id,
             value,
+            has_field_expiration,
             0,
             max_depth_range,
             self.compress_floats,
@@ -159,7 +178,8 @@ impl NumericRangeTree {
         nodes: &mut NodeArena,
         node_idx: NodeIndex,
         doc_id: DocId,
-        value: f64,
+        value: PreparedValue,
+        has_field_expiration: bool,
         depth: usize,
         max_depth_range: usize,
         compress_floats: bool,
@@ -171,7 +191,9 @@ impl NumericRangeTree {
                 let NumericRangeNode::Internal(internal) = &nodes[node_idx] else {
                     unreachable!()
                 };
-                let child_idx = if value < internal.value {
+                // `internal.value` is a threshold, not a stored value — it can be
+                // `next_up` of one — so the comparison unwraps rather than lifting it.
+                let child_idx = if value.stored_value().get() < internal.value {
                     internal.left_index()
                 } else {
                     internal.right_index()
@@ -182,6 +204,7 @@ impl NumericRangeTree {
                     child_idx,
                     doc_id,
                     value,
+                    has_field_expiration,
                     depth + 1,
                     max_depth_range,
                     compress_floats,
@@ -192,7 +215,8 @@ impl NumericRangeTree {
                 if let NumericRangeNode::Internal(internal) = &mut nodes[node_idx]
                     && let Some(range) = internal.range.as_mut()
                 {
-                    let outcome = range.add_without_cardinality(doc_id, value);
+                    let outcome =
+                        range.add_without_cardinality(doc_id, value, has_field_expiration);
                     rv.size_delta += outcome.mem_growth as i64;
                     rv.block_count_delta += outcome.blocks_added as i32;
                     rv.num_records_delta += 1;
@@ -229,7 +253,7 @@ impl NumericRangeTree {
                     *empty_leaves -= 1;
                 }
 
-                let outcome = leaf.range.add(doc_id, value);
+                let outcome = leaf.range.add(doc_id, value, has_field_expiration);
                 let mut rv = AddResult {
                     size_delta: outcome.mem_growth as i64,
                     num_records_delta: 1,
@@ -246,7 +270,7 @@ impl NumericRangeTree {
                 if card >= Self::get_split_cardinality(depth)
                     || (num_entries > Self::MAXIMUM_RANGE_SIZE && card > 1)
                 {
-                    Self::split_node(nodes, node_idx, &mut rv, compress_floats);
+                    Self::split_node(nodes, node_idx, &mut rv, compress_floats, empty_leaves);
 
                     // Check if we're too high up to retain this node's range
                     if nodes[node_idx].max_depth() > max_depth_range as u32 {
@@ -278,6 +302,10 @@ impl NumericRangeTree {
     /// are identical—the median would equal the minimum, and without adjustment
     /// all entries would go to the right child, leaving the left empty.
     ///
+    /// The adjustment relies on `min_val` matching the smallest value the range
+    /// stores. Adds maintain that; GC does not, so a split can still leave one child
+    /// empty — see the `newly_empty` comment in the body.
+    ///
     /// # Note
     ///
     /// The original range is retained in the node (now internal). It may be
@@ -287,6 +315,7 @@ impl NumericRangeTree {
         node_idx: NodeIndex,
         rv: &mut AddResult,
         compress_floats: bool,
+        empty_leaves: &mut CheckedCount,
     ) {
         let parent_range = nodes[node_idx]
             .take_range()
@@ -325,20 +354,42 @@ impl NumericRangeTree {
         while reader.next_record(&mut result).unwrap_or(false) {
             // SAFETY: We know the result contains numeric data
             let entry_value = unsafe { result.as_numeric_unchecked() };
-            let target_idx = if entry_value < split {
+            // Redistributed entries come straight back out of the parent's index, so
+            // they are already in stored form — preparing one is idempotent, and the
+            // child needs the decision to write the entry.
+            let entry_value = NumericIndex::prepare_for(compress_floats, entry_value);
+            let target_idx = if entry_value.stored_value().get() < split {
                 left_idx
             } else {
                 right_idx
             };
 
             if let Some(target_range) = nodes[target_idx].range_mut() {
-                let outcome = target_range.add(result.doc_id, entry_value);
+                // Preserve the decoded entry's field-expiration bit across the split.
+                let outcome =
+                    target_range.add(result.doc_id, entry_value, result.has_field_expiration);
                 rv.size_delta += outcome.mem_growth as i64;
                 rv.block_count_delta += outcome.blocks_added as i32;
             }
             rv.num_records_delta += 1;
         }
         drop(result);
+
+        // A split strands an empty child leaf when every entry falls on the same side
+        // of `split`, which still happens while GC leaves `min_val` stale: the guard
+        // above cannot fire against a bound no surviving entry holds. It must be
+        // counted, or a later add routed to that leaf underflows `empty_leaves` and
+        // aborts the process across the non-unwinding FFI boundary (MOD-16877). The
+        // parent had >= 1 entry, so at most one child can come out empty.
+        let newly_empty = [left_idx, right_idx]
+            .into_iter()
+            .filter(|&i| nodes[i].range().is_some_and(|r| r.num_docs() == 0))
+            .count();
+        debug_assert!(
+            newly_empty <= 1,
+            "a non-empty parent must yield at least one non-empty child"
+        );
+        *empty_leaves += newly_empty;
 
         // Replace the old leaf with a new internal node.
         nodes[node_idx] = NumericRangeNode::internal_indexed(

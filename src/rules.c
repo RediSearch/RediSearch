@@ -7,8 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "rules.h"
+
+#include <stdint.h>
+#include <string.h>
+#include <strings.h>
+
 #include "triemap_ffi.h"
-#include "rlookup_load_document.h"
 #include "aggregate/expr/expression.h"
 #include "aggregate/expr/exprast.h"
 #include "document.h"
@@ -18,6 +22,14 @@
 #include "util/likely.h"
 #include "spec.h"
 #include "rmutil/rm_assert.h"
+#include "doc_table.h"
+#include "inverted_index.h"
+#include "query_error_ffi.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "search_ctx.h"
+#include "util/dict/dict.h"
+#include "value_ffi.h"
 
 
 TrieMap *SchemaPrefixes_g = NULL;
@@ -566,7 +578,8 @@ bool SchemaRule_FilterPasses(EvalCtx *r, RSExpr *filter_exp) {
          RSValue_BoolTest(r->res);
 }
 
-bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, DocumentType type) {
+bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, DocumentType type,
+                            RedisModuleKey *openKey) {
   // check type
   if (type != sp->rule->type) {
     return false;
@@ -598,7 +611,7 @@ bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, Do
 
     RedisSearchCtx sctx = { .redisCtx = RSDummyContext };
     QueryError status = QueryError_Default();
-    RLookup_LoadRuleFields(&sctx, &r->lk, &r->row, sp, keyCstr, &status);
+    RLookup_LoadRuleFields(&sctx, &r->lk, &r->row, sp, keyCstr, openKey, &status);
     QueryError_ClearError(&status); // TODO: report errors
 
     ret = SchemaRule_FilterPasses(r, rule->filter_exp);

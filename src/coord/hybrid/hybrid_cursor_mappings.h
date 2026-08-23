@@ -17,6 +17,9 @@
 extern "C" {
 #endif
 
+typedef struct QueryRequestAsyncState QueryRequestAsyncState;
+typedef struct QueryRequestTimeout QueryRequestTimeout;
+
 typedef enum  {
   TYPE_SEARCH,
   TYPE_VSIM,
@@ -36,7 +39,6 @@ typedef struct {
 // forward declaration of QueryError
 typedef struct QueryError QueryError;
 
-typedef struct RequestSyncCtx RequestSyncCtx;
 struct timespec;
 
 /**
@@ -68,9 +70,7 @@ typedef struct {
  * @param shardTimedOutWarning Output: set to true if a shard cursor-mapping reply reported timeout
  * @param deadline Absolute CLOCK_MONOTONIC_RAW deadline bounding the wait, or NULL
  *                 when timeout checks are disabled (e.g. RETURN-STRICT). When NULL,
- *                 the wait is unblocked only via `syncCtx`'s abort flag/channel.
- * @param syncCtx Request sync context whose `timedOut` flag is the abort signal and
- *                whose abort-wake channel slot is (un)registered around the wait.
+ *                 the wait is unblocked only via the request's timeout and abort-wake state.
  * @return true if processing completed (even with warnings), false on fatal errors; status will contain error/warning information
  */
 bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappings,
@@ -78,7 +78,8 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappings,
                                  QueryError *status, RSOomPolicy oomPolicy,
                                  RSTimeoutPolicy timeoutPolicy, bool *maxPrefixSearch,
                                  bool *maxPrefixVsim, bool *shardTimedOutWarning,
-                                 const struct timespec *deadline, RequestSyncCtx *syncCtx);
+                                 const struct timespec *deadline, QueryRequestTimeout *timeout,
+                                 QueryRequestAsyncState *asyncState);
 
 /**
  * Apply SHARD_K_RATIO optimization to an MRCommand based on the provided

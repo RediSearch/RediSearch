@@ -47,7 +47,7 @@ impl DocumentMetadata {
     }
 
     /// Build a [`RedisString`] referencing the document's key (an SDS owned by C).
-    pub fn key_name(&self, ctx: Option<NonNull<ffi::RedisModuleCtx>>) -> RedisString {
+    pub fn key_name(&self, ctx: Option<NonNull<redis_module::RedisModuleCtx>>) -> RedisString {
         // SAFETY: caller of `from_ptr` promised `keyPtr` is a valid SDS.
         let key_name_len = unsafe { ffi::sdslen_rust(self.0.keyPtr) };
 

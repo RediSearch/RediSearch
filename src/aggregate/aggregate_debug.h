@@ -268,6 +268,8 @@ typedef struct {
 // Will hold AREQ by value, so we can use AREQ_Debug->r in all functions
 // expecting AREQ, including AREQ_Free
 AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *status);
+// Release the debug argv copies owned by the request (see AREQ_Debug_New).
+void AREQ_Debug_FreeParams(AREQ_Debug *debug_req);
 AREQ_Debug_params parseAggregateDebugParamsCount(RedisModuleString **argv, int argc, QueryError *status);
 int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status);
 

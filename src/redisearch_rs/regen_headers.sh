@@ -23,6 +23,16 @@
 # pull in `bindgen` (and therefore libclang/libLLVM/libncursesw/libz) try
 # to link statically and fail because the static versions of those system
 # libraries are not installed in the Alpine CI image.
+#
+# Cargo keeps a single `.rustdoc_fingerprint.json` per target directory and
+# deletes the whole `doc/` tree whenever the rustdoc version recorded there
+# changes.
+# Therefore, pointing `CARGO_TARGET_DIR` cheadergen to own target directory
+# separates the `bin/redisearch_rs` that the rest of the build uses.
+# In this way, `make lint`'s `cargo doc` (pinned stable, HTML) don't evict
+# each other on every run.
+# NB: Compilation artifacts are not the problem — those already coexist,
+# because the rustc version is part of Cargo's unit hash.
 
 set -euo pipefail
 
@@ -67,7 +77,9 @@ RUST_TOOLCHAIN=$(cat "$REPO_ROOT/.rust-nightly")
 # - All crates that use explicit `#[cheadergen::config(export, ..)] annotations
 #   to export types that aren't otherwise reachable from the FFI functions
 #   we expose.
-exec env -u CARGO_BUILD_TARGET RUSTFLAGS="${rustflags}" cheadergen generate \
+exec env -u CARGO_BUILD_TARGET RUSTFLAGS="${rustflags}" \
+    CARGO_TARGET_DIR="$REPO_ROOT/bin/cheadergen" \
+    cheadergen generate \
     --lang c \
     --rust-toolchain="${RUST_TOOLCHAIN}" \
     --prune-orphans \
@@ -85,7 +97,8 @@ exec env -u CARGO_BUILD_TARGET RUSTFLAGS="${rustflags}" cheadergen generate \
     --package=rqe_iterators \
     --package=search_result \
     --package=query_flags \
-    --package=query_node_type \
+    --package=query_types \
+    --package=query_eval \
     --config=cheadergen.toml \
     --output-dir=headers \
     --input-dir=c_entrypoint

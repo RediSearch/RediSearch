@@ -21,13 +21,16 @@ TEST_F(HybridRequestBasicTest, testHybridRequestCreationBasic) {
   // Test basic HybridRequest creation without Redis dependencies
   AREQ **requests = array_new(AREQ*, 2);
   // Initialize the AREQ structures
-  AREQ *req1 = AREQ_New();
-  AREQ *req2 = AREQ_New();
+  AREQ *req1 = AREQ_New(NULL, 0);
+  AREQ *req2 = AREQ_New(NULL, 0);
 
   requests = array_ensure_append_1(requests, req1);
   requests = array_ensure_append_1(requests, req2);
 
-  HybridRequest *hybridReq = HybridRequest_New(NULL, requests, 2);
+  // Construction requires an argv; the command + index tokens are stepped
+  // over, so the wrappers hold nothing here.
+  RMCK::ArgvList args(NULL, "FT.HYBRID", "idx");
+  HybridRequest *hybridReq = HybridRequest_New(NULL, requests, 2, args, args.size());
   ASSERT_TRUE(hybridReq != nullptr);
   ASSERT_EQ(hybridReq->nrequests, 2);
   ASSERT_TRUE(hybridReq->requests != nullptr);
