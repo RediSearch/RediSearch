@@ -127,6 +127,8 @@ configPair_t __configPairs[] = {
   {"_SIMULATE_IN_FLEX",                "search-_simulate-in-flex"},
   {"search-disk-drop-read-cache",      "search-disk-drop-read-cache"},
   {"search-disk-use-direct-reads",     "search-disk-use-direct-reads"},
+  {"search-_disk-async-read-pool-size",   "search-_disk-async-read-pool-size"},
+  {"search-_disk-async-read-queue-factor", "search-_disk-async-read-queue-factor"},
 };
 
 static const char* FTConfigNameToConfigName(const char *name) {
@@ -2643,6 +2645,24 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED, -1,
       INT_MAX, get_int_numeric_config, set_search_disk_max_open_files_config, NULL,
       (void *)&(RSGlobalConfig.diskMaxOpenFiles)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-_disk-async-read-pool-size", DEFAULT_DISK_ASYNC_READ_POOL_SIZE,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      DISK_ASYNC_READ_POOL_SIZE_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.diskAsyncReadPoolSize)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-_disk-async-read-queue-factor", DEFAULT_DISK_ASYNC_READ_QUEUE_FACTOR,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      DISK_ASYNC_READ_QUEUE_FACTOR_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.diskAsyncReadQueueFactor)
     )
   )
 
