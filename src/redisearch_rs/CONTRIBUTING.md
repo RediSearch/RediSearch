@@ -14,7 +14,10 @@
   - `c_wrappers/*` are exempt: they mirror C structs, so raw pointer accessors and
     setters are the interface.
 - Safety Comments: Number invariants in the safety doc comment and refer to these invariants in your safety in-line comments throughout that function.
-- debug_assert invariants in FFI functions
+- Check the pointer invariants a null test can express unconditionally at the `extern "C"`
+  boundary (`NonNull::new(p).expect(...)`), so a null argument aborts instead of becoming
+  undefined behavior in a release build. `debug_assert` the invariants a callee cannot
+  check for itself, such as ownership, aliasing, and provenance.
 - RediSearch deals with potentially invalid UTF-8 strings so **never assume** `str` /`String` are fine for user input. Prefer `[u8]`, `Vec<u8>`, `CStr`, or `CString`.
 - [`unsafe-tools`](https://github.com/JonasKruckenberg/unsafe-tools)’ `mimic` and `canary` for sized-opaque types that can be passed to C (and e.g. stack allocated)
 - Know and use `Pin` when heap allocated Rust objects and pointers are at play (chances are high you can't move that object!)
