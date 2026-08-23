@@ -61,9 +61,9 @@ pub struct RawMetric<'query, Rf: Ref, const SORTED_BY_ID: bool> {
     ///
     /// The handle is either:
     ///
-    /// - A null pointer, indicating that the iterator is not associated with a key.
+    /// - [`None`], indicating that the iterator is not associated with a key.
     /// - A valid pointer to a [`RLookupKeyHandle`] instance.
-    key_handle: *mut RLookupKeyHandle<'query>,
+    key_handle: Option<NonNull<RLookupKeyHandle<'query>>>,
 }
 
 // Compile-time proof that the `Metric` and its suspended counterpart are layout-identical.
@@ -101,11 +101,11 @@ impl<'query, Rf: Ref, const SORTED_BY_ID: bool> RawMetric<'query, Rf, SORTED_BY_
 
 impl<'query, Rf: Ref, const SORTED_BY_ID: bool> Drop for RawMetric<'query, Rf, SORTED_BY_ID> {
     fn drop(&mut self) {
-        if !self.key_handle.is_null() {
+        if let Some(mut key_handle) = self.key_handle {
             // Safety: thanks to [`Self::key_handle`]'s invariant, we can safely
-            // dereference it if it's not null.
+            // dereference the handle if it is present.
             unsafe {
-                (*self.key_handle).is_valid = false;
+                key_handle.as_mut().is_valid = false;
             }
         }
     }
@@ -145,7 +145,7 @@ impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {
             metric_data,
             type_: MetricType::VectorDistance,
             own_key: std::ptr::null_mut(),
-            key_handle: std::ptr::null_mut(),
+            key_handle: None,
         }
     }
 
@@ -163,7 +163,7 @@ impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {
             metric_data: OwnedSlice::default(),
             type_,
             own_key: std::ptr::null_mut(),
-            key_handle: std::ptr::null_mut(),
+            key_handle: None,
         }
     }
 
@@ -181,9 +181,12 @@ impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {
     ///
     /// The provided `key_handle` can either be:
     ///
-    /// - A null pointer, indicating that the metric iterator does not have a key.
+    /// - [`None`], indicating that the metric iterator does not have a key.
     /// - A valid pointer to a [`RLookupKeyHandle`] instance.
-    pub const unsafe fn set_handle(&mut self, key_handle: *mut RLookupKeyHandle<'index>) {
+    pub const unsafe fn set_handle(
+        &mut self,
+        key_handle: Option<NonNull<RLookupKeyHandle<'index>>>,
+    ) {
         self.key_handle = key_handle;
     }
 
@@ -490,38 +493,39 @@ impl<'query, const SORTED_BY_ID: bool> RQESuspendedIterator<'query>
 /// [`MetricLazySortedByScore`] — the four flavours that own a key slot.
 // TODO: this API should use proper Rust types instead of QueryIterator once top-k has been ported
 // to Rust (MOD-17755).
-pub unsafe fn own_key_ref<'index>(header: NonNull<QueryIterator>) -> *mut *mut RLookupKey<'index> {
+pub unsafe fn own_key_ref<'index>(
+    header: NonNull<QueryIterator>,
+) -> NonNull<*mut RLookupKey<'index>> {
     // SAFETY: safe thanks to 1.
     let iterator_type = unsafe { header.as_ref().type_ };
-    let header = header.as_ptr();
 
     match iterator_type {
         IteratorType::MetricSortedById => {
             // SAFETY: safe thanks to 1 + 2.
             let wrapper =
                 unsafe { RQEIteratorWrapper::<MetricSortedById>::mut_ref_from_header_ptr(header) };
-            wrapper.inner.key_mut_ref()
+            NonNull::from(wrapper.inner.key_mut_ref())
         }
         IteratorType::MetricSortedByScore => {
             // SAFETY: safe thanks to 1 + 2.
             let wrapper = unsafe {
                 RQEIteratorWrapper::<MetricSortedByScore>::mut_ref_from_header_ptr(header)
             };
-            wrapper.inner.key_mut_ref()
+            NonNull::from(wrapper.inner.key_mut_ref())
         }
         IteratorType::MetricLazySortedById => {
             // SAFETY: safe thanks to 1 + 2.
             let wrapper = unsafe {
                 RQEIteratorWrapper::<MetricLazySortedById>::mut_ref_from_header_ptr(header)
             };
-            wrapper.inner.key_mut_ref()
+            NonNull::from(wrapper.inner.key_mut_ref())
         }
         IteratorType::MetricLazySortedByScore => {
             // SAFETY: safe thanks to 1 + 2.
             let wrapper = unsafe {
                 RQEIteratorWrapper::<MetricLazySortedByScore>::mut_ref_from_header_ptr(header)
             };
-            wrapper.inner.key_mut_ref()
+            NonNull::from(wrapper.inner.key_mut_ref())
         }
         _ => unreachable!(
             "expected a metric iterator, either sorted by ID or Score (metric value): unexpected type: {iterator_type}"
@@ -538,7 +542,7 @@ pub unsafe fn own_key_ref<'index>(header: NonNull<QueryIterator>) -> *mut *mut R
 ///    for [`own_key_ref`] — metric-ness is a run-time check here too, not a
 ///    pre-condition.
 /// 2. The caller holds that iterator exclusively for the duration of the call.
-/// 3. `handle` is null, or points to a valid [`RLookupKeyHandle`] that outlives
+/// 3. `handle` is [`None`], or points to a valid [`RLookupKeyHandle`] that outlives
 ///    the iterator. The iterator clears the handle's validity flag on its way
 ///    out, so freeing the handle first is a use-after-free at a distance: the
 ///    write lands whenever the iterator is dropped, not during this call.
@@ -546,10 +550,12 @@ pub unsafe fn own_key_ref<'index>(header: NonNull<QueryIterator>) -> *mut *mut R
 /// # Panics
 ///
 /// Panics on any header [`own_key_ref`] would panic on.
-pub unsafe fn set_key_handle(header: NonNull<QueryIterator>, handle: *mut RLookupKeyHandle<'_>) {
+pub unsafe fn set_key_handle(
+    header: NonNull<QueryIterator>,
+    handle: Option<NonNull<RLookupKeyHandle<'_>>>,
+) {
     // SAFETY: safe thanks to 1.
     let iterator_type = unsafe { header.as_ref().type_ };
-    let header = header.as_ptr();
 
     match iterator_type {
         IteratorType::MetricSortedById => {

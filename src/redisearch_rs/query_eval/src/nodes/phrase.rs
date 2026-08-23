@@ -9,8 +9,6 @@
 
 //! Evaluation of `QN_PHRASE` query nodes.
 
-use std::ptr::NonNull;
-
 use rqe_iterators::{
     Empty,
     interop::RQEIteratorWrapper,
@@ -75,7 +73,7 @@ pub(crate) fn eval<'index>(
 
     let result_ptr = match new_intersection_iterator(children) {
         NewIntersectionIterator::Empty => return Some(Evaluated::RustLeaf(Box::new(Empty))),
-        NewIntersectionIterator::Single(child) => child.into_raw().as_ptr(),
+        NewIntersectionIterator::Single(child) => child.into_raw(),
         NewIntersectionIterator::Proceed(cs) => {
             let intersection = Intersection::new_with_slop_order(
                 cs,
@@ -88,7 +86,5 @@ pub(crate) fn eval<'index>(
         }
     };
 
-    Some(Evaluated::RustCompound(
-        NonNull::new(result_ptr).expect("phrase iterator must not be null"),
-    ))
+    Some(Evaluated::RustCompound(result_ptr))
 }

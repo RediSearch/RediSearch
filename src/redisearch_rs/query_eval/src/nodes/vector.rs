@@ -255,9 +255,9 @@ fn bind_metric_request(
             // than relied upon, as above.
             let own_key = unsafe { metric::own_key_ref(it) };
             // SAFETY: as above.
-            let handle = unsafe { ctx.bind_metric_request_key(id, own_key) };
+            let handle = unsafe { ctx.bind_metric_request_key(id, own_key.as_ptr()) };
             // SAFETY: as above.
-            unsafe { metric::set_key_handle(it, handle) };
+            unsafe { metric::set_key_handle(it, NonNull::new(handle)) };
         }
         // Every other type yields no metric to bind.
         _ => {}

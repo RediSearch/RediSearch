@@ -14,6 +14,7 @@
 //! the iterator runs on its first read.
 
 use std::ffi::c_void;
+use std::ptr::NonNull;
 
 use ffi::QueryIterator;
 use index_result::RSIndexResult;
@@ -87,20 +88,17 @@ unsafe fn c_producer(
         let results = unsafe { (produce)(guard.ctx) };
         // Take ownership of any arrays the producer handed back *before* inspecting `timed_out`, so
         // they are freed even on the timeout path (where the iterator drops these `OwnedSlice`s).
-        let ids = if results.ids.is_null() {
-            OwnedSlice::default()
-        } else {
+        let ids = match NonNull::new(results.ids) {
             // SAFETY: the producer guarantees `ids` points to `num` initialized `DocId`s
             // allocated with the Redis allocator, and transfers ownership to us.
-            unsafe { OwnedSlice::from_c(results.ids, results.num) }
+            Some(ids) => unsafe { OwnedSlice::from_c(ids, results.num) },
+            None => OwnedSlice::default(),
         };
-        let metrics = if results.metrics.is_null() {
-            None
-        } else {
+        let metrics = NonNull::new(results.metrics).map(|metrics| {
             // SAFETY: the producer guarantees `metrics` points to `num` initialized `f64`s
             // allocated with the Redis allocator, and transfers ownership to us.
-            Some(unsafe { OwnedSlice::from_c(results.metrics, results.num) })
-        };
+            unsafe { OwnedSlice::from_c(metrics, results.num) }
+        });
         if results.timed_out {
             // `ids`/`metrics` drop here, freeing anything the producer allocated alongside the flag.
             return Err(RQEIteratorError::TimedOut);
@@ -144,19 +142,23 @@ pub unsafe extern "C" fn NewLazyVectorRangeIterator(
     match (yields_metric, sorted_by_id) {
         (true, true) => {
             RQEIteratorWrapper::boxed_new(MetricLazy::<true>::new(producer, num_estimated, type_))
+                .as_ptr()
         }
         (true, false) => {
             RQEIteratorWrapper::boxed_new(MetricLazy::<false>::new(producer, num_estimated, type_))
+                .as_ptr()
         }
         (false, true) => RQEIteratorWrapper::boxed_new(IdListLazy::<true>::new(
             producer,
             num_estimated,
             RSIndexResult::build_virt().weight(1.0).build(),
-        )),
+        ))
+        .as_ptr(),
         (false, false) => RQEIteratorWrapper::boxed_new(IdListLazy::<false>::new(
             producer,
             num_estimated,
             RSIndexResult::build_virt().weight(1.0).build(),
-        )),
+        ))
+        .as_ptr(),
     }
 }
