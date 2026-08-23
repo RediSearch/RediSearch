@@ -69,9 +69,10 @@ where
         // Derive the self-referential `current` pointer only *after* the box is
         // stable behind a raw pointer. `sync_current` reads `inner` and writes
         // `header.current` through a single `&mut self`, so the borrow never
-        // escapes across `Box::into_raw`'s `Unique` retag (which would pop it).
+        // escapes across the leaked box's `Unique` retag (which would pop it).
         let mut raw = NonNull::from(Box::leak(wrapper));
-        // SAFETY: `raw` came from `Box::leak`, so it is non-null,
+        // SAFETY: `raw` is the leaked box: initialized, aligned, and — since
+        // nothing else has seen it yet — uniquely ours to borrow mutably.
         unsafe {
             raw.as_mut().sync_current();
         }
@@ -395,16 +396,18 @@ extern "C" fn rust_profile_children<'index, I: ProfileChildren<'index> + Profile
     base: *mut QueryIterator,
 ) -> *mut QueryIterator {
     debug_assert!(base.is_aligned());
+    let base = NonNull::new(base).expect("`base` must not be null");
     // SAFETY:
     // 1. As a header-stored callback (invariant 1. in [`RQEIteratorWrapper`]),
-    //    `base` is a non-null, aligned, live header, uniquely owned until it is
-    //    consumed into the `Box` below.
+    //    `base` is an aligned, live header, uniquely owned until it is consumed
+    //    into the `Box` below.
     // 2. `SkipTo` is `Copy`, so reading it through a shared reference leaves
     //    `base` intact for that `Box::from_raw`.
-    let had_no_skip_to = unsafe { (*base).SkipTo.is_none() };
+    let had_no_skip_to = unsafe { (*base.as_ptr()).SkipTo.is_none() };
     // SAFETY: Callbacks are guaranteed to get a header pointer created by
-    // `RQEIteratorWrapper::boxed_new_compound`, which uses `Box::into_raw`.
-    let it = unsafe { Box::from_raw(base as *mut RQEIteratorWrapper<I>) };
+    // `RQEIteratorWrapper::boxed_new_compound`, so it owns a `Box` allocation of
+    // the wrapper around `I`.
+    let it = unsafe { Box::from_raw(base.cast::<RQEIteratorWrapper<I>>().as_ptr()) };
     let profiled = it.inner.profile_children();
     // Re-wrap with `boxed_new_inner` instead of `boxed_new_compound`: profiling is
     // a one-shot pass, so the result's children are already profiled and the
@@ -423,8 +426,8 @@ extern "C" fn free_iterator<'index, I: RQEIterator<'index> + 'index>(base: *mut 
     if !base.is_null() {
         debug_assert!(base.is_aligned());
         // SAFETY: Callbacks are guaranteed to get a header pointer created by
-        //  `RQEIteratorWrapper::boxed_new` or `boxed_new_compound`,
-        //  which (internally) use `Box::into_raw` to return a raw header pointer.
+        //  `RQEIteratorWrapper::boxed_new` or `boxed_new_compound`, so it owns a
+        //  `Box` allocation of the wrapper around `I`.
         let _ = unsafe { Box::from_raw(base as *mut RQEIteratorWrapper<I>) };
     }
 }
