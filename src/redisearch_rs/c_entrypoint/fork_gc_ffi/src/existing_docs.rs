@@ -13,6 +13,7 @@ use fork_gc::{
     io_result_ext::IoResultExt,
 };
 use index_spec::IndexSpecReadGuard;
+use std::ptr::NonNull;
 
 use crate::{FGCError, util::into_fgc_error};
 
@@ -38,7 +39,7 @@ pub unsafe extern "C" fn FGC_childCollectExistingDocs(
     sctx: *mut ffi::RedisSearchCtx,
 ) {
     // SAFETY: caller guarantees (1).
-    let fgc = unsafe { ForkGC::from_ptr_mut(gc) };
+    let fgc = unsafe { ForkGC::from_ptr_mut(NonNull::new(gc).expect("`gc` must not be null")) };
     // SAFETY: caller guarantees (2).
     let spec_ptr = unsafe { (*sctx).spec };
     // SAFETY: caller guarantees (3).
@@ -66,7 +67,7 @@ pub unsafe extern "C" fn FGC_childCollectExistingDocs(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FGC_parentHandleExistingDocs(gc: *mut ffi::ForkGC) -> FGCError {
     // SAFETY: caller guarantees (1).
-    let fgc = unsafe { ForkGC::from_ptr_mut(gc) };
+    let fgc = unsafe { ForkGC::from_ptr_mut(NonNull::new(gc).expect("`gc` must not be null")) };
 
     into_fgc_error(handle_existing_docs(fgc), "existing docs")
 }
