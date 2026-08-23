@@ -263,15 +263,15 @@ static bool shouldSkipJsonFieldValue(const RSValue *fieldValue) {
   //
   // DIALECT 1-2: scalar JSON strings are RSValueType_String and fall through without
   //   skipping; JSON arrays/objects without usable scalar offsets are serialized as
-  //   RSValueType_RedisString and are skipped. The caller gates this helper on
-  //   hlpCtx->isJson, so HASH RedisString values are not affected.
+  //   RedisModuleString-backed values and are skipped. The caller gates this helper
+  //   on hlpCtx->isJson, so HASH Redis strings are not affected.
   // DIALECT 3+: values are wrapped in a Trio. The Trio's right (expanded) array reveals
   //   the origin: expanded[0] is RSValueType_String for scalars, RSValueType_Array for
   //   array-at-path. We reject the latter.
   // Older C lookup paths can hand back RSValueType_Reference wrappers.
   fieldValue = RSValue_Dereference(fieldValue);
   RSValueType type = RSValue_Type(fieldValue);
-  if (type == RSValueType_RedisString) {
+  if (type == RSValueType_RedisString || type == RSValueType_OwnRstring) {
     return true;
   }
   if (type != RSValueType_Trio) {
