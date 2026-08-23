@@ -2241,6 +2241,31 @@ class TestCoordinatorTimeout:
                 blocked_client_id[0] = cid
             return paused and cid is not None, {'paused': paused, 'client_id': cid}
 
+        def shard_cursor_total():
+            # Node-local: INFO MODULES is answered by this shard alone.
+            info = target_shard.execute_command('INFO', 'MODULES')
+            return info['search_global_total_user'] + info['search_global_total_internal']
+
+        def per_index_cursors():
+            # Diagnostic only. NOTE: in a cluster env FT.INFO is answered by the
+            # coordinator and its cursor_stats are summed across shards
+            # (InfoField_WholeSum in src/coord/info_command.c), so these numbers
+            # are cluster-wide and will not match the node-local total above.
+            stats = {}
+            for idx_name in ('idx', 'hybrid_idx'):
+                try:
+                    info = to_dict(target_shard.execute_command('FT.INFO', idx_name))
+                    stats[idx_name] = to_dict(info.get('cursor_stats', []))
+                except Exception as e:
+                    stats[idx_name] = str(e)
+            return stats
+
+        # Baseline for the drop check at the end of the test. The cursor total is
+        # shard-global and this class never clears cursors between tests, so the
+        # cycle's own disposition has to be measured as a delta against whatever
+        # is already parked here rather than against zero.
+        baseline_cursor_total = shard_cursor_total()
+
         before_shard_info = info_modules_to_dict(target_shard)
         try:
             target_shard.execute_command(
@@ -2296,21 +2321,26 @@ class TestCoordinatorTimeout:
         # Once the resumed worker ends the cycle, the teardown drops the
         # published sub-cursors — the reply exposed no IDs, so none may stay
         # parked or leak on the shard.
-        def shard_cursor_total():
-            info = target_shard.execute_command('INFO', 'MODULES')
-            return info['search_global_total_user'] + info['search_global_total_internal']
-        def per_index_cursors():
-            stats = {}
-            for idx_name in ('idx', 'hybrid_idx'):
-                try:
-                    info = to_dict(target_shard.execute_command('FT.INFO', idx_name))
-                    stats[idx_name] = to_dict(info.get('cursor_stats', []))
-                except Exception as e:
-                    stats[idx_name] = str(e)
-            return stats
+        #
+        # Asserted as a delta against the pre-cycle baseline, not against zero:
+        # the count is shard-global, and the fail_timeout_*hybrid tests that run
+        # earlier in this class leave their own published sub-cursors parked on
+        # the healthy shards (MOD-17913 — the timed-out coordinator aborts its
+        # reads without draining them). Those only expire at CURSOR_MAX_IDLE,
+        # 300s by default, so an absolute-zero check cannot pass inside this
+        # wait no matter what this cycle does.
         def cursors_drained():
             total = shard_cursor_total()
-            return total == 0, {'user+internal': total, 'per_index': per_index_cursors()}
+            # '<=' rather than '==': an unrelated cursor parked before this test
+            # may cross its idle deadline mid-wait and take the total below the
+            # baseline. Only growth means this cycle failed to drop its own.
+            ok = total <= baseline_cursor_total
+            return ok, {
+                'node_local_total': total,
+                'node_local_baseline': baseline_cursor_total,
+                'node_local_delta': total - baseline_cursor_total,
+                'cluster_wide_per_index': per_index_cursors(),
+            }
         wait_for_condition(cursors_drained,
                            'strict-timed-out cycle did not drop its published cursors')
 
