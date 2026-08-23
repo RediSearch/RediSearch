@@ -84,8 +84,16 @@ pub struct QueryProcessingCtx {
     pub resultLimit: u32,
     /// Object which contains the error.
     pub err: *mut QueryError,
-    /// Background indexing OOM warning.
+    /// Background indexing OOM warning, captured from this node's spec while a
+    /// strong reference is held. The capture at the end of the drain assigns a
+    /// fresh snapshot (so a recovered index stops warning); earlier captures
+    /// only accumulate.
     pub bgScanOOM: bool,
+    /// Background indexing OOM warnings reported by shard replies, aggregated
+    /// by the coordinator while draining. Kept separate from [`Self::bgScanOOM`]
+    /// so the local end-of-drain snapshot cannot erase them; the reply warns
+    /// when either is set.
+    pub bgScanOOMShards: bool,
     pub isProfile: bool,
     pub timeoutPolicy: RSTimeoutPolicy,
     /// True iff any prefix of the pipeline's output is a valid (though possibly
@@ -127,6 +135,7 @@ impl QueryProcessingCtx {
             resultLimit: 0,
             err: ptr::null_mut(),
             bgScanOOM: false,
+            bgScanOOMShards: false,
             isProfile: false,
             timeoutPolicy: 0,
             canYieldPartialResults: false,

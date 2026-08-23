@@ -457,12 +457,14 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
     AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_REPLY);
   }
 
-  // Refresh the background-scan-OOM capture now that the pipeline has drained:
+  // Snapshot the background-scan-OOM flag now that the pipeline has drained:
   // the reply path reads only the capture (it may run after the last strong
-  // spec reference is gone), so this is its freshest legal read.
+  // spec reference is gone), so this is its freshest legal read. Assignment,
+  // not accumulation — a recovered index must stop warning. Shard-reported
+  // warnings live in bgScanOOMShards, so this cannot erase them.
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
   if (sctx->spec) {
-    AREQ_QueryProcessingCtx(req)->bgScanOOM |=
+    AREQ_QueryProcessingCtx(req)->bgScanOOM =
         RS_AtomicBoolLoadRelaxed(&sctx->spec->scan_failed_OOM);
   }
 }
@@ -681,7 +683,7 @@ static void trackWarnings_Resp2(AREQ *req, QueryProcessingCtx *qctx, int rc) {
     ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
   }
 
-  if (qctx->bgScanOOM) {
+  if (qctx->bgScanOOM || qctx->bgScanOOMShards) {
     ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
   }
 }
@@ -851,10 +853,11 @@ static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
   ProfilePrinterCtx *profileCtx = &req->profileCtx;
   RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
-  // bgScanOOM: set from shard replies on the coordinator (RPNet), captured from
-  // the spec's scan_failed_OOM on shards while a strong reference is held. The
-  // reply path must not read the spec — it may outlive the last strong ref.
-  if (qctx->bgScanOOM) {
+  // bgScanOOMShards is set from shard replies on the coordinator (RPNet);
+  // bgScanOOM is captured from the spec's scan_failed_OOM while a strong
+  // reference is held. The reply path must not read the spec — it may outlive
+  // the last strong ref.
+  if (qctx->bgScanOOM || qctx->bgScanOOMShards) {
     RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
   }
@@ -1157,7 +1160,8 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     RedisModule_Reply_ArrayEnd(reply);
 
     // Add BG_SCAN_OOM warning to profile context if applicable
-    if (AREQ_QueryProcessingCtx(req)->bgScanOOM) {
+    if (AREQ_QueryProcessingCtx(req)->bgScanOOM ||
+        AREQ_QueryProcessingCtx(req)->bgScanOOMShards) {
       ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
     }
 
@@ -1202,7 +1206,8 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     }
 
     // Add BG_SCAN_OOM warning to profile context if applicable
-    if (AREQ_QueryProcessingCtx(req)->bgScanOOM) {
+    if (AREQ_QueryProcessingCtx(req)->bgScanOOM ||
+        AREQ_QueryProcessingCtx(req)->bgScanOOMShards) {
       ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
     }
 
@@ -2643,9 +2648,9 @@ int RSCursorProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   } else {
     QueryError status = QueryError_Default();
     AREQ_QueryProcessingCtx(req)->err = &status;
-    // Refresh the background-scan-OOM capture under the held execution
+    // Snapshot the background-scan-OOM flag under the held execution
     // reference; the reply path reads only the capture.
-    AREQ_QueryProcessingCtx(req)->bgScanOOM |=
+    AREQ_QueryProcessingCtx(req)->bgScanOOM =
         RS_AtomicBoolLoadRelaxed(&spec->scan_failed_OOM);
     // Cursor is freed below; signal cursor exhaustion to the client.
     req->base.cursorInfo.id = 0;
