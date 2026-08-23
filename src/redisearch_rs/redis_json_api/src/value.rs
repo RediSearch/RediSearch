@@ -230,7 +230,7 @@ impl<'a> JsonValueRef<'a> {
     /// 1. `ctx` must be a valid Redis module context.
     pub unsafe fn key_values(
         &self,
-        ctx: *mut redis_module::RedisModuleCtx,
+        ctx: NonNull<redis_module::RedisModuleCtx>,
     ) -> Option<KeyValuesIterator<'_>> {
         let (ptr, len) = if let Some(len) = self.len()
             && len > 0
@@ -272,18 +272,18 @@ impl<'a> JsonValueRef<'a> {
     #[inline]
     pub unsafe fn serialize(
         &self,
-        ctx: *mut redis_module::RedisModuleCtx,
+        ctx: NonNull<redis_module::RedisModuleCtx>,
     ) -> Result<RedisString, SerializeError> {
         let get_json = vtable_fn!(self.api, getJSON);
 
         let mut str: *mut redis_module::RedisModuleString = std::ptr::null_mut();
 
         // Safety: ensured by caller (1.) and ptr is valid by construction.
-        let status = unsafe { get_json(self.ptr, ctx, &mut str) };
+        let status = unsafe { get_json(self.ptr, ctx.as_ptr(), &mut str) };
 
         if status == redis_module::REDISMODULE_OK as i32 {
             Ok(RedisString::from_redis_module_string(
-                ctx.cast(),
+                ctx.as_ptr().cast(),
                 str.cast(),
             ))
         } else {

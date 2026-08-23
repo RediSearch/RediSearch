@@ -13,9 +13,9 @@ use numeric_range_tree::NumericRangeTree;
 use numeric_range_tree::debug;
 use redis_mock::reply::{ReplyValue, capture_replies};
 
-fn mock_ctx() -> *mut redis_reply::RedisModuleCtx {
+fn mock_ctx() -> std::ptr::NonNull<redis_reply::RedisModuleCtx> {
     redis_mock::init_redis_module_mock();
-    std::ptr::dangling_mut::<redis_reply::RedisModuleCtx>()
+    std::ptr::NonNull::dangling()
 }
 
 fn capture_single_reply(f: impl FnOnce()) -> ReplyValue {

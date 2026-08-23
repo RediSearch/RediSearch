@@ -116,13 +116,13 @@ impl RedisJsonApi {
     /// 1. `ctx` must be a valid Redis module context.
     pub unsafe fn open_key(
         &self,
-        ctx: *mut redis_module::RedisModuleCtx,
+        ctx: NonNull<redis_module::RedisModuleCtx>,
         key_name: &RedisString,
     ) -> Option<JsonValueRef<'_>> {
         let open_key = vtable_fn!(self, openKey);
 
         // Safety: ensured by caller (1.)
-        let ptr = unsafe { open_key(ctx, key_name.inner.cast()) };
+        let ptr = unsafe { open_key(ctx.as_ptr(), key_name.inner.cast()) };
 
         if ptr.is_null() {
             None
@@ -140,13 +140,13 @@ impl RedisJsonApi {
     /// 1. `ctx` must be a valid Redis module context.
     pub unsafe fn open_key_from_str(
         &self,
-        ctx: *mut redis_module::RedisModuleCtx,
+        ctx: NonNull<redis_module::RedisModuleCtx>,
         key_name: &CStr,
     ) -> Option<JsonValueRef<'_>> {
         let open_key_from_str = vtable_fn!(self, openKeyFromStr);
 
         // Safety: ensured by caller (1.)
-        let ptr = unsafe { open_key_from_str(ctx, key_name.as_ptr()) };
+        let ptr = unsafe { open_key_from_str(ctx.as_ptr(), key_name.as_ptr()) };
 
         if ptr.is_null() {
             None
@@ -166,7 +166,7 @@ impl RedisJsonApi {
     /// 1. `ctx` must be a valid Redis module context.
     pub unsafe fn open_key_with_flags(
         &self,
-        ctx: *mut redis_module::RedisModuleCtx,
+        ctx: NonNull<redis_module::RedisModuleCtx>,
         key_name: &RedisString,
         flags: KeyFlags,
     ) -> Option<JsonValueRef<'_>> {
@@ -175,7 +175,7 @@ impl RedisJsonApi {
         // Safety: ensured by caller (1.)
         let ptr = unsafe {
             open_key_with_flags(
-                ctx,
+                ctx.as_ptr(),
                 key_name.inner.cast(),
                 flags.bits() | redis_module::raw::REDISMODULE_READ as i32,
             )
