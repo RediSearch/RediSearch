@@ -605,6 +605,35 @@ def verify_command_OK_on_all_shards(env, *args):
     res = run_command_on_all_shards(env, *args)
     env.assertEqual(res, ['OK'] * env.shardsCount)
 
+def shard_cluster_bus_port(con):
+    """The cluster-bus port a shard listens on, read from its own `CLUSTER NODES` entry."""
+    nodes = con.execute_command('CLUSTER', 'NODES')
+    if isinstance(nodes, bytes):
+        nodes = nodes.decode()
+    for line in nodes.splitlines():
+        # `<id> <ip>:<port>@<cport>[,<hostname>] <flags> ...`
+        fields = line.split()
+        if len(fields) > 2 and 'myself' in fields[2]:
+            return int(fields[1].split('@')[1].split(',')[0])
+    raise RuntimeError(f'no `myself` entry in CLUSTER NODES:\n{nodes}')
+
+def disable_tls_cluster_on_all_shards(env):
+    """Turn `tls-cluster` off on every shard, keeping the cluster bus reachable.
+
+    A shard binds its cluster-bus listener once at startup, to whichever client port
+    `tls-cluster` selected then, but re-derives the port it *advertises* on every
+    gossip message. With both `port` and `tls-port` configured, flipping `tls-cluster`
+    at runtime therefore makes each shard advertise a bus port nothing listens on:
+    peers adopt it, drop their working links, and then never receive the pings that
+    would correct the peer ports they latched while the flip was still in progress.
+    Pinning `cluster-announce-bus-port` to the port a shard actually listens on takes
+    the advertised port out of `tls-cluster`'s hands, so the flip leaves the bus intact.
+    """
+    for con in env.getOSSMasterNodesConnectionList():
+        env.assertEqual(con.execute_command('CONFIG', 'SET', 'cluster-announce-bus-port',
+                                            shard_cluster_bus_port(con)), 'OK')
+    verify_command_OK_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no')
+
 def allShards_set_info_on_zero_indexes(env, enabled: bool):
     """
     Enable/disable INFO MODULES full output when there are zero indexes.
