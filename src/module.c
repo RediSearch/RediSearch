@@ -2908,10 +2908,21 @@ static void knnPostProcess(searchReducerCtx *rCtx) {
         }
       }
     }
+    // `shouldSort`: ProcessKNNSearchReply never accumulated the shards'
+    // total_results, it only fed the K-bounded knn.pq. rCtx->pq is sized
+    // MAX(K, offset+count) on this path (see setKNNSpecialCase), so the merge
+    // above dropped nothing and its count is exactly the number of matching
+    // documents, min(K, global matches).
+    rCtx->totalReplies = heap_count(rCtx->pq);
+  } else {
+    // SORTBY by the distance field: processSearchReply already summed each
+    // shard's total_results, i.e. sum_i min(K, matches_i). rCtx->pq here is only
+    // a response window sized MIN(K, offset+count), so its count is not a hit
+    // count. Clamping the sum to K is exact: if every shard has at most K
+    // matches the sum *is* the global match count, and otherwise both the sum
+    // and the global match count are >= K.
+    rCtx->totalReplies = MIN(reducerSpecialCaseCtx->knn.k, rCtx->totalReplies);
   }
-  // We can always get at most K results
-  rCtx->totalReplies = heap_count(rCtx->pq);
-
 }
 
 static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) {
