@@ -34,15 +34,15 @@ pub const extern "C" fn SearchResult_New() -> SearchResult {
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn SearchResult_Override(
-    dst: Option<NonNull<SearchResult>>,
-    src: Option<NonNull<SearchResult>>,
-) {
+pub unsafe extern "C" fn SearchResult_Override(dst: *mut SearchResult, src: *mut SearchResult) {
+    let mut dst = NonNull::new(dst).expect("dst must not be NULL");
+    let src = NonNull::new(src).expect("src must not be NULL");
+
     // Safety: ensured by caller (1.)
-    let dst = unsafe { dst.unwrap().as_mut() };
+    let dst = unsafe { dst.as_mut() };
 
     // Safety: ensured by caller (2.,3.)
-    let _ = mem::replace(dst, unsafe { src.unwrap().read() });
+    let _ = mem::replace(dst, unsafe { src.read() });
 }
 
 /// Clears the [`SearchResult`] pointed to by `res`, removing all values from its [`RLookupRow`][ffi::RLookupRow].
@@ -54,9 +54,10 @@ pub unsafe extern "C" fn SearchResult_Override(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn SearchResult_Clear(res: Option<NonNull<SearchResult>>) {
+pub unsafe extern "C" fn SearchResult_Clear(res: *mut SearchResult) {
+    let mut res = NonNull::new(res).expect("res must not be NULL");
     // Safety: ensured by caller (1.)
-    let res = unsafe { res.unwrap().as_mut() };
+    let res = unsafe { res.as_mut() };
 
     res.clear();
 }
@@ -71,9 +72,10 @@ pub unsafe extern "C" fn SearchResult_Clear(res: Option<NonNull<SearchResult>>) 
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn SearchResult_Destroy(res: Option<NonNull<SearchResult>>) {
+pub unsafe extern "C" fn SearchResult_Destroy(res: *mut SearchResult) {
+    let res = NonNull::new(res).expect("res must not be NULL");
     // Safety: ensured by caller (1.,2.)
-    unsafe { res.unwrap().drop_in_place() };
+    unsafe { res.drop_in_place() };
 }
 
 /// Moves the contents the [`SearchResult`] pointed to by `res` into a new heap allocation.
@@ -86,11 +88,10 @@ pub unsafe extern "C" fn SearchResult_Destroy(res: Option<NonNull<SearchResult>>
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn SearchResult_AllocateMove(
-    res: Option<NonNull<SearchResult>>,
-) -> *mut SearchResult {
+pub unsafe extern "C" fn SearchResult_AllocateMove(res: *mut SearchResult) -> *mut SearchResult {
+    let res = NonNull::new(res).expect("res must not be NULL");
     // Safety: ensured by caller (1.)
-    let res = unsafe { res.unwrap().read() };
+    let res = unsafe { res.read() };
 
     let res = Box::new(res);
     Box::into_raw(res)
@@ -106,8 +107,9 @@ pub unsafe extern "C" fn SearchResult_AllocateMove(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn SearchResult_DeallocateDestroy(res: Option<NonNull<SearchResult>>) {
+pub unsafe extern "C" fn SearchResult_DeallocateDestroy(res: *mut SearchResult) {
+    let res = NonNull::new(res).expect("res must not be NULL");
     // Safety: ensured by caller (1.,2.)
-    let res = unsafe { Box::from_raw(res.unwrap().as_ptr()) };
+    let res = unsafe { Box::from_raw(res.as_ptr()) };
     drop(res);
 }
