@@ -33,7 +33,9 @@ pub unsafe extern "C" fn NumericRangeTree_DebugSummary(
     ctx: *mut RedisModuleCtx,
     t: *const NumericRangeTree,
 ) {
-    let ctx = NonNull::new(ctx).expect("`ctx` must not be null");
+    debug_assert!(!ctx.is_null(), "ctx cannot be NULL");
+    // SAFETY: `ctx` is a valid Redis module context per the function docs, so non-null.
+    let ctx = unsafe { NonNull::new_unchecked(ctx) };
     // SAFETY: Caller ensures `t` is either NULL or a valid pointer.
     let tree = unsafe { t.as_ref() };
     // SAFETY: ctx is valid per function docs
@@ -58,7 +60,9 @@ pub unsafe extern "C" fn NumericRangeTree_DebugDumpIndex(
     t: *const NumericRangeTree,
     with_headers: bool,
 ) {
-    let ctx = NonNull::new(ctx).expect("`ctx` must not be null");
+    debug_assert!(!ctx.is_null(), "ctx cannot be NULL");
+    // SAFETY: `ctx` is a valid Redis module context per the function docs, so non-null.
+    let ctx = unsafe { NonNull::new_unchecked(ctx) };
     // SAFETY: Caller ensures `t` is either NULL or a valid pointer.
     let tree = unsafe { t.as_ref() };
     // SAFETY: ctx is valid per function docs
@@ -83,7 +87,9 @@ pub unsafe extern "C" fn NumericRangeTree_DebugDumpTree(
     t: *const NumericRangeTree,
     minimal: bool,
 ) {
-    let ctx = NonNull::new(ctx).expect("`ctx` must not be null");
+    debug_assert!(!ctx.is_null(), "ctx cannot be NULL");
+    // SAFETY: `ctx` is a valid Redis module context per the function docs, so non-null.
+    let ctx = unsafe { NonNull::new_unchecked(ctx) };
     // SAFETY: Caller ensures `t` is either NULL or a valid pointer.
     let tree = unsafe { t.as_ref() };
     // SAFETY: ctx is valid per function docs
