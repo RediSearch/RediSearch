@@ -58,6 +58,17 @@ impl<'tm, Data: 'tm> WildcardIter<'tm, Data> {
         };
         Self(backend)
     }
+
+    /// Stop the traversal when `should_stop` returns `true`. See
+    /// [`Iter::set_should_stop`](crate::iter::Iter::set_should_stop) for the
+    /// polling contract.
+    pub fn set_should_stop(&mut self, should_stop: impl FnMut() -> bool + 'tm) {
+        match &mut self.0 {
+            Backend::Nfa64(iter) => iter.set_should_stop(should_stop),
+            Backend::Nfa128(iter) => iter.set_should_stop(should_stop),
+            Backend::Filter { candidates, .. } => candidates.set_should_stop(should_stop),
+        }
+    }
 }
 
 impl<'tm, Data: 'tm> Iterator for WildcardIter<'tm, Data> {

@@ -46,6 +46,13 @@ impl<'tm, Data: 'tm> SuffixedIter<'tm, Data> {
             iter: iter::Iter::empty(),
         }
     }
+
+    /// Stop the traversal when `should_stop` returns `true`. See
+    /// [`Iter::set_should_stop`](crate::iter::Iter::set_should_stop) for the
+    /// polling contract.
+    pub fn set_should_stop(&mut self, should_stop: impl FnMut() -> bool + 'tm) {
+        self.iter.set_should_stop(should_stop);
+    }
 }
 
 impl<'tm, Data: 'tm> Iterator for SuffixedIter<'tm, Data> {

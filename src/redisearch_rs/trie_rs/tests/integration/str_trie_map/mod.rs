@@ -12,6 +12,7 @@ mod empty_input;
 mod fuzzy_iter;
 mod range_iter;
 mod return_value_contracts;
+mod should_stop;
 mod suffixed_iter;
 mod utf8_boundary;
 mod wildcard_iter;

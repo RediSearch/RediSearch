@@ -53,6 +53,14 @@
 //! [`TermDictionary::prefixed_iter`] needs no such guard: C's prefix-only
 //! mode also yields every term for an empty prefix, so the trie's own
 //! semantics already agree.
+//!
+//! ## Deadlines
+//!
+//! The dictionary holds no clock. Callers with a query deadline install a
+//! `should_stop` predicate on the returned iterator — see
+//! [`PrefixedIter::set_should_stop`] for the polling contract (the other
+//! iterators expose the same method). [`TermDictionary::fuzzy_iter`] is the
+//! exception: the fuzzy walk it replaces carries no deadline.
 
 use string_utils::unicode;
 use trie_rs::str_trie_map::{

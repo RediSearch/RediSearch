@@ -26,6 +26,13 @@ impl<'tm, Data: 'tm> PrefixedIter<'tm, Data> {
     pub(crate) fn new(trie: &'tm TrieMap<Data>, prefix: &str) -> Self {
         Self(trie.prefixed_iter(prefix.as_bytes()))
     }
+
+    /// Stop the traversal when `should_stop` returns `true`. See
+    /// [`Iter::set_should_stop`](crate::iter::Iter::set_should_stop) for the
+    /// polling contract.
+    pub fn set_should_stop(&mut self, should_stop: impl FnMut() -> bool + 'tm) {
+        self.0.set_should_stop(should_stop);
+    }
 }
 
 impl<'tm, Data: 'tm> Iterator for PrefixedIter<'tm, Data> {
