@@ -268,6 +268,8 @@ static bool shouldSkipJsonFieldValue(const RSValue *fieldValue) {
   // DIALECT 3+: values are wrapped in a Trio. The Trio's right (expanded) array reveals
   //   the origin: expanded[0] is RSValueType_String for scalars, RSValueType_Array for
   //   array-at-path. We reject the latter.
+  // Older C lookup paths can hand back RSValueType_Reference wrappers.
+  fieldValue = RSValue_Dereference(fieldValue);
   RSValueType type = RSValue_Type(fieldValue);
   if (type == RSValueType_RedisString) {
     return true;
@@ -276,7 +278,7 @@ static bool shouldSkipJsonFieldValue(const RSValue *fieldValue) {
     return false;
   }
 
-  const RSValue *expanded = RSValue_Trio_GetRight(fieldValue);
+  const RSValue *expanded = RSValue_Dereference(RSValue_Trio_GetRight(fieldValue));
   if (RSValue_Type(expanded) != RSValueType_Array) {
     return false;
   }
@@ -284,7 +286,7 @@ static bool shouldSkipJsonFieldValue(const RSValue *fieldValue) {
     return true;
   }
 
-  const RSValue *first = RSValue_ArrayItem(expanded, 0);
+  const RSValue *first = RSValue_Dereference(RSValue_ArrayItem(expanded, 0));
   return RSValue_Type(first) != RSValueType_String;
 }
 
