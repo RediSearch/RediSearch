@@ -852,7 +852,10 @@ _registerModuleLoadexNumericParamTests()
 
 # Skip on ASAN since RedisModule_Unload is not fully implemented (MOD-7161)
 def _testConfigAPILoadTimeNumericParam(configName, maxValue):
-    """Verify MODULE LOADEX rejects values above maxValue for one numeric config."""
+    """Verify MODULE LOADEX rejects values above maxValue for one numeric config,
+    except for a config in CLAMPED_CONFIGS: its registered max is wider than
+    maxValue, so an over-cap value is accepted at load time and clamped down to
+    maxValue rather than rejected."""
     env = Env(noDefaultModuleArgs=True, module='', moduleArgs='')
     redisearch_module_path = os.getenv('MODULE')
     if redisearch_module_path is None:
@@ -862,21 +865,27 @@ def _testConfigAPILoadTimeNumericParam(configName, maxValue):
     env.start()
     res = env.cmd('MODULE', 'LIST')
     env.assertEqual(res, default_module_list)
-    env.expect('MODULE', 'LOADEX', redisearch_module_path,
-                'CONFIG', configName, str(maxValue + 1)).error()\
-                .contains('Error loading the extension')
-    env.assertTrue(env.isUp())
+    if configName in CLAMPED_CONFIGS:
+        res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                       'CONFIG', configName, str(maxValue + 1))
+        env.assertEqual(res, 'OK')
+        env.assertTrue(env.isUp())
+        env.expect('CONFIG', 'GET', configName).equal([configName, str(maxValue)])
+    else:
+        env.expect('MODULE', 'LOADEX', redisearch_module_path,
+                    'CONFIG', configName, str(maxValue + 1)).error()\
+                    .contains('Error loading the extension')
+        env.assertTrue(env.isUp())
     env.stop()
 
 
 def _registerConfigAPILoadTimeNumericParamTests():
-    # Emit one test per non-cluster numeric config (skipping CLAMPED_CONFIGS
-    # whose values are accepted and clamped for backwards compat).
+    # Emit one test per non-cluster numeric config. Configs in CLAMPED_CONFIGS
+    # are included: _testConfigAPILoadTimeNumericParam asserts the clamp
+    # instead of the load-time rejection.
     for cfg in numericConfigs:
         configName, argName, _default, _minValue, maxValue, _immutable, clusterConfig = cfg
         if clusterConfig:
-            continue
-        if configName in CLAMPED_CONFIGS:
             continue
         testName = f'testConfigAPILoadTimeNumericParams_{argName}'
 
