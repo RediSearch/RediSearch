@@ -217,7 +217,7 @@ impl<'index, const SORTED_BY_ID: bool> RQEIteratorBoxed<'index>
     type Suspended = SuspendedMetricLazy<'index, SORTED_BY_ID>;
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let active = Box::into_raw(self);
+        let active = NonNull::from(Box::leak(self));
 
         // Suspend the wrapped metric's base id list `result` field in place, leaving the
         // outer allocation (and the `Rf`-independent `producer`) untouched.
@@ -225,7 +225,10 @@ impl<'index, const SORTED_BY_ID: bool> RQEIteratorBoxed<'index>
         // SAFETY: `&raw mut` forms a field pointer without creating a reference,
         // preserving `active`'s provenance over the whole allocation for the outer
         // cast below.
-        let inner_slot = unsafe { &raw mut (*active).inner };
+        let inner_slot = unsafe { &raw mut (*active.as_ptr()).inner };
+        // SAFETY: `inner_slot` is a field pointer derived from the non-null `active`, so it is
+        // non-null too.
+        let inner_slot = unsafe { NonNull::new_unchecked(inner_slot) };
         // SAFETY: `suspend_in_place`'s contract is met — `inner_slot` is initialized and
         // unaliased (this function owns `self`). Suspending is a safe widening conversion.
         let _ = unsafe { Metric::<'index, SORTED_BY_ID>::suspend_in_place(inner_slot) };
@@ -233,8 +236,14 @@ impl<'index, const SORTED_BY_ID: bool> RQEIteratorBoxed<'index>
         // SAFETY: `MetricLazy` and `SuspendedMetricLazy` are both `#[repr(C)]` with identical
         // field layout: `inner` is now the suspended metric, `producer` is `Producer<'static>` in
         // both variants, and `produced`/`num_estimated_hint` carry no lifetime. `Box::from_raw`
-        // reuses the same heap allocation as `Box::into_raw`, so the address is unchanged.
-        unsafe { Box::from_raw(active.cast::<SuspendedMetricLazy<'index, SORTED_BY_ID>>()) }
+        // reuses the same heap allocation as `Box::leak`, so the address is unchanged.
+        unsafe {
+            Box::from_raw(
+                active
+                    .cast::<SuspendedMetricLazy<'index, SORTED_BY_ID>>()
+                    .as_ptr(),
+            )
+        }
     }
 }
 
@@ -253,7 +262,7 @@ impl<'query, const SORTED_BY_ID: bool> RQESuspendedIterator<'query>
     where
         'query: 'index,
     {
-        let suspended = Box::into_raw(self);
+        let suspended = NonNull::from(Box::leak(self));
 
         // Promote the wrapped metric's base id list `result` field in place, leaving the
         // outer allocation (and the `Rf`-independent `producer`) untouched.
@@ -261,7 +270,10 @@ impl<'query, const SORTED_BY_ID: bool> RQESuspendedIterator<'query>
         // SAFETY: `&raw mut` forms a field pointer without creating a reference,
         // preserving `suspended`'s provenance over the whole allocation for the
         // outer cast below.
-        let inner_slot = unsafe { &raw mut (*suspended).inner };
+        let inner_slot = unsafe { &raw mut (*suspended.as_ptr()).inner };
+        // SAFETY: `inner_slot` is a field pointer derived from the non-null `suspended`, so it is
+        // non-null too.
+        let inner_slot = unsafe { NonNull::new_unchecked(inner_slot) };
         // SAFETY: `resume_in_place`'s contract is met — `inner_slot` is initialized and
         // unaliased (this function owns `self`). We reclaim the outer allocation via `suspended`
         // in either branch, so the inner pointer it returns is not needed.
@@ -271,19 +283,24 @@ impl<'query, const SORTED_BY_ID: bool> RQESuspendedIterator<'query>
             Ok(_) => {
                 // SAFETY: layout-compatible — see `suspend`. `inner`'s base `result` is now valid
                 // at the active type for `'index`; the remaining fields carry no `Rf`.
-                // `Box::from_raw` reuses the same heap allocation as `suspend`'s `Box::into_raw`,
+                // `Box::from_raw` reuses the same heap allocation as `suspend`'s `Box::leak`,
                 // so the address is unchanged.
-                let active =
-                    unsafe { Box::from_raw(suspended.cast::<MetricLazy<'index, SORTED_BY_ID>>()) };
+                let active = unsafe {
+                    Box::from_raw(
+                        suspended
+                            .cast::<MetricLazy<'index, SORTED_BY_ID>>()
+                            .as_ptr(),
+                    )
+                };
                 Ok(ResumeOutcome::Ok(active))
             }
             Err(_) => {
                 // `resume_in_place` left the inner metric untouched (the stored result kind was
                 // neither metric nor virtual), so the outer allocation is still a valid
                 // `SuspendedMetricLazy`.
-                // SAFETY: `suspended` came from `Box::into_raw` above and was not mutated; reclaim
+                // SAFETY: `suspended` came from `Box::leak` above and was not mutated; reclaim
                 // ownership so it is dropped.
-                drop(unsafe { Box::from_raw(suspended) });
+                drop(unsafe { Box::from_raw(suspended.as_ptr()) });
                 Ok(ResumeOutcome::Aborted)
             }
         }

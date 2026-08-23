@@ -328,16 +328,19 @@ impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {
     ///
     /// The caller must guarantee that:
     ///
-    /// 1. `slot` is non-null, aligned, and points to an initialized
+    /// 1. `slot` is aligned and points to an initialized
     ///    `Metric<'index, SORTED_BY_ID>`.
     /// 2. `slot` is unaliased for the duration of the call.
     pub(crate) unsafe fn suspend_in_place(
-        slot: *mut Self,
-    ) -> *mut SuspendedMetric<'index, SORTED_BY_ID> {
-        // SAFETY: `slot` is non-null, aligned, and initialized (caller contract 1).
+        slot: NonNull<Self>,
+    ) -> NonNull<SuspendedMetric<'index, SORTED_BY_ID>> {
+        // SAFETY: `slot` is aligned and initialized (caller contract 1).
         // `&raw mut` forms a field pointer without creating a reference, leaving
         // `slot`'s provenance over the whole allocation intact for the cast below.
-        let base_slot = unsafe { &raw mut (*slot).base };
+        let base_slot = unsafe { &raw mut (*slot.as_ptr()).base };
+        // SAFETY: `base_slot` is a field pointer derived from the non-null `slot`, so it is
+        // non-null too.
+        let base_slot = unsafe { NonNull::new_unchecked(base_slot) };
         // SAFETY: `IdList::suspend_in_place`'s contract is met — `base_slot` is
         // initialized and unaliased (caller contracts 1 and 2).
         unsafe { IdList::<'index, SORTED_BY_ID>::suspend_in_place(base_slot) };
@@ -350,15 +353,15 @@ impl<'index, const SORTED_BY_ID: bool> RQEIteratorBoxed<'index> for Metric<'inde
     type Suspended = SuspendedMetric<'index, SORTED_BY_ID>;
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let active: *mut Self = Box::into_raw(self);
+        let active = NonNull::from(Box::leak(self));
 
-        // SAFETY: `suspend_in_place`'s contract is met — `active` is non-null, aligned, and
+        // SAFETY: `suspend_in_place`'s contract is met — `active` is aligned and
         // initialized (it just came from a `Box`), and unaliased (this function owns `self`).
         let suspended_ptr = unsafe { Metric::<'index, SORTED_BY_ID>::suspend_in_place(active) };
 
-        // SAFETY: `suspended_ptr` reuses the same allocation from `Box::into_raw` above, so the
+        // SAFETY: `suspended_ptr` reuses the same allocation from `Box::leak` above, so the
         // address is unchanged and every field is now valid at the suspended type.
-        unsafe { Box::from_raw(suspended_ptr) }
+        unsafe { Box::from_raw(suspended_ptr.as_ptr()) }
     }
 }
 
@@ -376,7 +379,7 @@ impl<'query, const SORTED_BY_ID: bool> SuspendedMetric<'query, SORTED_BY_ID> {
     ///
     /// The caller must guarantee that:
     ///
-    /// 1. `slot` is non-null, aligned, and points to an initialized
+    /// 1. `slot` is aligned and points to an initialized
     ///    `RawMetric<'query, Suspended, SORTED_BY_ID>`.
     /// 2. `slot` is unaliased for the duration of the call.
     ///
@@ -384,15 +387,18 @@ impl<'query, const SORTED_BY_ID: bool> SuspendedMetric<'query, SORTED_BY_ID> {
     /// at the active type for `'a`; in the `Err` case the slot is byte-for-byte
     /// unchanged and remains a valid `SuspendedMetric<'query, SORTED_BY_ID>`.
     pub(crate) unsafe fn resume_in_place<'a>(
-        slot: *mut Self,
-    ) -> Result<*mut Metric<'a, SORTED_BY_ID>, *mut Self>
+        slot: NonNull<Self>,
+    ) -> Result<NonNull<Metric<'a, SORTED_BY_ID>>, NonNull<Self>>
     where
         'query: 'a,
     {
-        // SAFETY: `slot` is non-null, aligned, and initialized (caller contract 1).
+        // SAFETY: `slot` is aligned and initialized (caller contract 1).
         // `&raw mut` forms a field pointer without creating a reference, leaving
         // `slot`'s provenance over the whole allocation intact for the casts below.
-        let base_slot = unsafe { &raw mut (*slot).base };
+        let base_slot = unsafe { &raw mut (*slot.as_ptr()).base };
+        // SAFETY: `base_slot` is a field pointer derived from the non-null `slot`, so it is
+        // non-null too.
+        let base_slot = unsafe { NonNull::new_unchecked(base_slot) };
         // SAFETY: `SuspendedIdList::resume_in_place`'s contract is met — `base_slot`
         // is initialized and unaliased (caller contracts 1 and 2).
         match unsafe { SuspendedIdList::<'query, SORTED_BY_ID>::resume_in_place::<'a>(base_slot) } {
@@ -419,24 +425,26 @@ impl<'query, const SORTED_BY_ID: bool> RQESuspendedIterator<'query>
     where
         'query: 'index,
     {
-        let suspended: *mut Self = Box::into_raw(self);
+        let suspended = NonNull::from(Box::leak(self));
 
         // SAFETY: `resume_in_place`'s contract is met:
-        // 1. `suspended` is non-null, aligned, and initialized — it just came from a `Box`.
+        // 1. `suspended` is aligned and initialized — it just came from a `Box`.
         // 2. `suspended` is not aliased, since this function has ownership of `self`.
         match unsafe {
             SuspendedMetric::<'query, SORTED_BY_ID>::resume_in_place::<'index>(suspended)
         } {
             Ok(active_ptr) => {
-                // SAFETY: `active_ptr` reuses the same allocation from `Box::into_raw` above, so
+                // SAFETY: `active_ptr` reuses the same allocation from `Box::leak` above, so
                 // the address is unchanged and every field is now valid at the active type for
                 // `'index`.
-                Ok(ResumeOutcome::Ok(unsafe { Box::from_raw(active_ptr) }))
+                Ok(ResumeOutcome::Ok(unsafe {
+                    Box::from_raw(active_ptr.as_ptr())
+                }))
             }
             Err(suspended_ptr) => {
                 // SAFETY: `suspended_ptr` is the same allocation, left untouched and still a valid
                 // `SuspendedMetric`. Reclaim ownership so it is dropped.
-                drop(unsafe { Box::from_raw(suspended_ptr) });
+                drop(unsafe { Box::from_raw(suspended_ptr.as_ptr()) });
                 Ok(ResumeOutcome::Aborted)
             }
         }
