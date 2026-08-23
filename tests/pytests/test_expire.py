@@ -1168,6 +1168,7 @@ def test_hpexpire_on_an_unindexed_hash_does_not_abort(env):
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([1, 'd1'])
 
 
+@skip(cluster=True, redis_less_than='7.3')
 def test_hexpire_after_indexing_is_respected_by_search(env):
     # A document indexed while none of its fields had a TTL must still honour a
     # TTL added afterwards: once the field expires, queries on it stop matching.
