@@ -8,8 +8,8 @@
 */
 
 use crate::{
-    AddRecordOutcome, DecodedBy, Encoder, FilterMaskReader, GcApplyInfo, GcScanDelta, IndexBlock,
-    InvertedIndex,
+    AddRecordOutcome, DecodedBy, Encoder, FilterMaskReader, GcApplyInfo, GcScanDelta, IndexBackend,
+    IndexBlock, InvertedIndex,
     debug::{BlockSummary, Summary},
     reader::IndexReaderCore,
 };
@@ -146,5 +146,60 @@ impl<E: Encoder + DecodedBy> FieldMaskTrackingIndex<E> {
     /// by deleting or repairing blocks as needed.
     pub fn apply_gc(&mut self, delta: GcScanDelta) -> GcApplyInfo {
         self.index.apply_gc(delta)
+    }
+}
+
+impl<E: DecodedBy> IndexBackend for FieldMaskTrackingIndex<E> {
+    type Reader<'index>
+        = IndexReaderCore<'index, E>
+    where
+        Self: 'index;
+
+    fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<AddRecordOutcome> {
+        self.add_record(record)
+    }
+
+    fn memory_usage(&self) -> usize {
+        self.memory_usage()
+    }
+
+    fn flags(&self) -> IndexFlags {
+        self.flags()
+    }
+
+    fn unique_docs(&self) -> u32 {
+        self.unique_docs()
+    }
+
+    fn number_of_blocks(&self) -> usize {
+        self.number_of_blocks()
+    }
+
+    fn summary(&self) -> Summary {
+        self.summary()
+    }
+
+    fn blocks_summary(&self) -> Vec<BlockSummary> {
+        self.blocks_summary()
+    }
+
+    fn last_doc_id(&self) -> Option<DocId> {
+        self.last_doc_id()
+    }
+
+    fn reader(&self) -> Self::Reader<'_> {
+        self.index.reader()
+    }
+
+    fn scan_gc(
+        &self,
+        doc_exist: impl Fn(DocId) -> bool,
+        repair: Option<impl for<'call> FnMut(&RSIndexResult<'call>, &crate::RepairContext<'call>)>,
+    ) -> std::io::Result<Option<GcScanDelta>> {
+        self.scan_gc(doc_exist, repair)
+    }
+
+    fn apply_gc(&mut self, delta: GcScanDelta) -> GcApplyInfo {
+        self.apply_gc(delta)
     }
 }

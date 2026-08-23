@@ -11,19 +11,20 @@
 //!
 //! An [`IndexBackend`] captures everything the rest of the module needs from an inverted
 //! index — writes, reads, GC, and introspection — independent of *how* the blocks are
-//! stored or read. Today the only implementer is the in-place index ([`InvertedIndex`],
-//! aliased [`InPlaceInvertedIndex`]): a single mutable block vector, in-place GC repair,
-//! and lock-held reads. A future copy-on-write / snapshot backend can implement the same
-//! trait, letting callers (and the FFI) be written once against the contract and select the
-//! concrete backend at compile time — no runtime dispatch on the hot path.
+//! stored or read. Today the concrete backend is the in-place index
+//! ([`InvertedIndex`], aliased [`InPlaceInvertedIndex`]): a single mutable block
+//! vector, in-place GC repair, and lock-held reads. A future copy-on-write /
+//! snapshot backend can implement the same trait, letting callers (and the FFI)
+//! be written once against the contract and select the concrete backend at
+//! compile time — no runtime dispatch on the hot path.
 
 use ffi::IndexFlags;
 use index_result::RSIndexResult;
 use rqe_core::DocId;
 
 use crate::{
-    AddRecordOutcome, DecodedBy, Decoder, Encoder, GcApplyInfo, GcScanDelta, InPlaceInvertedIndex,
-    IndexReader, IndexReaderCore, InvertedIndex, RepairContext,
+    AddRecordOutcome, DecodedBy, Encoder, GcApplyInfo, GcScanDelta, InPlaceInvertedIndex,
+    IndexReader, IndexReaderCore, RepairContext,
     debug::{BlockSummary, Summary},
 };
 
@@ -35,9 +36,9 @@ use crate::{
 /// active backend is chosen at compile time, so calls monomorphize with zero vtable cost.
 pub trait IndexBackend {
     /// The reader this backend hands out. Must implement [`IndexReader`].
-    type Reader<'a>: IndexReader<'a>
+    type Reader<'index>: IndexReader<'index>
     where
-        Self: 'a;
+        Self: 'index;
 
     /// Encode and append one record. Returns how the index's memory changed.
     fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<AddRecordOutcome>;
@@ -79,46 +80,46 @@ pub trait IndexBackend {
     fn apply_gc(&mut self, delta: GcScanDelta) -> GcApplyInfo;
 }
 
-impl<E: Encoder + DecodedBy<Decoder = D>, D: Decoder> IndexBackend for InPlaceInvertedIndex<E> {
-    type Reader<'a>
-        = IndexReaderCore<'a, E>
+impl<E: Encoder + DecodedBy> IndexBackend for InPlaceInvertedIndex<E> {
+    type Reader<'index>
+        = IndexReaderCore<'index, E>
     where
-        Self: 'a;
+        Self: 'index;
 
     fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<AddRecordOutcome> {
-        InvertedIndex::add_record(self, record)
+        self.add_record(record)
     }
 
     fn memory_usage(&self) -> usize {
-        InvertedIndex::memory_usage(self)
+        self.memory_usage()
     }
 
     fn flags(&self) -> IndexFlags {
-        self.flags
+        self.flags()
     }
 
     fn unique_docs(&self) -> u32 {
-        InvertedIndex::unique_docs(self)
+        self.unique_docs()
     }
 
     fn number_of_blocks(&self) -> usize {
-        InvertedIndex::number_of_blocks(self)
+        self.number_of_blocks()
     }
 
     fn summary(&self) -> Summary {
-        InvertedIndex::summary(self)
+        self.summary()
     }
 
     fn blocks_summary(&self) -> Vec<BlockSummary> {
-        InvertedIndex::blocks_summary(self)
+        self.blocks_summary()
     }
 
     fn last_doc_id(&self) -> Option<DocId> {
-        InvertedIndex::last_doc_id(self)
+        self.last_doc_id()
     }
 
     fn reader(&self) -> Self::Reader<'_> {
-        InvertedIndex::reader(self)
+        self.reader()
     }
 
     fn scan_gc(
@@ -126,10 +127,10 @@ impl<E: Encoder + DecodedBy<Decoder = D>, D: Decoder> IndexBackend for InPlaceIn
         doc_exist: impl Fn(DocId) -> bool,
         repair: Option<impl for<'call> FnMut(&RSIndexResult<'call>, &RepairContext<'call>)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
-        InvertedIndex::scan_gc(self, doc_exist, repair)
+        self.scan_gc(doc_exist, repair)
     }
 
     fn apply_gc(&mut self, delta: GcScanDelta) -> GcApplyInfo {
-        InvertedIndex::apply_gc(self, delta)
+        self.apply_gc(delta)
     }
 }

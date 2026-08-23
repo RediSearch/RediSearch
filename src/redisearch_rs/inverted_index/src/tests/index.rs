@@ -11,7 +11,7 @@ use std::io::Cursor;
 
 use crate::{
     Decoder, Encoder, EntriesTrackingIndex, FieldMaskTrackingIndex, GcScanDelta, IdDelta,
-    IndexBlock, InvertedIndex,
+    IndexBackend, IndexBlock, InvertedIndex,
     debug::{BlockSummary, Summary},
     gc::BlockGcScanResult,
     gc::RepairType,
@@ -25,6 +25,14 @@ use pretty_assertions::assert_eq;
 use rqe_core::DocId;
 
 use super::Dummy;
+
+#[test]
+fn tracking_wrappers_implement_index_backend() {
+    fn assert_backend<T: IndexBackend>() {}
+
+    assert_backend::<EntriesTrackingIndex<Dummy>>();
+    assert_backend::<FieldMaskTrackingIndex<Dummy>>();
+}
 
 #[test]
 fn memory_usage() {

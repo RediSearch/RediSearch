@@ -25,8 +25,14 @@ trait extraction, not a reconciliation:
 
 | Concern | Trait | Notes |
 |---------|-------|-------|
-| storage: write / reader construction / GC / introspection | **`IndexBackend`** | new; both backends implement it |
+| storage: write / reader construction / GC / introspection | **`IndexBackend`** | new; both backends and storage wrappers implement it |
 | iteration **+ revalidation** | **`IndexReader`** | **already exists**; both backends already implement it |
+
+The concrete storage variants (`InvertedIndex`, `EntriesTrackingIndex`, and
+`FieldMaskTrackingIndex`) implement `IndexBackend`, so callers that only need
+the storage surface can depend on the trait for every encoding. Field-mask and
+numeric filtering stay as reader adapters because they are query-time concerns,
+not backend storage behavior.
 
 ### The key insight: revalidation belongs to the *reader*, and already does
 
@@ -60,6 +66,10 @@ FFI has **no backend-specific surface** at all.
 
 - `IndexBackend` + `IndexReader` are the whole contract. The FFI and query engine depend only
   on them plus the (orthogonal) encoding enum.
+- `HasInnerIndex` remains a narrow identity hook for the current in-place term
+  readers to compare themselves with an opaque wrapper. Folding that into
+  `IndexBackend` would leak an in-place pointer requirement into future backends;
+  snapshot readers should keep their own identity mechanism.
 - Backend selection is a compile-time type alias:
   ```rust
   #[cfg(feature = "snapshot-reads")] pub type InvertedIndex<E> = SnapshotInvertedIndex<E>;
@@ -71,9 +81,10 @@ FFI has **no backend-specific surface** at all.
 
 ## Steps
 
-1. **Done:** `IndexBackend` trait + impl for the in-place index; rename `InvertedIndex` struct
-   → `InPlaceInvertedIndex` with an `InvertedIndex` alias (FFI/C ABI unchanged); expand the
-   trait to the full storage surface (`blocks_summary`, `last_doc_id`).
+1. **Done:** `IndexBackend` trait + impls for the in-place index and storage
+   wrappers; rename `InvertedIndex` struct → `InPlaceInvertedIndex` with an
+   `InvertedIndex` alias (FFI/C ABI unchanged); expand the trait to the full
+   storage surface (`blocks_summary`, `last_doc_id`).
 2. **Small, master-only:** drop the vestigial `gc_marker` FFI exports.
 3. **On re-layering:** the snapshot index implements `IndexBackend` (its reader already
    implements `IndexReader`); add the `snapshot-reads` feature + the selecting alias; route the
