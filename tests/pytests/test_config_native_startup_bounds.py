@@ -87,6 +87,31 @@ def testStartupSearchMaxAggregateResultsNegativeOneTranslates():
 
 
 @skip(cluster=True, redis_less_than='7.9.227')
+def testStartupSearchMaxSearchResultsOverCapClamps():
+    """search-max-search-results 9999999999 (above MAX_SEARCH_REQUEST_RESULTS)
+    in the startup config file must not abort the server: the registered max
+    is LLONG_MAX so core lets it through to our setter, which clamps it to
+    MAX_SEARCH_REQUEST_RESULTS, matching the legacy setter's silent clamp."""
+    confPath = _confPath('test_native_bounds_maxsearch_overcap.conf')
+    _writeConfigFile(confPath, [('search-max-search-results', 9999999999)])
+    env = Env(noDefaultModuleArgs=True, redisConfigFile=confPath)
+    env.assertEqual(env.cmd('CONFIG', 'GET', 'search-max-search-results'),
+                     ['search-max-search-results', str(MAX_SEARCH_REQUEST_RESULTS)])
+
+
+@skip(cluster=True, redis_less_than='7.9.227')
+def testStartupSearchMaxAggregateResultsOverCapClamps():
+    """Same as above for search-max-aggregate-results: a startup value above
+    MAX_AGGREGATE_REQUEST_RESULTS must not abort the server and must clamp
+    down to MAX_AGGREGATE_REQUEST_RESULTS."""
+    confPath = _confPath('test_native_bounds_maxagg_overcap.conf')
+    _writeConfigFile(confPath, [('search-max-aggregate-results', 9999999999)])
+    env = Env(noDefaultModuleArgs=True, redisConfigFile=confPath)
+    env.assertEqual(env.cmd('CONFIG', 'GET', 'search-max-aggregate-results'),
+                     ['search-max-aggregate-results', str(MAX_AGGREGATE_REQUEST_RESULTS)])
+
+
+@skip(cluster=True, redis_less_than='7.9.227')
 def testStartupSearchMaxSearchResultsNegativeFiveFallsBackToDefault():
     """search-max-search-results -5 is not the -1 sentinel, so it must not
     silently become unlimited: the server must still start, must log a
@@ -148,6 +173,24 @@ def testRuntimeConfigSetTranslatesMaxAggregateResultsNegativeOne(env):
     native CONFIG SET path too, mirroring search-max-search-results: it
     translates to MAX_AGGREGATE_REQUEST_RESULTS rather than being rejected."""
     env.expect('CONFIG', 'SET', 'search-max-aggregate-results', '-1').ok()
+    env.assertEqual(env.cmd('CONFIG', 'GET', 'search-max-aggregate-results'),
+                     ['search-max-aggregate-results', str(MAX_AGGREGATE_REQUEST_RESULTS)])
+
+
+@skip(redis_less_than='7.9.227')
+def testRuntimeConfigSetClampsMaxSearchResultsOverCap(env):
+    """CONFIG SET search-max-search-results 9999999999 must succeed (the
+    registered max is LLONG_MAX) and clamp to MAX_SEARCH_REQUEST_RESULTS,
+    matching the legacy setter's silent clamp on the native path too."""
+    env.expect('CONFIG', 'SET', 'search-max-search-results', '9999999999').ok()
+    env.assertEqual(env.cmd('CONFIG', 'GET', 'search-max-search-results'),
+                     ['search-max-search-results', str(MAX_SEARCH_REQUEST_RESULTS)])
+
+
+@skip(redis_less_than='7.9.227')
+def testRuntimeConfigSetClampsMaxAggregateResultsOverCap(env):
+    """Same as above for search-max-aggregate-results."""
+    env.expect('CONFIG', 'SET', 'search-max-aggregate-results', '9999999999').ok()
     env.assertEqual(env.cmd('CONFIG', 'GET', 'search-max-aggregate-results'),
                      ['search-max-aggregate-results', str(MAX_AGGREGATE_REQUEST_RESULTS)])
 

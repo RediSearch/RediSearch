@@ -2269,7 +2269,10 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       SearchDisk_IsEnabled() ? DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS_FLEX
                              : DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS,
       REDISMODULE_CONFIG_UNPREFIXED, LLONG_MIN,
-      MAX_AGGREGATE_REQUEST_RESULTS, get_size_t_numeric_config, set_max_aggregate_results_config,
+      // Registered max is LLONG_MAX, not MAX_AGGREGATE_REQUEST_RESULTS: an over-cap value must
+      // reach set_max_aggregate_results_config(), which clamps it via translateOrClampMaxResults,
+      // rather than being rejected by core before the setter runs.
+      LLONG_MAX, get_size_t_numeric_config, set_max_aggregate_results_config,
       NULL, (void *)&(RSGlobalConfig.maxAggregateResults)
     )
   )
@@ -2315,7 +2318,9 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterNumericConfig(
       ctx, "search-max-search-results", DEFAULT_MAX_SEARCH_REQUEST_RESULTS,
       REDISMODULE_CONFIG_UNPREFIXED, LLONG_MIN,
-      MAX_SEARCH_REQUEST_RESULTS, get_size_t_numeric_config, set_max_search_results_config, NULL,
+      // See the matching comment on search-max-aggregate-results: registered max is LLONG_MAX so
+      // an over-cap value reaches set_max_search_results_config() to be clamped, not rejected.
+      LLONG_MAX, get_size_t_numeric_config, set_max_search_results_config, NULL,
       (void *)&(RSGlobalConfig.maxSearchResults)
     )
   )

@@ -628,6 +628,12 @@ CLAMPED_CONFIGS = {
     'search-max-prefix-expansions': UINT32_MAX,
     'search-min-prefix': UINT32_MAX,
     'search-union-iterator-heap': UINT32_MAX,
+    # The registered max is LLONG_MAX (widened so an out-of-range startup value
+    # doesn't abort the server, see MOD-17730), not the values below: an
+    # over-cap CONFIG SET is accepted and clamped to the legacy setter's
+    # maximum, same as the narrowed-type configs above.
+    'search-max-search-results': MAX_SEARCH_REQUEST_RESULTS,
+    'search-max-aggregate-results': MAX_AGGREGATE_REQUEST_RESULTS,
 }
 
 # min - 1 (i.e. -1) is a meaningful "unlimited" sentinel for these configs,
