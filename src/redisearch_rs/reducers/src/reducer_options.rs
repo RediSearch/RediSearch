@@ -16,7 +16,7 @@ use query_error::QueryError;
 pub struct ReducerOptions(ffi::ReducerOptions);
 
 impl ReducerOptions {
-    /// Create a `ReducerOptions` wrapper from a pointer.
+    /// Borrow `ptr` as an exclusive `ReducerOptions`.
     ///
     /// # Safety
     ///
