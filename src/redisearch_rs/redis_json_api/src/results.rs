@@ -116,11 +116,9 @@ impl<'a> LendingIterator for ResultsIter<'a> {
         // Safety: `ptr` is valid by construction.
         let raw = unsafe { (self.next)(self.ptr.as_ptr()) };
 
-        if raw.is_null() {
-            None
-        } else {
-            // Safety: we obtained the `raw` from calling `next`.
-            Some(unsafe { JsonValueRef::from_raw(raw, self.api) })
-        }
+        let raw = NonNull::new(raw.cast_mut())?;
+
+        // Safety: we obtained the `raw` from calling `next`.
+        Some(unsafe { JsonValueRef::from_raw(raw, self.api) })
     }
 }

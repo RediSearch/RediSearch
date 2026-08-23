@@ -91,7 +91,7 @@ impl From<ffi::JSONType> for JsonType {
 //   will remain valid after it is freed I guess.
 #[derive(Clone, Copy)]
 pub struct JsonValueRef<'a> {
-    pub(crate) ptr: *const c_void, // is non-null
+    pub(crate) ptr: NonNull<c_void>,
     pub(crate) api: &'a RedisJsonApi,
 }
 
@@ -101,7 +101,7 @@ impl<'a> JsonValueRef<'a> {
     /// # Safety
     ///
     /// 1. `ptr` must be a valid ptr obtained from `getKey*`.
-    pub(crate) const unsafe fn from_raw(ptr: *const c_void, api: &'a RedisJsonApi) -> Self {
+    pub(crate) const unsafe fn from_raw(ptr: NonNull<c_void>, api: &'a RedisJsonApi) -> Self {
         Self { ptr, api }
     }
 
@@ -112,7 +112,7 @@ impl<'a> JsonValueRef<'a> {
         let mut out: usize = 0;
 
         // Safety: `ptr` is valid by construction.
-        let status = unsafe { get_len(self.ptr, &raw mut out) };
+        let status = unsafe { get_len(self.ptr.as_ptr(), &raw mut out) };
 
         if status == redis_module::REDISMODULE_OK as i32 {
             Some(out)
@@ -131,7 +131,7 @@ impl<'a> JsonValueRef<'a> {
         let get_type = vtable_fn!(self.api, getType);
 
         // Safety: `ptr` is valid by construction.
-        let raw = unsafe { get_type(self.ptr) };
+        let raw = unsafe { get_type(self.ptr.as_ptr()) };
 
         JsonType::from_raw(raw).expect("invalid JSON type")
     }
@@ -143,7 +143,7 @@ impl<'a> JsonValueRef<'a> {
         let mut out: i64 = 0;
 
         // Safety: `ptr` is valid by construction.
-        let status = unsafe { get_int(self.ptr, &raw mut out) };
+        let status = unsafe { get_int(self.ptr.as_ptr(), &raw mut out) };
 
         if status == redis_module::REDISMODULE_OK as i32 {
             Some(out)
@@ -159,7 +159,7 @@ impl<'a> JsonValueRef<'a> {
         let mut out: f64 = 0.0;
 
         // Safety: `ptr` is valid by construction.
-        let status = unsafe { get_double(self.ptr, &raw mut out) };
+        let status = unsafe { get_double(self.ptr.as_ptr(), &raw mut out) };
 
         if status == redis_module::REDISMODULE_OK as i32 {
             Some(out)
@@ -175,7 +175,7 @@ impl<'a> JsonValueRef<'a> {
         let mut out: i32 = 0;
 
         // Safety: `ptr` is valid by construction.
-        let status = unsafe { get_boolean(self.ptr, &raw mut out) };
+        let status = unsafe { get_boolean(self.ptr.as_ptr(), &raw mut out) };
 
         if status == redis_module::REDISMODULE_OK as i32 {
             Some(out != 0)
@@ -192,7 +192,7 @@ impl<'a> JsonValueRef<'a> {
         let mut len: usize = 0;
 
         // Safety: `ptr` is valid by construction.
-        let status = unsafe { get_string(self.ptr, &raw mut str, &raw mut len) };
+        let status = unsafe { get_string(self.ptr.as_ptr(), &raw mut str, &raw mut len) };
 
         if status == redis_module::REDISMODULE_OK as i32 {
             // Safety: `getString` returns `OK` it promises to return a valid c string.
@@ -213,7 +213,7 @@ impl<'a> JsonValueRef<'a> {
         let mut out = JsonValue::new(self.api);
 
         // Safety: `ptr` is valid by construction, we correctly allocated the `JsonValue` before.
-        let status = unsafe { get_at(self.ptr, idx, out.as_ptr()) };
+        let status = unsafe { get_at(self.ptr.as_ptr(), idx, out.as_ptr()) };
         if status == redis_module::REDISMODULE_OK as i32 {
             Some(out)
         } else {
@@ -238,7 +238,7 @@ impl<'a> JsonValueRef<'a> {
             let get_key_values = vtable_fn!(self.api, getKeyValues);
 
             // Safety: `ptr` is valid by construction.
-            let ptr = unsafe { get_key_values(self.ptr) };
+            let ptr = unsafe { get_key_values(self.ptr.as_ptr()) };
             // TODO this should have been a mutable pointer (we mutate the underlying iterator in subsequent calls after all)
             let ptr = NonNull::new(ptr.cast_mut())?;
 
@@ -256,7 +256,7 @@ impl<'a> JsonValueRef<'a> {
         let get = vtable_fn!(self.api, get);
 
         // Safety: `ptr` is valid by construction and CStr ensures `ptr` is a valid c string.
-        let ptr = unsafe { get(self.ptr, path.as_ptr()) };
+        let ptr = unsafe { get(self.ptr.as_ptr(), path.as_ptr()) };
         // TODO this should have been a mutable pointer (we mutate the underlying iterator in subsequent calls after all)
         let ptr = NonNull::new(ptr.cast_mut())?;
 
@@ -279,7 +279,7 @@ impl<'a> JsonValueRef<'a> {
         let mut str: *mut redis_module::RedisModuleString = std::ptr::null_mut();
 
         // Safety: ensured by caller (1.) and ptr is valid by construction.
-        let status = unsafe { get_json(self.ptr, ctx.as_ptr(), &mut str) };
+        let status = unsafe { get_json(self.ptr.as_ptr(), ctx.as_ptr(), &mut str) };
 
         if status == redis_module::REDISMODULE_OK as i32 {
             Ok(RedisString::from_redis_module_string(
@@ -325,7 +325,8 @@ impl<'a> JsonValue<'a> {
         JsonValueRef {
             // Safety: we obtained this pointer from `allocJson` and the `new` constructor is private
             // where we ensure the value is actually initialized before being handed out.
-            ptr: unsafe { *self.ptr },
+            ptr: NonNull::new(unsafe { *self.ptr }.cast_mut())
+                .expect("a populated `JsonValue` holds a non-null value"),
             api: self.api,
         }
     }
