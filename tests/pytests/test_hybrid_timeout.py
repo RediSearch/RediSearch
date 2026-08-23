@@ -458,10 +458,12 @@ def test_debug_timeout_return_strict_rejected():
 
 @skip(cluster=False)
 def test_return_timeout_setup_phase_hybrid():
-    """RETURN setup-phase timeout, one shard suspended: the in-band deadline fires; reply is empty + warning.
+    """RETURN timeout with one shard suspended: the in-band deadline fires; reply is partial + warning.
 
     Lives here (not test_blocked_client_timeout.py): RETURN uses the in-band
-    deadline, not the blocked-client CLIENT UNBLOCK mechanism.
+    deadline, not the blocked-client CLIENT UNBLOCK mechanism. The suspended
+    shard never publishes its cursor mapping, so its reads are never armed;
+    the read-side pop deadline must fire instead of blocking forever.
     """
     # WORKERS 1 dispatches the query to a BG thread so the cursor-setup wait is
     # reachable; cluster mode gives us a non-coordinator shard to suspend.
@@ -508,12 +510,14 @@ def test_return_timeout_setup_phase_hybrid():
             'Timeout while waiting for shard to pause'
         )
 
-        # The deadline fires in the setup wait; RETURN policy yields an empty
-        # result set with a timeout warning rather than an error (a hang would
-        # trip the harness test timeout).
+        # The in-band deadline bounds the cursor-read waits; RETURN policy
+        # yields whatever the responsive shards delivered by the deadline —
+        # partial (possibly empty) results with a timeout warning rather than
+        # an error or a hang (a hang would trip the harness test timeout).
         result = env.cmd(*query_args)
-        env.assertEqual(result['total_results'], 0,
-                        message=f"Expected 0 results, got {result}")
+        env.assertLess(result['total_results'], 100,
+                       message=f"Expected partial results (one shard is "
+                               f"suspended), got {result}")
         assert_timeout_warning(env, result, message="RETURN-policy setup-phase timeout")
     finally:
         # Resume so the shard drains the queued _FT.HYBRID / CURSOR DEL and frees

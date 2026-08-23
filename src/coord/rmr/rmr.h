@@ -43,7 +43,7 @@ typedef struct {
 
 void iterStartCb(void *p);
 
-void iterCursorMappingCb(void *p);
+void iterExpandShellsCb(void *p);
 
 /* Prototype for all reduce functions */
 typedef int (*MRReduceFunc)(struct MRCtx *ctx, int count, MRReply **replies);
@@ -175,20 +175,22 @@ typedef void (*MRCommandModifier)(MRCommand *cmd, size_t numShards, void *privat
  * @param errorCB                No-reply termination callback (optional).
  * @param cbPrivateData          Private data handed to `successCB` via the callback ctx.
  * @param cbPrivateDataDestructor Frees `cbPrivateData` when the iterator is freed.
- * @param cbPrivateDataInit      Runs once on the IO thread after numShards is known.
  * @param commandModifier        Rewrites the command per-shard before sending.
  * @param iterStartCb            Scheduled on the IO thread to trigger the first send (required).
- * @param iterStartCbPrivateData StrongRef demoted and passed to `iterStartCb`.
+ * @param ioRuntime              IO runtime to bind the iterator to; NULL picks one
+ *                               round-robin. Iterators whose callbacks touch each
+ *                               other's state (see MRIterator_ArmShardCursorRead)
+ *                               must share a runtime so those touches stay on one
+ *                               IO thread.
  */
 typedef struct {
   MRIteratorCallback successCB;
   MRIteratorErrorCallback errorCB;
   void *cbPrivateData;
   void (*cbPrivateDataDestructor)(void *);
-  void (*cbPrivateDataInit)(void *, const MRIterator *);
   MRCommandModifier commandModifier;
   void (*iterStartCb)(void *);
-  StrongRef *iterStartCbPrivateData;
+  IORuntimeCtx *ioRuntime;
 } MRIteratorConfig;
 
 // Trigger all the commands in the iterator to be sent.
@@ -215,15 +217,13 @@ struct MRChannel *MRIterator_GetChannel(MRIterator *it);
  * can arrive on the IO thread. Pair every MR_CreateIterator with
  * MR_StartIterator. Only the dispatch-related fields of `config` are read here
  * (`successCB`, `errorCB`, `cbPrivateData`, `cbPrivateDataDestructor`,
- * `cbPrivateDataInit`, `commandModifier`); `iterStartCb` /
- * `iterStartCbPrivateData` are consumed by MR_StartIterator. */
+ * `commandModifier`); `iterStartCb` is consumed by MR_StartIterator. */
 MRIterator *MR_CreateIterator(const MRCommand *cmd, const MRIteratorConfig *config);
 
 /* Schedule the iterator's start callback on its IO runtime, kicking off the
  * fan-out to the shards. After this call replies may arrive at any time on the
- * IO thread. */
-void MR_StartIterator(MRIterator *it, void (*iterStartCb)(void *),
-                      StrongRef *iterStartCbPrivateData);
+ * IO thread. The callback receives the iterator itself. */
+void MR_StartIterator(MRIterator *it, void (*iterStartCb)(void *));
 
 MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, const MRIteratorConfig *config);
 
@@ -272,6 +272,30 @@ void MRIterator_SwapCallbacks(MRIterator *it, MRIteratorCallback successCB,
 /* Return the privateData stored in the first callback context of the iterator.
  * Valid while the iterator is alive (i.e. before the coord ref is released). */
 void *MRIterator_GetPrivateData(const MRIterator *it);
+
+/* Return the IO runtime the iterator is bound to. Use as
+ * MRIteratorConfig.ioRuntime to bind sibling iterators to the same runtime. */
+IORuntimeCtx *MRIterator_GetIORuntime(const MRIterator *it);
+
+/* Complete and dispatch a per-shard placeholder prepared by iterExpandShellsCb:
+ * plant `cursorId` as the id argument of the `_FT.CURSOR READ <idx> <id>`
+ * command and send it — rewritten to DEL when `del` is set (the request was
+ * already abandoned, so the shard cursor is deleted instead of read). Must run
+ * on the iterator's own IO thread, typically from a sibling iterator's reply
+ * callback. */
+void MRIterator_ArmShardCursorRead(MRIterator *it, uint16_t shardIdx, long long cursorId, bool del);
+
+/* Resolve a per-shard placeholder prepared by iterExpandShellsCb without
+ * dispatching it (the shard published no cursor for this stream, or the whole
+ * fan-out failed). Counterpart of MRIterator_ArmShardCursorRead; must run on
+ * the iterator's own IO thread, and exactly one of the two must be called per
+ * placeholder. */
+void MRIterator_ResolveShard(MRIterator *it, uint16_t shardIdx, int error);
+
+/* Push a reply into the iterator's channel on behalf of a sibling iterator's
+ * callback (e.g. to surface a fan-out shard error to this iterator's reader).
+ * The reader takes ownership of `rep`. */
+void MRIterator_PushReply(MRIterator *it, MRReply *rep);
 
 sds MRCommand_SafeToString(const MRCommand *cmd);
 

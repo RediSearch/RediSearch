@@ -2083,6 +2083,16 @@ class TestCoordinatorTimeout:
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
 
+        # Cluster-wide node-local cursor totals (INFO MODULES per shard). The
+        # timed-out coordinator must fan out `_FT.CURSOR DEL` for the published
+        # sub-cursors it abandoned, so the counts return to this baseline
+        # without waiting for the idle sweep (MOD-17913).
+        def cluster_cursor_total():
+            return sum(info['search_global_total_user'] +
+                       info['search_global_total_internal']
+                       for info in run_command_on_all_shards(env, 'INFO', 'MODULES'))
+        baseline_cursor_total = cluster_cursor_total()
+
         # Enable pause before/after hybrid cursor storage on ALL shards
         if before:
             setPauseBeforeHybridStoreCursors(env, True)
@@ -2122,6 +2132,15 @@ class TestCoordinatorTimeout:
         # Cleanup - reset hybrid store cursors debug
         resetHybridStoreCursorsDebug(env)
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
+
+        # The resumed shards publish their sub-cursor mappings after the
+        # coordinator already failed the query; the coordinator must delete
+        # them rather than leave them parked until the idle sweep.
+        wait_for_condition(
+            lambda: (cluster_cursor_total() <= baseline_cursor_total,
+                     {'total': cluster_cursor_total(),
+                      'baseline': baseline_cursor_total}),
+            'FAIL-timed-out hybrid query leaked its published shard sub-cursors')
 
     def test_fail_timeout_before_shard_store_cursors_hybrid(self):
         """Test timeout occurring before shard stores cursors for internal FT.HYBRID."""
@@ -2224,6 +2243,15 @@ class TestCoordinatorTimeout:
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
 
+        # Node-local (INFO MODULES) cursor counts on the target shard. Scoped to
+        # a pre-test baseline rather than an absolute zero so leftovers from
+        # earlier tests in this class cannot fail this test's assertion.
+        def shard_cursor_counts():
+            info = target_shard.execute_command('INFO', 'MODULES')
+            return {'user': info['search_global_total_user'],
+                    'internal': info['search_global_total_internal']}
+        baseline_cursor_total = sum(shard_cursor_counts().values())
+
         query_args = [
             'FT.HYBRID', 'hybrid_idx',
             'SEARCH', '*',
@@ -2295,22 +2323,15 @@ class TestCoordinatorTimeout:
 
         # Once the resumed worker ends the cycle, the teardown drops the
         # published sub-cursors — the reply exposed no IDs, so none may stay
-        # parked or leak on the shard.
-        def shard_cursor_total():
-            info = target_shard.execute_command('INFO', 'MODULES')
-            return info['search_global_total_user'] + info['search_global_total_internal']
-        def per_index_cursors():
-            stats = {}
-            for idx_name in ('idx', 'hybrid_idx'):
-                try:
-                    info = to_dict(target_shard.execute_command('FT.INFO', idx_name))
-                    stats[idx_name] = to_dict(info.get('cursor_stats', []))
-                except Exception as e:
-                    stats[idx_name] = str(e)
-            return stats
+        # parked or leak on the shard. Compare against the pre-test baseline
+        # (`<=`: an idle sweep may reclaim earlier tests' leftovers meanwhile).
+        # The failure payload is node-local only — FT.INFO cursor stats are
+        # coordinator-aggregated across shards and would mix scopes.
         def cursors_drained():
-            total = shard_cursor_total()
-            return total == 0, {'user+internal': total, 'per_index': per_index_cursors()}
+            counts = shard_cursor_counts()
+            total = sum(counts.values())
+            return total <= baseline_cursor_total, {
+                'node_local': counts, 'baseline': baseline_cursor_total}
         wait_for_condition(cursors_drained,
                            'strict-timed-out cycle did not drop its published cursors')
 
@@ -4173,50 +4194,30 @@ class TestCoordinatorTimeout:
     def _drive_one_shard_paused_hybrid_return_strict(self, agg_steps_suffix, assert_reply):
         """Shared driver for one-shard-paused RETURN_STRICT FT.HYBRID timeout tests.
 
-        Hybrid's two-phase protocol (``_FT.HYBRID`` -> cursor mappings ->
-        ``_FT.CURSOR READ``) requires the paused shard to complete Phase 1
-        before being suspended -- otherwise the coordinator's cursor
-        mapping wait blocks forever and Phase 2 never starts. The
-        coord-side ``BeforeRPNetStart`` sync point in
-        ``rpnetNext_StartWithMappings`` (mirroring the aggregate
-        ``rpnetNext_Start`` site) fires after every shard has delivered
-        its Phase 1 cursor mapping and just before BG dispatches the
-        Phase 2 cursor reads, giving us a deterministic window to
-        ``SIGSTOP`` the chosen shard.
+        One shard is paused *after* it creates its subquery cursors but
+        *before* it publishes their ids (shard-side
+        ``SET_PAUSE_AFTER_HYBRID_STORE_CURSORS``). The coordinator's arming
+        fan-out therefore never arms that shard's cursor reads, while the
+        responsive shards' reads are armed as their mappings arrive and
+        stream to EOF; the merger absorbs their rows and then blocks
+        waiting on the paused shard's stream.
 
         Protocol:
-          1. ARM ``BeforeRPNetStart`` on the coord.
-          2. Issue FT.HYBRID. Phase 1 runs on every shard (none are
-             suspended yet) and BG parks at ``BeforeRPNetStart`` once
-             every cursor mapping has been admitted -- i.e. just before
-             subquery 0's Phase 2 cursor-read dispatch.
-          3. ``SIGSTOP`` the chosen shard's redis process; its already-
-             created subquery cursors stay alive but the kernel queues
-             any incoming Phase 2 command without delivering it.
-          4. SIGNAL ``BeforeRPNetStart``. BG dispatches subquery 0's
-             Phase 2 to every shard; responsive shards reply, the
-             paused shard's command sits in its receive queue. BG
-             accumulates the responsive replies into the merger dict.
-          5. Poll ``BG_PENDING_REPLIES`` until it equals 1 -- only the
-             paused shard's final reply is outstanding. This guarantees
-             the merger dict has absorbed every responsive shard's rows
-             before we trip the deadline.
-          6. ``CLIENT UNBLOCK ... TIMEOUT``: ``HybridRequest_SetTimedOut``
-             flips ``syncCtx.timedOut`` on both subquery AREQs and
-             ``WakeAbortChannel`` broadcasts on every registered abort
-             channel. BG's pending subquery-0 pop returns NULL with the
-             abort flag set; ``rpnetNext`` returns TIMEDOUT. The merger
-             advances to subquery 1 whose ``rpnetNext_StartWithMappings``
-             passes through ``BeforeRPNetStart`` (now disarmed and
-             ``areq_timed_out`` true), dispatches subquery 1's Phase 2,
-             then inline ``rpnetNext`` short-circuits on
-             ``AREQ_TimedOut`` and also returns TIMEDOUT. The merger
-             exits Accum, switches to Yield (RETURN_STRICT skips the
-             FAIL-only early-return), and yields its accumulated
-             entries through the tail pipeline.
-          7. ``SIGCONT`` the shard so its queued cursor reads complete
-             and the shard's cursors are released before subsequent
-             tests run.
+          1. Pause the chosen shard after hybrid cursor storage.
+          2. Issue FT.HYBRID. Responsive shards publish mappings, their
+             reads run to EOF, and the merger accumulates their rows.
+          3. Poll ``BG_PENDING_REPLIES`` until it equals 1 -- only the
+             paused shard's stream is outstanding (its read placeholder
+             counts as pending until its mapping arms it).
+          4. ``CLIENT UNBLOCK ... TIMEOUT``: both subquery RPNets return
+             TIMEDOUT; the merger exits Accum, switches to Yield
+             (RETURN_STRICT skips the FAIL-only early-return), and yields
+             its accumulated entries through the tail pipeline.
+          5. Resume the shard. Its mapping finally reaches the arming
+             callback, which observes the timed-out read iterators and
+             deletes the published cursors instead of reading them —
+             the shard's cursor counts must return to baseline without
+             waiting for the idle sweep.
 
         ``agg_steps_suffix`` is appended after the standard
         ``SEARCH * VSIM @embedding $BLOB KNN ... COMBINE RRF ...``
@@ -4227,10 +4228,10 @@ class TestCoordinatorTimeout:
         responsive shards, which the driver counts deterministically.
 
         Shared assertions (single reply, two per-subquery TIMEOUT
-        warnings, coord warning counter ``+1``, other metrics
-        unchanged) and best-effort cleanup (SIGCONT the shard, clear
-        coord sync, restore previous on-timeout policy) are performed
-        by this driver.
+        warnings, coord warning counter ``+1``, other metrics unchanged,
+        paused shard's cursors dropped after resume) and best-effort
+        cleanup (resume the shard, restore previous on-timeout policy)
+        are performed by this driver.
         """
         env = self.env
         skipIfNoEnableAssert(env)
@@ -4241,7 +4242,12 @@ class TestCoordinatorTimeout:
         before_info = info_modules_to_dict(env)
         base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
 
-        _, _, paused_pid, responsive_conns = split_shards_pick_one_paused(env)
+        _, paused_conn, _, responsive_conns = split_shards_pick_one_paused(env)
+
+        def paused_shard_cursor_total():
+            info = paused_conn.execute_command('INFO', 'MODULES')
+            return info['search_global_total_user'] + info['search_global_total_internal']
+        baseline_cursor_total = paused_shard_cursor_total()
 
         # Each responsive shard contributes one subquery-0 (SEARCH *)
         # reply to the merger's accumulation dict. SEARCH * matches every
@@ -4252,15 +4258,12 @@ class TestCoordinatorTimeout:
         expected_rows = sum(len(c.execute_command('KEYS', 'hybrid_doc*'))
                             for c in responsive_conns)
 
-        # Coord-side gate: parks BG at the top of
-        # rpnetNext_StartWithMappings, just before Phase 2 cursor-read
-        # dispatch. Fires once per subquery's first Next call; after we
-        # SIGNAL it for subquery 0 it is disarmed, so subquery 1's
-        # Start passes through immediately (areq_timed_out will be
-        # true by then so dispatch is a no-op as well).
-        sync_point = 'BeforeRPNetStart'
-        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
-        env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+        # Shard-side gate: the chosen shard's _FT.HYBRID worker parks after
+        # creating its subquery cursors, before publishing their ids to the
+        # coordinator. Its reads are therefore never armed while the
+        # responsive shards stream to completion.
+        paused_conn.execute_command(debug_cmd(), 'QUERY_CONTROLLER',
+                                    'SET_PAUSE_AFTER_HYBRID_STORE_CURSORS', 'true')
 
         # K=10000, WINDOW=10000 so the merger never caps subquery 0's
         # accumulation at the default window=20 (which would let the
@@ -4287,38 +4290,19 @@ class TestCoordinatorTimeout:
         blocked_client_id = wait_for_blocked_query_client(env, 'FT.HYBRID')
 
         shard_resumed = False
-        shard_to_pause_p = psutil.Process(paused_pid)
         try:
-            # BG has received every shard's Phase 1 cursor mapping and
-            # is now parked at BeforeRPNetStart, about to dispatch
-            # subquery 0's Phase 2 cursor reads.
+            # The chosen shard's worker has created its cursors and is now
+            # parked before publishing the mapping.
             wait_for_condition(
-                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT',
-                                 'IS_WAITING', sync_point) == 1, {}),
-                f'Timeout waiting for BG to park at {sync_point}'
+                lambda: (paused_conn.execute_command(
+                             debug_cmd(), 'QUERY_CONTROLLER',
+                             'GET_IS_HYBRID_STORE_CURSORS_PAUSED') == 1, {}),
+                'Timeout waiting for shard to pause after storing cursors'
             )
 
-            # Suspend the chosen shard now: its Phase 1 reply has
-            # already arrived, but the upcoming `_FT.CURSOR READ` will
-            # sit in its receive queue and never be processed.
-            shard_to_pause_p.suspend()
-            wait_for_condition(
-                lambda: (shard_to_pause_p.status() == psutil.STATUS_STOPPED,
-                         {'status': shard_to_pause_p.status()}),
-                'Timeout waiting for shard to suspend'
-            )
-
-            # Release BG. It dispatches subquery 0's Phase 2 to every
-            # shard; responsive shards reply normally, the suspended
-            # shard's command is queued in its TCP buffer. BG
-            # accumulates the responsive replies into the merger dict
-            # for subquery 0, then blocks in the channel pop waiting
-            # for the paused shard's reply.
-            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
-
-            # Wait until only the paused shard's reply remains
-            # outstanding (every responsive reply has been admitted
-            # and drained into the merger dict).
+            # Wait until only the paused shard's subquery-0 stream remains
+            # outstanding (every responsive shard's stream was armed, read to
+            # EOF, and drained into the merger dict).
             wait_for_condition(
                 lambda: (env.cmd(debug_cmd(), 'BG_PENDING_REPLIES') == 1, {}),
                 'Timeout waiting for responsive shards to admit subquery-0 replies'
@@ -4330,9 +4314,18 @@ class TestCoordinatorTimeout:
             env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
             wait_for_client_unblocked(env, blocked_client_id)
 
-            # Resume the paused shard so its queued cursor reads can
-            # complete and free their cursors before the test exits.
-            shard_to_pause_p.resume()
+            # Resume the paused shard: its mapping reaches the coordinator's
+            # arming callback, which deletes the published cursors of the
+            # timed-out request instead of reading them. Clearing the pause
+            # flag may release the parked worker on its own, in which case the
+            # explicit resume errors with "not paused" — ignore it.
+            paused_conn.execute_command(debug_cmd(), 'QUERY_CONTROLLER',
+                                        'SET_PAUSE_AFTER_HYBRID_STORE_CURSORS', 'false')
+            try:
+                paused_conn.execute_command(debug_cmd(), 'QUERY_CONTROLLER',
+                                            'SET_HYBRID_STORE_CURSORS_RESUME')
+            except Exception:
+                pass
             shard_resumed = True
 
             t_query.join(timeout=10)
@@ -4359,19 +4352,26 @@ class TestCoordinatorTimeout:
                             message="Coordinator timeout warning should be +1 per query")
             _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
 
+            # The resumed shard published its cursors to an already timed-out
+            # request; the coordinator must delete them rather than leave them
+            # parked until the idle sweep (MOD-17913).
+            wait_for_condition(
+                lambda: (paused_shard_cursor_total() <= baseline_cursor_total,
+                         {'total': paused_shard_cursor_total(),
+                          'baseline': baseline_cursor_total}),
+                'timed-out hybrid query leaked the paused shard\'s published cursors')
+
         finally:
-            # Best-effort: resume the shard if we suspended it but
-            # didn't get to the happy-path resume, then clear coord
-            # sync state.
+            # Best-effort: resume the shard if we paused it but didn't get to
+            # the happy-path resume.
             if not shard_resumed:
                 try:
-                    shard_to_pause_p.resume()
+                    paused_conn.execute_command(debug_cmd(), 'QUERY_CONTROLLER',
+                                                'SET_PAUSE_AFTER_HYBRID_STORE_CURSORS', 'false')
+                    paused_conn.execute_command(debug_cmd(), 'QUERY_CONTROLLER',
+                                                'SET_HYBRID_STORE_CURSORS_RESUME')
                 except Exception:
                     pass
-            try:
-                env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
-            except Exception:
-                pass
             env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
 
     def test_return_strict_timeout_sortby_one_shard_paused_hybrid(self):
@@ -4410,19 +4410,33 @@ class TestCoordinatorTimeout:
                               'LIMIT', '0', str(self.n_docs)],
             assert_reply=assert_reply)
 
-    def test_timeout_before_hybrid_cursor_mapping_init(self):
-        """A timed-out RPNet may be freed before its UV initializer runs."""
+    def test_timeout_before_hybrid_read_arming(self):
+        """A request may time out and be torn down before its reads are armed.
+
+        Parks the coordinator IO thread at BeforeHybridArmReads — a shard's
+        cursor mapping is in hand but its reads are not yet armed — then fires
+        the strict timeout. The request replies and is torn down while the
+        fan-out is still outstanding; once released, the arming callback must
+        observe the timed-out read iterators, delete every published shard
+        cursor instead of reading it, and drive all iterators to completion
+        (IO pending-request count returns to zero, shard cursor counts return
+        to baseline without waiting for the idle sweep).
+        """
         env = self.env
         skipIfNoEnableAssert(env)
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
 
-        sync_point = 'BeforeCursorMappingPromote'
-        failed_sync_point = 'AfterCursorMappingPromoteFailed'
+        def cluster_cursor_total():
+            return sum(info['search_global_total_user'] +
+                       info['search_global_total_internal']
+                       for info in run_command_on_all_shards(env, 'INFO', 'MODULES'))
+        baseline_cursor_total = cluster_cursor_total()
+
+        sync_point = 'BeforeHybridArmReads'
         env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
         env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
-        env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', failed_sync_point)
 
         query_result = []
         query_args = [
@@ -4445,7 +4459,7 @@ class TestCoordinatorTimeout:
             wait_for_condition(
                 lambda: (env.cmd(debug_cmd(), 'SYNC_POINT',
                                  'IS_WAITING', sync_point) == 1, {}),
-                f'Timeout waiting for UV callback to park at {sync_point}'
+                f'Timeout waiting for IO thread to park at {sync_point}'
             )
 
             env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
@@ -4455,18 +4469,11 @@ class TestCoordinatorTimeout:
             env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
             env.assertEqual(len(query_result), 1, message="Expected one timeout reply")
 
-            # Request teardown has released the mappings. The UV callback must
-            # complete its provisional work without dispatching a cursor command.
+            # The request replied and was torn down, but the arming fan-out is
+            # still parked: its IO requests are outstanding.
             pending = env.cmd(debug_cmd(), 'IO_RUNTIME_PENDING_REQUESTS')
             env.assertGreaterEqual(pending, 1)
             env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
-            wait_for_condition(
-                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT',
-                                 'IS_WAITING', failed_sync_point) == 1, {}),
-                f'Timeout waiting for failed promotion at {failed_sync_point}',
-                timeout=10
-            )
-            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', failed_sync_point)
 
             def request_completed():
                 pending = env.cmd(debug_cmd(), 'IO_RUNTIME_PENDING_REQUESTS')
@@ -4474,9 +4481,17 @@ class TestCoordinatorTimeout:
 
             wait_for_condition(
                 request_completed,
-                'Timeout waiting for cancelled cursor-mapping request completion',
+                'Timeout waiting for abandoned arming fan-out completion',
                 timeout=10
             )
+
+            # The late-armed placeholders were dispatched as DELs: nothing may
+            # stay parked shard-side.
+            wait_for_condition(
+                lambda: (cluster_cursor_total() <= baseline_cursor_total,
+                         {'total': cluster_cursor_total(),
+                          'baseline': baseline_cursor_total}),
+                'abandoned arming fan-out leaked its published shard cursors')
             env.expect('PING').equal(True)
         finally:
             try:

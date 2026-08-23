@@ -11,348 +11,200 @@
 
 #include <string.h>
 
-#include "hybrid/hybrid_exec.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
-#include "query_error_ffi.h"
 #include "shard_window_ratio.h"
-#include "aggregate/aggregate.h"
-#include "config.h"
 #include "rmr/reply.h"
 #include "rmr/rmr.h"
+
+#ifdef ENABLE_ASSERT
+#include "debug_commands.h"
+#endif
 
 #define INTERNAL_HYBRID_RESP3_LENGTH 6
 #define INTERNAL_HYBRID_RESP2_LENGTH 6
 
-typedef struct {
-    StrongRef searchMappings;
-    StrongRef vsimMappings;
-    arrayof(QueryError) errors;
-    HybridKnnContext *knnCtx;         // KNN context for SHARD_K_RATIO optimization (may be NULL)
-} processCursorMappingCallbackContext;
-
-void CursorMapping_Release(CursorMapping *mapping) {
-  rm_free(mapping->targetShard);
+void HybridArmingCtx_Free(void *p) {
+  HybridArmingCtx *ctx = (HybridArmingCtx *)p;
+  rm_free(ctx->knnCtx);
+  rm_free(ctx);
 }
 
-static void processHybridError(processCursorMappingCallbackContext *ctx, MRReply *rep) {
-    const char *errorMessage = MRReply_String(rep, NULL);
-    QueryErrorCode errCode = QueryError_GetCodeFromMessage(errorMessage);
-    QueryError error = QueryError_Default();
-    // Shard reply already contains the prefixed error string — set directly.
-    QueryError_SetCode(&error, errCode);
-    QueryError_SetDetail(&error, errorMessage);
-    ctx->errors = array_ensure_append_1(ctx->errors, error);
+// Forward mapping-stage warnings into both read streams, where each subquery's
+// RPNet folds the ones addressed to it (see processHybridMappingWarning in
+// rpnet.c). Pushed one bare string reply per warning — a top-level string is
+// unambiguous in a read stream, whose other replies are arrays or errors.
+// `warnings` stays owned by the enclosing reply; clones are pushed.
+static void forwardWarnings(HybridArmingCtx *ctx, MRReply *warnings) {
+  if (!warnings) {
+    return;
+  }
+  for (size_t i = 0; i < MRReply_Length(warnings); i++) {
+    MRReply *warning = MRReply_ArrayElement(warnings, i);
+    MRIterator_PushReply(ctx->searchIt, MRReply_Clone(warning));
+    MRIterator_PushReply(ctx->vsimIt, MRReply_Clone(warning));
+  }
 }
 
-// Warning strings use a different format than error strings (no prefix).
-// Map warning codes to error codes for uniform handling in ProcessHybridCursorMappings.
-static void processHybridWarning(processCursorMappingCallbackContext *ctx, const MRReply *rep) {
-    const char *warningMessage = MRReply_String(rep, NULL);
-    QueryWarningCode warningCode = QueryWarningCode_GetCodeFromMessage(warningMessage);
-    // MaxTimeoutCapped is purely informational: the coordinator's own cap is
-    // already surfaced to the client on the hybrid request.
-    if (warningCode == QUERY_WARNING_CODE_MAX_TIMEOUT_CAPPED) {
-        return;
+// Arm (or retire) one shard's placeholders on both read iterators. A cursor id
+// of 0 means the shard published no cursor for that stream (e.g. it bailed on
+// a strict timeout). Published cursors of an abandoned request — the request
+// timed out, or the paired stream is absent so no merge can happen — are
+// deleted instead of read; either way the id ends up in a live command and the
+// standard teardown covers any abort from here on.
+static void armShardReads(HybridArmingCtx *ctx, uint16_t shardIdx, long long searchCid,
+                          long long vsimCid) {
+  const bool partialPair = (searchCid == 0) != (vsimCid == 0);
+  if (searchCid == 0) {
+    MRIterator_ResolveShard(ctx->searchIt, shardIdx, 0);
+  } else {
+    MRIterator_ArmShardCursorRead(
+        ctx->searchIt, shardIdx, searchCid,
+        partialPair || MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(ctx->searchIt)));
+  }
+  if (vsimCid == 0) {
+    MRIterator_ResolveShard(ctx->vsimIt, shardIdx, 0);
+  } else {
+    MRIterator_ArmShardCursorRead(
+        ctx->vsimIt, shardIdx, vsimCid,
+        partialPair || MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(ctx->vsimIt)));
+  }
+}
+
+// Surface a shard-level failure to both read streams and retire the shard's
+// placeholders. The error is pushed before the placeholders are resolved so
+// the resolving side's channel unblock cannot beat the error into the reader.
+static void failShardReads(HybridArmingCtx *ctx, uint16_t shardIdx, MRReply *error) {
+  MRIterator_PushReply(ctx->searchIt, MRReply_Clone(error));
+  MRIterator_PushReply(ctx->vsimIt, MRReply_Clone(error));
+  MRIterator_ResolveShard(ctx->searchIt, shardIdx, 1);
+  MRIterator_ResolveShard(ctx->vsimIt, shardIdx, 1);
+}
+
+// Whole-fan-out failure: pre-fanout connection validation failed (no shard was
+// sent anything), or the three iterators disagree on the shard count (topology
+// changed between their expansion jobs). Retire every placeholder on both read
+// iterators and surface one error per stream. One-shot via `readsFailed`.
+static void failAllReads(HybridArmingCtx *ctx, const char *msg) {
+  ctx->readsFailed = true;
+  MRIterator *its[2] = {ctx->searchIt, ctx->vsimIt};
+  for (int j = 0; j < 2; j++) {
+    MRIterator_PushReply(its[j], MRReply_CreateError(msg, strlen(msg)));
+    const size_t n = MRIterator_GetNumShards(its[j]);
+    for (size_t i = 0; i < n; i++) {
+      MRIterator_ResolveShard(its[j], i, 1);
     }
-    QueryError error = QueryError_Default();
-    if (warningCode == QUERY_WARNING_CODE_TIMED_OUT) {
-        QueryError_SetCode(&error, QUERY_ERROR_CODE_TIMED_OUT);
-    } else if (warningCode == QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD ||
-               warningCode == QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD) {
-        QueryError_SetCode(&error, QUERY_ERROR_CODE_OUT_OF_MEMORY);
-    } else {
-        QueryError_SetCode(&error, QUERY_ERROR_CODE_GENERIC);
+  }
+}
+
+// True when this fan-out reply may be resolved per shard: nobody already
+// retired all placeholders, and the three iterators agree on the shard count
+// so `targetShardIdx` addresses the same shard everywhere.
+static bool shardsAligned(const HybridArmingCtx *ctx, const MRIterator *hybridIt) {
+  const size_t n = MRIterator_GetNumShards((MRIterator *)hybridIt);
+  return n == MRIterator_GetNumShards(ctx->searchIt) && n == MRIterator_GetNumShards(ctx->vsimIt);
+}
+
+// Parse a RESP3 cursor-mapping reply: {"SEARCH": <cid>, "VSIM": <cid>, "warnings": [...]}
+static void processHybridResp3(HybridArmingCtx *ctx, MRReply *rep, uint16_t shardIdx) {
+  RS_ASSERT(MRReply_Length(rep) == INTERNAL_HYBRID_RESP3_LENGTH);
+  forwardWarnings(ctx, MRReply_MapElement(rep, "warnings"));
+  long long searchCid = 0, vsimCid = 0;
+  MRReply *searchReply = MRReply_MapElement(rep, "SEARCH");
+  MRReply *vsimReply = MRReply_MapElement(rep, "VSIM");
+  RS_ASSERT(searchReply && vsimReply);
+  MRReply_ToInteger(searchReply, &searchCid);
+  MRReply_ToInteger(vsimReply, &vsimCid);
+  armShardReads(ctx, shardIdx, searchCid, vsimCid);
+}
+
+// Parse a RESP2 cursor-mapping reply: ["SEARCH", <cid>, "VSIM", <cid>, "warnings", [...]]
+static void processHybridResp2(HybridArmingCtx *ctx, MRReply *rep, uint16_t shardIdx) {
+  RS_ASSERT(MRReply_Length(rep) == INTERNAL_HYBRID_RESP2_LENGTH);
+  long long searchCid = 0, vsimCid = 0;
+  for (size_t i = 0; i + 1 < MRReply_Length(rep); i += 2) {
+    const char *key = MRReply_String(MRReply_ArrayElement(rep, i), NULL);
+    MRReply *value = MRReply_ArrayElement(rep, i + 1);
+    if (strcmp(key, "SEARCH") == 0) {
+      MRReply_ToInteger(value, &searchCid);
+    } else if (strcmp(key, "VSIM") == 0) {
+      MRReply_ToInteger(value, &vsimCid);
+    } else if (strcmp(key, "warnings") == 0) {
+      forwardWarnings(ctx, value);
     }
-    QueryError_SetDetail(&error, warningMessage);
-    ctx->errors = array_ensure_append_1(ctx->errors, error);
+  }
+  armShardReads(ctx, shardIdx, searchCid, vsimCid);
 }
 
-static void processHybridUnknownReplyType(processCursorMappingCallbackContext *ctx, int replyType) {
-    QueryError error = QueryError_Default();
-    QueryError_SetWithoutUserDataFmt(&error, QUERY_ERROR_CODE_UNSUPP_TYPE, "Unsupported reply type: %d", replyType);
-    ctx->errors = array_ensure_append_1(ctx->errors, error);
+void hybridArmingCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
+#ifdef ENABLE_ASSERT
+  // Sync point (debug): park the IO thread with a shard's cursor mapping in
+  // hand, before its reads are armed — the deterministic spot to stage a
+  // coordinator timeout between cursor publication and cursor consumption.
+  SyncPoint_Wait(SYNC_POINT_BEFORE_HYBRID_ARM_READS);
+#endif
+  HybridArmingCtx *cb_ctx = (HybridArmingCtx *)MRIteratorCallback_GetPrivateData(ctx);
+  RS_ASSERT(cb_ctx);
+  MRIterator *hybridIt = MRIteratorCallback_GetIterator(ctx);
+  const uint16_t shardIdx = MRIteratorCallback_GetCommand(ctx)->targetShardIdx;
+  const int replyType = MRReply_Type(rep);
+  bool isError = replyType == MR_REPLY_ERROR;
+
+  if (cb_ctx->readsFailed) {
+    // Placeholders were already retired wholesale; nothing left to resolve.
+    // A late shard that still published cursors leaves them to the idle sweep.
+  } else if (!shardsAligned(cb_ctx, hybridIt)) {
+    // Pre-fanout connection validation failed (single synthetic error, the
+    // fan-out was never expanded), or the expansion jobs saw different
+    // topologies. Per-shard resolution is not addressable — fail everything.
+    failAllReads(cb_ctx, isError ? MRReply_String(rep, NULL) : CLUSTER_QUERY_ERROR);
+    isError = true;
+  } else if (isError) {
+    failShardReads(cb_ctx, shardIdx, rep);
+  } else if (replyType == MR_REPLY_MAP) {
+    processHybridResp3(cb_ctx, rep, shardIdx);
+  } else if (replyType == MR_REPLY_ARRAY) {
+    processHybridResp2(cb_ctx, rep, shardIdx);
+  } else {
+    MRReply *error = MRReply_CreateError(CLUSTER_QUERY_ERROR, strlen(CLUSTER_QUERY_ERROR));
+    failShardReads(cb_ctx, shardIdx, error);
+    MRReply_Free(error);
+    isError = true;
+  }
+
+  MRIteratorCallback_Done(ctx, isError);
+  MRReply_Free(rep);
 }
 
-// Process cursor mappings for RESP2 protocol
-static void processHybridResp2(processCursorMappingCallbackContext *ctx, MRReply *rep, MRCommand *cmd) {
-    for (size_t i = 0; i < INTERNAL_HYBRID_RESP2_LENGTH; i += 2) {
-        CursorMapping mapping;
-        mapping.targetShard = NULL;
-        mapping.targetShardIdx = 0;
-        mapping.cursorId = 0;
-
-        MRReply *key_reply = MRReply_ArrayElement(rep, i);
-        MRReply *value_reply = MRReply_ArrayElement(rep, i + 1);
-        const char *key = MRReply_String(key_reply, NULL);
-        bool earlyBailout = false;
-
-        // Handle warnings
-        if (strcmp(key, "warnings") == 0) {
-            for (size_t j = 0; j < MRReply_Length(value_reply); j++) {
-                MRReply *warningReply = MRReply_ArrayElement(value_reply, j);
-                processHybridWarning(ctx, warningReply);
-            }
-            continue;
-        }
-
-        // Handle cursor IDs
-        long long value;
-        MRReply_ToInteger(value_reply, &value);
-
-        CursorMappings *vsimOrSearch = NULL;
-        if (strcmp(key, "SEARCH") == 0) {
-
-            // Check for early bailout (Cursor ID 0 means no cursor was opened)
-            if (value == 0) {
-                earlyBailout = true;
-                // Pop the related VSIM mapping if exists
-                CursorMappings *vsim = StrongRef_Get(ctx->vsimMappings);
-                CursorMappings *search = StrongRef_Get(ctx->searchMappings);
-                while (array_len(vsim->mappings) > array_len(search->mappings)) {
-                    CursorMapping cur = array_pop(vsim->mappings);
-                    CursorMapping_Release(&cur);
-                }
-                continue;
-            }
-
-            vsimOrSearch = StrongRef_Get(ctx->searchMappings);
-            mapping.cursorId = value;
-        } else if (strcmp(key, "VSIM") == 0) {
-            if (earlyBailout) continue;
-            vsimOrSearch = StrongRef_Get(ctx->vsimMappings);
-            mapping.cursorId = value;
-        }
-
-        RS_ASSERT(vsimOrSearch);
-        if (i == INTERNAL_HYBRID_RESP2_LENGTH - 2) {
-            //Transferring ownership at the tail to avoid potential leak of cmd->targetShard on early bailout
-            mapping.targetShard = cmd->targetShard;
-            cmd->targetShard = NULL; // transfer ownership
-        } else {
-            mapping.targetShard = rm_strdup(cmd->targetShard);
-        }
-        mapping.targetShardIdx = cmd->targetShardIdx;
-        vsimOrSearch->mappings = array_ensure_append_1(vsimOrSearch->mappings, mapping);
-    }
-}
-
-// Process cursor mappings for RESP3 protocol
-static void processHybridResp3(processCursorMappingCallbackContext *ctx, MRReply *rep, MRCommand *cmd) {
-    // RESP3 uses a map structure instead of array pairs
-    const char *keys[] = {"SEARCH", "VSIM"};
-    const bool isSearch[] = {true, false};
-    const StrongRef* mappings[] = {&ctx->searchMappings, &ctx->vsimMappings};
-    for (int i = 0; i < 2; i++) {
-        MRReply *cursorId = MRReply_MapElement(rep, keys[i]);
-        RS_ASSERT(cursorId);
-        CursorMapping mapping;
-        mapping.targetShard = NULL;
-        mapping.targetShardIdx = 0;
-        mapping.cursorId = 0;
-        long long cid;
-        MRReply_ToInteger(cursorId, &cid);
-        // Check for early bailout (Cursor ID 0 means no cursor was opened)
-        if (cid == 0) {
-            // Pop all mappings from previous subqueries
-            for (int j = 0; j < i; j++) {
-                CursorMappings *vsimOrSearch = StrongRef_Get(*mappings[j]);
-                CursorMapping cur = array_pop(vsimOrSearch->mappings);
-                CursorMapping_Release(&cur);
-            }
-            break;
-        }
-        mapping.cursorId = cid;
-        CursorMappings *vsimOrSearch = StrongRef_Get(*mappings[i]);
-        RS_ASSERT(vsimOrSearch);
-        if (i == 1) {
-            //Transferring ownership at the tail to avoid potential leak of cmd->targetShard on early bailout
-            mapping.targetShard = cmd->targetShard;
-            cmd->targetShard = NULL; // transfer ownership
-        } else {
-            mapping.targetShard = rm_strdup(cmd->targetShard);
-        }
-        mapping.targetShardIdx = cmd->targetShardIdx;
-        vsimOrSearch->mappings = array_ensure_append_1(vsimOrSearch->mappings, mapping);
-    }
-    // Handle warnings
-    MRReply *warnings = MRReply_MapElement(rep, "warnings");
-    if (MRReply_Length(warnings) > 0) {
-        for (size_t i = 0; i < MRReply_Length(warnings); i++) {
-            MRReply *warningReply = MRReply_ArrayElement(warnings, i);
-            processHybridWarning(ctx, warningReply);
-        }
-    }
-}
-
-// Callback implementation for processing cursor mappings
-static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
-    // TODO: add response validation (see netCursorCallback)
-    // TODO implement error handling
-    processCursorMappingCallbackContext *cb_ctx = (processCursorMappingCallbackContext *)MRIteratorCallback_GetPrivateData(ctx);
-    RS_ASSERT(cb_ctx);
-    MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
-
-    const int replyType = MRReply_Type(rep);
-    if (replyType == MR_REPLY_ERROR) {
-        processHybridError(cb_ctx, rep);
-    } else if (replyType == MR_REPLY_MAP) {
-        RS_ASSERT(MRReply_Length(rep) == INTERNAL_HYBRID_RESP3_LENGTH);
-        processHybridResp3(cb_ctx, rep, cmd);
-    } else if (replyType == MR_REPLY_ARRAY) {
-        RS_ASSERT(MRReply_Length(rep) == INTERNAL_HYBRID_RESP2_LENGTH);
-        processHybridResp2(cb_ctx, rep, cmd);
-    } else {
-        processHybridUnknownReplyType(cb_ctx, replyType);
-    }
-
-    MRIteratorCallback_Done(ctx, 0);
-    MRReply_Free(rep);
-}
-
-static void processCursorMappingErrorCallback(MRIteratorCallbackCtx *ctx) {
-    processCursorMappingCallbackContext *cb_ctx = (processCursorMappingCallbackContext *)MRIteratorCallback_GetPrivateData(ctx);
-    RS_ASSERT(cb_ctx);
-
-    QueryError error = QueryError_Default();
-    QueryError_SetCode(&error, QUERY_ERROR_CODE_GENERIC);
-    // Shared with the MR iterator no-reply path (pre-fanout connection-validation failure).
-    QueryError_SetDetail(&error, CLUSTER_QUERY_ERROR);
-    cb_ctx->errors = array_ensure_append_1(cb_ctx->errors, error);
-}
-
-static void freeCursorMappingCtx(void *privateData) {
-    processCursorMappingCallbackContext *ctx = (processCursorMappingCallbackContext *)privateData;
-    StrongRef_Release(ctx->searchMappings);
-    StrongRef_Release(ctx->vsimMappings);
-    array_free_ex(ctx->errors, QueryError_ClearError((QueryError*)ptr));
-    rm_free(ctx->knnCtx);
-    rm_free(ctx);
+void hybridArmingErrorCallback(MRIteratorCallbackCtx *ctx) {
+  HybridArmingCtx *cb_ctx = (HybridArmingCtx *)MRIteratorCallback_GetPrivateData(ctx);
+  RS_ASSERT(cb_ctx);
+  if (cb_ctx->readsFailed) {
+    return;
+  }
+  MRIterator *hybridIt = MRIteratorCallback_GetIterator(ctx);
+  if (!shardsAligned(cb_ctx, hybridIt)) {
+    failAllReads(cb_ctx, CLUSTER_QUERY_ERROR);
+    return;
+  }
+  const uint16_t shardIdx = MRIteratorCallback_GetCommand(ctx)->targetShardIdx;
+  MRReply *error = MRReply_CreateError(CLUSTER_QUERY_ERROR, strlen(CLUSTER_QUERY_ERROR));
+  failShardReads(cb_ctx, shardIdx, error);
+  MRReply_Free(error);
 }
 
 void HybridKnnApplyShardKRatio(MRCommand *cmd, size_t numShards, const HybridKnnContext *knnCtx) {
-    RS_ASSERT(cmd && knnCtx && knnCtx->kArgIndex >= 0);
-    // Only apply optimization for multi-shard deployments with valid ratio
-    if (numShards <= 1 || knnCtx->shardWindowRatio >= MAX_SHARD_WINDOW_RATIO) {
-        return;
-    }
-    size_t effectiveK = calculateEffectiveK(knnCtx->originalK, knnCtx->shardWindowRatio, numShards);
-    modifyVsimKNN(cmd, knnCtx->kArgIndex, effectiveK, knnCtx->originalK);
+  RS_ASSERT(cmd && knnCtx && knnCtx->kArgIndex >= 0);
+  // Only apply optimization for multi-shard deployments with valid ratio
+  if (numShards <= 1 || knnCtx->shardWindowRatio >= MAX_SHARD_WINDOW_RATIO) {
+    return;
+  }
+  size_t effectiveK = calculateEffectiveK(knnCtx->originalK, knnCtx->shardWindowRatio, numShards);
+  modifyVsimKNN(cmd, knnCtx->kArgIndex, effectiveK, knnCtx->originalK);
 }
 
-// Command modifier callback for SHARD_K_RATIO optimization.
-// Called from iterStartCb on IO thread before commands are sent to shards.
 void HybridKnnCommandModifier(MRCommand *cmd, size_t numShards, void *privateData) {
-    RS_ASSERT(privateData && cmd);
-    const processCursorMappingCallbackContext *ctx = (processCursorMappingCallbackContext *)privateData;
-    HybridKnnApplyShardKRatio(cmd, numShards, ctx->knnCtx);
-}
-
-// Fold collected shard errors into `status` and the max-prefix flags per the OOM
-// and timeout policies. Returns false on a fatal error (first one wins).
-static bool resolveCursorMappingErrors(arrayof(QueryError) errors, QueryError *status,
-                                       RSOomPolicy oomPolicy, RSTimeoutPolicy timeoutPolicy,
-                                       bool *maxPrefixSearch, bool *maxPrefixVsim,
-                                       bool *shardTimedOutWarning) {
-    for (size_t i = 0; i < array_len(errors); i++) {
-        QueryErrorCode code = QueryError_GetCode(&errors[i]);
-        if (code == QUERY_ERROR_CODE_OUT_OF_MEMORY && oomPolicy == OomPolicy_Return) {
-            QueryError_SetQueryOOMWarning(status);
-        } else if (code == QUERY_ERROR_CODE_TIMED_OUT && timeoutPolicy != TimeoutPolicy_Fail) {
-            *shardTimedOutWarning = true;
-            // Note: the _FT.DEBUG FT.HYBRID path rejects RETURN-STRICT in
-            // parseHybridDebugParams, so only RETURN reaches here in debug mode.
-        } else if (code == QUERY_ERROR_CODE_TIMED_OUT) {
-            // FAIL policy: forward the standard timeout error directly.
-            QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
-            return false;
-        } else {
-            const char *msg = QueryError_GetUserError(&errors[i]);
-            if (msg && strncmp(msg, QUERY_WMAXPREFIXEXPANSIONS, strlen(QUERY_WMAXPREFIXEXPANSIONS)) == 0) {
-                if (strstr(msg, SEARCH_SUFFIX)) {
-                    *maxPrefixSearch = true;
-                } else if (strstr(msg, VSIM_SUFFIX)) {
-                    *maxPrefixVsim = true;
-                }
-            } else {
-                QueryError_SetWithoutUserDataFmt(status, code,
-                    "Failed to process shard responses, first error: %s, total error count: %zu",
-                    msg, array_len(errors));
-                return false;
-            }
-        }
-    }
-    return true;
-}
-
-bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsRef,
-                                 StrongRef vsimMappingsRef, HybridKnnContext *knnCtx,
-                                 QueryError *status, const RSOomPolicy oomPolicy,
-                                 const RSTimeoutPolicy timeoutPolicy, bool *maxPrefixSearch,
-                                 bool *maxPrefixVsim, bool *shardTimedOutWarning,
-                                 const struct timespec *deadline, QueryRequestTimeout *timeout,
-                                 QueryRequestAsyncState *asyncState) {
-    CursorMappings *searchMappings = StrongRef_Get(searchMappingsRef);
-    CursorMappings *vsimMappings = StrongRef_Get(vsimMappingsRef);
-    RS_ASSERT(array_len(searchMappings->mappings) == 0 && array_len(vsimMappings->mappings) == 0);
-    *shardTimedOutWarning = false;
-
-    // Heap-allocated because the iterator runs asynchronously; freed by
-    // freeCursorMappingCtx (the iterator's destructor).
-    processCursorMappingCallbackContext *ctx = rm_malloc(sizeof(processCursorMappingCallbackContext));
-    *ctx = (processCursorMappingCallbackContext) {
-        .searchMappings = StrongRef_Clone(searchMappingsRef),
-        .vsimMappings = StrongRef_Clone(vsimMappingsRef),
-        .errors = array_new(QueryError, 0),
-        .knnCtx = knnCtx,  // Store KNN context for command modifier callback
-      };
-
-    // Pass HybridKnnCommandModifier if knnCtx is provided (for SHARD_K_RATIO
-    // optimization)
-    MRCommandModifier cmdModifier = knnCtx ? &HybridKnnCommandModifier : NULL;
-
-    MRIterator *it = MR_IterateWithPrivateData(cmd, &(MRIteratorConfig){
-        .successCB = processCursorMappingCallback,
-        .errorCB = processCursorMappingErrorCallback,
-        .cbPrivateData = ctx,
-        .cbPrivateDataDestructor = freeCursorMappingCtx,
-        .commandModifier = cmdModifier,
-        .iterStartCb = iterStartCb,
-    });
-    if (!it) {
-        // Cleanup on error
-        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to communicate with shards");
-        freeCursorMappingCtx(ctx);
-        return false;
-    }
-
-    // Register the iterator's channel so an external abort - the coordinator timeout
-    // callback or a client disconnect can wake
-    // this wait promptly. Unregistered below before the iterator is released.
-    QueryRequestAsyncState_RegisterAbortWakeChannel(asyncState, MRIterator_GetChannel(it));
-
-    // Pass both the deadline and the abort flag: `deadline` is NULL under RETURN-STRICT /
-    // disabled timeout checks, where the abort flag is the only wake (chan.c requires
-    // at least one non-NULL).
-    bool timedOut = false;
-    MRReply *r = MRIterator_NextWithTimeout(it, deadline, &timeout->timedOut, &timedOut);
-    RS_ASSERT(r == NULL);  // the callbacks never AddReply; a non-NULL reply is a bug
-
-    QueryRequestAsyncState_UnregisterAbortWakeChannel(asyncState);
-
-    if (timedOut || QueryRequestTimeout_GetTimedOut(timeout)) {
-        QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
-        MRIterator_Release(it);
-        return false;
-    }
-
-    // Normal completion: inProcess hit 0, so every callback has run.
-    RS_ASSERT(array_len(searchMappings->mappings) == array_len(vsimMappings->mappings));
-
-    bool success = resolveCursorMappingErrors(ctx->errors, status, oomPolicy, timeoutPolicy,
-                                              maxPrefixSearch, maxPrefixVsim,
-                                              shardTimedOutWarning);
-    MRIterator_Release(it);
-
-    return success;
+  RS_ASSERT(privateData && cmd);
+  const HybridArmingCtx *ctx = (const HybridArmingCtx *)privateData;
+  HybridKnnApplyShardKRatio(cmd, numShards, ctx->knnCtx);
 }

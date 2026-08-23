@@ -31,7 +31,6 @@
 #include "hiredis/hiredis.h"
 #include "hiredis/async.h"
 #include "io_runtime_ctx.h"
-#include "coord/hybrid/hybrid_cursor_mappings.h"
 #include "asm_state_machine.h"
 #include "VecSim/vec_sim_common.h"
 #include "hiredis/read.h"
@@ -106,12 +105,6 @@ typedef struct MRCtx {
   pthread_mutex_t reducingLock;
   pthread_cond_t reducingCond;
 } MRCtx;
-
-// Data structure to pass iterator and private data to callback
-typedef struct {
-  MRIterator *it;
-  WeakRef privateDataRef;
-} IteratorData;
 
 /* Create a new MapReduce context */
 MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *privdata, int replyCap) {
@@ -629,7 +622,6 @@ struct MRIteratorCtx {
   int8_t itRefCount;
   IORuntimeCtx *ioRuntime;
   void (*privateDataDestructor)(void *);  // Destructor for privateData, called in MRIterator_Free
-  void (*privateDataInit)(void *, const MRIterator *);  // Init callback for privateData, called from iterStartCb
   MRCommandModifier commandModifier;  // Callback to modify command before sending, called from iterStartCb
 };
 
@@ -646,8 +638,9 @@ struct MRIterator {
 };
 
 // No-reply termination path: invoke the caller's optional errorCB (notify-only)
-// before the iterator's MRIteratorCallback_Done. Without this hook callers that
-// wait on a private counter (e.g. ProcessHybridCursorMappings) would hang.
+// before the iterator's MRIteratorCallback_Done. Without this hook callers with
+// per-shard side obligations (e.g. the hybrid arming fan-out, which must
+// resolve sibling placeholders) would leak them.
 static void mrIteratorCallback_Error(MRIteratorCallbackCtx *ctx) {
   if (ctx->it->ctx.errorCB) {
     ctx->it->ctx.errorCB(ctx);
@@ -753,11 +746,9 @@ void *MRIteratorCallback_GetPrivateData(MRIteratorCallbackCtx *ctx) {
   return ctx->privateData;
 }
 
-// Takes ownership of the IteratorData structure, but not its internal components: iterator and private data
 // This function already runs in one of the IO threads. We need to make sure that the adequate RuntimeCtx is used. This info can be found in the MRIterator ctx
 void iterStartCb(void *p) {
-  IteratorData *data = (IteratorData *)p;
-  MRIterator *it = data->it;
+  MRIterator *it = (MRIterator *)p;
   IORuntimeCtx *io_runtime_ctx = it->ctx.ioRuntime;
   MRClusterShard *shards = io_runtime_ctx->topo->shards;
   size_t numShards = io_runtime_ctx->topo->numShards;
@@ -769,15 +760,8 @@ void iterStartCb(void *p) {
     if (!conn) {
       // At least one connection is not established - fail with a single error.
       // it->len/pending/inProcess remain at their initial value of 1.
-      // Run privateDataInit so the private data is properly initialized
-      // before the synthetic error notification is delivered.
-      void *privateData = MRIterator_GetPrivateData(it);
-      if (privateData && it->ctx.privateDataInit) {
-        it->ctx.privateDataInit(privateData, it);
-      }
       MRReply *err = MRReply_CreateError(CLUSTER_QUERY_ERROR, sizeof(CLUSTER_QUERY_ERROR) - 1);
       it->ctx.successCB(&it->cbxs[0], err);
-      rm_free(data);
       return;
     }
   }
@@ -787,12 +771,6 @@ void iterStartCb(void *p) {
   it->ctx.pending = numShards;
   it->ctx.inProcess = numShards; // Initially all commands are in process
 
-  // Call privateData init callback if set
-  void *privateData = MRIterator_GetPrivateData(it);
-  if (privateData && it->ctx.privateDataInit) {
-    it->ctx.privateDataInit(privateData, it);
-  }
-
   it->cbxs = rm_realloc(it->cbxs, numShards * sizeof(*it->cbxs));
   MRCommand *cmd = &it->cbxs->cmd;
 
@@ -801,7 +779,7 @@ void iterStartCb(void *p) {
 
   // Call command modifier callback if set (e.g., to calculate effectiveK based on actual numShards)
   if (it->ctx.commandModifier) {
-    it->ctx.commandModifier(cmd, numShards, privateData);
+    it->ctx.commandModifier(cmd, numShards, MRIterator_GetPrivateData(it));
   }
 
   for (size_t targetShardIdx = 1; targetShardIdx < numShards; targetShardIdx++) {
@@ -834,77 +812,68 @@ void iterStartCb(void *p) {
   // knowing the fan-out has happened but no reply has been consumed yet.
   SyncPoint_Wait(SYNC_POINT_AFTER_ITERATOR_START);
 #endif
-
-  rm_free(data);
 }
 
-// Separate callback for cursor mapping that creates FT.CURSOR READ commands for each shard
-void iterCursorMappingCb(void *p) {
-  IteratorData *data = (IteratorData *)p;
-  MRIterator *it = data->it;
-
-#ifdef ENABLE_ASSERT
-  SyncPoint_Wait(SYNC_POINT_BEFORE_CURSOR_MAPPING_PROMOTE);
-#endif
-
-  StrongRef mappingsRef = WeakRef_Promote(data->privateDataRef);
-  WeakRef_Release(data->privateDataRef);
-  CursorMappings *vsimOrSearch = StrongRef_Get(mappingsRef);
-  if (!vsimOrSearch) {
-#ifdef ENABLE_ASSERT
-    SyncPoint_Wait(SYNC_POINT_AFTER_CURSOR_MAPPING_PROMOTE_FAILED);
-#endif
-    // Complete the provisional callback now that no shard commands will be dispatched.
-    MRIteratorCallback_Done(&it->cbxs[0], 1);
-    rm_free(data);
-    return;
-  }
-
+// Expand-only start callback for iterators whose per-shard commands are armed
+// later, by a sibling iterator's reply callback (see the FT.HYBRID arming
+// fan-out in dist_hybrid.c). Mirrors iterStartCb's per-shard expansion but
+// sends nothing: each command is a placeholder that
+// MRIterator_ArmShardCursorRead completes and dispatches, or
+// MRIterator_ResolveShard retires. `pending`/`inProcess` are set to the shard
+// count up front so the iterator (and its channel) stay alive until every
+// placeholder is armed or resolved — this also keeps
+// MR_ManuallyTriggerNextIfNeeded from resending placeholders, since inProcess
+// cannot reach zero while any placeholder is unresolved. No connection
+// validation here (nothing is sent); the arming fan-out validates.
+void iterExpandShellsCb(void *p) {
+  MRIterator *it = (MRIterator *)p;
   IORuntimeCtx *io_runtime_ctx = it->ctx.ioRuntime;
-  const size_t numShardsWithMapping = array_len(vsimOrSearch->mappings);
-  RS_ASSERT(numShardsWithMapping > 0);
-  it->len = numShardsWithMapping;
-  it->ctx.pending = numShardsWithMapping;
-  it->ctx.inProcess = numShardsWithMapping; // Initially all commands are in process
+  MRClusterShard *shards = io_runtime_ctx->topo->shards;
+  size_t numShards = io_runtime_ctx->topo->numShards;
 
-  it->cbxs = rm_realloc(it->cbxs, numShardsWithMapping * sizeof(*it->cbxs));
-  // Command should already not own a target shard
+  it->len = numShards;
+  it->ctx.pending = numShards;
+  it->ctx.inProcess = numShards;
+
+  it->cbxs = rm_realloc(it->cbxs, numShards * sizeof(*it->cbxs));
   MRCommand *cmd = &it->cbxs->cmd;
-  char buf[24];
-  int buf_len = snprintf(buf, sizeof(buf), "%lld", vsimOrSearch->mappings[0].cursorId);
-  MRCommand_Append(cmd, buf, buf_len);
-
-  // Create FT.CURSOR READ commands for each mapping
-  for (size_t i = 1; i < numShardsWithMapping; i++) {
+  for (size_t i = 1; i < numShards; i++) {
     it->cbxs[i].it = it;
-    it->cbxs[i].privateData = MRIterator_GetPrivateData(it);
-
     it->cbxs[i].cmd = MRCommand_Copy(cmd);
-
-    it->cbxs[i].cmd.targetShard = vsimOrSearch->mappings[i].targetShard;
-    vsimOrSearch->mappings[i].targetShard = NULL; // transfer ownership
-    it->cbxs[i].cmd.targetShardIdx = vsimOrSearch->mappings[i].targetShardIdx;
-    it->cbxs[i].cmd.num = 4;
-    char buf[24];
-    int buf_len = snprintf(buf, sizeof(buf), "%lld", vsimOrSearch->mappings[i].cursorId);
-    MRCommand_ReplaceArg(&it->cbxs[i].cmd, 3, buf, buf_len);
+    it->cbxs[i].cmd.targetShard = rm_strdup(shards[i].node.id);
+    it->cbxs[i].cmd.targetShardIdx = i;
+    it->cbxs[i].privateData = MRIterator_GetPrivateData(it);
   }
-  // Set the first command to target the shard of the first mapping (while not having copied it)
-  cmd->targetShard = vsimOrSearch->mappings[0].targetShard;
-  cmd->targetShardIdx = vsimOrSearch->mappings[0].targetShardIdx;
-  vsimOrSearch->mappings[0].targetShard = NULL; // transfer ownership
+  // The first placeholder targets the first shard (without having copied it)
+  cmd->targetShard = rm_strdup(shards[0].node.id);
+  cmd->targetShardIdx = 0;
+}
 
-  // Send commands to all shards
-  for (size_t i = 0; i < numShardsWithMapping; i++) {
-    if (MRCluster_SendCommand(io_runtime_ctx, &it->cbxs[i].cmd,
-                              mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
-      mrIteratorCallback_Error(&it->cbxs[i]);
-    }
+void MRIterator_ArmShardCursorRead(MRIterator *it, uint16_t shardIdx, long long cursorId,
+                                   bool del) {
+  RS_ASSERT(shardIdx < it->len);
+  MRIteratorCallbackCtx *cbx = &it->cbxs[shardIdx];
+  RS_LOG_ASSERT(cbx->cmd.rootCommand == C_READ && !cbx->cmd.depleted,
+                "arming a placeholder that was already armed or resolved");
+  char buf[24];
+  int buf_len = snprintf(buf, sizeof(buf), "%lld", cursorId);
+  MRCommand_ReplaceArg(&cbx->cmd, 3, buf, buf_len);
+  if (del) {
+    MRCommand_ReplaceArg(&cbx->cmd, 1, "DEL", 3);
+    cbx->cmd.rootCommand = C_DEL;
   }
+  if (MRCluster_SendCommand(it->ctx.ioRuntime, &cbx->cmd, mrIteratorRedisCB, cbx) == REDIS_ERR) {
+    mrIteratorCallback_Error(cbx);
+  }
+}
 
-  //Clean up the StrongRef and allocated memory
-  StrongRef_Release(mappingsRef);
-  rm_free(data);
+void MRIterator_ResolveShard(MRIterator *it, uint16_t shardIdx, int error) {
+  RS_ASSERT(shardIdx < it->len);
+  MRIteratorCallback_Done(&it->cbxs[shardIdx], error);
+}
+
+void MRIterator_PushReply(MRIterator *it, MRReply *rep) {
+  MRChannel_Push(it->ctx.chan, rep);
 }
 
 // This function already runs in one of the IO threads. We need to make sure that the adequate RuntimeCtx is used. This info can be found in the MRIterator ctx
@@ -974,21 +943,24 @@ MRIterator *MR_CreateIterator(const MRCommand *cmd, const MRIteratorConfig *conf
   // - one ref for the writers (shards)
   // - one for the reader (the coord)
   *ret = (MRIterator){
-    .ctx = {
-      .chan = MR_NewChannel(),
-      .successCB = config->successCB,
-      .errorCB = config->errorCB,
-      .pending = 1,
-      .inProcess = 1,
-      .timedOut = false,
-      .itRefCount = 2,
-      .ioRuntime = MRCluster_GetIORuntimeCtx(cluster_g, MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g)),
-      .privateDataDestructor = config->cbPrivateDataDestructor,
-      .privateDataInit = config->cbPrivateDataInit,
-      .commandModifier = config->commandModifier,
-    },
-    .cbxs = rm_new(MRIteratorCallbackCtx),
-    .len = 1,
+      .ctx =
+          {
+              .chan = MR_NewChannel(),
+              .successCB = config->successCB,
+              .errorCB = config->errorCB,
+              .pending = 1,
+              .inProcess = 1,
+              .timedOut = false,
+              .itRefCount = 2,
+              .ioRuntime = config->ioRuntime
+                               ? config->ioRuntime
+                               : MRCluster_GetIORuntimeCtx(
+                                     cluster_g, MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g)),
+              .privateDataDestructor = config->cbPrivateDataDestructor,
+              .commandModifier = config->commandModifier,
+          },
+      .cbxs = rm_new(MRIteratorCallbackCtx),
+      .len = 1,
   };
   *ret->cbxs = (MRIteratorCallbackCtx){
     .cmd = MRCommand_Copy(cmd),
@@ -998,24 +970,20 @@ MRIterator *MR_CreateIterator(const MRCommand *cmd, const MRIteratorConfig *conf
   return ret;
 }
 
-void MR_StartIterator(MRIterator *it, void (*iterStartCb)(void *),
-                      StrongRef *iterStartCbPrivateData) {
-  // Create data structure with iterator and private data (on heap)
-  IteratorData *data = rm_malloc(sizeof(IteratorData));
-  data->it = it;
-  data->privateDataRef = (WeakRef){0};
-  if (iterStartCbPrivateData) {
-    data->privateDataRef = StrongRef_Demote(*iterStartCbPrivateData);
-  }
-  IORuntimeCtx_Schedule(it->ctx.ioRuntime, iterStartCb, data);
+void MR_StartIterator(MRIterator *it, void (*iterStartCb)(void *)) {
+  IORuntimeCtx_Schedule(it->ctx.ioRuntime, iterStartCb, it);
 }
 
 MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, const MRIteratorConfig *config) {
   // iterStartCb is required: we unconditionally schedule it below.
   RS_ASSERT(config && config->iterStartCb);
   MRIterator *it = MR_CreateIterator(cmd, config);
-  MR_StartIterator(it, config->iterStartCb, config->iterStartCbPrivateData);
+  MR_StartIterator(it, config->iterStartCb);
   return it;
+}
+
+IORuntimeCtx *MRIterator_GetIORuntime(const MRIterator *it) {
+  return it->ctx.ioRuntime;
 }
 
 MRIteratorCtx *MRIterator_GetCtx(MRIterator *it) {
