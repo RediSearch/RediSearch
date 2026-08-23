@@ -468,7 +468,7 @@ unsafe extern "C" fn print_profile<'index, I: ProfilePrint + RQEIterator<'index>
 ///
 /// # Safety
 ///
-/// 1. `ptr` is a valid `NonNull<QueryIterator>` produced by a
+/// 1. `ptr` is a valid [`NonNull<QueryIterator>`](NonNull) produced by a
 ///    [`RQEIteratorWrapper`] constructor in this module.
 /// 2. No other alias to `ptr` is live for the duration of `f`.
 pub unsafe fn patch_vtable(mut ptr: NonNull<QueryIterator>, f: impl FnOnce(&mut QueryIterator)) {
