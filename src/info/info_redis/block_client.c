@@ -110,6 +110,20 @@ void QueryRequest_OnFree(RedisModuleCtx *ctx, void *privdata) {
   QueryRequest_DecrRef(request);
 }
 
+void BlockedQueries_UnwindCycles(void) {
+  BlockedQueries *blockedQueries = getBlockedQueries();
+  while (!DLLIST_IS_EMPTY(&blockedQueries->queries)) {
+    QueryRequest *at =
+        DLLIST_ITEM(blockedQueries->queries.next, QueryRequest, registryInfo.node);
+    QueryRequest_OnFree(NULL, at);
+  }
+  while (!DLLIST_IS_EMPTY(&blockedQueries->cursors)) {
+    QueryRequest *at =
+        DLLIST_ITEM(blockedQueries->cursors.next, QueryRequest, registryInfo.node);
+    QueryRequest_OnFree(NULL, at);
+  }
+}
+
 RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx,
                                                       QueryRequest *request,
                                                       RedisModuleCmdFunc reply_cb,

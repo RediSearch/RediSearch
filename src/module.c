@@ -67,6 +67,7 @@
 #include "info/global_stats.h"
 #include "fast_float/fast_float_strtod.h"
 #include "aggregate/aggregate_debug.h"
+#include "info/info_redis/block_client.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/threads/main_thread.h"
 #include "legacy_types.h"
@@ -1945,7 +1946,11 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   MR_FreeCluster();
 
   // Only after every pool whose cycles register in BlockedQueries has stopped —
-  // the workers pool above and the coordinator pool just now.
+  // the workers pool above and the coordinator pool just now. A cycle that
+  // completed during pool shutdown left its unblock queued and never drained
+  // (cleanup runs inside the SHUTDOWN event), so run those pending cycle ends
+  // before the registry asserts it is empty.
+  BlockedQueries_UnwindCycles();
   MainThread_DestroyBlockedQueries();
 
   // free global structures

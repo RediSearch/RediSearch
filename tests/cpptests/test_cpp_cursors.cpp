@@ -10,6 +10,10 @@
 
 #include "gtest/gtest.h"
 #include "cursor.h"
+#include "aggregate/aggregate.h"
+#include "info/info_redis/block_client.h"
+#include "info/info_redis/threads/main_thread.h"
+#include "info/info_redis/types/blocked_queries.h"
 #include <vector>
 #include <algorithm>
 
@@ -164,4 +168,37 @@ TEST_F(CursorsTest, OwnershipAPI) {
   // After the cursors are paused, they should be freed
   ASSERT_EQ(Cursors_GetInfoStats().total_user, 0) << "All cursors should be deleted";
 
+}
+
+// Shutdown unwind: cycles whose queued free-privdata callback never drains
+// (module cleanup runs inside the SHUTDOWN event, before the event loop can
+// run it) are completed by BlockedQueries_UnwindCycles — both registry lists
+// empty and each cycle's request hold is released (leaks surface under ASAN).
+TEST_F(CursorsTest, UnwindCyclesCompletesPendingOnFree) {
+  if (!MainThread_GetBlockedQueries()) {
+    ASSERT_EQ(MainThread_InitBlockedQueries(), 0);
+  }
+  BlockedQueries *bq = MainThread_GetBlockedQueries();
+  ASSERT_TRUE(bq != NULL);
+
+  // Two lingering cycles, one per registry list. Mirrors BeginCycle's
+  // registry effects without a blocked client (none exists in unit tests).
+  AREQ *reqs[2] = {AREQ_New(NULL, 0), AREQ_New(NULL, 0)};
+  DLLIST *lists[2] = {&bq->queries, &bq->cursors};
+  for (int i = 0; i < 2; i++) {
+    QueryRequest_IncrRef(&reqs[i]->base);
+    reqs[i]->base.blockedClientCycleActive = true;
+    reqs[i]->base.registryInfo.cycle_start = time(NULL);
+    dllist_prepend(lists[i], &reqs[i]->base.registryInfo.node);
+  }
+
+  BlockedQueries_UnwindCycles();
+
+  ASSERT_TRUE(DLLIST_IS_EMPTY(&bq->queries));
+  ASSERT_TRUE(DLLIST_IS_EMPTY(&bq->cursors));
+  for (int i = 0; i < 2; i++) {
+    ASSERT_FALSE(RegistryInfo_IsLinked(&reqs[i]->base.registryInfo));
+    ASSERT_FALSE(reqs[i]->base.blockedClientCycleActive);
+    QueryRequest_DecrRef(&reqs[i]->base);  // release the creator's hold
+  }
 }

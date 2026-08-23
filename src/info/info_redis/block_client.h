@@ -59,6 +59,17 @@ void QueryRequest_EndCycle(struct QueryRequest *request);
  * client is destroyed. Ends the cycle and releases the cycle's request hold. */
 void QueryRequest_OnFree(RedisModuleCtx *ctx, void *privdata);
 
+/* Shutdown-only: run the pending cycle end (QueryRequest_OnFree) for every
+ * request still linked in the registry, leaving it empty.
+ * RedisModule_UnblockClient only queues an unblock, and module cleanup runs
+ * synchronously inside the SHUTDOWN server event, so the main loop never
+ * drains the queued free-privdata callbacks of cycles that completed while
+ * the pools were shutting down. The process exits without returning to the
+ * event loop, so a queued callback cannot run later against a request unwound
+ * here — and MODULE UNLOAD is refused while the module has undrained blocked
+ * clients. Call only after every pool whose cycles register here has stopped. */
+void BlockedQueries_UnwindCycles(void);
+
 /* Block `ctx` for one query cycle of `request`. Registers the cycle in
  * BlockedQueries, calls RedisModule_BlockClient(reply_cb, timeout_cb,
  * QueryRequest_OnFree, timeout_ms) and BeginCycle. `reply_cb`/`timeout_cb`
