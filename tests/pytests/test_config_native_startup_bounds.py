@@ -40,7 +40,7 @@ def _logFilePath(env):
     return os.path.join(logDir, logFileName)
 
 
-@skip(cluster=True, redis_less_than='7.9.227')
+@skip(cluster=True, redis_less_than='8.0')
 def testStartupSearchTimeoutZeroDoesNotAbort():
     """search-timeout 0 ("no timeout") in the startup config file must not
     abort the server, and must be stored as 0."""
@@ -50,7 +50,7 @@ def testStartupSearchTimeoutZeroDoesNotAbort():
     env.assertEqual(env.cmd('CONFIG', 'GET', 'search-timeout'), ['search-timeout', '0'])
 
 
-@skip(cluster=True, redis_less_than='7.9.227')
+@skip(cluster=True, redis_less_than='8.0')
 def testStartupSearchMultiTextSlopZeroDoesNotAbort():
     """search-multi-text-slop 0 in the startup config file must not abort
     the server, and must be stored as 0. Public docs document the range as
@@ -62,7 +62,7 @@ def testStartupSearchMultiTextSlopZeroDoesNotAbort():
                      ['search-multi-text-slop', '0'])
 
 
-@skip(cluster=True, redis_less_than='7.9.227')
+@skip(cluster=True, redis_less_than='8.0')
 def testStartupSearchMaxSearchResultsNegativeOneTranslates():
     """search-max-search-results -1 in the startup config file must not
     abort the server, and must translate to MAX_SEARCH_REQUEST_RESULTS,
@@ -74,7 +74,7 @@ def testStartupSearchMaxSearchResultsNegativeOneTranslates():
                      ['search-max-search-results', str(MAX_SEARCH_REQUEST_RESULTS)])
 
 
-@skip(cluster=True, redis_less_than='7.9.227')
+@skip(cluster=True, redis_less_than='8.0')
 def testStartupSearchMaxAggregateResultsNegativeOneTranslates():
     """search-max-aggregate-results -1 in the startup config file must not
     abort the server, and must translate to MAX_AGGREGATE_REQUEST_RESULTS,
@@ -86,7 +86,7 @@ def testStartupSearchMaxAggregateResultsNegativeOneTranslates():
                      ['search-max-aggregate-results', str(MAX_AGGREGATE_REQUEST_RESULTS)])
 
 
-@skip(cluster=True, redis_less_than='7.9.227')
+@skip(cluster=True, redis_less_than='8.0')
 def testStartupSearchMaxSearchResultsOverCapClamps():
     """search-max-search-results 9999999999 (above MAX_SEARCH_REQUEST_RESULTS)
     in the startup config file must not abort the server: the registered max
@@ -99,7 +99,7 @@ def testStartupSearchMaxSearchResultsOverCapClamps():
                      ['search-max-search-results', str(MAX_SEARCH_REQUEST_RESULTS)])
 
 
-@skip(cluster=True, redis_less_than='7.9.227')
+@skip(cluster=True, redis_less_than='8.0')
 def testStartupSearchMaxAggregateResultsOverCapClamps():
     """Same as above for search-max-aggregate-results: a startup value above
     MAX_AGGREGATE_REQUEST_RESULTS must not abort the server and must clamp
@@ -111,7 +111,7 @@ def testStartupSearchMaxAggregateResultsOverCapClamps():
                      ['search-max-aggregate-results', str(MAX_AGGREGATE_REQUEST_RESULTS)])
 
 
-@skip(cluster=True, redis_less_than='7.9.227')
+@skip(cluster=True, redis_less_than='8.0')
 def testStartupSearchMaxSearchResultsNegativeFiveFallsBackToDefault():
     """search-max-search-results -5 is not the -1 sentinel, so it must not
     silently become unlimited: the server must still start, must log a
@@ -129,7 +129,7 @@ def testStartupSearchMaxSearchResultsNegativeFiveFallsBackToDefault():
         message="expected a startup warning naming the rejected config, value and kept value")
 
 
-@skip(cluster=True, redis_less_than='7.9.227')
+@skip(cluster=True, redis_less_than='8.0')
 def testStartupSearchMaxAggregateResultsNegativeFiveFallsBackToDefault():
     """Same as above for search-max-aggregate-results: -5 is not the -1
     sentinel, so the server must still start with the default value and a
@@ -146,7 +146,7 @@ def testStartupSearchMaxAggregateResultsNegativeFiveFallsBackToDefault():
         message="expected a startup warning naming the rejected config, value and kept value")
 
 
-@skip(cluster=True, redis_less_than='7.9.227')
+@skip(cluster=True, redis_less_than='8.0')
 def testStartupSearchForkGcCleanThresholdZeroDoesNotAbort():
     """search-fork-gc-clean-threshold 0 in the startup config file must not
     abort the server, and must be stored as 0, exactly like the legacy
@@ -158,7 +158,7 @@ def testStartupSearchForkGcCleanThresholdZeroDoesNotAbort():
                      ['search-fork-gc-clean-threshold', '0'])
 
 
-@skip(redis_less_than='7.9.227')
+@skip(redis_less_than='8.0')
 def testRuntimeConfigSetAcceptsForkGcCleanThresholdZero(env):
     """search-fork-gc-clean-threshold 0 is a legitimate value, matching the
     legacy path, on the native CONFIG SET path too."""
@@ -167,7 +167,7 @@ def testRuntimeConfigSetAcceptsForkGcCleanThresholdZero(env):
                      ['search-fork-gc-clean-threshold', '0'])
 
 
-@skip(redis_less_than='7.9.227')
+@skip(redis_less_than='8.0')
 def testRuntimeConfigSetTranslatesMaxAggregateResultsNegativeOne(env):
     """search-max-aggregate-results -1 is now a meaningful sentinel on the
     native CONFIG SET path too, mirroring search-max-search-results: it
@@ -177,7 +177,7 @@ def testRuntimeConfigSetTranslatesMaxAggregateResultsNegativeOne(env):
                      ['search-max-aggregate-results', str(MAX_AGGREGATE_REQUEST_RESULTS)])
 
 
-@skip(redis_less_than='7.9.227')
+@skip(redis_less_than='8.0')
 def testRuntimeConfigSetClampsMaxSearchResultsOverCap(env):
     """CONFIG SET search-max-search-results 9999999999 must succeed (the
     registered max is LLONG_MAX) and clamp to MAX_SEARCH_REQUEST_RESULTS,
@@ -187,7 +187,7 @@ def testRuntimeConfigSetClampsMaxSearchResultsOverCap(env):
                      ['search-max-search-results', str(MAX_SEARCH_REQUEST_RESULTS)])
 
 
-@skip(redis_less_than='7.9.227')
+@skip(redis_less_than='8.0')
 def testRuntimeConfigSetClampsMaxAggregateResultsOverCap(env):
     """Same as above for search-max-aggregate-results."""
     env.expect('CONFIG', 'SET', 'search-max-aggregate-results', '9999999999').ok()
@@ -195,7 +195,7 @@ def testRuntimeConfigSetClampsMaxAggregateResultsOverCap(env):
                      ['search-max-aggregate-results', str(MAX_AGGREGATE_REQUEST_RESULTS)])
 
 
-@skip(redis_less_than='7.9.227')
+@skip(redis_less_than='8.0')
 def testRuntimeConfigSetStillRejectsMaxAggregateResultsNegativeTwo(env):
     """Widening the registered min to LLONG_MIN only lets the value reach our
     setter; the setter itself still treats -1 as the only unlimited sentinel,
@@ -204,7 +204,7 @@ def testRuntimeConfigSetStillRejectsMaxAggregateResultsNegativeTwo(env):
         .contains('CONFIG SET failed').contains('out of range')
 
 
-@skip(redis_less_than='7.9.227')
+@skip(redis_less_than='8.0')
 def testRuntimeConfigSetStillRejectsMaxSearchResultsNegativeTwo(env):
     """Same as search-max-aggregate-results: only -1 is the unlimited
     sentinel for search-max-search-results, so CONFIG SET keeps rejecting
@@ -214,7 +214,7 @@ def testRuntimeConfigSetStillRejectsMaxSearchResultsNegativeTwo(env):
 
 
 # Skip on ASAN since RedisModule_Unload is not fully implemented (MOD-7161)
-@skip(cluster=True, redis_less_than='7.9.227', asan=True)
+@skip(cluster=True, redis_less_than='8.0', asan=True)
 def testModuleLoadexRuntimeStillRejectsMaxSearchResultsNegativeTwo():
     """RedisModule_OnLoad also runs for MODULE LOADEX against an
     already-running server, not just at genuine process startup. That path
@@ -241,7 +241,7 @@ def testModuleLoadexRuntimeStillRejectsMaxSearchResultsNegativeTwo():
     env.stop()
 
 
-@skip(cluster=True, redis_less_than='7.9.227')
+@skip(cluster=True, redis_less_than='8.0')
 def testSearchTimeoutZeroMeansNoTimeoutUnderRealSlowQuery():
     """search-timeout 0, set via the native CONFIG SET path, must mean a
     genuinely slow query runs to completion with no timeout warning, while
@@ -277,7 +277,7 @@ def testSearchTimeoutZeroMeansNoTimeoutUnderRealSlowQuery():
     env.assertEqual(int(res['results'][0]['extra_attributes']['count']), 2)
 
 
-@skip(cluster=True, redis_less_than='7.9.227')
+@skip(cluster=True, redis_less_than='8.0')
 def testConfigRewriteRoundTripSearchTimeoutZero():
     """CONFIG SET search-timeout 0, CONFIG REWRITE, restart: the rewritten
     config file must re-apply 0 at genuine startup, not just in the live
@@ -293,7 +293,7 @@ def testConfigRewriteRoundTripSearchTimeoutZero():
     env.assertEqual(env.cmd('CONFIG', 'GET', 'search-timeout'), ['search-timeout', '0'])
 
 
-@skip(cluster=True, redis_less_than='7.9.227')
+@skip(cluster=True, redis_less_than='8.0')
 def testConfigRewriteRoundTripSearchMaxSearchResultsNegativeOne():
     """Same round trip for search-max-search-results -1: the rewritten
     config file must persist the *translated* value (MAX_SEARCH_REQUEST_RESULTS)
