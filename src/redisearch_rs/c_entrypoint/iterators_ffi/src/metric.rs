@@ -69,7 +69,17 @@ unsafe fn new_metric_iterator<const SORTED_BY_ID: bool>(
     num: usize,
     _type: MetricType,
 ) -> *mut QueryIterator {
-    let (ids_list, metrics_list) = if ids.is_null() {
+    let (ids_list, metrics_list) = if let Some(ids) = NonNull::new(ids) {
+        let metrics = NonNull::new(metrics).expect(
+            "The pointer to the array of metric data is null, but the pointer to the array of IDs is not null.",
+        );
+        // SAFETY: Safe thanks to 1.
+        let ids_list = unsafe { OwnedSlice::from_c(ids, num) };
+        // SAFETY: Safe thanks to 2.
+        let metrics_list = unsafe { OwnedSlice::from_c(metrics, num) };
+
+        (ids_list, metrics_list)
+    } else {
         // SAFETY: Safe thanks to 3.
         debug_assert_eq!(
             num, 0,
@@ -77,20 +87,6 @@ unsafe fn new_metric_iterator<const SORTED_BY_ID: bool>(
         );
 
         (OwnedSlice::default(), OwnedSlice::default())
-    } else {
-        debug_assert!(
-            !metrics.is_null(),
-            "The pointer to the array of metric data is null, but the pointer to the array of IDs is not null."
-        );
-
-        let ids = NonNull::new(ids).expect("`ids` must not be null");
-        let metrics = NonNull::new(metrics).expect("`metrics` must not be null");
-        // SAFETY: Safe thanks to 1.
-        let ids_list = unsafe { OwnedSlice::from_c(ids, num) };
-        // SAFETY: Safe thanks to 2.
-        let metrics_list = unsafe { OwnedSlice::from_c(metrics, num) };
-
-        (ids_list, metrics_list)
     };
 
     RQEIteratorWrapper::boxed_new(Metric::<SORTED_BY_ID>::new(ids_list, metrics_list)).as_ptr()
