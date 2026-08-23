@@ -195,10 +195,10 @@ fn contains_iter_folds_pattern() {
 
 #[test]
 fn contains_iter_already_folded_target_stays_lazy() {
-    // An already-lowercase target folds to a borrow, taking the
-    // `ContainsIter::Lazy` arm instead of the eager drain that
-    // `contains_iter_folds_pattern` exercises. Both arms must yield the
-    // same matches.
+    // An already-lowercase target folds to a borrow, so the iterator
+    // borrows the target instead of owning a folded copy as in
+    // `contains_iter_folds_pattern`. Both paths must yield the same
+    // matches.
     let mut dict = TermDictionary::new();
     seed(&mut dict, &["xfooy", "afoob", "qux"]);
     assert_eq!(
