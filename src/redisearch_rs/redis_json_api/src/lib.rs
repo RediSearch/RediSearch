@@ -124,11 +124,7 @@ impl RedisJsonApi {
         // Safety: ensured by caller (1.)
         let ptr = unsafe { open_key(ctx.as_ptr(), key_name.inner.cast()) };
 
-        if ptr.is_null() {
-            None
-        } else {
-            Some(JsonValueRef { ptr, api: self })
-        }
+        NonNull::new(ptr.cast_mut()).map(|ptr| JsonValueRef { ptr, api: self })
     }
 
     /// Opens a readable JSON key with the specified name.
@@ -148,11 +144,7 @@ impl RedisJsonApi {
         // Safety: ensured by caller (1.)
         let ptr = unsafe { open_key_from_str(ctx.as_ptr(), key_name.as_ptr()) };
 
-        if ptr.is_null() {
-            None
-        } else {
-            Some(JsonValueRef { ptr, api: self })
-        }
+        NonNull::new(ptr.cast_mut()).map(|ptr| JsonValueRef { ptr, api: self })
     }
 
     /// Opens a readable JSON key with the specified name and flags.
@@ -181,11 +173,7 @@ impl RedisJsonApi {
             )
         };
 
-        if ptr.is_null() {
-            None
-        } else {
-            Some(JsonValueRef { ptr, api: self })
-        }
+        NonNull::new(ptr.cast_mut()).map(|ptr| JsonValueRef { ptr, api: self })
     }
 
     /// Gets the JSON root from an already-open [`RedisModuleKey`] handle.
@@ -211,11 +199,7 @@ impl RedisJsonApi {
         // Safety: ensured by caller (1.); the helper tolerates a NULL/non-JSON key.
         let ptr = unsafe { ffi::JSON_GetJsonFromHandleCompat(redis_key) };
 
-        if ptr.is_null() {
-            None
-        } else {
-            Some(JsonValueRef { ptr, api: self })
-        }
+        NonNull::new(ptr.cast_mut()).map(|ptr| JsonValueRef { ptr, api: self })
     }
 
     pub const fn vtable(&self) -> NonNull<RedisJsonApiVTable> {
