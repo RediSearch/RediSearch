@@ -12,6 +12,8 @@
 //! This module provides functions to dump tree state for debugging purposes.
 //! These are used by the FT.DEBUG commands (NUMIDX_SUMMARY, DUMP_NUMIDX, DUMP_NUMIDXTREE).
 
+use std::ptr::NonNull;
+
 use index_result::RSIndexResult;
 use inverted_index::IndexReader;
 use redis_reply::{ArrayBuilder, MapBuilder, RedisModuleCtx, Replier};
@@ -33,7 +35,7 @@ struct BlocksEfficiencyStats {
 /// # Safety
 ///
 /// - `ctx` must be a valid Redis module context.
-pub unsafe fn debug_summary(ctx: *mut RedisModuleCtx, tree: Option<&NumericRangeTree>) {
+pub unsafe fn debug_summary(ctx: NonNull<RedisModuleCtx>, tree: Option<&NumericRangeTree>) {
     // SAFETY: ctx is valid per function docs
     let mut replier = unsafe { Replier::new(ctx) };
     let mut arr = replier.array();
@@ -67,7 +69,7 @@ pub unsafe fn debug_summary(ctx: *mut RedisModuleCtx, tree: Option<&NumericRange
 ///
 /// - `ctx` must be a valid Redis module context.
 pub unsafe fn debug_dump_index(
-    ctx: *mut RedisModuleCtx,
+    ctx: NonNull<RedisModuleCtx>,
     tree: Option<&NumericRangeTree>,
     with_headers: bool,
 ) {
@@ -105,7 +107,7 @@ pub unsafe fn debug_dump_index(
 ///
 /// - `ctx` must be a valid Redis module context.
 pub unsafe fn debug_dump_tree(
-    ctx: *mut RedisModuleCtx,
+    ctx: NonNull<RedisModuleCtx>,
     tree: Option<&NumericRangeTree>,
     minimal: bool,
 ) {

@@ -52,11 +52,8 @@ impl<'a> JsonDocumentFormat<'a> {
     fn open_key(&self, key_name: &RedisString) -> Option<JsonValueRef<'a>> {
         // SAFETY: `self.ctx` is a valid Redis module context held for the lifetime of `JsonFormat`.
         unsafe {
-            self.japi.open_key_with_flags(
-                self.ctx.cast().as_ptr(),
-                key_name,
-                DOCUMENT_OPEN_KEY_QUERY_FLAGS,
-            )
+            self.japi
+                .open_key_with_flags(self.ctx.cast(), key_name, DOCUMENT_OPEN_KEY_QUERY_FLAGS)
         }
     }
 }
@@ -197,7 +194,7 @@ fn json_iter_to_value(
 
     // SAFETY: `ctx` is a valid Redis module context by construction of `JsonFormat`.
     // First get the JSON serialized value (since it does not consume the iterator)
-    let serialized = unsafe { iter.serialize(ctx.cast().as_ptr())? };
+    let serialized = unsafe { iter.serialize(ctx.cast())? };
 
     // Second, get the first JSON value. `is_empty()` returned false above, so the
     // iterator is contractually obligated to yield at least one value here.
@@ -249,7 +246,7 @@ fn json_val_to_value_expanded(
     match json.get_type() {
         JsonType::Object => {
             // SAFETY: `ctx` is a valid Redis module context propagated from the caller.
-            let iter = unsafe { json.key_values(ctx.cast().as_ptr()).unwrap() };
+            let iter = unsafe { json.key_values(ctx.cast()).unwrap() };
 
             let values = iter.map(|(key, value)| {
                 let key = SharedValue::new_string(key.to_vec());
@@ -300,7 +297,7 @@ fn json_val_to_value(
         }
         JsonType::Object | JsonType::Array => {
             // SAFETY: `ctx` is a valid Redis module context propagated from the caller.
-            let v = unsafe { json.serialize(ctx.cast().as_ptr()).unwrap() };
+            let v = unsafe { json.serialize(ctx.cast()).unwrap() };
             redis_module::raw::string_retain_string(ptr::null_mut(), v.inner);
             // SAFETY: `v` is a valid Redis string and we retained it above to
             // transfer one owned reference into the RSValue.
