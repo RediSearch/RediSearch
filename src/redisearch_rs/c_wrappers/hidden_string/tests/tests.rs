@@ -52,6 +52,33 @@ fn get_secret_value() {
     miri,
     ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
 )]
+fn secret_value_truncates_at_an_interior_nul() {
+    // A name holding a NUL of its own. The trailing NUL is the terminator
+    // every hidden string carries; `len` excludes it, as the C side reports it.
+    let input: Vec<u8> = b"v\0hidden\0".to_vec();
+    let len = input.len() - 1;
+    // SAFETY: `input` is a live allocation of `len + 1` bytes terminated by a
+    // NUL, and is neither moved nor mutated while borrowed below.
+    // `takeOwnership = false`, so the wrapper borrows it rather than adopting
+    // it — `input` stays the owner and frees it on drop.
+    let ffi_hs = unsafe { ffi::NewHiddenString(input.as_ptr().cast(), len, false) };
+    // SAFETY: `ffi_hs` is a valid `HiddenString` just returned by
+    // `NewHiddenString`, and `input` outlives every borrow taken from it.
+    let sut = unsafe { HiddenString::from_raw(ffi_hs) };
+
+    assert_eq!(sut.secret_value(), c"v");
+
+    // SAFETY: `ffi_hs` has not been freed yet and no borrow of it is live.
+    // The `false` matches the `takeOwnership` passed to `NewHiddenString`, so
+    // this frees only the wrapper and leaves `input`'s buffer to `input`.
+    unsafe { ffi::HiddenString_Free(ffi_hs, false) };
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn debug_output() {
     let input = c"Ab#123!";
     let ffi_hs = unsafe { ffi::NewHiddenString(input.as_ptr(), input.count_bytes(), false) };

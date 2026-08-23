@@ -149,6 +149,7 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 #define SYNC_POINT_AFTER_SAFE_LOADER_GIL_HANDSHAKE      "AfterSafeLoaderGILHandshake"
 #define SYNC_POINT_BEFORE_SAFE_LOADER_EXIT_GIL          "BeforeSafeLoaderExitGIL"
 #define SYNC_POINT_BEFORE_HYBRID_RESULTS_CLAIM          "BeforeHybridResultsClaim"
+#define SYNC_POINT_BEFORE_HYBRID_DEPLETION              "BeforeHybridDepletion"
 #define SYNC_POINT_BEFORE_RPNET_START                   "BeforeRPNetStart"
 #define SYNC_POINT_BEFORE_RPNET_NEXT                    "BeforeRPNetNext"
 #define SYNC_POINT_BEFORE_CURSOR_MAPPING_PROMOTE        "BeforeCursorMappingPromote"
@@ -178,6 +179,10 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 #define SYNC_POINT_AFTER_PREFETCH_ISSUE                 "AfterPrefetchIssue"
 // Fork-GC worker: parked at the very top of a periodic GC job, before the collection callback
 // runs. Lets a test rendezvous with a real run while RUN_PENDING is held, instead of sleeping.
+// A disk numeric split parked while it still holds the write lock on its routing map, the
+// state a fork child would inherit locked with the owner thread gone. Signalled from the
+// disk-GC drain, the only step that waits such a writer out before a fork.
+#define SYNC_POINT_NUMERIC_MAP_WRITE_LOCKED             "NumericMapWriteLocked"
 #define SYNC_POINT_GC_TASK_START                        "GCTaskStart"
 // Fork-GC worker: parked after the pass finished and before it posts its re-arm to the main
 // thread. The only window where RUN_PENDING is held but no run remains to discover a drop, so a

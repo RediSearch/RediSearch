@@ -25,7 +25,13 @@ use std::{
     ptr,
 };
 
-use c_trie::{FuzzyWalk, LoweredPattern, TermsTrie};
+use c_trie::{FuzzyWalk, LoweredPattern, TermsTrie, TrieTerm};
+
+fn trie_term(term: &str) -> TrieTerm {
+    // SAFETY: every test input is the complete byte representation of a
+    // non-empty key accepted by the primary terms trie.
+    unsafe { TrieTerm::from_bytes_unchecked(Box::from(term.as_bytes())) }
+}
 
 /// Convert an ASCII/UTF-8 string to the trie's rune (`u16`) key.
 fn to_runes(s: &str) -> Vec<ffi::rune> {
@@ -69,8 +75,9 @@ fn pattern(s: &str) -> LoweredPattern {
 }
 
 /// Build a terms trie holding `terms`, each keyed with `numDocs == term length`
-/// (so tests can assert the document count flows through), run `f`, then free it.
-fn with_terms_trie(terms: &[&str], f: impl FnOnce(&TermsTrie)) {
+/// (so tests can assert the document count flows through), run `f` against an
+/// exclusive handle, then free it.
+fn with_terms_trie(terms: &[&str], f: impl FnOnce(&mut TermsTrie)) {
     // SAFETY: `NewTrie` returns a fresh, valid, empty terms trie; a terms trie
     // stores no payload, so a null free callback is correct.
     let trie_ptr = unsafe { ffi::NewTrie(None, ffi::TrieSortMode_Trie_Sort_Lex) };
@@ -92,11 +99,18 @@ fn with_terms_trie(terms: &[&str], f: impl FnOnce(&TermsTrie)) {
     }
     // SAFETY: `trie_ptr` is a valid trie that stays alive for the whole closure
     // and is not freed until after it returns. No other handle to it exists.
-    let trie = unsafe { TermsTrie::from_raw(trie_ptr) };
+    let trie = unsafe { TermsTrie::from_raw_mut(trie_ptr) };
     f(trie);
     // SAFETY: `trie_ptr` was produced by `NewTrie` and is freed exactly once
     // here, after the last use of `trie`.
     unsafe { ffi::TrieType_Free(trie_ptr.cast::<c_void>()) };
+}
+
+/// Every term currently stored in a terms trie.
+fn terms_of(trie: &TermsTrie) -> HashSet<String> {
+    trie.iterate_all()
+        .map(|term| String::from_utf8(term.into_bytes().into_vec()).expect("term is valid UTF-8"))
+        .collect()
 }
 
 /// Corpus used across the anchoring tests. Every term contains `"ap"`; only
@@ -105,6 +119,40 @@ const CORPUS: &[&str] = &["apple", "maple", "grape", "apricot", "map"];
 
 fn set(items: &[&str]) -> HashSet<String> {
     items.iter().map(|s| (*s).to_owned()).collect()
+}
+
+// --- `num_docs` -------------------------------------------------------------
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
+fn num_docs_reports_the_stored_count_and_zero_for_absent_terms() {
+    with_terms_trie(CORPUS, |trie| {
+        // The corpus stores each term's char length as its document count.
+        assert_eq!(trie.num_docs(b"apple"), 5);
+        assert_eq!(trie.num_docs(b"map"), 3);
+        assert_eq!(trie.num_docs(b"pear"), 0);
+    });
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
+fn num_docs_of_the_empty_term_is_zero_without_a_lookup() {
+    // A zero-length key is refused on insertion, so no trie can answer anything
+    // but zero here — and the lookup is skipped rather than handing C an empty
+    // slice's pointer to do arithmetic on.
+    with_terms_trie(CORPUS, |trie| {
+        assert_eq!(trie.num_docs(b""), 0);
+    });
+    // Including for a trie that was never given any term at all.
+    with_terms_trie(&[], |trie| {
+        assert_eq!(trie.num_docs(b""), 0);
+    });
 }
 
 // --- `iterate_contains` -----------------------------------------------------
@@ -557,6 +605,50 @@ fn iterate_fuzzy_refuses_an_over_long_truncated_tail_before_padding_it() {
     });
 }
 
+// --- `iterate_all` ----------------------------------------------------------
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
+fn iterate_all_visits_every_term() {
+    with_terms_trie(CORPUS, |trie| {
+        let got: HashSet<String> = trie
+            .iterate_all()
+            .map(|term| String::from_utf8(term.into_bytes().into_vec()).expect("terms are ASCII"))
+            .collect();
+        assert_eq!(got, set(CORPUS));
+    });
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
+fn iterate_all_empty_trie_visits_nothing() {
+    with_terms_trie(&[], |trie| {
+        assert_eq!(trie.iterate_all().count(), 0);
+    });
+}
+
+/// `for term in &trie` reaches the same walk as `iterate_all`.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
+fn into_iter_visits_every_term() {
+    with_terms_trie(CORPUS, |trie| {
+        let mut got = HashSet::new();
+        for term in &*trie {
+            got.insert(String::from_utf8(term.into_bytes().into_vec()).expect("terms are ASCII"));
+        }
+        assert_eq!(got, set(CORPUS));
+    });
+}
+
 // --- `iterate_wildcard` -----------------------------------------------------
 
 #[test]
@@ -712,5 +804,73 @@ fn iterate_wildcard_some_and_none_timeout_agree() {
 
         assert_eq!(none_hits, set(&["apple", "apricot"]));
         assert_eq!(some_hits, none_hits);
+    });
+}
+
+// --- `delete` ---------------------------------------------------------------
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "calling the C trie's foreign functions is not supported by Miri"
+)]
+fn delete_removes_a_stored_term() {
+    with_terms_trie(&["apple", "maple", "grape"], |trie| {
+        assert!(trie.delete(&trie_term("maple")), "a stored term is removed");
+        assert_eq!(terms_of(trie), set(&["apple", "grape"]));
+        assert_eq!(trie.num_docs(b"maple"), 0);
+    });
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "calling the C trie's foreign functions is not supported by Miri"
+)]
+fn delete_removes_a_term_that_still_has_documents() {
+    // Unlike `decrement_num_docs`, `delete` does not care about the doc count:
+    // the term goes away in one step.
+    with_terms_trie(&["apple"], |trie| {
+        assert_eq!(trie.num_docs(b"apple"), 5, "inserted with numDocs == 5");
+        assert!(trie.delete(&trie_term("apple")));
+        assert_eq!(terms_of(trie), HashSet::new());
+    });
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "calling the C trie's foreign functions is not supported by Miri"
+)]
+fn delete_reports_a_miss_for_an_absent_term() {
+    with_terms_trie(&["apple"], |trie| {
+        let removed = trie.delete(&trie_term("apricot"));
+        assert!(!removed, "term was never inserted");
+        assert_eq!(terms_of(trie), set(&["apple"]), "trie is left untouched");
+    });
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "calling the C trie's foreign functions is not supported by Miri"
+)]
+fn delete_reports_a_miss_for_a_prefix_of_a_stored_term() {
+    with_terms_trie(&["apple"], |trie| {
+        let removed = trie.delete(&trie_term("app"));
+        assert!(!removed, "a prefix is not an exact match");
+        assert_eq!(terms_of(trie), set(&["apple"]));
+    });
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "calling the C trie's foreign functions is not supported by Miri"
+)]
+fn delete_of_a_multibyte_term_round_trips() {
+    with_terms_trie(&["héllo", "wörld"], |trie| {
+        assert!(trie.delete(&trie_term("héllo")));
+        assert_eq!(terms_of(trie), set(&["wörld"]));
     });
 }

@@ -300,6 +300,11 @@ Tick "requires" for user-facing changes: new commands, behavior changes, bug fix
 performance improvements. Tick "does not require" for internal-only changes: refactoring,
 CI, tests, documentation.
 
+A feature landing behind the default-off `ENABLE_UNSTABLE_FEATURES` gate counts as
+internal-only regardless of the surface it adds, since a flag-off user cannot reach it:
+tick "does not require", and add the note in the graduation PR that removes the gate. See
+[`docs/CONTRIBUTING-unstable-features.md`](../../docs/CONTRIBUTING-unstable-features.md).
+
 ## Verify after creation
 
 After creating the PR, inspect it with `gh pr view` and confirm:

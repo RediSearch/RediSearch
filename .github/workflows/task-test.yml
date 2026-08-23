@@ -19,9 +19,9 @@ on:
         type: boolean
         default: false
       redis-ref:
-        description: 'Redis version to use (e.g. "7.2.3", "unstable")'
+        description: 'Redis git ref to use (e.g. "7.2.3", "unstable", or a commit sha)'
         type: string
-        default: '8.10.0'
+        default: 'd3abc02fed6664cc0afaf9ffe4e172a99e274f44'
       test-config:
         description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
         required: true

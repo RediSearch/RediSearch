@@ -32,11 +32,11 @@ use crate::util::{ALL_INDEXED_FIELDS, term_records};
 
 /// The `apiVersion` from which a fuzzy expansion also covers the empty term.
 /// Below it the empty term is never expanded to, whatever the distance.
-const API_VERSION_EMPTY_TERM: u32 = 2;
+const API_VERSION_EMPTY_TERM: u8 = 2;
 
 /// The highest `apiVersion` still below [`API_VERSION_EMPTY_TERM`], so the
 /// negative controls sit right against the gate rather than far below it.
-const API_VERSION_NO_EMPTY_TERM: u32 = API_VERSION_EMPTY_TERM - 1;
+const API_VERSION_NO_EMPTY_TERM: u8 = API_VERSION_EMPTY_TERM - 1;
 
 /// The longest pattern, in runes, the trie's fuzzy walk accepts. A longer one
 /// builds no iterator at all. Read from the C constant rather than restated, so
@@ -112,7 +112,7 @@ struct FuzzyOptions {
     max_expansions: Option<u32>,
     /// The search context's `apiVersion`, which gates whether the expansion also
     /// covers the empty term.
-    api_version: u32,
+    api_version: u8,
 }
 
 impl Default for FuzzyOptions {

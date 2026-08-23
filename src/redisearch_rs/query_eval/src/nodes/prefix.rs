@@ -91,7 +91,10 @@ pub(crate) fn eval<'index>(
 
     let suffix_trie = ctx.spec().suffix;
     let suffix_mask = ctx.spec().suffixMask;
-    let terms_trie = ctx.spec().terms;
+    // SAFETY: the reference is confined to this evaluation — whichever of the
+    // two walks below answers the pattern — which the query, and so the spec
+    // owning the trie, outlives.
+    let terms = unsafe { ctx.terms_trie() };
     // Enforce the search deadline unless timeout checks are disabled for this
     // request, in which case the brute-force walk below runs to completion.
     // Resolved here, with every other read of `ctx`, because `Expansion` borrows
@@ -107,11 +110,6 @@ pub(crate) fn eval<'index>(
         needs_offsets,
         max_expansions: config.max_prefix_expansions,
     };
-
-    debug_assert!(!terms_trie.is_null(), "terms trie should be initialized");
-    // SAFETY: `terms_trie` is the spec's terms `Trie`, valid for and unmutated
-    // during the query (`QueryEvalContext` invariants 1/2).
-    let terms = unsafe { TermsTrie::from_raw(terms_trie) };
 
     let children = if match_suffix && !suffix_trie.is_null() {
         // The spec maintains a suffix trie for this pattern's fields: expand
