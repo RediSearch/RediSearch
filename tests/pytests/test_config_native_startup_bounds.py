@@ -122,28 +122,24 @@ def testStartupSearchMaxAggregateResultsNegativeFiveFallsBackToDefault():
 
 
 @skip(cluster=True, redis_less_than='7.9.227')
-def testStartupSearchForkGcCleanThresholdZeroFallsBackToDefault():
-    """search-fork-gc-clean-threshold 0 is not a meaningful sentinel: the
-    server must still start, must log a warning naming the rejected config
-    and value, and the effective value must be left as the config's current
-    value (100 here), not 0."""
+def testStartupSearchForkGcCleanThresholdZeroDoesNotAbort():
+    """search-fork-gc-clean-threshold 0 in the startup config file must not
+    abort the server, and must be stored as 0, exactly like the legacy
+    FORK_GC_CLEAN_THRESHOLD path."""
     confPath = _confPath('test_native_bounds_forkgc.conf')
     _writeConfigFile(confPath, [('search-fork-gc-clean-threshold', 0)])
     env = Env(noDefaultModuleArgs=True, redisConfigFile=confPath)
     env.assertEqual(env.cmd('CONFIG', 'GET', 'search-fork-gc-clean-threshold'),
-                     ['search-fork-gc-clean-threshold', '100'])
-    env.assertGreaterEqual(_grep_file_count(
-        _logFilePath(env),
-        'search-fork-gc-clean-threshold: value 0 is out of range, keeping 100'), 1,
-        message="expected a startup warning naming the rejected config, value and kept value")
+                     ['search-fork-gc-clean-threshold', '0'])
 
 
 @skip(redis_less_than='7.9.227')
-def testRuntimeConfigSetStillRejectsForkGcCleanThresholdZero(env):
-    """Startup tolerance does not relax runtime strictness: CONFIG SET must
-    keep rejecting search-fork-gc-clean-threshold 0."""
-    env.expect('CONFIG', 'SET', 'search-fork-gc-clean-threshold', '0').error()\
-        .contains('CONFIG SET failed').contains('out of range')
+def testRuntimeConfigSetAcceptsForkGcCleanThresholdZero(env):
+    """search-fork-gc-clean-threshold 0 is a legitimate value, matching the
+    legacy path, on the native CONFIG SET path too."""
+    env.expect('CONFIG', 'SET', 'search-fork-gc-clean-threshold', '0').ok()
+    env.assertEqual(env.cmd('CONFIG', 'GET', 'search-fork-gc-clean-threshold'),
+                     ['search-fork-gc-clean-threshold', '0'])
 
 
 @skip(redis_less_than='7.9.227')
@@ -176,11 +172,16 @@ def testRuntimeConfigSetStillRejectsMaxSearchResultsNegativeTwo(env):
 
 # Skip on ASAN since RedisModule_Unload is not fully implemented (MOD-7161)
 @skip(cluster=True, redis_less_than='7.9.227', asan=True)
-def testModuleLoadexRuntimeStillRejectsForkGcCleanThresholdZero():
+def testModuleLoadexRuntimeStillRejectsMaxSearchResultsNegativeTwo():
     """RedisModule_OnLoad also runs for MODULE LOADEX against an
     already-running server, not just at genuine process startup. That path
-    must stay as strict as CONFIG SET: search-fork-gc-clean-threshold 0 must
-    make MODULE LOADEX fail, not silently substitute the default."""
+    must stay as strict as CONFIG SET: search-max-search-results -2 is out
+    of range (only -1 is the unlimited sentinel), so it must make MODULE
+    LOADEX fail rather than silently substitute a default. This is the
+    startup-lenient-vs-runtime-strict asymmetry that the noLoadingStartupConfig
+    flag exists for, now exercised through one of the two results caps
+    instead of search-fork-gc-clean-threshold, which no longer has any
+    out-of-range value to test."""
     env = Env(noDefaultModuleArgs=True, module='', moduleArgs='')
     redisearch_module_path = os.getenv('MODULE')
     if redisearch_module_path is None:
@@ -191,7 +192,7 @@ def testModuleLoadexRuntimeStillRejectsForkGcCleanThresholdZero():
     res = env.cmd('MODULE', 'LIST')
     env.assertEqual(res, default_module_list)
     env.expect('MODULE', 'LOADEX', redisearch_module_path,
-               'CONFIG', 'search-fork-gc-clean-threshold', '0').error()\
+               'CONFIG', 'search-max-search-results', '-2').error()\
         .contains('Error loading the extension')
     env.assertTrue(env.isUp())
     env.stop()

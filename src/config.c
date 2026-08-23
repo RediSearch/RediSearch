@@ -256,17 +256,6 @@ static int set_max_aggregate_results_config(const char *name, long long val, voi
   return REDISMODULE_OK;
 }
 
-// 0 is legal on the legacy FORK_GC_CLEAN_THRESHOLD path but the native path does not mirror that;
-// it warns and keeps the current value.
-static int set_fork_gc_clean_threshold_config(const char *name, long long val, void *privdata,
-                                               RedisModuleString **err) {
-  if (val == 0) {
-    return warn_or_reject_size_t_config(name, val, (const size_t *)privdata, err);
-  }
-  *(size_t *)privdata = (size_t)val;
-  return REDISMODULE_OK;
-}
-
 // Signed-int getter, for fields that use a negative sentinel (e.g. -1 = "unlimited").
 static long long get_int_numeric_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
@@ -2220,7 +2209,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       ctx, "search-fork-gc-clean-threshold",
       SearchDisk_IsEnabledForValidation() ? DEFAULT_DISK_GC_CLEAN_THRESHOLD : DEFAULT_FORK_GC_CLEAN_THRESHOLD,
       REDISMODULE_CONFIG_UNPREFIXED, 0,
-      LLONG_MAX, get_size_t_numeric_config, set_fork_gc_clean_threshold_config, NULL,
+      LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
       (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold)
     )
   )
