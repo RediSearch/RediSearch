@@ -180,7 +180,7 @@ pub unsafe extern "C" fn RLookupRow_MoveDynamicKey(
     // SAFETY: ensured by caller (2.)
     let src =
         unsafe { RLookupRow::from_opaque_non_null(src_row.expect("`src_row` must not be null")) };
-    // SAFETY: ensured by caller (3.)
+    // SAFETY: ensured by caller (3., 4.)
     let dst =
         unsafe { RLookupRow::from_opaque_non_null(dst_row.expect("`dst_row` must not be null")) };
 
