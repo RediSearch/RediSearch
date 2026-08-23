@@ -34,7 +34,7 @@ impl Reducer {
         })
     }
 
-    /// Create a `Reducer` wrapper from a pointer.
+    /// Borrow `ptr` as a shared `Reducer`.
     ///
     /// # Safety
     ///
