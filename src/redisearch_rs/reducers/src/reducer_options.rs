@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::ptr::NonNull;
+
 use query_error::QueryError;
 
 /// A safe wrapper around an `ffi::ReducerOptions`.
@@ -14,17 +16,17 @@ use query_error::QueryError;
 pub struct ReducerOptions(ffi::ReducerOptions);
 
 impl ReducerOptions {
-    /// Create a `ReducerOptions` wrapper from a non-null pointer.
+    /// Create a `ReducerOptions` wrapper from a pointer.
     ///
     /// # Safety
     ///
-    /// 1. `ptr` must be a valid non-null pointer to an `ffi::ReducerOptions` that is properly initialized.
+    /// 1. `ptr` must be a [valid] pointer to an `ffi::ReducerOptions` that is properly initialized.
     ///    This also applies to any of its subfields.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-    pub const unsafe fn from_raw_mut<'a>(ptr: *mut ffi::ReducerOptions) -> &'a mut Self {
+    pub const unsafe fn from_raw_mut<'a>(ptr: NonNull<ffi::ReducerOptions>) -> &'a mut Self {
         // SAFETY: ensured by caller (1.)
-        unsafe { ptr.cast::<Self>().as_mut().unwrap() }
+        unsafe { &mut *ptr.cast::<Self>().as_ptr() }
     }
 
     /// Get a reference to the `args` cursor.
