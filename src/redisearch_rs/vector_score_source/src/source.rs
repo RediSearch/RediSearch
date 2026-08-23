@@ -124,17 +124,17 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker> {
     /// pointer until the loader sets it.
     pub own_key: Box<*mut RLookupKey<'index>>,
     /// Back-reference to the handle that points to [`own_key`](Self::own_key).
-    /// Set by the C side alongside `own_key`; null until then.
-    pub key_handle: *mut RLookupKeyHandle,
+    /// Set by the C side alongside `own_key`; [`None`] until then.
+    pub key_handle: Option<NonNull<RLookupKeyHandle>>,
 }
 
 impl<E: ExpirationChecker> Drop for VectorScoreSource<'_, E> {
     fn drop(&mut self) {
-        if !self.key_handle.is_null() {
-            // SAFETY: key_handle is non-null only when VectorTopK_SetKeyHandle
+        if let Some(mut key_handle) = self.key_handle {
+            // SAFETY: key_handle is set only when VectorTopK_SetKeyHandle
             // stored a valid, live RLookupKeyHandle pointer here.
             unsafe {
-                (*self.key_handle).is_valid = false;
+                key_handle.as_mut().is_valid = false;
             }
         }
     }
@@ -211,7 +211,7 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
             expiration,
             unfiltered_consumed: false,
             own_key: Box::new(ptr::null_mut()),
-            key_handle: ptr::null_mut(),
+            key_handle: None,
         }
     }
 
