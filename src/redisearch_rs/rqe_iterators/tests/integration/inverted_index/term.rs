@@ -459,18 +459,16 @@ mod not_miri {
         test.test.revalidate_after_document_deleted(&mut it, ii);
     }
 
-    /// FT.PROFILE prints the estimate from the reply path, which runs without
-    /// the spec lock and — for stored replies — possibly after the index is
-    /// gone, so the [`Profile`](rqe_iterators::profile::Profile) wrapper
-    /// captures the estimate at construction and the print reads the capture.
-    /// The reader's own `num_estimated` stays a live read (it is only called
-    /// under the lock, by planning and by the capture itself).
+    /// The [`Profile`](rqe_iterators::profile::Profile) wrapper reports its
+    /// child's live `num_estimated`: an active tree holds the index guard, so
+    /// the printed estimate follows the index rather than a construction-time
+    /// capture (a suspended tree answers from its suspend-time cache instead).
     #[test]
-    fn profile_captures_construction_estimate() {
+    fn profile_estimate_is_live() {
         let test = TermRevalidateTest::new(10);
         let it = test.create_iterator();
         let profile = rqe_iterators::profile::Profile::new(it);
-        let captured = profile.estimated();
+        let initial = profile.num_estimated();
 
         let ii = {
             use inverted_index::{full::Full, opaque::OpaqueEncoding};
@@ -485,10 +483,9 @@ mod not_miri {
         let record = expected_record(23, u32::MAX as FieldMask, term, OFFSETS);
         ii.add_record(&record).expect("failed to add record");
 
-        // The live count moved with the index; the capture must not.
-        assert_eq!(ii.unique_docs() as usize, captured + 1);
-        assert_eq!(profile.num_estimated(), captured + 1);
-        assert_eq!(profile.estimated(), captured);
+        // The estimate moves with the index.
+        assert_eq!(ii.unique_docs() as usize, initial + 1);
+        assert_eq!(profile.num_estimated(), initial + 1);
     }
 
     mod via_resume {

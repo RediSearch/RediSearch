@@ -365,9 +365,9 @@ fn term_with_query_term() {
 }
 
 /// The production shape: every printed node is wrapped by
-/// [`Profile`](rqe_iterators::profile::Profile), whose construction-time
-/// estimate capture feeds the "Estimated number of matches" line — the bare
-/// prints above legitimately omit it.
+/// [`Profile`](rqe_iterators::profile::Profile), whose child's estimate feeds
+/// the "Estimated number of matches" line — the bare prints above
+/// legitimately omit it.
 #[test]
 fn term_profile_wrapped() {
     use ffi::{

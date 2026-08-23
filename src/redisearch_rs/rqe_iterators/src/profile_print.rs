@@ -47,9 +47,9 @@ pub struct ProfilePrintCtx<'iter> {
     /// Wall time in nanoseconds from the parent
     /// [`Profile`](crate::profile::Profile) wrapper.
     pub wall_time_ns: u64,
-    /// The parent [`Profile`](crate::profile::Profile) wrapper's
-    /// construction-time [`estimated`](crate::profile::Profile::estimated)
-    /// capture, or [`None`] if the iterator is not profile-wrapped.
+    /// The child's [`num_estimated`](crate::RQEIterator::num_estimated),
+    /// passed by the parent [`Profile`](crate::profile::Profile) wrapper, or
+    /// [`None`] if the iterator is not profile-wrapped.
     pub estimated: Option<usize>,
 }
 
@@ -65,9 +65,8 @@ impl ProfilePrintCtx<'_> {
         }
     }
 
-    /// Create a child context with specific counters, timing, and the
-    /// construction-time estimate (for the
-    /// [`Profile`](crate::profile::Profile) wrapper).
+    /// Create a child context with specific counters, timing, and the child's
+    /// estimate (for the [`Profile`](crate::profile::Profile) wrapper).
     pub const fn with_counters<'b>(
         &'b self,
         counters: &'b ProfileCounters,
@@ -94,12 +93,13 @@ impl ProfilePrintCtx<'_> {
         }
     }
 
-    /// Print the construction-time estimate captured by the parent
+    /// Print the estimate passed by the parent
     /// [`Profile`](crate::profile::Profile) wrapper, when profile-wrapped.
-    /// The print must read the capture rather than call the live iterator's
-    /// [`num_estimated`](crate::RQEIterator::num_estimated): stored replies
-    /// print on the main thread without the spec lock, possibly after the
-    /// index is gone — and the capture is the value query planning consumed.
+    /// Calling the child's
+    /// [`num_estimated`](crate::RQEIterator::num_estimated) is safe in both
+    /// modes: an active tree holds the index guard, and a suspended tree
+    /// answers from its suspend-time cache (the
+    /// [`RQESuspendedIterator`](crate::boxed::RQESuspendedIterator) contract).
     pub fn print_estimated(&self, map: &mut MapBuilder<'_>) {
         if let Some(estimated) = self.estimated {
             map.kv_long_long(c"Estimated number of matches", estimated as i64);
