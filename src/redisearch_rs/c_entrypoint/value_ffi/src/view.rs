@@ -21,6 +21,16 @@ use std::ffi::c_char;
 use std::ptr;
 use value::Value;
 
+/// Selects which value an outer [`Value::Trio`] exposes to reply serialization.
+#[cheadergen::config(prefix_with_name)]
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RSValueTrioSelection {
+    Left = 0,
+    Middle = 1,
+    Right = 2,
+}
+
 /// Discriminant of [`RSValueView`], selecting which payload fields are
 /// meaningful.
 #[cheadergen::config(prefix_with_name)]
@@ -50,8 +60,7 @@ pub enum RSValueViewType {
 // interior padding (40 bytes instead of 48).
 #[repr(C)]
 pub struct RSValueView {
-    /// The fully resolved value this view describes: references followed,
-    /// trios collapsed to their middle element. Borrows from the input value.
+    /// The fully resolved value this view describes. Borrows from the input value.
     pub resolved: *const RSValue,
     /// String payload. Not NUL-terminated; may contain embedded NUL bytes.
     /// Borrows from the input value.
@@ -83,10 +92,9 @@ impl RSValueView {
 
 /// Returns the reply-side view of `value` in a single call.
 ///
-/// The value is resolved the way `RedisModule_Reply_RSValue` historically
-/// resolved it: references are followed, and a trio reached during resolution
-/// collapses to its middle element (format-driven trio selection is the
-/// caller's concern and must happen before this call).
+/// If `value` is a [`Value::Trio`], `trio_selection` chooses its exposed value.
+/// References are then followed, and any further trio reached during resolution
+/// collapses to its middle element, matching recursive reply serialization.
 ///
 /// # Safety
 ///
@@ -96,9 +104,20 @@ impl RSValueView {
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_GetReplyView(value: *const RSValue) -> RSValueView {
+pub unsafe extern "C" fn RSValue_GetReplyView(
+    value: *const RSValue,
+    trio_selection: RSValueTrioSelection,
+) -> RSValueView {
     // SAFETY: ensured by caller (1.)
     let mut value = unsafe { expect_value(value) };
+
+    if let Value::Trio(trio) = value {
+        value = match trio_selection {
+            RSValueTrioSelection::Left => trio.left(),
+            RSValueTrioSelection::Middle => trio.middle(),
+            RSValueTrioSelection::Right => trio.right(),
+        };
+    }
 
     loop {
         value = value.fully_dereferenced_ref();

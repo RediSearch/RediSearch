@@ -14,7 +14,9 @@ use std::ptr;
 use value::{RedisString, SharedValue, Value};
 use value_ffi::RSValue;
 use value_ffi::util::as_rs_value;
-use value_ffi::view::{RSValue_GetReplyView, RSValueViewType};
+use value_ffi::view::{RSValue_GetReplyView, RSValueTrioSelection, RSValueViewType};
+
+const DEFAULT_TRIO_SELECTION: RSValueTrioSelection = RSValueTrioSelection::Middle;
 
 // Force-link the C bundle (and its `RSDummyContext`) in every build configuration,
 // like the sibling test binaries; an unused dev-dependency is otherwise dropped.
@@ -30,7 +32,7 @@ const fn as_value_ptr(value: &Value) -> *const RSValue {
 fn number_view() {
     let value = Value::Number(3.5);
     // SAFETY: `value` is a live local, so the pointer is a valid `RSValue` for the call.
-    let view = unsafe { RSValue_GetReplyView(as_value_ptr(&value)) };
+    let view = unsafe { RSValue_GetReplyView(as_value_ptr(&value), DEFAULT_TRIO_SELECTION) };
     assert_eq!(view.view_type, RSValueViewType::Number);
     assert_eq!(view.num, 3.5);
     assert_eq!(view.resolved, as_value_ptr(&value));
@@ -40,7 +42,7 @@ fn number_view() {
 fn null_and_undefined_views() {
     for value in [Value::Null, Value::Undefined] {
         // SAFETY: `value` is a live local, so the pointer is a valid `RSValue` for the call.
-        let view = unsafe { RSValue_GetReplyView(as_value_ptr(&value)) };
+        let view = unsafe { RSValue_GetReplyView(as_value_ptr(&value), DEFAULT_TRIO_SELECTION) };
         assert_eq!(view.view_type, RSValueViewType::Null);
     }
 }
@@ -53,7 +55,7 @@ fn null_and_undefined_views() {
 fn string_view_preserves_embedded_nul() {
     let value = SharedValue::new_string(b"a\0b".to_vec());
     // SAFETY: `value` is a live local, so the pointer is a valid `RSValue` for the call.
-    let view = unsafe { RSValue_GetReplyView(as_rs_value(&value)) };
+    let view = unsafe { RSValue_GetReplyView(as_rs_value(&value), DEFAULT_TRIO_SELECTION) };
     assert_eq!(view.view_type, RSValueViewType::String);
     // SAFETY: the view borrows `value`, which outlives the slice; `str_ptr`/`str_len`
     // describe that value's string payload per `RSValue_GetReplyView`'s contract.
@@ -71,7 +73,7 @@ fn reference_chain_resolves_to_leaf() {
     let inner = SharedValue::new(Value::Ref(leaf));
     let outer = Value::Ref(inner);
     // SAFETY: `outer` is a live local, so the pointer is a valid `RSValue` for the call.
-    let view = unsafe { RSValue_GetReplyView(as_value_ptr(&outer)) };
+    let view = unsafe { RSValue_GetReplyView(as_value_ptr(&outer), DEFAULT_TRIO_SELECTION) };
     assert_eq!(view.view_type, RSValueViewType::Number);
     assert_eq!(view.num, 7.0);
 }
@@ -81,14 +83,43 @@ fn reference_chain_resolves_to_leaf() {
     miri,
     ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
 )]
-fn trio_collapses_to_middle() {
+fn outer_trio_uses_requested_selection() {
     let trio = SharedValue::new_trio(
         SharedValue::new_num(1.0),
         SharedValue::new_num(2.0),
         SharedValue::new_num(3.0),
     );
     // SAFETY: `trio` is a live local, so the pointer is a valid `RSValue` for the call.
-    let view = unsafe { RSValue_GetReplyView(as_rs_value(&trio)) };
+    for (selection, expected) in [
+        (RSValueTrioSelection::Left, 1.0),
+        (RSValueTrioSelection::Middle, 2.0),
+        (RSValueTrioSelection::Right, 3.0),
+    ] {
+        // SAFETY: `trio` is live for the duration of each call.
+        let view = unsafe { RSValue_GetReplyView(as_rs_value(&trio), selection) };
+        assert_eq!(view.view_type, RSValueViewType::Number);
+        assert_eq!(view.num, expected);
+    }
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
+fn trio_reached_through_reference_keeps_recursive_middle_selection() {
+    let trio = SharedValue::new_trio(
+        SharedValue::new_num(1.0),
+        SharedValue::new_num(2.0),
+        SharedValue::new_num(3.0),
+    );
+    let reference = Value::Ref(trio);
+
+    // The selector applies only to an outer trio. A trio reached while resolving
+    // references keeps the established recursive-serialization behavior.
+    // SAFETY: `reference` is live for the duration of the call.
+    let view =
+        unsafe { RSValue_GetReplyView(as_value_ptr(&reference), RSValueTrioSelection::Right) };
     assert_eq!(view.view_type, RSValueViewType::Number);
     assert_eq!(view.num, 2.0);
 }
@@ -101,7 +132,7 @@ fn trio_collapses_to_middle() {
 fn array_view_reports_len_and_container() {
     let array = SharedValue::new_array([SharedValue::new_num(1.0), SharedValue::new_num(2.0)]);
     // SAFETY: `array` is a live local, so the pointer is a valid `RSValue` for the call.
-    let view = unsafe { RSValue_GetReplyView(as_rs_value(&array)) };
+    let view = unsafe { RSValue_GetReplyView(as_rs_value(&array), DEFAULT_TRIO_SELECTION) };
     assert_eq!(view.view_type, RSValueViewType::Array);
     assert_eq!(view.len, 2);
     assert_eq!(view.resolved, as_rs_value(&array));
@@ -115,7 +146,7 @@ fn array_view_reports_len_and_container() {
 fn map_view_reports_len_and_container() {
     let map = SharedValue::new_map([(SharedValue::new_num(1.0), SharedValue::new_num(2.0))]);
     // SAFETY: `map` is a live local, so the pointer is a valid `RSValue` for the call.
-    let view = unsafe { RSValue_GetReplyView(as_rs_value(&map)) };
+    let view = unsafe { RSValue_GetReplyView(as_rs_value(&map), DEFAULT_TRIO_SELECTION) };
     assert_eq!(view.view_type, RSValueViewType::Map);
     assert_eq!(view.len, 1);
     assert_eq!(view.resolved, as_rs_value(&map));
@@ -133,7 +164,7 @@ fn redis_string_view_exposes_ptr_len() {
     // `RedisString`, which frees it on drop.
     let value = Value::RedisString(unsafe { RedisString::from_raw(raw) });
     // SAFETY: `value` is a live local, so the pointer is a valid `RSValue` for the call.
-    let view = unsafe { RSValue_GetReplyView(as_value_ptr(&value)) };
+    let view = unsafe { RSValue_GetReplyView(as_value_ptr(&value), DEFAULT_TRIO_SELECTION) };
     assert_eq!(view.view_type, RSValueViewType::String);
     // SAFETY: the view borrows `value`, which outlives the slice; `str_ptr`/`str_len`
     // describe that value's string payload per `RSValue_GetReplyView`'s contract.
