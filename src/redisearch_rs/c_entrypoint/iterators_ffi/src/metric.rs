@@ -70,9 +70,12 @@ unsafe fn new_metric_iterator<const SORTED_BY_ID: bool>(
     _type: MetricType,
 ) -> *mut QueryIterator {
     let (ids_list, metrics_list) = if let Some(ids) = NonNull::new(ids) {
-        let metrics = NonNull::new(metrics).expect(
-            "The pointer to the array of metric data is null, but the pointer to the array of IDs is not null.",
+        debug_assert!(
+            !metrics.is_null(),
+            "The pointer to the array of metric data is null, but the pointer to the array of IDs is not null."
         );
+        // SAFETY: 3. guarantees `metrics` is non-null whenever `ids` is.
+        let metrics = unsafe { NonNull::new_unchecked(metrics) };
         // SAFETY: Safe thanks to 1.
         let ids_list = unsafe { OwnedSlice::from_c(ids, num) };
         // SAFETY: Safe thanks to 2.

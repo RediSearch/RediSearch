@@ -306,7 +306,9 @@ type UnionWrapper<'index> = RQEIteratorWrapper<UnionOpaque<'index, CRQEIterator>
 /// `base` must be a valid, owning pointer to a `UnionWrapper` created via
 /// [`build_union`].
 unsafe extern "C" fn union_profile_children(base: *mut QueryIterator) -> *mut QueryIterator {
-    let base = NonNull::new(base).expect("`base` must not be null");
+    debug_assert!(!base.is_null());
+    // SAFETY: the caller guarantees `base` is a valid owning pointer, so it is non-null.
+    let base = unsafe { NonNull::new_unchecked(base) };
     // SAFETY: caller guarantees `base` is valid and points to a union wrapper.
     let wrapper = unsafe { UnionWrapper::mut_ref_from_header_ptr(base) };
     for child in wrapper.inner.children_mut() {
