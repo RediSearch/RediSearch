@@ -30,7 +30,6 @@ typedef struct QueryProcessingCtx {
   uint32_t resultLimit;
   QueryError *err;
   bool bgScanOOM;
-  bool bgScanOOMShards;
   bool isProfile;
   RSTimeoutPolicy timeoutPolicy;
   bool canYieldPartialResults;

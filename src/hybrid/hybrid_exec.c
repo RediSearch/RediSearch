@@ -402,7 +402,7 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
   RedisModule_ReplyKV_Array(reply, "warnings"); // >warnings
   // bgScanOOM is captured from the spec while a strong reference is held; the
   // reply path must not read the spec — it may outlive the last strong ref.
-  if (qctx->bgScanOOM || qctx->bgScanOOMShards) {
+  if (qctx->bgScanOOM) {
     RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
   }
   if (QueryError_HasQueryOOMWarning(qctx->err)) {
@@ -858,13 +858,12 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     }
     array_free(depleters);
 
-    // Snapshot the background-scan-OOM flag now that depletion is done: the
+    // Refresh the background-scan-OOM capture now that depletion is done: the
     // reply path reads only the capture (see finishSendChunkReply_hybrid), so
-    // this is its freshest legal read. Assignment, not accumulation — a
-    // recovered index must stop warning.
+    // this is its freshest legal read.
     RedisSearchCtx *hybridSctx = HREQ_SearchCtx(req);
     if (hybridSctx && hybridSctx->spec) {
-      req->tailPipeline->qctx.bgScanOOM =
+      req->tailPipeline->qctx.bgScanOOM |=
           RS_AtomicBoolLoadRelaxed(&hybridSctx->spec->scan_failed_OOM);
     }
 
