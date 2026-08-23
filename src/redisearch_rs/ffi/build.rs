@@ -438,7 +438,12 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/util/arr/arr.h",
-        fns: &["array_free", "array_len_func", "array_new_sz"],
+        fns: &[
+            "array_ensure_append_n_func",
+            "array_free",
+            "array_len_func",
+            "array_new_sz",
+        ],
         types: &[],
         vars: &[],
     },

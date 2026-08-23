@@ -32,6 +32,7 @@
 
 #include "redisearch.h"
 #include "search_ctx.h"
+#include "rlookup.h"
 #include "spec.h"
 #include "iterators/iterator_api.h"
 #include "iterators/hybrid_reader.h"
@@ -106,6 +107,11 @@ size_t bench_c_hybrid(VecSimIndex *index, const void *query_vec, size_t dim, siz
     QueryError_ClearError(&err);
     return 0;
   }
+
+  // Yield the vector score under a lookup key, matching the Rust side. A zeroed
+  // key is enough: the metrics path stores the pointer and never dereferences it.
+  RLookupKey own_key = {0};
+  *HybridIterator_GetOwnKeyRef(it) = &own_key;
 
   size_t count = 0;
   while (it->Read(it) == ITERATOR_OK) {

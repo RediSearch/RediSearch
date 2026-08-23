@@ -140,9 +140,9 @@ void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *ctx) {
   ctx->lock_state = SPEC_LOCK_WRITE;
 }
 
-// DOES NOT INCREMENT REF COUNT
-RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL) {
-  IndexLoadOptions loadOpts = {.nameC = indexName};
+RedisSearchCtx *NewSearchCtxCEx(RedisModuleCtx *ctx, const char *indexName, bool resetTTL,
+                                IndexLoadOptionsFlags flags) {
+  IndexLoadOptions loadOpts = {.nameC = indexName, .flags = flags};
   StrongRef ref = Indexes_LoadIndexSpecUnsafeEx(&loadOpts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
@@ -152,6 +152,11 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool r
   RedisSearchCtx *sctx = rm_new(RedisSearchCtx);
   *sctx = SEARCH_CTX_STATIC(ctx, sp);
   return sctx;
+}
+
+// DOES NOT INCREMENT REF COUNT
+RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL) {
+  return NewSearchCtxCEx(ctx, indexName, resetTTL, 0);
 }
 
 int SearchCtx_TakeDiskSnapshot(RedisSearchCtx *sctx, QueryError *status) {

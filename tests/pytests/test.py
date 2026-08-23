@@ -4179,7 +4179,9 @@ def testUsesCounter(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'NOFIELDS', 'schema', 'title', 'text').ok()
     env.cmd('ft.info', 'idx')
     env.cmd('ft.search', 'idx', '*')
-    assertInfoField(env, 'idx', 'number_of_uses', 3)
+    info = to_dict(env.cmd('ft.info', 'idx'))
+    env.assertEqual(info['number_of_uses'], 1, message=info)
+    env.assertEqual(info['number_of_admin_ops'], 2, message=info)
 
 def test_aggregate_return_fail(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
