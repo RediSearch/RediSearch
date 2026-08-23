@@ -322,14 +322,11 @@ impl<'a> JsonValue<'a> {
 
     /// Get a non-owning reference to this `JsonValue`.
     pub fn as_ref(&self) -> JsonValueRef<'_> {
-        // Safety: we obtained this pointer from `allocJson` and the `new` constructor is private
-        // where we ensure the value is actually initialized before being handed out.
-        let ptr = unsafe { *self.ptr }.cast_mut();
-        debug_assert!(!ptr.is_null());
-
         JsonValueRef {
-            // SAFETY: `new` asserts `allocJson` returned a non-null value.
-            ptr: unsafe { NonNull::new_unchecked(ptr) },
+            // Safety: we obtained this pointer from `allocJson` and the `new` constructor is private
+            // where we ensure the value is actually initialized before being handed out.
+            ptr: NonNull::new(unsafe { *self.ptr }.cast_mut())
+                .expect("a populated `JsonValue` holds a non-null value"),
             api: self.api,
         }
     }

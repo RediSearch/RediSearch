@@ -133,9 +133,7 @@ pub unsafe extern "C" fn AddIntersectionIteratorChild(
     header: *mut QueryIterator,
     child: *mut QueryIterator,
 ) {
-    debug_assert!(!header.is_null());
-    // SAFETY: `header` is non-null per 1.
-    let header = unsafe { NonNull::new_unchecked(header) };
+    let header = NonNull::new(header).expect("`header` must not be null");
     debug_assert_eq!(
         // SAFETY: safe thanks to 1
         unsafe { header.as_ref().type_ },

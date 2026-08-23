@@ -139,9 +139,7 @@ pub unsafe extern "C" fn NewUnionIterator(
 ///    created via [`NewUnionIterator`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrimUnionIterator(it: *mut QueryIterator, limit: usize, asc: bool) {
-    debug_assert!(!it.is_null());
-    // SAFETY: `it` is non-null per 1.
-    let it = unsafe { NonNull::new_unchecked(it) };
+    let it = NonNull::new(it).expect("`it` must not be null");
     // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
     debug_assert_eq!(unsafe { it.as_ref().type_ }, IteratorType::Union);
     // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).

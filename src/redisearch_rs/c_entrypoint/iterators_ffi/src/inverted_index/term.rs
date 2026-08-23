@@ -51,9 +51,7 @@ pub unsafe extern "C" fn NewInvIndIterator_TermQuery(
     debug_assert!(!sctx.is_null(), "sctx must not be null");
     debug_assert!(!term.is_null(), "term must not be null");
 
-    debug_assert!(!idx.is_null(), "idx must not be null");
-    // SAFETY: 1. guarantees `idx` is valid and non-null.
-    let idx = unsafe { NonNull::new_unchecked(idx.cast_mut()) };
+    let idx = NonNull::new(idx.cast_mut()).expect("`idx` must not be null");
     // SAFETY: 3. guarantees `sctx` is valid and non-null.
     let sctx = unsafe { NonNull::new_unchecked(sctx as *mut _) };
 
