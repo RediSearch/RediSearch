@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::borrow::Cow;
 use std::time::Instant;
 
 use crate::{iter::timeout::IteratorTimeoutState, trie_map::node::Node};
@@ -41,8 +42,11 @@ struct StackItem<'tm, Data> {
 
 impl<'tm, 't, Data> ContainsIter<'tm, 't, Data> {
     /// Creates a new contains iterator over the entries of a [`TrieMap`](crate::TrieMap).
-    pub(crate) fn new(root: Option<&'tm Node<Data>>, target: &'t [u8]) -> Self {
-        let finder = Finder::new(target);
+    pub(crate) fn new(root: Option<&'tm Node<Data>>, target: impl Into<Cow<'t, [u8]>>) -> Self {
+        let finder = match target.into() {
+            Cow::Borrowed(target) => Finder::new(target),
+            Cow::Owned(target) => Finder::new(&target).into_owned(),
+        };
         Self {
             stack: root
                 .into_iter()

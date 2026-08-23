@@ -38,8 +38,6 @@
 //! The underlying [`StrTrieMap`] stays byte-exact; case-folding is a
 //! property of `TermDictionary` alone.
 
-use std::borrow::Cow;
-
 use string_utils::unicode;
 use trie_rs::str_trie_map::{
     StrTrieMap,
@@ -189,17 +187,14 @@ impl TermDictionary {
         self.inner.iter()
     }
 
-    /// Yield every entry whose key contains `target` as a substring. See
-    /// [`ContainsIter`] for the lazy-vs-drained behaviour when folding
-    /// allocates.
-    pub fn contains_iter<'tm, 'p>(&'tm self, target: &'p str) -> ContainsIter<'tm, 'p> {
-        match unicode::tolower_cow(target) {
-            Cow::Borrowed(s) => ContainsIter::Lazy(Box::new(self.inner.contains_iter(s))),
-            Cow::Owned(s) => {
-                let drained: Vec<(String, &'tm TermEntry)> = self.inner.contains_iter(&s).collect();
-                ContainsIter::Drained(drained.into_iter())
-            }
-        }
+    /// Yield every entry whose key contains the case-folded `target` as a
+    /// substring. See [`StrTrieMap::contains_iter`]. The iterator owns the
+    /// folded target when folding allocates, so it stays lazy either way.
+    pub fn contains_iter<'tm, 'p>(
+        &'tm self,
+        target: &'p str,
+    ) -> StrContainsIter<'tm, 'p, TermEntry> {
+        self.inner.contains_iter(unicode::tolower_cow(target))
     }
 
     /// See [`StrTrieMap::prefixed_iter`].
@@ -245,34 +240,6 @@ impl TermDictionary {
                 }
             }
             None => DecrResult::NotFound,
-        }
-    }
-}
-
-/// Iterator returned by [`TermDictionary::contains_iter`].
-///
-/// Case-folding the target may allocate. When it does (mixed-case input),
-/// the folded buffer cannot outlive this iterator, so the matches are
-/// drained eagerly into a [`Vec`] at construction ([`Self::Drained`]). When
-/// folding borrows (already-folded input) the iterator stays lazy
-/// ([`Self::Lazy`]) and streams directly from the trie. Both yield the same
-/// items in the same order.
-pub enum ContainsIter<'tm, 'p> {
-    /// Streams matches directly from the trie (folding borrowed).
-    // Boxed: the streaming iterator's traversal stack dwarfs the drained
-    // variant, and clippy::large_enum_variant rejects the imbalance.
-    Lazy(Box<StrContainsIter<'tm, 'p, TermEntry>>),
-    /// Matches collected at construction (folding allocated).
-    Drained(std::vec::IntoIter<(String, &'tm TermEntry)>),
-}
-
-impl<'tm, 'p> Iterator for ContainsIter<'tm, 'p> {
-    type Item = (String, &'tm TermEntry);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            Self::Lazy(it) => it.next(),
-            Self::Drained(it) => it.next(),
         }
     }
 }

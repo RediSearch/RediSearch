@@ -12,6 +12,7 @@
 pub mod iter;
 
 use crate::TrieMap;
+use std::borrow::Cow;
 use std::fmt;
 
 /// UTF-8 keyed view over [`TrieMap`].
@@ -126,8 +127,12 @@ impl<Data> StrTrieMap<Data> {
 
     /// Yield every entry whose key contains `target` as a substring.
     /// Empty `target` yields every entry — the empty string is a substring
-    /// of every key.
-    pub fn contains_iter<'tm, 'p>(&'tm self, target: &'p str) -> iter::ContainsIter<'tm, 'p, Data> {
+    /// of every key. An owned `target` is stored inside the iterator, so
+    /// callers holding only a temporary buffer still get a lazy iterator.
+    pub fn contains_iter<'tm, 'p>(
+        &'tm self,
+        target: impl Into<Cow<'p, str>>,
+    ) -> iter::ContainsIter<'tm, 'p, Data> {
         iter::ContainsIter::new(&self.inner, target)
     }
 
