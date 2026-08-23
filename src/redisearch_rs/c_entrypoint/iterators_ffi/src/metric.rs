@@ -86,6 +86,8 @@ unsafe fn new_metric_iterator<const SORTED_BY_ID: bool>(
             "The pointer to the array of metric data is null, but the pointer to the array of IDs is not null."
         );
 
+        let ids = NonNull::new(ids).expect("`ids` must not be null");
+        let metrics = NonNull::new(metrics).expect("`metrics` must not be null");
         // SAFETY: Safe thanks to 1.
         let ids_list = unsafe { OwnedSlice::from_c(ids, num) };
         // SAFETY: Safe thanks to 2.
@@ -94,7 +96,7 @@ unsafe fn new_metric_iterator<const SORTED_BY_ID: bool>(
         (ids_list, metrics_list)
     };
 
-    RQEIteratorWrapper::boxed_new(Metric::<SORTED_BY_ID>::new(ids_list, metrics_list))
+    RQEIteratorWrapper::boxed_new(Metric::<SORTED_BY_ID>::new(ids_list, metrics_list)).as_ptr()
 }
 
 /// Sets the [`RLookupKeyHandle`] for this metric iterator.
@@ -117,7 +119,7 @@ pub unsafe extern "C" fn SetMetricRLookupHandle(
 
     // SAFETY: 1 + 2 give the callee its live iterator, 3 its exclusive access,
     // and 4 the handle that outlasts the iterator writing through it.
-    unsafe { metric::set_key_handle(header, key_handle) };
+    unsafe { metric::set_key_handle(header, NonNull::new(key_handle)) };
 }
 
 /// Get a pointer to the [`RLookupKey`] slot inside this metric iterator.
@@ -135,7 +137,7 @@ pub unsafe extern "C" fn GetMetricOwnKeyRef(header: *mut QueryIterator) -> *mut 
     // discarding it: it is inferred to a lifetime local to this function and
     // erased by the cast below, so no key typed with it escapes to C — which
     // has none to offer and reads no borrowed string through this pointer.
-    let slot: *mut *mut rlookup::RLookupKey<'_> = unsafe { metric::own_key_ref(header) };
+    let slot = unsafe { metric::own_key_ref(header) };
 
-    slot.cast::<*mut RLookupKey>()
+    slot.as_ptr().cast::<*mut RLookupKey>()
 }

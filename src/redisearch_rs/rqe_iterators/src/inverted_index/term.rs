@@ -430,7 +430,7 @@ unsafe impl ResumableReader for RawTermIndexReader<Suspended> {
 ///
 /// # Safety
 ///
-/// 1. `idx` must be a valid, non-null pointer to a term [`InvertedIndex`],
+/// 1. `idx` must be a valid pointer to a term [`InvertedIndex`],
 ///    remaining valid — and stable between [`revalidate`](RQEIterator::revalidate)
 ///    calls — for `'index`. (Revalidation detects a GC replacement by comparing
 ///    the index pointer looked up via `Redis_OpenInvertedIndex`.)
@@ -442,17 +442,14 @@ unsafe impl ResumableReader for RawTermIndexReader<Suspended> {
 ///
 /// Panics if `idx` is a numeric index, which has no term reader.
 pub unsafe fn build_term_iterator<'index>(
-    idx: *const ffi::InvertedIndex,
+    idx: NonNull<ffi::InvertedIndex>,
     sctx: NonNull<RedisSearchCtx>,
     field_mask_or_index: FieldMaskOrIndex,
     term: Box<RSQueryTerm>,
     weight: f64,
 ) -> Term<'index, TermIndexReader<'index>, FieldExpirationChecker> {
-    debug_assert!(!idx.is_null(), "idx must not be null");
-
-    let idx_ptr: *const InvertedIndex = idx.cast();
-    // SAFETY: precondition (1) — `idx` is a valid, non-null `InvertedIndex`.
-    let idx = unsafe { &*idx_ptr };
+    // SAFETY: precondition (1) — `idx` is a valid `InvertedIndex`.
+    let idx = unsafe { idx.cast::<InvertedIndex>().as_ref() };
 
     // A field mask reads only its fields; a field index reads all fields (index
     // filtering happens later, via the expiration checker).

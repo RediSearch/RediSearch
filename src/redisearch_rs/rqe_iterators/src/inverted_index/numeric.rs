@@ -927,15 +927,15 @@ impl<'index> RQEIteratorBoxed<'index> for NumericIteratorVariant<'index> {
             NumericIteratorVariant::Unfiltered(it) => {
                 // SAFETY: `it` is the valid, exclusively-owned payload; the
                 // helper reinitialises the slot as its `Suspended` form in place.
-                unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
+                unsafe { crate::boxed::suspend_child_slot_in_place(NonNull::from(it)) }
             }
             NumericIteratorVariant::Filtered(it) => {
                 // SAFETY: as above.
-                unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
+                unsafe { crate::boxed::suspend_child_slot_in_place(NonNull::from(it)) }
             }
             NumericIteratorVariant::Geo(it) => {
                 // SAFETY: as above.
-                unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
+                unsafe { crate::boxed::suspend_child_slot_in_place(NonNull::from(it)) }
             }
         }
         // SAFETY: the payload now holds its `Suspended` form at the same offset,
@@ -973,15 +973,15 @@ impl<'query> RQESuspendedIterator<'query> for NumericIteratorVariantSuspended<'q
         let outcome = match unsafe { &mut *raw } {
             NumericIteratorVariantSuspended::Unfiltered(it) => {
                 // SAFETY: `it` is the valid, exclusively-owned payload.
-                unsafe { crate::boxed::resume_child_slot_in_place(it as *mut _, guard) }
+                unsafe { crate::boxed::resume_child_slot_in_place(NonNull::from(it), guard) }
             }
             NumericIteratorVariantSuspended::Filtered(it) => {
                 // SAFETY: as above.
-                unsafe { crate::boxed::resume_child_slot_in_place(it as *mut _, guard) }
+                unsafe { crate::boxed::resume_child_slot_in_place(NonNull::from(it), guard) }
             }
             NumericIteratorVariantSuspended::Geo(it) => {
                 // SAFETY: as above.
-                unsafe { crate::boxed::resume_child_slot_in_place(it as *mut _, guard) }
+                unsafe { crate::boxed::resume_child_slot_in_place(NonNull::from(it), guard) }
             }
         };
 

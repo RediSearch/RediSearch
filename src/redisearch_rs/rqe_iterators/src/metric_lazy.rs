@@ -21,6 +21,7 @@ use index_spec::IndexSpecReadGuard;
 use ref_mode::{Active, Ref, Suspended};
 use rlookup::{RLookupKey, RLookupKeyHandle};
 use rqe_core::DocId;
+use std::ptr::NonNull;
 
 /// A lazily-populated metric iterator sorted by document id.
 pub type MetricLazySortedById<'index> = MetricLazy<'index, true>;
@@ -101,7 +102,10 @@ impl<'index, const SORTED_BY_ID: bool> MetricLazy<'index, SORTED_BY_ID> {
     /// # Safety
     ///
     /// Same contract as [`Metric::set_handle`].
-    pub const unsafe fn set_handle(&mut self, key_handle: *mut RLookupKeyHandle<'index>) {
+    pub const unsafe fn set_handle(
+        &mut self,
+        key_handle: Option<NonNull<RLookupKeyHandle<'index>>>,
+    ) {
         // SAFETY: contract forwarded to the caller of this function.
         unsafe { self.inner.set_handle(key_handle) };
     }

@@ -246,8 +246,8 @@ pub unsafe extern "C" fn NewNotIterator(
         // SAFETY: caller guarantees preconditions (3–7).
         let result = unsafe { new_not_iterator(empty, max_doc_id, weight, timeout_ctx, query) };
         return match result {
-            NewNotIterator::ReducedWildcard(wc) => RQEIteratorWrapper::boxed_new(wc),
-            NewNotIterator::ReducedEmpty(empty) => RQEIteratorWrapper::boxed_new(empty),
+            NewNotIterator::ReducedWildcard(wc) => RQEIteratorWrapper::boxed_new(wc).as_ptr(),
+            NewNotIterator::ReducedEmpty(empty) => RQEIteratorWrapper::boxed_new(empty).as_ptr(),
             // Empty child always reduces; these arms are unreachable.
             NewNotIterator::Not(_) | NewNotIterator::NotOptimized(_) => {
                 panic!("Empty not child always reduces")
@@ -262,13 +262,13 @@ pub unsafe extern "C" fn NewNotIterator(
     let result = unsafe { new_not_iterator(child, max_doc_id, weight, timeout_ctx, query) };
 
     match result {
-        NewNotIterator::ReducedWildcard(wc) => RQEIteratorWrapper::boxed_new(wc),
-        NewNotIterator::ReducedEmpty(empty) => RQEIteratorWrapper::boxed_new(empty),
+        NewNotIterator::ReducedWildcard(wc) => RQEIteratorWrapper::boxed_new(wc).as_ptr(),
+        NewNotIterator::ReducedEmpty(empty) => RQEIteratorWrapper::boxed_new(empty).as_ptr(),
         NewNotIterator::Not(iter) => {
-            RQEIteratorWrapper::boxed_new_compound(NotIteratorEnum::Not(iter))
+            RQEIteratorWrapper::boxed_new_compound(NotIteratorEnum::Not(iter)).as_ptr()
         }
         NewNotIterator::NotOptimized(iter) => {
-            RQEIteratorWrapper::boxed_new_compound(NotIteratorEnum::NotOptimized(iter))
+            RQEIteratorWrapper::boxed_new_compound(NotIteratorEnum::NotOptimized(iter)).as_ptr()
         }
     }
 }

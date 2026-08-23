@@ -514,11 +514,11 @@ impl<'index> RQEIteratorBoxed<'index> for OptimizedWildcard<'index> {
             RawOptimizedWildcard::DocIdsOnly(it) => {
                 // SAFETY: `it` is the valid, exclusively-owned payload; the
                 // helper reinitialises the slot as its `Suspended` form in place.
-                unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
+                unsafe { crate::boxed::suspend_child_slot_in_place(NonNull::from(it)) }
             }
             RawOptimizedWildcard::RawDocIdsOnly(it) => {
                 // SAFETY: as above.
-                unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
+                unsafe { crate::boxed::suspend_child_slot_in_place(NonNull::from(it)) }
             }
         }
         // SAFETY: the payload now holds its `Suspended` form at the same offset,
@@ -559,11 +559,11 @@ impl<'query> RQESuspendedIterator<'query> for OptimizedWildcardSuspended<'query>
         let outcome = match unsafe { &mut *raw } {
             RawOptimizedWildcard::DocIdsOnly(it) => {
                 // SAFETY: `it` is the valid, exclusively-owned payload.
-                unsafe { crate::boxed::resume_child_slot_in_place(it as *mut _, spec) }
+                unsafe { crate::boxed::resume_child_slot_in_place(NonNull::from(it), spec) }
             }
             RawOptimizedWildcard::RawDocIdsOnly(it) => {
                 // SAFETY: as above.
-                unsafe { crate::boxed::resume_child_slot_in_place(it as *mut _, spec) }
+                unsafe { crate::boxed::resume_child_slot_in_place(NonNull::from(it), spec) }
             }
         };
 
@@ -767,7 +767,7 @@ pub unsafe fn new_wildcard_iterator_optimized<'index>(
 /// and wraps the resulting iterator in a [`DiskWildcardIterator`].
 ///
 /// If the enterprise iterator cannot be created, this function populates
-/// `status` (when non-null) with the cause and falls back to an empty iterator;
+/// `status` (when present) with the cause and falls back to an empty iterator;
 /// the query then aborts with an error rather than returning empty results.
 ///
 /// # Safety
@@ -777,20 +777,20 @@ pub unsafe fn new_wildcard_iterator_optimized<'index>(
 /// 2. [`SEARCH_ENTERPRISE_ITERATORS`] must be initialized before calling this function.
 /// 3. `snapshot` must be a [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot) handle
 ///    for `disk_spec` and must remain valid for `'index`.
-/// 4. `status`, when non-null, must point to a valid [`QueryError`](ffi::QueryError).
+/// 4. `status`, when present, must point to a valid [`QueryError`](ffi::QueryError).
 pub unsafe fn new_wildcard_iterator_on_disk<'index>(
     disk_spec: &'index mut ffi::RedisSearchDiskIndexSpec,
     weight: f64,
-    snapshot: std::ptr::NonNull<ffi::RedisSearchDiskSnapshot>,
-    status: *mut ffi::QueryError,
+    snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+    status: Option<NonNull<ffi::QueryError>>,
 ) -> NewWildcardIterator<'index> {
     // SAFETY: Caller guarantees `SEARCH_ENTERPRISE_ITERATORS` is
     // initialized when `spec.diskSpec` is non-null (8).
     let enterprise_iters_api = SEARCH_ENTERPRISE_ITERATORS
         .get()
         .expect("SEARCH_ENTERPRISE_ITERATORS not initialized");
-    // SAFETY: caller guarantees `status`, when non-null, points to a valid `QueryError` (4).
-    let status = unsafe { QueryError::from_opaque_mut_ptr(status.cast()) };
+    // SAFETY: caller guarantees `status`, when present, points to a valid `QueryError` (4).
+    let status = status.map(|status| unsafe { QueryError::from_opaque_non_null(status.cast()) });
     // On failure the enterprise implementation populates `status` with the
     // cause; we just fall back to an empty iterator so the query aborts via the
     // existing `QueryError_HasError` check rather than returning empty results.
@@ -861,7 +861,9 @@ pub unsafe fn new_wildcard_iterator<'index>(
         // SAFETY: Caller guarantees all preconditions of
         // `new_wildcard_iterator_on_disk` hold (7, 8, 9); `query.status` is the
         // valid `QueryError` of the evaluating query.
-        return unsafe { new_wildcard_iterator_on_disk(disk_spec, weight, snapshot, query.status) };
+        return unsafe {
+            new_wildcard_iterator_on_disk(disk_spec, weight, snapshot, NonNull::new(query.status))
+        };
     }
 
     let index_all = NonNull::new(spec.rule)

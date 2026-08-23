@@ -48,10 +48,10 @@ pub unsafe extern "C" fn NewInvIndIterator_TermQuery(
     term: *mut RSQueryTerm,
     weight: f64,
 ) -> *mut ffi::QueryIterator {
-    debug_assert!(!idx.is_null(), "idx must not be null");
     debug_assert!(!sctx.is_null(), "sctx must not be null");
     debug_assert!(!term.is_null(), "term must not be null");
 
+    let idx = NonNull::new(idx.cast_mut()).expect("`idx` must not be null");
     // SAFETY: 3. guarantees `sctx` is valid and non-null.
     let sctx = unsafe { NonNull::new_unchecked(sctx as *mut _) };
 
@@ -64,5 +64,5 @@ pub unsafe extern "C" fn NewInvIndIterator_TermQuery(
     // `term`.
     let iterator = unsafe { build_term_iterator(idx, sctx, field_mask_or_index, term, weight) };
 
-    RQEIteratorWrapper::boxed_new(iterator)
+    RQEIteratorWrapper::boxed_new(iterator).as_ptr()
 }

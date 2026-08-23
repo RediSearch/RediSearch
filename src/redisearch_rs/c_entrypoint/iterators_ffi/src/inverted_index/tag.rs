@@ -260,7 +260,7 @@ pub unsafe extern "C" fn NewInvIndIterator_TagQuery(
         ),
     };
 
-    RQEIteratorWrapper::boxed_new(iterator)
+    RQEIteratorWrapper::boxed_new(iterator).as_ptr()
 }
 
 impl profile_print::ProfilePrint for TagIterator<'_> {

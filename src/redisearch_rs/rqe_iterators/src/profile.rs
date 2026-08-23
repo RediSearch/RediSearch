@@ -13,6 +13,8 @@
 //! (read/skip counts and wall-clock time) from a child iterator without
 //! modifying its behavior.
 
+use std::ptr::NonNull;
+
 use std::time::{Duration, Instant};
 
 use crate::{
@@ -247,6 +249,8 @@ where
         // initialised, exclusively owned). `&raw mut` forms a field pointer to
         // the `child` slot without creating a reference.
         let child_slot = unsafe { &raw mut (*raw).child };
+        // SAFETY: `child_slot` is a field pointer derived from the non-null `raw`, so it is non-null too.
+        let child_slot = unsafe { NonNull::new_unchecked(child_slot) };
         // SAFETY: `child_slot` points at the valid, exclusively-owned active
         // child. `suspend_child_slot_in_place` drives the child's own `suspend`
         // and reinitialises the slot as a valid `I::Suspended` in place.
@@ -320,6 +324,8 @@ where
         // initialised, exclusively owned). `&raw mut` forms a field pointer to
         // the `child` slot without creating a reference.
         let child_slot = unsafe { &raw mut (*raw).child };
+        // SAFETY: `child_slot` is a field pointer derived from the non-null `raw`, so it is non-null too.
+        let child_slot = unsafe { NonNull::new_unchecked(child_slot) };
         // SAFETY: `child_slot` points at the valid, exclusively-owned suspended
         // child. On `Unchanged`/`Moved` the helper reinitialises the slot as
         // `S::Resumed<'a>`; on `Aborted`/`Err` the child is consumed and the slot
