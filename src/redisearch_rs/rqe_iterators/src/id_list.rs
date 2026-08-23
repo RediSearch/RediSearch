@@ -14,6 +14,7 @@ use index_spec::IndexSpecReadGuard;
 use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 use std::cmp::Ordering;
+use std::ptr::NonNull;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
@@ -424,7 +425,11 @@ impl<'query, const SORTED: bool> SuspendedIdList<'query, SORTED> {
         //    the result is virtual or metric. Those variants own their data.
         //    So conditions (1)–(4) range over no pointers and hold for any `'a`; the
         //    `'query: 'a` bound covers any retained query-pipeline pointers.
-        unsafe { RawIndexResult::<'query, Suspended>::into_active_in_place::<'a>(result_slot) };
+        unsafe {
+            RawIndexResult::<'query, Suspended>::into_active_in_place::<'a>(
+                NonNull::new(result_slot).expect("`result_slot` must not be null"),
+            )
+        };
         Ok(slot.cast::<IdList<'a, SORTED>>())
     }
 }
@@ -454,7 +459,11 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
         // SAFETY: `into_suspended_in_place`'s contract is met — `result_slot` points at
         // an initialized `RSIndexResult<'index>` and is not aliased (caller contracts
         // 1 and 2). Suspending is a safe widening conversion with no further precondition.
-        unsafe { RawIndexResult::<Active<'index>>::into_suspended_in_place(result_slot) };
+        unsafe {
+            RawIndexResult::<Active<'index>>::into_suspended_in_place(
+                NonNull::new(result_slot).expect("`result_slot` must not be null"),
+            )
+        };
 
         slot.cast::<SuspendedIdList<'index, SORTED>>()
     }
