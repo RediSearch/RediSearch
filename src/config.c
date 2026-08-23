@@ -235,19 +235,23 @@ static size_t translateOrClampMaxResults(long long val, size_t max) {
 
 static int set_max_search_results_config(const char *name, long long val, void *privdata,
                                           RedisModuleString **err) {
-  REDISMODULE_NOT_USED(name);
-  REDISMODULE_NOT_USED(err);
+  // Only the -1 sentinel means unlimited; any other negative is out of range.
+  if (val < -1) {
+    return warn_or_reject_size_t_config(name, val, (const size_t *)privdata, err);
+  }
   *(size_t *)privdata = translateOrClampMaxResults(val, MAX_SEARCH_REQUEST_RESULTS);
   return REDISMODULE_OK;
 }
 
-// Like search-max-search-results, a negative value translates to unlimited rather than being
-// rejected: the default on Flex/SearchDisk installs is DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS_FLEX
-// (1,000,000), not the max, so defaulting a legacy -1 would silently impose a 1M cap.
+// Like search-max-search-results, -1 translates to unlimited rather than being rejected: the
+// default on Flex/SearchDisk installs is DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS_FLEX (1,000,000),
+// not the max, so defaulting a legacy -1 would silently impose a 1M cap.
 static int set_max_aggregate_results_config(const char *name, long long val, void *privdata,
                                              RedisModuleString **err) {
-  REDISMODULE_NOT_USED(name);
-  REDISMODULE_NOT_USED(err);
+  // Only the -1 sentinel means unlimited; any other negative is out of range.
+  if (val < -1) {
+    return warn_or_reject_size_t_config(name, val, (const size_t *)privdata, err);
+  }
   *(size_t *)privdata = translateOrClampMaxResults(val, MAX_AGGREGATE_REQUEST_RESULTS);
   return REDISMODULE_OK;
 }
@@ -2275,7 +2279,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       ctx, "search-max-aggregate-results",
       SearchDisk_IsEnabled() ? DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS_FLEX
                              : DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS,
-      REDISMODULE_CONFIG_UNPREFIXED, -1,
+      REDISMODULE_CONFIG_UNPREFIXED, LLONG_MIN,
       MAX_AGGREGATE_REQUEST_RESULTS, get_size_t_numeric_config, set_max_aggregate_results_config,
       NULL, (void *)&(RSGlobalConfig.maxAggregateResults)
     )
@@ -2321,7 +2325,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-max-search-results", DEFAULT_MAX_SEARCH_REQUEST_RESULTS,
-      REDISMODULE_CONFIG_UNPREFIXED, -1,
+      REDISMODULE_CONFIG_UNPREFIXED, LLONG_MIN,
       MAX_SEARCH_REQUEST_RESULTS, get_size_t_numeric_config, set_max_search_results_config, NULL,
       (void *)&(RSGlobalConfig.maxSearchResults)
     )

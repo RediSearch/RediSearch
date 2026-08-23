@@ -9,7 +9,7 @@ from RLTest import Env
 from includes import *
 from common import *
 from test_config import _grep_file_count, MAX_SEARCH_REQUEST_RESULTS, \
-    MAX_AGGREGATE_REQUEST_RESULTS, default_module_list
+    MAX_AGGREGATE_REQUEST_RESULTS, DEFAULT_MAX_SEARCH_REQUEST_RESULTS, default_module_list
 
 
 def _confPath(name):
@@ -87,6 +87,41 @@ def testStartupSearchMaxAggregateResultsNegativeOneTranslates():
 
 
 @skip(cluster=True, redis_less_than='7.9.227')
+def testStartupSearchMaxSearchResultsNegativeFiveFallsBackToDefault():
+    """search-max-search-results -5 is not the -1 sentinel, so it must not
+    silently become unlimited: the server must still start, must log a
+    warning naming the rejected config and value, and the effective value
+    must be left at the default (DEFAULT_MAX_SEARCH_REQUEST_RESULTS)."""
+    confPath = _confPath('test_native_bounds_maxsearch_neg5.conf')
+    _writeConfigFile(confPath, [('search-max-search-results', -5)])
+    env = Env(noDefaultModuleArgs=True, redisConfigFile=confPath)
+    env.assertEqual(env.cmd('CONFIG', 'GET', 'search-max-search-results'),
+                     ['search-max-search-results', str(DEFAULT_MAX_SEARCH_REQUEST_RESULTS)])
+    env.assertGreaterEqual(_grep_file_count(
+        _logFilePath(env),
+        f'search-max-search-results: value -5 is out of range, keeping '
+        f'{DEFAULT_MAX_SEARCH_REQUEST_RESULTS}'), 1,
+        message="expected a startup warning naming the rejected config, value and kept value")
+
+
+@skip(cluster=True, redis_less_than='7.9.227')
+def testStartupSearchMaxAggregateResultsNegativeFiveFallsBackToDefault():
+    """Same as above for search-max-aggregate-results: -5 is not the -1
+    sentinel, so the server must still start with the default value and a
+    matching warning, rather than aborting or treating -5 as unlimited."""
+    confPath = _confPath('test_native_bounds_maxagg_neg5.conf')
+    _writeConfigFile(confPath, [('search-max-aggregate-results', -5)])
+    env = Env(noDefaultModuleArgs=True, redisConfigFile=confPath)
+    env.assertEqual(env.cmd('CONFIG', 'GET', 'search-max-aggregate-results'),
+                     ['search-max-aggregate-results', str(MAX_AGGREGATE_REQUEST_RESULTS)])
+    env.assertGreaterEqual(_grep_file_count(
+        _logFilePath(env),
+        f'search-max-aggregate-results: value -5 is out of range, keeping '
+        f'{MAX_AGGREGATE_REQUEST_RESULTS}'), 1,
+        message="expected a startup warning naming the rejected config, value and kept value")
+
+
+@skip(cluster=True, redis_less_than='7.9.227')
 def testStartupSearchForkGcCleanThresholdZeroFallsBackToDefault():
     """search-fork-gc-clean-threshold 0 is not a meaningful sentinel: the
     server must still start, must log a warning naming the rejected config
@@ -123,19 +158,20 @@ def testRuntimeConfigSetTranslatesMaxAggregateResultsNegativeOne(env):
 
 @skip(redis_less_than='7.9.227')
 def testRuntimeConfigSetStillRejectsMaxAggregateResultsNegativeTwo(env):
-    """Widening the sentinel does not widen the bound: core still enforces
-    min = -1, so CONFIG SET must keep rejecting anything below it."""
+    """Widening the registered min to LLONG_MIN only lets the value reach our
+    setter; the setter itself still treats -1 as the only unlimited sentinel,
+    so CONFIG SET must keep rejecting -2 as out of range."""
     env.expect('CONFIG', 'SET', 'search-max-aggregate-results', '-2').error()\
-        .contains('CONFIG SET failed')
+        .contains('CONFIG SET failed').contains('out of range')
 
 
 @skip(redis_less_than='7.9.227')
 def testRuntimeConfigSetStillRejectsMaxSearchResultsNegativeTwo(env):
-    """Registered min = -1 for search-max-search-results (matching
-    search-max-aggregate-results) means CONFIG SET keeps rejecting anything
-    below the sentinel, rather than silently treating it as unlimited."""
+    """Same as search-max-aggregate-results: only -1 is the unlimited
+    sentinel for search-max-search-results, so CONFIG SET keeps rejecting
+    -2 as out of range rather than silently treating it as unlimited."""
     env.expect('CONFIG', 'SET', 'search-max-search-results', '-2').error()\
-        .contains('CONFIG SET failed')
+        .contains('CONFIG SET failed').contains('out of range')
 
 
 # Skip on ASAN since RedisModule_Unload is not fully implemented (MOD-7161)
