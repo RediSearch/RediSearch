@@ -40,17 +40,21 @@ unsafe fn parse_level(level: *const c_char) -> LevelFilter {
 ///
 /// `level` is the initial redis `loglevel` config value the filter is set to.
 ///
+/// A null `ctx` is accepted: traces are then logged through a null module
+/// context, which `RedisModule_Log` explicitly permits.
+///
 /// # Safety
 ///
-/// `level` must point to a valid, null-terminated C string.
+/// `level` must point to a valid, null-terminated C string. `ctx` must either
+/// be null or point to a valid `RedisModuleCtx`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TracingRedisModule_Init(
-    ctx: Option<NonNull<redis_module::RedisModuleCtx>>,
+    ctx: *mut redis_module::RedisModuleCtx,
     level: *const c_char,
 ) {
     // Safety: forwarded to the caller's contract on `level`.
     let level = unsafe { parse_level(level) };
-    tracing_redismodule::init(ctx, level);
+    tracing_redismodule::init(NonNull::new(ctx), level);
 }
 
 /// Updates the `tracing` log level filter from a redis `loglevel` config value
@@ -89,14 +93,16 @@ pub extern "C" fn RustPanicHook_Init() {
 /// Add the current backtrace as a new section to the report printed
 /// by RediSearch's INFO command.
 ///
+/// A null `ctx` is a no-op.
+///
 /// # Safety
 ///
-/// `ctx` must be a valid pointer to a `RedisModuleInfoCtx`.
+/// `ctx` must either be null or point to a valid `RedisModuleInfoCtx`.
 #[unsafe(no_mangle)]
-pub extern "C" fn AddToInfo_RustBacktrace(ctx: Option<NonNull<redis_module::RedisModuleInfoCtx>>) {
+pub unsafe extern "C" fn AddToInfo_RustBacktrace(ctx: *mut redis_module::RedisModuleInfoCtx) {
     use std::ffi::CString;
 
-    let Some(ctx) = ctx else {
+    let Some(ctx) = NonNull::new(ctx) else {
         return;
     };
 
