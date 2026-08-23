@@ -10,6 +10,8 @@
 
 #include "gtest/gtest.h"
 #include "cursor.h"
+#include "aggregate/aggregate.h"
+#include "info/info_redis/block_client.h"
 #include <vector>
 #include <algorithm>
 
@@ -164,4 +166,65 @@ TEST_F(CursorsTest, OwnershipAPI) {
   // After the cursors are paused, they should be freed
   ASSERT_EQ(Cursors_GetInfoStats().total_user, 0) << "All cursors should be deleted";
 
+}
+
+// A cursor owns its carried request: every path that frees the cursor must
+// free the request exactly once (leaks and double frees surface under ASAN).
+TEST_F(CursorsTest, CarriedRequestOwnership) {
+  StrongRef dummy = {0};
+  const size_t base = Cursors_GetInfoStats().total_user;
+
+  // Freeing a cursor frees its carried request.
+  AREQ *r = AREQ_New(NULL, 0);
+  Cursor *cur = Cursors_Reserve(&g_CursorsList, dummy, 1000, NULL);
+  ASSERT_TRUE(cur != NULL);
+  cur->query = &r->base;
+  ASSERT_EQ(Cursor_Free(cur), REDISMODULE_OK);
+  ASSERT_EQ(Cursors_GetInfoStats().total_user, base);
+
+  // A delete-marked cursor (CURSOR DEL / list purge mid-cycle) converts its
+  // park into a free, which must also free the carried request.
+  r = AREQ_New(NULL, 0);
+  cur = Cursors_Reserve(&g_CursorsList, dummy, 1000, NULL);
+  ASSERT_TRUE(cur != NULL);
+  cur->query = &r->base;
+  ASSERT_EQ(Cursors_Purge(&g_CursorsList, cur->id), REDISMODULE_OK);
+  ASSERT_TRUE(cur->delete_mark);
+  ASSERT_EQ(Cursor_Pause(cur), REDISMODULE_OK) << "Pause must convert to free";
+  ASSERT_EQ(Cursors_GetInfoStats().total_user, base);
+}
+
+// EndCycle executes the recorded disposition: PAUSE parks the cursor (which
+// keeps owning its carried request); the FREE default tears down cursor and
+// request.
+TEST_F(CursorsTest, EndCycleExecutesRecordedDisposition) {
+  StrongRef dummy = {0};
+  const size_t base = Cursors_GetInfoStats().total_user;
+
+  // PAUSE: the cursor is parked back into the idle list.
+  AREQ *r = AREQ_New(NULL, 0);
+  Cursor *cur = Cursors_Reserve(&g_CursorsList, dummy, 1000, NULL);
+  ASSERT_TRUE(cur != NULL);
+  cur->query = &r->base;
+  r->base.blockedClientCycleActive = true;
+  r->base.cursorInfo.cursor = cur;
+  r->base.cursorInfo.disposition = CURSOR_DISPOSITION_PAUSE;
+  QueryRequest_EndCycle(&r->base);
+  ASSERT_TRUE(is_Idle(cur));
+  ASSERT_EQ(Cursors_GetInfoStats().total_user, base + 1);
+  ASSERT_EQ(Cursor_Free(cur), REDISMODULE_OK) << "Owner free: cursor + request";
+  ASSERT_EQ(Cursors_GetInfoStats().total_user, base);
+
+  // FREE is the per-cycle default: a cycle that recorded no PAUSE (e.g. the
+  // timeout replied without exposing a live cursor id) tears down the
+  // published cursor and its carried request, never parks them.
+  r = AREQ_New(NULL, 0);
+  cur = Cursors_Reserve(&g_CursorsList, dummy, 1000, NULL);
+  ASSERT_TRUE(cur != NULL);
+  cur->query = &r->base;
+  r->base.blockedClientCycleActive = true;
+  r->base.cursorInfo.cursor = cur;
+  ASSERT_EQ(r->base.cursorInfo.disposition, CURSOR_DISPOSITION_FREE);
+  QueryRequest_EndCycle(&r->base);
+  ASSERT_EQ(Cursors_GetInfoStats().total_user, base);
 }

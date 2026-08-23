@@ -1816,28 +1816,8 @@ void ChunkReplyState_Destroy(ChunkReplyState *state) {
     state->results = NULL;
   }
 
-  // Timeout edge case: cursor wasn't handled by reply_callback.
-  // See ChunkReplyState ownership model in aggregate.h for full explanation.
-  // We must clear the cursor's request handle before Cursor_Free to prevent a
-  // recursive release while this request is already being destroyed.
-  if (state->cursor) {
-    state->cursor->query = NULL;
-    Cursor_Free(state->cursor);
-    state->cursor = NULL;
-  }
-
   // Clear stored error state
   QueryError_ClearError(&state->err);
-}
-
-AREQ *AREQ_IncrRef(AREQ *req) {
-  QueryRequest_IncrRef(&req->base);
-  return req;
-}
-
-void AREQ_DecrRef(AREQ *req) {
-  if (!req) return;
-  QueryRequest_DecrRef(&req->base);
 }
 
 void AREQ_Free(AREQ *req) {
@@ -1913,14 +1893,6 @@ void AREQ_Free(AREQ *req) {
   QueryRequest_Destroy(&req->base);
 
   rm_free(req);
-}
-
-void AREQ_CleanUpStoredCursor(AREQ *req) {
-  if (req->base.reply.cursor) {
-    Cursor *cursor = req->base.reply.cursor;
-    req->base.reply.cursor = NULL;
-    Cursor_Free(cursor);
-  }
 }
 
 AggregationPipelineParams AREQ_MakeAggregationPipelineParams(AREQ *req,
