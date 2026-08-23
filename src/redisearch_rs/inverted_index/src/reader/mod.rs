@@ -80,13 +80,6 @@ pub trait IndexReader<'index> {
     /// is reading. The reader must then be reset and re-seeked before it reads again — re-pointing
     /// the cached buffer is not a substitute, see [`ResumableReader::refresh_pointers`] for why.
     fn needs_revalidation(&self) -> bool;
-
-    /// Re-point the cached block buffer at the live one, keeping the read position.
-    ///
-    /// Sound only while the buffer's base address is unchanged, since the read position and
-    /// anything borrowing the bytes behind it are kept as they are. A reader that may have missed
-    /// a move must re-seek instead — see [`Self::needs_revalidation`].
-    fn refresh_buffer_pointers(&mut self);
 }
 
 /// Type-level mapping from an Active reader to its Suspended counterpart.

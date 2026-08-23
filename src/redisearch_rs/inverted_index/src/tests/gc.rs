@@ -833,67 +833,12 @@ fn ii_apply_gc_entries_tracking_index() {
         }
     );
 }
-#[cfg_attr(miri, ignore = "the memory hack below raises error in miri")]
-#[test]
-fn test_refresh_buffer_pointers_after_reallocation() {
-    use crate::IndexReader as _;
-
-    let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
-
-    // Add initial records
-    ii.add_record(&RSIndexResult::build_virt().doc_id(10).build())
-        .unwrap();
-    ii.add_record(&RSIndexResult::build_virt().doc_id(11).build())
-        .unwrap();
-
-    // SAFETY: We need to bypass Rust's borrowing rules to simulate the real-world
-    // scenario where buffer reallocation happens while a reader is active.
-    // This is safe because:
-    // 1. We're not accessing the reader during the mutation
-    // 2. The InvertedIndex structure remains valid
-    // 3. We call refresh_buffer_pointers before using the reader again
-    let ii_ptr = &mut ii as *mut InvertedIndex<Dummy>;
-
-    let mut reader: crate::IndexReaderCore<'_, Dummy> = ii.reader();
-    let mut result = RSIndexResult::build_virt().build();
-
-    // Read first record
-    assert!(reader.next_record(&mut result).unwrap());
-    assert_eq!(result.doc_id, 10);
-
-    // Force buffer reallocation by adding many records to the same block
-    // This should cause the buffer to grow and potentially move
-    unsafe {
-        for i in 12..1000 {
-            (*ii_ptr)
-                .add_record(&RSIndexResult::build_virt().doc_id(i).build())
-                .unwrap();
-        }
-    }
-
-    // Buffer was reallocated - test refresh_buffer_pointers
-    reader.refresh_buffer_pointers();
-
-    // Verify we can still read correctly from the new buffer
-    let mut doc_count = 1; // Already read doc_id 10
-    let mut expected_doc_id = 11;
-
-    while reader.next_record(&mut result).unwrap() {
-        assert_eq!(result.doc_id, expected_doc_id);
-        doc_count += 1;
-        expected_doc_id += 1;
-    }
-
-    // Should have read all 990 documents (10, 11, 12..999)
-    assert_eq!(doc_count, 990);
-    assert_eq!(expected_doc_id, 1000);
-}
 
 /// A write that moves a block's buffer must be reported by
 /// [`needs_revalidation`](crate::IndexReader::needs_revalidation), even though no GC ran.
 ///
-/// [`test_refresh_buffer_pointers_after_reallocation`] covers the repair but refreshes the reader
-/// itself, so it never checks that a caller is told to. A reader that is not told holds a pointer
+/// The repair itself is the reader's re-seek on `revalidate`; this test only checks that a
+/// caller is told to revalidate in the first place. A reader that is not told holds a pointer
 /// into freed memory.
 #[test]
 #[cfg_attr(miri, ignore = "the memory hack below raises error in miri")]

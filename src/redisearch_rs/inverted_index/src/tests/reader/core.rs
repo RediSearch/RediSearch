@@ -586,10 +586,6 @@ impl<'index, I: Iterator<Item = RSIndexResult<'index>>> IndexReader<'index> for 
     fn needs_revalidation(&self) -> bool {
         false
     }
-
-    fn refresh_buffer_pointers(&mut self) {
-        unimplemented!("This test won't refresh buffer pointers")
-    }
 }
 
 // Claim iterators are numeric readers so they can be used in tests.

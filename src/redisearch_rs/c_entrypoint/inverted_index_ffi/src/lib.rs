@@ -1184,13 +1184,5 @@ pub unsafe extern "C" fn IndexReader_Revalidate(ir: *mut IndexReader) -> bool {
     // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
     let ir = unsafe { &mut *ir };
 
-    let needs_revalidation = ir_dispatch!(ir, needs_revalidation);
-
-    if !needs_revalidation {
-        // No GC occurred, but we still need to refresh buffer pointers
-        // in case blocks were reallocated
-        ir_dispatch!(ir, refresh_buffer_pointers);
-    }
-
-    needs_revalidation
+    ir_dispatch!(ir, needs_revalidation)
 }

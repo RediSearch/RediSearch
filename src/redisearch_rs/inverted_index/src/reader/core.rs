@@ -393,15 +393,6 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> IndexReader<'index>
         let live: *const [u8] = block.buffer.as_slice();
         !std::ptr::addr_eq(cached, live) || cached.len() != live.len()
     }
-
-    fn refresh_buffer_pointers(&mut self) {
-        let ii = self.ii.get();
-        if !ii.blocks.is_empty() && self.current_block_idx < ii.blocks.len() {
-            let current_block = &ii.blocks[self.current_block_idx];
-            // Update the cursor to point to the current position in the refreshed buffer
-            self.buf = SharedPtr::from_ref(current_block.buffer.as_slice());
-        }
-    }
 }
 
 impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> RawIndexReaderCore<Active<'index>, E> {
