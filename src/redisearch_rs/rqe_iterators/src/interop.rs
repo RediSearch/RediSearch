@@ -218,12 +218,11 @@ extern "C" fn read<'index, I: RQEIterator<'index> + 'index>(
     base: *mut QueryIterator,
 ) -> IteratorStatus {
     debug_assert!(base.is_aligned());
+    debug_assert!(!base.is_null());
+    // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`], which rules out null.
+    let base = unsafe { NonNull::new_unchecked(base) };
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
-    let wrapper = unsafe {
-        RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(
-            NonNull::new(base).expect("`base` must not be null"),
-        )
-    };
+    let wrapper = unsafe { RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(base) };
     match wrapper.inner.read() {
         Ok(Some(result)) => {
             wrapper.header.current = result as *mut RSIndexResult as *mut ffi::RSIndexResult;
@@ -249,12 +248,11 @@ extern "C" fn skip_to<'index, I: RQEIterator<'index> + 'index>(
     doc_id: DocId,
 ) -> IteratorStatus {
     debug_assert!(base.is_aligned());
+    debug_assert!(!base.is_null());
+    // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`], which rules out null.
+    let base = unsafe { NonNull::new_unchecked(base) };
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
-    let wrapper = unsafe {
-        RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(
-            NonNull::new(base).expect("`base` must not be null"),
-        )
-    };
+    let wrapper = unsafe { RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(base) };
     match wrapper.inner.skip_to(doc_id) {
         Ok(Some(SkipToOutcome::Found(result))) => {
             wrapper.header.current = result as *mut RSIndexResult as *mut ffi::RSIndexResult;
@@ -313,12 +311,11 @@ extern "C" fn revalidate<'index, I: RQEIterator<'index> + 'index>(
         return ValidateStatus_VALIDATE_TIMEOUT;
     }
 
+    debug_assert!(!base.is_null());
+    // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`], which rules out null.
+    let base = unsafe { NonNull::new_unchecked(base) };
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
-    let wrapper = unsafe {
-        RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(
-            NonNull::new(base).expect("`base` must not be null"),
-        )
-    };
+    let wrapper = unsafe { RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(base) };
 
     // SAFETY: spec is a valid pointer (guaranteed by C caller)
     let spec_ref = unsafe { &*spec };
@@ -356,12 +353,11 @@ extern "C" fn revalidate<'index, I: RQEIterator<'index> + 'index>(
 
 extern "C" fn rewind<'index, I: RQEIterator<'index> + 'index>(base: *mut QueryIterator) {
     debug_assert!(base.is_aligned());
+    debug_assert!(!base.is_null());
+    // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`], which rules out null.
+    let base = unsafe { NonNull::new_unchecked(base) };
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
-    let wrapper = unsafe {
-        RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(
-            NonNull::new(base).expect("`base` must not be null"),
-        )
-    };
+    let wrapper = unsafe { RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(base) };
     wrapper.inner.rewind();
     wrapper.header.lastDocId = wrapper.inner.last_doc_id();
     wrapper.header.atEOF = wrapper.inner.at_eof();
@@ -396,7 +392,10 @@ extern "C" fn rust_profile_children<'index, I: ProfileChildren<'index> + Profile
     base: *mut QueryIterator,
 ) -> *mut QueryIterator {
     debug_assert!(base.is_aligned());
-    let base = NonNull::new(base).expect("`base` must not be null");
+    debug_assert!(!base.is_null());
+    // SAFETY: As a header-stored callback (invariant 1. in [`RQEIteratorWrapper`]),
+    // `base` is a live header, so it is non-null.
+    let base = unsafe { NonNull::new_unchecked(base) };
     // SAFETY:
     // 1. As a header-stored callback (invariant 1. in [`RQEIteratorWrapper`]),
     //    `base` is an aligned, live header, uniquely owned until it is consumed
