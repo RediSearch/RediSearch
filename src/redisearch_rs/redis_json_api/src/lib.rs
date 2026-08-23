@@ -32,7 +32,7 @@ mod value;
 
 use ffi::RedisJSONAPI as RedisJsonApiVTable;
 use redis_module::{RedisString, key::KeyFlags};
-use std::{error::Error, ffi::CStr, fmt, ptr::NonNull};
+use std::{error::Error, ffi::CStr, fmt, ptr, ptr::NonNull};
 
 pub use key_values::KeyValuesIterator;
 pub use path::JsonPath;
@@ -190,7 +190,7 @@ impl RedisJsonApi {
 
     /// Gets the JSON root from an already-open [`RedisModuleKey`] handle.
     ///
-    /// Returns `None` if the key is `NULL`, is not a module type, or does not hold JSON.
+    /// Returns `None` if the key is absent, is not a module type, or does not hold JSON.
     /// The caller owns the key handle and must keep it open while the returned
     /// [`JsonValueRef`] is in use.
     ///
@@ -199,13 +199,15 @@ impl RedisJsonApi {
     ///
     /// # Safety
     ///
-    /// 1. `redis_key` must be a valid, open `RedisModuleKey` handle (or NULL).
+    /// 1. `redis_key`, when present, must be a valid, open `RedisModuleKey` handle.
     ///
     /// [`RedisModuleKey`]: redis_module::RedisModuleKey
     pub unsafe fn open_from_handle(
         &self,
-        redis_key: *mut redis_module::RedisModuleKey,
+        redis_key: Option<NonNull<redis_module::RedisModuleKey>>,
     ) -> Option<JsonValueRef<'_>> {
+        let redis_key = redis_key.map_or(ptr::null_mut(), NonNull::as_ptr);
+
         // Safety: ensured by caller (1.); the helper tolerates a NULL/non-JSON key.
         let ptr = unsafe { ffi::JSON_GetJsonFromHandleCompat(redis_key) };
 
