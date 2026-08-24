@@ -756,11 +756,6 @@ impl TagIndex<OnDiskMode> {
     /// Create an iterator over the documents matching `tag`, built through the disk
     /// API and keyed by the tag string.
     ///
-    /// It filters on the caller's `field_index` rather than the field recorded at
-    /// write time. Unlike the memory-mode counterpart there is no absent-tag case to
-    /// report: the disk backend owns the lookup, and builds an iterator that simply
-    /// reads nothing.
-    ///
     /// Returns `Err` when the disk backend fails to build its iterator.
     ///
     /// # Panics
@@ -781,7 +776,6 @@ impl TagIndex<OnDiskMode> {
         sctx: NonNull<RedisSearchCtx>,
         tag: Tag<'_>,
         weight: f64,
-        field_index: t_fieldIndex,
     ) -> Result<Box<dyn RQEIteratorPrintable<'_> + '_>, Box<dyn std::error::Error>> {
         // SAFETY: `sctx` is valid (contract 2).
         let disk_snapshot = unsafe { sctx.as_ref() }.diskSnapshot;
@@ -809,7 +803,13 @@ impl TagIndex<OnDiskMode> {
         // from `new_on_disk`); `tok` borrows `tag` for the duration of the call; and
         // `snapshot` is the snapshot contract 3 requires.
         let disk_index_spec = unsafe { &mut *self.mode.disk_index_spec.as_ptr() };
-        enterprise_iters.new_tag_on_disk(disk_index_spec, &tok, field_index, weight, snapshot)
+        enterprise_iters.new_tag_on_disk(
+            disk_index_spec,
+            &tok,
+            self.mode.field_id,
+            weight,
+            snapshot,
+        )
     }
 }
 
