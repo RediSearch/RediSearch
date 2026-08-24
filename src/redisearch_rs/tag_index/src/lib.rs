@@ -250,8 +250,6 @@ impl TagIndexMode for InMemoryMode {}
 pub struct OnDiskMode {
     /// tag value -> (). It is used only to know whether a tag is there
     values: TrieMap<()>,
-    /// Field id
-    field_id: t_fieldIndex,
     /// Disk Index spec, valid for as long as this index lives.
     disk_index_spec: NonNull<RedisSearchDiskIndexSpec>,
 }
@@ -266,6 +264,9 @@ pub struct TagIndex<M: TagIndexMode> {
 
     /// Suffix index, present only for fields created `WITHSUFFIXTRIE`.
     suffix: Option<TagSuffixIndex>,
+
+    /// Field id
+    field_id: t_fieldIndex,
 
     /// The storage mode, owning the values trie and whatever else that mode
     /// needs — the postings themselves in [`InMemoryMode`], the disk handles in
@@ -288,10 +289,11 @@ pub struct WritePostingsDelta {
 
 impl<M: TagIndexMode> TagIndex<M> {
     /// The part of construction every mode's constructor shares.
-    fn with_mode(with_suffix: bool, mode: M) -> Self {
+    fn with_mode(with_suffix: bool, field_id: t_fieldIndex, mode: M) -> Self {
         Self {
             unique_id: TagUniqueId::next(),
             suffix: with_suffix.then(TagSuffixIndex::new),
+            field_id,
             mode,
         }
     }
@@ -399,9 +401,10 @@ impl TagIndex<InMemoryMode> {
     /// `with_suffix` enables the [suffix index](TagSuffixIndex)
     /// (`WITHSUFFIXTRIE`), so suffix (`*foo`) and contains (`*foo*`)
     /// queries don't have to scan the whole tag trie.
-    pub fn new(with_suffix: bool) -> Self {
+    pub fn new(with_suffix: bool, field_id: t_fieldIndex) -> Self {
         Self::with_mode(
             with_suffix,
+            field_id,
             InMemoryMode {
                 values: TrieMap::new(),
             },
@@ -511,7 +514,6 @@ impl TagIndex<InMemoryMode> {
         sctx: NonNull<RedisSearchCtx>,
         tag: Tag<'_>,
         weight: f64,
-        field_index: t_fieldIndex,
         lookup: TrieLookup,
     ) -> Option<TagIterator<'_, DocIdsOnly, TrieLookup, FieldExpirationChecker>> {
         let ii = self.mode.values.find(tag.as_bytes())?;
@@ -522,7 +524,7 @@ impl TagIndex<InMemoryMode> {
         let term = RSQueryTerm::new_bytes(tag.as_bytes(), 0, 0);
 
         let filter_ctx = FieldFilterContext {
-            field: FieldMaskOrIndex::Index(field_index),
+            field: FieldMaskOrIndex::Index(self.field_id),
             predicate: FieldExpirationPredicate::Default,
         };
         let reader = ii.reader();
@@ -654,9 +656,9 @@ impl TagIndex<OnDiskMode> {
     ) -> Self {
         Self::with_mode(
             with_suffix,
+            field_id,
             OnDiskMode {
                 values: TrieMap::new(),
-                field_id,
                 disk_index_spec: disk_spec,
             },
         )
@@ -702,9 +704,7 @@ impl TagIndex<OnDiskMode> {
         );
 
         let OnDiskMode {
-            field_id,
-            disk_index_spec,
-            ..
+            disk_index_spec, ..
         } = &mut self.mode;
 
         if tags.is_empty() {
@@ -724,7 +724,7 @@ impl TagIndex<OnDiskMode> {
                 value_ptrs.as_mut_ptr(),
                 value_ptrs.len(),
                 doc_id,
-                *field_id,
+                self.field_id,
             )
         }
     }
@@ -804,13 +804,7 @@ impl TagIndex<OnDiskMode> {
         // from `new_on_disk`); `tok` borrows `tag` for the duration of the call; and
         // `snapshot` is the snapshot contract 3 requires.
         let disk_index_spec = unsafe { &mut *self.mode.disk_index_spec.as_ptr() };
-        enterprise_iters.new_tag_on_disk(
-            disk_index_spec,
-            &tok,
-            self.mode.field_id,
-            weight,
-            snapshot,
-        )
+        enterprise_iters.new_tag_on_disk(disk_index_spec, &tok, self.field_id, weight, snapshot)
     }
 }
 
@@ -878,7 +872,7 @@ mod tests {
     #[test]
     fn revalidate_aborts_after_tag_removed() {
         let mock = MockContext::new(3, 3);
-        let mut idx = TagIndex::<InMemoryMode>::new(false);
+        let mut idx = TagIndex::<InMemoryMode>::new(false, 0);
         let tags = &[Tag::new(b"team").unwrap()];
         for doc_id in 1..=3 {
             // `doc_id` is non-decreasing across loop iterations, as `index` requires.
@@ -1123,7 +1117,7 @@ mod choose_token_tests {
 
     /// Build an in-memory index with a suffix trie and commit `tags`.
     fn indexed(tags: &[&[u8]]) -> TagIndex<InMemoryMode> {
-        let mut idx = TagIndex::<InMemoryMode>::new(true);
+        let mut idx = TagIndex::<InMemoryMode>::new(true, 0);
         let tags: Vec<Tag<'_>> = tags
             .iter()
             .map(|t| Tag::new(t).expect("test literal is NUL-free"))
@@ -1358,11 +1352,11 @@ mod mem_usage_tests {
 
         // Both indexes are indexed *and* committed, so the values trie is non-empty on
         // each side: were it missing from one of the two sums, the delta would not match.
-        let mut with_suffix = TagIndex::<InMemoryMode>::new(true);
+        let mut with_suffix = TagIndex::<InMemoryMode>::new(true, 0);
         with_suffix.index(&tags, 1, false);
         with_suffix.commit(&tags);
 
-        let mut without_suffix = TagIndex::<InMemoryMode>::new(false);
+        let mut without_suffix = TagIndex::<InMemoryMode>::new(false, 0);
         without_suffix.index(&tags, 1, false);
         without_suffix.commit(&tags);
 

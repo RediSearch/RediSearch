@@ -57,7 +57,7 @@ fn tag_term_layout(size: usize) -> Layout {
 }
 
 /// Return the length of the holding string.
-/// 
+///
 /// # Safety
 /// `ptr` has to be NUL-terminated.
 const unsafe fn get_length(ptr: *const u8) -> usize {

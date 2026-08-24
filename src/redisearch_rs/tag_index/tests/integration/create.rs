@@ -22,8 +22,8 @@ use crate::util::{commit_mem, index_mem};
 /// the one its child scanned.
 #[test]
 fn each_index_gets_its_own_id() {
-    let first = TagIndex::<InMemoryMode>::new(false);
-    let second = TagIndex::<InMemoryMode>::new(false);
+    let first = TagIndex::<InMemoryMode>::new(false, 0);
+    let second = TagIndex::<InMemoryMode>::new(false, 0);
 
     assert_ne!(first.id(), second.id());
 }
@@ -32,7 +32,7 @@ fn each_index_gets_its_own_id() {
 /// on-disk one can't collide either.
 #[test]
 fn ids_are_unique_across_storage_modes() {
-    let in_memory = TagIndex::<InMemoryMode>::new(false);
+    let in_memory = TagIndex::<InMemoryMode>::new(false, 0);
     // SAFETY: this test only drives paths that never dereference the spec, so a
     // dangling pointer satisfies `new_on_disk` here (see the `disk` module docs).
     let on_disk = unsafe { TagIndex::<OnDiskMode>::new(NonNull::dangling(), 0, false) };
@@ -43,23 +43,23 @@ fn ids_are_unique_across_storage_modes() {
 /// `with_suffix` toggles suffix support.
 #[test]
 fn suffix_support_follows_the_creation_flag() {
-    let tag_index = TagIndex::<InMemoryMode>::new(false);
+    let tag_index = TagIndex::<InMemoryMode>::new(false, 0);
     assert!(!tag_index.has_suffix());
 
-    let tag_index = TagIndex::<InMemoryMode>::new(true);
+    let tag_index = TagIndex::<InMemoryMode>::new(true, 0);
     assert!(tag_index.has_suffix());
 }
 
 #[test]
 fn new_in_memory_means_memory_mode() {
     // Type checked
-    let _: TagIndex<InMemoryMode> = TagIndex::<InMemoryMode>::new(false);
+    let _: TagIndex<InMemoryMode> = TagIndex::<InMemoryMode>::new(false, 0);
 }
 
 /// A newly created index holds no tags: lookups miss.
 #[test]
 fn new_index_holds_no_tags() {
-    let tag_index = TagIndex::<InMemoryMode>::new(false);
+    let tag_index = TagIndex::<InMemoryMode>::new(false, 0);
 
     assert!(tag_index.find_value(b"missing").is_none());
     assert!(
@@ -78,9 +78,9 @@ fn mem_usage_accounts_for_the_suffix_trie() {
 
     // A fresh index already reports its tries' stack footprint, so growth has to be
     // measured against that baseline rather than against zero.
-    let empty = TagIndex::<InMemoryMode>::new(true).mem_usage();
+    let empty = TagIndex::<InMemoryMode>::new(true, 0).mem_usage();
 
-    let mut with_suffix = TagIndex::<InMemoryMode>::new(true);
+    let mut with_suffix = TagIndex::<InMemoryMode>::new(true, 0);
     index_mem(&mut with_suffix, tags, 1);
     commit_mem(&mut with_suffix, tags);
     assert!(
@@ -88,7 +88,7 @@ fn mem_usage_accounts_for_the_suffix_trie() {
         "populating the tries must grow the reported overhead"
     );
 
-    let mut without_suffix = TagIndex::<InMemoryMode>::new(false);
+    let mut without_suffix = TagIndex::<InMemoryMode>::new(false, 0);
     index_mem(&mut without_suffix, tags, 1);
     commit_mem(&mut without_suffix, tags);
 
