@@ -23,7 +23,7 @@ def configure_shards_with_different_timeout_policies(env):
 @skip(cluster=False)
 def test_cluster_aggregate_with_shards_timeout(env):
     """
-    This test tries to reproduce an issue MOD-10774, which crashed when the coordinator shard had a different TimeOur Return Policy
+    This test tries to reproduce an issue MOD-10774, which crashed when the coordinator shard had a different Timeout Return Policy
     than the other shards. (The coordinator had On TimeOut return and the other On Timeout Fail). When the shard actually timed out,
     the coordinator would crash.
     """
