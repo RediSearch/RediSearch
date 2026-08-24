@@ -68,7 +68,7 @@ jobs:
     uses: ./.github/workflows/task-build-cached-container.yml
     with:
       container: ${{ needs.get-config.outputs.container }}
-      runner-env: ${{ inputs.architecture == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+      runner-env: ${{ inputs.architecture == 'aarch64' && vars.RUNS_ON_ARM64_MEDIUM || vars.RUNS_ON_X64_MEDIUM }}
       san: 'none'
 
   common-flow:
@@ -77,7 +77,7 @@ jobs:
     if: |
       !cancelled() &&
       needs.get-config.result == 'success'
-    runs-on: ${{ inputs.architecture == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.architecture == 'aarch64' && vars.RUNS_ON_ARM64_MEDIUM || vars.RUNS_ON_X64_MEDIUM }}
     container: ${{
       needs.get-config.outputs.container
         && fromJSON(
@@ -199,6 +199,17 @@ jobs:
           RUST_PARTITION: ${{ inputs.partition }}
         run: make rust-tests
 
+      - name: Debug sleep after MIRI failure
+        if: failure() || steps.rust_unit_tests_miri.outcome == 'failure'
+        run: |
+          echo "MIRI failed; keeping this job container alive for 6 hours."
+          echo "Runner: ${RUNNER_NAME:-unknown}"
+          echo "Hostname: $(hostname)"
+          echo "User: $(id)"
+          echo "Working directory: $PWD"
+          df -h
+          sleep 21600
+
       - name: Upload Test Logs (failure)
         if: failure() || steps.rust_unit_tests_miri.outcome == 'failure'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -212,4 +223,3 @@ jobs:
         run: |
           echo "Rust tests (MIRI): ${{ steps.rust_unit_tests_miri.outcome }}"
           exit 1
-
