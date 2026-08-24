@@ -36,11 +36,14 @@ impl<'tm, 'p, Data: 'tm> ContainsIter<'tm, 'p, Data> {
         Self(iter::ContainsIter::empty())
     }
 
-    /// Stop the traversal when `should_stop` returns `true`. See
-    /// [`Iter::set_should_stop`](crate::iter::Iter::set_should_stop) for the
-    /// polling contract.
-    pub fn set_should_stop(&mut self, should_stop: impl FnMut() -> bool + 'tm) {
-        self.0.set_should_stop(should_stop);
+    pub(crate) fn new_with_should_stop(
+        trie: &'tm TrieMap<Data>,
+        target: impl Into<Cow<'p, str>>,
+        should_stop: impl FnMut() -> bool + 'tm,
+    ) -> Self {
+        let mut iter = Self::new(trie, target);
+        iter.0.set_should_stop(should_stop);
+        iter
     }
 }
 

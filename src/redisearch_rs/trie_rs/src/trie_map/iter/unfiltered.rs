@@ -50,13 +50,10 @@ impl<'tm, Data, F> Iter<'tm, Data, F> {
         self.timeout = timeout.into();
     }
 
-    /// Stop the traversal when `should_stop` returns `true`. The predicate
-    /// is polled once per [`TIMEOUT_CHECK_GRANULARITY`](super::TIMEOUT_CHECK_GRANULARITY)
-    /// traversal steps — not per yielded entry — so it fires even on walks
-    /// that visit many nodes without yielding. Once it returns `true`, the
-    /// iterator is exhausted. Replaces any deadline set via
-    /// [`Self::set_timeout`].
-    pub fn set_should_stop(&mut self, should_stop: impl FnMut() -> bool + 'tm) {
+    /// Stop the traversal when `should_stop` returns `true`, per the
+    /// [`TIMEOUT_CHECK_GRANULARITY`](super::TIMEOUT_CHECK_GRANULARITY)
+    /// polling contract. Replaces any deadline set via [`Self::set_timeout`].
+    pub(crate) fn set_should_stop(&mut self, should_stop: impl FnMut() -> bool + 'tm) {
         self.timeout = IteratorTimeoutState::from_should_stop(should_stop);
     }
 }

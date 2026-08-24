@@ -17,6 +17,16 @@ use timeout::{
 /// clock reads for a deadline set from an [`Instant`], calls to the
 /// predicate for one set via
 /// [`from_should_stop`](IteratorTimeoutState::from_should_stop).
+///
+/// This is the polling contract every deadline-carrying trie iterator
+/// obeys: the deadline source is probed once per this many *traversal
+/// steps*, not once per yielded entry, so it fires even on a sparse walk
+/// that visits many nodes without yielding any. Once it reports a stop,
+/// the iterator is exhausted and stays exhausted.
+///
+/// Mirrors `TIMEOUT_COUNTER_LIMIT` in `src/util/timeout.h`, which paces
+/// the equivalent C traversals. The value is duplicated rather than
+/// imported because this crate is pure Rust with no `ffi` dependency.
 pub const TIMEOUT_CHECK_GRANULARITY: u32 = 100;
 
 /// Deadline enforcement for a trie iterator.

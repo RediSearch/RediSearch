@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! `set_should_stop` contract: the predicate is polled per traversal step
+//! `should_stop` contract: the predicate is polled per traversal step
 //! (amortized every [`TIMEOUT_CHECK_GRANULARITY`] steps), not per yielded
 //! entry, so it fires even on walks that visit many nodes without yielding
 //! anything.
@@ -32,8 +32,7 @@ fn seeded_trie() -> StrTrieMap<usize> {
 fn prefixed_iter_stops_mid_walk() {
     let trie = seeded_trie();
 
-    let mut iter = trie.prefixed_iter("key");
-    iter.set_should_stop(|| true);
+    let mut iter = trie.prefixed_iter_with_should_stop("key", || true);
     let yielded = iter.by_ref().count();
 
     assert!(
@@ -48,12 +47,12 @@ fn prefixed_iter_polls_predicate_amortized() {
     let trie = seeded_trie();
     let calls = Cell::new(0u32);
 
-    let mut iter = trie.prefixed_iter("key");
-    iter.set_should_stop(|| {
-        calls.set(calls.get() + 1);
-        false
-    });
-    let yielded = iter.count();
+    let yielded = trie
+        .prefixed_iter_with_should_stop("key", || {
+            calls.set(calls.get() + 1);
+            false
+        })
+        .count();
 
     assert_eq!(yielded, N_KEYS, "a false predicate must not drop entries");
     // Every node contributes at least one traversal step, so a full walk
@@ -74,12 +73,14 @@ fn suffixed_iter_polls_predicate_on_yieldless_walk() {
 
     // No key ends with "zzz": the walk visits the whole trie and yields
     // nothing, so a per-yield poll would never fire.
-    let mut iter = trie.suffixed_iter("zzz");
-    iter.set_should_stop(|| {
-        calls.set(calls.get() + 1);
-        false
-    });
-    assert_eq!(iter.count(), 0);
+    let count = trie
+        .suffixed_iter_with_should_stop("zzz", || {
+            calls.set(calls.get() + 1);
+            false
+        })
+        .count();
+
+    assert_eq!(count, 0);
     assert!(
         calls.get() > 0,
         "the predicate must be polled per traversal step, not per yield"
@@ -91,12 +92,14 @@ fn suffixed_iter_stops_mid_walk() {
     let trie = seeded_trie();
     let calls = Cell::new(0u32);
 
-    let mut iter = trie.suffixed_iter("zzz");
-    iter.set_should_stop(|| {
-        calls.set(calls.get() + 1);
-        true
-    });
-    assert_eq!(iter.count(), 0);
+    let count = trie
+        .suffixed_iter_with_should_stop("zzz", || {
+            calls.set(calls.get() + 1);
+            true
+        })
+        .count();
+
+    assert_eq!(count, 0);
     assert_eq!(
         calls.get(),
         1,
@@ -109,12 +112,14 @@ fn contains_iter_polls_predicate_on_yieldless_walk() {
     let trie = seeded_trie();
     let calls = Cell::new(0u32);
 
-    let mut iter = trie.contains_iter("zzz");
-    iter.set_should_stop(|| {
-        calls.set(calls.get() + 1);
-        false
-    });
-    assert_eq!(iter.count(), 0);
+    let count = trie
+        .contains_iter_with_should_stop("zzz", || {
+            calls.set(calls.get() + 1);
+            false
+        })
+        .count();
+
+    assert_eq!(count, 0);
     assert!(
         calls.get() > 0,
         "the predicate must be polled per traversal step, not per yield"
@@ -126,10 +131,10 @@ fn contains_iter_stops_mid_walk() {
     let trie = seeded_trie();
 
     // Every key contains "key", so a full walk yields everything.
-    let mut iter = trie.contains_iter("key");
-    iter.set_should_stop(|| true);
+    let count = trie.contains_iter_with_should_stop("key", || true).count();
+
     assert!(
-        iter.count() < N_KEYS,
+        count < N_KEYS,
         "an always-true predicate must cut the walk short"
     );
 }
@@ -139,10 +144,10 @@ fn wildcard_iter_nfa_backend_stops_mid_walk() {
     let trie = seeded_trie();
 
     // Few atoms: NFA backend.
-    let mut iter = trie.wildcard_iter("key*");
-    iter.set_should_stop(|| true);
+    let count = trie.wildcard_iter_with_should_stop("key*", || true).count();
+
     assert!(
-        iter.count() < N_KEYS,
+        count < N_KEYS,
         "an always-true predicate must cut the NFA walk short"
     );
 }
@@ -155,12 +160,14 @@ fn wildcard_iter_filter_backend_polls_predicate() {
     // >= 128 atoms forces the per-key filter backend; no stored key is 128
     // codepoints long, so the walk yields nothing.
     let pattern = "?".repeat(128);
-    let mut iter = trie.wildcard_iter(&pattern);
-    iter.set_should_stop(|| {
-        calls.set(calls.get() + 1);
-        false
-    });
-    assert_eq!(iter.count(), 0);
+    let count = trie
+        .wildcard_iter_with_should_stop(&pattern, || {
+            calls.set(calls.get() + 1);
+            false
+        })
+        .count();
+
+    assert_eq!(count, 0);
     assert!(
         calls.get() > 0,
         "the filter backend must poll the predicate per traversal step"

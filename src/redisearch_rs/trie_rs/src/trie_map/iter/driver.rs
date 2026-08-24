@@ -128,7 +128,8 @@ impl<'tm, Data, A: Automaton> AutomatonIter<'tm, Data, A> {
         self.timeout = timeout.into()
     }
 
-    /// See [`Iter::set_should_stop`](super::Iter::set_should_stop) for the
+    /// Stop the traversal when `should_stop` returns `true`, per the
+    /// [`TIMEOUT_CHECK_GRANULARITY`](super::TIMEOUT_CHECK_GRANULARITY)
     /// polling contract.
     pub(crate) fn set_should_stop(&mut self, should_stop: impl FnMut() -> bool + 'tm) {
         self.timeout = IteratorTimeoutState::from_should_stop(should_stop);
