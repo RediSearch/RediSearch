@@ -561,7 +561,7 @@ numericConfigs = [
     ('search-bg-index-sleep-gap', 'BG_INDEX_SLEEP_GAP', 100, 1, UINT32_MAX, True, False),
     ('search-cursor-max-idle', 'CURSOR_MAX_IDLE', 300000, 1, LLONG_MAX, False, False),
     ('search-default-dialect', 'DEFAULT_DIALECT', 1, 1, 4, False, False),
-    ('search-fork-gc-clean-threshold', 'FORK_GC_CLEAN_THRESHOLD', 100, 1, LLONG_MAX, False, False),
+    ('search-fork-gc-clean-threshold', 'FORK_GC_CLEAN_THRESHOLD', 100, 0, LLONG_MAX, False, False),
     ('search-fork-gc-retry-interval', 'FORK_GC_RETRY_INTERVAL', 5, 1, LLONG_MAX, False, False),
     ('search-fork-gc-run-interval', 'FORK_GC_RUN_INTERVAL', 30, 1, LLONG_MAX, False, False),
     ('search-fork-gc-sleep-before-exit', 'FORKGC_SLEEP_BEFORE_EXIT', 0, 0, LLONG_MAX, False, False),
@@ -576,9 +576,11 @@ numericConfigs = [
     ('search-min-phonetic-term-len', 'MIN_PHONETIC_TERM_LEN', 3, 1, LLONG_MAX, False, False),
     ('search-min-prefix', 'MINPREFIX', 2, 1, UINT32_MAX, False, False),
     ('search-min-stem-len', 'MINSTEMLEN', 4, 2, UINT32_MAX, False, False),
-    ('search-multi-text-slop', 'MULTI_TEXT_SLOP', 100, 1, UINT32_MAX, True, False),
+    ('search-multi-text-slop', 'MULTI_TEXT_SLOP', 100, 0, UINT32_MAX, True, False),
     ('search-tiered-hnsw-buffer-limit', 'TIERED_HNSW_BUFFER_LIMIT', 1024, 0, LLONG_MAX, True, False),
-    ('search-timeout', 'TIMEOUT', 500, 1, LLONG_MAX, False, False),
+    # search-timeout 0 is a meaningful "never times out" sentinel on both the
+    # legacy and native paths, not an out-of-range value.
+    ('search-timeout', 'TIMEOUT', 500, 0, LLONG_MAX, False, False),
     ('search-union-iterator-heap', 'UNION_ITERATOR_HEAP', 20, 1, UINT32_MAX, False, False),
     ('search-vss-max-resize', 'VSS_MAX_RESIZE', 0, 0, UINT32_MAX, False, False),
     ('search-workers', 'WORKERS', min(MAX_WORKER_THREADS, os.cpu_count()), 0, 16, False, False),
@@ -603,6 +605,19 @@ CLAMPED_CONFIGS = {
     'search-max-prefix-expansions': UINT32_MAX,
     'search-min-prefix': UINT32_MAX,
     'search-union-iterator-heap': UINT32_MAX,
+    # The registered max is LLONG_MAX (widened so an out-of-range startup value
+    # doesn't abort the server, see MOD-17730), not the values below: an
+    # over-cap CONFIG SET is accepted and clamped to the legacy setter's
+    # maximum, same as the narrowed-type configs above.
+    'search-max-search-results': MAX_SEARCH_REQUEST_RESULTS,
+    'search-max-aggregate-results': MAX_AGGREGATE_REQUEST_RESULTS,
+}
+
+# min - 1 (i.e. -1) is a meaningful "unlimited" sentinel for these configs,
+# translated to the listed value on both the legacy and native paths.
+SENTINEL_TRANSLATED_CONFIGS = {
+    'search-max-search-results': MAX_SEARCH_REQUEST_RESULTS,
+    'search-max-aggregate-results': MAX_AGGREGATE_REQUEST_RESULTS,
 }
 
 @skip(redis_less_than='7.9.227')
@@ -647,8 +662,13 @@ def testConfigAPIRunTimeNumericParams():
         # test invalid values
         env.expect('CONFIG', 'SET', configName, 'invalid_numeric').error()\
             .contains('CONFIG SET failed')
-        env.expect('CONFIG', 'SET', configName, str(min - 1)).error()\
-            .contains('CONFIG SET failed')
+        if configName in SENTINEL_TRANSLATED_CONFIGS:
+            env.expect('CONFIG', 'SET', configName, str(min - 1)).equal('OK')
+            env.expect('CONFIG', 'GET', configName)\
+                .equal([configName, str(SENTINEL_TRANSLATED_CONFIGS[configName])])
+        else:
+            env.expect('CONFIG', 'SET', configName, str(min - 1)).error()\
+                .contains('CONFIG SET failed')
         if configName in CLAMPED_CONFIGS:
             # Values above UINT32_MAX are accepted and clamped (backwards compat)
             env.expect('CONFIG', 'SET', configName, str(max + 1)).equal('OK')
@@ -809,7 +829,10 @@ _registerModuleLoadexNumericParamTests()
 
 # Skip on ASAN since RedisModule_Unload is not fully implemented (MOD-7161)
 def _testConfigAPILoadTimeNumericParam(configName, maxValue):
-    """Verify MODULE LOADEX rejects values above maxValue for one numeric config."""
+    """Verify MODULE LOADEX rejects values above maxValue for one numeric config,
+    except for a config in CLAMPED_CONFIGS: its registered max is wider than
+    maxValue, so an over-cap value is accepted at load time and clamped down to
+    maxValue rather than rejected."""
     env = Env(noDefaultModuleArgs=True, module='', moduleArgs='')
     redisearch_module_path = os.getenv('MODULE')
     if redisearch_module_path is None:
@@ -819,21 +842,27 @@ def _testConfigAPILoadTimeNumericParam(configName, maxValue):
     env.start()
     res = env.cmd('MODULE', 'LIST')
     env.assertEqual(res, default_module_list)
-    env.expect('MODULE', 'LOADEX', redisearch_module_path,
-                'CONFIG', configName, str(maxValue + 1)).error()\
-                .contains('Error loading the extension')
-    env.assertTrue(env.isUp())
+    if configName in CLAMPED_CONFIGS:
+        res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
+                       'CONFIG', configName, str(maxValue + 1))
+        env.assertEqual(res, 'OK')
+        env.assertTrue(env.isUp())
+        env.expect('CONFIG', 'GET', configName).equal([configName, str(maxValue)])
+    else:
+        env.expect('MODULE', 'LOADEX', redisearch_module_path,
+                    'CONFIG', configName, str(maxValue + 1)).error()\
+                    .contains('Error loading the extension')
+        env.assertTrue(env.isUp())
     env.stop()
 
 
 def _registerConfigAPILoadTimeNumericParamTests():
-    # Emit one test per non-cluster numeric config (skipping CLAMPED_CONFIGS
-    # whose values are accepted and clamped for backwards compat).
+    # Emit one test per non-cluster numeric config. Configs in CLAMPED_CONFIGS
+    # are included: _testConfigAPILoadTimeNumericParam asserts the clamp
+    # instead of the load-time rejection.
     for cfg in numericConfigs:
         configName, argName, _default, _minValue, maxValue, _immutable, clusterConfig = cfg
         if clusterConfig:
-            continue
-        if configName in CLAMPED_CONFIGS:
             continue
         testName = f'testConfigAPILoadTimeNumericParams_{argName}'
 
