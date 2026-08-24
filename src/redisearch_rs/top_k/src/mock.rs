@@ -206,6 +206,8 @@ impl ScoreSource for MockScoreSource {
         self.batch_pos = 0;
     }
 
+    fn reset_profile(&mut self) {}
+
     fn build_result<'r>(&self, doc_id: DocId, _score: f64) -> RSIndexResult<'r>
     where
         Self: 'r,

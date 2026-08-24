@@ -91,14 +91,16 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker> {
     /// and reads the `timeoutCtx` referent, the `timeout_ctx` field, dropped no
     /// earlier than this iterator.
     batch_iter: Option<BatchIterator<'index, 'index>>,
-    /// Number of batches consumed over the whole evaluation.
+    /// Number of batches consumed over the whole evaluation. Reset by
+    /// [`ScoreSource::reset_profile`].
     pub num_iterations: usize,
-    /// Largest batch size used over the whole evaluation; only ever grows. Read
-    /// by the profile printer.
+    /// Largest batch size used over the whole evaluation; only ever grows within
+    /// it. Read by the profile printer. Reset by
+    /// [`ScoreSource::reset_profile`].
     pub max_batch_size: usize,
     /// Zero-based iteration index at which the current
     /// [`max_batch_size`](Self::max_batch_size) was reached.
-    /// Read by the profile printer.
+    /// Read by the profile printer. Reset by [`ScoreSource::reset_profile`].
     pub max_batch_iteration: usize,
     /// Rolling estimate of how many child docs pass the filter; seeded from
     /// [`initial_child_num_estimated`](Self::initial_child_num_estimated) and
@@ -451,15 +453,19 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
         self.k.min(self.index_size())
     }
 
-    /// Restarts the scan from the beginning. The profile counters are
-    /// evaluation-scoped and left untouched: this also runs when the iterator
-    /// discards a partially collected scan, whose profile still has to report
-    /// the batches that scan consumed.
+    /// Restarts the scan from the beginning, leaving the batch counters for
+    /// [`reset_profile`](ScoreSource::reset_profile) to clear.
     fn rewind(&mut self) {
         self.batch_iter = None;
         self.k_remaining = self.k;
         self.child_num_estimated = self.initial_child_num_estimated;
         self.unfiltered_consumed = false;
+    }
+
+    fn reset_profile(&mut self) {
+        self.num_iterations = 0;
+        self.max_batch_size = 0;
+        self.max_batch_iteration = 0;
     }
 
     fn build_result<'r>(&self, doc_id: DocId, score: f64) -> RSIndexResult<'r>
@@ -722,6 +728,37 @@ mod tests {
         source.next_batch().unwrap();
         assert_eq!(source.max_batch_size, grown_size, "re-seed only raises");
         assert_eq!(source.num_iterations, 3, "batches keep accumulating");
+
+        drop(source);
+        // SAFETY: no live references to the index remain.
+        unsafe { VecSimIndex_Free(index.as_ptr()) };
+    }
+
+    /// A fresh evaluation must report only its own batches, so `reset_profile`
+    /// clears every counter the profile printer reads — including the largest
+    /// batch and the iteration it was recorded at.
+    #[test]
+    #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+    fn reset_profile_clears_batch_metrics() {
+        let index = build_flat_index(20, 1);
+        // SAFETY: index is freed after the source is dropped at end of scope.
+        let mut source = unsafe { flat_source(index, 3, 20) };
+
+        // Two batches, the second computed larger, so every counter is non-zero.
+        source.next_batch().unwrap();
+        source.child_num_estimated = 5;
+        source.next_batch().unwrap();
+        assert_eq!(source.max_batch_iteration, 1, "the maximum moved off zero");
+
+        source.reset_profile();
+        assert_eq!(
+            (
+                source.num_iterations,
+                source.max_batch_size,
+                source.max_batch_iteration
+            ),
+            (0, 0, 0)
+        );
 
         drop(source);
         // SAFETY: no live references to the index remain.
