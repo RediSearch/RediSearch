@@ -3805,6 +3805,13 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
 // Forward declaration for initQueryTimeout (defined later in file)
 static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc, QueryError *status);
 
+static const char *coordinatorDebugPolicyError(bool isDebug) {
+  if (isDebug && RSGlobalConfig.requestConfigParams.timeoutPolicy != TimeoutPolicy_Return) {
+    return "FT.DEBUG for Coordinator is only supported with ON_TIMEOUT RETURN";
+  }
+  return NULL;
+}
+
 /** Debug */
 void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                          struct ConcurrentCmdCtx *cmdCtx);
@@ -3875,6 +3882,12 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return RSAggregateCommand(ctx, argv, argc);
   } else if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
+  }
+
+  const char *debugPolicyError = coordinatorDebugPolicyError(isDebug);
+  if (debugPolicyError) {
+    IndexSpecRef_Release(spec_ref);
+    return RedisModule_ReplyWithError(ctx, debugPolicyError);
   }
 
   // Early TIMEOUT argument parsing, required for block-client timeout.
@@ -4670,6 +4683,12 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RSSearchCommand(ctx, argv, argc);
   } else if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
+  }
+
+  const char *debugPolicyError = coordinatorDebugPolicyError(isDebug);
+  if (debugPolicyError) {
+    IndexSpecRef_Release(spec_ref);
+    return RedisModule_ReplyWithError(ctx, debugPolicyError);
   }
 
   // Early TIMEOUT argument parsing, required for DistSearchBlockClientWithTimeout.
