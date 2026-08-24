@@ -18,9 +18,10 @@ use std::ptr::{self, NonNull};
 struct MockState {
     /// The document `openKeyWithFlags` resolves to. `None` models a missing document.
     doc: Option<serde_json::Value>,
-    /// Keeps serialized buffers (`getJSON` / `getJSONFromIter`) alive for the
-    /// lifetime of the mock: `redis_mock`'s `RedisModule_CreateString` stores
-    /// the pointer rather than copying, so the bytes must outlive the string.
+    /// Owns the serialized buffers (`getJSON` / `getJSONFromIter`) minted during
+    /// the mock's lifetime. `redis_mock`'s `RedisModule_CreateString` copies its
+    /// input, so retaining them here is not required for correctness; it simply
+    /// gives each transient buffer a well-defined owner for the call.
     strings: RefCell<Vec<Box<[u8]>>>,
 }
 
@@ -91,8 +92,11 @@ const unsafe fn node<'a>(json: ffi::RedisJSON) -> &'a serde_json::Value {
     unsafe { &*json.cast::<serde_json::Value>() }
 }
 
-/// Create a `RedisModuleString` over `bytes`, keeping the buffer alive in the
-/// mock's string arena.
+/// Create a `RedisModuleString` over `bytes`.
+///
+/// The buffer is parked in the mock's string arena so each transient buffer has
+/// a well-defined owner, but `RedisModule_CreateString` copies its input, so the
+/// arena is not load-bearing for correctness.
 fn arena_string(state: &MockState, bytes: Vec<u8>) -> *mut ffi::RedisModuleString {
     let buf = bytes.into_boxed_slice();
     let ptr = buf.as_ptr();
@@ -101,8 +105,9 @@ fn arena_string(state: &MockState, bytes: Vec<u8>) -> *mut ffi::RedisModuleStrin
     module_string(ptr, len)
 }
 
-/// Mint a `RedisModuleString` over `len` bytes at `ptr`, which the caller must
-/// keep alive (the mock `RedisModule_CreateString` stores the pointer).
+/// Mint a `RedisModuleString` over `len` bytes at `ptr`. The mock
+/// `RedisModule_CreateString` copies the bytes, so `ptr` only needs to stay
+/// valid for the duration of this call.
 fn module_string(ptr: *const u8, len: usize) -> *mut ffi::RedisModuleString {
     // SAFETY: initialized by `redis_mock::init_redis_module_mock`.
     let create = unsafe { redis_module::raw::RedisModule_CreateString }

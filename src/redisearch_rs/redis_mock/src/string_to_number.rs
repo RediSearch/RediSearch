@@ -19,7 +19,7 @@ use std::{
 ///
 /// # Safety
 /// 1. `s` must either be NULL or point to a valid [`UserString`] whose
-///    `user`/`length` fields describe an initialised byte buffer.
+///    `user()`/`length` describe an initialised byte buffer.
 unsafe fn user_string_bytes<'a>(
     s: *const redis_module::raw::RedisModuleString,
 ) -> Option<&'a [u8]> {
@@ -30,8 +30,8 @@ unsafe fn user_string_bytes<'a>(
     // Safety: The caller ensured the ptr is correct (1.)
     let us = ManuallyDrop::new(unsafe { Arc::from_raw(s.cast::<UserString>()) });
 
-    // Safety: UserString invariant: `user` points to `length` initialised bytes.
-    let bytes = unsafe { std::slice::from_raw_parts(us.user.cast::<u8>(), us.length) };
+    // Safety: UserString invariant: `user()` points to `length` initialised bytes.
+    let bytes = unsafe { std::slice::from_raw_parts(us.user().cast::<u8>(), us.length) };
     Some(bytes)
 }
 
