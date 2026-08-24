@@ -23,6 +23,9 @@
 #include "search_ctx.h"
 #include "shard_window_ratio.h"
 
+static const char timeoutAfterNBlockedClientError[] =
+    "TIMEOUT_AFTER_N is not supported with blocked-client timeout handling";
+
 /*  Using INTERNAL_ONLY with TIMEOUT_AFTER_N where N == 0 may result in an infinite loop in the
    coordinator. Since shard replies are always empty, the coordinator might get stuck indefinitely
    waiting for results or a timeout. If the query timeout is set to 0 (disabled), neither of these
@@ -169,19 +172,17 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
     }
     if ((debug_req->r.reqflags & QEXEC_F_IS_AGGREGATE) &&
         debug_req->r.reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
-      QueryError_SetError(
-          status, QUERY_ERROR_CODE_PARSE_ARGS,
-          "TIMEOUT_AFTER_N is not supported with ON_TIMEOUT RETURN-STRICT");
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, timeoutAfterNBlockedClientError);
       return REDISMODULE_ERR;
     }
     if (!isClusterCoord(debug_req)) {
       // Shard/SA: debug timeout is only supported with RETURN or FAIL (without background workers)
       if (debug_req->r.reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "TIMEOUT_AFTER_N is not supported with ON_TIMEOUT RETURN-STRICT");
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, timeoutAfterNBlockedClientError);
         return REDISMODULE_ERR;
       }
       if (debug_req->r.reqConfig.timeoutPolicy == TimeoutPolicy_Fail && (debug_req->r.reqflags & QEXEC_F_RUN_IN_BACKGROUND)) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "TIMEOUT_AFTER_N is not supported with ON_TIMEOUT FAIL if WORKERS > 0");
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, timeoutAfterNBlockedClientError);
         return REDISMODULE_ERR;
       }
       // Add timeout to the shard/SA pipeline
@@ -211,7 +212,7 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
     } else {
       // Coordinator without INTERNAL_ONLY: debug timeout only supported with RETURN policy
       if (debug_req->r.reqConfig.timeoutPolicy != TimeoutPolicy_Return) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "TIMEOUT_AFTER_N for Coordinator is only supported with ON_TIMEOUT RETURN");
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, timeoutAfterNBlockedClientError);
         return REDISMODULE_ERR;
       }
       // Add timeout to the coordinator pipeline

@@ -838,7 +838,9 @@ class TestQueryDebugCommands(object):
 
         if workers > 0:
             # With workers, ON_TIMEOUT FAIL is not supported with TIMEOUT_AFTER_N
-            with env.assertResponseError(contained="TIMEOUT_AFTER_N is not supported with ON_TIMEOUT FAIL if WORKERS > 0"):
+            with env.assertResponseError(
+                contained="TIMEOUT_AFTER_N is not supported with blocked-client timeout handling"
+            ):
                 runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
         else:
             # Without workers, ON_TIMEOUT FAIL should work with TIMEOUT_AFTER_N
@@ -848,7 +850,9 @@ class TestQueryDebugCommands(object):
 
         # Test ON_TIMEOUT RETURN-STRICT (never supported)
         env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN-STRICT').ok()
-        with env.assertResponseError(contained="TIMEOUT_AFTER_N is not supported with ON_TIMEOUT RETURN-STRICT"):
+        with env.assertResponseError(
+            contained="TIMEOUT_AFTER_N is not supported with blocked-client timeout handling"
+        ):
             runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
 
         # Restore the default policy
@@ -995,7 +999,7 @@ class TestQueryDebugCommands(object):
                 debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
                 'TIMEOUT_AFTER_N', 1, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3,
             ).error().contains(
-                'TIMEOUT_AFTER_N is not supported with ON_TIMEOUT RETURN-STRICT'
+                'TIMEOUT_AFTER_N is not supported with blocked-client timeout handling'
             )
             env.expect(
                 debug_cmd(), 'FT.AGGREGATE', 'idx', '*',

@@ -37,19 +37,21 @@ typedef struct QueryError QueryError;
  *       - On a multi-shard coordinator, `_FT.DEBUG` requires `ON_TIMEOUT RETURN` for direct
  *         search and aggregate queries and their `FT.PROFILE` variants. `ON_TIMEOUT FAIL` and
  *         `ON_TIMEOUT RETURN-STRICT` use blocked-client timeout callbacks, which are incompatible
- *         with query debug execution.
+ *         with query debug execution. Rejected requests return
+ *         `_FT.DEBUG for Coordinator is only supported with ON_TIMEOUT RETURN`.
  *       - **`TIMEOUT_AFTER_N <N> [INTERNAL_ONLY]`**:
  *         - Simulates a timeout after processing `<N>` results.
  *         - Internally inserts a result processor (RP) as the downstream processor
  *           of the final execution step (e.g., `RP_INDEX` in SA or `RP_NETWORK` in the
  *           coordinator).
  *         - **Policy constraints:**
+ *           - `TIMEOUT_AFTER_N` uses in-pipeline timeout simulation and is incompatible with
+ *             blocked-client timeout handling. Its parser reports this incompatibility as
+ *             `TIMEOUT_AFTER_N is not supported with blocked-client timeout handling`.
  *           - **Shard/SA (not coordinator):** Requires `ON_TIMEOUT RETURN` policy, or
  *             `ON_TIMEOUT FAIL` when running without workers (WORKERS=0).
- *             `ON_TIMEOUT RETURN-STRICT` is never supported. This restriction applies because
- *             `TIMEOUT_AFTER_N` uses in-pipeline timeout simulation. With workers enabled,
- *             `ON_TIMEOUT FAIL` relies on blocked client timeout instead of in-pipeline checks,
- *             making it incompatible with `TIMEOUT_AFTER_N`.
+ *             `ON_TIMEOUT RETURN-STRICT` is never supported. With workers enabled,
+ *             `ON_TIMEOUT FAIL` relies on blocked-client timeout handling and is also unsupported.
  *           - **Coordinator with `INTERNAL_ONLY`:** Requires `ON_TIMEOUT RETURN` under the
  *             coordinator-wide query debug constraint. The debug timeout itself only affects
  *             the shard query pipeline. A special handling exists for `N == 0` with query
