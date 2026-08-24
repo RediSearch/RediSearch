@@ -37,6 +37,22 @@
 //!
 //! The underlying [`StrTrieMap`] stays byte-exact; case-folding is a
 //! property of `TermDictionary` alone.
+//!
+//! ## Empty patterns
+//!
+//! [`TermDictionary::contains_iter`] and [`TermDictionary::suffixed_iter`]
+//! yield nothing for an empty pattern, whereas the underlying [`StrTrieMap`]
+//! yields every entry — the empty string is a substring and a suffix of every
+//! key. The C walk this dictionary replaces (`TrieNode_IterateContains`)
+//! yields nothing in both modes: its full-match test compares against the
+//! pattern's last byte, which no position satisfies when the pattern is
+//! empty. Matching that here keeps the two implementations
+//! interchangeable, and matches the guard the existing C wrapper applies at
+//! the same boundary (`TermsTrie::iterate_contains`).
+//!
+//! [`TermDictionary::prefixed_iter`] needs no such guard: C's prefix-only
+//! mode also yields every term for an empty prefix, so the trie's own
+//! semantics already agree.
 
 use string_utils::unicode;
 use trie_rs::str_trie_map::{
@@ -190,10 +206,16 @@ impl TermDictionary {
     /// Yield every entry whose key contains the case-folded `target` as a
     /// substring. See [`StrTrieMap::contains_iter`]. The iterator owns the
     /// folded target when folding allocates, so it stays lazy either way.
+    ///
+    /// An empty `target` yields nothing, unlike [`StrTrieMap::contains_iter`]
+    /// — see the [module docs](self#empty-patterns).
     pub fn contains_iter<'tm, 'p>(
         &'tm self,
         target: &'p str,
     ) -> StrContainsIter<'tm, 'p, TermEntry> {
+        if target.is_empty() {
+            return StrContainsIter::empty();
+        }
         self.inner.contains_iter(unicode::tolower_cow(target))
     }
 
@@ -203,7 +225,13 @@ impl TermDictionary {
     }
 
     /// See [`StrTrieMap::suffixed_iter`].
+    ///
+    /// An empty `suffix` yields nothing, unlike [`StrTrieMap::suffixed_iter`]
+    /// — see the [module docs](self#empty-patterns).
     pub fn suffixed_iter(&self, suffix: &str) -> SuffixedIter<'_, TermEntry> {
+        if suffix.is_empty() {
+            return SuffixedIter::empty();
+        }
         self.inner.suffixed_iter(&unicode::tolower_cow(suffix))
     }
 

@@ -27,6 +27,14 @@ impl<'tm, 'p, Data: 'tm> ContainsIter<'tm, 'p, Data> {
         };
         Self(trie.contains_iter(target))
     }
+
+    /// An iterator that yields no entries, for callers whose substring
+    /// semantics differ from this iterator's on some input — see
+    /// [`StrTrieMap::contains_iter`](crate::str_trie_map::StrTrieMap::contains_iter)
+    /// for what it does with an empty target.
+    pub fn empty() -> Self {
+        Self(iter::ContainsIter::empty())
+    }
 }
 
 impl<'tm, 'p, Data: 'tm> Iterator for ContainsIter<'tm, 'p, Data> {
