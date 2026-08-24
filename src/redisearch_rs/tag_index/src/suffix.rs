@@ -283,8 +283,10 @@ impl TagSuffixIndex {
 
             // Drop the pointers to the term being deleted, keeping every one that
             // belongs to a different term.
-            if let Some(deleted) = &deleted_term {
-                data.members.retain(|b| !b.belong_to(deleted));
+            if let Some(deleted) = &deleted_term
+                && let Some(deleted_index) = data.members.iter().position(|b| b.belong_to(deleted))
+            {
+                data.members.swap_remove(deleted_index);
             }
 
             // Don't keep empty `members`.
