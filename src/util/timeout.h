@@ -87,7 +87,7 @@ static inline int TimedOut(const struct timespec *timeout) {
 static inline int VecSim_TimedOut(VecSimTimeoutCtx *ctx) {
   RS_ASSERT(ctx && ctx->timeout);
   if (RS_IsMock) return NOT_TIMED_OUT;
-  return QueryRequestTimeout_IsTimedOutWithCounter(ctx->timeout);
+  return QueryRequestTimeout_IsTimedOut(ctx->timeout);
 }
 
 #ifdef __cplusplus

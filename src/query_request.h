@@ -148,7 +148,7 @@ typedef enum {
  *   not publish any other request state.
  * - During a CLOCK_DEADLINE cycle, the deadline is immutable. The counter is
  *   shared across amortized call sites but is not atomic, so calls to
- *   IsTimedOutWithCounter for one request must be serialized.
+ *   IsTimedOut for one request must be serialized.
  *
  * The owning QueryRequest must outlive every direct pointer, source-specific
  * pointer, and foreign-language handle borrowed from this object.
@@ -228,18 +228,19 @@ struct timespec *QueryRequestTimeout_GetClockDeadlineForUpdate(QueryRequestTimeo
 
 /**
  * Reports whether the request has timed out, independently of how the timeout
- * is detected:
+ * is detected, without amortizing clock checks:
  *
  * - UNARMED always returns false.
  * - BLOCKED_CLIENT reads the flag published by the blocked-client callback.
  * - CLOCK_DEADLINE compares the monotonic clock with the active deadline.
  *
- * This is the primary timeout operation. It neither applies the timeout policy
- * nor changes the timeout state. The active source must remain fixed for the
- * duration of the call; BLOCKED_CLIENT may be marked concurrently as described
- * by QueryRequestTimeout.
+ * Use this exact operation only where the caller must observe the deadline
+ * immediately, such as after blocking or at an execution boundary. It neither
+ * applies the timeout policy nor changes the timeout state. The active source
+ * must remain fixed for the duration of the call; BLOCKED_CLIENT may be marked
+ * concurrently as described by QueryRequestTimeout.
  */
-bool QueryRequestTimeout_IsTimedOut(const QueryRequestTimeout *timeout);
+bool QueryRequestTimeout_IsTimedOutExact(const QueryRequestTimeout *timeout);
 
 /**
  * Reports a timeout only when the active source is BLOCKED_CLIENT.
@@ -249,14 +250,14 @@ bool QueryRequestTimeout_IsTimedOut(const QueryRequestTimeout *timeout);
  * CLOCK_DEADLINE so migrating those call sites does not introduce new clock
  * checks that could change product behavior.
  * Avoid using this call unless strictly needed. It has the same cycle and
- * concurrency requirements as QueryRequestTimeout_IsTimedOut.
+ * concurrency requirements as QueryRequestTimeout_IsTimedOutExact.
  */
 bool QueryRequestTimeout_IsBlockedClientTimedOut(const QueryRequestTimeout *timeout);
 
 /**
- * Amortized variant of QueryRequestTimeout_IsTimedOut:
+ * Primary timeout operation:
  *
- * - UNARMED and BLOCKED_CLIENT preserve the primary operation's behavior and
+ * - UNARMED and BLOCKED_CLIENT preserve the exact operation's behavior and
  *   leave the request counter unchanged.
  * - CLOCK_DEADLINE increments the request counter and checks the deadline only
  *   when it reaches QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT, then resets it to 0.
@@ -266,7 +267,7 @@ bool QueryRequestTimeout_IsBlockedClientTimedOut(const QueryRequestTimeout *time
  * same request must be serialized; this operation must not overlap a source
  * transition.
  */
-bool QueryRequestTimeout_IsTimedOutWithCounter(QueryRequestTimeout *timeout);
+bool QueryRequestTimeout_IsTimedOut(QueryRequestTimeout *timeout);
 
 /**
  * Timeout-only synchronization between query workers and main-thread callbacks.

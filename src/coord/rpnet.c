@@ -413,7 +413,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     // RETURN_STRICT uses the blocked-client source, so only clock-based cycles
     // reach this check.
     if (areq->base.timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
-        QueryRequestTimeout_IsTimedOut(&areq->base.timeout)) {
+        QueryRequestTimeout_IsTimedOutExact(&areq->base.timeout)) {
       // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
       // callback so that a `CURSOR DEL` command will be dispatched instead of
       // a `CURSOR READ` command.
