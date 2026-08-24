@@ -150,9 +150,8 @@ as production code.
 
 ### Python
 
-- Python 3 source is UTF-8 by default, so never add a `# -*- coding: utf-8 -*-`
-  line — it is a no-op the parser accepts for Python 2 compatibility. Non-ASCII
-  literals need no declaration.
+- Source is UTF-8, which Python 3 already assumes. Never add a
+  `# -*- coding: utf-8 -*-` line; non-ASCII literals need no declaration.
 
 ## C Code Architecture
 
