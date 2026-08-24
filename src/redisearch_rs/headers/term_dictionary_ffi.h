@@ -57,16 +57,12 @@ typedef enum TermDictionaryInsertOutcome {
 /**
  * Term dictionary used by the FT.SEARCH index (`sp->terms`).
  *
- * Maps each indexed term to its [`TermEntry`]. Two production insert
- * modes are exposed: [`Self::add_term`] (ADD_INCR — accumulate `score`
- * and `num_docs`) and [`Self::replace_term`] (ADD_REPLACE — overwrite
- * `score`, still accumulate `num_docs`). The primitive [`Self::insert`]
- * stays available for bulk-seeding scenarios where neither accumulation
- * mode applies.
+ * Maps each indexed term to its [`TermEntry`]. Inserts go through
+ * [`Self::add_term`], [`Self::replace_term`], or the primitive
+ * [`Self::insert`]; each documents its own accumulation semantics.
  *
- * All terms and lookup patterns are case-folded internally via
- * [`char::to_lowercase`] — see the module docs for the case-folding
- * contract.
+ * All terms and lookup patterns are case-folded internally — see the
+ * [module docs](self) for the case-folding contract.
  */
 typedef struct TermDictionary TermDictionary;
 
@@ -79,6 +75,16 @@ typedef struct TermDictionary TermDictionary;
  * with [`TermDictionaryIterator_Free`].
  */
 typedef struct TermDictionaryIterator TermDictionaryIterator;
+
+/**
+ * Stop predicate polled while a pattern walk traverses the dictionary.
+ *
+ * `ctx` is the `stop_ctx` passed to the iterate function. Return `true`
+ * to abandon the walk (e.g. once a deadline has passed); the caller owns
+ * the decision and any clock it consults. A NULL predicate never stops.
+ * The [`term_dictionary`] crate docs state how often it is polled.
+ */
+typedef bool (*TermDictionaryShouldStop)(void *ctx);
 
 #ifdef __cplusplus
 extern "C" {
@@ -233,7 +239,8 @@ struct TermDictionaryIterator *TermDictionary_Iterate(const struct TermDictionar
 
 /**
  * Iterate over every term containing the case-folded substring
- * `(str, len)`, in lexicographical order.
+ * `(str, len)`, in lexicographical order. An empty substring yields no
+ * terms.
  *
  * Invoke [`TermDictionaryIterator_Next`] to get the results.
  *
@@ -247,8 +254,10 @@ struct TermDictionaryIterator *TermDictionary_Iterate(const struct TermDictionar
  * - The substring bytes `(str, len)` must stay valid and unmodified
  *   while the iterator lives — the iterator matches candidates against
  *   them on every advance.
+ * - If `should_stop` is non-NULL it must be safe to call with `stop_ctx`
+ *   for as long as the iterator lives.
  */
-struct TermDictionaryIterator *TermDictionary_IterateContains(const struct TermDictionary *t, const char *str, size_t len);
+struct TermDictionaryIterator *TermDictionary_IterateContains(const struct TermDictionary *t, const char *str, size_t len, TermDictionaryShouldStop should_stop, void *stop_ctx);
 
 /**
  * Iterate over every term whose case-folded form is within Levenshtein
@@ -280,12 +289,15 @@ struct TermDictionaryIterator *TermDictionary_IterateFuzzy(const struct TermDict
  *   [`NewTermDictionary`] and cannot be NULL.
  * - `str` must point to a valid byte sequence of length `len`.
  * - `t` must not be modified or freed while the iterator lives.
+ * - If `should_stop` is non-NULL it must be safe to call with `stop_ctx`
+ *   for as long as the iterator lives.
  */
-struct TermDictionaryIterator *TermDictionary_IteratePrefix(const struct TermDictionary *t, const char *str, size_t len);
+struct TermDictionaryIterator *TermDictionary_IteratePrefix(const struct TermDictionary *t, const char *str, size_t len, TermDictionaryShouldStop should_stop, void *stop_ctx);
 
 /**
  * Iterate over every term ending with the case-folded suffix
- * `(str, len)`, in lexicographical order.
+ * `(str, len)`, in lexicographical order. An empty suffix yields no
+ * terms.
  *
  * Invoke [`TermDictionaryIterator_Next`] to get the results.
  *
@@ -296,8 +308,10 @@ struct TermDictionaryIterator *TermDictionary_IteratePrefix(const struct TermDic
  *   [`NewTermDictionary`] and cannot be NULL.
  * - `str` must point to a valid byte sequence of length `len`.
  * - `t` must not be modified or freed while the iterator lives.
+ * - If `should_stop` is non-NULL it must be safe to call with `stop_ctx`
+ *   for as long as the iterator lives.
  */
-struct TermDictionaryIterator *TermDictionary_IterateSuffix(const struct TermDictionary *t, const char *str, size_t len);
+struct TermDictionaryIterator *TermDictionary_IterateSuffix(const struct TermDictionary *t, const char *str, size_t len, TermDictionaryShouldStop should_stop, void *stop_ctx);
 
 /**
  * Iterate over every term matching the case-folded wildcard pattern
@@ -313,8 +327,10 @@ struct TermDictionaryIterator *TermDictionary_IterateSuffix(const struct TermDic
  *   [`NewTermDictionary`] and cannot be NULL.
  * - `str` must point to a valid byte sequence of length `len`.
  * - `t` must not be modified or freed while the iterator lives.
+ * - If `should_stop` is non-NULL it must be safe to call with `stop_ctx`
+ *   for as long as the iterator lives.
  */
-struct TermDictionaryIterator *TermDictionary_IterateWildcard(const struct TermDictionary *t, const char *str, size_t len);
+struct TermDictionaryIterator *TermDictionary_IterateWildcard(const struct TermDictionary *t, const char *str, size_t len, TermDictionaryShouldStop should_stop, void *stop_ctx);
 
 /**
  * The number of unique terms stored in the dictionary.
