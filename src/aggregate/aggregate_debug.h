@@ -28,13 +28,16 @@ typedef struct QueryError QueryError;
  *
  * **Parameters:**
  *   - `<QUERY>`:
- *     - Any valid `FT.SEARCH` or `FT.AGGREGATE` command.
+ *     - Any valid `FT.SEARCH`, `FT.AGGREGATE`, or `FT.PROFILE` command for search or
+ *       aggregate.
  *     - Supported in both standalone (SA) and cluster mode.
  *
  *   - `<DEBUG_QUERY_ARGS>`:
  *     - Currently supports:
- *       - On a multi-shard coordinator, query debug requires `ON_TIMEOUT RETURN` because
- *         `ON_TIMEOUT FAIL` and `ON_TIMEOUT RETURN-STRICT` use blocked-client timeout callbacks.
+ *       - On a multi-shard coordinator, `_FT.DEBUG` requires `ON_TIMEOUT RETURN` for direct
+ *         search and aggregate queries and their `FT.PROFILE` variants. `ON_TIMEOUT FAIL` and
+ *         `ON_TIMEOUT RETURN-STRICT` use blocked-client timeout callbacks, which are incompatible
+ *         with query debug execution.
  *       - **`TIMEOUT_AFTER_N <N> [INTERNAL_ONLY]`**:
  *         - Simulates a timeout after processing `<N>` results.
  *         - Internally inserts a result processor (RP) as the downstream processor

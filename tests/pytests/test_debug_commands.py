@@ -866,7 +866,7 @@ class TestQueryDebugCommands(object):
         if not env.isCluster():
             return
 
-        error = "FT.DEBUG for Coordinator is only supported with ON_TIMEOUT RETURN"
+        error = "_FT.DEBUG for Coordinator is only supported with ON_TIMEOUT RETURN"
         for policy in ('FAIL', 'RETURN-STRICT'):
             env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', policy).ok()
             with env.assertResponseError(contained=error):
@@ -1709,7 +1709,7 @@ class ProfileDebugCluster:
     @staticmethod
     def ProfileDebugPolicyConstraints(env):
         """Coordinator debug profile rejects policies that use blocked-client timeouts."""
-        error = "FT.DEBUG for Coordinator is only supported with ON_TIMEOUT RETURN"
+        error = "_FT.DEBUG for Coordinator is only supported with ON_TIMEOUT RETURN"
         try:
             for policy in ('FAIL', 'RETURN-STRICT'):
                 env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', policy).ok()

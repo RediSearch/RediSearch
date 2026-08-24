@@ -3807,7 +3807,7 @@ static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc,
 
 static const char *coordinatorDebugPolicyError(bool isDebug) {
   if (isDebug && RSGlobalConfig.requestConfigParams.timeoutPolicy != TimeoutPolicy_Return) {
-    return "FT.DEBUG for Coordinator is only supported with ON_TIMEOUT RETURN";
+    return "_FT.DEBUG for Coordinator is only supported with ON_TIMEOUT RETURN";
   }
   return NULL;
 }
