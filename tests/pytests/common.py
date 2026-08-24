@@ -605,17 +605,22 @@ def verify_command_OK_on_all_shards(env, *args):
     res = run_command_on_all_shards(env, *args)
     env.assertEqual(res, ['OK'] * env.shardsCount)
 
-def shard_cluster_bus_port(con):
-    """The cluster-bus port a shard listens on, read from its own `CLUSTER NODES` entry."""
-    nodes = con.execute_command('CLUSTER', 'NODES')
+def _cluster_bus_ports(env):
+    """`{client port: cluster-bus port}` for every shard, from one `CLUSTER NODES` read.
+
+    One read covers the whole cluster, since every node reports the full topology.
+    """
+    nodes = env.getOSSMasterNodesConnectionList()[0].execute_command('CLUSTER', 'NODES')
     if isinstance(nodes, bytes):
         nodes = nodes.decode()
+    ports = {}
     for line in nodes.splitlines():
+        if not line.strip():
+            continue
         # `<id> <ip>:<port>@<cport>[,<hostname>] <flags> ...`
-        fields = line.split()
-        if len(fields) > 2 and 'myself' in fields[2]:
-            return int(fields[1].split('@')[1].split(',')[0])
-    raise RuntimeError(f'no `myself` entry in CLUSTER NODES:\n{nodes}')
+        hostport, cport = line.split()[1].split('@')
+        ports[int(hostport.rsplit(':', 1)[1])] = int(cport.split(',')[0])
+    return ports
 
 def disable_tls_cluster_on_all_shards(env):
     """Turn `tls-cluster` off on every shard, keeping the cluster bus reachable.
@@ -629,9 +634,14 @@ def disable_tls_cluster_on_all_shards(env):
     Pinning `cluster-announce-bus-port` to the port a shard actually listens on takes
     the advertised port out of `tls-cluster`'s hands, so the flip leaves the bus intact.
     """
-    for con in env.getOSSMasterNodesConnectionList():
+    bus_ports = _cluster_bus_ports(env)
+    for con, node in zip(env.getOSSMasterNodesConnectionList(),
+                         env.envRunner.getMasterNodesList()):
+        # A KeyError here means a shard is not advertising the port RLTest assigned
+        # it. Fail loudly rather than pin the wrong port, which would re-create the
+        # very breakage this helper exists to avoid.
         env.assertEqual(con.execute_command('CONFIG', 'SET', 'cluster-announce-bus-port',
-                                            shard_cluster_bus_port(con)), 'OK')
+                                            bus_ports[node['port']]), 'OK')
     verify_command_OK_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no')
 
 def allShards_set_info_on_zero_indexes(env, enabled: bool):
