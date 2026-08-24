@@ -98,7 +98,7 @@ fn commit_indexes_the_empty_tag() {
 /// In memory mode `commit` reports no records — they are counted at index time.
 #[test]
 fn memory_commit_reports_no_records() {
-    let mut idx = TagIndex::<InMemoryMode>::new(false);
+    let mut idx = TagIndex::<InMemoryMode>::new(false, 0);
     assert_eq!(commit_mem(&mut idx, &[b"foo", b"bar"]), 0);
 }
 
