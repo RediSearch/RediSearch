@@ -54,6 +54,16 @@
 //! mode also yields every term for an empty prefix, so the trie's own
 //! semantics already agree.
 //!
+//! ## Wildcard escapes
+//!
+//! [`TermDictionary::wildcard_iter`] takes the pattern *after* the query
+//! pipeline resolved its escapes, which is the point the C matcher works at
+//! too: `Wildcard_RemoveEscape` drops one backslash from each `\X` pair
+//! upstream, and `Wildcard_MatchRune` then compares `\` like any other
+//! character. So a query `a\\b` arrives here as `a\b` and matches the term
+//! holding a literal backslash. Resolving escapes a second time would read
+//! that `\b` as an escaped `b` and look for `ab` instead.
+//!
 //! ## Deadlines
 //!
 //! The dictionary holds no clock. Every pattern walk takes a `should_stop`
@@ -65,6 +75,7 @@
 //! the fuzzy walk it replaces carries no deadline.
 
 use string_utils::unicode;
+use trie_rs::automaton::CodepointWildcard;
 use trie_rs::str_trie_map::{
     StrTrieMap,
     iter::{
@@ -265,13 +276,18 @@ impl TermDictionary {
     /// returned iterator owns the parsed pattern, so it stays lazy
     /// regardless of whether folding allocated. Abandons the walk once
     /// `should_stop` returns `true`.
+    ///
+    /// `pattern` has its escapes already resolved, as the query pipeline
+    /// hands it over: `\` matches a backslash and only `*` and `?` are
+    /// special — see the [module docs](self#wildcard-escapes).
     pub fn wildcard_iter<'tm>(
         &'tm self,
         pattern: &str,
         should_stop: impl FnMut() -> bool + 'tm,
     ) -> StrWildcardIter<'tm, TermEntry> {
+        let parsed = CodepointWildcard::parse_unescaped(&unicode::tolower_cow(pattern));
         self.inner
-            .wildcard_iter_with_should_stop(&unicode::tolower_cow(pattern), should_stop)
+            .wildcard_iter_with_should_stop(parsed, should_stop)
     }
 
     /// See [`StrTrieMap::fuzzy_iter`] for the matching model. The

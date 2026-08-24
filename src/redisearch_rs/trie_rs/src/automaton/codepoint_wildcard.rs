@@ -59,6 +59,17 @@ impl CodepointWildcard {
     /// normalization) is delegated to [`WildcardPattern::parse`]; literal
     /// byte runs are then decoded into codepoint atoms.
     pub fn parse(pattern: &str) -> Self {
+        Self::from_tokens(WildcardPattern::parse(pattern.as_bytes()))
+    }
+
+    /// Parse `pattern` with escapes already resolved, so `\` is an ordinary
+    /// literal codepoint — see [`WildcardPattern::parse_unescaped`], which
+    /// performs the tokenization.
+    pub fn parse_unescaped(pattern: &str) -> Self {
+        Self::from_tokens(WildcardPattern::parse_unescaped(pattern.as_bytes()))
+    }
+
+    fn from_tokens(pattern: WildcardPattern<'_>) -> Self {
         let mut atoms = Vec::new();
         // The tokenizer splits literals at escape points to stay zero-copy,
         // so an escaped multi-byte codepoint can span two adjacent `Literal`
@@ -71,7 +82,7 @@ impl CodepointWildcard {
             atoms.extend(run.chars().map(CpAtom::Char));
             literal_run.clear();
         };
-        for token in WildcardPattern::parse(pattern.as_bytes()).tokens() {
+        for token in pattern.tokens() {
             match token {
                 Token::Literal(bytes) => literal_run.extend_from_slice(bytes),
                 Token::One => {
@@ -374,6 +385,69 @@ mod tests {
         for &(pattern, term, expected) in CASES {
             assert_eq!(nfa(pattern, term), expected, "nfa: {pattern:?} vs {term:?}");
         }
+    }
+
+    /// The unescaped counterparts of [`greedy`] and [`nfa`], so both backends
+    /// are held to the same literal-backslash reading.
+    fn greedy_unescaped(pattern: &str, term: &str) -> bool {
+        CodepointWildcard::parse_unescaped(pattern).matches(term)
+    }
+
+    fn nfa_unescaped(pattern: &str, term: &str) -> bool {
+        let mut automaton =
+            CodepointWildcardNfa::<u128>::compile(CodepointWildcard::parse_unescaped(pattern));
+        let mut state = automaton.start();
+        for &b in term.as_bytes() {
+            match automaton.step(&state, b) {
+                Some(next) => state = next,
+                None => return false,
+            }
+        }
+        automaton.classify(&state).is_accepting()
+    }
+
+    #[rustfmt::skip]
+    const UNESCAPED_CASES: &[(&str, &str, bool)] = &[
+        // A backslash matches a backslash, and matches nothing else.
+        (r"a\b", r"a\b", true),
+        (r"a\b", "ab", false),
+        (r"\", r"\", true),
+        (r"a\\b", r"a\\b", true),
+        (r"a\\b", r"a\b", false),
+        // `*` and `?` keep their meaning next to a backslash.
+        (r"a\*", r"a\b", true),
+        (r"a\?", r"a\b", true),
+        (r"a\?", r"a\bc", false),
+    ];
+
+    #[test]
+    fn greedy_unescaped_matches_expected() {
+        for &(pattern, term, expected) in UNESCAPED_CASES {
+            assert_eq!(
+                greedy_unescaped(pattern, term),
+                expected,
+                "greedy: {pattern:?} vs {term:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn nfa_unescaped_agrees_with_greedy() {
+        for &(pattern, term, expected) in UNESCAPED_CASES {
+            assert_eq!(
+                nfa_unescaped(pattern, term),
+                expected,
+                "nfa: {pattern:?} vs {term:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn unescaped_backslash_joins_the_literal_prefix() {
+        // The trie traversal jumps straight to this subtree, so a backslash
+        // dropped here would send the walk to the wrong one.
+        let pattern = CodepointWildcard::parse_unescaped(r"a\b*");
+        assert_eq!(pattern.literal_prefix(), r"a\b");
     }
 
     #[test]

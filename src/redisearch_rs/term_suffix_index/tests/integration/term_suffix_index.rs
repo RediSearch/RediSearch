@@ -297,6 +297,27 @@ fn iter_wildcard_trailing_star_uses_contains_semantics() {
     assert_eq!(actual, expected);
 }
 
+/// The pattern reaches this layer with its escapes already resolved, so a
+/// backslash is an ordinary character: it anchors the trie lookup like any
+/// other, and matches only a backslash in the term.
+#[test]
+fn iter_wildcard_backslash_is_a_literal_character() {
+    let corpus = [r"a\bc", "abc", r"x\bc"]
+        .into_iter()
+        .map(String::from)
+        .collect::<Vec<_>>();
+    let sut = build_index(&corpus);
+
+    let actual = collect_set(
+        sut.iter_wildcard(r"*\bc", || false)
+            .expect(r"'\bc' is anchorable"),
+    );
+
+    // Reading `\b` as an escaped `b` would pull in `abc` as well.
+    let expected = HashSet::from([r"a\bc".to_string(), r"x\bc".to_string()]);
+    assert_eq!(actual, expected);
+}
+
 #[test]
 fn iter_wildcard_without_anchorable_token_reports_none() {
     let sut = build_index(&["abc".to_string()]);
@@ -497,8 +518,11 @@ mod fuzz {
 
         #[test]
         fn iter_wildcard_matches_full_scan_oracle(
-            corpus in proptest::collection::vec(term_strategy(), 1..=20),
-            pattern in "[ab*?]{0,8}",
+            // Backslashes in both corpus and pattern: they are ordinary
+            // characters here, so anchor selection must handle them like
+            // any other literal.
+            corpus in proptest::collection::vec(r"[ab\\]{1,8}", 1..=20),
+            pattern in r"[ab*?\\]{0,8}",
         ) {
             use trie_rs::automaton::CodepointWildcard;
 
@@ -508,7 +532,7 @@ mod fuzz {
             // oracle uses the same codepoint-wise matcher iter_wildcard does,
             // so this pins the anchor-selection logic, not the matcher itself.
             if let Some(matches) = sut.iter_wildcard(&pattern, || false) {
-                let parsed = CodepointWildcard::parse(&pattern);
+                let parsed = CodepointWildcard::parse_unescaped(&pattern);
                 let expected = corpus
                     .iter()
                     .filter(|t| parsed.matches(t))

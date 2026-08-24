@@ -13,6 +13,7 @@
 //! anything.
 
 use std::cell::Cell;
+use trie_rs::automaton::CodepointWildcard;
 use trie_rs::iter::TIMEOUT_CHECK_GRANULARITY;
 use trie_rs::str_trie_map::StrTrieMap;
 
@@ -144,7 +145,9 @@ fn wildcard_iter_nfa_backend_stops_mid_walk() {
     let trie = seeded_trie();
 
     // Few atoms: NFA backend.
-    let count = trie.wildcard_iter_with_should_stop("key*", || true).count();
+    let count = trie
+        .wildcard_iter_with_should_stop(CodepointWildcard::parse("key*"), || true)
+        .count();
 
     assert!(
         count < N_KEYS,
@@ -161,7 +164,7 @@ fn wildcard_iter_filter_backend_polls_predicate() {
     // codepoints long, so the walk yields nothing.
     let pattern = "?".repeat(128);
     let count = trie
-        .wildcard_iter_with_should_stop(&pattern, || {
+        .wildcard_iter_with_should_stop(CodepointWildcard::parse(&pattern), || {
             calls.set(calls.get() + 1);
             false
         })

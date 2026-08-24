@@ -73,6 +73,16 @@ pub struct WildcardPattern<'pattern> {
     atom_count: usize,
 }
 
+/// Whether a backslash in the pattern escapes the byte after it, or is itself
+/// a literal byte to match.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Escapes {
+    /// `\X` is the literal `X` — the raw query syntax.
+    Resolve,
+    /// `\` matches a backslash; nothing is escaped.
+    Literal,
+}
+
 impl<'pattern> WildcardPattern<'pattern> {
     /// Parses a raw pattern.
     ///
@@ -121,6 +131,25 @@ impl<'pattern> WildcardPattern<'pattern> {
     /// Both tokens refer to slices of the original pattern and, combined, they give us the correct (resolved)
     /// pattern.
     pub fn parse(pattern: &'pattern [u8]) -> Self {
+        Self::parse_with_escapes(pattern, Escapes::Resolve)
+    }
+
+    /// Parses a pattern whose escapes have already been resolved, so `\` is an
+    /// ordinary literal byte and only `*` and `?` keep their special meaning.
+    ///
+    /// This is the granularity the C matcher works at: `Wildcard_RemoveEscape`
+    /// resolves escapes once, upstream, and `Wildcard_MatchChar` /
+    /// `Wildcard_MatchRune` then compare `\` like any other character. A caller
+    /// that has already unescaped must parse this way — [`Self::parse`] would
+    /// resolve the escapes a second time and mis-read the rest of the pattern.
+    ///
+    /// The simplifications and zero-copy behaviour of [`Self::parse`] are
+    /// unchanged, except that literals are never split at a `\`.
+    pub fn parse_unescaped(pattern: &'pattern [u8]) -> Self {
+        Self::parse_with_escapes(pattern, Escapes::Literal)
+    }
+
+    fn parse_with_escapes(pattern: &'pattern [u8], escapes: Escapes) -> Self {
         let mut tokens: Vec<Token<'pattern>> = Vec::new();
 
         let mut expected_length = Some(pattern.len());
@@ -136,7 +165,7 @@ impl<'pattern> WildcardPattern<'pattern> {
             let next_char = pattern_iter.peek().map(|(_, c)| *c);
 
             match (curr_char, next_char, escape_next) {
-                (b'\\', _, false) => {
+                (b'\\', _, false) if escapes == Escapes::Resolve => {
                     // a '\' means we escape the next character, e.g. force that to be a literal.
                     escape_next = true;
                     continue;

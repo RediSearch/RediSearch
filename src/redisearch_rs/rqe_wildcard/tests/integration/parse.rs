@@ -137,3 +137,50 @@ fn test_parse_escape() {
 
     assert_tokens!(b"*?A", [One, Any, Literal(b"A")]);
 }
+
+/// Helper macro mirroring [`assert_tokens`] for [`WildcardPattern::parse_unescaped`].
+macro_rules! assert_unescaped_tokens {
+    ($pattern:literal, $expected:expr $(,)?) => {
+        let tokens = WildcardPattern::parse_unescaped($pattern);
+
+        assert_eq!(
+            tokens.tokens(),
+            $expected,
+            r#""{}" should be parsed as {:?}"#,
+            String::from_utf8_lossy($pattern),
+            tokens.tokens()
+        );
+    };
+}
+
+#[test]
+fn test_parse_unescaped_treats_backslash_as_a_literal() {
+    use Token::*;
+
+    // A backslash is an ordinary byte: it neither disappears nor splits the
+    // literal run it sits in, which is what lets a pattern reach a term that
+    // holds a backslash of its own.
+    assert_unescaped_tokens!(br"f\oo", [Literal(br"f\oo")]);
+
+    assert_unescaped_tokens!(br"\foo", [Literal(br"\foo")]);
+
+    assert_unescaped_tokens!(br"foo\", [Literal(br"foo\")]);
+
+    assert_unescaped_tokens!(br"f\\oo", [Literal(br"f\\oo")]);
+
+    // `*` and `?` keep their meaning; only escaping is gone.
+    assert_unescaped_tokens!(br"f\*o", [Literal(br"f\"), Any, Literal(br"o")]);
+
+    assert_unescaped_tokens!(br"f\?o", [Literal(br"f\"), One, Literal(br"o")]);
+
+    // The simplifications still apply.
+    assert_unescaped_tokens!(br"a\**b", [Literal(br"a\"), Any, Literal(b"b")]);
+}
+
+#[test]
+fn test_parse_unescaped_atom_count_counts_the_backslash() {
+    // The NFA sizes its bitset from this, so a backslash must occupy a
+    // position of its own rather than being folded away.
+    assert_eq!(WildcardPattern::parse_unescaped(br"f\oo").atom_count(), 4);
+    assert_eq!(WildcardPattern::parse(br"f\oo").atom_count(), 3);
+}

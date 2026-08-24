@@ -10,3 +10,4 @@
 mod bookkeeping;
 mod case_folding;
 mod empty_pattern;
+mod wildcard_escapes;

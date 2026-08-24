@@ -39,7 +39,10 @@ enum Backend<'tm, Data: 'tm> {
 
 impl<'tm, Data: 'tm> WildcardIter<'tm, Data> {
     pub(crate) fn new(trie: &'tm TrieMap<Data>, pattern: &str) -> Self {
-        let parsed = CodepointWildcard::parse(pattern);
+        Self::from_parsed(trie, CodepointWildcard::parse(pattern))
+    }
+
+    pub(crate) fn from_parsed(trie: &'tm TrieMap<Data>, parsed: CodepointWildcard) -> Self {
         // The accept position lives at index `atom_count`, so the bitset
         // must hold `atom_count + 1` positions.
         let positions_needed = parsed.atom_count() + 1;
@@ -61,10 +64,10 @@ impl<'tm, Data: 'tm> WildcardIter<'tm, Data> {
 
     pub(crate) fn new_with_should_stop(
         trie: &'tm TrieMap<Data>,
-        pattern: &str,
+        parsed: CodepointWildcard,
         should_stop: impl FnMut() -> bool + 'tm,
     ) -> Self {
-        let mut iter = Self::new(trie, pattern);
+        let mut iter = Self::from_parsed(trie, parsed);
         match &mut iter.0 {
             Backend::Nfa64(inner) => inner.set_should_stop(should_stop),
             Backend::Nfa128(inner) => inner.set_should_stop(should_stop),

@@ -29,6 +29,16 @@
 //! trie for the needle surfaces every member containing it.
 //! [`TermSuffixIndex::iter_contains`] is the prefix lookup;
 //! [`TermSuffixIndex::iter_suffix`] is the exact lookup.
+//!
+//! # Wildcard escapes
+//!
+//! [`TermSuffixIndex::iter_wildcard`] takes the pattern *after* the query
+//! pipeline resolved its escapes, which is the point the C matcher works at
+//! too: `Wildcard_RemoveEscape` drops one backslash from each `\X` pair
+//! upstream, and `Wildcard_MatchRune` then compares `\` like any other
+//! character. So a query `a\\b` arrives here as `a\b` and matches the term
+//! holding a literal backslash. Resolving escapes a second time would read
+//! that `\b` as an escaped `b` and look for `ab` instead.
 
 mod term_refs;
 
@@ -198,7 +208,11 @@ impl TermSuffixIndex {
     /// any run of codepoints and `?` exactly one codepoint. Matching is
     /// [case-insensitive](crate#case-insensitivity). Returns `None` when no
     /// token in the pattern can seed the search (every token is empty or
-    /// contains `?` or `\`).
+    /// contains `?`).
+    ///
+    /// `pattern` has its escapes already resolved, as the query pipeline
+    /// hands it over: `\` matches a backslash and only `*` and `?` are
+    /// special — see the [module docs](self#wildcard-escapes).
     /// A term may be yielded more than once (once per matching suffix entry).
     ///
     /// `?` matches a whole character even in multibyte terms — `entr?`
@@ -229,7 +243,7 @@ impl TermSuffixIndex {
             (None, self.inner.get(token))
         };
 
-        let wildcard = CodepointWildcard::parse(&lowered);
+        let wildcard = CodepointWildcard::parse_unescaped(&lowered);
         let limit = TIMEOUT_COUNTER_LIMIT as usize;
         let matches = subtree
             .into_iter()
@@ -251,7 +265,8 @@ impl TermSuffixIndex {
     /// The anchor is the `*`-separated token expected to narrow the
     /// candidate set the most. Returns [`None`] if no token is
     /// eligible, i.e. every token is empty (a bare `*`) or contains
-    /// `?` or `\`.
+    /// `?`. A `\` is an ordinary character here, so it neither rules a
+    /// token out nor shifts the lookup — the suffix entries hold it too.
     fn choose_token(pattern: &str) -> Option<(&str, bool)> {
         pattern
             .split_inclusive('*')
@@ -259,7 +274,7 @@ impl TermSuffixIndex {
                 Some(stripped) => (stripped, true),
                 None => (token, false),
             })
-            .filter(|(token, _)| !token.is_empty() && !token.contains(['?', '\\']))
+            .filter(|(token, _)| !token.is_empty() && !token.contains('?'))
             .max_by_key(|&(token, followed_by_star)| {
                 token.chars().count() as i32
                     - if followed_by_star {
@@ -286,7 +301,8 @@ mod tests {
     #[case::length_lead_above_starred_anchor_penalty_wins("abcdefgh*ij", Some(("abcdefgh", true)))]
     #[case::single_char_tokens_are_eligible("a*b", Some(("b", false)))]
     #[case::all_empty_tokens_ineligible("*", None)]
-    #[case::tokens_with_question_mark_or_backslash_ineligible("a?cd*\\ab*ef", Some(("ef", false)))]
+    #[case::tokens_with_question_mark_ineligible("a?cd*ef", Some(("ef", false)))]
+    #[case::backslash_is_an_ordinary_anchor_character("a?cd*\\abcd", Some(("\\abcd", false)))]
     #[case::length_counts_codepoints_not_bytes("日本語*ab", Some(("ab", false)))]
     fn choose_token_test(#[case] pattern: &str, #[case] expected: Option<(&str, bool)>) {
         assert_eq!(TermSuffixIndex::choose_token(pattern), expected);

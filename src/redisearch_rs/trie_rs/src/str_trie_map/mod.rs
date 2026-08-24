@@ -12,6 +12,7 @@
 pub mod iter;
 
 use crate::TrieMap;
+use crate::automaton::CodepointWildcard;
 use std::borrow::Cow;
 use std::fmt;
 
@@ -199,18 +200,24 @@ impl<Data> StrTrieMap<Data> {
     /// Codepoint semantics: `?` matches one codepoint (`entr?` matches
     /// `entré`), `*` any run of codepoints. Differs from
     /// [`TrieMap::wildcard_iter`], which matches raw bytes. Matching is
-    /// case-sensitive. See [`CodepointWildcard`](crate::automaton::CodepointWildcard)
+    /// case-sensitive. See [`CodepointWildcard`]
     /// for the matching model.
     pub fn wildcard_iter(&self, pattern: &str) -> iter::WildcardIter<'_, Data> {
         iter::WildcardIter::new(&self.inner, pattern)
     }
 
-    /// [`Self::wildcard_iter`], abandoned once `should_stop` returns `true`.
-    /// See [`TIMEOUT_CHECK_GRANULARITY`](crate::iter::TIMEOUT_CHECK_GRANULARITY)
+    /// [`Self::wildcard_iter`] for an already-parsed pattern, abandoned once
+    /// `should_stop` returns `true`. See
+    /// [`TIMEOUT_CHECK_GRANULARITY`](crate::iter::TIMEOUT_CHECK_GRANULARITY)
     /// for the polling contract.
+    ///
+    /// Taking the parsed pattern leaves the escape convention to the caller:
+    /// [`CodepointWildcard::parse`] for raw query syntax,
+    /// [`CodepointWildcard::parse_unescaped`] when escapes were already
+    /// resolved upstream.
     pub fn wildcard_iter_with_should_stop<'tm>(
         &'tm self,
-        pattern: &str,
+        pattern: CodepointWildcard,
         should_stop: impl FnMut() -> bool + 'tm,
     ) -> iter::WildcardIter<'tm, Data> {
         iter::WildcardIter::new_with_should_stop(&self.inner, pattern, should_stop)
