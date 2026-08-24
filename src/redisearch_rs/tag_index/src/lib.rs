@@ -545,8 +545,8 @@ impl TagIndex<InMemoryMode> {
     /// [`IndexUniqueId`] and [`RawIndexReaderCore::points_to_ii`], which guards the
     /// equivalent reader-revalidation case the same way.
     ///
-    /// On success, returns the [`GcApplyInfo`] describing the applied changes, and
-    /// `None` when the delta is stale — the tag is gone, or its index was replaced.
+    /// Returns the [`GcApplyInfo`] describing the applied changes, or `None` when the
+    /// delta is stale (the tag is gone or its index was replaced).
     /// [`bytes_freed`](GcApplyInfo::bytes_freed) and
     /// [`block_count_delta`](GcApplyInfo::block_count_delta) already account for
     /// the whole posting list being dropped when the tag became empty.
