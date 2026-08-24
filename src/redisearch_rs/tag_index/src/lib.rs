@@ -632,7 +632,9 @@ impl TrieLookup {
 
 impl TagLookup<DocIdsOnly> for TrieLookup {
     fn find(&self, tag: &[u8]) -> Option<&InvertedIndex<DocIdsOnly>> {
-        // SAFETY: contracts 1 and 2 of `TrieLookup::new`.
+        // SAFETY: contracts 1 and 2 of [`TrieLookup::new`] justify the reborrow's
+        // address and lifetime. Contract 3 is what makes it sound against a
+        // concurrent GC mutation.
         let tag_index = unsafe { self.0.as_ref() };
 
         tag_index.mode.values.find(tag).map(Box::as_ref)

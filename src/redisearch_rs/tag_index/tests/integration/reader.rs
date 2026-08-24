@@ -16,6 +16,7 @@
 
 use std::ptr::NonNull;
 
+use field::FieldMaskOrIndex;
 use rqe_iterators::{RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome};
 use rqe_iterators_test_utils::MockContext;
 use tag_index::{InMemoryMode, TagIndex, TrieLookup};
@@ -158,6 +159,33 @@ fn open_reader_returns_none_for_empty_inverted_index() {
     assert!(it.is_none());
 
     // SAFETY: `allocate` allocated it; no iterator was built from it.
+    drop(unsafe { Box::from_raw(tag_index) });
+}
+
+#[test]
+fn open_reader_omits_expired_field_documents() {
+    let mock = MockContext::new(2, 2);
+    let (tag_index, lookup) = allocate(TagIndex::<InMemoryMode>::new(false));
+    let tags = &[as_tag(b"hello")];
+    // SAFETY: `tag_index` was just allocated and is not yet aliased.
+    unsafe { &mut *tag_index }.index(tags, 1, false);
+    // SAFETY: `tag_index` was just allocated and is not yet aliased.
+    unsafe { &mut *tag_index }.index(tags, 2, true);
+
+    // The TTL table must exist before the reader is built: `open_reader` snapshots
+    // whether expiration checking applies at construction time.
+    mock.mark_index_expired(vec![2], FieldMaskOrIndex::Index(FIELD_INDEX));
+
+    // SAFETY: `tag_index` and `mock` outlive the iterator, and `lookup` resolves
+    // `tag_index`.
+    let it = unsafe {
+        (*tag_index).open_reader(mock.sctx(), as_tag(b"hello"), 1.0, FIELD_INDEX, lookup)
+    }
+    .expect("the tag is indexed");
+
+    assert_eq!(drain(it), vec![1]);
+
+    // SAFETY: `allocate` allocated it; the iterator using it is gone.
     drop(unsafe { Box::from_raw(tag_index) });
 }
 
