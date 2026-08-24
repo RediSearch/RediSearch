@@ -183,10 +183,10 @@ where
             if !std::ptr::eq(old_base, new_base) {
                 // The block buffer was reallocated to a different address by a
                 // non-GC operation (e.g. an append that outgrew its allocation)
-                // without bumping the GC marker.
-                // Since GC has not run, the number of "old" blocks
-                // is the same and there is no risk of ABA confusion.
-                //
+                // without bumping the GC marker. Comparing addresses is ABA-safe
+                // here for the reason given in [`IndexReader::needs_revalidation`]:
+                // only an append can free and reallocate a buffer without moving
+                // the marker, and an append cannot leave the length where it was.
                 //
                 // Refreshing only `self.buf` would
                 // leave the iterator's cached `result` holding an `RSOffsetSlice`
@@ -383,6 +383,14 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> IndexReader<'index>
         //
         // Only the cached pointer's address and length are read, never the pointee, which is
         // what makes this safe to ask while the buffer it describes may already be freed.
+        //
+        // ABA-safe, and it is the length rather than the address that makes it so. Exactly two
+        // things write a block's buffer: GC repair, which bumps `gc_marker` as the last step of
+        // every pass, and appends, which start writing at `buffer.len()` and so only ever grow it.
+        // Freeing and reallocating the buffer therefore takes an append, which lengthens it
+        // whatever address the allocator hands back, and shortening it back takes a repair, which
+        // moves the marker. An unchanged marker, address and length together mean the block has
+        // not been written since the reader cached it.
         let Some(block) = ii.blocks.get(self.current_block_idx) else {
             // Nothing cached to go stale: an empty index leaves the reader on the empty slice,
             // and blocks only ever disappear by GC, which the marker above already caught.
