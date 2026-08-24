@@ -850,9 +850,7 @@ static void wireReadIterator(RPNet *nc, MRIterator *it, MRCommand *readTemplate,
 // cursor id thus lives in a live iterator command from the moment the
 // coordinator learns it, so an abort at any point is cleaned up by the
 // standard rmr teardown instead of leaving cursors parked shard-side
-// (MOD-17913). The FIFO order of the three start jobs on the shared runtime
-// queue guarantees both read iterators are expanded before any mapping reply
-// can arrive.
+// (MOD-17913).
 static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status) {
 
     // Get RPNet structures from query context
@@ -929,9 +927,11 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
     wireReadIterator(vsimRPNet, vsimIt, &vsimTemplate, RPNET_HYBRID_VSIM);
     wireReadIterator(searchRPNet, searchIt, &readTemplate, RPNET_HYBRID_SEARCH);
 
-    MR_StartIterator(searchIt, iterExpandShellsCb);
-    MR_StartIterator(vsimIt, iterExpandShellsCb);
-    MR_StartIterator(hybridIt, iterStartCb);
+    // One start job for all three iterators (hybridArmingStartCb expands the
+    // read placeholders and dispatches the fan-out): a single topology
+    // snapshot, so per-shard indices agree across the iterators and both read
+    // iterators are expanded before any mapping reply can be processed.
+    MR_StartIterator(hybridIt, hybridArmingStartCb);
     // The fan-out's reader side is unused (its callbacks never queue replies);
     // the IO-thread writers drive it to completion and free it.
     MRIterator_Release(hybridIt);

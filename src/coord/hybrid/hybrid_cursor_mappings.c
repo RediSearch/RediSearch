@@ -15,14 +15,16 @@
 #include "rmutil/rm_assert.h"
 #include "shard_window_ratio.h"
 #include "rmr/reply.h"
+#include "rmr/io_runtime_ctx.h"
 #include "rmr/rmr.h"
 
 #ifdef ENABLE_ASSERT
 #include "debug_commands.h"
 #endif
 
-#define INTERNAL_HYBRID_RESP3_LENGTH 6
-#define INTERNAL_HYBRID_RESP2_LENGTH 6
+// Flattened element count of a shard's cursor-mapping reply (3 key/value
+// pairs); identical in both protocols. See processHybridMapping.
+#define HYBRID_MAPPING_REPLY_LENGTH 6
 
 void HybridArmingCtx_Free(void *p) {
   HybridArmingCtx *ctx = (HybridArmingCtx *)p;
@@ -34,15 +36,20 @@ void HybridArmingCtx_Free(void *p) {
 // RPNet folds the ones addressed to it (see processHybridMappingWarning in
 // rpnet.c). Pushed one bare string reply per warning — a top-level string is
 // unambiguous in a read stream, whose other replies are arrays or errors.
-// `warnings` stays owned by the enclosing reply; clones are pushed.
+// Each channel's reader frees its replies independently, so the two streams
+// cannot share one reply: the original is taken out of `warnings` for one
+// stream and a single clone is made for the other.
 static void forwardWarnings(HybridArmingCtx *ctx, MRReply *warnings) {
   if (!warnings) {
     return;
   }
   for (size_t i = 0; i < MRReply_Length(warnings); i++) {
-    MRReply *warning = MRReply_ArrayElement(warnings, i);
-    MRIterator_PushReply(ctx->searchIt, MRReply_Clone(warning));
-    MRIterator_PushReply(ctx->vsimIt, MRReply_Clone(warning));
+    MRReply *warning = MRReply_TakeArrayElement(warnings, i);
+    // Clone before pushing the original: a push hands ownership to the
+    // reader, which may free it concurrently.
+    MRReply *clone = MRReply_Clone(warning);
+    MRIterator_PushReply(ctx->searchIt, clone);
+    MRIterator_PushReply(ctx->vsimIt, warning);
   }
 }
 
@@ -81,58 +88,33 @@ static void failShardReads(HybridArmingCtx *ctx, uint16_t shardIdx, MRReply *err
   MRIterator_ResolveShard(ctx->vsimIt, shardIdx, 1);
 }
 
-// Whole-fan-out failure: pre-fanout connection validation failed (no shard was
-// sent anything), or the three iterators disagree on the shard count (topology
-// changed between their expansion jobs). Retire every placeholder on both read
-// iterators and surface one error per stream. One-shot via `readsFailed`.
-static void failAllReads(HybridArmingCtx *ctx, const char *msg) {
-  ctx->readsFailed = true;
+// Whole-fan-out failure before anything was dispatched (pre-fanout connection
+// validation failed, see hybridArmingStartCb): every iterator still holds its
+// single initial placeholder — surface one error per read stream and retire
+// those placeholders. No shard was sent anything, so no callback ever fires.
+static void failReadsBeforeExpansion(HybridArmingCtx *ctx, const char *msg) {
   MRIterator *its[2] = {ctx->searchIt, ctx->vsimIt};
   for (int j = 0; j < 2; j++) {
+    RS_ASSERT(MRIterator_GetNumShards(its[j]) == 1);
     MRIterator_PushReply(its[j], MRReply_CreateError(msg, strlen(msg)));
-    const size_t n = MRIterator_GetNumShards(its[j]);
-    for (size_t i = 0; i < n; i++) {
-      MRIterator_ResolveShard(its[j], i, 1);
-    }
+    MRIterator_ResolveShard(its[j], 0, 1);
   }
 }
 
-// True when this fan-out reply may be resolved per shard: nobody already
-// retired all placeholders, and the three iterators agree on the shard count
-// so `targetShardIdx` addresses the same shard everywhere.
-static bool shardsAligned(const HybridArmingCtx *ctx, const MRIterator *hybridIt) {
-  const size_t n = MRIterator_GetNumShards((MRIterator *)hybridIt);
-  return n == MRIterator_GetNumShards(ctx->searchIt) && n == MRIterator_GetNumShards(ctx->vsimIt);
-}
-
-// Parse a RESP3 cursor-mapping reply: {"SEARCH": <cid>, "VSIM": <cid>, "warnings": [...]}
-static void processHybridResp3(HybridArmingCtx *ctx, MRReply *rep, uint16_t shardIdx) {
-  RS_ASSERT(MRReply_Length(rep) == INTERNAL_HYBRID_RESP3_LENGTH);
-  forwardWarnings(ctx, MRReply_MapElement(rep, "warnings"));
+// Parse a shard's cursor-mapping reply. Both protocols carry the same fixed
+// layout — a RESP2 array or a RESP3 map, stored either way as a flat element
+// array: ["SEARCH", <cid>, "VSIM", <cid>, "warnings", [...]] (the emission
+// order of replyWithCursors in hybrid_exec.c). The structure is asserted in
+// debug builds; production extracts the values by offset.
+static void processHybridMapping(HybridArmingCtx *ctx, MRReply *rep, uint16_t shardIdx) {
+  RS_ASSERT(MRReply_Length(rep) == HYBRID_MAPPING_REPLY_LENGTH);
+  RS_ASSERT(MRReply_StringEquals(MRReply_ArrayElement(rep, 0), "SEARCH", true));
+  RS_ASSERT(MRReply_StringEquals(MRReply_ArrayElement(rep, 2), "VSIM", true));
+  RS_ASSERT(MRReply_StringEquals(MRReply_ArrayElement(rep, 4), "warnings", true));
   long long searchCid = 0, vsimCid = 0;
-  MRReply *searchReply = MRReply_MapElement(rep, "SEARCH");
-  MRReply *vsimReply = MRReply_MapElement(rep, "VSIM");
-  RS_ASSERT(searchReply && vsimReply);
-  MRReply_ToInteger(searchReply, &searchCid);
-  MRReply_ToInteger(vsimReply, &vsimCid);
-  armShardReads(ctx, shardIdx, searchCid, vsimCid);
-}
-
-// Parse a RESP2 cursor-mapping reply: ["SEARCH", <cid>, "VSIM", <cid>, "warnings", [...]]
-static void processHybridResp2(HybridArmingCtx *ctx, MRReply *rep, uint16_t shardIdx) {
-  RS_ASSERT(MRReply_Length(rep) == INTERNAL_HYBRID_RESP2_LENGTH);
-  long long searchCid = 0, vsimCid = 0;
-  for (size_t i = 0; i + 1 < MRReply_Length(rep); i += 2) {
-    const char *key = MRReply_String(MRReply_ArrayElement(rep, i), NULL);
-    MRReply *value = MRReply_ArrayElement(rep, i + 1);
-    if (strcmp(key, "SEARCH") == 0) {
-      MRReply_ToInteger(value, &searchCid);
-    } else if (strcmp(key, "VSIM") == 0) {
-      MRReply_ToInteger(value, &vsimCid);
-    } else if (strcmp(key, "warnings") == 0) {
-      forwardWarnings(ctx, value);
-    }
-  }
+  MRReply_ToInteger(MRReply_ArrayElement(rep, 1), &searchCid);
+  MRReply_ToInteger(MRReply_ArrayElement(rep, 3), &vsimCid);
+  forwardWarnings(ctx, MRReply_ArrayElement(rep, 5));
   armShardReads(ctx, shardIdx, searchCid, vsimCid);
 }
 
@@ -145,26 +127,14 @@ void hybridArmingCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 #endif
   HybridArmingCtx *cb_ctx = (HybridArmingCtx *)MRIteratorCallback_GetPrivateData(ctx);
   RS_ASSERT(cb_ctx);
-  MRIterator *hybridIt = MRIteratorCallback_GetIterator(ctx);
-  const uint16_t shardIdx = MRIteratorCallback_GetCommand(ctx)->targetShardIdx;
+  const uint16_t shardIdx = MRIteratorCallback_GetShardIdx(ctx);
   const int replyType = MRReply_Type(rep);
   bool isError = replyType == MR_REPLY_ERROR;
 
-  if (cb_ctx->readsFailed) {
-    // Placeholders were already retired wholesale; nothing left to resolve.
-    // A late shard that still published cursors leaves them to the idle sweep.
-  } else if (!shardsAligned(cb_ctx, hybridIt)) {
-    // Pre-fanout connection validation failed (single synthetic error, the
-    // fan-out was never expanded), or the expansion jobs saw different
-    // topologies. Per-shard resolution is not addressable — fail everything.
-    failAllReads(cb_ctx, isError ? MRReply_String(rep, NULL) : CLUSTER_QUERY_ERROR);
-    isError = true;
-  } else if (isError) {
+  if (isError) {
     failShardReads(cb_ctx, shardIdx, rep);
-  } else if (replyType == MR_REPLY_MAP) {
-    processHybridResp3(cb_ctx, rep, shardIdx);
-  } else if (replyType == MR_REPLY_ARRAY) {
-    processHybridResp2(cb_ctx, rep, shardIdx);
+  } else if (replyType == MR_REPLY_MAP || replyType == MR_REPLY_ARRAY) {
+    processHybridMapping(cb_ctx, rep, shardIdx);
   } else {
     MRReply *error = MRReply_CreateError(CLUSTER_QUERY_ERROR, strlen(CLUSTER_QUERY_ERROR));
     failShardReads(cb_ctx, shardIdx, error);
@@ -179,32 +149,46 @@ void hybridArmingCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 void hybridArmingErrorCallback(MRIteratorCallbackCtx *ctx) {
   HybridArmingCtx *cb_ctx = (HybridArmingCtx *)MRIteratorCallback_GetPrivateData(ctx);
   RS_ASSERT(cb_ctx);
-  if (cb_ctx->readsFailed) {
-    return;
-  }
-  MRIterator *hybridIt = MRIteratorCallback_GetIterator(ctx);
-  if (!shardsAligned(cb_ctx, hybridIt)) {
-    failAllReads(cb_ctx, CLUSTER_QUERY_ERROR);
-    return;
-  }
-  const uint16_t shardIdx = MRIteratorCallback_GetCommand(ctx)->targetShardIdx;
   MRReply *error = MRReply_CreateError(CLUSTER_QUERY_ERROR, strlen(CLUSTER_QUERY_ERROR));
-  failShardReads(cb_ctx, shardIdx, error);
+  failShardReads(cb_ctx, MRIteratorCallback_GetShardIdx(ctx), error);
   MRReply_Free(error);
 }
 
-void HybridKnnApplyShardKRatio(MRCommand *cmd, size_t numShards, const HybridKnnContext *knnCtx) {
-  RS_ASSERT(cmd && knnCtx && knnCtx->kArgIndex >= 0);
-  // Only apply optimization for multi-shard deployments with valid ratio
-  if (numShards <= 1 || knnCtx->shardWindowRatio >= MAX_SHARD_WINDOW_RATIO) {
+void hybridArmingStartCb(void *p) {
+  MRIterator *hybridIt = (MRIterator *)p;
+  HybridArmingCtx *ctx = (HybridArmingCtx *)MRIterator_GetPrivateData(hybridIt);
+  // The read iterators complete as independent logical requests (each calls
+  // IORuntimeCtx_RequestCompleted when it drains) but share this one
+  // scheduled job — register them so the queue's pending accounting balances.
+  IORuntimeCtx *ioRuntime = MRIterator_GetIORuntime(hybridIt);
+  IORuntimeCtx_RequestStarted(ioRuntime);
+  IORuntimeCtx_RequestStarted(ioRuntime);
+  // Validate connections before expanding anything, so a failure retires
+  // exactly one placeholder per iterator. iterStartCb re-validates internally,
+  // but connection state only changes via jobs on this same IO loop, so its
+  // check cannot disagree with this one.
+  if (!MRIterator_AllShardsConnected(hybridIt)) {
+    failReadsBeforeExpansion(ctx, CLUSTER_QUERY_ERROR);
+    MRIterator_ResolveShard(hybridIt, 0, 1);
     return;
   }
-  size_t effectiveK = calculateEffectiveK(knnCtx->originalK, knnCtx->shardWindowRatio, numShards);
-  modifyVsimKNN(cmd, knnCtx->kArgIndex, effectiveK, knnCtx->originalK);
+  iterExpandShellsCb(ctx->searchIt);
+  iterExpandShellsCb(ctx->vsimIt);
+  iterStartCb(hybridIt);
+}
+
+void HybridKnnApplyShardKRatio(MRCommand *cmd, size_t numShards, const HybridKnnContext *knnCtx) {
+    RS_ASSERT(cmd && knnCtx && knnCtx->kArgIndex >= 0);
+    // Only apply optimization for multi-shard deployments with valid ratio
+    if (numShards <= 1 || knnCtx->shardWindowRatio >= MAX_SHARD_WINDOW_RATIO) {
+        return;
+    }
+    size_t effectiveK = calculateEffectiveK(knnCtx->originalK, knnCtx->shardWindowRatio, numShards);
+    modifyVsimKNN(cmd, knnCtx->kArgIndex, effectiveK, knnCtx->originalK);
 }
 
 void HybridKnnCommandModifier(MRCommand *cmd, size_t numShards, void *privateData) {
-  RS_ASSERT(privateData && cmd);
-  const HybridArmingCtx *ctx = (const HybridArmingCtx *)privateData;
-  HybridKnnApplyShardKRatio(cmd, numShards, ctx->knnCtx);
+    RS_ASSERT(privateData && cmd);
+    const HybridArmingCtx *ctx = (const HybridArmingCtx *)privateData;
+    HybridKnnApplyShardKRatio(cmd, numShards, ctx->knnCtx);
 }

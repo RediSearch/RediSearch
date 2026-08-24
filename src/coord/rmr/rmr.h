@@ -238,6 +238,18 @@ MRIterator *MRIteratorCallback_GetIterator(MRIteratorCallbackCtx *ctx);
 
 void *MRIteratorCallback_GetPrivateData(MRIteratorCallbackCtx *ctx);
 
+/* Return this callback context's shard index — its offset in the iterator's
+ * per-shard context array, i.e. the index the shard had in the topology
+ * snapshot the iterator was expanded under. */
+uint16_t MRIteratorCallback_GetShardIdx(MRIteratorCallbackCtx *ctx);
+
+/* True when every shard in the iterator's runtime topology has an established
+ * connection — the pre-fanout validation iterStartCb performs before
+ * expanding. Exposed so a caller with side obligations (e.g. the hybrid
+ * arming fan-out) can validate before committing sibling iterators. Must run
+ * on the iterator's own IO thread. */
+bool MRIterator_AllShardsConnected(const MRIterator *it);
+
 void MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep);
 
 bool MRIteratorCallback_GetTimedOut(MRIteratorCtx *ctx);

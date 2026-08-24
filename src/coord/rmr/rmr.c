@@ -718,7 +718,7 @@ void MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
       "depleted(should be false): %d, Pending: (%d), inProcess: %d, itRefCount: %d, channel size: "
       "%zu, target_shard_idx: %hu, target_shard: %s",
       ctx->cmd.depleted, ctx->it->ctx.pending, ctx->it->ctx.inProcess, ctx->it->ctx.itRefCount,
-      MRChannel_Size(ctx->it->ctx.chan), ctx->cmd.targetShardIdx,
+      MRChannel_Size(ctx->it->ctx.chan), MRIteratorCallback_GetShardIdx(ctx),
       ctx->cmd.targetShard ? ctx->cmd.targetShard : "(none)");
   ctx->cmd.depleted = true;
   short pending = --ctx->it->ctx.pending; // Decrease `pending` before decreasing `inProcess`
@@ -746,6 +746,21 @@ void *MRIteratorCallback_GetPrivateData(MRIteratorCallbackCtx *ctx) {
   return ctx->privateData;
 }
 
+uint16_t MRIteratorCallback_GetShardIdx(MRIteratorCallbackCtx *ctx) {
+  return (uint16_t)(ctx - ctx->it->cbxs);
+}
+
+bool MRIterator_AllShardsConnected(const MRIterator *it) {
+  IORuntimeCtx *io_runtime_ctx = it->ctx.ioRuntime;
+  MRClusterShard *shards = io_runtime_ctx->topo->shards;
+  for (size_t i = 0; i < io_runtime_ctx->topo->numShards; i++) {
+    if (!MRConn_Get(&io_runtime_ctx->conn_mgr, shards[i].node.id)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 // This function already runs in one of the IO threads. We need to make sure that the adequate RuntimeCtx is used. This info can be found in the MRIterator ctx
 void iterStartCb(void *p) {
   MRIterator *it = (MRIterator *)p;
@@ -755,15 +770,12 @@ void iterStartCb(void *p) {
 
   // Pre-fanout connection validation - check ALL connections before any setup.
   // If validation fails, we return early with a single error (it->len stays 1).
-  for (size_t i = 0; i < numShards; i++) {
-    MRConn *conn = MRConn_Get(&io_runtime_ctx->conn_mgr, shards[i].node.id);
-    if (!conn) {
-      // At least one connection is not established - fail with a single error.
-      // it->len/pending/inProcess remain at their initial value of 1.
-      MRReply *err = MRReply_CreateError(CLUSTER_QUERY_ERROR, sizeof(CLUSTER_QUERY_ERROR) - 1);
-      it->ctx.successCB(&it->cbxs[0], err);
-      return;
-    }
+  if (!MRIterator_AllShardsConnected(it)) {
+    // At least one connection is not established - fail with a single error.
+    // it->len/pending/inProcess remain at their initial value of 1.
+    MRReply *err = MRReply_CreateError(CLUSTER_QUERY_ERROR, sizeof(CLUSTER_QUERY_ERROR) - 1);
+    it->ctx.successCB(&it->cbxs[0], err);
+    return;
   }
 
   // All connections valid - proceed with full setup
@@ -787,7 +799,6 @@ void iterStartCb(void *p) {
     it->cbxs[targetShardIdx].cmd = MRCommand_Copy(cmd);
     // Set each command to target a different shard
     it->cbxs[targetShardIdx].cmd.targetShard = rm_strdup(shards[targetShardIdx].node.id);
-    it->cbxs[targetShardIdx].cmd.targetShardIdx = targetShardIdx;
     MRCommand_SetSlotInfo(&it->cbxs[targetShardIdx].cmd, shards[targetShardIdx].slotRanges);
 
     it->cbxs[targetShardIdx].privateData = MRIterator_GetPrivateData(it);
@@ -795,7 +806,6 @@ void iterStartCb(void *p) {
 
   // Set the first command to target the first shard (while not having copied it)
   cmd->targetShard = rm_strdup(shards[0].node.id);
-  cmd->targetShardIdx = 0;
   MRCommand_SetSlotInfo(cmd, shards[0].slotRanges);
 
   // Send commands to all shards
@@ -841,12 +851,10 @@ void iterExpandShellsCb(void *p) {
     it->cbxs[i].it = it;
     it->cbxs[i].cmd = MRCommand_Copy(cmd);
     it->cbxs[i].cmd.targetShard = rm_strdup(shards[i].node.id);
-    it->cbxs[i].cmd.targetShardIdx = i;
     it->cbxs[i].privateData = MRIterator_GetPrivateData(it);
   }
   // The first placeholder targets the first shard (without having copied it)
   cmd->targetShard = rm_strdup(shards[0].node.id);
-  cmd->targetShardIdx = 0;
 }
 
 void MRIterator_ArmShardCursorRead(MRIterator *it, uint16_t shardIdx, long long cursorId,
@@ -942,25 +950,23 @@ MRIterator *MR_CreateIterator(const MRCommand *cmd, const MRIteratorConfig *conf
   // The reference count is set to 2:
   // - one ref for the writers (shards)
   // - one for the reader (the coord)
+  IORuntimeCtx *ioRuntime = config->ioRuntime ? config->ioRuntime
+      : MRCluster_GetIORuntimeCtx(cluster_g, MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g));
   *ret = (MRIterator){
-      .ctx =
-          {
-              .chan = MR_NewChannel(),
-              .successCB = config->successCB,
-              .errorCB = config->errorCB,
-              .pending = 1,
-              .inProcess = 1,
-              .timedOut = false,
-              .itRefCount = 2,
-              .ioRuntime = config->ioRuntime
-                               ? config->ioRuntime
-                               : MRCluster_GetIORuntimeCtx(
-                                     cluster_g, MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g)),
-              .privateDataDestructor = config->cbPrivateDataDestructor,
-              .commandModifier = config->commandModifier,
-          },
-      .cbxs = rm_new(MRIteratorCallbackCtx),
-      .len = 1,
+    .ctx = {
+      .chan = MR_NewChannel(),
+      .successCB = config->successCB,
+      .errorCB = config->errorCB,
+      .pending = 1,
+      .inProcess = 1,
+      .timedOut = false,
+      .itRefCount = 2,
+      .ioRuntime = ioRuntime,
+      .privateDataDestructor = config->cbPrivateDataDestructor,
+      .commandModifier = config->commandModifier,
+    },
+    .cbxs = rm_new(MRIteratorCallbackCtx),
+    .len = 1,
   };
   *ret->cbxs = (MRIteratorCallbackCtx){
     .cmd = MRCommand_Copy(cmd),

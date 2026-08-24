@@ -42,11 +42,6 @@ typedef struct {
   MRIterator *searchIt;
   MRIterator *vsimIt;
   HybridKnnContext *knnCtx;  // KNN context for SHARD_K_RATIO optimization (may be NULL)
-  // One-shot latch for the whole-fan-out failure path (connection validation
-  // failure, or a shard-count mismatch between the three iterators): every
-  // placeholder was already resolved, so later callbacks must not resolve
-  // again.
-  bool readsFailed;
 } HybridArmingCtx;
 
 /** Destructor for HybridArmingCtx (the fan-out iterator's cbPrivateDataDestructor). */
@@ -67,6 +62,15 @@ void hybridArmingCallback(MRIteratorCallbackCtx *ctx, MRReply *rep);
  * placeholders. Notify-only per the MRIteratorErrorCallback contract.
  */
 void hybridArmingErrorCallback(MRIteratorCallbackCtx *ctx);
+
+/**
+ * Start callback of the `_FT.HYBRID` arming fan-out: validates shard
+ * connections, expands both sibling read iterators' placeholders, and
+ * dispatches the fan-out — all within one scheduled IO job, i.e. one topology
+ * snapshot, so the three iterators cannot observe different shard counts and
+ * a per-shard index addresses the same shard on all of them.
+ */
+void hybridArmingStartCb(void *p);
 
 /**
  * Apply SHARD_K_RATIO optimization to an MRCommand based on the provided
