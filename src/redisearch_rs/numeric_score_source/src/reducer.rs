@@ -18,8 +18,8 @@ use rqe_iterator_type::IteratorType;
 use rqe_iterators::{ExpirationChecker, RQEIterator, c2rust::CRQEIterator, utils::TimeoutContext};
 
 use crate::{
-    DocValidity, NumericScoreSource, NumericTopKIterator, new_numeric_top_k_filtered,
-    new_numeric_top_k_unfiltered,
+    DocValidity, NumericScoreSource, NumericTopKIterator, OptimizerMode,
+    new_numeric_top_k_filtered, new_numeric_top_k_unfiltered,
     source::{DEFAULT_RANGE_BATCH_SIZE, estimate_limit},
 };
 
@@ -58,9 +58,9 @@ where
 pub enum NewNumericTopK<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> {
     /// The query yields nothing (empty child, or `k == 0`).
     ReducedEmpty,
-    /// `PARTIAL_RANGE`: scan the value-ordered range with no filter child.
+    /// Scan the value-ordered range with no filter child.
     Unfiltered(NumericTopKIterator<'index, V, E, T>),
-    /// `HYBRID`: value-ordered range intersected with a filter child, with the
+    /// Value-ordered range intersected with a filter child, with the
     /// expand-and-retry window path enabled.
     Filtered(NumericTopKIterator<'index, V, E, T>),
 }
@@ -69,10 +69,11 @@ pub enum NewNumericTopK<'index, V: DocValidity, E: ExpirationChecker, T: Timeout
 /// reduction and choosing the unfiltered or filtered construction accordingly.
 ///
 /// `num_docs` is the total document count; the filter child's selectivity
-/// estimate sizes the initial retry window. `validity`, `expiration` and
-/// `timeout` are the per-document validity oracle, field-TTL checker and
-/// query-deadline poll carried by the source. A `k` of `0` reduces to an empty
-/// query.
+/// estimate sizes the initial retry window. `mode` is the strategy the query plan
+/// picked, reported by the profile and not otherwise acted on. `validity`,
+/// `expiration` and `timeout` are the per-document validity oracle, field-TTL
+/// checker and query-deadline poll carried by the source. A `k` of `0` reduces to
+/// an empty query.
 #[expect(clippy::too_many_arguments)]
 pub fn new_numeric_top_k<'index, V, E, T>(
     tree: &'index NumericRangeTree,
@@ -80,6 +81,7 @@ pub fn new_numeric_top_k<'index, V, E, T>(
     ascending: bool,
     k: usize,
     num_docs: usize,
+    mode: OptimizerMode,
     validity: V,
     expiration: E,
     timeout: T,
@@ -98,6 +100,7 @@ where
         NumericChildReduction::Empty => NewNumericTopK::ReducedEmpty,
         NumericChildReduction::Unfiltered => {
             let source = NumericScoreSource::unfiltered(tree, filter, ascending)
+                .with_optimizer_mode(mode)
                 .with_validity(validity)
                 .with_expiration(expiration)
                 .with_timeout(timeout);
@@ -121,6 +124,7 @@ where
                 num_docs,
                 child_estimate,
             )
+            .with_optimizer_mode(mode)
             .with_validity(validity)
             .with_expiration(expiration)
             .with_timeout(timeout);

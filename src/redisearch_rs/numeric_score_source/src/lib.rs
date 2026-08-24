@@ -33,7 +33,7 @@ pub mod source;
 pub use range_iterator::NumericRangeIterator;
 pub use reducer::{NewNumericTopK, new_numeric_top_k};
 pub use score_batch::NumericScoreBatch;
-pub use source::{AllValid, DocValidity, NumericScoreSource};
+pub use source::{AllValid, DocValidity, NumericScoreSource, OptimizerMode};
 
 use std::{cmp::Ordering, num::NonZeroUsize};
 
@@ -110,24 +110,24 @@ pub fn new_numeric_top_k_filtered<
 impl<V: DocValidity, E: ExpirationChecker, T: TimeoutContext> TopKSourceProfile
     for NumericScoreSource<'_, V, E, T>
 {
-    /// Render the numeric optimizer's profile entry: an `OPTIMIZER` header plus
-    /// the batch and window-expansion counters.
+    /// Render the numeric optimizer's profile entry: an `OPTIMIZER` header, the
+    /// [`OptimizerMode`] the query plan picked, and the child subtree.
     ///
-    /// `mode` is unused — the numeric source has no runtime mode string.
+    /// `mode` and `metrics` are unused: the reported strategy is fixed by the plan
+    /// and carried on the source, and the entry exposes no runtime counters. The
+    /// key set is a stable part of the `FT.PROFILE` reply, so adding one is an API
+    /// change rather than a detail of this impl.
     fn print_profile(
         &self,
         _mode: TopKMode,
-        metrics: &TopKMetrics,
+        _metrics: &TopKMetrics,
         map: &mut MapBuilder<'_>,
         ctx: &mut ProfilePrintCtx<'_>,
         child: Option<&dyn ProfilePrint>,
     ) {
         map.kv_simple_string(c"Type", c"OPTIMIZER");
         ctx.print_optional_counters(map);
-        map.kv_long_long(c"Batches number", metrics.num_batches as i64);
-        // A strategy switch on the numeric source is exactly a disjoint-window
-        // expansion.
-        map.kv_long_long(c"Window expansions", metrics.strategy_switches as i64);
+        map.kv_simple_string(c"Optimizer mode", self.optimizer_mode().profile_name());
 
         if let Some(child) = child {
             let mut child_map = map.kv_map(c"Child iterator");
