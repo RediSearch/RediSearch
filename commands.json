@@ -1052,7 +1052,7 @@
             "optional": true
           }
         ],
-        "summary": "Splits a field into contextual fragments surrounding the found terms. Note: On JSON indexes, SUMMARIZE requires RETURN with explicit field names and is not supported for JSON fields with multi-value JSONPath."
+        "summary": "Splits a field into contextual fragments surrounding the found terms. Note: SUMMARIZE is not supported for JSON fields with multi-value JSONPath."
       },
       {
         "name": "highlight",
@@ -1104,7 +1104,7 @@
             ]
           }
         ],
-        "summary": "Highlights terms in the search results, with customizable tags for emphasis. Note: On JSON indexes, HIGHLIGHT requires RETURN with explicit field names and is not supported for JSON fields with multi-value JSONPath."
+        "summary": "Highlights terms in the search results, with customizable tags for emphasis. Note: HIGHLIGHT is not supported for JSON fields with multi-value JSONPath."
       },
       {
         "name": "slop",
