@@ -1169,16 +1169,16 @@ pub unsafe extern "C" fn IndexReader_NumericFilter(ir: *const IndexReader) -> *c
     }
 }
 
-/// Revalidate the index reader against its inverted index. This is only needed if the inverted index
-/// has been modified since the last time the reader was used. The function returns true if the
-/// reader needs revalidation, false otherwise.
+/// Report whether the index reader needs to be revalidated against its inverted index. This is
+/// only needed if the inverted index has been modified since the last time the reader was used.
+/// The function returns true if the reader needs revalidation, false otherwise.
 ///
 /// # Safety
 ///
 /// The following invariant must be upheld when calling this function:
 /// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexReader_Revalidate(ir: *mut IndexReader) -> bool {
+pub unsafe extern "C" fn IndexReader_NeedsRevalidation(ir: *mut IndexReader) -> bool {
     debug_assert!(!ir.is_null(), "ir must not be null");
 
     // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
