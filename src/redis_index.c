@@ -317,9 +317,12 @@ int Redis_LegacyDeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
   return res;
 }
 
-int Redis_DeleteKeyC(RedisModuleCtx *ctx, char *cstr) {
-  // Send command and args to replicas and AOF
-  RedisModuleCallReply *rep = RedisModule_Call(ctx, "DEL", "c!", cstr);
+int Redis_UnlinkKeys(RedisModuleCtx *ctx, RedisModuleString **keys, size_t numKeys) {
+  if (numKeys == 0) {
+    return 0;
+  }
+
+  RedisModuleCallReply *rep = RedisModule_Call(ctx, "UNLINK", "!v", keys, numKeys);
   RS_ASSERT(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_INTEGER);
   long long res = RedisModule_CallReplyInteger(rep);
   RedisModule_FreeCallReply(rep);
