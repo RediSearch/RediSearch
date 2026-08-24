@@ -322,7 +322,7 @@ static void Indexes_AsyncScanCancelIfDropped(IndexesScanner *scanner) {
   }
 }
 
-// React to Flex memory pressure, once per completed batch. Latches scanner->scanFailedOnOOM when
+// React to Flex memory pressure between batches. Latches scanner->scanFailedOnOOM when
 // the scan cannot continue, which the caller's abort branch acts on. Does nothing for a cancelled
 // scan: the sweep is going away, and the OOM pause below would sleep on a dead cursor while the
 // replacement scan waits for this worker.
@@ -447,7 +447,9 @@ static RedisModuleAsyncScanResult Indexes_AsyncScanDriveNextBatch(
     }
   }
 
-  Indexes_AsyncScanHandleMemoryPressure(ctx, scanner);
+  if (done_reason != REDISMODULE_ASYNCSCAN_DONE_COMPLETED) {
+    Indexes_AsyncScanHandleMemoryPressure(ctx, scanner);
+  }
 
   if (IndexesScanner_IsCancelled(scanner)) {
     RedisModule_AsyncScanAbort(cursor);
