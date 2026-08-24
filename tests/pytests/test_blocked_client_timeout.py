@@ -991,15 +991,17 @@ class TestCoordinatorTimeout:
         """A coordinator timeout racing a shard timeout warning is counted once.
 
         The coordinator request captures RETURN-STRICT and a long timeout before it is
-        blocked. Before fanout, the shards are switched to RETURN with a short timeout,
-        so a normal FT.SEARCH produces shard warnings without coordinator query debug.
+        blocked. Before fanout, the shards are switched to RETURN with a short timeout
+        and parked at their first read until that timeout expires. This makes a normal
+        FT.SEARCH produce shard warnings without coordinator query debug.
         """
         env = self.env
+        skipIfNoEnableAssert(env)
+        sync_point = 'BeforeFirstRead'
 
         prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         prev_timeout = env.cmd('CONFIG', 'GET', 'search-timeout')['search-timeout']
         coord_paused = False
-        workers_paused = False
         blocked_client_id = None
         t_query = None
 
@@ -1008,6 +1010,9 @@ class TestCoordinatorTimeout:
                 env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
             verify_command_OK_on_all_shards(
                 env, 'CONFIG', 'SET', 'search-timeout', '60000')
+            verify_command_OK_on_all_shards(env, debug_cmd(), 'SYNC_POINT', 'CLEAR')
+            verify_command_OK_on_all_shards(
+                env, debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
 
             before_info = info_modules_to_dict(env)
             base_warn_coord = int(
@@ -1018,11 +1023,8 @@ class TestCoordinatorTimeout:
             wait_for_condition(
                 lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 1, {}),
                 'Timeout while waiting for coordinator threads to pause', timeout=30)
-            verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'PAUSE')
-            workers_paused = True
 
             coord_initial_stats = getCoordThpoolStats(env)
-            shard_initial_stats = getWorkersThpoolStatsFromAllShards(env)
 
             query_result = []
             t_query = threading.Thread(
@@ -1039,7 +1041,7 @@ class TestCoordinatorTimeout:
             verify_command_OK_on_all_shards(
                 env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
             verify_command_OK_on_all_shards(
-                env, 'CONFIG', 'SET', 'search-timeout', '1')
+                env, 'CONFIG', 'SET', 'search-timeout', '5000')
 
             env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
             coord_paused = False
@@ -1051,32 +1053,40 @@ class TestCoordinatorTimeout:
                 ),
                 'Timeout while waiting for coordinator to dispatch query', timeout=30)
 
+            shard_connections = env.getOSSMasterNodesConnectionList()
+
+            def shard_timeout_checks_are_waiting():
+                waiting = [
+                    connection.execute_command(
+                        debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point)
+                    for connection in shard_connections
+                ]
+                return all(waiting), {'waiting': waiting}
+
+            wait_for_condition(
+                shard_timeout_checks_are_waiting,
+                f'Timeout waiting for shards at {sync_point}', timeout=30)
+
             env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
             coord_paused = True
             wait_for_condition(
                 lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 1, {}),
                 'Timeout while waiting for coordinator threads to pause', timeout=30)
 
-            def shard_queries_are_queued():
-                current = getWorkersThpoolStatsFromAllShards(env)
-                queued = all(
-                    current_stats['totalPendingJobs'] > initial_stats['totalPendingJobs']
-                    for current_stats, initial_stats in zip(current, shard_initial_stats)
-                )
-                return queued, {
-                    'current': [stats['totalPendingJobs'] for stats in current],
-                    'initial': [stats['totalPendingJobs'] for stats in shard_initial_stats],
-                }
+            def shard_timeouts_have_fired():
+                waiting = [
+                    connection.execute_command(
+                        debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point)
+                    for connection in shard_connections
+                ]
+                return not any(waiting), {'waiting': waiting}
 
             wait_for_condition(
-                shard_queries_are_queued,
-                'Timeout while waiting for shard queries to be queued', timeout=30)
+                shard_timeouts_have_fired,
+                'Timeout while waiting for shard timeouts', timeout=30)
 
-            verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'RESUME')
-            workers_paused = False
-
-            # The short shard timeout has expired before execution. Their warnings queue
-            # the reducer in the paused coordinator pool.
+            # The shard timeout checks self-release when their deadlines expire. Their
+            # warnings queue the reducer in the paused coordinator pool.
             wait_for_condition(
                 lambda: (
                     getCoordThpoolStats(env)['totalPendingJobs']
@@ -1117,8 +1127,7 @@ class TestCoordinatorTimeout:
                 env, env, before_info,
                 [TIMEOUT_WARNING_COORD_METRIC, TIMEOUT_WARNING_SHARD_METRIC])
         finally:
-            if workers_paused:
-                run_command_on_all_shards(env, debug_cmd(), 'WORKERS', 'RESUME')
+            run_command_on_all_shards(env, debug_cmd(), 'SYNC_POINT', 'CLEAR')
             if coord_paused:
                 env.cmd(debug_cmd(), 'COORD_THREADS', 'RESUME')
             if blocked_client_id is not None and t_query is not None and t_query.is_alive():
