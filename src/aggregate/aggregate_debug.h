@@ -45,10 +45,11 @@ typedef struct QueryError QueryError;
  *             `TIMEOUT_AFTER_N` uses in-pipeline timeout simulation. With workers enabled,
  *             `ON_TIMEOUT FAIL` relies on blocked client timeout instead of in-pipeline checks,
  *             making it incompatible with `TIMEOUT_AFTER_N`.
- *           - **Coordinator with `INTERNAL_ONLY`:** No policy constraint on the coordinator
- *             itself—the debug timeout only affects the shard query pipeline. A special
- *             handling exists for `N == 0` with query timeout disabled to prevent infinite
- *             loops (see RESP2/RESP3 details below).
+ *           - **Coordinator with `INTERNAL_ONLY`:** `ON_TIMEOUT RETURN-STRICT` is not supported
+ *             for `FT.AGGREGATE`. Otherwise, the coordinator imposes no additional policy
+ *             constraint because the debug timeout only affects the shard query pipeline. A
+ *             special handling exists for `N == 0` with query timeout disabled to prevent
+ *             infinite loops (see RESP2/RESP3 details below).
  *           - **Coordinator without `INTERNAL_ONLY`:** Requires `ON_TIMEOUT RETURN` policy
  *             only. `ON_TIMEOUT FAIL` and `ON_TIMEOUT RETURN-STRICT` are not supported.
  *       - **`INTERNAL_ONLY` (optional)**:
@@ -94,7 +95,8 @@ typedef struct QueryError QueryError;
  *   - Shard/SA: Requires `ON_TIMEOUT RETURN`, or `ON_TIMEOUT FAIL` without workers
  *     (WORKERS=0). `ON_TIMEOUT RETURN-STRICT` is never supported.
  *   - Coordinator without `INTERNAL_ONLY`: Requires `ON_TIMEOUT RETURN` only.
- *   - Coordinator with `INTERNAL_ONLY`: No policy constraint (debug timeout is shard-only).
+ *   - Coordinator with `INTERNAL_ONLY`: `ON_TIMEOUT RETURN-STRICT` is not supported for
+ *     `FT.AGGREGATE`; otherwise the coordinator imposes no additional policy constraint.
  *
  * -----------------------------------------------------------------------------
  *
