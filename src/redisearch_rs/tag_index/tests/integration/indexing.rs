@@ -11,18 +11,9 @@
 //! iterating the indexed tags.
 
 use index_result::RSIndexResult;
-use tag_index::{InMemoryMode, MemTagIndexIterator, SuffixQuery, Tag, TagIndex, TagValueReader};
+use tag_index::{InMemoryMode, SuffixQuery, Tag, TagIndex, TagValueReader};
 
-use crate::util::{commit_mem, index_mem};
-
-/// Drain a [`MemTagIndexIterator`] into its yielded keys, in iteration order.
-fn value_iter_keys(mut it: MemTagIndexIterator<'_>) -> Vec<Vec<u8>> {
-    let mut keys: Vec<Vec<u8>> = Vec::new();
-    while let Some((key, _)) = it.advance() {
-        keys.push(key.as_bytes().to_vec());
-    }
-    keys
-}
+use crate::util::{commit_mem, index_mem, value_iter_keys};
 
 /// Indexing a document registers each of its tags.
 #[test]

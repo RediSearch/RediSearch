@@ -10,7 +10,7 @@
 //! Helpers shared by the integration test modules.
 
 use inverted_index::DocId;
-use tag_index::{InMemoryMode, Tag, TagIndex, WritePostingsDelta};
+use tag_index::{InMemoryMode, MemTagIndexIterator, Tag, TagIndex, WritePostingsDelta};
 
 /// Wrap every NUL-free literal `tags` passes as a test fixture into a [`Tag`].
 fn tag_values<'a>(tags: &[&'a [u8]]) -> Vec<Tag<'a>> {
@@ -34,4 +34,13 @@ pub fn index_mem(
 /// Run the post-indexing commit phase for `tags` on a memory-mode index.
 pub fn commit_mem(idx: &mut TagIndex<InMemoryMode>, tags: &[&[u8]]) -> u32 {
     idx.commit(&tag_values(tags))
+}
+
+/// Drain a [`MemTagIndexIterator`] into its yielded keys, in iteration order.
+pub fn value_iter_keys(mut it: MemTagIndexIterator<'_>) -> Vec<Vec<u8>> {
+    let mut keys: Vec<Vec<u8>> = Vec::new();
+    while let Some((key, _)) = it.advance() {
+        keys.push(key.as_bytes().to_vec());
+    }
+    keys
 }

@@ -15,9 +15,9 @@
 //! each mode drives the right traversal over the index's values trie.
 
 use ffi::timespec;
-use tag_index::{InMemoryMode, IterMode, MemTagIndexIterator, SuffixQuery, Tag, TagIndex};
+use tag_index::{InMemoryMode, IterMode, SuffixQuery, Tag, TagIndex};
 
-use crate::util::{commit_mem, index_mem};
+use crate::util::{commit_mem, index_mem, value_iter_keys};
 
 /// Drain the index's suffix-trie iterator into its yielded keys, in iteration order.
 fn suffix_keys(idx: &TagIndex<InMemoryMode>) -> Vec<Vec<u8>> {
@@ -26,15 +26,6 @@ fn suffix_keys(idx: &TagIndex<InMemoryMode>) -> Vec<Vec<u8>> {
         .expect("index was created with a suffix trie");
     let mut keys: Vec<Vec<u8>> = Vec::new();
     while let Some(key) = it.advance() {
-        keys.push(key.as_bytes().to_vec());
-    }
-    keys
-}
-
-/// Drain a [`MemTagIndexIterator`] into its yielded keys, in iteration order.
-fn value_iter_keys(mut it: MemTagIndexIterator<'_>) -> Vec<Vec<u8>> {
-    let mut keys: Vec<Vec<u8>> = Vec::new();
-    while let Some((key, _)) = it.advance() {
         keys.push(key.as_bytes().to_vec());
     }
     keys
@@ -183,6 +174,58 @@ fn set_timeout_bounds_the_nonmatches_a_suffix_walk_skips() {
     assert!(
         it.advance().is_none(),
         "an elapsed deadline must stop the walk before it reaches the match"
+    );
+}
+
+/// An elapsed deadline also stops a `Contains` walk early, not just the
+/// unfiltered one `set_timeout_cuts_iteration_short` covers.
+#[test]
+#[cfg_attr(miri, ignore)] // probes CLOCK_MONOTONIC_RAW, unimplemented under miri
+fn set_timeout_cuts_a_contains_walk_short() {
+    // Comfortably more tags than the check granularity, all matching the
+    // fragment, so the deadline is guaranteed to be probed before the walk
+    // finishes.
+    let owned: Vec<Vec<u8>> = (0..400)
+        .map(|i| format!("tag{i:04}").into_bytes())
+        .collect();
+    let tags: Vec<&[u8]> = owned.iter().map(|t| t.as_slice()).collect();
+    let mut tag_index = TagIndex::<InMemoryMode>::new(false);
+    index_mem(&mut tag_index, &tags, 1);
+
+    let mut it = tag_index.value_iter_filtered(as_tag(b"tag"), IterMode::Contains);
+    it.set_timeout(Some(elapsed_deadline()));
+    let seen = value_iter_keys(it).len();
+
+    assert!(seen > 0, "the entries before the first probe are yielded");
+    assert!(
+        seen < tags.len(),
+        "an elapsed deadline must stop the walk before the end"
+    );
+}
+
+/// An elapsed deadline also stops a `Wildcard` walk early, not just the
+/// unfiltered one `set_timeout_cuts_iteration_short` covers.
+#[test]
+#[cfg_attr(miri, ignore)] // probes CLOCK_MONOTONIC_RAW, unimplemented under miri
+fn set_timeout_cuts_a_wildcard_walk_short() {
+    // Comfortably more tags than the check granularity, all matching the
+    // pattern, so the deadline is guaranteed to be probed before the walk
+    // finishes.
+    let owned: Vec<Vec<u8>> = (0..400)
+        .map(|i| format!("tag{i:04}").into_bytes())
+        .collect();
+    let tags: Vec<&[u8]> = owned.iter().map(|t| t.as_slice()).collect();
+    let mut tag_index = TagIndex::<InMemoryMode>::new(false);
+    index_mem(&mut tag_index, &tags, 1);
+
+    let mut it = tag_index.value_iter_filtered(as_tag(b"tag*"), IterMode::Wildcard);
+    it.set_timeout(Some(elapsed_deadline()));
+    let seen = value_iter_keys(it).len();
+
+    assert!(seen > 0, "the entries before the first probe are yielded");
+    assert!(
+        seen < tags.len(),
+        "an elapsed deadline must stop the walk before the end"
     );
 }
 

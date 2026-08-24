@@ -661,7 +661,16 @@ impl<'p> SuffixWildcardPattern<'p> {
     /// Prepare `pattern` for a suffix-trie lookup, choosing the most selective
     /// literal token as the anchor. Returns [`NoAnchorToken`] when there is no
     /// usable literal token.
+    ///
+    /// `pattern` must not end with a dangling (unescaped) trailing backslash —
+    /// the same escaping domain [`WildcardPattern::parse`] accepts, which
+    /// instead silently drops such a backslash.
     pub fn new(pattern: &'p [u8]) -> Result<Self, NoAnchorToken> {
+        debug_assert!(
+            !ends_with_dangling_backslash(pattern),
+            "pattern must not end with a dangling (unescaped) trailing backslash"
+        );
+
         // Pick the most selective literal token to anchor the trie lookup.
         let (tokenidx, tokenlen) = choose_token(pattern).ok_or(NoAnchorToken)?;
 
@@ -728,6 +737,12 @@ struct LiteralToken {
     len: usize,
     /// How many unescaped `?` the token holds.
     single_char_wildcards: usize,
+}
+
+/// Whether `pattern` ends with a `\` that escapes nothing.
+fn ends_with_dangling_backslash(pattern: &[u8]) -> bool {
+    // Check \ parity at the end of the given pattern
+    pattern.iter().rev().take_while(|&&b| b == b'\\').count() % 2 == 1
 }
 
 /// Split `pattern` into the literal tokens between its unescaped `*`.
@@ -810,7 +825,7 @@ fn choose_token(pattern: &[u8]) -> Option<(usize, usize)> {
 }
 
 #[cfg(test)]
-mod suffix_wildcard_tests {
+mod choose_token_tests {
     use super::*;
 
     const NO_CAP: u64 = u64::MAX;
@@ -890,13 +905,6 @@ mod suffix_wildcard_tests {
                 "an escaped `*` is a literal, so it does not end the token",
             ),
             (
-                br"abc*\",
-                br"\",
-                "a trailing backslash escapes nothing, yet still opens a token of \
-                 its own, and wins (1 + 1 = 2 > 3 - 5) — only reachable if a \
-                 caller breaks `SuffixWildcardPattern::new`'s precondition",
-            ),
-            (
                 br"abcdefg\?h*xyz",
                 br"abcdefg\?h*",
                 "an escaped `?` is a literal, so it takes no `?` penalty \
@@ -921,13 +929,63 @@ mod suffix_wildcard_tests {
     }
 
     #[test]
-    fn no_usable_token_returns_none() {
-        let idx = indexed(&[b"hello"]);
-        // Patterns made only of `*` (or empty) have no literal anchor, so the
-        // caller must brute-force instead.
-        assert_eq!(matches(&idx, b"*", NO_CAP), None);
-        assert_eq!(matches(&idx, b"**", NO_CAP), None);
-        assert_eq!(matches(&idx, b"", NO_CAP), None);
+    fn multiple_stars_select_by_token_ordinal() {
+        for (pattern, expected, why) in [
+            (
+                &b"**abcd**"[..],
+                &b"abcd*"[..],
+                "leading/trailing `*` runs collapse to a single token, which keeps its \
+                 trailing `*` to prefix-expand the trie",
+            ),
+            (
+                b"ab**cd",
+                b"cd",
+                "a double `*` still yields two tokens; the clean trailing `cd` wins \
+                 over `ab`, which pays the trailing-`*` penalty",
+            ),
+            (
+                b"ab*cd*ef",
+                b"ef",
+                "three tokens; the last, `ef`, avoids the trailing-`*` penalty every \
+                 earlier token pays and wins",
+            ),
+            (
+                b"a*b*cd*ef*ghij",
+                b"ghij",
+                "every token is scored, but the longest, `ghij`, still wins despite \
+                 sitting last by character offset, not just by ordinal",
+            ),
+            (
+                b"ab*cd*longestmiddle*ef",
+                b"longestmiddle*",
+                "the long middle token wins even carrying the trailing-`*` penalty, \
+                 over the short clean trailing token",
+            ),
+        ] {
+            let prepared =
+                SuffixWildcardPattern::new(pattern).expect("pattern has a literal token");
+            assert_eq!(
+                prepared.anchor(),
+                expected,
+                "anchor for {:?}: {why}",
+                String::from_utf8_lossy(pattern)
+            );
+        }
+    }
+
+    /// `choose_token`'s scoring on a pattern ending in a dangling backslash —
+    /// exercised directly rather than through [`SuffixWildcardPattern::new`],
+    /// which now forbids that input via a `debug_assert!`.
+    #[test]
+    fn choose_token_scores_dangling_trailing_backslash_as_its_own_token() {
+        let pattern = br"abc*\";
+        let (start, len) = choose_token(pattern).expect("dangling backslash still opens a token");
+        assert_eq!(
+            &pattern[start..start + len],
+            br"\",
+            "a trailing backslash escapes nothing, yet still opens a token of its \
+             own, and wins (1 + 1 = 2 > 3 - 5)"
+        );
     }
 
     /// A `?` does not end the token it sits in, so a pattern of nothing but `?`
@@ -944,130 +1002,15 @@ mod suffix_wildcard_tests {
         // the full-pattern recheck rejects the four-byte term.
         assert_eq!(matches(&idx, b"???", NO_CAP), Some(vec![b"cat".to_vec()]));
     }
-
-    #[test]
-    fn valid_token_no_match_returns_empty() {
-        let idx = indexed(&[b"hello", b"world"]);
-        assert_eq!(matches(&idx, b"*zzz", NO_CAP), Some(vec![]));
-    }
-
-    #[test]
-    fn suffix_match() {
-        let idx = indexed(&[b"hello", b"jello", b"world"]);
-        assert_eq!(
-            matches(&idx, b"*llo", NO_CAP),
-            Some(vec![b"hello".to_vec(), b"jello".to_vec()])
-        );
-    }
-
-    #[test]
-    fn prefix_match_via_wildcard() {
-        let idx = indexed(&[b"hello", b"hero", b"her", b"world"]);
-        // `he*` must include `her` and `hero` (matched through their own full
-        // keys, i.e. via `SuffixData::full_term`) as well as `hello`.
-        assert_eq!(
-            matches(&idx, b"he*", NO_CAP),
-            Some(vec![b"hello".to_vec(), b"her".to_vec(), b"hero".to_vec()])
-        );
-    }
-
-    #[test]
-    fn contains_match() {
-        let idx = indexed(&[b"abcXYZ", b"XYZabc", b"nomatch"]);
-        assert_eq!(
-            matches(&idx, b"*abc*", NO_CAP),
-            Some(vec![b"XYZabc".to_vec(), b"abcXYZ".to_vec()])
-        );
-    }
-
-    /// A `\*` is a literal star, in the anchor walked against the suffix trie as
-    /// much as in the full-pattern recheck, so a term holding a literal star is
-    /// reachable. C's escape-blind `Suffix_ChooseToken` anchors this pattern on
-    /// `foo\*` — a whole-key match no suffix of `xfoo*bar` can satisfy — and
-    /// returns nothing.
-    #[test]
-    fn escaped_star_matches_a_literal_star_in_the_term() {
-        let idx = indexed(&[b"xfoo*bar", b"xfoobar"]);
-        assert_eq!(
-            matches(&idx, br"*foo\**", NO_CAP),
-            Some(vec![b"xfoo*bar".to_vec()])
-        );
-    }
-
-    #[test]
-    fn question_mark_matches_single_char() {
-        let idx = indexed(&[b"cat", b"cot", b"coat"]);
-        // `c?t` matches only the exactly-3-char terms `c_t`, not `coat`.
-        assert_eq!(
-            matches(&idx, b"c?t", NO_CAP),
-            Some(vec![b"cat".to_vec(), b"cot".to_vec()])
-        );
-    }
-
-    #[test]
-    fn max_prefix_expansions_caps_results() {
-        let idx = indexed(&[b"aa", b"ba", b"ca", b"da"]);
-        // The cap is checked before each match is collected, so a cap of N yields
-        // N + 1 entries.
-        let pattern = SuffixWildcardPattern::new(b"*a").expect("valid token");
-        let got = idx
-            .suffix_expand(
-                SuffixQuery::Wildcard {
-                    pattern: &pattern,
-                    max_prefix_expansions: 1,
-                },
-                None,
-            )
-            .count();
-        assert_eq!(got, 2);
-    }
-
-    /// The cap truncates one suffix entry's members in registration order, so
-    /// `eat` — indexed after the longer terms it is a suffix of — falls outside a
-    /// cap of one. C's `_getWildcardArray` cuts the same array at the same place.
-    #[test]
-    fn max_prefix_expansions_cuts_members_in_registration_order() {
-        let idx = indexed(&[b"beat", b"heat", b"eat"]);
-        let pattern = SuffixWildcardPattern::new(b"*eat").expect("valid token");
-        let got: Vec<Vec<u8>> = idx
-            .suffix_expand(
-                SuffixQuery::Wildcard {
-                    pattern: &pattern,
-                    max_prefix_expansions: 1,
-                },
-                None,
-            )
-            .map(|t| t.to_bytes().to_vec())
-            .collect();
-
-        assert_eq!(got, [b"beat".to_vec(), b"heat".to_vec()]);
-    }
 }
 
-/// Timeout handling of the suffix/wildcard expansion. On timeout both
-/// functions stop and return the matches gathered so far (partial results).
-///
-/// The tests that actually reach the deadline are `#[cfg_attr(miri, ignore)]`:
-/// probing it calls `clock_gettime(CLOCK_MONOTONIC_RAW)`, which miri does not
-/// implement. The no-timeout tests stay in miri's reach.
+/// [`expansion_deadline`]'s opt-out and elapsed-deadline behavior — a
+/// `pub(crate)` internal. The public-API timeout behavior of the wildcard and
+/// contains expansions (partial results on an elapsed deadline, full results
+/// with none) is covered by the `tag_index` crate's integration tests.
 #[cfg(test)]
-mod expansion_timeout_tests {
+mod expansion_deadline_tests {
     use super::*;
-
-    const NO_CAP: u64 = u64::MAX;
-    /// Comfortably larger than the trie iterators' clock-probe granularity (100
-    /// traversal steps, a `trie_rs` internal), so a zero-budget deadline is
-    /// guaranteed to trigger before the corpus is exhausted while still leaving
-    /// many entries unprocessed.
-    #[cfg(not(miri))]
-    const CORPUS: usize = 300;
-    /// Miri interprets every traversal step, and a 300-term expansion there exceeds
-    /// `nextest`'s slow-test budget. Only the tests that assert on a *partial*
-    /// expansion need a corpus above the clock-probe granularity, and those need a
-    /// real clock, so they are `ignore`d under Miri anyway. What still runs only
-    /// needs more than one term.
-    #[cfg(miri)]
-    const CORPUS: usize = 8;
 
     /// A deadline that has already elapsed. Any `CLOCK_MONOTONIC_RAW` value one
     /// second after boot is in the past on a running system, so
@@ -1077,81 +1020,6 @@ mod expansion_timeout_tests {
             tv_sec: 1,
             tv_nsec: 0,
         }
-    }
-
-    /// Build a `WITHSUFFIXTRIE` index over `CORPUS` distinct terms that all
-    /// share the literal prefix `he`. `he*` (wildcard) visits one full-term
-    /// suffix entry per term, and the contains-expansion `e` visits one
-    /// proper-suffix entry per term — so both walks visit exactly `CORPUS`
-    /// entries, which is what makes `CORPUS` the knob the deadline tests rely on.
-    fn big_index() -> (TagIndex<InMemoryMode>, usize) {
-        let owned: Vec<Vec<u8>> = (0..CORPUS)
-            .map(|i| format!("he{i:05}").into_bytes())
-            .collect();
-        // The generated tags are ASCII, hence NUL-free.
-        let tags: Vec<Tag<'_>> = owned
-            .iter()
-            .map(|t| Tag::new(t).expect("generated tag is ASCII, hence NUL-free"))
-            .collect();
-        let mut idx = TagIndex::<InMemoryMode>::new(true);
-        idx.commit(&tags);
-        (idx, owned.len())
-    }
-
-    /// An uncapped wildcard query over `pattern`: these tests bound the expansion
-    /// by the deadline, never by the expansion cap.
-    fn wildcard<'p>(pattern: &'p SuffixWildcardPattern<'p>) -> SuffixQuery<'p> {
-        SuffixQuery::Wildcard {
-            pattern,
-            max_prefix_expansions: NO_CAP,
-        }
-    }
-
-    #[test]
-    fn wildcard_no_timeout_returns_all() {
-        let (idx, total) = big_index();
-        let pattern = SuffixWildcardPattern::new(b"he*").expect("valid token");
-        let got = idx.suffix_expand(wildcard(&pattern), None).count();
-        assert_eq!(got, total, "every `he*` term must be expanded");
-    }
-
-    #[test]
-    #[cfg_attr(miri, ignore)]
-    fn wildcard_times_out_with_partial_results() {
-        let (idx, total) = big_index();
-        // An already-elapsed deadline must not panic, and must yield a strict,
-        // non-empty subset.
-        let pattern = SuffixWildcardPattern::new(b"he*").expect("valid token");
-        let got = idx
-            .suffix_expand(wildcard(&pattern), Some(expired()))
-            .count();
-        assert!(got > 0, "the first granularity-1 entries are collected");
-        assert!(got < total, "timeout must stop before the full expansion");
-    }
-
-    // `SuffixQuery::Contains` prefix-iterates the suffix trie, probing the
-    // deadline once per entry.
-    #[test]
-    fn contains_no_timeout_returns_all() {
-        let (idx, total) = big_index();
-        let got = idx
-            .suffix_expand(SuffixQuery::Contains(Tag::new(b"e").unwrap()), None)
-            .count();
-        assert_eq!(got, total, "every term containing `e` must be expanded");
-    }
-
-    #[test]
-    #[cfg_attr(miri, ignore)]
-    fn contains_times_out_with_partial_results() {
-        let (idx, total) = big_index();
-        let got = idx
-            .suffix_expand(
-                SuffixQuery::Contains(Tag::new(b"e").unwrap()),
-                Some(expired()),
-            )
-            .count();
-        assert!(got > 0, "the first granularity-1 entries are collected");
-        assert!(got < total, "timeout must stop before the full expansion");
     }
 
     #[test]

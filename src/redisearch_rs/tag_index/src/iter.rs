@@ -28,10 +28,7 @@ use index_result::RSIndexResult;
 use inverted_index::{IndexReader, IndexReaderCore, InvertedIndex, doc_ids_only::DocIdsOnly};
 use lending_iterator::LendingIterator as _;
 use rqe_wildcard::WildcardPattern;
-use trie_rs::{
-    TrieMap,
-    iter::{ContainsLendingIter, LendingIter, WildcardLendingIter, filter::VisitAll},
-};
+use trie_rs::iter::{ContainsLendingIter, LendingIter, WildcardLendingIter, filter::VisitAll};
 
 use crate::{InMemoryMode, SuffixData, Tag, TagIndex, TagIndexMode};
 
@@ -153,39 +150,13 @@ impl DiskTagIndexIterator<'_> {
     }
 }
 
-/// Walk every entry of `values`, in lexicographical order of the key.
-fn all_iter<Value>(values: &TrieMap<Value>) -> TagIndexIterator<'_, Value> {
-    TagIndexIterator {
-        iter: TagIndexIteratorImpl::All(values.lending_iter()),
-    }
-}
-
-/// Walk the entries of `values` whose key matches `pattern` under `iter_mode`, in
-/// lexicographical order of the key.
-fn filtered_iter<'a, Value>(
-    values: &'a TrieMap<Value>,
-    pattern: Tag<'a>,
-    iter_mode: IterMode,
-) -> TagIndexIterator<'a, Value> {
-    let bytes = pattern.as_bytes();
-    let iter = match iter_mode {
-        IterMode::Prefix => TagIndexIteratorImpl::All(values.prefixed_lending_iter(bytes)),
-        IterMode::Contains => TagIndexIteratorImpl::Contains(values.contains_iter(bytes).into()),
-        // The walk carries the pattern itself; `next_entry` does the matching.
-        IterMode::Suffix => TagIndexIteratorImpl::Suffix(values.lending_iter(), pattern),
-        IterMode::Wildcard => TagIndexIteratorImpl::Wildcard(
-            values.wildcard_iter(WildcardPattern::parse(bytes)).into(),
-        ),
-    };
-
-    TagIndexIterator { iter }
-}
-
 impl TagIndex<InMemoryMode> {
     /// Iterate over all `(tag, inverted index)` entries, in lexicographical order
     /// of the tag.
     pub fn value_iter(&self) -> MemTagIndexIterator<'_> {
-        all_iter(&self.mode.values)
+        TagIndexIterator {
+            iter: TagIndexIteratorImpl::All(self.mode.values.lending_iter()),
+        }
     }
 
     /// Iterate over the `(tag, inverted index)` entries whose tag matches
@@ -197,7 +168,27 @@ impl TagIndex<InMemoryMode> {
         pattern: Tag<'a>,
         iter_mode: IterMode,
     ) -> MemTagIndexIterator<'a> {
-        filtered_iter(&self.mode.values, pattern, iter_mode)
+        let bytes = pattern.as_bytes();
+        let iter = match iter_mode {
+            IterMode::Prefix => {
+                TagIndexIteratorImpl::All(self.mode.values.prefixed_lending_iter(bytes))
+            }
+            IterMode::Contains => {
+                TagIndexIteratorImpl::Contains(self.mode.values.contains_iter(bytes).into())
+            }
+            // The walk carries the pattern itself; `next_entry` does the matching.
+            IterMode::Suffix => {
+                TagIndexIteratorImpl::Suffix(self.mode.values.lending_iter(), pattern)
+            }
+            IterMode::Wildcard => TagIndexIteratorImpl::Wildcard(
+                self.mode
+                    .values
+                    .wildcard_iter(WildcardPattern::parse(bytes))
+                    .into(),
+            ),
+        };
+
+        TagIndexIterator { iter }
     }
 }
 
