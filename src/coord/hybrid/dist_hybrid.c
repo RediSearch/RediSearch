@@ -675,12 +675,6 @@ void printDistHybridProfile(RedisModule_Reply *reply, void *ctx) {
                         printDistHybridCoordinatorProfile, ctx);
 }
 
-static bool shouldCheckInPipelineTimeoutCoord(HybridRequest *req) {
-  // We should check for timeout in pipeline if policy is return and timeout > 0
-  return req->reqConfig.queryTimeoutMS > 0 &&
-         (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return);
-}
-
 static int HybridRequest_prepareForExecution(HybridRequest *hreq,
         RedisModuleCtx *ctx, RedisModuleString **argv, int argc, IndexSpec *sp,
         size_t numShards, QueryError *status,
@@ -730,12 +724,6 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
       rs_wall_clock_init(&parseClock);
       // Calculate the time elapsed for profileParseTime by using the initialized parseClock
       hreq->profileClocks.profileParseTime = rs_wall_clock_diff_ns(&hreq->profileClocks.initClock, &parseClock);
-    }
-
-    if (shouldCheckInPipelineTimeoutCoord(hreq)) {
-      // Preserve the legacy clock start after coordinator parsing. The blocked-client cycles
-      // were already published by the main thread and must not be restarted here.
-      HybridRequest_BeginTimeoutCycle(hreq, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
     }
 
     // Set request flags from hybridParams

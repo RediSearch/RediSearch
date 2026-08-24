@@ -753,12 +753,6 @@ int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r) {
   return profileArgs;
 }
 
-static bool shouldCheckInPipelineTimeoutCoord(AREQ *req) {
-  // We should check for timeout in pipeline if policy is return and timeout > 0
-  return req->reqConfig.queryTimeoutMS > 0 &&
-         (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return);
-}
-
 static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                IndexSpec *sp, specialCaseCtx **knnCtx_ptr, size_t numShards,
                                QueryError *status) {
@@ -863,13 +857,6 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   r->sctx->apiVersion = dialect;
   r->sctx->timeout = &r->base.timeout;
   // r->sctx->expanded should be received from shards
-
-  if (shouldCheckInPipelineTimeoutCoord(r)) {
-    // Preserve the legacy clock start at coordinator preparation. The blocked-client
-    // cycle was already published by the main thread and must not be restarted here.
-    QueryRequestTimeout_BeginCycle(&r->base.timeout,
-                                   QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
-  }
 
   return REDISMODULE_OK;
 }
