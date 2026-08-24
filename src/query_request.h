@@ -378,9 +378,11 @@ static inline int QueryRequest_GetExecutionPhase(const QueryRequest *request) {
   return QueryRequestAsyncState_GetExecutionPhase(&request->async);
 }
 
-// Preserve the phase where a timeout was first observed.
+// Execution phases attribute blocked-client timeout callbacks. Other timeout
+// sources do not use them, and a published timeout freezes the observed phase.
 static inline void QueryRequest_SetExecutionPhase(QueryRequest *request, int phase) {
-  if (!QueryRequestTimeout_IsBlockedClientTimedOut(&request->timeout)) {
+  if (request->timeout.kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT &&
+      !QueryRequestTimeout_IsBlockedClientTimedOut(&request->timeout)) {
     QueryRequestAsyncState_SetExecutionPhase(&request->async, phase);
   }
 }

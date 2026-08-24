@@ -154,4 +154,33 @@ TEST_F(QueryRequestTimeoutTest, MainThreadMarkIsObservedByWorker) {
   EXPECT_TRUE(workerObservedTimeout);
 }
 
+TEST_F(QueryRequestTimeoutTest, ExecutionPhaseTracksOnlyUnsignaledBlockedClientCycles) {
+  RequestConfig config = {};
+  config.timeoutPolicy = TimeoutPolicy_Return;
+  config.queryTimeoutMS = 1000;
+  QueryRequest request = {};
+  QueryRequest_Init(&request, QUERY_REQUEST_KIND_AREQ, &config, nullptr, 0);
+
+  constexpr int queuePhase = 0;
+  constexpr int pipelinePhase = 1;
+  constexpr int replyPhase = 2;
+
+  QueryRequest_SetExecutionPhase(&request, pipelinePhase);
+  EXPECT_EQ(QueryRequest_GetExecutionPhase(&request), pipelinePhase);
+
+  QueryRequestTimeout_MarkTimedOut(&request.timeout);
+  QueryRequest_SetExecutionPhase(&request, replyPhase);
+  EXPECT_EQ(QueryRequest_GetExecutionPhase(&request), pipelinePhase);
+
+  QueryRequestTimeout_BeginCycle(&request.timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+  QueryRequest_SetExecutionPhase(&request, queuePhase);
+  EXPECT_EQ(QueryRequest_GetExecutionPhase(&request), pipelinePhase);
+
+  QueryRequestTimeout_Reset(&request.timeout);
+  QueryRequest_SetExecutionPhase(&request, replyPhase);
+  EXPECT_EQ(QueryRequest_GetExecutionPhase(&request), pipelinePhase);
+
+  QueryRequest_Destroy(&request);
+}
+
 }  // namespace
