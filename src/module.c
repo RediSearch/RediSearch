@@ -4852,7 +4852,19 @@ static int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **
     return REDISMODULE_ERR;
   }
   // Apply configuration redis has loaded from the configuration file
-  RM_TRY_F(RedisModule_LoadConfigs, ctx);
+  // Some numeric config setters check this to fall back instead of erroring, since erroring
+  // here would abort module init. RedisModule_OnLoad also runs for MODULE LOAD/LOADEX against an
+  // already-running server, so gate the fallback on actual server startup rather than on
+  // RedisModule_LoadConfigs running - otherwise a runtime module load would get the same silent
+  // substitution CONFIG SET is meant to reject.
+  const bool atStartup = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SERVER_STARTUP;
+  RSConfig_SetLoadingStartupConfig(atStartup);
+  int loadConfigsRC = RedisModule_LoadConfigs(ctx);
+  RSConfig_SetLoadingStartupConfig(false);
+  if (loadConfigsRC == REDISMODULE_ERR) {
+    RedisModule_Log(ctx, "warning", "Could not run RedisModule_LoadConfigs(ctx)");
+    return REDISMODULE_ERR;
+  }
   return REDISMODULE_OK;
 }
 

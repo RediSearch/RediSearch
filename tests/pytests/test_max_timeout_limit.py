@@ -57,10 +57,9 @@ class TestMaxForegroundTimeoutLimit:
                                  'v', np.array([float(i), 0.0]).astype(np.float32).tobytes())
 
     def _reset(self, *, workers, timeout, limit):
-        """Pin all three knobs on every shard. timeout=0 routes via legacy
-        _FT.CONFIG SET because native search-timeout is gated at min=1.
-        Propagation is required so any test that previously set a knob via
-        run_command_on_all_shards cannot leak its value into the next test."""
+        """Pin all three knobs on every shard. Propagation is required so any
+        test that previously set a knob via run_command_on_all_shards cannot
+        leak its value into the next test."""
         env = self.env
         # Drop the limit first so intermediate states never violate the
         # cross-knob invariant during the transition.
@@ -68,11 +67,8 @@ class TestMaxForegroundTimeoutLimit:
                                         'search-_max-foreground-timeout-limit', '0')
         verify_command_OK_on_all_shards(env, 'CONFIG', 'SET',
                                         'search-workers', str(workers))
-        if timeout == 0:
-            verify_command_OK_on_all_shards(env, config_cmd(), 'SET', 'TIMEOUT', '0')
-        else:
-            verify_command_OK_on_all_shards(env, 'CONFIG', 'SET',
-                                            'search-timeout', str(timeout))
+        verify_command_OK_on_all_shards(env, 'CONFIG', 'SET',
+                                        'search-timeout', str(timeout))
         verify_command_OK_on_all_shards(env, 'CONFIG', 'SET',
                                         'search-_max-foreground-timeout-limit', str(limit))
 
@@ -104,8 +100,8 @@ class TestMaxForegroundTimeoutLimit:
         self._assert_config('TIMEOUT', '7000')
 
     def test_runtime_accept_unlimited_timeout_when_limit_active_legacy(self):
-        # Native search-timeout is gated at the registered min (1); TIMEOUT 0
-        # is only reachable via the legacy _FT.CONFIG SET path.
+        # search-timeout 0 via the legacy _FT.CONFIG SET path; the native
+        # path equivalent is covered in test_config.py's numericConfigs loop.
         self._reset(workers=0, timeout=100, limit=1000)
         env = self.env
         env.expect(config_cmd(), 'SET', 'TIMEOUT', '0').ok()
