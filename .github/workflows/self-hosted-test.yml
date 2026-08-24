@@ -20,7 +20,15 @@ jobs:
       fail-fast: false
       matrix:
         v1: [1]
-        v2: [1]
+        runner: 
+          - ${{ vars.RUNS_ON_ARM64_MINI }}
+          - ${{ vars.RUNS_ON_X64_MINI }}
+          - ${{ vars.RUNS_ON_ARM64_SMALL }}
+          - ${{ vars.RUNS_ON_X64_SMALL }}
+          - ${{ vars.RUNS_ON_ARM64_MEDIUM }}
+          - ${{ vars.RUNS_ON_X64_MEDIUM }}
+          - ${{ vars.RUNS_ON_ARM64_LARGE }}
+          - ${{ vars.RUNS_ON_X64_LARGE }}
     # The type of runner that the job will run on
     #runs-on: [self-hosted, ubuntu-2204-arm64-mini]
     #runs-on: [self-hosted, staging-ubuntu-2204-arm64-mini]
@@ -34,7 +42,7 @@ jobs:
     #  - ghr-ec2-ebs-volume-size:100
     #runs-on: [self-hosted, ubuntu-2204-x64-xl]
     runs-on:
-      - ${{ vars.RUNS_ON_ARM64_MINI }}
+      - ${{ matrix.v2 }}
       - ghr-ec2-ebs-volume-size:8
 
     # Steps represent a sequence of tasks that will be executed as part of the job
