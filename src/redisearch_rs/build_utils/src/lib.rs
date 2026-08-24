@@ -152,8 +152,19 @@ pub fn bind_foreign_c_symbols() {
     let bin_root = bin_root();
     force_link_time_symbol_resolution();
     link_redisearch_c_bundle(&bin_root).unwrap_or_else(|e| panic!("{e}"));
-    // Cargo's `-l` flags precede the rlibs; re-scan the bundle after them.
+    // Cargo's `-l` flags precede the rlibs; re-scan the bundle after them. GNU ld reads
+    // each archive once, so group it there with the system libs its members need.
+    let gnu_ld = env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "linux".to_string()) != "macos";
+    if gnu_ld {
+        println!("cargo::rustc-link-arg=-Wl,--start-group");
+    }
     println!("cargo::rustc-link-arg=-lredisearch_c_bundle");
+    if gnu_ld {
+        println!("cargo::rustc-link-arg=-lstdc++");
+        println!("cargo::rustc-link-arg=-lpthread");
+        println!("cargo::rustc-link-arg=-lc");
+        println!("cargo::rustc-link-arg=-Wl,--end-group");
+    }
     link_mkl(&bin_root.join("_deps/svs-src/lib"));
     link_c_plusplus();
 }
