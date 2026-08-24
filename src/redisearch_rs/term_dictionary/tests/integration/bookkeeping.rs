@@ -28,6 +28,20 @@ fn replace_term_reports_new_then_updated() {
     assert_eq!(dict.replace_term("foo", 2.0, 1), InsertOutcome::Updated);
 }
 
+/// Both halves take a non-zero value: at `num_docs` of `0` accumulation and
+/// a plain carry-over of the prior count are indistinguishable.
+#[test]
+fn replace_term_overwrites_score_and_accumulates_num_docs() {
+    let mut dict = TermDictionary::new();
+    dict.add_term("foo", 5.0, 2);
+
+    dict.replace_term("foo", 1.0, 3);
+
+    let entry = dict.get("foo").expect("entry");
+    assert_eq!(entry.score, 1.0, "score is overwritten, not accumulated");
+    assert_eq!(entry.num_docs, 5, "num_docs accumulates the delta");
+}
+
 #[test]
 fn insert_returns_prior_entry() {
     let mut dict = TermDictionary::new();
