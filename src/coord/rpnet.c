@@ -95,8 +95,17 @@ static RSValue *MRReply_ToValue(MRReply *r) {
 
 // Wall-clock deadline pointer for MRIterator_NextWithTimeout. NULL when
 // AREQ_ShouldCheckTimeout is false (e.g. RETURN-STRICT uses the abort flag).
+//
+// Hybrid streams only: a shard that never publishes its cursor mapping leaves
+// this RPNet's placeholder unarmed — no reply and no error ever arrives, so
+// under RETURN the deadline must bound the pop (it replaces the mapping-stage
+// deadline of the old blocking cursor-setup wait). Plain aggregate streams
+// keep the legacy RETURN semantics — wait beyond the deadline for in-flight
+// shard replies, observing the timeout only at reply boundaries — so they get
+// no in-band pop deadline.
 static struct timespec *getAbsTimeout(RPNet *nc) {
-  if (!nc->areq || !nc->areq->sctx || !AREQ_ShouldCheckTimeout(nc->areq)) {
+  if (nc->hybridSubquery == RPNET_HYBRID_NONE || !nc->areq || !nc->areq->sctx ||
+      !AREQ_ShouldCheckTimeout(nc->areq)) {
     return NULL;
   }
   return (struct timespec *)&nc->areq->sctx->time.timeout;
@@ -218,11 +227,9 @@ int getNextReply(RPNet *nc) {
   }
   // Pop wake mechanisms: the abort flag is flipped by the FAIL / RETURN-STRICT
   // timeout callback via MRChannel_WakeAbort. Under RETURN the flag is never
-  // flipped; the in-band wall-clock deadline bounds the wait instead — without
-  // it a shard that never replies would block this pop forever, since the
-  // loop's TimedOut check in rpnetNext is only reachable between replies.
-  // With timeout checks disabled the deadline stays NULL (a disabled timeout
-  // still arms a far-future deadline, but NULL keeps the intent explicit).
+  // flipped: aggregate streams degrade to a blocking pop (legacy RETURN waits
+  // beyond the deadline for in-flight shard replies), while hybrid streams get
+  // the in-band wall-clock deadline from getAbsTimeout — see its doc for why.
   // No areq means no wake mechanism — use MRIterator_Next.
 #ifdef ENABLE_ASSERT
   // Sync point (debug): park BG when it is about to wait for the next shard
