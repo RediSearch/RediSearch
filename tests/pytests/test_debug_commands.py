@@ -1723,6 +1723,10 @@ class ProfileDebugCluster:
                             debug_cmd(), 'FT.PROFILE', 'idx', command_type, 'QUERY', '@t:hello*',
                             'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 1,
                         )
+                with env.assertResponseError(contained=error):
+                    env.cmd(
+                        debug_cmd(), 'FT.PROFILE', 'idx', 'HYBRID', 'QUERY', 'SEARCH', '*',
+                    )
         finally:
             env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
 

@@ -35,9 +35,9 @@ typedef struct QueryError QueryError;
  *   - `<DEBUG_QUERY_ARGS>`:
  *     - Currently supports:
  *       - On a multi-shard coordinator, `_FT.DEBUG` requires `ON_TIMEOUT RETURN` for direct
- *         search and aggregate queries and their `FT.PROFILE` variants. `ON_TIMEOUT FAIL` and
- *         `ON_TIMEOUT RETURN-STRICT` use blocked-client timeout callbacks, which are incompatible
- *         with query debug execution. Rejected requests return
+ *         search, aggregate, and hybrid queries and their `FT.PROFILE` variants. `ON_TIMEOUT FAIL`
+ *         and `ON_TIMEOUT RETURN-STRICT` use blocked-client timeout callbacks, which are
+ *         incompatible with query debug execution. Rejected requests return
  *         `_FT.DEBUG for Coordinator is only supported with ON_TIMEOUT RETURN`.
  *       - **`TIMEOUT_AFTER_N <N> [INTERNAL_ONLY]`**:
  *         - Simulates a timeout after processing `<N>` results.

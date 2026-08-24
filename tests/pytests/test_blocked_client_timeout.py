@@ -1041,7 +1041,7 @@ class TestCoordinatorTimeout:
             verify_command_OK_on_all_shards(
                 env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
             verify_command_OK_on_all_shards(
-                env, 'CONFIG', 'SET', 'search-timeout', '5000')
+                env, 'CONFIG', 'SET', 'search-timeout', '100')
 
             env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
             coord_paused = False
@@ -1073,6 +1073,13 @@ class TestCoordinatorTimeout:
                 lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 1, {}),
                 'Timeout while waiting for coordinator threads to pause', timeout=30)
 
+            # Every shard deadline was already running when it reached BeforeFirstRead.
+            # Wait well beyond that deadline, then release the checkpoint so the normal
+            # timeout check immediately returns a warning.
+            time.sleep(1)
+            verify_command_OK_on_all_shards(
+                env, debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+
             def shard_timeouts_have_fired():
                 waiting = [
                     connection.execute_command(
@@ -1085,8 +1092,8 @@ class TestCoordinatorTimeout:
                 shard_timeouts_have_fired,
                 'Timeout while waiting for shard timeouts', timeout=30)
 
-            # The shard timeout checks self-release when their deadlines expire. Their
-            # warnings queue the reducer in the paused coordinator pool.
+            # The shard timeout checks now return warnings and queue the reducer in the
+            # paused coordinator pool.
             wait_for_condition(
                 lambda: (
                     getCoordThpoolStats(env)['totalPendingJobs']

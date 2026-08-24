@@ -174,6 +174,22 @@ def test_hybrid_debug_missing_timeout_value():
                'DEBUG_PARAMS_COUNT', '1') \
         .error().contains('TIMEOUT_AFTER_N_SEARCH')
 
+@skip(cluster=False)
+def test_hybrid_debug_coordinator_timeout_policy():
+    """Coordinator hybrid query debug requires the non-blocking RETURN policy."""
+    env = Env(enableDebugCommand=True)
+    setup_basic_index(env)
+    error = '_FT.DEBUG for Coordinator is only supported with ON_TIMEOUT RETURN'
+    try:
+        for policy in ('FAIL', 'RETURN-STRICT'):
+            env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', policy).ok()
+            env.expect(
+                *_base_hybrid_debug_cmd(),
+                'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2',
+            ).error().contains(error)
+    finally:
+        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
+
 # Debug timeout tests using TIMEOUT_AFTER_N_* parameters
 def test_debug_timeout_fail_search():
     """Test FAIL policy with search timeout using debug parameters"""

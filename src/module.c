@@ -3967,6 +3967,11 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return common_hybrid_query_reply_empty(ctx, QUERY_ERROR_CODE_OUT_OF_MEMORY, false, isProfile);
   }
 
+  const char *debugPolicyError = coordinatorDebugPolicyError(isDebug && NumShards > 1);
+  if (debugPolicyError) {
+    return RedisModule_ReplyWithError(ctx, debugPolicyError);
+  }
+
   // Coord callback
   ConcurrentCmdHandler dist_callback = RSExecDistHybrid;
   if (isDebug) {
@@ -4769,6 +4774,11 @@ int ProfileCommandHandlerImp(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   if (RMUtil_ArgExists("WITHCURSOR", argv, argc, 3)) {
     return RedisModule_ReplyWithError(ctx, "FT.PROFILE does not support cursor");
+  }
+
+  const char *debugPolicyError = coordinatorDebugPolicyError(isDebug && NumShards > 1);
+  if (debugPolicyError) {
+    return RedisModule_ReplyWithError(ctx, debugPolicyError);
   }
 
   VERIFY_ACL(ctx, argv[1])
