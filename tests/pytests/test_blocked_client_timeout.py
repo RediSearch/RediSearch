@@ -339,6 +339,129 @@ def _setup_hybrid_index(env):
     return np.array([0.0, 0.0], dtype=np.float32).tobytes()
 
 
+def _run_profile_hybrid_cursor_mapping_timeout(env, query_vec, after_publication,
+                                               resp3=True):
+    """Time out a profiled shard while it publishes the hybrid cursor map."""
+    skipIfNoEnableAssert(env)
+
+    target_shards = non_coord_shard_conns(env)
+    env.assertGreater(len(target_shards), 0,
+                      message="Test requires a non-coordinator shard")
+    target_shard = target_shards[0]
+
+    prev_cfg = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)
+    prev_policy = prev_cfg[ON_TIMEOUT_CONFIG] if isinstance(prev_cfg, dict) else prev_cfg[1]
+    run_command_on_all_shards(env, 'CONFIG', 'SET',
+                              ON_TIMEOUT_CONFIG, 'return-strict')
+
+    before_shard_info = info_modules_to_dict(target_shard)
+    base_warning = int(
+        before_shard_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC])
+    stage_metric = (TIMEOUT_WARNING_SHARD_REPLY_METRIC if after_publication
+                    else TIMEOUT_WARNING_SHARD_PIPELINE_METRIC)
+    base_stage = int(before_shard_info[WARN_ERR_SECTION][stage_metric])
+
+    def shard_cursor_total():
+        info = target_shard.execute_command('INFO', 'MODULES')
+        return info['search_global_total_user'] + info['search_global_total_internal']
+
+    # The total is node-global, so only growth over this cycle's baseline is a leak.
+    baseline_cursor_total = shard_cursor_total()
+    pause_config = ('SET_PAUSE_AFTER_HYBRID_STORE_CURSORS' if after_publication
+                    else 'SET_PAUSE_BEFORE_HYBRID_STORE_CURSORS')
+    blocked_client_id = [None]
+    query_result = []
+
+    def shard_paused():
+        paused = target_shard.execute_command(
+            debug_cmd(), 'QUERY_CONTROLLER',
+            'GET_IS_HYBRID_STORE_CURSORS_PAUSED') == 1
+        cid = get_query_client(target_shard, '_FT.PROFILE')
+        if cid:
+            blocked_client_id[0] = cid
+        return paused and cid is not None, {'paused': paused, 'client_id': cid}
+
+    query_args = [
+        'FT.PROFILE', 'hybrid_idx', 'HYBRID', 'QUERY',
+        'SEARCH', '*',
+        'VSIM', '@embedding', '$BLOB',
+        'PARAMS', '2', 'BLOB', query_vec,
+    ]
+    t_query = None
+    try:
+        target_shard.execute_command(
+            debug_cmd(), 'QUERY_CONTROLLER', pause_config, 'true')
+        t_query = threading.Thread(
+            target=call_and_store,
+            args=(env.cmd, query_args, query_result),
+            daemon=True,
+        )
+        t_query.start()
+
+        wait_for_condition(
+            shard_paused,
+            'Timeout waiting for profiled shard hybrid cursor-map publication')
+        target_shard.execute_command(
+            'CLIENT', 'UNBLOCK', blocked_client_id[0], 'TIMEOUT')
+        wait_for_client_unblocked(target_shard, blocked_client_id[0])
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="FT.PROFILE HYBRID thread should finish")
+    finally:
+        try:
+            target_shard.execute_command(
+                debug_cmd(), 'QUERY_CONTROLLER', pause_config, 'false')
+            target_shard.execute_command(
+                debug_cmd(), 'QUERY_CONTROLLER', 'SET_HYBRID_STORE_CURSORS_RESUME')
+        except Exception:
+            pass
+        run_command_on_all_shards(env, 'CONFIG', 'SET',
+                                  ON_TIMEOUT_CONFIG, prev_policy)
+
+    env.assertEqual(len(query_result), 1, message=f"Expected one reply, got {query_result}")
+
+    result = query_result[0]
+    if resp3:
+        env.assertContains('Profile', result, message=f"Profile envelope dropped: {result}")
+        assert_timeout_warning(env, result, message=f"Profiled hybrid timeout: {result}")
+    else:
+        env.assertTrue(isinstance(result, list), message=f"RESP2 reply type: {result!r}")
+        env.assertTrue(len(result) > 1 and len(result) % 2 == 1,
+                       message=f"RESP2 profile envelope: {result!r}")
+        profile_array = result[-1]
+        env.assertTrue(isinstance(profile_array, list) and profile_array,
+                       message="RESP2 profile array must be non-empty")
+        inner = dict(zip(result[:-1:2], result[1:-1:2]))
+        warnings = inner.get('warnings', [])
+        env.assertTrue(warnings, message=f"RESP2 timeout warning missing: {inner}")
+        env.assertContains('Timeout', warnings[0],
+                           message=f"RESP2 timeout warning missing: {inner}")
+
+    # Parsing the shard's cursor map must leave the coordinator usable.
+    env.assertEqual(env.cmd('PING'), True)
+
+    after_shard_info = info_modules_to_dict(target_shard)
+    env.assertEqual(
+        int(after_shard_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC]),
+        base_warning + 1,
+        message="Shard timeout warning should be +1")
+    env.assertEqual(
+        int(after_shard_info[WARN_ERR_SECTION][stage_metric]),
+        base_stage + 1,
+        message=f"Shard timeout should bump {stage_metric}")
+
+    def cursors_drained():
+        total = shard_cursor_total()
+        return total <= baseline_cursor_total, {
+            'node_local_total': total,
+            'node_local_baseline': baseline_cursor_total,
+        }
+
+    wait_for_condition(
+        cursors_drained,
+        'profiled strict-timeout cycle leaked hybrid cursor mappings')
+
+
 # Skipped under ASan pending MOD-16907.
 @skip(cluster=False, asan=True)
 def test_hybrid_cursors_race_with_flushall():
@@ -779,19 +902,21 @@ class TestCoordinatorTimeout:
             verify_return_result=verify_return,
         )
 
-    def _test_remaining_timeout_exhausted_before_shard_execution_profile_impl(self, internal_cmd_args):
+    def _test_remaining_timeout_exhausted_before_shard_execution_profile_impl(
+            self, internal_cmd_args, expect_hybrid_cursor_map=False):
         """
-        Test that FT.PROFILE commands with pre-execution timeout produce consistent
-        reply structures across SEARCH, AGGREGATE, and HYBRID.
+        Test internal profile replies when the timeout expires before execution.
 
         When profiling is active, timeout errors are suppressed (never returned as errors)
-        regardless of the ON_TIMEOUT policy. Instead, empty results with profile wrapping
-        should be returned.
+        regardless of the ON_TIMEOUT policy. SEARCH and AGGREGATE return empty results with
+        profile wrapping, while HYBRID preserves its internal cursor-map wire format.
 
         Args:
             internal_cmd_args: Base args for the internal profile command
                 (e.g. ['_FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*']).
                 Must NOT include TIMEOUT, _SLOTS_INFO, or _COORD_DISPATCH_TIME.
+            expect_hybrid_cursor_map: Whether to expect the bare internal HYBRID
+                cursor map instead of a client-facing profile envelope.
         """
         env = self.env
         timeout_ms = '50'
@@ -813,16 +938,19 @@ class TestCoordinatorTimeout:
             try:
                 result = env.expect(*full_args).noError().res
 
-                # Verify profile wrapping: response should have 'Results' key
-                env.assertContains('Results', result,
-                    message=f"Expected 'Results' key in profile output with {on_timeout_policy} policy, got: {result}")
+                if expect_hybrid_cursor_map:
+                    env.assertEqual(result.get('SEARCH'), 0, message=result)
+                    env.assertEqual(result.get('VSIM'), 0, message=result)
+                    env.assertFalse('Results' in result, message=result)
+                    warnings = result.get('warnings', [])
+                else:
+                    env.assertContains('Results', result,
+                        message=f"Expected 'Results' key in profile output with {on_timeout_policy} policy, got: {result}")
+                    profile_results = result['Results']
+                    warnings = profile_results.get('warning', profile_results.get('warnings', []))
 
-                profile_results = result['Results']
-
-                # Verify timeout warning in results
-                warnings = profile_results.get('warning', profile_results.get('warnings', []))
                 env.assertTrue(warnings,
-                    message=f"Expected timeout warning with {on_timeout_policy} policy, got: {profile_results}")
+                    message=f"Expected timeout warning with {on_timeout_policy} policy, got: {result}")
                 env.assertContains('Timeout', warnings[0],
                     message=f"Expected timeout in warning with {on_timeout_policy} policy, got: {warnings}")
             finally:
@@ -846,6 +974,7 @@ class TestCoordinatorTimeout:
                 'VSIM', '@embedding', '$BLOB',
                 'PARAMS', '2', 'BLOB', self.hybrid_query_vec,
             ],
+            expect_hybrid_cursor_map=True,
         )
 
 
@@ -2130,6 +2259,16 @@ class TestCoordinatorTimeout:
     def test_fail_timeout_after_shard_store_cursors_hybrid(self):
         """Test timeout occurring after shard stores cursors for internal FT.HYBRID."""
         self._test_fail_timeout_shard_store_cursors_impl(before=False)
+
+    def test_return_strict_profile_hybrid_timeout_before_cursor_publication(self):
+        """A profiled shard timeout keeps its internal map and public envelope."""
+        _run_profile_hybrid_cursor_mapping_timeout(
+            self.env, self.hybrid_query_vec, after_publication=False)
+
+    def test_return_strict_profile_hybrid_timeout_after_cursor_publication(self):
+        """Published profiled hybrid cursors are hidden and dropped on timeout."""
+        _run_profile_hybrid_cursor_mapping_timeout(
+            self.env, self.hybrid_query_vec, after_publication=True)
 
     def test_return_strict_timeout_while_shard_replies_hybrid_cursor_mapping(self):
         """RETURN_STRICT timeout while a shard is building the _FT.HYBRID cursor mapping reply."""
@@ -5440,6 +5579,16 @@ class TestCoordinatorTimeoutReturnStrictResp2:
             raise
         self.env.assertNotEqual(
             warmup_res, None, message=f"warmup FT.HYBRID empty reply: {warmup_res!r}")
+
+    def test_profile_hybrid_timeout_before_cursor_publication_resp2(self):
+        """RESP2 exposes the profile envelope while shards keep the cursor map bare."""
+        _run_profile_hybrid_cursor_mapping_timeout(
+            self.env, self.hybrid_query_vec, after_publication=False, resp3=False)
+
+    def test_profile_hybrid_timeout_after_cursor_publication_resp2(self):
+        """RESP2 hides and drops profiled hybrid cursors published before timeout."""
+        _run_profile_hybrid_cursor_mapping_timeout(
+            self.env, self.hybrid_query_vec, after_publication=True, resp3=False)
 
     @skip_until("2026-06-25", reason="MOD-16396: flaky under Linux ASAN; "
                 "hybrid RESP2 profile timeout can crash in printShardsHybridProfile")

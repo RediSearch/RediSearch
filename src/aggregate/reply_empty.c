@@ -131,15 +131,11 @@ int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode,
     // If internal - reply cursor information from shards to coord.
     // Shards notify error by setting cursor id to 0
     if (internal) {
+        // This map is an internal wire contract consumed before the coordinator
+        // builds any client-facing profile envelope.
         RedisModule_Reply _coordInfoReply = RedisModule_NewReply(ctx), *coordInfoReply = &_coordInfoReply;
 
         RedisModule_Reply_Map(coordInfoReply); // outer/root {}
-
-        if (isProfile) {
-            // Profile wrapping: open an outer map, then nest "Results" and "Profile"
-            // inside it, consistent with search/aggregate profile reply structure.
-            Profile_PrepareMapForReply(coordInfoReply); // opens "Results" map
-        }
 
         RedisModule_ReplyKV_LongLong(coordInfoReply, "SEARCH", 0);
         RedisModule_ReplyKV_LongLong(coordInfoReply, "VSIM", 0);
@@ -152,11 +148,6 @@ int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode,
             RedisModule_Reply_SimpleString(coordInfoReply, QueryWarning_Strwarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD));
         }
         RedisModule_Reply_ArrayEnd(coordInfoReply); // ~warnings
-
-        if (isProfile) {
-            RedisModule_Reply_MapEnd(coordInfoReply); // close "Results" map
-            Profile_PrintInFormat(coordInfoReply, NULL, NULL, NULL, NULL);
-        }
 
         RedisModule_Reply_MapEnd(coordInfoReply); // close outer / root map
         RedisModule_EndReply(coordInfoReply);
