@@ -801,8 +801,11 @@ fn profile_reports_batches_read_before_a_timeout() {
 
     let metrics = *it.metrics();
     assert!(metrics.num_batches > 0, "timeout fired mid-collection");
-    // The source-local counter is what the profile used to read.
-    assert_eq!(it.source().num_batches(), 0, "abort path reset the source");
+    assert_eq!(
+        it.source().num_batches(),
+        metrics.num_batches,
+        "the abort path rewinds the source without clearing its counter"
+    );
 
     let reply = render_profile(&it);
     assert_eq!(

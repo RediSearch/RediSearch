@@ -159,8 +159,9 @@ pub struct NumericScoreSource<
     heap_old_size: usize,
     /// Number of expand-and-retry iterations performed so far.
     num_iterations: usize,
-    /// Number of value-ordered range batches materialized so far, surfaced as
-    /// the `Batches number` profile metric. Reset on rewind.
+    /// Number of value-ordered range batches materialized so far, the
+    /// source-side counterpart of the `Batches number` profile metric. Reset by
+    /// [`reset_profile`](ScoreSource::reset_profile).
     num_batches: usize,
     /// Document-level validity oracle: drops records for doc ids it reports
     /// invalid (deleted or whole-doc expired) before they reach the top-k heap.
@@ -488,10 +489,13 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
         self.window = self.initial_window;
         self.last_limit_estimate = self.initial_window.limit;
         self.num_iterations = 0;
-        self.num_batches = 0;
         self.heap_old_size = 0;
         self.ranges.forget_emitted();
         self.ranges.refind(&self.filter, self.window);
+    }
+
+    fn reset_profile(&mut self) {
+        self.num_batches = 0;
     }
 
     fn build_result<'r>(&self, doc_id: DocId, score: f64) -> RSIndexResult<'r>

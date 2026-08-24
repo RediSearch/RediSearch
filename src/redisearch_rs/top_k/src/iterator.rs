@@ -598,6 +598,10 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> RQEIterat
         self.results.clear();
         *self.current = None;
         self.metrics = TopKMetrics::default();
+        // The source keeps its own profile counters, which `rewind` deliberately
+        // preserves for the abort path in `collect`. An explicit rewind starts a
+        // fresh evaluation, so clear them alongside ours.
+        self.source.reset_profile();
         self.source.rewind();
         if let Some(child) = &mut self.child {
             child.rewind();
@@ -784,9 +788,11 @@ pub trait TopKSourceProfile {
     /// the source renders the same iterator it read through — and thus the
     /// child's real read counts — rather than an unprofiled side handle.
     ///
-    /// Prefer `metrics` over any source-local equivalent: it spans the whole
-    /// evaluation, whereas a source counter is cleared by every mid-evaluation
-    /// source reset, including the one on the timeout path.
+    /// `metrics` carries what the iterator counts for every source; a source's
+    /// own fields carry what only it can measure, such as a requested batch
+    /// size. Both span one evaluation: cleared on an explicit rewind (see
+    /// [`ScoreSource::reset_profile`]), preserved across the reset that discards
+    /// an aborted collection.
     fn print_profile(
         &self,
         mode: TopKMode,

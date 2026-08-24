@@ -65,6 +65,8 @@ impl ScoreSource for CallCountingScoreSource {
 
     fn rewind(&mut self) {}
 
+    fn reset_profile(&mut self) {}
+
     fn build_result<'r>(&self, doc_id: DocId, _: f64) -> RSIndexResult<'r>
     where
         Self: 'r,

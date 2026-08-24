@@ -168,11 +168,11 @@ impl<E: ExpirationChecker> TopKSourceProfile for VectorScoreSource<'_, E> {
         let is_batch_mode = matches!(mode, TopKMode::Batches | TopKMode::ForcedBatches)
             || (matches!(mode, TopKMode::AdhocBF) && switches > 0);
         if is_batch_mode {
-            map.kv_long_long(c"Batches number", self.num_iterations as i64);
-            map.kv_long_long(c"Largest batch size", self.max_batch_size as i64);
+            map.kv_long_long(c"Batches number", self.profile.num_iterations as i64);
+            map.kv_long_long(c"Largest batch size", self.profile.max_batch_size as i64);
             map.kv_long_long(
                 c"Largest batch iteration (zero based)",
-                self.max_batch_iteration as i64,
+                self.profile.max_batch_iteration as i64,
             );
         }
 
