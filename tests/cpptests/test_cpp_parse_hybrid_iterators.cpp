@@ -76,7 +76,7 @@ struct HybridIteratorTestCtx {
 
     ~HybridIteratorTestCtx() {
       if (rootiter) rootiter->Free(rootiter);
-      if (hybridReq) HybridRequest_DecrRef(hybridReq);
+      if (hybridReq) HybridRequest_Free(hybridReq);
       if (hybridParams.scoringCtx) HybridScoringContext_Free(hybridParams.scoringCtx);
       if (spec) Indexes_RemoveSpecFromGlobals(spec->own_ref, false);
     }

@@ -93,7 +93,7 @@ TEST_F(AggTest, testBasic) {
   ASSERT_EQ(3, count);
 
   SearchResult_Destroy(&res);
-  AREQ_DecrRef(rr);
+  AREQ_Free(rr);
   IndexSpec_Free(spec);
   args.clear();
   aggArgs.clear();
@@ -312,7 +312,7 @@ TEST_F(AggTest, AvoidingCompleteResultStructOpt) {
     EXPECT_EQ(REDISMODULE_OK, rv) << QueryError_GetUserError(&qerr);
     bool res = rr->searchopts.flags & Search_CanSkipRichResults;
     QueryError_ClearError(&qerr);
-    AREQ_DecrRef(rr);
+    AREQ_Free(rr);
     return res;
   };
 

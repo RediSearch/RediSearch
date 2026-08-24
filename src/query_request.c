@@ -179,21 +179,10 @@ static inline void QueryRequestAsyncState_Destroy(QueryRequestAsyncState *state)
   pthread_cond_destroy(&state->aggregateResultsCond);
 }
 
-QueryRequest *QueryRequest_IncrRef(QueryRequest *request) {
-  atomic_fetch_add_explicit(&request->refcount, 1, memory_order_relaxed);
-  return request;
-}
-
-void QueryRequest_DecrRef(QueryRequest *request) {
+void QueryRequest_Free(QueryRequest *request) {
   if (!request) {
     return;
   }
-  int previous = atomic_fetch_sub_explicit(&request->refcount, 1, memory_order_acq_rel);
-  RS_LOG_ASSERT_ALWAYS(previous > 0, "QueryRequest reference count underflow");
-  if (previous != 1) {
-    return;
-  }
-
   switch (request->kind) {
     case QUERY_REQUEST_KIND_AREQ:
       AREQ_Free((AREQ *)request);
@@ -225,7 +214,6 @@ void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind,
                        uint32_t argc) {
   RS_ASSERT(requestConfig);
   request->kind = kind;
-  RS_AtomicIntStoreRelaxed(&request->refcount, 1);
   request->args = (QueryRequestArgs) {
     .queryOffset = QUERY_OFFSET_NONE,
   };

@@ -110,10 +110,9 @@ typedef struct {
 // context on the async WITHCOUNT path. They are set in dispatchAggregateDeferred
 // before MR_StartIterator and consumed by executeAggregateDeferred after the
 // IO thread posts the handoff. The AREQ's reader ref on the iterator keeps
-// iterCtx alive until executeAggregateDeferred calls AREQ_DecrRef (via
-// executePlan, or directly on the timeout / spec-dropped branch).
-// executeAggregateDeferred copies the fields to locals before releasing AREQ so
-// it never reads iterCtx after free.
+// iterCtx alive until the cycle's OnFree frees the AREQ (after
+// executeAggregateDeferred's unblock). executeAggregateDeferred copies the
+// fields to locals up front so it never reads iterCtx after that.
 //
 // The aggregate-specific callbacks below (withCountReplyCb / withCountErrorCb)
 // stay wired for the iterator's lifetime; they branch on cmd->rootCommand to
@@ -179,8 +178,8 @@ static void executeAggregateDeferred(void *arg);  // forward declaration
 // shard's success callback to netCursorCallback and clear the iterator's
 // errorCB (MRIterator_SwapCallbacks), so any straggler IO-thread event
 // takes the steady-state path and cannot re-enter the aggregate callbacks
-// after the worker has (possibly) freed iterCtx's deferred-execution fields
-// via AREQ_DecrRef. Runs only on the IO thread.
+// after the cycle's OnFree has (possibly) freed the AREQ and, through it,
+// iterCtx's deferred-execution fields. Runs only on the IO thread.
 static void dispatchDeferred(AggregateIteratorContext *iterCtx) {
   RS_ASSERT(iterCtx->bc);
   ConcurrentSearch_ThreadPoolRun(executeAggregateDeferred, iterCtx, DIST_THREADPOOL);
@@ -373,7 +372,8 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
 // Deferred execution of the distributed FT.AGGREGATE with WITHCOUNT. Runs on a
 // worker thread from the coordinator pool after the first-reply collection
 // step has gathered each shard's total_results.
-static int executePlan(AREQ *r, RedisModule_Reply *reply, QueryError *status);
+static int executePlan(AREQ *r, StrongRef spec_ref, RedisModule_Reply *reply,
+                       QueryError *status);
 
 static void executeAggregateDeferred(void *arg) {
   AggregateIteratorContext *iterCtx = (AggregateIteratorContext *)arg;
@@ -423,18 +423,18 @@ static void executeAggregateDeferred(void *arg) {
       // Cursor path: AREQ_StartCursor stashes the AREQ on the new Cursor and
       // emits the first chunk via runCursor. Not routed through executePlan
       // because we have no ConcurrentCmdCtx (the dispatcher already returned).
-      StrongRef dummy_spec_ref = {.rm = NULL};
-      if (AREQ_StartCursor(r, reply, dummy_spec_ref, &status, true) != REDISMODULE_OK) {
+      // Hand over the promoted spec ref so the cursor is counted against this
+      // index's coordinator cursor budget (INDEX_CURSOR_LIMIT). Cursors_Reserve
+      // demotes it to a weak ref; ownership of `spec_ref` stays here.
+      if (AREQ_StartCursor(r, reply, spec_ref, &status, true) != REDISMODULE_OK) {
         AREQ_ReplyOrStoreError(r, replyCtx, &status);
         // Cursor reservation failed before runCursor could return the loan.
         r->sctx->redisCtx = NULL;
-        AREQ_DecrRef(r);
       }
     } else {
-      // Converge on the existing non-cursor path: sendChunk + AREQ_DecrRef.
+      // Converge on the existing non-cursor path.
       // executePlan always returns REDISMODULE_OK in the non-cursor branch.
-      executePlan(r, reply, &status);
-      // r is freed by AREQ_DecrRef inside executePlan; do not access r after this.
+      executePlan(r, spec_ref, reply, &status);
     }
     RedisModule_EndReply(reply);
     RedisModule_FreeThreadSafeContext(replyCtx);
@@ -448,11 +448,9 @@ static void executeAggregateDeferred(void *arg) {
     AREQ_ReplyOrStoreError(r, replyCtx, &status);
     QueryError_ClearError(&status);
     RedisModule_FreeThreadSafeContext(replyCtx);
-    AREQ_DecrRef(r);
   } else {
-    // Timeout path skipped executePlan; release the AREQ ourselves so rpnetFree
-    // drops the iterator's reader ref and the iterator (and iterCtx) is freed.
-    AREQ_DecrRef(r);
+    // Timeout path skipped executePlan; the unblock below hands the request to
+    // OnFree, whose free lets rpnetFree drop the iterator's reader ref.
   }
 
   if (sp) {
@@ -794,6 +792,9 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   // User-facing cursors are unsupported on disk (flex). Reject before fan-out.
   // The coordinator's own shard fan-out (which always adds WITHCURSOR to the
   // shard `_FT.AGGREGATE`) does not pass through here.
+  // This rejection is also what keeps `cursorIsDiskBacked` from ever seeing a
+  // coordinator cursor: coordinator cursors carry a real spec ref, so without
+  // this early bail a flex index would take the disk read path on the coordinator.
   if ((AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) &&
       !SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("WITHCURSOR", status)) {
     return REDISMODULE_ERR;
@@ -873,18 +874,20 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   return REDISMODULE_OK;
 }
 
-static int executePlan(AREQ *r, RedisModule_Reply *reply, QueryError *status) {
+static int executePlan(AREQ *r, StrongRef spec_ref, RedisModule_Reply *reply,
+                       QueryError *status) {
   if (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) {
-    StrongRef dummy_spec_ref = {.rm = NULL};
-
-    if (AREQ_StartCursor(r, reply, dummy_spec_ref, status, true) != REDISMODULE_OK) {
-      // Reservation failed before runCursor could return the ctx loan.
+    // `spec_ref` is the caller's live promotion; Cursors_Reserve only demotes it
+    // to a weak ref, so the caller keeps ownership and releases it as before.
+    if (AREQ_StartCursor(r, reply, spec_ref, status, true) != REDISMODULE_OK) {
+      // Reservation failed before runCursor could return the ctx loan. Reachable
+      // now that coordinator cursors are counted: Cursors_Reserve rejects once
+      // the index is at INDEX_CURSOR_LIMIT.
       r->sctx->redisCtx = NULL;
       return REDISMODULE_ERR;
     }
   } else {
     sendChunk(r, reply, UINT64_MAX);
-    AREQ_DecrRef(r);
   }
   return REDISMODULE_OK;
 }
@@ -907,9 +910,9 @@ static void DistAggregateCleanups(RedisModuleCtx *ctx, struct ConcurrentCmdCtx *
   AREQ_ReplyOrStoreError(r, ctx, status);
 
 cleanup:
-  // Return the ctx loan on every error path — the cycle's reference may keep
-  // the request alive past the dispatcher's ctx (some paths bail before their
-  // own return of the loan, e.g. a dispatchAggregateDeferred failure).
+  // Return the ctx loan on every error path — the cycle-owned request outlives
+  // the dispatcher's ctx (some paths bail before their own return of the loan,
+  // e.g. a dispatchAggregateDeferred failure).
   if (r->sctx) {
     r->sctx->redisCtx = NULL;
   }
@@ -918,9 +921,6 @@ cleanup:
     IndexSpecRef_Release(*strong_ref);
   }
   SpecialCaseCtx_Free(knnCtx);
-  // Release the execution flow's reference (taken at shell allocation on the
-  // main thread); the cycle's reference is released by QueryRequest_OnFree.
-  AREQ_DecrRef(r);
   RedisModule_EndReply(reply);
   return;
 }
@@ -983,10 +983,8 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   if (QueryRequestTimeout_IsBlockedClientTimedOut(&r->base.timeout)) {
     // Query timed out while this job was queued; the timeout callback already
-    // replied. Release the execution flow's reference (the cycle's reference
-    // is released by QueryRequest_OnFree after the unblock).
+    // replied.
     WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-    AREQ_DecrRef(r);
     return;
   }
   // Picked up by a coord thread: attribute a timeout from here on to PIPELINE.
@@ -1026,7 +1024,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return;
   }
 
-  if (executePlan(r, reply, &status) != REDISMODULE_OK) {
+  if (executePlan(r, strong_ref, reply, &status) != REDISMODULE_OK) {
     goto err;
   }
 
@@ -1172,7 +1170,6 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // and the early-error branch above replies with it.
   AREQ_ReplyWithStoredResults(ctx, req);
 
-  // QueryRequest_OnFree releases the cycle's request reference.
   return REDISMODULE_OK;
 }
 
@@ -1217,9 +1214,9 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
     drainPartialResultsAfterTimeout(req);
     AREQ_ReplyWithStoredResults(ctx, req);
   } else {
-    // Pre-pipeline bail through AREQ_ReplyOrStoreError. Currently unreachable
-    // on coord+RETURN_STRICT (coordinator cursors have a NULL spec_ref so the
-    // only such bail in cursorRead can't fire); kept for forward-compat.
+    // Pre-pipeline bail through AREQ_ReplyOrStoreError. Reachable on
+    // coord+RETURN_STRICT now that coordinator cursors carry a real spec ref:
+    // cursorRead bails here when the index was dropped while the cursor idled.
     QueryError *err = &req->base.reply.err;
     RS_ASSERT(QueryError_HasError(err));
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, COORD_ERR_WARN);
@@ -1241,10 +1238,8 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   if (QueryRequestTimeout_IsBlockedClientTimedOut(&r->base.timeout)) {
     // Query timed out while this job was queued; the timeout callback already
-    // replied. Release the execution flow's reference (the cycle's reference
-    // is released by QueryRequest_OnFree after the unblock).
+    // replied.
     WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-    AREQ_DecrRef(r);
     return;
   }
   // Picked up by a coord thread: attribute a timeout from here on to PIPELINE.
@@ -1310,7 +1305,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return;
   }
 
-  if (executePlan(r, reply, &status) != REDISMODULE_OK) {
+  if (executePlan(r, strong_ref, reply, &status) != REDISMODULE_OK) {
     goto err;
   }
 

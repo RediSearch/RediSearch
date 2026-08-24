@@ -929,13 +929,9 @@ typedef struct {
 } HybridDispatchCtx;
 
 static void HybridDispatchCtx_Free(HybridDispatchCtx *dispatch) {
-    HybridRequest *hreq = dispatch->hreq;
     StrongRef indexSpecRef = dispatch->indexSpecRef;
     RedisModuleBlockedClient *bc = dispatch->bc;
 
-    if (hreq) {
-        HybridRequest_DecrRef(hreq);
-    }
     rm_free(dispatch);
     // The dispatcher thread already called CurrentThread_ClearIndexSpec() after
     // transferring strong_ref ownership here, so only release the strong ref.
@@ -1095,9 +1091,6 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
     if (sp) {
       IndexSpecRef_Release(*strong_ref);
     }
-    // Release the execution flow's reference (taken at shell allocation on the
-    // main thread); the cycle's reference is released by QueryRequest_OnFree.
-    HybridRequest_DecrRef(hreq);
 }
 
 
@@ -1115,9 +1108,8 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
     if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
       // Query timed out while this job was queued; the timeout callback
-      // already replied. Release the execution flow's reference.
+      // already replied.
       WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-      HybridRequest_DecrRef(hreq);
       return;
     }
     // Picked up by a coord thread: attribute a timeout from here on to PIPELINE.
@@ -1184,7 +1176,6 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
       // Timed out while queued; the timeout callback already replied.
       WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-      HybridRequest_DecrRef(hreq);
       return;
     }
     // Picked up by a coord thread: attribute a timeout from here on to PIPELINE.
@@ -1373,6 +1364,5 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   serializeStoredResults_hybrid(hreq, reply);
   RedisModule_EndReply(reply);
 
-  // QueryRequest_OnFree releases the cycle's request reference.
   return REDISMODULE_OK;
 }

@@ -44,7 +44,7 @@ protected:
   void TearDown() override {
     // Free the result if it was set during the test
     if (result) {
-      HybridRequest_DecrRef(result);
+      HybridRequest_Free(result);
     }
     if (hybridParams.scoringCtx) {
       HybridScoringContext_Free(hybridParams.scoringCtx);
@@ -85,7 +85,7 @@ protected:
     HybridRequest_InitArgsCursor(result, &ac, args.size());
     int rc =  parseHybridCommand(ctx, &ac, result->sctx, &cmd, &status, false, EXEC_NO_FLAGS);
     if (rc != REDISMODULE_OK) {
-      HybridRequest_DecrRef(result);
+      HybridRequest_Free(result);
       result = nullptr;
     }
 

@@ -64,6 +64,7 @@ static InfoFieldSpec toplevelSpecs_g[] = {
     {.name = "percent_indexed", .type = InfoField_DoubleAverage},
     {.name = "hash_indexing_failures", .type = InfoField_WholeSum},
     {.name = "number_of_uses", .type = InfoField_Max},
+    {.name = "number_of_admin_ops", .type = InfoField_Max},
     {.name = "cleaning", .type = InfoField_WholeSum}};
 
 static InfoFieldSpec gcSpecs[] = {
@@ -80,6 +81,7 @@ static InfoFieldSpec cursorSpecs[] = {
     {.name = "global_total", .type = InfoField_WholeSum},
     {.name = "index_capacity", .type = InfoField_WholeSum},
     {.name = "index_total", .type = InfoField_WholeSum},
+    {.name = "index_total_internal", .type = InfoField_WholeSum},
 };
 
 static InfoFieldSpec dialectSpecs[] = {

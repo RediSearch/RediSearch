@@ -361,7 +361,8 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
   }
 
-  RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1], true);
+  RedisSearchCtx *sctx =
+      NewSearchCtxCEx(ctx, RedisModule_StringPtrLen(argv[1], NULL), true, INDEXSPEC_LOAD_QUERY);
   if (sctx == NULL) {
     const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
     return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
@@ -3985,7 +3986,7 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   // context is already installed (as the blocked
   // client's privdata) once the client is blocked. Parsing happens on the BG
   // thread.
-  RedisSearchCtx *sctx = NewSearchCtxC(ctx, idx, true);
+  RedisSearchCtx *sctx = NewSearchCtxCEx(ctx, idx, true, INDEXSPEC_LOAD_NOCOUNTERINC);
   RS_ASSERT(sctx != NULL);  // the index was validated above in the same GIL window
   // Construction takes the argv holds here, on the main thread; the BG parse
   // borrows from them (the job's own argv copies die with the job).
@@ -5152,4 +5153,3 @@ static void DEBUG_DistSearchCommandHandler(void* pd) {
   MRCtx_DecrRef(sCmdCtx->mrctx);
   rm_free(sCmdCtx);
 }
-

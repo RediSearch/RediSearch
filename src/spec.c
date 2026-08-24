@@ -472,6 +472,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   // Initialize the spec's cursor-related fields.
   sp->activeCursors = 0;
+  sp->activeCoordCursors = 0;
 
   // set timeout for temporary index on master
   if ((sp->flags & Index_Temporary) && IsMaster()) {
@@ -2121,24 +2122,37 @@ void IndexSpec_Unlink(StrongRef spec_ref, bool removeActive) {
 
 //---------------------------------------- atomic updates ---------------------------------------
 
-// atomic update of usage counter
-inline static void IndexSpec_IncreasCounter(IndexSpec *sp) {
-  __atomic_fetch_add(&sp->counter , 1, __ATOMIC_RELAXED);
+void IndexSpec_IncrQueryCounter(IndexSpec *sp) {
+  __atomic_fetch_add(&sp->queryCounter, 1, __ATOMIC_RELAXED);
 }
 
+static void IndexSpec_IncrAdminCounter(IndexSpec *sp) {
+  __atomic_fetch_add(&sp->adminCounter, 1, __ATOMIC_RELAXED);
+}
+
+long long IndexSpec_GetQueryCounter(const IndexSpec *sp) {
+  return __atomic_load_n(&sp->queryCounter, __ATOMIC_RELAXED);
+}
+
+long long IndexSpec_GetAdminCounter(const IndexSpec *sp) {
+  return __atomic_load_n(&sp->adminCounter, __ATOMIC_RELAXED);
+}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 // Per-spec bookkeeping for a spec the registry layer has already resolved
 // (Indexes_LoadIndexSpecUnsafeEx owns the specDict_g lookup and calls this):
-// bump the usage counter and refresh the temporary-index timeout timer.
+// bump the classified command counter and refresh the temporary-index timeout timer.
 // `spec_ref` must be a valid, non-NULL strong reference. Touches no globals.
 void IndexSpec_OnAcquire(StrongRef spec_ref, IndexLoadOptions *options) {
   IndexSpec *sp = StrongRef_Get(spec_ref);
 
-  if (!(options->flags & INDEXSPEC_LOAD_NOCOUNTERINC)){
-    // Increment the number of uses.
-    IndexSpec_IncreasCounter(sp);
+  if (!(options->flags & INDEXSPEC_LOAD_NOCOUNTERINC)) {
+    if (options->flags & INDEXSPEC_LOAD_QUERY) {
+      IndexSpec_IncrQueryCounter(sp);
+    } else {
+      IndexSpec_IncrAdminCounter(sp);
+    }
   }
 
   if (!RS_IsMock && (sp->flags & Index_Temporary) && !(options->flags & INDEXSPEC_LOAD_NOTIMERUPDATE)) {
@@ -3373,6 +3387,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   IndexSpec_StartGC(spec_ref, sp, GCPolicy_Fork);
   // Initialize the spec's cursor-related fields.
   sp->activeCursors = 0;
+  sp->activeCoordCursors = 0;
 
   dictAdd(legacySpecDict, (void*)sp->specName, spec_ref.rm);
   // Subscribe to keyspace notifications

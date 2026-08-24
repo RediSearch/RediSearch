@@ -1572,7 +1572,6 @@ name = "numeric_score_source_bencher"
 version = "0.0.1"
 dependencies = [
  "build_utils",
- "cc",
  "criterion",
  "ffi",
  "index_result",
@@ -2117,7 +2116,6 @@ dependencies = [
  "libc",
  "redis-module",
  "tracing",
- "value",
  "workspace_hack",
 ]
 
@@ -3531,6 +3529,7 @@ dependencies = [
  "redis-module",
  "redis_mock",
  "redisearch_rs",
+ "string_utils",
  "thiserror",
  "tracing",
  "tracing_assert",
@@ -3548,6 +3547,7 @@ dependencies = [
  "query_error",
  "redis-module",
  "redis_mock",
+ "redisearch_rs",
  "value",
  "workspace_hack",
 ]
@@ -3617,7 +3617,6 @@ name = "vector_score_source_bencher"
 version = "0.0.1"
 dependencies = [
  "build_utils",
- "cc",
  "criterion",
  "ffi",
  "redis_mock",

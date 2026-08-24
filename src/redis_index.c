@@ -21,9 +21,7 @@
 #include "indexes.h"
 #include "doc_table.h"
 #include "redismodule.h"
-#include "iterators_ffi.h"
 #include "inverted_index_ffi.h"
-#include "query_term_ffi.h"
 #include "search_disk.h"
 #include "query_error_ffi.h"
 #include "util/misc.h"
@@ -129,9 +127,9 @@ void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *ctx) {
   ctx->lock_state = SPEC_LOCK_WRITE;
 }
 
-// DOES NOT INCREMENT REF COUNT
-RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL) {
-  IndexLoadOptions loadOpts = {.nameC = indexName};
+RedisSearchCtx *NewSearchCtxCEx(RedisModuleCtx *ctx, const char *indexName, bool resetTTL,
+                                IndexLoadOptionsFlags flags) {
+  IndexLoadOptions loadOpts = {.nameC = indexName, .flags = flags};
   StrongRef ref = Indexes_LoadIndexSpecUnsafeEx(&loadOpts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
@@ -141,6 +139,11 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool r
   RedisSearchCtx *sctx = rm_new(RedisSearchCtx);
   *sctx = SEARCH_CTX_STATIC(ctx, sp);
   return sctx;
+}
+
+// DOES NOT INCREMENT REF COUNT
+RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL) {
+  return NewSearchCtxCEx(ctx, indexName, resetTTL, 0);
 }
 
 int SearchCtx_TakeDiskSnapshot(RedisSearchCtx *sctx, QueryError *status) {
@@ -263,19 +266,6 @@ InvertedIndex *Redis_OpenReaderIndex(const RedisSearchCtx *ctx, const RSToken *t
   }
 
   return idx;
-}
-
-QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSToken *tok, int tok_id, DocTable *dt,
-                                t_fieldMask fieldMask, double weight) {
-
-  InvertedIndex *idx = Redis_OpenReaderIndex(ctx, tok, fieldMask);
-  if (!idx) {
-    return NULL;
-  }
-
-  FieldMaskOrIndex fieldMaskOrIndex = {.mask_tag = FieldMaskOrIndex_Mask, .mask = fieldMask};
-  RSQueryTerm *term = NewQueryTerm(tok, tok_id);
-  return NewInvIndIterator_TermQuery(idx, ctx, fieldMaskOrIndex, term, weight);
 }
 
 int Redis_LegacyDropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque) {
