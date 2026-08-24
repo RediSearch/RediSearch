@@ -1181,7 +1181,7 @@ int SetFtSearchInfo(RedisModuleCommand *cmd) {
       },
       {
         .name = "summarize",
-        .summary = "Splits a field into contextual fragments surrounding the found terms. Note: SUMMARIZE is not supported for JSON fields with multi-value JSONPath.",
+        .summary = "Splits a field into contextual fragments surrounding the found terms. Note: On JSON indexes, SUMMARIZE requires RETURN with explicit field names and is not supported for JSON fields with multi-value JSONPath.",
         .type = REDISMODULE_ARG_TYPE_BLOCK,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
         .subargs = (RedisModuleCommandArg[]){
@@ -1232,7 +1232,7 @@ int SetFtSearchInfo(RedisModuleCommand *cmd) {
       },
       {
         .name = "highlight",
-        .summary = "Highlights terms in the search results, with customizable tags for emphasis. Note: HIGHLIGHT is not supported for JSON fields with multi-value JSONPath.",
+        .summary = "Highlights terms in the search results, with customizable tags for emphasis. Note: On JSON indexes, HIGHLIGHT requires RETURN with explicit field names and is not supported for JSON fields with multi-value JSONPath.",
         .type = REDISMODULE_ARG_TYPE_BLOCK,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
         .subargs = (RedisModuleCommandArg[]){
