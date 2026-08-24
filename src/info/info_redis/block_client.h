@@ -60,15 +60,18 @@ void QueryRequest_EndCycle(struct QueryRequest *request);
  * client is destroyed; delegates to QueryRequest_EndCycle. */
 void QueryRequest_OnFree(RedisModuleCtx *ctx, void *privdata);
 
-/* Shutdown-only: run the pending cycle end (QueryRequest_OnFree) for every
- * request still linked in the registry, leaving it empty.
- * RedisModule_UnblockClient only queues an unblock, and module cleanup runs
- * synchronously inside the SHUTDOWN server event, so the main loop never
- * drains the queued free-privdata callbacks of cycles that completed while
- * the pools were shutting down. The process exits without returning to the
- * event loop, so a queued callback cannot run later against a request unwound
- * here — and MODULE UNLOAD is refused while the module has undrained blocked
- * clients. Call only after every pool whose cycles register here has stopped. */
+/* Shutdown-only: unlink every request still linked in the registry, leaving
+ * it empty (BlockedQueries_Free asserts that). Unlink WITHOUT ending the
+ * cycles: RedisModule_UnblockClient only queues an unblock, and module
+ * cleanup runs synchronously inside the SHUTDOWN server event, so the queued
+ * free-privdata callbacks of cycles that completed while the pools were
+ * shutting down never drain — but a linked request may still be borrowed by
+ * async machinery that outlives the pools (an MR iterator context holds a
+ * deferred coordinator request until the MR runtimes are freed), so it cannot
+ * be freed here either. The requests intentionally leak; the process exits
+ * without returning to the event loop, and MODULE UNLOAD is refused while the
+ * module has undrained blocked clients, so nothing runs against them later.
+ * Call only after every pool whose cycles register here has stopped. */
 void BlockedQueries_UnwindCycles(void);
 
 /* Block `ctx` for one query cycle of `request`. Registers the cycle in

@@ -97,15 +97,20 @@ void QueryRequest_OnFree(RedisModuleCtx *ctx, void *privdata) {
 
 void BlockedQueries_UnwindCycles(void) {
   BlockedQueries *blockedQueries = getBlockedQueries();
-  while (!DLLIST_IS_EMPTY(&blockedQueries->queries)) {
-    QueryRequest *at =
-        DLLIST_ITEM(blockedQueries->queries.next, QueryRequest, registryInfo.node);
-    QueryRequest_OnFree(NULL, at);
-  }
-  while (!DLLIST_IS_EMPTY(&blockedQueries->cursors)) {
-    QueryRequest *at =
-        DLLIST_ITEM(blockedQueries->cursors.next, QueryRequest, registryInfo.node);
-    QueryRequest_OnFree(NULL, at);
+  DLLIST *lists[] = {&blockedQueries->queries, &blockedQueries->cursors};
+  for (size_t i = 0; i < sizeof(lists) / sizeof(*lists); i++) {
+    while (!DLLIST_IS_EMPTY(lists[i])) {
+      QueryRequest *at = DLLIST_ITEM(lists[i]->next, QueryRequest, registryInfo.node);
+      // Unlink only — do NOT run the cycle end. Stopping the pools proves no
+      // new cycles start, not that a linked request has no borrowers: a
+      // deferred coordinator request (e.g. WITHCOUNT) is still referenced by
+      // its MR iterator context until the MR runtimes are gone, so freeing it
+      // here would be use-after-free on the IO threads. Leaking it instead is
+      // exactly what its queued, never-drained free-privdata callback would
+      // have left behind.
+      dllist_delete(&at->registryInfo.node);
+      at->registryInfo.cycle_start = 0;
+    }
   }
 }
 
