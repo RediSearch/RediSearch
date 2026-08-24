@@ -349,11 +349,14 @@ macro_rules! mock_or_stub_missing_redis_c_symbols {
             SSL_set_fd,
             SSL_write,
             TLS_client_method,
-            // DocIdMeta symbols used by RediSearch C code
+            // DocIdMeta symbols used by RediSearch C code. Every non-static symbol of
+            // `doc_id_meta.c` must be listed: leaving one out lets the linker pull the real
+            // object out of `libredisearch_c_bundle.a`, which then collides with these stubs.
             DocIdMeta_Get,
             DocIdMeta_Set,
             DocIdMeta_Delete,
             DocIdMeta_Init,
+            DocIdMeta_PruneDeletedSpecs,
             DocIdMeta_SetForgetDocIdMetadata,
             DocIdMeta_GetWithOpenKey,
             DocIdMeta_SetWithOpenKey,

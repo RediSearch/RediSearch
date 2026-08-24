@@ -208,20 +208,56 @@ void Indexer_AddNewDocStats(IndexSpec *spec, uint32_t newDocLen) {
   spec->stats.scoring.totalDocsLen += newDocLen;
 }
 
-/** Assigns a document ID to a single document. Handles only RAM index */
-static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx *aCtx, IndexSpec *spec,
+// DocIdMeta access from the indexing pipeline. When the add-document context
+// carries an already-open key handle (supplied by callers that hold the key
+// open and pinned, e.g. the async scan key callback), these reuse it via the
+// *WithKey variants instead of reopening the key by name; otherwise they fall
+// back to the name-based variants, which open and close the key themselves.
+static int actxDocIdMetaGet(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, uint64_t *docId) {
+  return aCtx->disk.openKey
+             ? DocIdMeta_GetWithOpenKey(aCtx->disk.openKey, ctx->spec->specId, docId)
+             : DocIdMeta_Get(ctx->redisCtx, aCtx->doc->docKey, ctx->spec->specId, docId);
+}
+
+static int actxDocIdMetaSet(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, uint64_t docId) {
+  return aCtx->disk.openKey
+             ? DocIdMeta_SetWithOpenKey(aCtx->disk.openKey, ctx->spec->specId, docId)
+             : DocIdMeta_Set(ctx->redisCtx, aCtx->doc->docKey, ctx->spec->specId, docId);
+}
+
+/** Assigns a document ID to a single document. Handles only the RAM index.
+ *  The key -> docId mapping is stored on the Redis key via DocIdMeta (unified
+ *  with disk mode); the in-memory DocTable only maps docId -> DMD. */
+static RSDocumentMetadata *makeDocumentId(RedisSearchCtx *sctx, RSAddDocumentCtx *aCtx,
                                           int replace, bool *updated) {
+  IndexSpec *spec = sctx->spec;
   DocTable *table = &spec->docs;
   Document *doc = aCtx->doc;
-  if (replace) {
-    RSDocumentMetadata *dmd = DocTable_PopR(table, doc->docKey);
-    if (dmd) {
-      // Drop the old doc's stats + auxiliary in-memory indexes. The new doc's
-      // stats are folded in by the caller via `Indexer_AddNewDocStats`.
-      Indexer_RemoveOldDocStats(spec, dmd->docLen);
-      Indexer_RemoveReplacedDocVectorAndGeometry(spec, dmd->id);
-      *updated = true;
-      DMD_Return(dmd);
+
+  // Existing key -> docId mapping (memory-mode analogue of the disk oldDocId
+  // lookup in doAssignIds).
+  uint64_t oldDocId = 0;
+  actxDocIdMetaGet(aCtx, sctx, &oldDocId);
+
+  if (oldDocId) {
+    if (replace) {
+      // Drop the previous version + its stats/aux indexes; the mapping is
+      // overwritten by the actxDocIdMetaSet below.
+      RSDocumentMetadata *old = DocTable_DeleteById(table, (t_docId)oldDocId);
+      if (old) {
+        Indexer_RemoveOldDocStats(spec, old->docLen);
+        Indexer_RemoveReplacedDocVectorAndGeometry(spec, old->id);
+        *updated = true;
+        DMD_Return(old);
+      }
+    } else {
+      // Already indexed, not a REPLACE: return the existing DMD (former
+      // DocTable_Put dedup). Fall through only if the mapping is stale.
+      RSDocumentMetadata *existing = (RSDocumentMetadata *)DocTable_Borrow(table, (t_docId)oldDocId);
+      if (existing) {
+        doc->docId = existing->id;
+        return existing;
+      }
     }
   }
 
@@ -231,6 +267,10 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
       DocTable_Put(table, s, n, doc->score, aCtx->docFlags, doc->payload, doc->payloadSize, doc->type);
   if (dmd) {
     doc->docId = dmd->id;
+    // Publish the key -> docId mapping. Crash on failure (matches the disk
+    // post-commit policy) rather than leave a DMD with no mapping.
+    int rc = actxDocIdMetaSet(aCtx, sctx, dmd->id);
+    RS_LOG_ASSERT_ALWAYS(rc == REDISMODULE_OK, "DocIdMeta_Set failed while indexing in memory mode");
   }
 
   return dmd;
@@ -258,7 +298,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
     } else {
       RS_LOG_ASSERT(!cur->doc->docId, "docId must be 0");
       bool updated = false;
-      RSDocumentMetadata *md = makeDocumentId(ctx->redisCtx, cur, spec,
+      RSDocumentMetadata *md = makeDocumentId(ctx, cur,
                                               cur->options & DOCUMENT_ADD_REPLACE, &updated);
       if (!md) {
         cur->stateFlags |= ACTX_F_ERRORED;
