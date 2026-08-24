@@ -49,6 +49,22 @@ enum AdhocPathState<'index> {
     },
 }
 
+/// Batch statistics of one evaluation, rendered by the profile printer.
+///
+/// Cleared as a whole by [`ScoreSource::reset_profile`], so a counter added here
+/// is covered by that reset without further wiring.
+#[derive(Default)]
+pub(crate) struct BatchProfile {
+    /// Number of batches consumed, including one cut short by a timeout.
+    pub(crate) num_iterations: usize,
+    /// Largest batch size used; only ever grows within an evaluation, so a scan
+    /// restarted mid-evaluation cannot lower it.
+    pub(crate) max_batch_size: usize,
+    /// Zero-based iteration index at which the current
+    /// [`max_batch_size`](Self::max_batch_size) was reached.
+    pub(crate) max_batch_iteration: usize,
+}
+
 /// A [`ScoreSource`] that drives top-k collection against a VecSim index.
 ///
 /// Two adhoc-BF execution paths are supported:
@@ -93,17 +109,9 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker> {
     /// request-owned timeout referenced by [`VecSimQueryParams::timeoutCtx`]. The
     /// [`VectorScoreSource::new`] contract guarantees that both outlive this iterator.
     batch_iter: Option<BatchIterator<'index, 'index>>,
-    /// Number of batches consumed over the whole evaluation. Reset by
-    /// [`ScoreSource::reset_profile`].
-    pub num_iterations: usize,
-    /// Largest batch size used over the whole evaluation; only ever grows within
-    /// it. Read by the profile printer. Reset by
-    /// [`ScoreSource::reset_profile`].
-    pub max_batch_size: usize,
-    /// Zero-based iteration index at which the current
-    /// [`max_batch_size`](Self::max_batch_size) was reached.
-    /// Read by the profile printer. Reset by [`ScoreSource::reset_profile`].
-    pub max_batch_iteration: usize,
+    /// Counters the profile printer reads, holding no state the scan itself
+    /// depends on.
+    pub(crate) profile: BatchProfile,
     /// Rolling estimate of how many child docs pass the filter; seeded from
     /// [`initial_child_num_estimated`](Self::initial_child_num_estimated) and
     /// refined each batch. Reset on rewind.
@@ -203,9 +211,7 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
             should_rerank,
             batch_iter: None,
             fixed_batch_size,
-            num_iterations: 0,
-            max_batch_size: 0,
-            max_batch_iteration: 0,
+            profile: BatchProfile::default(),
             child_num_estimated,
             initial_child_num_estimated: child_num_estimated,
             k_remaining: k,
@@ -316,8 +322,7 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
             }
             // Seed the largest-batch tracker. A user-pinned size is constant, so
             // it is also the maximum; a dynamic size starts at 0 and grows below.
-            // Raise only, so a scan restarted mid-evaluation cannot lower it.
-            self.max_batch_size = self.max_batch_size.max(self.fixed_batch_size);
+            self.profile.max_batch_size = self.profile.max_batch_size.max(self.fixed_batch_size);
         }
 
         if !self
@@ -330,14 +335,14 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
         }
 
         let batch_size = self.compute_next_batch_size();
-        self.num_iterations += 1;
+        self.profile.num_iterations += 1;
 
-        // Track the largest dynamically-computed batch and the (zero-based)
-        // iteration that produced it. A user-pinned size never varies, so the
-        // maximum stays at the seed above and the iteration index stays at 0.
-        if self.fixed_batch_size == 0 && batch_size.get() > self.max_batch_size {
-            self.max_batch_size = batch_size.get();
-            self.max_batch_iteration = self.num_iterations - 1;
+        // Track the largest dynamically-computed batch and the iteration that
+        // produced it. A user-pinned size never varies, so the maximum stays at
+        // the seed above and the iteration index stays at 0.
+        if self.fixed_batch_size == 0 && batch_size.get() > self.profile.max_batch_size {
+            self.profile.max_batch_size = batch_size.get();
+            self.profile.max_batch_iteration = self.profile.num_iterations - 1;
         }
 
         let batch_iter = self.batch_iter.as_mut().expect("just initialised above");
@@ -460,9 +465,7 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
     }
 
     fn reset_profile(&mut self) {
-        self.num_iterations = 0;
-        self.max_batch_size = 0;
-        self.max_batch_iteration = 0;
+        self.profile = BatchProfile::default();
     }
 
     fn build_result<'r>(&self, doc_id: DocId, score: f64) -> RSIndexResult<'r>
@@ -678,10 +681,13 @@ mod tests {
         // drive two batches, shrinking the child estimate between them so
         // the second computed size is larger, then rewind.
         source.next_batch().unwrap();
-        let first = source.max_batch_size;
+        let first = source.profile.max_batch_size;
         source.child_num_estimated = 5;
         source.next_batch().unwrap();
-        let (grown_size, grown_iter) = (source.max_batch_size, source.max_batch_iteration);
+        let (grown_size, grown_iter) = (
+            source.profile.max_batch_size,
+            source.profile.max_batch_iteration,
+        );
         source.rewind();
 
         assert!(first > 0, "first batch seeds the maximum");
@@ -692,9 +698,9 @@ mod tests {
         assert_eq!(grown_iter, 1, "recorded at its iteration");
         assert_eq!(
             (
-                source.num_iterations,
-                source.max_batch_size,
-                source.max_batch_iteration
+                source.profile.num_iterations,
+                source.profile.max_batch_size,
+                source.profile.max_batch_iteration
             ),
             (2, grown_size, grown_iter),
             "rewind preserves the metrics"
@@ -702,8 +708,14 @@ mod tests {
 
         // The scan restarted by the rewind re-seeds the tracker without lowering it.
         source.next_batch().unwrap();
-        assert_eq!(source.max_batch_size, grown_size, "re-seed only raises");
-        assert_eq!(source.num_iterations, 3, "batches keep accumulating");
+        assert_eq!(
+            source.profile.max_batch_size, grown_size,
+            "re-seed only raises"
+        );
+        assert_eq!(
+            source.profile.num_iterations, 3,
+            "batches keep accumulating"
+        );
     }
 
     /// A fresh evaluation must report only its own batches, so `reset_profile`
@@ -720,14 +732,17 @@ mod tests {
         source.next_batch().unwrap();
         source.child_num_estimated = 5;
         source.next_batch().unwrap();
-        assert_eq!(source.max_batch_iteration, 1, "the maximum moved off zero");
+        assert_eq!(
+            source.profile.max_batch_iteration, 1,
+            "the maximum moved off zero"
+        );
 
         source.reset_profile();
         assert_eq!(
             (
-                source.num_iterations,
-                source.max_batch_size,
-                source.max_batch_iteration
+                source.profile.num_iterations,
+                source.profile.max_batch_size,
+                source.profile.max_batch_iteration
             ),
             (0, 0, 0)
         );
