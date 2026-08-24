@@ -101,13 +101,25 @@ static void failReadsBeforeExpansion(HybridArmingCtx *ctx, const char *msg) {
   }
 }
 
+// A profiled shard that bails before opening its cursors replies through
+// common_hybrid_query_reply_empty, which — unlike replyWithCursors — wraps the
+// mapping in a profile envelope: {"Results": <mapping>, "Profile": {...}}.
+// Descend into it so the fixed offsets below address the mapping itself either
+// way; a borrow, so the caller still owns the whole reply.
+static MRReply *unwrapProfileEnvelope(MRReply *rep) {
+  MRReply *results = MRReply_MapElement(rep, "Results");
+  return results ? results : rep;
+}
+
 // Parse a shard's cursor-mapping reply. Both protocols carry the same fixed
 // layout — a RESP2 array or a RESP3 map, stored either way as a flat element
 // array: ["SEARCH", <cid>, "VSIM", <cid>, "warnings", [...]] (the emission
-// order of replyWithCursors in hybrid_exec.c). The structure is asserted in
-// debug builds; production extracts the values by offset.
+// order of replyWithCursors in hybrid_exec.c). The layout is load-bearing:
+// the offsets below are not bounds-checked in production builds, so this
+// assert is _ALWAYS to keep a future divergence from reading off the end.
 static void processHybridMapping(HybridArmingCtx *ctx, MRReply *rep, uint16_t shardIdx) {
-  RS_ASSERT(MRReply_Length(rep) == HYBRID_MAPPING_REPLY_LENGTH);
+  rep = unwrapProfileEnvelope(rep);
+  RS_ASSERT_ALWAYS(MRReply_Length(rep) == HYBRID_MAPPING_REPLY_LENGTH);
   RS_ASSERT(MRReply_StringEquals(MRReply_ArrayElement(rep, 0), "SEARCH", true));
   RS_ASSERT(MRReply_StringEquals(MRReply_ArrayElement(rep, 2), "VSIM", true));
   RS_ASSERT(MRReply_StringEquals(MRReply_ArrayElement(rep, 4), "warnings", true));
