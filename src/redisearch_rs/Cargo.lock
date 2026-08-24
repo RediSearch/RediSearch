@@ -3042,6 +3042,7 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "ffi",
+ "index_result",
  "inverted_index",
  "redis_mock",
  "redisearch_rs",
