@@ -11,6 +11,8 @@
 //! numeric field, reading the field's value-ordered ranges directly from a
 //! [`NumericRangeTree`].
 
+use std::ffi::CStr;
+
 use index_result::RSIndexResult;
 use inverted_index::NumericFilter;
 use numeric_range_tree::{NumericRangeTree, RangeWindow};
@@ -60,6 +62,31 @@ impl DocValidity for AllValid {
     }
 }
 
+/// Which numeric-optimizer strategy the query plan runs, reported as the
+/// `Optimizer mode` entry of an `FT.PROFILE` reply.
+///
+/// The strategy is fixed by the plan before the source exists, so the source only
+/// reports it and never acts on it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OptimizerMode {
+    /// One bounded slice of the value-ordered stream is expected to satisfy the
+    /// limit, so no window expansion is anticipated.
+    PartialRange,
+    /// The filter's selectivity is only estimated, so the window may have to
+    /// expand before the limit is met.
+    Hybrid,
+}
+
+impl OptimizerMode {
+    /// The string this mode is reported under in a profile reply.
+    pub fn profile_name(self) -> &'static CStr {
+        match self {
+            Self::PartialRange => c"Query partial range",
+            Self::Hybrid => c"Hybrid",
+        }
+    }
+}
+
 /// Default number of value-ordered ranges materialized into a single batch.
 ///
 /// Larger batches amortize the per-batch child rewind in the surrounding
@@ -68,7 +95,7 @@ impl DocValidity for AllValid {
 /// boundary. Callers (chiefly tests) override it to force multi-batch behavior.
 ///
 /// [`TopKIterator`]: top_k::TopKIterator
-const DEFAULT_RANGE_BATCH_SIZE: usize = 8;
+pub(crate) const DEFAULT_RANGE_BATCH_SIZE: usize = 8;
 
 /// Maximum number of expand-and-retry iterations before the next retry reads
 /// every remaining document.
@@ -159,6 +186,13 @@ pub struct NumericScoreSource<
     heap_old_size: usize,
     /// Number of expand-and-retry iterations performed so far.
     num_iterations: usize,
+    /// Number of value-ordered range batches materialized so far. Reset on rewind.
+    num_batches: usize,
+    /// Strategy reported as the profile's `Optimizer mode`. Defaults to what the
+    /// construction shape implies, overridden by
+    /// [`with_optimizer_mode`](NumericScoreSource::with_optimizer_mode) when the
+    /// query plan says otherwise.
+    optimizer_mode: OptimizerMode,
     /// Document-level validity oracle: drops records for doc ids it reports
     /// invalid (deleted or whole-doc expired) before they reach the top-k heap.
     /// [`AllValid`] keeps every record.
@@ -260,6 +294,12 @@ impl<'index> NumericScoreSource<'index> {
             child_estimate,
             heap_old_size: 0,
             num_iterations: 0,
+            num_batches: 0,
+            optimizer_mode: if retry_enabled {
+                OptimizerMode::Hybrid
+            } else {
+                OptimizerMode::PartialRange
+            },
             validity: AllValid,
             expiration: NoOpChecker,
             timeout: NoTimeoutChecker,
@@ -296,6 +336,8 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext>
             last_limit_estimate: self.last_limit_estimate,
             heap_old_size: self.heap_old_size,
             num_iterations: self.num_iterations,
+            num_batches: self.num_batches,
+            optimizer_mode: self.optimizer_mode,
         }
     }
 
@@ -325,6 +367,8 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext>
             last_limit_estimate: self.last_limit_estimate,
             heap_old_size: self.heap_old_size,
             num_iterations: self.num_iterations,
+            num_batches: self.num_batches,
+            optimizer_mode: self.optimizer_mode,
         }
     }
 
@@ -352,12 +396,36 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext>
             last_limit_estimate: self.last_limit_estimate,
             heap_old_size: self.heap_old_size,
             num_iterations: self.num_iterations,
+            num_batches: self.num_batches,
+            optimizer_mode: self.optimizer_mode,
         }
+    }
+
+    /// Set the strategy the profile reports, when the query plan's choice differs
+    /// from what the construction shape implies (unfiltered
+    /// [`PartialRange`](OptimizerMode::PartialRange), filtered
+    /// [`Hybrid`](OptimizerMode::Hybrid)) — a plan that intersects a filter
+    /// without ever widening the window is
+    /// [`PartialRange`](OptimizerMode::PartialRange) despite having a child.
+    pub fn with_optimizer_mode(mut self, mode: OptimizerMode) -> Self {
+        self.optimizer_mode = mode;
+        self
     }
 
     /// Sort direction the source reads in, for the heap comparator.
     pub fn ascending(&self) -> bool {
         self.ascending
+    }
+
+    /// Strategy reported as the profile's `Optimizer mode`.
+    pub fn optimizer_mode(&self) -> OptimizerMode {
+        self.optimizer_mode
+    }
+
+    /// Number of value-ordered range batches materialized in the current
+    /// collection.
+    pub fn num_batches(&self) -> usize {
+        self.num_batches
     }
 
     /// Hit ratio of the window just consumed: results collected from it over the
@@ -432,6 +500,7 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
         else {
             return Ok(None);
         };
+        self.num_batches += 1;
         // Drop stale entries pre-heap so they never displace a live document from
         // the bounded top-k: document-level validity (deletion, whole-doc expiry)
         // and field-level TTL, the two the range tree only sheds at GC time. Each
@@ -474,6 +543,7 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
         self.window = self.initial_window;
         self.last_limit_estimate = self.initial_window.limit;
         self.num_iterations = 0;
+        self.num_batches = 0;
         self.heap_old_size = 0;
         self.ranges.forget_emitted();
         self.ranges.refind(&self.filter, self.window);
@@ -539,7 +609,7 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
 /// child's selectivity (`estimate`/`num_docs`).
 ///
 /// Returns `0` when `num_docs` or `estimate` is `0`, guarding the division.
-fn estimate_limit(num_docs: usize, estimate: usize, limit: usize) -> usize {
+pub(crate) fn estimate_limit(num_docs: usize, estimate: usize, limit: usize) -> usize {
     if num_docs == 0 || estimate == 0 {
         return 0;
     }

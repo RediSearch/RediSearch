@@ -26,27 +26,38 @@ extern crate redisearch_rs;
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 pub mod range_iterator;
+pub mod reducer;
 pub mod score_batch;
 pub mod source;
 
 pub use range_iterator::NumericRangeIterator;
+pub use reducer::{NewNumericTopK, new_numeric_top_k};
 pub use score_batch::NumericScoreBatch;
-pub use source::{AllValid, DocValidity, NumericScoreSource};
+pub use source::{AllValid, DocValidity, NumericScoreSource, OptimizerMode};
 
 use std::{cmp::Ordering, num::NonZeroUsize};
 
+use redis_reply::MapBuilder;
 use rqe_iterators::{
     ExpirationChecker, NoOpChecker, RQEIterator,
+    c2rust::CRQEIterator,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::{NoTimeoutChecker, TimeoutContext},
 };
-use top_k::{TopKIterator, TopKMode};
+use top_k::{TopKIterator, TopKMetrics, TopKMode, TopKSourceProfile};
 
-/// A [`TopKIterator`] driven by a [`NumericScoreSource`].
+/// A [`TopKIterator`] parameterised over [`NumericScoreSource`].
 ///
-/// Construct one with [`new_numeric_top_k_unfiltered`] or
-/// [`new_numeric_top_k_filtered`].
-pub type NumericTopKIterator<'index, V = AllValid, E = NoOpChecker, T = NoTimeoutChecker> =
-    TopKIterator<'index, NumericScoreSource<'index, V, E, T>>;
+/// `I` is the filter child iterator type, defaulting to the production
+/// [`CRQEIterator`]; the iterator implements [`ProfilePrint`] whenever `I` does.
+/// An unfiltered iterator carries no child, so `I` is then an unused phantom.
+pub type NumericTopKIterator<
+    'index,
+    V = AllValid,
+    E = NoOpChecker,
+    T = NoTimeoutChecker,
+    I = CRQEIterator,
+> = TopKIterator<'index, NumericScoreSource<'index, V, E, T>, I>;
 
 /// Pick the heap comparator for the query's sort direction.
 fn cmp_for(ascending: bool) -> fn(&f64, &f64) -> Ordering {
@@ -76,26 +87,52 @@ pub fn new_numeric_top_k_unfiltered<
     TopKIterator::new_with_mode(source, None, k, cmp, TopKMode::Batches)
 }
 
-/// Construct a filtered [`NumericTopKIterator`] with a filter child.
+/// Construct a filtered [`NumericTopKIterator`] over `child`.
 ///
 /// Uses [`TopKMode::Batches`]: the source's batch is intersected with the
-/// child filter, and the heap keeps the top `k` by numeric value.
+/// child filter, and the heap keeps the top `k` by numeric value. The sort
+/// direction is taken from the `source` (`SORTBY field ASC`/`DESC`).
 pub fn new_numeric_top_k_filtered<
     'index,
     V: DocValidity + 'index,
     E: ExpirationChecker + 'index,
     T: TimeoutContext + 'index,
+    C: RQEIterator<'index> + 'index,
 >(
     source: NumericScoreSource<'index, V, E, T>,
-    child: impl RQEIterator<'index> + 'index,
+    child: C,
     k: NonZeroUsize,
-) -> NumericTopKIterator<'index, V, E, T> {
+) -> NumericTopKIterator<'index, V, E, T, C> {
     let cmp = cmp_for(source.ascending());
-    TopKIterator::new_with_mode(
-        source,
-        Some(Box::new(child) as Box<dyn RQEIterator<'index> + 'index>),
-        k,
-        cmp,
-        TopKMode::Batches,
-    )
+    TopKIterator::new_with_mode(source, Some(child), k, cmp, TopKMode::Batches)
+}
+
+impl<V: DocValidity, E: ExpirationChecker, T: TimeoutContext> TopKSourceProfile
+    for NumericScoreSource<'_, V, E, T>
+{
+    /// Render the numeric optimizer's profile entry: an `OPTIMIZER` header, the
+    /// [`OptimizerMode`] the query plan picked, and the child subtree.
+    ///
+    /// `mode` and `metrics` are unused: the reported strategy is fixed by the plan
+    /// and carried on the source, and the entry exposes no runtime counters. The
+    /// key set is a stable part of the `FT.PROFILE` reply, so adding one is an API
+    /// change rather than a detail of this impl.
+    fn print_profile(
+        &self,
+        _mode: TopKMode,
+        _metrics: &TopKMetrics,
+        map: &mut MapBuilder<'_>,
+        ctx: &mut ProfilePrintCtx<'_>,
+        child: Option<&dyn ProfilePrint>,
+    ) {
+        map.kv_simple_string(c"Type", c"OPTIMIZER");
+        ctx.print_optional_counters(map);
+        map.kv_simple_string(c"Optimizer mode", self.optimizer_mode().profile_name());
+
+        if let Some(child) = child {
+            let mut child_map = map.kv_map(c"Child iterator");
+            let mut child_ctx = ctx.child_ctx();
+            child.print_profile(&mut child_map, &mut child_ctx);
+        }
+    }
 }
