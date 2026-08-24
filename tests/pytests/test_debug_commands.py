@@ -874,7 +874,7 @@ class TestQueryDebugCommands(object):
 
         # Test ON_TIMEOUT RETURN-STRICT (not supported for coordinator)
         env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN-STRICT').ok()
-        with env.assertResponseError(contained="TIMEOUT_AFTER_N for Coordinator is only supported with ON_TIMEOUT RETURN"):
+        with env.assertResponseError(contained="TIMEOUT_AFTER_N is not supported with ON_TIMEOUT RETURN-STRICT"):
             runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
 
         # Restore the default policy
