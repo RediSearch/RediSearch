@@ -1,0 +1,11 @@
+type: '@gdesmott/rust-lint'
+typeVersion: 2026.08.17.2
+id: faf431e8-ab97-4237-9da1-09a8bfca09ef
+name: doc
+version: 1
+tags: {}
+globalArguments:
+  repoRoot: '..'
+  tool: doc
+  regenerateHeaders: false
+methods: {}
