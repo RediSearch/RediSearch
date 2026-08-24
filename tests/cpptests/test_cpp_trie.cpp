@@ -63,8 +63,8 @@ static std::vector<std::string> trieIterPrefix(Trie *t, const char *prefix) {
 
   std::vector<std::string> terms;
   QueryRequestTimeout timeout = {
-      .policy = TimeoutPolicy_Return,
       .timeoutMS = 0,
+      .policy = TimeoutPolicy_Return,
       .kind = QUERY_REQUEST_TIMEOUT_UNARMED,
       .source = {},
   };

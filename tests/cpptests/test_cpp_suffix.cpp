@@ -181,8 +181,8 @@ TEST_F(WildcardEmptyPatternTest, suffixTrieIterateSignalsUnusable) {
   addSuffixTrie(t, "abc", 3);
   int hits = 0;
   QueryRequestTimeout timeout = {
-      .policy = TimeoutPolicy_Return,
       .timeoutMS = 0,
+      .policy = TimeoutPolicy_Return,
       .kind = QUERY_REQUEST_TIMEOUT_UNARMED,
       .source = {},
   };
@@ -227,8 +227,8 @@ TEST_F(WildcardEmptyPatternTest, trieIterateWildcardEmptyMatchesNothing) {
   rune patternBuf[2] = {(rune)'x', 0};
   rune *emptyPattern = patternBuf + 1;
   QueryRequestTimeout timeout = {
-      .policy = TimeoutPolicy_Return,
       .timeoutMS = 0,
+      .policy = TimeoutPolicy_Return,
       .kind = QUERY_REQUEST_TIMEOUT_UNARMED,
       .source = {},
   };

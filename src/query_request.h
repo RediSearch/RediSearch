@@ -155,8 +155,8 @@ typedef enum {
  */
 typedef struct QueryRequestTimeout {
   // Stable configuration retained across cursor execution cycles.
-  RSTimeoutPolicy policy;
   long long timeoutMS;
+  RSTimeoutPolicy policy;
 
   // The active source is changed only between execution cycles, while no
   // consumer can observe the union.
