@@ -82,6 +82,10 @@ const SKIPPED_FILES: &[&str] = &[
     "srcutil/lempar.c",
     // Copied from the Rust standard library; see the module docs for its license.
     "src/redisearch_rs/inverted_index/src/controlled_cursor.rs",
+    // Carry a different grant to the one above, which only a human may change: the wording
+    // Redis upstream uses, and an older RSALv2-or-SSPLv1 grant that does not offer AGPLv3.
+    "src/rejson_api.h",
+    "src/util/strconv.h",
 ];
 
 /// How a source file spells comments, and therefore which rendering of the header it carries.
