@@ -9,3 +9,4 @@
 
 mod bookkeeping;
 mod case_folding;
+mod empty_pattern;

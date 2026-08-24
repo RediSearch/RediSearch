@@ -62,6 +62,11 @@ impl<'tm, 't, Data> ContainsIter<'tm, 't, Data> {
         }
     }
 
+    /// Creates a new empty iterator, that yields no entries.
+    pub(crate) fn empty() -> Self {
+        Self::new(None, &[][..])
+    }
+
     pub(crate) fn set_timeout(&mut self, timeout: Option<Instant>) {
         self.timeout = timeout.into()
     }
