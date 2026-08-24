@@ -28,7 +28,52 @@ If the user provides a Rust file path (e.g., under `src/redisearch_rs/`), stop a
 them to use `/check-rust-coverage` instead — this skill's gcov/lcov pipeline does not capture
 Rust coverage data.
 
-Follow these steps in order. Do NOT skip ahead — each step depends on the previous one.
+### Prefer the swamp workflow
+
+`flow-coverage` does Steps 1 to 3 in one command — instrumented build, full
+suite, then uncovered lines per file as ranges — and refuses to answer from a
+trace older than the suite run, which is what the marker dance below is for:
+
+swamp is optional here: check `command -v swamp` first, and follow the by-hand
+path below if it is not installed. Its files live under `swamp/`, and swamp only
+looks *upward* for them, so these commands need `--repo-dir swamp` from the
+repository root — or the export below, once per shell. See *Where swamp lives in
+this repository* in `AGENTS.md`.
+
+```bash
+export SWAMP_REPO_DIR="$PWD/swamp"
+swamp workflow run flow-coverage --input '{"files":["src/module.c","src/query.c"]}'
+swamp data get flow-coverage summary --json | jq '.content.targets'
+```
+
+Inputs: `deployment` (`standalone` or `cluster`), `force` to rebuild from
+scratch, `requireAllFound` to report on the rest when a file has no coverage
+data. When a trace already exists and only different files need looking at, skip
+the build and the suite entirely — the report is a parse, not a run:
+
+```bash
+swamp model method run flow-coverage report --input '{"files":["src/spec.c"],"notOlderThan":"<the trace's capturedAt>"}'
+```
+
+`notOlderThan` is what makes that safe, and it is not optional in practice: the
+trace on disk is a file like any other, and one left by an earlier checkout or
+a suite that died halfway reads exactly like a current one. Reported without a
+bound, its gaps are attributed to code it never ran against — which is worse
+than having no coverage number, because it looks like one. Take the trace's own
+timestamp from the summary that measured it — `capturedAt`, not `executedAt`,
+which is stamped after the trace was written and would reject it:
+
+```bash
+swamp data get flow-coverage summary --json | jq -r '.content.capturedAt'
+```
+
+If you cannot show where the trace came from, run the workflow above instead of
+reporting from it. The workflow passes this bound itself.
+
+Then continue from Step 4 to read and classify the gaps. Follow the steps below
+by hand only when swamp is unavailable.
+
+Do NOT skip ahead — each step depends on the previous one.
 
 ### Step 1: Ensure a coverage build exists
 
