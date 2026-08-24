@@ -327,11 +327,4 @@ impl<'a> IndexReader<'a> for NumericIndexReader<'a> {
             Self::Compressed(r) => r.needs_revalidation(),
         }
     }
-
-    fn refresh_buffer_pointers(&mut self) {
-        match self {
-            Self::Uncompressed(r) => r.refresh_buffer_pointers(),
-            Self::Compressed(r) => r.refresh_buffer_pointers(),
-        }
-    }
 }
