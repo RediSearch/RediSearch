@@ -237,6 +237,11 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err);
 /* Register module configuration parameters using Module Configuration API */
 int RegisterModuleConfig(RedisModuleCtx *ctx);
 
+/* Marks whether RedisModule_LoadConfigs is currently running. Some numeric config setters
+ * consult this to fall back to their current value with a warning instead of returning
+ * REDISMODULE_ERR, which would abort module init. */
+void RSConfig_SetLoadingStartupConfig(bool loading);
+
 /**
  * Writes the retrieval of the configuration value to the network.
  * isHelp will use a more dict-like pattern, which should be a bit friendlier
