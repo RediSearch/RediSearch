@@ -192,6 +192,7 @@ QueryIterator *NewLazyVectorRangeIteratorFromParams(VecSimIndex *vecsim, const v
                                                     double radius, VecSimQueryParams qParams,
                                                     VecSimQueryReply_Order order, bool yields_metric,
                                                     QueryRequestTimeout *timeout) {
+  RS_ASSERT(timeout);
   VectorRangeProducerCtx *ctx = rm_malloc(sizeof(*ctx));
   *ctx = (VectorRangeProducerCtx){
       .vecsim = vecsim,

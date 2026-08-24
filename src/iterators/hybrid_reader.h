@@ -14,7 +14,7 @@
 #include "util/timeout.h"
 
 typedef struct {
-  RedisSearchCtx *sctx;
+  RedisSearchCtx *sctx;  // Must carry a non-NULL request timeout when an iterator is constructed.
   VecSimIndex *index;
   size_t dim;
   VecSimType elementType;

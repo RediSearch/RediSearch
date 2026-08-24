@@ -68,7 +68,8 @@ static inline void rs_timerremaining(struct timespec *a, struct timespec *b, str
 typedef struct VecSimTimeoutCtx {
   // Borrowed request state subject to the QueryRequestTimeout lifetime and
   // threading contract. It must outlive this adapter and every VecSim operation
-  // or iterator that retains the adapter.
+  // or iterator that retains the adapter. It is always non-NULL; standalone
+  // callers use an UNARMED timeout.
   QueryRequestTimeout *timeout;
 } VecSimTimeoutCtx;
 
@@ -84,8 +85,9 @@ static inline int TimedOut(const struct timespec *timeout) {
 // VecSim timeout callback adapter. The request timeout owns the active source and decides how it
 // is checked; its shared counter amortizes clock reads without delaying blocked-client checks.
 static inline int VecSim_TimedOut(VecSimTimeoutCtx *ctx) {
+  RS_ASSERT(ctx && ctx->timeout);
   if (RS_IsMock) return NOT_TIMED_OUT;
-  return ctx->timeout && QueryRequestTimeout_IsTimedOutWithCounter(ctx->timeout);
+  return QueryRequestTimeout_IsTimedOutWithCounter(ctx->timeout);
 }
 
 #ifdef __cplusplus

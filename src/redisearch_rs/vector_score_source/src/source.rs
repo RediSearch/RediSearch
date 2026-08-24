@@ -150,8 +150,8 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
     /// Create a new `VectorScoreSource`.
     ///
     /// `timeout` points to request-owned state that is consulted dynamically, so a cursor may
-    /// select a different timeout source between uses of the returned source. A null pointer
-    /// disables timeout checks for standalone users that do not have a query request.
+    /// select a different timeout source between uses of the returned source. Standalone users
+    /// that do not have a query request must supply an UNARMED timeout.
     ///
     /// # Safety
     ///
@@ -160,17 +160,17 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
     /// 2. `query_vector` must satisfy the [`QueryVector`] length invariant for
     ///    `index`, which VecSim reads in full on every query path (a shorter
     ///    blob is read out of bounds).
-    /// 3. If non-null, `timeout` must remain valid for the returned source's lifetime. Its active
-    ///    source may change only while no operation on the returned source is running. Operations
-    ///    on one source must remain serialized because clock checks mutate the request-owned
-    ///    counter; only the C atomic blocked-client marker may be changed concurrently.
+    /// 3. `timeout` must remain valid for the returned source's lifetime. Its active source may
+    ///    change only while no operation on the returned source is running. Operations on one
+    ///    source must remain serialized because clock checks mutate the request-owned counter;
+    ///    only the C atomic blocked-client marker may be changed concurrently.
     #[expect(clippy::too_many_arguments)]
     pub unsafe fn new(
         index: NonNull<VecSimIndex>,
         query_vector: Vec<u8>,
         query_params: VecSimQueryParams,
         k: usize,
-        timeout: *mut QueryRequestTimeout,
+        timeout: NonNull<QueryRequestTimeout>,
         child_num_estimated: usize,
         fixed_batch_size: usize,
         expiration: E,
@@ -195,7 +195,9 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
             query_vector,
             query_params,
             k,
-            timeout_ctx: Box::new(VecSimTimeoutCtx { timeout }),
+            timeout_ctx: Box::new(VecSimTimeoutCtx {
+                timeout: timeout.as_ptr(),
+            }),
             adhoc_state,
             should_rerank,
             batch_iter: None,
