@@ -1943,14 +1943,17 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   CleanPool_ThreadPoolDestroy();
   ReindexPool_ThreadPoolDestroy();
   ConcurrentSearch_ThreadPoolDestroy();
+
+  // Only after every pool whose cycles register in BlockedQueries has stopped
+  // (the workers pool above and the coordinator pool just now), and before
+  // MR_FreeCluster below: a cycle that completed during pool shutdown left its
+  // unblock queued and never drained (cleanup runs inside the SHUTDOWN event),
+  // so run those pending cycle ends while the MR runtimes a coordinator
+  // request's teardown may reach (MRIterator cursor-deletion scheduling) are
+  // still alive.
+  BlockedQueries_UnwindCycles();
   MR_FreeCluster();
 
-  // Only after every pool whose cycles register in BlockedQueries has stopped —
-  // the workers pool above and the coordinator pool just now. A cycle that
-  // completed during pool shutdown left its unblock queued and never drained
-  // (cleanup runs inside the SHUTDOWN event), so run those pending cycle ends
-  // before the registry asserts it is empty.
-  BlockedQueries_UnwindCycles();
   MainThread_DestroyBlockedQueries();
 
   // free global structures
