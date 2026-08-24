@@ -16,6 +16,7 @@
 #include "aggregate/aggregate_plan.h"
 #include "field.h"
 #include "field_spec.h"
+#include "numeric_score_source.h"
 #include "obfuscation/hidden.h"
 #include "query_error.h"
 #include "query_error_ffi.h"
@@ -242,6 +243,14 @@ static void updateRootIter(AREQ *req, QueryIterator *root, QueryIterator *new) {
   }
 }
 
+// The strategy the profile reports for `qOpt`. Only the two strategies that
+// reach the numeric top-k iterator are representable; every other optimizer type
+// builds a different plan and never gets here.
+static NumericOptimizerMode numericOptimizerMode(const QOptimizer *qOpt) {
+  return qOpt->type == Q_OPT_HYBRID ? NUMERIC_OPTIMIZER_MODE_HYBRID
+                                    : NUMERIC_OPTIMIZER_MODE_PARTIAL_RANGE;
+}
+
 // Build a Rust numeric top-k iterator for the sort field, a drop-in for the C
 // OptimizerIterator. Opens the field's numeric range tree and hands the residual
 // query (`root`) to the Rust reducer as the filter child. Returns NULL on an
@@ -273,7 +282,8 @@ static QueryIterator *newNumericTopKFromOptimizer(QOptimizer *qOpt, QueryIterato
   FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = field->index},
                                   .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   QueryIterator *it = NewNumericTopKIterator(tree, nf, qOpt->asc, qOpt->limit, spec->docs.size,
-                                             root, qOpt->sctx, &filterCtx);
+                                             numericOptimizerMode(qOpt), root, qOpt->sctx,
+                                             &filterCtx);
   // The Rust source copies the filter by value, so a synthesized one can be
   // released immediately.
   if (ownNf) NumericFilter_Free(nf);
