@@ -11,6 +11,8 @@
 //! numeric field, reading the field's value-ordered ranges directly from a
 //! [`NumericRangeTree`].
 
+use std::ffi::CStr;
+
 use index_result::RSIndexResult;
 use inverted_index::NumericFilter;
 
@@ -68,6 +70,35 @@ impl DocValidity for AllValid {
     #[inline(always)]
     fn may_filter(&self) -> bool {
         false
+    }
+}
+
+/// Which numeric-optimizer strategy the query plan runs, reported as the
+/// `Optimizer mode` entry of an `FT.PROFILE` reply.
+///
+/// The strategy is fixed by the plan before the source exists, so the source only
+/// reports it and never acts on it. Crosses the FFI boundary because no runtime
+/// state recovers it: a filtered range whose window never widens is
+/// [`PartialRange`](Self::PartialRange) despite having a child.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cheadergen::config(prefix_with_name, rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum NumericOptimizerMode {
+    /// One bounded slice of the value-ordered stream is expected to satisfy the
+    /// limit, so no window expansion is anticipated.
+    PartialRange,
+    /// The filter's selectivity is only estimated, so the window may have to
+    /// expand before the limit is met.
+    Hybrid,
+}
+
+impl NumericOptimizerMode {
+    /// The string this mode is reported under in a profile reply.
+    pub fn profile_name(self) -> &'static CStr {
+        match self {
+            Self::PartialRange => c"Query partial range",
+            Self::Hybrid => c"Hybrid",
+        }
     }
 }
 
@@ -172,9 +203,10 @@ struct NumericScan<'index> {
     heap_old_size: usize,
     /// Number of expand-and-retry iterations performed so far.
     num_iterations: usize,
-    /// Number of value-ordered range batches materialized so far, surfaced as
-    /// the `Batches number` profile metric. Reset on rewind.
+    /// Number of value-ordered range batches materialized so far. Reset on rewind.
     num_batches: usize,
+    /// Strategy reported as the profile's `Optimizer mode`.
+    optimizer_mode: NumericOptimizerMode,
 }
 
 impl<'index> NumericScoreSource<'index> {
@@ -260,6 +292,7 @@ impl<'index> NumericScoreSource<'index> {
                 heap_old_size: 0,
                 num_iterations: 0,
                 num_batches: 0,
+                optimizer_mode: NumericOptimizerMode::PartialRange,
             },
             validity: AllValid,
             expiration: NoOpChecker,
@@ -320,6 +353,12 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext>
         }
     }
 
+    /// Set the strategy the profile reports.
+    pub fn with_optimizer_mode(mut self, mode: NumericOptimizerMode) -> Self {
+        self.scan.optimizer_mode = mode;
+        self
+    }
+
     /// Sort direction the source reads in, for the heap comparator.
     pub fn ascending(&self) -> bool {
         self.scan.ranges.ascending()
@@ -347,8 +386,13 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext>
         scan.ranges.refind(scan.initial_window);
     }
 
-    /// Number of value-ordered range batches materialized so far, for the
-    /// `Batches number` profile metric.
+    /// Strategy reported as the profile's `Optimizer mode`.
+    pub fn optimizer_mode(&self) -> NumericOptimizerMode {
+        self.scan.optimizer_mode
+    }
+
+    /// Number of value-ordered range batches materialized in the current
+    /// collection.
     pub fn num_batches(&self) -> usize {
         self.scan.num_batches
     }
