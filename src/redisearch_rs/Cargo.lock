@@ -2723,8 +2723,11 @@ dependencies = [
  "ffi",
  "index_result",
  "inverted_index",
+ "redis_mock",
+ "redisearch_rs",
  "rlookup",
  "rqe_core",
+ "value",
  "workspace_hack",
 ]
 
