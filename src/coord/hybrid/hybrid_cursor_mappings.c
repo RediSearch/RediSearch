@@ -106,21 +106,15 @@ static void failReadsBeforeExpansion(HybridArmingCtx *ctx, const char *msg) {
 // array: ["SEARCH", <cid>, "VSIM", <cid>, "warnings", [...]] (the emission
 // order of replyWithCursors in hybrid_exec.c). The structure is asserted in
 // debug builds; production extracts the values by offset.
-static void processHybridMapping(HybridArmingCtx *ctx, MRReply *rep, uint16_t shardIdx,
-                                 bool forProfiling) {
-  if (forProfiling) {
-    // Upgrade tolerance: older shards that bail before opening their cursors
-    // used to wrap this reply in a profile envelope
-    // ({"Results": <mapping>, "Profile": ...}) when profiling; current shards
-    // reply bare either way (see common_hybrid_query_reply_empty). Descend
-    // into the envelope when present so a mixed-version cluster still parses.
-    // Borrowing lookup: the caller still owns (and frees) the whole reply.
-    MRReply *results = MRReply_MapElement(rep, "Results");
-    if (results) {
-      rep = results;
-    }
+static void processHybridMapping(HybridArmingCtx *ctx, MRReply *rep, uint16_t shardIdx) {
+  // Quietly read any unexpected layout as "shard published no cursors" —
+  // e.g. a profile-wrapped envelope from a shard build that still wrapped its
+  // early-bail reply. Both of that shard's streams end empty; nothing leaks
+  // (it published no cursor ids to begin with).
+  if (MRReply_Length(rep) != HYBRID_MAPPING_REPLY_LENGTH) {
+    armShardReads(ctx, shardIdx, 0, 0);
+    return;
   }
-  RS_ASSERT(MRReply_Length(rep) == HYBRID_MAPPING_REPLY_LENGTH);
   RS_ASSERT(MRReply_StringEquals(MRReply_ArrayElement(rep, 0), "SEARCH", true));
   RS_ASSERT(MRReply_StringEquals(MRReply_ArrayElement(rep, 2), "VSIM", true));
   RS_ASSERT(MRReply_StringEquals(MRReply_ArrayElement(rep, 4), "warnings", true));
@@ -147,7 +141,7 @@ void hybridArmingCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   if (isError) {
     failShardReads(cb_ctx, shardIdx, rep);
   } else if (replyType == MR_REPLY_MAP || replyType == MR_REPLY_ARRAY) {
-    processHybridMapping(cb_ctx, rep, shardIdx, MRIteratorCallback_GetCommand(ctx)->forProfiling);
+    processHybridMapping(cb_ctx, rep, shardIdx);
   } else {
     MRReply *error = MRReply_CreateError(CLUSTER_QUERY_ERROR, strlen(CLUSTER_QUERY_ERROR));
     failShardReads(cb_ctx, shardIdx, error);

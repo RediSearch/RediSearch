@@ -779,19 +779,22 @@ class TestCoordinatorTimeout:
             verify_return_result=verify_return,
         )
 
-    def _test_remaining_timeout_exhausted_before_shard_execution_profile_impl(self, internal_cmd_args):
+    def _test_remaining_timeout_exhausted_before_shard_execution_profile_impl(self, internal_cmd_args, hybrid=False):
         """
         Test that FT.PROFILE commands with pre-execution timeout produce consistent
         reply structures across SEARCH, AGGREGATE, and HYBRID.
 
         When profiling is active, timeout errors are suppressed (never returned as errors)
-        regardless of the ON_TIMEOUT policy. Instead, empty results with profile wrapping
-        should be returned.
+        regardless of the ON_TIMEOUT policy. SEARCH and AGGREGATE return empty results
+        with profile wrapping; HYBRID's internal reply is its bare cursor mapping — the
+        same shape as the non-bailing path, never profile-wrapped, since the coordinator's
+        mapping parser is its only consumer and mapping-stage profile data has none.
 
         Args:
             internal_cmd_args: Base args for the internal profile command
                 (e.g. ['_FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*']).
                 Must NOT include TIMEOUT, _SLOTS_INFO, or _COORD_DISPATCH_TIME.
+            hybrid: expect the bare cursor-mapping reply instead of profile wrapping.
         """
         env = self.env
         timeout_ms = '50'
@@ -813,11 +816,19 @@ class TestCoordinatorTimeout:
             try:
                 result = env.expect(*full_args).noError().res
 
-                # Verify profile wrapping: response should have 'Results' key
-                env.assertContains('Results', result,
-                    message=f"Expected 'Results' key in profile output with {on_timeout_policy} policy, got: {result}")
+                if hybrid:
+                    # Bare cursor mapping; a bailing shard publishes no cursors.
+                    env.assertEqual(result.get('SEARCH'), 0,
+                        message=f"Expected no SEARCH cursor with {on_timeout_policy} policy, got: {result}")
+                    env.assertEqual(result.get('VSIM'), 0,
+                        message=f"Expected no VSIM cursor with {on_timeout_policy} policy, got: {result}")
+                    profile_results = result
+                else:
+                    # Verify profile wrapping: response should have 'Results' key
+                    env.assertContains('Results', result,
+                        message=f"Expected 'Results' key in profile output with {on_timeout_policy} policy, got: {result}")
 
-                profile_results = result['Results']
+                    profile_results = result['Results']
 
                 # Verify timeout warning in results
                 warnings = profile_results.get('warning', profile_results.get('warnings', []))
@@ -846,6 +857,7 @@ class TestCoordinatorTimeout:
                 'VSIM', '@embedding', '$BLOB',
                 'PARAMS', '2', 'BLOB', self.hybrid_query_vec,
             ],
+            hybrid=True,
         )
 
 
