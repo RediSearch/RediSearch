@@ -1,91 +1,60 @@
 # Inverted-index backend abstraction
 
-**Status:** foundation landed on a master-based branch (`IndexBackend` trait + rename +
-storage-surface expansion). Snapshot backend re-layering is future work.
+**Status:** foundation branch. `InvertedIndex` remains the concrete storage type; this
+change extracts the shared storage surface into traits without selecting or renaming
+the implementation.
 
 ## Goal
 
-Let master's proven in-place inverted index and the copy-on-write / snapshot index
-(MOD-16139) **coexist in one build tree, selectable at compile time**, so the snapshot
-feature can ship opt-in (`--features snapshot-reads`) and be validated against master before
-becoming the default — with master as a zero-overhead fallback until then.
+Make code that only needs inverted-index storage capabilities independent of the
+particular storage wrapper it receives. Today the module has three storage shapes:
 
-## Why not two forked implementations
+| Storage type | Extra behavior |
+|--------------|----------------|
+| `InvertedIndex` | Owns blocks, encoding, readers, GC, and introspection |
+| `EntriesTrackingIndex` | Tracks total entries in addition to unique docs |
+| `FieldMaskTrackingIndex` | Tracks the union of field masks |
 
-The naive approach — keep two full implementations behind `#[cfg]` — is a maintenance sink:
-the two diverge across ~2,000 lines (struct, `add_record`, `memory_usage`, the entire GC, the
-entire reader), and every future change to indexing/read/GC would have to be done twice.
+They expose the same core operations: writes, reader construction, GC scan/apply,
+and introspection. `IndexBackend` names that contract so generic code and tests can
+exercise those paths once instead of depending on a specific wrapper.
 
-## The elegant solution: two traits the codebase already has
-
-The two implementations already share an **identical public contract** — the snapshot feature
-was built to preserve it (`add_record`, `scan_gc`, `apply_gc`, and the `GcScanDelta` /
-`GcApplyInfo` types are byte-identical on both). So the abstraction is a straightforward
-trait extraction, not a reconciliation:
+## Shape
 
 | Concern | Trait | Notes |
 |---------|-------|-------|
-| storage: write / reader construction / GC / introspection | **`IndexBackend`** | new; both backends and storage wrappers implement it |
-| iteration **+ revalidation** | **`IndexReader`** | **already exists**; both backends already implement it |
+| storage: write / reader construction / GC / introspection | `IndexBackend` | implemented by `InvertedIndex` and the storage wrappers |
+| prepared numeric writes | `NumericIndexBackend` | extension trait for numeric range indexes that already prepare values before writing |
+| iteration and revalidation | `IndexReader` | already exists; remains reader-specific |
 
-The concrete storage variants (`InvertedIndex`, `EntriesTrackingIndex`, and
-`FieldMaskTrackingIndex`) implement `IndexBackend`, so callers that only need
-the storage surface can depend on the trait for every encoding. Field-mask and
-numeric filtering stay as reader adapters because they are query-time concerns,
-not backend storage behavior.
+Field-mask and numeric filtering remain reader adapters because they are query-time
+concerns, not storage behavior.
 
-### The key insight: revalidation belongs to the *reader*, and already does
+## Reader Revalidation
 
-The one place the backends genuinely differ is **staleness detection after concurrent GC**:
+Revalidation belongs to readers. `IndexReader::needs_revalidation` already gives the
+FFI and query engine the right question to ask without exposing the underlying marker.
+The index-level `InvertedIndex_GcMarker` and `InvertedIndex_GcMarkerInc` FFI exports
+had no callers, so removing them keeps the public Rust-to-C surface focused on the
+reader-level operation that is actually used.
 
-- **in-place:** the reader compares a captured `gc_marker` (counter) to the index's current one.
-- **snapshot:** the reader compares `Arc::ptr_eq` on the `sealed` region (pointer identity).
+`HasInnerIndex` remains a narrow identity hook for the current term readers to compare
+themselves with an opaque wrapper. It is intentionally separate from `IndexBackend`
+because most storage operations do not need that identity coupling.
 
-But this difference is **already hidden** behind a single reader-trait method that both
-backends implement:
+## Non-goals
 
-```rust
-IndexReader::needs_revalidation(&self) -> bool
-```
+- Do not rename `InvertedIndex`.
+- Do not add a compile-time storage selector.
+- Do not introduce a snapshot-read feature in this PR.
+- Do not add runtime dispatch on read paths; the traits use static dispatch.
 
-The FFI already exposes this uniformly (`IndexReader_Revalidate`); the C side never sees the
-mechanism. There is **nothing new to abstract** — the codebase already put revalidation on the
-reader, where it belongs, and each backend keeps its own (optimal) mechanism. The snapshot
-backend's pointer-identity approach is strictly better than a counter (it ignores appends and
-only revalidates on actual compaction), so we must *not* unify these into a shared token — the
-`bool` question is the right level of abstraction.
+## Result
 
-### The index-level `gc_marker` FFI is vestigial
+The PR lands a small contract that is useful on master as-is:
 
-`InvertedIndex_GcMarker` / `GcMarkerInc` have **no callers** (C or tests). The marker is bumped
-in Rust (`apply_gc`) and captured/compared inside the reader; the exported functions are dead.
-They can be dropped on master exactly as #10348 dropped them on the feature — after which the
-FFI has **no backend-specific surface** at all.
-
-## Resulting shape
-
-- `IndexBackend` + `IndexReader` are the whole contract. The FFI and query engine depend only
-  on them plus the (orthogonal) encoding enum.
-- `HasInnerIndex` remains a narrow identity hook for the current in-place term
-  readers to compare themselves with an opaque wrapper. Folding that into
-  `IndexBackend` would leak an in-place pointer requirement into future backends;
-  snapshot readers should keep their own identity mechanism.
-- Backend selection is a compile-time type alias:
-  ```rust
-  #[cfg(feature = "snapshot-reads")] pub type InvertedIndex<E> = SnapshotInvertedIndex<E>;
-  #[cfg(not(feature = "snapshot-reads"))] pub type InvertedIndex<E> = InPlaceInvertedIndex<E>;
-  ```
-  Monomorphized — **zero runtime dispatch** on the read hot path.
-- `gc_marker` stays an in-place-internal detail (its reader uses it); it is not part of any
-  trait, so the snapshot backend simply doesn't have it.
-
-## Steps
-
-1. **Done:** `IndexBackend` trait + impls for the in-place index and storage
-   wrappers; rename `InvertedIndex` struct → `InPlaceInvertedIndex` with an
-   `InvertedIndex` alias (FFI/C ABI unchanged); expand the trait to the full
-   storage surface (`blocks_summary`, `last_doc_id`).
-2. **Small, master-only:** drop the vestigial `gc_marker` FFI exports.
-3. **On re-layering:** the snapshot index implements `IndexBackend` (its reader already
-   implements `IndexReader`); add the `snapshot-reads` feature + the selecting alias; route the
-   FFI's introspection/GC calls through the trait so both backends flow through unchanged.
+1. `IndexBackend` covers the storage operations shared by `InvertedIndex`,
+   `EntriesTrackingIndex`, and `FieldMaskTrackingIndex`.
+2. `NumericIndexBackend` covers prepared numeric writes used by numeric range indexes.
+3. Generic tests exercise write, read, GC, and wrapper bookkeeping through the trait.
+4. Dead `gc_marker` FFI exports are removed; revalidation remains on `IndexReader`.

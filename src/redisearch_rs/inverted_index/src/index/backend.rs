@@ -11,29 +11,27 @@
 //!
 //! An [`IndexBackend`] captures everything the rest of the module needs from an inverted
 //! index — writes, reads, GC, and introspection — independent of *how* the blocks are
-//! stored or read. Today the concrete backend is the in-place index
-//! ([`InvertedIndex`], aliased [`InPlaceInvertedIndex`]): a single mutable block
-//! vector, in-place GC repair, and lock-held reads. A future copy-on-write /
-//! snapshot backend can implement the same trait, letting callers (and the FFI)
-//! be written once against the contract and select the concrete backend at
-//! compile time — no runtime dispatch on the hot path.
+//! reached. That lets wrappers such as
+//! [`EntriesTrackingIndex`](crate::EntriesTrackingIndex) and
+//! [`FieldMaskTrackingIndex`](crate::FieldMaskTrackingIndex) forward the same
+//! storage surface while preserving their own accounting.
 
 use ffi::IndexFlags;
 use index_result::RSIndexResult;
 use rqe_core::DocId;
 
 use crate::{
-    AddRecordOutcome, DecodedBy, Encoder, GcApplyInfo, GcScanDelta, InPlaceInvertedIndex,
-    IndexReader, IndexReaderCore, RepairContext,
+    AddRecordOutcome, DecodedBy, Encoder, GcApplyInfo, GcScanDelta, IndexReader, IndexReaderCore,
+    InvertedIndex, RepairContext,
     debug::{BlockSummary, Summary},
+    numeric::{NumericEncoder, PreparedValue},
 };
 
-/// Operations every inverted-index backend provides. Implementers differ in block storage,
-/// read strategy, and GC mechanism, but present this one contract so the FFI layer and query
-/// engine are backend-agnostic.
+/// Operations every inverted-index storage type provides. Implementers can be the core
+/// index or wrappers that add bookkeeping while delegating the actual storage.
 ///
-/// Not object-safe (generic GC-closure params + a GAT reader) — that is intentional: the
-/// active backend is chosen at compile time, so calls monomorphize with zero vtable cost.
+/// Not object-safe (generic GC-closure params + a GAT reader) — that is intentional:
+/// generic callers are statically dispatched, so there is no vtable cost.
 pub trait IndexBackend {
     /// The reader this backend hands out. Must implement [`IndexReader`].
     type Reader<'index>: IndexReader<'index>
@@ -80,7 +78,18 @@ pub trait IndexBackend {
     fn apply_gc(&mut self, delta: GcScanDelta) -> GcApplyInfo;
 }
 
-impl<E: Encoder + DecodedBy> IndexBackend for InPlaceInvertedIndex<E> {
+/// Prepared numeric writes required by numeric range indexes.
+pub trait NumericIndexBackend: IndexBackend {
+    /// Add an entry whose numeric representation the caller already prepared.
+    fn add_prepared_record(
+        &mut self,
+        doc_id: DocId,
+        prepared: PreparedValue,
+        has_field_expiration: bool,
+    ) -> std::io::Result<AddRecordOutcome>;
+}
+
+impl<E: Encoder + DecodedBy> IndexBackend for InvertedIndex<E> {
     type Reader<'index>
         = IndexReaderCore<'index, E>
     where
@@ -132,5 +141,16 @@ impl<E: Encoder + DecodedBy> IndexBackend for InPlaceInvertedIndex<E> {
 
     fn apply_gc(&mut self, delta: GcScanDelta) -> GcApplyInfo {
         self.apply_gc(delta)
+    }
+}
+
+impl<E: NumericEncoder + DecodedBy> NumericIndexBackend for InvertedIndex<E> {
+    fn add_prepared_record(
+        &mut self,
+        doc_id: DocId,
+        prepared: PreparedValue,
+        has_field_expiration: bool,
+    ) -> std::io::Result<AddRecordOutcome> {
+        self.add_prepared_record(doc_id, prepared, has_field_expiration)
     }
 }

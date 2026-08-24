@@ -11,7 +11,6 @@ use crate::{
     AddRecordOutcome, DecodedBy, Encoder, FilterMaskReader, GcApplyInfo, GcScanDelta, IndexBackend,
     IndexBlock, InvertedIndex,
     debug::{BlockSummary, Summary},
-    reader::IndexReaderCore,
 };
 use ffi::{IndexFlags, IndexFlags_Index_StoreFieldFlags};
 use index_result::RSIndexResult;
@@ -122,8 +121,11 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
 
 impl<E: Encoder + DecodedBy> FieldMaskTrackingIndex<E> {
     /// Create a new [`crate::reader::IndexReader`] for this inverted index.
-    pub fn reader(&self, mask: FieldMask) -> FilterMaskReader<IndexReaderCore<'_, E>> {
-        FilterMaskReader::new(mask, self.index.reader())
+    pub fn reader(
+        &self,
+        mask: FieldMask,
+    ) -> FilterMaskReader<<InvertedIndex<E> as IndexBackend>::Reader<'_>> {
+        FilterMaskReader::new(mask, IndexBackend::reader(&self.index))
     }
 
     /// Scan the index for blocks that can be garbage collected. A block can be garbage collected
@@ -139,19 +141,19 @@ impl<E: Encoder + DecodedBy> FieldMaskTrackingIndex<E> {
         doc_exist: impl Fn(DocId) -> bool,
         repair: Option<impl for<'call> FnMut(&RSIndexResult<'call>, &crate::RepairContext<'call>)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
-        self.index.scan_gc(doc_exist, repair)
+        IndexBackend::scan_gc(&self.index, doc_exist, repair)
     }
 
     /// Apply the deltas of a garbage collection scan to the index. This will modify the index
     /// by deleting or repairing blocks as needed.
     pub fn apply_gc(&mut self, delta: GcScanDelta) -> GcApplyInfo {
-        self.index.apply_gc(delta)
+        IndexBackend::apply_gc(&mut self.index, delta)
     }
 }
 
 impl<E: DecodedBy> IndexBackend for FieldMaskTrackingIndex<E> {
     type Reader<'index>
-        = IndexReaderCore<'index, E>
+        = <InvertedIndex<E> as IndexBackend>::Reader<'index>
     where
         Self: 'index;
 
@@ -188,7 +190,7 @@ impl<E: DecodedBy> IndexBackend for FieldMaskTrackingIndex<E> {
     }
 
     fn reader(&self) -> Self::Reader<'_> {
-        self.index.reader()
+        IndexBackend::reader(&self.index)
     }
 
     fn scan_gc(
