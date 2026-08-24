@@ -894,29 +894,36 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
         }
     }
 
-    MRIterator *searchIt = MR_CreateIterator(&readTemplate, &(MRIteratorConfig){
-                                                                .successCB = netCursorCallback,
-                                                            });
-    MRIterator *vsimIt =
-        MR_CreateIterator(&readTemplate, &(MRIteratorConfig){
-                                             .successCB = netCursorCallback,
-                                             .ioRuntime = MRIterator_GetIORuntime(searchIt),
-                                         });
+    MRIterator *searchIt = MR_CreateIterator(
+      &readTemplate,
+      &(MRIteratorConfig){
+        .successCB = netCursorCallback,
+      },
+    );
+    MRIterator *vsimIt = MR_CreateIterator(
+      &readTemplate,
+      &(MRIteratorConfig){
+        .successCB = netCursorCallback,
+        .ioRuntime = MRIterator_GetIORuntime(searchIt),
+      },
+    );
 
     HybridArmingCtx *armingCtx = rm_calloc(1, sizeof(*armingCtx));
     armingCtx->searchIt = searchIt;
     armingCtx->vsimIt = vsimIt;
     armingCtx->knnCtx = knnCtx;
 
-    MRIterator *hybridIt =
-        MR_CreateIterator(xcmd, &(MRIteratorConfig){
-                                    .successCB = hybridArmingCallback,
-                                    .errorCB = hybridArmingErrorCallback,
-                                    .cbPrivateData = armingCtx,
-                                    .cbPrivateDataDestructor = HybridArmingCtx_Free,
-                                    .commandModifier = knnCtx ? HybridKnnCommandModifier : NULL,
-                                    .ioRuntime = MRIterator_GetIORuntime(searchIt),
-                                });
+    MRIterator *hybridIt = MR_CreateIterator(
+      xcmd,
+      &(MRIteratorConfig){
+        .successCB = hybridArmingCallback,
+        .errorCB = hybridArmingErrorCallback,
+        .cbPrivateData = armingCtx,
+        .cbPrivateDataDestructor = HybridArmingCtx_Free,
+        .commandModifier = knnCtx ? HybridKnnCommandModifier : NULL,
+        .ioRuntime = MRIterator_GetIORuntime(searchIt),
+      },
+    );
 
     // Hand the read iterators (and read-shaped commands) to their RPNets
     // before anything is scheduled, so no reply can beat the wiring. The
