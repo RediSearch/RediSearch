@@ -18,10 +18,9 @@
 //! [`expansion_deadline`](tag_index)'s own opt-out/elapsed-deadline behavior is
 //! a `pub(crate)` internal, covered by the crate's own unit tests instead.
 
-use ffi::timespec;
 use tag_index::{InMemoryMode, SuffixQuery, SuffixWildcardPattern, Tag, TagIndex};
 
-use crate::util::commit_mem;
+use crate::util::{commit_mem, elapsed_deadline};
 
 const NO_CAP: u64 = u64::MAX;
 /// Comfortably larger than the trie iterators' clock-probe granularity (100
@@ -37,16 +36,6 @@ const CORPUS: usize = 300;
 /// needs more than one term.
 #[cfg(miri)]
 const CORPUS: usize = 8;
-
-/// A deadline that has already elapsed. Any `CLOCK_MONOTONIC_RAW` value one
-/// second after boot is in the past on a running system, so
-/// `duration_from_redis_timespec` maps it to a zero remaining budget.
-fn expired() -> timespec {
-    timespec {
-        tv_sec: 1,
-        tv_nsec: 0,
-    }
-}
 
 /// Build a `WITHSUFFIXTRIE` index over `CORPUS` distinct terms that all
 /// share the literal prefix `he`. `he*` (wildcard) visits one full-term
@@ -88,7 +77,7 @@ fn wildcard_times_out_with_partial_results() {
     // non-empty subset.
     let pattern = SuffixWildcardPattern::new(b"he*").expect("valid token");
     let got = idx
-        .suffix_expand(wildcard(&pattern), Some(expired()))
+        .suffix_expand(wildcard(&pattern), Some(elapsed_deadline()))
         .count();
     assert!(got > 0, "the first granularity-1 entries are collected");
     assert!(got < total, "timeout must stop before the full expansion");
@@ -112,7 +101,7 @@ fn contains_times_out_with_partial_results() {
     let got = idx
         .suffix_expand(
             SuffixQuery::Contains(Tag::new(b"e").unwrap()),
-            Some(expired()),
+            Some(elapsed_deadline()),
         )
         .count();
     assert!(got > 0, "the first granularity-1 entries are collected");

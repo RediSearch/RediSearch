@@ -18,9 +18,9 @@ use std::ptr::NonNull;
 
 use rqe_iterators::{RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome};
 use rqe_iterators_test_utils::MockContext;
-use tag_index::{InMemoryMode, Tag, TagIndex, TrieLookup};
+use tag_index::{InMemoryMode, TagIndex, TrieLookup};
 
-use crate::util::index_mem;
+use crate::util::{as_tag, index_mem};
 
 /// Field index the reader filters on. These tests index a single field, so any
 /// value works as long as it matches what `index_mem` writes.
@@ -44,11 +44,6 @@ fn allocate(index: TagIndex<InMemoryMode>) -> (*mut TagIndex<InMemoryMode>, Trie
     // iterators, so nothing reads the lookup afterwards.
     let lookup = unsafe { TrieLookup::new(ptr) };
     (index, lookup)
-}
-
-/// Wrap a NUL-free test literal into a [`Tag`].
-fn as_tag(bytes: &[u8]) -> Tag<'_> {
-    Tag::new(bytes).expect("test literal is NUL-free")
 }
 
 /// Read every document id the iterator yields, in order, until it is exhausted.

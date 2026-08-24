@@ -14,10 +14,9 @@
 //! The traversal logic itself is tested in `trie_rs`; these tests verify that
 //! each mode drives the right traversal over the index's values trie.
 
-use ffi::timespec;
 use tag_index::{InMemoryMode, IterMode, SuffixQuery, Tag, TagIndex};
 
-use crate::util::{commit_mem, index_mem, value_iter_keys};
+use crate::util::{as_tag, commit_mem, elapsed_deadline, index_mem, value_iter_keys};
 
 /// Drain the index's suffix-trie iterator into its yielded keys, in iteration order.
 fn suffix_keys(idx: &TagIndex<InMemoryMode>) -> Vec<Vec<u8>> {
@@ -31,25 +30,11 @@ fn suffix_keys(idx: &TagIndex<InMemoryMode>) -> Vec<Vec<u8>> {
     keys
 }
 
-/// Wrap a NUL-free test literal into a [`Tag`].
-fn as_tag(bytes: &[u8]) -> Tag<'_> {
-    Tag::new(bytes).expect("test literal is NUL-free")
-}
-
 /// Build an in-memory index holding `tags`, each with one document.
 fn index_with_tags(tags: &[&[u8]]) -> TagIndex<InMemoryMode> {
     let mut tag_index = TagIndex::<InMemoryMode>::new(false);
     index_mem(&mut tag_index, tags, 1);
     tag_index
-}
-
-/// A deadline that has already passed. Any `CLOCK_MONOTONIC_RAW` value one second
-/// after boot is in the past on a running system.
-const fn elapsed_deadline() -> timespec {
-    timespec {
-        tv_sec: 1,
-        tv_nsec: 0,
-    }
 }
 
 /// The `Prefix` mode yields only the tags starting with the prefix, and each
