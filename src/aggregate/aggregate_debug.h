@@ -267,6 +267,8 @@ typedef struct {
 
 // Will hold AREQ by value, so we can use AREQ_Debug->r in all functions
 // expecting AREQ, including AREQ_Free
+// Allocate the final object before initializing the embedded pthread synchronization state.
+AREQ_Debug *AREQ_New_AREQ_Debug(RedisModuleString **argv, uint32_t argc);
 AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *status);
 // Release the debug argv copies owned by the request (see AREQ_Debug_New).
 void AREQ_Debug_FreeParams(AREQ_Debug *debug_req);

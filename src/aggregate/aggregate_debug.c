@@ -38,8 +38,7 @@ AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *statu
     return NULL;
   }
 
-  AREQ_Debug *debug_req = rm_realloc(AREQ_New(argv, argc), sizeof(*debug_req));
-  QueryRequest_SetEndProcRef(&debug_req->r.base, &debug_req->r.pipeline.qctx.endProc);
+  AREQ_Debug *debug_req = AREQ_New_AREQ_Debug(argv, argc);
 
   // Own a copy of the debug argv tail. The request may execute on a worker
   // thread (WORKERS > 0, always the case on flex), where parseAndCompileDebug
@@ -56,7 +55,7 @@ AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *statu
 
   AREQ *r = &debug_req->r;
   // Holds the full argv; `parseArgc` excludes the debug tail so parsing stops
-  // before it. Must be called after rm_realloc so r points to stable memory.
+  // before it.
   r->base.args.parseArgc = (uint32_t)(argc - debug_argv_count);
   AREQ_AddRequestFlags(r, QEXEC_F_DEBUG);
 
@@ -166,6 +165,13 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
     unsigned long long results_count = -1;
     if (AC_GetUnsignedLongLong(&timeoutArgs, &results_count, AC_F_GE0) != AC_OK) {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid TIMEOUT_AFTER_N count");
+      return REDISMODULE_ERR;
+    }
+    if ((debug_req->r.reqflags & QEXEC_F_IS_AGGREGATE) &&
+        debug_req->r.reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+      QueryError_SetError(
+          status, QUERY_ERROR_CODE_PARSE_ARGS,
+          "TIMEOUT_AFTER_N is not supported with ON_TIMEOUT RETURN-STRICT");
       return REDISMODULE_ERR;
     }
     if (!isClusterCoord(debug_req)) {

@@ -982,6 +982,26 @@ class TestQueryDebugCommands(object):
         self.AggregateDebug()
         self.env.expect(config_cmd(), 'SET', 'WORKERS', 0).ok()
 
+    def testAggregateTimeoutDebugRejectsReturnStrict(self):
+        """Only timeout-related aggregate debug hooks reject RETURN-STRICT."""
+        env = self.env
+        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN-STRICT').ok()
+        try:
+            env.expect(
+                debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
+                'TIMEOUT_AFTER_N', 1, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3,
+            ).error().contains(
+                'TIMEOUT_AFTER_N is not supported with ON_TIMEOUT RETURN-STRICT'
+            )
+            env.expect(
+                debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
+                'CRASH', 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 2,
+            ).error().contains(
+                'INTERNAL_ONLY is not supported with CRASH'
+            )
+        finally:
+            env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
+
     # compare results of regular query and debug query
     def Sanity(self, cmd, query_params):
         # avoid running this test in cluster mode, as it relies on the order of the shards reply.
