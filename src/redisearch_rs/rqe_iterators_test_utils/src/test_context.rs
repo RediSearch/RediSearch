@@ -238,10 +238,11 @@ impl TestContext {
                 assert!(!opts.is_null(), "allocation failed");
 
                 let status = Box::into_raw(Box::new(QueryError::default()));
-                // A valid pointer to a (null) `MetricRequest` list head: the
-                // evaluated nodes never append metric requests.
+                // A valid pointer to an empty (null) `MetricRequest` list head.
+                // Evaluating a node that yields a metric grows the list in
+                // place; `QctxAlloc`'s teardown reclaims whatever it left.
                 let metric_requests_p =
-                    Box::into_raw(Box::new(ptr::null_mut::<std::ffi::c_void>()));
+                    Box::into_raw(Box::new(ptr::null_mut::<rlookup::MetricRequest<'static>>()));
                 let config = Box::into_raw(Box::new(IteratorsConfig::default()));
 
                 // `sctx` and `spec.docs` are real and outlive the
@@ -272,8 +273,8 @@ impl TestContext {
     /// and return the document ID assigned to it.
     ///
     /// This populates the same `DocTable` that [`qctx`](TestContext::qctx) exposes
-    /// via `docTable`, so that key-to-id resolution (e.g. `DocTable_GetId`) can be
-    /// exercised in tests.
+    /// via `docTable` (a docId -> DMD store), assigning a fresh incremental docId.
+    /// Key -> docId resolution lives in Redis key metadata, not in the DocTable.
     pub fn add_document(&self, key: &str) -> DocId {
         // SAFETY: `self.spec` is a valid, exclusively-owned `IndexSpec`, so
         // `&spec.docs` is a valid `DocTable`. The key bytes outlive the call,
@@ -1188,7 +1189,7 @@ struct QctxAlloc {
     qctx: *mut ffi::QueryEvalCtx,
     opts: *mut ffi::RSSearchOptions,
     status: *mut QueryError,
-    metric_requests_p: *mut *mut std::ffi::c_void,
+    metric_requests_p: *mut *mut rlookup::MetricRequest<'static>,
     config: *mut IteratorsConfig,
 }
 
@@ -1200,6 +1201,21 @@ impl Drop for QctxAlloc {
         // are owned by the `TestContext`.
         unsafe {
             drop(Box::from_raw(self.config));
+            // The list itself belongs to whatever was evaluated through this
+            // context, not to the allocation above: a node that yields a metric
+            // appends an entry, and an iterator that was actually built leaves
+            // an owned key handle on it. Both are reclaimed here, as the query
+            // AST's teardown does in production.
+            let head = *self.metric_requests_p;
+            if !head.is_null() {
+                for i in 0..ffi::array_len_func(head.cast()) as usize {
+                    let handle = (*head.add(i)).key_handle;
+                    if !handle.is_null() {
+                        redis_mock::allocator::free_shim(handle.cast());
+                    }
+                }
+                ffi::array_free(head.cast());
+            }
             drop(Box::from_raw(self.metric_requests_p));
             drop(Box::from_raw(self.status));
             dealloc(self.opts.cast(), Layout::new::<ffi::RSSearchOptions>());

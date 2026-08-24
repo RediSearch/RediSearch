@@ -62,6 +62,7 @@
 #include "rules.h"
 #include "search_ctx.h"
 #include "util/references.h"
+#include "util/timeout.h"
 #include "vector_index.h"
 
 struct ConcurrentCmdCtx;
@@ -897,10 +898,10 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
 
     // Propagate max-prefix-expansion warning to the specific subquery that triggered it.
     if (maxPrefixSearch) {
-        QueryError_SetReachedMaxPrefixExpansionsWarning(&hreq->errors[SEARCH_INDEX]);
+        QueryError_SetReachedMaxPrefixExpansionsWarning(&hreq->requests[SEARCH_INDEX]->base.reply.err);
     }
     if (maxPrefixVsim) {
-        QueryError_SetReachedMaxPrefixExpansionsWarning(&hreq->errors[VECTOR_INDEX]);
+        QueryError_SetReachedMaxPrefixExpansionsWarning(&hreq->requests[VECTOR_INDEX]->base.reply.err);
     }
 
     RS_ASSERT(array_len(search->mappings) == array_len(vsim->mappings));
@@ -931,13 +932,9 @@ typedef struct {
 } HybridDispatchCtx;
 
 static void HybridDispatchCtx_Free(HybridDispatchCtx *dispatch) {
-    HybridRequest *hreq = dispatch->hreq;
     StrongRef indexSpecRef = dispatch->indexSpecRef;
     RedisModuleBlockedClient *bc = dispatch->bc;
 
-    if (hreq) {
-        HybridRequest_DecrRef(hreq);
-    }
     rm_free(dispatch);
     // The dispatcher thread already called CurrentThread_ClearIndexSpec() after
     // transferring strong_ref ownership here, so only release the strong ref.
@@ -960,14 +957,25 @@ static ResultProcessor *findSafeDepleter(const HybridRequest *hreq, size_t i) {
     return rp;
 }
 
-// Schedule each subquery's RPSafeDepleter to the coordinator thread pool.
+// Schedule each subquery's RPSafeDepleter to the coordinator thread pool, or
+// mark them all timed out when the query's clock has already expired — the
+// launcher owns that decision, and a marked depleter yields TIMEDOUT without
+// a job to wait on.
 //
 // NOTE: FIFO ordering on the pool must guarantees depleters get a worker before
 // the tail hybrid merger job that cv-waits on their completion or this will
 // deadlock (see submitHybridTail).
 static void scheduleDepleters(HybridRequest *hreq) {
+    const RedisSearchCtx *sctx = HREQ_SearchCtx(hreq);
+    const bool timedOut =
+        !sctx->time.skipTimeoutChecks && TimedOut(&sctx->time.timeout) == TIMED_OUT;
     for (size_t i = 0; i < hreq->nrequests; i++) {
-        RPSafeDepleter_StartDepletion(findSafeDepleter(hreq, i));
+        ResultProcessor *depleter = findSafeDepleter(hreq, i);
+        if (timedOut) {
+            RPSafeDepleter_MarkTimedOut(depleter);
+        } else {
+            RPSafeDepleter_StartDepletion(depleter);
+        }
     }
 }
 
@@ -1088,9 +1096,6 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
     if (sp) {
       IndexSpecRef_Release(*strong_ref);
     }
-    // Release the execution flow's reference (taken at shell allocation on the
-    // main thread); the cycle's reference is released by QueryRequest_OnFree.
-    HybridRequest_DecrRef(hreq);
 }
 
 
@@ -1108,9 +1113,8 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
     if (HybridRequest_TimedOut(hreq)) {
       // Query timed out while this job was queued; the timeout callback
-      // already replied. Release the execution flow's reference.
+      // already replied.
       WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-      HybridRequest_DecrRef(hreq);
       return;
     }
     // Picked up by a coord thread: attribute a timeout from here on to PIPELINE.
@@ -1177,7 +1181,6 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     if (HybridRequest_TimedOut(hreq)) {
       // Timed out while queued; the timeout callback already replied.
       WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-      HybridRequest_DecrRef(hreq);
       return;
     }
     // Picked up by a coord thread: attribute a timeout from here on to PIPELINE.
@@ -1364,6 +1367,5 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   serializeStoredResults_hybrid(hreq, reply);
   RedisModule_EndReply(reply);
 
-  // QueryRequest_OnFree releases the cycle's request reference.
   return REDISMODULE_OK;
 }

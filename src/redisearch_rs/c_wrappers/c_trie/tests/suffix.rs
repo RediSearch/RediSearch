@@ -23,8 +23,14 @@ use std::{
     ops::ControlFlow,
 };
 
-use c_trie::{LoweredPattern, SuffixMode, SuffixTrie, SuffixWalk};
+use c_trie::{LoweredPattern, SuffixMode, SuffixTrie, SuffixWalk, TrieTerm};
 use ffi::{SuffixType, SuffixType_SUFFIX_TYPE_CONTAINS, SuffixType_SUFFIX_TYPE_SUFFIX};
+
+fn trie_term(term: &str) -> TrieTerm {
+    // SAFETY: every test input is the complete byte representation of a
+    // non-empty key accepted by the primary terms trie.
+    unsafe { TrieTerm::from_bytes_unchecked(Box::from(term.as_bytes())) }
+}
 
 /// Convert an ASCII/UTF-8 string to the trie's rune (`u16`) key.
 fn to_runes(s: &str) -> Vec<ffi::rune> {
@@ -51,9 +57,10 @@ fn pattern(s: &str) -> LoweredPattern {
     LoweredPattern::new(&to_runes(s)).expect("pattern is short enough to convert")
 }
 
-/// Build a *suffix* trie holding `terms` (and all their suffixes), run `f`, then
-/// free it. `terms` must be non-empty strings — `addSuffixTrie` asserts on empty.
-fn with_suffix_trie(terms: &[&str], f: impl FnOnce(&SuffixTrie)) {
+/// Build a *suffix* trie holding `terms` (and all their suffixes), run `f`
+/// against an exclusive handle, then free it. `terms` must be non-empty strings
+/// — `addSuffixTrie` asserts on empty.
+fn with_suffix_trie(terms: &[&str], f: impl FnOnce(&mut SuffixTrie)) {
     // SAFETY: `NewTrie` returns a fresh, valid trie; `suffixTrie_freeCallback` is
     // the matching free callback for the payloads `addSuffixTrie` inserts.
     let trie_ptr = unsafe {
@@ -71,10 +78,21 @@ fn with_suffix_trie(terms: &[&str], f: impl FnOnce(&SuffixTrie)) {
     }
     // SAFETY: `trie_ptr` is a valid trie that stays alive for the whole closure
     // and is not freed until after it returns. No other handle to it exists.
-    let trie = unsafe { SuffixTrie::from_raw(trie_ptr) };
+    let trie = unsafe { SuffixTrie::from_raw_mut(trie_ptr) };
     f(trie);
     // SAFETY: freed exactly once after the last use of `trie`.
     unsafe { ffi::TrieType_Free(trie_ptr.cast::<c_void>()) };
+}
+
+/// Every term a suffix trie reports for `pattern` under `mode`.
+fn suffix_matches(trie: &SuffixTrie, pattern: &str, mode: SuffixMode) -> HashSet<String> {
+    let runes = to_runes(pattern);
+    let mut found = HashSet::new();
+    trie.iterate_contains(&runes, mode, |term| {
+        found.insert(String::from_utf8_lossy(term).into_owned());
+        ControlFlow::Continue(())
+    });
+    found
 }
 
 /// Corpus used across the anchoring tests. Every term contains `"ap"`; only
@@ -315,6 +333,54 @@ fn suffix_iterate_wildcard_break_is_ignored_for_an_anchor_without_a_trailing_sta
         assert_eq!(
             count, 2,
             "one callback per matching suffix key, despite Break"
+        );
+    });
+}
+
+// --- `delete` ---------------------------------------------------------------
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "calling the C trie's foreign functions is not supported by Miri"
+)]
+fn suffix_delete_removes_the_term_from_every_suffix_it_registered() {
+    with_suffix_trie(&["apple", "maple"], |trie| {
+        assert_eq!(
+            suffix_matches(trie, "ple", SuffixMode::Suffix),
+            set(&["apple", "maple"]),
+            "both terms end in `ple` to start with"
+        );
+
+        trie.delete(&trie_term("apple"));
+
+        assert_eq!(
+            suffix_matches(trie, "ple", SuffixMode::Suffix),
+            set(&["maple"]),
+            "only the deleted term is gone"
+        );
+        assert_eq!(
+            suffix_matches(trie, "pp", SuffixMode::Contains),
+            HashSet::new(),
+            "a suffix unique to the deleted term matches nothing"
+        );
+    });
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "calling the C trie's foreign functions is not supported by Miri"
+)]
+fn suffix_delete_ignores_an_absent_term() {
+    // The suffix trie is shared by every TEXT field in an index, including those
+    // that never contributed to it, so a miss is expected rather than an error.
+    with_suffix_trie(&["apple"], |trie| {
+        trie.delete(&trie_term("grape"));
+        assert_eq!(
+            suffix_matches(trie, "ple", SuffixMode::Suffix),
+            set(&["apple"]),
+            "the trie is left untouched"
         );
     });
 }

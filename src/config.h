@@ -8,6 +8,7 @@
 */
 #pragma once
 
+#include <assert.h>
 #include <stdint.h>
 
 #include "redismodule.h"
@@ -229,6 +230,11 @@ typedef struct {
   // cache — silently disabling the limit — rather than bounding it. Values in that range are
   // rejected (see set_search_disk_max_open_files_config).
   int diskMaxOpenFiles;
+  // Concurrent async document-metadata reads a single query iterator keeps in flight.
+  unsigned int diskAsyncReadPoolSize;
+  // Index results a query queues ahead of submission, as a multiple of
+  // diskAsyncReadPoolSize. Must be at least 1.
+  unsigned int diskAsyncReadQueueFactor;
   // If true, fallback to main thread when BlockClient is unavailable.
   bool fallbackToMainThreadWhenBlockClientUnavailable;
 } RSConfig;
@@ -290,6 +296,11 @@ size_t GetDefaultWorkerThreads(void);
 
 /* Register module configuration parameters using Module Configuration API */
 int RegisterModuleConfig_Local(RedisModuleCtx *ctx);
+
+/* Marks whether RedisModule_LoadConfigs is currently running. Some numeric config setters
+ * consult this to fall back to their current value with a warning instead of returning
+ * REDISMODULE_ERR, which would abort module init. */
+void RSConfig_SetLoadingStartupConfig(bool loading);
 
 /**
  * Writes the retrieval of the configuration value to the network.
@@ -402,6 +413,12 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_TRIMMING_STATE_CHECK_DELAY 100 // 0.1 seconds in milliseconds (We check the trimming state every 0.1 seconds, between MIN_TRIM_DELAY and MAX_TRIM_DELAY)
 #define DEFAULT_DISK_BUFFER_PERCENTAGE 20  // 20% of available memory for disk write buffer
 #define DEFAULT_DISK_MAX_OPEN_FILES 1024   // open-file cap; -1 = unlimited
+#define DEFAULT_DISK_ASYNC_READ_POOL_SIZE 16
+#define DISK_ASYNC_READ_POOL_SIZE_MAX 1024
+#define DEFAULT_DISK_ASYNC_READ_QUEUE_FACTOR 1
+#define DISK_ASYNC_READ_QUEUE_FACTOR_MAX 16
+static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <= UINT16_MAX,
+              "queue depth must fit IndexResultAsyncReadState's uint16_t queueSize");
 // Smallest accepted positive cap. Below this the disk backend's open-file cache (cap - 10)
 // underflows to unbounded, so a positive cap must leave at least one cached reader.
 #define DISK_MAX_OPEN_FILES_MIN 11
@@ -469,6 +486,8 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
     .diskDropReadCache = false,                                                \
     .diskUseDirectReads = false,                                               \
     .diskMaxOpenFiles = DEFAULT_DISK_MAX_OPEN_FILES,                           \
+    .diskAsyncReadPoolSize = DEFAULT_DISK_ASYNC_READ_POOL_SIZE,                \
+    .diskAsyncReadQueueFactor = DEFAULT_DISK_ASYNC_READ_QUEUE_FACTOR,          \
     .fallbackToMainThreadWhenBlockClientUnavailable = true,                    \
   }
 

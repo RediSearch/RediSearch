@@ -833,58 +833,58 @@ fn ii_apply_gc_entries_tracking_index() {
         }
     );
 }
-#[cfg_attr(miri, ignore = "the memory hack below raises error in miri")]
+
+/// A write that moves a block's buffer must be reported by
+/// [`needs_revalidation`](crate::IndexReader::needs_revalidation), even though no GC ran.
+///
+/// The repair itself is the reader's re-seek on `revalidate`; this test only checks that a
+/// caller is told to revalidate in the first place. A reader that is not told holds a pointer
+/// into freed memory.
 #[test]
-fn test_refresh_buffer_pointers_after_reallocation() {
+#[cfg_attr(miri, ignore = "the memory hack below raises error in miri")]
+fn test_needs_revalidation_after_block_buffer_moved() {
     use crate::IndexReader as _;
 
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
-
-    // Add initial records
     ii.add_record(&RSIndexResult::build_virt().doc_id(10).build())
         .unwrap();
     ii.add_record(&RSIndexResult::build_virt().doc_id(11).build())
         .unwrap();
 
-    // SAFETY: We need to bypass Rust's borrowing rules to simulate the real-world
-    // scenario where buffer reallocation happens while a reader is active.
-    // This is safe because:
-    // 1. We're not accessing the reader during the mutation
-    // 2. The InvertedIndex structure remains valid
-    // 3. We call refresh_buffer_pointers before using the reader again
+    // SAFETY: mirrors what a suspended cursor does — the reader is parked, untouched, while the
+    // index is written to. The reader is not used until after the writes, and the writes only ever
+    // reallocate block buffers, leaving the `InvertedIndex` itself in place.
     let ii_ptr = &mut ii as *mut InvertedIndex<Dummy>;
 
     let mut reader: crate::IndexReaderCore<'_, Dummy> = ii.reader();
     let mut result = RSIndexResult::build_virt().build();
-
-    // Read first record
     assert!(reader.next_record(&mut result).unwrap());
     assert_eq!(result.doc_id, 10);
+    assert!(
+        !reader.needs_revalidation(),
+        "an untouched index must not ask for revalidation"
+    );
 
-    // Force buffer reallocation by adding many records to the same block
-    // This should cause the buffer to grow and potentially move
-    unsafe {
-        for i in 12..1000 {
-            (*ii_ptr)
-                .add_record(&RSIndexResult::build_virt().doc_id(i).build())
-                .unwrap();
-        }
-    }
+    // Append a document the reader has not reached, then move the buffer. Appending alone would
+    // leave it to the allocator whether the address changes at all — see
+    // [`relocate_block_buffer`](crate::test_utils::relocate_block_buffer).
+    let base_before = ii.block_ref(0).unwrap().data().as_ptr();
+    // SAFETY: see the `ii_ptr` construction above.
+    let base_after = unsafe {
+        (*ii_ptr)
+            .add_record(&RSIndexResult::build_virt().doc_id(12).build())
+            .unwrap();
+        crate::test_utils::relocate_block_buffer(&mut *ii_ptr, 0)
+    };
+    assert_ne!(base_before, base_after, "the buffer did not move");
 
-    // Buffer was reallocated - test refresh_buffer_pointers
-    reader.refresh_buffer_pointers();
-
-    // Verify we can still read correctly from the new buffer
-    let mut doc_count = 1; // Already read doc_id 10
-    let mut expected_doc_id = 11;
-
-    while reader.next_record(&mut result).unwrap() {
-        assert_eq!(result.doc_id, expected_doc_id);
-        doc_count += 1;
-        expected_doc_id += 1;
-    }
-
-    // Should have read all 990 documents (10, 11, 12..999)
-    assert_eq!(doc_count, 990);
-    assert_eq!(expected_doc_id, 1000);
+    assert_eq!(
+        ii.gc_marker(),
+        0,
+        "no GC ran, so the marker cannot be what flags this"
+    );
+    assert!(
+        reader.needs_revalidation(),
+        "a moved block buffer must be reported: the reader's cached pointer is now dangling"
+    );
 }

@@ -160,9 +160,7 @@ jobs:
     permissions: {}
     needs: should-run
     if: ${{ needs.should-run.outputs.run-validation == 'true' }}
-    uses: ./.github/workflows/task-get-latest-tag.yml
-    with:
-      repo: redis/redis
+    uses: ./.github/workflows/task-get-redis-tag.yml
 
   test-selected-platforms:
     needs: [should-run, get-latest-redis-tag]

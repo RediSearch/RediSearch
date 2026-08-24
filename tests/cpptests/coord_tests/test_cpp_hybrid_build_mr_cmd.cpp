@@ -349,7 +349,7 @@ protected:
             if (hybridParams.scoringCtx) {
                 HybridScoringContext_Free(hybridParams.scoringCtx);
             }
-            HybridRequest_DecrRef(hreq);
+            HybridRequest_Free(hreq);
             FAIL() << "Failed to parse hybrid command";
         }
 
@@ -410,7 +410,7 @@ protected:
         if (hybridParams.scoringCtx) {
             HybridScoringContext_Free(hybridParams.scoringCtx);
         }
-        HybridRequest_DecrRef(hreq);
+        HybridRequest_Free(hreq);
     }
 
     // Parse a full FT.HYBRID command, build the per-shard MR command as the
@@ -445,7 +445,7 @@ protected:
         EXPECT_EQ(rc, REDISMODULE_OK) << QueryError_GetDisplayableError(&status, false);
         if (rc != REDISMODULE_OK) {
             if (hybridParams.scoringCtx) HybridScoringContext_Free(hybridParams.scoringCtx);
-            HybridRequest_DecrRef(hreq);
+            HybridRequest_Free(hreq);
             return out;
         }
 
@@ -486,7 +486,7 @@ protected:
 
         MRCommand_Free(&xcmd);
         HybridScoringContext_Free(hybridParams.scoringCtx);
-        HybridRequest_DecrRef(hreq);
+        HybridRequest_Free(hreq);
         return out;
     }
 

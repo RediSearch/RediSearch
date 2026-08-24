@@ -14,7 +14,6 @@ bench = false
 ffi.workspace = true
 global_config.workspace = true
 tracing.workspace = true
-value.workspace = true
 redis-module.workspace = true
 workspace_hack.workspace = true
 libc.workspace = true

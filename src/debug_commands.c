@@ -928,15 +928,8 @@ end:
 }
 
 static t_docId getDocIdFromKey(RedisModuleCtx *ctx, const IndexSpec *spec, RedisModuleString *key) {
-  if (!SearchDisk_IsEnabled()) {
-    return DocTable_GetIdR(&spec->docs, key);
-  } else {
-    uint64_t metaDocId;
-    if (DocIdMeta_Get(ctx, key, spec->specId, &metaDocId) == REDISMODULE_OK) {
-      return metaDocId;
-    }
-    return 0;
-  }
+  // key -> docId now lives in the DocIdMeta key metadata in both modes.
+  return IndexSpec_GetDocIdByKeyR(spec, ctx, key);
 }
 
 DEBUG_COMMAND(IdToDocId) {
@@ -1625,7 +1618,7 @@ DEBUG_COMMAND(DocInfo) {
       }
     }
   } else {
-    dmd = DocTable_BorrowByKeyR(&sctx->spec->docs, argv[3]);
+    dmd = IndexSpec_BorrowDocByKeyR(sctx->spec, ctx, argv[3]);
   }
   if (!dmd) {
     SearchCtx_Free(sctx);
@@ -2379,8 +2372,8 @@ static int parseCompactionSite(const char *name, int *out) {
     *out = SEARCH_DISK_SITE_COMPACTION_BEGIN;
   } else if (!strcasecmp(name, "compaction_completed")) {
     *out = SEARCH_DISK_SITE_COMPACTION_COMPLETED;
-  } else if (!strcasecmp(name, "pre_checkpoint")) {
-    *out = SEARCH_DISK_SITE_PRE_CHECKPOINT;
+  } else if (!strcasecmp(name, "consistency_window_open")) {
+    *out = SEARCH_DISK_SITE_CONSISTENCY_WINDOW_OPEN;
   } else if (!strcasecmp(name, "numeric_split_pre_commit")) {
     *out = SEARCH_DISK_SITE_NUMERIC_SPLIT_PRE_COMMIT;
   } else if (!strcasecmp(name, "numeric_gate_closed")) {
@@ -2401,7 +2394,7 @@ static int parseCompactionSite(const char *name, int *out) {
  *   REACHED <site>                     -> integer arrival count
  *   RESET                              clear all state, free waiters
  *
- * <site> is one of: compaction_begin, compaction_completed, pre_checkpoint,
+ * <site> is one of: compaction_begin, compaction_completed, consistency_window_open,
  * numeric_split_pre_commit, numeric_gate_closed.
  */
 DEBUG_COMMAND(replCompactionCoordinator) {
@@ -3573,8 +3566,9 @@ DEBUG_COMMAND(DumpDeletedIds) {
 }
 
 // FT.DEBUG NUMERIC_BUCKET_MAP <index> <field>
-// Dumps the in-memory bucket routing map of a disk numeric field as a JSON
-// string: [{"max_val": ..., "state": "Active"|"BeingCreated", ("source": ...,)
+// Dumps the in-memory bucket routing map of a disk NUMERIC or GEO field (GEO
+// shares the NUMERIC field's bucket map) as a JSON string:
+// [{"max_val": ..., "state": "Active"|"BeingCreated", ("source": ...,)
 // "num_entries": ...}, ...]. Debug/testing only (e.g. asserting a bucket
 // split's routing state on a master and its replica).
 DEBUG_COMMAND(NumericBucketMap) {
@@ -3589,7 +3583,8 @@ DEBUG_COMMAND(NumericBucketMap) {
   if (!sctx->spec->diskSpec) {
     RedisModule_ReplyWithError(sctx->redisCtx, "NUMERIC_BUCKET_MAP is only supported on disk indexes");
   } else {
-    const FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_NUMERIC);
+    const FieldSpec *fs =
+        getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
     if (!fs) {
       RedisModule_ReplyWithError(sctx->redisCtx, "Unknown numeric field");
     } else {

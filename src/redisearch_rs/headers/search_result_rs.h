@@ -21,14 +21,6 @@ typedef struct RSDocumentMetadata_s RSDocumentMetadata;
 typedef const RSDocumentMetadata *OwnedDocumentMetadata;
 
 
-/**
- * The [`Active`] instantiation of [`RawIndexResult`].
- *
- * This is the only mode that crosses the C boundary today; the suspended
- * counterpart is forthcoming.
- */
-typedef struct RawIndexResult_Active RSIndexResult;
-
 #ifndef BITFLAGS_SEARCHRESULTFLAG__U8_DEFINED
 #define BITFLAGS_SEARCHRESULTFLAG__U8_DEFINED
 /**
@@ -146,6 +138,14 @@ typedef struct RawIndexResult_Active RSIndexResult;
  */
 typedef uint8_t BitFlags_SearchResultFlag__u8;
 #endif /* BITFLAGS_SEARCHRESULTFLAG__U8_DEFINED */
+
+/**
+ * The [`Active`] instantiation of [`RawIndexResult`].
+ *
+ * This is the only mode that crosses the C boundary today; the suspended
+ * counterpart is forthcoming.
+ */
+typedef struct RawIndexResult_Active RSIndexResult;
 
 typedef BitFlags_SearchResultFlag__u8 SearchResultFlags;
 

@@ -19,28 +19,28 @@ use redis_json_api::{JsonType, JsonValueRef, RedisJsonApi, SerializeError};
 use redis_module::RedisString;
 use std::ffi::CStr;
 use std::ptr::{self, NonNull};
-use value::SharedValue;
+use value::{SharedValue, Value};
 
 const JSON_ROOT: &CStr = c"$";
 
 pub struct JsonDocumentFormat<'a> {
     ctx: NonNull<redis_module::RedisModuleCtx>,
     japi: &'a RedisJsonApi,
-    api_version: u32,
+    api_version: u8,
 }
 
 pub struct JsonFieldLoader<'a> {
     ctx: NonNull<redis_module::RedisModuleCtx>,
     value: JsonValueRef<'a>,
     key_name: &'a RedisString,
-    api_version: u32,
+    api_version: u8,
 }
 
 impl<'a> JsonDocumentFormat<'a> {
     pub const fn new(
         ctx: NonNull<redis_module::RedisModuleCtx>,
         japi: &'a RedisJsonApi,
-        api_version: u32,
+        api_version: u8,
     ) -> Self {
         Self {
             ctx,
@@ -181,9 +181,9 @@ impl FieldLoader for JsonFieldLoader<'_> {
 fn json_iter_to_value(
     ctx: NonNull<redis_module::RedisModuleCtx>,
     mut iter: redis_json_api::ResultsIter<'_>,
-    api_version: u32,
+    api_version: u8,
 ) -> Result<Option<SharedValue>, SerializeError> {
-    if api_version < ffi::APIVERSION_RETURN_MULTI_CMP_FIRST {
+    if u32::from(api_version) < ffi::APIVERSION_RETURN_MULTI_CMP_FIRST {
         // Preserve single value behavior for backward compatibility
         let Some(json) = iter.next() else {
             return Ok(None);
@@ -301,7 +301,11 @@ fn json_val_to_value(
         JsonType::Object | JsonType::Array => {
             // SAFETY: `ctx` is a valid Redis module context propagated from the caller.
             let v = unsafe { json.serialize(ctx.cast().as_ptr()).unwrap() };
-            SharedValue::new_string(v.to_vec())
+            redis_module::raw::string_retain_string(ptr::null_mut(), v.inner);
+            // SAFETY: `v` is a valid Redis string and we retained it above to
+            // transfer one owned reference into the RSValue.
+            let v = unsafe { value::RedisString::from_raw(v.inner.cast()) };
+            SharedValue::new(Value::RedisString(v))
         }
         JsonType::Null => SharedValue::null_static(),
     }

@@ -388,6 +388,16 @@ def test_hybrid_cursors_race_with_flushall():
     t.join(timeout=10)
     env.assertFalse(t.is_alive(), message="FT.HYBRID thread should have finished")
 
+    # The flush delete-marked the sub-cursors mid-cycle; the cycle-end park
+    # on the main thread frees them. Nothing may leak.
+    # (INFO hides the cursors section with zero indexes — recreate one.)
+    env.expect('FT.CREATE', 'observe_idx', 'SCHEMA', 't', 'TEXT').ok()
+    def shard_cursor_total():
+        info = target_shard.execute_command('INFO', 'MODULES')
+        return info['search_global_total_user'] + info['search_global_total_internal']
+    wait_for_condition(lambda: (shard_cursor_total() == 0, {}),
+                       'delete-marked cursors were not freed at the cycle-end park')
+
     # The shard survived the race.
     env.assertEqual(target_shard.execute_command('PING'), True)
 
@@ -1333,7 +1343,7 @@ class TestCoordinatorTimeout:
         ``BeforeCursorReadSendChunk`` and fire ``CLIENT UNBLOCK ... TIMEOUT``
         to invoke ``CursorReadTimeoutFailCallback``. Verify the user sees
         ``-TIMEOUT``, the coord error metric bumps, and the coord cursor is
-        reclaimed via ``AREQ_CleanUpStoredCursor``.
+        reclaimed at cycle end (a cycle that records no park frees by default).
         """
         env = self.env
         skipIfNoEnableAssert(env)
@@ -2261,9 +2271,10 @@ class TestCoordinatorTimeout:
             assert_timeout_warning(env, result,
                                    message=f"FT.HYBRID existing cursor-mapping timeout, got: {result}")
 
-            # The shard replied with the already-published cursors from the timeout
-            # callback: shard warning +1, attributed to the REPLY stage (the marker
-            # advances to REPLY once the cursor mapping is published).
+            # The shard's strict-timeout reply exposes no cursor IDs (cursor id 0
+            # for both subqueries, like a timed-out aggregate): shard warning +1,
+            # attributed to the REPLY stage (the marker advances to REPLY once the
+            # cursor mapping is published).
             after_shard_info = info_modules_to_dict(target_shard)
             env.assertEqual(int(after_shard_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC]),
                             int(before_shard_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC]) + 1,
@@ -2281,6 +2292,27 @@ class TestCoordinatorTimeout:
                 pass
             run_command_on_all_shards(env, 'CONFIG', 'SET',
                                       ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
+        # Once the resumed worker ends the cycle, the teardown drops the
+        # published sub-cursors — the reply exposed no IDs, so none may stay
+        # parked or leak on the shard.
+        def shard_cursor_total():
+            info = target_shard.execute_command('INFO', 'MODULES')
+            return info['search_global_total_user'] + info['search_global_total_internal']
+        def per_index_cursors():
+            stats = {}
+            for idx_name in ('idx', 'hybrid_idx'):
+                try:
+                    info = to_dict(target_shard.execute_command('FT.INFO', idx_name))
+                    stats[idx_name] = to_dict(info.get('cursor_stats', []))
+                except Exception as e:
+                    stats[idx_name] = str(e)
+            return stats
+        def cursors_drained():
+            total = shard_cursor_total()
+            return total == 0, {'user+internal': total, 'per_index': per_index_cursors()}
+        wait_for_condition(cursors_drained,
+                           'strict-timed-out cycle did not drop its published cursors')
 
     def test_return_strict_hybrid_cursor_mapping_timeout_during_depletion(self):
         """RETURN_STRICT _FT.HYBRID cursor-mapping timeout while depleters are active.
@@ -7377,11 +7409,12 @@ class TestShardTimeout:
         after the handshake but before taking the Redis lock. The timeout callback
         loses the claim, observes holding == true, and takes the preempt branch:
         it replies with an exhausted cursor (id 0) and returns immediately. The
-        blocked-client free callback (ShardCursorBlockClient_FreeAREQ) then drains
-        req->storedReplyState.cursor - freeing the cursor (stashed before
-        sendChunk) and dropping its AREQ reference - while the worker is still
-        parked. Releasing the worker makes it resume sendChunk and keep using the
-        freed cursor/AREQ: a use-after-free (caught under SAN, otherwise a crash).
+        original shard free callback then freed the stashed cursor while the
+        worker was still parked; releasing the worker made it resume sendChunk
+        and keep using the freed cursor/AREQ: a use-after-free (caught under
+        SAN, otherwise a crash). Today the free callback runs only after the
+        worker's own unblock, and a cycle the timeout replied for records no
+        park, so cycle end frees the cursor.
 
         Detects the bug: releasing the worker after the cursor was freed must not
         corrupt memory; the cursor-read thread finishes and the server survives.
@@ -7436,9 +7469,9 @@ class TestShardTimeout:
     def test_return_strict_initial_withcursor_preempt_no_cursor_leak(self):
         """Initial RETURN_STRICT FT.AGGREGATE WITHCURSOR must not orphan its cursor.
 
-        The initial WITHCURSOR query reserves a cursor and stashes it in
-        storedReplyState.cursor before sendChunk. The worker wins the claim, marks
-        itself at the GIL gate, and parks at AfterSafeLoaderGILHandshake. The
+        The initial WITHCURSOR query reserves a cursor and publishes it as the
+        cycle's cursor. The worker wins the claim, marks itself at the GIL
+        gate, and parks at AfterSafeLoaderGILHandshake. The
         timeout callback loses the claim, observes holding == true, and preempts:
         it sends an empty cursor-id-0 reply and returns, skipping the normal
         AREQ_ReplyWithStoredResults path that would pause/free the reserved cursor.
@@ -8338,7 +8371,7 @@ class TestNoDeadlockQueryWithConcurrentWriter:
     """MOD-15364: BG query holds the spec read lock; a concurrent writer
     parks on the spec write lock and blocks the main thread. With the fix,
     the BG worker releases the read lock on the BG thread (inside
-    `AREQ_Execute`, before `AREQ_DecrRef`) prior to `RedisModule_UnblockClient`,
+    `AREQ_Execute`) prior to `RedisModule_UnblockClient`,
     so the writer can acquire the write lock and the main thread later runs
     the unblock callback. Without the fix, the unblock callback never runs
     (main thread is parked on wrlock), the read lock is never released, and

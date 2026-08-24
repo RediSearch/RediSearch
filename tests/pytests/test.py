@@ -1966,7 +1966,9 @@ def testInfoCommand(env):
             env.assertEqual(int(d['num_records']), N * 2)
 
             env.assertGreater(float(d['offset_vectors_sz_mb']), 0)
-            env.assertGreater(float(d['key_table_size_mb']), 0)
+            # The key->docId mapping now lives in Redis key-metadata (not
+            # module-tracked memory), so key_table_size_mb is always 0.
+            env.assertEqual(float(d['key_table_size_mb']), 0)
             env.assertGreater(float(d['inverted_sz_mb']), 0)
             env.assertGreater(float(d['bytes_per_record_avg']), 0)
             env.assertGreater(float(d['doc_table_size_mb']), 0)
@@ -4177,7 +4179,9 @@ def testUsesCounter(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'NOFIELDS', 'schema', 'title', 'text').ok()
     env.cmd('ft.info', 'idx')
     env.cmd('ft.search', 'idx', '*')
-    assertInfoField(env, 'idx', 'number_of_uses', 3)
+    info = to_dict(env.cmd('ft.info', 'idx'))
+    env.assertEqual(info['number_of_uses'], 1, message=info)
+    env.assertEqual(info['number_of_admin_ops'], 2, message=info)
 
 def test_aggregate_return_fail(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')

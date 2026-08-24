@@ -23,9 +23,7 @@ concurrency:
 jobs:
   get-latest-redis-tag:
     permissions: {}
-    uses: ./.github/workflows/task-get-latest-tag.yml
-    with:
-      repo: redis/redis
+    uses: ./.github/workflows/task-get-redis-tag.yml
 
   check-what-changed:
     permissions: # actions/checkout

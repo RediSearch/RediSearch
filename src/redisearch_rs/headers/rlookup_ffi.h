@@ -10,10 +10,14 @@
 #include "search_result_rs.h"
 #include "rlookup.h"
 
+typedef struct QueryError QueryError;
+
 /**
  * The C version of a [`SharedValue`](value::SharedValue)
  */
 typedef struct RSValue RSValue;
+
+typedef struct RedisModuleKey RedisModuleKey;
 
 /**
  * SearchResult - the object all the processing chain is working on.
@@ -22,9 +26,46 @@ typedef struct RSValue RSValue;
  */
 typedef struct SearchResult SearchResult;
 
-typedef struct RedisModuleKey RedisModuleKey;
+typedef struct LoadAllKeysOptions {
+  RedisSearchCtx *sctx;
+  const RSDocumentMetadata *dmd;
+  bool force_string;
+  struct QueryError *status;
+} LoadAllKeysOptions;
 
-typedef struct QueryError QueryError;
+typedef struct LoadIndividualKeysOptions {
+  RedisSearchCtx *sctx;
+  const RSDocumentMetadata *dmd;
+  /**
+   * Explicit list of keys to load. If `nkeys == 0`, every loadable schema
+   * key in the lookup is considered (subject to `force_load` / `cached_only`).
+   */
+  const RLookupKey *const *keys;
+  size_t nkeys;
+  bool force_string;
+  bool force_load;
+  bool cached_only;
+  struct QueryError *status;
+  /**
+   * Optional per-key profiling buffer, `nkeys` entries long, for the
+   * `FT.PROFILE ... LOAD` path. Null when profiling is not requested.
+   */
+  struct LoadFieldProfile *profile_fields;
+} LoadIndividualKeysOptions;
+
+/**
+ * An iterator over the keys in an `RLookup`, returning immutable pointers.
+ */
+typedef struct RLookupIterator {
+  const RLookupKey *current;
+} RLookupIterator;
+
+/**
+ * An iterator over the keys in an `RLookup`, returning mutable pointers.
+ */
+typedef struct RLookupIteratorMut {
+  RLookupKey *current;
+} RLookupIteratorMut;
 
 /**
  * [`RSSortingVector`] acts as a cache for sortable fields in a document.
@@ -69,47 +110,6 @@ typedef struct RSSortingVectorSlice {
   size_t len;
 } RSSortingVectorSlice;
 
-typedef struct LoadAllKeysOptions {
-  RedisSearchCtx *sctx;
-  const RSDocumentMetadata *dmd;
-  bool force_string;
-  struct QueryError *status;
-} LoadAllKeysOptions;
-
-typedef struct LoadIndividualKeysOptions {
-  RedisSearchCtx *sctx;
-  const RSDocumentMetadata *dmd;
-  /**
-   * Explicit list of keys to load. If `nkeys == 0`, every loadable schema
-   * key in the lookup is considered (subject to `force_load` / `cached_only`).
-   */
-  const RLookupKey *const *keys;
-  size_t nkeys;
-  bool force_string;
-  bool force_load;
-  bool cached_only;
-  struct QueryError *status;
-  /**
-   * Optional per-key profiling buffer, `nkeys` entries long, for the
-   * `FT.PROFILE ... LOAD` path. Null when profiling is not requested.
-   */
-  struct LoadFieldProfile *profile_fields;
-} LoadIndividualKeysOptions;
-
-/**
- * An iterator over the keys in an `RLookup`, returning immutable pointers.
- */
-typedef struct RLookupIterator {
-  const RLookupKey *current;
-} RLookupIterator;
-
-/**
- * An iterator over the keys in an `RLookup`, returning mutable pointers.
- */
-typedef struct RLookupIteratorMut {
-  RLookupKey *current;
-} RLookupIteratorMut;
-
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -144,6 +144,23 @@ struct RSValue *RLookupRow_Get(const RLookupKey *key, const struct RLookupRow *r
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct RSSortingVectorSlice RLookupRow_GetSortingVector(const struct RLookupRow *row);
+
+/**
+ * Moves one dynamic key from the source row to the destination row without
+ * changing its reference count. A missing dynamic value is ignored.
+ *
+ * # Safety
+ *
+ * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ * 2. `src_row` must be a [valid], non-null pointer to an [`RLookupRow`] that is exclusively
+ *    accessible for the duration of this call.
+ * 3. `dst_row` must be a [valid], non-null pointer to an [`RLookupRow`] that is exclusively
+ *    accessible for the duration of this call.
+ * 4. `src_row` and `dst_row` must not be the same lookup row.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void RLookupRow_MoveDynamicKey(const RLookupKey *key, struct RLookupRow *src_row, struct RLookupRow *dst_row);
 
 /**
  * Move data from the source row to the destination row. The source row is cleared.

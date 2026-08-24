@@ -300,8 +300,10 @@ fn test_numeric_index_write_paths_agree(#[values(false, true)] compress_floats: 
     for (i, value) in values.iter().enumerate() {
         let doc_id = i as u64 + 1;
         let has_field_expiration = i % 2 == 0;
-        let mut record = RSIndexResult::build_numeric(*value).doc_id(doc_id).build();
-        record.has_field_expiration = has_field_expiration;
+        let record = RSIndexResult::build_numeric(*value)
+            .doc_id(doc_id)
+            .has_field_expiration(has_field_expiration)
+            .build();
 
         let record_outcome = from_records.add_record(&record);
         let prepared_outcome = from_prepared.add_prepared_record(

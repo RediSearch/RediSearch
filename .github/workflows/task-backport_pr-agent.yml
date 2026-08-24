@@ -9,36 +9,23 @@ name: Backport merged pull request (Codex agent)
 #
 # Trigger ways:
 #   - PR is closed and merged with at least one `backport-<branch>-agent` label.
-#   - A `backport-<branch>-agent` label is added to an already-merged PR. The
-#     run backports to EVERY matching label currently on the PR, not just the
-#     one that fired — so adding several labels reliably backports to all of
-#     them even though each label fires its own (concurrency-serialized) run.
+#   - A `backport-<branch>-agent` label is added to an already-merged PR (the run
+#     resolves EVERY matching label on the PR, not just the one that fired).
 #   - A repo collaborator/member/owner comments `/backport-agent` on a merged PR.
-#       Optional args: `/backport-agent 8.6 8.2` overrides the labels for this run.
-#       `/backport-agent >= 2.10` is the "this line and everything newer" form —
-#       it expands to every active release branch at or above 2.10, read from
-#       .github/release-branches.json (so a new release line only has to be added
-#       there once). Forms can be mixed: `/backport-agent >= 8.8 2.10`.
-#       Only a target-branch list is accepted here (no free-form context): the
-#       create step is mechanical, and keeping the trigger payload constrained
-#       minimizes what a comment can feed the agent. The command intentionally
-#       does not share the `/backport` prefix with the legacy
-#       `task-backport_pr.yml` workflow.
+#       `/backport-agent 8.6 8.2` overrides labels; `/backport-agent >= 2.10`
+#       expands to every active release branch at or above 2.10 (from
+#       .github/release-branches.json); forms can be mixed.
 #
-# Behavior is defined by .github/codex/prompts/pr-backport-auto.md. This workflow
-# only resolves inputs, writes a small context file, and invokes Codex.
-#
-# Expected "skipped" runs — this is normal, not a misconfiguration:
-#   GitHub creates a workflow run for EVERY matching event and only then
-#   evaluates the job `if:` below. There is no `on:`-level filter for label
-#   name, comment body, or merged state, so any non-matching event (a label
-#   added to an unrelated PR, an ordinary comment, a closed-but-unmerged PR)
-#   produces a run whose single job is skipped. Skipped jobs report success and
-#   never block merging. The `issue_comment` skips live only in the Actions tab;
-#   the `pull_request_target: labeled` skips show as a grey check on the PR.
-#   Suppressing them entirely would mean dropping the `labeled` trigger (losing
-#   the "label an already-merged PR" auto-path, which `/backport-agent` already
-#   covers) — a deliberate trade-off we have chosen NOT to make here.
+# PRIVILEGE SEPARATION (why this workflow has the shape it does)
+#   The Codex agent step runs with **no GitHub token and no command network**: it
+#   only cherry-picks each target onto a local branch in a pre-made clone and
+#   writes a manifest describing the result (see pr-backport-auto.md). A separate
+#   deterministic step (scripts/auto_backport/apply_create.py) holds the scoped
+#   App write token and performs every mutation — push, `gh pr create`, labels,
+#   summary comment — from that manifest, validating each field as data (exact
+#   branch shape, target allow-list, argument arrays). So a prompt-injection in
+#   anything the agent reads cannot push code, open arbitrary PRs, use a token,
+#   or reach the network: the powerful credential is never in the LLM's hands.
 
 on:
   pull_request_target:
@@ -46,22 +33,24 @@ on:
   issue_comment:
     types: [created]
 
-# The default GITHUB_TOKEN stays read-only: every write (checkout, `gh`,
-# `git push`, PR open/label/comment) goes through the scoped App token
-# minted below, whose `permission-*` inputs carry the write grants. That
-# includes `workflows: write`, since a backport can re-merge a
-# .github/workflows/* file into a blob GitHub will not let a `workflows`-less
-# App push (see the token step for the full rationale).
+# The default GITHUB_TOKEN is read-only (checkout + clone/fetch + `gh pr view`).
+# The App write token is minted late and only reaches the Apply step.
 permissions:
   contents: read
+  pull-requests: read
 
-# Serialize per-PR so the `closed`, `labeled`, and `/backport-agent` triggers
-# can't run concurrently against the same `backport-agent/pr-<n>-to-<branch>`
-# branches and race on push / PR creation. Do not cancel an in-flight run — it
+# Serialize per-PR so the triggers can't race on the same
+# `backport-agent/pr-<n>-to-<branch>` branches. Never cancel in-flight — a run
 # may already have opened some target PRs.
 concurrency:
   group: backport-agent-create-${{ github.event.pull_request.number || github.event.issue.number }}
   cancel-in-progress: false
+
+env:
+  # Writable roots the (sandboxed, network-less) agent uses. /tmp is writable
+  # under the codex workspace-write sandbox; $RUNNER_TEMP is not guaranteed to be.
+  BACKPORT_WORK: /tmp/backport-agent-work
+  BACKPORT_MANIFEST_FILE: /tmp/backport-agent-manifest.json
 
 jobs:
   backport-agent:
@@ -69,20 +58,9 @@ jobs:
     runs-on: ubuntu-slim
     timeout-minutes: 60
 
-    # Fire when:
-    #   * PR is closed and merged with at least one `backport-...-agent` label
-    #     (the JSON-serialized labels-array check is a coarse pre-filter; the
-    #     script step revalidates against `^backport-(.+)-agent$`).
-    #   * A `backport-<branch>-agent`-style label is added to a merged PR
-    #     (the run then resolves ALL matching labels on the PR, not just this
-    #     one — see resolve_create.resolve_targets).
-    #   * A write-level user comments `/backport-agent` (and not the longer
-    #     `/backport-agent-fix` / `/backport-agent-context` sibling commands,
-    #     which belong to the fix workflow).
-    #
-    # The `author_association` allow-list (OWNER/MEMBER/COLLABORATOR) is required
-    # because `!= 'NONE'` would also admit CONTRIBUTOR/FIRST_TIME_CONTRIBUTOR —
-    # users who merged a prior PR but do not have repo write access.
+    # The `author_association` allow-list (OWNER/MEMBER/COLLABORATOR) is a coarse
+    # trigger pre-filter. NOTE: association is not repository write access — a
+    # real write-permission gate on the Apply step is tracked as a follow-up.
     if: >
       (
         github.event_name == 'pull_request_target' &&
@@ -104,81 +82,32 @@ jobs:
       )
 
     steps:
-      - name: 🔑 Generate GitHub App Token
-        id: generate-app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          client-id: ${{ vars.GH_PR_APP_ID }}
-          private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          # Scope the installation token to THIS repo only. With `owner` set but
-          # no `repositories`, the token is minted for every repo the App can
-          # access in the org; restricting it bounds any agent mistake or
-          # injection to this repository.
-          repositories: ${{ github.event.repository.name }}
-          # Hard-cap the minted token to exactly what this flow needs, so it
-          # stays least-privilege even if the redis-pr-app App is granted more
-          # at the installation level. Without these, the token inherits the
-          # App's full installed permission set, not the `permissions:` block
-          # above (which only governs the unused default GITHUB_TOKEN).
-          permission-contents: write       # push backport-agent/* branches
-          permission-pull-requests: write  # open / label / comment on PRs
-          # A backport that re-merges a file under .github/workflows/ (e.g. a
-          # three-way auto-merge of task-backport_pr.yml onto a release branch
-          # whose copy has diverged from master) produces a workflow blob that
-          # does not already exist in the repo. GitHub then refuses the push from
-          # a GitHub App token unless it carries the `workflows` grant — even
-          # though `contents: write` would otherwise allow it, and even when the
-          # cherry-pick is clean. Clean-apply backports whose resulting workflow
-          # blobs match an existing one (e.g. onto a branch level with master) do
-          # not need this, but we cannot know that before pushing.
-          # `permission-*` can only attenuate the App's installed grants.
-          permission-workflows: write
-
       - name: Checkout master (with full history)
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          token: ${{ steps.generate-app-token.outputs.token }}
-          # Pin to master explicitly. On `pull_request_target` the default
-          # checkout ref is the PR's base branch, which is not necessarily
-          # master (a PR could target a release branch) and might not carry the
-          # prompt file Codex reads.
-          #
-          # The literal `master` (no `${{ }}` expression, no PR-head ref) is also
-          # what keeps this safe under `pull_request_target`: no fork/PR-head code
-          # is ever checked out. SonarCloud's githubactions:S7631 ("Forked
-          # repository code should not be checked out in privileged workflow
-          # contexts") flags every checkout in such workflows heuristically; it
-          # is a false positive here for that reason.
+          # Read-only default token. Literal `master` (no PR-head ref) keeps this
+          # safe under `pull_request_target` — no fork code is ever checked out.
           ref: master
-          # The agent cherry-picks from master onto release branches, so it
-          # needs full history and access to all remote branches.
           fetch-depth: 0
+          # Do NOT leave the checkout token in `.git/config`: the Codex step can
+          # read the workspace, so a persisted token would be an extractable
+          # credential. The clone-prep step configures its own temporary auth.
+          persist-credentials: false
 
       - name: Configure git identity
-        # Set the identity GLOBALLY (not just in this checkout). The Codex
-        # sandbox mounts this checkout's `.git` read-only by design (it blocks
-        # an agent from rewriting history/refs), so the agent does its git
-        # writes (fetch/cherry-pick/commit/push) inside a fresh clone under
-        # /tmp; a repo-local identity would not be inherited there and the
-        # cherry-pick would abort with "Committer identity unknown". A global
-        # identity is picked up by any clone the agent creates.
+        # Global so the pre-made clone (and the agent's cherry-pick commits in it)
+        # inherit the bot identity.
         run: |
           git config --global user.name "redis-pr-app[bot]"
           git config --global user.email "redis-pr-app[bot]@users.noreply.github.com"
 
-      # The script in scripts/auto_backport/resolve_create.py is the source
-      # of truth for the resolve logic — it derives the target-branch list
-      # from the event (closed-merged labels, single labeled event, or
-      # `/backport-agent <list>` comment args, including expanding a
-      # `>= <version>` floor over .github/release-branches.json), confirms the
-      # PR is merged with a valid mergeCommit.oid, and writes the context JSON
-      # for the agent. Bash plumbing is intentionally minimal here so the logic
-      # stays testable and shared with the fix workflow.
+      # resolve_create.py derives the target-branch list (labels / `<list>` /
+      # `>= <version>` expansion) and pre-fetches the original PR title+body so
+      # the agent needs no `gh`. Read-only default token.
       - name: Resolve PR context and target branches
         id: ctx
         env:
-          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
           EVENT_ACTION: ${{ github.event.action }}
           PR_NUMBER_FROM_PR: ${{ github.event.pull_request.number }}
@@ -187,53 +116,88 @@ jobs:
           COMMENT_BODY: ${{ github.event.comment.body }}
         run: python3 scripts/auto_backport/resolve_create.py
 
-      - name: Run /pr-backport-auto via Codex
+      # Deterministic prep: a writable clone with master + squash commit + every
+      # target ref already fetched, so the agent needs zero network. Read-only
+      # token; `--reference-if-able` reuses the checkout's objects to stay fast.
+      - name: Prepare working clone for the agent
         if: steps.ctx.outputs.skip != 'true'
-        # Pinned to a commit SHA per Sonar's S7670 ("Use full commit SHA hash
-        # for this dependency"): a third-party action referenced by a mutable
-        # tag could be re-pointed at malicious code by a compromised tag push.
-        # The trailing comment records the human-readable version so future
-        # bumps are easy to review. To upgrade: look up `openai/codex-action`
-        # tags, set the SHA the new tag resolves to, and update the comment.
-        uses: openai/codex-action@e0fdf01220eb9a88167c4898839d273e3f2609d1 # v1.8
         env:
-          # The agent uses `gh` and `git push` — both need the App token. `gh`
-          # picks it up from GH_TOKEN; the checkout step has already wired the
-          # remote to use it for git operations.
-          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
-          # The prompt reads this env var to find its context JSON. The file
-          # lives in $RUNNER_TEMP rather than the workspace so it can never be
-          # accidentally staged into a cherry-pick commit by `git add -A`.
+          GH_TOKEN: ${{ github.token }}
+          BACKPORT_CONTEXT_FILE: ${{ steps.ctx.outputs.context_file }}
+        run: |
+          set -euo pipefail
+          rm -rf "$BACKPORT_WORK"
+          git clone --no-tags --reference-if-able "${GITHUB_WORKSPACE}/.git" \
+            "https://github.com/${GITHUB_REPOSITORY}" "$BACKPORT_WORK"
+          git -C "$BACKPORT_WORK" config http.https://github.com/.extraheader \
+            "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+          git -C "$BACKPORT_WORK" fetch --no-tags origin master
+          while IFS= read -r t; do
+            [ -n "$t" ] || continue
+            git -C "$BACKPORT_WORK" fetch --no-tags origin "+refs/heads/${t}:refs/remotes/origin/${t}" || true
+          done < <(jq -r '.targets[]' "$BACKPORT_CONTEXT_FILE")
+          # Drop the read credential before the agent runs so it inherits nothing.
+          git -C "$BACKPORT_WORK" config --unset-all http.https://github.com/.extraheader || true
+
+      - name: Run /pr-backport-auto via Codex (no token, no network)
+        if: steps.ctx.outputs.skip != 'true'
+        uses: openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56 # v1.11
+        env:
+          # Deliberately NO GH_TOKEN. The agent reads the context and the pre-made
+          # clone and writes a manifest — nothing that needs GitHub auth.
           BACKPORT_CONTEXT_FILE: ${{ steps.ctx.outputs.context_file }}
         with:
           openai-api-key: ${{ secrets.OPEN_AI_BACKPORT_AGENT_KEY }}
           prompt-file: .github/codex/prompts/pr-backport-auto.md
-          # Sandbox posture: keep the filesystem confined to the checkout
-          # (`workspace-write`) and punch out only the one capability the agent
-          # genuinely needs — outbound network for `git push` / `gh` — via the
-          # codex `sandbox_workspace_write.network_access` config override. This
-          # is far narrower than `danger-full-access`, which would also hand the
-          # agent write access to the rest of the runner filesystem. The runners
-          # are Linux (ubuntu-slim), whose Landlock sandbox honors this override
-          # (the macOS Seatbelt caveat does not apply). `safety-strategy:
-          # drop-sudo` is the action default and keeps the agent from escalating
-          # privileges on the runner; `codex exec` is non-interactive, so no
-          # approval prompts are involved regardless. The agent remains bounded
-          # by:
-          #   - the App token's scope (only this repo, only contents+PRs)
-          #   - the prompt's guardrails (do not force-push, do not skip targets
-          #     it can't resolve, etc.)
+          # workspace-write + NO network override: the agent's shell commands are
+          # network-isolated (the model API call is made by the codex runtime, not
+          # a sandboxed command, so it still works). Nothing the agent runs can
+          # reach the network → no exfiltration, no push.
           sandbox: workspace-write
           safety-strategy: drop-sudo
-          codex-args: -c sandbox_workspace_write.network_access=true
-          # RediSearch merges through GitHub's merge queue, so a PR merged that
-          # way fires this workflow with `github.actor = github-merge-queue[bot]`
-          # — a bot. codex-action's default actor gate rejects bot actors, which
-          # would silently skip auto-backport for every queue-merged PR. Trust
-          # the queue bot specifically (it only acts after a human approved and
-          # queued the PR, and our `if:` still requires a human-applied
-          # `backport-<branch>-agent` label). The comment/label triggers come
-          # from humans and pass the gate without this. Mirrors
-          # the shared codex-ci-triage action (redislabsdev/redisearch-ci-common).
+          # Queue-merged PRs fire with actor = github-merge-queue[bot]; trust it
+          # (a human still applied the label and our `if:` requires it).
           allow-bots: true
           allow-bot-users: github-merge-queue[bot]
+
+      - name: 🔑 Generate GitHub App Token (for the apply step only)
+        id: generate-app-token
+        if: steps.ctx.outputs.skip != 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.GH_PR_APP_ID }}
+          private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          # Scope to THIS repo only; hard-cap to exactly what apply_create.py needs.
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write       # push backport-agent/* branches
+          permission-pull-requests: write  # open / label / comment on PRs
+          # A backport that re-merges a .github/workflows/* file produces a blob
+          # GitHub refuses from a `workflows`-less App token — see git history.
+          permission-workflows: write
+
+      # Restore the applier + its deps from the trusted commit before running
+      # them with the token: the Codex step has workspace-write, so it could have
+      # overwritten scripts/auto_backport/*. `.git` is mounted read-only for the
+      # agent, so HEAD is trustworthy; this discards any working-tree tampering.
+      - name: Restore trusted apply scripts
+        if: steps.ctx.outputs.skip != 'true'
+        # Restore tracked files from the trusted HEAD AND remove any agent-created
+        # untracked files: otherwise an injected `scripts/auto_backport/json.py`
+        # (or `sitecustomize.py`) on the applier's `sys.path[0]` would hijack an
+        # `import` and run with the token. `-x` also clears ignored files
+        # (e.g. __pycache__) that could shadow a module.
+        run: |
+          git checkout HEAD -- scripts/auto_backport
+          git clean -ffdx scripts/auto_backport
+
+      # apply_create.py is the ONLY component that holds the write token. It
+      # validates the agent's manifest (branch shape, target allow-list),
+      # sanitizes the agent's clone `.git`, and pushes / opens PRs / labels /
+      # comments via argument arrays.
+      - name: Apply backport manifest
+        if: steps.ctx.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
+          BACKPORT_CONTEXT_FILE: ${{ steps.ctx.outputs.context_file }}
+        run: python3 scripts/auto_backport/apply_create.py
