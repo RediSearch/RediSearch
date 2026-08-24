@@ -249,28 +249,32 @@ impl AnyTimeoutContext {
         // SAFETY: the request timeout is valid for the lifetime guaranteed by the caller.
         match unsafe { (*request_timeout.as_ptr()).kind } {
             ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED => {
-                return Self::NoTimeout(NoTimeoutChecker);
+                Self::NoTimeout(NoTimeoutChecker)
             }
-            ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE => {}
+            ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE => {
+                // SAFETY: the caller keeps the request timeout valid and stable, and this match
+                // arm established CLOCK_DEADLINE as the active union member before projecting its
+                // deadline.
+                let deadline =
+                    unsafe { &raw mut (*request_timeout.as_ptr()).source.clock.deadline };
+                let deadline =
+                    NonNull::new(deadline).expect("projected from a non-null request timeout");
+                // A request without a configured deadline never gains one.
+                // SAFETY: the request timeout is valid and CLOCK_DEADLINE is the active union
+                // member.
+                if duration_from_redis_timespec(unsafe { deadline.read() }).is_none() {
+                    return Self::NoTimeout(NoTimeoutChecker);
+                }
+                // SAFETY: forwarded to the caller by this method's own safety contract, both
+                // clauses.
+                Self::Clock(unsafe { TimeoutContextDeadline::new(deadline, granularity) })
+            }
             ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT => {
                 // SAFETY: the caller keeps the request timeout valid for the returned context.
-                return Self::BlockedClient(unsafe {
-                    TimeoutContextBlockedClient::new(request_timeout)
-                });
+                Self::BlockedClient(unsafe { TimeoutContextBlockedClient::new(request_timeout) })
             }
             kind => panic!("invalid query timeout kind: {kind}"),
         }
-        // SAFETY: the caller keeps the request timeout valid and stable, and the match above
-        // established CLOCK_DEADLINE as the active union member before projecting its deadline.
-        let deadline = unsafe { &raw mut (*request_timeout.as_ptr()).source.clock.deadline };
-        let deadline = NonNull::new(deadline).expect("projected from a non-null request timeout");
-        // A request without a configured deadline never gains one.
-        // SAFETY: the request timeout is valid and CLOCK_DEADLINE is the active union member.
-        if duration_from_redis_timespec(unsafe { deadline.read() }).is_none() {
-            return Self::NoTimeout(NoTimeoutChecker);
-        }
-        // SAFETY: forwarded to the caller by this method's own safety contract, both clauses.
-        Self::Clock(unsafe { TimeoutContextDeadline::new(deadline, granularity) })
     }
 }
 
