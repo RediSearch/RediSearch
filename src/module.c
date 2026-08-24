@@ -3848,6 +3848,11 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     }
   }
 
+  const char *debugPolicyError = coordinatorDebugPolicyError(isDebug && NumShards > 1);
+  if (debugPolicyError) {
+    return RedisModule_ReplyWithError(ctx, debugPolicyError);
+  }
+
   // Coord callback
   ConcurrentCmdHandler dist_callback = RSExecDistAggregate;
 
@@ -3882,12 +3887,6 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return RSAggregateCommand(ctx, argv, argc);
   } else if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
-  }
-
-  const char *debugPolicyError = coordinatorDebugPolicyError(isDebug);
-  if (debugPolicyError) {
-    IndexSpecRef_Release(spec_ref);
-    return RedisModule_ReplyWithError(ctx, debugPolicyError);
   }
 
   // Early TIMEOUT argument parsing, required for block-client timeout.
@@ -4650,6 +4649,11 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     }
   }
 
+  const char *debugPolicyError = coordinatorDebugPolicyError(isDebug && NumShards > 1);
+  if (debugPolicyError) {
+    return RedisModule_ReplyWithError(ctx, debugPolicyError);
+  }
+
   // Coord callback
   void (*dist_callback)(void *) = DistSearchCommandHandler;
 
@@ -4683,12 +4687,6 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RSSearchCommand(ctx, argv, argc);
   } else if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
-  }
-
-  const char *debugPolicyError = coordinatorDebugPolicyError(isDebug);
-  if (debugPolicyError) {
-    IndexSpecRef_Release(spec_ref);
-    return RedisModule_ReplyWithError(ctx, debugPolicyError);
   }
 
   // Early TIMEOUT argument parsing, required for DistSearchBlockClientWithTimeout.

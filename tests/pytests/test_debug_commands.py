@@ -871,20 +871,20 @@ class TestQueryDebugCommands(object):
             return
 
         error = "_FT.DEBUG for Coordinator is only supported with ON_TIMEOUT RETURN"
-        for policy in ('FAIL', 'RETURN-STRICT'):
-            env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', policy).ok()
-            with env.assertResponseError(contained=error):
-                runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
-            # A non-timeout hook is rejected by the same coordinator-level guard. INTERNAL_ONLY
-            # keeps this safe if the guard regresses: normal debug parsing rejects it before CRASH.
-            with env.assertResponseError(contained=error):
-                env.cmd(
-                    *self.basic_debug_query,
-                    'CRASH', 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 2,
-                )
-
-        # Restore the default policy
-        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
+        try:
+            for policy in ('FAIL', 'RETURN-STRICT'):
+                env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', policy).ok()
+                with env.assertResponseError(contained=error):
+                    runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
+                # A harmless non-timeout parser error verifies that the command-level policy
+                # guard runs before debug parameter parsing.
+                with env.assertResponseError(contained=error):
+                    env.cmd(
+                        *self.basic_debug_query,
+                        'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 1,
+                    )
+        finally:
+            env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
 
     def SearchDebug(self):
         self.setBasicDebugQuery("SEARCH")
@@ -1721,7 +1721,7 @@ class ProfileDebugCluster:
                     with env.assertResponseError(contained=error):
                         env.cmd(
                             debug_cmd(), 'FT.PROFILE', 'idx', command_type, 'QUERY', '@t:hello*',
-                            'CRASH', 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 2,
+                            'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 1,
                         )
         finally:
             env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
