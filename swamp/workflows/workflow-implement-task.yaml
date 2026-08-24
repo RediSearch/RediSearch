@@ -1,0 +1,573 @@
+id: a2a94557-2eba-400e-9788-0597656752c3
+name: implement-task
+description: >-
+  The whole implement-task flow in one run: tests, design, approval,
+  implementation, validation, review, pull request.
+
+  This is the entry point. `phase-design` and `phase-implement` are the phases it
+  calls, and they can still be run on their own; what they cannot do on their own
+  is stop between phases, which is what this workflow adds. The gate lives here
+  because a gate belongs *between* two phases, and a gate at the end of a phase's
+  own workflow is a gate after everything it could have stopped has happened.
+
+  The pull request phase is written out here rather than called, because
+  `phase-pr` suspends on its own approval before opening anything and a nested
+  workflow's gate cannot suspend this run. `phase-pr` is therefore left intact
+  and unused by this flow, for running the hand-off on its own with a checkpoint
+  in front of it.
+
+  One gate, on the one decision that changes what gets built: is this the right
+  design to build. Once it is approved the flow runs through to the pull request
+  without stopping, so `ticket` has to be passed at the start rather than at a
+  second gate, and the commits are whatever the implementation phase produced —
+  there is no longer a moment to reorganise them before they become the branch
+  the pull request keeps. What stands in for that checkpoint is what already ran:
+  the change is validated and reviewed until no finding was left unresolved
+  before this workflow opens anything. Run `phase-implement` and `phase-pr`
+  separately when you do want to stop and look before publishing.
+
+  The run suspends at the gate and has to be approved and resumed:
+
+    swamp workflow approvals
+    swamp workflow approve implement-task design-approved
+    swamp workflow resume  implement-task
+
+  Everything the phases need is passed once, here — in particular the task
+  wording, which the three-workflow route makes you retype for each phase and
+  which silently produces three phases working on subtly different tasks when
+  you get it wrong.
+
+  What this costs, against running the phases separately: re-entering a failed
+  run is coarser. `swamp workflow resume --from` targets steps in this run's own
+  DAG, and a phase is one step here, so resuming from `implement` re-runs the
+  implementation agent rather than the build that actually failed. When a phase
+  fails deep inside, resume the phase's own workflow instead — `swamp workflow
+  resume phase-implement --from validate` — and then start this one again from
+  the gate that follows it.
+tags:
+  purpose: implement-task
+inputs:
+  type: object
+  # Declared required rather than left to fail later. Without it the run starts,
+  # gets as far as the first agent call, and dies inside the model on a
+  # `min(1)` string — an invocation error reported as a phase failure, several
+  # minutes in, with a record written for it. Named here it is refused at the
+  # boundary, where the message can say which input is missing.
+  required:
+    - task
+  properties:
+    task:
+      type: string
+      description: >-
+        What to do, in your own words — the module to port, the bug to fix, the
+        feature to add. Passed unchanged to every phase and every agent, so this
+        is the one place it is written.
+    taskType:
+      type: string
+      enum: ["port", "bugfix", "feature"]
+      default: port
+      description: >-
+        Which kind of task this is. It decides whether tests are written up
+        front: `port` and `bugfix` write them first, `feature` skips that phase
+        because there is nothing to write tests against yet.
+    ticket:
+      type: string
+      default: ""
+      description: >-
+        The Jira ticket, e.g. MOD-1234, giving the pull request its
+        `[MOD-xyz] summary` title. Optional: empty opens the pull request under a
+        plain descriptive title instead. Nothing stops between the design gate
+        and the pull request, so a ticket has to be passed at the start or when
+        resuming that gate — after it the flow runs straight through and an empty
+        `ticket` is taken as "there is no ticket".
+    measureCoverage:
+      type: boolean
+      default: false
+      description: >-
+        Measure how well the Python suite covers the code being replaced, before
+        writing tests. Off by default because it is the most expensive step in
+        the flow — an instrumented build plus the whole suite, tens of minutes.
+        The files come from the analysis phase, so turning it on needs no paths.
+    coverageFiles:
+      type: array
+      items:
+        type: string
+      default: []
+      description: >-
+        Override the files whose coverage is measured. Empty uses what the
+        analysis phase found, which is the normal case.
+    reuseCoverageTrace:
+      type: boolean
+      default: false
+      description: >-
+        Report from the coverage trace already on disk instead of measuring
+        again. Measuring costs an instrumented build plus the whole Python
+        suite; re-reporting other files from the same trace costs milliseconds,
+        so this is how you look at a second file after a first measurement.
+        Requires `coverageTraceNotOlderThan`.
+    coverageTraceNotOlderThan:
+      type: string
+      default: ""
+      description: >-
+        ISO 8601 timestamp the reused trace must be at or newer than — take the
+        `capturedAt` of the coverage summary that measured it, which is that
+        trace's own timestamp. Not its `executedAt`: a model stamps that when it
+        finishes recording, which is *after* the trace was written, so passing it
+        back rejects the very trace being reused. Required when
+        `reuseCoverageTrace` is set, and deliberately not defaulted: a trace from
+        an earlier build reports gaps for code that has since changed, and there
+        is no safe default bound for that.
+    expectedPlanPath:
+      type: string
+      default: ""
+      description: >-
+        The design document the implementation must be built against. Left empty
+        the child phase takes the latest design, which is right while one task
+        runs at a time and wrong if another records one between the approval and
+        the resume. The design gate prints the path it is approving, so the way
+        to pin it is to pass it back when resuming that gate — the approval and
+        the pinning are then the same act, which is the only point at which
+        anything knows which design was actually approved.
+    blockingSeverities:
+      type: array
+      items:
+        type: string
+        # Closed, because a value outside it silently weakens the gate rather
+        # than failing: the predicates ask `severity in blockingSeverities`, and
+        # a misspelling of `critical` matches nothing, so every critical finding
+        # reads as non-blocking and the loop settles on a review it should have
+        # rejected. The vocabulary is the reviewer's own, which the model
+        # enforces on the agent — this enforces the other half, on the caller.
+        enum: ["critical", "high", "medium", "low"]
+      default: ["critical", "high", "medium"]
+      description: >-
+        Which finding severities have to be gone before a review loop is done.
+        Passed to every review loop this workflow runs. The default leaves `low`
+        out: a reviewer that has run out of substantive findings reports smaller
+        ones rather than none, and waiting for those to stop is how a loop spends
+        its rounds on things nobody would hold the change for.
+    bugfixReproConfirmed:
+      type: boolean
+      default: false
+      description: >-
+        The bug-fix test still fails for the stated reason after the tests review
+        changed it. Only needed when that review revised the tests; the design
+        phase says so when it stops.
+    specApproved:
+      type: boolean
+      default: false
+      description: >-
+        The change has already been through the repository's spec-driven
+        workflow — GitHub issue, proposal, design, tasks and spec delta, each
+        reviewed by a maintainer. Only set this when that actually happened: it
+        is the one thing that lets a design flagged as a large change past the
+        gate, and the gate exists because nothing in this flow can stand in for
+        maintainer review.
+    coordinator:
+      type: boolean
+      default: false
+      description: >-
+        Also run the cluster suite during validation. Set this for changes under
+        src/coord/, the distributed hybrid, or the Map-Reduce layer.
+    revalidateAfterReview:
+      type: boolean
+      default: true
+      description: >-
+        Run the full validation again after the code review. On by default: the
+        review usually changes code, and validating before those changes is not
+        validating the thing being approved.
+    agentRunner:
+      type: string
+      enum: ["claude", "amp"]
+      default: amp
+      description: >-
+        Which coding agent runs the phases. The flow is the same either way —
+        the same phases, the same prompts, the same gates — and what differs is
+        how the answer is obtained: `claude` is made to answer in each phase's
+        schema, `amp` is given it in the prompt and checked afterwards. Every
+        result records which ran it, and whether the shape was enforced or
+        merely checked.
+    agentModel:
+      type: string
+      default: ""
+      description: Model to run the agents on. Empty inherits the CLI's default.
+    permissionMode:
+      type: string
+      default: auto
+      description: Permission mode for the agents. `auto` matches an interactive session.
+    timeout:
+      type: integer
+      default: 3600000
+      description: Timeout for a single agent run, in milliseconds.
+jobs:
+  - name: task
+    description: The phases, the gates between them, and the hand-off
+    # The phases share the checkout and the Cargo build-directory lock, so they
+    # run one at a time. They are a linear chain anyway; this is the backstop.
+    concurrency: 1
+    steps:
+      - name: design
+        description: >-
+          Phases 1 and 2: the tests the change is measured against, then the
+          design, each reviewed until nothing is left unresolved.
+        task:
+          type: workflow
+          workflowIdOrName: phase-design
+          inputs:
+            task: ${{ inputs.task }}
+            taskType: ${{ inputs.taskType }}
+            blockingSeverities: ${{ inputs.blockingSeverities }}
+            # Stamped on what the phase records, so the gate below prints the
+            # path of the design this run produced rather than the newest one.
+            label: ${{ run.id }}
+            specApproved: ${{ inputs.specApproved }}
+            bugfixReproConfirmed: ${{ inputs.bugfixReproConfirmed }}
+            measureCoverage: ${{ inputs.measureCoverage }}
+            coverageFiles: ${{ inputs.coverageFiles }}
+            reuseCoverageTrace: ${{ inputs.reuseCoverageTrace }}
+            coverageTraceNotOlderThan: ${{ inputs.coverageTraceNotOlderThan }}
+            agentRunner: ${{ inputs.agentRunner }}
+            agentModel: ${{ inputs.agentModel }}
+            permissionMode: ${{ inputs.permissionMode }}
+            timeout: ${{ inputs.timeout }}
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+
+      - name: design-approved
+        description: >-
+          The one decision: is this the right design to build.
+
+          It sits here rather than at the end of the design workflow because
+          this is where it bites — the next step spawns an agent that writes
+          code against this document for as long as an hour, and nothing after
+          it stops again before the pull request is open.
+        task:
+          type: manual_approval
+          prompt: >-
+            The design has been reviewed until no findings remained. Read it
+            before approving — the implementation is measured against this
+            document and not against the task description.
+
+            Read the design with:
+              swamp data get task-design-agent --json
+            and the review that cleared it with:
+              swamp data get design-reviewer --json
+
+            A design that reports an `overallPlanPath` was judged too big to
+            land as one pull request. That document is the map — the ordered
+            subtasks and what each delivers — and `planPath` designs the first
+            of them only. Read both, and read `subtask` for what this run
+            actually delivers: approving starts an implementation of that first
+            subtask and nothing else, and the rest are runs of their own,
+            designed against the code as this one leaves it.
+
+            Approving starts the implementation, which will write code, commit
+            it, validate it, review it, and then open a pull request. This is
+            the last time the run stops, so approve it knowing that a pull
+            request is what comes out the other end. If the change has a Jira
+            ticket and you did not pass it at the start, add
+            `--input ticket=MOD-1234` when resuming; without one the pull
+            request is opened under a plain title.
+
+            Approve with:
+              swamp workflow approve implement-task design-approved
+              swamp workflow resume  implement-task --input expectedPlanPath=${{ data.query('modelName == "task-design-agent" && name == "design" && version >= 0 && attributes.agent.label == "' + run.id + '"')[data.query('modelName == "task-design-agent" && name == "design" && version >= 0 && attributes.agent.label == "' + run.id + '"').size() - 1].attributes.planPath }}
+
+            That input is the design *this run* produced — selected by the label
+            this run stamped on it, not by which design is newest, because this
+            prompt is rendered while the run is suspended and another task can
+            record one in that window. A path printed from "latest" would then be
+            somebody else's document, pasted back as the one you approved.
+
+            Pass it back and the implementation refuses to start against any
+            other. Without it the next phase takes whatever design is latest when
+            it runs.
+
+            Reject with:
+              swamp workflow reject implement-task design-approved --reason "..."
+        dependsOn:
+          - step: design
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: implement
+        description: >-
+          Phases 3 to 5: implement the approved design, run the full validation,
+          then review the code until nothing is left unresolved.
+        task:
+          type: workflow
+          workflowIdOrName: phase-implement
+          inputs:
+            task: ${{ inputs.task }}
+            coordinator: ${{ inputs.coordinator }}
+            taskType: ${{ inputs.taskType }}
+            blockingSeverities: ${{ inputs.blockingSeverities }}
+            expectedPlanPath: ${{ inputs.expectedPlanPath }}
+            # The gate above prints the path it is approving. Resuming without
+            # it means nothing ties the implementation to the design that was
+            # read, so this refuses rather than taking whichever design is
+            # newest by the time the child starts.
+            requirePinnedDesign: true
+            # And the path alone does not say whose design it is. Resumed with
+            # another task's path — a stale command, a line pasted from another
+            # run's gate — the child would find a design with a settled review
+            # of its own and implement that, under this run's approval. The
+            # design phase below is stamped with this run's id, so requiring the
+            # same stamp here is what makes the pin mean "the design this run
+            # produced and this run's operator approved".
+            expectedDesignLabel: ${{ run.id }}
+            # Stamped on what the phase records, so the hand-off below reads
+            # this run's implementation and not whichever one is newest by the
+            # time it runs — another task can record one while this phase works.
+            label: ${{ run.id }}
+            revalidateAfterReview: ${{ inputs.revalidateAfterReview }}
+            agentRunner: ${{ inputs.agentRunner }}
+            agentModel: ${{ inputs.agentModel }}
+            permissionMode: ${{ inputs.permissionMode }}
+            timeout: ${{ inputs.timeout }}
+        dependsOn:
+          - step: design-approved
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: open-pr
+        description: >-
+          Phase 6: open the pull request from the repository's template.
+
+          Written out here rather than delegated to `phase-pr`, because that
+          workflow suspends on its own approval before opening anything and a
+          nested workflow's gate cannot suspend this run. Calling it would leave
+          the run waiting on an approval nobody can reach.
+        task:
+          type: model_method
+          modelType: "@gdesmott/agent-task"
+          modelName: task-pr-agent
+          methodName: pr
+          globalArgs:
+            # The agent works on the checkout, not on the swamp repository
+            # directory this workflow lives in — one level up from it.
+            workingDir: '..'
+            runner: ${{ inputs.agentRunner }}
+            model: ${{ inputs.agentModel }}
+            permissionMode: ${{ inputs.permissionMode }}
+            timeout: ${{ inputs.timeout }}
+          inputs:
+            task: ${{ inputs.task }}
+            # The tree the code review settled on, and nothing else. `phase-pr`
+            # pins this and the hand-off written out here has to as well:
+            # without it the agent is told to sort out a dirty working copy —
+            # which means committing it — and anything left in the checkout
+            # after the implementation phase finished would be pushed having
+            # been neither reviewed nor validated. The verification that follows
+            # cannot see it either, because it compares GitHub against the
+            # revision this phase itself ended on.
+            #
+            # This run's clean code review, by the stamp the implementation
+            # phase was given, so a review of another task's work cannot pin
+            # this one's hand-off. Empty when no such review recorded a tree —
+            # a record written before the model recorded one — and empty means
+            # the model runs against whatever is there, as it did before this
+            # existed.
+            expectedTree: >-
+              ${{ (data.query('modelName == "code-reviewer" && name == "review" && version >= 0 && attributes.succeeded == true && attributes.agent.label == "' + run.id + '"').filter(r, !r.attributes.?findings.orValue([]).exists(f, f.?severity.orValue("low") in inputs.blockingSeverities)).size() == 0 ? "" : data.query('modelName == "code-reviewer" && name == "review" && version >= 0 && attributes.succeeded == true && attributes.agent.label == "' + run.id + '"').filter(r, !r.attributes.?findings.orValue([]).exists(f, f.?severity.orValue("low") in inputs.blockingSeverities))[data.query('modelName == "code-reviewer" && name == "review" && version >= 0 && attributes.succeeded == true && attributes.agent.label == "' + run.id + '"').filter(r, !r.attributes.?findings.orValue([]).exists(f, f.?severity.orValue("low") in inputs.blockingSeverities)).size() - 1].attributes.agent.?treeDigest.orValue("")) }}
+            context:
+              ticket: ${{ inputs.ticket }}
+              # Named records, not the newest in the store and not a time
+              # window either. The design gate suspends — for minutes or days —
+              # and anything recorded in that window is newer than this run
+              # started, so a bound of "after this run began" admits another
+              # task's design and another task's implementation and hands them
+              # to the agent that writes the pull request.
+              #
+              # Both phases are child runs, so `workflowRunId` cannot reach
+              # them. What can: the design is the document the gate above
+              # printed and the operator passed back, identified by its path;
+              # and the implementation is stamped with this run's id, which is
+              # what `label` is passed to `phase-implement` for.
+              design: >-
+                ${{ (data.query('modelName == "task-design-agent" && name == "design" && version >= 0').filter(d, d.attributes.planPath == inputs.expectedPlanPath).size() == 0 ? null : data.query('modelName == "task-design-agent" && name == "design" && version >= 0').filter(d, d.attributes.planPath == inputs.expectedPlanPath)[data.query('modelName == "task-design-agent" && name == "design" && version >= 0').filter(d, d.attributes.planPath == inputs.expectedPlanPath).size() - 1].attributes) }}
+              implementation: >-
+                ${{ (data.query('modelName == "task-implementer" && name == "implementation" && version >= 0 && attributes.agent.label == "' + run.id + '"').size() == 0 ? null : data.query('modelName == "task-implementer" && name == "implementation" && version >= 0 && attributes.agent.label == "' + run.id + '"')[data.query('modelName == "task-implementer" && name == "implementation" && version >= 0 && attributes.agent.label == "' + run.id + '"').size() - 1].attributes) }}
+            instructions: >-
+              The Jira ticket is "${{ inputs.ticket }}". If that is empty, there
+              is no ticket: open the pull request anyway, under a plain
+              descriptive title with no [MOD-xyz] prefix. Do not invent a ticket
+              id and do not stop over a missing one.
+
+              The design is not part of the pull request. The document this
+              change was built against is
+              ${{ inputs.expectedPlanPath == "" ? "whatever the design in the context names" : inputs.expectedPlanPath }},
+              and a split task has its overall plan beside it; they were
+              committed as one change of their own, which currently sits under
+              the work. Before you create the bookmark, lift that change to sit
+              directly after the tip of the implementation —
+              `jj rebase -r <that change> --insert-after <tip>` — point the
+              bookmark at the tip and push that, so the branch ends at the
+              implementation and the design is not on it. Under plain git the
+              shape is the same: the branch you push ends at the work, and the
+              design's commit stays local above it.
+
+              Then leave the working copy as a new empty change on that same tip
+              — `jj new <tip>` — so the checkout is on the commit you pushed. A
+              gate after this compares the two, and it is the pushed tip it
+              expects to find, not the document's change sitting on top of it.
+              Nothing is lost by that: the documents stay in that change, and
+              `jj new <that change>` puts them back on disk.
+
+              Moving that one change is the only history change allowed here.
+              Otherwise do not amend, rebase, squash, or force-push: the commits
+              as they stand are what the pull request keeps, and lifting the
+              design change out from under them rewrites their ids without
+              touching their content.
+        dependsOn:
+          - step: implement
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: pull-request-opened
+        description: >-
+          A pull request actually exists.
+
+          The agent reports a refusal as a blocker rather than as a failure, so
+          an agent that decided not to open one — for whatever reason it gives —
+          exits successfully. Without this the run would end green having
+          published nothing, which is the one outcome indistinguishable from
+          success by every other signal here.
+
+          The URL has to be non-empty as well as non-null. The model validates
+          it as a URL, so an empty one cannot be recorded by a current agent —
+          but this reads whatever is in the store, including a record written
+          before that validation existed, and "" is exactly the shape a refusal
+          takes when it is reported as a success.
+        task:
+          type: assert
+          expr: >-
+            data.query('modelName == "task-pr-agent" && name == "pullrequest" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "task-pr-agent" && name == "pullrequest" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.prUrl != null && data.query('modelName == "task-pr-agent" && name == "pullrequest" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "task-pr-agent" && name == "pullrequest" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.prUrl != ""
+          message: >-
+            No pull request was opened:
+            ${{ data.query('modelName == "task-pr-agent" && name == "pullrequest" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "task-pr-agent" && name == "pullrequest" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.summary }}
+          severity: high
+        dependsOn:
+          - step: open-pr
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: verify-pull-request
+        description: >-
+          Read back the pull request the agent says it opened.
+
+          Everything up to here is the agent's own account. `gh pr create` can
+          fail — a protected branch, a push that did not land, a repository the
+          token cannot write — and a phase that reports success with a plausible
+          URL is indistinguishable from one that published something, which is
+          the failure the assert above was written for and cannot see: it checks
+          that a URL was reported, not that anything is behind it.
+
+          Costs one `gh` call and no build, which is the right price for the
+          only step that establishes the work left this machine at all.
+        task:
+          type: model_method
+          modelType: "@gdesmott/github-pr-status"
+          modelName: pr-status
+          methodName: check
+          globalArgs:
+            # `gh` works out which repository it is talking about from the
+            # directory it runs in, and that is the checkout — not the swamp
+            # repository directory this workflow lives in, one level down.
+            workingDir: '..'
+          inputs:
+            # The URL the agent reported, not whatever `gh` would infer from the
+            # branch: inferring it would find a pull request whether or not this
+            # phase opened one, which is the question being asked.
+            pr: >-
+              ${{ data.query('modelName == "task-pr-agent" && name == "pullrequest" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "task-pr-agent" && name == "pullrequest" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.prUrl }}
+        dependsOn:
+          - step: pull-request-opened
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: pull-request-carries-the-work
+        description: >-
+          What is behind that URL is this run's work.
+
+          Three things, and the last two are what a URL cannot show. `found`
+          says a pull request is there at all, which rules out an invented or
+          mistyped link and a `gh pr create` that failed.
+
+          It has to belong to this repository. `gh pr view` takes a URL and
+          answers about whatever repository that URL names, so a link to a fork
+          — which shares every commit id with its parent — comes back found,
+          with the right head, and against a pull request nobody here opened.
+          The comparison is the `owner/name` in the pull request's own URL
+          against the one the checkout resolves to.
+
+          Both have to be known, and an unknown one fails rather than being
+          waived. Skipping the comparison when either is empty is the same
+          check with an off switch: a URL naming another repository, answered by
+          a `gh pr view` that worked, alongside a `gh repo view` that did not —
+          no remote configured, say — reads as permission to accept it. Neither
+          absence is an ordinary state once `found` holds: `gh` evidently works,
+          since it just answered about the pull request, and the repository is
+          read out of GitHub's own canonical URL for it rather than out of
+          anything an agent wrote. So an empty side means something is wrong
+          with the checkout or with an assumption here, and the answer to that
+          is to say so.
+
+          And its head has to be the commit this phase ended on — otherwise the
+          URL names some other pull request in this same repository, or one
+          whose branch never received the push, and the CI phase that follows
+          would poll a pull request that carries none of the work this flow
+          validated.
+
+          Compared against `agent.revision`, which the model reads from the
+          checkout rather than taking from the agent, so this is one recorded
+          fact against another rather than a claim against itself. That holds
+          only because the hand-off is told to leave the checkout on the commit
+          it pushed: the design document ends up in a change above that tip, and
+          a working copy left as its child would put the document's change at
+          HEAD instead and fail this on a pull request that is perfectly
+          correct. Skipped when
+          either side is empty — a record written before the model recorded a
+          revision, or a checkout git could not read — which leaves the existence
+          check standing on its own, as it did before.
+        task:
+          type: assert
+          expr: >-
+            data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.found
+            && data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.?prRepository.orValue("") != "" && data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.?repository.orValue("") != "" && data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.prRepository == data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.repository
+            && (data.query('modelName == "task-pr-agent" && name == "pullrequest" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "task-pr-agent" && name == "pullrequest" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.agent.?revision.orValue("") == "" || data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.headSha == null || data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.headSha == data.query('modelName == "task-pr-agent" && name == "pullrequest" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "task-pr-agent" && name == "pullrequest" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.agent.revision)
+          message: >-
+            The pull request at ${{ data.query('modelName == "task-pr-agent" && name == "pullrequest" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "task-pr-agent" && name == "pullrequest" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.prUrl }} is not this run's work:
+            GitHub reports found=${{ data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.found }}, repository
+            ${{ data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.?prRepository.orValue("unknown") }} against this checkout's
+            ${{ data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.?repository.orValue("unknown") }}, and head
+            ${{ data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "pr-status" && name == "status" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.headSha }} against the ${{ data.query('modelName == "task-pr-agent" && name == "pullrequest" && version >= 0 && workflowRunId == "' + run.id + '"')[data.query('modelName == "task-pr-agent" && name == "pullrequest" && version >= 0 && workflowRunId == "' + run.id + '"').size() - 1].attributes.agent.?revision.orValue("unknown") }}
+            this phase ended on. Either nothing was opened and the URL is the
+            agent's word for it, or it names a pull request in another
+            repository — a fork shares every commit id with its parent — or a
+            different one here. An "unknown" above is its own answer: the
+            identity could not be established, which is not the same as its
+            being right. Look at it before anything downstream starts polling
+            it.
+          severity: high
+        dependsOn:
+          - step: verify-pull-request
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+    dependsOn: []
+    weight: 0
+version: 1
