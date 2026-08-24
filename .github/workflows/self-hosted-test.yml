@@ -42,7 +42,7 @@ jobs:
     #  - ghr-ec2-ebs-volume-size:100
     #runs-on: [self-hosted, ubuntu-2204-x64-xl]
     runs-on:
-      - ${{ matrix.v2 }}
+      - ${{ matrix.runner }}
       - ghr-ec2-ebs-volume-size:8
 
     # Steps represent a sequence of tasks that will be executed as part of the job
