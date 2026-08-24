@@ -97,8 +97,9 @@ static void Cursor_FreeInternal(Cursor *cur) {
   kh_del(cursors, cl->lookup, khi);
   RS_LOG_ASSERT(kh_get(cursors, cl->lookup, cur->id) == kh_end(cl->lookup),
                                                     "Failed to delete cursor");
+  RS_ASSERT(!cur->query || !cur->query->blockedClientCycleActive);
   if (cur->query) {
-    QueryRequest_DecrRef(cur->query);
+    QueryRequest_Free(cur->query);
     cur->query = NULL;
   }
   // if There's a spec associated with the cursor

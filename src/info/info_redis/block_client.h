@@ -38,11 +38,11 @@ struct QueryRequest;
 
 /* Bind the per-cycle fields on `request`. Called on the main thread after
  * RedisModule_BlockClient returned `bc` (with QueryRequest_OnFree
- * registered as free_privdata) and before dispatching BG work. Takes the
- * cycle's reference on the request, links it into the BlockedQueries query
- * registry (crash reports), sets `request` as the blocked client's privdata,
- * and records the cycle's reply mode (`reply_cb` must be the value that was
- * passed to RedisModule_BlockClient). */
+ * registered as free_privdata) and before dispatching BG work. Takes
+ * ownership of the request (it becomes the blocked client's privdata — see
+ * the ownership contract on QueryRequest), links it into the BlockedQueries
+ * query registry (crash reports), and records the cycle's reply mode
+ * (`reply_cb` must be the value that was passed to RedisModule_BlockClient). */
 void QueryRequest_BeginCycle(struct QueryRequest *request, RedisModuleBlockedClient *bc,
                              RedisModuleCmdFunc reply_cb);
 
@@ -50,13 +50,14 @@ void QueryRequest_BeginCycle(struct QueryRequest *request, RedisModuleBlockedCli
 void QueryRequest_BeginCursorCycle(struct QueryRequest *request, RedisModuleBlockedClient *bc,
                                    RedisModuleCmdFunc reply_cb);
 
-/* Unlink the request from the registry and clear the per-cycle fields. Called
- * from OnFree; callable directly only in tests. */
+/* End the cycle: unlink the request from the registry, drain unconsumed
+ * per-cycle reply state, then dispose of the request — execute the recorded
+ * cursor disposition, or free it. Called from OnFree. */
 void QueryRequest_EndCycle(struct QueryRequest *request);
 
 /* The free_privdata callback registered with RedisModule_BlockClient. Runs on
  * the main thread after the reply or timeout callback, before the blocked
- * client is destroyed. Ends the cycle and releases the cycle's request hold. */
+ * client is destroyed; delegates to QueryRequest_EndCycle. */
 void QueryRequest_OnFree(RedisModuleCtx *ctx, void *privdata);
 
 /* Shutdown-only: run the pending cycle end (QueryRequest_OnFree) for every

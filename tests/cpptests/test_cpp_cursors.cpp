@@ -170,10 +170,72 @@ TEST_F(CursorsTest, OwnershipAPI) {
 
 }
 
+// A cursor owns its carried request: every path that frees the cursor must
+// free the request exactly once (leaks and double frees surface under ASAN).
+TEST_F(CursorsTest, CarriedRequestOwnership) {
+  StrongRef dummy = {0};
+  const size_t base = Cursors_GetInfoStats().total_user;
+
+  // Freeing a cursor frees its carried request.
+  AREQ *r = AREQ_New(NULL, 0);
+  Cursor *cur = Cursors_Reserve(&g_CursorsList, dummy, 1000, NULL);
+  ASSERT_TRUE(cur != NULL);
+  cur->query = &r->base;
+  ASSERT_EQ(Cursor_Free(cur), REDISMODULE_OK);
+  ASSERT_EQ(Cursors_GetInfoStats().total_user, base);
+
+  // A delete-marked cursor (CURSOR DEL / list purge mid-cycle) converts its
+  // park into a free, which must also free the carried request.
+  r = AREQ_New(NULL, 0);
+  cur = Cursors_Reserve(&g_CursorsList, dummy, 1000, NULL);
+  ASSERT_TRUE(cur != NULL);
+  cur->query = &r->base;
+  ASSERT_EQ(Cursors_Purge(&g_CursorsList, cur->id), REDISMODULE_OK);
+  ASSERT_TRUE(cur->delete_mark);
+  ASSERT_EQ(Cursor_Pause(cur), REDISMODULE_OK) << "Pause must convert to free";
+  ASSERT_EQ(Cursors_GetInfoStats().total_user, base);
+}
+
+// EndCycle executes the recorded disposition: PAUSE parks the cursor (which
+// keeps owning its carried request); the FREE default tears down cursor and
+// request.
+TEST_F(CursorsTest, EndCycleExecutesRecordedDisposition) {
+  StrongRef dummy = {0};
+  const size_t base = Cursors_GetInfoStats().total_user;
+
+  // PAUSE: the cursor is parked back into the idle list.
+  AREQ *r = AREQ_New(NULL, 0);
+  Cursor *cur = Cursors_Reserve(&g_CursorsList, dummy, 1000, NULL);
+  ASSERT_TRUE(cur != NULL);
+  cur->query = &r->base;
+  r->base.blockedClientCycleActive = true;
+  r->base.cursorInfo.cursor = cur;
+  r->base.cursorInfo.disposition = CURSOR_DISPOSITION_PAUSE;
+  QueryRequest_EndCycle(&r->base);
+  ASSERT_TRUE(is_Idle(cur));
+  ASSERT_EQ(Cursors_GetInfoStats().total_user, base + 1);
+  ASSERT_EQ(Cursor_Free(cur), REDISMODULE_OK) << "Owner free: cursor + request";
+  ASSERT_EQ(Cursors_GetInfoStats().total_user, base);
+
+  // FREE is the per-cycle default: a cycle that recorded no PAUSE (e.g. the
+  // timeout replied without exposing a live cursor id) tears down the
+  // published cursor and its carried request, never parks them.
+  r = AREQ_New(NULL, 0);
+  cur = Cursors_Reserve(&g_CursorsList, dummy, 1000, NULL);
+  ASSERT_TRUE(cur != NULL);
+  cur->query = &r->base;
+  r->base.blockedClientCycleActive = true;
+  r->base.cursorInfo.cursor = cur;
+  ASSERT_EQ(r->base.cursorInfo.disposition, CURSOR_DISPOSITION_FREE);
+  QueryRequest_EndCycle(&r->base);
+  ASSERT_EQ(Cursors_GetInfoStats().total_user, base);
+}
+
 // Shutdown unwind: cycles whose queued free-privdata callback never drains
 // (module cleanup runs inside the SHUTDOWN event, before the event loop can
 // run it) are completed by BlockedQueries_UnwindCycles — both registry lists
-// empty and each cycle's request hold is released (leaks surface under ASAN).
+// empty and each cycle's request is freed by its cycle end (leaks and double
+// frees surface under ASAN).
 TEST_F(CursorsTest, UnwindCyclesCompletesPendingOnFree) {
   if (!MainThread_GetBlockedQueries()) {
     ASSERT_EQ(MainThread_InitBlockedQueries(), 0);
@@ -182,11 +244,11 @@ TEST_F(CursorsTest, UnwindCyclesCompletesPendingOnFree) {
   ASSERT_TRUE(bq != NULL);
 
   // Two lingering cycles, one per registry list. Mirrors BeginCycle's
-  // registry effects without a blocked client (none exists in unit tests).
+  // registry effects without a blocked client (none exists in unit tests);
+  // the cycle owns each request, so the unwind frees them.
   AREQ *reqs[2] = {AREQ_New(NULL, 0), AREQ_New(NULL, 0)};
   DLLIST *lists[2] = {&bq->queries, &bq->cursors};
   for (int i = 0; i < 2; i++) {
-    QueryRequest_IncrRef(&reqs[i]->base);
     reqs[i]->base.blockedClientCycleActive = true;
     reqs[i]->base.registryInfo.cycle_start = time(NULL);
     dllist_prepend(lists[i], &reqs[i]->base.registryInfo.node);
@@ -196,9 +258,4 @@ TEST_F(CursorsTest, UnwindCyclesCompletesPendingOnFree) {
 
   ASSERT_TRUE(DLLIST_IS_EMPTY(&bq->queries));
   ASSERT_TRUE(DLLIST_IS_EMPTY(&bq->cursors));
-  for (int i = 0; i < 2; i++) {
-    ASSERT_FALSE(RegistryInfo_IsLinked(&reqs[i]->base.registryInfo));
-    ASSERT_FALSE(reqs[i]->base.blockedClientCycleActive);
-    QueryRequest_DecrRef(&reqs[i]->base);  // release the creator's hold
-  }
 }

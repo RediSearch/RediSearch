@@ -1,10 +1,11 @@
-"""Shared helpers for the auto-backport resolve scripts.
+"""Shared helpers for the auto-backport resolve and apply scripts.
 
 These scripts are invoked from .github/workflows/task-backport_pr-agent.yml
 and .github/workflows/task-backport_pr-agent-fix.yml. Each workflow's
 resolve step calls one of resolve_create.py or resolve_fix.py, which both
 rely on this module for gh CLI access, $GITHUB_OUTPUT writing, and PR
-fetching.
+fetching; each apply step drives its writes through `PrivilegedGit` below,
+which is the single owner of the token-holding git path.
 
 The scripts assume:
 - `gh` is installed and authenticated via env (GH_TOKEN, GH_REPO).
@@ -13,12 +14,17 @@ The scripts assume:
   __future__ imports; we use `from __future__ import annotations`
   in the callers anyway).
 
-Keep this module deliberately tiny — these helpers exist so the resolve
-scripts read as logic rather than subprocess plumbing.
+Keep this module deliberately tiny, and stdlib-only: it runs on the runner's
+system python3 with no `pip install` step, which is deliberate — the apply
+steps that import it hold the GitHub App write token, and a third-party
+dependency there would be a supply-chain surface on the most privileged step
+in the flow. These helpers exist so the callers read as logic rather than
+subprocess plumbing.
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import shutil
@@ -64,6 +70,104 @@ def sanitize_git_dir(work: str, repo: str) -> None:
             f'[remote "origin"]\n\turl = https://github.com/{repo}\n'
             "\tfetch = +refs/heads/*:refs/remotes/origin/*\n"
         )
+
+
+class PrivilegedGit:
+    """The only sanctioned way to run git in an agent-produced clone while
+    holding the write token.
+
+    Both appliers used to carry their own copy of this plumbing — a `git()`
+    wrapper plus a `configure_push_auth()` — and relied on each call site
+    remembering to sanitize `.git` first and to pass `--no-verify` on every
+    push. That contract lived in comments, which is exactly the kind of
+    invariant that rots. Here it is structural instead:
+
+    - **Constructing** the object *is* the security boundary: it sanitizes the
+      clone (hooks + local config, see `sanitize_git_dir`) and only then installs
+      the push credential, so no caller can reach a push without both having
+      happened.
+    - `push_ref` / `delete_ref` are the only push paths, and they hard-code
+      `--no-verify` and a fully-qualified refspec. The generic `__call__`
+      *refuses* `push`, so a future edit can't quietly add an unhardened one.
+    - Every invocation is an argument array under `SAFE_GIT_ENV` — never a
+      shell-interpolated string, since the branch/target names originate in
+      agent-authored JSON.
+
+    Deliberately no GitPython: these scripts run on the runner's system
+    `python3` with zero third-party deps, and a `pip install` inside the
+    token-holding step would add a supply-chain surface to the one step this
+    whole design exists to harden. The security properties here are all *exact
+    invocation control* (`GIT_CONFIG_GLOBAL`/`SYSTEM`, `GIT_ALLOWED_PROTOCOLS`,
+    `--no-verify`, `--force-with-lease=<ref>:<sha>`, `extraheader` basic auth) —
+    precisely what an SDK abstracts away and makes harder to audit.
+
+    `dry_run=True` skips the mutating setup (sanitize + auth) and refuses pushes,
+    so the read-only pre-flight still exercises the real code path.
+    """
+
+    def __init__(self, work: str, repo: str, token: str, *,
+                 dry_run: bool = False) -> None:
+        self.work = work
+        self.dry_run = dry_run
+        if not dry_run:
+            sanitize_git_dir(work, repo)
+            self._configure_push_auth(token)
+
+    def __call__(self, *args: str, check: bool = True) -> subprocess.CompletedProcess:
+        """Run `git -C <work> <args>` under the sanitized env.
+
+        Pushes are rejected: they must go through `push_ref` / `delete_ref` so
+        the `--no-verify` and refspec hardening can't be bypassed.
+        """
+        if args and args[0] == "push":
+            raise ValueError("use PrivilegedGit.push_ref()/delete_ref() for pushes")
+        return self._run(*args, check=check)
+
+    def _run(self, *args: str, check: bool = True) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", "-C", self.work, *args],
+                              capture_output=True, text=True, check=check,
+                              env=SAFE_GIT_ENV)
+
+    def _configure_push_auth(self, token: str) -> None:
+        """Wire the App token as the push credential for the clone's origin.
+
+        GitHub App tokens must be presented as HTTP basic `x-access-token:<token>`;
+        a bearer header is rejected. Done here rather than in the agent's step so
+        the token never enters the agent's environment.
+        """
+        header = "AUTHORIZATION: basic " + base64.b64encode(
+            f"x-access-token:{token}".encode()).decode()
+        self._run("config", "http.https://github.com/.extraheader", header)
+
+    # -- the only two push paths ---------------------------------------------
+
+    def push_ref(self, branch: str) -> subprocess.CompletedProcess:
+        """Plain (non-force) push of `branch` to the same name on origin.
+
+        `--no-verify` plus the sanitized `.git` mean no agent-installed hook or
+        config runs during this token-holding push. The refspec is spelled out
+        in full so an agent-supplied name can't be resolved as anything but a
+        branch.
+        """
+        self._refuse_in_dry_run("push")
+        return self._run("push", "--no-verify", "origin",
+                         f"refs/heads/{branch}:refs/heads/{branch}", check=False)
+
+    def delete_ref(self, branch: str, expect_sha: str) -> subprocess.CompletedProcess:
+        """Delete `branch` on origin, leased to `expect_sha`.
+
+        Used to clean up a ref we just pushed when the follow-up PR creation
+        failed. `--force-with-lease` means that if anything updated the branch in
+        the meantime the delete is refused rather than dropping that newer commit.
+        """
+        self._refuse_in_dry_run("delete")
+        return self._run("push", "--no-verify",
+                         f"--force-with-lease=refs/heads/{branch}:{expect_sha}",
+                         "origin", f":refs/heads/{branch}", check=False)
+
+    def _refuse_in_dry_run(self, what: str) -> None:
+        if self.dry_run:
+            raise AssertionError(f"dry run attempted a real {what}")
 
 
 # ---- workflow log / outputs --------------------------------------------------
