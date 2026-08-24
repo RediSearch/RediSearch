@@ -822,10 +822,8 @@ where
     }
 
     fn num_estimated(&self) -> usize {
-        // The live reader's `unique_docs()` is unavailable once weakened, so we
-        // return the snapshot cached at construction (see `num_docs`). This
-        // matches the active `num_estimated` and keeps FT.PROFILE introspection
-        // of a suspended iterator meaningful.
+        // The live reader's `unique_docs()` is unavailable once weakened, so
+        // return the snapshot cached at construction (see `num_docs`).
         self.num_docs_field() as usize
     }
 }
