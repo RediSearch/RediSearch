@@ -1544,11 +1544,10 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
   return REDISMODULE_OK;
 }
 
-// Check if a single FieldSpec has a multi-value JSONPath.
+// Check if a FieldSpec is backed by a multi-value JSONPath.
 // This request-time validation is used only for JSON HIGHLIGHT/SUMMARIZE fields.
-// Returns true if the field is a TEXT field with a multi-value JSONPath.
-static bool fieldSpecIsMultiValueText(const FieldSpec *fs) {
-  if (!fs || !FIELD_IS(fs, INDEXFLD_T_FULLTEXT) || !fs->fieldPath) {
+static bool fieldSpecIsMultiValueJsonPath(const FieldSpec *fs) {
+  if (!fs || !fs->fieldPath) {
     return false;
   }
   RedisModuleString *err_msg = NULL;
@@ -1607,7 +1606,7 @@ static int AREQ_HasMultiValueHighlightFields(const AREQ *req, const IndexSpec *i
       continue;
     }
     const FieldSpec *fs = getHighlightFieldSpec(index, rf);
-    if (jsonPathIsMultiValue(rf->path) || (fs && fieldSpecIsMultiValueText(fs))) {
+    if (jsonPathIsMultiValue(rf->path) || (fs && fieldSpecIsMultiValueJsonPath(fs))) {
       hasMultiValue = true;
       break;
     }
