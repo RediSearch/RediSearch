@@ -898,14 +898,14 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
       &readTemplate,
       &(MRIteratorConfig){
         .successCB = netCursorCallback,
-      },
+      }
     );
     MRIterator *vsimIt = MR_CreateIterator(
       &readTemplate,
       &(MRIteratorConfig){
         .successCB = netCursorCallback,
         .ioRuntime = MRIterator_GetIORuntime(searchIt),
-      },
+      }
     );
 
     HybridArmingCtx *armingCtx = rm_calloc(1, sizeof(*armingCtx));
@@ -922,7 +922,7 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
         .cbPrivateDataDestructor = HybridArmingCtx_Free,
         .commandModifier = knnCtx ? HybridKnnCommandModifier : NULL,
         .ioRuntime = MRIterator_GetIORuntime(searchIt),
-      },
+      }
     );
 
     // Hand the read iterators (and read-shaped commands) to their RPNets
