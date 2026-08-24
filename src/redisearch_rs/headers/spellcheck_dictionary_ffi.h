@@ -64,8 +64,9 @@ void SpellCheckDictionaryIterator_Free(struct SpellCheckDictionaryIterator *it);
  *    [`SpellCheckDictionaryIterator`].
  * 2. `str` and `len` must be [valid], non-null pointers to writable
  *    locations.
- * 3. The [`SpellCheckDictionary`] the iterator was obtained from must
- *    still be alive, with no mutating call on it running concurrently.
+ * 3. If `it` came from [`SpellCheckDictionary_IterateAll`], the
+ *    [`SpellCheckDictionary`] it borrows must still be alive, with no
+ *    mutating call on it running concurrently.
  * 4. No other call on `it` may run concurrently with this call.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -83,7 +84,8 @@ int SpellCheckDictionaryIterator_Next(struct SpellCheckDictionaryIterator *it, c
  * 1. `dict` must be a [valid], non-null pointer obtained from
  *    [`SpellCheckDictionary_New`].
  * 2. No other call on `dict` (mutating or read-only) may run concurrently
- *    with this call, and no iterator obtained from `dict` may be alive.
+ *    with this call, and no iterator borrowing `dict` may be alive (see
+ *    [`SpellCheckDictionary_IterateAll`]).
  * 3. `term` must point to a [valid] byte sequence of length `len`.
  *
  * # Panics
@@ -91,6 +93,7 @@ int SpellCheckDictionaryIterator_Next(struct SpellCheckDictionaryIterator *it, c
  * Panics if `term` is not valid UTF-8.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ * [`SpellCheckDictionary_IterateAll`]: crate::SpellCheckDictionary_IterateAll
  */
 bool SpellCheckDictionary_Add(struct SpellCheckDictionary *dict, const char *term, size_t len);
 
@@ -122,16 +125,22 @@ bool SpellCheckDictionary_Contains(const struct SpellCheckDictionary *dict, cons
  *
  * 1. `dict` must be a [valid], non-null pointer obtained from
  *    [`SpellCheckDictionary_New`].
- * 2. No iterator obtained from `dict` may be alive.
+ * 2. No other call on `dict` (mutating or read-only) may run concurrently
+ *    with this call, and no iterator borrowing `dict` may be alive (see
+ *    [`SpellCheckDictionary_IterateAll`]).
  * 3. `dict` must not be used after this call.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ * [`SpellCheckDictionary_IterateAll`]: crate::SpellCheckDictionary_IterateAll
  */
 void SpellCheckDictionary_Free(struct SpellCheckDictionary *dict);
 
 /**
  * Iterate over every term stored in the dictionary, each in its original
  * case, in lexicographical order.
+ *
+ * The returned iterator borrows the dictionary and reads it as it is
+ * advanced.
  *
  * The caller owns the returned iterator: advance it with
  * [`SpellCheckDictionaryIterator_Next`] and free it exactly once with
@@ -154,8 +163,10 @@ struct SpellCheckDictionaryIterator *SpellCheckDictionary_IterateAll(const struc
  * `max_dist` (in codepoints) of `term` (`len` UTF-8 bytes), each in its
  * stored case. Matching ignores case; an over-long `term` matches nothing.
  *
- * The matches are computed eagerly by this call; subsequent mutations of
- * the dictionary do not affect what the iterator yields.
+ * The matches are computed eagerly by this call and owned by the returned
+ * iterator, which borrows nothing from the dictionary. Subsequent mutations
+ * of the dictionary therefore do not affect what the iterator yields, and
+ * the dictionary may even be freed while the iterator is still alive.
  *
  * The caller owns the returned iterator: advance it with
  * [`SpellCheckDictionaryIterator_Next`] and free it exactly once with
@@ -166,8 +177,8 @@ struct SpellCheckDictionaryIterator *SpellCheckDictionary_IterateAll(const struc
  *
  * 1. `dict` must be a [valid], non-null pointer obtained from
  *    [`SpellCheckDictionary_New`].
- * 2. No mutating call on `dict` may run concurrently with this call or
- *    while the iterator lives, and `dict` must not be freed until then.
+ * 2. No mutating call on `dict` may run concurrently with this call, and
+ *    `dict` must not be freed until it returns.
  * 3. `term` must point to a [valid] byte sequence of length `len`.
  *
  * # Panics
@@ -208,7 +219,8 @@ struct SpellCheckDictionary *SpellCheckDictionary_New(void);
  * 1. `dict` must be a [valid], non-null pointer obtained from
  *    [`SpellCheckDictionary_New`].
  * 2. No other call on `dict` (mutating or read-only) may run concurrently
- *    with this call, and no iterator obtained from `dict` may be alive.
+ *    with this call, and no iterator borrowing `dict` may be alive (see
+ *    [`SpellCheckDictionary_IterateAll`]).
  * 3. `term` must point to a [valid] byte sequence of length `len`.
  *
  * # Panics
@@ -216,6 +228,7 @@ struct SpellCheckDictionary *SpellCheckDictionary_New(void);
  * Panics if `term` is not valid UTF-8.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ * [`SpellCheckDictionary_IterateAll`]: crate::SpellCheckDictionary_IterateAll
  */
 bool SpellCheckDictionary_Remove(struct SpellCheckDictionary *dict, const char *term, size_t len);
 

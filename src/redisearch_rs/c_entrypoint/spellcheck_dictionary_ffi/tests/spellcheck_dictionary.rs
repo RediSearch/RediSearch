@@ -155,19 +155,37 @@ fn iterate_fuzzy_is_computed_eagerly() {
     with_dict(&["hello"], |dict| {
         let query = "hello";
 
-        // Safety: `dict` is valid, `query` points to valid UTF-8 bytes,
-        // and `dict` outlives the iterator.
+        // Safety: `dict` is valid and `query` points to valid UTF-8 bytes.
         let it = unsafe {
             SpellCheckDictionary_IterateFuzzy(dict, query.as_ptr().cast(), query.len(), 0)
         };
         // Removing the term after cursor creation must not affect what the
         // cursor yields.
-        // Safety: `dict` is valid; the fuzzy cursor holds no borrow of it.
+        // Safety: `dict` is valid; a fuzzy cursor does not borrow it, so it
+        // does not block mutation.
         unsafe { SpellCheckDictionary_Remove(dict, query.as_ptr().cast(), query.len()) };
         let actual = drain(it);
 
         assert_eq!(actual, ["hello"]);
     });
+}
+
+#[test]
+fn fuzzy_cursor_outlives_the_dictionary() {
+    let query = "hello";
+    let dict = SpellCheckDictionary_New();
+    // Safety: `dict` is valid and `query` points to valid UTF-8 bytes.
+    unsafe { SpellCheckDictionary_Add(dict, query.as_ptr().cast(), query.len()) };
+    // Safety: same as above.
+    let it =
+        unsafe { SpellCheckDictionary_IterateFuzzy(dict, query.as_ptr().cast(), query.len(), 0) };
+
+    // Safety: `dict` is valid, no borrowing iterator is alive, and `dict` is
+    // not used afterwards.
+    unsafe { SpellCheckDictionary_Free(dict) };
+    let actual = drain(it);
+
+    assert_eq!(actual, ["hello"]);
 }
 
 #[test]

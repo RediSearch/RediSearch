@@ -28,10 +28,13 @@ pub extern "C" fn SpellCheckDictionary_New() -> *mut SpellCheckDictionary {
 ///
 /// 1. `dict` must be a [valid], non-null pointer obtained from
 ///    [`SpellCheckDictionary_New`].
-/// 2. No iterator obtained from `dict` may be alive.
+/// 2. No other call on `dict` (mutating or read-only) may run concurrently
+///    with this call, and no iterator borrowing `dict` may be alive (see
+///    [`SpellCheckDictionary_IterateAll`]).
 /// 3. `dict` must not be used after this call.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+/// [`SpellCheckDictionary_IterateAll`]: crate::SpellCheckDictionary_IterateAll
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn SpellCheckDictionary_Free(dict: *mut SpellCheckDictionary) {
     debug_assert!(!dict.is_null(), "dict cannot be NULL");
@@ -50,7 +53,8 @@ pub unsafe extern "C" fn SpellCheckDictionary_Free(dict: *mut SpellCheckDictiona
 /// 1. `dict` must be a [valid], non-null pointer obtained from
 ///    [`SpellCheckDictionary_New`].
 /// 2. No other call on `dict` (mutating or read-only) may run concurrently
-///    with this call, and no iterator obtained from `dict` may be alive.
+///    with this call, and no iterator borrowing `dict` may be alive (see
+///    [`SpellCheckDictionary_IterateAll`]).
 /// 3. `term` must point to a [valid] byte sequence of length `len`.
 ///
 /// # Panics
@@ -58,6 +62,7 @@ pub unsafe extern "C" fn SpellCheckDictionary_Free(dict: *mut SpellCheckDictiona
 /// Panics if `term` is not valid UTF-8.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+/// [`SpellCheckDictionary_IterateAll`]: crate::SpellCheckDictionary_IterateAll
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn SpellCheckDictionary_Add(
     dict: *mut SpellCheckDictionary,
@@ -86,7 +91,8 @@ pub unsafe extern "C" fn SpellCheckDictionary_Add(
 /// 1. `dict` must be a [valid], non-null pointer obtained from
 ///    [`SpellCheckDictionary_New`].
 /// 2. No other call on `dict` (mutating or read-only) may run concurrently
-///    with this call, and no iterator obtained from `dict` may be alive.
+///    with this call, and no iterator borrowing `dict` may be alive (see
+///    [`SpellCheckDictionary_IterateAll`]).
 /// 3. `term` must point to a [valid] byte sequence of length `len`.
 ///
 /// # Panics
@@ -94,6 +100,7 @@ pub unsafe extern "C" fn SpellCheckDictionary_Add(
 /// Panics if `term` is not valid UTF-8.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+/// [`SpellCheckDictionary_IterateAll`]: crate::SpellCheckDictionary_IterateAll
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn SpellCheckDictionary_Remove(
     dict: *mut SpellCheckDictionary,

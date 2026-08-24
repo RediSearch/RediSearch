@@ -15,8 +15,13 @@
 //! The dictionary is **not** thread-safe: a mutating call ([`SpellCheckDictionary_Add`],
 //! [`SpellCheckDictionary_Remove`], [`SpellCheckDictionary_Free`]) requires
 //! exclusive access — no other call on the same dictionary may run
-//! concurrently with it, and no iterator obtained from it may be alive.
+//! concurrently with it, and no iterator borrowing it may be alive.
 //! Read-only calls may run concurrently with each other.
+//!
+//! Only [`SpellCheckDictionary_IterateAll`] returns a borrowing iterator.
+//! [`SpellCheckDictionary_IterateFuzzy`] resolves its matches up front and
+//! its cursor owns them, so the dictionary may be mutated or freed while
+//! that cursor is alive.
 
 #![allow(non_snake_case)]
 
