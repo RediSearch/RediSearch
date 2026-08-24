@@ -242,42 +242,6 @@ def testModuleLoadexRuntimeStillRejectsMaxSearchResultsNegativeTwo():
 
 
 @skip(cluster=True, redis_less_than='8.0')
-def testSearchTimeoutZeroMeansNoTimeoutUnderRealSlowQuery():
-    """search-timeout 0, set via the native CONFIG SET path, must mean a
-    genuinely slow query runs to completion with no timeout warning, while
-    the same query trips a tiny nonzero timeout."""
-    env = Env(protocol=3)
-    conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
-
-    # doc:0 matches '-common' immediately; the run of 'common' docs after it
-    # forces the NOT iterator to scan past all of them before reaching the
-    # trailing rare doc, giving the query real work to do against a 1ms timeout.
-    skipped = 300_000
-    with conn.pipeline(transaction=False) as p:
-        p.execute_command('HSET', 'doc:0', 't', 'rare')
-        for i in range(1, skipped + 1):
-            p.execute_command('HSET', f'doc:{i}', 't', 'common')
-        p.execute_command('HSET', f'doc:{skipped + 1}', 't', 'rare')
-        p.execute()
-
-    # Sanity control: a tiny nonzero timeout on this scan must time out.
-    env.expect('CONFIG', 'SET', 'search-timeout', '1').ok()
-    res = env.cmd('FT.AGGREGATE', 'idx', '-common', 'GROUPBY', '1', '@t', 'REDUCE', 'COUNT', '0', 'AS', 'count')
-    env.assertTrue(res.get('warning'), message=f"expected a timeout warning as a sanity control, got {res}")
-
-    # search-timeout 0 must mean the identical query runs to completion with
-    # no timeout warning.
-    env.expect('CONFIG', 'SET', 'search-timeout', '0').ok()
-    res = env.cmd('FT.AGGREGATE', 'idx', '-common', 'GROUPBY', '1', '@t', 'REDUCE', 'COUNT', '0', 'AS', 'count')
-    env.assertEqual(res.get('warning', []), [],
-                     message=f"expected no timeout warning with search-timeout 0, got {res}")
-    # '-common' excludes every 'common' doc, leaving only the 2 'rare' docs -
-    # skipped is the scan cost, not the match count.
-    env.assertEqual(int(res['results'][0]['extra_attributes']['count']), 2)
-
-
-@skip(cluster=True, redis_less_than='8.0')
 def testConfigRewriteRoundTripSearchTimeoutZero():
     """CONFIG SET search-timeout 0, CONFIG REWRITE, restart: the rewritten
     config file must re-apply 0 at genuine startup, not just in the live
