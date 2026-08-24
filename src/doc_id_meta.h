@@ -5,7 +5,7 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
+ */
 #pragma once
 
 #include <stdbool.h>
@@ -15,8 +15,13 @@
 extern "C" {
 #endif
 
-// Initialize the DocIdMeta module
-void DocIdMeta_Init(RedisModuleCtx *ctx);
+/*
+ * Initialize the DocIdMeta module by registering its key metadata class.
+ * @param ctx The Redis module context
+ * @return true if DocIdMeta is usable, false if the Redis key metadata API is
+ * missing (Redis older than 8.6.0) or the class could not be created
+ */
+bool DocIdMeta_Init(RedisModuleCtx *ctx);
 
 /*
  * Set the docId for the given key and index spec.
@@ -25,9 +30,8 @@ void DocIdMeta_Init(RedisModuleCtx *ctx);
  * @param specId The unique incarnation ID of the index spec
  * @param docId The docId to set
  * @return REDISMODULE_OK if the docId was set, REDISMODULE_ERR otherwise
-*/
-int DocIdMeta_Set(RedisModuleCtx *ctx, RedisModuleString *keyName,
-                  uint64_t specId, uint64_t docId);
+ */
+int DocIdMeta_Set(RedisModuleCtx *ctx, RedisModuleString *keyName, uint64_t specId, uint64_t docId);
 
 /*
  * Get the docId for the given key and index spec.
@@ -36,9 +40,9 @@ int DocIdMeta_Set(RedisModuleCtx *ctx, RedisModuleString *keyName,
  * @param specId The unique incarnation ID of the index spec
  * @param docId Output parameter for the docId
  * @return REDISMODULE_OK if the docId was found, REDISMODULE_ERR otherwise
-*/
-int DocIdMeta_Get(RedisModuleCtx *ctx, RedisModuleString *keyName,
-                  uint64_t specId, uint64_t *docId);
+ */
+int DocIdMeta_Get(RedisModuleCtx *ctx, RedisModuleString *keyName, uint64_t specId,
+                  uint64_t *docId);
 
 /*
  * Delete the docId entry for the given key and index spec.
@@ -47,8 +51,17 @@ int DocIdMeta_Get(RedisModuleCtx *ctx, RedisModuleString *keyName,
  * @param keyName The key name to delete the docId for
  * @param specId The unique incarnation ID of the index spec
  * @return REDISMODULE_OK if the entry was found and deleted, REDISMODULE_ERR otherwise
-*/
+ */
 int DocIdMeta_Delete(RedisModuleCtx *ctx, RedisModuleString *keyName, uint64_t specId);
+
+/*
+ * Prune stale DocIdMeta entries for specs that are no longer registered.
+ * Used after Redis moves key metadata during RENAME, before RediSearch handles
+ * live rename updates from the keyspace notification path.
+ * @return REDISMODULE_OK if the key metadata was inspected, REDISMODULE_ERR on
+ * failure to open/update the key metadata.
+ */
+int DocIdMeta_PruneDeletedSpecs(RedisModuleCtx *ctx, RedisModuleString *keyName);
 
 /*
  * Open-key variants of Set/Get/Delete.

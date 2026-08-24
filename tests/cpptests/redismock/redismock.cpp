@@ -799,11 +799,10 @@ RedisModuleString *RMCK_SaveDataTypeToString(RedisModuleCtx *ctx,
   return rms;
 }
 
-int RMCK_ClusterPropagateForSlotMigration(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...) {
+static int RMCK_RecordPropagatedCommand(RedisModuleCtx *ctx, const char *cmdname, const char *fmt,
+                                        va_list ap) {
   std::vector<std::string> command;
   command.emplace_back(cmdname);
-  va_list ap;
-  va_start(ap, fmt);
   // Parse the format string and extract arguments
   for (const char *p = fmt; *p; p++) {
     if (*p == 's') {
@@ -813,7 +812,7 @@ int RMCK_ClusterPropagateForSlotMigration(RedisModuleCtx *ctx, const char *cmdna
       long long ll = va_arg(ap, long long);
       command.emplace_back(std::to_string(ll));
     } else if (*p == 'c') {
-      char *cstr = va_arg(ap, char *);
+      const char *cstr = va_arg(ap, const char *);
       command.emplace_back(cstr);
     } else if (*p == 'v') {
       RedisModuleString **vec = va_arg(ap, RedisModuleString **);
@@ -822,19 +821,34 @@ int RMCK_ClusterPropagateForSlotMigration(RedisModuleCtx *ctx, const char *cmdna
         command.emplace_back(*vec[i]);
       }
     } else if (*p == 'b') {
-      char *buf = va_arg(ap, char *);
+      const char *buf = va_arg(ap, const char *);
       size_t len = va_arg(ap, size_t);
       command.emplace_back(std::string(buf, len));
     } else {
       // Unsupported format specifier
-      va_end(ap);
       return REDISMODULE_ERR;
     }
   }
-  va_end(ap);
   // Propagate the command (by storing it in the context)
   ctx->propagated_commands.push_back(std::move(command));
   return REDISMODULE_OK;
+}
+
+int RMCK_ClusterPropagateForSlotMigration(RedisModuleCtx *ctx, const char *cmdname, const char *fmt,
+                                          ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  int rc = RMCK_RecordPropagatedCommand(ctx, cmdname, fmt, ap);
+  va_end(ap);
+  return rc;
+}
+
+int RMCK_Replicate(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  int rc = RMCK_RecordPropagatedCommand(ctx, cmdname, fmt, ap);
+  va_end(ap);
+  return rc;
 }
 
 // Function to retrieve propagated commands for testing purposes
@@ -1391,6 +1405,26 @@ static int RMCK_SubscribeToKeyspaceEvents(RedisModuleCtx *, int types,
   return REDISMODULE_OK;
 }
 
+static int RMCK_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotifyJobFunc callback,
+                                       void *pd, void (*free_pd)(void *)) {
+  callback(ctx, pd);
+  if (free_pd) {
+    free_pd(pd);
+  }
+  return REDISMODULE_OK;
+}
+
+static int RMCK_AddPostNotificationJobForKey(RedisModuleCtx *ctx,
+                                             RedisModulePostNotifyJobPerKeyFunc callback,
+                                             RedisModuleString *key, void *pd,
+                                             void (*free_pd)(void *)) {
+  callback(ctx, key, pd);
+  if (free_pd) {
+    free_pd(pd);
+  }
+  return REDISMODULE_OK;
+}
+
 static int RMCK_RegisterCommandFilter(RedisModuleCtx *ctx, RedisModuleCommandFilterFunc callback,
                                       int flags) {
   return REDISMODULE_OK;
@@ -1621,24 +1655,48 @@ static int RMCK_SetKeyMeta(RedisModuleKeyMetaClassId class_id,
   if (!key) {
     return REDISMODULE_ERR;
   }
+
+  // Redis' keyMetaSetMetadata overwrites an existing slot in place, including
+  // reset_value(0); it does not remove the metadata bit or shrink the key.
   keyMetaStorage[key->key][class_id] = meta;
   return REDISMODULE_OK;
 }
 
-static void RMCK_ClearKeyMeta() {
-  // Clean up any allocated metadata using the free callback
-  for (auto& keyPair : keyMetaStorage) {
-    for (auto& metaPair : keyPair.second) {
-      if (metaPair.second != 0) {
-        auto configIt = classConfigs.find(metaPair.first);
-        if (configIt != classConfigs.end() && configIt->second.free) {
-          configIt->second.free("testkey", metaPair.second);
-        }
-      }
-    }
+static void RMCK_FreeKeyMetaValue(const std::string &key, RedisModuleKeyMetaClassId class_id,
+                                  uint64_t meta) {
+  if (meta == 0) {
+    return;
   }
 
+  auto configIt = classConfigs.find(class_id);
+  if (configIt != classConfigs.end() && configIt->second.free) {
+    configIt->second.free(key.c_str(), meta);
+  }
+}
+
+void RMCK_FreeKeyMetaForKey(const std::string &key) {
+  auto keyIt = keyMetaStorage.find(key);
+  if (keyIt == keyMetaStorage.end()) {
+    return;
+  }
+
+  for (auto &metaPair : keyIt->second) {
+    RMCK_FreeKeyMetaValue(key, metaPair.first, metaPair.second);
+  }
+  keyMetaStorage.erase(keyIt);
+}
+
+void RMCK_FreeAllKeyMeta() {
+  for (auto &keyPair : keyMetaStorage) {
+    for (auto &metaPair : keyPair.second) {
+      RMCK_FreeKeyMetaValue(keyPair.first, metaPair.first, metaPair.second);
+    }
+  }
   keyMetaStorage.clear();
+}
+
+static void RMCK_ClearKeyMeta() {
+  RMCK_FreeAllKeyMeta();
   classConfigs.clear();
   classNames.clear();
   nextClassId = 1;
@@ -1646,12 +1704,20 @@ static void RMCK_ClearKeyMeta() {
 
 // External interface for clearing KeyMeta storage
 void RMCK_ClearKeyMetaStorage() {
-  RMCK_ClearKeyMeta();
+  RMCK_FreeAllKeyMeta();
 }
 
 RedisModuleKeyMetaClassId RMCK_GetKeyMetaClassByName(const char *name) {
   auto it = classNames.find(name);
   return it == classNames.end() ? -1 : it->second;
+}
+
+bool RMCK_KeyMetaSlotExists(const char *key, RedisModuleKeyMetaClassId classId) {
+  auto keyIt = keyMetaStorage.find(key);
+  if (keyIt == keyMetaStorage.end()) {
+    return false;
+  }
+  return keyIt->second.find(classId) != keyIt->second.end();
 }
 
 int RMCK_KeyMetaRdbLoad(RedisModuleKeyMetaClassId classId, RedisModuleIO *io,
@@ -1684,6 +1750,14 @@ void RMCK_KeyMetaUnlink(RedisModuleKeyMetaClassId classId, uint64_t *meta) {
     return;
   }
   it->second.unlink(nullptr, meta);
+}
+
+bool RMCK_KeyMetaHasRename(RedisModuleKeyMetaClassId classId) {
+  auto it = classConfigs.find(classId);
+  if (it == classConfigs.end()) {
+    return false;
+  }
+  return it->second.rename != nullptr;
 }
 
 int RMCK_ConfigGetBool(RedisModuleCtx *ctx, const char *name, int *res) {
@@ -1748,7 +1822,7 @@ static void registerApis() {
   REGISTER_API(Call);
 
   // REGISTER_API(ReplyWithLongLong);
-  // REGISTER_API(ReplyWithSimpleString);
+  REGISTER_API(ReplyWithSimpleString);
   // REGISTER_API(ReplyWithArray);
   // REGISTER_API(ReplyWithStringBuffer);
   // REGISTER_API(ReplyWithDouble);
@@ -1785,8 +1859,11 @@ static void registerApis() {
   REGISTER_API(ScanKey);
 
   REGISTER_API(SubscribeToKeyspaceEvents);
+  REGISTER_API(AddPostNotificationJob);
+  REGISTER_API(AddPostNotificationJobForKey);
   REGISTER_API(SubscribeToServerEvent);
   REGISTER_API(RegisterCommandFilter);
+  REGISTER_API(Replicate);
 
   REGISTER_API(SetModuleOptions);
 

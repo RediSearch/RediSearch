@@ -111,8 +111,9 @@ mod optional {
 
         // QN_IDS child resolving to the two known documents.
         let keys = MockKeys::new(&["doc_a", "doc_b"]);
+        let mut doc_ids: Vec<ffi::t_docId> = vec![id_a, id_b];
         let mut ids_child = MockQueryNode::new(QueryNodeType::Ids);
-        ids_child.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
+        ids_child.set_ids(keys.as_ptr(), doc_ids.as_mut_ptr(), keys.len());
 
         let mut opt = MockQueryNode::new(QueryNodeType::Optional);
         opt.opts_mut().weight = 1.0;
@@ -201,8 +202,9 @@ mod optional {
         // wildcard, so the reducer skips its shortcircuits and reaches the
         // optimized constructor.
         let keys = MockKeys::new(&["doc_a"]);
+        let mut doc_ids: Vec<ffi::t_docId> = vec![id_a];
         let mut ids_child = MockQueryNode::new(QueryNodeType::Ids);
-        ids_child.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
+        ids_child.set_ids(keys.as_ptr(), doc_ids.as_mut_ptr(), keys.len());
 
         let mut opt = MockQueryNode::new(QueryNodeType::Optional);
         opt.opts_mut().weight = 1.0;

@@ -139,29 +139,35 @@ RSFieldID RediSearch_CreateField(RefManager* rm, const char* name, unsigned type
 int RediSearch_DeleteDocument(RefManager* rm, const void* docKey, size_t len) {
   RS_ASSERT(!SearchDisk_IsEnabled());
   IndexSpec* sp = get_spec(rm);
-  int rc = REDISMODULE_OK;
-  t_docId id = DocTable_GetId(&sp->docs, (const char *)docKey, len);
-  if (id == 0) {
-    rc = REDISMODULE_ERR;
-  } else {
-    RSDocumentMetadata* md = DocTable_Pop(&sp->docs, (const char *)docKey, len);
-    if (md) {
-      // Delete returns true/false, not RM_{OK,ERR}
-      RS_LOG_ASSERT(sp->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
-      sp->stats.scoring.numDocuments--;
-      RS_LOG_ASSERT(sp->stats.scoring.totalDocsLen >= md->docLen, "totalDocsLen is smaller than md->docLen");
-      sp->stats.scoring.totalDocsLen -= md->docLen;
-      DMD_Return(md);
+  DocTable* dt = &sp->docs;
 
-      if (sp->gc) {
-        GCContext_OnDelete(sp->gc);
-      }
-    } else {
-      rc = REDISMODULE_ERR;
+  // The in-memory DocTable no longer holds a key -> docId trie (that mapping
+  // lives on the Redis key as DocIdMeta). This test helper does not go through
+  // the Redis keyspace, so resolve the key by scanning the table's DMDs.
+  t_docId id = 0;
+  DOCTABLE_FOREACH(dt, {
+    if (id == 0 && !(dmd->flags & Document_Deleted) && sdslen(dmd->keyPtr) == len &&
+        memcmp(dmd->keyPtr, docKey, len) == 0) {
+      id = dmd->id;
     }
+  });
+  if (id == 0) {
+    return REDISMODULE_ERR;
   }
 
-  return rc;
+  RSDocumentMetadata* md = DocTable_DeleteById(dt, id);
+  if (!md) {
+    return REDISMODULE_ERR;
+  }
+  RS_LOG_ASSERT(sp->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
+  sp->stats.scoring.numDocuments--;
+  RS_LOG_ASSERT(sp->stats.scoring.totalDocsLen >= md->docLen, "totalDocsLen is smaller than md->docLen");
+  sp->stats.scoring.totalDocsLen -= md->docLen;
+  DMD_Return(md);
+  if (sp->gc) {
+    GCContext_OnDelete(sp->gc);
+  }
+  return REDISMODULE_OK;
 }
 
 struct RS_ApiIter {

@@ -2159,6 +2159,7 @@ dependencies = [
  "syn 2.0.118",
  "term_suffix_index_ffi",
  "toml",
+ "trie_rdb_ffi",
  "triemap_ffi",
  "ttl_table_ffi",
  "types_ffi",
@@ -2722,8 +2723,11 @@ dependencies = [
  "ffi",
  "index_result",
  "inverted_index",
+ "redis_mock",
+ "redisearch_rs",
  "rlookup",
  "rqe_core",
+ "value",
  "workspace_hack",
 ]
 
@@ -3038,6 +3042,7 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "ffi",
+ "index_result",
  "inverted_index",
  "redis_mock",
  "redisearch_rs",
@@ -3313,6 +3318,29 @@ dependencies = [
  "rqe_wildcard",
  "trie_rs",
  "ureq",
+ "workspace_hack",
+]
+
+[[package]]
+name = "trie_rdb"
+version = "0.0.1"
+dependencies = [
+ "lending-iterator",
+ "rdb_io",
+ "thiserror",
+ "trie_rdb",
+ "trie_rs",
+ "workspace_hack",
+]
+
+[[package]]
+name = "trie_rdb_ffi"
+version = "0.0.1"
+dependencies = [
+ "cheadergen",
+ "redis-module",
+ "trie_rdb",
+ "trie_rs",
  "workspace_hack",
 ]
 

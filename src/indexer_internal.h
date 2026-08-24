@@ -35,7 +35,7 @@ extern "C" {
  *
  * These two index types live in memory in both memory mode and disk mode (the
  * inverted-index / tag / doc-table cleanup is handled by `SearchDisk_PutDocument`
- * in disk mode and by `DocTable_PopR` in memory mode — neither covers VecSim or
+ * in disk mode and by `DocTable_DeleteById` in memory mode — neither covers VecSim or
  * Geometry, hence this dedicated step). Memory mode calls this inline from
  * `makeDocumentId` before the new DMD is allocated; disk mode calls it from
  * `applyDocTable` after the disk batch commits.
