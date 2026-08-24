@@ -102,7 +102,7 @@ jobs:
     container: ${{
       inputs.container
         && fromJSON(
-          format('{{"image":"{0}","options":"--user root -v /usr/share/dotnet:/host_usr/dotnet -v /usr/local/lib/android:/host_usr/android -v /opt/ghc:/host_opt/ghc -v /opt/hostedtoolcache:/host_opt/hostedtoolcache {1}"}}',
+          format('{{"image":"{0}","options":"--user root {1}"}}',
             inputs.image-built == 'true' && inputs.image || inputs.container,
             startsWith(inputs.container, 'alpine:') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '')
         )
@@ -128,18 +128,6 @@ jobs:
         shell: sh -l -eo pipefail {0}
         run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
 
-      - name: Free up disk space (container)
-        # For container jobs - delete mounted host directories
-        if: ${{ inputs.container }}
-        run: |
-          echo "Before cleanup:"
-          df -h
-          rm -rf /host_usr/dotnet/* 2>/dev/null || true
-          rm -rf /host_usr/android/* 2>/dev/null || true
-          rm -rf /host_opt/ghc/* 2>/dev/null || true
-          rm -rf /host_opt/hostedtoolcache/CodeQL/* 2>/dev/null || true
-          echo "After cleanup:"
-          df -h
       - name: Free up disk space (non-container)
         # For non-container jobs - delete directly with sudo
         # Skip macOS - it doesn't have these directories
