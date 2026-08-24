@@ -1706,6 +1706,22 @@ class ProfileDebugCluster:
             env.assertIsNotNone(debug_warning, message="Debug should have timeout warning")
             env.assertContains('Timeout', str(debug_warning), message="Debug warning should contain 'Timeout'")
 
+    @staticmethod
+    def ProfileDebugPolicyConstraints(env):
+        """Coordinator debug profile rejects policies that use blocked-client timeouts."""
+        error = "FT.DEBUG for Coordinator is only supported with ON_TIMEOUT RETURN"
+        try:
+            for policy in ('FAIL', 'RETURN-STRICT'):
+                env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', policy).ok()
+                for command_type in ('SEARCH', 'AGGREGATE'):
+                    with env.assertResponseError(contained=error):
+                        env.cmd(
+                            debug_cmd(), 'FT.PROFILE', 'idx', command_type, 'QUERY', '@t:hello*',
+                            'CRASH', 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 2,
+                        )
+        finally:
+            env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
+
 class TestProfileDebugClusterResp2(object):
     def __init__(self):
         env = Env(protocol=2)
@@ -1727,6 +1743,9 @@ class TestProfileDebugClusterResp3(object):
         ProfileDebugCluster.ProfileDebugTimeout(self.env, "SEARCH", 3)
     def testProfileTimeoutAggregateResp3(self):
         ProfileDebugCluster.ProfileDebugTimeout(self.env, "AGGREGATE", 3)
+
+    def testProfileDebugPolicyConstraints(self):
+        ProfileDebugCluster.ProfileDebugPolicyConstraints(self.env)
 
 @skip(cluster=True)
 def test_max_doc_id(env):
