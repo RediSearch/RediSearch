@@ -2159,6 +2159,7 @@ dependencies = [
  "syn 2.0.118",
  "term_suffix_index_ffi",
  "toml",
+ "trie_rdb_ffi",
  "triemap_ffi",
  "ttl_table_ffi",
  "types_ffi",
@@ -3323,6 +3324,17 @@ dependencies = [
  "lending-iterator",
  "rdb_io",
  "thiserror",
+ "trie_rdb",
+ "trie_rs",
+ "workspace_hack",
+]
+
+[[package]]
+name = "trie_rdb_ffi"
+version = "0.0.1"
+dependencies = [
+ "cheadergen",
+ "redis-module",
  "trie_rdb",
  "trie_rs",
  "workspace_hack",
