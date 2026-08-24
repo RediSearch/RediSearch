@@ -616,6 +616,17 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
 
     startPipelineHybrid(hreq, rp, &results, &r, &rc);
 
+    // Refresh the background-scan-OOM capture now that the tail pipeline has
+    // drained, mirroring the aggregate startPipeline: the reply path reads
+    // only the capture, and this is its freshest read under the still-held
+    // execution reference.
+    {
+      RedisSearchCtx *sctx = HREQ_SearchCtx(hreq);
+      if (sctx && sctx->spec) {
+        qctx->bgScanOOM |= RS_AtomicBoolLoadRelaxed(&sctx->spec->scan_failed_OOM);
+      }
+    }
+
     if (QueryRequest_UsesReplyCallback(&hreq->base)) {
       // Store results for reply_callback (includes cv)
       debugPauseStoreResultsHybrid(hreq, true);  // pause before
