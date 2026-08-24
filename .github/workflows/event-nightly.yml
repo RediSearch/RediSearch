@@ -17,6 +17,11 @@ jobs:
     uses: ./.github/workflows/task-lint.yml
     secrets: inherit
 
+  swamp-tests:
+    permissions:
+      contents: read # actions/checkout, and nothing else
+    uses: ./.github/workflows/task-swamp-tests.yml
+
   test-all-platforms:
     permissions:
       contents: read
@@ -58,7 +63,7 @@ jobs:
       redisearch-ref: ${{ github.sha }}
 
   notify-failure:
-    needs: [lint, test-all-platforms, micro-benchmarks, redis-build-sanity]
+    needs: [lint, swamp-tests, test-all-platforms, micro-benchmarks, redis-build-sanity]
     if: failure()
     runs-on: ubuntu-slim
     permissions:
