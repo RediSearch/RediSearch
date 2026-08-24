@@ -26,6 +26,9 @@
 template <typename T>
 using Optional = boost::optional<T>;
 
+void RMCK_FreeKeyMetaForKey(const std::string &key);
+void RMCK_FreeAllKeyMeta();
+
 struct RedisModuleString : public std::string {
   using std::string::string;
 
@@ -271,6 +274,8 @@ struct KVDB {
   }
 
   bool erase(const std::string &key) {
+    RMCK_FreeKeyMetaForKey(key);
+
     auto e = db.find(key);
     if (e == db.end()) {
       return false;
@@ -282,6 +287,8 @@ struct KVDB {
   }
 
   void clear() {
+    RMCK_FreeAllKeyMeta();
+
     for (auto it : db) {
       it.second->decref();
     }

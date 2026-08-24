@@ -47,9 +47,6 @@ pub struct MockKeys(Vec<*mut redis_module::raw::RedisModuleString>);
 
 impl MockKeys {
     pub fn new(names: &[&str]) -> Self {
-        // The key-resolution path (`DocTable_GetIdR`) reads the keys through
-        // the `RedisModule_StringPtrLen` function pointer — wire it (and the
-        // rest of the module API) to the mock implementations.
         redis_mock::init_redis_module_mock();
         Self(
             names
