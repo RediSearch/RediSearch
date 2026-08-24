@@ -30,6 +30,7 @@ use rqe_core::DocId;
 use rqe_iterators::utils::DeadlineTimeoutChecker;
 use rqe_iterators::{
     ExpirationChecker, IdList, NoOpChecker, RQEIterator, RQEIteratorError,
+    c2rust::CRQEIterator,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::{NoTimeoutChecker, TimeoutContext},
 };
@@ -658,6 +659,40 @@ fn factory_zero_k_reduces_to_empty() {
         None,
     );
     assert!(matches!(built, NewNumericTopK::ReducedEmpty));
+}
+
+#[test]
+fn factory_filtered_expands_window_to_reach_matches() {
+    // A real (non-wildcard) child routes through the filtered reduction, lowered
+    // to the C ABI as production passes it. Multi-leaf tree, doc_id == value == i,
+    // DESC: the child's selectivity sizes an initial window that stops inside the
+    // highest-valued leaf, while every match sits below it — so the source must
+    // expand before the heap can fill, and the drained results are the child's
+    // two best matches rather than the window's.
+    let tree = build_tree(20, false, 0);
+    assert!(tree.num_leaves() > 1, "fixture must split into many ranges");
+    let child = CRQEIterator::from_rust_leaf(IdList::<true>::new(vec![1u64, 2, 3, 4]));
+
+    let built = new_numeric_top_k(
+        &tree,
+        full_range(),
+        false,
+        2,
+        20,
+        AllValid,
+        NoOpChecker,
+        NoTimeoutChecker,
+        Some(child),
+    );
+    let NewNumericTopK::Filtered(mut it) = built else {
+        panic!("expected filtered reduction for an id-list child");
+    };
+
+    assert_eq!(drain_top_k(&mut it), vec![(4, 4.0), (3, 3.0)]);
+    assert!(
+        it.metrics().strategy_switches >= 1,
+        "the estimate-sized initial window could not hold k matches"
+    );
 }
 
 #[test]
