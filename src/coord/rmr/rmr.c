@@ -247,7 +247,8 @@ bool MRCtx_GetValidateConnections(struct MRCtx *ctx) {
 void MRCtx_SignalReducerComplete(struct MRCtx *ctx) {
   pthread_mutex_lock(&ctx->reducingLock);
   ctx->reducerDone = true;
-  pthread_cond_broadcast(&ctx->reducingCond);
+  // A context has at most one main-thread waiter for reducer completion.
+  pthread_cond_signal(&ctx->reducingCond);
   pthread_mutex_unlock(&ctx->reducingLock);
 }
 

@@ -1173,7 +1173,8 @@ bool QueryRequest_TryOwnStrictRead(QueryRequest *request, QueryRequestStrictRead
 void AREQ_SignalAggregateResultsComplete(AREQ *req) {
   pthread_mutex_lock(&req->base.async.aggregateResultsLock);
   req->base.async.aggregateResultsDone = true;
-  pthread_cond_broadcast(&req->base.async.aggregateResultsCond);
+  // A request has at most one timeout callback waiting for its aggregate worker.
+  pthread_cond_signal(&req->base.async.aggregateResultsCond);
   pthread_mutex_unlock(&req->base.async.aggregateResultsLock);
 }
 
