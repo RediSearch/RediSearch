@@ -191,7 +191,25 @@ pub trait ScoreSource {
     fn num_estimated(&self) -> usize;
 
     /// Rewind the source to its initial state so batch iteration can restart.
+    ///
+    /// Leaves any profile counters the source keeps untouched: [`TopKIterator`]
+    /// also rewinds when it discards a partially collected scan, whose profile
+    /// still has to report the work that scan did. Clearing them is
+    /// [`reset_profile`](Self::reset_profile)'s job.
+    ///
+    /// [`TopKIterator`]: crate::TopKIterator
     fn rewind(&mut self);
+
+    /// Clear the profile counters the source keeps, so the next evaluation
+    /// reports only its own work.
+    ///
+    /// Called by [`TopKIterator`]'s [`RQEIterator::rewind`] implementation, and
+    /// only from there. A source that keeps no counters of its own implements
+    /// this as a no-op.
+    ///
+    /// [`TopKIterator`]: crate::TopKIterator
+    /// [`RQEIterator::rewind`]: rqe_iterators::RQEIterator::rewind
+    fn reset_profile(&mut self);
 
     /// Build the [`RSIndexResult`] that the [`TopKIterator`] will yield for a
     /// given `(doc_id, score)` pair.
