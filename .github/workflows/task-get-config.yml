@@ -74,8 +74,8 @@ jobs:
 
           # Default environment per architecture
           # Use GitHub variables if available, otherwise use fallback values
-          runs_on = "${{ vars.RUNS_ON || 'ubuntu-latest' }}"
-          runs_on_arm = "${{ vars.RUNS_ON_ARM || 'ubuntu24-arm64-2-8' }}"
+          runs_on = "${{ vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-latest' }}"
+          runs_on_arm = "${{ vars.RUNS_ON_ARM64_MEDIUM || vars.RUNS_ON_ARM || 'ubuntu24-arm64-2-8' }}"
 
           default_env = {
               'x86_64': runs_on,
