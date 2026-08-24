@@ -48,6 +48,11 @@ typedef struct {
   bool loop_th_creation_failed;
   uv_mutex_t loop_th_created_mutex;
   uv_cond_t loop_th_created_cond;
+  // Set once the loop thread was joined (or the never-started runtime was
+  // torn down), making IORuntimeCtx_Shutdown / IORuntimeCtx_FireShutdown /
+  // the join in IORuntimeCtx_Free idempotent. Only touched on the thread
+  // running module shutdown.
+  bool loop_th_joined;
 } UVRuntime;
 
 //Structure to encapsulate the IO Runtime context for MR operations to take place
@@ -75,6 +80,13 @@ IORuntimeCtx *IORuntimeCtx_Create(size_t conn_pool_size, struct MRClusterTopolog
 void IORuntimeCtx_Start(IORuntimeCtx *io_runtime_ctx);
 void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx);
 void IORuntimeCtx_FireShutdown(IORuntimeCtx *io_runtime_ctx);
+/* Stop and join the runtime's loop thread: guard the queue against further
+ * loop signals (RQ_Shutdown), fire the shutdown event, and join. The exiting
+ * loop thread drains the queue once and error-completes every pending
+ * command, so callers blocked on their results resolve. After this returns no
+ * callback of this runtime can run; IORuntimeCtx_Free only releases memory.
+ * Idempotent. */
+void IORuntimeCtx_Shutdown(IORuntimeCtx *io_runtime_ctx);
 
 //TODO: Have it return int status (return error if thread not created)
 void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, void *privdata);

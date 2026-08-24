@@ -15,7 +15,7 @@
 #include "rmutil/rm_assert.h"
 #include "redismodule.h"
 
-void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata) {
+bool RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata, uv_async_t *async) {
   queueItem *item = rm_new(struct queueItem);
   item->cb = cb;
   item->privdata = privdata;
@@ -32,7 +32,33 @@ void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata) {
   }
   q->sz++;
 
+  // Signal under the lock: RQ_Shutdown serializes on it, so a send observed
+  // here as allowed has completed before the shutdown flag write returns.
+  bool live = !q->shuttingDown;
+  if (live) {
+    uv_async_send(async);
+  }
   uv_mutex_unlock(&q->lock);
+  return live;
+}
+
+void RQ_Shutdown(MRWorkQueue *q) {
+  uv_mutex_lock(&q->lock);
+  q->shuttingDown = true;
+  uv_mutex_unlock(&q->lock);
+}
+
+queueItem *RQ_PopUnbounded(MRWorkQueue *q) {
+  uv_mutex_lock(&q->lock);
+  queueItem *r = q->head;
+  if (r) {
+    q->head = r->next;
+    if (!q->head) q->tail = NULL;
+    q->sz--;
+    q->pending++;
+  }
+  uv_mutex_unlock(&q->lock);
+  return r;
 }
 
 // To be called from the event loop thread, need to protect the link list
@@ -99,6 +125,7 @@ MRWorkQueue *RQ_New(int maxPending, size_t id) {
   q->maxPending = maxPending;
   q->pendingInfo.head = NULL;
   q->pendingInfo.warnSize = 0;
+  q->shuttingDown = false;
   uv_mutex_init(&q->lock);
   q->id = id;
   return q;

@@ -177,6 +177,29 @@ void MRConnManager_Init(MRConnManager *mgr, int nodeConns) {
  * which require a live loop. After this returns the manager is empty; the
  * MRConnManager struct itself is not freed (it is embedded in IORuntimeCtx). */
 void MRConnManager_Shutdown(MRConnManager *mgr) {
+  // Error-complete every pending command before dropping the conns: the
+  // Freeing path's redisAsyncDisconnect waits for replies that (with the loop
+  // stopping) never arrive, silently dropping the pending callbacks and
+  // stranding pool jobs blocked on their results. redisAsyncFree invokes them
+  // with a NULL reply right here; some dispatch into the coordinator pool,
+  // which must therefore still be alive (see MR_ShutdownIO).
+  dictIterator *it = dictGetIterator(mgr->map);
+  dictEntry *entry;
+  while ((entry = dictNext(it))) {
+    MRConnPool *pool = dictGetVal(entry);
+    for (uint32_t i = 0; i < pool->num; i++) {
+      MRConn *conn = pool->conns[i];
+      redisAsyncContext *ac = conn->conn;
+      if (ac) {
+        // Detach first so the connect/disconnect callbacks treat the conn as
+        // already freed instead of driving its state machine.
+        ac->data = NULL;
+        conn->conn = NULL;
+        redisAsyncFree(ac);
+      }
+    }
+  }
+  dictReleaseIterator(it);
   dictRelease(mgr->map);
 }
 

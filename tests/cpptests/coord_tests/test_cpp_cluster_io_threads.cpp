@@ -164,3 +164,35 @@ TEST_F(ClusterIOThreadsTest, TestIOThreadsResize) {
   ASSERT_EQ(counters[3], 10);
   ASSERT_EQ(counters[4], 10);
 }
+
+// IORuntimeCtx_Shutdown must execute items that were enqueued without a loop
+// signal (queue already flagged shutting down) via the loop thread's final
+// drain — that is what keeps callers blocked on those items' results from
+// stranding at module shutdown — and must stay idempotent under the
+// FireShutdown/Free the later cluster teardown still runs.
+TEST_F(ClusterIOThreadsTest, ShutdownDrainsGuardedItems) {
+  MRCluster *cluster = MR_NewCluster(nullptr, 2, 1);
+  IORuntimeCtx *ioRuntime = MRCluster_GetIORuntimeCtx(cluster, 0);
+  MRClusterTopology *topo = getDummyTopology();
+  IORuntimeCtx_Schedule_Topology(ioRuntime, topoCallback, topo, false);
+
+  int counter = 0;
+  // Starts the runtime and signals the loop.
+  IORuntimeCtx_Schedule(ioRuntime, callback, &counter);
+  // Guard the queue as IORuntimeCtx_Shutdown does, then push items that send
+  // no signal — only the exiting loop thread's final drain can run them.
+  RQ_Shutdown(ioRuntime->queue);
+  for (int j = 0; j < 5; j++) {
+    IORuntimeCtx_Schedule(ioRuntime, callback, &counter);
+  }
+
+  IORuntimeCtx_Shutdown(ioRuntime);
+  // The join guarantees the drain completed: every item ran exactly once.
+  ASSERT_EQ(counter, 6);
+
+  // Idempotence: a second shutdown and the cluster teardown's own
+  // FireShutdown/Free must not signal the closed loop or re-join.
+  IORuntimeCtx_Shutdown(ioRuntime);
+  rm_free(topo);
+  MRCluster_Free(cluster);
+}

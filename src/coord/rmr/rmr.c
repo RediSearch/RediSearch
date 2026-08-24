@@ -1110,6 +1110,17 @@ long long MR_Debug_GetPendingRequests() {
 }
 #endif
 
+void MR_ShutdownIO() {
+  if (!cluster_g || !cluster_g->io_runtimes_pool) return;
+  // Joining the IO threads must not hold the GIL: their final callbacks (the
+  // drain and the disconnect sweep) may block on thread-safe contexts.
+  RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+  for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
+    IORuntimeCtx_Shutdown(cluster_g->io_runtimes_pool[i]);
+  }
+  RedisModule_ThreadSafeContextLock(RSDummyContext);
+}
+
 void MR_FreeCluster() {
   if (!cluster_g) return;
   RedisModule_ThreadSafeContextUnlock(RSDummyContext);

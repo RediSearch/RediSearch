@@ -1942,6 +1942,14 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   DiskGC_Cleanup();
   CleanPool_ThreadPoolDestroy();
   ReindexPool_ThreadPoolDestroy();
+  // Quiesce the MR IO threads before destroying the coordinator pool: their
+  // final callbacks (late shard replies, the disconnect sweep) dispatch
+  // deferred continuations INTO that pool. The reverse hazard — those final
+  // pool jobs scheduling new MR work at the dying loops — is closed by the RQ
+  // shutdown guard (see IORuntimeCtx_Shutdown).
+  MR_ShutdownIO();
+  // Drains the final MR-dispatched jobs; their pending-reply waits resolve
+  // because the sweep error-completed every pending command.
   ConcurrentSearch_ThreadPoolDestroy();
 
   // Only after every pool whose cycles register in BlockedQueries has stopped

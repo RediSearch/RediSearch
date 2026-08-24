@@ -201,6 +201,17 @@ static void sideThread(void *arg) {
 
   // Process any remaining requests before closing handles
   uv_run(&io_runtime_ctx->uv_runtime.loop, UV_RUN_NOWAIT);
+  // Final queue drain: execute items whose loop signal was suppressed by the
+  // shutdown guard, so their commands register with the still-live
+  // connections and the sweep below error-completes them (callers blocked on
+  // their results resolve instead of stranding). An item pushed after this
+  // drain is discarded by RQ_Free — a residual of the shutdown design,
+  // unreachable in practice.
+  queueItem *req;
+  while (NULL != (req = RQ_PopUnbounded(io_runtime_ctx->queue))) {
+    req->cb(req->privdata);
+    rm_free(req);
+  }
   // Disconnect all connections and release the manager's dict while the loop
   // is still alive (uv_close / redisAsyncDisconnect require it).
   MRConnManager_Shutdown(&io_runtime_ctx->conn_mgr);
@@ -259,6 +270,7 @@ static void UV_Init(IORuntimeCtx *io_runtime_ctx) {
   io_runtime_ctx->uv_runtime.topology_needs_handshake = false;
   io_runtime_ctx->uv_runtime.loop_th_created = false;
   io_runtime_ctx->uv_runtime.loop_th_creation_failed = false;
+  io_runtime_ctx->uv_runtime.loop_th_joined = false;
   uv_loop_init(&io_runtime_ctx->uv_runtime.loop);
   uv_mutex_init(&io_runtime_ctx->uv_runtime.loop_th_created_mutex);
   uv_cond_init(&io_runtime_ctx->uv_runtime.loop_th_created_cond);
@@ -306,6 +318,11 @@ IORuntimeCtx *IORuntimeCtx_Create(size_t conn_pool_size, struct MRClusterTopolog
 }
 
 void IORuntimeCtx_FireShutdown(IORuntimeCtx *io_runtime_ctx) {
+  if (io_runtime_ctx->uv_runtime.loop_th_joined) {
+    // Already shut down and joined; the loop's handles are closed, so there
+    // is nothing left to signal.
+    return;
+  }
   if (CheckIoRuntimeStarted(io_runtime_ctx)) {
     // There may be a delay between the thread starting and the loop running, we need to account for it
     // Stop the timers of all the connections before shutting down the loop
@@ -313,7 +330,12 @@ void IORuntimeCtx_FireShutdown(IORuntimeCtx *io_runtime_ctx) {
   }
 }
 
-void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
+// Join the loop thread (or tear down a never-started runtime's loop
+// resources). Idempotent via loop_th_joined.
+static void IORuntimeCtx_JoinLoopThread(IORuntimeCtx *io_runtime_ctx) {
+  if (io_runtime_ctx->uv_runtime.loop_th_joined) {
+    return;
+  }
   if (CheckIoRuntimeStarted(io_runtime_ctx)) {
     // Here we know that at least the thread will be created
     uv_mutex_lock(&io_runtime_ctx->uv_runtime.loop_th_created_mutex);
@@ -332,6 +354,19 @@ void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
     MRConnManager_Shutdown(&io_runtime_ctx->conn_mgr);
     UV_Close(io_runtime_ctx);
   }
+  io_runtime_ctx->uv_runtime.loop_th_joined = true;
+}
+
+void IORuntimeCtx_Shutdown(IORuntimeCtx *io_runtime_ctx) {
+  // Guard the queue first: once RQ_Shutdown returns, no push can signal the
+  // loop, so the handles the exiting loop thread closes cannot race a send.
+  RQ_Shutdown(io_runtime_ctx->queue);
+  IORuntimeCtx_FireShutdown(io_runtime_ctx);
+  IORuntimeCtx_JoinLoopThread(io_runtime_ctx);
+}
+
+void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
+  IORuntimeCtx_JoinLoopThread(io_runtime_ctx);
   RQ_Free(io_runtime_ctx->queue);
   queueItem *task = exchangePendingTopo(io_runtime_ctx, NULL);
   if (task) {
@@ -369,13 +404,16 @@ void IORuntimeCtx_Start(IORuntimeCtx *io_runtime_ctx) {
 }
 
 void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, void *privdata) {
-  if (CheckAndSetIoRuntimeNotStarted(io_runtime_ctx)) {
+  // Push before the lazy start: the async handle is initialized at Create,
+  // so a pre-start signal is simply latched — and a dead push (queue shutting
+  // down, see RQ_Push) must not lazy-start a runtime whose loop resources are
+  // being torn down.
+  bool live = RQ_Push(io_runtime_ctx->queue, cb, privdata, &io_runtime_ctx->uv_runtime.async);
+  if (live && CheckAndSetIoRuntimeNotStarted(io_runtime_ctx)) {
     //This guarantees only one worker thread will start the IORuntime because of the atomic check. If started but loop is not ready, still RQ will accumulate the request
     // and would still be processed when the thread uvloop starts
     IORuntimeCtx_Start(io_runtime_ctx);
   }
-  RQ_Push(io_runtime_ctx->queue, cb, privdata);
-  uv_async_send(&io_runtime_ctx->uv_runtime.async);
 }
 
 void IORuntimeCtx_RequestCompleted(IORuntimeCtx *io_runtime_ctx) {
