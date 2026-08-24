@@ -766,7 +766,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
   sp->dropMode = dropMode;
 
-  if (dropMode == IndexDrop_DeleteDocs) {
+  if (sp->dropMode == IndexDrop_DeleteDocs) {
     // We take a strong reference to the index, so it will not be freed
     // and we can still use it's doc table to delete the keys.
     StrongRef own_ref = StrongRef_Clone(global_ref);

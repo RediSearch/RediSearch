@@ -2056,14 +2056,17 @@ static void IndexSpec_PruneDocIdMetaBatch(RedisModuleCtx *ctx, sds *keys, size_t
   }
 }
 
-// Reclaim a KEEPDOCS-dropped spec's DocIdMeta from the surviving Redis keys
-// (nothing else removes those entries). In the background teardown path, scan
-// the DocTable without the GIL and only open Redis keys under the GIL in bounded
-// batches so sparse DocTables cannot block command processing while empty
-// buckets are traversed. The synchronous FT.DROPINDEX path already runs with a
-// Redis command context, so it uses the same batching without locking/yielding.
-// Memory mode only (disk GCs via RDB). specId is monotonic, so any entry left
-// behind is inert. See the design doc.
+// A KEEPDOCS drop leaves indexed Redis keys alive after the spec is removed from
+// the global registries. In memory mode DocIdMeta has no RDB sweep, so this is
+// the last point where RediSearch still owns a complete key list: the DocTable is
+// intact here and will be freed immediately after teardown. Disk mode skips this
+// path because DocIdMeta's RDB save/load cycle filters entries for dropped specs.
+//
+// The default teardown runs on cleanPool, so it scans DocTable buckets without
+// the GIL and opens Redis keys only in bounded GIL-held batches. The synchronous
+// _FREE_RESOURCE_ON_THREAD=false path calls this from DropIndexCommand with a
+// real command context, so it can use the same batching without extra locks or
+// yield pauses. specId is monotonic, so an entry left behind is inert.
 static void IndexSpec_PruneDocIdMeta(IndexSpec *sp, RedisModuleCtx *ctx, bool lockGil,
                                      bool pauseBetweenBatches) {
   if (sp->dropMode != IndexDrop_KeepDocs || SearchDisk_IsEnabled()) {
