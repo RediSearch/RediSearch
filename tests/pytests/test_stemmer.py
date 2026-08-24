@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 from common import waitForIndex, config_cmd, debug_cmd, skip
 
 def testHashMinStemLen(env):
