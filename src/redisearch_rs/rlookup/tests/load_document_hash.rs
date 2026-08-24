@@ -43,10 +43,10 @@ where
     f(NonNull::from_mut(&mut ctx).cast::<ffi::RedisModuleCtx>())
 }
 
-/// Construct a `RedisString` from a `CString` that the caller keeps alive.
+/// Construct a `RedisString` from a `CString`.
 ///
-/// The mock `RedisModule_CreateString` stores the pointer rather than copying,
-/// so `bytes` must outlive the returned `RedisString`.
+/// The mock `RedisModule_CreateString` copies its input, so `bytes` need not
+/// outlive the returned `RedisString`.
 fn make_redis_string(bytes: &CString) -> RedisString {
     unsafe { RedisString::from_raw_parts(None, bytes.as_ptr(), bytes.as_bytes().len()) }
 }
