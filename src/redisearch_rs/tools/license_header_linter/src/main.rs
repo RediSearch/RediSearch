@@ -190,13 +190,7 @@ fn check_file(path: &Path, style: CommentStyle, fix: bool, bad_files: &mut Vec<P
     }
 
     if fix {
-        // A `#pragma once` reads as part of the header block, so it stays flush against it.
-        let separator = if body.starts_with("#pragma once") {
-            ""
-        } else {
-            "\n"
-        };
-        let new_content = format!("{prologue}{}{separator}{body}", style.header());
+        let new_content = format!("{prologue}{}\n{body}", style.header());
         write(path, new_content).expect("Failed to write file");
         println!("🛠️  Fixed: {}", path.display());
     } else {
