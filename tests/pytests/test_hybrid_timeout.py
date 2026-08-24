@@ -499,7 +499,7 @@ def test_return_timeout_setup_phase_hybrid():
         'SEARCH', '*',
         'VSIM', '@embedding', '$BLOB',
         'PARAMS', '2', 'BLOB', query_vec,
-        'TIMEOUT', '200',
+        'TIMEOUT', '2000',
     ]
 
     shard_to_pause_p.suspend()
@@ -512,9 +512,16 @@ def test_return_timeout_setup_phase_hybrid():
 
         # The in-band deadline bounds the cursor-read waits; RETURN policy
         # yields whatever the responsive shards delivered by the deadline —
-        # partial (possibly empty) results with a timeout warning rather than
-        # an error or a hang (a hang would trip the harness test timeout).
+        # partial results with a timeout warning rather than an error or a
+        # hang (a hang would trip the harness test timeout). The deadline is
+        # generous relative to the responsive shards' reply latency, so their
+        # rows are admitted before it fires: total_results must be positive,
+        # proving RETURN preserves responsive-shard rows and not merely that
+        # the query terminated.
         result = env.cmd(*query_args)
+        env.assertGreater(result['total_results'], 0,
+                          message=f"Expected the responsive shards' rows "
+                                  f"under RETURN, got {result}")
         env.assertLess(result['total_results'], 100,
                        message=f"Expected partial results (one shard is "
                                f"suspended), got {result}")

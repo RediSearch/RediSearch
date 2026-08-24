@@ -354,14 +354,15 @@ void rpnetFree(ResultProcessor *rp) {
     // Drop the FT.DEBUG BG_PENDING_REPLIES handle before releasing the iterator.
     DebugBgIterator_Clear(nc->it);
 #endif
-    // A timed-out request may be torn down before every shard exchange
-    // resolved (for hybrid, even before the arming fan-out delivered some
-    // shards' cursor ids). Flag the iterator so any late reply processing —
-    // getCursorCommand on an in-flight read, or the hybrid arming callback —
-    // sends DEL instead of READ.
-    if (nc->areq && AREQ_TimedOut(nc->areq)) {
-      MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
-    }
+    // The reader is going away, so the request may be torn down (timeout,
+    // fatal shard error, ...) before every shard exchange resolved — for
+    // hybrid, even before the arming fan-out delivered some shards' cursor
+    // ids. Flag the iterator so any late reply processing — getCursorCommand
+    // on an in-flight read, or the hybrid arming callback — sends DEL instead
+    // of READ: without it a healthy shard's cursor is read to depletion into
+    // a channel nobody consumes. Unconditional: with nothing outstanding the
+    // flag has no reader left to affect.
+    MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
     RS_DEBUG_LOG("rpnetFree: calling MRIterator_Release");
     MRIterator_Release(nc->it);
   }
@@ -505,6 +506,15 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
             nc->areq->stateflags |= QEXEC_S_SHARD_TIMED_OUT_WARNING;
           } else if (errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
             QueryError_SetQueryOOMWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
+          } else {
+            // No policy softens any other mapping-stage error (e.g. a shard
+            // that lost the index) — fatal, as it was for the
+            // pre-arming-fan-out coordinator; dropping it would silently
+            // return incomplete results.
+            QueryError_SetCode(AREQ_QueryProcessingCtx(nc->areq)->err, errCode);
+            QueryError_SetDetail(AREQ_QueryProcessingCtx(nc->areq)->err,
+                                 MRReply_String(nc->current.root, NULL));
+            return RS_RESULT_ERROR;
           }
         }
         // Free the error reply before we override it and continue

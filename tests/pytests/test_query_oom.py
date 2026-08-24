@@ -398,10 +398,10 @@ def test_oom_shards_return_hybrid_profile(env):
     """Profiled hybrid whose non-coordinator shards are the only ones OOM.
 
     An OOM shard answers the internal fan-out from
-    common_hybrid_query_reply_empty, which under profiling wraps the
-    cursor-mapping map inside "Results" alongside a sibling "Profile" key --
-    four top-level elements instead of the flat six the unprofiled path emits.
-    The coordinator has to tolerate both shapes while parsing the mapping.
+    common_hybrid_query_reply_empty, which under profiling used to wrap the
+    cursor-mapping map inside "Results" alongside a sibling "Profile" key.
+    The internal reply is now bare either way; this covers the profiled
+    early-bail mapping path end to end.
 
     The coordinator itself must stay under its memory limit: if it is OOM too,
     its own guard replies before the command ever fans out, which is the case
