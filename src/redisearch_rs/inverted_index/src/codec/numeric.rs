@@ -562,7 +562,32 @@ impl Decoder for NumericFloatCompression {
     }
 }
 
+/// DO NOT MERGE: perf-fixture/numeric-range-obvious. Decode every numeric record three
+/// times, keeping the last. The decode is the dominant per-entry cost of a numeric range
+/// scan -- far more than the range predicate itself, which is why the multiplier sits here
+/// and not on `value_in_range`.
+///
+/// Anchoring matters here. A `black_box` on the *output* alone is not enough: measured on
+/// this exact pattern, LLVM keeps one copy of the arithmetic and just repeats the stores
+/// (7 multiplies for one pass, still 7 for three). Making each pass start from a
+/// `black_box`'d read position makes the passes not provably identical, which restores the
+/// full multiplier (21 multiplies for three passes).
 fn decode<'index>(
+    cursor: &mut Cursor<&'index [u8]>,
+    base: DocId,
+    result: &mut RSIndexResult<'index>,
+) -> Result<(), std::io::Error> {
+    let start = cursor.position();
+    for _ in 0..2 {
+        cursor.set_position(std::hint::black_box(start));
+        decode_inner(cursor, base, result)?;
+        std::hint::black_box(&*result);
+    }
+    cursor.set_position(start);
+    decode_inner(cursor, base, result)
+}
+
+fn decode_inner<'index>(
     cursor: &mut Cursor<&'index [u8]>,
     base: DocId,
     result: &mut RSIndexResult<'index>,
