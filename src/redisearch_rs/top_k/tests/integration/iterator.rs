@@ -56,6 +56,8 @@ impl ScoreSource for PartialThenTimingOutSource {
         self.batches_served = 0;
     }
 
+    fn reset_profile(&mut self) {}
+
     fn build_result<'r>(&self, doc_id: DocId, _: f64) -> RSIndexResult<'r>
     where
         Self: 'r,
@@ -89,11 +91,14 @@ impl ScoreSource for PartialThenTimingOutSource {
 /// [`ScoreSource`] whose [`ScoreSource::next_batch`] unconditionally returns [`RQEIteratorError::TimedOut`],
 /// counting how many times it was driven.
 ///
-/// Used to verify that timeout errors propagate correctly through [`TopKIterator`],
-/// and that a scan the iterator abandons is not silently restarted.
+/// Used to verify that timeout errors propagate correctly through
+/// [`TopKIterator`], that a scan the iterator abandons is not silently
+/// restarted, and which resets it asks of the source afterwards.
 #[derive(Default)]
 struct TimingOutSource {
     next_batch_calls: usize,
+    rewinds: u32,
+    profile_resets: u32,
 }
 
 impl ScoreSource for TimingOutSource {
@@ -112,7 +117,13 @@ impl ScoreSource for TimingOutSource {
         0
     }
 
-    fn rewind(&mut self) {}
+    fn rewind(&mut self) {
+        self.rewinds += 1;
+    }
+
+    fn reset_profile(&mut self) {
+        self.profile_resets += 1;
+    }
 
     fn build_result<'r>(&self, doc_id: DocId, _: f64) -> RSIndexResult<'r>
     where
@@ -430,6 +441,27 @@ fn rewind_after_failed_collection_recollects() {
         2,
         "rewind must drive a fresh scan"
     );
+}
+
+/// The iterator rewinds the source on two occasions with opposite profile
+/// intent: discarding an aborted collection, whose counters must survive so a
+/// timed-out profile still reports the work that run did, and an explicit
+/// rewind, which starts a fresh evaluation. Only the latter resets the profile.
+#[test]
+fn only_explicit_rewind_resets_source_profile() {
+    let mut it = TopKIterator::new_unfiltered(
+        TimingOutSource::default(),
+        NonZeroUsize::new(5).unwrap(),
+        Ascending,
+    );
+
+    assert!(it.read().is_err());
+    let after_abort = (it.source().rewinds, it.source().profile_resets);
+
+    it.rewind();
+
+    assert_eq!(after_abort, (1, 0));
+    assert_eq!((it.source().rewinds, it.source().profile_resets), (2, 1));
 }
 
 // ── Batches intersection ──────────────────────────────────────────────────
@@ -762,6 +794,8 @@ fn rewind_after_mid_collect_error_does_not_retain_stale_heap() {
             self.rewind_count += 1;
         }
 
+        fn reset_profile(&mut self) {}
+
         fn lookup_score(&mut self, _: DocId) -> Option<f64> {
             Some(10f64)
         }
@@ -995,6 +1029,7 @@ fn adhoc_timeout_propagated() {
         fn rewind(&mut self) {
             self.adhoc_calls = 0;
         }
+        fn reset_profile(&mut self) {}
         fn build_result<'r>(&self, doc_id: DocId, _: f64) -> RSIndexResult<'r>
         where
             Self: 'r,
