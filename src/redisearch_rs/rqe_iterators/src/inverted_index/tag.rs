@@ -261,7 +261,7 @@ where
             map.kv_string_buffer(c"Term", term_bytes);
         }
         ctx.print_optional_counters(map);
-        ctx.print_estimated(map);
+        map.kv_long_long(c"Estimated number of matches", self.num_estimated() as i64);
     }
 }
 

@@ -141,7 +141,6 @@ impl<'index, I: RQEIterator<'index>> Profile<'index, I> {
     pub const fn wall_time_ns(&self) -> u64 {
         self.wall_time.as_nanos() as u64
     }
-
 }
 
 impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> {
@@ -219,8 +218,7 @@ where
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         let counters = self.counters();
-        let mut child_ctx =
-            ctx.with_counters(counters, self.wall_time_ns(), self.child.num_estimated());
+        let mut child_ctx = ctx.with_counters(counters, self.wall_time_ns());
         self.child().print_profile(map, &mut child_ctx);
     }
 }

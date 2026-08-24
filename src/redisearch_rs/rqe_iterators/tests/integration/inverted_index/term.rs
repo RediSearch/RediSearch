@@ -459,35 +459,6 @@ mod not_miri {
         test.test.revalidate_after_document_deleted(&mut it, ii);
     }
 
-    /// The [`Profile`](rqe_iterators::profile::Profile) wrapper reports its
-    /// child's live `num_estimated`: an active tree holds the index guard, so
-    /// the printed estimate follows the index rather than a construction-time
-    /// capture (a suspended tree answers from its suspend-time cache instead).
-    #[test]
-    fn profile_estimate_is_live() {
-        let test = TermRevalidateTest::new(10);
-        let it = test.create_iterator();
-        let profile = rqe_iterators::profile::Profile::new(it);
-        let initial = profile.num_estimated();
-
-        let ii = {
-            use inverted_index::{full::Full, opaque::OpaqueEncoding};
-            Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut()
-        };
-        const OFFSETS: &[u8] = &[0, 1, 1, 1, 1, 1, 1, 1, 1, 1];
-        let mut term = RSQueryTerm::new("term", 1, 0);
-        term.set_idf(5.0);
-        term.set_bm25_idf(10.0);
-        // Doc ids in this fixture are odd and end at 2 * n_docs + 1; append a
-        // fresh, larger one.
-        let record = expected_record(23, u32::MAX as FieldMask, term, OFFSETS);
-        ii.add_record(&record).expect("failed to add record");
-
-        // The estimate moves with the index.
-        assert_eq!(ii.unique_docs() as usize, initial + 1);
-        assert_eq!(profile.num_estimated(), initial + 1);
-    }
-
     mod via_resume {
         use super::*;
         use crate::inverted_index::utils::via_resume::{
