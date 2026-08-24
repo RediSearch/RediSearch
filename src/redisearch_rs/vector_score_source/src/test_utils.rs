@@ -13,7 +13,7 @@
 //! Index layout: doc `i` (1..=n) is `[i; dim]` under L2, so distance to query
 //! `[q; dim]` is `dim*(q-i)^2` and the nearest neighbours are the highest ids.
 
-use std::{cmp::Ordering, ffi::c_void, ptr, ptr::NonNull};
+use std::{ffi::c_void, ptr, ptr::NonNull};
 
 use ffi::{
     AlgoParams, BFParams, HNSWParams, VecSearchMode, VecSearchMode_EMPTY_MODE,
@@ -23,12 +23,13 @@ use ffi::{
     t_docId,
 };
 use rqe_iterators::{ExpirationChecker, IdList, NoOpChecker, RQEIterator};
+use top_k::Ascending;
 
 use crate::VectorScoreSource;
 
-/// Ascending comparator: lower distance score is better.
-pub const fn asc() -> fn(a: &f64, b: &f64) -> Ordering {
-    f64::total_cmp
+/// Lower distance score is better.
+pub const fn asc() -> Ascending {
+    Ascending
 }
 
 /// Native-endian f32 byte blob of `values`, as VecSim expects.
