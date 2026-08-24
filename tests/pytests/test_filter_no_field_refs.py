@@ -1,4 +1,3 @@
-#
 # A FILTER expression that references no schema fields leaves the rule's
 # filter-field arrays empty; writes to a matching prefix must still be
 # indexed or rejected without crashing the server.
