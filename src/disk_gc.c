@@ -84,8 +84,12 @@ static bool periodicCb(void *privdata, GCForcedRun *forced) {
   size_t num_deletes = atomic_load(&gc->deletesFromLastRun);
   size_t num_updates = atomic_load(&gc->updatesFromLastRun);
   size_t num_changes = num_writes + num_deletes + num_updates;
-  if (!g_diskGcDisabled && sp->diskSpec &&
-      (forced || num_changes >= RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold)) {
+  bool can_run = !g_diskGcDisabled && sp->diskSpec;
+  if (can_run) {
+    SearchDisk_MaintainWriteBufferSize(sp);
+  }
+
+  if (can_run && (forced || num_changes >= RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold)) {
     // Reset counters before running GC
     atomic_fetch_sub(&gc->writesFromLastRun, num_writes);
     atomic_fetch_sub(&gc->deletesFromLastRun, num_deletes);

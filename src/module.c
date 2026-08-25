@@ -754,7 +754,6 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // Save the index name for logging (before the index is freed)
   char *indexName = rm_strdup(IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
-
   if (sp->diskSpec) {
     SearchDisk_CloseIndexOnMainThread(ctx, sp);
     SearchDisk_MarkIndexForDeletion(sp->diskSpec);

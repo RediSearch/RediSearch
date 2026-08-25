@@ -320,6 +320,9 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
   // If we have indexes in the auxiliary data, we need to subscribe to the
   // keyspace notifications
   Initialize_KeyspaceNotifications();
+  if (SearchDisk_IsEnabled()) {
+    SearchDisk_UpdateBufferBudget(RedisModule_GetContextFromIO(rdb), (int)RSGlobalConfig.diskBufferPercentage);
+  }
 
   return REDISMODULE_OK;
 }
@@ -1080,6 +1083,7 @@ void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
     }
   }
   dictReleaseIterator(iter);
+  SearchDisk_UpdateBufferBudget(ctx, (int)RSGlobalConfig.diskBufferPercentage);
 }
 
 // Replica-side SST replication: abort the in-progress replication round.

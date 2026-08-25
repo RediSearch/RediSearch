@@ -889,6 +889,14 @@ void SearchDisk_CloseConsistencyWindow(IndexSpec *sp, bool reopenNumericGate);
 void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage);
 
 /**
+ * @brief Reapply a disk index's write-buffer size when its budget is stale.
+ *
+ * Called from disk GC while holding the GC run lock. This function takes the
+ * IndexSpec write lock around the per-index SpeedB options update.
+ */
+void SearchDisk_MaintainWriteBufferSize(IndexSpec *sp);
+
+/**
  * @brief Reapply the max_open_files cap to all live disk databases.
  *
  * Called from the `search-disk-max-open-files` config setter on CONFIG SET. Stores

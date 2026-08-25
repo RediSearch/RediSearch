@@ -10,6 +10,7 @@
 #include "search_disk.h"
 
 #include <stdatomic.h>
+#include <stdint.h>
 #include <string.h>
 
 #include "config.h"
@@ -31,6 +32,8 @@ RedisSearchDisk *disk_db = NULL;
 
 // Global flag to control async I/O (enabled by default, can be toggled via debug command)
 static bool asyncIOEnabled = true;
+static _Atomic size_t currentWriteBufferBudget = 0;
+static _Atomic size_t currentWriteBufferIndexCount = 0;
 
 // Throttle callbacks for vector disk tiered indexes
 static int VecSim_EnableThrottle(void);
@@ -213,6 +216,13 @@ static SearchDiskCompactionCallbacks SearchDisk_CompactionCallbacks(void) {
 }
 
 // Basic API wrappers
+static size_t SearchDisk_CurrentWriteBufferBudget(void);
+static size_t SearchDisk_CurrentDiskIndexCount(void);
+static size_t SearchDisk_PerIndexWriteBufferBudget(size_t moduleBudget, size_t diskIndexCount);
+static void SearchDisk_UpdateIndexWriteBufferSize(IndexSpec *sp, size_t diskIndexCount);
+static void SearchDisk_RegisterOpenIndex(RedisModuleCtx *ctx, IndexSpec *sp);
+static void SearchDisk_RegisterClosedIndex(void);
+
 RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName, DocumentType type, bool deleteBeforeOpen, IndexSpec *c_index_spec) {
     RS_ASSERT(disk_db && c_index_spec);
     SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
@@ -221,6 +231,7 @@ RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const Hidden
         // Open atomically registers with BigModule, so the spec needs a
         // matching SearchDisk_CloseIndexOnMainThread before SearchDisk_CloseIndex.
         c_index_spec->diskRegistered = true;
+        SearchDisk_RegisterOpenIndex(ctx, c_index_spec);
     }
     return result;
 }
@@ -255,6 +266,7 @@ void SearchDisk_CloseIndexOnMainThread(RedisModuleCtx *ctx, IndexSpec *spec) {
     }
     disk->basic.closeIndexOnMainThread(ctx, spec->diskSpec);
     spec->diskRegistered = false;
+    SearchDisk_RegisterClosedIndex();
 }
 
 void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index) {
@@ -285,6 +297,7 @@ RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(RedisModuleCtx *ctx,
     // Open atomically registers with BigModule, so the spec needs a
     // matching SearchDisk_CloseIndexOnMainThread before SearchDisk_CloseIndex.
     c_index_spec->diskRegistered = true;
+    SearchDisk_RegisterOpenIndex(ctx, c_index_spec);
   }
   return result;
 }
@@ -610,6 +623,70 @@ uint64_t SearchDisk_GetDiskUsage(RedisSearchDiskIndexSpec* index) {
   return disk->index.getDiskUsage(index);
 }
 
+static size_t SearchDisk_PerIndexWriteBufferBudget(size_t moduleBudget, size_t diskIndexCount) {
+  if (moduleBudget == 0 || diskIndexCount == 0) {
+    return 0;
+  }
+  return moduleBudget / diskIndexCount;
+}
+
+static bool SearchDisk_ShouldRunWriteBufferMaintenance(size_t moduleBudget, size_t diskIndexCount) {
+  return SearchDisk_PerIndexWriteBufferBudget(moduleBudget, diskIndexCount) != 0;
+}
+
+static size_t SearchDisk_CurrentWriteBufferBudget(void) {
+  return atomic_load_explicit(&currentWriteBufferBudget, memory_order_relaxed);
+}
+
+static size_t SearchDisk_CurrentDiskIndexCount(void) {
+  return atomic_load_explicit(&currentWriteBufferIndexCount, memory_order_relaxed);
+}
+
+static size_t SearchDisk_CurrentPerIndexWriteBufferBudget(size_t diskIndexCount) {
+  return SearchDisk_PerIndexWriteBufferBudget(SearchDisk_CurrentWriteBufferBudget(), diskIndexCount);
+}
+
+static void SearchDisk_UpdateIndexWriteBufferSize(IndexSpec *sp, size_t diskIndexCount) {
+  RS_ASSERT(sp && sp->diskSpec);
+  size_t perIndexBudget = SearchDisk_CurrentPerIndexWriteBufferBudget(diskIndexCount);
+  disk->index.updateWriteBufferSize(sp->diskSpec, perIndexBudget);
+}
+
+static void SearchDisk_RegisterOpenIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
+  size_t diskIndexCount =
+      atomic_fetch_add_explicit(&currentWriteBufferIndexCount, 1, memory_order_relaxed) + 1;
+
+  if (SearchDisk_CurrentWriteBufferBudget() == 0) {
+    SearchDisk_UpdateBufferBudget(ctx, (int)RSGlobalConfig.diskBufferPercentage);
+  }
+
+  if (SearchDisk_CurrentWriteBufferBudget() != 0) {
+    SearchDisk_UpdateIndexWriteBufferSize(sp, diskIndexCount);
+  }
+}
+
+static void SearchDisk_RegisterClosedIndex(void) {
+  size_t diskIndexCount = SearchDisk_CurrentDiskIndexCount();
+  if (diskIndexCount == 0) {
+    return;
+  }
+  atomic_fetch_sub_explicit(&currentWriteBufferIndexCount, 1, memory_order_relaxed);
+}
+
+void SearchDisk_MaintainWriteBufferSize(IndexSpec *sp) {
+  size_t moduleBudget = SearchDisk_CurrentWriteBufferBudget();
+  size_t diskIndexCount = SearchDisk_CurrentDiskIndexCount();
+  if (!sp || !sp->diskSpec ||
+      !SearchDisk_ShouldRunWriteBufferMaintenance(moduleBudget, diskIndexCount)) {
+    return;
+  }
+
+  size_t perIndexBudget = SearchDisk_PerIndexWriteBufferBudget(moduleBudget, diskIndexCount);
+  IndexSpec_AcquireWriteLock(sp);
+  disk->index.updateWriteBufferSize(sp->diskSpec, perIndexBudget);
+  IndexSpec_ReleaseWriteLock(sp);
+}
+
 void SearchDisk_Flush(RedisSearchDiskIndexSpec* index) {
   RS_ASSERT(disk && index);
   disk->index.flush(index);
@@ -631,21 +708,10 @@ void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage) {
 
   // Update the WriteBufferManager with the new budget and get the new budget value
   size_t new_budget = disk->basic.updateBufferBudget(ctx, disk_db, percentage);
-  // Update write buffer size for all existing indexes
-  if (!specDict_g) {
+  if (new_budget == 0) {
     return;
   }
-  dictIterator *iter = dictGetIterator(specDict_g);
-  dictEntry *entry = NULL;
-
-  while ((entry = dictNext(iter))) {
-    StrongRef spec_ref = dictGetRef(entry);
-    IndexSpec *sp = StrongRef_Get(spec_ref);
-    if (sp && sp->diskSpec) {
-      disk->index.updateWriteBufferSize(sp->diskSpec, new_budget);
-    }
-  }
-  dictReleaseIterator(iter);
+  atomic_store_explicit(&currentWriteBufferBudget, new_budget, memory_order_relaxed);
 }
 
 void SearchDisk_UpdateMaxOpenFiles(RedisModuleCtx *ctx, int maxOpenFiles) {
