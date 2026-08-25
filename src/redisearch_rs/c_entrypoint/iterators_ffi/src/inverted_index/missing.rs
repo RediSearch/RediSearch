@@ -28,14 +28,16 @@ use rqe_iterators::{interop::RQEIteratorWrapper, inverted_index::new_missing_ite
 ///
 /// The following invariants must be upheld when calling this function:
 ///
-/// 1. `idx` must be a valid pointer to an `InvertedIndex` and cannot be NULL.
+/// 1. `idx` must be a [valid] pointer to an `InvertedIndex` and cannot be NULL.
 /// 2. `idx` must remain valid between `revalidate()` calls, since the revalidation
 ///    mechanism detects when the index has been replaced via `spec.missingFieldDict`
 ///    lookup.
-/// 3. `sctx` must be a valid pointer to a `RedisSearchCtx` and cannot be NULL.
+/// 3. `sctx` must be a [valid] pointer to a `RedisSearchCtx` and cannot be NULL.
 /// 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
 /// 5. `field_index` must be a valid index into `sctx.spec.fields`.
-/// 6. `sctx.spec.missingFieldDict` must be a non-null, valid dict pointer.
+/// 6. `sctx.spec.missingFieldDict` must be a non-null, [valid] dict pointer.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewInvIndIterator_MissingQuery(
     idx: *const ffi::InvertedIndex,

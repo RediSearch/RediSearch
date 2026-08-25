@@ -37,11 +37,13 @@ impl ExternalCounter {
     /// # Safety
     ///
     /// The pointed-to `usize` must:
-    /// 1. be valid and initialized;
+    /// 1. be [valid] and initialized;
     /// 2. remain valid for the entire lifetime of the [`GeoShape`] iterator this
     ///    tracker is given to; and
     /// 3. only be accessed single-threaded (it is mutated without
     ///    synchronization, which holds under the index/spec lock).
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     #[inline(always)]
     const unsafe fn new(counter: NonNull<usize>) -> Self {
         Self { counter }
@@ -78,19 +80,21 @@ impl MemTracker for ExternalCounter {
 ///
 /// # Safety
 ///
-/// 1. `sctx` must be a non-null pointer to a valid [`RedisSearchCtx`] whose
-///    `spec` is a valid [`IndexSpec`](ffi::IndexSpec); both must outlive the
+/// 1. `sctx` must be a non-null pointer to a [valid] [`RedisSearchCtx`] whose
+///    `spec` is a [valid] [`IndexSpec`](ffi::IndexSpec); both must outlive the
 ///    returned iterator, and `sctx` must stay at a stable address for that
 ///    whole window: the iterator reads the request-owned deadline back on every
 ///    timeout probe. No write to that deadline may overlap a probe.
-/// 2. `filter_ctx` must be a non-null pointer to a valid [`FieldFilterContext`].
+/// 2. `filter_ctx` must be a non-null pointer to a [valid] [`FieldFilterContext`].
 /// 3. `ids` must be null, or point to `num` initialized [`DocId`]s allocated via
 ///    `RedisModule_Alloc`. Ownership is transferred to the iterator. When `ids`
 ///    is null, `num` must be zero.
-/// 4. `allocated`, when non-null, must point to a valid, initialized `usize`
+/// 4. `allocated`, when non-null, must point to a [valid], initialized `usize`
 ///    (it is read-modify-written) that outlives the iterator and is only
 ///    accessed single-threaded (it is mutated without synchronization, which
 ///    holds under the spec lock).
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewGeometryQueryIterator(
     sctx: *const RedisSearchCtx,

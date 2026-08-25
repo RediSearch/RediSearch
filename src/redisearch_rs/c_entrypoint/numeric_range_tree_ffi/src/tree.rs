@@ -22,7 +22,9 @@ use numeric_range_tree::{NumericRangeNode, NumericRangeTree};
 ///
 /// # Safety
 ///
-/// - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+/// - `t` must point to a [valid] [`NumericRangeTree`] and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRangeTree_GetRevisionId(t: *const NumericRangeTree) -> u32 {
     debug_assert!(!t.is_null(), "t cannot be NULL");
@@ -41,8 +43,10 @@ pub unsafe extern "C" fn NumericRangeTree_GetRevisionId(t: *const NumericRangeTr
 ///
 /// # Safety
 ///
-/// - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+/// - `t` must point to a [valid] [`NumericRangeTree`] and cannot be NULL.
 /// - The caller must have unique access to `t`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRangeTree_IncrementRevisionId(t: *mut NumericRangeTree) -> u32 {
     debug_assert!(!t.is_null(), "t cannot be NULL");
@@ -55,7 +59,9 @@ pub unsafe extern "C" fn NumericRangeTree_IncrementRevisionId(t: *mut NumericRan
 ///
 /// # Safety
 ///
-/// - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+/// - `t` must point to a [valid] [`NumericRangeTree`] and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRangeTree_GetUniqueId(t: *const NumericRangeTree) -> u32 {
     debug_assert!(!t.is_null(), "t cannot be NULL");
@@ -68,7 +74,9 @@ pub unsafe extern "C" fn NumericRangeTree_GetUniqueId(t: *const NumericRangeTree
 ///
 /// # Safety
 ///
-/// - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+/// - `t` must point to a [valid] [`NumericRangeTree`] and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRangeTree_GetNumEntries(t: *const NumericRangeTree) -> usize {
     debug_assert!(!t.is_null(), "t cannot be NULL");
@@ -81,7 +89,9 @@ pub unsafe extern "C" fn NumericRangeTree_GetNumEntries(t: *const NumericRangeTr
 ///
 /// # Safety
 ///
-/// - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+/// - `t` must point to a [valid] [`NumericRangeTree`] and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRangeTree_GetNumRanges(t: *const NumericRangeTree) -> usize {
     debug_assert!(!t.is_null(), "t cannot be NULL");
@@ -94,7 +104,9 @@ pub unsafe extern "C" fn NumericRangeTree_GetNumRanges(t: *const NumericRangeTre
 ///
 /// # Safety
 ///
-/// - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+/// - `t` must point to a [valid] [`NumericRangeTree`] and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRangeTree_GetInvertedIndexesSize(
     t: *const NumericRangeTree,
@@ -109,8 +121,10 @@ pub unsafe extern "C" fn NumericRangeTree_GetInvertedIndexesSize(
 ///
 /// # Safety
 ///
-/// - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+/// - `t` must point to a [valid] [`NumericRangeTree`] and cannot be NULL.
 /// - The returned pointer is valid until the tree is modified or freed.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRangeTree_GetRoot(
     t: *const NumericRangeTree,

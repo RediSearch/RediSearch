@@ -56,7 +56,9 @@ impl<'a> FieldExpirationSlice<'a> {
 /// `max_size` must be ≥ 1, otherwise the function panics
 ///
 /// # Safety
-///  - `table` must be a valid, writable `*mut *mut TimeToLiveTable`.
+///  - `table` must be a [valid], writable `*mut *mut TimeToLiveTable`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TimeToLiveTable_VerifyInit(
     table: *mut *mut TimeToLiveTable,
@@ -76,9 +78,11 @@ pub unsafe extern "C" fn TimeToLiveTable_VerifyInit(
 /// No-op if `*table` is already null.
 ///
 /// # Safety
-///  - `table` must be a valid, writable `*mut *mut TimeToLiveTable`.
+///  - `table` must be a [valid], writable `*mut *mut TimeToLiveTable`.
 ///  - If `*table` is non-null, it must point to a value previously returned
 ///    by [`TimeToLiveTable_VerifyInit`] and not yet destroyed.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TimeToLiveTable_Destroy(table: *mut *mut TimeToLiveTable) {
     debug_assert!(!table.is_null(), "table cannot be NULL");
@@ -98,12 +102,14 @@ pub unsafe extern "C" fn TimeToLiveTable_Destroy(table: *mut *mut TimeToLiveTabl
 /// afterwards.
 ///
 /// # Safety
-///  - `table` must point to a valid, initialized [`TimeToLiveTable`] (no
+///  - `table` must point to a [valid], initialized [`TimeToLiveTable`] (no
 ///    other reference to it must exist for the duration of the call).
 ///  - `field_expirations` must have been produced by [`FieldExpirations_Empty`]
 ///    or [`FieldExpirations_WithCapacity`] and must be non-empty.
 ///    Sortedness and uniqueness-by-`index` are carried by the type itself.
 ///  - `doc_id` must not already be present in the table.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TimeToLiveTable_Add(
     table: *mut TimeToLiveTable,
@@ -120,8 +126,10 @@ pub unsafe extern "C" fn TimeToLiveTable_Add(
 /// Remove the entry for `doc_id`, if any. No-op if absent.
 ///
 /// # Safety
-///  - `table` must point to a valid, initialized [`TimeToLiveTable`] with
+///  - `table` must point to a [valid], initialized [`TimeToLiveTable`] with
 ///    no other live references.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TimeToLiveTable_Remove(table: *mut TimeToLiveTable, doc_id: DocId) {
     debug_assert!(!table.is_null(), "table cannot be NULL");
@@ -133,7 +141,9 @@ pub unsafe extern "C" fn TimeToLiveTable_Remove(table: *mut TimeToLiveTable, doc
 /// Returns whether the table holds no entries.
 ///
 /// # Safety
-///  - `table` must point to a valid, initialized [`TimeToLiveTable`].
+///  - `table` must point to a [valid], initialized [`TimeToLiveTable`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TimeToLiveTable_IsEmpty(table: *const TimeToLiveTable) -> bool {
     debug_assert!(!table.is_null(), "table cannot be NULL");
@@ -149,7 +159,9 @@ pub unsafe extern "C" fn TimeToLiveTable_IsEmpty(table: *const TimeToLiveTable) 
 /// not be freed by the caller.
 ///
 /// # Safety
-///  - `table` must point to a valid, initialized [`TimeToLiveTable`].
+///  - `table` must point to a [valid], initialized [`TimeToLiveTable`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TimeToLiveTable_GetFieldExpirations<'a>(
     table: *const TimeToLiveTable,
@@ -172,7 +184,9 @@ pub unsafe extern "C" fn TimeToLiveTable_GetFieldExpirations<'a>(
 /// the caller.
 ///
 /// # Safety
-///  - `fields`, when non-null, must point to a valid [`FieldExpirations`].
+///  - `fields`, when non-null, must point to a [valid] [`FieldExpirations`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FieldExpirations_AsSlice<'a>(
     fields: *const FieldExpirations,
@@ -198,8 +212,10 @@ pub unsafe extern "C" fn FieldExpirations_AsSlice<'a>(
 /// Documents with no entry trivially satisfy any predicate and return `true`.
 ///
 /// # Safety
-///  - `table` must point to a valid, initialized [`TimeToLiveTable`].
-///  - `expiration_point` must be a valid `*const t_expirationTimePoint`.
+///  - `table` must point to a [valid], initialized [`TimeToLiveTable`].
+///  - `expiration_point` must be a [valid] `*const t_expirationTimePoint`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TimeToLiveTable_FieldSatisfiesPredicate(
     table: *const TimeToLiveTable,
@@ -228,7 +244,7 @@ pub unsafe extern "C" fn TimeToLiveTable_FieldSatisfiesPredicate(
 /// the full [`FieldMask`] width is walked.
 ///
 /// `ft_id_to_field_index` must point to at least
-/// `highest_set_bit(field_mask) + 1` valid `u16` entries.
+/// `highest_set_bit(field_mask) + 1` [valid] `u16` entries.
 /// May be `NULL` when `field_mask == 0`.
 ///
 /// # Returns
@@ -242,9 +258,11 @@ pub unsafe extern "C" fn TimeToLiveTable_FieldSatisfiesPredicate(
 /// Documents with no entry trivially return `true` under either predicate.
 ///
 /// # Safety
-///  - `table` must point to a valid, initialized [`TimeToLiveTable`].
-///  - `expiration_point` must be a valid `*const t_expirationTimePoint`.
+///  - `table` must point to a [valid], initialized [`TimeToLiveTable`].
+///  - `expiration_point` must be a [valid] `*const t_expirationTimePoint`.
 ///  - `ft_id_to_field_index` must satisfy the bound above.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TimeToLiveTable_FieldMaskSatisfiesPredicate(
     table: *const TimeToLiveTable,
@@ -285,8 +303,10 @@ pub unsafe extern "C" fn TimeToLiveTable_FieldMaskSatisfiesPredicate(
 /// The current bucket-array length, or `0` if `table` is `NULL`.
 ///
 /// # Safety
-///  - If non-null, `table` must point to a valid, initialized
+///  - If non-null, `table` must point to a [valid], initialized
 ///    [`TimeToLiveTable`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub const unsafe extern "C" fn TimeToLiveTable_NAllocatedBuckets(
     table: *const TimeToLiveTable,
@@ -415,8 +435,10 @@ const fn highest_bit_plus_one_wide(mask: FieldMask) -> usize {
 ///
 /// # Safety
 ///
-/// The caller guarantees `ptr` covers at least `len` valid `u16`
+/// The caller guarantees `ptr` covers at least `len` [valid] `u16`
 /// entries.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[inline]
 unsafe fn build_ft_slice<'a>(ptr: *const u16, len: usize) -> &'a [u16] {
     if len == 0 {

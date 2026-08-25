@@ -195,8 +195,10 @@ pub unsafe extern "C" fn collectRemoteFree(r: *mut ffi::Reducer) {
 //
 /// # Safety
 ///
-/// `r` must point to a valid [`RemoteCollectReducer`] originally created by
+/// `r` must point to a [valid] [`RemoteCollectReducer`] originally created by
 /// `CollectReducer_CreateRemote`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub const unsafe extern "C" fn CollectReducer_GetFieldKeysLen(r: *const ffi::Reducer) -> usize {
     // SAFETY: ensured by caller.
@@ -206,8 +208,10 @@ pub const unsafe extern "C" fn CollectReducer_GetFieldKeysLen(r: *const ffi::Red
 
 /// # Safety
 ///
-/// `r` must point to a valid [`RemoteCollectReducer`] originally created by
+/// `r` must point to a [valid] [`RemoteCollectReducer`] originally created by
 /// `CollectReducer_CreateRemote`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub const unsafe extern "C" fn CollectReducer_IsLoadAll(r: *const ffi::Reducer) -> bool {
     // SAFETY: ensured by caller.
@@ -217,8 +221,10 @@ pub const unsafe extern "C" fn CollectReducer_IsLoadAll(r: *const ffi::Reducer) 
 
 /// # Safety
 ///
-/// `r` must point to a valid [`RemoteCollectReducer`] originally created by
+/// `r` must point to a [valid] [`RemoteCollectReducer`] originally created by
 /// `CollectReducer_CreateRemote`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub const unsafe extern "C" fn CollectReducer_GetSortKeysLen(r: *const ffi::Reducer) -> usize {
     // SAFETY: ensured by caller.
@@ -228,8 +234,10 @@ pub const unsafe extern "C" fn CollectReducer_GetSortKeysLen(r: *const ffi::Redu
 
 /// # Safety
 ///
-/// `r` must point to a valid [`RemoteCollectReducer`] originally created by
+/// `r` must point to a [valid] [`RemoteCollectReducer`] originally created by
 /// `CollectReducer_CreateRemote`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub const unsafe extern "C" fn CollectReducer_GetSortAscMap(r: *const ffi::Reducer) -> u64 {
     // SAFETY: ensured by caller.
@@ -239,8 +247,10 @@ pub const unsafe extern "C" fn CollectReducer_GetSortAscMap(r: *const ffi::Reduc
 
 /// # Safety
 ///
-/// `r` must point to a valid [`RemoteCollectReducer`] originally created by
+/// `r` must point to a [valid] [`RemoteCollectReducer`] originally created by
 /// `CollectReducer_CreateRemote`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub const unsafe extern "C" fn CollectReducer_HasLimit(r: *const ffi::Reducer) -> bool {
     // SAFETY: ensured by caller.
@@ -250,8 +260,10 @@ pub const unsafe extern "C" fn CollectReducer_HasLimit(r: *const ffi::Reducer) -
 
 /// # Safety
 ///
-/// `r` must point to a valid [`RemoteCollectReducer`] originally created by
+/// `r` must point to a [valid] [`RemoteCollectReducer`] originally created by
 /// `CollectReducer_CreateRemote`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub const unsafe extern "C" fn CollectReducer_GetLimitOffset(r: *const ffi::Reducer) -> u64 {
     // SAFETY: ensured by caller.
@@ -261,8 +273,10 @@ pub const unsafe extern "C" fn CollectReducer_GetLimitOffset(r: *const ffi::Redu
 
 /// # Safety
 ///
-/// `r` must point to a valid [`RemoteCollectReducer`] originally created by
+/// `r` must point to a [valid] [`RemoteCollectReducer`] originally created by
 /// `CollectReducer_CreateRemote`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub const unsafe extern "C" fn CollectReducer_GetLimitCount(r: *const ffi::Reducer) -> u64 {
     // SAFETY: ensured by caller.

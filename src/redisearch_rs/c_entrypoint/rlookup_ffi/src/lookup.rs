@@ -611,7 +611,7 @@ pub unsafe extern "C" fn RLookup_Cleanup(lookup: *mut OpaqueRLookup) {
 ///     1. The entire memory range of this `CStr` must be contained within a single allocation!
 ///     2. `key` must be non-null even for a zero-length cstr.
 /// 7. The nul terminator must be within `isize::MAX` from `key`
-/// 8. `open_key`, if non-null, must be a valid, already-open `redis_module::RedisModuleKey` handle for
+/// 8. `open_key`, if non-null, must be a [valid], already-open `redis_module::RedisModuleKey` handle for
 ///    `key` that outlives this call. It is borrowed, not closed here. Pass null to open by name.
 /// 9. `status` must be a [valid], non-null pointer to an `ffi::QueryError` that is properly initialized.
 ///

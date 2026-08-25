@@ -21,10 +21,12 @@ use crate::NumericRangeTreeIterator;
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid [`NumericRangeTree`] obtained from
+/// - `t` must point to a [valid] [`NumericRangeTree`] obtained from
 ///   [`crate::NewNumericRangeTree`] and cannot be NULL.
 /// - `t` must not be freed while the iterator lives.
 /// - The tree must not be mutated while the iterator lives.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRangeTreeIterator_New<'a>(
     t: *const NumericRangeTree,
@@ -49,9 +51,11 @@ pub unsafe extern "C" fn NumericRangeTreeIterator_New<'a>(
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `it` must point to a valid [`NumericRangeTreeIterator`] obtained from
+/// - `it` must point to a [valid] [`NumericRangeTreeIterator`] obtained from
 ///   [`NumericRangeTreeIterator_New`] and cannot be NULL.
 /// - The tree from which this iterator was created must still be valid.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRangeTreeIterator_Next(
     it: *mut NumericRangeTreeIterator,
@@ -73,9 +77,11 @@ pub unsafe extern "C" fn NumericRangeTreeIterator_Next(
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `it` must point to a valid [`NumericRangeTreeIterator`] obtained from
+/// - `it` must point to a [valid] [`NumericRangeTreeIterator`] obtained from
 ///   [`NumericRangeTreeIterator_New`], or be NULL (in which case this is a no-op).
 /// - After calling this function, `it` must not be used again.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRangeTreeIterator_Free(it: *mut NumericRangeTreeIterator) {
     if it.is_null() {

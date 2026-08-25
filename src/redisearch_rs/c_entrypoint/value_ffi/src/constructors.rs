@@ -245,7 +245,9 @@ pub extern "C" fn RSValue_NewNumberFromInt64(number: i64) -> *mut RSValue {
 ///
 /// # Safety
 ///
-/// 1. `src` must point to a valid [`RSValue`].
+/// 1. `src` must point to a [valid] [`RSValue`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_NewReference(src: *const RSValue) -> *mut RSValue {
     // SAFETY: ensured by caller (1.)

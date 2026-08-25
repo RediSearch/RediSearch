@@ -28,7 +28,9 @@ pub use inverted_index::{
 /// # Safety
 ///
 /// The following invariant must be upheld when calling this function:
-/// - `filter` must point to a valid `NumericFilter` and cannot be NULL.
+/// - `filter` must point to a [valid] `NumericFilter` and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericFilter_Match(filter: *const NumericFilter, value: f64) -> bool {
     debug_assert!(!filter.is_null(), "filter must not be null");
@@ -126,7 +128,7 @@ pub unsafe extern "C" fn NewTokenRecord<'result>(
 ///
 /// # Safety
 /// The following invariants must be upheld when calling this function:
-/// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+/// - `result` must point to a [valid] `RSIndexResult` and cannot be NULL.
 /// - `result` must have been created using one of these:
 ///   - [`NewIntersectResult`]
 ///   - [`NewUnionResult`]
@@ -136,6 +138,8 @@ pub unsafe extern "C" fn NewTokenRecord<'result>(
 ///   - [`NewHybridResult`]
 ///   - [`NewTokenRecord`]
 ///   - [`IndexResult_DeepCopy`]
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn IndexResult_Free(result: *mut RSIndexResult) {
     debug_assert!(!result.is_null(), "result cannot be NULL");
@@ -152,7 +156,9 @@ pub unsafe extern "C" fn IndexResult_Free(result: *mut RSIndexResult) {
 ///
 /// # Safety
 /// The following invariant must be upheld when calling this function:
-/// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+/// - `result` must point to a [valid] `RSIndexResult` and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn IndexResult_DeepCopy(source: *const RSIndexResult) -> *mut RSIndexResult {
     // SAFETY: caller is to ensure `source` points to a valid RSIndexResult
@@ -169,7 +175,9 @@ pub unsafe extern "C" fn IndexResult_DeepCopy(source: *const RSIndexResult) -> *
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+/// - `result` must point to a [valid] `RSIndexResult` and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn IndexResult_IsAggregate(result: *const RSIndexResult) -> bool {
     debug_assert!(!result.is_null(), "result must not be null");
@@ -187,7 +195,9 @@ pub unsafe extern "C" fn IndexResult_IsAggregate(result: *const RSIndexResult) -
 /// # Safety
 ///
 /// The following invariant must be upheld when calling this function:
-/// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+/// - `result` must point to a [valid] `RSIndexResult` and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn IndexResult_NumValue(result: *const RSIndexResult) -> f64 {
     debug_assert!(!result.is_null(), "result must not be null");
@@ -205,7 +215,9 @@ pub unsafe extern "C" fn IndexResult_NumValue(result: *const RSIndexResult) -> f
 /// # Safety
 ///
 /// The following invariant must be upheld when calling this function:
-/// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+/// - `result` must point to a [valid] `RSIndexResult` and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn IndexResult_SetNumValue(result: *mut RSIndexResult, value: f64) {
     debug_assert!(!result.is_null(), "result must not be null");
@@ -225,7 +237,9 @@ pub unsafe extern "C" fn IndexResult_SetNumValue(result: *mut RSIndexResult, val
 /// # Safety
 ///
 /// The following invariant must be upheld when calling this function:
-/// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+/// - `result` must point to a [valid] `RSIndexResult` and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn IndexResult_QueryTermRef<'index>(
     result: *const RSIndexResult<'index>,
@@ -248,7 +262,9 @@ pub unsafe extern "C" fn IndexResult_QueryTermRef<'index>(
 /// # Safety
 ///
 /// The following invariant must be upheld when calling this function:
-/// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+/// - `result` must point to a [valid] `RSIndexResult` and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn IndexResult_TermOffsetsRef<'result, 'index>(
     result: *const RSIndexResult<'index>,
@@ -276,7 +292,9 @@ pub unsafe extern "C" fn IndexResult_TermOffsetsRef<'result, 'index>(
 /// # Safety
 ///
 /// The following invariant must be upheld when calling this function:
-/// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+/// - `result` must point to a [valid] `RSIndexResult` and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn IndexResult_AggregateRef<'result, 'index>(
     result: *const RSIndexResult<'index>,
@@ -300,8 +318,10 @@ pub unsafe extern "C" fn IndexResult_AggregateRef<'result, 'index>(
 /// # Safety
 ///
 /// The following invariant must be upheld when calling this function:
-/// 1. `result` must point to a valid `RSIndexResult` and cannot be NULL.
+/// 1. `result` must point to a [valid] `RSIndexResult` and cannot be NULL.
 /// 2. `result`'s data payload must be of the aggregate kind
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn IndexResult_AggregateRefUnchecked<'result, 'index>(
     result: *const RSIndexResult<'index>,
@@ -327,8 +347,10 @@ pub unsafe extern "C" fn IndexResult_AggregateRefUnchecked<'result, 'index>(
 /// # Safety
 ///
 /// The following invariant must be upheld when calling this function:
-/// 1. `result` must point to a valid `RSIndexResult` and cannot be NULL.
+/// 1. `result` must point to a [valid] `RSIndexResult` and cannot be NULL.
 /// 2. `result`'s data payload must be of the aggregate kind
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn IndexResult_AggregateRefMutUnchecked<'result, 'index>(
     result: *mut RSIndexResult<'index>,
@@ -350,7 +372,9 @@ pub unsafe extern "C" fn IndexResult_AggregateRefMutUnchecked<'result, 'index>(
 /// # Safety
 ///
 /// The following invariant must be upheld when calling this function:
-/// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+/// - `result` must point to a [valid] `RSIndexResult` and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn IndexResult_AggregateReset(result: *mut RSIndexResult) {
     debug_assert!(!result.is_null(), "result must not be null");
@@ -370,7 +394,9 @@ pub unsafe extern "C" fn IndexResult_AggregateReset(result: *mut RSIndexResult) 
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+/// - `agg` must point to a [valid] `RSAggregateResult` and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn AggregateResult_Get<'result, 'index>(
     agg: *const RSAggregateResult<'index>,
@@ -390,8 +416,10 @@ pub unsafe extern "C" fn AggregateResult_Get<'result, 'index>(
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// 1. `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+/// 1. `agg` must point to a [valid] `RSAggregateResult` and cannot be NULL.
 /// 2. `index` must be lower than the length of the aggregate result children vector.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn AggregateResult_GetUnchecked<'result, 'index>(
     agg: *const RSAggregateResult<'index>,
@@ -413,9 +441,11 @@ pub unsafe extern "C" fn AggregateResult_GetUnchecked<'result, 'index>(
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// 1. `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+/// 1. `agg` must point to a [valid] `RSAggregateResult` and cannot be NULL.
 /// 2. `index` must be lower than the length of the aggregate result children vector.
 /// 3. `agg` must be of the `Owned` variant.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn AggregateResult_GetMutUnchecked<'result, 'index>(
     agg: *mut RSAggregateResult<'index>,
@@ -445,7 +475,9 @@ pub unsafe extern "C" fn AggregateResult_GetMutUnchecked<'result, 'index>(
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+/// - `agg` must point to a [valid] `RSAggregateResult` and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn AggregateResult_NumChildren(agg: *const RSAggregateResult) -> usize {
     debug_assert!(!agg.is_null(), "agg must not be null");
@@ -462,7 +494,9 @@ pub unsafe extern "C" fn AggregateResult_NumChildren(agg: *const RSAggregateResu
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+/// - `agg` must point to a [valid] `RSAggregateResult` and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn AggregateResult_Capacity(agg: *const RSAggregateResult) -> usize {
     debug_assert!(!agg.is_null(), "agg must not be null");
@@ -479,7 +513,9 @@ pub unsafe extern "C" fn AggregateResult_Capacity(agg: *const RSAggregateResult)
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+/// - `agg` must point to a [valid] `RSAggregateResult` and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn AggregateResult_KindMask(agg: *const RSAggregateResult) -> u8 {
     debug_assert!(!agg.is_null(), "agg must not be null");
@@ -533,8 +569,10 @@ pub extern "C" fn AggregateResult_Free(agg: RSAggregateResult) {
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `parent` must point to a valid `RSIndexResult` and cannot be NULL.
-/// - `child` must point to a valid `RSIndexResult` and cannot be NULL.
+/// - `parent` must point to a [valid] `RSIndexResult` and cannot be NULL.
+/// - `child` must point to a [valid] `RSIndexResult` and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn AggregateResult_AddChild(
     parent: *mut RSIndexResult<'static>,
@@ -562,7 +600,9 @@ pub unsafe extern "C" fn AggregateResult_AddChild(
 ///
 /// # Safety
 /// The following invariants must be upheld when calling this function:
-/// - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+/// - `agg` must point to a [valid] `RSAggregateResult` and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn AggregateResult_GetRecordsSlice(
     agg: *const RSAggregateResult<'static>,
@@ -603,9 +643,11 @@ pub struct AggregateRecordsSlice {
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `offsets` must point to a valid offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
+/// - `offsets` must point to a [valid] offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
 ///   and cannot be NULL.
 /// - `len` cannot be NULL and must point to an allocated memory big enough to hold an u32.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSOffsetVector_GetData(
     offsets: *const RSOffsetSlice,
@@ -633,10 +675,12 @@ pub unsafe extern "C" fn RSOffsetVector_GetData(
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `offsets` must point to a valid offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
+/// - `offsets` must point to a [valid] offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
 ///   and cannot be NULL.
 /// - `data` must point to an array of `len` offsets.
 /// - if `data` is NULL then `len` should be 0.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSOffsetVector_SetData(
     offsets: *mut RSOffsetSlice,
@@ -667,9 +711,11 @@ pub unsafe extern "C" fn RSOffsetVector_SetData(
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `offsets` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+/// - `offsets` must point to a [valid] [`RSOffsetVector`] and cannot be NULL.
 /// - The data pointer of `offsets` had been allocated via the global allocator
 ///   and points to an array matching the length of `offsets`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSOffsetVector_FreeData(offsets: *mut RSOffsetVector) {
     debug_assert!(!offsets.is_null(), "offsets must not be null");
@@ -690,10 +736,12 @@ pub unsafe extern "C" fn RSOffsetVector_FreeData(offsets: *mut RSOffsetVector) {
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `dest` must point to a valid [`RSOffsetVector`] and cannot be NULL.
-/// - `src` must point to a valid offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
+/// - `dest` must point to a [valid] [`RSOffsetVector`] and cannot be NULL.
+/// - `src` must point to a [valid] offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
 ///   and cannot be NULL.
-/// - `src` data should point to a valid array of `src.len` offsets.
+/// - `src` data should point to a [valid] array of `src.len` offsets.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSOffsetVector_CopyData(
     dest: *mut RSOffsetVector,
@@ -716,8 +764,10 @@ pub unsafe extern "C" fn RSOffsetVector_CopyData(
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `offsets` must point to a valid offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
+/// - `offsets` must point to a [valid] offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
 ///   and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSOffsetVector_Len(offsets: *const RSOffsetSlice) -> u32 {
     debug_assert!(!offsets.is_null(), "offsets must not be null");

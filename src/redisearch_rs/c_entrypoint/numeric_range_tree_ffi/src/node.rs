@@ -22,9 +22,11 @@ use numeric_range_tree::{NumericRange, NumericRangeNode};
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `node` must point to a valid [`NumericRangeNode`] obtained from
+/// - `node` must point to a [valid] [`NumericRangeNode`] obtained from
 ///   [`crate::iterator::NumericRangeTreeIterator_Next`] and cannot be NULL.
 /// - The tree from which this node came must still be valid.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRangeNode_GetRange(
     node: *const NumericRangeNode,

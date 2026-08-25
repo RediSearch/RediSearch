@@ -20,9 +20,11 @@ use std::{
 ///
 /// # Safety
 ///
-/// If `len > 0`, `names` must point to an array of at least `len` valid,
+/// If `len > 0`, `names` must point to an array of at least `len` [valid],
 /// NUL-terminated C strings. Each pointer's pointee must remain valid for
 /// the duration of this call.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 unsafe fn copy_c_names(names: *const *const c_char, len: usize) -> Box<[CString]> {
     if names.is_null() || len == 0 {
         return Box::new([]);
@@ -46,10 +48,10 @@ unsafe fn copy_c_names(names: *const *const c_char, len: usize) -> Box<[CString]
 /// 1. `input_key` must be a [valid] pointer to an [`RLookupKey`] that remains
 ///    alive for the lifetime of the returned reducer.
 /// 2. If `field_names_len > 0`, `field_names` must point to an array of at
-///    least `field_names_len` valid, NUL-terminated C strings. Ignored when
+///    least `field_names_len` [valid], NUL-terminated C strings. Ignored when
 ///    `load_all` is `true`.
 /// 3. If `sort_names_len > 0`, `sort_names` must point to an array of at
-///    least `sort_names_len` valid, NUL-terminated C strings.
+///    least `sort_names_len` [valid], NUL-terminated C strings.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -98,8 +100,10 @@ pub unsafe extern "C" fn CollectReducer_CreateLocal(
 
 /// # Safety
 ///
-/// 1. `r` must point to a valid [`LocalCollectReducer`] originally created by
+/// 1. `r` must point to a [valid] [`LocalCollectReducer`] originally created by
 ///    [`CollectReducer_CreateLocal`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub const unsafe extern "C" fn CollectReducer_IsLocalLoadAll(r: *const ffi::Reducer) -> bool {
     // SAFETY: ensured by caller (1.)

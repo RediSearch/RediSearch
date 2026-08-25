@@ -17,8 +17,10 @@ use rqe_iterators::{IteratorsConfig, open_numeric_or_geo_index};
 ///
 /// # Safety
 ///
-/// 1. `spec` must be a valid non-null pointer to an [`ffi::IndexSpec`].
-/// 2. `fs` must be a valid non-null pointer to a [`FieldSpec`] for a numeric or geo field.
+/// 1. `spec` must be a [valid] non-null pointer to an [`ffi::IndexSpec`].
+/// 2. `fs` must be a [valid] non-null pointer to a [`FieldSpec`] for a numeric or geo field.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn openNumericOrGeoIndex(
     spec: *mut ffi::IndexSpec,
@@ -52,15 +54,17 @@ pub unsafe extern "C" fn openNumericOrGeoIndex(
 ///
 /// # Safety
 ///
-/// 1. `ctx` must be a valid non-NULL pointer to a [`ffi::RedisSearchCtx`], remaining valid
+/// 1. `ctx` must be a [valid] non-NULL pointer to a [`ffi::RedisSearchCtx`], remaining valid
 ///    for the lifetime of the returned iterator.
-/// 2. `ctx.spec` must be a valid non-NULL pointer to an [`ffi::IndexSpec`].
-/// 3. `flt` must be a valid non-NULL pointer to a [`NumericFilter`] whose `field_spec` field
-///    is a valid non-NULL pointer to a [`FieldSpec`], remaining valid for the lifetime of the
+/// 2. `ctx.spec` must be a [valid] non-NULL pointer to an [`ffi::IndexSpec`].
+/// 3. `flt` must be a [valid] non-NULL pointer to a [`NumericFilter`] whose `field_spec` field
+///    is a [valid] non-NULL pointer to a [`FieldSpec`], remaining valid for the lifetime of the
 ///    returned iterator.
-/// 4. `config` must be a valid non-NULL pointer to an [`IteratorsConfig`].
-/// 5. `filter_ctx` must be a valid non-NULL pointer to a [`FieldFilterContext`] with a field
+/// 4. `config` must be a [valid] non-NULL pointer to an [`IteratorsConfig`].
+/// 5. `filter_ctx` must be a [valid] non-NULL pointer to a [`FieldFilterContext`] with a field
 ///    index (not a field mask).
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewNumericFilterIterator(
     ctx: *const ffi::RedisSearchCtx,

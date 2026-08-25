@@ -25,9 +25,11 @@ use crate::{IndexReader, InvertedIndexNumeric};
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `range` must point to a valid [`NumericRange`] obtained from
+/// - `range` must point to a [valid] [`NumericRange`] obtained from
 ///   [`crate::node::NumericRangeNode_GetRange`] and cannot be NULL.
 /// - The tree from which this range came must still be valid.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRange_GetCardinality(range: *const NumericRange) -> usize {
     debug_assert!(!range.is_null(), "range cannot be NULL");
@@ -42,7 +44,9 @@ pub unsafe extern "C" fn NumericRange_GetCardinality(range: *const NumericRange)
 ///
 /// # Safety
 ///
-/// - `range` must point to a valid [`NumericRange`] and cannot be NULL.
+/// - `range` must point to a [valid] [`NumericRange`] and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRange_MinVal(range: *const NumericRange) -> f64 {
     debug_assert!(!range.is_null(), "range cannot be NULL");
@@ -55,7 +59,9 @@ pub unsafe extern "C" fn NumericRange_MinVal(range: *const NumericRange) -> f64 
 ///
 /// # Safety
 ///
-/// - `range` must point to a valid [`NumericRange`] and cannot be NULL.
+/// - `range` must point to a [valid] [`NumericRange`] and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRange_MaxVal(range: *const NumericRange) -> f64 {
     debug_assert!(!range.is_null(), "range cannot be NULL");
@@ -68,7 +74,9 @@ pub unsafe extern "C" fn NumericRange_MaxVal(range: *const NumericRange) -> f64 
 ///
 /// # Safety
 ///
-/// - `range` must point to a valid [`NumericRange`] and cannot be NULL.
+/// - `range` must point to a [valid] [`NumericRange`] and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRange_InvertedIndexSize(range: *const NumericRange) -> usize {
     debug_assert!(!range.is_null(), "range cannot be NULL");
@@ -84,8 +92,10 @@ pub unsafe extern "C" fn NumericRange_InvertedIndexSize(range: *const NumericRan
 ///
 /// # Safety
 ///
-/// - `range` must point to a valid [`NumericRange`] and cannot be NULL.
+/// - `range` must point to a [valid] [`NumericRange`] and cannot be NULL.
 /// - The returned pointer points to memory owned by the range; do not free it.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRange_GetEntries(
     range: *const NumericRange,
@@ -107,12 +117,14 @@ pub unsafe extern "C" fn NumericRange_GetEntries(
 ///
 /// # Safety
 ///
-/// - `range` must point to a valid [`NumericRange`] and cannot be NULL.
-/// - `filter` may be NULL for no filtering, or must point to a valid [`NumericFilter`].
+/// - `range` must point to a [valid] [`NumericRange`] and cannot be NULL.
+/// - `filter` may be NULL for no filtering, or must point to a [valid] [`NumericFilter`].
 /// - The returned reader holds a reference to the range's inverted index. The range
 ///   must not be freed or modified while the reader exists.
 /// - The filter (if non-NULL) must remain valid for the lifetime of the reader.
 /// - Free the returned reader with `IndexReader_Free()` when done.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRange_NewIndexReader<'a>(
     range: *const NumericRange,
