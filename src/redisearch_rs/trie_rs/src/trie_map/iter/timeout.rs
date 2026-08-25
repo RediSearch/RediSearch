@@ -38,7 +38,14 @@ pub const TIMEOUT_CHECK_GRANULARITY: u32 = 100;
 /// [`from_should_stop`](Self::from_should_stop)), which keeps the clock —
 /// or whatever else signals cancellation — on the caller's side. Call
 /// [`check`](Self::check) once per traversal step.
-pub struct IteratorTimeoutState<'a>(Inner<'a>);
+pub struct IteratorTimeoutState<'a> {
+    /// Latched once the source reports a stop, so a stopped walk stays
+    /// stopped instead of resuming for another amortization window. Both
+    /// sources need it: an amortized clock checker clears its own counter
+    /// whenever it probes, expired deadline or not.
+    stopped: bool,
+    source: Inner<'a>,
+}
 
 enum Inner<'a> {
     /// Clock-based deadline (or the no-op checker when no deadline is set).
@@ -48,10 +55,6 @@ enum Inner<'a> {
     Callback {
         /// Traversal steps since `should_stop` was last polled.
         counter: u32,
-        /// Latched once `should_stop` returns `true`, so the iterator stays
-        /// exhausted instead of walking another amortization window —
-        /// matching an expired clock deadline, which stays expired.
-        stopped: bool,
         should_stop: Box<dyn FnMut() -> bool + 'a>,
     },
 }
@@ -59,44 +62,56 @@ enum Inner<'a> {
 impl IteratorTimeoutState<'_> {
     /// A state that never times out (used when no deadline is set).
     pub const fn no_timeout() -> Self {
-        Self(Inner::Clock(AnyTimeoutChecker::NoTimeout(NoTimeoutChecker)))
+        Self {
+            stopped: false,
+            source: Inner::Clock(AnyTimeoutChecker::NoTimeout(NoTimeoutChecker)),
+        }
     }
 
     /// Advance the amortized checker by one step and report whether the
     /// deadline has been reached.
     pub fn check(&mut self) -> TimeoutCheckResult {
-        match &mut self.0 {
+        if self.stopped {
+            return TimeoutCheckResult::TimedOut;
+        }
+
+        let outcome = match &mut self.source {
             Inner::Clock(checker) => checker.check_timeout(),
             Inner::Callback {
                 counter,
-                stopped,
                 should_stop,
             } => {
-                if *stopped {
-                    return TimeoutCheckResult::TimedOut;
-                }
                 *counter += 1;
                 if *counter >= TIMEOUT_CHECK_GRANULARITY {
                     *counter = 0;
                     if should_stop() {
-                        *stopped = true;
-                        return TimeoutCheckResult::TimedOut;
+                        TimeoutCheckResult::TimedOut
+                    } else {
+                        TimeoutCheckResult::Ok
                     }
+                } else {
+                    TimeoutCheckResult::Ok
                 }
-                TimeoutCheckResult::Ok
             }
+        };
+
+        if matches!(outcome, TimeoutCheckResult::TimedOut) {
+            self.stopped = true;
         }
+        outcome
     }
 }
 
 impl<'a> IteratorTimeoutState<'a> {
     /// A state driven by a caller-supplied stop signal instead of the clock.
     pub fn from_should_stop(should_stop: impl FnMut() -> bool + 'a) -> Self {
-        Self(Inner::Callback {
-            counter: 0,
+        Self {
             stopped: false,
-            should_stop: Box::new(should_stop),
-        })
+            source: Inner::Callback {
+                counter: 0,
+                should_stop: Box::new(should_stop),
+            },
+        }
     }
 }
 
@@ -106,9 +121,13 @@ impl From<Option<Instant>> for IteratorTimeoutState<'_> {
             None => Self::no_timeout(),
             Some(deadline) => {
                 let duration = deadline.saturating_duration_since(Instant::now());
-                Self(Inner::Clock(AnyTimeoutChecker::Deadline(
-                    DeadlineTimeoutChecker::new(duration, TIMEOUT_CHECK_GRANULARITY),
-                )))
+                Self {
+                    stopped: false,
+                    source: Inner::Clock(AnyTimeoutChecker::Deadline(DeadlineTimeoutChecker::new(
+                        duration,
+                        TIMEOUT_CHECK_GRANULARITY,
+                    ))),
+                }
             }
         }
     }
