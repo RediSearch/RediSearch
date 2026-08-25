@@ -1885,6 +1885,7 @@ dependencies = [
  "global_config",
  "query_eval",
  "query_types",
+ "redis-module",
  "rqe_iterators",
  "workspace_hack",
 ]

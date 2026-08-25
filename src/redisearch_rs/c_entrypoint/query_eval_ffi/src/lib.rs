@@ -20,7 +20,8 @@ use ffi::{
     RedisSearchCtx,
 };
 use query_eval::{
-    Config, QueryEvalContext, QueryNodeMut, eval_node, qast_iterate,
+    Config, QueryEvalContext, QueryNodeMut, eval_node, eval_params, eval_params_common,
+    qast_iterate,
     scorers::{BuiltInScorer, slop_forces_offsets},
 };
 use query_types::QueryNodeOptions;
@@ -127,6 +128,74 @@ pub unsafe extern "C" fn queryNeedsOffsets(
     // SAFETY: `scorer_name` upholds this function's contract (null or a valid
     // NUL-terminated C string).
     unsafe { scorerNeedsOffsets(scorer_name) }
+}
+
+/// Resolve every parameter in a query-node subtree.
+///
+/// Returns [`redis_module::REDISMODULE_OK`] on success and
+/// [`redis_module::REDISMODULE_ERR`] after a retained C resolver reports an
+/// error through `status`.
+///
+/// # Safety
+///
+/// `node` and `status` must be valid non-null pointers. `params` must be a valid
+/// parameter dictionary for every unresolved parameter in the subtree. The
+/// caller grants exclusive access for the call to the node subtree, every node
+/// parameter array, and every resolver target or vector payload allocation that
+/// may be written; all such allocations must remain valid and writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn QueryNode_EvalParams(
+    params: *mut ffi::dict,
+    node: *mut RSQueryNode,
+    dialect_version: u32,
+    status: *mut QueryError,
+) -> i32 {
+    let node = NonNull::new(node).expect("QueryNode_EvalParams: node is null");
+    NonNull::new(status).expect("QueryNode_EvalParams: status is null");
+    // SAFETY: the caller guarantees exclusive access to a valid node subtree,
+    // including its parameter arrays and resolver targets.
+    let node = unsafe { QueryNodeMut::new(node) };
+
+    // SAFETY: the caller carries all dictionary, status, target, payload, and
+    // exclusivity preconditions through to the Rust evaluator.
+    match unsafe { eval_params(params, node, dialect_version, status) } {
+        Ok(()) => redis_module::REDISMODULE_OK as i32,
+        Err(_) => redis_module::REDISMODULE_ERR as i32,
+    }
+}
+
+/// Resolve the parameters attached directly to one query node.
+///
+/// Returns [`redis_module::REDISMODULE_OK`] on success and
+/// [`redis_module::REDISMODULE_ERR`] after the retained C resolver reports an
+/// error through `status`.
+///
+/// # Safety
+///
+/// `node` and `status` must be valid non-null pointers. `params` must be a valid
+/// parameter dictionary for every unresolved parameter on `node`. The caller
+/// grants exclusive access for the call to the node, its parameter array, and
+/// every resolver target that may be written; all such allocations must remain
+/// valid and writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn QueryNode_EvalParamsCommon(
+    params: *mut ffi::dict,
+    node: *mut RSQueryNode,
+    dialect_version: u32,
+    status: *mut QueryError,
+) -> i32 {
+    let node = NonNull::new(node).expect("QueryNode_EvalParamsCommon: node is null");
+    NonNull::new(status).expect("QueryNode_EvalParamsCommon: status is null");
+    // SAFETY: the caller guarantees exclusive access to a valid node and its
+    // parameter array and resolver targets.
+    let mut node = unsafe { QueryNodeMut::new(node) };
+
+    // SAFETY: the caller carries all dictionary, status, target, and exclusivity
+    // preconditions through to the Rust evaluator.
+    match unsafe { eval_params_common(params, &mut node, dialect_version, status) } {
+        Ok(()) => redis_module::REDISMODULE_OK as i32,
+        Err(_) => redis_module::REDISMODULE_ERR as i32,
+    }
 }
 
 /// Evaluate a single query AST node, producing the corresponding

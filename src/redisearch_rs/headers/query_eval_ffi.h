@@ -62,6 +62,40 @@ extern "C" {
 QueryIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx, uint32_t reqflags, AREQ *areq, QueryError *status);
 
 /**
+ * Resolve every parameter in a query-node subtree.
+ *
+ * Returns [`redis_module::REDISMODULE_OK`] on success and
+ * [`redis_module::REDISMODULE_ERR`] after a retained C resolver reports an
+ * error through `status`.
+ *
+ * # Safety
+ *
+ * `node` and `status` must be valid non-null pointers. `params` must be a valid
+ * parameter dictionary for every unresolved parameter in the subtree. The
+ * caller grants exclusive access for the call to the node subtree, every node
+ * parameter array, and every resolver target or vector payload allocation that
+ * may be written; all such allocations must remain valid and writable.
+ */
+int32_t QueryNode_EvalParams(dict *params, RSQueryNode *node, uint32_t dialect_version, QueryError *status);
+
+/**
+ * Resolve the parameters attached directly to one query node.
+ *
+ * Returns [`redis_module::REDISMODULE_OK`] on success and
+ * [`redis_module::REDISMODULE_ERR`] after the retained C resolver reports an
+ * error through `status`.
+ *
+ * # Safety
+ *
+ * `node` and `status` must be valid non-null pointers. `params` must be a valid
+ * parameter dictionary for every unresolved parameter on `node`. The caller
+ * grants exclusive access for the call to the node, its parameter array, and
+ * every resolver target that may be written; all such allocations must remain
+ * valid and writable.
+ */
+int32_t QueryNode_EvalParamsCommon(dict *params, RSQueryNode *node, uint32_t dialect_version, QueryError *status);
+
+/**
  * Evaluate a single query AST node, producing the corresponding
  * [`QueryIterator`].
  *
