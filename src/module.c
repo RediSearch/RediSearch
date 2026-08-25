@@ -698,38 +698,17 @@ int CreateIndexIfNotExistsCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   return CreateIndexCommand(ctx, argv, argc);
 }
 
-#define DROPINDEX_UNLINK_BATCH_SIZE 1024
-
 static void DropIndex_ReplicateDropIfExists(RedisModuleCtx *ctx, RedisModuleString *indexName) {
   RedisModule_Replicate(ctx, CMD_FOR_ENV(RS_DROP_INDEX_IF_X_CMD), "sc", indexName,
                         "_FORCEKEEPDOCS");
 }
 
-static void DropIndex_UnlinkKeyBatch(RedisModuleCtx *ctx, RedisModuleString **keys,
-                                     size_t *numKeys) {
-  if (*numKeys == 0) {
-    return;
-  }
-
-  Redis_UnlinkKeys(ctx, keys, *numKeys);
-  for (size_t i = 0; i < *numKeys; ++i) {
-    RedisModule_FreeString(ctx, keys[i]);
-  }
-  *numKeys = 0;
-}
-
 static void DropIndex_UnlinkDocumentKeys(RedisModuleCtx *ctx, DocTable *dt) {
-  RedisModuleString *keys[DROPINDEX_UNLINK_BATCH_SIZE];
-  size_t numKeys = 0;
-
   DOCTABLE_FOREACH(dt, {
-    keys[numKeys++] = DMD_CreateKeyString(dmd, ctx);
-    if (numKeys == DROPINDEX_UNLINK_BATCH_SIZE) {
-      DropIndex_UnlinkKeyBatch(ctx, keys, &numKeys);
-    }
+    RedisModuleString *key = DMD_CreateKeyString(dmd, ctx);
+    Redis_UnlinkKey(ctx, key);
+    RedisModule_FreeString(ctx, key);
   });
-
-  DropIndex_UnlinkKeyBatch(ctx, keys, &numKeys);
 }
 
 /*

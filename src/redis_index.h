@@ -35,7 +35,7 @@ InvertedIndex *Redis_OpenInvertedIndex(IndexSpec *spec, const char *term, size_t
 #define CREATE_INDEX true
 
 int Redis_LegacyDeleteKey(RedisModuleCtx *ctx, RedisModuleString *s);
-int Redis_UnlinkKeys(RedisModuleCtx *ctx, RedisModuleString **keys, size_t numKeys);
+int Redis_UnlinkKey(RedisModuleCtx *ctx, RedisModuleString *key);
 
 /* Drop all the index's internal keys using this scan handler */
 int Redis_LegacyDropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque);

@@ -212,17 +212,19 @@ def testDropIndexDDReplicatesDropBeforeDocumentDeletes():
     commands = _slowlog_commands(slave)
     drop_pos = next((i for i, args in enumerate(commands)
                      if args and args[0].upper().endswith('FT._DROPINDEXIFX')), None)
-    delete_pos = next((i for i, args in enumerate(commands)
-                       if args and args[0].upper() in ('DEL', 'UNLINK')
-                       and any(arg.startswith('doc:') for arg in args[1:])), None)
+    delete_positions = [i for i, args in enumerate(commands)
+                        if args and args[0].upper() in ('DEL', 'UNLINK')
+                        and any(arg.startswith('doc:') for arg in args[1:])]
 
     env.assertTrue(drop_pos is not None, message='Replica did not execute _DROPINDEXIFX')
-    env.assertTrue(delete_pos is not None, message='Replica did not execute document deletes')
-    env.assertTrue(drop_pos < delete_pos,
+    env.assertTrue(delete_positions, message='Replica did not execute document deletes')
+    first_delete_pos = delete_positions[0]
+    env.assertTrue(drop_pos < first_delete_pos,
                    message='Replica deleted documents before dropping the index: %s' % commands)
-    delete_command = commands[delete_pos]
-    env.assertEqual(delete_command[0].upper(), 'UNLINK')
-    env.assertEqual(set(delete_command[1:]), {'doc:0', 'doc:1', 'doc:2'})
+    env.assertTrue(all(commands[pos][0].upper() == 'UNLINK' for pos in delete_positions))
+    deleted_keys = {arg for pos in delete_positions for arg in commands[pos][1:]
+                    if arg.startswith('doc:')}
+    env.assertEqual(deleted_keys, {'doc:0', 'doc:1', 'doc:2'})
   finally:
     slave.execute_command('CONFIG', 'SET', 'slowlog-log-slower-than', old_slowlog_threshold)
     slave.execute_command('SLOWLOG', 'RESET')
