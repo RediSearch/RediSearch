@@ -31,7 +31,7 @@ if [[ "${DRY_RUN:-0}" == 1 ]]; then
         else
             processor=$(uname -m)
             if [[ $processor = 'x86_64' ]]; then filename=cmake-${version}-linux-x86_64.sh; else filename=cmake-${version}-linux-aarch64.sh; fi
-            _dry_line "wget https://github.com/Kitware/CMake/releases/download/v${version}/${filename}"
+            _dry_line "wget -O ${filename} https://github.com/Kitware/CMake/releases/download/v${version}/${filename}"
             _dry_line "chmod u+x ./${filename}"
             _dry_line "${MODE:+$MODE }./${filename} --skip-license --prefix=/usr/local --exclude-subdir"
             _dry_line "rm ./${filename}"
@@ -65,7 +65,11 @@ else
             filename=cmake-${version}-linux-aarch64.sh
         fi
 
-        wget https://github.com/Kitware/CMake/releases/download/v${version}/${filename}
+        # -O so a retry overwrites a partial left by an interrupted download,
+        # instead of saving the fresh copy alongside it as ${filename}.1 and
+        # re-executing the stale partial below. CI retries `make bootstrap`, so
+        # this has to be idempotent with respect to its own leftovers.
+        wget -O ${filename} https://github.com/Kitware/CMake/releases/download/v${version}/${filename}
         chmod u+x ./${filename}
         $MODE ./${filename} --skip-license --prefix=/usr/local --exclude-subdir
         cmake --version
