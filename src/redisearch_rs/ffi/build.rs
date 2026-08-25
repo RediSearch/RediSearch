@@ -463,7 +463,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "RS_dictReleaseIterator",
         ],
         types: &["dictType"],
-        vars: &["dictTypeHeapHiddenStrings"],
+        vars: &["DICT_OK", "dictTypeHeapHiddenStrings"],
     },
     HeaderAllowlist {
         path: "src/util/references.h",
