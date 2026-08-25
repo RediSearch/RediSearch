@@ -23,6 +23,9 @@
 #include "search_ctx.h"
 #include "shard_window_ratio.h"
 
+static const char timeoutAfterNBlockedClientError[] =
+    "TIMEOUT_AFTER_N is not supported with blocked-client timeout handling";
+
 /*  Using INTERNAL_ONLY with TIMEOUT_AFTER_N where N == 0 may result in an infinite loop in the
    coordinator. Since shard replies are always empty, the coordinator might get stuck indefinitely
    waiting for results or a timeout. If the query timeout is set to 0 (disabled), neither of these
@@ -38,8 +41,7 @@ AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *statu
     return NULL;
   }
 
-  AREQ_Debug *debug_req = rm_realloc(AREQ_New(argv, argc), sizeof(*debug_req));
-  QueryRequest_SetEndProcRef(&debug_req->r.base, &debug_req->r.pipeline.qctx.endProc);
+  AREQ_Debug *debug_req = AREQ_New_AREQ_Debug(argv, argc);
 
   // Own a copy of the debug argv tail. The request may execute on a worker
   // thread (WORKERS > 0, always the case on flex), where parseAndCompileDebug
@@ -56,7 +58,7 @@ AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *statu
 
   AREQ *r = &debug_req->r;
   // Holds the full argv; `parseArgc` excludes the debug tail so parsing stops
-  // before it. Must be called after rm_realloc so r points to stable memory.
+  // before it.
   r->base.args.parseArgc = (uint32_t)(argc - debug_argv_count);
   AREQ_AddRequestFlags(r, QEXEC_F_DEBUG);
 
@@ -168,14 +170,19 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid TIMEOUT_AFTER_N count");
       return REDISMODULE_ERR;
     }
+    if ((debug_req->r.reqflags & QEXEC_F_IS_AGGREGATE) &&
+        debug_req->r.reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, timeoutAfterNBlockedClientError);
+      return REDISMODULE_ERR;
+    }
     if (!isClusterCoord(debug_req)) {
       // Shard/SA: debug timeout is only supported with RETURN or FAIL (without background workers)
       if (debug_req->r.reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "TIMEOUT_AFTER_N is not supported with ON_TIMEOUT RETURN-STRICT");
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, timeoutAfterNBlockedClientError);
         return REDISMODULE_ERR;
       }
       if (debug_req->r.reqConfig.timeoutPolicy == TimeoutPolicy_Fail && (debug_req->r.reqflags & QEXEC_F_RUN_IN_BACKGROUND)) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "TIMEOUT_AFTER_N is not supported with ON_TIMEOUT FAIL if WORKERS > 0");
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, timeoutAfterNBlockedClientError);
         return REDISMODULE_ERR;
       }
       // Add timeout to the shard/SA pipeline
@@ -205,7 +212,7 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
     } else {
       // Coordinator without INTERNAL_ONLY: debug timeout only supported with RETURN policy
       if (debug_req->r.reqConfig.timeoutPolicy != TimeoutPolicy_Return) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "TIMEOUT_AFTER_N for Coordinator is only supported with ON_TIMEOUT RETURN");
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, timeoutAfterNBlockedClientError);
         return REDISMODULE_ERR;
       }
       // Add timeout to the coordinator pipeline

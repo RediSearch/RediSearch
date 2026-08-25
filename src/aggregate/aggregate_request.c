@@ -1122,8 +1122,7 @@ bool RunInThread(RedisModuleCtx *ctx) {
   return true;
 }
 
-AREQ *AREQ_New(RedisModuleString **argv, uint32_t argc) {
-  AREQ* req = rm_calloc(1, sizeof(AREQ));
+static void initAREQRequest(AREQ *req, RedisModuleString **argv, uint32_t argc) {
   QueryRequest_Init(&req->base, QUERY_REQUEST_KIND_AREQ, argv, argc);
   QueryRequest_SetEndProcRef(&req->base, &req->pipeline.qctx.endProc);
   /*
@@ -1144,7 +1143,18 @@ AREQ *AREQ_New(RedisModuleString **argv, uint32_t argc) {
   req->prefixesOffset = 0;
   req->keySpaceVersion = INVALID_KEYSPACE_VERSION;
   req->querySlots = NULL;
+}
+
+AREQ *AREQ_New(RedisModuleString **argv, uint32_t argc) {
+  AREQ *req = rm_calloc(1, sizeof(*req));
+  initAREQRequest(req, argv, argc);
   return req;
+}
+
+AREQ_Debug *AREQ_New_AREQ_Debug(RedisModuleString **argv, uint32_t argc) {
+  AREQ_Debug *debug_req = rm_calloc(1, sizeof(*debug_req));
+  initAREQRequest(&debug_req->r, argv, argc);
+  return debug_req;
 }
 
 bool SearchTime_IsTimedOut(void *arg) {
