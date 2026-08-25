@@ -539,20 +539,15 @@ impl TagIndex<InMemoryMode> {
     /// the tag is dropped from the values trie and from the
     /// [suffix index](TagSuffixIndex), when enabled.
     ///
-    /// `unique_id` is the [`IndexUniqueId`] of the inverted index the GC scan ran
-    /// against, read via [`InvertedIndex::unique_id`] at scan time. It stands in for
-    /// a pointer to that index to avoid the ABA problem: a raw pointer comparison
-    /// cannot detect it, but a monotonically-assigned unique ID can. See
-    /// [`IndexUniqueId`] and [`RawIndexReaderCore::points_to_ii`], which guards the
-    /// equivalent reader-revalidation case the same way.
+    /// `unique_id` identifies the one index the scan ran against, read via
+    /// [`InvertedIndex::unique_id`] at scan time: `tag` may hold a different index by
+    /// now, and a delta computed elsewhere must not be applied to it.
     ///
     /// Returns the [`GcApplyInfo`] describing the applied changes, or `None` when the
     /// delta is stale (the tag is gone or its index was replaced).
     /// [`bytes_freed`](GcApplyInfo::bytes_freed) and
     /// [`block_count_delta`](GcApplyInfo::block_count_delta) already account for
     /// the whole posting list being dropped when the tag became empty.
-    ///
-    /// [`RawIndexReaderCore::points_to_ii`]: inverted_index::reader::RawIndexReaderCore::points_to_ii
     pub fn gc(
         &mut self,
         tag: Tag<'_>,
