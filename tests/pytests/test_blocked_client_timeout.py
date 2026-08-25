@@ -1034,7 +1034,7 @@ class TestCoordinatorTimeout:
         # Shards reject TIMEOUT_AFTER_N under RETURN_STRICT at parse time, and none
         # has seen the query yet: flip the policy to 'return' so shards accept the
         # simulated timeout and reply with empty results + a TIMEOUT warning.
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return').ok()
+        run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
 
         # Release the fanout. Shards cannot reply while their workers are paused,
         # so the reducer cannot be scheduled yet; re-pause the coord pool right
@@ -1093,7 +1093,8 @@ class TestCoordinatorTimeout:
         _verify_metrics_not_changed(env, env, before_info,
                                     [TIMEOUT_WARNING_COORD_METRIC, TIMEOUT_WARNING_SHARD_METRIC])
 
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
+        run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG,
+                                  prev_on_timeout_policy)
 
     def test_no_timeout(self):
         """

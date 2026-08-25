@@ -28,15 +28,19 @@ class TestEmptyReplyWarnings:
         TIMEOUT_AFTER_N 0 INTERNAL_ONLY causes shards to return empty + timeout warning.
         Verify the warning is propagated to the response.
         """
-        query = ['FT.AGGREGATE', 'idx', '*', 'TIMEOUT', 0]
-        res = runDebugQueryCommandTimeoutAfterN(self.env, query, 0, internal_only=True)
+        allShards_change_timeout_policy(self.env, 'RETURN')
+        try:
+            query = ['FT.AGGREGATE', 'idx', '*', 'TIMEOUT', 0]
+            res = runDebugQueryCommandTimeoutAfterN(self.env, query, 0, internal_only=True)
 
-        # Should have 0 results
-        self.env.assertEqual(len(res['results']), 0,
-                             message="Expected 0 results with TIMEOUT_AFTER_N 0")
-        # Should have timeout warning (propagated from shards via the fix)
-        VerifyTimeoutWarningResp3(self.env, res,
-                                  message="Empty reply should propagate timeout warning")
+            # Should have 0 results
+            self.env.assertEqual(len(res['results']), 0,
+                                 message="Expected 0 results with TIMEOUT_AFTER_N 0")
+            # Should have timeout warning (propagated from shards via the fix)
+            VerifyTimeoutWarningResp3(self.env, res,
+                                      message="Empty reply should propagate timeout warning")
+        finally:
+            allShards_change_timeout_policy(self.env, 'RETURN-STRICT')
 
     def testEmptyReplyTimeoutWarningProfileAggregate(self):
         """
@@ -47,17 +51,21 @@ class TestEmptyReplyWarnings:
         After MOD-12640 fix: processWarningsAndCleanup returns RS_RESULT_TIMEDOUT,
         which sets req->has_timedout, so coordinator profile shows timeout.
         """
-        query = ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'TIMEOUT', 0]
-        res = runDebugQueryCommandTimeoutAfterN(self.env, query, 0, internal_only=True)
+        allShards_change_timeout_policy(self.env, 'RETURN')
+        try:
+            query = ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'TIMEOUT', 0]
+            res = runDebugQueryCommandTimeoutAfterN(self.env, query, 0, internal_only=True)
 
-        # Results should have timeout warning
-        VerifyTimeoutWarningResp3(self.env, res['Results'],
-                                  message=f"Results should have timeout warning, res: {res}")
+            # Results should have timeout warning
+            VerifyTimeoutWarningResp3(self.env, res['Results'],
+                                      message=f"Results should have timeout warning, res: {res}")
 
-        # Coordinator SHOULD have timeout warning (propagated via RS_RESULT_TIMEDOUT)
-        coord_warning = res['Profile']['Coordinator']['Warning']
-        self.env.assertContains('Timeout limit was reached', coord_warning,
-                                message=f"Coordinator should have timeout warning from shard's empty reply, res: {res}")
+            # Coordinator SHOULD have timeout warning (propagated via RS_RESULT_TIMEDOUT)
+            coord_warning = res['Profile']['Coordinator']['Warning']
+            self.env.assertContains('Timeout limit was reached', coord_warning,
+                                    message=f"Coordinator should have timeout warning from shard's empty reply, res: {res}")
+        finally:
+            allShards_change_timeout_policy(self.env, 'RETURN-STRICT')
 
     def testEmptyReplyMaxPrefixExpansionsWarning(self):
         """
@@ -106,7 +114,7 @@ def testEmptyReplyTimeoutResp2():
     """
     RESP2 empty reply with timeout - verify handled correctly.
     """
-    env = Env(protocol=2)
+    env = Env(protocol=2, moduleArgs='ON_TIMEOUT RETURN')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
     conn = getConnectionByEnv(env)
     for i in range(20):

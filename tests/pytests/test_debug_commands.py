@@ -1571,7 +1571,7 @@ class ProfileDebugSA:
 
 class TestProfileDebugSAResp2(object):
     def __init__(self):
-        env = Env(protocol=2)
+        env = Env(protocol=2, moduleArgs='ON_TIMEOUT RETURN')
         ProfileDebugSA.createIndex(env)
         self.env = env
 
@@ -1582,7 +1582,7 @@ class TestProfileDebugSAResp2(object):
 
 class TestProfileDebugSAResp3(object):
     def __init__(self):
-        env = Env(protocol=3)
+        env = Env(protocol=3, moduleArgs='ON_TIMEOUT RETURN')
         ProfileDebugSA.createIndex(env)
         self.env = env
 
@@ -1684,7 +1684,7 @@ class ProfileDebugCluster:
 
 class TestProfileDebugClusterResp2(object):
     def __init__(self):
-        env = Env(protocol=2)
+        env = Env(protocol=2, moduleArgs='ON_TIMEOUT RETURN')
         ProfileDebugCluster.createIndex(env)
         self.env = env
 
@@ -1695,7 +1695,7 @@ class TestProfileDebugClusterResp2(object):
 
 class TestProfileDebugClusterResp3(object):
     def __init__(self):
-        env = Env(protocol=3)
+        env = Env(protocol=3, moduleArgs='ON_TIMEOUT RETURN')
         ProfileDebugCluster.createIndex(env)
         self.env = env
 

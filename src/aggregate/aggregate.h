@@ -109,6 +109,7 @@ typedef struct {
 bool RunInThread(RedisModuleCtx *ctx);
 
 typedef void (*profiler_func)(RedisModule_Reply *reply, void *ctx);
+typedef void (*profile_collector_func)(void *ctx);
 
 typedef enum {
   /* Pipeline has a loader */
@@ -213,6 +214,10 @@ typedef struct AREQ {
   size_t prefixesOffset;
 
   ProfilePrinterCtx profileCtx;
+
+  // Optional execution-thread hook that finishes collecting profile data before
+  // a deferred reply is handed to the main thread for serialization.
+  profile_collector_func profileCollect;
 
 } AREQ;
 

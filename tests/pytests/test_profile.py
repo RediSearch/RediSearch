@@ -785,11 +785,11 @@ def TimedOutWarningtestCoord(env):
 
 @skip(asan=True, msan=True, cluster=False)
 def testTimedOutWarningCoordResp3():
-  TimedOutWarningtestCoord(Env(protocol=3))
+  TimedOutWarningtestCoord(Env(protocol=3, moduleArgs='ON_TIMEOUT RETURN'))
 
 @skip(asan=True, msan=True, cluster=False)
 def testTimedOutWarningCoordResp2():
-  TimedOutWarningtestCoord(Env(protocol=2))
+  TimedOutWarningtestCoord(Env(protocol=2, moduleArgs='ON_TIMEOUT RETURN'))
 
 def InternalCursorReadsInProfile(protocol):
   """Tests that 'Internal cursor reads' appears in shard profiles for AGGREGATE."""
@@ -827,7 +827,7 @@ def testInternalCursorReadsInProfileResp2():
 @skip(cluster=False)
 def testInternalCursorReadsWithTimeoutResp3():
   """Tests 'Internal cursor reads' with timeout - RESP3 coordinator detects timeout and stops early."""
-  env = Env(protocol=3)
+  env = Env(protocol=3, moduleArgs='ON_TIMEOUT RETURN')
   conn = getConnectionByEnv(env)
   run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
@@ -856,7 +856,7 @@ def testInternalCursorReadsWithTimeoutResp3():
 @skip(cluster=False)
 def testInternalCursorReadsWithTimeoutResp2():
   """Tests 'Internal cursor reads' with timeout - RESP2 coordinator doesn't detect timeout, reads until EOF."""
-  env = Env(shardsCount=2, protocol=2)
+  env = Env(shardsCount=2, protocol=2, moduleArgs='ON_TIMEOUT RETURN')
   conn = getConnectionByEnv(env)
   run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 

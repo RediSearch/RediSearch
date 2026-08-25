@@ -868,7 +868,7 @@ def test_mod5062(env):
 
   # verify no crash
   env.expect('FT.AGGREGATE', 'idx', 'hello').noError()
-  env.expect('FT.AGGREGATE', 'idx', 'hello', 'LIMIT', 0, 0).equal([n])
+  env.expect('FT.AGGREGATE', 'idx', 'hello', 'LIMIT', 0, 0).equal([0])
 
   # verify using counter instead of sorter, even with explicit sort
   aggregate_profile = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', 'hello', 'SORTBY', '1', '@t')

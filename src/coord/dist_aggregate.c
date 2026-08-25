@@ -699,31 +699,49 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
 
 void PrintShardProfile(RedisModule_Reply *reply, void *ctx);
 
-void printAggProfile(RedisModule_Reply *reply, void *ctx) {
-  // profileRP replace netRP as end PR
+static void collectAggProfile(void *ctx) {
   AREQ *req = ctx;
   RPNet *rpnet = (RPNet *)AREQ_QueryProcessingCtx(req)->rootProc;
-  // Calling getNextReply alone is insufficient here, as we might have already encountered EOF from the shards,
-  // which caused the call to getNextReply from RPNet to set cond->wait to true.
-  // We can't also set cond->wait to false because we might still be waiting for shards' replies containing profile information.
+  // Calling getNextReply alone is insufficient here, as we might have already encountered EOF from
+  // the shards, which caused the call to getNextReply from RPNet to set cond->wait to true. We
+  // can't also set cond->wait to false because we might still be waiting for shards' replies
+  // containing profile information.
 
   // Therefore, we loop to drain all remaining replies from the channel.
   // Pending might be zero, but there might still be replies in the channel to read.
   // We may have pulled all the replies from the channel and arrived here due to a timeout,
   // and now we're waiting for the profile results.
-  if (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it)) {
-    do {
-      MRReply_Free(rpnet->current.root);
-    } while (getNextReply(rpnet) != RS_RESULT_EOF);
+  while (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it)) {
+    // A blocked-client timeout callback owns Redis's main thread, so leave any
+    // queued replies for its nonblocking drain instead of waiting for shards.
+    if (AREQ_TimedOut(req) && !rpnet->drainOnly) {
+      return;
+    }
+    MRReply_Free(rpnet->current.root);
+    if (getNextReply(rpnet) != RS_RESULT_OK) {
+      return;
+    }
   }
+}
+
+void printAggProfile(RedisModule_Reply *reply, void *ctx) {
+  AREQ *req = ctx;
+  RPNet *rpnet = (RPNet *)AREQ_QueryProcessingCtx(req)->rootProc;
+
+  // Inline execution still collects here. Deferred execution normally did so
+  // on its worker; after a timeout, drain only replies already in the channel.
+  if (AREQ_TimedOut(req)) {
+    rpnet->drainOnly = true;
+  }
+  collectAggProfile(req);
 
   size_t num_shards = MRIterator_GetNumShards(rpnet->it);
   size_t profile_count = array_len(rpnet->shardsProfile);
 
   PrintShardProfile_ctx sCtx = {
-    .count = profile_count,
-    .replies = rpnet->shardsProfile,
-    .isSearch = false,
+      .count = profile_count,
+      .replies = rpnet->shardsProfile,
+      .isSearch = false,
   };
 
   if (profile_count != num_shards) {
@@ -800,6 +818,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   }
 
   r->profile = printAggProfile;
+  r->profileCollect = collectAggProfile;
 
   unsigned int dialect = r->reqConfig.dialectVersion;
   specialCaseCtx *knnCtx = NULL;

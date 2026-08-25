@@ -201,7 +201,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['PRIVILEGED_THREADS_NUM'][0], '1')
     env.assertEqual(res_dict['WORKERS_PRIORITY_BIAS_THRESHOLD'][0], '1')
     env.assertEqual(res_dict['FRISOINI'][0], None)
-    env.assertEqual(res_dict['ON_TIMEOUT'][0], 'return')
+    env.assertEqual(res_dict['ON_TIMEOUT'][0], 'return-strict')
     env.assertEqual(res_dict['GCSCANSIZE'][0], '100')
     env.assertEqual(res_dict['MIN_PHONETIC_TERM_LEN'][0], '3')
     env.assertEqual(res_dict['FORK_GC_RUN_INTERVAL'][0], '30')
@@ -1221,7 +1221,7 @@ def testConfigAPIRunTimeEnumParams():
 
     # Test default value
     env.expect('CONFIG', 'GET', 'search-on-timeout')\
-        .equal(['search-on-timeout', 'return'])
+        .equal(['search-on-timeout', 'return-strict'])
 
     # Test search-on-timeout - valid values
     env.expect('CONFIG', 'SET', 'search-on-timeout', 'fail').equal('OK')
