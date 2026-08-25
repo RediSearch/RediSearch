@@ -186,6 +186,10 @@ void QueryRequest_SetReplyResultsSafe(QueryRequest *request, SearchResult **resu
   if (QueryRequest_RequiresReplyStateSafeAccess(request)) {
     // Strict aggregation already appended directly to the shared array.
     RS_ASSERT(results == NULL);
+    if (!stored->results) {
+      // A concrete empty array keeps stored-result serialization out of its live-result path.
+      stored->results = array_new(SearchResult *, 8);
+    }
   } else {
     // Non-synchronized flows publish their completed thread-local array once.
     stored->results = results;

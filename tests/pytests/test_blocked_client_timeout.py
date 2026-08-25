@@ -2925,8 +2925,9 @@ class TestCoordinatorTimeout:
         timeout. BG breaks out of the interruptible wait via the timedOut flag
         and drains the queued items (PopWithTimeout returns queued items
         regardless of the abort flag), then completes the pipeline naturally
-        because MRIterator_GetPending is already 0. The full row count must be
-        present in the reply.
+        because MRIterator_GetPending is already 0. The row being produced when
+        the timeout marker is published crosses the strict cutoff and is
+        discarded; draining preserves every row still queued in the channel.
         """
         env = self.env
         skipIfNoEnableAssert(env)
@@ -2976,11 +2977,12 @@ class TestCoordinatorTimeout:
 
         env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
         result = query_result[0]
-        env.assertEqual(result['total_results'], self.n_docs,
-                        message=f"Expected {self.n_docs} docs after channel drain, "
+        expected_rows = self.n_docs - 1
+        env.assertEqual(result['total_results'], expected_rows,
+                        message=f"Expected {expected_rows} docs after channel drain, "
                                 f"got {result['total_results']}")
-        env.assertEqual(len(result.get('results', [])), self.n_docs,
-                        message=f"Expected {self.n_docs} drained rows in reply, "
+        env.assertEqual(len(result.get('results', [])), expected_rows,
+                        message=f"Expected {expected_rows} drained rows in reply, "
                                 f"got {len(result.get('results', []))}")
 
         env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
@@ -7668,22 +7670,12 @@ class TestShardTimeout:
             env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
 
-    def test_return_strict_stale_holding_flag_after_unlock_keeps_results(self):
-        """A timeout in the unlock->clear-flag window must not drop loaded results.
+    def test_return_strict_timeout_before_loaded_rows_are_published(self):
+        """A timeout rejects rows not yet published to the shared reply array.
 
-        The worker wins the claim, takes the GIL gate, loads under the Redis lock,
-        and unlocks - but parks at BeforeSafeLoaderExitGIL before clearing
-        safeLoaderHoldingGIL. With the GIL already released, the worker no longer
-        needs it, yet the handshake flag is still set. The timeout callback loses
-        the claim, observes the stale holding == true, and takes the preempt
-        branch: it returns an empty reply instead of waiting for the already-loaded
-        partial results, losing data the RETURN_STRICT contract promises.
-
-        The park is interruptible via the timedOut predicate so the post-fix path
-        (flag cleared before unlock) does not deadlock; pre-fix the synchronous
-        callback observes the stale flag before the worker's poll clears it.
-
-        Detects the bug: the reply must carry the loaded rows (pre-fix it is empty).
+        The worker loads rows under the Redis lock, then parks before returning
+        from the safe loader. Publishing the timeout marker at that point makes
+        it the strict cutoff, so those loaded-but-unpublished rows are excluded.
         """
         env = self.env
         skipIfNoEnableAssert(env)
@@ -7706,14 +7698,12 @@ class TestShardTimeout:
                 )
                 t_query.start()
                 blocked_client_id = wait_for_blocked_query_client(env, 'FT.AGGREGATE')
-                # Worker loaded under the lock, unlocked, and parked before clearing
-                # the handshake flag (holding still true, GIL no longer held).
+                # The worker loaded rows but has not returned them for publication.
                 wait_for_condition(
                     lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
                     f'worker never reached {sync_point}'
                 )
-                # Fire the deadline: pre-fix the callback observes the stale flag and
-                # preempts, dropping the loaded rows.
+                # Publish the strict cutoff before the loaded rows can be appended.
                 env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
                 wait_for_client_unblocked(env, blocked_client_id)
             finally:
@@ -7724,9 +7714,8 @@ class TestShardTimeout:
             env.assertFalse(t_query.is_alive(), message="Aggregate thread hung after preempt")
             env.assertEqual(len(result), 1, message="Expected one aggregate result")
             reply = result[0]
-            env.assertGreater(len(reply.get('results', [])), 0,
-                              message="Loaded rows must survive a timeout in the "
-                                      "unlock->clear-flag window, got an empty reply")
+            env.assertEqual(len(reply.get('results', [])), 0,
+                            message="Unpublished rows must not cross the timeout cutoff")
         finally:
             env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
