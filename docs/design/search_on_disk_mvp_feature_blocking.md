@@ -14,7 +14,7 @@ and compares them against the actual implementation status in the codebase.
 |---------|--------|-------|
 | `FT.CREATE` | ✅ Allowed | Requires `SKIPINITIALSCAN`; only HASH type; only TEXT/TAG/VECTOR fields |
 | `FT.DROPINDEX` | ✅ Allowed | `DD` option blocked |
-| `FT.SEARCH` | ✅ Allowed | Requires `NOCONTENT` or `RETURN 0`; no SLOP/INORDER/HIGHLIGHT/SUMMARIZE/SORTBY/LOAD |
+| `FT.SEARCH` | ✅ Allowed | Requires `NOCONTENT` or `RETURN 0`; no SLOP/INORDER/HIGHLIGHT/SUMMARIZE/LOAD |
 | `FT.PROFILE SEARCH` | ✅ Allowed | Only with `SEARCH` subcommand |
 | `FT.INFO` | ✅ Allowed | — |
 | `FT._LIST` | ✅ Allowed | — |
@@ -74,7 +74,6 @@ Once the MVP is complete, the following features should be unblocked:
 | `FT.HYBRID` | ❌ Blocked | ✅ Allow |
 | `FT.CURSOR` commands | ❌ Blocked | ✅ Allow |
 | `FT.ALTER` | ❌ Blocked | ✅ Allow |
-| `SORTBY` argument | ❌ Blocked | ✅ Allow |
 | `ON JSON` | ❌ Blocked | ✅ Allow |
 | Vector Range queries | ⚠️ Allowed | ✅ Keep allowed |
 | `FLAT` vector algorithm | ❌ Blocked | ⚠️ TBD |
@@ -133,7 +132,7 @@ Once the MVP is complete, the following features should be unblocked:
 | `SUMMARIZE` | ✅ Yes | ✅ BLOCKED | `aggregate_request.c:627-630` |
 | `GEOFILTER` | ✅ Implicit | ✅ BLOCKED (implicit) | GEO field type is blocked, so no GEO index |
 | `FILTER` (numeric) | ✅ Implicit | ✅ BLOCKED (implicit) | NUMERIC field type is blocked |
-| `SORTBY` | ✅ Yes | ✅ BLOCKED | `aggregate_request.c:310-312` |
+| `SORTBY` | No | ➖ Allowed | Sort keys load via the disk async loader at the arrange step |
 
 ### Scorer Reference
 
