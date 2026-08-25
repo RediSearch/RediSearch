@@ -430,6 +430,48 @@ mod not_miri {
         assert_eq!(status, RQEValidateStatus::Aborted);
     }
 
+    /// Term records carry borrowed offsets into the block buffer, so a moved buffer puts both the
+    /// reader's cursor and the current record's offsets on freed memory.
+    #[test]
+    fn term_revalidate_after_block_buffer_moved() {
+        let test = TermRevalidateTest::new(10);
+        let mut it = test.create_iterator();
+        let ii = {
+            use inverted_index::{full::Full, opaque::OpaqueEncoding};
+            Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut()
+        };
+
+        test.test
+            .revalidate_after_block_buffer_moved(&mut it, ii, appended_record);
+    }
+
+    /// Driven bare, deliberately: this test garbage-collects the index while the iterator is
+    /// parked. `num_estimated()` shrinks with the collected document, while the checker's upper
+    /// bound counts every result yielded since the last rewind, including those yielded before the
+    /// GC. That bound only holds for an index that does not shrink underneath the iterator.
+    #[test]
+    fn term_revalidate_after_block_buffer_moved_and_gc() {
+        let test = TermRevalidateTest::new(10);
+        let mut it = test.create_iterator();
+        let ii = {
+            use inverted_index::{full::Full, opaque::OpaqueEncoding};
+            Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut()
+        };
+
+        test.test
+            .revalidate_after_block_buffer_moved_and_gc(&mut it, ii, appended_record);
+    }
+
+    /// Build a record shaped like the ones [`TermRevalidateTest`] seeds the index with.
+    fn appended_record(doc_id: DocId) -> RSIndexResult<'static> {
+        const OFFSETS: &[u8] = &[0, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+
+        let mut term = RSQueryTerm::new("term", 1, 0);
+        term.set_idf(5.0);
+        term.set_bm25_idf(10.0);
+        expected_record(doc_id, u32::MAX as FieldMask, term, OFFSETS)
+    }
+
     #[test]
     fn term_revalidate_after_document_deleted() {
         let test = TermRevalidateTest::new(10);
