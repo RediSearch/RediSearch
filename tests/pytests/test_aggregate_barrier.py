@@ -730,14 +730,18 @@ def test_withcount_index_dropped_during_collection():
 
 @skip(cluster=False, asan=True)
 def test_withcount_inflight_at_coordinator_shutdown():
-    """Coordinator shutdown while a WITHCOUNT aggregate is still collecting
-    first replies.
+    """A late ordinary shard reply lands after the coordinator pool is gone.
 
     One shard is parked at BeforeFirstRead, so its first reply is pending when
-    the coordinator gets SIGTERM. In RS_GLOBAL_DTORS runs the MR teardown then
-    error-completes that command, and the WITHCOUNT error callback dispatches
-    the deferred continuation at the coordinator pool — which crashed (SIGSEGV)
-    before the MR_ShutdownIO ordering fix, when the pool was already destroyed.
+    the coordinator gets SIGTERM. The coordinator's cleanup then parks at
+    ShutdownAfterCoordPoolDestroy — the window where its pool is destroyed —
+    and announces it in the log (a SIGNAL can never be processed there, so the
+    park is armed with an auto-release). The test releases the shard only
+    then, so its real first reply arrives inside that window: pre-MR_ShutdownIO
+    orderings kept the MR IO threads alive there, and the reply's WITHCOUNT
+    deferred dispatch dereferenced the destroyed pool (SIGSEGV); with the fix
+    the IO threads are already joined, the reply goes nowhere, and shutdown
+    exits 0.
 
     Skipped under ASAN: shutdown with an in-flight query leaks by design (the
     unwound request, the stranded fire-and-forget queue items), and the leak
@@ -755,13 +759,28 @@ def test_withcount_inflight_at_coordinator_shutdown():
         conn.execute_command('HSET', f'doc:{i}', 'title', f'doc{i}')
 
     # Park shard 3 before its first read; its first reply stays pending on the
-    # coordinator for the rest of the test.
+    # coordinator until the cleanup window below is open.
     shard_conn = env.getConnection(3)
     sync_point = 'BeforeFirstRead'
     shard_conn.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
     shard_conn.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
 
     coord_conn = env.getConnection(1)
+    # Capture the coordinator's log path while it can still answer, and arm
+    # the cleanup park (3s auto-release: its SIGNAL can never be processed).
+    coord_park = 'ShutdownAfterCoordPoolDestroy'
+    log_dir = coord_conn.execute_command('config', 'get', 'dir')[1]
+    log_file = coord_conn.execute_command('config', 'get', 'logfile')[1]
+    coord_log = os.path.join(log_dir, log_file)
+    coord_conn.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', coord_park, 3000)
+
+    def coord_log_contains(needle):
+        try:
+            with open(coord_log, encoding='utf-8', errors='replace') as f:
+                return needle in f.read()
+        except OSError:
+            return False
+
     query_result = []
     t_query = threading.Thread(
         target=_run_query_store_result,
@@ -777,20 +796,32 @@ def test_withcount_inflight_at_coordinator_shutdown():
                 debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
             'Timeout waiting for shard to reach sync point')
 
-        # Stop only the coordinator while the aggregate is in flight. RLTest
-        # stops with SIGTERM, exactly the production shutdown path. Capture
-        # the process handle first — stopEnv drops it.
+        # SIGTERM the coordinator (the production shutdown path) without
+        # waiting for it, and hold until cleanup announces the open window.
         coordinator = env.envRunner.shards[0]
         coordinator_process = coordinator.masterProcess
-        coordinator.stopEnv()
-        # A clean shutdown exits 0; a teardown crash exits by signal
-        # (negative returncode). RLTest itself does not check this.
+        coordinator_process.terminate()
+        wait_for_condition(
+            lambda: (coord_log_contains('Parked at ' + coord_park), {}),
+            'Timeout waiting for the coordinator cleanup park')
+
+        # The pool is now gone. Release the shard: its ordinary first reply
+        # completes the WITHCOUNT count and triggers the deferred dispatch.
+        shard_conn.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+
+        # The park self-releases and shutdown completes. A clean shutdown
+        # exits 0; the pre-fix dispatch dies by SIGSEGV (negative returncode).
+        wait_for_condition(
+            lambda: (coordinator_process.poll() is not None, {}),
+            'Timeout waiting for the coordinator to exit')
         env.assertEqual(coordinator_process.poll(), 0,
                         message="coordinator did not shut down cleanly with an "
                                 "in-flight WITHCOUNT aggregate")
+        # Already stopped (cleanly or not); keep teardown from re-reporting it.
+        coordinator._stopProcess = lambda *args, **kwargs: None
     finally:
-        # Release the parked shard so the remaining shards stop cleanly at env
-        # teardown, and reap the query thread (its connection died).
+        # Make sure the parked shard is released so the remaining shards stop
+        # cleanly at env teardown, and reap the query thread.
         shard_conn.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
         shard_conn.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
         t_query.join(timeout=10)

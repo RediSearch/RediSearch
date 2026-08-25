@@ -1952,6 +1952,16 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   // because the sweep error-completed every pending command.
   ConcurrentSearch_ThreadPoolDestroy();
 
+#ifdef ENABLE_ASSERT
+  // Test-only handshake (see the sync point's doc in debug_commands.h): the
+  // log line tells the test the pool-is-gone window is open.
+  if (SyncPoint_IsArmed(SYNC_POINT_SHUTDOWN_AFTER_COORD_POOL_DESTROY)) {
+    RedisModule_Log(RSDummyContext, "notice",
+                    "Parked at " SYNC_POINT_SHUTDOWN_AFTER_COORD_POOL_DESTROY);
+    SyncPoint_Wait(SYNC_POINT_SHUTDOWN_AFTER_COORD_POOL_DESTROY);
+  }
+#endif
+
   // Only after every pool whose cycles register in BlockedQueries has stopped
   // (the workers pool above and the coordinator pool just now): no new cycle
   // can link in after this point, so the unlink-only unwind leaves the
