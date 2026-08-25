@@ -218,45 +218,40 @@ install_llvm() {
             # signing key.
             apt_get_cmd "$MODE" install -y --no-install-recommends \
                 lsb-release wget curl $spc_pkg gnupg ca-certificates
-            # Retry the llvm.sh download, and treat a persistent failure as an
-            # apt.llvm.org failure (-> tarball below) rather than a bootstrap
-            # failure. Debian trixie ships no native clang-${LLVM_VER}, so it
-            # always reaches this path; as a bare command under `set -e`, a
-            # single transient blip here (exit 4 = network failure) aborted the
+            # Treat any failure to fetch or run llvm.sh as an apt.llvm.org
+            # failure (-> tarball below) rather than a bootstrap failure.
+            # Debian trixie ships no native clang-${LLVM_VER}, so it always
+            # reaches this path; as a bare command under `set -e`, a single
+            # transient blip here (wget exit 4 = network failure) aborted the
             # whole bootstrap instead of falling through to step 3.
             #
-            # curl rather than wget, matching install_from_tarball below:
+            # Retrying a transient network failure is the caller's job, not
+            # this script's: CI already wraps install_llvm.sh, and the
+            # bootstrap that runs it, in a 5-attempt retry loop. What the
+            # script owes is a fallback chain that degrades instead of
+            # aborting, so a persistent apt.llvm.org outage still ends in a
+            # working toolchain.
+            #
+            # curl rather than wget, matching install_from_tarball:
             #   - `--proto`/`--proto-redir` pin the transfer to HTTPS even
             #     across a redirect. That matters here specifically because we
             #     chmod +x and run the result with $MODE, so a redirect
             #     downgraded to http:// would be arbitrary code execution.
-            #   - curl does not retry internally, so the five iterations below
-            #     are the real cap. GNU wget defaults to --tries=20, which with
-            #     a per-read timeout would have let one stalled host burn far
-            #     longer than intended before reaching the tarball.
-            #   - `--connect-timeout`/`--max-time` bound each attempt, so the
-            #     worst case is ~5 min rather than an open-ended hang.
-            #   - `-fsS` fails on HTTP errors and stays quiet on success while
-            #     still printing the reason on failure.
-            local llvm_sh_ok=0 attempt
-            for attempt in 1 2 3 4 5; do
-                if curl -fsSL --proto '=https' --proto-redir '=https' \
-                        --connect-timeout 20 --max-time 60 \
-                        -o /tmp/llvm.sh https://apt.llvm.org/llvm.sh; then
-                    llvm_sh_ok=1
-                    break
-                fi
-                if [[ "$attempt" -eq 5 ]]; then
-                    echo ">>> llvm.sh download failed after $attempt attempts" >&2
-                    break
-                fi
-                echo ">>> llvm.sh download failed (attempt $attempt), retrying in 10s..." >&2
-                sleep 10
-            done
-            # chmod sits inside the condition so a missing /tmp/llvm.sh (the
-            # download never succeeded) also routes to the tarball rather than
+            #   - `--connect-timeout`/`--max-time` bound the attempt, so a host
+            #     that accepts the connection and then stalls reaches the
+            #     tarball in ~1 min rather than hanging. GNU wget would have
+            #     retried internally first (--tries defaults to 20).
+            #   - `-fsSL` fails on HTTP errors and stays quiet on success while
+            #     still printing the reason on failure; the original `-q` hid
+            #     it entirely, which is why the failing log just stopped.
+            #
+            # chmod and the exec sit inside the condition so a failed download
+            # (no /tmp/llvm.sh) also routes to the tarball rather than
             # tripping `set -e`.
-            if [[ "$llvm_sh_ok" -eq 1 ]] && chmod +x /tmp/llvm.sh \
+            if curl -fsSL --proto '=https' --proto-redir '=https' \
+                    --connect-timeout 20 --max-time 60 \
+                    -o /tmp/llvm.sh https://apt.llvm.org/llvm.sh \
+                    && chmod +x /tmp/llvm.sh \
                     && $MODE /tmp/llvm.sh "$LLVM_VER"; then
                 rm -f /tmp/llvm.sh
                 # llvm.sh installs the toolchain but does not always leave the
