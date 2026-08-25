@@ -35,6 +35,17 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Validate a parsed query AST before iterator construction.
+ *
+ * # Safety
+ *
+ * `qast`, `spec`, `opts`, and `status` must be valid, non-null pointers. The
+ * AST must have a valid, non-null root. The AST and schema are borrowed for the
+ * call, while `opts` and `status` are exclusively borrowed.
+ */
+int32_t QAST_CheckIsValid(QueryAST *qast, IndexSpec *spec, RSSearchOptions *opts, QueryError *status);
+
+/**
  * Build the executable iterator tree for a parsed query AST and return its
  * root [`QueryIterator`].
  *

@@ -1886,8 +1886,12 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "global_config",
+ "index_spec",
+ "query",
+ "query_error",
  "query_eval",
  "query_types",
+ "redis-module",
  "rqe_iterators",
  "workspace_hack",
 ]

@@ -20,11 +20,57 @@ use ffi::{
     RedisSearchCtx,
 };
 use query_eval::{
-    Config, QueryEvalContext, QueryNodeMut, eval_node, qast_iterate,
+    Config, QueryEvalContext, QueryNodeMut, QueryNodeRef, check_is_valid, eval_node, qast_iterate,
     scorers::{BuiltInScorer, slop_forces_offsets},
 };
 use query_types::QueryNodeOptions;
 use rqe_iterators::IteratorsConfig;
+
+/// Validate a parsed query AST before iterator construction.
+///
+/// # Safety
+///
+/// `qast`, `spec`, `opts`, and `status` must be valid, non-null pointers. The
+/// AST must have a valid, non-null root. The AST and schema are borrowed for the
+/// call, while `opts` and `status` are exclusively borrowed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn QAST_CheckIsValid(
+    qast: *mut QueryAST,
+    spec: *mut ffi::IndexSpec,
+    opts: *mut RSSearchOptions,
+    status: *mut QueryError,
+) -> i32 {
+    let qast = NonNull::new(qast).expect("QAST_CheckIsValid: qast is null");
+    let spec = NonNull::new(spec).expect("QAST_CheckIsValid: spec is null");
+    let opts = NonNull::new(opts).expect("QAST_CheckIsValid: opts is null");
+    let status = NonNull::new(status).expect("QAST_CheckIsValid: status is null");
+
+    // SAFETY: `qast` is valid by contract and only read during validation.
+    let qast = unsafe { qast.as_ref() };
+    let root = NonNull::new(qast.root).expect("QAST_CheckIsValid: qast root is null");
+    // SAFETY: the root belongs to the live AST and is shared for this call.
+    let root = unsafe { QueryNodeRef::new(root) };
+    // SAFETY: `spec` is valid and shared for this call.
+    let spec = unsafe { index_spec::IndexSpec::from_raw(spec.as_ptr()) };
+    // SAFETY: `opts` is valid and exclusively borrowed for this call.
+    let opts = unsafe { &mut *opts.as_ptr() };
+    // SAFETY: `status` points to the opaque storage created for a live
+    // `query_error::QueryError` and is exclusively borrowed for this call.
+    let status = unsafe {
+        query_error::QueryError::from_opaque_mut_ptr(
+            status
+                .as_ptr()
+                .cast::<query_error::opaque::OpaqueQueryError>(),
+        )
+    }
+    .expect("QAST_CheckIsValid: status is null");
+
+    if check_is_valid(root, spec, opts, status, qast.validationFlags) {
+        redis_module::REDISMODULE_OK as i32
+    } else {
+        redis_module::REDISMODULE_ERR as i32
+    }
+}
 
 /// Snapshot the evaluator's configuration.
 ///
