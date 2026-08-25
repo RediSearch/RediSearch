@@ -980,14 +980,6 @@ void MR_StartIterator(MRIterator *it, void (*iterStartCb)(void *)) {
   IORuntimeCtx_Schedule(it->ctx.ioRuntime, iterStartCb, it);
 }
 
-MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, const MRIteratorConfig *config) {
-  // iterStartCb is required: we unconditionally schedule it below.
-  RS_ASSERT(config && config->iterStartCb);
-  MRIterator *it = MR_CreateIterator(cmd, config);
-  MR_StartIterator(it, config->iterStartCb);
-  return it;
-}
-
 IORuntimeCtx *MRIterator_GetIORuntime(const MRIterator *it) {
   return it->ctx.ioRuntime;
 }
