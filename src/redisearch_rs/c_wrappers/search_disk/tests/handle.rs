@@ -27,6 +27,7 @@ fn new_returns_none_for_null_spec() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "requires C FFI (SearchDisk_IsEnabledForValidation)")]
 fn validation_mode_accessor_delegates_to_c() {
     // SAFETY: the process-wide predicate takes no arguments.
     assert_eq!(is_enabled_for_validation(), unsafe {

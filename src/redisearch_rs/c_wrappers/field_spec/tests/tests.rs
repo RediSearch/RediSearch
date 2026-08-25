@@ -40,6 +40,7 @@ fn field_name_and_path() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "requires C FFI (NewHiddenString)")]
 fn validation_predicates() {
     let mut fs = FieldSpecBuilder::new(c"field")
         .with_types(FieldSpecTypes::from(FieldSpecType::Fulltext))

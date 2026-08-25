@@ -52,6 +52,7 @@ fn validate(
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "requires C FFI (SearchDisk_IsEnabledForValidation)")]
 fn explicit_weight_is_rejected_before_node_validation() {
     let mut fields = [text_field(0)];
     let spec = spec_with_fields(&mut fields);
@@ -72,6 +73,7 @@ fn explicit_weight_is_rejected_before_node_validation() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "requires C FFI (SearchDisk_IsEnabledForValidation)")]
 fn hybrid_main_vector_is_exempt_from_vector_and_weight_restrictions() {
     let mut fields = [text_field(0)];
     let spec = spec_with_fields(&mut fields);
@@ -89,6 +91,7 @@ fn hybrid_main_vector_is_exempt_from_vector_and_weight_restrictions() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "requires C FFI (SearchDisk_IsEnabledForValidation)")]
 fn empty_token_sets_error_but_validation_returns_success() {
     let mut fields = [text_field(0)];
     let spec = spec_with_fields(&mut fields);
@@ -109,6 +112,7 @@ fn empty_token_sets_error_but_validation_returns_success() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "requires C FFI (SearchDisk_IsEnabledForValidation)")]
 fn tag_context_mutates_options_and_accepts_indexed_empty_token() {
     let mut fields = [text_field(0x100)];
     let spec = spec_with_fields(&mut fields);
