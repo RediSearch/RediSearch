@@ -40,8 +40,10 @@ mod config;
 mod disk;
 mod expansion;
 mod nodes;
+mod validation;
 
 pub use config::Config;
+pub use validation::check_is_valid;
 
 use nodes::{
     fuzzy, geo, geometry, ids, missing, not, null, numeric, optional, phrase, prefix, token, union,

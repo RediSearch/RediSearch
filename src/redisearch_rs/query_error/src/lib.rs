@@ -594,14 +594,24 @@ impl QueryError {
     /// displayed obfuscated.
     ///
     /// This does not mutate the error if it already has one set.
-    pub fn set_with_user_data(&mut self, code: QueryErrorCode, message: &str, user_data: &str) {
+    pub fn set_with_user_data(
+        &mut self,
+        code: QueryErrorCode,
+        message: &str,
+        user_data: impl AsRef<[u8]>,
+    ) {
         if !self.is_ok() {
             return;
         }
 
         let public_message = CString::new(message.to_owned());
-        let prefix = code.prefix_c_str().to_str().unwrap_or("");
-        let private_message = CString::new(format!("{prefix}{message}{user_data}"));
+        let mut private_message = Vec::with_capacity(
+            code.prefix_c_str().count_bytes() + message.len() + user_data.as_ref().len(),
+        );
+        private_message.extend_from_slice(code.prefix_c_str().to_bytes());
+        private_message.extend_from_slice(message.as_bytes());
+        private_message.extend_from_slice(user_data.as_ref());
+        let private_message = CString::new(private_message);
 
         self.code = code;
         self.public_message = public_message.ok();
