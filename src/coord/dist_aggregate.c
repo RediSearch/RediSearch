@@ -182,6 +182,9 @@ static void executeAggregateDeferred(void *arg);  // forward declaration
 // iterCtx's deferred-execution fields. Runs only on the IO thread.
 static void dispatchDeferred(AggregateIteratorContext *iterCtx) {
   RS_ASSERT(iterCtx->bc);
+  // The shutdown flow test asserts this marker to prove the dispatch
+  // condition was reached rather than silently skipped.
+  RS_DEBUG_LOG("dispatchDeferred: dispatching deferred WITHCOUNT continuation");
   ConcurrentSearch_ThreadPoolRun(executeAggregateDeferred, iterCtx, DIST_THREADPOOL);
 }
 

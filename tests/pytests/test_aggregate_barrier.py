@@ -809,6 +809,7 @@ def test_withcount_inflight_at_coordinator_shutdown():
             lambda: (coord_log_contains('Parked at ' + coord_park), {}),
             'Timeout waiting for the coordinator cleanup park')
 
+
         # The pool is now gone. Release the shard: its ordinary first reply
         # completes the WITHCOUNT count and triggers the deferred dispatch.
         shard_conn.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
@@ -821,6 +822,16 @@ def test_withcount_inflight_at_coordinator_shutdown():
         env.assertEqual(coordinator_process.poll(), 0,
                         message="coordinator did not shut down cleanly with an "
                                 "in-flight WITHCOUNT aggregate")
+        # Guard against a vacuous pass: a clean exit only counts if the
+        # WITHCOUNT deferred dispatch actually ran (here, driven by the MR
+        # teardown sweep error-completing the parked shard's command). On the
+        # pre-fix ordering the teardown drops the pending callbacks, so a
+        # park that expired before the shard reply landed exits 0 WITHOUT
+        # this marker — and still fails the test.
+        env.assertTrue(
+            coord_log_contains('dispatchDeferred: dispatching deferred'),
+            message="shutdown completed without reaching the WITHCOUNT "
+                    "deferred dispatch")
         # Already stopped (cleanly or not); keep teardown from re-reporting it.
         coordinator._stopProcess = lambda *args, **kwargs: None
     finally:
