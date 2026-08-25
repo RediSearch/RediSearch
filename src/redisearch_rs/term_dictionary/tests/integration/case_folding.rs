@@ -33,25 +33,37 @@ fn seed(dict: &mut TermDictionary, terms: &[&str]) {
 }
 
 fn collect_prefixed(dict: &TermDictionary, prefix: &str) -> Vec<String> {
-    let mut keys: Vec<String> = dict.prefixed_iter(prefix).map(|(k, _)| k).collect();
+    let mut keys: Vec<String> = dict
+        .prefixed_iter(prefix, || false)
+        .map(|(k, _)| k)
+        .collect();
     keys.sort();
     keys
 }
 
 fn collect_suffixed(dict: &TermDictionary, suffix: &str) -> Vec<String> {
-    let mut keys: Vec<String> = dict.suffixed_iter(suffix).map(|(k, _)| k).collect();
+    let mut keys: Vec<String> = dict
+        .suffixed_iter(suffix, || false)
+        .map(|(k, _)| k)
+        .collect();
     keys.sort();
     keys
 }
 
 fn collect_contains(dict: &TermDictionary, target: &str) -> Vec<String> {
-    let mut keys: Vec<String> = dict.contains_iter(target).map(|(k, _)| k).collect();
+    let mut keys: Vec<String> = dict
+        .contains_iter(target, || false)
+        .map(|(k, _)| k)
+        .collect();
     keys.sort();
     keys
 }
 
 fn collect_wildcard(dict: &TermDictionary, pattern: &str) -> Vec<String> {
-    let mut keys: Vec<String> = dict.wildcard_iter(pattern).map(|(k, _)| k).collect();
+    let mut keys: Vec<String> = dict
+        .wildcard_iter(pattern, || false)
+        .map(|(k, _)| k)
+        .collect();
     keys.sort();
     keys
 }

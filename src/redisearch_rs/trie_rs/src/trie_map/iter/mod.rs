@@ -26,6 +26,8 @@ mod lending_range;
 mod prefixes;
 mod range;
 mod timeout;
+
+pub use timeout::TIMEOUT_CHECK_GRANULARITY;
 mod unfiltered;
 mod values;
 mod wildcard;

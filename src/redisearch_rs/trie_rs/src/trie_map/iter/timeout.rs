@@ -13,40 +13,121 @@ use timeout::{
     AnyTimeoutChecker, DeadlineTimeoutChecker, NoTimeoutChecker, TimeoutCheckResult, TimeoutChecker,
 };
 
-/// Number of traversal steps between two consecutive clock probes.
-const TIMEOUT_CHECK_GRANULARITY: u32 = 100;
+/// Number of traversal steps between two consecutive deadline probes —
+/// clock reads for a deadline set from an [`Instant`], calls to the
+/// predicate for one set via
+/// [`from_should_stop`](IteratorTimeoutState::from_should_stop).
+///
+/// This is the polling contract every deadline-carrying trie iterator
+/// obeys: the deadline source is probed once per this many *traversal
+/// steps*, not once per yielded entry, so it fires even on a sparse walk
+/// that visits many nodes without yielding any. Once it reports a stop,
+/// the iterator is exhausted and stays exhausted.
+///
+/// Mirrors `TIMEOUT_COUNTER_LIMIT` in `src/util/timeout.h`, which paces
+/// the equivalent C traversals. The value is duplicated rather than
+/// imported because this crate is pure Rust with no `ffi` dependency.
+pub const TIMEOUT_CHECK_GRANULARITY: u32 = 100;
 
 /// Deadline enforcement for a trie iterator.
 ///
-/// Wraps an [`AnyTimeoutChecker`] so each iterator can carry a timeout without
-/// naming the concrete checker type. Construct it from an optional deadline
-/// [`Instant`] via its [`From`] impl, then call [`check`](Self::check) once per
-/// traversal step.
-pub struct IteratorTimeoutState(AnyTimeoutChecker);
+/// Carries one of two amortized deadline sources, probed once per
+/// [`TIMEOUT_CHECK_GRANULARITY`] traversal steps: a clock deadline
+/// (constructed from an optional [`Instant`] via the [`From`] impl) or a
+/// caller-supplied `should_stop` predicate (via
+/// [`from_should_stop`](Self::from_should_stop)), which keeps the clock —
+/// or whatever else signals cancellation — on the caller's side. Call
+/// [`check`](Self::check) once per traversal step.
+pub struct IteratorTimeoutState<'a> {
+    /// Latched once the source reports a stop, so a stopped walk stays
+    /// stopped instead of resuming for another amortization window. Both
+    /// sources need it: an amortized clock checker clears its own counter
+    /// whenever it probes, expired deadline or not.
+    stopped: bool,
+    source: Inner<'a>,
+}
 
-impl IteratorTimeoutState {
+enum Inner<'a> {
+    /// Clock-based deadline (or the no-op checker when no deadline is set).
+    Clock(AnyTimeoutChecker),
+    /// Caller-supplied stop signal, polled with the same amortization as
+    /// the clock checker.
+    Callback {
+        /// Traversal steps since `should_stop` was last polled.
+        counter: u32,
+        should_stop: Box<dyn FnMut() -> bool + 'a>,
+    },
+}
+
+impl IteratorTimeoutState<'_> {
     /// A state that never times out (used when no deadline is set).
     pub const fn no_timeout() -> Self {
-        Self(AnyTimeoutChecker::NoTimeout(NoTimeoutChecker))
+        Self {
+            stopped: false,
+            source: Inner::Clock(AnyTimeoutChecker::NoTimeout(NoTimeoutChecker)),
+        }
     }
 
     /// Advance the amortized checker by one step and report whether the
     /// deadline has been reached.
     pub fn check(&mut self) -> TimeoutCheckResult {
-        self.0.check_timeout()
+        if self.stopped {
+            return TimeoutCheckResult::TimedOut;
+        }
+
+        let outcome = match &mut self.source {
+            Inner::Clock(checker) => checker.check_timeout(),
+            Inner::Callback {
+                counter,
+                should_stop,
+            } => {
+                *counter += 1;
+                if *counter >= TIMEOUT_CHECK_GRANULARITY {
+                    *counter = 0;
+                    if should_stop() {
+                        TimeoutCheckResult::TimedOut
+                    } else {
+                        TimeoutCheckResult::Ok
+                    }
+                } else {
+                    TimeoutCheckResult::Ok
+                }
+            }
+        };
+
+        if matches!(outcome, TimeoutCheckResult::TimedOut) {
+            self.stopped = true;
+        }
+        outcome
     }
 }
 
-impl From<Option<Instant>> for IteratorTimeoutState {
+impl<'a> IteratorTimeoutState<'a> {
+    /// A state driven by a caller-supplied stop signal instead of the clock.
+    pub fn from_should_stop(should_stop: impl FnMut() -> bool + 'a) -> Self {
+        Self {
+            stopped: false,
+            source: Inner::Callback {
+                counter: 0,
+                should_stop: Box::new(should_stop),
+            },
+        }
+    }
+}
+
+impl From<Option<Instant>> for IteratorTimeoutState<'_> {
     fn from(value: Option<Instant>) -> Self {
         match value {
             None => Self::no_timeout(),
             Some(deadline) => {
                 let duration = deadline.saturating_duration_since(Instant::now());
-                Self(AnyTimeoutChecker::Deadline(DeadlineTimeoutChecker::new(
-                    duration,
-                    TIMEOUT_CHECK_GRANULARITY,
-                )))
+                Self {
+                    stopped: false,
+                    source: Inner::Clock(AnyTimeoutChecker::Deadline(DeadlineTimeoutChecker::new(
+                        duration,
+                        TIMEOUT_CHECK_GRANULARITY,
+                    ))),
+                }
             }
         }
     }

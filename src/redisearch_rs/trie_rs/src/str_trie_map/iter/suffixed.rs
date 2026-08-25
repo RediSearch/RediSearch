@@ -46,6 +46,16 @@ impl<'tm, Data: 'tm> SuffixedIter<'tm, Data> {
             iter: iter::Iter::empty(),
         }
     }
+
+    pub(crate) fn new_with_should_stop(
+        trie: &'tm TrieMap<Data>,
+        suffix: &str,
+        should_stop: impl FnMut() -> bool + 'tm,
+    ) -> Self {
+        let mut iter = Self::new(trie, suffix);
+        iter.iter.set_should_stop(should_stop);
+        iter
+    }
 }
 
 impl<'tm, Data: 'tm> Iterator for SuffixedIter<'tm, Data> {

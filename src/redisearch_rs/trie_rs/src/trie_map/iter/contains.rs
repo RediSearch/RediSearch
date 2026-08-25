@@ -27,7 +27,7 @@ pub struct ContainsIter<'tm, 't, Data> {
     /// The target fragment we are looking for.
     finder: Finder<'t>,
     /// The timeout
-    timeout: IteratorTimeoutState,
+    timeout: IteratorTimeoutState<'tm>,
 }
 
 struct StackItem<'tm, Data> {
@@ -69,6 +69,13 @@ impl<'tm, 't, Data> ContainsIter<'tm, 't, Data> {
 
     pub(crate) fn set_timeout(&mut self, timeout: Option<Instant>) {
         self.timeout = timeout.into()
+    }
+
+    /// Stop the traversal when `should_stop` returns `true`, per the
+    /// [`TIMEOUT_CHECK_GRANULARITY`](super::TIMEOUT_CHECK_GRANULARITY)
+    /// polling contract.
+    pub(crate) fn set_should_stop(&mut self, should_stop: impl FnMut() -> bool + 'tm) {
+        self.timeout = IteratorTimeoutState::from_should_stop(should_stop);
     }
 }
 

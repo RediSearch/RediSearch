@@ -31,14 +31,14 @@ fn seeded() -> TermDictionary {
 fn contains_iter_empty_target_yields_nothing() {
     let dict = seeded();
 
-    assert_eq!(dict.contains_iter("").count(), 0);
+    assert_eq!(dict.contains_iter("", || false).count(), 0);
 }
 
 #[test]
 fn suffixed_iter_empty_suffix_yields_nothing() {
     let dict = seeded();
 
-    assert_eq!(dict.suffixed_iter("").count(), 0);
+    assert_eq!(dict.suffixed_iter("", || false).count(), 0);
 }
 
 /// The guard is specific to the substring and suffix walks: an empty prefix
@@ -47,7 +47,7 @@ fn suffixed_iter_empty_suffix_yields_nothing() {
 fn prefixed_iter_empty_prefix_yields_every_term() {
     let dict = seeded();
 
-    assert_eq!(dict.prefixed_iter("").count(), dict.len());
+    assert_eq!(dict.prefixed_iter("", || false).count(), dict.len());
 }
 
 /// A non-empty pattern must still reach the trie — the guard keys off
@@ -56,6 +56,6 @@ fn prefixed_iter_empty_prefix_yields_every_term() {
 fn non_empty_patterns_are_unaffected() {
     let dict = seeded();
 
-    assert_eq!(dict.contains_iter("an").count(), 1);
-    assert_eq!(dict.suffixed_iter("y").count(), 1);
+    assert_eq!(dict.contains_iter("an", || false).count(), 1);
+    assert_eq!(dict.suffixed_iter("y", || false).count(), 1);
 }

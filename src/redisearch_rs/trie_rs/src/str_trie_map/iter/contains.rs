@@ -35,6 +35,16 @@ impl<'tm, 'p, Data: 'tm> ContainsIter<'tm, 'p, Data> {
     pub fn empty() -> Self {
         Self(iter::ContainsIter::empty())
     }
+
+    pub(crate) fn new_with_should_stop(
+        trie: &'tm TrieMap<Data>,
+        target: impl Into<Cow<'p, str>>,
+        should_stop: impl FnMut() -> bool + 'tm,
+    ) -> Self {
+        let mut iter = Self::new(trie, target);
+        iter.0.set_should_stop(should_stop);
+        iter
+    }
 }
 
 impl<'tm, 'p, Data: 'tm> Iterator for ContainsIter<'tm, 'p, Data> {

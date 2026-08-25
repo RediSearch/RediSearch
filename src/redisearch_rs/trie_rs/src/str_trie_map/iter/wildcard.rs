@@ -58,6 +58,20 @@ impl<'tm, Data: 'tm> WildcardIter<'tm, Data> {
         };
         Self(backend)
     }
+
+    pub(crate) fn new_with_should_stop(
+        trie: &'tm TrieMap<Data>,
+        pattern: &str,
+        should_stop: impl FnMut() -> bool + 'tm,
+    ) -> Self {
+        let mut iter = Self::new(trie, pattern);
+        match &mut iter.0 {
+            Backend::Nfa64(inner) => inner.set_should_stop(should_stop),
+            Backend::Nfa128(inner) => inner.set_should_stop(should_stop),
+            Backend::Filter { candidates, .. } => candidates.set_should_stop(should_stop),
+        }
+        iter
+    }
 }
 
 impl<'tm, Data: 'tm> Iterator for WildcardIter<'tm, Data> {

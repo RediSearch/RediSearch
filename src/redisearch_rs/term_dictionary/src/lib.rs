@@ -53,6 +53,16 @@
 //! [`TermDictionary::prefixed_iter`] needs no such guard: C's prefix-only
 //! mode also yields every term for an empty prefix, so the trie's own
 //! semantics already agree.
+//!
+//! ## Deadlines
+//!
+//! The dictionary holds no clock. Every pattern walk takes a `should_stop`
+//! predicate, so the caller owns the deadline (or whatever else signals
+//! cancellation) and a call site cannot forget to pass one; a caller with no
+//! deadline passes `|| false`. See
+//! [`TIMEOUT_CHECK_GRANULARITY`](trie_rs::iter::TIMEOUT_CHECK_GRANULARITY)
+//! for the polling contract. [`TermDictionary::fuzzy_iter`] is the exception:
+//! the fuzzy walk it replaces carries no deadline.
 
 use string_utils::unicode;
 use trie_rs::str_trie_map::{
@@ -204,43 +214,64 @@ impl TermDictionary {
     }
 
     /// Yield every entry whose key contains the case-folded `target` as a
-    /// substring. See [`StrTrieMap::contains_iter`]. The iterator owns the
-    /// folded target when folding allocates, so it stays lazy either way.
+    /// substring, abandoning the walk once `should_stop` returns `true`. See
+    /// [`StrTrieMap::contains_iter`]. The iterator owns the folded target
+    /// when folding allocates, so it stays lazy either way.
     ///
     /// An empty `target` yields nothing, unlike [`StrTrieMap::contains_iter`]
     /// — see the [module docs](self#empty-patterns).
     pub fn contains_iter<'tm, 'p>(
         &'tm self,
         target: &'p str,
+        should_stop: impl FnMut() -> bool + 'tm,
     ) -> StrContainsIter<'tm, 'p, TermEntry> {
         if target.is_empty() {
             return StrContainsIter::empty();
         }
-        self.inner.contains_iter(unicode::tolower_cow(target))
+        self.inner
+            .contains_iter_with_should_stop(unicode::tolower_cow(target), should_stop)
     }
 
-    /// See [`StrTrieMap::prefixed_iter`].
-    pub fn prefixed_iter(&self, prefix: &str) -> PrefixedIter<'_, TermEntry> {
-        self.inner.prefixed_iter(&unicode::tolower_cow(prefix))
+    /// See [`StrTrieMap::prefixed_iter`]. Abandons the walk once
+    /// `should_stop` returns `true`.
+    pub fn prefixed_iter<'tm>(
+        &'tm self,
+        prefix: &str,
+        should_stop: impl FnMut() -> bool + 'tm,
+    ) -> PrefixedIter<'tm, TermEntry> {
+        self.inner
+            .prefixed_iter_with_should_stop(&unicode::tolower_cow(prefix), should_stop)
     }
 
-    /// See [`StrTrieMap::suffixed_iter`].
+    /// See [`StrTrieMap::suffixed_iter`]. Abandons the walk once
+    /// `should_stop` returns `true`.
     ///
     /// An empty `suffix` yields nothing, unlike [`StrTrieMap::suffixed_iter`]
     /// — see the [module docs](self#empty-patterns).
-    pub fn suffixed_iter(&self, suffix: &str) -> SuffixedIter<'_, TermEntry> {
+    pub fn suffixed_iter<'tm>(
+        &'tm self,
+        suffix: &str,
+        should_stop: impl FnMut() -> bool + 'tm,
+    ) -> SuffixedIter<'tm, TermEntry> {
         if suffix.is_empty() {
             return SuffixedIter::empty();
         }
-        self.inner.suffixed_iter(&unicode::tolower_cow(suffix))
+        self.inner
+            .suffixed_iter_with_should_stop(&unicode::tolower_cow(suffix), should_stop)
     }
 
     /// See [`StrTrieMap::wildcard_iter`] for the codepoint matching model.
     /// `?` and `*` are ASCII so wildcard semantics survive folding. The
     /// returned iterator owns the parsed pattern, so it stays lazy
-    /// regardless of whether folding allocated.
-    pub fn wildcard_iter(&self, pattern: &str) -> StrWildcardIter<'_, TermEntry> {
-        self.inner.wildcard_iter(&unicode::tolower_cow(pattern))
+    /// regardless of whether folding allocated. Abandons the walk once
+    /// `should_stop` returns `true`.
+    pub fn wildcard_iter<'tm>(
+        &'tm self,
+        pattern: &str,
+        should_stop: impl FnMut() -> bool + 'tm,
+    ) -> StrWildcardIter<'tm, TermEntry> {
+        self.inner
+            .wildcard_iter_with_should_stop(&unicode::tolower_cow(pattern), should_stop)
     }
 
     /// See [`StrTrieMap::fuzzy_iter`] for the matching model. The

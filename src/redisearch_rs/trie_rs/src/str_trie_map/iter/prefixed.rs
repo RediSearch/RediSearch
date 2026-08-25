@@ -26,6 +26,16 @@ impl<'tm, Data: 'tm> PrefixedIter<'tm, Data> {
     pub(crate) fn new(trie: &'tm TrieMap<Data>, prefix: &str) -> Self {
         Self(trie.prefixed_iter(prefix.as_bytes()))
     }
+
+    pub(crate) fn new_with_should_stop(
+        trie: &'tm TrieMap<Data>,
+        prefix: &str,
+        should_stop: impl FnMut() -> bool + 'tm,
+    ) -> Self {
+        let mut iter = Self::new(trie, prefix);
+        iter.0.set_should_stop(should_stop);
+        iter
+    }
 }
 
 impl<'tm, Data: 'tm> Iterator for PrefixedIter<'tm, Data> {

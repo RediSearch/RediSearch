@@ -27,7 +27,7 @@ pub struct Iter<'tm, Data, F> {
     /// i.e. the key of the current node.
     key: Vec<u8>,
     /// Timeout for this iterator
-    timeout: IteratorTimeoutState,
+    timeout: IteratorTimeoutState<'tm>,
 }
 
 impl<'tm, Data, F> Iter<'tm, Data, F> {
@@ -48,6 +48,13 @@ impl<'tm, Data, F> Iter<'tm, Data, F> {
     /// Set timeout
     pub fn set_timeout(&mut self, timeout: Option<Instant>) {
         self.timeout = timeout.into();
+    }
+
+    /// Stop the traversal when `should_stop` returns `true`, per the
+    /// [`TIMEOUT_CHECK_GRANULARITY`](super::TIMEOUT_CHECK_GRANULARITY)
+    /// polling contract. Replaces any deadline set via [`Self::set_timeout`].
+    pub(crate) fn set_should_stop(&mut self, should_stop: impl FnMut() -> bool + 'tm) {
+        self.timeout = IteratorTimeoutState::from_should_stop(should_stop);
     }
 }
 

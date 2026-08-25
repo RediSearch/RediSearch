@@ -106,6 +106,17 @@ impl<Data> StrTrieMap<Data> {
         iter::PrefixedIter::new(&self.inner, prefix)
     }
 
+    /// [`Self::prefixed_iter`], abandoned once `should_stop` returns `true`.
+    /// See [`TIMEOUT_CHECK_GRANULARITY`](crate::iter::TIMEOUT_CHECK_GRANULARITY)
+    /// for the polling contract.
+    pub fn prefixed_iter_with_should_stop<'tm>(
+        &'tm self,
+        prefix: &str,
+        should_stop: impl FnMut() -> bool + 'tm,
+    ) -> iter::PrefixedIter<'tm, Data> {
+        iter::PrefixedIter::new_with_should_stop(&self.inner, prefix, should_stop)
+    }
+
     /// Yield a reference to the value of every entry whose key starts with
     /// `prefix`, in lexicographical order. See [`TrieMap::prefixed_values`].
     ///
@@ -125,6 +136,17 @@ impl<Data> StrTrieMap<Data> {
         iter::SuffixedIter::new(&self.inner, suffix)
     }
 
+    /// [`Self::suffixed_iter`], abandoned once `should_stop` returns `true`.
+    /// See [`TIMEOUT_CHECK_GRANULARITY`](crate::iter::TIMEOUT_CHECK_GRANULARITY)
+    /// for the polling contract.
+    pub fn suffixed_iter_with_should_stop<'tm>(
+        &'tm self,
+        suffix: &str,
+        should_stop: impl FnMut() -> bool + 'tm,
+    ) -> iter::SuffixedIter<'tm, Data> {
+        iter::SuffixedIter::new_with_should_stop(&self.inner, suffix, should_stop)
+    }
+
     /// Yield every entry whose key contains `target` as a substring.
     /// Empty `target` yields every entry — the empty string is a substring
     /// of every key. An owned `target` is stored inside the iterator, so
@@ -134,6 +156,17 @@ impl<Data> StrTrieMap<Data> {
         target: impl Into<Cow<'p, str>>,
     ) -> iter::ContainsIter<'tm, 'p, Data> {
         iter::ContainsIter::new(&self.inner, target)
+    }
+
+    /// [`Self::contains_iter`], abandoned once `should_stop` returns `true`.
+    /// See [`TIMEOUT_CHECK_GRANULARITY`](crate::iter::TIMEOUT_CHECK_GRANULARITY)
+    /// for the polling contract.
+    pub fn contains_iter_with_should_stop<'tm, 'p>(
+        &'tm self,
+        target: impl Into<Cow<'p, str>>,
+        should_stop: impl FnMut() -> bool + 'tm,
+    ) -> iter::ContainsIter<'tm, 'p, Data> {
+        iter::ContainsIter::new_with_should_stop(&self.inner, target, should_stop)
     }
 
     /// Yield every entry whose key equals `needle` after per-codepoint case
@@ -170,6 +203,17 @@ impl<Data> StrTrieMap<Data> {
     /// for the matching model.
     pub fn wildcard_iter(&self, pattern: &str) -> iter::WildcardIter<'_, Data> {
         iter::WildcardIter::new(&self.inner, pattern)
+    }
+
+    /// [`Self::wildcard_iter`], abandoned once `should_stop` returns `true`.
+    /// See [`TIMEOUT_CHECK_GRANULARITY`](crate::iter::TIMEOUT_CHECK_GRANULARITY)
+    /// for the polling contract.
+    pub fn wildcard_iter_with_should_stop<'tm>(
+        &'tm self,
+        pattern: &str,
+        should_stop: impl FnMut() -> bool + 'tm,
+    ) -> iter::WildcardIter<'tm, Data> {
+        iter::WildcardIter::new_with_should_stop(&self.inner, pattern, should_stop)
     }
 }
 
