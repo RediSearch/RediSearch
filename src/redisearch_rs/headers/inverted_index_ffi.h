@@ -436,7 +436,7 @@ t_docId InvertedIndex_LastId(const struct InvertedIndex *ii);
  * - `spec` must be a valid, non NULL, pointer to an `IndexSpec`.
  * - `out_info` must be a valid, non NULL, pointer to a writable `II_GCScanStats`.
  */
-bool InvertedIndex_MaybeRepairTailBlock(struct InvertedIndex *idx, const IndexSpec *spec, uint8_t min_reclaim_pct, struct II_GCScanStats *out_info);
+bool InvertedIndex_MaybeRepairTailBlock(struct InvertedIndex *idx, const IndexSpec *spec, uint8_t min_reclaim_pct, uint16_t probe_stride, struct II_GCScanStats *out_info);
 
 /**
  * Get the memory usage of the inverted index instance in bytes.

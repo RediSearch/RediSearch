@@ -100,10 +100,16 @@ vocabulary; measured end-to-end, closing this gap was worth far more than the fu
 alone (`benchmarks.md`, round 3).
 
 So the trigger is: probe when the block has filled, when it holds fewer than
-`PROBE_EVERY_WRITE_BELOW` entries, or every `PROBE_STRIDE` appends in between. The stride
-bounds the added decode rate to one block decode per stride; the every-write bound below it
-exists so there is no gap at the start where a list shorter than one stride is never probed.
-Both constants are equal, which makes it one rule rather than two.
+`PROBE_EVERY_WRITE_BELOW` entries, or every `INLINE_GC_BLOCK_REPAIR_STRIDE` appends in
+between. The stride bounds the added decode rate to one block decode per stride; the
+every-append bound below it exists so there is no gap at the start, where a list shorter than
+one stride would never be probed.
+
+**The every-append bound is a constant, not a function of the stride.** Deriving it from the
+stride is the obvious simplification and it is wrong: it inverts the dial. With the two tied
+together, a stride of 1024 puts every block below 1024 entries into the probe-always region,
+so the setting an operator reaches for to *reduce* cost increases it everywhere except full
+blocks. A test pins this (`maybe_repair_tail_block_stride_is_monotonic`).
 
 The cadence stays self-limiting: a repair that reclaims `k` entries moves the block `k`
 entries back down, so its next probe is `k` writes further away, and check frequency scales
@@ -114,10 +120,13 @@ question the block length already answers.
 `maybe_repair_tail_block` is the gate; `repair_tail_block` is the primitive underneath it,
 kept separate so tests can drive a repair without staging a particular block length.
 
-The cost is real and is the reason the feature stays off by default: at stride 8 the measured
-write-throughput cost is ~26%, against ~5% for the full-block trigger alone. The stride is the
-dial between the two, and the every-write-below-stride rule is the part most likely to be
-worth revisiting first — it decodes on every append for the shortest lists.
+The cost is real and is the reason the feature stays off by default: at the default stride of
+8 the measured write-throughput cost is ~26%, against ~5% for the full-block trigger alone.
+
+That span is why the stride is a runtime config rather than a constant.
+`INLINE_GC_BLOCK_REPAIR_STRIDE` moves along it: 0 is the full-block-only trigger and its ~5%,
+8 is the measured aggressive end, and values between trade the two. Only the endpoints have
+been measured; the shape in between is assumed, not established.
 
 A minimum-reclaim threshold is applied to the *result*: a `Replace` that removes fewer than
 `min_reclaim_pct` of the block's entries is discarded rather than churning the block to drop

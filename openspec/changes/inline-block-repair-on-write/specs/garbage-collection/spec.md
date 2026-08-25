@@ -77,6 +77,23 @@ be `0`.
 - **THEN** subsequent writes SHALL be eligible for inline repair
 - **AND** no restart SHALL be required
 
+### Requirement: The inline repair probe rate is configurable
+
+RediSearch SHALL expose a runtime configuration controlling how often a writer inspects a
+tail block that has not yet filled. The value `0` SHALL restrict inline repair to blocks that
+have filled. Raising the value SHALL NOT increase how often any block is inspected.
+
+#### Scenario: Probe rate set to zero
+- **WHEN** the probe stride is `0` and inline repair is enabled
+- **AND** a term's tail block has not filled
+- **THEN** no inline repair SHALL occur on that block
+- **AND** a term's tail block that has filled SHALL still be repaired
+
+#### Scenario: Raising the stride never probes more
+- **WHEN** the same write is applied under two different stride values
+- **AND** the larger stride would inspect the tail block
+- **THEN** the smaller stride SHALL also inspect it
+
 ### Requirement: Inline repair is reported in index statistics
 
 `FT.INFO` SHALL report the number of inline repairs performed and the net bytes they

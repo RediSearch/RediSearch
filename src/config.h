@@ -90,6 +90,11 @@ typedef struct {
   // `size_t` so it can share the `get/set_size_t_numeric_config` helpers with the other
   // numeric configs; the 0..100 range is enforced at both entry points.
   size_t inlineGcBlockRepairThreshold;
+  // Appends between two inline-repair probes of a tail block that has not yet filled, and
+  // also the entry count below which every append probes. 0 probes only when the block
+  // fills, which cannot reach a posting list shorter than one block. Smaller values reclaim
+  // more and cost more write throughput; this is the dial between those.
+  size_t inlineGcBlockRepairStride;
 } GCSettings;
 
 typedef struct {
@@ -358,6 +363,13 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 // cycles, which is a choice an operator makes, not a default to impose.
 #define DEFAULT_INLINE_GC_BLOCK_REPAIR_THRESHOLD 0
 #define MAX_INLINE_GC_BLOCK_REPAIR_THRESHOLD 100
+// The stride only has an effect once inline repair is switched on by the threshold above, so
+// its default is the value the change was measured at rather than a conservative one: an
+// operator who enables the feature is asking for the reclaim it was shown to deliver.
+#define DEFAULT_INLINE_GC_BLOCK_REPAIR_STRIDE 8
+// A stride wider than a block would never fire before the block-full check does, so values
+// above this are indistinguishable from each other.
+#define MAX_INLINE_GC_BLOCK_REPAIR_STRIDE 1024
 #define DEFAULT_INDEX_CURSOR_LIMIT 128
 #define MAX_AGGREGATE_REQUEST_RESULTS (1ULL << 31)
 #define DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS MAX_AGGREGATE_REQUEST_RESULTS
@@ -443,6 +455,7 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
     .gcConfigParams.gcSettings.forkGcRetryInterval = DEFAULT_FORK_GC_RETRY_INTERVAL,\
     .gcConfigParams.gcSettings.forkGcCleanThreshold = DEFAULT_FORK_GC_CLEAN_THRESHOLD,\
     .gcConfigParams.gcSettings.inlineGcBlockRepairThreshold = DEFAULT_INLINE_GC_BLOCK_REPAIR_THRESHOLD,\
+    .gcConfigParams.gcSettings.inlineGcBlockRepairStride = DEFAULT_INLINE_GC_BLOCK_REPAIR_STRIDE,\
     .noMemPool = 0,                                                            \
     .filterCommands = 0,                                                       \
     .maxSearchResults = DEFAULT_MAX_SEARCH_REQUEST_RESULTS,                    \

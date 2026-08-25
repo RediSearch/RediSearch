@@ -165,9 +165,16 @@ impl InvertedIndex {
     pub fn maybe_repair_tail_block(
         &mut self,
         min_reclaim_pct: u8,
+        probe_stride: u16,
         doc_exist: impl Fn(DocId) -> bool,
     ) -> std::io::Result<Option<crate::GcApplyInfo>> {
-        ii_dispatch!(self, maybe_repair_tail_block, min_reclaim_pct, doc_exist)
+        ii_dispatch!(
+            self,
+            maybe_repair_tail_block,
+            min_reclaim_pct,
+            probe_stride,
+            doc_exist
+        )
     }
 
     /// Return the number of unique documents in the index.

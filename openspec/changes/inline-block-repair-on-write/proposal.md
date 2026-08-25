@@ -45,8 +45,10 @@ per-write cost is bounded and predictable rather than a periodic spike.
 
 User-visible surface:
 
-- One new runtime config, `INLINE_GC_BLOCK_REPAIR_THRESHOLD` (percent of dead entries in a
-  block, `0` disables the feature). Default off for the first release.
+- Two new runtime configs: `INLINE_GC_BLOCK_REPAIR_THRESHOLD` (percent of dead entries in a
+  block, `0` disables the feature; default off for the first release) and
+  `INLINE_GC_BLOCK_REPAIR_STRIDE` (how often a writer inspects a tail block that has not
+  filled; `0` restricts repair to filled blocks).
 - New counters in `FT.INFO` `gc_stats`: `inline_repairs`, `inline_bytes_collected`.
 - No new command, no change to query results, no change to the persistence format.
 
@@ -104,10 +106,13 @@ the cold body of the index. Neither alone is sufficient.
    cost ~5% and would have met the budget on any reading, but reclaimed a fraction as much —
    68 M residual records against 7.5 M.
 
-   The budget was written before either number existed. Either it should be restated as a
-   budget *when enabled*, with 26% accepted as the price of the reclaim, or the stride should
-   become configurable so an operator picks their own point on that curve. Deciding this is a
-   precondition for the default ever moving off `0`.
+   The budget was written before either number existed, and the resolution taken here is the
+   dial: `INLINE_GC_BLOCK_REPAIR_STRIDE` spans the two points, with `0` giving the
+   full-block-only trigger and its ~5%. An operator who wants the budget can have it; one who
+   would rather trade write throughput for the elimination of GC stalls can have that
+   instead. What remains for maintainers is whether the *default* stride should be the
+   aggressive end (as shipped) or the cheap one — which only bites once the threshold default
+   moves off `0`.
 
 4. No change to query results, `FT.INFO` doc counts, or RDB round-trip behavior.
 

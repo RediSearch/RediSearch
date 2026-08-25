@@ -157,9 +157,10 @@ impl<E: Encoder + DecodedBy> FieldMaskTrackingIndex<E> {
     pub fn maybe_repair_tail_block(
         &mut self,
         min_reclaim_pct: u8,
+        probe_stride: u16,
         doc_exist: impl Fn(DocId) -> bool,
     ) -> std::io::Result<Option<GcApplyInfo>> {
         self.index
-            .maybe_repair_tail_block(min_reclaim_pct, doc_exist)
+            .maybe_repair_tail_block(min_reclaim_pct, probe_stride, doc_exist)
     }
 }

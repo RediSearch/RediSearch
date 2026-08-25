@@ -71,9 +71,13 @@ static void maybeRepairTailBlock(IndexSpec *spec, InvertedIndex *idx) {
   if (threshold == 0) {
     return;
   }
+  // Bounded to 0..MAX_INLINE_GC_BLOCK_REPAIR_STRIDE at both config entry points, so the cast
+  // to uint16_t is safe.
+  const size_t stride = RSGlobalConfig.gcConfigParams.gcSettings.inlineGcBlockRepairStride;
 
   II_GCScanStats info;
-  if (!InvertedIndex_MaybeRepairTailBlock(idx, spec, (uint8_t)threshold, &info)) {
+  if (!InvertedIndex_MaybeRepairTailBlock(idx, spec, (uint8_t)threshold, (uint16_t)stride,
+                                          &info)) {
     return;
   }
 

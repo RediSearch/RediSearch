@@ -168,11 +168,12 @@ impl<E: Encoder + DecodedBy> EntriesTrackingIndex<E> {
     pub fn maybe_repair_tail_block(
         &mut self,
         min_reclaim_pct: u8,
+        probe_stride: u16,
         doc_exist: impl Fn(DocId) -> bool,
     ) -> std::io::Result<Option<GcApplyInfo>> {
-        let Some(info) = self
-            .index
-            .maybe_repair_tail_block(min_reclaim_pct, doc_exist)?
+        let Some(info) =
+            self.index
+                .maybe_repair_tail_block(min_reclaim_pct, probe_stride, doc_exist)?
         else {
             return Ok(None);
         };

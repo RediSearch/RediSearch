@@ -569,6 +569,7 @@ pub unsafe extern "C" fn InvertedIndex_MaybeRepairTailBlock(
     idx: *mut InvertedIndex,
     spec: *const IndexSpec,
     min_reclaim_pct: u8,
+    probe_stride: u16,
     out_info: *mut GcApplyInfo,
 ) -> bool {
     debug_assert!(!idx.is_null(), "idx must not be null");
@@ -586,7 +587,8 @@ pub unsafe extern "C" fn InvertedIndex_MaybeRepairTailBlock(
     // holds the spec write lock so no reader is traversing it concurrently.
     let ii = unsafe { &mut *idx };
 
-    let Ok(Some(info)) = ii.maybe_repair_tail_block(min_reclaim_pct, doc_exists) else {
+    let Ok(Some(info)) = ii.maybe_repair_tail_block(min_reclaim_pct, probe_stride, doc_exists)
+    else {
         return false;
     };
 

@@ -299,43 +299,49 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         }
     }
 
-    /// Appends between two probes of a tail block that is not yet full.
-    ///
-    /// Bounds the added decode rate to one block decode per this many writes. Probing only
-    /// when the block fills would be cheaper still, but see
-    /// [`should_probe_tail_block`](Self::should_probe_tail_block) for why that misses the
-    /// blocks that need it most.
-    const PROBE_STRIDE: u16 = 8;
-
-    /// Entry count below which the tail block is probed on every append.
-    ///
-    /// Deliberately equal to [`Self::PROBE_STRIDE`], so a block is probed on every write
-    /// until the first stride boundary and every stride thereafter — one rule, no gap at
-    /// the start where a list shorter than a stride would never be probed at all.
-    const PROBE_EVERY_WRITE_BELOW: u16 = Self::PROBE_STRIDE;
-
     /// Whether this write should probe the tail block for reclaimable entries.
     ///
-    /// True when the block has filled — the last moment it can be repaired inline, since
-    /// the next new document rotates it away — and periodically before then.
+    /// Always true once the block has filled: that is the last moment it can be repaired
+    /// inline, since the next new document rotates it away, and it is also when it holds
+    /// the most reclaimable garbage it ever will while a writer can still reach it.
     ///
-    /// The periodic case is what reaches short posting lists. A list that never fills a
+    /// Before then, every `stride` appends — and on every append while the block holds
+    /// fewer than [`Self::PROBE_EVERY_WRITE_BELOW`] entries. A `stride` of 0 disables both,
+    /// leaving only the block-full check.
+    ///
+    /// The periodic probe is what reaches short posting lists. A list that never fills a
     /// block is *entirely* tail, so the fork GC never repairs it either: it discards any
-    /// delta touching the last block. Waiting for a full block would leave every such term
-    /// reclaimed by neither path, and in a natural-language index those terms are most of
+    /// delta touching the last block. With the block-full check alone, every such term is
+    /// reclaimed by neither path — and in a natural-language index those terms are most of
     /// the vocabulary.
     ///
-    /// The cadence is self-limiting in the same way the full-block check was. A repair that
-    /// reclaims `k` entries moves the block `k` entries back down, so the next probe is `k`
-    /// writes further away; a clean block simply pays the decode.
-    fn should_probe_tail_block(&self) -> bool {
+    /// The every-append bound is a constant rather than a function of `stride` so that
+    /// raising `stride` always probes less. Tying the two together inverts that for short
+    /// blocks: a stride of 1024 would put every block below 1024 entries in the
+    /// probe-always region, making the dial's expensive end its cheap-looking one.
+    ///
+    /// The cadence is self-limiting. A repair that reclaims `k` entries moves the block `k`
+    /// entries back down, so its next probe is `k` writes further away; a clean block simply
+    /// pays the decode.
+    fn should_probe_tail_block(&self, stride: u16) -> bool {
         self.blocks.last().is_some_and(|b| {
-            b.num_entries >= E::RECOMMENDED_BLOCK_ENTRIES
-                || (b.num_entries > 0
-                    && (b.num_entries < Self::PROBE_EVERY_WRITE_BELOW
-                        || b.num_entries % Self::PROBE_STRIDE == 0))
+            if b.num_entries >= E::RECOMMENDED_BLOCK_ENTRIES {
+                return true;
+            }
+            if stride == 0 || b.num_entries == 0 {
+                return false;
+            }
+            b.num_entries < Self::PROBE_EVERY_WRITE_BELOW || b.num_entries % stride == 0
         })
     }
+
+    /// Entry count below which the tail block is probed on every append, regardless of the
+    /// configured stride.
+    ///
+    /// A posting list this short is cheap to decode, and it is exactly the case no other
+    /// path reclaims — see [`should_probe_tail_block`](Self::should_probe_tail_block).
+    /// Held constant so the stride stays a monotonic dial.
+    const PROBE_EVERY_WRITE_BELOW: u16 = 8;
 
     /// [`repair_tail_block`](Self::repair_tail_block), gated on
     /// [`should_probe_tail_block`](Self::should_probe_tail_block). This is the form the
@@ -347,9 +353,10 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     pub fn maybe_repair_tail_block(
         &mut self,
         min_reclaim_pct: u8,
+        probe_stride: u16,
         doc_exist: impl Fn(DocId) -> bool,
     ) -> std::io::Result<Option<GcApplyInfo>> {
-        if !self.should_probe_tail_block() {
+        if !self.should_probe_tail_block(probe_stride) {
             return Ok(None);
         }
 

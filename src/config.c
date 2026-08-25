@@ -89,6 +89,7 @@ configPair_t __configPairs[] = {
   {"GC_POLICY",                       ""},
   {"GCSCANSIZE",                      "search-gc-scan-size"},
   {"INDEX_CURSOR_LIMIT",              "search-index-cursor-limit"},
+  {"INLINE_GC_BLOCK_REPAIR_STRIDE",   "search-inline-gc-block-repair-stride"},
   {"INLINE_GC_BLOCK_REPAIR_THRESHOLD", "search-inline-gc-block-repair-threshold"},
   {"MAX_AGGREGATE_GROUPS",            "search-max-aggregate-groups"},
   {"MAXAGGREGATERESULTS",             "search-max-aggregate-results"},
@@ -1069,6 +1070,25 @@ CONFIG_GETTER(getInlineGcBlockRepairThreshold) {
   return sdscatprintf(ss, "%zu", config->gcConfigParams.gcSettings.inlineGcBlockRepairThreshold);
 }
 
+// INLINE_GC_BLOCK_REPAIR_STRIDE
+CONFIG_SETTER(setInlineGcBlockRepairStride) {
+  size_t stride = 0;
+  int acrc = AC_GetSize(ac, &stride, AC_F_GE0);
+  CHECK_RETURN_PARSE_ERROR(acrc)
+  if (stride > MAX_INLINE_GC_BLOCK_REPAIR_STRIDE) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT,
+                        "INLINE_GC_BLOCK_REPAIR_STRIDE cannot exceed 1024");
+    return REDISMODULE_ERR;
+  }
+  config->gcConfigParams.gcSettings.inlineGcBlockRepairStride = stride;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getInlineGcBlockRepairStride) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%zu", config->gcConfigParams.gcSettings.inlineGcBlockRepairStride);
+}
+
 // FORK_GC_RETRY_INTERVAL
 CONFIG_SETTER(setForkGcRetryInterval) {
   int acrc = AC_GetSize(ac, &config->gcConfigParams.gcSettings.forkGcRetryInterval, AC_F_GE1);
@@ -1743,6 +1763,13 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "interval (in seconds) in which to retry running the forkgc after failure.",
          .setValue = setForkGcRetryInterval,
          .getValue = getForkGcRetryInterval},
+        {.name = "INLINE_GC_BLOCK_REPAIR_STRIDE",
+         .helpText = "appends between inline-repair probes of a tail block that has not yet "
+                     "filled, and the entry count below which every append probes. 0 probes "
+                     "only when a block fills, which never reaches a posting list shorter "
+                     "than one block. Lower reclaims more and costs more write throughput.",
+         .setValue = setInlineGcBlockRepairStride,
+         .getValue = getInlineGcBlockRepairStride},
         {.name = "INLINE_GC_BLOCK_REPAIR_THRESHOLD",
          .helpText = "percentage of an inverted-index block's entries that must belong to deleted "
                      "documents before a write reclaims them inline, instead of leaving them to "
@@ -2195,6 +2222,17 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
       (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig (
+      ctx, "search-inline-gc-block-repair-stride",
+      DEFAULT_INLINE_GC_BLOCK_REPAIR_STRIDE,
+      REDISMODULE_CONFIG_UNPREFIXED, 0,
+      MAX_INLINE_GC_BLOCK_REPAIR_STRIDE, get_size_t_numeric_config, set_size_t_numeric_config,
+      NULL,
+      (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.inlineGcBlockRepairStride)
     )
   )
 

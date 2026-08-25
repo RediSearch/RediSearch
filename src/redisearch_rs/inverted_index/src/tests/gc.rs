@@ -1143,7 +1143,7 @@ fn maybe_repair_tail_block_repairs_a_full_block() {
     let mut ii = tiny_block_index([10, 11, 12, 13]);
 
     assert!(
-        ii.maybe_repair_tail_block(0, |doc_id| doc_id != 12)
+        ii.maybe_repair_tail_block(0, 8, |doc_id| doc_id != 12)
             .unwrap()
             .is_some()
     );
@@ -1158,7 +1158,7 @@ fn maybe_repair_tail_block_leaves_a_clean_block_alone() {
     let mut ii = tiny_block_index([10, 11]);
     let marker = ii.gc_marker();
 
-    assert_eq!(ii.maybe_repair_tail_block(0, |_| true).unwrap(), None);
+    assert_eq!(ii.maybe_repair_tail_block(0, 8, |_| true).unwrap(), None);
     assert_eq!(ii.gc_marker(), marker);
     assert_eq!(doc_ids_in(&ii), vec![10, 11]);
 }
@@ -1223,7 +1223,7 @@ fn maybe_repair_tail_block_reaches_a_posting_list_shorter_than_a_block() {
     let mut ii = roomy_block_index([10, 11, 12]);
 
     assert!(
-        ii.maybe_repair_tail_block(0, |doc_id| doc_id != 11)
+        ii.maybe_repair_tail_block(0, 8, |doc_id| doc_id != 11)
             .unwrap()
             .is_some()
     );
@@ -1238,7 +1238,8 @@ fn maybe_repair_tail_block_probes_on_a_stride_once_past_the_first_entries() {
     let mut ii = roomy_block_index(1..=9);
 
     assert_eq!(
-        ii.maybe_repair_tail_block(0, |doc_id| doc_id != 5).unwrap(),
+        ii.maybe_repair_tail_block(0, 8, |doc_id| doc_id != 5)
+            .unwrap(),
         None,
         "9 is neither below the every-write bound nor on a stride boundary"
     );
@@ -1250,7 +1251,7 @@ fn maybe_repair_tail_block_probes_on_a_stride_once_past_the_first_entries() {
     }
 
     assert!(
-        ii.maybe_repair_tail_block(0, |doc_id| doc_id != 5)
+        ii.maybe_repair_tail_block(0, 8, |doc_id| doc_id != 5)
             .unwrap()
             .is_some(),
         "16 is on a stride boundary"
@@ -1260,13 +1261,73 @@ fn maybe_repair_tail_block_probes_on_a_stride_once_past_the_first_entries() {
 }
 
 #[test]
+fn maybe_repair_tail_block_with_stride_zero_waits_for_a_full_block() {
+    // Stride 0 is the cheap end of the dial: no periodic probe, so an unfilled block is
+    // left alone however much of it is dead. This is the trigger the change originally
+    // shipped with, kept reachable for operators who want its ~5% write cost instead of
+    // the default's reclaim.
+    let mut ii = roomy_block_index(1..=16);
+
+    assert_eq!(
+        ii.maybe_repair_tail_block(0, 0, |doc_id| doc_id != 5)
+            .unwrap(),
+        None
+    );
+    assert_eq!(roomy_doc_ids_in(&ii), (1..=16).collect::<Vec<_>>());
+
+    // A block that has filled is still repaired, since that check is independent of stride.
+    let mut full = tiny_block_index([10, 11, 12, 13]);
+    assert!(
+        full.maybe_repair_tail_block(0, 0, |doc_id| doc_id != 12)
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(doc_ids_in(&full), vec![10, 11, 13]);
+}
+
+#[test]
+fn maybe_repair_tail_block_stride_sets_the_probe_cadence() {
+    // The dial's whole purpose: a wider stride probes less often, so the same dead entry
+    // survives longer. At 9 entries neither 8 nor 16 divides it, but 3 does.
+    let mut ii = roomy_block_index(1..=9);
+    assert_eq!(
+        ii.maybe_repair_tail_block(0, 16, |doc_id| doc_id != 5)
+            .unwrap(),
+        None
+    );
+    assert!(
+        ii.maybe_repair_tail_block(0, 3, |doc_id| doc_id != 5)
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[test]
+fn maybe_repair_tail_block_stride_is_monotonic() {
+    // Raising the stride must never probe *more*. It would if the every-append bound were
+    // derived from the stride rather than held constant: a large stride would put every
+    // short block in the probe-always region and make the dial's cheap end its expensive
+    // one. Nine entries is above the constant bound, so no stride that fails to divide it
+    // may fire.
+    for stride in [10, 16, 64, 1024] {
+        let mut ii = roomy_block_index(1..=9);
+        assert_eq!(
+            ii.maybe_repair_tail_block(0, stride, |doc_id| doc_id != 5)
+                .unwrap(),
+            None,
+            "stride {stride} probed a 9-entry block"
+        );
+    }
+}
+
+#[test]
 fn maybe_repair_tail_block_still_honours_the_threshold_on_a_short_block() {
     // The threshold is a proportion of the block, so on a short block a single dead entry
     // is already a large fraction. Ten entries with one dead is 10%, below a 20% bar.
     let mut ii = roomy_block_index(1..=16);
 
     assert_eq!(
-        ii.maybe_repair_tail_block(20, |doc_id| doc_id != 5)
+        ii.maybe_repair_tail_block(20, 8, |doc_id| doc_id != 5)
             .unwrap(),
         None
     );
@@ -1274,7 +1335,7 @@ fn maybe_repair_tail_block_still_honours_the_threshold_on_a_short_block() {
 
     // Four dead of sixteen clears the same bar.
     assert!(
-        ii.maybe_repair_tail_block(20, |doc_id| !(5..=8).contains(&doc_id))
+        ii.maybe_repair_tail_block(20, 8, |doc_id| !(5..=8).contains(&doc_id))
             .unwrap()
             .is_some()
     );
