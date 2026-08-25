@@ -752,6 +752,10 @@ def test_withcount_inflight_at_coordinator_shutdown():
     # thread free to handle SYNC_POINT commands.
     env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1', shardsCount=3)
     skipIfNoEnableAssert(env)
+    if not os.getenv('RS_GLOBAL_DTORS'):
+        # Module cleanup — the window under test, and the park the handshake
+        # waits for — only runs with RS_GLOBAL_DTORS (coverage lanes).
+        env.skip()
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT').ok()
