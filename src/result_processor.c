@@ -1027,7 +1027,8 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
 
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
 
-  int ret;
+  /* reshaped: initialise the status at its declaration */
+  int ret = REDISMODULE_OK;
   if (self->load_all) {
       LoadAllKeysOptions opts = {
           .sctx = self->sctx,
