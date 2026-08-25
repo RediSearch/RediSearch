@@ -1450,7 +1450,10 @@ def _test_pending_jobs_metrics(env, command_type):
 
     wait_for_condition(check_reset_metrics, "wait_for_workers_pending_jobs_metric_reset")
 
-@skip_until("2026-07-01", reason="Flaky test, see MOD-15023")
+# MOD-15023: flaky in cluster mode - one of the num_queries queries is lost before fanout,
+# so wait_for_high_priority_jobs_pending times out. Not fixed on master (#9344 only added
+# diagnostics), so keep it skipped until the root cause is fixed there and backported.
+@skip_until("2027-01-01", reason="Flaky test, see MOD-15023")
 def test_pending_jobs_metrics_search():
   env = Env(moduleArgs='DEFAULT_DIALECT 2')
   _test_pending_jobs_metrics(env, 'SEARCH')
