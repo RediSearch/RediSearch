@@ -95,15 +95,15 @@ jobs:
       artifact-name: ${{ inputs.artifact-name }}
     runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
     # Runner-local env is unavailable while GitHub creates the job container.
-    # RUNS_ON_X64_MEDIUM is our repo-level signal that x64 CI uses self-hosted
-    # runners, where GitHub-hosted host cleanup mounts are not available.
+    # Use the resolved runner label as the pre-container signal for GitHub-hosted
+    # mounts; runner-local env is not available yet.
     container: ${{
       inputs.container
         && fromJSON(
           format('{{"image":"{0}","options":"--user root {1} {2}"}}',
             inputs.image-built == 'true' && inputs.image || inputs.container,
-            startsWith(inputs.container, 'alpine:') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '',
-            vars.RUNS_ON_X64_MEDIUM == '' && '-v /usr/share/dotnet:/host/usr/share/dotnet -v /usr/local/lib/android:/host/usr/local/lib/android -v /opt/ghc:/host/opt/ghc -v /opt/hostedtoolcache:/host/opt/hostedtoolcache' || '')
+            startsWith(inputs.container, 'alpine:') && (startsWith(inputs.env || vars.RUNS_ON || 'ubuntu-latest', 'ubuntu') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '-v /opt/gha-alpine-node:/opt:rw -v /opt/gha-alpine-node:/__e/node20:ro -v /opt/gha-alpine-node:/__e/node24:ro') || '',
+            startsWith(inputs.env || vars.RUNS_ON || 'ubuntu-latest', 'ubuntu') && '-v /usr/share/dotnet:/host/usr/share/dotnet -v /usr/local/lib/android:/host/usr/local/lib/android -v /opt/ghc:/host/opt/ghc -v /opt/hostedtoolcache:/host/opt/hostedtoolcache' || '')
         )
       || null }}
 

@@ -95,7 +95,7 @@ jobs:
         && fromJSON(
           format('{{"image":"{0}","options":"--user root {1}"}}',
             inputs.image-built == 'true' && inputs.image || inputs.container,
-            startsWith(inputs.container, 'alpine:') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '')
+            startsWith(inputs.container, 'alpine:') && (startsWith(inputs.env || vars.RUNS_ON || 'ubuntu-latest', 'ubuntu') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '-v /opt/gha-alpine-node:/opt:rw -v /opt/gha-alpine-node:/__e/node20:ro -v /opt/gha-alpine-node:/__e/node24:ro') || '')
         )
       || null }}
 
