@@ -254,13 +254,8 @@ jobs:
         working-directory: redis
         env:
           MODULES_MANIFEST_FILE: ${{ github.workspace }}/redis/modules/modules-ci.yaml
-        # Bootstrap installs the whole dependency set over the network (apt,
-        # cmake, boost, rust, python, LLVM). Unlike "Setup platform
-        # dependencies" above -- which only installs git -- it was not covered
-        # by SETUP_RETRY_LOOP, so one transient blip fetching a dependency
-        # failed the nightly outright (MOD-17999). install_script.sh is
-        # re-runnable, so retry the whole bootstrap here rather than giving
-        # each individual download its own retry loop.
+        # Bootstrap installs every dependency over the network, and
+        # install_script.sh is re-runnable, so retry it as a whole.
         run: |
           export PATH="${PATH:-}:$REDISEARCH_CI_SYSTEM_PATH"
           ${{ format(env.SETUP_RETRY_LOOP, 'make bootstrap redisearch') }}

@@ -65,19 +65,10 @@ else
             filename=cmake-${version}-linux-aarch64.sh
         fi
 
-        # Explicit output path, and the protocol pinned across redirects.
-        #
-        # The output path keeps this idempotent. The previous form was a bare
-        # `wget URL`, which preserves a partial left by an interrupted download
-        # and saves the fresh copy alongside it as ${filename}.1 -- so every
-        # retry chmod'd and executed the same stale partial. CI retries
-        # `make bootstrap`, so this has to survive its own leftovers.
-        #
-        # curl matches install_llvm.sh: the file is chmod +x'd and run with
-        # $MODE two lines down, so a redirect downgraded to http:// would be
-        # arbitrary code execution. GitHub release URLs do redirect (to
-        # release-assets.githubusercontent.com), so redirects stay allowed --
-        # they just cannot leave HTTPS.
+        # -o truncates, so a retried bootstrap overwrites a partial download
+        # instead of executing a stale one. --proto/--proto-redir hold the
+        # transfer on HTTPS across GitHub's redirect; the file is executed
+        # below, so an http:// downgrade would be code execution.
         curl -fsSL --proto '=https' --proto-redir '=https' \
              -o ${filename} \
              https://github.com/Kitware/CMake/releases/download/v${version}/${filename}

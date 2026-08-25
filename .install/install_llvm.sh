@@ -214,40 +214,18 @@ install_llvm() {
             if apt-cache show software-properties-common &>/dev/null; then
                 spc_pkg="software-properties-common"
             fi
-            # wget stays in the list: llvm.sh itself uses it to fetch the repo
-            # signing key.
+            # wget stays: llvm.sh uses it to fetch the repo signing key.
             apt_get_cmd "$MODE" install -y --no-install-recommends \
                 lsb-release wget curl $spc_pkg gnupg ca-certificates
-            # Treat any failure to fetch or run llvm.sh as an apt.llvm.org
-            # failure (-> tarball below) rather than a bootstrap failure.
-            # Debian trixie ships no native clang-${LLVM_VER}, so it always
-            # reaches this path; as a bare command under `set -e`, a single
-            # transient blip here (wget exit 4 = network failure) aborted the
-            # whole bootstrap instead of falling through to step 3.
+            # Fetch, chmod and exec stay inside the condition: `set -e` does
+            # not fire there, so any failure falls through to the tarball
+            # instead of aborting bootstrap. Retrying is the caller's job --
+            # CI wraps this script and the bootstrap that runs it.
             #
-            # Retrying a transient network failure is the caller's job, not
-            # this script's: CI already wraps install_llvm.sh, and the
-            # bootstrap that runs it, in a 5-attempt retry loop. What the
-            # script owes is a fallback chain that degrades instead of
-            # aborting, so a persistent apt.llvm.org outage still ends in a
-            # working toolchain.
-            #
-            # curl rather than wget, matching install_from_tarball:
-            #   - `--proto`/`--proto-redir` pin the transfer to HTTPS even
-            #     across a redirect. That matters here specifically because we
-            #     chmod +x and run the result with $MODE, so a redirect
-            #     downgraded to http:// would be arbitrary code execution.
-            #   - `--connect-timeout`/`--max-time` bound the attempt, so a host
-            #     that accepts the connection and then stalls reaches the
-            #     tarball in ~1 min rather than hanging. GNU wget would have
-            #     retried internally first (--tries defaults to 20).
-            #   - `-fsSL` fails on HTTP errors and stays quiet on success while
-            #     still printing the reason on failure; the original `-q` hid
-            #     it entirely, which is why the failing log just stopped.
-            #
-            # chmod and the exec sit inside the condition so a failed download
-            # (no /tmp/llvm.sh) also routes to the tarball rather than
-            # tripping `set -e`.
+            # --proto/--proto-redir hold the transfer on HTTPS across
+            # redirects; the result is executed with $MODE, so an http://
+            # downgrade would be code execution. --connect-timeout/--max-time
+            # bound the attempt so a stalled host reaches the tarball.
             if curl -fsSL --proto '=https' --proto-redir '=https' \
                     --connect-timeout 20 --max-time 60 \
                     -o /tmp/llvm.sh https://apt.llvm.org/llvm.sh \
