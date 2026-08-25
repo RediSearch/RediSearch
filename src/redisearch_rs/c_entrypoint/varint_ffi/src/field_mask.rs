@@ -9,7 +9,6 @@
 
 use buffer::{BufferReader, BufferWriter};
 use rqe_core::FieldMask;
-use std::ptr::NonNull;
 use varint::VarintEncode;
 
 /// Read a varint-encoded field mask from the given buffer.
@@ -24,9 +23,8 @@ use varint::VarintEncode;
 /// 2. The caller must have exclusive access to the buffer reader.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ReadVarintFieldMask(b: *mut BufferReader) -> FieldMask {
-    let mut buffer_reader = NonNull::new(b).expect("b must not be NULL");
     // Safety: Safe thanks to invariants 1. and 2.
-    let buffer_reader = unsafe { buffer_reader.as_mut() };
+    let buffer_reader = unsafe { b.as_mut() }.expect("b must not be NULL");
     varint::read(buffer_reader).unwrap()
 }
 
@@ -48,9 +46,8 @@ pub unsafe extern "C" fn WriteVarintFieldMask(
     value: FieldMask,
     writer: *mut BufferWriter,
 ) -> usize {
-    let mut writer = NonNull::new(writer).expect("writer must not be NULL");
     // Safety: Safe thanks to invariants 1. and 2.
-    let writer = unsafe { writer.as_mut() };
+    let writer = unsafe { writer.as_mut() }.expect("writer must not be NULL");
     let cap = writer.buffer().capacity();
     value.write_as_varint(&mut *writer).unwrap();
     writer.buffer().capacity() - cap

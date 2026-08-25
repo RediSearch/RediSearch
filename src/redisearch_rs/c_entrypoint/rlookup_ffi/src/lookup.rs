@@ -51,9 +51,8 @@ pub unsafe extern "C" fn RLookup_AddKeysFrom(
     dest: *mut OpaqueRLookup,
     flags: u32,
 ) {
-    let dest = NonNull::new(dest).expect("`dest` must not be null");
     assert!(
-        !ptr::addr_eq(src, dest.as_ptr().cast_const()),
+        !ptr::addr_eq(src, dest),
         "`src` and `dst` must not be the same"
     );
 
@@ -63,7 +62,7 @@ pub unsafe extern "C" fn RLookup_AddKeysFrom(
     src.assert_valid("RLookup_AddKeysFrom (src)");
 
     // Safety: ensured by caller (2.)
-    let dest = unsafe { RLookup::from_opaque_non_null(dest) };
+    let dest = unsafe { RLookup::from_opaque_mut_ptr(dest) }.expect("`dest` must not be null");
     #[cfg(debug_assertions)]
     dest.assert_valid("RLookup_AddKeysFrom (dest)");
 
@@ -82,9 +81,9 @@ pub unsafe extern "C" fn RLookup_AddKeysFrom(
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_DisableOptions(lookup: *mut OpaqueRLookup, options: u32) {
-    let lookup = NonNull::new(lookup).expect("`lookup` must not be null");
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { RLookup::from_opaque_non_null(lookup) };
+    let lookup =
+        unsafe { RLookup::from_opaque_mut_ptr(lookup) }.expect("`lookup` must not be null");
     #[cfg(debug_assertions)]
     lookup.assert_valid("RLookup_DisableOptions");
 
@@ -103,9 +102,9 @@ pub unsafe extern "C" fn RLookup_DisableOptions(lookup: *mut OpaqueRLookup, opti
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_EnableOptions(lookup: *mut OpaqueRLookup, options: u32) {
-    let lookup = NonNull::new(lookup).expect("`lookup` must not be null");
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { RLookup::from_opaque_non_null(lookup) };
+    let lookup =
+        unsafe { RLookup::from_opaque_mut_ptr(lookup) }.expect("`lookup` must not be null");
     #[cfg(debug_assertions)]
     lookup.assert_valid("RLookup_EnableOptions");
 
@@ -173,9 +172,9 @@ pub unsafe extern "C" fn RLookup_GetKey_Read<'a>(
     name: *const c_char,
     flags: u32,
 ) -> *mut RLookupKey<'a> {
-    let lookup = NonNull::new(lookup).expect("`lookup` must not be null");
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { RLookup::from_opaque_non_null(lookup) };
+    let lookup =
+        unsafe { RLookup::from_opaque_mut_ptr(lookup) }.expect("`lookup` must not be null");
     #[cfg(debug_assertions)]
     lookup.assert_valid("RLookup_GetKey_Read");
 
@@ -188,7 +187,7 @@ pub unsafe extern "C" fn RLookup_GetKey_Read<'a>(
 
     lookup
         .get_key_read(name, flags)
-        .map_or(ptr::null_mut(), |key| NonNull::from(key).as_ptr())
+        .map_or(ptr::null_mut(), |key| ptr::from_ref(key).cast_mut())
 }
 
 /// Get an RLookup key for a given name.
@@ -220,9 +219,9 @@ pub unsafe extern "C" fn RLookup_GetKey_ReadEx<'a>(
     name_len: size_t,
     flags: u32,
 ) -> *mut RLookupKey<'a> {
-    let lookup = NonNull::new(lookup).expect("`lookup` must not be null");
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { RLookup::from_opaque_non_null(lookup) };
+    let lookup =
+        unsafe { RLookup::from_opaque_mut_ptr(lookup) }.expect("`lookup` must not be null");
     #[cfg(debug_assertions)]
     lookup.assert_valid("RLookup_GetKey_ReadEx");
 
@@ -240,7 +239,7 @@ pub unsafe extern "C" fn RLookup_GetKey_ReadEx<'a>(
 
     lookup
         .get_key_read(name, flags)
-        .map_or(ptr::null_mut(), |key| NonNull::from(key).as_ptr())
+        .map_or(ptr::null_mut(), |key| ptr::from_ref(key).cast_mut())
 }
 
 /// Get an RLookup key for a given name.
@@ -269,9 +268,9 @@ pub unsafe extern "C" fn RLookup_GetKey_Write<'a>(
     name: *const c_char,
     flags: u32,
 ) -> *mut RLookupKey<'a> {
-    let lookup = NonNull::new(lookup).expect("`lookup` must not be null");
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { RLookup::from_opaque_non_null(lookup) };
+    let lookup =
+        unsafe { RLookup::from_opaque_mut_ptr(lookup) }.expect("`lookup` must not be null");
     #[cfg(debug_assertions)]
     lookup.assert_valid("RLookup_GetKey_Write");
 
@@ -284,7 +283,7 @@ pub unsafe extern "C" fn RLookup_GetKey_Write<'a>(
 
     lookup
         .get_key_write(name, flags)
-        .map_or(ptr::null_mut(), |key| NonNull::from(key).as_ptr())
+        .map_or(ptr::null_mut(), |key| ptr::from_ref(key).cast_mut())
 }
 
 /// Get an RLookup key for a given name.
@@ -315,9 +314,9 @@ pub unsafe extern "C" fn RLookup_GetKey_WriteEx<'a>(
     name_len: size_t,
     flags: u32,
 ) -> *mut RLookupKey<'a> {
-    let lookup = NonNull::new(lookup).expect("`lookup` must not be null");
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { RLookup::from_opaque_non_null(lookup) };
+    let lookup =
+        unsafe { RLookup::from_opaque_mut_ptr(lookup) }.expect("`lookup` must not be null");
     #[cfg(debug_assertions)]
     lookup.assert_valid("RLookup_GetKey_WriteEx");
 
@@ -335,7 +334,7 @@ pub unsafe extern "C" fn RLookup_GetKey_WriteEx<'a>(
 
     lookup
         .get_key_write(name, flags)
-        .map_or(ptr::null_mut(), |key| NonNull::from(key).as_ptr())
+        .map_or(ptr::null_mut(), |key| ptr::from_ref(key).cast_mut())
 }
 
 /// Get an RLookup key for a given name.
@@ -367,9 +366,9 @@ pub unsafe extern "C" fn RLookup_GetKey_Load<'a>(
     field_name: *const c_char,
     flags: u32,
 ) -> *mut RLookupKey<'a> {
-    let lookup = NonNull::new(lookup).expect("`lookup` must not be null");
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { RLookup::from_opaque_non_null(lookup) };
+    let lookup =
+        unsafe { RLookup::from_opaque_mut_ptr(lookup) }.expect("`lookup` must not be null");
     #[cfg(debug_assertions)]
     lookup.assert_valid("RLookup_GetKey_Load");
 
@@ -385,7 +384,7 @@ pub unsafe extern "C" fn RLookup_GetKey_Load<'a>(
 
     lookup
         .get_key_load(name, field_name, flags)
-        .map_or(ptr::null_mut(), |key| NonNull::from(key).as_ptr())
+        .map_or(ptr::null_mut(), |key| ptr::from_ref(key).cast_mut())
 }
 
 /// Get an RLookup key for a given name.
@@ -419,9 +418,9 @@ pub unsafe extern "C" fn RLookup_GetKey_LoadEx<'a>(
     field_name: *const c_char,
     flags: u32,
 ) -> *mut RLookupKey<'a> {
-    let lookup = NonNull::new(lookup).expect("`lookup` must not be null");
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { RLookup::from_opaque_non_null(lookup) };
+    let lookup =
+        unsafe { RLookup::from_opaque_mut_ptr(lookup) }.expect("`lookup` must not be null");
     #[cfg(debug_assertions)]
     lookup.assert_valid("RLookup_GetKey_LoadEx");
 
@@ -442,7 +441,7 @@ pub unsafe extern "C" fn RLookup_GetKey_LoadEx<'a>(
 
     lookup
         .get_key_load(name, field_name, flags)
-        .map_or(ptr::null_mut(), |key| NonNull::from(key).as_ptr())
+        .map_or(ptr::null_mut(), |key| ptr::from_ref(key).cast_mut())
 }
 
 /// Returns the number of visible fields in this RLookupRow.
@@ -473,11 +472,13 @@ pub unsafe extern "C" fn RLookup_GetLength(
     // Safety: ensured by caller (2.)
     let row = unsafe { RLookupRow::from_opaque_ptr(row).unwrap() };
 
-    let skip_field_index =
-        NonNull::new(skip_field_index).expect("`skip_field_index` must not be null");
+    assert!(
+        !skip_field_index.is_null(),
+        "`skip_field_index` must not be null"
+    );
     // Safety: ensured by caller (3.)
     let skip_field_index =
-        unsafe { slice::from_raw_parts_mut(skip_field_index.as_ptr(), skip_field_index_len) };
+        unsafe { slice::from_raw_parts_mut(skip_field_index, skip_field_index_len) };
 
     let required_flags = RLookupKeyFlags::from_bits(required_flags).unwrap();
     let excluded_flags = RLookupKeyFlags::from_bits(excluded_flags).unwrap();
@@ -540,9 +541,9 @@ pub unsafe extern "C" fn RLookup_SetCache(
     lookup: *mut OpaqueRLookup,
     spcache: *mut ffi::IndexSpecCache,
 ) {
-    let lookup = NonNull::new(lookup).expect("`lookup` must not be null");
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { RLookup::from_opaque_non_null(lookup) };
+    let lookup =
+        unsafe { RLookup::from_opaque_mut_ptr(lookup) }.expect("`lookup` must not be null");
     #[cfg(debug_assertions)]
     lookup.assert_valid("RLookup_SetCache");
 
@@ -583,9 +584,9 @@ pub unsafe extern "C" fn RLookup_HasIndexSpecCache(lookup: *const OpaqueRLookup)
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_Cleanup(lookup: *mut OpaqueRLookup) {
-    let lookup = NonNull::new(lookup).expect("`lookup` must not be null");
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { RLookup::from_opaque_non_null(lookup) };
+    let lookup =
+        unsafe { RLookup::from_opaque_mut_ptr(lookup) }.expect("`lookup` must not be null");
     #[cfg(debug_assertions)]
     lookup.assert_valid("RLookup_Cleanup");
 
@@ -624,19 +625,18 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
     open_key: *mut redis_module::RedisModuleKey,
     status: *mut OpaqueQueryError,
 ) -> i32 {
-    let mut search_ctx = NonNull::new(search_ctx).expect("`search_ctx` must not be null");
     // Safety: ensured by caller (1.)
-    let search_ctx = unsafe { search_ctx.as_mut() };
+    let search_ctx = unsafe { search_ctx.as_mut() }.expect("`search_ctx` must not be null");
 
-    let lookup = NonNull::new(lookup).expect("`lookup` must not be null");
     // Safety: ensured by caller (2.)
-    let lookup = unsafe { RLookup::from_opaque_non_null(lookup) };
+    let lookup =
+        unsafe { RLookup::from_opaque_mut_ptr(lookup) }.expect("`lookup` must not be null");
     #[cfg(debug_assertions)]
     lookup.assert_valid("RLookup_LoadRuleFields");
 
-    let dst_row = NonNull::new(dst_row).expect("`dst_row` must not be null");
     // Safety: ensured by caller (3.)
-    let dst_row = unsafe { RLookupRow::from_opaque_non_null(dst_row) };
+    let dst_row =
+        unsafe { RLookupRow::from_opaque_mut_ptr(dst_row) }.expect("`dst_row` must not be null");
 
     assert!(!index_spec.is_null(), "`index_spec` must not be null");
     // Safety: ensured by caller (4.)
@@ -648,9 +648,9 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
     // Safety: ensured by caller (8.)
     let open_key = unsafe { open_key.as_ref() };
 
-    let status = NonNull::new(status).expect("`status` must not be null");
     // Safety: ensured by caller (9.)
-    let status = unsafe { QueryError::from_opaque_non_null(status) };
+    let status =
+        unsafe { QueryError::from_opaque_mut_ptr(status) }.expect("`status` must not be null");
 
     let res = lookup.load_rule_fields(search_ctx, dst_row, index_spec, key, open_key);
 
@@ -729,13 +729,13 @@ pub unsafe extern "C" fn RLookup_LoadDocumentAll(
     dst_row: *mut OpaqueRLookupRow,
     opts: *const LoadAllKeysOptions,
 ) -> c_int {
-    let lookup = NonNull::new(lookup).expect("`lookup` must not be null");
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { RLookup::from_opaque_non_null(lookup) };
+    let lookup =
+        unsafe { RLookup::from_opaque_mut_ptr(lookup) }.expect("`lookup` must not be null");
 
-    let dst_row = NonNull::new(dst_row).expect("`dst_row` must not be null");
     // Safety: ensured by caller (2.)
-    let dst_row = unsafe { RLookupRow::from_opaque_non_null(dst_row) };
+    let dst_row =
+        unsafe { RLookupRow::from_opaque_mut_ptr(dst_row) }.expect("`dst_row` must not be null");
 
     // Safety: ensured by caller (3.)
     let opts = unsafe { opts.as_ref() }.expect("`opts` must not be null");
@@ -746,10 +746,10 @@ pub unsafe extern "C" fn RLookup_LoadDocumentAll(
     let dmd = unsafe { DocumentMetadata::from_ptr(opts.dmd) };
 
     // Safety: ensured by caller (3.)
-    let search_ctx = unsafe { NonNull::new(opts.sctx).unwrap().as_ref() };
+    let search_ctx = unsafe { opts.sctx.as_ref() }.unwrap();
 
     // Safety: ensured by caller (3.)
-    let status = unsafe { QueryError::from_opaque_non_null(NonNull::new(opts.status).unwrap()) };
+    let status = unsafe { QueryError::from_opaque_mut_ptr(opts.status) }.unwrap();
 
     let ctx = NonNull::new(search_ctx.redisCtx).unwrap();
 
@@ -829,15 +829,15 @@ pub unsafe extern "C" fn RLookup_LoadDocumentIndividual(
     // mutable borrow that would alias the key references materialized below.
     let lookup = unsafe { RLookup::from_opaque_ptr_unchecked(lookup) };
 
-    let dst_row = NonNull::new(dst_row).expect("`dst_row` must not be null");
     // Safety: ensured by caller (2.)
-    let dst_row = unsafe { RLookupRow::from_opaque_non_null(dst_row) };
+    let dst_row =
+        unsafe { RLookupRow::from_opaque_mut_ptr(dst_row) }.expect("`dst_row` must not be null");
 
     // Safety: ensured by caller (3.)
     let opts = unsafe { opts.as_ref() }.expect("`opts` must not be null");
 
     // Safety: ensured by caller (3.)
-    let search_ctx = unsafe { NonNull::new(opts.sctx).unwrap().as_ref() };
+    let search_ctx = unsafe { opts.sctx.as_ref() }.unwrap();
 
     // SAFETY: caller (3.) — `opts.dmd` is a borrowed, valid, non-null
     // `RSDocumentMetadata` that outlives this call. We only borrow it; ownership
@@ -845,7 +845,7 @@ pub unsafe extern "C" fn RLookup_LoadDocumentIndividual(
     let dmd = unsafe { DocumentMetadata::from_ptr(opts.dmd) };
 
     // Safety: ensured by caller (3.)
-    let status = unsafe { QueryError::from_opaque_non_null(NonNull::new(opts.status).unwrap()) };
+    let status = unsafe { QueryError::from_opaque_mut_ptr(opts.status) }.unwrap();
 
     let ctx = NonNull::new(search_ctx.redisCtx).unwrap();
 
@@ -873,8 +873,8 @@ pub unsafe extern "C" fn RLookup_LoadDocumentIndividual(
     // SAFETY: caller (3.) — when `profile_fields` is non-null it points to
     // `nkeys` writable `LoadFieldProfile` entries (allocated by the C loader for
     // the `FT.PROFILE ... LOAD` path) that outlive this call.
-    let profile = NonNull::new(opts.profile_fields)
-        .map(|p| unsafe { slice::from_raw_parts_mut(p.as_ptr(), opts.nkeys) });
+    let profile = (!opts.profile_fields.is_null())
+        .then(|| unsafe { slice::from_raw_parts_mut(opts.profile_fields, opts.nkeys) });
 
     let res = match dmd.type_() {
         DocumentType::Hash => {
@@ -981,9 +981,9 @@ pub struct RLookupIterator<'a> {
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_IterMut<'a>(lookup: *mut OpaqueRLookup) -> RLookupIteratorMut<'a> {
-    let lookup = NonNull::new(lookup).expect("`lookup` must not be null");
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { RLookup::from_opaque_non_null(lookup) };
+    let lookup =
+        unsafe { RLookup::from_opaque_mut_ptr(lookup) }.expect("`lookup` must not be null");
     #[cfg(debug_assertions)]
     lookup.assert_valid("RLookup_IterMut");
 

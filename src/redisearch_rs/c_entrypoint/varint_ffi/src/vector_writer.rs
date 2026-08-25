@@ -7,7 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ptr::NonNull;
 use varint::VectorWriter;
 
 /// Create a new [`VectorWriter`] with the given capacity.
@@ -31,9 +30,9 @@ pub extern "C" fn NewVarintVectorWriter(cap: usize) -> *mut VectorWriter {
 /// 2. The caller must have exclusive access to the [`VectorWriter`] pointed to by `writer`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn VVW_Write(writer: *mut VectorWriter, value: u32) -> usize {
-    let mut writer = NonNull::new(writer).expect("writer must not be NULL");
     // Safety: The preconditions are met, thanks to safety invariants 1. and 2.
-    unsafe { writer.as_mut() }.write(value).unwrap_or(0)
+    let writer = unsafe { writer.as_mut() }.expect("writer must not be NULL");
+    writer.write(value).unwrap_or(0)
 }
 
 /// Get a reference to the underlying byte buffer.
@@ -98,9 +97,9 @@ pub const unsafe extern "C" fn VVW_GetCount(writer: *const VectorWriter) -> usiz
 /// 2. The caller must have exclusive access to the [`VectorWriter`] pointed to by `writer`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn VVW_Reset(writer: *mut VectorWriter) {
-    let mut writer = NonNull::new(writer).expect("writer must not be NULL");
     // Safety: The preconditions are met, thanks to safety invariants 1. and 2.
-    unsafe { writer.as_mut() }.reset()
+    let writer = unsafe { writer.as_mut() }.expect("writer must not be NULL");
+    writer.reset()
 }
 
 #[unsafe(no_mangle)]
@@ -114,9 +113,9 @@ pub unsafe extern "C" fn VVW_Reset(writer: *mut VectorWriter) {
 /// 1. `writer` must point to a valid [`VectorWriter`] obtained from [`NewVarintVectorWriter`] and cannot be NULL.
 /// 2. The caller must have exclusive access to the [`VectorWriter`] pointed to by `writer`.
 pub unsafe extern "C" fn VVW_Free(writer: *mut VectorWriter) {
-    let writer = NonNull::new(writer).expect("writer must not be NULL");
+    assert!(!writer.is_null(), "writer must not be NULL");
     // Safety: The pointer is leaked in `NewVectorWriter`, so we can safely drop it here.
-    drop(unsafe { Box::from_raw(writer.as_ptr()) });
+    drop(unsafe { Box::from_raw(writer) });
 }
 
 #[unsafe(no_mangle)]
@@ -128,9 +127,9 @@ pub unsafe extern "C" fn VVW_Free(writer: *mut VectorWriter) {
 /// 1. `writer` must point to a valid [`VectorWriter`] obtained from [`NewVarintVectorWriter`] and cannot be NULL.
 /// 2. The caller must have exclusive access to the [`VectorWriter`] pointed to by `writer`.
 pub unsafe extern "C" fn VVW_Truncate(writer: *mut VectorWriter) -> usize {
-    let writer = NonNull::new(writer).expect("writer must not be NULL");
     // Safety: The preconditions are met, thanks to safety invariants 1. and 2.
-    unsafe { &mut *writer.as_ptr() }.shrink_to_fit()
+    let writer = unsafe { writer.as_mut() }.expect("writer must not be NULL");
+    writer.shrink_to_fit()
 }
 
 #[unsafe(no_mangle)]
@@ -151,9 +150,8 @@ pub unsafe extern "C" fn VVW_TakeByteData(writer: *mut VectorWriter, len: *mut u
 
     // Safety: Guaranteed by safety invariant 1. and 2.
     let vector_writer = unsafe { &mut *writer };
-    let mut len = NonNull::new(len).expect("len must not be NULL");
     // Safety: Guaranteed by safety invariant 3.
-    let len = unsafe { len.as_mut() };
+    let len = unsafe { len.as_mut() }.expect("len must not be NULL");
     let mut bytes = vec![];
     std::mem::swap(vector_writer.bytes_mut(), &mut bytes);
     *len = bytes.len();

@@ -11,11 +11,8 @@ use libc::size_t;
 use query_error::opaque::OpaqueQueryError;
 use query_error::{QueryError, QueryErrorCode};
 use sorting_vector::RSSortingVector;
+use std::ffi::{CStr, c_char};
 use std::slice;
-use std::{
-    ffi::{CStr, c_char},
-    ptr::NonNull,
-};
 use value::SharedValue;
 use value_ffi::RSValue;
 use value_ffi::util::into_shared_value;
@@ -71,7 +68,7 @@ pub unsafe extern "C" fn RSSortingVector_GetMemorySize(vec: *const RSSortingVect
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSSortingVector_PutNum(vec: *mut RSSortingVector, idx: size_t, num: f64) {
     // Safety: The caller must ensure that the pointer is valid (1.)
-    let vec = unsafe { NonNull::new(vec).expect("vec must not be null").as_mut() };
+    let vec = unsafe { vec.as_mut() }.expect("vec must not be null");
 
     vec.try_insert_val(idx, SharedValue::new_num(num))
         .unwrap_or_else(|_| {
@@ -98,7 +95,7 @@ pub unsafe extern "C" fn RSSortingVector_PutStr(
     str: *const c_char,
 ) {
     // Safety: The caller must ensure that the pointer is valid (1.)
-    let vec = unsafe { NonNull::new(vec).expect("vec must not be null").as_mut() };
+    let vec = unsafe { vec.as_mut() }.expect("vec must not be null");
 
     // Safety: The caller must ensure str points to a valid C string (2.)
     let str = unsafe { CStr::from_ptr(str) };
@@ -136,14 +133,14 @@ pub unsafe extern "C" fn RSSortingVector_PutStrNormalize(
     status: *mut OpaqueQueryError,
 ) -> bool {
     // Safety: The caller must ensure that the pointer is valid (1.)
-    let vec = unsafe { NonNull::new(vec).expect("vec must not be null").as_mut() };
+    let vec = unsafe { vec.as_mut() }.expect("vec must not be null");
 
     // Safety: The caller must ensure str points to a valid C string (2.)
     let str = unsafe { CStr::from_ptr(str) };
 
-    let status = NonNull::new(status).expect("status must not be null");
     // Safety: The caller must ensure status points to a valid query error (3.)
-    let status = unsafe { QueryError::from_opaque_non_null(status) };
+    let status =
+        unsafe { QueryError::from_opaque_mut_ptr(status) }.expect("status must not be null");
 
     let Ok(str) = str.to_str() else {
         status.set_code_and_message(QueryErrorCode::BadVal, Some(c"Invalid UTF-8".to_owned()));
@@ -177,12 +174,12 @@ pub unsafe extern "C" fn RSSortingVector_PutRSVal(
     val: *mut RSValue,
 ) {
     // Safety: The caller must ensure that the pointer is valid (1.)
-    let vec = unsafe { NonNull::new(vec).expect("vec must not be null").as_mut() };
+    let vec = unsafe { vec.as_mut() }.expect("vec must not be null");
 
-    let value = NonNull::new(val).expect("value must not be null").as_ptr();
+    assert!(!val.is_null(), "value must not be null");
 
     // Safety: The caller must ensure that the pointer is valid (2.)
-    let val = unsafe { into_shared_value(value) };
+    let val = unsafe { into_shared_value(val) };
 
     vec.try_insert_val(idx, val).unwrap_or_else(|_| {
         panic!("Index out of bounds: {} >= {}", idx, vec.len());
@@ -203,7 +200,7 @@ pub unsafe extern "C" fn RSSortingVector_PutRSVal(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSSortingVector_PutNull(vec: *mut RSSortingVector, idx: libc::size_t) {
     // Safety: The caller must ensure that the pointer is valid (1.)
-    let vec = unsafe { NonNull::new(vec).expect("vec must not be null").as_mut() };
+    let vec = unsafe { vec.as_mut() }.expect("vec must not be null");
 
     vec.try_insert_null(idx).unwrap_or_else(|_| {
         panic!("Index out of bounds: {} >= {}", idx, vec.len());
@@ -238,8 +235,8 @@ pub extern "C" fn RSSortingVector_New(len: size_t) -> RSSortingVector {
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSSortingVector_ClearAndDeAlloc(vec: *mut RSSortingVector) {
-    if let Some(mut vec) = NonNull::new(vec) {
-        // Safety: The caller must ensure that the pointer is valid (1.)
-        unsafe { vec.as_mut() }.reset();
+    // Safety: The caller must ensure that the pointer is valid (1.)
+    if let Some(vec) = unsafe { vec.as_mut() } {
+        vec.reset();
     }
 }

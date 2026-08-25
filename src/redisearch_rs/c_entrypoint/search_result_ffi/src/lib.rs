@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{mem, ptr::NonNull};
+use std::{mem, ptr};
 
 pub type SearchResult = search_result::SearchResult<'static>;
 
@@ -35,11 +35,10 @@ pub const extern "C" fn SearchResult_New() -> SearchResult {
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn SearchResult_Override(dst: *mut SearchResult, src: *mut SearchResult) {
-    let mut dst = NonNull::new(dst).expect("dst must not be NULL");
-    let src = NonNull::new(src).expect("src must not be NULL");
-
     // Safety: ensured by caller (1.)
-    let dst = unsafe { dst.as_mut() };
+    let dst = unsafe { dst.as_mut() }.expect("dst must not be NULL");
+
+    assert!(!src.is_null(), "src must not be NULL");
 
     // Safety: ensured by caller (2.,3.)
     let _ = mem::replace(dst, unsafe { src.read() });
@@ -55,9 +54,8 @@ pub unsafe extern "C" fn SearchResult_Override(dst: *mut SearchResult, src: *mut
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn SearchResult_Clear(res: *mut SearchResult) {
-    let mut res = NonNull::new(res).expect("res must not be NULL");
     // Safety: ensured by caller (1.)
-    let res = unsafe { res.as_mut() };
+    let res = unsafe { res.as_mut() }.expect("res must not be NULL");
 
     res.clear();
 }
@@ -73,9 +71,9 @@ pub unsafe extern "C" fn SearchResult_Clear(res: *mut SearchResult) {
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn SearchResult_Destroy(res: *mut SearchResult) {
-    let res = NonNull::new(res).expect("res must not be NULL");
+    assert!(!res.is_null(), "res must not be NULL");
     // Safety: ensured by caller (1.,2.)
-    unsafe { res.drop_in_place() };
+    unsafe { ptr::drop_in_place(res) };
 }
 
 /// Moves the contents the [`SearchResult`] pointed to by `res` into a new heap allocation.
@@ -89,7 +87,7 @@ pub unsafe extern "C" fn SearchResult_Destroy(res: *mut SearchResult) {
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn SearchResult_AllocateMove(res: *mut SearchResult) -> *mut SearchResult {
-    let res = NonNull::new(res).expect("res must not be NULL");
+    assert!(!res.is_null(), "res must not be NULL");
     // Safety: ensured by caller (1.)
     let res = unsafe { res.read() };
 
@@ -108,8 +106,8 @@ pub unsafe extern "C" fn SearchResult_AllocateMove(res: *mut SearchResult) -> *m
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn SearchResult_DeallocateDestroy(res: *mut SearchResult) {
-    let res = NonNull::new(res).expect("res must not be NULL");
+    assert!(!res.is_null(), "res must not be NULL");
     // Safety: ensured by caller (1.,2.)
-    let res = unsafe { Box::from_raw(res.as_ptr()) };
+    let res = unsafe { Box::from_raw(res) };
     drop(res);
 }
