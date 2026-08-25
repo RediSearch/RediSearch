@@ -58,6 +58,7 @@ jobs:
         run: |
           echo hello
           echo rdn:$RUNNER_DEPLOYMENT_NAME
+          env
           #sudo apt install -y liburing-dev
           #docker run ubuntu:latest echo Hello
           #if [ -z "$SLEEP_TIME" ] || [ "$SLEEP_TIME" = 0 ]; then
