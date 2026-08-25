@@ -262,8 +262,9 @@ static int invokeGroupReducers(Grouper *g, RLookupRow *srcrow, t_docId docId) {
   size_t nkeys = GROUPER_NSRCKEYS(g);
   const RSValue *groupvals[nkeys];
 
+  /* reshaped: bind the source key as const */
   for (size_t ii = 0; ii < nkeys; ++ii) {
-    const RLookupKey *srckey = g->srckeys[ii];
+    const RLookupKey *const srckey = g->srckeys[ii];
     RSValue *v = RLookupRow_Get(srckey, srcrow);
     if (v == NULL) {
       v = RSValue_NullStatic();
