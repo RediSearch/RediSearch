@@ -254,6 +254,76 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   RedisModule_FreeThreadSafeContext(redisCtx);
 }
 
+// A numeric term parameter is marked verbatim by the common resolver so later
+// query expansion does not treat its spelling as a textual term.
+TEST_F(QueryTest, testEvalParamsCommonMarksNumericTermVerbatim) {
+  QASTCXX ast;
+  ASSERT_TRUE(ast.parse("$value", 2)) << ast.getError();
+  ASSERT_EQ(ast.root->type, QN_TOKEN);
+
+  QueryError status = QueryError_Default();
+  dict *params = Param_DictCreate();
+  ASSERT_EQ(Param_DictAdd(params, "value", "1.25", 4, &status), DICT_OK)
+      << QueryError_GetUserError(&status);
+
+  ASSERT_EQ(QueryNode_EvalParamsCommon(params, ast.root, 2, &status), REDISMODULE_OK)
+      << QueryError_GetUserError(&status);
+  ASSERT_STREQ(ast.root->tn.str, "1.25");
+  ASSERT_EQ(ast.root->tn.len, 4);
+  ASSERT_NE(ast.root->opts.flags & QueryNode_Verbatim, 0);
+
+  Param_DictFree(params);
+  QueryError_ClearError(&status);
+}
+
+// A union has no parameters of its own, making two parameterized leaves the
+// smallest fixture that proves traversal resolves every child.
+TEST_F(QueryTest, testEvalParamsTraversesAllUnionChildren) {
+  QASTCXX ast;
+  ASSERT_TRUE(ast.parse("$first|$second", 2)) << ast.getError();
+  ASSERT_EQ(ast.root->type, QN_UNION);
+  ASSERT_EQ(QueryNode_NumChildren(ast.root), 2);
+
+  QueryError status = QueryError_Default();
+  SearchOptionsCXX opts;
+  opts.params = Param_DictCreate();
+  ASSERT_EQ(Param_DictAdd(opts.params, "first", "hello", 5, &status), DICT_OK)
+      << QueryError_GetUserError(&status);
+  ASSERT_EQ(Param_DictAdd(opts.params, "second", "world", 5, &status), DICT_OK)
+      << QueryError_GetUserError(&status);
+
+  ASSERT_EQ(QueryNode_EvalParams(opts.params, ast.root, 2, &status), REDISMODULE_OK)
+      << QueryError_GetUserError(&status);
+  ASSERT_STREQ(ast.root->children[0]->tn.str, "hello");
+  ASSERT_STREQ(ast.root->children[1]->tn.str, "world");
+
+  Param_DictFree(opts.params);
+  QueryError_ClearError(&status);
+}
+
+// Keeping a resolvable parameter after the missing one distinguishes immediate
+// error propagation from a traversal that continues mutating later siblings.
+TEST_F(QueryTest, testEvalParamsStopsTraversalAfterChildError) {
+  QASTCXX ast;
+  ASSERT_TRUE(ast.parse("$missing|$later", 2)) << ast.getError();
+  ASSERT_EQ(ast.root->type, QN_UNION);
+  ASSERT_EQ(QueryNode_NumChildren(ast.root), 2);
+
+  QueryError status = QueryError_Default();
+  SearchOptionsCXX opts;
+  opts.params = Param_DictCreate();
+  ASSERT_EQ(Param_DictAdd(opts.params, "later", "untouched", 9, &status), DICT_OK)
+      << QueryError_GetUserError(&status);
+
+  ASSERT_EQ(QueryNode_EvalParams(opts.params, ast.root, 2, &status), REDISMODULE_ERR);
+  ASSERT_TRUE(QueryError_HasError(&status));
+  ASSERT_NE(strstr(QueryError_GetUserError(&status), "Parameter not found `missing`"), nullptr);
+  ASSERT_EQ(ast.root->children[1]->tn.str, nullptr);
+
+  Param_DictFree(opts.params);
+  QueryError_ClearError(&status);
+}
+
 TEST_F(QueryTest, testParser_v1) {
   RedisSearchCtx ctx;
   static const char *args[] = {"SCHEMA",  "title", "text",   "weight", "0.1",
