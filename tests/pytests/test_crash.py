@@ -46,8 +46,11 @@ def read_log_lines(path):
 def bug_report_span(lines):
     """The lines strictly between the bug-report START and END markers.
 
-    Returns [] when either marker is missing, so span-restricted assertions
-    fail rather than silently passing against the wrong lines.
+    Returns [] when the START marker is missing, so span-restricted assertions
+    fail rather than silently passing against the wrong lines. A missing END
+    marker means the crash handler died mid-report — sanitizer builds truncate
+    the report during its slow memory-test phase — so the span then runs to
+    the end of the log.
     """
     start = next((i for i, line in enumerate(lines) if BUG_REPORT_START_MARKER in line), None)
     if start is None:
@@ -57,7 +60,7 @@ def bug_report_span(lines):
         None,
     )
     if end is None:
-        return []
+        return lines[start + 1:]
     return lines[start + 1:end]
 
 
