@@ -31,7 +31,7 @@ if [[ "${DRY_RUN:-0}" == 1 ]]; then
         else
             processor=$(uname -m)
             if [[ $processor = 'x86_64' ]]; then filename=cmake-${version}-linux-x86_64.sh; else filename=cmake-${version}-linux-aarch64.sh; fi
-            _dry_line "wget -O ${filename} https://github.com/Kitware/CMake/releases/download/v${version}/${filename}"
+            _dry_line "curl -fsSL --proto '=https' --proto-redir '=https' -o ${filename} https://github.com/Kitware/CMake/releases/download/v${version}/${filename}"
             _dry_line "chmod u+x ./${filename}"
             _dry_line "${MODE:+$MODE }./${filename} --skip-license --prefix=/usr/local --exclude-subdir"
             _dry_line "rm ./${filename}"
@@ -65,11 +65,22 @@ else
             filename=cmake-${version}-linux-aarch64.sh
         fi
 
-        # -O so a retry overwrites a partial left by an interrupted download,
-        # instead of saving the fresh copy alongside it as ${filename}.1 and
-        # re-executing the stale partial below. CI retries `make bootstrap`, so
-        # this has to be idempotent with respect to its own leftovers.
-        wget -O ${filename} https://github.com/Kitware/CMake/releases/download/v${version}/${filename}
+        # Explicit output path, and the protocol pinned across redirects.
+        #
+        # The output path keeps this idempotent. The previous form was a bare
+        # `wget URL`, which preserves a partial left by an interrupted download
+        # and saves the fresh copy alongside it as ${filename}.1 -- so every
+        # retry chmod'd and executed the same stale partial. CI retries
+        # `make bootstrap`, so this has to survive its own leftovers.
+        #
+        # curl matches install_llvm.sh: the file is chmod +x'd and run with
+        # $MODE two lines down, so a redirect downgraded to http:// would be
+        # arbitrary code execution. GitHub release URLs do redirect (to
+        # release-assets.githubusercontent.com), so redirects stay allowed --
+        # they just cannot leave HTTPS.
+        curl -fsSL --proto '=https' --proto-redir '=https' \
+             -o ${filename} \
+             https://github.com/Kitware/CMake/releases/download/v${version}/${filename}
         chmod u+x ./${filename}
         $MODE ./${filename} --skip-license --prefix=/usr/local --exclude-subdir
         cmake --version
