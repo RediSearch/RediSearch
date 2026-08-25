@@ -146,10 +146,7 @@ static MRClusterTopology *getTopology(std::span<const char *const> hosts) {
 }
 
 static void startAndShutdownRuntime(IORuntimeCtx *io) {
-  // Static: the runtime never becomes ready (dummy topology), so the item
-  // executes in the loop thread's final shutdown drain — after this frame is
-  // gone.
-  static int counter;
+  int counter = 0;
   // Start runtime through schedule path so io_runtime_started_or_starting is set.
   IORuntimeCtx_Schedule(io, testCallback, &counter);
   bool started = RS::WaitForCondition([&]() {

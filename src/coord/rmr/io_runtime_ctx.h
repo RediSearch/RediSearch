@@ -48,12 +48,6 @@ typedef struct {
   bool loop_th_creation_failed;
   uv_mutex_t loop_th_created_mutex;
   uv_cond_t loop_th_created_cond;
-  // Set once the loop thread was joined (or the never-started runtime was
-  // torn down), making IORuntimeCtx_Shutdown / IORuntimeCtx_FireShutdown /
-  // the join in IORuntimeCtx_Free idempotent, and gating rejected schedules'
-  // inline execution (see IORuntimeCtx_Schedule). Written on the shutdown
-  // thread, polled by rejected schedulers — always via __atomic ops.
-  bool loop_th_joined;
 } UVRuntime;
 
 //Structure to encapsulate the IO Runtime context for MR operations to take place
@@ -81,21 +75,8 @@ IORuntimeCtx *IORuntimeCtx_Create(size_t conn_pool_size, struct MRClusterTopolog
 void IORuntimeCtx_Start(IORuntimeCtx *io_runtime_ctx);
 void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx);
 void IORuntimeCtx_FireShutdown(IORuntimeCtx *io_runtime_ctx);
-/* Stop and join the runtime's loop thread: guard the queue against further
- * loop signals (RQ_Shutdown), fire the shutdown event, join, then drain the
- * queue once — every pending command error-completes, so callers blocked on
- * their results resolve. After this returns no
- * callback of this runtime can run; IORuntimeCtx_Free only releases memory.
- * Idempotent. */
-void IORuntimeCtx_Shutdown(IORuntimeCtx *io_runtime_ctx);
 
-/* Enqueue `cb(privdata)` for the runtime's loop thread, lazily starting the
- * runtime on the first live schedule. `cb` runs exactly once: normally on the
- * loop thread; once the runtime is shutting down, via a queue drain on a
- * scheduling thread instead, after the teardown quiesced the loop — the
- * emptied conn manager then fails every send cleanly, so each callback
- * resolves through its normal dispatch-failure paths and no scheduled work
- * is ever dropped. */
+//TODO: Have it return int status (return error if thread not created)
 void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, void *privdata);
 
 void IORuntimeCtx_RequestCompleted(IORuntimeCtx *io_runtime_ctx);

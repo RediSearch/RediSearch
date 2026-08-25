@@ -97,12 +97,6 @@ void MR_Debug_ClearPendingTopo();
 long long MR_Debug_GetPendingRequests();
 #endif
 
-/* First phase of MR teardown: stop and join every IO thread (see
- * IORuntimeCtx_Shutdown). The final MR callbacks dispatch into caller-side
- * pools — call this BEFORE destroying those pools. After this returns no MR
- * callback can run; MR_FreeCluster then only frees memory. */
-void MR_ShutdownIO();
-
 void MR_FreeCluster();
 
 /* Get the user stored private data from the context */

@@ -170,45 +170,13 @@ void MRConnManager_Init(MRConnManager *mgr, int nodeConns) {
   mgr->nodeConns = nodeConns;
 }
 
-/* Tear down every connection in the manager, leaving it EMPTY but allocated.
+/* Tear down every connection in the manager and release the dict.
  *
  * Must be called from the owning uv thread while the event loop is still alive: the
  * per-conn disconnect path invokes uv_close and redisAsyncDisconnect, both of
- * which require a live loop. The map itself stays allocated (released by
- * MRConnManager_Free) so that work executed after the shutdown — a rejected
- * schedule running its callback inline — can still consult the manager and
- * fail cleanly on the missing conns. */
+ * which require a live loop. After this returns the manager is empty; the
+ * MRConnManager struct itself is not freed (it is embedded in IORuntimeCtx). */
 void MRConnManager_Shutdown(MRConnManager *mgr) {
-  // Error-complete every pending command before dropping the conns: the
-  // Freeing path's redisAsyncDisconnect waits for replies that (with the loop
-  // stopping) never arrive, silently dropping the pending callbacks and
-  // stranding pool jobs blocked on their results. redisAsyncFree invokes them
-  // with a NULL reply right here; some dispatch into the coordinator pool,
-  // which must therefore still be alive (see MR_ShutdownIO). Only Connected
-  // conns carry commands (MRConnPool_GetConn), and only they are safe to free
-  // eagerly — a mid-connect ac still has its TCP connect in flight, and the
-  // deferred-disconnect Freeing path below is what handles that safely.
-  dictIterator *it = dictGetIterator(mgr->map);
-  dictEntry *entry;
-  while ((entry = dictNext(it))) {
-    MRConnPool *pool = dictGetVal(entry);
-    for (uint32_t i = 0; i < pool->num; i++) {
-      MRConn *conn = pool->conns[i];
-      redisAsyncContext *ac = conn->conn;
-      if (ac && conn->state == MRConn_Connected) {
-        // Detach first so the disconnect callback treats the conn as already
-        // freed instead of driving its state machine.
-        ac->data = NULL;
-        conn->conn = NULL;
-        redisAsyncFree(ac);
-      }
-    }
-  }
-  dictReleaseIterator(it);
-  dictEmpty(mgr->map, NULL);
-}
-
-void MRConnManager_Free(MRConnManager *mgr) {
   dictRelease(mgr->map);
 }
 

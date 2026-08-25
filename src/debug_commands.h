@@ -195,12 +195,6 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 // the GIL released. Reaching it is the only proof, independent of host scheduling, that a cycle
 // really did hit EEXIST rather than winning the slot outright.
 #define SYNC_POINT_GC_FORK_SLOT_BUSY                    "GCForkSlotBusy"
-// Module cleanup: parked right after the coordinator pool is destroyed. Arm
-// with auto_release_ms — the main thread is inside the SHUTDOWN event and can
-// never process a SIGNAL. Lets a test deliver a late shard reply into the
-// window where the pool is gone: pre-fix the MR IO threads were still alive
-// here and their deferred dispatch crashed; post-fix they are already joined.
-#define SYNC_POINT_SHUTDOWN_AFTER_COORD_POOL_DESTROY    "ShutdownAfterCoordPoolDestroy"
 
 // SyncPoint API function declarations
 // Arm a sync point - subsequent calls to SyncPoint_Wait will block

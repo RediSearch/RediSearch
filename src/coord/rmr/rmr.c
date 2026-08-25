@@ -955,7 +955,7 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
     int8_t refCount = MRIterator_IncreaseRefCount(it);
     REFCOUNT_INCR_MSG("MR_ManuallyTriggerNextIfNeeded", refCount);
     IORuntimeCtx_Schedule(it->ctx.ioRuntime, iterManualNextCb, it);
-    return true; // The reader consumes the batch's replies — or its failure — as usual
+    return true; // We may have more replies (and we surely will)
   }
   // We have no pending commands and no more than channelThreshold replies to process.
   // If we have more replies we will process them, otherwise we are done.
@@ -1110,17 +1110,6 @@ long long MR_Debug_GetPendingRequests() {
   return pending;
 }
 #endif
-
-void MR_ShutdownIO() {
-  if (!cluster_g || !cluster_g->io_runtimes_pool) return;
-  // Joining the IO threads must not hold the GIL: their final callbacks (the
-  // drain and the disconnect sweep) may block on thread-safe contexts.
-  RedisModule_ThreadSafeContextUnlock(RSDummyContext);
-  for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
-    IORuntimeCtx_Shutdown(cluster_g->io_runtimes_pool[i]);
-  }
-  RedisModule_ThreadSafeContextLock(RSDummyContext);
-}
 
 void MR_FreeCluster() {
   if (!cluster_g) return;
