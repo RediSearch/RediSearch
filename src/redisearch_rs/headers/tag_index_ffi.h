@@ -15,6 +15,25 @@
 #include "triemap_ffi.h"
 
 /**
+ * A [`TagIndex`] with its storage mode erased: one type for owners that hold a
+ * single handle and learn the mode at runtime, such as the C module.
+ *
+ * It is deliberately a discriminant plus a union rather than an `enum`. Matching on
+ * an enum needs a reference to the handle, and the pointer to the in-memory index
+ * would then be derived from that reference — which is exactly what
+ * [`TrieLookup::new`]'s first contract forbids, because a writer taking a `&mut`
+ * through the same handle would revoke it.
+ *
+ * Every accessor is therefore an associated function taking the handle as a raw
+ * pointer, not a `&self` method: they are raw place projections that form no
+ * reference to the handle, so what they return carries the owner's own provenance.
+ * `tag_index_ffi`'s `provenance` integration test is the regression guard for that
+ * claim — it fails under `miri` as soon as an accessor is rewritten to go through a
+ * reference.
+ */
+typedef struct ErasedTagIndex ErasedTagIndex;
+
+/**
  * A callback structure to trigger garbage collection operations.
  */
 typedef struct II_GCCallback II_GCCallback;
@@ -33,11 +52,6 @@ typedef struct InvertedIndex_DocIdsOnly InvertedIndex_DocIdsOnly;
 typedef struct QueryError QueryError;
 
 typedef struct RedisModuleCtx RedisModuleCtx;
-
-/**
- * The mode-erased tag index C holds, as described in the [module docs](self).
- */
-typedef struct RustTagIndex RustTagIndex;
 
 /**
  * A reader over one tag's postings.
@@ -225,7 +239,7 @@ IndexUniqueId Rust_TagIndexValue_UniqueId(const TagIndexValue *tag_index_value);
  *
  * As [`Rust_TagIndex_Index`]'s contracts 1 and 2.
  */
-uint32_t Rust_TagIndex_Commit(struct RustTagIndex *tag_index, const char *const *values, size_t n);
+uint32_t Rust_TagIndex_Commit(struct ErasedTagIndex *tag_index, const char *const *values, size_t n);
 
 /**
  * Free the tag index behind `tag_index` and NULL the caller's pointer.
@@ -235,12 +249,12 @@ uint32_t Rust_TagIndex_Commit(struct RustTagIndex *tag_index, const char *const 
  *
  * # Safety
  *
- * 1. `tag_index` must be a valid pointer to a writable `RustTagIndex *` slot.
+ * 1. `tag_index` must be a valid pointer to a writable `ErasedTagIndex *` slot.
  * 2. `*tag_index` must be NULL or a handle from [`Rust_TagIndex_New`] that has
  *    not been freed.
  * 3. No iterator, reader, or lookup derived from the index may still be alive.
  */
-void Rust_TagIndex_Free(struct RustTagIndex * *tag_index);
+void Rust_TagIndex_Free(struct ErasedTagIndex * *tag_index);
 
 /**
  * Apply the fork-GC `delta` to `tag`'s posting list.
@@ -262,7 +276,7 @@ void Rust_TagIndex_Free(struct RustTagIndex * *tag_index);
  * 3. `delta` must be a non-NULL delta from `InvertedIndex_GcDelta_Read`.
  *    Ownership transfers to this call, which consumes it on every path.
  */
-struct TagGcResult Rust_TagIndex_GC(struct RustTagIndex *tag_index, const uint8_t *tag, size_t len, IndexUniqueId unique_id, struct InvertedIndexGcDelta *delta);
+struct TagGcResult Rust_TagIndex_GC(struct ErasedTagIndex *tag_index, const uint8_t *tag, size_t len, IndexUniqueId unique_id, struct InvertedIndexGcDelta *delta);
 
 /**
  * The index's unique id, as reported to the fork GC to detect that a field's
@@ -272,7 +286,7 @@ struct TagGcResult Rust_TagIndex_GC(struct RustTagIndex *tag_index, const uint8_
  *
  * `tag_index` must point to a live index from [`Rust_TagIndex_New`].
  */
-uint32_t Rust_TagIndex_GetId(const struct RustTagIndex *tag_index);
+uint32_t Rust_TagIndex_GetId(const struct ErasedTagIndex *tag_index);
 
 /**
  * Bytes the index's tries occupy, as reported by `FT.INFO`.
@@ -284,7 +298,7 @@ uint32_t Rust_TagIndex_GetId(const struct RustTagIndex *tag_index);
  *
  * `tag_index` must point to a live index from [`Rust_TagIndex_New`].
  */
-size_t Rust_TagIndex_GetOverhead(const struct RustTagIndex *tag_index);
+size_t Rust_TagIndex_GetOverhead(const struct ErasedTagIndex *tag_index);
 
 /**
  * Expand `value` through the suffix index, returning the matching tags.
@@ -304,7 +318,7 @@ size_t Rust_TagIndex_GetOverhead(const struct RustTagIndex *tag_index);
  *    created `WITHSUFFIXTRIE`, and must outlive the returned array's use.
  * 2. `value` must point to `len` readable bytes, or may be NULL when `len` is 0.
  */
-char * *Rust_TagIndex_GetSuffixMatches(const struct RustTagIndex *tag_index, const char *value, size_t len, bool prefix, timespec timeout, bool skip_timeout_checks);
+char * *Rust_TagIndex_GetSuffixMatches(const struct ErasedTagIndex *tag_index, const char *value, size_t len, bool prefix, timespec timeout, bool skip_timeout_checks);
 
 /**
  * Expand the wildcard `value` through the suffix index, returning the matching
@@ -321,7 +335,7 @@ char * *Rust_TagIndex_GetSuffixMatches(const struct RustTagIndex *tag_index, con
  *
  * As [`Rust_TagIndex_GetSuffixMatches`].
  */
-char * *Rust_TagIndex_GetSuffixWildcardMatches(const struct RustTagIndex *tag_index, const char *value, size_t len, timespec timeout, long long max_prefix_expansions, bool skip_timeout_checks);
+char * *Rust_TagIndex_GetSuffixWildcardMatches(const struct ErasedTagIndex *tag_index, const char *value, size_t len, timespec timeout, long long max_prefix_expansions, bool skip_timeout_checks);
 
 /**
  * Whether the index keeps its postings on disk.
@@ -330,7 +344,7 @@ char * *Rust_TagIndex_GetSuffixWildcardMatches(const struct RustTagIndex *tag_in
  *
  * `tag_index` must point to a live index from [`Rust_TagIndex_New`].
  */
-bool Rust_TagIndex_HasDiskSpec(const struct RustTagIndex *tag_index);
+bool Rust_TagIndex_HasDiskSpec(const struct ErasedTagIndex *tag_index);
 
 /**
  * Whether the index was created `WITHSUFFIXTRIE`.
@@ -339,7 +353,7 @@ bool Rust_TagIndex_HasDiskSpec(const struct RustTagIndex *tag_index);
  *
  * `tag_index` must point to a live index from [`Rust_TagIndex_New`].
  */
-bool Rust_TagIndex_HasSuffix(const struct RustTagIndex *tag_index);
+bool Rust_TagIndex_HasSuffix(const struct ErasedTagIndex *tag_index);
 
 /**
  * Index `doc_id` under each of the `n` tags in `values`.
@@ -360,7 +374,7 @@ bool Rust_TagIndex_HasSuffix(const struct RustTagIndex *tag_index);
  * 4. In memory mode, `doc_id` must be greater than or equal to every `doc_id`
  *    already passed to this function for `tag_index`.
  */
-struct TagIndexWriteResult Rust_TagIndex_Index(struct RustTagIndex *tag_index, struct RedisModuleCtx *ctx, SearchDiskWriteBatchHandle *batch, const char *const *values, size_t n, t_docId doc_id, bool has_field_expiration);
+struct TagIndexWriteResult Rust_TagIndex_Index(struct ErasedTagIndex *tag_index, struct RedisModuleCtx *ctx, SearchDiskWriteBatchHandle *batch, const char *const *values, size_t n, t_docId doc_id, bool has_field_expiration);
 
 /**
  * Walk the suffix index's entries, or return NULL when the index was created
@@ -370,7 +384,7 @@ struct TagIndexWriteResult Rust_TagIndex_Index(struct RustTagIndex *tag_index, s
  *
  * As [`Rust_TagIndex_IterateValues`].
  */
-struct ValueIterator *Rust_TagIndex_IterateSuffix(const struct RustTagIndex *tag_index);
+struct ValueIterator *Rust_TagIndex_IterateSuffix(const struct ErasedTagIndex *tag_index);
 
 /**
  * Walk every tag in the index, in lexicographical order.
@@ -383,7 +397,7 @@ struct ValueIterator *Rust_TagIndex_IterateSuffix(const struct RustTagIndex *tag
  * `tag_index` must point to a live index from [`Rust_TagIndex_New`], which must
  * outlive the returned iterator and must not be mutated while it is alive.
  */
-struct ValueIterator *Rust_TagIndex_IterateValues(const struct RustTagIndex *tag_index);
+struct ValueIterator *Rust_TagIndex_IterateValues(const struct ErasedTagIndex *tag_index);
 
 /**
  * Walk the tags matching `pattern` under `mode`, in lexicographical order.
@@ -397,7 +411,7 @@ struct ValueIterator *Rust_TagIndex_IterateValues(const struct RustTagIndex *tag
  *    iterator: every mode but [`IterMode::Suffix`] borrows it rather than
  *    copying it.
  */
-struct ValueIterator *Rust_TagIndex_IterateValuesWithFilter(const struct RustTagIndex *tag_index, const char *pattern, tm_len_t len, enum tm_iter_mode mode);
+struct ValueIterator *Rust_TagIndex_IterateValuesWithFilter(const struct ErasedTagIndex *tag_index, const char *pattern, tm_len_t len, enum tm_iter_mode mode);
 
 /**
  * How many distinct tags the index holds.
@@ -406,7 +420,7 @@ struct ValueIterator *Rust_TagIndex_IterateValuesWithFilter(const struct RustTag
  *
  * `tag_index` must point to a live index from [`Rust_TagIndex_New`].
  */
-size_t Rust_TagIndex_NUniqueValues(const struct RustTagIndex *tag_index);
+size_t Rust_TagIndex_NUniqueValues(const struct ErasedTagIndex *tag_index);
 
 /**
  * Create a tag index, in memory or on disk depending on `disk_spec`.
@@ -424,7 +438,7 @@ size_t Rust_TagIndex_NUniqueValues(const struct RustTagIndex *tag_index);
  * that stays valid for the whole lifetime of the returned index: the disk paths
  * hand it to the RSE API, which dereferences it.
  */
-struct RustTagIndex *Rust_TagIndex_New(RedisSearchDiskIndexSpec *disk_spec, t_fieldIndex field_index, bool with_suffix);
+struct ErasedTagIndex *Rust_TagIndex_New(RedisSearchDiskIndexSpec *disk_spec, t_fieldIndex field_index, bool with_suffix);
 
 /**
  * Open a reader over the documents carrying `value`, or NULL when the tag is
@@ -450,7 +464,7 @@ struct RustTagIndex *Rust_TagIndex_New(RedisSearchDiskIndexSpec *disk_spec, t_fi
  * 4. `value` must point to `len` readable bytes, or may be NULL when `len` is 0.
  * 5. `status`, when non-NULL, must point to a valid [`QueryError`].
  */
-QueryIterator *Rust_TagIndex_OpenReader(const struct RustTagIndex *tag_index, RedisSearchCtx *sctx, const char *value, size_t len, double weight, QueryError *status);
+QueryIterator *Rust_TagIndex_OpenReader(const struct ErasedTagIndex *tag_index, RedisSearchCtx *sctx, const char *value, size_t len, double weight, QueryError *status);
 
 /**
  * Release an iterator from one of this crate's `Rust_TagIndex_Iterate*`

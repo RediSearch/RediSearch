@@ -13,22 +13,13 @@
 //!
 //! C knows a single tag-index pointer, while Rust has two types —
 //! [`tag_index::TagIndex`] parameterised by [`InMemoryMode`] or [`OnDiskMode`].
-//! [`RustTagIndex`], the handle this crate hands to C, erases that difference
-//! behind a discriminant and a union.
-//!
-//! It is deliberately *not* an `enum`. Matching on an enum needs a reference to
-//! the handle, and the pointer to the in-memory index would then be derived from
-//! that reference — which is exactly what [`TrieLookup::new`]'s first contract
-//! forbids, because [`Rust_TagIndex_GC`] takes a `&mut` through the same pointer
-//! and would revoke it. Every entry point therefore reaches its payload with
-//! [`RustTagIndex::in_memory_ptr`] / [`RustTagIndex::on_disk_ptr`], raw place
-//! projections that create no reference to the handle and so preserve the
-//! provenance C owns.
+//! [`ErasedTagIndex`] is the handle this crate hands to C; its own documentation
+//! explains why every entry point below reaches the payload through a raw place
+//! projection rather than a reference to the handle.
 
 #![allow(non_camel_case_types, non_snake_case)]
 
 use std::ffi::{CStr, c_char};
-use std::mem::ManuallyDrop;
 use std::ptr::NonNull;
 
 use ffi::{
@@ -44,162 +35,35 @@ use inverted_index_ffi::fork_gc::{InvertedIndexGCCallback, InvertedIndexGCWriter
 use redis_module::RedisModuleCtx;
 use rqe_iterators::interop::RQEIteratorWrapper;
 use serde::Serialize as _;
+/// The handle C holds, re-exported so the generated header names it — see the
+/// [module docs](self).
+pub use tag_index::ErasedTagIndex;
 use tag_index::{
-    DiskTagIndexIterator, InMemoryMode, IterMode, MemTagIndexIterator, OnDiskMode,
+    DiskTagIndexIterator, InMemoryMode, IterMode, MemTagIndexIterator, Mode, OnDiskMode,
     SuffixEntryIterator, SuffixQuery, SuffixWildcardPattern, Tag, TagValueReader, TrieLookup,
 };
 use triemap_ffi::{tm_iter_mode, tm_len_t};
-
-/// Which of [`Storage`]'s fields is live.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Mode {
-    InMemory,
-    OnDisk,
-}
-
-/// The two index types, overlaid. Which field is live is recorded by
-/// [`RustTagIndex::mode`]; neither is dropped automatically, so [`Rust_TagIndex_Free`]
-/// drops the live one by hand.
-union Storage {
-    in_memory: ManuallyDrop<tag_index::TagIndex<InMemoryMode>>,
-    on_disk: ManuallyDrop<tag_index::TagIndex<OnDiskMode>>,
-}
-
-/// The mode-erased tag index C holds, as described in the [module docs](self).
-pub struct RustTagIndex {
-    mode: Mode,
-    storage: Storage,
-}
-
-impl RustTagIndex {
-    /// The live storage mode, read without forming a reference to the handle.
-    ///
-    /// Reading through a `&RustTagIndex` would freeze the whole handle for the
-    /// duration of the borrow, and any mutable pointer derived from it — such as
-    /// the one [`in_memory_ptr`](Self::in_memory_ptr) hands to [`TrieLookup`] —
-    /// would be invalid to write through. A raw read keeps the handle untagged.
-    ///
-    /// # Safety
-    ///
-    /// `handle` must point to a live [`RustTagIndex`].
-    const unsafe fn mode(handle: *const RustTagIndex) -> Mode {
-        // SAFETY: the caller guarantees `handle` points to a live `RustTagIndex`, so
-        // the place expression is valid. Taking its address is not a read.
-        let mode = unsafe { &raw const (*handle).mode };
-        // SAFETY: as above — the `mode` field of a live handle is initialised.
-        unsafe { mode.read() }
-    }
-
-    /// The in-memory index inside `handle`.
-    ///
-    /// This is a raw place projection, not a reborrow: no reference to the handle
-    /// exists at any point, so the result carries `handle`'s own provenance. That
-    /// is what lets [`TrieLookup::new`]'s first contract be met — see the
-    /// [module docs](self).
-    ///
-    /// # Safety
-    ///
-    /// `handle` must point to a live [`RustTagIndex`] whose mode is
-    /// [`Mode::InMemory`].
-    const unsafe fn in_memory_ptr(
-        handle: *const RustTagIndex,
-    ) -> *mut tag_index::TagIndex<InMemoryMode> {
-        // SAFETY: the caller guarantees the handle is live and in memory mode, so
-        // `storage.in_memory` is the initialised union field. `ManuallyDrop<T>` is
-        // `repr(transparent)`, so the cast is a no-op on the address.
-        unsafe { &raw mut (*handle.cast_mut()).storage.in_memory }.cast()
-    }
-
-    /// The on-disk index inside `handle`, projected as
-    /// [`in_memory_ptr`](Self::in_memory_ptr) does.
-    ///
-    /// # Safety
-    ///
-    /// `handle` must point to a live [`RustTagIndex`] whose mode is [`Mode::OnDisk`].
-    const unsafe fn on_disk_ptr(
-        handle: *const RustTagIndex,
-    ) -> *mut tag_index::TagIndex<OnDiskMode> {
-        // SAFETY: as `in_memory_ptr`, for the other union field.
-        unsafe { &raw mut (*handle.cast_mut()).storage.on_disk }.cast()
-    }
-
-    /// Borrow the in-memory index inside `handle`.
-    ///
-    /// # Safety
-    ///
-    /// 1. As [`in_memory_ptr`](Self::in_memory_ptr).
-    /// 2. The index must not be mutated for `'a`.
-    unsafe fn in_memory<'a>(handle: *const RustTagIndex) -> &'a tag_index::TagIndex<InMemoryMode> {
-        // SAFETY: contract 1.
-        let idx = unsafe { Self::in_memory_ptr(handle) };
-        // SAFETY: contracts 1 and 2.
-        unsafe { &*idx }
-    }
-
-    /// Borrow the in-memory index inside `handle` exclusively.
-    ///
-    /// # Safety
-    ///
-    /// 1. As [`in_memory_ptr`](Self::in_memory_ptr).
-    /// 2. No other reference to the index may be live for `'a`.
-    unsafe fn in_memory_mut<'a>(
-        handle: *mut RustTagIndex,
-    ) -> &'a mut tag_index::TagIndex<InMemoryMode> {
-        // SAFETY: contract 1.
-        let idx = unsafe { Self::in_memory_ptr(handle) };
-        // SAFETY: contracts 1 and 2.
-        unsafe { &mut *idx }
-    }
-
-    /// Borrow the on-disk index inside `handle`, as
-    /// [`in_memory`](Self::in_memory) does.
-    ///
-    /// # Safety
-    ///
-    /// As [`in_memory`](Self::in_memory), for the other union field.
-    unsafe fn on_disk<'a>(handle: *const RustTagIndex) -> &'a tag_index::TagIndex<OnDiskMode> {
-        // SAFETY: contract 1.
-        let idx = unsafe { Self::on_disk_ptr(handle) };
-        // SAFETY: contracts 1 and 2.
-        unsafe { &*idx }
-    }
-
-    /// Borrow the on-disk index inside `handle` exclusively, as
-    /// [`in_memory_mut`](Self::in_memory_mut) does.
-    ///
-    /// # Safety
-    ///
-    /// As [`in_memory_mut`](Self::in_memory_mut), for the other union field.
-    unsafe fn on_disk_mut<'a>(
-        handle: *mut RustTagIndex,
-    ) -> &'a mut tag_index::TagIndex<OnDiskMode> {
-        // SAFETY: contract 1.
-        let idx = unsafe { Self::on_disk_ptr(handle) };
-        // SAFETY: contracts 1 and 2.
-        unsafe { &mut *idx }
-    }
-}
 
 /// Dispatch `$body` over both modes, binding `$idx` to a shared reference to the
 /// concrete index.
 ///
 /// # Safety
 ///
-/// The caller must uphold [`RustTagIndex::mode`]'s contract for `$handle`, and no
+/// The caller must uphold [`ErasedTagIndex::mode`]'s contract for `$handle`, and no
 /// mutable pointer minted from the handle may be live across the expansion.
 macro_rules! dispatch {
     ($handle:expr, |$idx:ident| $body:expr) => {{
         let handle = $handle;
         // SAFETY: upheld by this macro's caller.
-        match unsafe { RustTagIndex::mode(handle) } {
+        match unsafe { ErasedTagIndex::mode(handle) } {
             Mode::InMemory => {
                 // SAFETY: the discriminant says the in-memory field is live.
-                let $idx = unsafe { RustTagIndex::in_memory(handle) };
+                let $idx = unsafe { ErasedTagIndex::in_memory(handle) };
                 $body
             }
             Mode::OnDisk => {
                 // SAFETY: the discriminant says the on-disk field is live.
-                let $idx = unsafe { RustTagIndex::on_disk(handle) };
+                let $idx = unsafe { ErasedTagIndex::on_disk(handle) };
                 $body
             }
         }
@@ -225,27 +89,16 @@ pub unsafe extern "C" fn Rust_TagIndex_New(
     disk_spec: *mut RedisSearchDiskIndexSpec,
     field_index: t_fieldIndex,
     with_suffix: bool,
-) -> *mut RustTagIndex {
+) -> *mut ErasedTagIndex {
     let handle = match NonNull::new(disk_spec) {
-        Some(disk_spec) => RustTagIndex {
-            mode: Mode::OnDisk,
-            storage: Storage {
-                // SAFETY: the caller guarantees `disk_spec` is valid and outlives
-                // the index.
-                on_disk: ManuallyDrop::new(unsafe {
-                    tag_index::TagIndex::<OnDiskMode>::new(disk_spec, field_index, with_suffix)
-                }),
-            },
-        },
-        None => RustTagIndex {
-            mode: Mode::InMemory,
-            storage: Storage {
-                in_memory: ManuallyDrop::new(tag_index::TagIndex::<InMemoryMode>::new(
-                    field_index,
-                    with_suffix,
-                )),
-            },
-        },
+        // SAFETY: the caller guarantees `disk_spec` is valid and outlives the index.
+        Some(disk_spec) => ErasedTagIndex::new_on_disk(unsafe {
+            tag_index::TagIndex::<OnDiskMode>::new(disk_spec, field_index, with_suffix)
+        }),
+        None => ErasedTagIndex::new_in_memory(tag_index::TagIndex::<InMemoryMode>::new(
+            field_index,
+            with_suffix,
+        )),
     };
 
     Box::into_raw(Box::new(handle))
@@ -258,12 +111,12 @@ pub unsafe extern "C" fn Rust_TagIndex_New(
 ///
 /// # Safety
 ///
-/// 1. `tag_index` must be a valid pointer to a writable `RustTagIndex *` slot.
+/// 1. `tag_index` must be a valid pointer to a writable `ErasedTagIndex *` slot.
 /// 2. `*tag_index` must be NULL or a handle from [`Rust_TagIndex_New`] that has
 ///    not been freed.
 /// 3. No iterator, reader, or lookup derived from the index may still be alive.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn Rust_TagIndex_Free(tag_index: *mut *mut RustTagIndex) {
+pub unsafe extern "C" fn Rust_TagIndex_Free(tag_index: *mut *mut ErasedTagIndex) {
     debug_assert!(!tag_index.is_null(), "tag_index must not be null");
 
     // SAFETY: contract 1 — the slot is valid and writable.
@@ -272,34 +125,12 @@ pub unsafe extern "C" fn Rust_TagIndex_Free(tag_index: *mut *mut RustTagIndex) {
         return;
     };
 
-    // Drop the live union field by hand: a union has no drop glue.
-    //
-    // SAFETY: contract 2 — the handle came from `Rust_TagIndex_New`, so the
-    // discriminant matches the initialised field, and contract 3 says nothing
-    // borrows it any more.
-    // SAFETY: contract 2 — the handle came from `Rust_TagIndex_New`.
-    match unsafe { RustTagIndex::mode(handle.as_ptr()) } {
-        Mode::InMemory => {
-            // SAFETY: the discriminant says this is the initialised field.
-            let idx = unsafe { RustTagIndex::in_memory_ptr(handle.as_ptr()) };
-            // SAFETY: contract 3 — nothing borrows the payload any more, and it
-            // is dropped exactly once, since the handle is freed right after.
-            unsafe { std::ptr::drop_in_place(idx) };
-        }
-        Mode::OnDisk => {
-            // SAFETY: as above, for the other field.
-            let idx = unsafe { RustTagIndex::on_disk_ptr(handle.as_ptr()) };
-            // SAFETY: as above.
-            unsafe { std::ptr::drop_in_place(idx) };
-        }
-    }
-
-    // The payload is gone; release the handle allocation. `RustTagIndex` itself has
-    // no drop glue — `Mode` is a plain enum and a union never has any — so this
-    // only frees the box.
+    // `ErasedTagIndex`'s `Drop` picks the live union field off the discriminant, so
+    // dropping the box is all this needs.
     //
     // SAFETY: contract 2 — the handle came from `Box::into_raw` in
-    // `Rust_TagIndex_New` and has not been freed.
+    // `Rust_TagIndex_New` and has not been freed; contract 3 — nothing borrows the
+    // payload any more.
     drop(unsafe { Box::from_raw(handle.as_ptr()) });
 
     *slot = std::ptr::null_mut();
@@ -312,7 +143,7 @@ pub unsafe extern "C" fn Rust_TagIndex_Free(tag_index: *mut *mut RustTagIndex) {
 ///
 /// `tag_index` must point to a live index from [`Rust_TagIndex_New`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn Rust_TagIndex_GetId(tag_index: *const RustTagIndex) -> u32 {
+pub unsafe extern "C" fn Rust_TagIndex_GetId(tag_index: *const ErasedTagIndex) -> u32 {
     debug_assert!(!tag_index.is_null(), "tag_index must not be null");
 
     // SAFETY: the caller guarantees the handle is live.
@@ -325,7 +156,7 @@ pub unsafe extern "C" fn Rust_TagIndex_GetId(tag_index: *const RustTagIndex) -> 
 ///
 /// `tag_index` must point to a live index from [`Rust_TagIndex_New`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn Rust_TagIndex_HasSuffix(tag_index: *const RustTagIndex) -> bool {
+pub unsafe extern "C" fn Rust_TagIndex_HasSuffix(tag_index: *const ErasedTagIndex) -> bool {
     debug_assert!(!tag_index.is_null(), "tag_index must not be null");
 
     // SAFETY: the caller guarantees the handle is live.
@@ -338,11 +169,11 @@ pub unsafe extern "C" fn Rust_TagIndex_HasSuffix(tag_index: *const RustTagIndex)
 ///
 /// `tag_index` must point to a live index from [`Rust_TagIndex_New`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn Rust_TagIndex_HasDiskSpec(tag_index: *const RustTagIndex) -> bool {
+pub unsafe extern "C" fn Rust_TagIndex_HasDiskSpec(tag_index: *const ErasedTagIndex) -> bool {
     debug_assert!(!tag_index.is_null(), "tag_index must not be null");
 
     // SAFETY: the caller guarantees the handle is live.
-    matches!(unsafe { RustTagIndex::mode(tag_index) }, Mode::OnDisk)
+    matches!(unsafe { ErasedTagIndex::mode(tag_index) }, Mode::OnDisk)
 }
 
 /// How many distinct tags the index holds.
@@ -351,7 +182,7 @@ pub unsafe extern "C" fn Rust_TagIndex_HasDiskSpec(tag_index: *const RustTagInde
 ///
 /// `tag_index` must point to a live index from [`Rust_TagIndex_New`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn Rust_TagIndex_NUniqueValues(tag_index: *const RustTagIndex) -> usize {
+pub unsafe extern "C" fn Rust_TagIndex_NUniqueValues(tag_index: *const ErasedTagIndex) -> usize {
     debug_assert!(!tag_index.is_null(), "tag_index must not be null");
 
     // SAFETY: the caller guarantees the handle is live.
@@ -367,7 +198,7 @@ pub unsafe extern "C" fn Rust_TagIndex_NUniqueValues(tag_index: *const RustTagIn
 ///
 /// `tag_index` must point to a live index from [`Rust_TagIndex_New`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn Rust_TagIndex_GetOverhead(tag_index: *const RustTagIndex) -> usize {
+pub unsafe extern "C" fn Rust_TagIndex_GetOverhead(tag_index: *const ErasedTagIndex) -> usize {
     debug_assert!(!tag_index.is_null(), "tag_index must not be null");
 
     // SAFETY: the caller guarantees the handle is live.
@@ -452,7 +283,7 @@ fn as_tags<'a>(values: &[&'a CStr]) -> Vec<Tag<'a>> {
 ///    already passed to this function for `tag_index`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Rust_TagIndex_Index(
-    tag_index: *mut RustTagIndex,
+    tag_index: *mut ErasedTagIndex,
     ctx: *mut RedisModuleCtx,
     batch: *mut SearchDiskWriteBatchHandle,
     values: *const *const c_char,
@@ -466,11 +297,11 @@ pub unsafe extern "C" fn Rust_TagIndex_Index(
     let values = unsafe { borrow_values(values, n) };
 
     // SAFETY: contract 1 — the handle is live, so the discriminant is readable.
-    match unsafe { RustTagIndex::mode(tag_index) } {
+    match unsafe { ErasedTagIndex::mode(tag_index) } {
         Mode::InMemory => {
             let tags = as_tags(&values);
             // SAFETY: contract 1 — the in-memory field is live and unaliased.
-            let idx = unsafe { RustTagIndex::in_memory_mut(tag_index) };
+            let idx = unsafe { ErasedTagIndex::in_memory_mut(tag_index) };
             // Contract 4 is what `index`'s non-decreasing `doc_id` requirement needs.
             let delta = idx.index(&tags, doc_id, has_field_expiration);
             TagIndexWriteResult {
@@ -482,7 +313,7 @@ pub unsafe extern "C" fn Rust_TagIndex_Index(
         }
         Mode::OnDisk => {
             // SAFETY: contract 1 — the on-disk field is live and unaliased.
-            let idx = unsafe { RustTagIndex::on_disk_mut(tag_index) };
+            let idx = unsafe { ErasedTagIndex::on_disk_mut(tag_index) };
             // SAFETY: contract 3 — `ctx` and `batch` belong to the ongoing write.
             let ok = unsafe { idx.index(ctx, batch, &values, doc_id) };
             TagIndexWriteResult {
@@ -505,7 +336,7 @@ pub unsafe extern "C" fn Rust_TagIndex_Index(
 /// As [`Rust_TagIndex_Index`]'s contracts 1 and 2.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Rust_TagIndex_Commit(
-    tag_index: *mut RustTagIndex,
+    tag_index: *mut ErasedTagIndex,
     values: *const *const c_char,
     n: usize,
 ) -> u32 {
@@ -516,16 +347,16 @@ pub unsafe extern "C" fn Rust_TagIndex_Commit(
     let tags = as_tags(&values);
 
     // SAFETY: `Rust_TagIndex_Index` contract 1.
-    match unsafe { RustTagIndex::mode(tag_index) } {
+    match unsafe { ErasedTagIndex::mode(tag_index) } {
         Mode::InMemory => {
             // SAFETY: the discriminant says the in-memory field is live and it is
             // unaliased.
-            let idx = unsafe { RustTagIndex::in_memory_mut(tag_index) };
+            let idx = unsafe { ErasedTagIndex::in_memory_mut(tag_index) };
             idx.commit(&tags)
         }
         Mode::OnDisk => {
             // SAFETY: as above, for the other field.
-            let idx = unsafe { RustTagIndex::on_disk_mut(tag_index) };
+            let idx = unsafe { ErasedTagIndex::on_disk_mut(tag_index) };
             idx.commit(&tags)
         }
     }
@@ -555,7 +386,7 @@ pub unsafe extern "C" fn Rust_TagIndex_Commit(
 /// 5. `status`, when non-NULL, must point to a valid [`QueryError`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Rust_TagIndex_OpenReader(
-    tag_index: *const RustTagIndex,
+    tag_index: *const ErasedTagIndex,
     sctx: *mut RedisSearchCtx,
     value: *const c_char,
     len: usize,
@@ -577,7 +408,7 @@ pub unsafe extern "C" fn Rust_TagIndex_OpenReader(
     let sctx = unsafe { NonNull::new_unchecked(sctx) };
 
     // SAFETY: contract 1 — the handle is live.
-    match unsafe { RustTagIndex::mode(tag_index) } {
+    match unsafe { ErasedTagIndex::mode(tag_index) } {
         Mode::InMemory => {
             // Mint the lookup from the argument itself, before any reference to
             // the index exists: copying a raw pointer is not an access, so the
@@ -585,7 +416,7 @@ pub unsafe extern "C" fn Rust_TagIndex_OpenReader(
             // across the collector's `&mut`.
             //
             // SAFETY: contract 1 — the in-memory field is live.
-            let idx = unsafe { RustTagIndex::in_memory_ptr(tag_index) };
+            let idx = unsafe { ErasedTagIndex::in_memory_ptr(tag_index) };
             // SAFETY: `in_memory_ptr` never returns null for a live handle.
             let owner = unsafe { NonNull::new_unchecked(idx) };
             // SAFETY: contract 1's second paragraph is `TrieLookup::new`'s first
@@ -604,7 +435,7 @@ pub unsafe extern "C" fn Rust_TagIndex_OpenReader(
         }
         Mode::OnDisk => {
             // SAFETY: the discriminant says the on-disk field is live.
-            let idx = unsafe { RustTagIndex::on_disk(tag_index) };
+            let idx = unsafe { ErasedTagIndex::on_disk(tag_index) };
             // SAFETY: contracts 2 and 3, including the snapshot on `sctx`.
             match unsafe { idx.open_reader(sctx, tag, weight) } {
                 Ok(reader) => RQEIteratorWrapper::boxed_new(reader),
@@ -716,20 +547,20 @@ const fn iter_mode(mode: tm_iter_mode) -> IterMode {
 /// outlive the returned iterator and must not be mutated while it is alive.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Rust_TagIndex_IterateValues<'ti>(
-    tag_index: *const RustTagIndex,
+    tag_index: *const ErasedTagIndex,
 ) -> *mut ValueIterator<'ti> {
     debug_assert!(!tag_index.is_null(), "tag_index must not be null");
 
     // SAFETY: the caller guarantees the handle is live and outlives the iterator.
-    let iter = match unsafe { RustTagIndex::mode(tag_index) } {
+    let iter = match unsafe { ErasedTagIndex::mode(tag_index) } {
         Mode::InMemory => {
             // SAFETY: the discriminant says the in-memory field is live.
-            let idx = unsafe { RustTagIndex::in_memory(tag_index) };
+            let idx = unsafe { ErasedTagIndex::in_memory(tag_index) };
             ValueIterator::InMemory(idx.value_iter())
         }
         Mode::OnDisk => {
             // SAFETY: as above, for the other field.
-            let idx = unsafe { RustTagIndex::on_disk(tag_index) };
+            let idx = unsafe { ErasedTagIndex::on_disk(tag_index) };
             ValueIterator::OnDisk(idx.value_iter())
         }
     };
@@ -749,7 +580,7 @@ pub unsafe extern "C" fn Rust_TagIndex_IterateValues<'ti>(
 ///    copying it.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Rust_TagIndex_IterateValuesWithFilter<'ti>(
-    tag_index: *const RustTagIndex,
+    tag_index: *const ErasedTagIndex,
     pattern: *const c_char,
     len: tm_len_t,
     mode: tm_iter_mode,
@@ -767,15 +598,15 @@ pub unsafe extern "C" fn Rust_TagIndex_IterateValuesWithFilter<'ti>(
     let mode = iter_mode(mode);
 
     // SAFETY: contract 1.
-    let iter = match unsafe { RustTagIndex::mode(tag_index) } {
+    let iter = match unsafe { ErasedTagIndex::mode(tag_index) } {
         Mode::InMemory => {
             // SAFETY: the discriminant says the in-memory field is live.
-            let idx = unsafe { RustTagIndex::in_memory(tag_index) };
+            let idx = unsafe { ErasedTagIndex::in_memory(tag_index) };
             ValueIterator::InMemory(idx.value_iter_filtered(pattern, mode))
         }
         Mode::OnDisk => {
             // SAFETY: as above, for the other field.
-            let idx = unsafe { RustTagIndex::on_disk(tag_index) };
+            let idx = unsafe { ErasedTagIndex::on_disk(tag_index) };
             ValueIterator::OnDisk(idx.value_iter_filtered(pattern, mode))
         }
     };
@@ -791,7 +622,7 @@ pub unsafe extern "C" fn Rust_TagIndex_IterateValuesWithFilter<'ti>(
 /// As [`Rust_TagIndex_IterateValues`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Rust_TagIndex_IterateSuffix<'ti>(
-    tag_index: *const RustTagIndex,
+    tag_index: *const ErasedTagIndex,
 ) -> *mut ValueIterator<'ti> {
     debug_assert!(!tag_index.is_null(), "tag_index must not be null");
 
@@ -1160,7 +991,7 @@ pub unsafe extern "C" fn Rust_TagIndexValue_GcDelta_Scan(
 ///    Ownership transfers to this call, which consumes it on every path.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Rust_TagIndex_GC(
-    tag_index: *mut RustTagIndex,
+    tag_index: *mut ErasedTagIndex,
     tag: *const u8,
     len: usize,
     unique_id: IndexUniqueId,
@@ -1181,12 +1012,12 @@ pub unsafe extern "C" fn Rust_TagIndex_GC(
     };
 
     // SAFETY: contract 1 — the handle is live.
-    let Mode::InMemory = (unsafe { RustTagIndex::mode(tag_index) }) else {
+    let Mode::InMemory = (unsafe { ErasedTagIndex::mode(tag_index) }) else {
         return TagGcResult::default();
     };
 
     // SAFETY: contract 1 — the in-memory field is live and unaliased.
-    let idx = unsafe { RustTagIndex::in_memory_mut(tag_index) };
+    let idx = unsafe { ErasedTagIndex::in_memory_mut(tag_index) };
     idx.gc(tag, unique_id, delta)
         .map_or_else(TagGcResult::default, |info| TagGcResult {
             info,
@@ -1258,7 +1089,7 @@ unsafe fn collect_matches<'a>(matches: impl Iterator<Item = &'a CStr>) -> *mut *
 /// 2. `value` must point to `len` readable bytes, or may be NULL when `len` is 0.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Rust_TagIndex_GetSuffixMatches(
-    tag_index: *const RustTagIndex,
+    tag_index: *const ErasedTagIndex,
     value: *const c_char,
     len: usize,
     prefix: bool,
@@ -1309,7 +1140,7 @@ pub unsafe extern "C" fn Rust_TagIndex_GetSuffixMatches(
 /// As [`Rust_TagIndex_GetSuffixMatches`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Rust_TagIndex_GetSuffixWildcardMatches(
-    tag_index: *const RustTagIndex,
+    tag_index: *const ErasedTagIndex,
     value: *const c_char,
     len: usize,
     timeout: timespec,
