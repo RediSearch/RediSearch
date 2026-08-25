@@ -81,7 +81,8 @@ typedef struct {
 } blockedClientReqCtx;
 
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
-static int prepareExecutionPlan(AREQ *req, QueryError *status);
+static int prepareExecutionPlan(AREQ *req, QueryError *status,
+                                bool beginClockDeadlineCycle);
 static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 /**
@@ -1322,7 +1323,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   // Lock spec. Should be released on the BG thread by every downstream path.
   RedisSearchCtx_LockSpecRead(sctx);
 
-  if (prepareExecutionPlan(req, &status) != REDISMODULE_OK) {
+  if (prepareExecutionPlan(req, &status, false) != REDISMODULE_OK) {
     RedisSearchCtx_UnlockSpec(sctx);
     goto error;
   }
@@ -1438,7 +1439,7 @@ static int validateSortbyForDiskIndex(AREQ *req, QueryError *status) {
 
 // Assumes the spec is guarded by its own lock (for read), such that races with
 // main-thread/GC updates are avoided.
-int prepareExecutionPlan(AREQ *req, QueryError *status) {
+int prepareExecutionPlan(AREQ *req, QueryError *status, bool beginClockDeadlineCycle) {
   int rc = REDISMODULE_ERR;
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
   RSSearchOptions *opts = &req->searchopts;
@@ -1451,6 +1452,13 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
   // because the cursor read path drops the spec lock between chunks.
   if (SearchCtx_TakeDiskSnapshot(sctx, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
+  }
+
+  if (beginClockDeadlineCycle) {
+    // Preserve the inline execution boundary: waiting for the spec lock and taking the disk
+    // snapshot are not charged against the query timeout.
+    QueryRequestTimeout_BeginCycle(&req->base.timeout,
+                                   QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
   }
 
   // Refresh the expiration-time snapshot before building the iterator tree.
@@ -1957,8 +1965,6 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     // be blocked (MULTI/EXEC, Lua). Flex enforces WORKERS > 0, so a disk
     // request reaching this inline branch is always a non-blockable client —
     // which still happens: any FT.AGGREGATE inside MULTI/EXEC lands here.
-    QueryRequestTimeout_BeginCycle(&r->base.timeout,
-                                   QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
     if (rejectDiskLoaderInlineExecution(r, sctx, status) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
@@ -1967,7 +1973,7 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     // This is released in AREQ_Free or while executing the query.
     RedisSearchCtx_LockSpecRead(sctx);
 
-    if (prepareExecutionPlan(r, status) != REDISMODULE_OK) {
+    if (prepareExecutionPlan(r, status, true) != REDISMODULE_OK) {
       CurrentThread_ClearIndexSpec();
       return REDISMODULE_ERR;
     }
@@ -2092,15 +2098,10 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   bool useClockDeadline = r->reqConfig.queryTimeoutMS > 0 &&
                           (r->reqConfig.timeoutPolicy == TimeoutPolicy_Return ||
                            !RunInThread(ctx));
-  if (useClockDeadline) {
-    // Arm the clock deadline used by inline EXPLAIN execution.
-    QueryRequestTimeout_BeginCycle(&r->base.timeout,
-                                   QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
-  }
   // Take a read lock on the spec (to avoid conflicts with the GC).
   // released in `AREQ_Free`.
   RedisSearchCtx_LockSpecRead(sctx);
-  if (prepareExecutionPlan(r, status) != REDISMODULE_OK) {
+  if (prepareExecutionPlan(r, status, useClockDeadline) != REDISMODULE_OK) {
     AREQ_Free(r);
     CurrentThread_ClearIndexSpec();
     return NULL;
