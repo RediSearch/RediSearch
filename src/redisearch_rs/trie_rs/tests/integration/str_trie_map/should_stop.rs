@@ -13,6 +13,7 @@
 //! anything.
 
 use std::cell::Cell;
+use trie_rs::automaton::CodepointWildcard;
 use trie_rs::iter::TIMEOUT_CHECK_GRANULARITY;
 use trie_rs::str_trie_map::StrTrieMap;
 
@@ -171,5 +172,37 @@ fn wildcard_iter_filter_backend_polls_predicate() {
     assert!(
         calls.get() > 0,
         "the filter backend must poll the predicate per traversal step"
+    );
+}
+
+#[test]
+fn wildcard_iter_nfa128_backend_stops_mid_walk() {
+    // Long keys so a pattern that matches all of them still needs more
+    // NFA positions than a `u64` bitset holds.
+    let mut trie = StrTrieMap::new();
+    for i in 0..N_KEYS {
+        trie.insert(&format!("key{i:04}{}", "z".repeat(70)), i);
+    }
+
+    let pattern = format!("key????{}*", "z".repeat(70));
+    // The `u64` backend covers up to 64 positions and the accept position
+    // sits past the last atom, so this pattern selects the `u128` one.
+    let positions = CodepointWildcard::parse(&pattern).atom_count() + 1;
+    assert!(
+        (65..=128).contains(&positions),
+        "pattern must select the u128 NFA backend, got {positions} positions"
+    );
+
+    let full = trie
+        .wildcard_iter_with_should_stop(&pattern, || false)
+        .count();
+    assert_eq!(full, N_KEYS, "the pattern must match every key");
+
+    let stopped = trie
+        .wildcard_iter_with_should_stop(&pattern, || true)
+        .count();
+    assert!(
+        stopped < N_KEYS,
+        "an always-true predicate must cut the u128 NFA walk short"
     );
 }
