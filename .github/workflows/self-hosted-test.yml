@@ -22,13 +22,13 @@ jobs:
         v1: [1]
         runner: 
           - ${{ vars.RUNS_ON_ARM64_MINI }}
-          - ${{ vars.RUNS_ON_X64_MINI }}
-          - ${{ vars.RUNS_ON_ARM64_SMALL }}
-          - ${{ vars.RUNS_ON_X64_SMALL }}
-          - ${{ vars.RUNS_ON_ARM64_MEDIUM }}
-          - ${{ vars.RUNS_ON_X64_MEDIUM }}
-          - ${{ vars.RUNS_ON_ARM64_LARGE }}
-          - ${{ vars.RUNS_ON_X64_LARGE }}
+            #- ${{ vars.RUNS_ON_X64_MINI }}
+            #- ${{ vars.RUNS_ON_ARM64_SMALL }}
+            #- ${{ vars.RUNS_ON_X64_SMALL }}
+            #- ${{ vars.RUNS_ON_ARM64_MEDIUM }}
+            #- ${{ vars.RUNS_ON_X64_MEDIUM }}
+            #- ${{ vars.RUNS_ON_ARM64_LARGE }}
+            #- ${{ vars.RUNS_ON_X64_LARGE }}
     # The type of runner that the job will run on
     #runs-on: [self-hosted, ubuntu-2204-arm64-mini]
     #runs-on: [self-hosted, staging-ubuntu-2204-arm64-mini]
@@ -57,6 +57,7 @@ jobs:
           SLEEP: ${{ github.inputs.sleep_time }}
         run: |
           echo hello
+          echo rdn:$RUNNER_DEPLOYMENT_NAME
           #sudo apt install -y liburing-dev
           #docker run ubuntu:latest echo Hello
           #if [ -z "$SLEEP_TIME" ] || [ "$SLEEP_TIME" = 0 ]; then
