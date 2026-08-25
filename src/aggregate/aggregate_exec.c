@@ -418,9 +418,8 @@ static inline void debugPauseStoreResults(AREQ *req, bool before) {
 #endif
 static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
   CommonPipelineCtx ctx = {
-    .timeout = &req->base.timeout,
+    .request = &req->base,
     .oomPolicy = req->reqConfig.oomPolicy,
-    .areq = req,
   };
 
 #ifdef ENABLE_ASSERT
@@ -459,13 +458,13 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
 
 
 /**
- * Store pipeline results for reply_callback path.
- * Called after startPipeline when using reply_callback mode (FAIL policy with workers).
- * Stores results in req->base.reply so serializeAndReplyResults can be called
- * from the reply_callback on the main thread.
+ * Finalize pipeline output for the reply_callback path.
+ * Strict flows already published each result to req->base.reply; other flows
+ * transfer their completed local array here. Final metadata is published in
+ * both cases for main-thread serialization.
  *
  * @param req The aggregate request
- * @param results Pipeline results (ownership transferred to req->base.reply)
+ * @param results Thread-local results to transfer, or NULL for a strict shared-array flow
  * @param rc Pipeline return code
  * @param cv Cached variables for result serialization
  * @param limit Original limit passed to sendChunk (for RESP2 resultsLen calculation)
@@ -1658,8 +1657,10 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
 
   AREQ *req = QueryRequest_GetAREQ(request);
 
-  // Signal timeout to background thread
+  // The reply lock makes the timeout marker a complete boundary for strict result appends.
+  pthread_mutex_lock(&req->base.reply.lock);
   QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
+  pthread_mutex_unlock(&req->base.reply.lock);
   recordAREQTimeoutStage(req, /*isError=*/false);
 
   if (AREQ_TryClaimAggregateResults(req)) {
@@ -1821,7 +1822,10 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
   RS_ASSERT(request != NULL);
 
   AREQ *req = QueryRequest_GetAREQ(request);
+  // The reply lock makes the timeout marker a complete boundary for strict result appends.
+  pthread_mutex_lock(&req->base.reply.lock);
   QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
+  pthread_mutex_unlock(&req->base.reply.lock);
   recordAREQTimeoutStage(req, /*isError=*/false);
 
   if (AREQ_TryClaimAggregateResults(req)) {

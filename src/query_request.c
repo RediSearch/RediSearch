@@ -17,6 +17,8 @@
 #include "redismodule.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
+#include "search_result_ffi.h"
+#include "util/arr/arr.h"
 #include "util/misc.h"
 #include "util/timeout.h"
 
@@ -180,7 +182,14 @@ void QueryRequest_SetReplyResultsSafe(QueryRequest *request, SearchResult **resu
                                       cachedVars cv, size_t limit, const QueryError *err) {
   // Publication may race the strict timeout consumer, so all fields share one critical section.
   ChunkReplyState *stored = QueryRequest_GetReplyStateSafe(request);
-  stored->results = results;
+  // Only strict flows append incrementally; other flows publish their completed local array here.
+  if (QueryRequest_RequiresReplyStateSafeAccess(request)) {
+    // Strict aggregation already appended directly to the shared array.
+    RS_ASSERT(results == NULL);
+  } else {
+    // Non-synchronized flows publish their completed thread-local array once.
+    stored->results = results;
+  }
   stored->rc = rc;
   stored->cv = cv;
   stored->limit = limit;
@@ -201,6 +210,39 @@ void QueryRequest_SetReplyErrorSafe(QueryRequest *request, const QueryError *err
   QueryError_CloneFrom(err, &stored->err);
   // The error is fully cloned, so the strict consumer may proceed.
   QueryRequest_ReleaseReplyStateSafe(request);
+}
+
+static void QueryRequest_DestroyReplyResult(SearchResult *result) {
+  SearchResult_Destroy(result);
+  rm_free(result);
+}
+
+bool QueryRequest_AppendReplyResultSafe(QueryRequest *request, SearchResult *result) {
+  // Incremental publication is valid only for a strict cross-thread reply cycle.
+  RS_ASSERT(QueryRequest_RequiresReplyStateSafeAccess(request));
+
+  // The atomic check avoids taking the reply lock for a result already rejected by timeout.
+  if (QueryRequestTimeout_IsBlockedClientTimedOut(&request->timeout)) {
+    QueryRequest_DestroyReplyResult(result);
+    return false;
+  }
+
+  // A timeout can race the fast-path check, so acceptance is decided again under the lock.
+  ChunkReplyState *stored = QueryRequest_GetReplyStateSafe(request);
+  if (QueryRequestTimeout_IsBlockedClientTimedOut(&request->timeout)) {
+    // No shared state is needed after rejection, so release before destroying the result.
+    QueryRequest_ReleaseReplyStateSafe(request);
+    QueryRequest_DestroyReplyResult(result);
+    return false;
+  }
+
+  if (!stored->results) {
+    stored->results = array_new(SearchResult *, 8);
+  }
+  array_append(stored->results, result);
+  // The pointer, array header, resize, and new element are now published atomically.
+  QueryRequest_ReleaseReplyStateSafe(request);
+  return true;
 }
 
 ChunkReplyState QueryRequest_TakeReplyStateSafe(QueryRequest *request) {

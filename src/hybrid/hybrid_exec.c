@@ -283,12 +283,8 @@ bool HybridRequest_TimeoutPreemptSafeLoaderGIL(HybridRequest *hreq) {
 
 static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
   CommonPipelineCtx ctx = {
-    .timeout = &hreq->base.timeout,
+    .request = &hreq->base,
     .oomPolicy = hreq->reqConfig.oomPolicy,
-    // Borrow a subquery AREQ as the tail's row-boundary timeout-flag proxy:
-    // HybridRequest_PropagateTimeoutToSubqueries marks every subquery AREQ, so
-    // AggregateResults can bail between rows while draining buffered tail rows.
-    .areq = hreq->requests[SEARCH_INDEX],
   };
 
 #ifdef ENABLE_ASSERT
@@ -537,13 +533,13 @@ static inline void debugPauseHybridStoreCursors(HybridRequest *hreq, bool before
 #endif
 
 /**
- * Store pipeline results for reply_callback path (FAIL policy with workers).
- * Called after startPipelineHybrid when using reply_callback mode.
- * Stores results in hreq->base.reply so serializeStoredResults_hybrid can be called
- * from the reply_callback on the main thread.
+ * Finalize pipeline output for the reply_callback path.
+ * Strict flows already published each result to hreq->base.reply; other flows
+ * transfer their completed local array here. Final metadata is published in
+ * both cases for main-thread serialization.
  *
  * @param hreq The hybrid request
- * @param results Pipeline results (ownership transferred to hreq->base.reply)
+ * @param results Thread-local results to transfer, or NULL for a strict shared-array flow
  * @param rc Pipeline return code
  * @param cv Cached variables for result serialization
  */
@@ -1086,8 +1082,10 @@ static int HybridQueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModu
 
   HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
-  // Signal timeout to the worker and to all subquery depleters.
+  // The reply lock makes the timeout marker a complete boundary for strict result appends.
+  pthread_mutex_lock(&hreq->base.reply.lock);
   QueryRequestTimeout_MarkTimedOut(&hreq->base.timeout);
+  pthread_mutex_unlock(&hreq->base.reply.lock);
   HybridRequest_PropagateTimeoutToSubqueries(hreq);
   recordHREQTimeoutStage(hreq, /*isError=*/false, !IsInternal(hreq->requests[0]));
 
@@ -1135,8 +1133,10 @@ static int HybridQueryCursorTimeoutReturnStrictCallback(RedisModuleCtx *ctx, Red
 
   HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
-  // Signal timeout to background thread
+  // The reply lock makes the timeout marker a complete boundary for strict result appends.
+  pthread_mutex_lock(&hreq->base.reply.lock);
   QueryRequestTimeout_MarkTimedOut(&hreq->base.timeout);
+  pthread_mutex_unlock(&hreq->base.reply.lock);
   HybridRequest_PropagateTimeoutToSubqueries(hreq);
   // Record at the stage the deadline caught the request (REPLY once the cursors
   // were published, QUEUE/PIPELINE before that).

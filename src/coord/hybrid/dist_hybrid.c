@@ -1290,8 +1290,10 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
   RS_ASSERT(request != NULL);
   HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
-  // Signal timeout to the background thread
+  // The reply lock makes the timeout marker a complete boundary for strict result appends.
+  pthread_mutex_lock(&hreq->base.reply.lock);
   QueryRequestTimeout_MarkTimedOut(&hreq->base.timeout);
+  pthread_mutex_unlock(&hreq->base.reply.lock);
   HybridRequest_PropagateTimeoutToSubqueries(hreq);
 
   // Record the per-stage breakdown at the stage the deadline caught the request.

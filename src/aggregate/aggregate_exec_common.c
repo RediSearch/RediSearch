@@ -64,7 +64,7 @@
 // the main-thread timeout callback (RETURN-STRICT path): the callback waits
 // synchronously for BG to signal completion, so the test cannot send a
 // resume command while it is in flight.
-static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
+static inline void debugCheckAndPauseAfterAggregateResult(QueryRequest *request) {
   int pauseAfterN = AggregateResultsDebugCtx_GetPauseAfterN();
   if (pauseAfterN <= AGGREGATE_RESULTS_NO_PAUSE) {
     return;
@@ -76,7 +76,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
   // Pause after the Nth result has been extracted (1-based)
   AggregateResultsDebugCtx_SetPause(true);
   while (AggregateResultsDebugCtx_IsPaused()) {
-    if (areq && QueryRequestTimeout_IsBlockedClientTimedOut(&areq->base.timeout)) {
+    if (QueryRequestTimeout_IsBlockedClientTimedOut(&request->timeout)) {
       AggregateResultsDebugCtx_SetPause(false);
       break;
     }
@@ -85,45 +85,55 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
 }
 #else
 // Compiler eliminates the function completely in release builds - zero overhead
-static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
+static inline void debugCheckAndPauseAfterAggregateResult(QueryRequest *request) {}
 #endif
 
- SearchResult **AggregateResults(ResultProcessor *rp, AREQ *areq, int *rc) {
-   SearchResult **results = array_new(SearchResult *, 8);
-   SearchResult r = SearchResult_New();
-   while (rp->parent->resultLimit && (*rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
-     // Decrement the result limit, now that we got a valid result.
-     rp->parent->resultLimit--;
+static SearchResult **AggregateResults(ResultProcessor *rp, QueryRequest *request, int *rc) {
+  // Only strict cross-thread flows publish into the shared reply array.
+  const bool sharedReply = QueryRequest_RequiresReplyStateSafeAccess(request);
+  SearchResult **results = sharedReply ? NULL : array_new(SearchResult *, 8);
+  SearchResult r = SearchResult_New();
+  while (rp->parent->resultLimit && (*rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
+    // Decrement the result limit, now that we got a valid result.
+    rp->parent->resultLimit--;
 
-     array_append(results, SearchResult_AllocateMove(&r));
+    SearchResult *result = SearchResult_AllocateMove(&r);
+    r = SearchResult_New();
+    if (sharedReply) {
+      // Strict reply flows publish each row directly for the timeout callback.
+      if (!QueryRequest_AppendReplyResultSafe(request, result)) {
+        *rc = RS_RESULT_TIMEDOUT;
+        break;
+      }
+    } else {
+      // This result array is owned exclusively by the current thread.
+      array_append(results, result);
+    }
 
-     debugCheckAndPauseAfterAggregateResult(areq);
+    debugCheckAndPauseAfterAggregateResult(request);
 
-     // clean the search result
-     r = SearchResult_New();
+    // Honour a main-thread timeout flag at the row boundary: buffering
+    // stages (safe loader, sorter yield) can keep emitting from internal
+    // buffers without re-touching upstream's per-row timeout check.
+    if (QueryRequestTimeout_IsBlockedClientTimedOut(&request->timeout)) {
+      *rc = RS_RESULT_TIMEDOUT;
+      break;
+    }
+  }
 
-     // Honour a main-thread timeout flag at the row boundary: buffering
-     // stages (safe loader, sorter yield) can keep emitting from internal
-     // buffers without re-touching upstream's per-row timeout check.
-     if (areq && QueryRequestTimeout_IsBlockedClientTimedOut(&areq->base.timeout)) {
-       *rc = RS_RESULT_TIMEDOUT;
-       break;
-     }
-   }
+  if (*rc != RS_RESULT_OK) {
+    SearchResult_Destroy(&r);
+  }
 
-   if (*rc != RS_RESULT_OK) {
-     SearchResult_Destroy(&r);
-   }
-
-   return results;
- }
+  return results;
+}
 
  void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
-   if (ctx->timeout->policy != TimeoutPolicy_Return || ctx->oomPolicy == OomPolicy_Fail) {
+   if (ctx->request->timeout.policy != TimeoutPolicy_Return || ctx->oomPolicy == OomPolicy_Fail) {
      // Aggregate all results before populating the response
-     *results = AggregateResults(rp, ctx->areq, rc);
+     *results = AggregateResults(rp, ctx->request, rc);
      // Check timeout after aggregation
-     if (QueryRequestTimeout_IsTimedOutExact(ctx->timeout)) {
+     if (QueryRequestTimeout_IsTimedOutExact(&ctx->request->timeout)) {
        *rc = RS_RESULT_TIMEDOUT;
      }
    } else {
@@ -231,6 +241,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
  }
 
 void AREQ_DrainStoredResultsAfterTimeout(AREQ *req) {
+  // Transitional: the BG-completion wait can be removed once this drain is thread-safe.
   // Strict-mode draining mutates the same array the background producer published.
   ChunkReplyState *stored = QueryRequest_GetReplyStateSafe(&req->base);
   Pipeline_DrainStoredResultsAfterTimeout(AREQ_QueryProcessingCtx(req), stored);

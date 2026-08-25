@@ -6850,8 +6850,8 @@ class TestShardTimeout:
             env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
 
-    def test_return_strict_hybrid_stored_rows_are_not_drained_standalone(self):
-        """Standalone RETURN_STRICT FT.HYBRID replies only with rows BG stored."""
+    def _test_return_strict_hybrid_stored_rows_are_not_drained_standalone(self, pause_after_n):
+        """Assert standalone Hybrid replies only with rows published before timeout."""
         env = self.env
         skipIfNoEnableAssert(env)
 
@@ -6862,7 +6862,7 @@ class TestShardTimeout:
         base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
 
         resetAggregateResultsDebug(env)
-        setPauseAfterAggregateResult(env, 1)
+        setPauseAfterAggregateResult(env, pause_after_n)
         query_result = []
         try:
             t_query = threading.Thread(
@@ -6880,8 +6880,8 @@ class TestShardTimeout:
             env.assertFalse(t_query.is_alive(), message="FT.HYBRID thread should have finished")
             env.assertEqual(len(query_result), 1, message="Expected one FT.HYBRID reply")
             result = query_result[0]
-            env.assertEqual(len(result.get('results', [])), 1,
-                            message=f"Expected exactly the one stored row, got: {result}")
+            env.assertEqual(len(result.get('results', [])), pause_after_n,
+                            message=f"Expected exactly {pause_after_n} stored rows, got: {result}")
             assert_timeout_warning(env, result,
                                    message=f"standalone FT.HYBRID no-drain timeout, got: {result}")
 
@@ -6901,6 +6901,18 @@ class TestShardTimeout:
         finally:
             resetAggregateResultsDebug(env)
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
+
+    def test_return_strict_hybrid_stored_rows_are_not_drained_standalone(self):
+        """Standalone RETURN_STRICT FT.HYBRID replies only with rows BG stored."""
+        self._test_return_strict_hybrid_stored_rows_are_not_drained_standalone(1)
+
+    def test_return_strict_hybrid_shared_array_resize_standalone(self):
+        """The shared Hybrid result array survives resize under its reply lock.
+
+        The initial capacity is eight, so pausing after the ninth published row
+        deterministically crosses the first resize boundary before timeout.
+        """
+        self._test_return_strict_hybrid_stored_rows_are_not_drained_standalone(9)
 
     def test_no_timeout_cursor(self):
         """
@@ -8221,6 +8233,16 @@ class TestShardTimeout:
         self._run_return_strict_timeout_after_aggregate_result(
             ['FT.AGGREGATE', 'idx', '*', 'LIMIT', '0', '50'], 'FT.AGGREGATE',
             pause_after_n=1, expected_rows=1)
+
+    def test_return_strict_timeout_after_shared_array_resize_aggregate(self):
+        """The shared aggregate result array survives resize under its reply lock.
+
+        The initial capacity is eight, so pausing after the ninth published row
+        deterministically crosses the first resize boundary before timeout.
+        """
+        self._run_return_strict_timeout_after_aggregate_result(
+            ['FT.AGGREGATE', 'idx', '*', 'LIMIT', '0', '50'], 'FT.AGGREGATE',
+            pause_after_n=9, expected_rows=9)
 
     def test_return_strict_timeout_after_last_result_aggregate(self):
         """Mid-iteration timeout right before the last row would be read.
