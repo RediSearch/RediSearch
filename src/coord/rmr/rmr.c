@@ -953,7 +953,16 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
     // We need to take a reference to the iterator for the next batch of commands.
     int8_t refCount = MRIterator_IncreaseRefCount(it);
     REFCOUNT_INCR_MSG("MR_ManuallyTriggerNextIfNeeded", refCount);
-    IORuntimeCtx_Schedule(it->ctx.ioRuntime, iterManualNextCb, it);
+    if (!IORuntimeCtx_Schedule(it->ctx.ioRuntime, iterManualNextCb, it)) {
+      // The runtime is shutting down: nothing will execute the batch, so no
+      // reply can ever arrive. Undo (no writer is left to observe either
+      // field) and report only what the channel already holds, so the reader
+      // resolves instead of stranding module teardown on its channel wait.
+      refCount = MRIterator_DecreaseRefCount(it);
+      REFCOUNT_DECR_MSG("MR_ManuallyTriggerNextIfNeeded: schedule rejected at shutdown", refCount);
+      it->ctx.inProcess = 0;
+      return channelSize > 0;
+    }
     return true; // We may have more replies (and we surely will)
   }
   // We have no pending commands and no more than channelThreshold replies to process.
@@ -1085,6 +1094,8 @@ void MRIterator_Release(MRIterator *it) {
     // The iterator will be released when DEL commands are done.
     refcount = MRIterator_IncreaseRefCount(it);
     REFCOUNT_INCR_MSG("MRIterator_Release: triggering DEL on the shards' cursors", refcount);
+    // Fire-and-forget: a rejected schedule (runtime shutting down) leaks the
+    // iterator by design — nothing waits on the DELs, and the process exits.
     IORuntimeCtx_Schedule(it->ctx.ioRuntime, iterManualNextCb, it);
   } else {
     // No pending shards, so no remote resources to free.

@@ -33,6 +33,9 @@ static inline queueItem *exchangePendingTopo(IORuntimeCtx *io_runtime_ctx, queue
   return __atomic_exchange_n(&io_runtime_ctx->pendingTopo, newTopo, __ATOMIC_SEQ_CST);
 }
 
+// Atomically claim the runtime's one-time lazy start. Exactly one caller
+// wins: either the first live schedule (which then starts the runtime) or
+// IORuntimeCtx_Shutdown (which then knows no start can ever follow).
 static inline bool CheckAndSetIoRuntimeNotStarted(IORuntimeCtx *io_runtime_ctx) {
   return __builtin_expect((__atomic_test_and_set(&io_runtime_ctx->uv_runtime.io_runtime_started_or_starting, __ATOMIC_ACQUIRE) == false), false);
 }
@@ -358,9 +361,24 @@ static void IORuntimeCtx_JoinLoopThread(IORuntimeCtx *io_runtime_ctx) {
 }
 
 void IORuntimeCtx_Shutdown(IORuntimeCtx *io_runtime_ctx) {
+  if (io_runtime_ctx->uv_runtime.loop_th_joined) {
+    return;
+  }
   // Guard the queue first: once RQ_Shutdown returns, no push can signal the
   // loop, so the handles the exiting loop thread closes cannot race a send.
   RQ_Shutdown(io_runtime_ctx->queue);
+  // Race a schedule for the lazy-start claim: if we win, no schedule can ever
+  // start this runtime again, so its loop resources can be torn down here
+  // without a thread to join. If a schedule won, the runtime is started or
+  // starting — the join below waits out an in-flight Start via the
+  // created-cond handshake, and a pre-loop FireShutdown is latched by the
+  // async handle until the loop runs.
+  if (CheckAndSetIoRuntimeNotStarted(io_runtime_ctx)) {
+    MRConnManager_Shutdown(&io_runtime_ctx->conn_mgr);
+    UV_Close(io_runtime_ctx);
+    io_runtime_ctx->uv_runtime.loop_th_joined = true;
+    return;
+  }
   IORuntimeCtx_FireShutdown(io_runtime_ctx);
   IORuntimeCtx_JoinLoopThread(io_runtime_ctx);
 }
@@ -403,17 +421,19 @@ void IORuntimeCtx_Start(IORuntimeCtx *io_runtime_ctx) {
   RedisModule_Log(RSDummyContext, "verbose", "Created event loop thread for IORuntime ID %zu", io_runtime_ctx->queue->id);
 }
 
-void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, void *privdata) {
+bool IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, void *privdata) {
   // Push before the lazy start: the async handle is initialized at Create,
-  // so a pre-start signal is simply latched — and a dead push (queue shutting
-  // down, see RQ_Push) must not lazy-start a runtime whose loop resources are
-  // being torn down.
+  // so a pre-start signal is simply latched.
   bool live = RQ_Push(io_runtime_ctx->queue, cb, privdata, &io_runtime_ctx->uv_runtime.async);
+  // Claiming the start races IORuntimeCtx_Shutdown's own claim on the same
+  // atomic flag, so shutdown either sees the runtime as started (and joins
+  // out an in-flight Start via the created-cond handshake) or wins the claim
+  // and no schedule can ever start the runtime again. If started but the loop
+  // is not ready yet, the item waits in the queue until the loop runs.
   if (live && CheckAndSetIoRuntimeNotStarted(io_runtime_ctx)) {
-    //This guarantees only one worker thread will start the IORuntime because of the atomic check. If started but loop is not ready, still RQ will accumulate the request
-    // and would still be processed when the thread uvloop starts
     IORuntimeCtx_Start(io_runtime_ctx);
   }
+  return live;
 }
 
 void IORuntimeCtx_RequestCompleted(IORuntimeCtx *io_runtime_ctx) {

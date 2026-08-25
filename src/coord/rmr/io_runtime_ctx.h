@@ -88,8 +88,12 @@ void IORuntimeCtx_FireShutdown(IORuntimeCtx *io_runtime_ctx);
  * Idempotent. */
 void IORuntimeCtx_Shutdown(IORuntimeCtx *io_runtime_ctx);
 
-//TODO: Have it return int status (return error if thread not created)
-void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, void *privdata);
+/* Enqueue `cb(privdata)` for the runtime's loop thread, lazily starting the
+ * runtime on the first live schedule. Returns whether the queue was live: a
+ * false return means the runtime is shutting down and nothing will ever
+ * execute the item (it is discarded, unexecuted, by RQ_Free) — callers whose
+ * progress depends on the item running must handle that. */
+bool IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, void *privdata);
 
 void IORuntimeCtx_RequestCompleted(IORuntimeCtx *io_runtime_ctx);
 
