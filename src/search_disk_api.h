@@ -293,8 +293,8 @@ typedef struct BasicDiskAPI {
    * @param ctx Redis module context
    * @param disk Pointer to the disk context
    * @param percentage Percentage of available memory to request (0-100)
-   * @return The new buffer budget in bytes, or 0 on error. Use this value to update
-   *         existing indexes via updateWriteBufferSize.
+   * @return The new module buffer budget in bytes, or 0 on error. OSS divides this
+   *         value across live disk indexes before calling updateWriteBufferSize.
    */
   size_t (*updateBufferBudget)(RedisModuleCtx *ctx, RedisSearchDisk *disk, int percentage);
 
@@ -618,13 +618,14 @@ typedef struct IndexDiskAPI {
    * @brief Update the write buffer size for this index's database
    *
    * Dynamically changes the write_buffer_size option for all column families
-   * in this index's database. Should be called after updateBufferBudget to
-   * propagate the new per-index buffer size (budget / divisor).
+   * in this index's database. `per_index_budget` is this index's share of the
+   * module WBM budget; the disk implementation divides it across that index's
+   * live column families.
    *
    * @param index Pointer to the disk index
-   * @param new_budget New total buffer budget in bytes (will be divided internally)
+   * @param per_index_budget This index's share of the module WBM budget
    */
-  void (*updateWriteBufferSize)(RedisSearchDiskIndexSpec *index, size_t new_budget);
+  void (*updateWriteBufferSize)(RedisSearchDiskIndexSpec *index, size_t per_index_budget);
 
   /**
    * @brief Apply a new max_open_files cap to this index's database at runtime.
