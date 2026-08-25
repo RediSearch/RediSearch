@@ -7,8 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ffi::{CStr, c_char};
+use std::ffi::{CStr, CString, c_char};
 use std::ptr::NonNull;
+use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::level_filters::LevelFilter;
 
 /// Parses a redis `loglevel` config value into a `tracing` level.
@@ -66,9 +68,65 @@ pub unsafe extern "C" fn TracingRedisModule_SetLogLevel(level: *const c_char) {
     tracing_redismodule::set_log_level(level);
 }
 
+/// Details of a Rust panic, stashed by the hook installed in
+/// [`RustPanicHook_Init`] and emitted inside the crash report by
+/// [`AddToInfo_RustBacktrace`].
+///
+/// Strings are stored as-is, without truncation. `payload` and `location`
+/// match the rendering of the hook's `tracing::error!` log line: the literal
+/// `None` for a non-string payload or a missing location. `timestamp` is
+/// captured at hook time, in the [`format_epoch_timestamp`] format.
+#[derive(Clone)]
+struct StashedPanic {
+    payload: String,
+    location: String,
+    timestamp: String,
+}
+
+/// A first-write-wins slot for the details of the process' first Rust panic.
+///
+/// The panic hook fires twice per crash: for the real panic, then for the
+/// nested "panic in a function that cannot unwind" panic at the `extern "C"`
+/// boundary. First-write-wins preserves the real panic's details. In
+/// production every panic is fatal, so a stashed panic can never go stale.
+struct PanicStash(Mutex<Option<StashedPanic>>);
+
+impl PanicStash {
+    const fn new() -> Self {
+        Self(Mutex::new(None))
+    }
+
+    /// Stores `panic` if no panic was stashed before; otherwise drops it.
+    fn stash(&self, panic: StashedPanic) {
+        // Tolerate poisoning: this runs from the panic hook, which must not
+        // itself panic, and the stashed value stays consistent either way.
+        let mut slot = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if slot.is_none() {
+            *slot = Some(panic);
+        }
+    }
+
+    /// A copy of the stashed panic details, or `None` if no panic was stashed.
+    fn get(&self) -> Option<StashedPanic> {
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+}
+
+/// The process-wide [`PanicStash`], written by the hook installed in
+/// [`RustPanicHook_Init`] and read by [`AddToInfo_RustBacktrace`].
+static PANIC_STASH: PanicStash = PanicStash::new();
+
 /// Initialize RediSearch's panic hook, without replaacing the pre-existing panic hook (if any).
 ///
-/// Panic messages will be logged through `tracing` at the `ERROR` level.
+/// Panic messages will be logged through `tracing` at the `ERROR` level, and
+/// stashed in [`PANIC_STASH`] for [`AddToInfo_RustBacktrace`] to include in
+/// the crash report.
 #[unsafe(no_mangle)]
 pub extern "C" fn RustPanicHook_Init() {
     let previous_hook = std::panic::take_hook();
@@ -82,34 +140,71 @@ pub extern "C" fn RustPanicHook_Init() {
             "A panic occurred in the Rust code",
         );
 
+        // The log line above lands above the crash report's START marker,
+        // outside the span users are asked to copy; the stash rides the
+        // module INFO callback instead, which runs inside the report.
+        PANIC_STASH.stash(StashedPanic {
+            payload: panic_info.payload_as_str().unwrap_or("None").to_owned(),
+            location: panic_info
+                .location()
+                .map_or_else(|| "None".to_owned(), |l| l.to_string()),
+            timestamp: format_utc_timestamp(SystemTime::now()),
+        });
+
         // Invoke the previous panic hook, if any.
         previous_hook(panic_info);
     }));
 }
-/// Add the current backtrace as a new section to the report printed
-/// by RediSearch's INFO command.
+
+/// Formats `now` in the [`format_epoch_timestamp`] format.
+fn format_utc_timestamp(now: SystemTime) -> String {
+    let secs = now.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+    format_epoch_timestamp(secs)
+}
+
+/// Formats seconds since the Unix epoch as `YYYY-MM-DD HH:MM:SS UTC`:
+/// ISO-8601 with a space separator, seconds precision, literal ` UTC` suffix.
+fn format_epoch_timestamp(secs: u64) -> String {
+    const SECS_PER_DAY: u64 = 24 * 60 * 60;
+    let days = (secs / SECS_PER_DAY) as i64;
+    let secs_of_day = secs % SECS_PER_DAY;
+    let (year, month, day) = civil_from_days(days);
+    format!(
+        "{year:04}-{month:02}-{day:02} {:02}:{:02}:{:02} UTC",
+        secs_of_day / 3600,
+        secs_of_day % 3600 / 60,
+        secs_of_day % 60,
+    )
+}
+
+/// The proleptic Gregorian date `(year, month, day)` falling `days` days
+/// after 1970-01-01, via Howard Hinnant's `civil_from_days` algorithm.
+const fn civil_from_days(days: i64) -> (i64, u32, u32) {
+    let days = days + 719_468;
+    let era = if days >= 0 { days } else { days - 146_096 } / 146_097;
+    let day_of_era = (days - era * 146_097) as u64;
+    let year_of_era =
+        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let year = year_of_era as i64 + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_prime = (5 * day_of_year + 2) / 153;
+    let day = (day_of_year - (153 * month_prime + 2) / 5 + 1) as u32;
+    let month = (if month_prime < 10 {
+        month_prime + 3
+    } else {
+        month_prime - 9
+    }) as u32;
+    (if month <= 2 { year + 1 } else { year }, month, day)
+}
+
+/// Converts `value` into the null-terminated C string expected by the
+/// `RedisModule_Info*` functions.
 ///
-/// # Safety
-///
-/// `ctx` must be a valid pointer to a `RedisModuleInfoCtx`.
-#[unsafe(no_mangle)]
-pub extern "C" fn AddToInfo_RustBacktrace(ctx: Option<NonNull<redis_module::RedisModuleInfoCtx>>) {
-    use std::ffi::CString;
-
-    let Some(ctx) = ctx else {
-        return;
-    };
-
-    let backtrace = std::backtrace::Backtrace::force_capture();
-    let backtrace_str = backtrace.to_string();
-
-    // The `RedisModule_Info*` functions we need to invoke expect a valid C string.
-    // We need to ensure that the backtrace we printed doesn't contain any null bytes and
-    // is properly null-terminated.
-    //
-    // For perf purposes, we strive to avoid allocating a new string if possible—i.e.
-    // if the formatted backtrace string doesn't contain any null bytes.
-    let backtrace_cstr = match CString::new(backtrace_str) {
+/// For perf purposes, we strive to avoid allocating a new string if
+/// possible—i.e. if `value` doesn't contain any null bytes. Interior null
+/// bytes are replaced with `?`.
+fn info_cstring(value: String) -> CString {
+    match CString::new(value) {
         Ok(cstr) => cstr,
         Err(err) => {
             let mut bytes = err.into_vec();
@@ -121,7 +216,25 @@ pub extern "C" fn AddToInfo_RustBacktrace(ctx: Option<NonNull<redis_module::Redi
             // SAFETY: We just replaced all null bytes with '?'.
             unsafe { CString::from_vec_unchecked(bytes) }
         }
+    }
+}
+
+/// Add the current backtrace as a new section to the report printed
+/// by RediSearch's INFO command.
+///
+/// When a Rust panic was stashed in [`PANIC_STASH`], its details are emitted
+/// in the same section, ahead of the backtrace.
+///
+/// # Safety
+///
+/// `ctx` must be a valid pointer to a `RedisModuleInfoCtx`.
+#[unsafe(no_mangle)]
+pub extern "C" fn AddToInfo_RustBacktrace(ctx: Option<NonNull<redis_module::RedisModuleInfoCtx>>) {
+    let Some(ctx) = ctx else {
+        return;
     };
+
+    let backtrace_cstr = info_cstring(std::backtrace::Backtrace::force_capture().to_string());
 
     // SAFETY: `RedisModule_InfoAddSection` has been initialized during module load.
     let info_add_section = unsafe { redis_module::RedisModule_InfoAddSection.unwrap() };
@@ -130,6 +243,88 @@ pub extern "C" fn AddToInfo_RustBacktrace(ctx: Option<NonNull<redis_module::Redi
 
     // SAFETY: `ctx` is a valid pointer to a `RedisModuleInfoCtx`.
     unsafe { info_add_section(ctx.as_ptr(), c"rust_backtrace".as_ptr()) };
+
+    if let Some(stashed) = PANIC_STASH.get() {
+        let payload = info_cstring(stashed.payload);
+        let location = info_cstring(stashed.location);
+        let timestamp = info_cstring(stashed.timestamp);
+        // SAFETY: `ctx` is a valid pointer and `payload` is a valid null-terminated C string.
+        unsafe {
+            info_add_field_cstring(ctx.as_ptr(), c"panic_payload".as_ptr(), payload.as_ptr())
+        };
+        // SAFETY: `ctx` is a valid pointer and `location` is a valid null-terminated C string.
+        unsafe {
+            info_add_field_cstring(ctx.as_ptr(), c"panic_location".as_ptr(), location.as_ptr())
+        };
+        // SAFETY: `ctx` is a valid pointer and `timestamp` is a valid null-terminated C string.
+        unsafe {
+            info_add_field_cstring(
+                ctx.as_ptr(),
+                c"panic_timestamp".as_ptr(),
+                timestamp.as_ptr(),
+            )
+        };
+    }
+
     // SAFETY: `ctx` is a valid pointer and `backtrace_cstr` is a valid null-terminated C string.
     unsafe { info_add_field_cstring(ctx.as_ptr(), c"backtrace".as_ptr(), backtrace_cstr.as_ptr()) };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn stashed_panic(payload: &str) -> StashedPanic {
+        StashedPanic {
+            payload: payload.to_owned(),
+            location: "src/crash.rs:1:1".to_owned(),
+            timestamp: "2026-01-01 00:00:00 UTC".to_owned(),
+        }
+    }
+
+    // The hook fires twice per crash (the real panic, then the nested
+    // "cannot unwind" panic at the `extern "C"` boundary): the stash must
+    // keep the first panic's details.
+    #[test]
+    fn stash_is_first_write_wins() {
+        let stash = PanicStash::new();
+        assert!(stash.get().is_none());
+
+        stash.stash(stashed_panic("first"));
+        stash.stash(stashed_panic("second"));
+
+        assert_eq!(
+            stash.get().as_ref().map(|s| s.payload.as_str()),
+            Some("first")
+        );
+    }
+
+    #[test]
+    fn epoch_seconds_format_as_utc_civil_time() {
+        assert_eq!(format_epoch_timestamp(0), "1970-01-01 00:00:00 UTC");
+        assert_eq!(
+            format_epoch_timestamp(1_000_000_000),
+            "2001-09-09 01:46:40 UTC"
+        );
+        // 2024 is a leap year.
+        assert_eq!(
+            format_epoch_timestamp(1_709_164_800),
+            "2024-02-29 00:00:00 UTC"
+        );
+        // 2100 is divisible by 100 but not by 400: not a leap year.
+        assert_eq!(
+            format_epoch_timestamp(4_102_444_800),
+            "2100-01-01 00:00:00 UTC"
+        );
+        assert_eq!(
+            format_epoch_timestamp(253_402_300_799),
+            "9999-12-31 23:59:59 UTC"
+        );
+    }
+
+    #[test]
+    fn info_cstring_replaces_interior_null_bytes() {
+        assert_eq!(info_cstring("a\0b".to_owned()).to_bytes(), b"a?b");
+        assert_eq!(info_cstring("clean".to_owned()).to_bytes(), b"clean");
+    }
 }

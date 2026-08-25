@@ -1,4 +1,5 @@
 from common import *
+import re
 
 
 # EnterpriseStandaloneEnvBase (not RLTest.Env) so this still gets enterprise
@@ -121,6 +122,10 @@ def test_query_thread_crash():
     doc_count = 10
     terms = ['hello', 'world']
     prepare_index(env, terms=terms, doc_count=doc_count)
+
+    # Resolve the log path before the crash — the server is unreachable afterwards.
+    log_path = log_file_path(env)
+
     results = extract_query_crash_output(env, doc_count=doc_count, expected_fragments=[
         "search_current_thread",
         "search_run_time_ns:",
@@ -163,6 +168,14 @@ def test_query_thread_crash():
     run_time = int(results["search_run_time_ns:"])
     env.assertGreater(run_time, 0)
 
+    # A C crash stashes no Rust panic, so the bug report must not carry
+    # Rust-panic fields.
+    report_lines = bug_report_span(read_log_lines(log_path))
+    env.assertFalse(
+        any("search_panic_payload" in line for line in report_lines),
+        message="search_panic_payload found in the bug report of a C crash",
+    )
+
 
 # The Rust panic hook logs before Redis prints the bug report, so scanning the
 # whole log would find the panic payload even when it is missing from the
@@ -200,18 +213,34 @@ def test_query_thread_crash_with_rust_panic():
     for fragment, value in results.items():
         env.assertIsNotNone(value, message=f"Fragment '{fragment}' not found in crash log")
 
-    # The panic payload and location must appear inside the bug-report span,
-    # not just in the log. Assert on content, not format — the section/field
-    # names used to emit them are an implementation detail of the fix.
+    # The panic details must be emitted as INFO fields inside the bug-report
+    # span — the hook's tracing line is not enough, since it lands above the
+    # START marker.
     log_lines = read_log_lines(log_path)
     report_lines = bug_report_span(log_lines)
-    env.assertTrue(
-        any("Crash in Rust code" in line for line in report_lines),
-        message="panic payload not found inside the bug report (START..END span)",
+
+    payload_line = next((l for l in report_lines if "search_panic_payload:" in l), None)
+    env.assertIsNotNone(
+        payload_line, message="search_panic_payload missing from the bug report"
+    )
+    env.assertIn("Crash in Rust code", payload_line)
+
+    location_line = next((l for l in report_lines if "search_panic_location:" in l), None)
+    env.assertIsNotNone(
+        location_line, message="search_panic_location missing from the bug report"
+    )
+    env.assertIn("crash.rs", location_line)
+
+    timestamp_line = next((l for l in report_lines if "search_panic_timestamp:" in l), None)
+    env.assertIsNotNone(
+        timestamp_line, message="search_panic_timestamp missing from the bug report"
     )
     env.assertTrue(
-        any("crash.rs" in line for line in report_lines),
-        message="panic location not found inside the bug report (START..END span)",
+        re.search(
+            r"search_panic_timestamp:\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC",
+            timestamp_line,
+        ),
+        message=f"unexpected search_panic_timestamp format: {timestamp_line}",
     )
 
     # The panic hook's tracing line predates the report and stays in the log;

@@ -6,9 +6,8 @@ license-file.workspace = true
 publish.workspace = true
 
 [lib]
-# This crate has no tests nor benches.
-# Compiling a no-op bench/test binary can cause linking issues with C.
-test = false
+# This crate has no benches.
+# Compiling a no-op bench binary can cause linking issues with C.
 bench = false
 
 [dependencies]
