@@ -109,7 +109,7 @@ pub(crate) fn eval<'index>(
         ctx.status().set_with_user_data(
             query_error::QueryErrorCode::BadVal,
             "Error querying geoshape index",
-            &format!(": {detail}"),
+            format!(": {detail}"),
         );
     }
 
