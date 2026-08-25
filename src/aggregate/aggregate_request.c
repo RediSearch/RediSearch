@@ -1173,7 +1173,8 @@ bool QueryRequest_TryOwnStrictRead(QueryRequest *request, QueryRequestStrictRead
 void AREQ_SignalAggregateResultsComplete(AREQ *req) {
   pthread_mutex_lock(&req->base.async.aggregateResultsLock);
   req->base.async.aggregateResultsDone = true;
-  pthread_cond_broadcast(&req->base.async.aggregateResultsCond);
+  // A request has at most one timeout callback waiting for its aggregate worker.
+  pthread_cond_signal(&req->base.async.aggregateResultsCond);
   pthread_mutex_unlock(&req->base.async.aggregateResultsLock);
 }
 
@@ -1479,16 +1480,19 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
     // id-filter node borrows it as-is.
     QAST_GlobalFilterOptions filterOpts = {.keys = opts->inkeys, .nkeys = opts->ninkeys};
 
-    // For SearchDisk, resolve docIds from keys on the main thread
-    if (SearchDisk_IsEnabled()) {
-      filterOpts.docIds = rm_malloc(sizeof(t_docId) * opts->ninkeys);
-      for (size_t ii = 0; ii < opts->ninkeys; ++ii) {
-        uint64_t docId = 0;
-        if (DocIdMeta_Get(sctx->redisCtx, opts->inkeys[ii], sctx->spec->specId, &docId) == REDISMODULE_OK) {
-          filterOpts.docIds[ii] = docId;
-        } else {
-          filterOpts.docIds[ii] = 0;  // Mark as not found
-        }
+    // DocIdMeta_Get opens the key (needs the GIL), so resolve here on the main
+    // thread rather than on a background query thread. Resolving at admission
+    // rather than at snapshot time leaves a window: a key re-indexed before the
+    // worker takes the spec read lock keeps its stale, now deleted docId and
+    // drops out of the results - the same observable outcome as the
+    // Result_ExpiredDoc path takes for any doc re-indexed mid-query.
+    filterOpts.docIds = rm_malloc(sizeof(t_docId) * opts->ninkeys);
+    for (size_t ii = 0; ii < opts->ninkeys; ++ii) {
+      uint64_t docId = 0;
+      if (DocIdMeta_Get(sctx->redisCtx, opts->inkeys[ii], sctx->spec->specId, &docId) == REDISMODULE_OK) {
+        filterOpts.docIds[ii] = docId;
+      } else {
+        filterOpts.docIds[ii] = 0;  // Mark as not found
       }
     }
 
@@ -1586,11 +1590,10 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
   return REDISMODULE_OK;
 }
 
-// Check if a single FieldSpec has a multi-value JSONPath.
+// Check if a FieldSpec is backed by a multi-value JSONPath.
 // This request-time validation is used only for JSON HIGHLIGHT/SUMMARIZE fields.
-// Returns true if the field is a TEXT field with a multi-value JSONPath.
-static bool fieldSpecIsMultiValueText(const FieldSpec *fs) {
-  if (!fs || !FIELD_IS(fs, INDEXFLD_T_FULLTEXT) || !fs->fieldPath) {
+static bool fieldSpecIsMultiValueJsonPath(const FieldSpec *fs) {
+  if (!fs || !fs->fieldPath) {
     return false;
   }
   RedisModuleString *err_msg = NULL;
@@ -1649,7 +1652,7 @@ static int AREQ_HasMultiValueHighlightFields(const AREQ *req, const IndexSpec *i
       continue;
     }
     const FieldSpec *fs = getHighlightFieldSpec(index, rf);
-    if (jsonPathIsMultiValue(rf->path) || (fs && fieldSpecIsMultiValueText(fs))) {
+    if (jsonPathIsMultiValue(rf->path) || (fs && fieldSpecIsMultiValueJsonPath(fs))) {
       hasMultiValue = true;
       break;
     }

@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 import profile
 from includes import *
 from common import *

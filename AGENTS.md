@@ -148,6 +148,11 @@ as production code.
 - Use `#[expect(...)]` over `#[allow(...)]` for lint suppressions
 - Use `tracing` macros for logging (debug!, info!, warn!, error!)
 
+### Python
+
+- Source is UTF-8, which Python 3 already assumes. Never add a
+  `# -*- coding: utf-8 -*-` line; non-ASCII literals need no declaration.
+
 ## C Code Architecture
 
 ### Module Entry and Command Dispatch

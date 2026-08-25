@@ -33,28 +33,29 @@ pub use range_iterator::NumericRangeIterator;
 pub use score_batch::NumericScoreBatch;
 pub use source::{AllValid, DocValidity, NumericScoreSource};
 
-use std::{cmp::Ordering, num::NonZeroUsize};
+use std::num::NonZeroUsize;
 
 use rqe_iterators::{
     ExpirationChecker, NoOpChecker, RQEIterator,
     utils::{NoTimeoutChecker, TimeoutContext},
 };
-use top_k::{TopKIterator, TopKMode};
+use top_k::{RuntimeOrder, TopKIterator, TopKMode};
 
 /// A [`TopKIterator`] driven by a [`NumericScoreSource`].
 ///
 /// Construct one with [`new_numeric_top_k_unfiltered`] or
 /// [`new_numeric_top_k_filtered`].
 pub type NumericTopKIterator<'index, V = AllValid, E = NoOpChecker, T = NoTimeoutChecker> =
-    TopKIterator<'index, NumericScoreSource<'index, V, E, T>>;
+    TopKIterator<
+        'index,
+        NumericScoreSource<'index, V, E, T>,
+        Box<dyn rqe_iterators::RQEIterator<'index> + 'index>,
+        RuntimeOrder,
+    >;
 
-/// Pick the heap comparator for the query's sort direction.
-fn cmp_for(ascending: bool) -> fn(&f64, &f64) -> Ordering {
-    if ascending {
-        f64::total_cmp
-    } else {
-        |a, b| b.total_cmp(a)
-    }
+/// Pick the heap's score ordering for the query's sort direction.
+fn cmp_for(ascending: bool) -> RuntimeOrder {
+    RuntimeOrder::new(ascending)
 }
 
 /// Construct an unfiltered [`NumericTopKIterator`] (no filter child).

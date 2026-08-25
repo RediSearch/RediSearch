@@ -373,11 +373,6 @@ impl<'index> IndexReader<'index> for TermIndexReader<'index> {
     fn needs_revalidation(&self) -> bool {
         term_ir_dispatch!(self, needs_revalidation)
     }
-
-    #[inline(always)]
-    fn refresh_buffer_pointers(&mut self) {
-        term_ir_dispatch!(self, refresh_buffer_pointers)
-    }
 }
 
 /// Resolve an opaque index and compare it against the current variant's reader.

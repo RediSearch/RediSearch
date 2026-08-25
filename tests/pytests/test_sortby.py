@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 from cmath import inf
 from email import message
 

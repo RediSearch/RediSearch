@@ -148,10 +148,6 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterMaskReader<I
     fn needs_revalidation(&self) -> bool {
         self.inner.needs_revalidation()
     }
-
-    fn refresh_buffer_pointers(&mut self) {
-        self.inner.refresh_buffer_pointers();
-    }
 }
 
 impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> FilterMaskReader<IndexReaderCore<'index, E>> {
