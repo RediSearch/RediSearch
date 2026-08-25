@@ -73,6 +73,10 @@ typedef struct {
         struct {
             long long min_val;  // For numeric types: minimum value
             long long max_val;  // For numeric types: maximum value
+            unsigned long long uint_min_val; // For unsigned numeric types: minimum value
+            unsigned long long uint_max_val; // For unsigned numeric types: maximum value
+            double min_double_val; // For double types: minimum value
+            double max_double_val; // For double types: maximum value
             bool has_min;       // Whether min_val is set
             bool has_max;       // Whether max_val is set
         } numeric;
@@ -96,6 +100,7 @@ typedef struct {
     union {
         const char *str_default;
         long long int_default;
+        unsigned long long uint_default;
         double double_default;
         bool flag_default;
     } defaults;
@@ -152,13 +157,15 @@ typedef enum {
     ARG_OPT_REPEATABLE,        // Can appear multiple times
     ARG_OPT_VALIDATOR,         // Next arg is ArgValidator function
     ARG_OPT_CALLBACK,          // Next two args are ArgCallback function and user_data
-    ARG_OPT_RANGE,             // Next two args are min_val, max_val (long long)
+    ARG_OPT_RANGE,             // Next two args are min_val, max_val (long long, or double if registered as ARG_TYPE_DOUBLE)
     ARG_OPT_ALLOWED_VALUES,    // Next arg is const char** array
     ARG_OPT_DEFAULT_STR,       // Next arg is const char* default value
     ARG_OPT_DEFAULT_INT,       // Next arg is long long default value
     ARG_OPT_DEFAULT_DOUBLE,    // Next arg is double default value
     ARG_OPT_DEFAULT_FLAG,      // Next arg is int (bool) default value
-    ARG_OPT_POSITION           // Next arg is int (1-based position)
+    ARG_OPT_POSITION,          // Next arg is int (1-based position)
+    ARG_OPT_DEFAULT_ULONG_LONG, // Next arg is unsigned long long default value
+    ARG_OPT_RANGE_ULONG_LONG   // Next two args are min_val, max_val (unsigned long long)
 } ArgOption;
 
 // Enhanced variadic API - pass all configuration in one call

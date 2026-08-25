@@ -11,6 +11,7 @@
 #include "redismock/redismock.h"
 #include "redismock/util.h"
 #include "common.h"
+#include "src/config.h"
 #include "src/hybrid/hybrid_request.h"
 #include "src/hybrid/parse_hybrid.h"
 #include "src/hybrid/hybrid_scoring.h"
@@ -32,6 +33,21 @@
 
 class ParseHybridTest : public ::testing::Test {
  protected:
+  class ScopedMaxSearchResults {
+   public:
+    explicit ScopedMaxSearchResults(size_t maxSearchResults)
+        : previousMaxSearchResults(RSGlobalConfig.maxSearchResults) {
+      RSGlobalConfig.maxSearchResults = maxSearchResults;
+    }
+
+    ~ScopedMaxSearchResults() {
+      RSGlobalConfig.maxSearchResults = previousMaxSearchResults;
+    }
+
+   private:
+    size_t previousMaxSearchResults;
+  };
+
   RedisModuleCtx *ctx;
   IndexSpec *spec;
   std::string index_name;
@@ -1171,6 +1187,20 @@ TEST_F(ParseHybridTest, testKNNZeroKValue) {
   testErrorCode(args, QUERY_ESYNTAX, "Invalid K value");
 }
 
+TEST_F(ParseHybridTest, testKNNKExceedsMaxKnnK) {
+  std::string oversizedK = std::to_string(MAX_KNN_K + 1);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+                      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+                      "KNN", "2", "K", oversizedK.c_str(),
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  // testErrorCode compares the full message on this branch, so spell out the
+  // limit suffix instead of asserting only the leading detail.
+  std::string expectedError = std::string(VECSIM_KNN_K_TOO_LARGE_ERR_MSG) +
+                              ", max supported K value is " +
+                              std::to_string((size_t)MAX_KNN_K);
+  testErrorCode(args, QUERY_ELIMIT, expectedError.c_str());
+}
+
 TEST_F(ParseHybridTest, testVsimKNNDuplicateK) {
   // Test KNN with duplicate K arguments
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "4", "K", "10", "K", "20", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
@@ -1596,8 +1626,13 @@ TEST_F(ParseHybridTest, testDialectInTail) {
 
 TEST_F(ParseHybridTest, testCombineRRFNegativeWindow) {
   // Test RRF with negative WINDOW value
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "RRF", "2", "WINDOW", "-5", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_EPARSEARGS, "WINDOW: Value below minimum");
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+      "SEARCH", "hello",
+      "VSIM", "@vector", "$BLOB",
+      "COMBINE", "RRF", "2", "WINDOW", "-5",
+      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_EPARSEARGS,
+                "WINDOW: Value is outside acceptable bounds");
 }
 
 TEST_F(ParseHybridTest, testCombineRRFZeroWindow) {
@@ -1608,15 +1643,134 @@ TEST_F(ParseHybridTest, testCombineRRFZeroWindow) {
 
 TEST_F(ParseHybridTest, testCombineLinearNegativeWindow) {
   // Test LINEAR with negative WINDOW value
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
-                      "COMBINE", "LINEAR", "6", "ALPHA", "0.6", "BETA", "0.4", "WINDOW", "-10",
-                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_EPARSEARGS, "WINDOW: Value below minimum");
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+      "SEARCH", "hello",
+      "VSIM", "@vector", "$BLOB",
+      "COMBINE", "LINEAR", "6", "ALPHA", "0.6", "BETA", "0.4", "WINDOW", "-10",
+      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_EPARSEARGS,
+                "WINDOW: Value is outside acceptable bounds");
 }
 
 TEST_F(ParseHybridTest, testCombineLinearZeroWindow) {
   // Test LINEAR with zero WINDOW value
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+                      "COMBINE", "LINEAR", "6", "ALPHA", "0.6", "BETA", "0.4", "WINDOW", "0",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_EPARSEARGS, "WINDOW: Value below minimum");
+}
+
+TEST_F(ParseHybridTest, testCombineRRFWindowExceedsHardCap) {
+  std::string oversizedWindow = std::to_string(MAX_HYBRID_WINDOW + 1);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+                      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+                      "COMBINE", "RRF", "2", "WINDOW", oversizedWindow.c_str(),
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_EPARSEARGS, "WINDOW: Value above maximum");
+}
+
+TEST_F(ParseHybridTest, testCombineLinearWindowExceedsHardCap) {
+  std::string oversizedWindow = std::to_string(MAX_HYBRID_WINDOW + 1);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+                      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+                      "COMBINE", "LINEAR", "6", "ALPHA", "0.6", "BETA", "0.4",
+                      "WINDOW", oversizedWindow.c_str(),
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_EPARSEARGS, "WINDOW: Value above maximum");
+}
+
+TEST_F(ParseHybridTest, testCombineRRFWindowExceedsConfiguredMaxSearchResults) {
+  ScopedMaxSearchResults scopedMaxSearchResults(25);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+                      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+                      "COMBINE", "RRF", "2", "WINDOW", "26",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_EPARSEARGS, "WINDOW: Value above maximum");
+}
+
+TEST_F(ParseHybridTest, testCombineRRFWindowAcceptsConfiguredMaxSearchResults) {
+  ScopedMaxSearchResults scopedMaxSearchResults(25);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+                      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+                      "COMBINE", "RRF", "2", "WINDOW", "25",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  parseCommand(args);
+
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, 25);
+  ASSERT_TRUE(result.hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
+}
+
+TEST_F(ParseHybridTest, testImplicitCombineDefaultWindowRespectsMaxSearchResults) {
+  ScopedMaxSearchResults scopedMaxSearchResults(3);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+                      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+                      "KNN", "2", "K", "10",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  parseCommand(args);
+
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, 3);
+  ASSERT_FALSE(result.hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
+}
+
+TEST_F(ParseHybridTest, testImplicitRRFCombineRespectsZeroMaxSearchResults) {
+  ScopedMaxSearchResults scopedMaxSearchResults(0);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+                      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+                      "KNN", "2", "K", "10",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  parseCommand(args);
+
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, 0);
+  ASSERT_FALSE(result.hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
+}
+
+TEST_F(ParseHybridTest, testExplicitRRFCombineRespectsZeroMaxSearchResults) {
+  ScopedMaxSearchResults scopedMaxSearchResults(0);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+                      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+                      "KNN", "2", "K", "10",
+                      "COMBINE", "RRF", "2", "CONSTANT", "60",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  parseCommand(args);
+
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, 0);
+  ASSERT_FALSE(result.hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
+}
+
+TEST_F(ParseHybridTest, testExplicitLinearCombineRespectsZeroMaxSearchResults) {
+  ScopedMaxSearchResults scopedMaxSearchResults(0);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+                      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+                      "KNN", "2", "K", "10",
+                      "COMBINE", "LINEAR",  "4", "ALPHA", "0.6", "BETA", "0.4",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  parseCommand(args);
+
+  assertLinearScoringCtx(0.6, 0.4, 0);
+}
+
+// A user-supplied explicit WINDOW 0 is never valid (WINDOW must be positive),
+// regardless of MAXSEARCHRESULTS.
+TEST_F(ParseHybridTest, testExplicitRRFWindowZeroRejectedUnderZeroMaxSearchResults) {
+  ScopedMaxSearchResults scopedMaxSearchResults(0);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+                      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+                      "KNN", "2", "K", "10",
+                      "COMBINE", "RRF", "4", "CONSTANT", "60", "WINDOW", "0",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_EPARSEARGS, "WINDOW: Value below minimum");
+}
+
+TEST_F(ParseHybridTest, testExplicitLinearWindowZeroRejectedUnderZeroMaxSearchResults) {
+  ScopedMaxSearchResults scopedMaxSearchResults(0);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+                      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+                      "KNN", "2", "K", "10",
                       "COMBINE", "LINEAR", "6", "ALPHA", "0.6", "BETA", "0.4", "WINDOW", "0",
                       "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
   testErrorCode(args, QUERY_EPARSEARGS, "WINDOW: Value below minimum");

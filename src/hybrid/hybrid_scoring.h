@@ -47,6 +47,10 @@ HybridScoringContext* HybridScoringContext_NewDefault(void);
 /* Generic free function for HybridScoringContext */
 void HybridScoringContext_Free(HybridScoringContext *hybridCtx);
 
+/* Return the merge window for the given scoring context.
+ * Returns HYBRID_DEFAULT_WINDOW when `hybridCtx` is NULL (default scoring behavior). */
+size_t HybridScoringContext_GetWindow(const HybridScoringContext *hybridCtx);
+
 typedef double (*HybridScoringFunction)(HybridScoringContext *scoringCtx, const double *scores, const bool *hasScores, const size_t numUpstreams);
 
  /* Get scoring function based on scoring type */
