@@ -842,3 +842,38 @@ fn test_refresh_buffer_pointers_after_reallocation() {
     assert_eq!(doc_count, 990);
     assert_eq!(expected_doc_id, 1000);
 }
+
+/// A parked reader's cached buffer pointer can dangle after a plain write reallocates the block
+/// it was reading — without ever touching `gc_marker`. `needs_revalidation` must catch this on its
+/// own, since a reader-refresh path is not enough on its own to fix a stale read position.
+#[test]
+#[cfg_attr(miri, ignore = "the memory hack below raises error in miri")]
+fn test_needs_revalidation_after_block_buffer_moved() {
+    use crate::IndexReader as _;
+
+    let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
+    ii.add_record(&RSIndexResult::build_virt().doc_id(10).build())
+        .unwrap();
+
+    // SAFETY: mirrors a suspended cursor — the reader is parked and untouched while the index is
+    // written to. The relocation below replaces the block's buffer in place, leaving the
+    // `InvertedIndex` itself in place.
+    let ii_ptr = &mut ii as *mut InvertedIndex<Dummy>;
+
+    let ir = ii.reader();
+    assert!(!ir.needs_revalidation(), "index was not modified yet");
+
+    // SAFETY: see the `ii_ptr` construction above.
+    let relocated = unsafe { crate::test_utils::relocate_block_buffer(&mut *ii_ptr, 0) };
+    assert_eq!(ii.gc_marker(), 0, "no GC ran");
+    assert_eq!(
+        ii.block_ref(0).unwrap().data().as_ptr(),
+        relocated,
+        "the block's buffer was supposed to move"
+    );
+
+    assert!(
+        ir.needs_revalidation(),
+        "the cached buffer pointer is now dangling"
+    );
+}
