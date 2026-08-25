@@ -17,6 +17,18 @@
 //! the query parser, so every caller already holds UTF-8. The dictionary
 //! case-folds every key and pattern internally (see the
 //! [`term_dictionary`] crate docs), so callers pass the raw term as-is.
+//!
+//! The dictionary follows a readers-writer contract: read-only calls
+//! ([`TermDictionary_Get`], [`TermDictionary_Len`],
+//! [`TermDictionary_MemUsage`] and the iterate functions) may run
+//! concurrently with each other, while [`TermDictionary_AddTerm`],
+//! [`TermDictionary_ReplaceTerm`], [`TermDictionary_Insert`],
+//! [`TermDictionary_Remove`], [`TermDictionary_DecrementNumDocs`] and
+//! [`TermDictionary_Free`] require exclusive access — no other call on
+//! the same dictionary, and no live iterator obtained from it. An
+//! iterator itself is single-threaded: it may not be advanced or freed
+//! from two threads at once, though separate iterators over the same
+//! dictionary may.
 
 #![allow(non_camel_case_types, non_snake_case)]
 
@@ -166,7 +178,10 @@ pub extern "C" fn NewTermDictionary() -> *mut TermDictionary {
 /// The following invariants must be upheld when calling this function:
 /// - `t` must point to a valid [`TermDictionary`] obtained from
 ///   [`NewTermDictionary`] and cannot be NULL.
-/// - No iterator obtained from `t` may be alive.
+/// - No other access to `t` may occur concurrently with this call —
+///   neither another mutator nor a read-only call such as
+///   [`TermDictionary_Len`], and no iterator obtained from `t` may be
+///   alive.
 /// - `t` must not be used after this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermDictionary_Free(t: *mut TermDictionary) {
@@ -223,7 +238,10 @@ pub unsafe extern "C" fn TermDictionary_MemUsage(t: *const TermDictionary) -> us
 /// - `t` must point to a valid [`TermDictionary`] obtained from
 ///   [`NewTermDictionary`] and cannot be NULL.
 /// - `term` must point to a valid byte sequence of length `len`.
-/// - No iterator obtained from `t` may be alive.
+/// - No other access to `t` may occur concurrently with this call —
+///   neither another mutator nor a read-only call such as
+///   [`TermDictionary_Len`], and no iterator obtained from `t` may be
+///   alive.
 ///
 /// # Panics
 ///
@@ -256,7 +274,10 @@ pub unsafe extern "C" fn TermDictionary_AddTerm(
 /// - `t` must point to a valid [`TermDictionary`] obtained from
 ///   [`NewTermDictionary`] and cannot be NULL.
 /// - `term` must point to a valid byte sequence of length `len`.
-/// - No iterator obtained from `t` may be alive.
+/// - No other access to `t` may occur concurrently with this call —
+///   neither another mutator nor a read-only call such as
+///   [`TermDictionary_Len`], and no iterator obtained from `t` may be
+///   alive.
 ///
 /// # Panics
 ///
@@ -293,7 +314,10 @@ pub unsafe extern "C" fn TermDictionary_ReplaceTerm(
 /// - `t` must point to a valid [`TermDictionary`] obtained from
 ///   [`NewTermDictionary`] and cannot be NULL.
 /// - `term` must point to a valid byte sequence of length `len`.
-/// - No iterator obtained from `t` may be alive.
+/// - No other access to `t` may occur concurrently with this call —
+///   neither another mutator nor a read-only call such as
+///   [`TermDictionary_Len`], and no iterator obtained from `t` may be
+///   alive.
 ///
 /// # Panics
 ///
@@ -328,7 +352,10 @@ pub unsafe extern "C" fn TermDictionary_Insert(
 /// - `t` must point to a valid [`TermDictionary`] obtained from
 ///   [`NewTermDictionary`] and cannot be NULL.
 /// - `term` must point to a valid byte sequence of length `len`.
-/// - No iterator obtained from `t` may be alive.
+/// - No other access to `t` may occur concurrently with this call —
+///   neither another mutator nor a read-only call such as
+///   [`TermDictionary_Len`], and no iterator obtained from `t` may be
+///   alive.
 ///
 /// # Panics
 ///
@@ -409,7 +436,10 @@ pub unsafe extern "C" fn TermDictionary_Get(
 /// - `t` must point to a valid [`TermDictionary`] obtained from
 ///   [`NewTermDictionary`] and cannot be NULL.
 /// - `term` must point to a valid byte sequence of length `len`.
-/// - No iterator obtained from `t` may be alive.
+/// - No other access to `t` may occur concurrently with this call —
+///   neither another mutator nor a read-only call such as
+///   [`TermDictionary_Len`], and no iterator obtained from `t` may be
+///   alive.
 ///
 /// # Panics
 ///

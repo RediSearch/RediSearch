@@ -132,7 +132,10 @@ int TermDictionaryIterator_Next(struct TermDictionaryIterator *it, const char * 
  * - `t` must point to a valid [`TermDictionary`] obtained from
  *   [`NewTermDictionary`] and cannot be NULL.
  * - `term` must point to a valid byte sequence of length `len`.
- * - No iterator obtained from `t` may be alive.
+ * - No other access to `t` may occur concurrently with this call —
+ *   neither another mutator nor a read-only call such as
+ *   [`TermDictionary_Len`], and no iterator obtained from `t` may be
+ *   alive.
  *
  * # Panics
  *
@@ -154,7 +157,10 @@ enum TermDictionaryInsertOutcome TermDictionary_AddTerm(struct TermDictionary *t
  * - `t` must point to a valid [`TermDictionary`] obtained from
  *   [`NewTermDictionary`] and cannot be NULL.
  * - `term` must point to a valid byte sequence of length `len`.
- * - No iterator obtained from `t` may be alive.
+ * - No other access to `t` may occur concurrently with this call —
+ *   neither another mutator nor a read-only call such as
+ *   [`TermDictionary_Len`], and no iterator obtained from `t` may be
+ *   alive.
  *
  * # Panics
  *
@@ -170,7 +176,10 @@ enum TermDictionaryDecrResult TermDictionary_DecrementNumDocs(struct TermDiction
  * The following invariants must be upheld when calling this function:
  * - `t` must point to a valid [`TermDictionary`] obtained from
  *   [`NewTermDictionary`] and cannot be NULL.
- * - No iterator obtained from `t` may be alive.
+ * - No other access to `t` may occur concurrently with this call —
+ *   neither another mutator nor a read-only call such as
+ *   [`TermDictionary_Len`], and no iterator obtained from `t` may be
+ *   alive.
  * - `t` must not be used after this call.
  */
 void TermDictionary_Free(struct TermDictionary *t);
@@ -211,7 +220,10 @@ int TermDictionary_Get(const struct TermDictionary *t, const char *term, size_t 
  * - `t` must point to a valid [`TermDictionary`] obtained from
  *   [`NewTermDictionary`] and cannot be NULL.
  * - `term` must point to a valid byte sequence of length `len`.
- * - No iterator obtained from `t` may be alive.
+ * - No other access to `t` may occur concurrently with this call —
+ *   neither another mutator nor a read-only call such as
+ *   [`TermDictionary_Len`], and no iterator obtained from `t` may be
+ *   alive.
  *
  * # Panics
  *
@@ -382,7 +394,10 @@ size_t TermDictionary_MemUsage(const struct TermDictionary *t);
  * - `t` must point to a valid [`TermDictionary`] obtained from
  *   [`NewTermDictionary`] and cannot be NULL.
  * - `term` must point to a valid byte sequence of length `len`.
- * - No iterator obtained from `t` may be alive.
+ * - No other access to `t` may occur concurrently with this call —
+ *   neither another mutator nor a read-only call such as
+ *   [`TermDictionary_Len`], and no iterator obtained from `t` may be
+ *   alive.
  *
  * # Panics
  *
@@ -401,7 +416,10 @@ int TermDictionary_Remove(struct TermDictionary *t, const char *term, size_t len
  * - `t` must point to a valid [`TermDictionary`] obtained from
  *   [`NewTermDictionary`] and cannot be NULL.
  * - `term` must point to a valid byte sequence of length `len`.
- * - No iterator obtained from `t` may be alive.
+ * - No other access to `t` may occur concurrently with this call —
+ *   neither another mutator nor a read-only call such as
+ *   [`TermDictionary_Len`], and no iterator obtained from `t` may be
+ *   alive.
  *
  * # Panics
  *
