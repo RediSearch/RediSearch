@@ -236,6 +236,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "src/param.h",
+        fns: &["Param_DictAdd", "Param_DictCreate", "Param_DictFree"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
         path: "src/query.h",
         fns: &["Query_EvalNode", "tag_strtolower"],
         types: &["QueryAST", "QueryEvalCtx"],
@@ -260,6 +266,12 @@ const HEADERS: &[HeaderAllowlist] = &[
             "QueryVerbatimNode",
             "RSQueryNode",
         ],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/query_param.h",
+        fns: &["QueryParam_Resolve"],
+        types: &[],
         vars: &[],
     },
     HeaderAllowlist {
@@ -487,7 +499,11 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/vector_index.h",
-        fns: &["NewVectorIterator", "VecSimSearchMode_ToString"],
+        fns: &[
+            "NewVectorIterator",
+            "VecSimSearchMode_ToString",
+            "VectorQuery_EvalParams",
+        ],
         types: &[],
         vars: &[],
     },

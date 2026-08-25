@@ -14,7 +14,7 @@ use query::{
     QueryNode, QueryNodeMut, QueryNodeRef, WildcardMode,
     mock::{MockQueryNode, TokenNodeType},
 };
-use query_types::QueryNodeType;
+use query_types::{QueryNodeFlags, QueryNodeType};
 
 #[test]
 fn node_type_returns_discriminant() {
@@ -302,6 +302,45 @@ fn query_node_mut_takes_an_absent_dist_field_as_null() {
     let mut node = unsafe { QueryNodeMut::new(mock.as_non_null()) };
 
     assert!(node.take_dist_field().is_null());
+}
+
+#[test]
+fn query_node_mut_exposes_an_empty_parameter_array() {
+    let mock = MockQueryNode::new(QueryNodeType::Token);
+    // SAFETY: sole wrapper to a valid leaf node.
+    let mut node = unsafe { QueryNodeMut::new(mock.as_non_null()) };
+
+    assert!(node.params_mut().is_empty());
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (array_new_sz)")]
+fn query_node_mut_exposes_parameters_for_mutation() {
+    // SAFETY: every all-zero field is a valid value for this C fixture.
+    let mut params = [unsafe { std::mem::zeroed::<ffi::Param>() }; 2];
+    params[0].sign = 1;
+    params[1].sign = -1;
+    let mut mock = MockQueryNode::new(QueryNodeType::Token);
+    mock.set_params(&params);
+
+    // SAFETY: sole wrapper to a valid leaf node and its owned parameter array.
+    let mut node = unsafe { QueryNodeMut::new(mock.as_non_null()) };
+    let node_params = node.params_mut();
+    assert_eq!([node_params[0].sign, node_params[1].sign], [1, -1]);
+    node_params[1].sign = 2;
+
+    assert_eq!(node.params_mut()[1].sign, 2);
+}
+
+#[test]
+fn query_node_mut_sets_the_verbatim_flag() {
+    let mock = MockQueryNode::new(QueryNodeType::Token);
+    // SAFETY: sole wrapper to a valid leaf node.
+    let mut node = unsafe { QueryNodeMut::new(mock.as_non_null()) };
+
+    node.set_verbatim();
+
+    assert!(node.opts().flags.contains(QueryNodeFlags::Verbatim));
 }
 
 #[test]

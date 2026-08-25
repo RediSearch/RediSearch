@@ -12,7 +12,7 @@
 use std::{ffi::c_char, marker::PhantomData, ops::Deref, ptr::NonNull};
 
 use inverted_index::NumericFilter;
-use query_types::{QueryNodeOptions, QueryNodeType};
+use query_types::{QueryNodeFlags, QueryNodeOptions, QueryNodeType};
 use rqe_core::{DocId, FieldMask};
 use rs_token::{RSTokenMut, RSTokenRef, RSTokenRefNulTerminated};
 
@@ -451,6 +451,9 @@ impl QueryNodeMut<'_> {
     ///    [`RSTokenMut::from_nul_terminated_ffi`]. Both shapes the parser produces
     ///    do: a query literal is copied into an explicitly terminated allocation,
     ///    and a query parameter into a zeroed one a byte longer than its value.
+    /// 5. That exclusivity extends to every node's separately allocated parameter
+    ///    array. No other pointer, reference, or handle may access an array while
+    ///    this view or a reborrow from it is live.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub const unsafe fn new(ptr: NonNull<ffi::RSQueryNode>) -> Self {
@@ -523,6 +526,32 @@ impl QueryNodeMut<'_> {
         // returned handle's lifetime by the borrow of `*self`, and its string meets
         // the constructor's requirements per invariant (4).
         Some(unsafe { RSTokenMut::from_nul_terminated_ffi(tok) })
+    }
+
+    /// Borrow this node's parameter array for in-place resolution.
+    ///
+    /// A null C array is represented as an empty slice. The returned slice
+    /// borrows `*self`, so no other node access can overlap parameter mutation.
+    pub fn params_mut(&mut self) -> &mut [ffi::Param] {
+        // SAFETY: the node is valid, so its `params` field can be read. A null
+        // pointer represents an empty array.
+        let params = unsafe { (*self.0.as_ptr()).params };
+        if params.is_null() {
+            &mut []
+        } else {
+            // SAFETY: `params` is a non-null `array_*`-managed pointer.
+            let len = unsafe { ffi::array_len_func(params.cast()) as usize };
+            // SAFETY: invariant (5) of `QueryNodeMut::new` grants exclusive
+            // access to the complete `array_*` allocation for this borrow.
+            unsafe { std::slice::from_raw_parts_mut(params, len) }
+        }
+    }
+
+    /// Mark this node for verbatim query evaluation.
+    pub fn set_verbatim(&mut self) {
+        // SAFETY: the node is valid and exclusively borrowed, so its options
+        // can be mutated without aliasing a live reference.
+        unsafe { (*self.0.as_ptr()).opts.flags |= QueryNodeFlags::Verbatim };
     }
 
     /// Intersect `mask` into this node's [field mask](QueryNodeOptions::field_mask).

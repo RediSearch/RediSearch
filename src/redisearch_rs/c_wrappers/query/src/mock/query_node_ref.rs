@@ -110,9 +110,9 @@ impl From<TokenNodeType> for QueryNodeType {
 
 impl Drop for MockQueryNode {
     fn drop(&mut self) {
-        // SAFETY: `self.node` is a valid, owned allocation. If `children` is
-        // non-null it was allocated via `array_new_sz` and must be freed with
-        // `array_free`.
+        // SAFETY: `self.node` is a valid, owned allocation. Non-null `children`
+        // and `params` arrays were allocated via `array_new_sz` and must be
+        // freed with `array_free`.
         //
         // `redis_allocated_token` is set only by `with_redis_token`, which requires a
         // token-carrying `type_` and never changes after construction, so
@@ -139,6 +139,10 @@ impl Drop for MockQueryNode {
             let children = (*self.node).children;
             if !children.is_null() {
                 ffi::array_free(children.cast());
+            }
+            let params = (*self.node).params;
+            if !params.is_null() {
+                ffi::array_free(params.cast());
             }
             dealloc(self.node.cast(), Layout::new::<ffi::RSQueryNode>());
         }
@@ -403,6 +407,33 @@ impl MockQueryNode {
             assert!(!arr.is_null());
             std::ptr::copy_nonoverlapping(children.as_ptr(), arr, children.len());
             (*self.node).children = arr;
+        }
+    }
+
+    /// Replace this node's parameter array with an owned copy of `params`.
+    pub fn set_params(&mut self, params: &[ffi::Param]) {
+        // SAFETY: `self.node` is valid and exclusively owned. Any previous
+        // parameter array was allocated by this method and is released before
+        // replacement. `array_new_sz` allocates the requested initialized
+        // length, which the copy then fills.
+        unsafe {
+            let old = (*self.node).params;
+            if !old.is_null() {
+                ffi::array_free(old.cast());
+                (*self.node).params = std::ptr::null_mut();
+            }
+            if params.is_empty() {
+                return;
+            }
+            let arr = ffi::array_new_sz(
+                std::mem::size_of::<ffi::Param>() as u16,
+                0,
+                params.len() as u32,
+            )
+            .cast::<ffi::Param>();
+            assert!(!arr.is_null());
+            std::ptr::copy_nonoverlapping(params.as_ptr(), arr, params.len());
+            (*self.node).params = arr;
         }
     }
 
