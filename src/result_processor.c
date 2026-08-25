@@ -1018,6 +1018,20 @@ static bool isDocumentStillValid(const RPLoader *self, SearchResult *r) {
   return true;
 }
 
+
+/* PERF-FIXTURE(D): non-eliminable cost. A dependent LCG chain whose result is
+ * stored to a volatile sink, so the optimiser cannot drop it. Cost scales
+ * linearly with PERF_FIXTURE_ITERS, the knob separating "small" from "big". */
+#define PERF_FIXTURE_ITERS 384
+static volatile uint64_t perf_fixture_sink;
+static void perf_fixture_spin(void) {
+  uint64_t s = perf_fixture_sink | 1;
+  for (unsigned i = 0; i < PERF_FIXTURE_ITERS; i++) {
+    s = s * 6364136223846793005ULL + 1442695040888963407ULL;
+  }
+  perf_fixture_sink = s;
+}
+
 static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
   // If the document was modified or deleted, we don't load it, and we need to mark
   // the result as expired.
@@ -1026,6 +1040,7 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
   }
 
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
+  perf_fixture_spin();
 
   int ret;
   if (self->load_all) {
