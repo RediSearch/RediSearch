@@ -506,11 +506,23 @@ pub extern "C" fn RLookup_New() -> OpaqueRLookup {
 /// Sets the [`ffi::IndexSpecCache`] of the lookup. If spcache is provided, then it will be used as an
 /// alternate source for lookups whose fields are absent.
 ///
+/// Takes ownership of one reference to the cache: the lookup releases it
+/// (via `IndexSpecCache_Decref`) when the cache is replaced or the lookup is
+/// cleaned up, so the caller must not release that reference themselves.
+///
 /// # Safety
 ///
 /// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
-/// 2. `spcache` must be a [valid] pointer to a [`ffi::IndexSpecCache`]
-/// 3. The [`ffi::IndexSpecCache`] being pointed MUST NOT get mutated
+/// 2. `spcache` must be a [valid] pointer to a [`ffi::IndexSpecCache`], and
+///    the caller must transfer an owned reference to it (see above).
+/// 3. For as long as the lookup holds the cache, the [`ffi::IndexSpecCache`]
+///    being pointed to, and everything reachable through it, MUST NOT get
+///    mutated: its `fields` pointer MUST point to a valid array of `nfields`
+///    `FieldSpec`s (or be null with `nfields == 0`), every pointer nested in
+///    those entries (e.g. `fieldName`) MUST stay valid with string fields
+///    NUL-terminated, and each special document-field name (`lang_field`,
+///    `score_field`, `payload_field`) MUST be null or a valid, NUL-terminated
+///    string.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]

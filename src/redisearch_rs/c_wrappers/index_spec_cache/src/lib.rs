@@ -119,16 +119,31 @@ impl IndexSpecCache {
         [me.lang_field, me.score_field, me.payload_field]
             .into_iter()
             .filter(|p| !p.is_null())
-            // SAFETY: non-null name pointers are valid, NUL-terminated strings
-            // owned by the cache (copied when the cache was built).
+            // SAFETY: non-null special-field names are valid, NUL-terminated
+            // strings by the construction contract — copied into the cache by
+            // from_fields_and_rule, or promised by the caller of from_raw.
             .any(|p| unsafe { CStr::from_ptr(p) } == name)
     }
 
+    /// Wraps an existing C-owned cache, taking ownership of one reference to
+    /// it: [`Drop`] releases that reference via [`ffi::IndexSpecCache_Decref`].
+    ///
     /// # Safety
     ///
-    /// The caller must ensure the following invariants are upheld for the *entire lifetime* of this type:
-    /// 1. The `spcache` pointer MUST point to a valid [`ffi::IndexSpecCache`].
-    /// 2. The [`ffi::IndexSpecCache`] being pointed MUST NOT get mutated.
+    /// The caller must transfer an owned reference to the cache (such as the
+    /// one returned by `IndexSpec_GetSpecCache`) and must not release that
+    /// reference themselves, and must ensure the following invariants are
+    /// upheld for the *entire lifetime* of this type:
+    /// 1. The `ptr` pointer MUST point to a valid [`ffi::IndexSpecCache`].
+    /// 2. The [`ffi::IndexSpecCache`] being pointed to, and everything
+    ///    reachable through it, MUST NOT get mutated.
+    /// 3. Its `fields` pointer MUST point to a valid array of `nfields`
+    ///    [`ffi::FieldSpec`]s (or be null with `nfields == 0`), and every
+    ///    pointer nested in those entries (e.g. `fieldName`) MUST stay valid,
+    ///    with string fields NUL-terminated.
+    /// 4. Each of its special document-field names (`lang_field`,
+    ///    `score_field`, `payload_field`) MUST be null or point to a valid,
+    ///    NUL-terminated string.
     pub unsafe fn from_raw(ptr: NonNull<ffi::IndexSpecCache>) -> Self {
         debug_assert!(ptr.is_aligned());
 
