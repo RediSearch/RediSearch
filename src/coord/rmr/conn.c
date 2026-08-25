@@ -182,7 +182,10 @@ void MRConnManager_Shutdown(MRConnManager *mgr) {
   // stopping) never arrive, silently dropping the pending callbacks and
   // stranding pool jobs blocked on their results. redisAsyncFree invokes them
   // with a NULL reply right here; some dispatch into the coordinator pool,
-  // which must therefore still be alive (see MR_ShutdownIO).
+  // which must therefore still be alive (see MR_ShutdownIO). Only Connected
+  // conns carry commands (MRConnPool_GetConn), and only they are safe to free
+  // eagerly — a mid-connect ac still has its TCP connect in flight, and the
+  // deferred-disconnect Freeing path below is what handles that safely.
   dictIterator *it = dictGetIterator(mgr->map);
   dictEntry *entry;
   while ((entry = dictNext(it))) {
@@ -190,9 +193,9 @@ void MRConnManager_Shutdown(MRConnManager *mgr) {
     for (uint32_t i = 0; i < pool->num; i++) {
       MRConn *conn = pool->conns[i];
       redisAsyncContext *ac = conn->conn;
-      if (ac) {
-        // Detach first so the connect/disconnect callbacks treat the conn as
-        // already freed instead of driving its state machine.
+      if (ac && conn->state == MRConn_Connected) {
+        // Detach first so the disconnect callback treats the conn as already
+        // freed instead of driving its state machine.
         ac->data = NULL;
         conn->conn = NULL;
         redisAsyncFree(ac);

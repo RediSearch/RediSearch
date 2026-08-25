@@ -728,7 +728,7 @@ def test_withcount_index_dropped_during_collection():
 # Shutdown with an in-flight WITHCOUNT aggregate
 #------------------------------------------------------------------------------
 
-@skip(cluster=False)
+@skip(cluster=False, asan=True)
 def test_withcount_inflight_at_coordinator_shutdown():
     """Coordinator shutdown while a WITHCOUNT aggregate is still collecting
     first replies.
@@ -738,6 +738,11 @@ def test_withcount_inflight_at_coordinator_shutdown():
     error-completes that command, and the WITHCOUNT error callback dispatches
     the deferred continuation at the coordinator pool — which crashed (SIGSEGV)
     before the MR_ShutdownIO ordering fix, when the pool was already destroyed.
+
+    Skipped under ASAN: shutdown with an in-flight query leaks by design (the
+    unwound request, the stranded fire-and-forget queue items), and the leak
+    checker reports exactly those. The coverage lane also sets RS_GLOBAL_DTORS
+    and still exercises this teardown.
     """
     # WORKERS 1 so shard queries run on a worker thread, leaving the main
     # thread free to handle SYNC_POINT commands.
