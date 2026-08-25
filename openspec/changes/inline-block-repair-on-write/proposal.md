@@ -34,6 +34,11 @@ it just wrote to has accumulated a configurable proportion of entries for docume
 longer exist, repair that one block in place, immediately, inside the write that is already
 in progress.
 
+The writer inspects the tail block when it fills, and periodically before then. The periodic
+check is what reaches posting lists shorter than one block — those are entirely tail, so the
+fork GC never repairs them either, and they are most of the vocabulary in a natural-language
+index.
+
 The writer already holds the index and the block, already holds whatever lock the write path
 holds, and the block is already in cache. The repair is bounded by one block, so the added
 per-write cost is bounded and predictable rather than a periodic spike.
@@ -78,8 +83,9 @@ the cold body of the index. Neither alone is sufficient.
    `logically deleted` docs are lower with inline repair enabled than without, at equal
    fork-GC settings.
 
-   **Met.** Peak RSS 16% lower and the index 22% smaller, for ~4.7% write throughput; see
-   `benchmarks.md` round 3.
+   **Met.** With the shipped trigger, peak RSS 35% lower and the index 87% smaller, for ~26%
+   write throughput; fork-GC cycles also halve, because there is far less left to scan. The
+   full-block-only variant was 16% / 22% for ~4.7%. See `benchmarks.md` round 3.
 
 2. ~~`gc_blocks_denied` per fork-GC cycle drops measurably on the same workload.~~
 
@@ -90,6 +96,19 @@ the cold body of the index. Neither alone is sufficient.
    round 3 and left to its own proposal.
 3. Write-path throughput regression stays within an agreed budget (proposed: p99 of
    `FT.ADD`-equivalent indexing latency within 5% of baseline at the default threshold).
+
+   **Met at the default, exceeded when enabled — needs a maintainer decision.** The default
+   is `0`, where the feature is inert and the cost is nil, so the criterion as literally
+   worded is satisfied. That reading is too convenient to rely on. When enabled, the shipped
+   trigger costs ~26% write throughput (p50 0.121 → 0.171 ms); the full-block-only trigger
+   cost ~5% and would have met the budget on any reading, but reclaimed a fraction as much —
+   68 M residual records against 7.5 M.
+
+   The budget was written before either number existed. Either it should be restated as a
+   budget *when enabled*, with 26% accepted as the price of the reclaim, or the stride should
+   become configurable so an operator picks their own point on that curve. Deciding this is a
+   precondition for the default ever moving off `0`.
+
 4. No change to query results, `FT.INFO` doc counts, or RDB round-trip behavior.
 
 Criteria 1–3 are the gate: if the write-path cost cannot be held inside the budget while

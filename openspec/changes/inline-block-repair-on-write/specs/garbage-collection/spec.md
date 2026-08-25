@@ -14,6 +14,19 @@ operation as the write, without forking a child process.
 Inline repair SHALL be confined to the last block of the index being written. It SHALL NOT
 visit or modify any other block.
 
+Inline repair SHALL be eligible on a posting list whose last block has not filled. A list
+shorter than one block is entirely tail, and the fork GC does not repair the last block, so
+requiring a full block would leave such a list reclaimed by neither path.
+
+The rate at which a writer inspects the tail block SHALL be bounded, so that the added cost
+per write does not scale with how often a term is written.
+
+#### Scenario: Posting list shorter than one block
+- **WHEN** a term's only block holds fewer entries than the block capacity
+- **AND** entries in it belong to deleted documents at or above the configured threshold
+- **AND** a document is indexed into that term
+- **THEN** those entries SHALL be reclaimed
+
 #### Scenario: Tail block has no dead entries
 - **WHEN** a document is indexed into a term whose last block contains no entries for deleted documents
 - **THEN** the index SHALL be unchanged apart from the appended posting

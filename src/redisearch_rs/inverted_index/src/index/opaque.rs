@@ -161,13 +161,13 @@ impl InvertedIndex {
     /// Reclaim deleted documents from the tail block, if it has just filled.
     ///
     /// This is a dispatch wrapper around the typed
-    /// [`InvertedIndex::repair_full_tail_block`].
-    pub fn repair_full_tail_block(
+    /// [`InvertedIndex::maybe_repair_tail_block`].
+    pub fn maybe_repair_tail_block(
         &mut self,
         min_reclaim_pct: u8,
         doc_exist: impl Fn(DocId) -> bool,
     ) -> std::io::Result<Option<crate::GcApplyInfo>> {
-        ii_dispatch!(self, repair_full_tail_block, min_reclaim_pct, doc_exist)
+        ii_dispatch!(self, maybe_repair_tail_block, min_reclaim_pct, doc_exist)
     }
 
     /// Return the number of unique documents in the index.

@@ -85,32 +85,39 @@ outcome — a clean block — was the most expensive to discover, so every wrong
 price. Now cost tracks benefit: a clean block is cheap to rule out, and the expensive
 re-encode only happens when there is something to reclaim.
 
-#### The trigger: block rotation, not a write counter
+#### The trigger: block fill, plus a stride
 
-A write counter was the plan, and implementation replaced it with something strictly better.
-`take_block` starts a new block on the first write that arrives when the tail already holds
-`RECOMMENDED_BLOCK_ENTRIES` entries. So "the tail block has just filled" is:
+The first implementation fired only when the tail block filled. That is still the most
+valuable moment to check — `take_block` starts a new block on the first write arriving at a
+full tail, so it is the last chance to repair that block inline, and the point at which it
+holds the most reclaimable garbage it ever will while still reachable by a writer.
 
-- **The last chance to repair that block inline.** Once it rotates, no writer touches it
-  again — it is the fork GC's from then on.
-- **The point at which it holds the most reclaimable garbage it ever will** while still
-  reachable by a writer, since it has been accumulating for the whole time it was the tail.
-- **Free to detect.** `blocks.last().num_entries >= RECOMMENDED_BLOCK_ENTRIES` — no state to
-  keep. That matters more than it looks: there is one `InvertedIndex` per *term*, so a
-  counter field would spend memory on every term in the index to answer a question the block
-  length already answers.
+It is not sufficient on its own. **A posting list shorter than one block never fills, so it
+was never repaired — and such a list is entirely tail, so the fork GC skips it too**, because
+it discards any delta touching the last block. Every term below block capacity was therefore
+reclaimed by neither path. In a natural-language index those terms are most of the
+vocabulary; measured end-to-end, closing this gap was worth far more than the full-block case
+alone (`benchmarks.md`, round 3).
 
-The resulting cadence is self-limiting, which is what a write-counter stride had to be tuned
-to approximate:
+So the trigger is: probe when the block has filled, when it holds fewer than
+`PROBE_EVERY_WRITE_BELOW` entries, or every `PROBE_STRIDE` appends in between. The stride
+bounds the added decode rate to one block decode per stride; the every-write bound below it
+exists so there is no gap at the start where a list shorter than one stride is never probed.
+Both constants are equal, which makes it one rule rather than two.
 
-- A clean block is checked once, finds nothing, and rotates away. One check per block — the
-  worst case, and it is exactly the budgeted cost above.
-- A block that reclaims `k` entries drops back below capacity and is checked again only after
-  `k` more writes refill it. Check frequency therefore scales with how much garbage is
-  actually being produced, with no knob to tune.
+The cadence stays self-limiting: a repair that reclaims `k` entries moves the block `k`
+entries back down, so its next probe is `k` writes further away, and check frequency scales
+with how much garbage is actually being produced. No per-index state is needed — there is one
+`InvertedIndex` per *term*, so a counter field would spend memory on every term to answer a
+question the block length already answers.
 
-`repair_full_tail_block` is the gate; `repair_tail_block` is the primitive underneath it, kept
-separate so tests can drive a repair without staging a full block.
+`maybe_repair_tail_block` is the gate; `repair_tail_block` is the primitive underneath it,
+kept separate so tests can drive a repair without staging a particular block length.
+
+The cost is real and is the reason the feature stays off by default: at stride 8 the measured
+write-throughput cost is ~26%, against ~5% for the full-block trigger alone. The stride is the
+dial between the two, and the every-write-below-stride rule is the part most likely to be
+worth revisiting first — it decodes on every append for the shortest lists.
 
 A minimum-reclaim threshold is applied to the *result*: a `Replace` that removes fewer than
 `min_reclaim_pct` of the block's entries is discarded rather than churning the block to drop

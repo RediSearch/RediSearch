@@ -149,17 +149,17 @@ impl<E: Encoder + DecodedBy> FieldMaskTrackingIndex<E> {
     }
 
     /// Reclaim deleted documents from the tail block, if it has just filled. See
-    /// [`InvertedIndex::repair_full_tail_block`].
+    /// [`InvertedIndex::maybe_repair_tail_block`].
     ///
     /// The tracked field mask is a union over every entry ever added and is never narrowed
     /// by a removal, so — as with [`apply_gc`](Self::apply_gc) — there is nothing to adjust
     /// here beyond forwarding.
-    pub fn repair_full_tail_block(
+    pub fn maybe_repair_tail_block(
         &mut self,
         min_reclaim_pct: u8,
         doc_exist: impl Fn(DocId) -> bool,
     ) -> std::io::Result<Option<GcApplyInfo>> {
         self.index
-            .repair_full_tail_block(min_reclaim_pct, doc_exist)
+            .maybe_repair_tail_block(min_reclaim_pct, doc_exist)
     }
 }

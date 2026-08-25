@@ -541,7 +541,7 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_Scan(
 ///
 /// Call after writing an entry. Does nothing unless the tail block has just filled, so it is
 /// safe and cheap to call after every write — see
-/// `InvertedIndex::repair_full_tail_block` for why that is the only moment a
+/// `InvertedIndex::maybe_repair_tail_block` for why that is the only moment a
 /// writer can usefully repair, and for the resulting cadence.
 ///
 /// `min_reclaim_pct` is the smallest share of the block's entries a repair must remove to be
@@ -565,7 +565,7 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_Scan(
 /// - `spec` must be a valid, non NULL, pointer to an `IndexSpec`.
 /// - `out_info` must be a valid, non NULL, pointer to a writable `II_GCScanStats`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn InvertedIndex_RepairFullTailBlock(
+pub unsafe extern "C" fn InvertedIndex_MaybeRepairTailBlock(
     idx: *mut InvertedIndex,
     spec: *const IndexSpec,
     min_reclaim_pct: u8,
@@ -586,7 +586,7 @@ pub unsafe extern "C" fn InvertedIndex_RepairFullTailBlock(
     // holds the spec write lock so no reader is traversing it concurrently.
     let ii = unsafe { &mut *idx };
 
-    let Ok(Some(info)) = ii.repair_full_tail_block(min_reclaim_pct, doc_exists) else {
+    let Ok(Some(info)) = ii.maybe_repair_tail_block(min_reclaim_pct, doc_exists) else {
         return false;
     };
 

@@ -290,11 +290,9 @@ One rep each, same harness, full-block trigger throughout.
 50 gives up most of the benefit. The threshold is a weak lever within 5–20; the default of 20
 is defensible and there is no evidence for moving it.
 
-## Prototypes measured, not included in this change
+## Removing the full-block gate — measured here, and now shipped
 
-Both were env-gated hacks built only to size the opportunity. Neither is in the diff.
-
-**Removing the full-block gate.** `repair_full_tail_block` returns early unless the tail
+**This is the trigger the change ships.** `repair_full_tail_block` returns early unless the tail
 block is full, so a posting list shorter than one block is never repaired — and such a list
 is *entirely* tail, so the fork GC skips it too. Those terms are reclaimed by nothing today,
 and in a natural-language index they are most of the vocabulary. Probing the tail on a stride
@@ -310,7 +308,18 @@ and in a natural-language index they are most of the vocabulary. Probing the tai
 | fork GC cycle time | 146 / 115 s | 129 / 113 s | 67 / 60 s |
 
 The index stays essentially clean, and fork-GC cycles halve because there is far less to
-scan. It costs 26% write throughput at stride 8 — a dial, not a verdict.
+scan. It costs 26% write throughput at stride 8, against ~5% for the full-block trigger — the
+stride is the dial between them, and 8 is the value measured, not a tuned optimum.
+
+The gain comes from short posting lists. A list that never fills a block is entirely tail, so
+the fork GC skips it (it discards deltas touching the last block) and the full-block trigger
+skipped it too; in a natural-language index those terms are most of the vocabulary. Both
+paths ignoring the same terms is why the full-block-only variant left 68 M records behind
+where this leaves 7.5 M.
+
+## Prototype measured, not included in this change
+
+An env-gated hack built only to size the opportunity. It is not in the diff.
 
 **Reconciling the denied tail block in `apply_gc`.** When a writer appends to the last block
 after the fork, the parent drops that block's delta and counts a denial. Repairing the live
@@ -326,9 +335,20 @@ in both arms so the two mechanisms do not mask each other:
 | write ops/s | 28,376 | 28,798 | +1.5% |
 | write p50 / p99 / p99.9 | 0.124 / 0.393 / 0.857 ms | 0.122 / 0.400 / 0.788 ms | ~0 |
 
-This adds parent-side work under the GIL, so a stall was expected; none was measurable at any
-percentile, and cycle time did not grow. It is the only thing measured here that moves
-`gc_blocks_denied`, and it recovers work the child already paid for.
+It is the only thing measured here that moves `gc_blocks_denied`, and it recovers work the
+child already paid for.
+
+**Its write cost is unresolved.** The pair above shows none. A later factorial — inline ×
+reconcile, interleaved, 2 reps — showed reconciliation pinned at ~12.3k ops/s in both reps
+while the arms without it reached 25–28k when the machine was fast, with fork-GC cycle time
+179 s → 242 s. Those two measurements contradict each other and I cannot explain the
+difference; the GIL stall predicted for parent-side work may well be real. Treat
+"reconciliation is free" as unsupported until it is re-measured on a fixed-write-count
+harness.
+
+That factorial did answer the interaction question, on garbage retained per million writes:
+inline alone −23%, reconciliation alone −21%, both −31%. They overlap on the same tail-block
+bytes, as expected, but each still reaches garbage the other misses — roughly 70% additive.
 
 ## Follow-ups
 
@@ -337,10 +357,13 @@ percentile, and cycle time did not grow. It is the only thing measured here that
 - [ ] Restate or drop success criterion 2. Inline repair does not reduce `gc_blocks_denied`.
 - [ ] Propose the tail-block reconciliation in `apply_gc` as its own change. On this evidence
       it is close to free and independent of inline repair.
-- [ ] Propose relaxing the full-block gate, with the stride as a tunable. It reaches short
-      posting lists, which nothing reclaims today.
-- [ ] Measure reconciliation and inline repair together. They target the same bytes at
-      different points, so the combination is likely sublinear.
+- [x] Relax the full-block gate — done in this change; the numbers above are the shipped
+      trigger.
+- [x] Measure reconciliation and inline repair together — ~70% additive, see above.
+- [ ] Tune the probe stride. 8 costs 26% write throughput; the `num_entries < 8` rule decodes
+      on every append for the shortest lists and is the first thing to try relaxing.
+- [ ] Re-measure reconciliation's write cost on a fixed-write-count harness, to settle the
+      contradiction above.
 
 ## Caveats
 

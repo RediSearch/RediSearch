@@ -1137,25 +1137,13 @@ fn repair_tail_block_honours_the_minimum_reclaim() {
 }
 
 #[test]
-fn repair_full_tail_block_waits_for_the_block_to_fill() {
-    // Blocks hold two entries. With one entry in the tail there is nothing to do yet,
-    // even though that entry is dead — repairing a half-filled block would let the
-    // write path pay for the same block many times over as it fills.
-    let mut ii = tiny_block_index([10, 11, 12]);
-    let marker = ii.gc_marker();
+fn maybe_repair_tail_block_repairs_a_full_block() {
+    // Blocks hold two entries. A full tail block with a dead entry is the last moment
+    // that block can be repaired inline — the next new document rotates it away.
+    let mut ii = tiny_block_index([10, 11, 12, 13]);
 
-    assert_eq!(
-        ii.repair_full_tail_block(0, |doc_id| doc_id != 12).unwrap(),
-        None
-    );
-    assert_eq!(ii.gc_marker(), marker);
-    assert_eq!(doc_ids_in(&ii), vec![10, 11, 12]);
-
-    // The block fills, and now the same dead entry is reclaimed.
-    ii.add_record(&RSIndexResult::build_virt().doc_id(13).build())
-        .unwrap();
     assert!(
-        ii.repair_full_tail_block(0, |doc_id| doc_id != 12)
+        ii.maybe_repair_tail_block(0, |doc_id| doc_id != 12)
             .unwrap()
             .is_some()
     );
@@ -1163,22 +1151,135 @@ fn repair_full_tail_block_waits_for_the_block_to_fill() {
 }
 
 #[test]
-fn repair_full_tail_block_checks_a_clean_block_once_per_rotation() {
-    // A clean full block is checked, found clean, and left alone; the next write
-    // rotates it away so it is never checked again. This is the worst case for cost,
-    // and it must stay at one check per block rather than one per write.
+fn maybe_repair_tail_block_leaves_a_clean_block_alone() {
+    // Probing a clean block costs a decode and must change nothing observable — in
+    // particular the GC marker must not move, or every reader would revalidate for
+    // nothing.
     let mut ii = tiny_block_index([10, 11]);
+    let marker = ii.gc_marker();
 
-    assert_eq!(ii.repair_full_tail_block(0, |_| true).unwrap(), None);
+    assert_eq!(ii.maybe_repair_tail_block(0, |_| true).unwrap(), None);
+    assert_eq!(ii.gc_marker(), marker);
+    assert_eq!(doc_ids_in(&ii), vec![10, 11]);
+}
 
-    // Rotation: the full block is frozen and a new tail starts.
-    let blocks_before = ii.number_of_blocks();
-    ii.add_record(&RSIndexResult::build_virt().doc_id(12).build())
-        .unwrap();
-    assert_eq!(ii.number_of_blocks(), blocks_before + 1);
+/// `Dummy`, but with a realistic block capacity, so a short posting list never fills its
+/// only block — the case the probe stride exists to reach.
+#[derive(Clone)]
+struct RoomyBlocks;
 
-    // The new tail is not full, so no further check happens.
-    assert_eq!(ii.repair_full_tail_block(0, |_| true).unwrap(), None);
+impl Encoder for RoomyBlocks {
+    type Delta = u32;
+
+    const RECOMMENDED_BLOCK_ENTRIES: u16 = 100;
+
+    fn encode<W: std::io::Write + std::io::Seek>(
+        writer: W,
+        delta: Self::Delta,
+        record: &RSIndexResult,
+    ) -> std::io::Result<usize> {
+        Dummy::encode(writer, delta, record)
+    }
+}
+
+impl Decoder for RoomyBlocks {
+    fn decode<'index>(
+        cursor: &mut Cursor<&'index [u8]>,
+        base: DocId,
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
+        Dummy::decode(cursor, base, result)
+    }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        Dummy::base_result()
+    }
+}
+
+fn roomy_block_index(doc_ids: impl IntoIterator<Item = DocId>) -> InvertedIndex<RoomyBlocks> {
+    let mut ii = InvertedIndex::<RoomyBlocks>::new(IndexFlags_Index_DocIdsOnly);
+    for doc_id in doc_ids {
+        ii.add_record(&RSIndexResult::build_virt().doc_id(doc_id).build())
+            .unwrap();
+    }
+    ii
+}
+
+fn roomy_doc_ids_in(ii: &InvertedIndex<RoomyBlocks>) -> Vec<DocId> {
+    let mut reader = ii.reader();
+    let mut result = RSIndexResult::build_virt().build();
+    let mut ids = Vec::new();
+    while reader.next_record(&mut result).unwrap() {
+        ids.push(result.doc_id);
+    }
+    ids
+}
+
+#[test]
+fn maybe_repair_tail_block_reaches_a_posting_list_shorter_than_a_block() {
+    // Three entries in a block that holds a hundred. This list is entirely tail, so the
+    // fork GC will never repair it — it discards deltas touching the last block. If the
+    // write path waited for a full block, nothing would ever reclaim this.
+    let mut ii = roomy_block_index([10, 11, 12]);
+
+    assert!(
+        ii.maybe_repair_tail_block(0, |doc_id| doc_id != 11)
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(roomy_doc_ids_in(&ii), vec![10, 12]);
+}
+
+#[test]
+fn maybe_repair_tail_block_probes_on_a_stride_once_past_the_first_entries() {
+    // Past PROBE_EVERY_WRITE_BELOW the block is probed every PROBE_STRIDE appends, which
+    // is what bounds the added decode rate. At 9 entries no probe happens even though one
+    // is dead; the next stride boundary reclaims it.
+    let mut ii = roomy_block_index(1..=9);
+
+    assert_eq!(
+        ii.maybe_repair_tail_block(0, |doc_id| doc_id != 5).unwrap(),
+        None,
+        "9 is neither below the every-write bound nor on a stride boundary"
+    );
+    assert_eq!(roomy_doc_ids_in(&ii), (1..=9).collect::<Vec<_>>());
+
+    for doc_id in 10..=16 {
+        ii.add_record(&RSIndexResult::build_virt().doc_id(doc_id).build())
+            .unwrap();
+    }
+
+    assert!(
+        ii.maybe_repair_tail_block(0, |doc_id| doc_id != 5)
+            .unwrap()
+            .is_some(),
+        "16 is on a stride boundary"
+    );
+    let expected: Vec<DocId> = (1..=16).filter(|d| *d != 5).collect();
+    assert_eq!(roomy_doc_ids_in(&ii), expected);
+}
+
+#[test]
+fn maybe_repair_tail_block_still_honours_the_threshold_on_a_short_block() {
+    // The threshold is a proportion of the block, so on a short block a single dead entry
+    // is already a large fraction. Ten entries with one dead is 10%, below a 20% bar.
+    let mut ii = roomy_block_index(1..=16);
+
+    assert_eq!(
+        ii.maybe_repair_tail_block(20, |doc_id| doc_id != 5)
+            .unwrap(),
+        None
+    );
+    assert_eq!(roomy_doc_ids_in(&ii), (1..=16).collect::<Vec<_>>());
+
+    // Four dead of sixteen clears the same bar.
+    assert!(
+        ii.maybe_repair_tail_block(20, |doc_id| !(5..=8).contains(&doc_id))
+            .unwrap()
+            .is_some()
+    );
+    let expected: Vec<DocId> = (1..=16).filter(|d| !(5..=8).contains(d)).collect();
+    assert_eq!(roomy_doc_ids_in(&ii), expected);
 }
 
 #[test]

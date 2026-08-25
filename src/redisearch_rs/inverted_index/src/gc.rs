@@ -299,40 +299,57 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         }
     }
 
-    /// Whether the last block has reached [`Encoder::RECOMMENDED_BLOCK_ENTRIES`], and so
-    /// will be rotated away by the next write of a new document.
-    fn tail_block_is_full(&self) -> bool {
-        self.blocks
-            .last()
-            .is_some_and(|b| b.num_entries >= E::RECOMMENDED_BLOCK_ENTRIES)
+    /// Appends between two probes of a tail block that is not yet full.
+    ///
+    /// Bounds the added decode rate to one block decode per this many writes. Probing only
+    /// when the block fills would be cheaper still, but see
+    /// [`should_probe_tail_block`](Self::should_probe_tail_block) for why that misses the
+    /// blocks that need it most.
+    const PROBE_STRIDE: u16 = 8;
+
+    /// Entry count below which the tail block is probed on every append.
+    ///
+    /// Deliberately equal to [`Self::PROBE_STRIDE`], so a block is probed on every write
+    /// until the first stride boundary and every stride thereafter — one rule, no gap at
+    /// the start where a list shorter than a stride would never be probed at all.
+    const PROBE_EVERY_WRITE_BELOW: u16 = Self::PROBE_STRIDE;
+
+    /// Whether this write should probe the tail block for reclaimable entries.
+    ///
+    /// True when the block has filled — the last moment it can be repaired inline, since
+    /// the next new document rotates it away — and periodically before then.
+    ///
+    /// The periodic case is what reaches short posting lists. A list that never fills a
+    /// block is *entirely* tail, so the fork GC never repairs it either: it discards any
+    /// delta touching the last block. Waiting for a full block would leave every such term
+    /// reclaimed by neither path, and in a natural-language index those terms are most of
+    /// the vocabulary.
+    ///
+    /// The cadence is self-limiting in the same way the full-block check was. A repair that
+    /// reclaims `k` entries moves the block `k` entries back down, so the next probe is `k`
+    /// writes further away; a clean block simply pays the decode.
+    fn should_probe_tail_block(&self) -> bool {
+        self.blocks.last().is_some_and(|b| {
+            b.num_entries >= E::RECOMMENDED_BLOCK_ENTRIES
+                || (b.num_entries > 0
+                    && (b.num_entries < Self::PROBE_EVERY_WRITE_BELOW
+                        || b.num_entries % Self::PROBE_STRIDE == 0))
+        })
     }
 
-    /// [`repair_tail_block`](Self::repair_tail_block), but only at the moment the tail
-    /// block has filled. This is the form the write path should call.
-    ///
-    /// A writer can only ever repair the tail, and a block stops being the tail as soon as
-    /// the next new document arrives — so the instant it fills is both the last chance to
-    /// repair it inline and the point at which it holds the most garbage it will ever hold
-    /// while still reachable. Checking here rather than on a write counter also needs no
-    /// per-index state: there is one `InvertedIndex` per term, so a counter field would
-    /// cost memory on every term in the index to answer a question the block length
-    /// already answers.
-    ///
-    /// The cadence this produces is self-limiting. A clean block is checked exactly once
-    /// and then rotates. A block that reclaims `k` entries drops back below capacity and
-    /// is checked again only after `k` more writes refill it — so checks scale with how
-    /// much garbage is actually being produced, and a clean index settles at one check per
-    /// block.
+    /// [`repair_tail_block`](Self::repair_tail_block), gated on
+    /// [`should_probe_tail_block`](Self::should_probe_tail_block). This is the form the
+    /// write path should call.
     ///
     /// # Errors
     ///
     /// See [`repair_tail_block`](Self::repair_tail_block).
-    pub fn repair_full_tail_block(
+    pub fn maybe_repair_tail_block(
         &mut self,
         min_reclaim_pct: u8,
         doc_exist: impl Fn(DocId) -> bool,
     ) -> std::io::Result<Option<GcApplyInfo>> {
-        if !self.tail_block_is_full() {
+        if !self.should_probe_tail_block() {
             return Ok(None);
         }
 

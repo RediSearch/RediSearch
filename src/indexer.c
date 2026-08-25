@@ -58,9 +58,10 @@ extern RedisModuleCtx *RSDummyContext;
 #include <stdint.h>
 #include <string.h>
 
-// Reclaim postings for deleted documents from `idx`'s tail block, if this write just filled
-// it. Off unless INLINE_GC_BLOCK_REPAIR_THRESHOLD is set: it buys smaller fork GC cycles with
-// write throughput, which is an operator's call.
+// Reclaim postings for deleted documents from `idx`'s tail block, on the cadence
+// `InvertedIndex::should_probe_tail_block` decides. Off unless
+// INLINE_GC_BLOCK_REPAIR_THRESHOLD is set: it buys smaller fork GC cycles with write
+// throughput, which is an operator's call.
 //
 // Only the tail block is touched, so the added cost is bounded by one block regardless of how
 // long the posting list is. Everything else stays the fork GC's job.
@@ -72,7 +73,7 @@ static void maybeRepairTailBlock(IndexSpec *spec, InvertedIndex *idx) {
   }
 
   II_GCScanStats info;
-  if (!InvertedIndex_RepairFullTailBlock(idx, spec, (uint8_t)threshold, &info)) {
+  if (!InvertedIndex_MaybeRepairTailBlock(idx, spec, (uint8_t)threshold, &info)) {
     return;
   }
 
