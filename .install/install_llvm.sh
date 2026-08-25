@@ -216,9 +216,33 @@ install_llvm() {
             fi
             apt_get_cmd "$MODE" install -y --no-install-recommends \
                 lsb-release wget $spc_pkg gnupg ca-certificates
-            wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
-            chmod +x /tmp/llvm.sh
-            if $MODE /tmp/llvm.sh "$LLVM_VER"; then
+            # Retry the llvm.sh download, and treat a persistent failure as an
+            # apt.llvm.org failure (-> tarball below) rather than a bootstrap
+            # failure. Debian trixie ships no native clang-${LLVM_VER}, so it
+            # always reaches this path; as a bare command under `set -e`, a
+            # single transient blip here (wget exit 4 = network failure) aborted
+            # the whole bootstrap instead of falling through to step 3. The loop
+            # lives in shell rather than in wget flags, and uses `-T 60`, to stay
+            # portable to BusyBox wget — same reasoning as install_boost.sh.
+            # `-nv` rather than `-q` so a failure says why in the CI log.
+            local llvm_sh_ok=0 attempt
+            for attempt in 1 2 3 4 5; do
+                if wget -nv -T 60 -O /tmp/llvm.sh https://apt.llvm.org/llvm.sh; then
+                    llvm_sh_ok=1
+                    break
+                fi
+                if [[ "$attempt" -eq 5 ]]; then
+                    echo ">>> llvm.sh download failed after $attempt attempts" >&2
+                    break
+                fi
+                echo ">>> llvm.sh download failed (attempt $attempt), retrying in 10s..." >&2
+                sleep 10
+            done
+            # chmod sits inside the condition so a missing /tmp/llvm.sh (the
+            # download never succeeded) also routes to the tarball rather than
+            # tripping `set -e`.
+            if [[ "$llvm_sh_ok" -eq 1 ]] && chmod +x /tmp/llvm.sh \
+                    && $MODE /tmp/llvm.sh "$LLVM_VER"; then
                 rm -f /tmp/llvm.sh
                 # llvm.sh installs the toolchain but does not always leave the
                 # libclang development package/symlink that clang-sys and the
