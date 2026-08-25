@@ -24,6 +24,12 @@ typedef enum TermDictionaryDecrResult {
    * `num_docs` reached `0`; the entry was removed.
    */
   TermDictionaryDecrResult_Deleted = 2,
+  /**
+   * The term is ineligible (see [`storable_term`]), so no entry could
+   * exist for it. Unlike [`NotFound`](Self::NotFound) it says nothing
+   * about the add and delete counts having diverged.
+   */
+  TermDictionaryDecrResult_Unsupported = 3,
 } TermDictionaryDecrResult;
 
 /**
@@ -44,6 +50,14 @@ typedef enum TermDictionaryInsertOutcome {
    * No prior entry existed; a new terminal was created.
    */
   TermDictionaryInsertOutcome_New = 1,
+  /**
+   * The term is ineligible (see [`storable_term`]); nothing was
+   * stored. The C path reports these as `TRIE_OK_UPDATED`; the
+   * separate value lets a caller tracking distinct-term statistics
+   * tell a rejected term from a repeated one, while still comparing
+   * unequal to [`New`](Self::New) as that caller expects.
+   */
+  TermDictionaryInsertOutcome_Unsupported = 2,
 } TermDictionaryInsertOutcome;
 
 /**

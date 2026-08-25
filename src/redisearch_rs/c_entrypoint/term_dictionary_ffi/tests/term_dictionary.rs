@@ -151,6 +151,108 @@ fn decrement_num_docs_reports_each_outcome() {
     free(t);
 }
 
+/// The eligibility rules the C terms trie applies to a term, as a table
+/// of `(term, is_storable)` cases around each bound.
+fn eligibility_cases() -> Vec<(String, bool)> {
+    let ascii = |n: usize| "a".repeat(n);
+    // Three bytes per codepoint, so the byte bound bites before the rune one.
+    let cjk = |n: usize| "\u{4e2d}".repeat(n);
+
+    vec![
+        (String::new(), false),
+        (ascii(1), true),
+        (ascii(MAX_TERM_RUNES - 1), true),
+        (ascii(MAX_TERM_RUNES), false),
+        (cjk(MAX_TERM_BYTES / 3), true),
+        (cjk(MAX_TERM_BYTES / 3 + 1), false),
+    ]
+}
+
+#[test]
+fn add_term_applies_the_c_trie_eligibility_rules() {
+    for (term, storable) in eligibility_cases() {
+        let t = NewTermDictionary();
+
+        let outcome = add(t, &term, 1.0, 1);
+
+        if storable {
+            assert_eq!(
+                outcome,
+                TermDictionaryInsertOutcome::New,
+                "{} bytes / {} runes is storable",
+                term.len(),
+                term.chars().count()
+            );
+            assert!(get(t, &term).is_some());
+        } else {
+            assert_eq!(
+                outcome,
+                TermDictionaryInsertOutcome::Unsupported,
+                "{} bytes / {} runes is not storable",
+                term.len(),
+                term.chars().count()
+            );
+            assert!(get(t, &term).is_none(), "nothing was stored");
+            // Safety: `t` is a live dictionary.
+            assert_eq!(unsafe { TermDictionary_Len(t) }, 0);
+        }
+
+        free(t);
+    }
+}
+
+#[test]
+fn replace_and_insert_reject_the_same_terms_as_add() {
+    for (term, storable) in eligibility_cases() {
+        if storable {
+            continue;
+        }
+
+        let t = NewTermDictionary();
+
+        // Safety: `t` is a live dictionary; the term pointer/len come from a valid `&str`.
+        let replaced =
+            unsafe { TermDictionary_ReplaceTerm(t, term.as_ptr().cast(), term.len(), 1.0, 1) };
+        // Safety: as above.
+        let inserted =
+            unsafe { TermDictionary_Insert(t, term.as_ptr().cast(), term.len(), 1.0, 1) };
+
+        assert_eq!(replaced, TermDictionaryInsertOutcome::Unsupported);
+        assert_eq!(inserted, TermDictionaryInsertOutcome::Unsupported);
+        // Safety: `t` is a live dictionary.
+        assert_eq!(unsafe { TermDictionary_Len(t) }, 0);
+
+        free(t);
+    }
+}
+
+#[test]
+fn decrement_num_docs_separates_unsupported_from_not_found() {
+    let t = NewTermDictionary();
+
+    let too_long = "a".repeat(MAX_TERM_RUNES);
+    assert_eq!(decr(t, &too_long, 1), TermDictionaryDecrResult::Unsupported);
+    assert_eq!(decr(t, "", 1), TermDictionaryDecrResult::Unsupported);
+    assert_eq!(decr(t, "bike", 1), TermDictionaryDecrResult::NotFound);
+
+    free(t);
+}
+
+#[test]
+fn a_term_of_max_bytes_is_storable_when_its_rune_count_fits() {
+    let t = NewTermDictionary();
+    // Exactly at the byte bound, but 254 runes: under both.
+    let term = "\u{4e2d}".repeat(129) + &"a".repeat(MAX_TERM_BYTES - 129 * 3);
+    assert_eq!(term.len(), MAX_TERM_BYTES);
+    assert!(term.chars().count() < MAX_TERM_RUNES);
+
+    let outcome = add(t, &term, 1.0, 1);
+
+    assert_eq!(outcome, TermDictionaryInsertOutcome::New);
+
+    free(t);
+}
+
 #[test]
 fn len_and_mem_usage_grow_with_content() {
     let t = NewTermDictionary();

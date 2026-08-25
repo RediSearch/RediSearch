@@ -29,6 +29,13 @@
 //! iterator itself is single-threaded: it may not be advanced or freed
 //! from two threads at once, though separate iterators over the same
 //! dictionary may.
+//!
+//! Mutating entry points hold terms to the C terms trie's eligibility
+//! rules (see [`storable_term`]). Two divergences from that trie are
+//! deliberate: fuzzy pattern length is unbounded here, where
+//! `Trie_IterateFuzzy` rejects a pattern above `TRIE_MAX_PREFIX`; and a
+//! term with an embedded NUL is stored whole, where `strToRunes` stops
+//! at the NUL.
 
 #![allow(non_camel_case_types, non_snake_case)]
 
@@ -81,6 +88,12 @@ pub enum TermDictionaryInsertOutcome {
     Updated = 0,
     /// No prior entry existed; a new terminal was created.
     New = 1,
+    /// The term is ineligible (see [`storable_term`]); nothing was
+    /// stored. The C path reports these as `TRIE_OK_UPDATED`; the
+    /// separate value lets a caller tracking distinct-term statistics
+    /// tell a rejected term from a repeated one, while still comparing
+    /// unequal to [`New`](Self::New) as that caller expects.
+    Unsupported = 2,
 }
 
 impl From<InsertOutcomeImpl> for TermDictionaryInsertOutcome {
@@ -103,6 +116,10 @@ pub enum TermDictionaryDecrResult {
     Updated = 1,
     /// `num_docs` reached `0`; the entry was removed.
     Deleted = 2,
+    /// The term is ineligible (see [`storable_term`]), so no entry could
+    /// exist for it. Unlike [`NotFound`](Self::NotFound) it says nothing
+    /// about the add and delete counts having diverged.
+    Unsupported = 3,
 }
 
 impl From<DecrResultImpl> for TermDictionaryDecrResult {
@@ -137,6 +154,47 @@ unsafe fn term_arg<'a>(ptr: *const c_char, len: usize, what: &'static str) -> &'
     };
 
     std::str::from_utf8(bytes).unwrap_or_else(|_| panic!("{what} must be valid UTF-8"))
+}
+
+/// Byte bound the C terms trie's `Trie_InsertStringBuffer` applies,
+/// `TRIE_INITIAL_STRING_LEN * sizeof(rune)`. Coarser than
+/// [`MAX_TERM_RUNES`] rather than implied by it: a term of multi-byte
+/// codepoints can fall under the rune bound and still exceed this one.
+pub const MAX_TERM_BYTES: usize = 512;
+
+/// Codepoint bound the C terms trie applies, `TRIE_INITIAL_STRING_LEN`.
+/// Structural there — its iterator carries fixed `rune` and `stackNode`
+/// arrays of that size, so a longer key cannot be walked.
+pub const MAX_TERM_RUNES: usize = 256;
+
+/// Borrow `(ptr, len)` as a term, or `None` for one the C terms trie
+/// would have rejected: empty, over [`MAX_TERM_BYTES`], or at
+/// [`MAX_TERM_RUNES`] codepoints. Reproduced so the same terms stay out
+/// of the dictionary as out of that trie, which has no such limits of
+/// its own.
+///
+/// Codepoints are counted on the raw term, as `strToRunes` does, not on
+/// the case-folded form stored — folding can change the count.
+///
+/// Only the mutating entry points need this: a lookup or removal of an
+/// ineligible term reports it absent anyway, no insert having accepted
+/// it.
+///
+/// # Safety
+///
+/// Same as [`term_arg`].
+///
+/// # Panics
+///
+/// Panics if the bytes are not valid UTF-8.
+unsafe fn storable_term<'a>(ptr: *const c_char, len: usize, what: &'static str) -> Option<&'a str> {
+    // SAFETY: forwarded from this function's own contract.
+    let term = unsafe { term_arg(ptr, len, what) };
+
+    let storable =
+        !term.is_empty() && term.len() <= MAX_TERM_BYTES && term.chars().count() < MAX_TERM_RUNES;
+
+    storable.then_some(term)
 }
 
 /// Box a term iterator into the C-facing [`TermDictionaryIterator`],
@@ -265,7 +323,9 @@ pub unsafe extern "C" fn TermDictionary_AddTerm(
     // TermDictionary, with no outstanding iterators.
     let dict = unsafe { &mut *t };
     // SAFETY: caller is to ensure `term` points to `len` valid bytes.
-    let term = unsafe { term_arg(term, len, "term") };
+    let Some(term) = (unsafe { storable_term(term, len, "term") }) else {
+        return TermDictionaryInsertOutcome::Unsupported;
+    };
     dict.add_term(term, score, num_docs).into()
 }
 
@@ -301,7 +361,9 @@ pub unsafe extern "C" fn TermDictionary_ReplaceTerm(
     // TermDictionary, with no outstanding iterators.
     let dict = unsafe { &mut *t };
     // SAFETY: caller is to ensure `term` points to `len` valid bytes.
-    let term = unsafe { term_arg(term, len, "term") };
+    let Some(term) = (unsafe { storable_term(term, len, "term") }) else {
+        return TermDictionaryInsertOutcome::Unsupported;
+    };
     dict.replace_term(term, score, num_docs).into()
 }
 
@@ -341,7 +403,9 @@ pub unsafe extern "C" fn TermDictionary_Insert(
     // TermDictionary, with no outstanding iterators.
     let dict = unsafe { &mut *t };
     // SAFETY: caller is to ensure `term` points to `len` valid bytes.
-    let term = unsafe { term_arg(term, len, "term") };
+    let Some(term) = (unsafe { storable_term(term, len, "term") }) else {
+        return TermDictionaryInsertOutcome::Unsupported;
+    };
     match dict.insert(term, TermEntry { score, num_docs }) {
         Some(_) => TermDictionaryInsertOutcome::Updated,
         None => TermDictionaryInsertOutcome::New,
@@ -462,7 +526,9 @@ pub unsafe extern "C" fn TermDictionary_DecrementNumDocs(
     // TermDictionary, with no outstanding iterators.
     let dict = unsafe { &mut *t };
     // SAFETY: caller is to ensure `term` points to `len` valid bytes.
-    let term = unsafe { term_arg(term, len, "term") };
+    let Some(term) = (unsafe { storable_term(term, len, "term") }) else {
+        return TermDictionaryDecrResult::Unsupported;
+    };
     dict.decrement_num_docs(term, delta).into()
 }
 
