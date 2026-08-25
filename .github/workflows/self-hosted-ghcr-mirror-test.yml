@@ -1,0 +1,81 @@
+name: "GHCR Mirror Test"
+
+on:
+  workflow_dispatch:
+  push:
+
+jobs:
+  push-image:
+    name: Push hello image to GHCR
+    runs-on: ${{ vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+      image-path: ${{ steps.image.outputs.image-path }}
+      run-id: ${{ steps.image.outputs.run-id }}
+    steps:
+      - name: Build and push image
+        id: image
+        shell: bash -l -eo pipefail {0}
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          owner_lc="${GITHUB_REPOSITORY_OWNER,,}"
+          image_path="${owner_lc}/redisearch-ghcr-mirror-test:${GITHUB_RUN_ID}"
+          image="ghcr.io/${image_path}"
+
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker build --build-arg RUN_ID="$GITHUB_RUN_ID" -t "$image" - <<'EOF'
+          FROM alpine:3.20
+          ARG RUN_ID
+          RUN printf 'hello from %s\n' "$RUN_ID" > /hello.txt
+          CMD ["cat", "/hello.txt"]
+          EOF
+          docker push "$image"
+
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "image-path=$image_path" >> "$GITHUB_OUTPUT"
+          echo "run-id=$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+
+  pull-from-mirror:
+    name: Pull hello image from GHCR mirror
+    needs: push-image
+    if: ${{ vars.GCHR_MIRROR_HOST != '' }}
+    runs-on: ${{ vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-latest' }}
+    steps:
+      - name: Pull and run mirrored image
+        shell: bash -l -eo pipefail {0}
+        env:
+          MIRROR_HOST: ${{ vars.GCHR_MIRROR_HOST }}
+          MIRROR_USERNAME: ${{ vars.GCHR_MIRROR_USERNAME || secrets.GCHR_MIRROR_USERNAME }}
+          MIRROR_PASSWORD: ${{ secrets.GCHR_MIRROR_PASSWORD || vars.GCHR_MIRROR_PASSWORD }}
+          IMAGE_PATH: ${{ needs.push-image.outputs.image-path }}
+          RUN_ID: ${{ needs.push-image.outputs.run-id }}
+        run: |
+          mirror_host="${MIRROR_HOST#http://}"
+          mirror_host="${mirror_host#https://}"
+          mirror_host="${mirror_host%/}"
+
+          if [ -z "$MIRROR_USERNAME" ] || [ -z "$MIRROR_PASSWORD" ]; then
+            echo "GCHR_MIRROR_USERNAME and GCHR_MIRROR_PASSWORD are required when GCHR_MIRROR_HOST is set."
+            exit 1
+          fi
+
+          mirror_image="${mirror_host}/${IMAGE_PATH}"
+          echo "$MIRROR_PASSWORD" | docker login "$mirror_host" -u "$MIRROR_USERNAME" --password-stdin
+
+          for attempt in 1 2 3 4 5 6; do
+            if docker pull "$mirror_image"; then
+              break
+            fi
+            if [ "$attempt" -eq 6 ]; then
+              exit 1
+            fi
+            echo "Mirror pull failed, retrying in 10 seconds..."
+            sleep 10
+          done
+
+          docker run --rm "$mirror_image" | tee /tmp/ghcr-mirror-test-output.txt
+          grep -Fx "hello from ${RUN_ID}" /tmp/ghcr-mirror-test-output.txt
