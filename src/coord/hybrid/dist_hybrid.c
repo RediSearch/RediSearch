@@ -807,8 +807,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     }
 
     // The RPNets consume cursor-read streams whose iterators are created and
-    // wired by HybridRequest_prepareCursors below; no dedicated start
-    // function is needed.
+    // wired by HybridRequest_prepareCursors below.
     HybridRequest_buildDistRPChain(hreq->requests[0], &xcmd, lookups[0], rpnetNext);
     HybridRequest_buildDistRPChain(hreq->requests[1], &xcmd, lookups[1], rpnetNext);
 
@@ -827,12 +826,13 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
 // Wire one subquery's RPNet to its (still inert) cursor-read iterator: the
 // RPNet owns the reader reference and consumes the iterator's channel from the
 // depleter thread, exactly like the aggregate RPNet does.
-static void wireReadIterator(RPNet *nc, MRIterator *it, MRCommand *readTemplate,
-                             RPNetHybridSubquery subquery) {
+static void wireReadIterator(RPNet *nc, MRIterator *it, MRCommand *readTemplate) {
   MRCommand_Free(&nc->cmd);
   nc->cmd = *readTemplate;  // take ownership of the template's allocations
   nc->it = it;
-  nc->hybridSubquery = subquery;
+  RS_ASSERT(IsHybridSearchSubquery(nc->areq) || IsHybridVectorSubquery(nc->areq));
+  nc->hybridSubquery =
+      IsHybridSearchSubquery(nc->areq) ? RPNET_HYBRID_SEARCH : RPNET_HYBRID_VSIM;
   // Register the iterator's channel so the main-thread timeout callback can
   // wake a blocked reader after flipping AREQ's `timedOut` flag. Paired with
   // QueryRequestAsyncState_UnregisterAbortWakeChannel in rpnetFree.
@@ -900,11 +900,14 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
         .successCB = netCursorCallback,
       }
     );
+    // The three iterators must share one IO runtime (assigned round-robin to
+    // the first) so the arming callbacks touch the siblings on one IO thread.
+    IORuntimeCtx *ioRuntime = MRIterator_GetIORuntime(searchIt);
     MRIterator *vsimIt = MR_CreateIterator(
       &readTemplate,
       &(MRIteratorConfig){
         .successCB = netCursorCallback,
-        .ioRuntime = MRIterator_GetIORuntime(searchIt),
+        .ioRuntime = ioRuntime,
       }
     );
 
@@ -921,7 +924,7 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
         .cbPrivateData = armingCtx,
         .cbPrivateDataDestructor = HybridArmingCtx_Free,
         .commandModifier = knnCtx ? HybridKnnCommandModifier : NULL,
-        .ioRuntime = MRIterator_GetIORuntime(searchIt),
+        .ioRuntime = ioRuntime,
       }
     );
 
@@ -931,8 +934,8 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
     // global handle, last-set wins) observes the subquery-0 stream, which is
     // what the choreographed timeout tests gate on.
     MRCommand vsimTemplate = MRCommand_Copy(&readTemplate);
-    wireReadIterator(vsimRPNet, vsimIt, &vsimTemplate, RPNET_HYBRID_VSIM);
-    wireReadIterator(searchRPNet, searchIt, &readTemplate, RPNET_HYBRID_SEARCH);
+    wireReadIterator(vsimRPNet, vsimIt, &vsimTemplate);
+    wireReadIterator(searchRPNet, searchIt, &readTemplate);
 
     // One start job for all three iterators (hybridArmingStartCb expands the
     // read placeholders and dispatches the fan-out): a single topology
@@ -1076,9 +1079,7 @@ static void HybridDispatchCtx_Tail(void *arg) {
 // `dispatcherStatus` may carry non-fatal warning bits stamped during dispatch.
 // We forward them onto hreq->tailPipelineError so finishSendChunkReply_hybrid
 // emits them; bits are independent of the error code, so
-// HybridRequest_GetError stays non-fatal. (Mapping-stage shard warnings no
-// longer pass through here — they ride the read streams and are folded by
-// rpnet; see processHybridMappingWarning.)
+// HybridRequest_GetError stays non-fatal.
 static void scheduleHybridTail(HybridRequest *hreq, StrongRef indexSpecRef,
                              struct ConcurrentCmdCtx *cmdCtx,
                              const QueryError *dispatcherStatus) {
