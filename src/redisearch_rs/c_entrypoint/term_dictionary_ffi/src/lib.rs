@@ -601,6 +601,10 @@ pub unsafe extern "C" fn TermDictionary_IterateContains<'td>(
 /// `(str, len)` (`*` matches any run of characters, `?` exactly one), in
 /// lexicographical order.
 ///
+/// The pattern is the escaped form: the walk resolves `\` itself, so a
+/// caller that unescapes beforehand collapses each sequence twice and
+/// searches for the wrong term.
+///
 /// Invoke [`TermDictionaryIterator_Next`] to get the results.
 ///
 /// # Safety
