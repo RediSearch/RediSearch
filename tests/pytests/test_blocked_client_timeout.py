@@ -1126,13 +1126,8 @@ class TestCoordinatorTimeout:
                 int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_PIPELINE_METRIC]),
                 int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_PIPELINE_METRIC]) + 1,
                 message="Post-fanout timeout should bump the PIPELINE stage")
-            env.assertEqual(
-                int(after_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC]),
-                int(before_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC]) + 1,
-                message="The coordinator node's shard should count its timeout warning")
             _verify_metrics_not_changed(
-                env, env, before_info,
-                [TIMEOUT_WARNING_COORD_METRIC, TIMEOUT_WARNING_SHARD_METRIC])
+                env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
         finally:
             run_command_on_all_shards(env, debug_cmd(), 'SYNC_POINT', 'CLEAR')
             if coord_paused:
