@@ -87,7 +87,9 @@ extern "C" {
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * - `gc_scan_delta` must be a valid, non NULL, pointer to a `GcScanDelta` instance.
+ * - `gc_scan_delta` must be a [valid], non NULL, pointer to a `GcScanDelta` instance.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t GcScanDelta_LastBlockIdx(const struct InvertedIndexGcDelta *gc_scan_delta);
 
@@ -97,7 +99,9 @@ size_t GcScanDelta_LastBlockIdx(const struct InvertedIndexGcDelta *gc_scan_delta
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * - `ib` must be a valid pointer to an `IndexBlock` instance and cannot be NULL.
+ * - `ib` must be a [valid] pointer to an `IndexBlock` instance and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 const char *IndexBlock_Data(const struct IndexBlock *ib);
 
@@ -107,7 +111,9 @@ const char *IndexBlock_Data(const struct IndexBlock *ib);
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * - `ib` must be a valid pointer to an `IndexBlock` instance and cannot be NULL.
+ * - `ib` must be a [valid] pointer to an `IndexBlock` instance and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 t_docId IndexBlock_FirstId(const struct IndexBlock *ib);
 
@@ -117,7 +123,9 @@ t_docId IndexBlock_FirstId(const struct IndexBlock *ib);
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * - `ib` must be a valid pointer to an `IndexBlock` instance and cannot be NULL.
+ * - `ib` must be a [valid] pointer to an `IndexBlock` instance and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 t_docId IndexBlock_LastId(const struct IndexBlock *ib);
 
@@ -127,7 +135,9 @@ t_docId IndexBlock_LastId(const struct IndexBlock *ib);
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * - `ib` must be a valid pointer to an `IndexBlock` instance and cannot be NULL.
+ * - `ib` must be a [valid] pointer to an `IndexBlock` instance and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 uint16_t IndexBlock_NumEntries(const struct IndexBlock *ib);
 
@@ -137,7 +147,9 @@ uint16_t IndexBlock_NumEntries(const struct IndexBlock *ib);
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+ * - `ir` must be a [valid], non NULL, pointer to an `IndexReader` instance.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 IndexFlags IndexReader_Flags(const struct IndexReader *ir);
 
@@ -147,8 +159,10 @@ IndexFlags IndexReader_Flags(const struct IndexReader *ir);
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance created using
+ * - `ir` must be a [valid], non NULL, pointer to an `IndexReader` instance created using
  *   [`NewIndexReader`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void IndexReader_Free(struct IndexReader *ir);
 
@@ -158,7 +172,9 @@ void IndexReader_Free(struct IndexReader *ir);
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+ * - `ir` must be a [valid], non NULL, pointer to an `IndexReader` instance.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 bool IndexReader_HasMulti(const struct IndexReader *ir);
 
@@ -168,8 +184,10 @@ bool IndexReader_HasMulti(const struct IndexReader *ir);
  *
  * # Safety
  * The following invariants must be upheld when calling this function:
- * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
- * - `ii` must be either NULL or a valid pointer to an `InvertedIndex` instance.
+ * - `ir` must be a [valid], non NULL, pointer to an `IndexReader` instance.
+ * - `ii` must be either NULL or a [valid] pointer to an `InvertedIndex` instance.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 bool IndexReader_IsIndex(const struct IndexReader *ir, const struct InvertedIndex *ii);
 
@@ -181,7 +199,9 @@ bool IndexReader_IsIndex(const struct IndexReader *ir, const struct InvertedInde
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+ * - `ir` must be a [valid], non NULL, pointer to an `IndexReader` instance.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 bool IndexReader_NeedsRevalidation(struct IndexReader *ir);
 
@@ -193,8 +213,10 @@ bool IndexReader_NeedsRevalidation(struct IndexReader *ir);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
- * - `res` must be a valid pointer to an `RSIndexResult` instance.
+ * - `ir` must be a [valid], non NULL, pointer to an `IndexReader` instance.
+ * - `res` must be a [valid] pointer to an `RSIndexResult` instance.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 bool IndexReader_Next(struct IndexReader *ir, RSIndexResult *res);
 
@@ -204,7 +226,9 @@ bool IndexReader_Next(struct IndexReader *ir, RSIndexResult *res);
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+ * - `ir` must be a [valid], non NULL, pointer to an `IndexReader` instance.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 uint64_t IndexReader_NumEstimated(const struct IndexReader *ir);
 
@@ -215,7 +239,9 @@ uint64_t IndexReader_NumEstimated(const struct IndexReader *ir);
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+ * - `ir` must be a [valid], non NULL, pointer to an `IndexReader` instance.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 const struct NumericFilter *IndexReader_NumericFilter(const struct IndexReader *ir);
 
@@ -225,7 +251,9 @@ const struct NumericFilter *IndexReader_NumericFilter(const struct IndexReader *
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+ * - `ir` must be a [valid], non NULL, pointer to an `IndexReader` instance.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void IndexReader_Reset(struct IndexReader *ir);
 
@@ -238,8 +266,10 @@ void IndexReader_Reset(struct IndexReader *ir);
  *
  * # Safety
  * The following invariants must be upheld when calling this function:
- * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
- * - `res` must be a valid pointer to an `RSIndexResult` instance.
+ * - `ir` must be a [valid], non NULL, pointer to an `IndexReader` instance.
+ * - `res` must be a [valid] pointer to an `RSIndexResult` instance.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 bool IndexReader_Seek(struct IndexReader *ir, t_docId doc_id, RSIndexResult *res);
 
@@ -252,7 +282,9 @@ bool IndexReader_Seek(struct IndexReader *ir, t_docId doc_id, RSIndexResult *res
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+ * - `ir` must be a [valid], non NULL, pointer to an `IndexReader` instance.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 bool IndexReader_SkipTo(struct IndexReader *ir, t_docId doc_id);
 
@@ -268,10 +300,12 @@ bool IndexReader_SkipTo(struct IndexReader *ir, t_docId doc_id);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
- * - `deltas` must be a valid, non NULL, pointer to a `GcScanDelta` instance created using
+ * - `ii` must be a [valid], non NULL, pointer to an `InvertedIndex` instance.
+ * - `deltas` must be a [valid], non NULL, pointer to a `GcScanDelta` instance created using
  *   [`InvertedIndex_GcDelta_Read`].
- * - `apply_info` must be a valid, non NULL, pointer to a `GcApplyInfo` instance.
+ * - `apply_info` must be a [valid], non NULL, pointer to a `GcApplyInfo` instance.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void InvertedIndex_ApplyGCDelta(struct InvertedIndex *ii, struct InvertedIndexGcDelta *deltas, struct II_GCScanStats *apply_info);
 
@@ -281,7 +315,9 @@ void InvertedIndex_ApplyGCDelta(struct InvertedIndex *ii, struct InvertedIndexGc
  *
  * # Safety
  * The following invariant must be upheld when calling this function:
- * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+ * - `ii` must be a [valid] pointer to an `InvertedIndex` instance and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 const struct IndexBlock *InvertedIndex_BlockRef(const struct InvertedIndex *ii, size_t block_idx);
 
@@ -292,8 +328,10 @@ const struct IndexBlock *InvertedIndex_BlockRef(const struct InvertedIndex *ii, 
  *
  * # Safety
  * The following invariants must be upheld when calling this function:
- * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
- * - `count` must be a valid pointer to a `usize` and cannot be NULL.
+ * - `ii` must be a [valid] pointer to an `InvertedIndex` instance and cannot be NULL.
+ * - `count` must be a [valid] pointer to a `usize` and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct IIBlockSummary *InvertedIndex_BlocksSummary(const struct InvertedIndex *ii, size_t *count);
 
@@ -302,10 +340,12 @@ struct IIBlockSummary *InvertedIndex_BlocksSummary(const struct InvertedIndex *i
  *
  * # Safety
  * The following invariants must be upheld when calling this function:
- * - `blocks` must be a valid pointer to an array of `BlockSummary` instances returned by
+ * - `blocks` must be a [valid] pointer to an array of `BlockSummary` instances returned by
  *   [`InvertedIndex_BlocksSummary`].
  * - `count` must have the same value as the `count` output parameter passed to
  *   [`InvertedIndex_BlocksSummary`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void InvertedIndex_BlocksSummaryFree(struct IIBlockSummary *blocks, size_t count);
 
@@ -315,7 +355,9 @@ void InvertedIndex_BlocksSummaryFree(struct IIBlockSummary *blocks, size_t count
  *
  * # Safety
  * The following invariant must be upheld when calling this function:
- * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+ * - `ii` must be a [valid] pointer to an `InvertedIndex` instance and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 t_fieldMask InvertedIndex_FieldMask(const struct InvertedIndex *ii);
 
@@ -324,7 +366,9 @@ t_fieldMask InvertedIndex_FieldMask(const struct InvertedIndex *ii);
  *
  * # Safety
  * The following invariant must be upheld when calling this function:
- * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+ * - `ii` must be a [valid] pointer to an `InvertedIndex` instance and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 IndexFlags InvertedIndex_Flags(const struct InvertedIndex *ii);
 
@@ -333,8 +377,10 @@ IndexFlags InvertedIndex_Flags(const struct InvertedIndex *ii);
  *
  * # Safety
  * The following invariant must be upheld when calling this function:
- * - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance created using
+ * - `ii` must be a [valid], non NULL, pointer to an `InvertedIndex` instance created using
  *   [`NewInvertedIndex_Ex`] or `NewInvertedIndex`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void InvertedIndex_Free(struct InvertedIndex *ii);
 
@@ -344,8 +390,10 @@ void InvertedIndex_Free(struct InvertedIndex *ii);
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * - `deltas` must be a valid pointer to a `GcScanDelta` instance created using
+ * - `deltas` must be a [valid] pointer to a `GcScanDelta` instance created using
  *   [`InvertedIndex_GcDelta_Read`], or NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void InvertedIndex_GcDelta_Free(struct InvertedIndexGcDelta *deltas);
 
@@ -356,7 +404,9 @@ void InvertedIndex_GcDelta_Free(struct InvertedIndexGcDelta *deltas);
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * - `rd` must be a valid, non NULL, pointer to an `InvertedIndexGCReader` instance.
+ * - `rd` must be a [valid], non NULL, pointer to an `InvertedIndexGCReader` instance.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct InvertedIndexGcDelta *InvertedIndex_GcDelta_Read(struct II_GCReader *rd);
 
@@ -367,12 +417,14 @@ struct InvertedIndexGcDelta *InvertedIndex_GcDelta_Read(struct II_GCReader *rd);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `wr` must be a valid, non NULL, pointer to an `InvertedIndexGCWriter` instance.
- * - `sctx` must be a valid, non NULL, pointer to a `RedisSearchCtx` instance.
- * - `idx` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
- * - `cb` must be a valid, non NULL, pointer to an `InvertedIndexGCCallback` instance.
- * - The `spec` field of the `RedisSearchCtx` must be a valid, non NULL, pointer to an
+ * - `wr` must be a [valid], non NULL, pointer to an `InvertedIndexGCWriter` instance.
+ * - `sctx` must be a [valid], non NULL, pointer to a `RedisSearchCtx` instance.
+ * - `idx` must be a [valid], non NULL, pointer to an `InvertedIndex` instance.
+ * - `cb` must be a [valid], non NULL, pointer to an `InvertedIndexGCCallback` instance.
+ * - The `spec` field of the `RedisSearchCtx` must be a [valid], non NULL, pointer to an
  *   `IndexSpec` instance.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 bool InvertedIndex_GcDelta_Scan(struct II_GCWriter *wr, RedisSearchCtx *sctx, struct InvertedIndex *idx, struct II_GCCallback *cb);
 
@@ -382,7 +434,9 @@ bool InvertedIndex_GcDelta_Scan(struct II_GCWriter *wr, RedisSearchCtx *sctx, st
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
+ * - `ii` must be a [valid], non NULL, pointer to an `InvertedIndex` instance.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 uint32_t InvertedIndex_GcMarker(const struct InvertedIndex *ii);
 
@@ -392,7 +446,9 @@ uint32_t InvertedIndex_GcMarker(const struct InvertedIndex *ii);
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
+ * - `ii` must be a [valid], non NULL, pointer to an `InvertedIndex` instance.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void InvertedIndex_GcMarkerInc(struct InvertedIndex *ii);
 
@@ -402,7 +458,9 @@ void InvertedIndex_GcMarkerInc(struct InvertedIndex *ii);
  *
  * # Safety
  * The following invariant must be upheld when calling this function:
- * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+ * - `ii` must be a [valid] pointer to an `InvertedIndex` instance and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 t_docId InvertedIndex_LastId(const struct InvertedIndex *ii);
 
@@ -411,7 +469,9 @@ t_docId InvertedIndex_LastId(const struct InvertedIndex *ii);
  *
  * # Safety
  * The following invariant must be upheld when calling this function:
- * - `ii` must be a valid pointer to an `InvertedIndex` instance and must not be NULL.
+ * - `ii` must be a [valid] pointer to an `InvertedIndex` instance and must not be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t InvertedIndex_MemUsage(const struct InvertedIndex *ii);
 
@@ -420,7 +480,9 @@ size_t InvertedIndex_MemUsage(const struct InvertedIndex *ii);
  *
  * # Safety
  * The following invariant must be upheld when calling this function:
- * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+ * - `ii` must be a [valid] pointer to an `InvertedIndex` instance and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t InvertedIndex_NumBlocks(const struct InvertedIndex *ii);
 
@@ -429,7 +491,9 @@ size_t InvertedIndex_NumBlocks(const struct InvertedIndex *ii);
  *
  * # Safety
  * The following invariant must be upheld when calling this function:
- * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+ * - `ii` must be a [valid] pointer to an `InvertedIndex` instance and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 uint32_t InvertedIndex_NumDocs(const struct InvertedIndex *ii);
 
@@ -439,7 +503,9 @@ uint32_t InvertedIndex_NumDocs(const struct InvertedIndex *ii);
  *
  * # Safety
  * The following invariant must be upheld when calling this function:
- * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+ * - `ii` must be a [valid] pointer to an `InvertedIndex` instance and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t InvertedIndex_NumEntries(const struct InvertedIndex *ii);
 
@@ -448,7 +514,9 @@ size_t InvertedIndex_NumEntries(const struct InvertedIndex *ii);
  *
  * # Safety
  * The following invariant must be upheld when calling this function:
- * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+ * - `ii` must be a [valid] pointer to an `InvertedIndex` instance and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct IISummary InvertedIndex_Summary(const struct InvertedIndex *ii);
 
@@ -457,8 +525,10 @@ struct IISummary InvertedIndex_Summary(const struct InvertedIndex *ii);
  * memory growth and the number of new index blocks created.
  *
  * # Safety
- * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
- * - `record` must be a valid pointer to an `RSIndexResult` instance and cannot be NULL.
+ * - `ii` must be a [valid] pointer to an `InvertedIndex` instance and cannot be NULL.
+ * - `record` must be a [valid] pointer to an `RSIndexResult` instance and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct AddRecordOutcome InvertedIndex_WriteEntryGeneric(struct InvertedIndex *ii, const RSIndexResult *record);
 
@@ -468,7 +538,9 @@ struct AddRecordOutcome InvertedIndex_WriteEntryGeneric(struct InvertedIndex *ii
  * growth and the number of new index blocks created.
  *
  * # Safety
- * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+ * - `ii` must be a [valid] pointer to an `InvertedIndex` instance and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct AddRecordOutcome InvertedIndex_WriteNumericEntry(struct InvertedIndex *ii, t_docId doc_id, double value);
 
@@ -479,10 +551,12 @@ struct AddRecordOutcome InvertedIndex_WriteNumericEntry(struct InvertedIndex *ii
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
+ * - `ii` must be a [valid], non NULL, pointer to an `InvertedIndex` instance.
  *
  * # Panics
  * This function will panic if the provided filter is not compatible with the `InvertedIndex` type.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct IndexReader *NewIndexReader(const struct InvertedIndex *ii, union IndexDecoderCtx ctx);
 
@@ -499,7 +573,7 @@ struct IndexReader *NewIndexReader(const struct InvertedIndex *ii, union IndexDe
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * - `mem_size` must be a valid pointer to a `usize`.
+ * - `mem_size` must be a [valid] pointer to a `usize`.
  *
  * # Panics
  * This function will panic if the provided flags does not set at least one of the following
@@ -509,6 +583,8 @@ struct IndexReader *NewIndexReader(const struct InvertedIndex *ii, union IndexDe
  * - `StoreTermOffsets`
  * - `StoreNumeric`
  * - `DocIdsOnly`
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct InvertedIndex *NewInvertedIndex_Ex(IndexFlags flags, bool raw_doc_id_encoding, bool compress_floats, size_t *mem_size);
 

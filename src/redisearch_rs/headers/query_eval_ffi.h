@@ -16,6 +16,10 @@
 // Rust type name `RSQueryNode` as a bare reference, so we surface a matching
 // typedef here for the C compiler.
 typedef struct RSQueryNode RSQueryNode;
+// `AREQ` is defined in `aggregate/aggregate.h`, a heavy header we avoid pulling
+// in here. `QAST_Iterate` only takes an `AREQ *`, so a forward typedef (matching
+// the full `typedef struct AREQ { ... } AREQ;` definition) is sufficient.
+typedef struct AREQ AREQ;
 
 
 typedef struct QueryError QueryError;
@@ -40,21 +44,24 @@ extern "C" {
  *
  * # Safety
  *
- * 1. `qast` must be a non-null pointer to a valid [`QueryAST`] whose `root` is
- *    a valid [`RSQueryNode`]; it (and its `metricRequests`/`config` fields)
+ * 1. `qast` must be a non-null pointer to a [valid] [`QueryAST`] whose `root` is
+ *    a [valid] [`RSQueryNode`]; it (and its `metricRequests`/`config` fields)
  *    must stay valid and exclusively borrowed for the duration of the call. The
  *    root's subtree must meet the token-buffer requirement of
  *    [`Query_EvalNode_Rs`]'s precondition 2, for the same reason.
- * 2. `opts` must be a non-null pointer to a valid [`RSSearchOptions`].
- * 3. `sctx` must be a non-null pointer to a valid [`RedisSearchCtx`] whose
- *    `spec` is a valid, non-null [`IndexSpec`](ffi::IndexSpec).
- * 4. `status` must be a non-null pointer to a valid [`QueryError`].
+ * 2. `opts` must be a non-null pointer to a [valid] [`RSSearchOptions`].
+ * 3. `sctx` must be a non-null pointer to a [valid] [`RedisSearchCtx`] whose
+ *    `spec` is a [valid], non-null [`IndexSpec`](ffi::IndexSpec).
+ * 4. `status` must be a non-null pointer to a [valid] [`QueryError`].
+ * 5. `areq`, when non-null, must point to a [valid] [`AREQ`].
  *
  * Together these are exactly the invariants documented on
  * [`QueryEvalContext::new`] for the assembled context, which remains valid for
  * the lifetime of the returned iterator.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-QueryIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx, uint32_t reqflags, QueryError *status);
+QueryIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx, uint32_t reqflags, AREQ *areq, QueryError *status);
 
 /**
  * Evaluate a single query AST node, producing the corresponding
@@ -65,19 +72,21 @@ QueryIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSe
  *
  * # Safety
  *
- * 1. `q` must be a non-null pointer to a valid [`QueryEvalCtx`] that satisfies
+ * 1. `q` must be a non-null pointer to a [valid] [`QueryEvalCtx`] that satisfies
  *    all the invariants documented on [`QueryEvalContext::new`] and remains
- *    valid for the lifetime of the returned iterator.
- * 2. `n` must be a non-null pointer to a valid [`RSQueryNode`]. Evaluation
+ *    [valid] for the lifetime of the returned iterator.
+ * 2. `n` must be a non-null pointer to a [valid] [`RSQueryNode`]. Evaluation
  *    rewrites some tokens in place, so every node in the subtree that carries a
  *    rewritable one — see [`QueryNodeMut::token_mut`] — must additionally satisfy
  *    invariant (4) of [`QueryNodeMut::new`]. A parser-produced AST does; one
  *    assembled by hand, with a token borrowing a read-only or length-delimited
  *    string, does not.
  * 3. `eval_config` must be a non-null [`EvalConfig`](ffi::EvalConfig) handle
- *    pointing to a valid [`Config`] that stays valid for the duration of the
+ *    pointing to a [valid] [`Config`] that stays valid for the duration of the
  *    call — the snapshot [`QAST_Iterate`] loaded and threaded through the C
  *    dispatcher.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 QueryIterator *Query_EvalNode_Rs(QueryEvalCtx *q, RSQueryNode *n, const EvalConfig *eval_config);
 
@@ -86,8 +95,10 @@ QueryIterator *Query_EvalNode_Rs(QueryEvalCtx *q, RSQueryNode *n, const EvalConf
  *
  * # Safety
  *
- * `scorer_name` must be null or a valid NUL-terminated C string; `opts` must be
- * null or point to a valid [`QueryNodeOptions`].
+ * `scorer_name` must be null or a [valid] NUL-terminated C string; `opts` must be
+ * null or point to a [valid] [`QueryNodeOptions`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 bool queryNeedsOffsets(const char *scorer_name, const struct QueryNodeOptions *opts);
 
@@ -100,7 +111,9 @@ bool queryNeedsOffsets(const char *scorer_name, const struct QueryNodeOptions *o
  *
  * # Safety
  *
- * `scorer_name` must be null or a valid NUL-terminated C string.
+ * `scorer_name` must be null or a [valid] NUL-terminated C string.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 bool scorerNeedsOffsets(const char *scorer_name);
 

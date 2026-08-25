@@ -110,7 +110,9 @@ QueryErrorCode QueryError_GetCode(const struct QueryError *query_error);
  *
  * # Safety
  *
- * - `message` must be a valid C string or a NULL pointer.
+ * - `message` must be a [valid] C string or a NULL pointer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 QueryErrorCode QueryError_GetCodeFromMessage(const char *message);
 
@@ -215,7 +217,9 @@ void QueryError_SetCode(struct QueryError *query_error, uint8_t code);
  * # Safety
  *
  * - `query_error` must have been created by [`QueryError_Default`].
- * - `detail` must be a valid C string or a NULL pointer.
+ * - `detail` must be a [valid] C string or a NULL pointer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void QueryError_SetDetail(struct QueryError *query_error, const char *detail);
 
@@ -236,7 +240,9 @@ void QueryError_SetDetail(struct QueryError *query_error, const char *detail);
  * # Safety
  *
  * - `query_error` must have been created by [`QueryError_Default`].
- * - `message` must be a valid C string or a NULL pointer.
+ * - `message` must be a [valid] C string or a NULL pointer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void QueryError_SetError(struct QueryError *query_error, uint8_t code, const char *message);
 
@@ -292,7 +298,9 @@ const char *QueryError_StrerrorPrefix(uint8_t maybe_code);
  *
  * # Safety
  *
- * - `message` must be a valid C string or a NULL pointer.
+ * - `message` must be a [valid] C string or a NULL pointer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 QueryWarningCode QueryWarningCode_GetCodeFromMessage(const char *message);
 

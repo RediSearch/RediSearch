@@ -106,8 +106,10 @@ struct TrieMap *NewTrieMap(void);
  *
  * # Safety
  * The following invariants must be upheld when calling this function:
- * - `it` must point to a valid [`TrieMapIterator`] obtained from [`TrieMap_Iterate`] or
+ * - `it` must point to a [valid] [`TrieMapIterator`] obtained from [`TrieMap_Iterate`] or
  *   [`TrieMap_IterateWithFilter`] and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void TrieMapIterator_Free(struct TrieMapIterator *it);
 
@@ -117,12 +119,14 @@ void TrieMapIterator_Free(struct TrieMapIterator *it);
  *
  * # Safety
  * The following invariants must be upheld when calling this function:
- * - `it` must point to a valid [`TrieMapIterator`] obtained from [`TrieMap_Iterate`] or
+ * - `it` must point to a [valid] [`TrieMapIterator`] obtained from [`TrieMap_Iterate`] or
  *   [`TrieMap_IterateWithFilter`] and cannot be NULL.
- * - `ptr` must point to a valid pointer to a byte sequence, which will be set to the current key. This
+ * - `ptr` must point to a [valid] pointer to a byte sequence, which will be set to the current key. This
  *   pointer is invalidated upon calling [`TrieMapIterator_Next`] again.
- * - `len` must point to a valid `tm_len_t` which will be set to the length of the current key.
- * - `value` must point to a valid pointer, which will be set to the value of the current key.
+ * - `len` must point to a [valid] `tm_len_t` which will be set to the length of the current key.
+ * - `value` must point to a [valid] pointer, which will be set to the value of the current key.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 int TrieMapIterator_Next(struct TrieMapIterator *it, char * *ptr, tm_len_t *len, void * *value);
 
@@ -135,8 +139,10 @@ int TrieMapIterator_Next(struct TrieMapIterator *it, char * *ptr, tm_len_t *len,
  *
  * # Safety
  * The following invariants must be upheld when calling this function:
- * - `it` must point to a valid [`TrieMapIterator`] obtained from [`TrieMap_Iterate`] or
+ * - `it` must point to a [valid] [`TrieMapIterator`] obtained from [`TrieMap_Iterate`] or
  *   [`TrieMap_IterateWithFilter`] and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void TrieMapIterator_SetTimeout(struct TrieMapIterator *it, timespec timeout);
 
@@ -153,7 +159,9 @@ void TrieMapResultBuf_Free(TrieMapResultBuf buf);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `buf` must point to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`] and cannot be NULL.
+ * - `buf` must point to a [valid] TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`] and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void *TrieMapResultBuf_GetByIndex(TrieMapResultBuf *buf, size_t index);
 
@@ -163,7 +171,9 @@ void *TrieMapResultBuf_GetByIndex(TrieMapResultBuf *buf, size_t index);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `buf` must point to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`] and cannot be NULL.
+ * - `buf` must point to a [valid] TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`] and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t TrieMapResultBuf_Len(TrieMapResultBuf *buf);
 
@@ -179,13 +189,15 @@ size_t TrieMapResultBuf_Len(TrieMapResultBuf *buf);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- *  - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+ *  - `t` must point to a [valid] TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
  *  - `str` can be NULL only if `len == 0`. It is not necessarily NULL-terminated.
  *  - `len` can be 0. If so, `str` is regarded as an empty string.
  *  - `value` holds a pointer to the value of the record, which can be NULL
  *  - `cb` must not free the value it returns
  *  - The Redis allocator must be initialized before calling this function,
  *    and `RedisModule_Free` must not get mutated while running this function.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 int TrieMap_Add(struct TrieMap *t, const char *str, tm_len_t len, void *value, TrieMapReplaceFunc cb);
 
@@ -197,10 +209,12 @@ int TrieMap_Add(struct TrieMap *t, const char *str, tm_len_t len, void *value, T
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+ * - `t` must point to a [valid] TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
  * - `str` can be NULL only if `len == 0`. It is not necessarily NULL-terminated.
  * - `len` can be 0. If so, `str` is regarded as an empty string.
- * - if `func` is not NULL, it must be a valid function pointer of the type [`freeCB`].
+ * - if `func` is not NULL, it must be a [valid] function pointer of the type [`freeCB`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 int TrieMap_Delete(struct TrieMap *t, const char *str, tm_len_t len, freeCB func);
 
@@ -217,13 +231,15 @@ int TrieMap_Delete(struct TrieMap *t, const char *str, tm_len_t len, freeCB func
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+ * - `t` must point to a [valid] TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
  * - `str` can be NULL only if `len == 0`. It is not necessarily NULL-terminated.
  * - `len` can be 0. If so, `str` is regarded as an empty string.
  * - The value behind the returned pointer must not be destroyed by the caller.
  *   Use [`TrieMap_Delete`] to remove it instead.
  * - In case [`TRIEMAP_NOTFOUND`] is returned, the key does not exist in the trie,
  *   and the pointer must not be dereferenced.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void *TrieMap_Find(const struct TrieMap *t, const char *str, tm_len_t len);
 
@@ -235,11 +251,12 @@ void *TrieMap_Find(const struct TrieMap *t, const char *str, tm_len_t len);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+ * - `t` must point to a [valid] TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
  * - `str` can be NULL only if `len == 0`. It is not necessarily NULL-terminated.
  * - `len` can be 0. If so, `str` is regarded as an empty string.
  *
  * [`NewTrieMap`]: crate::NewTrieMap
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 TrieMapResultBuf TrieMap_FindPrefixes(const struct TrieMap *t, const char *str, tm_len_t len);
 
@@ -249,9 +266,11 @@ TrieMapResultBuf TrieMap_FindPrefixes(const struct TrieMap *t, const char *str, 
  *
  * # Safety
  * The following invariants must be upheld when calling this function:
- * - `func` must either be NULL or a valid pointer to a function of type [`freeCB`].
+ * - `func` must either be NULL or a [valid] pointer to a function of type [`freeCB`].
  * - The Redis allocator must be initialized before calling this function,
  *   and `RedisModule_Free` must not get mutated while running this function.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void TrieMap_Free(struct TrieMap *t, freeCB func);
 
@@ -263,8 +282,10 @@ void TrieMap_Free(struct TrieMap *t, freeCB func);
  *
  * # Safety
  * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+ * - `t` must point to a [valid] TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
  * - `t` must not be freed while the iterator lives.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct TrieMapIterator *TrieMap_Iterate(struct TrieMap *t);
 
@@ -283,14 +304,15 @@ struct TrieMapIterator *TrieMap_Iterate(struct TrieMap *t);
  *
  * # Safety
  * The following invariants must be upheld when calling this function:
- * - `trie` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+ * - `trie` must point to a [valid] TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
  * - `min` can be NULL only if `minlen == 0` or `minlen == -1`. It is not necessarily NULL-terminated.
  * - `minlen` can be 0. If so, `min` is regarded as an empty string.
  * - `max` can be NULL only if `maxlen == 0` or `maxlen == -1`. It is not necessarily NULL-terminated.
  * - `maxlen` can be 0. If so, `max` is regarded as an empty string.
- * - `callback` must be a valid pointer to a function of type [`TrieMapRangeCallback`]
+ * - `callback` must be a [valid] pointer to a function of type [`TrieMapRangeCallback`]
  *
  * [`NewTrieMap`]: crate::NewTrieMap
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void TrieMap_IterateRange(const struct TrieMap *trie, const char *min, int minlen, bool includeMin, const char *max, int maxlen, bool includeMax, TrieMapRangeCallback callback, void *ctx);
 
@@ -309,10 +331,12 @@ void TrieMap_IterateRange(const struct TrieMap *trie, const char *min, int minle
  *
  * # Safety
  * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+ * - `t` must point to a [valid] TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
  * - `t` must not be freed while the iterator lives.
- * - `prefix` must point to a valid pointer to a byte sequence of length `prefix_len`,
+ * - `prefix` must point to a [valid] pointer to a byte sequence of length `prefix_len`,
  *   which will be set to the current key. It may only be NULL in case `prefix_len == 0`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct TrieMapIterator *TrieMap_IterateWithFilter(struct TrieMap *t, const char *prefix, tm_len_t prefix_len, enum tm_iter_mode iter_mode);
 
@@ -321,7 +345,9 @@ struct TrieMapIterator *TrieMap_IterateWithFilter(struct TrieMap *t, const char 
  *
  * # Safety
  * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+ * - `t` must point to a [valid] TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t TrieMap_MemUsage(struct TrieMap *t);
 
@@ -333,7 +359,9 @@ size_t TrieMap_MemUsage(struct TrieMap *t);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+ * - `t` must point to a [valid] TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t TrieMap_NNodes(const struct TrieMap *t);
 
@@ -343,7 +371,9 @@ size_t TrieMap_NNodes(const struct TrieMap *t);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+ * - `t` must point to a [valid] TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t TrieMap_NUniqueKeys(const struct TrieMap *t);
 

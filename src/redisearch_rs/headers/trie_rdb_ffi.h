@@ -53,9 +53,11 @@ struct LexTrieRs *LexTrieRs_New(void);
  *
  * # Safety
  *
- * - `io` must be a valid `*mut RedisModuleIO` supplied by the calling
+ * - `io` must be a [valid] `*mut RedisModuleIO` supplied by the calling
  *   Redis module type loader and remain valid for the duration of the
  *   call.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct LexTrieRs *LexTrieRs_RdbLoad(struct RedisModuleIO *io, bool load_payloads, bool load_num_docs);
 
@@ -68,12 +70,14 @@ struct LexTrieRs *LexTrieRs_RdbLoad(struct RedisModuleIO *io, bool load_payloads
  *
  * # Safety
  *
- * - `io` must be a valid `*mut RedisModuleIO` supplied by the calling
+ * - `io` must be a [valid] `*mut RedisModuleIO` supplied by the calling
  *   Redis module command and remain valid for the duration of the call.
- * - `map` must be a valid pointer to a [`LexTrieRs`] (typically obtained
+ * - `map` must be a [valid] pointer to a [`LexTrieRs`] (typically obtained
  *   from [`LexTrieRs_New`] / [`LexTrieRs_RdbLoad`]). It is borrowed
  *   immutably for the duration of the call; no aliasing mutable
  *   references must exist.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void LexTrieRs_RdbSave(struct RedisModuleIO *io, const struct LexTrieRs *map, bool save_payloads, bool save_num_docs);
 

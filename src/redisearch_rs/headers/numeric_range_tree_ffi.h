@@ -81,9 +81,11 @@ struct NumericRangeTree *NewNumericRangeTree(bool compress_floats);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `node` must point to a valid [`NumericRangeNode`] obtained from
+ * - `node` must point to a [valid] [`NumericRangeNode`] obtained from
  *   [`crate::iterator::NumericRangeTreeIterator_Next`] and cannot be NULL.
  * - The tree from which this node came must still be valid.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 const struct NumericRange *NumericRangeNode_GetRange(const struct NumericRangeNode *node);
 
@@ -106,9 +108,11 @@ void NumericRangeTreeFindResult_Free(struct NumericRangeTreeFindResult result);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `it` must point to a valid [`NumericRangeTreeIterator`] obtained from
+ * - `it` must point to a [valid] [`NumericRangeTreeIterator`] obtained from
  *   [`NumericRangeTreeIterator_New`], or be NULL (in which case this is a no-op).
  * - After calling this function, `it` must not be used again.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void NumericRangeTreeIterator_Free(NumericRangeTreeIterator *it);
 
@@ -121,10 +125,12 @@ void NumericRangeTreeIterator_Free(NumericRangeTreeIterator *it);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`NumericRangeTree`] obtained from
+ * - `t` must point to a [valid] [`NumericRangeTree`] obtained from
  *   [`crate::NewNumericRangeTree`] and cannot be NULL.
  * - `t` must not be freed while the iterator lives.
  * - The tree must not be mutated while the iterator lives.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 NumericRangeTreeIterator *NumericRangeTreeIterator_New(const struct NumericRangeTree *t);
 
@@ -140,9 +146,11 @@ NumericRangeTreeIterator *NumericRangeTreeIterator_New(const struct NumericRange
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `it` must point to a valid [`NumericRangeTreeIterator`] obtained from
+ * - `it` must point to a [valid] [`NumericRangeTreeIterator`] obtained from
  *   [`NumericRangeTreeIterator_New`] and cannot be NULL.
  * - The tree from which this iterator was created must still be valid.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 const struct NumericRangeNode *NumericRangeTreeIterator_Next(NumericRangeTreeIterator *it);
 
@@ -162,8 +170,10 @@ size_t NumericRangeTree_BaseSize(void);
  *
  * # Safety
  *
- * - `ctx` must be a valid Redis module context.
- * - `t` must be either NULL or a valid pointer to a [`NumericRangeTree`].
+ * - `ctx` must be a [valid] Redis module context.
+ * - `t` must be either NULL or a [valid] pointer to a [`NumericRangeTree`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void NumericRangeTree_DebugDumpIndex(struct RedisModuleCtx *ctx, const struct NumericRangeTree *t, bool with_headers);
 
@@ -176,8 +186,10 @@ void NumericRangeTree_DebugDumpIndex(struct RedisModuleCtx *ctx, const struct Nu
  *
  * # Safety
  *
- * - `ctx` must be a valid Redis module context.
- * - `t` must be either NULL or a valid pointer to a [`NumericRangeTree`].
+ * - `ctx` must be a [valid] Redis module context.
+ * - `t` must be either NULL or a [valid] pointer to a [`NumericRangeTree`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void NumericRangeTree_DebugDumpTree(struct RedisModuleCtx *ctx, const struct NumericRangeTree *t, bool minimal);
 
@@ -189,8 +201,10 @@ void NumericRangeTree_DebugDumpTree(struct RedisModuleCtx *ctx, const struct Num
  *
  * # Safety
  *
- * - `ctx` must be a valid Redis module context.
- * - `t` must be either NULL or a valid pointer to a [`NumericRangeTree`].
+ * - `ctx` must be a [valid] Redis module context.
+ * - `t` must be either NULL or a [valid] pointer to a [`NumericRangeTree`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void NumericRangeTree_DebugSummary(struct RedisModuleCtx *ctx, const struct NumericRangeTree *t);
 
@@ -204,9 +218,11 @@ void NumericRangeTree_DebugSummary(struct RedisModuleCtx *ctx, const struct Nume
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`NumericRangeTree`] obtained from
+ * - `t` must point to a [valid] [`NumericRangeTree`] obtained from
  *   [`NewNumericRangeTree`] and cannot be NULL.
- * - `nf` must point to a valid [`NumericFilter`] and cannot be NULL.
+ * - `nf` must point to a [valid] [`NumericFilter`] and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct NumericRangeTreeFindResult NumericRangeTree_Find(const struct NumericRangeTree *t, const struct NumericFilter *nf);
 
@@ -216,10 +232,12 @@ struct NumericRangeTreeFindResult NumericRangeTree_Find(const struct NumericRang
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`NumericRangeTree`] obtained from
+ * - `t` must point to a [valid] [`NumericRangeTree`] obtained from
  *   [`NewNumericRangeTree`], or be NULL (in which case this is a no-op).
  * - After calling this function, `t` must not be used again.
  * - Any iterators obtained from this tree must be freed before calling this.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void NumericRangeTree_Free(struct NumericRangeTree *t);
 
@@ -228,7 +246,9 @@ void NumericRangeTree_Free(struct NumericRangeTree *t);
  *
  * # Safety
  *
- * - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+ * - `t` must point to a [valid] [`NumericRangeTree`] and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t NumericRangeTree_GetInvertedIndexesSize(const struct NumericRangeTree *t);
 
@@ -237,7 +257,9 @@ size_t NumericRangeTree_GetInvertedIndexesSize(const struct NumericRangeTree *t)
  *
  * # Safety
  *
- * - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+ * - `t` must point to a [valid] [`NumericRangeTree`] and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t NumericRangeTree_GetNumEntries(const struct NumericRangeTree *t);
 
@@ -246,7 +268,9 @@ size_t NumericRangeTree_GetNumEntries(const struct NumericRangeTree *t);
  *
  * # Safety
  *
- * - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+ * - `t` must point to a [valid] [`NumericRangeTree`] and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t NumericRangeTree_GetNumRanges(const struct NumericRangeTree *t);
 
@@ -258,7 +282,9 @@ size_t NumericRangeTree_GetNumRanges(const struct NumericRangeTree *t);
  *
  * # Safety
  *
- * - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+ * - `t` must point to a [valid] [`NumericRangeTree`] and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 uint32_t NumericRangeTree_GetRevisionId(const struct NumericRangeTree *t);
 
@@ -267,8 +293,10 @@ uint32_t NumericRangeTree_GetRevisionId(const struct NumericRangeTree *t);
  *
  * # Safety
  *
- * - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+ * - `t` must point to a [valid] [`NumericRangeTree`] and cannot be NULL.
  * - The returned pointer is valid until the tree is modified or freed.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 const struct NumericRangeNode *NumericRangeTree_GetRoot(const struct NumericRangeTree *t);
 
@@ -277,7 +305,9 @@ const struct NumericRangeNode *NumericRangeTree_GetRoot(const struct NumericRang
  *
  * # Safety
  *
- * - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+ * - `t` must point to a [valid] [`NumericRangeTree`] and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 uint32_t NumericRangeTree_GetUniqueId(const struct NumericRangeTree *t);
 
@@ -292,8 +322,10 @@ uint32_t NumericRangeTree_GetUniqueId(const struct NumericRangeTree *t);
  *
  * # Safety
  *
- * - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+ * - `t` must point to a [valid] [`NumericRangeTree`] and cannot be NULL.
  * - The caller must have unique access to `t`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 uint32_t NumericRangeTree_IncrementRevisionId(struct NumericRangeTree *t);
 
@@ -303,8 +335,10 @@ uint32_t NumericRangeTree_IncrementRevisionId(struct NumericRangeTree *t);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`NumericRangeTree`] obtained from
+ * - `t` must point to a [valid] [`NumericRangeTree`] obtained from
  *   [`NewNumericRangeTree`] and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t NumericRangeTree_MemUsage(const struct NumericRangeTree *t);
 
@@ -317,9 +351,11 @@ size_t NumericRangeTree_MemUsage(const struct NumericRangeTree *t);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`NumericRangeTree`] obtained from
+ * - `t` must point to a [valid] [`NumericRangeTree`] obtained from
  *   [`NewNumericRangeTree`] and cannot be NULL.
  * - No iterators should be active on this tree while calling this function.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct TrimEmptyLeavesResult NumericRangeTree_TrimEmptyLeaves(struct NumericRangeTree *t);
 
@@ -331,9 +367,11 @@ struct TrimEmptyLeavesResult NumericRangeTree_TrimEmptyLeaves(struct NumericRang
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `range` must point to a valid [`NumericRange`] obtained from
+ * - `range` must point to a [valid] [`NumericRange`] obtained from
  *   [`crate::node::NumericRangeNode_GetRange`] and cannot be NULL.
  * - The tree from which this range came must still be valid.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t NumericRange_GetCardinality(const struct NumericRange *range);
 
@@ -345,8 +383,10 @@ size_t NumericRange_GetCardinality(const struct NumericRange *range);
  *
  * # Safety
  *
- * - `range` must point to a valid [`NumericRange`] and cannot be NULL.
+ * - `range` must point to a [valid] [`NumericRange`] and cannot be NULL.
  * - The returned pointer points to memory owned by the range; do not free it.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 const struct InvertedIndexNumeric *NumericRange_GetEntries(const struct NumericRange *range);
 
@@ -355,7 +395,9 @@ const struct InvertedIndexNumeric *NumericRange_GetEntries(const struct NumericR
  *
  * # Safety
  *
- * - `range` must point to a valid [`NumericRange`] and cannot be NULL.
+ * - `range` must point to a [valid] [`NumericRange`] and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t NumericRange_InvertedIndexSize(const struct NumericRange *range);
 
@@ -364,7 +406,9 @@ size_t NumericRange_InvertedIndexSize(const struct NumericRange *range);
  *
  * # Safety
  *
- * - `range` must point to a valid [`NumericRange`] and cannot be NULL.
+ * - `range` must point to a [valid] [`NumericRange`] and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 double NumericRange_MaxVal(const struct NumericRange *range);
 
@@ -373,7 +417,9 @@ double NumericRange_MaxVal(const struct NumericRange *range);
  *
  * # Safety
  *
- * - `range` must point to a valid [`NumericRange`] and cannot be NULL.
+ * - `range` must point to a [valid] [`NumericRange`] and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 double NumericRange_MinVal(const struct NumericRange *range);
 
@@ -389,12 +435,14 @@ double NumericRange_MinVal(const struct NumericRange *range);
  *
  * # Safety
  *
- * - `range` must point to a valid [`NumericRange`] and cannot be NULL.
- * - `filter` may be NULL for no filtering, or must point to a valid [`NumericFilter`].
+ * - `range` must point to a [valid] [`NumericRange`] and cannot be NULL.
+ * - `filter` may be NULL for no filtering, or must point to a [valid] [`NumericFilter`].
  * - The returned reader holds a reference to the range's inverted index. The range
  *   must not be freed or modified while the reader exists.
  * - The filter (if non-NULL) must remain valid for the lifetime of the reader.
  * - Free the returned reader with `IndexReader_Free()` when done.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct IndexReader *NumericRange_NewIndexReader(const struct NumericRange *range, const struct NumericFilter *filter);
 
@@ -409,8 +457,10 @@ struct IndexReader *NumericRange_NewIndexReader(const struct NumericRange *range
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`NumericRangeTree`] obtained from
+ * - `t` must point to a [valid] [`NumericRangeTree`] obtained from
  *   [`NewNumericRangeTree`] and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct AddResult _NumericRangeTree_Add(struct NumericRangeTree *t, t_docId doc_id, double value, bool has_field_expiration, int isMulti, size_t maxDepthRange);
 
