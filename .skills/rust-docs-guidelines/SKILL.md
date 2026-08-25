@@ -13,11 +13,9 @@ Standards to follow when writing Rust documentation.
 - Always use an intra-documentation link when mentioning a Rust symbol (type, function, constant, etc.).
 - In a `# Safety` section, link the word `valid` to std's pointer-validity rules: write it as
   `[valid]` and put this reference definition at the end of the doc block —
-
   ```text
   [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
   ```
-
   Only where it means pointer or memory validity —
   `valid UTF-8`, a valid enum variant, a valid nul terminator, and "remains valid for the
   lifetime of" keep their plain form, since std's definition says nothing about them.
