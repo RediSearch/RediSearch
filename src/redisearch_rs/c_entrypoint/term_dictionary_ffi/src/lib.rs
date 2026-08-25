@@ -12,10 +12,9 @@
 //! `NewTrie`/`Trie_InsertStringBuffer`/`Trie_GetNode`/`Trie_Iterate`
 //! family).
 //!
-//! All string parameters are byte pointers with an explicit length.
-//! Terms are tokenizer output and patterns come from the query parser,
-//! so they are normally valid UTF-8; anything else is rejected rather
-//! than treated as a caller error — see [`term_arg`]. The dictionary
+//! All string parameters are byte pointers with an explicit length and
+//! must be valid UTF-8: terms are tokenizer output and patterns come from
+//! the query parser, so every caller already holds UTF-8. The dictionary
 //! case-folds every key and pattern internally (see the
 //! [`term_dictionary`] crate docs), so callers pass the raw term as-is.
 
@@ -65,11 +64,6 @@ pub enum TermDictionaryInsertOutcome {
     New = 0,
     /// An existing entry was modified in place.
     Updated = 1,
-    /// The term is not valid UTF-8, so the dictionary cannot hold it and
-    /// nothing was stored. Distinct from [`New`](Self::New) so that a
-    /// caller tracking distinct-term statistics does not count a term the
-    /// dictionary never accepted.
-    Unsupported = 2,
 }
 
 impl From<InsertOutcomeImpl> for TermDictionaryInsertOutcome {
@@ -92,10 +86,6 @@ pub enum TermDictionaryDecrResult {
     Updated = 1,
     /// `num_docs` reached `0`; the entry was removed.
     Deleted = 2,
-    /// The term is not valid UTF-8, so the dictionary never held it. A
-    /// no-op rather than a miss: unlike [`NotFound`](Self::NotFound) it
-    /// says nothing about the add and delete counts having diverged.
-    Unsupported = 3,
 }
 
 impl From<DecrResultImpl> for TermDictionaryDecrResult {
@@ -109,21 +99,18 @@ impl From<DecrResultImpl> for TermDictionaryDecrResult {
 }
 
 /// Borrow `(ptr, len)` as a UTF-8 string. An empty length yields the
-/// empty string regardless of `ptr`. Returns `None` when the bytes are
-/// not valid UTF-8.
-///
-/// `None` is an expected input class, not a caller error: a TEXT field
-/// holds arbitrary bytes, and the tokenizer hands the indexer whatever
-/// it finds there. Every entry point turns it into a no-op, reporting it
-/// through [`TermDictionaryInsertOutcome::Unsupported`] or
-/// [`TermDictionaryDecrResult::Unsupported`] where its outcome enum has
-/// one.
+/// empty string regardless of `ptr`.
 ///
 /// # Safety
 ///
 /// When `len > 0`, `ptr` must point to `len` bytes that stay valid and
 /// unmodified for the chosen lifetime `'a`.
-unsafe fn term_arg<'a>(ptr: *const c_char, len: usize) -> Option<&'a str> {
+///
+/// # Panics
+///
+/// Panics if the bytes are not valid UTF-8; `what` names the argument in
+/// the message.
+unsafe fn term_arg<'a>(ptr: *const c_char, len: usize, what: &'static str) -> &'a str {
     let bytes = if len == 0 {
         &[]
     } else {
@@ -132,7 +119,7 @@ unsafe fn term_arg<'a>(ptr: *const c_char, len: usize) -> Option<&'a str> {
         unsafe { slice::from_raw_parts(ptr.cast::<u8>(), len) }
     };
 
-    std::str::from_utf8(bytes).ok()
+    std::str::from_utf8(bytes).unwrap_or_else(|_| panic!("{what} must be valid UTF-8"))
 }
 
 /// Box a term iterator into the C-facing [`TermDictionaryIterator`],
@@ -230,9 +217,6 @@ pub unsafe extern "C" fn TermDictionary_MemUsage(t: *const TermDictionary) -> us
 /// existing entry for `(term, len)`, or create a fresh terminal if
 /// absent. The term is case-folded internally.
 ///
-/// A non-UTF-8 term is a no-op and reports
-/// [`TermDictionaryInsertOutcome::Unsupported`].
-///
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
@@ -240,6 +224,10 @@ pub unsafe extern "C" fn TermDictionary_MemUsage(t: *const TermDictionary) -> us
 ///   [`NewTermDictionary`] and cannot be NULL.
 /// - `term` must point to a valid byte sequence of length `len`.
 /// - No iterator obtained from `t` may be alive.
+///
+/// # Panics
+///
+/// Panics if `term` is not valid UTF-8.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermDictionary_AddTerm(
     t: *mut TermDictionary,
@@ -254,18 +242,13 @@ pub unsafe extern "C" fn TermDictionary_AddTerm(
     // TermDictionary, with no outstanding iterators.
     let dict = unsafe { &mut *t };
     // SAFETY: caller is to ensure `term` points to `len` valid bytes.
-    let Some(term) = (unsafe { term_arg(term, len) }) else {
-        return TermDictionaryInsertOutcome::Unsupported;
-    };
+    let term = unsafe { term_arg(term, len, "term") };
     dict.add_term(term, score, num_docs).into()
 }
 
 /// ADD_REPLACE insert: overwrite `score`, but still accumulate
 /// `num_docs` onto the existing count for `(term, len)`. Creates a fresh
 /// terminal if absent. The term is case-folded internally.
-///
-/// A non-UTF-8 term is a no-op and reports
-/// [`TermDictionaryInsertOutcome::Unsupported`].
 ///
 /// # Safety
 ///
@@ -274,6 +257,10 @@ pub unsafe extern "C" fn TermDictionary_AddTerm(
 ///   [`NewTermDictionary`] and cannot be NULL.
 /// - `term` must point to a valid byte sequence of length `len`.
 /// - No iterator obtained from `t` may be alive.
+///
+/// # Panics
+///
+/// Panics if `term` is not valid UTF-8.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermDictionary_ReplaceTerm(
     t: *mut TermDictionary,
@@ -288,9 +275,7 @@ pub unsafe extern "C" fn TermDictionary_ReplaceTerm(
     // TermDictionary, with no outstanding iterators.
     let dict = unsafe { &mut *t };
     // SAFETY: caller is to ensure `term` points to `len` valid bytes.
-    let Some(term) = (unsafe { term_arg(term, len) }) else {
-        return TermDictionaryInsertOutcome::Unsupported;
-    };
+    let term = unsafe { term_arg(term, len, "term") };
     dict.replace_term(term, score, num_docs).into()
 }
 
@@ -300,9 +285,7 @@ pub unsafe extern "C" fn TermDictionary_ReplaceTerm(
 /// [`TermDictionary_ReplaceTerm`]. The term is case-folded internally.
 ///
 /// Reports [`TermDictionaryInsertOutcome::Updated`] when a prior entry
-/// was overwritten, [`TermDictionaryInsertOutcome::New`] otherwise. A
-/// non-UTF-8 term is a no-op and reports
-/// [`TermDictionaryInsertOutcome::Unsupported`].
+/// was overwritten, [`TermDictionaryInsertOutcome::New`] otherwise.
 ///
 /// # Safety
 ///
@@ -311,6 +294,10 @@ pub unsafe extern "C" fn TermDictionary_ReplaceTerm(
 ///   [`NewTermDictionary`] and cannot be NULL.
 /// - `term` must point to a valid byte sequence of length `len`.
 /// - No iterator obtained from `t` may be alive.
+///
+/// # Panics
+///
+/// Panics if `term` is not valid UTF-8.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermDictionary_Insert(
     t: *mut TermDictionary,
@@ -325,9 +312,7 @@ pub unsafe extern "C" fn TermDictionary_Insert(
     // TermDictionary, with no outstanding iterators.
     let dict = unsafe { &mut *t };
     // SAFETY: caller is to ensure `term` points to `len` valid bytes.
-    let Some(term) = (unsafe { term_arg(term, len) }) else {
-        return TermDictionaryInsertOutcome::Unsupported;
-    };
+    let term = unsafe { term_arg(term, len, "term") };
     match dict.insert(term, TermEntry { score, num_docs }) {
         Some(_) => TermDictionaryInsertOutcome::Updated,
         None => TermDictionaryInsertOutcome::New,
@@ -335,8 +320,7 @@ pub unsafe extern "C" fn TermDictionary_Insert(
 }
 
 /// Remove the entry for `(term, len)`. Returns 1 if a term was removed,
-/// 0 if it was absent or not valid UTF-8. The term is case-folded
-/// internally.
+/// 0 if it was absent. The term is case-folded internally.
 ///
 /// # Safety
 ///
@@ -345,6 +329,10 @@ pub unsafe extern "C" fn TermDictionary_Insert(
 ///   [`NewTermDictionary`] and cannot be NULL.
 /// - `term` must point to a valid byte sequence of length `len`.
 /// - No iterator obtained from `t` may be alive.
+///
+/// # Panics
+///
+/// Panics if `term` is not valid UTF-8.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermDictionary_Remove(
     t: *mut TermDictionary,
@@ -357,17 +345,14 @@ pub unsafe extern "C" fn TermDictionary_Remove(
     // TermDictionary, with no outstanding iterators.
     let dict = unsafe { &mut *t };
     // SAFETY: caller is to ensure `term` points to `len` valid bytes.
-    let Some(term) = (unsafe { term_arg(term, len) }) else {
-        return 0;
-    };
+    let term = unsafe { term_arg(term, len, "term") };
     if dict.remove(term).is_some() { 1 } else { 0 }
 }
 
 /// Look up the entry for `(term, len)`. Returns 1 and writes the entry's
 /// `score`/`num_docs` into the (optional, may be NULL) out-pointers if
-/// the term is present; returns 0 otherwise (absent or not valid UTF-8),
-/// leaving the out-pointers untouched. The term is case-folded
-/// internally.
+/// the term is present; returns 0 otherwise, leaving the out-pointers
+/// untouched. The term is case-folded internally.
 ///
 /// # Safety
 ///
@@ -377,6 +362,10 @@ pub unsafe extern "C" fn TermDictionary_Remove(
 /// - `term` must point to a valid byte sequence of length `len`.
 /// - `out_score` and `out_num_docs` must each be NULL or point to a
 ///   writable location.
+///
+/// # Panics
+///
+/// Panics if `term` is not valid UTF-8.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermDictionary_Get(
     t: *const TermDictionary,
@@ -391,9 +380,7 @@ pub unsafe extern "C" fn TermDictionary_Get(
     // TermDictionary.
     let dict = unsafe { &*t };
     // SAFETY: caller is to ensure `term` points to `len` valid bytes.
-    let Some(term) = (unsafe { term_arg(term, len) }) else {
-        return 0;
-    };
+    let term = unsafe { term_arg(term, len, "term") };
     let Some(entry) = dict.get(term) else {
         return 0;
     };
@@ -414,8 +401,7 @@ pub unsafe extern "C" fn TermDictionary_Get(
 /// term is case-folded internally.
 ///
 /// Reports [`TermDictionaryDecrResult::NotFound`] when no entry exists
-/// for the term, and [`TermDictionaryDecrResult::Unsupported`] when it
-/// is not valid UTF-8 and so was never stored.
+/// for the term.
 ///
 /// # Safety
 ///
@@ -424,6 +410,10 @@ pub unsafe extern "C" fn TermDictionary_Get(
 ///   [`NewTermDictionary`] and cannot be NULL.
 /// - `term` must point to a valid byte sequence of length `len`.
 /// - No iterator obtained from `t` may be alive.
+///
+/// # Panics
+///
+/// Panics if `term` is not valid UTF-8.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermDictionary_DecrementNumDocs(
     t: *mut TermDictionary,
@@ -437,9 +427,7 @@ pub unsafe extern "C" fn TermDictionary_DecrementNumDocs(
     // TermDictionary, with no outstanding iterators.
     let dict = unsafe { &mut *t };
     // SAFETY: caller is to ensure `term` points to `len` valid bytes.
-    let Some(term) = (unsafe { term_arg(term, len) }) else {
-        return TermDictionaryDecrResult::Unsupported;
-    };
+    let term = unsafe { term_arg(term, len, "term") };
     dict.decrement_num_docs(term, delta).into()
 }
 
@@ -479,6 +467,10 @@ pub unsafe extern "C" fn TermDictionary_Iterate<'td>(
 /// - `t` must not be modified or freed while the iterator lives.
 /// - If `should_stop` is non-NULL it must be safe to call with `stop_ctx`
 ///   for as long as the iterator lives.
+///
+/// # Panics
+///
+/// Panics if the prefix is not valid UTF-8.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermDictionary_IteratePrefix<'td>(
     t: *const TermDictionary,
@@ -493,9 +485,7 @@ pub unsafe extern "C" fn TermDictionary_IteratePrefix<'td>(
     // TermDictionary that outlives the iterator.
     let dict = unsafe { &*t };
     // SAFETY: caller is to ensure `str` points to `len` valid bytes.
-    let Some(prefix) = (unsafe { term_arg(str, len) }) else {
-        return wrap_iter(std::iter::empty());
-    };
+    let prefix = unsafe { term_arg(str, len, "prefix") };
     wrap_iter(dict.prefixed_iter(prefix, stop_predicate(should_stop, stop_ctx)))
 }
 
@@ -514,6 +504,10 @@ pub unsafe extern "C" fn TermDictionary_IteratePrefix<'td>(
 /// - `t` must not be modified or freed while the iterator lives.
 /// - If `should_stop` is non-NULL it must be safe to call with `stop_ctx`
 ///   for as long as the iterator lives.
+///
+/// # Panics
+///
+/// Panics if the suffix is not valid UTF-8.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermDictionary_IterateSuffix<'td>(
     t: *const TermDictionary,
@@ -528,9 +522,7 @@ pub unsafe extern "C" fn TermDictionary_IterateSuffix<'td>(
     // TermDictionary that outlives the iterator.
     let dict = unsafe { &*t };
     // SAFETY: caller is to ensure `str` points to `len` valid bytes.
-    let Some(suffix) = (unsafe { term_arg(str, len) }) else {
-        return wrap_iter(std::iter::empty());
-    };
+    let suffix = unsafe { term_arg(str, len, "suffix") };
     wrap_iter(dict.suffixed_iter(suffix, stop_predicate(should_stop, stop_ctx)))
 }
 
@@ -552,6 +544,10 @@ pub unsafe extern "C" fn TermDictionary_IterateSuffix<'td>(
 ///   them on every advance.
 /// - If `should_stop` is non-NULL it must be safe to call with `stop_ctx`
 ///   for as long as the iterator lives.
+///
+/// # Panics
+///
+/// Panics if the substring is not valid UTF-8.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermDictionary_IterateContains<'td>(
     t: *const TermDictionary,
@@ -567,9 +563,7 @@ pub unsafe extern "C" fn TermDictionary_IterateContains<'td>(
     let dict = unsafe { &*t };
     // SAFETY: caller is to ensure `str` points to `len` valid bytes that
     // outlive the iterator.
-    let Some(target) = (unsafe { term_arg::<'td>(str, len) }) else {
-        return wrap_iter(std::iter::empty());
-    };
+    let target = unsafe { term_arg::<'td>(str, len, "substring") };
     wrap_iter(dict.contains_iter(target, stop_predicate(should_stop, stop_ctx)))
 }
 
@@ -588,6 +582,10 @@ pub unsafe extern "C" fn TermDictionary_IterateContains<'td>(
 /// - `t` must not be modified or freed while the iterator lives.
 /// - If `should_stop` is non-NULL it must be safe to call with `stop_ctx`
 ///   for as long as the iterator lives.
+///
+/// # Panics
+///
+/// Panics if the pattern is not valid UTF-8.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermDictionary_IterateWildcard<'td>(
     t: *const TermDictionary,
@@ -603,9 +601,7 @@ pub unsafe extern "C" fn TermDictionary_IterateWildcard<'td>(
     let dict = unsafe { &*t };
     // SAFETY: caller is to ensure `str` points to `len` valid bytes that
     // outlive the iterator.
-    let Some(pattern) = (unsafe { term_arg::<'td>(str, len) }) else {
-        return wrap_iter(std::iter::empty());
-    };
+    let pattern = unsafe { term_arg::<'td>(str, len, "pattern") };
     wrap_iter(dict.wildcard_iter(pattern, stop_predicate(should_stop, stop_ctx)))
 }
 
@@ -622,6 +618,10 @@ pub unsafe extern "C" fn TermDictionary_IterateWildcard<'td>(
 ///   [`NewTermDictionary`] and cannot be NULL.
 /// - `str` must point to a valid byte sequence of length `len`.
 /// - `t` must not be modified or freed while the iterator lives.
+///
+/// # Panics
+///
+/// Panics if the pattern is not valid UTF-8.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermDictionary_IterateFuzzy<'td>(
     t: *const TermDictionary,
@@ -635,9 +635,7 @@ pub unsafe extern "C" fn TermDictionary_IterateFuzzy<'td>(
     // TermDictionary that outlives the iterator.
     let dict = unsafe { &*t };
     // SAFETY: caller is to ensure `str` points to `len` valid bytes.
-    let Some(pattern) = (unsafe { term_arg::<'td>(str, len) }) else {
-        return wrap_iter(std::iter::empty());
-    };
+    let pattern = unsafe { term_arg::<'td>(str, len, "pattern") };
     wrap_iter(dict.fuzzy_iter(pattern, max_dist))
 }
 

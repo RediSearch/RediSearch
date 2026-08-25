@@ -152,32 +152,6 @@ fn decrement_num_docs_reports_each_outcome() {
 }
 
 #[test]
-fn a_non_utf8_term_is_never_stored_and_its_decrement_is_a_no_op() {
-    // A TEXT field holds arbitrary bytes, so the indexer can offer a term the
-    // UTF-8-keyed dictionary cannot represent. Both halves of the count must
-    // agree it was never stored — see the docs on the `Unsupported` variants.
-    let t = NewTermDictionary();
-    let term = b"bi\xED\xA0\xBDke";
-
-    // Safety: `term` points to `term.len()` readable bytes and no iterator on
-    // `t` is alive.
-    let outcome =
-        unsafe { TermDictionary_AddTerm(t, term.as_ptr().cast::<c_char>(), term.len(), 1.0, 3) };
-    assert_eq!(outcome, TermDictionaryInsertOutcome::Unsupported);
-    // Safety: `t` is a live dictionary.
-    assert_eq!(unsafe { TermDictionary_Len(t) }, 0);
-
-    // Safety: `term` points to `term.len()` readable bytes and no iterator on
-    // `t` is alive.
-    let result = unsafe {
-        TermDictionary_DecrementNumDocs(t, term.as_ptr().cast::<c_char>(), term.len(), 1)
-    };
-    assert_eq!(result, TermDictionaryDecrResult::Unsupported);
-
-    free(t);
-}
-
-#[test]
 fn len_and_mem_usage_grow_with_content() {
     let t = NewTermDictionary();
     // Safety: `t` is a live dictionary.

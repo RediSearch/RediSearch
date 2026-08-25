@@ -24,12 +24,6 @@ typedef enum TermDictionaryDecrResult {
    * `num_docs` reached `0`; the entry was removed.
    */
   TermDictionaryDecrResult_Deleted = 2,
-  /**
-   * The term is not valid UTF-8, so the dictionary never held it. A
-   * no-op rather than a miss: unlike [`NotFound`](Self::NotFound) it
-   * says nothing about the add and delete counts having diverged.
-   */
-  TermDictionaryDecrResult_Unsupported = 3,
 } TermDictionaryDecrResult;
 
 /**
@@ -45,13 +39,6 @@ typedef enum TermDictionaryInsertOutcome {
    * An existing entry was modified in place.
    */
   TermDictionaryInsertOutcome_Updated = 1,
-  /**
-   * The term is not valid UTF-8, so the dictionary cannot hold it and
-   * nothing was stored. Distinct from [`New`](Self::New) so that a
-   * caller tracking distinct-term statistics does not count a term the
-   * dictionary never accepted.
-   */
-  TermDictionaryInsertOutcome_Unsupported = 2,
 } TermDictionaryInsertOutcome;
 
 /**
@@ -139,9 +126,6 @@ int TermDictionaryIterator_Next(struct TermDictionaryIterator *it, const char * 
  * existing entry for `(term, len)`, or create a fresh terminal if
  * absent. The term is case-folded internally.
  *
- * A non-UTF-8 term is a no-op and reports
- * [`TermDictionaryInsertOutcome::Unsupported`].
- *
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
@@ -149,6 +133,10 @@ int TermDictionaryIterator_Next(struct TermDictionaryIterator *it, const char * 
  *   [`NewTermDictionary`] and cannot be NULL.
  * - `term` must point to a valid byte sequence of length `len`.
  * - No iterator obtained from `t` may be alive.
+ *
+ * # Panics
+ *
+ * Panics if `term` is not valid UTF-8.
  */
 enum TermDictionaryInsertOutcome TermDictionary_AddTerm(struct TermDictionary *t, const char *term, size_t len, float score, size_t num_docs);
 
@@ -158,8 +146,7 @@ enum TermDictionaryInsertOutcome TermDictionary_AddTerm(struct TermDictionary *t
  * term is case-folded internally.
  *
  * Reports [`TermDictionaryDecrResult::NotFound`] when no entry exists
- * for the term, and [`TermDictionaryDecrResult::Unsupported`] when it
- * is not valid UTF-8 and so was never stored.
+ * for the term.
  *
  * # Safety
  *
@@ -168,6 +155,10 @@ enum TermDictionaryInsertOutcome TermDictionary_AddTerm(struct TermDictionary *t
  *   [`NewTermDictionary`] and cannot be NULL.
  * - `term` must point to a valid byte sequence of length `len`.
  * - No iterator obtained from `t` may be alive.
+ *
+ * # Panics
+ *
+ * Panics if `term` is not valid UTF-8.
  */
 enum TermDictionaryDecrResult TermDictionary_DecrementNumDocs(struct TermDictionary *t, const char *term, size_t len, size_t delta);
 
@@ -187,9 +178,8 @@ void TermDictionary_Free(struct TermDictionary *t);
 /**
  * Look up the entry for `(term, len)`. Returns 1 and writes the entry's
  * `score`/`num_docs` into the (optional, may be NULL) out-pointers if
- * the term is present; returns 0 otherwise (absent or not valid UTF-8),
- * leaving the out-pointers untouched. The term is case-folded
- * internally.
+ * the term is present; returns 0 otherwise, leaving the out-pointers
+ * untouched. The term is case-folded internally.
  *
  * # Safety
  *
@@ -199,6 +189,10 @@ void TermDictionary_Free(struct TermDictionary *t);
  * - `term` must point to a valid byte sequence of length `len`.
  * - `out_score` and `out_num_docs` must each be NULL or point to a
  *   writable location.
+ *
+ * # Panics
+ *
+ * Panics if `term` is not valid UTF-8.
  */
 int TermDictionary_Get(const struct TermDictionary *t, const char *term, size_t len, float *out_score, size_t *out_num_docs);
 
@@ -209,9 +203,7 @@ int TermDictionary_Get(const struct TermDictionary *t, const char *term, size_t 
  * [`TermDictionary_ReplaceTerm`]. The term is case-folded internally.
  *
  * Reports [`TermDictionaryInsertOutcome::Updated`] when a prior entry
- * was overwritten, [`TermDictionaryInsertOutcome::New`] otherwise. A
- * non-UTF-8 term is a no-op and reports
- * [`TermDictionaryInsertOutcome::Unsupported`].
+ * was overwritten, [`TermDictionaryInsertOutcome::New`] otherwise.
  *
  * # Safety
  *
@@ -220,6 +212,10 @@ int TermDictionary_Get(const struct TermDictionary *t, const char *term, size_t 
  *   [`NewTermDictionary`] and cannot be NULL.
  * - `term` must point to a valid byte sequence of length `len`.
  * - No iterator obtained from `t` may be alive.
+ *
+ * # Panics
+ *
+ * Panics if `term` is not valid UTF-8.
  */
 enum TermDictionaryInsertOutcome TermDictionary_Insert(struct TermDictionary *t, const char *term, size_t len, float score, size_t num_docs);
 
@@ -256,6 +252,10 @@ struct TermDictionaryIterator *TermDictionary_Iterate(const struct TermDictionar
  *   them on every advance.
  * - If `should_stop` is non-NULL it must be safe to call with `stop_ctx`
  *   for as long as the iterator lives.
+ *
+ * # Panics
+ *
+ * Panics if the substring is not valid UTF-8.
  */
 struct TermDictionaryIterator *TermDictionary_IterateContains(const struct TermDictionary *t, const char *str, size_t len, TermDictionaryShouldStop should_stop, void *stop_ctx);
 
@@ -273,6 +273,10 @@ struct TermDictionaryIterator *TermDictionary_IterateContains(const struct TermD
  *   [`NewTermDictionary`] and cannot be NULL.
  * - `str` must point to a valid byte sequence of length `len`.
  * - `t` must not be modified or freed while the iterator lives.
+ *
+ * # Panics
+ *
+ * Panics if the pattern is not valid UTF-8.
  */
 struct TermDictionaryIterator *TermDictionary_IterateFuzzy(const struct TermDictionary *t, const char *str, size_t len, uint32_t max_dist);
 
@@ -291,6 +295,10 @@ struct TermDictionaryIterator *TermDictionary_IterateFuzzy(const struct TermDict
  * - `t` must not be modified or freed while the iterator lives.
  * - If `should_stop` is non-NULL it must be safe to call with `stop_ctx`
  *   for as long as the iterator lives.
+ *
+ * # Panics
+ *
+ * Panics if the prefix is not valid UTF-8.
  */
 struct TermDictionaryIterator *TermDictionary_IteratePrefix(const struct TermDictionary *t, const char *str, size_t len, TermDictionaryShouldStop should_stop, void *stop_ctx);
 
@@ -310,6 +318,10 @@ struct TermDictionaryIterator *TermDictionary_IteratePrefix(const struct TermDic
  * - `t` must not be modified or freed while the iterator lives.
  * - If `should_stop` is non-NULL it must be safe to call with `stop_ctx`
  *   for as long as the iterator lives.
+ *
+ * # Panics
+ *
+ * Panics if the suffix is not valid UTF-8.
  */
 struct TermDictionaryIterator *TermDictionary_IterateSuffix(const struct TermDictionary *t, const char *str, size_t len, TermDictionaryShouldStop should_stop, void *stop_ctx);
 
@@ -329,6 +341,10 @@ struct TermDictionaryIterator *TermDictionary_IterateSuffix(const struct TermDic
  * - `t` must not be modified or freed while the iterator lives.
  * - If `should_stop` is non-NULL it must be safe to call with `stop_ctx`
  *   for as long as the iterator lives.
+ *
+ * # Panics
+ *
+ * Panics if the pattern is not valid UTF-8.
  */
 struct TermDictionaryIterator *TermDictionary_IterateWildcard(const struct TermDictionary *t, const char *str, size_t len, TermDictionaryShouldStop should_stop, void *stop_ctx);
 
@@ -358,8 +374,7 @@ size_t TermDictionary_MemUsage(const struct TermDictionary *t);
 
 /**
  * Remove the entry for `(term, len)`. Returns 1 if a term was removed,
- * 0 if it was absent or not valid UTF-8. The term is case-folded
- * internally.
+ * 0 if it was absent. The term is case-folded internally.
  *
  * # Safety
  *
@@ -368,6 +383,10 @@ size_t TermDictionary_MemUsage(const struct TermDictionary *t);
  *   [`NewTermDictionary`] and cannot be NULL.
  * - `term` must point to a valid byte sequence of length `len`.
  * - No iterator obtained from `t` may be alive.
+ *
+ * # Panics
+ *
+ * Panics if `term` is not valid UTF-8.
  */
 int TermDictionary_Remove(struct TermDictionary *t, const char *term, size_t len);
 
@@ -376,9 +395,6 @@ int TermDictionary_Remove(struct TermDictionary *t, const char *term, size_t len
  * `num_docs` onto the existing count for `(term, len)`. Creates a fresh
  * terminal if absent. The term is case-folded internally.
  *
- * A non-UTF-8 term is a no-op and reports
- * [`TermDictionaryInsertOutcome::Unsupported`].
- *
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
@@ -386,6 +402,10 @@ int TermDictionary_Remove(struct TermDictionary *t, const char *term, size_t len
  *   [`NewTermDictionary`] and cannot be NULL.
  * - `term` must point to a valid byte sequence of length `len`.
  * - No iterator obtained from `t` may be alive.
+ *
+ * # Panics
+ *
+ * Panics if `term` is not valid UTF-8.
  */
 enum TermDictionaryInsertOutcome TermDictionary_ReplaceTerm(struct TermDictionary *t, const char *term, size_t len, float score, size_t num_docs);
 
