@@ -17,6 +17,24 @@ use ffi::{FieldSpec, IndexFlags};
 use index_result::RSIndexResult;
 use rqe_core::DocId;
 
+// PERF-FIXTURE(B): non-eliminable cost. A dependent LCG chain anchored by
+// black_box on both ends, so the optimiser can neither drop nor vectorise it.
+// Cost scales linearly with PERF_FIXTURE_ITERS, the knob separating the "small"
+// and "big" variants.
+const PERF_FIXTURE_ITERS: u64 = 256;
+
+#[inline(never)]
+fn perf_fixture_spin(seed: u64) {
+    let mut s = std::hint::black_box(seed | 1);
+    for _ in 0..PERF_FIXTURE_ITERS {
+        s = s
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+    }
+    std::hint::black_box(s);
+}
+
+
 /// Filter details to apply to numeric values
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
@@ -185,6 +203,7 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterNumericRea
 
             // SAFETY: the caller must ensure the result is numeric
             let value = unsafe { result.as_numeric_unchecked() };
+            perf_fixture_spin(value.to_bits());
 
             if self.filter.value_in_range(value) {
                 return Ok(true);
