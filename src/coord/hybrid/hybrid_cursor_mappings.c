@@ -40,9 +40,6 @@ void HybridArmingCtx_Free(void *p) {
 // cannot share one reply: the original is taken out of `warnings` for one
 // stream and a single clone is made for the other.
 static void forwardWarnings(HybridArmingCtx *ctx, MRReply *warnings) {
-  if (!warnings) {
-    return;
-  }
   for (size_t i = 0; i < MRReply_Length(warnings); i++) {
     MRReply *warning = MRReply_TakeArrayElement(warnings, i);
     // Clone before pushing the original: a push hands ownership to the
@@ -65,25 +62,24 @@ static void armShardReads(HybridArmingCtx *ctx, uint16_t shardIdx, long long sea
   if (searchCid == 0) {
     MRIterator_ResolveShard(ctx->searchIt, shardIdx, 0);
   } else {
-    MRIterator_ArmShardCursorRead(
-        ctx->searchIt, shardIdx, searchCid,
-        partialPair || MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(ctx->searchIt)));
+    const bool searchTimedOut = MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(ctx->searchIt));
+    MRIterator_ArmShardCursorRead(ctx->searchIt, shardIdx, searchCid, partialPair || searchTimedOut);
   }
   if (vsimCid == 0) {
     MRIterator_ResolveShard(ctx->vsimIt, shardIdx, 0);
   } else {
-    MRIterator_ArmShardCursorRead(
-        ctx->vsimIt, shardIdx, vsimCid,
-        partialPair || MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(ctx->vsimIt)));
+    const bool vsimTimedOut = MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(ctx->vsimIt));
+    MRIterator_ArmShardCursorRead(ctx->vsimIt, shardIdx, vsimCid, partialPair || vsimTimedOut);
   }
 }
 
 // Surface a shard-level failure to both read streams and retire the shard's
 // placeholders. The error is pushed before the placeholders are resolved so
 // the resolving side's channel unblock cannot beat the error into the reader.
+// Consumes the error reply.
 static void failShardReads(HybridArmingCtx *ctx, uint16_t shardIdx, MRReply *error) {
   MRIterator_PushReply(ctx->searchIt, MRReply_Clone(error));
-  MRIterator_PushReply(ctx->vsimIt, MRReply_Clone(error));
+  MRIterator_PushReply(ctx->vsimIt, error);
   MRIterator_ResolveShard(ctx->searchIt, shardIdx, 1);
   MRIterator_ResolveShard(ctx->vsimIt, shardIdx, 1);
 }
@@ -106,23 +102,25 @@ static void failReadsBeforeExpansion(HybridArmingCtx *ctx, const char *msg) {
 // array: ["SEARCH", <cid>, "VSIM", <cid>, "warnings", [...]] (the emission
 // order of replyWithCursors in hybrid_exec.c). The structure is asserted in
 // debug builds; production extracts the values by offset.
+// Consumes the reply.
 static void processHybridMapping(HybridArmingCtx *ctx, MRReply *rep, uint16_t shardIdx) {
   // Quietly read any unexpected layout as "shard published no cursors" —
   // e.g. a profile-wrapped envelope from a shard build that still wrapped its
   // early-bail reply. Both of that shard's streams end empty; nothing leaks
   // (it published no cursor ids to begin with).
-  if (MRReply_Length(rep) != HYBRID_MAPPING_REPLY_LENGTH) {
-    armShardReads(ctx, shardIdx, 0, 0);
-    return;
-  }
+  long long searchCid = 0, vsimCid = 0;
+  RS_ASSERT(MRReply_Type(rep) == MR_REPLY_ARRAY || MRReply_Type(rep) == MR_REPLY_MAP);
+  RS_ASSERT(MRReply_Length(rep) == HYBRID_MAPPING_REPLY_LENGTH);
   RS_ASSERT(MRReply_StringEquals(MRReply_ArrayElement(rep, 0), "SEARCH", true));
   RS_ASSERT(MRReply_StringEquals(MRReply_ArrayElement(rep, 2), "VSIM", true));
   RS_ASSERT(MRReply_StringEquals(MRReply_ArrayElement(rep, 4), "warnings", true));
-  long long searchCid = 0, vsimCid = 0;
-  MRReply_ToInteger(MRReply_ArrayElement(rep, 1), &searchCid);
-  MRReply_ToInteger(MRReply_ArrayElement(rep, 3), &vsimCid);
-  forwardWarnings(ctx, MRReply_ArrayElement(rep, 5));
+  if (MRReply_Length(rep) == HYBRID_MAPPING_REPLY_LENGTH) {
+    MRReply_ToInteger(MRReply_ArrayElement(rep, 1), &searchCid);
+    MRReply_ToInteger(MRReply_ArrayElement(rep, 3), &vsimCid);
+    forwardWarnings(ctx, MRReply_ArrayElement(rep, 5));
+  }
   armShardReads(ctx, shardIdx, searchCid, vsimCid);
+  MRReply_Free(rep);
 }
 
 void hybridArmingCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
@@ -135,22 +133,15 @@ void hybridArmingCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   HybridArmingCtx *cb_ctx = (HybridArmingCtx *)MRIteratorCallback_GetPrivateData(ctx);
   RS_ASSERT(cb_ctx);
   const uint16_t shardIdx = MRIteratorCallback_GetShardIdx(ctx);
-  const int replyType = MRReply_Type(rep);
-  bool isError = replyType == MR_REPLY_ERROR;
+  bool isError = MRReply_Type(rep) == MR_REPLY_ERROR;
 
   if (isError) {
     failShardReads(cb_ctx, shardIdx, rep);
-  } else if (replyType == MR_REPLY_MAP || replyType == MR_REPLY_ARRAY) {
-    processHybridMapping(cb_ctx, rep, shardIdx);
   } else {
-    MRReply *error = MRReply_CreateError(CLUSTER_QUERY_ERROR, strlen(CLUSTER_QUERY_ERROR));
-    failShardReads(cb_ctx, shardIdx, error);
-    MRReply_Free(error);
-    isError = true;
+    processHybridMapping(cb_ctx, rep, shardIdx);
   }
 
   MRIteratorCallback_Done(ctx, isError);
-  MRReply_Free(rep);
 }
 
 void hybridArmingErrorCallback(MRIteratorCallbackCtx *ctx) {
@@ -158,7 +149,6 @@ void hybridArmingErrorCallback(MRIteratorCallbackCtx *ctx) {
   RS_ASSERT(cb_ctx);
   MRReply *error = MRReply_CreateError(CLUSTER_QUERY_ERROR, strlen(CLUSTER_QUERY_ERROR));
   failShardReads(cb_ctx, MRIteratorCallback_GetShardIdx(ctx), error);
-  MRReply_Free(error);
 }
 
 void hybridArmingStartCb(void *p) {
@@ -185,17 +175,17 @@ void hybridArmingStartCb(void *p) {
 }
 
 void HybridKnnApplyShardKRatio(MRCommand *cmd, size_t numShards, const HybridKnnContext *knnCtx) {
-    RS_ASSERT(cmd && knnCtx && knnCtx->kArgIndex >= 0);
-    // Only apply optimization for multi-shard deployments with valid ratio
-    if (numShards <= 1 || knnCtx->shardWindowRatio >= MAX_SHARD_WINDOW_RATIO) {
-        return;
-    }
-    size_t effectiveK = calculateEffectiveK(knnCtx->originalK, knnCtx->shardWindowRatio, numShards);
-    modifyVsimKNN(cmd, knnCtx->kArgIndex, effectiveK, knnCtx->originalK);
+  RS_ASSERT(cmd && knnCtx && knnCtx->kArgIndex >= 0);
+  // Only apply optimization for multi-shard deployments with valid ratio
+  if (numShards <= 1 || knnCtx->shardWindowRatio >= MAX_SHARD_WINDOW_RATIO) {
+    return;
+  }
+  size_t effectiveK = calculateEffectiveK(knnCtx->originalK, knnCtx->shardWindowRatio, numShards);
+  modifyVsimKNN(cmd, knnCtx->kArgIndex, effectiveK, knnCtx->originalK);
 }
 
 void HybridKnnCommandModifier(MRCommand *cmd, size_t numShards, void *privateData) {
-    RS_ASSERT(privateData && cmd);
-    const HybridArmingCtx *ctx = (const HybridArmingCtx *)privateData;
-    HybridKnnApplyShardKRatio(cmd, numShards, ctx->knnCtx);
+  RS_ASSERT(privateData && cmd);
+  const HybridArmingCtx *ctx = (const HybridArmingCtx *)privateData;
+  HybridKnnApplyShardKRatio(cmd, numShards, ctx->knnCtx);
 }
