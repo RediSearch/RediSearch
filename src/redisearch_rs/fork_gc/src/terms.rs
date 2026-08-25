@@ -50,12 +50,12 @@ pub fn collect_terms(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io::
             continue;
         };
 
-        let Ok(Some(deltas)) = ii.scan_gc(|id| spec.doc_exists(id)) else {
+        let Ok(Some(delta)) = ii.scan_gc(|id| spec.doc_exists(id)) else {
             continue;
         };
 
         Frame::data(&term).encode(writer)?;
-        deltas
+        delta
             .serialize(&mut rmp_serde::Serializer::new(&mut *writer))
             .map_err(io::Error::other)?;
     }
@@ -123,7 +123,11 @@ pub fn apply_terms(
         let extra = ii.memory_usage();
         let remaining_blocks = ii.number_of_blocks();
 
-        guard.keys_dict_mut().remove(term);
+        let removed = guard.keys_dict_mut().remove(term);
+        debug_assert!(
+            removed,
+            "`fetch_mut` found this term in the same dict, under the write lock we still hold"
+        );
         if !guard.terms_mut().delete(term) {
             warn_term_deletion_failed(term, guard);
         }
