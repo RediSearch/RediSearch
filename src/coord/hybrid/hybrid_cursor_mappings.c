@@ -34,6 +34,10 @@ void HybridArmingCtx_Free(void *p) {
   rm_free(ctx);
 }
 
+static inline MRReply *clusterQueryErrorReply(void) {
+  return MRReply_CreateError(CLUSTER_QUERY_ERROR, strlen(CLUSTER_QUERY_ERROR));
+}
+
 // Forward mapping-stage warnings into the read streams, where each subquery's
 // RPNet folds them (see processHybridMappingWarning in rpnet.c). Pushed one
 // bare string reply per warning — a top-level string is unambiguous in a read
@@ -97,11 +101,11 @@ static void failShardReads(HybridArmingCtx *ctx, uint16_t shardIdx, MRReply *err
 // validation failed, see hybridArmingStartCb): every iterator still holds its
 // single initial placeholder — surface one error per read stream and retire
 // those placeholders. No shard was sent anything, so no callback ever fires.
-static void failReadsBeforeExpansion(HybridArmingCtx *ctx, const char *msg) {
+static void failReadsBeforeExpansion(HybridArmingCtx *ctx) {
   MRIterator *its[2] = {ctx->searchIt, ctx->vsimIt};
   for (int j = 0; j < 2; j++) {
     RS_ASSERT(MRIterator_GetNumShards(its[j]) == 1);
-    MRIterator_PushReply(its[j], MRReply_CreateError(msg, strlen(msg)));
+    MRIterator_PushReply(its[j], clusterQueryErrorReply());
     MRIterator_ResolveShard(its[j], 0, 1);
   }
 }
@@ -156,8 +160,7 @@ void hybridArmingCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 void hybridArmingErrorCallback(MRIteratorCallbackCtx *ctx) {
   HybridArmingCtx *cb_ctx = (HybridArmingCtx *)MRIteratorCallback_GetPrivateData(ctx);
   RS_ASSERT(cb_ctx);
-  MRReply *error = MRReply_CreateError(CLUSTER_QUERY_ERROR, strlen(CLUSTER_QUERY_ERROR));
-  failShardReads(cb_ctx, MRIteratorCallback_GetShardIdx(ctx), error);
+  failShardReads(cb_ctx, MRIteratorCallback_GetShardIdx(ctx), clusterQueryErrorReply());
 }
 
 void hybridArmingStartCb(void *p) {
@@ -174,7 +177,7 @@ void hybridArmingStartCb(void *p) {
   // but connection state only changes via jobs on this same IO loop, so its
   // check cannot disagree with this one.
   if (!MRIterator_AllShardsConnected(hybridIt)) {
-    failReadsBeforeExpansion(ctx, CLUSTER_QUERY_ERROR);
+    failReadsBeforeExpansion(ctx);
     MRIterator_ResolveShard(hybridIt, 0, 1);
     return;
   }
