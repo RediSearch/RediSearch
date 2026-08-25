@@ -305,6 +305,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "chrono"
+version = "0.4.45"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
+dependencies = [
+ "num-traits 0.2.19",
+]
+
+[[package]]
 name = "ciborium"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1414,6 +1423,7 @@ dependencies = [
 name = "module_init_ffi"
 version = "0.0.1"
 dependencies = [
+ "chrono",
  "redis-module",
  "tracing",
  "tracing_redismodule",
