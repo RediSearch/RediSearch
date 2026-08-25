@@ -318,15 +318,25 @@ unsafe extern "C" fn stop_now(ctx: *mut c_void) -> bool {
     true
 }
 
+/// The predicate is polled per traversal step, amortized every
+/// `TIMEOUT_CHECK_GRANULARITY` steps, so a walk has to be long enough to
+/// reach the first poll before it can be cut short.
+const N_TERMS: usize = 300;
+
+fn seeded_dictionary() -> *mut TermDictionary {
+    let t = NewTermDictionary();
+    for i in 0..N_TERMS {
+        add(t, &format!("key{i:04}"), 1.0, 1);
+    }
+    t
+}
+
 #[test]
 fn iterate_prefix_honours_the_stop_predicate() {
-    let t = NewTermDictionary();
-    for term in ["bike", "biker", "trike"] {
-        add(t, term, 1.0, 1);
-    }
+    let t = seeded_dictionary();
 
     let mut polls = 0usize;
-    let prefix = "bik";
+    let prefix = "key";
     // Safety: `t` is a live dictionary that outlives the iterator; the pattern bytes come from a
     // valid `&str`; `polls` outlives the iterator.
     let it = unsafe {
@@ -340,7 +350,11 @@ fn iterate_prefix_honours_the_stop_predicate() {
     };
     let actual = keys(drain(it));
 
-    assert!(actual.is_empty(), "stopped walk yields nothing");
+    assert!(
+        actual.len() < N_TERMS,
+        "stopped walk cuts short, got all {} terms",
+        actual.len()
+    );
     assert!(polls > 0, "predicate was polled");
 
     free(t);
@@ -348,13 +362,10 @@ fn iterate_prefix_honours_the_stop_predicate() {
 
 #[test]
 fn iterate_contains_honours_the_stop_predicate() {
-    let t = NewTermDictionary();
-    for term in ["bike", "biker", "trike"] {
-        add(t, term, 1.0, 1);
-    }
+    let t = seeded_dictionary();
 
     let mut polls = 0usize;
-    let needle = "ike";
+    let needle = "ey0";
     // Safety: `t` is a live dictionary that outlives the iterator; the pattern bytes come from a
     // valid `&str`; `polls` outlives the iterator.
     let it = unsafe {
@@ -368,7 +379,11 @@ fn iterate_contains_honours_the_stop_predicate() {
     };
     let actual = keys(drain(it));
 
-    assert!(actual.is_empty(), "stopped walk yields nothing");
+    assert!(
+        actual.len() < N_TERMS,
+        "stopped walk cuts short, got all {} terms",
+        actual.len()
+    );
     assert!(polls > 0, "predicate was polled");
 
     free(t);

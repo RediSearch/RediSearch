@@ -3115,10 +3115,12 @@ dependencies = [
 name = "term_dictionary_ffi"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
  "cheadergen",
  "redis_mock",
  "redisearch_rs",
  "term_dictionary",
+ "term_dictionary_ffi",
  "workspace_hack",
 ]
 
