@@ -102,9 +102,9 @@ pub extern "C" fn RustPanicHook_Init() {
 pub unsafe extern "C" fn AddToInfo_RustBacktrace(ctx: *mut redis_module::RedisModuleInfoCtx) {
     use std::ffi::CString;
 
-    let Some(ctx) = NonNull::new(ctx) else {
+    if ctx.is_null() {
         return;
-    };
+    }
 
     let backtrace = std::backtrace::Backtrace::force_capture();
     let backtrace_str = backtrace.to_string();
@@ -135,7 +135,7 @@ pub unsafe extern "C" fn AddToInfo_RustBacktrace(ctx: *mut redis_module::RedisMo
     let info_add_field_cstring = unsafe { redis_module::RedisModule_InfoAddFieldCString.unwrap() };
 
     // SAFETY: `ctx` is a valid pointer to a `RedisModuleInfoCtx`.
-    unsafe { info_add_section(ctx.as_ptr(), c"rust_backtrace".as_ptr()) };
+    unsafe { info_add_section(ctx, c"rust_backtrace".as_ptr()) };
     // SAFETY: `ctx` is a valid pointer and `backtrace_cstr` is a valid null-terminated C string.
-    unsafe { info_add_field_cstring(ctx.as_ptr(), c"backtrace".as_ptr(), backtrace_cstr.as_ptr()) };
+    unsafe { info_add_field_cstring(ctx, c"backtrace".as_ptr(), backtrace_cstr.as_ptr()) };
 }
