@@ -1044,3 +1044,64 @@ def test_cursor_gc_reschedules_sweep_on_main_thread():
     with TimeLimit(10, "idle cursor was not reaped at MAXIDLE after cluster FT.CURSOR GC"):
         while getCursorStats(env)['global_total']:
             sleep(0.05)
+
+
+@skip(cluster=True)
+def testCursorReadsDocumentsWrittenBetweenReads(env):
+    """Writes between `FT.CURSOR READ` calls must not cost a cursor its results.
+
+    Query iterators stay parked between reads with the index lock released, so a write can append
+    to the very posting list a leaf is reading and move that block's buffer to a fresh allocation.
+    A leaf that does not notice keeps decoding the old address, and the cursor either drops
+    documents it should still have returned or fails once the freed bytes decode to nonsense.
+
+    Small posting lists are the exposed shape, so the tag matched here holds a handful of documents
+    and the scan stays inside the one block being appended to.
+
+    Whether a given write actually moves the buffer is the allocator's call, so this cannot force
+    the condition from outside the server and does not try to: it asserts that no document is lost,
+    which holds either way. Forcing the move is the job of the Rust tests, which relocate a block
+    buffer directly (`inverted_index::test_utils::relocate_block_buffer`).
+
+    Standalone only: the defect is shard-local, and a coordinator cursor reaches the same leaf
+    through an extra fan-in that contributes nothing to reproducing it.
+    """
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'doc:',
+               'SCHEMA', 'seller', 'TAG', 'status', 'TAG').ok()
+    waitForIndex(env, 'idx')
+    con = env.getClusterConnectionIfNeeded()
+
+    seeded = 20
+    for i in range(seeded):
+        con.execute_command('HSET', f'doc:{i}', 'seller', 's1', 'status', 'open')
+
+    # COUNT 1 maximises the number of suspensions, and hence the chances of catching a buffer
+    # that moved while parked.
+    res, cid = env.cmd('FT.AGGREGATE', 'idx', '@seller:{s1}', 'LOAD', 1, '@__key',
+                       'WITHCURSOR', 'COUNT', 1, 'MAXIDLE', 60000)
+    env.assertNotEqual(0, cid)
+
+    returned = [res[1]]
+    # Bounded, because a write per read would keep the posting list one document ahead of the
+    # cursor forever: the refreshed tail makes each new document visible to the same scan.
+    for written in range(seeded):
+        # Append to the same posting list the cursor is parked in. Each write is small, so the
+        # block buffer grows a little at a time and eventually has to be reallocated.
+        con.execute_command('HSET', f'doc:new{written}', 'seller', 's1', 'status', 'open')
+        if not cid:
+            break
+        res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', cid)
+        returned.extend(res[1:])
+
+    # Drain what is left without writing, so the cursor can reach its end.
+    while cid:
+        res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', cid)
+        returned.extend(res[1:])
+
+    keys = [to_dict(row)['__key'] for row in returned]
+    # Every document the cursor did report, it reported once.
+    env.assertEqual(len(keys), len(set(keys)))
+    # Documents written after the query started may or may not be visible, but the ones that were
+    # already indexed when it started must all come back.
+    env.assertEqual(sorted(f'doc:{i}' for i in range(seeded)),
+                    sorted(k for k in keys if not k.startswith('doc:new')))

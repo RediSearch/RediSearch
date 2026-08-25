@@ -151,6 +151,42 @@ pub unsafe extern "C" fn RLookupRow_MoveFieldsFrom(
     dst.move_fields_from(src, lookup);
 }
 
+/// Moves one dynamic key from the source row to the destination row without
+/// changing its reference count. A missing dynamic value is ignored.
+///
+/// # Safety
+///
+/// 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+/// 2. `src_row` must be a [valid], non-null pointer to an [`RLookupRow`] that is exclusively
+///    accessible for the duration of this call.
+/// 3. `dst_row` must be a [valid], non-null pointer to an [`RLookupRow`] that is exclusively
+///    accessible for the duration of this call.
+/// 4. `src_row` and `dst_row` must not be the same lookup row.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookupRow_MoveDynamicKey(
+    key: *const RLookupKey,
+    src_row: *mut OpaqueRLookupRow,
+    dst_row: *mut OpaqueRLookupRow,
+) {
+    debug_assert_ne!(
+        src_row, dst_row,
+        "`src_row` and `dst_row` must not be the same"
+    );
+
+    // SAFETY: ensured by caller (1.)
+    let key = unsafe { key.as_ref() }.expect("`key` must not be null");
+    // SAFETY: ensured by caller (2.)
+    let src =
+        unsafe { RLookupRow::from_opaque_mut_ptr(src_row) }.expect("`src_row` must not be null");
+    // SAFETY: ensured by caller (3., 4.)
+    let dst =
+        unsafe { RLookupRow::from_opaque_mut_ptr(dst_row) }.expect("`dst_row` must not be null");
+
+    src.move_dynamic_key_to(key, dst);
+}
+
 /// Write a value by-name to the lookup table. This is useful for 'dynamic' keys
 /// for which it is not necessary to use the boilerplate of getting an explicit
 /// key.

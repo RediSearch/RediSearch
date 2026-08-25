@@ -305,6 +305,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "chrono"
+version = "0.4.45"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
+dependencies = [
+ "num-traits 0.2.19",
+]
+
+[[package]]
 name = "ciborium"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1414,6 +1423,7 @@ dependencies = [
 name = "module_init_ffi"
 version = "0.0.1"
 dependencies = [
+ "chrono",
  "redis-module",
  "tracing",
  "tracing_redismodule",
@@ -2156,9 +2166,11 @@ dependencies = [
  "search_result_ffi",
  "slots_tracker_ffi",
  "sorting_vector_ffi",
+ "spellcheck_dictionary_ffi",
  "syn 2.0.118",
  "term_suffix_index_ffi",
  "toml",
+ "trie_rdb_ffi",
  "triemap_ffi",
  "ttl_table_ffi",
  "types_ffi",
@@ -2722,8 +2734,11 @@ dependencies = [
  "ffi",
  "index_result",
  "inverted_index",
+ "redis_mock",
+ "redisearch_rs",
  "rlookup",
  "rqe_core",
+ "value",
  "workspace_hack",
 ]
 
@@ -2908,6 +2923,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "spellcheck_dictionary_ffi"
+version = "0.0.1"
+dependencies = [
+ "redis_mock",
+ "redisearch_rs",
+ "spellcheck_dictionary",
+ "workspace_hack",
+]
+
+[[package]]
 name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3038,6 +3063,7 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "ffi",
+ "index_result",
  "inverted_index",
  "redis_mock",
  "redisearch_rs",
@@ -3313,6 +3339,29 @@ dependencies = [
  "rqe_wildcard",
  "trie_rs",
  "ureq",
+ "workspace_hack",
+]
+
+[[package]]
+name = "trie_rdb"
+version = "0.0.1"
+dependencies = [
+ "lending-iterator",
+ "rdb_io",
+ "thiserror",
+ "trie_rdb",
+ "trie_rs",
+ "workspace_hack",
+]
+
+[[package]]
+name = "trie_rdb_ffi"
+version = "0.0.1"
+dependencies = [
+ "cheadergen",
+ "redis-module",
+ "trie_rdb",
+ "trie_rs",
  "workspace_hack",
 ]
 

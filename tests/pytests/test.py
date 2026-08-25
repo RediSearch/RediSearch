@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 import redis
 import random
 import time
@@ -1966,7 +1964,9 @@ def testInfoCommand(env):
             env.assertEqual(int(d['num_records']), N * 2)
 
             env.assertGreater(float(d['offset_vectors_sz_mb']), 0)
-            env.assertGreater(float(d['key_table_size_mb']), 0)
+            # The key->docId mapping now lives in Redis key-metadata (not
+            # module-tracked memory), so key_table_size_mb is always 0.
+            env.assertEqual(float(d['key_table_size_mb']), 0)
             env.assertGreater(float(d['inverted_sz_mb']), 0)
             env.assertGreater(float(d['bytes_per_record_avg']), 0)
             env.assertGreater(float(d['doc_table_size_mb']), 0)
@@ -4736,7 +4736,6 @@ def test_with_tls():
     common_with_auth(env)
 
 # TODO: enable macos+san once https://redislabs.atlassian.net/browse/RED-176581 is fixed
-@skip_until("2026-07-29", reason="Flaky test, see RED-176581")
 @skip(cluster=False, macos=True, asan=True)
 def test_with_tls_and_non_tls_ports():
     """Tests that the coordinator-shard connections are using the correct
@@ -4752,7 +4751,7 @@ def test_with_tls_and_non_tls_ports():
 
     # Upon setting `tls-cluster` to `no`, we should still be able to succeed
     # connecting the coordinator to the shards, just not in TLS mode.
-    run_command_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no')
+    disable_tls_cluster_on_all_shards(env)
     env.waitCluster()
 
     common_with_auth(env)
@@ -4769,7 +4768,7 @@ def test_dual_tls():
               dualTLS=True)         # Sets the ports to be both TLS and regular ports.
 
     # Turn off tls-cluster, which means it's not the preferred port type anymore (but still available)
-    verify_command_OK_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no')
+    disable_tls_cluster_on_all_shards(env)
     env.waitCluster()
 
     # Verify all nodes has both `port` (tcp) and `tls-port`

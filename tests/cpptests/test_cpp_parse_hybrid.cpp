@@ -85,7 +85,7 @@ class ParseHybridTest : public ::testing::Test {
 
   void TearDown() override {
     if (hybridRequest) {
-      HybridRequest_DecrRef(hybridRequest);
+      HybridRequest_Free(hybridRequest);
     }
     if (hybridParams.scoringCtx) {
       HybridScoringContext_Free(hybridParams.scoringCtx);
@@ -134,7 +134,7 @@ class ParseHybridTest : public ::testing::Test {
   // request-scoped config, so tests that mutate RSGlobalConfig call this after.
   void recreateHybridRequest(RMCK::ArgvList &args) {
     if (hybridRequest) {
-      HybridRequest_DecrRef(hybridRequest);
+      HybridRequest_Free(hybridRequest);
     }
     hybridRequest =
         MakeDefaultHybridRequest(NewSearchCtxC(ctx, index_name.c_str(), true), args, args.size());

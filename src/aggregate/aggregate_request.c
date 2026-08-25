@@ -1173,7 +1173,8 @@ bool QueryRequest_TryOwnStrictRead(QueryRequest *request, QueryRequestStrictRead
 void AREQ_SignalAggregateResultsComplete(AREQ *req) {
   pthread_mutex_lock(&req->base.async.aggregateResultsLock);
   req->base.async.aggregateResultsDone = true;
-  pthread_cond_broadcast(&req->base.async.aggregateResultsCond);
+  // A request has at most one timeout callback waiting for its aggregate worker.
+  pthread_cond_signal(&req->base.async.aggregateResultsCond);
   pthread_mutex_unlock(&req->base.async.aggregateResultsLock);
 }
 
@@ -1479,16 +1480,19 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
     // id-filter node borrows it as-is.
     QAST_GlobalFilterOptions filterOpts = {.keys = opts->inkeys, .nkeys = opts->ninkeys};
 
-    // For SearchDisk, resolve docIds from keys on the main thread
-    if (SearchDisk_IsEnabled()) {
-      filterOpts.docIds = rm_malloc(sizeof(t_docId) * opts->ninkeys);
-      for (size_t ii = 0; ii < opts->ninkeys; ++ii) {
-        uint64_t docId = 0;
-        if (DocIdMeta_Get(sctx->redisCtx, opts->inkeys[ii], sctx->spec->specId, &docId) == REDISMODULE_OK) {
-          filterOpts.docIds[ii] = docId;
-        } else {
-          filterOpts.docIds[ii] = 0;  // Mark as not found
-        }
+    // DocIdMeta_Get opens the key (needs the GIL), so resolve here on the main
+    // thread rather than on a background query thread. Resolving at admission
+    // rather than at snapshot time leaves a window: a key re-indexed before the
+    // worker takes the spec read lock keeps its stale, now deleted docId and
+    // drops out of the results - the same observable outcome as the
+    // Result_ExpiredDoc path takes for any doc re-indexed mid-query.
+    filterOpts.docIds = rm_malloc(sizeof(t_docId) * opts->ninkeys);
+    for (size_t ii = 0; ii < opts->ninkeys; ++ii) {
+      uint64_t docId = 0;
+      if (DocIdMeta_Get(sctx->redisCtx, opts->inkeys[ii], sctx->spec->specId, &docId) == REDISMODULE_OK) {
+        filterOpts.docIds[ii] = docId;
+      } else {
+        filterOpts.docIds[ii] = 0;  // Mark as not found
       }
     }
 
@@ -1586,11 +1590,10 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
   return REDISMODULE_OK;
 }
 
-// Check if a single FieldSpec has a multi-value JSONPath.
+// Check if a FieldSpec is backed by a multi-value JSONPath.
 // This request-time validation is used only for JSON HIGHLIGHT/SUMMARIZE fields.
-// Returns true if the field is a TEXT field with a multi-value JSONPath.
-static bool fieldSpecIsMultiValueText(const FieldSpec *fs) {
-  if (!fs || !FIELD_IS(fs, INDEXFLD_T_FULLTEXT) || !fs->fieldPath) {
+static bool fieldSpecIsMultiValueJsonPath(const FieldSpec *fs) {
+  if (!fs || !fs->fieldPath) {
     return false;
   }
   RedisModuleString *err_msg = NULL;
@@ -1649,7 +1652,7 @@ static int AREQ_HasMultiValueHighlightFields(const AREQ *req, const IndexSpec *i
       continue;
     }
     const FieldSpec *fs = getHighlightFieldSpec(index, rf);
-    if (jsonPathIsMultiValue(rf->path) || (fs && fieldSpecIsMultiValueText(fs))) {
+    if (jsonPathIsMultiValue(rf->path) || (fs && fieldSpecIsMultiValueJsonPath(fs))) {
       hasMultiValue = true;
       break;
     }
@@ -1816,28 +1819,8 @@ void ChunkReplyState_Destroy(ChunkReplyState *state) {
     state->results = NULL;
   }
 
-  // Timeout edge case: cursor wasn't handled by reply_callback.
-  // See ChunkReplyState ownership model in aggregate.h for full explanation.
-  // We must clear the cursor's request handle before Cursor_Free to prevent a
-  // recursive release while this request is already being destroyed.
-  if (state->cursor) {
-    state->cursor->query = NULL;
-    Cursor_Free(state->cursor);
-    state->cursor = NULL;
-  }
-
   // Clear stored error state
   QueryError_ClearError(&state->err);
-}
-
-AREQ *AREQ_IncrRef(AREQ *req) {
-  QueryRequest_IncrRef(&req->base);
-  return req;
-}
-
-void AREQ_DecrRef(AREQ *req) {
-  if (!req) return;
-  QueryRequest_DecrRef(&req->base);
 }
 
 void AREQ_Free(AREQ *req) {
@@ -1913,14 +1896,6 @@ void AREQ_Free(AREQ *req) {
   QueryRequest_Destroy(&req->base);
 
   rm_free(req);
-}
-
-void AREQ_CleanUpStoredCursor(AREQ *req) {
-  if (req->base.reply.cursor) {
-    Cursor *cursor = req->base.reply.cursor;
-    req->base.reply.cursor = NULL;
-    Cursor_Free(cursor);
-  }
 }
 
 AggregationPipelineParams AREQ_MakeAggregationPipelineParams(AREQ *req,

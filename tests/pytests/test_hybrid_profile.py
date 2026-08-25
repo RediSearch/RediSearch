@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 from includes import *
 from common import *
 from RLTest import Env

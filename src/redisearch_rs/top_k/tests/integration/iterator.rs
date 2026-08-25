@@ -9,7 +9,7 @@
 
 //! Integration tests for [`TopKIterator`].
 
-use std::{cmp::Ordering, num::NonZeroUsize};
+use std::num::NonZeroUsize;
 
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
@@ -19,6 +19,7 @@ use rqe_iterators::{
     IdList, RQEIterator, RQEIteratorError, c2rust::CRQEIterator, interop::ProfileChildren,
 };
 use rqe_iterators_test_utils::ContractChecker;
+use top_k::Ascending;
 use top_k::{
     BatchStrategy, ScoreSource, TopKIterator, TopKMode, mock::MockScoreBatch, mock::MockScoreSource,
 };
@@ -80,10 +81,6 @@ impl ScoreSource for TimingOutSource {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /// Ascending comparator: lower score is better (e.g. vector distance).
-fn asc(a: &f64, b: &f64) -> Ordering {
-    a.total_cmp(&b)
-}
-
 fn make_child<'a>(ids: Vec<DocId>) -> Box<dyn RQEIterator<'a> + 'a> {
     Box::new(IdList::<true>::new(ids))
 }
@@ -105,7 +102,7 @@ fn read_triggers_collection_on_first_call() {
     let mut it = ContractChecker::new_unordered(TopKIterator::new_unfiltered(
         source,
         NonZeroUsize::new(5).unwrap(),
-        asc,
+        Ascending,
     ));
 
     assert!(!it.at_eof());
@@ -121,7 +118,7 @@ fn rewind_resets_to_not_started() {
     let mut it = ContractChecker::new_unordered(TopKIterator::new_unfiltered(
         source,
         NonZeroUsize::new(5).unwrap(),
-        asc,
+        Ascending,
     ));
     it.read().unwrap();
     it.read().unwrap();
@@ -145,7 +142,7 @@ fn eof_set_after_results_exhausted() {
     let mut it = ContractChecker::new_unordered(TopKIterator::new_unfiltered(
         source,
         NonZeroUsize::new(5).unwrap(),
-        asc,
+        Ascending,
     ));
     it.read().unwrap();
     let eof = it.read().unwrap();
@@ -165,7 +162,7 @@ fn filtered_path_clears_current_once_exhausted() {
         source,
         make_child(vec![1, 2]),
         NonZeroUsize::new(10).unwrap(),
-        asc,
+        Ascending,
     );
 
     assert!(it.read().unwrap().is_some());
@@ -187,7 +184,7 @@ fn last_doc_id_starts_at_zero_tracks_reads_and_resets_on_rewind() {
     let mut it = ContractChecker::new_unordered(TopKIterator::new_unfiltered(
         source,
         NonZeroUsize::new(5).unwrap(),
-        asc,
+        Ascending,
     ));
 
     assert_eq!(it.last_doc_id(), 0);
@@ -210,7 +207,7 @@ fn num_estimated_capped_at_k() {
     let it = ContractChecker::new_unordered(TopKIterator::new_unfiltered(
         source,
         NonZeroUsize::new(3).unwrap(),
-        asc,
+        Ascending,
     ));
 
     assert_eq!(it.num_estimated(), 3);
@@ -228,7 +225,7 @@ fn num_estimated_capped_by_child() {
         source,
         make_child(vec![2]),
         NonZeroUsize::new(100).unwrap(),
-        asc,
+        Ascending,
     );
 
     assert_eq!(it.num_estimated(), 1);
@@ -246,7 +243,7 @@ fn unfiltered_yields_batch_in_source_order() {
     let mut it = ContractChecker::new_unordered(TopKIterator::new_unfiltered(
         source,
         NonZeroUsize::new(10).unwrap(),
-        asc,
+        Ascending,
     ));
     let ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
     assert_eq!(ids, vec![1, 2, 3]);
@@ -258,7 +255,7 @@ fn unfiltered_empty_source_is_immediate_eof() {
     let mut it = ContractChecker::new_unordered(TopKIterator::new_unfiltered(
         source,
         NonZeroUsize::new(5).unwrap(),
-        asc,
+        Ascending,
     ));
     assert!(it.read().unwrap().is_none());
     assert!(it.at_eof());
@@ -271,7 +268,7 @@ fn unfiltered_timeout_propagated() {
     let mut it = ContractChecker::new_unordered(TopKIterator::new_unfiltered(
         TimingOutSource,
         NonZeroUsize::new(5).unwrap(),
-        asc,
+        Ascending,
     ));
     assert!(matches!(
         it.read().unwrap_err(),
@@ -294,7 +291,7 @@ fn batches_overlap_intersection() {
         source,
         make_child(vec![1, 3, 5]),
         NonZeroUsize::new(10).unwrap(),
-        asc,
+        Ascending,
     ));
     let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
     assert_eq!(doc_ids, vec![5, 3, 1]);
@@ -309,7 +306,7 @@ fn batches_disjoint_yields_nothing() {
         source,
         make_child(vec![10, 20]),
         NonZeroUsize::new(10).unwrap(),
-        asc,
+        Ascending,
     ));
     assert!(it.read().unwrap().is_none());
     assert!(it.at_eof());
@@ -324,7 +321,7 @@ fn batches_empty_child_yields_nothing() {
         source,
         make_child(vec![]),
         NonZeroUsize::new(10).unwrap(),
-        asc,
+        Ascending,
     ));
     assert!(it.read().unwrap().is_none());
     assert!(it.at_eof());
@@ -343,7 +340,7 @@ fn batches_multiple_batches() {
         source,
         make_child(vec![1, 3, 4]),
         NonZeroUsize::new(10).unwrap(),
-        asc,
+        Ascending,
     ));
     let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
     assert_eq!(doc_ids, vec![3, 4, 1]);
@@ -360,7 +357,7 @@ fn batches_no_child(
         source,
         None,
         NonZeroUsize::new(k).unwrap(),
-        asc,
+        Ascending,
         TopKMode::Batches,
     )
 }
@@ -414,7 +411,7 @@ fn batches_expired_doc_shrinks_results_without_refill() {
         source,
         make_child(vec![1, 2, 3]),
         NonZeroUsize::new(2).unwrap(),
-        asc,
+        Ascending,
     ));
     let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
     assert_eq!(doc_ids, vec![2]);
@@ -432,7 +429,7 @@ fn unfiltered_expired_docs_dropped_at_yield() {
     let mut it = ContractChecker::new_unordered(TopKIterator::new_unfiltered(
         source,
         NonZeroUsize::new(3).unwrap(),
-        asc,
+        Ascending,
     ));
     let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
     assert_eq!(doc_ids, vec![2]);
@@ -452,7 +449,7 @@ fn unfiltered_timeout_polled_while_skipping_expired() {
     let mut it = ContractChecker::new_unordered(TopKIterator::new_unfiltered(
         source,
         NonZeroUsize::new(3).unwrap(),
-        asc,
+        Ascending,
     ));
     assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
 }
@@ -472,7 +469,7 @@ fn yield_timeout_polled_while_skipping_expired() {
         source,
         make_child(vec![1, 2, 3]),
         NonZeroUsize::new(3).unwrap(),
-        asc,
+        Ascending,
     ));
     assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
 }
@@ -489,7 +486,7 @@ fn unfiltered_timeout_polled_before_yielding_valid() {
     let mut it = ContractChecker::new_unordered(TopKIterator::new_unfiltered(
         source,
         NonZeroUsize::new(3).unwrap(),
-        asc,
+        Ascending,
     ));
     assert_eq!(it.read().unwrap().map(|r| r.doc_id), Some(1));
     assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
@@ -509,7 +506,7 @@ fn yield_timeout_polled_before_yielding_valid() {
         source,
         make_child(vec![1, 2, 3]),
         NonZeroUsize::new(3).unwrap(),
-        asc,
+        Ascending,
     ));
     assert_eq!(it.read().unwrap().map(|r| r.doc_id), Some(1));
     assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
@@ -531,7 +528,7 @@ fn retry_after_timeout_discards_partial_collection() {
         source,
         Some(make_child(vec![1, 2, 3])),
         NonZeroUsize::new(10).unwrap(),
-        asc,
+        Ascending,
         TopKMode::AdhocBF,
     ));
 
@@ -557,7 +554,7 @@ fn strategy_stop_stops_after_first_batch() {
         source,
         make_child(vec![1, 2, 3, 4]),
         NonZeroUsize::new(10).unwrap(),
-        asc,
+        Ascending,
     ));
     let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
     assert_eq!(doc_ids.len(), 2);
@@ -647,7 +644,7 @@ fn rewind_after_mid_collect_error_does_not_retain_stale_heap() {
         source,
         make_child(vec![1, 3]),
         NonZeroUsize::new(10).unwrap(),
-        asc,
+        Ascending,
     ));
 
     // Session 1: the source returns one batch (doc 1, doc 3 land in the heap)
@@ -688,7 +685,7 @@ fn strategy_switch_to_adhoc() {
         source,
         make_child(vec![1, 2, 3]),
         NonZeroUsize::new(10).unwrap(),
-        asc,
+        Ascending,
     ));
     let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
     // Adhoc-only scores, doc 2 exactly once: 2(1.0), 3(2.0).
@@ -717,7 +714,7 @@ fn strategy_expand_window_preserves_heap() {
         source,
         make_child(vec![1, 2]),
         NonZeroUsize::new(10).unwrap(),
-        asc,
+        Ascending,
     ));
     let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
     assert_eq!(doc_ids, vec![1, 2]);
@@ -735,7 +732,7 @@ fn adhoc_scores_known_docs_only() {
         source,
         Some(make_child(vec![1, 2, 3, 4, 5])),
         NonZeroUsize::new(10).unwrap(),
-        asc,
+        Ascending,
         TopKMode::AdhocBF,
     ));
     let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
@@ -756,7 +753,7 @@ fn adhoc_early_stop_when_heap_full() {
         source,
         Some(make_child(vec![1, 2, 3])),
         NonZeroUsize::new(2).unwrap(),
-        asc,
+        Ascending,
         TopKMode::AdhocBF,
     ));
     let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
@@ -772,7 +769,7 @@ fn adhoc_child_eof_returns_what_was_found() {
         source,
         Some(make_child(vec![1, 2])),
         NonZeroUsize::new(10).unwrap(),
-        asc,
+        Ascending,
         TopKMode::AdhocBF,
     ));
     let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
@@ -793,7 +790,7 @@ fn adhoc_expired_doc_shrinks_results_without_refill() {
         source,
         Some(make_child(vec![1, 2, 3])),
         NonZeroUsize::new(2).unwrap(),
-        asc,
+        Ascending,
         TopKMode::AdhocBF,
     ));
     let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
@@ -808,7 +805,7 @@ fn adhoc_empty_child_is_eof() {
         source,
         Some(make_child(vec![])),
         NonZeroUsize::new(10).unwrap(),
-        asc,
+        Ascending,
         TopKMode::AdhocBF,
     ));
     assert!(it.read().unwrap().is_none());
@@ -872,7 +869,7 @@ fn adhoc_timeout_propagated() {
         TimingOutAdhocSource { adhoc_calls: 0 },
         Some(make_child(vec![1, 2, 3, 4, 5])),
         NonZeroUsize::new(10).unwrap(),
-        asc,
+        Ascending,
         TopKMode::AdhocBF,
     ));
     assert!(matches!(it.read().unwrap_err(), RQEIteratorError::TimedOut));
@@ -888,7 +885,7 @@ fn profile_children_wraps_child_in_profile_node() {
         BatchStrategy::Continue
     });
     let child = make_crqe_child(vec![1, 2, 3]);
-    let it = TopKIterator::new(source, child, NonZeroUsize::new(10).unwrap(), asc);
+    let it = TopKIterator::new(source, child, NonZeroUsize::new(10).unwrap(), Ascending);
 
     let mut profiled = it.profile_children();
 
@@ -899,7 +896,7 @@ fn profile_children_wraps_child_in_profile_node() {
         "filter child should be wrapped in a Profile node after profile_children()"
     );
 
-    // Results must be unchanged: all three docs, sorted best-first (asc).
+    // Results must be unchanged: all three docs, sorted best-first (Ascending).
     let doc_ids: Vec<_> =
         std::iter::from_fn(|| profiled.read().unwrap().map(|r| r.doc_id)).collect();
     assert_eq!(doc_ids, vec![3, 1, 2]);
@@ -915,7 +912,7 @@ fn profile_children_with_no_child_is_identity() {
         source,
         None,
         NonZeroUsize::new(10).unwrap(),
-        asc,
+        Ascending,
         TopKMode::Unfiltered,
     );
 
@@ -959,7 +956,7 @@ fn batches_preserves_child_scoring_fields() {
         source,
         Box::new(child) as Box<dyn RQEIterator<'_> + '_>,
         NonZeroUsize::new(10).unwrap(),
-        asc,
+        Ascending,
     ));
 
     let mut emitted = Vec::new();
@@ -1000,7 +997,7 @@ fn batches_trim_deep_results_yields_metric_only() {
         source,
         Box::new(child) as Box<dyn RQEIterator<'_> + '_>,
         NonZeroUsize::new(10).unwrap(),
-        asc,
+        Ascending,
     )
     .with_trim_deep_results(true);
 
@@ -1040,7 +1037,7 @@ fn adhoc_trim_deep_results_yields_metric_only() {
         source,
         Some(Box::new(child) as Box<dyn RQEIterator<'_> + '_>),
         NonZeroUsize::new(10).unwrap(),
-        asc,
+        Ascending,
         TopKMode::AdhocBF,
     )
     .with_trim_deep_results(true);
@@ -1080,7 +1077,7 @@ fn batches_trim_deep_results_preserves_child_metrics() {
         source,
         Box::new(child) as Box<dyn RQEIterator<'_> + '_>,
         NonZeroUsize::new(10).unwrap(),
-        asc,
+        Ascending,
     )
     .with_trim_deep_results(true);
 
@@ -1120,7 +1117,7 @@ fn batches_trim_deep_results_payload_carries_source_score() {
         source,
         Box::new(child) as Box<dyn RQEIterator<'_> + '_>,
         NonZeroUsize::new(10).unwrap(),
-        asc,
+        Ascending,
     )
     .with_trim_deep_results(true);
 

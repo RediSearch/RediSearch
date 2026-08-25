@@ -36,7 +36,7 @@ use rqe_iterators::profile_print::ProfilePrint;
 pub use score_batch::VecSimScoreBatch;
 pub use source::VectorScoreSource;
 
-use std::{cmp::Ordering, ffi::CStr, num::NonZeroUsize};
+use std::{ffi::CStr, num::NonZeroUsize};
 
 use ffi::{
     VecSearchMode, VecSearchMode_HYBRID_ADHOC_BF, VecSearchMode_HYBRID_BATCHES,
@@ -46,7 +46,7 @@ use ffi::{
 use redis_reply::MapBuilder;
 use rqe_iterators::profile_print::ProfilePrintCtx;
 use rqe_iterators::{ExpirationChecker, FieldExpirationChecker, RQEIterator};
-use top_k::{TopKIterator, TopKMode, TopKSourceProfile};
+use top_k::{Ascending, TopKIterator, TopKMode, TopKSourceProfile};
 
 /// A [`TopKIterator`] parameterised over [`VectorScoreSource`].
 ///
@@ -62,9 +62,9 @@ use top_k::{TopKIterator, TopKMode, TopKSourceProfile};
 pub type VectorTopKIterator<'index, E = FieldExpirationChecker, I = CRQEIterator> =
     TopKIterator<'index, VectorScoreSource<'index, E>, I>;
 
-/// Ascending comparator — lower distance score is better (vector L2/IP/Cosine).
-const fn asc() -> fn(a: &f64, b: &f64) -> Ordering {
-    f64::total_cmp
+/// Lower distance score is better (vector L2/IP/Cosine).
+const fn asc() -> Ascending {
+    Ascending
 }
 
 /// Map a [`TopKMode`] and its mid-run switch count to the [`VecSearchMode`]
