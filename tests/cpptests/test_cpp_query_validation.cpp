@@ -62,6 +62,65 @@ bool isInvalidHybridSearch(const char *qt, RedisSearchCtx &ctx,
   ASSERT_TRUE(isInvalidHybridSearch(qt, ctx, hybridSearchValidationFlags, QUERY_ERROR_CODE_VECTOR_NOT_ALLOWED))
 
 
+// Preserve the unusual public contract where empty-token validation records a
+// syntax error but does not change QAST_CheckIsValid's return code.
+TEST_F(QueryValidationTest, testEmptyTokenSetsErrorWithoutChangingReturnCode) {
+  // Omitting INDEXEMPTY makes the parsed empty token reach validation.
+  static const char *args[] = {
+    "SCHEMA",
+    "title", "TEXT"
+  };
+
+  QueryError err = QueryError_Default();
+  StrongRef ref = IndexSpec_ParseC(NULL, "idx", args, sizeof(args) / sizeof(const char *), &err);
+  ASSERT_TRUE(QueryError_IsOk(&err)) << QueryError_GetUserError(&err);
+
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, (IndexSpec *)StrongRef_Get(ref));
+  RSSearchOptions opts;
+  RSSearchOptions_Init(&opts);
+  QueryAST ast = {};
+  const char *query = "@title:\"\"";
+  ASSERT_EQ(QAST_Parse(&ast, &ctx, &opts, query, strlen(query), 2, &err), REDISMODULE_OK);
+  ASSERT_TRUE(QueryError_IsOk(&err)) << QueryError_GetUserError(&err);
+
+  ASSERT_EQ(QAST_CheckIsValid(&ast, ctx.spec, &opts, &err), REDISMODULE_OK);
+  ASSERT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_SYNTAX);
+
+  QAST_Destroy(&ast);
+  QueryError_ClearError(&err);
+  Indexes_RemoveSpecFromGlobals(ref, false);
+}
+
+// Hybrid parsing marks its main vector node so the filter's restrictions apply
+// to nested nodes, but not to the vector operation that defines the subquery.
+TEST_F(QueryValidationTest, testHybridMainVectorIgnoresVectorAndWeightRestrictions) {
+  // A non-INDEXEMPTY field disables the ordinary-index validation fast path.
+  static const char *args[] = {
+    "SCHEMA",
+    "title", "TEXT"
+  };
+
+  QueryError err = QueryError_Default();
+  StrongRef ref = IndexSpec_ParseC(NULL, "idx", args, sizeof(args) / sizeof(const char *), &err);
+  ASSERT_TRUE(QueryError_IsOk(&err)) << QueryError_GetUserError(&err);
+
+  QueryAST ast = {};
+  ast.root = NewQueryNode(QN_VECTOR);
+  ast.root->opts.flags |= QueryNode_HybridVectorSubqueryNode;
+  // Set an explicit weight as well as the vector type to exercise both exemptions.
+  ast.root->opts.explicitWeight = true;
+  ast.validationFlags = hybridVectorFilterValidationFlags;
+
+  RSSearchOptions opts;
+  RSSearchOptions_Init(&opts);
+  ASSERT_EQ(QAST_CheckIsValid(&ast, (IndexSpec *)StrongRef_Get(ref), &opts, &err), REDISMODULE_OK);
+  ASSERT_TRUE(QueryError_IsOk(&err)) << QueryError_GetUserError(&err);
+
+  QAST_Destroy(&ast);
+  QueryError_ClearError(&err);
+  Indexes_RemoveSpecFromGlobals(ref, false);
+}
+
 TEST_F(QueryValidationTest, testInvalidVectorFilter) {
   // Create an index spec with a title field and a vector field
   static const char *args[] = {
