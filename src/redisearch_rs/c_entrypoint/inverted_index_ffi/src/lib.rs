@@ -17,7 +17,7 @@ use std::ffi::c_char;
 use ffi::{
     DocTable_Exists, IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreFieldFlags,
     IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric, IndexFlags_Index_StoreTermOffsets,
-    IndexFlags_Index_WideSchema, RedisSearchCtx,
+    IndexFlags_Index_WideSchema, IndexSpec, RedisSearchCtx,
 };
 use rqe_core::{DocId, FieldMask};
 
@@ -534,6 +534,66 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_Scan(
     deltas
         .serialize(&mut rmp_serde::Serializer::new(wr))
         .is_ok()
+}
+
+/// Reclaim entries for deleted documents from `idx`'s tail block, on the write path,
+/// without forking.
+///
+/// Call after writing an entry. Does nothing unless the tail block has just filled, so it is
+/// safe and cheap to call after every write — see
+/// `InvertedIndex::repair_full_tail_block` for why that is the only moment a
+/// writer can usefully repair, and for the resulting cadence.
+///
+/// `min_reclaim_pct` is the smallest share of the block's entries a repair must remove to be
+/// worth rewriting the block for; `0` accepts any reclaim. Pass the
+/// `INLINE_GC_BLOCK_REPAIR_THRESHOLD` config value, and skip the call entirely when it is 0
+/// — the feature is off in that case, not "repair everything".
+///
+/// Writes the reclaim into `out_info` and returns `true` when a repair happened; returns
+/// `false` and leaves `out_info` untouched otherwise, including when the block was decoded
+/// but nothing was worth reclaiming. A decode failure is reported as `false`: the index is
+/// unmodified in that case, and failing a write because a repair could not run would be a
+/// worse outcome than leaving the garbage for the fork GC.
+///
+/// The caller must apply `out_info` to `spec->stats`, and must hold the spec write lock —
+/// this mutates the index's blocks exactly as `InvertedIndex_ApplyGCDelta` does.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// - `idx` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
+/// - `spec` must be a valid, non NULL, pointer to an `IndexSpec`.
+/// - `out_info` must be a valid, non NULL, pointer to a writable `II_GCScanStats`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndex_RepairFullTailBlock(
+    idx: *mut InvertedIndex,
+    spec: *const IndexSpec,
+    min_reclaim_pct: u8,
+    out_info: *mut GcApplyInfo,
+) -> bool {
+    debug_assert!(!idx.is_null(), "idx must not be null");
+    debug_assert!(!spec.is_null(), "spec must not be null");
+    debug_assert!(!out_info.is_null(), "out_info must not be null");
+
+    // SAFETY: The caller must ensure `spec` is a valid pointer to an `IndexSpec`
+    let spec = unsafe { &*spec };
+    let doc_table = spec.docs;
+
+    // SAFETY: We know `doc_table` is a valid `DocTable` because we just got it off the spec
+    let doc_exists = |id| unsafe { DocTable_Exists(&doc_table, id) };
+
+    // SAFETY: The caller must ensure `idx` is a valid pointer to an `InvertedIndex`, and
+    // holds the spec write lock so no reader is traversing it concurrently.
+    let ii = unsafe { &mut *idx };
+
+    let Ok(Some(info)) = ii.repair_full_tail_block(min_reclaim_pct, doc_exists) else {
+        return false;
+    };
+
+    // SAFETY: The caller must ensure `out_info` is a valid pointer to a writable `GcApplyInfo`
+    unsafe { std::ptr::write(out_info, info) };
+
+    true
 }
 
 /// Read a GC delta from the provided reader. The returned pointer must be freed using

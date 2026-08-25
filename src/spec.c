@@ -2831,6 +2831,8 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
   RedisModule_InfoEndDictField(ctx);
 
   RedisModule_InfoAddFieldULongLong(ctx, "total_inverted_index_blocks", sp->stats.totalInvertedIndexBlocks);
+  RedisModule_InfoAddFieldULongLong(ctx, "inline_gc_repairs", sp->stats.inlineRepairs);
+  RedisModule_InfoAddFieldLongLong(ctx, "inline_gc_bytes_collected", sp->stats.inlineBytesCollected);
 
   RedisModule_InfoBeginDictField(ctx, "index_properties_averages");
   RedisModule_InfoAddFieldDouble(ctx, "records_per_doc_avg",(float)num_records / (float)sp->stats.scoring.numDocuments);

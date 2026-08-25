@@ -138,6 +138,13 @@ impl IndexBlock {
     /// if blocks are ever decoded into temporary buffers rather than read in place.
     ///
     /// `None` is returned when there is nothing to repair in this block.
+    ///
+    /// Re-encoding is deferred until the first dead entry is seen. A block whose
+    /// entries all survive is the common case in a healthy index, and it would
+    /// otherwise pay to rebuild a block that is then discarded — so it costs a
+    /// decode pass and no allocation. The price is that a block which *does*
+    /// change re-decodes the surviving prefix once, in
+    /// [`reencode_prefix`](Self::reencode_prefix).
     pub(crate) fn repair<'block, E: Encoder + DecodedBy<Decoder = D>, D: Decoder>(
         &'block self,
         block_idx: usize,
@@ -150,19 +157,23 @@ impl IndexBlock {
         let mut result = D::base_result();
         let mut unique_read = 0;
         let mut unique_write = 0;
-        let mut block_changed = false;
         // Ordinal of the entry being read, used to carry its field-expiration bit
         // (kept in this block's side bitset, not the encoded buffer) onto the
         // re-encoded survivor so `add_record` re-propagates it into the new block.
         let mut ordinal: u16 = 0;
 
-        let mut tmp_inverted_index = InvertedIndex::<E>::new(IndexFlags_Index_DocIdsOnly);
+        // `Some` once a dead entry has proved the block must be rebuilt. While it
+        // is `None`, every entry read so far survives and the block still stands
+        // as it is — which is also what distinguishes "nothing to repair" from
+        // "everything died" at the end, since both leave no blocks behind.
+        let mut tmp_inverted_index: Option<InvertedIndex<E>> = None;
 
         while self.buffer.len() as u64 > cursor.position() {
             let base = D::base_id(self, last_read_doc_id.unwrap_or(self.first_doc_id));
             D::decode(&mut cursor, base, &mut result)?;
             result.has_field_expiration = self.expiration_bit(ordinal);
-            ordinal += 1;
+
+            let starts_new_doc = last_read_doc_id.is_none_or(|id| id != result.doc_id);
 
             if doc_exist(result.doc_id) {
                 if let Some(repair) = repair.as_mut() {
@@ -173,34 +184,77 @@ impl IndexBlock {
                     repair(&result, &ctx);
                 }
 
-                tmp_inverted_index.add_record(&result)?;
+                if let Some(tmp) = tmp_inverted_index.as_mut() {
+                    tmp.add_record(&result)?;
 
-                if last_read_doc_id.is_none_or(|id| id != result.doc_id) {
-                    unique_write += 1;
+                    if starts_new_doc {
+                        unique_write += 1;
+                    }
                 }
-            } else {
-                block_changed = true;
+            } else if tmp_inverted_index.is_none() {
+                // First dead entry. Everything before it survived but was decoded
+                // and dropped, so replay that prefix into a fresh block. The
+                // `repair` callback has already seen those records and must not
+                // observe them twice, which is why the replay does not take it.
+                let (prefix, prefix_unique) = self.reencode_prefix::<E, D>(ordinal)?;
+                tmp_inverted_index = Some(prefix);
+                unique_write = prefix_unique;
             }
 
-            if last_read_doc_id.is_none_or(|id| id != result.doc_id) {
+            if starts_new_doc {
                 unique_read += 1;
+            }
+
+            last_read_doc_id = Some(result.doc_id);
+            ordinal += 1;
+        }
+
+        match tmp_inverted_index {
+            // Every entry survived: the block stands as it is.
+            None => Ok(None),
+            // Something died and nothing was re-encoded, so the whole block goes.
+            Some(tmp) if tmp.blocks.is_empty() => Ok(Some(RepairType::Delete {
+                n_unique_docs_removed: unique_read,
+            })),
+            Some(tmp) => Ok(Some(RepairType::Replace {
+                blocks: SmallVec::from_iter(tmp.blocks),
+                n_unique_docs_removed: unique_read - unique_write,
+            })),
+        }
+    }
+
+    /// Re-encode the first `count` entries of this block, all of which are known
+    /// to belong to live documents, into a fresh index.
+    ///
+    /// Returns the index and the number of distinct documents written, which
+    /// seeds `unique_write` in [`repair`](Self::repair) — entries within a block
+    /// are ordered by document ID, so a document is new when it differs from the
+    /// previous one.
+    fn reencode_prefix<'block, E: Encoder + DecodedBy<Decoder = D>, D: Decoder>(
+        &'block self,
+        count: u16,
+    ) -> std::io::Result<(InvertedIndex<E>, u32)> {
+        let mut tmp_inverted_index = InvertedIndex::<E>::new(IndexFlags_Index_DocIdsOnly);
+        let mut cursor: std::io::Cursor<&'block [u8]> = std::io::Cursor::new(&self.buffer);
+        let mut last_read_doc_id = None;
+        let mut result = D::base_result();
+        let mut unique_write = 0;
+
+        for ordinal in 0..count {
+            let base = D::base_id(self, last_read_doc_id.unwrap_or(self.first_doc_id));
+            D::decode(&mut cursor, base, &mut result)?;
+            result.has_field_expiration = self.expiration_bit(ordinal);
+
+            tmp_inverted_index.add_record(&result)?;
+
+            if last_read_doc_id.is_none_or(|id| id != result.doc_id) {
+                unique_write += 1;
             }
 
             last_read_doc_id = Some(result.doc_id);
         }
 
-        if tmp_inverted_index.blocks.is_empty() {
-            Ok(Some(RepairType::Delete {
-                n_unique_docs_removed: unique_read,
-            }))
-        } else if block_changed {
-            Ok(Some(RepairType::Replace {
-                blocks: SmallVec::from_iter(tmp_inverted_index.blocks),
-                n_unique_docs_removed: unique_read - unique_write,
-            }))
-        } else {
-            Ok(None)
-        }
+        Ok((tmp_inverted_index, unique_write))
     }
 }
 
@@ -243,6 +297,187 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
                 deltas: results,
             }))
         }
+    }
+
+    /// Whether the last block has reached [`Encoder::RECOMMENDED_BLOCK_ENTRIES`], and so
+    /// will be rotated away by the next write of a new document.
+    fn tail_block_is_full(&self) -> bool {
+        self.blocks
+            .last()
+            .is_some_and(|b| b.num_entries >= E::RECOMMENDED_BLOCK_ENTRIES)
+    }
+
+    /// [`repair_tail_block`](Self::repair_tail_block), but only at the moment the tail
+    /// block has filled. This is the form the write path should call.
+    ///
+    /// A writer can only ever repair the tail, and a block stops being the tail as soon as
+    /// the next new document arrives — so the instant it fills is both the last chance to
+    /// repair it inline and the point at which it holds the most garbage it will ever hold
+    /// while still reachable. Checking here rather than on a write counter also needs no
+    /// per-index state: there is one `InvertedIndex` per term, so a counter field would
+    /// cost memory on every term in the index to answer a question the block length
+    /// already answers.
+    ///
+    /// The cadence this produces is self-limiting. A clean block is checked exactly once
+    /// and then rotates. A block that reclaims `k` entries drops back below capacity and
+    /// is checked again only after `k` more writes refill it — so checks scale with how
+    /// much garbage is actually being produced, and a clean index settles at one check per
+    /// block.
+    ///
+    /// # Errors
+    ///
+    /// See [`repair_tail_block`](Self::repair_tail_block).
+    pub fn repair_full_tail_block(
+        &mut self,
+        min_reclaim_pct: u8,
+        doc_exist: impl Fn(DocId) -> bool,
+    ) -> std::io::Result<Option<GcApplyInfo>> {
+        if !self.tail_block_is_full() {
+            return Ok(None);
+        }
+
+        self.repair_tail_block(min_reclaim_pct, doc_exist)
+    }
+
+    /// Reclaim entries for deleted documents from this index's **last block only**,
+    /// in place, without a garbage-collection scan.
+    ///
+    /// This is the write-path counterpart to [`apply_gc`](Self::apply_gc). A writer only
+    /// ever appends to the last block, so that is the only block it can repair without
+    /// widening the cost of a write past one block — and it is the block a fork
+    /// garbage collection deliberately never repairs, because a concurrent append would
+    /// invalidate the scan. Every other block stays the fork GC's responsibility.
+    ///
+    /// Returns `None` when the block was left untouched, which happens when the index has
+    /// no blocks, when no entry in the last block belongs to a deleted document, or when
+    /// the reclaim would fall below `min_reclaim_pct` of the block's entries. In all three
+    /// cases the GC marker is left alone, so readers positioned in the block are not made
+    /// to revalidate for nothing.
+    ///
+    /// `min_reclaim_pct` of `0` accepts any reclaim at all.
+    ///
+    /// # Errors
+    ///
+    /// Propagates a decode failure from the block being read. The index is unmodified in
+    /// that case — the decode happens before any mutation.
+    pub fn repair_tail_block(
+        &mut self,
+        min_reclaim_pct: u8,
+        doc_exist: impl Fn(DocId) -> bool,
+    ) -> std::io::Result<Option<GcApplyInfo>> {
+        let Some(last_idx) = self.blocks.len().checked_sub(1) else {
+            return Ok(None);
+        };
+        let entries_before = self.blocks[last_idx].num_entries;
+
+        let repair = self.blocks[last_idx].repair(
+            last_idx,
+            doc_exist,
+            None::<fn(&RSIndexResult, &RepairContext<'_>)>,
+            PhantomData::<E>,
+        )?;
+
+        let Some(repair) = repair else {
+            return Ok(None);
+        };
+
+        if !Self::reclaim_is_worthwhile(&repair, entries_before, min_reclaim_pct) {
+            return Ok(None);
+        }
+
+        let blocks_before = self.blocks.len();
+        let mut info = GcApplyInfo::default();
+
+        let block = self
+            .blocks
+            .pop()
+            .expect("`last_idx` was derived from a non-zero length and nothing popped since");
+        self.absorb_block_repair(block, repair, &mut info);
+        self.finish_block_repair(blocks_before, &mut info);
+
+        Ok(Some(info))
+    }
+
+    /// Whether a repair of the tail block earns the rewrite it costs.
+    ///
+    /// A `Replace` that yields more than one block is rejected outright: removing an entry
+    /// can widen a document-ID delta past what the encoder can represent and force a split,
+    /// which would grow the index rather than shrink it. Those entries are left for the
+    /// fork GC, which can afford the split because it is not on the write path.
+    fn reclaim_is_worthwhile(
+        repair: &RepairType,
+        entries_before: u16,
+        min_reclaim_pct: u8,
+    ) -> bool {
+        match repair {
+            // The whole block goes away; nothing is rewritten.
+            RepairType::Delete { .. } => true,
+            RepairType::Replace { blocks, .. } => {
+                if blocks.len() > 1 {
+                    return false;
+                }
+                let kept: u32 = blocks.iter().map(|b| u32::from(b.num_entries)).sum();
+                let removed = u32::from(entries_before).saturating_sub(kept);
+                removed * 100 >= u32::from(entries_before) * u32::from(min_reclaim_pct)
+            }
+        }
+    }
+
+    /// Retire `block`, push whatever replaces it onto [`Self::blocks`], and fold the
+    /// change into `info` and [`Self::n_unique_docs`].
+    ///
+    /// Shared by [`apply_gc`](Self::apply_gc) and
+    /// [`repair_tail_block`](Self::repair_tail_block): the two paths must agree on the
+    /// index's unique-document count, and a second copy of this arithmetic is how that
+    /// count goes wrong without any test noticing.
+    ///
+    /// The caller is responsible for having removed `block` from [`Self::blocks`] first.
+    fn absorb_block_repair(
+        &mut self,
+        block: IndexBlock,
+        repair: RepairType,
+        info: &mut GcApplyInfo,
+    ) {
+        info.entries_removed += block.num_entries as usize;
+        info.bytes_freed += block.mem_usage();
+
+        let (replacements, n_unique_docs_removed) = match repair {
+            RepairType::Delete {
+                n_unique_docs_removed,
+            } => (SmallVec::new(), n_unique_docs_removed),
+            RepairType::Replace {
+                blocks,
+                n_unique_docs_removed,
+            } => (blocks, n_unique_docs_removed),
+        };
+
+        self.n_unique_docs -= n_unique_docs_removed;
+
+        for replacement in replacements {
+            info.entries_removed -= replacement.num_entries as usize;
+            info.bytes_allocated += replacement.mem_usage();
+            self.blocks.push(replacement);
+        }
+    }
+
+    /// Settle the block vector after one or more repairs and mark the index as
+    /// garbage-collected.
+    ///
+    /// The [`gc_marker_inc`](Self::gc_marker_inc) here is what tells a reader holding a
+    /// pointer into a block that the blocks moved, so every path that mutates
+    /// [`Self::blocks`] must end here.
+    fn finish_block_repair(&mut self, blocks_before: usize, info: &mut GcApplyInfo) {
+        // Remove excess capacity from the blocks vector.
+        let had_allocated = self.blocks.has_allocated();
+        self.blocks.shrink_to_fit();
+        // If we got rid of the heap block buffer entirely, we have also freed the memory occupied
+        // by the thin vec header. That hasn't been accounted for yet, so we add it to the bytes freed now.
+        if !self.blocks.has_allocated() && had_allocated {
+            info.bytes_freed += Header::<BlockCapacity>::size_with_padding::<IndexBlock>();
+        }
+
+        info.block_count_delta = self.blocks.len() as i64 - blocks_before as i64;
+        self.gc_marker_inc();
     }
 
     /// Apply the deltas of a garbage collection scan to the index. This will modify the index
@@ -302,29 +537,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
                         )
                     };
 
-                    match delta.repair {
-                        RepairType::Delete {
-                            n_unique_docs_removed,
-                        } => {
-                            info.entries_removed += block.num_entries as usize;
-                            info.bytes_freed += block.mem_usage();
-                            self.n_unique_docs -= n_unique_docs_removed;
-                        }
-                        RepairType::Replace {
-                            blocks,
-                            n_unique_docs_removed,
-                        } => {
-                            info.entries_removed += block.num_entries as usize;
-                            info.bytes_freed += block.mem_usage();
-                            self.n_unique_docs -= n_unique_docs_removed;
-
-                            for block in blocks {
-                                info.entries_removed -= block.num_entries as usize;
-                                info.bytes_allocated += block.mem_usage();
-                                self.blocks.push(block);
-                            }
-                        }
-                    }
+                    self.absorb_block_repair(block, delta.repair, &mut info);
                 }
                 _ => {
                     // This block does not need to be repaired, so just put it back
@@ -333,19 +546,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             }
         }
 
-        // Remove excess capacity from the blocks vector.
-        {
-            let had_allocated = self.blocks.has_allocated();
-            self.blocks.shrink_to_fit();
-            // If we got rid of the heap block buffer entirely, we have also freed the memory occupied
-            // by the thin vec header. That hasn't been accounted for yet, so we add it to the bytes freed now.
-            if !self.blocks.has_allocated() && had_allocated {
-                info.bytes_freed += Header::<BlockCapacity>::size_with_padding::<IndexBlock>();
-            }
-        }
-
-        info.block_count_delta = self.blocks.len() as i64 - blocks_before as i64;
-        self.gc_marker_inc();
+        self.finish_block_repair(blocks_before, &mut info);
 
         info
     }

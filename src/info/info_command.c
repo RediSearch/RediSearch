@@ -319,6 +319,10 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVNUM("inverted_sz_mb", inverted_size / (float)0x100000);
   REPLY_KVNUM("vector_index_sz_mb", vector_indexes_size / (float)0x100000);
   REPLY_KVINT("total_inverted_index_blocks", total_ii_blocks);
+  // Reported separately from the fork GC's `bytes_collected` so the two reclaim paths can be
+  // compared. Both stay 0 while INLINE_GC_BLOCK_REPAIR_THRESHOLD is 0.
+  REPLY_KVINT("inline_gc_repairs", sp->stats.inlineRepairs);
+  REPLY_KVINT("inline_gc_bytes_collected", sp->stats.inlineBytesCollected);
   REPLY_KVNUM("offset_vectors_sz_mb", offset_vecs_size / (float)0x100000);
   REPLY_KVNUM("doc_table_size_mb", doc_table_size / (float)0x100000);
   REPLY_KVNUM("sortable_values_size_mb", sortables_size / (float)0x100000);

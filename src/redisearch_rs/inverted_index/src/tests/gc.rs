@@ -14,7 +14,7 @@ use std::{
 
 use crate::{
     Decoder, Encoder, EntriesTrackingIndex, GcApplyInfo, GcScanDelta, IdDelta, IndexBlock,
-    InvertedIndex, gc::BlockGcScanResult, gc::RepairType,
+    IndexReader, InvertedIndex, gc::BlockGcScanResult, gc::RepairType,
 };
 use ffi::IndexFlags_Index_DocIdsOnly;
 use index_result::RSIndexResult;
@@ -121,6 +121,122 @@ fn index_block_repair_some_deletions() {
             n_unique_docs_removed: 2
         })
     );
+}
+
+#[test]
+fn index_block_repair_replays_surviving_prefix() {
+    // Entries that survive *before* the first dead one are decoded and dropped
+    // before the repair knows the block will change, so they have to be replayed
+    // from the buffer. Every other repair test kills the first entry, which
+    // leaves that replay with nothing to do.
+    let block = IndexBlock {
+        buffer: encode_ids!(Dummy, 10, 11, 12, 13),
+        num_entries: 4,
+        first_doc_id: 10,
+        last_doc_id: 13,
+        expiration_bits: Default::default(),
+    };
+
+    fn cb(doc_id: DocId) -> bool {
+        doc_id != 12
+    }
+
+    let repair_status = block
+        .repair(
+            0,
+            cb,
+            None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>,
+            PhantomData::<Dummy>,
+        )
+        .unwrap();
+
+    assert_eq!(
+        repair_status,
+        Some(RepairType::Replace {
+            blocks: smallvec![IndexBlock {
+                first_doc_id: 10,
+                last_doc_id: 13,
+                num_entries: 3,
+                buffer: encode_ids!(Dummy, 10, 11, 13),
+                expiration_bits: Default::default(),
+            }],
+            n_unique_docs_removed: 1
+        })
+    );
+}
+
+#[test]
+fn index_block_repair_replays_prefix_with_duplicate_doc_ids() {
+    // `unique_write` is seeded by the prefix replay, and duplicates must not
+    // inflate it — otherwise `n_unique_docs_removed` is wrong and `apply_gc`
+    // corrupts the index's unique-document count.
+    let block = IndexBlock {
+        buffer: encode_ids!(Dummy, 10, 10, 11, 12),
+        num_entries: 4,
+        first_doc_id: 10,
+        last_doc_id: 12,
+        expiration_bits: Default::default(),
+    };
+
+    fn cb(doc_id: DocId) -> bool {
+        doc_id != 12
+    }
+
+    let repair_status = block
+        .repair(
+            0,
+            cb,
+            None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>,
+            PhantomData::<Dummy>,
+        )
+        .unwrap();
+
+    // Three unique docs read (10, 11, 12), two written (10, 11), so exactly one
+    // unique doc was removed — the repeated 10 must not be counted twice.
+    //
+    // The replayed block holds two entries, not three: `Dummy` sets
+    // `ALLOW_DUPLICATES = false`, so `add_record` drops the repeat on re-encode.
+    // That is pre-existing behavior of re-encoding through `add_record`, asserted
+    // here so the prefix replay is pinned to it rather than diverging.
+    assert_eq!(
+        repair_status,
+        Some(RepairType::Replace {
+            blocks: smallvec![IndexBlock {
+                first_doc_id: 10,
+                last_doc_id: 11,
+                num_entries: 2,
+                buffer: encode_ids!(Dummy, 10, 11),
+                expiration_bits: Default::default(),
+            }],
+            n_unique_docs_removed: 1
+        })
+    );
+}
+
+#[test]
+fn index_block_repair_invokes_callback_once_per_survivor() {
+    // The prefix replay re-decodes records the callback has already seen. It must
+    // not hand them to the callback a second time: `fork_gc`'s numeric collector
+    // folds every survivor into an HLL, and a double count corrupts the estimate.
+    let block = IndexBlock {
+        buffer: encode_ids!(Dummy, 10, 11, 12, 13),
+        num_entries: 4,
+        first_doc_id: 10,
+        last_doc_id: 13,
+        expiration_bits: Default::default(),
+    };
+
+    let mut seen = Vec::new();
+    block
+        .repair(
+            0,
+            |doc_id: DocId| doc_id != 12,
+            Some(|res: &RSIndexResult, _: &crate::RepairContext<'_>| seen.push(res.doc_id)),
+            PhantomData::<Dummy>,
+        )
+        .unwrap();
+
+    assert_eq!(seen, vec![10, 11, 13]);
 }
 
 #[test]
@@ -887,4 +1003,205 @@ fn test_refresh_buffer_pointers_after_reallocation() {
     // Should have read all 990 documents (10, 11, 12..999)
     assert_eq!(doc_count, 990);
     assert_eq!(expected_doc_id, 1000);
+}
+
+/// `Dummy`, but two entries fill a block — enough to build a multi-block index in a
+/// test without writing hundreds of records.
+#[derive(Clone)]
+struct TinyBlocks;
+
+impl Encoder for TinyBlocks {
+    type Delta = u32;
+
+    const RECOMMENDED_BLOCK_ENTRIES: u16 = 2;
+
+    fn encode<W: std::io::Write + std::io::Seek>(
+        writer: W,
+        delta: Self::Delta,
+        record: &RSIndexResult,
+    ) -> std::io::Result<usize> {
+        Dummy::encode(writer, delta, record)
+    }
+}
+
+impl Decoder for TinyBlocks {
+    fn decode<'index>(
+        cursor: &mut Cursor<&'index [u8]>,
+        base: DocId,
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
+        Dummy::decode(cursor, base, result)
+    }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        Dummy::base_result()
+    }
+}
+
+/// An index of `doc_ids`, laid out two entries per block.
+fn tiny_block_index(doc_ids: impl IntoIterator<Item = DocId>) -> InvertedIndex<TinyBlocks> {
+    let mut ii = InvertedIndex::<TinyBlocks>::new(IndexFlags_Index_DocIdsOnly);
+    for doc_id in doc_ids {
+        ii.add_record(&RSIndexResult::build_virt().doc_id(doc_id).build())
+            .unwrap();
+    }
+    ii
+}
+
+fn doc_ids_in(ii: &InvertedIndex<TinyBlocks>) -> Vec<DocId> {
+    let mut reader = ii.reader();
+    let mut result = RSIndexResult::build_virt().build();
+    let mut ids = Vec::new();
+    while reader.next_record(&mut result).unwrap() {
+        ids.push(result.doc_id);
+    }
+    ids
+}
+
+#[test]
+fn repair_tail_block_on_empty_index_is_a_noop() {
+    let mut ii = InvertedIndex::<TinyBlocks>::new(IndexFlags_Index_DocIdsOnly);
+    let marker = ii.gc_marker();
+
+    assert_eq!(ii.repair_tail_block(0, |_| true).unwrap(), None);
+    assert_eq!(ii.gc_marker(), marker);
+}
+
+#[test]
+fn repair_tail_block_leaves_a_clean_block_alone() {
+    let mut ii = tiny_block_index([10, 11, 12, 13]);
+    let marker = ii.gc_marker();
+
+    assert_eq!(ii.repair_tail_block(0, |_| true).unwrap(), None);
+    // A reader positioned in the block must not be forced to revalidate for nothing.
+    assert_eq!(ii.gc_marker(), marker);
+    assert_eq!(doc_ids_in(&ii), vec![10, 11, 12, 13]);
+}
+
+#[test]
+fn repair_tail_block_reclaims_from_the_tail_only() {
+    // Blocks are [10, 11], [12, 13], [14, 15]. Doc 10 and doc 14 are both dead, but
+    // only 14 is in the tail: the write path must not widen its cost to other blocks,
+    // and doc 10 stays for the fork GC.
+    let mut ii = tiny_block_index([10, 11, 12, 13, 14, 15]);
+    let marker = ii.gc_marker();
+    let docs_before = ii.unique_docs();
+
+    let info = ii
+        .repair_tail_block(0, |doc_id| doc_id != 10 && doc_id != 14)
+        .unwrap()
+        .expect("the tail block holds a dead entry");
+
+    assert_eq!(doc_ids_in(&ii), vec![10, 11, 12, 13, 15]);
+    assert_eq!(ii.unique_docs(), docs_before - 1);
+    assert_eq!(ii.gc_marker(), marker + 1);
+    // No snapshot was taken, so there is no stale last block to skip.
+    assert!(!info.ignored_last_block);
+}
+
+#[test]
+fn repair_tail_block_removes_a_wholly_dead_tail() {
+    let mut ii = tiny_block_index([10, 11, 12, 13]);
+    let blocks_before = ii.number_of_blocks();
+
+    let info = ii
+        .repair_tail_block(0, |doc_id| doc_id < 12)
+        .unwrap()
+        .expect("the whole tail block is dead");
+
+    assert_eq!(doc_ids_in(&ii), vec![10, 11]);
+    assert_eq!(ii.number_of_blocks(), blocks_before - 1);
+    assert_eq!(info.block_count_delta, -1);
+}
+
+#[test]
+fn repair_tail_block_honours_the_minimum_reclaim() {
+    // One of two entries dies: a 50% reclaim, which a 100% threshold must reject.
+    let mut ii = tiny_block_index([10, 11, 12, 13]);
+    let marker = ii.gc_marker();
+
+    assert_eq!(
+        ii.repair_tail_block(100, |doc_id| doc_id != 12).unwrap(),
+        None
+    );
+    assert_eq!(ii.gc_marker(), marker);
+    assert_eq!(doc_ids_in(&ii), vec![10, 11, 12, 13]);
+
+    // The same reclaim is accepted once the threshold is at or below what it achieves.
+    assert!(
+        ii.repair_tail_block(50, |doc_id| doc_id != 12)
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(doc_ids_in(&ii), vec![10, 11, 13]);
+}
+
+#[test]
+fn repair_full_tail_block_waits_for_the_block_to_fill() {
+    // Blocks hold two entries. With one entry in the tail there is nothing to do yet,
+    // even though that entry is dead — repairing a half-filled block would let the
+    // write path pay for the same block many times over as it fills.
+    let mut ii = tiny_block_index([10, 11, 12]);
+    let marker = ii.gc_marker();
+
+    assert_eq!(
+        ii.repair_full_tail_block(0, |doc_id| doc_id != 12).unwrap(),
+        None
+    );
+    assert_eq!(ii.gc_marker(), marker);
+    assert_eq!(doc_ids_in(&ii), vec![10, 11, 12]);
+
+    // The block fills, and now the same dead entry is reclaimed.
+    ii.add_record(&RSIndexResult::build_virt().doc_id(13).build())
+        .unwrap();
+    assert!(
+        ii.repair_full_tail_block(0, |doc_id| doc_id != 12)
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(doc_ids_in(&ii), vec![10, 11, 13]);
+}
+
+#[test]
+fn repair_full_tail_block_checks_a_clean_block_once_per_rotation() {
+    // A clean full block is checked, found clean, and left alone; the next write
+    // rotates it away so it is never checked again. This is the worst case for cost,
+    // and it must stay at one check per block rather than one per write.
+    let mut ii = tiny_block_index([10, 11]);
+
+    assert_eq!(ii.repair_full_tail_block(0, |_| true).unwrap(), None);
+
+    // Rotation: the full block is frozen and a new tail starts.
+    let blocks_before = ii.number_of_blocks();
+    ii.add_record(&RSIndexResult::build_virt().doc_id(12).build())
+        .unwrap();
+    assert_eq!(ii.number_of_blocks(), blocks_before + 1);
+
+    // The new tail is not full, so no further check happens.
+    assert_eq!(ii.repair_full_tail_block(0, |_| true).unwrap(), None);
+}
+
+#[test]
+fn repair_tail_block_agrees_with_the_fork_gc_path() {
+    // The inline path and the scan/apply path share their accounting helpers; this
+    // pins them to the same observable result on an index the fork GC can fully
+    // repair (single block, so no last-block skip applies).
+    let dead = |doc_id: DocId| doc_id != 11;
+
+    let mut inline = tiny_block_index([10, 11]);
+    inline
+        .repair_tail_block(0, dead)
+        .unwrap()
+        .expect("doc 11 is dead");
+
+    let mut forked = tiny_block_index([10, 11]);
+    let delta = forked
+        .scan_gc(dead, None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>)
+        .unwrap()
+        .expect("doc 11 is dead");
+    forked.apply_gc(delta);
+
+    assert_eq!(doc_ids_in(&inline), doc_ids_in(&forked));
+    assert_eq!(inline.unique_docs(), forked.unique_docs());
+    assert_eq!(inline.number_of_blocks(), forked.number_of_blocks());
 }

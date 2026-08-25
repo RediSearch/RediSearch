@@ -84,6 +84,12 @@ typedef struct {
   size_t forkGcRetryInterval;
   size_t forkGcSleepBeforeExit;
   int forkGCCleanNumericEmptyNodes;
+  // Smallest share of an inverted-index block's entries, in percent, that inline repair must
+  // reclaim for the rewrite to be worth it. 0 disables inline repair entirely; it does not
+  // mean "reclaim anything". Trades write throughput for smaller fork GC cycles.
+  // `size_t` so it can share the `get/set_size_t_numeric_config` helpers with the other
+  // numeric configs; the 0..100 range is enforced at both entry points.
+  size_t inlineGcBlockRepairThreshold;
 } GCSettings;
 
 typedef struct {
@@ -348,6 +354,10 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
 #define DEFAULT_DISK_GC_RUN_INTERVAL 300
 #define DEFAULT_DISK_GC_CLEAN_THRESHOLD 10000
+// Inline block repair is off by default: it trades write throughput for smaller fork GC
+// cycles, which is a choice an operator makes, not a default to impose.
+#define DEFAULT_INLINE_GC_BLOCK_REPAIR_THRESHOLD 0
+#define MAX_INLINE_GC_BLOCK_REPAIR_THRESHOLD 100
 #define DEFAULT_INDEX_CURSOR_LIMIT 128
 #define MAX_AGGREGATE_REQUEST_RESULTS (1ULL << 31)
 #define DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS MAX_AGGREGATE_REQUEST_RESULTS
@@ -432,6 +442,7 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
     .gcConfigParams.gcSettings.forkGcSleepBeforeExit = 0,                      \
     .gcConfigParams.gcSettings.forkGcRetryInterval = DEFAULT_FORK_GC_RETRY_INTERVAL,\
     .gcConfigParams.gcSettings.forkGcCleanThreshold = DEFAULT_FORK_GC_CLEAN_THRESHOLD,\
+    .gcConfigParams.gcSettings.inlineGcBlockRepairThreshold = DEFAULT_INLINE_GC_BLOCK_REPAIR_THRESHOLD,\
     .noMemPool = 0,                                                            \
     .filterCommands = 0,                                                       \
     .maxSearchResults = DEFAULT_MAX_SEARCH_REQUEST_RESULTS,                    \

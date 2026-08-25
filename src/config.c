@@ -89,6 +89,7 @@ configPair_t __configPairs[] = {
   {"GC_POLICY",                       ""},
   {"GCSCANSIZE",                      "search-gc-scan-size"},
   {"INDEX_CURSOR_LIMIT",              "search-index-cursor-limit"},
+  {"INLINE_GC_BLOCK_REPAIR_THRESHOLD", "search-inline-gc-block-repair-threshold"},
   {"MAX_AGGREGATE_GROUPS",            "search-max-aggregate-groups"},
   {"MAXAGGREGATERESULTS",             "search-max-aggregate-results"},
   {"MAXDOCTABLESIZE",                 "search-max-doctablesize"},
@@ -1049,6 +1050,25 @@ CONFIG_GETTER(getForkGcCleanThreshold) {
   return sdscatprintf(ss, "%lu", config->gcConfigParams.gcSettings.forkGcCleanThreshold);
 }
 
+// INLINE_GC_BLOCK_REPAIR_THRESHOLD
+CONFIG_SETTER(setInlineGcBlockRepairThreshold) {
+  size_t threshold = 0;
+  int acrc = AC_GetSize(ac, &threshold, AC_F_GE0);
+  CHECK_RETURN_PARSE_ERROR(acrc)
+  if (threshold > MAX_INLINE_GC_BLOCK_REPAIR_THRESHOLD) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT,
+                        "INLINE_GC_BLOCK_REPAIR_THRESHOLD is a percentage and cannot exceed 100");
+    return REDISMODULE_ERR;
+  }
+  config->gcConfigParams.gcSettings.inlineGcBlockRepairThreshold = threshold;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getInlineGcBlockRepairThreshold) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%zu", config->gcConfigParams.gcSettings.inlineGcBlockRepairThreshold);
+}
+
 // FORK_GC_RETRY_INTERVAL
 CONFIG_SETTER(setForkGcRetryInterval) {
   int acrc = AC_GetSize(ac, &config->gcConfigParams.gcSettings.forkGcRetryInterval, AC_F_GE1);
@@ -1723,6 +1743,13 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "interval (in seconds) in which to retry running the forkgc after failure.",
          .setValue = setForkGcRetryInterval,
          .getValue = getForkGcRetryInterval},
+        {.name = "INLINE_GC_BLOCK_REPAIR_THRESHOLD",
+         .helpText = "percentage of an inverted-index block's entries that must belong to deleted "
+                     "documents before a write reclaims them inline, instead of leaving them to "
+                     "the fork gc. 0 disables inline repair. Trades write throughput for smaller "
+                     "fork gc cycles.",
+         .setValue = setInlineGcBlockRepairThreshold,
+         .getValue = getInlineGcBlockRepairThreshold},
         {.name = "FORK_GC_CLEAN_NUMERIC_EMPTY_NODES",
          .helpText = "clean empty nodes from numeric tree",
          .setValue = setForkGCCleanNumericEmptyNodes,
@@ -2168,6 +2195,17 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
       (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig (
+      ctx, "search-inline-gc-block-repair-threshold",
+      DEFAULT_INLINE_GC_BLOCK_REPAIR_THRESHOLD,
+      REDISMODULE_CONFIG_UNPREFIXED, 0,
+      MAX_INLINE_GC_BLOCK_REPAIR_THRESHOLD, get_size_t_numeric_config, set_size_t_numeric_config,
+      NULL,
+      (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.inlineGcBlockRepairThreshold)
     )
   )
 
