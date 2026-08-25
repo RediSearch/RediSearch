@@ -2330,6 +2330,30 @@ def test_score_name_case_sensitivity():
                'RETURN', '1', score_name.lower()).equal(expected())
 
 
+@skip(cluster=True)
+def test_score_name_long_field_name():
+    """KNN derives the default `__<field>_score` name from the vector field name
+    when resolving the distance field. Cover that with a long name, including the
+    path that compares against the derived default."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    dim = 2
+    vec_fieldname = 'v' * (9 * 1024 * 1024)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', vec_fieldname, 'VECTOR', 'FLAT', '6',
+               'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+    blob = create_np_array_typed([0] * dim).tobytes()
+
+    # Naming the distance field through both syntaxes at once is the only path that compares
+    # the given name against the default derived from the field name.
+    env.expect('FT.SEARCH', 'idx', f'*=>[KNN 2 @{vec_fieldname} $BLOB AS score]=>{{$yield_distance_as: score2}}',
+               'PARAMS', 2, 'BLOB', blob).error().contains(
+                   'Distance field was specified twice for vector query: score and score2')
+
+    # Naming it through neither yields under the derived default, which the query must still
+    # be able to build from a name this long.
+    env.expect('FT.SEARCH', 'idx', f'*=>[KNN 2 @{vec_fieldname} $BLOB]',
+               'PARAMS', 2, 'BLOB', blob).equal([0])
+
+
 @skip(cluster=True, noWorkers=True)
 def test_tiered_index_gc():
     N = 100
