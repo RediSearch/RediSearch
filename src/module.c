@@ -704,11 +704,7 @@ static void DropIndex_ReplicateDropIfExists(RedisModuleCtx *ctx, RedisModuleStri
 }
 
 static void DropIndex_UnlinkDocumentKeys(RedisModuleCtx *ctx, DocTable *dt) {
-  DOCTABLE_FOREACH(dt, {
-    RedisModuleString *key = DMD_CreateKeyString(dmd, ctx);
-    Redis_UnlinkKey(ctx, key);
-    RedisModule_FreeString(ctx, key);
-  });
+  DOCTABLE_FOREACH(dt, Redis_UnlinkKeyC(ctx, dmd->keyPtr));
 }
 
 /*
