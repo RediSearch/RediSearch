@@ -13,13 +13,13 @@
 use std::ffi::{CString, c_char};
 
 use tag_index_ffi::{
-    Rust_TagIndex_Commit, Rust_TagIndex_Free, Rust_TagIndex_GetId, Rust_TagIndex_GetOverhead,
-    Rust_TagIndex_HasDiskSpec, Rust_TagIndex_HasSuffix, Rust_TagIndex_Index,
-    Rust_TagIndex_NUniqueValues, RustTagIndex,
+    ErasedTagIndex, Rust_TagIndex_Commit, Rust_TagIndex_Free, Rust_TagIndex_GetId,
+    Rust_TagIndex_GetOverhead, Rust_TagIndex_HasDiskSpec, Rust_TagIndex_HasSuffix,
+    Rust_TagIndex_Index, Rust_TagIndex_NUniqueValues,
 };
 
 /// Build a memory-mode index the way `NewTagIndex` does for a non-disk spec.
-pub fn new_in_memory(with_suffix: bool) -> *mut RustTagIndex {
+pub fn new_in_memory(with_suffix: bool) -> *mut ErasedTagIndex {
     // SAFETY: a NULL `disk_spec` selects memory mode, which reads neither the
     // spec nor the field index.
     unsafe { tag_index_ffi::Rust_TagIndex_New(std::ptr::null_mut(), 0, with_suffix) }
@@ -54,14 +54,14 @@ impl CValues {
 }
 
 /// Index `tags` under `doc_id` and run the commit phase, as `document.c` does.
-pub fn index_and_commit(idx: *mut RustTagIndex, tags: &[&str], doc_id: u64) {
+pub fn index_and_commit(idx: *mut ErasedTagIndex, tags: &[&str], doc_id: u64) {
     let values = CValues::new(tags);
     // SAFETY: `idx` is live and `values` holds `len()` valid C strings.
     let result = unsafe {
         Rust_TagIndex_Index(
             idx,
-            std::ptr::null(),
-            std::ptr::null(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
             values.as_ptr(),
             values.len(),
             doc_id,
@@ -139,8 +139,8 @@ fn a_repeated_tag_in_one_document_counts_once() {
     let result = unsafe {
         Rust_TagIndex_Index(
             idx,
-            std::ptr::null(),
-            std::ptr::null(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
             values.as_ptr(),
             values.len(),
             1,
@@ -192,7 +192,7 @@ fn free_nulls_the_callers_slot() {
 }
 
 /// Release `idx`, checking the slot is nulled.
-fn free(idx: *mut RustTagIndex) {
+fn free(idx: *mut ErasedTagIndex) {
     let mut slot = idx;
     // SAFETY: `slot` holds a live handle from `new_in_memory`.
     unsafe { Rust_TagIndex_Free(&raw mut slot) };
@@ -214,8 +214,8 @@ fn a_null_tag_entry_is_skipped() {
     let result = unsafe {
         Rust_TagIndex_Index(
             idx,
-            std::ptr::null(),
-            std::ptr::null(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
             values.as_ptr(),
             values.len(),
             1,

@@ -213,7 +213,7 @@ fn freeing_a_null_iterator_is_a_no_op() {
     unsafe { Rust_TagIndex_ValueIterator_Free(std::ptr::null_mut()) };
 }
 
-fn free(idx: *mut tag_index_ffi::RustTagIndex) {
+fn free(idx: *mut tag_index_ffi::ErasedTagIndex) {
     let mut slot = idx;
     // SAFETY: `slot` holds a live handle.
     unsafe { tag_index_ffi::Rust_TagIndex_Free(&raw mut slot) };

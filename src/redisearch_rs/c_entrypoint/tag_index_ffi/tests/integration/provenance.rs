@@ -154,8 +154,8 @@ fn a_null_zero_length_tag_is_the_empty_tag() {
     unsafe {
         tag_index_ffi::Rust_TagIndex_Index(
             idx,
-            std::ptr::null(),
-            std::ptr::null(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
             values.as_ptr(),
             values.len(),
             1,
