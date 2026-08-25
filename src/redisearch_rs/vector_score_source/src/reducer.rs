@@ -67,7 +67,7 @@ pub enum NewVectorTopK<'index, E: ExpirationChecker> {
 /// 1. `index` must be valid for `'index`, which outlives the returned iterator.
 /// 2. `query_vector` must satisfy the [`VectorScoreSource`] query-vector length
 ///    invariant for `index`.
-/// 3. If non-null, `timeout` must remain valid for the returned iterator's lifetime and satisfy
+/// 3. `timeout` must be non-null, remain valid for the returned iterator's lifetime, and satisfy
 ///    the [`VectorScoreSource`] source-transition and serialization contract.
 #[expect(clippy::too_many_arguments)]
 pub unsafe fn new_vector_top_k<'index, E>(
@@ -83,6 +83,7 @@ pub unsafe fn new_vector_top_k<'index, E>(
 where
     E: ExpirationChecker + 'index,
 {
+    let timeout = NonNull::new(timeout).expect("vector query requires request timeout state");
     let Some(k) = NonZeroUsize::new(k) else {
         return NewVectorTopK::ReducedEmpty;
     };

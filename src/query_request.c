@@ -94,7 +94,7 @@ struct timespec *QueryRequestTimeout_GetClockDeadlineForUpdate(QueryRequestTimeo
   return &timeout->source.clock.deadline;
 }
 
-bool QueryRequestTimeout_IsTimedOut(const QueryRequestTimeout *timeout) {
+bool QueryRequestTimeout_IsTimedOutExact(const QueryRequestTimeout *timeout) {
   switch (timeout->kind) {
     case QUERY_REQUEST_TIMEOUT_UNARMED:
       return false;
@@ -112,16 +112,16 @@ bool QueryRequestTimeout_IsBlockedClientTimedOut(const QueryRequestTimeout *time
     case QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE:
       return false;
     case QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT:
-      return QueryRequestTimeout_IsTimedOut(timeout);
+      return QueryRequestTimeout_IsTimedOutExact(timeout);
   }
   RS_ABORT_ALWAYS("Invalid query timeout kind");
 }
 
-bool QueryRequestTimeout_IsTimedOutWithCounter(QueryRequestTimeout *timeout) {
+bool QueryRequestTimeout_IsTimedOut(QueryRequestTimeout *timeout) {
   // Only clock reads are expensive enough to amortize. Other sources retain
-  // the exact semantics of QueryRequestTimeout_IsTimedOut.
+  // the exact semantics of QueryRequestTimeout_IsTimedOutExact.
   if (timeout->kind != QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE) {
-    return QueryRequestTimeout_IsTimedOut(timeout);
+    return QueryRequestTimeout_IsTimedOutExact(timeout);
   }
 
   RS_ASSERT(timeout->source.clock.counter < QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT);
@@ -131,7 +131,7 @@ bool QueryRequestTimeout_IsTimedOutWithCounter(QueryRequestTimeout *timeout) {
 
   if (++timeout->source.clock.counter == QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT) {
     timeout->source.clock.counter = 0;
-    return QueryRequestTimeout_IsTimedOut(timeout);
+    return QueryRequestTimeout_IsTimedOutExact(timeout);
   }
   return false;
 }
@@ -179,21 +179,10 @@ static inline void QueryRequestAsyncState_Destroy(QueryRequestAsyncState *state)
   pthread_cond_destroy(&state->aggregateResultsCond);
 }
 
-QueryRequest *QueryRequest_IncrRef(QueryRequest *request) {
-  atomic_fetch_add_explicit(&request->refcount, 1, memory_order_relaxed);
-  return request;
-}
-
-void QueryRequest_DecrRef(QueryRequest *request) {
+void QueryRequest_Free(QueryRequest *request) {
   if (!request) {
     return;
   }
-  int previous = atomic_fetch_sub_explicit(&request->refcount, 1, memory_order_acq_rel);
-  RS_LOG_ASSERT_ALWAYS(previous > 0, "QueryRequest reference count underflow");
-  if (previous != 1) {
-    return;
-  }
-
   switch (request->kind) {
     case QUERY_REQUEST_KIND_AREQ:
       AREQ_Free((AREQ *)request);
@@ -225,7 +214,6 @@ void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind,
                        uint32_t argc) {
   RS_ASSERT(requestConfig);
   request->kind = kind;
-  RS_AtomicIntStoreRelaxed(&request->refcount, 1);
   request->args = (QueryRequestArgs) {
     .queryOffset = QUERY_OFFSET_NONE,
   };

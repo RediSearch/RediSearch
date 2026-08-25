@@ -50,6 +50,10 @@ int MRReply_StringEquals(MRReply *r, const char *s, int caseSensitive);
 
 const char *MRReply_String(const MRReply *reply, size_t *len);
 
+// Takes ownership of a string reply's buffer. The reply remains valid and must
+// still be freed, but no longer owns the returned buffer.
+char *MRReply_TakeString(MRReply *reply, size_t *len);
+
 MRReply *MRReply_ArrayElement(const MRReply *reply, size_t idx);
 // Same as `MRReply_ArrayElement`, but takes ownership of the element.
 MRReply *MRReply_TakeArrayElement(const MRReply *reply, size_t idx);

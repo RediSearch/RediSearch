@@ -269,6 +269,18 @@ impl<'a> RLookupRow<'a> {
         prev
     }
 
+    /// Moves a dynamic value for `key` into `dst` without changing its reference count.
+    pub fn move_dynamic_key_to(&mut self, key: &RLookupKey, dst: &mut Self) {
+        if let Some(value) = self
+            .dyn_values
+            .get_mut(key.dstidx as usize)
+            .and_then(Option::take)
+        {
+            self.num_dyn_values -= 1;
+            dst.write_key(key, value);
+        }
+    }
+
     /// Write a value to the lookup table *by-name*. This is useful for 'dynamic' keys
     /// for which it is not necessary to use the boilerplate of getting an explicit
     /// key.

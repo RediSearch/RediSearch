@@ -10,6 +10,7 @@
 #pragma once
 
 #include "query_ctx.h"
+#include "query_request.h"
 #include "inverted_index.h"
 #include "inverted_index_ffi.h"
 #include "ttl_table.h"
@@ -42,6 +43,7 @@ class MockQueryEvalCtx {
 public:
   QueryEvalCtx qctx;
   RedisSearchCtx sctx;
+  QueryRequestTimeout *timeout;
   IndexSpec spec;
   SchemaRule rule;
 
@@ -64,7 +66,9 @@ public:
     sctx = {0};
     sctx.spec = &spec;
     sctx.currentTime = {0, 0};
-    sctx.timeout = nullptr;
+    timeout = static_cast<QueryRequestTimeout *>(rm_calloc(1, sizeof(*timeout)));
+    QueryRequestTimeout_Init(timeout, TimeoutPolicy_Return, 0);
+    sctx.timeout = timeout;
 
     // Initialize QueryEvalCtx
     qctx = {0};
@@ -87,6 +91,7 @@ public:
   }
 
   ~MockQueryEvalCtx() noexcept {
+    rm_free(timeout);
     if (spec.existingDocs) {
       InvertedIndex_Free(spec.existingDocs);
     }

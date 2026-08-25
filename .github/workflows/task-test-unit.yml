@@ -27,7 +27,7 @@ on:
       redis-ref:
         description: 'Redis version to use (only consumed by setup steps that key caches on it).'
         type: string
-        default: '8.10.0'
+        default: 'd3abc02fed6664cc0afaf9ffe4e172a99e274f44'
       test-timeout:
         type: number
         default: 120

@@ -107,8 +107,9 @@ mod not {
 
         // QN_IDS child resolving to the middle document only.
         let keys = MockKeys::new(&["doc_b"]);
+        let mut dids = vec![id_b];
         let mut ids_child = MockQueryNode::new(QueryNodeType::Ids);
-        ids_child.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
+        ids_child.set_ids(keys.as_ptr(), dids.as_mut_ptr(), keys.len());
 
         let mut not = MockQueryNode::new(QueryNodeType::Not);
         not.opts_mut().weight = 1.0;
@@ -196,8 +197,9 @@ mod not {
         // wildcard, so the reducer skips its shortcircuits and reaches the
         // optimized constructor.
         let keys = MockKeys::new(&["doc_b"]);
+        let mut dids = vec![id_b];
         let mut ids_child = MockQueryNode::new(QueryNodeType::Ids);
-        ids_child.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
+        ids_child.set_ids(keys.as_ptr(), dids.as_mut_ptr(), keys.len());
 
         let mut not = MockQueryNode::new(QueryNodeType::Not);
         not.opts_mut().weight = 1.0;

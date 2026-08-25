@@ -573,10 +573,12 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn,
       // ...=>[KNN ...]=>{$YIELD_DISTANCE_AS:<dist_field>), we validate that we got it only once.
       size_t len;
       const char *fieldName = HiddenString_GetUnsafe(qn->vn.vq->field->fieldName, &len);
-      char default_score_field[len + 9];  // buffer for __<field>_score
-      sprintf(default_score_field, "__%s_score", fieldName);
+      char *default_score_field = VectorQuery_GetDefaultScoreFieldName(fieldName, len);
       // If the saved score field is NOT the default one, we return an error, otherwise, just override it.
-      if (strcasecmp(qn->vn.vq->scoreField, default_score_field) != 0) {
+      const bool is_default_score_field =
+          strcasecmp(qn->vn.vq->scoreField, default_score_field) == 0;
+      rm_free(default_score_field);
+      if (!is_default_score_field) {
         QueryError_SetWithUserDataFmt(q->status, QUERY_ERROR_CODE_DUP_FIELD,
                                "Distance field was specified twice for vector query", ": %s and %s",
                                qn->vn.vq->scoreField, qn->opts.distField);
@@ -1468,13 +1470,8 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscat(s, "IDS {");
       if (spec) {
         for (size_t i = 0; i < qs->fn.len; i++) {
-          t_docId did = 0;
-          if (qs->fn.docIds) {
-            RS_ASSERT(SearchDisk_IsEnabled());
-            did = qs->fn.docIds[i];
-          } else {
-            did = DocTable_GetIdR(&spec->docs, qs->fn.keys[i]);
-          }
+          // docIds are pre-resolved at query construction (both modes).
+          t_docId did = qs->fn.docIds ? qs->fn.docIds[i] : 0;
           if (did != 0) {
             s = sdscatprintf(s, "%" PRIu64 ",", did);
           }

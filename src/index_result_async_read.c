@@ -19,14 +19,14 @@
 #include "rmutil/rm_assert.h"
 
 void IndexResultAsyncRead_Init(IndexResultAsyncReadState *state, uint16_t poolSize,
-                               uint16_t bufferSize) {
-  RS_ASSERT(bufferSize >= poolSize);
+                               uint16_t queueSize) {
+  RS_ASSERT(queueSize >= poolSize);
 
   // Initialize all fields to safe defaults
   dllist_init(&state->iteratorResults);
   dllist_init(&state->pendingResults);
   state->poolSize = poolSize;
-  state->bufferSize = bufferSize;
+  state->queueSize = queueSize;
   state->iteratorResultCount = 0;
   state->readyResults = NULL;
   state->failedUserData = NULL;

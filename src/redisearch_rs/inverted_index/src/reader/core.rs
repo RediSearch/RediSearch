@@ -183,10 +183,10 @@ where
             if !std::ptr::eq(old_base, new_base) {
                 // The block buffer was reallocated to a different address by a
                 // non-GC operation (e.g. an append that outgrew its allocation)
-                // without bumping the GC marker.
-                // Since GC has not run, the number of "old" blocks
-                // is the same and there is no risk of ABA confusion.
-                //
+                // without bumping the GC marker. Comparing addresses is ABA-safe
+                // here for the reason given in [`IndexReader::needs_revalidation`]:
+                // only an append can free and reallocate a buffer without moving
+                // the marker, and an append cannot leave the length where it was.
                 //
                 // Refreshing only `self.buf` would
                 // leave the iterator's cached `result` holding an `RSOffsetSlice`
@@ -370,16 +370,36 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> IndexReader<'index>
     }
 
     fn needs_revalidation(&self) -> bool {
-        self.gc_marker != self.ii.get().gc_marker.load(atomic::Ordering::Relaxed)
-    }
-
-    fn refresh_buffer_pointers(&mut self) {
         let ii = self.ii.get();
-        if !ii.blocks.is_empty() && self.current_block_idx < ii.blocks.len() {
-            let current_block = &ii.blocks[self.current_block_idx];
-            // Update the cursor to point to the current position in the refreshed buffer
-            self.buf = SharedPtr::from_ref(current_block.buffer.as_slice());
+        if self.gc_marker != ii.gc_marker.load(atomic::Ordering::Relaxed) {
+            return true;
         }
+
+        // Appending to a block reallocates its buffer without bumping `gc_marker`, and either
+        // outcome invalidates what this reader cached. A moved buffer leaves the cached pointer
+        // dangling. A buffer grown in place keeps the pointer good but makes the cached length
+        // short, which would end the read at the old end of the block and drop the appended
+        // entries. Both are reported so the caller re-seeks, which repairs either.
+        //
+        // Only the cached pointer's address and length are read, never the pointee, which is
+        // what makes this safe to ask while the buffer it describes may already be freed.
+        //
+        // ABA-safe, and it is the length rather than the address that makes it so. Exactly two
+        // things write a block's buffer: GC repair, which bumps `gc_marker` as the last step of
+        // every pass, and appends, which start writing at `buffer.len()` and so only ever grow it.
+        // Freeing and reallocating the buffer therefore takes an append, which lengthens it
+        // whatever address the allocator hands back, and shortening it back takes a repair, which
+        // moves the marker. An unchanged marker, address and length together mean the block has
+        // not been written since the reader cached it.
+        let Some(block) = ii.blocks.get(self.current_block_idx) else {
+            // Nothing cached to go stale: an empty index leaves the reader on the empty slice,
+            // and blocks only ever disappear by GC, which the marker above already caught.
+            return false;
+        };
+
+        let cached = self.buf.as_raw();
+        let live: *const [u8] = block.buffer.as_slice();
+        !std::ptr::addr_eq(cached, live) || cached.len() != live.len()
     }
 }
 

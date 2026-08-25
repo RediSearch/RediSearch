@@ -675,12 +675,6 @@ void printDistHybridProfile(RedisModule_Reply *reply, void *ctx) {
                         printDistHybridCoordinatorProfile, ctx);
 }
 
-static bool shouldCheckInPipelineTimeoutCoord(HybridRequest *req) {
-  // We should check for timeout in pipeline if policy is return and timeout > 0
-  return req->reqConfig.queryTimeoutMS > 0 &&
-         (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return);
-}
-
 static int HybridRequest_prepareForExecution(HybridRequest *hreq,
         RedisModuleCtx *ctx, RedisModuleString **argv, int argc, IndexSpec *sp,
         size_t numShards, QueryError *status,
@@ -730,12 +724,6 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
       rs_wall_clock_init(&parseClock);
       // Calculate the time elapsed for profileParseTime by using the initialized parseClock
       hreq->profileClocks.profileParseTime = rs_wall_clock_diff_ns(&hreq->profileClocks.initClock, &parseClock);
-    }
-
-    if (shouldCheckInPipelineTimeoutCoord(hreq)) {
-      // Preserve the legacy clock start after coordinator parsing. The blocked-client cycles
-      // were already published by the main thread and must not be restarted here.
-      HybridRequest_BeginTimeoutCycle(hreq, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
     }
 
     // Set request flags from hybridParams
@@ -929,13 +917,9 @@ typedef struct {
 } HybridDispatchCtx;
 
 static void HybridDispatchCtx_Free(HybridDispatchCtx *dispatch) {
-    HybridRequest *hreq = dispatch->hreq;
     StrongRef indexSpecRef = dispatch->indexSpecRef;
     RedisModuleBlockedClient *bc = dispatch->bc;
 
-    if (hreq) {
-        HybridRequest_DecrRef(hreq);
-    }
     rm_free(dispatch);
     // The dispatcher thread already called CurrentThread_ClearIndexSpec() after
     // transferring strong_ref ownership here, so only release the strong ref.
@@ -967,7 +951,7 @@ static ResultProcessor *findSafeDepleter(const HybridRequest *hreq, size_t i) {
 // the tail hybrid merger job that cv-waits on their completion or this will
 // deadlock (see submitHybridTail).
 static void scheduleDepleters(HybridRequest *hreq) {
-    const bool timedOut = QueryRequestTimeout_IsTimedOut(&hreq->base.timeout);
+    const bool timedOut = QueryRequestTimeout_IsTimedOutExact(&hreq->base.timeout);
     for (size_t i = 0; i < hreq->nrequests; i++) {
         ResultProcessor *depleter = findSafeDepleter(hreq, i);
         if (timedOut) {
@@ -1095,9 +1079,6 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
     if (sp) {
       IndexSpecRef_Release(*strong_ref);
     }
-    // Release the execution flow's reference (taken at shell allocation on the
-    // main thread); the cycle's reference is released by QueryRequest_OnFree.
-    HybridRequest_DecrRef(hreq);
 }
 
 
@@ -1115,9 +1096,8 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
     if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
       // Query timed out while this job was queued; the timeout callback
-      // already replied. Release the execution flow's reference.
+      // already replied.
       WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-      HybridRequest_DecrRef(hreq);
       return;
     }
     // Picked up by a coord thread: attribute a timeout from here on to PIPELINE.
@@ -1184,7 +1164,6 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
       // Timed out while queued; the timeout callback already replied.
       WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-      HybridRequest_DecrRef(hreq);
       return;
     }
     // Picked up by a coord thread: attribute a timeout from here on to PIPELINE.
@@ -1373,6 +1352,5 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   serializeStoredResults_hybrid(hreq, reply);
   RedisModule_EndReply(reply);
 
-  // QueryRequest_OnFree releases the cycle's request reference.
   return REDISMODULE_OK;
 }

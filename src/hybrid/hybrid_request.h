@@ -91,11 +91,8 @@ void HybridRequest_WaitForAggregateResultsComplete(HybridRequest *req);
 
 // Blocked client context for HybridRequest background execution
 typedef struct blockedClientHybridCtx {
-  // The BG job's hold on the container, released in destroy (before
-  // UnblockClient; the cycle's wrapper reference carries the container to
-  // OnFree). TRANSITIONAL(MOD-16691): becomes a borrow once the wrapper is
-  // single-owner.
-  StrongRef hybrid_ref;
+  // Borrowed; the cycle owns the request (see QueryRequest).
+  HybridRequest *hreq;
   HybridPipelineParams *hybridParams;
   RedisModuleBlockedClient *blockedClient;
   WeakRef spec_ref;
@@ -219,25 +216,10 @@ void HybridPipelineParams_Cleanup(HybridPipelineParams *params);
 int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params, bool depleteInBackground, QueryError *status);
 
 /**
- * Free a HybridRequest and all its associated resources directly.
- * Called by the final QueryRequest release. Do not call directly; use
- * HybridRequest_DecrRef instead.
+ * Free a HybridRequest and all its associated resources.
+ * Owner-only: see the ownership contract on QueryRequest.
  */
 void HybridRequest_Free(HybridRequest *req);
-
-/**
- * Increment the embedded QueryRequest reference count.
- * @param req the request to increment
- * @return the request (for chaining)
- */
-HybridRequest *HybridRequest_IncrRef(HybridRequest *req);
-
-/**
- * Decrement the embedded QueryRequest reference count. The final release
- * destroys the HybridRequest.
- * @param req the request to decrement
- */
-void HybridRequest_DecrRef(HybridRequest *req);
 
 int HybridRequest_GetError(HybridRequest *req, QueryError *status);
 

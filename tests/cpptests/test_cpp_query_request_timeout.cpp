@@ -46,8 +46,8 @@ TEST_F(QueryRequestTimeoutTest, InitializationIsUnarmedAndRetainsConfiguration) 
   EXPECT_EQ(timeout.policy, TimeoutPolicy_Fail);
   EXPECT_EQ(timeout.timeoutMS, 1234);
   EXPECT_EQ(timeout.kind, QUERY_REQUEST_TIMEOUT_UNARMED);
+  EXPECT_FALSE(QueryRequestTimeout_IsTimedOutExact(&timeout));
   EXPECT_FALSE(QueryRequestTimeout_IsTimedOut(&timeout));
-  EXPECT_FALSE(QueryRequestTimeout_IsTimedOutWithCounter(&timeout));
 }
 
 TEST_F(QueryRequestTimeoutTest, ConfigUpdateIsStickyAndDoesNotChangeActiveCycle) {
@@ -61,7 +61,7 @@ TEST_F(QueryRequestTimeoutTest, ConfigUpdateIsStickyAndDoesNotChangeActiveCycle)
   EXPECT_EQ(timeout.policy, TimeoutPolicy_Fail);
   EXPECT_EQ(timeout.timeoutMS, 250);
   EXPECT_EQ(timeout.kind, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
-  EXPECT_TRUE(QueryRequestTimeout_IsTimedOut(&timeout));
+  EXPECT_TRUE(QueryRequestTimeout_IsTimedOutExact(&timeout));
 
   QueryRequestTimeout_Reset(&timeout);
   EXPECT_EQ(timeout.policy, TimeoutPolicy_Fail);
@@ -82,11 +82,11 @@ TEST_F(QueryRequestTimeoutTest, ResetAndRearmClearCycleState) {
 
   QueryRequestTimeout_Reset(&timeout);
   EXPECT_EQ(timeout.kind, QUERY_REQUEST_TIMEOUT_UNARMED);
-  EXPECT_FALSE(QueryRequestTimeout_IsTimedOut(&timeout));
+  EXPECT_FALSE(QueryRequestTimeout_IsTimedOutExact(&timeout));
 
   QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   EXPECT_EQ(timeout.kind, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
-  EXPECT_FALSE(QueryRequestTimeout_IsTimedOut(&timeout));
+  EXPECT_FALSE(QueryRequestTimeout_IsTimedOutExact(&timeout));
 
   QueryRequestTimeout_Reset(&timeout);
   QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
@@ -99,30 +99,30 @@ TEST_F(QueryRequestTimeoutTest, MarkingPublishesOnlyTheBlockedClientSource) {
   QueryRequestTimeout_Init(&timeout, TimeoutPolicy_ReturnStrict, 100);
   QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
 
-  EXPECT_FALSE(QueryRequestTimeout_IsTimedOut(&timeout));
+  EXPECT_FALSE(QueryRequestTimeout_IsTimedOutExact(&timeout));
   EXPECT_FALSE(QueryRequestTimeout_IsBlockedClientTimedOut(&timeout));
 
   QueryRequestTimeout_MarkTimedOut(&timeout);
 
-  EXPECT_TRUE(QueryRequestTimeout_IsTimedOut(&timeout));
+  EXPECT_TRUE(QueryRequestTimeout_IsTimedOutExact(&timeout));
   EXPECT_TRUE(QueryRequestTimeout_IsBlockedClientTimedOut(&timeout));
-  EXPECT_TRUE(QueryRequestTimeout_IsTimedOutWithCounter(&timeout));
+  EXPECT_TRUE(QueryRequestTimeout_IsTimedOut(&timeout));
 }
 
-TEST_F(QueryRequestTimeoutTest, CounterChecksClockAtTheConfiguredCadence) {
+TEST_F(QueryRequestTimeoutTest, PrimaryOperationAmortizesClockChecks) {
   ScopedRealClockChecks enableClockChecks;
   QueryRequestTimeout timeout = {};
   QueryRequestTimeout_Init(&timeout, TimeoutPolicy_Return, 1000);
   QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
   *QueryRequestTimeout_GetClockDeadlineForUpdate(&timeout) = {0, 0};
 
-  ASSERT_TRUE(QueryRequestTimeout_IsTimedOut(&timeout));
+  ASSERT_TRUE(QueryRequestTimeout_IsTimedOutExact(&timeout));
   for (uint32_t i = 1; i < QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT; ++i) {
-    EXPECT_FALSE(QueryRequestTimeout_IsTimedOutWithCounter(&timeout));
+    EXPECT_FALSE(QueryRequestTimeout_IsTimedOut(&timeout));
     EXPECT_EQ(timeout.source.clock.counter, i);
   }
 
-  EXPECT_TRUE(QueryRequestTimeout_IsTimedOutWithCounter(&timeout));
+  EXPECT_TRUE(QueryRequestTimeout_IsTimedOut(&timeout));
   EXPECT_EQ(timeout.source.clock.counter, 0);
 }
 
@@ -152,6 +152,35 @@ TEST_F(QueryRequestTimeoutTest, MainThreadMarkIsObservedByWorker) {
   worker.join();
 
   EXPECT_TRUE(workerObservedTimeout);
+}
+
+TEST_F(QueryRequestTimeoutTest, ExecutionPhaseTracksOnlyUnsignaledBlockedClientCycles) {
+  RequestConfig config = {};
+  config.timeoutPolicy = TimeoutPolicy_Return;
+  config.queryTimeoutMS = 1000;
+  QueryRequest request = {};
+  QueryRequest_Init(&request, QUERY_REQUEST_KIND_AREQ, &config, nullptr, 0);
+
+  constexpr int queuePhase = 0;
+  constexpr int pipelinePhase = 1;
+  constexpr int replyPhase = 2;
+
+  QueryRequest_SetExecutionPhase(&request, pipelinePhase);
+  EXPECT_EQ(QueryRequest_GetExecutionPhase(&request), pipelinePhase);
+
+  QueryRequestTimeout_MarkTimedOut(&request.timeout);
+  QueryRequest_SetExecutionPhase(&request, replyPhase);
+  EXPECT_EQ(QueryRequest_GetExecutionPhase(&request), pipelinePhase);
+
+  QueryRequestTimeout_BeginCycle(&request.timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+  QueryRequest_SetExecutionPhase(&request, queuePhase);
+  EXPECT_EQ(QueryRequest_GetExecutionPhase(&request), pipelinePhase);
+
+  QueryRequestTimeout_Reset(&request.timeout);
+  QueryRequest_SetExecutionPhase(&request, replyPhase);
+  EXPECT_EQ(QueryRequest_GetExecutionPhase(&request), pipelinePhase);
+
+  QueryRequest_Destroy(&request);
 }
 
 }  // namespace

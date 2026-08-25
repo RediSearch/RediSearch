@@ -36,6 +36,8 @@
 
 #define CURSOR_EOF 0
 
+// Converts an MRReply to an RSValue, consuming the reply. String buffers can be
+// transferred directly because hiredis uses the Redis module allocator.
 static RSValue *MRReply_ToValue(MRReply *r) {
   if (!r) return RSValue_NullStatic();
   RSValue *v = NULL;
@@ -43,9 +45,9 @@ static RSValue *MRReply_ToValue(MRReply *r) {
     case MR_REPLY_STATUS:
     case MR_REPLY_STRING: {
       size_t l;
-      const char *s = MRReply_String(r, &l);
+      char *s = MRReply_TakeString(r, &l);
       RS_ASSERT(l <= UINT32_MAX);
-      v = RSValue_NewCopiedString(s, l);
+      v = RSValue_NewString(s, (uint32_t)l);
       break;
     }
     case MR_REPLY_ERROR: {
@@ -66,9 +68,9 @@ static RSValue *MRReply_ToValue(MRReply *r) {
       size_t map_len = n / 2;
       RSValueMapBuilder *map = RSValue_NewMapBuilder(map_len);
       for (size_t i = 0; i < map_len; i++) {
-        MRReply *e_k = MRReply_ArrayElement(r, i * 2);
+        MRReply *e_k = MRReply_TakeArrayElement(r, i * 2);
         RS_LOG_ASSERT(MRReply_Type(e_k) == MR_REPLY_STRING, "non-string map key");
-        MRReply *e_v = MRReply_ArrayElement(r, (i * 2) + 1);
+        MRReply *e_v = MRReply_TakeArrayElement(r, (i * 2) + 1);
         RSValue_MapBuilderSetEntry(map, i,  MRReply_ToValue(e_k), MRReply_ToValue(e_v));
       }
       v = RSValue_NewMapFromBuilder(map);
@@ -78,7 +80,7 @@ static RSValue *MRReply_ToValue(MRReply *r) {
       size_t n = MRReply_Length(r);
       RSValue **arr = RSValue_NewArrayBuilder(n);
       for (size_t i = 0; i < n; ++i) {
-        arr[i] = MRReply_ToValue(MRReply_ArrayElement(r, i));
+        arr[i] = MRReply_ToValue(MRReply_TakeArrayElement(r, i));
       }
       v = RSValue_NewArrayFromBuilder(arr, n);
       break;
@@ -90,6 +92,7 @@ static RSValue *MRReply_ToValue(MRReply *r) {
       v = RSValue_NullStatic();
       break;
   }
+  MRReply_Free(r);
   return v;
 }
 
@@ -413,7 +416,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     // RETURN_STRICT uses the blocked-client source, so only clock-based cycles
     // reach this check.
     if (areq->base.timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
-        QueryRequestTimeout_IsTimedOut(&areq->base.timeout)) {
+        QueryRequestTimeout_IsTimedOutExact(&areq->base.timeout)) {
       // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
       // callback so that a `CURSOR DEL` command will be dispatched instead of
       // a `CURSOR READ` command.
@@ -530,7 +533,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   for (size_t i = 0; i < fields_length; i += 2) {
     size_t len;
     const char *field = MRReply_String(MRReply_ArrayElement(fields, i), &len);
-    MRReply *val = MRReply_ArrayElement(fields, i + 1);
+    MRReply *val = MRReply_TakeArrayElement(fields, i + 1);
     RSValue *v = MRReply_ToValue(val);
     RLookupRow_WriteByNameOwned(nc->lookup, field, len, SearchResult_GetRowDataMut(r), v);
   }

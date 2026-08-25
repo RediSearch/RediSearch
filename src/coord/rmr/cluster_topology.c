@@ -15,7 +15,6 @@
 #include "endpoint.h"
 #include "rmalloc.h"
 #include "slot_ranges.h"
-#include "config.h"
 #include "rmutil/rm_assert.h"
 #include "rmr/node.h"
 
@@ -74,10 +73,6 @@ MRClusterTopology *MRClusterTopology_FromAPI(RedisModuleCtx *ctx, const char *au
 
   bool saw_myself = false;
 
-  // The port RedisModule_GetClusterNodeInfo is a TLS/TCP port depending on the `tls-cluster` config.
-  // TODO: Improve the API to return the endpoint type (TLS/TCP) instead of relying on this logic mirroring
-  bool is_tls = getRedisConfigBool(ctx, "tls-cluster", false);
-
   // Topology can contain at most one entry per node; replicas and slot-less
   // masters will be skipped, so this is an upper bound on the final size.
   MRClusterTopology *topo = MR_NewTopology(numNodes);
@@ -117,7 +112,7 @@ MRClusterTopology *MRClusterTopology_FromAPI(RedisModuleCtx *ctx, const char *au
       .endpoint = (MREndpoint){
         .host = rm_strdup(ip),
         .port = port,
-        .isTls = is_tls,
+        .isTls = (flags & REDISMODULE_NODE_PORT_TLS) != 0,
         .unixSock = NULL,
         .password = (auth && auth_len > 0) ? rm_strndup(auth, auth_len) : NULL,
       },

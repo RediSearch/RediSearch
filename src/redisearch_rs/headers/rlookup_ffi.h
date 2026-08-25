@@ -146,6 +146,23 @@ struct RSValue *RLookupRow_Get(const RLookupKey *key, const struct RLookupRow *r
 struct RSSortingVectorSlice RLookupRow_GetSortingVector(const struct RLookupRow *row);
 
 /**
+ * Moves one dynamic key from the source row to the destination row without
+ * changing its reference count. A missing dynamic value is ignored.
+ *
+ * # Safety
+ *
+ * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ * 2. `src_row` must be a [valid], non-null pointer to an [`RLookupRow`] that is exclusively
+ *    accessible for the duration of this call.
+ * 3. `dst_row` must be a [valid], non-null pointer to an [`RLookupRow`] that is exclusively
+ *    accessible for the duration of this call.
+ * 4. `src_row` and `dst_row` must not be the same lookup row.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void RLookupRow_MoveDynamicKey(const RLookupKey *key, struct RLookupRow *src_row, struct RLookupRow *dst_row);
+
+/**
  * Move data from the source row to the destination row. The source row is cleared.
  *
  * # Safety

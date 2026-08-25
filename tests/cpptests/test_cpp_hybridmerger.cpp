@@ -10,6 +10,7 @@
 
 #include "result_processor.h"
 #include "query.h"
+#include "query_request.h"
 #include "gtest/gtest.h"
 #include "search_result_ffi.h"
 #include "config.h"
@@ -153,11 +154,12 @@ struct MockUpstream : public ResultProcessor {
 
 // Static dummy RedisSearchCtx for tests - reused across all tests
 static RedisSearchCtx* GetDummySearchCtx() {
+  static QueryRequestTimeout timeout = {};
   static RedisSearchCtx dummySctx = {
     .redisCtx = NULL,
     .spec = NULL,
     .currentTime = {0, 0},
-    .timeout = NULL,
+    .timeout = &timeout,
     .apiVersion = 0,
     .lock_state = SPEC_LOCK_UNSET,
   };

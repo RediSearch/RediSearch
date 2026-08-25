@@ -204,6 +204,18 @@ mod tests {
         assert_eq!(sut.len(), 0);
     }
 
+    #[test]
+    fn internal_nul_roundtrips_intact() {
+        // NUL is an ordinary codepoint — the term is stored and dumped
+        // byte-exact.
+        let mut sut = SpellCheckDictionary::new();
+
+        assert!(sut.add("foo\0bar"));
+        assert_eq!(sut.dump().collect::<Vec<_>>(), ["foo\0bar"]);
+        assert!(sut.contains("foo\0bar"));
+        assert!(!sut.contains("foo"));
+    }
+
     fn fuzzy(dict: &SpellCheckDictionary, query: &str, max_dist: u32) -> BTreeSet<String> {
         dict.fuzzy_matches(query, max_dist).collect()
     }

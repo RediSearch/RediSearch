@@ -125,13 +125,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/doc_table.h",
-        fns: &[
-            "DMD_Free",
-            "DocTable_Exists",
-            "DocTable_GetId",
-            "DocTable_GetIdR",
-            "DocTable_Put",
-        ],
+        fns: &["DMD_Free", "DocTable_Exists", "DocTable_Put"],
         types: &[],
         vars: &[],
     },
@@ -442,7 +436,12 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/util/arr/arr.h",
-        fns: &["array_free", "array_len_func", "array_new_sz"],
+        fns: &[
+            "array_ensure_append_n_func",
+            "array_free",
+            "array_len_func",
+            "array_new_sz",
+        ],
         types: &[],
         vars: &[],
     },

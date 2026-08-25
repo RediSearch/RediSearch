@@ -34,6 +34,7 @@
 #include "coord/rmr/command.h"
 #include "coord/rmr/chan.h"
 #include "coord/rpnet.h"
+#include "json.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
 #include "doc_id_meta.h"
@@ -135,10 +136,14 @@ void FieldList_Free(FieldList *fields) {
   rm_free(fields->fields);
 }
 
+// Gets or creates the returned-field entry for `path AS name`; NULL `path` means `name`.
 ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name, const char *path) {
-  size_t foundIndex = -1;
   for (size_t ii = 0; ii < fields->numFields; ++ii) {
     if (!strcmp(fields->fields[ii].name, name)) {
+      if (path && !fields->fields[ii].explicitReturn &&
+          fields->fields[ii].mode != SummarizeMode_None) {
+        fields->fields[ii].path = path;
+      }
       return fields->fields + ii;
     }
   }
@@ -1117,8 +1122,7 @@ bool RunInThread(RedisModuleCtx *ctx) {
   return true;
 }
 
-AREQ *AREQ_New(RedisModuleString **argv, uint32_t argc) {
-  AREQ* req = rm_calloc(1, sizeof(AREQ));
+static void initAREQRequest(AREQ *req, RedisModuleString **argv, uint32_t argc) {
   req->reqConfig = RSGlobalConfig.requestConfigParams;
   QueryRequest_Init(&req->base, QUERY_REQUEST_KIND_AREQ, &req->reqConfig, argv, argc);
   QueryRequest_SetEndProcRef(&req->base, &req->pipeline.qctx.endProc);
@@ -1138,7 +1142,18 @@ AREQ *AREQ_New(RedisModuleString **argv, uint32_t argc) {
   req->prefixesOffset = 0;
   req->keySpaceVersion = INVALID_KEYSPACE_VERSION;
   req->querySlots = NULL;
+}
+
+AREQ *AREQ_New(RedisModuleString **argv, uint32_t argc) {
+  AREQ *req = rm_calloc(1, sizeof(*req));
+  initAREQRequest(req, argv, argc);
   return req;
+}
+
+AREQ_Debug *AREQ_New_AREQ_Debug(RedisModuleString **argv, uint32_t argc) {
+  AREQ_Debug *debug_req = rm_calloc(1, sizeof(*debug_req));
+  initAREQRequest(&debug_req->r, argv, argc);
+  return debug_req;
 }
 
 bool AREQ_TryClaimAggregateResults(AREQ *req) {
@@ -1160,7 +1175,8 @@ bool QueryRequest_TryOwnStrictRead(QueryRequest *request, QueryRequestStrictRead
 void AREQ_SignalAggregateResultsComplete(AREQ *req) {
   pthread_mutex_lock(&req->base.async.aggregateResultsLock);
   req->base.async.aggregateResultsDone = true;
-  pthread_cond_broadcast(&req->base.async.aggregateResultsCond);
+  // A request has at most one timeout callback waiting for its aggregate worker.
+  pthread_cond_signal(&req->base.async.aggregateResultsCond);
   pthread_mutex_unlock(&req->base.async.aggregateResultsLock);
 }
 
@@ -1461,16 +1477,19 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
     // id-filter node borrows it as-is.
     QAST_GlobalFilterOptions filterOpts = {.keys = opts->inkeys, .nkeys = opts->ninkeys};
 
-    // For SearchDisk, resolve docIds from keys on the main thread
-    if (SearchDisk_IsEnabled()) {
-      filterOpts.docIds = rm_malloc(sizeof(t_docId) * opts->ninkeys);
-      for (size_t ii = 0; ii < opts->ninkeys; ++ii) {
-        uint64_t docId = 0;
-        if (DocIdMeta_Get(sctx->redisCtx, opts->inkeys[ii], sctx->spec->specId, &docId) == REDISMODULE_OK) {
-          filterOpts.docIds[ii] = docId;
-        } else {
-          filterOpts.docIds[ii] = 0;  // Mark as not found
-        }
+    // DocIdMeta_Get opens the key (needs the GIL), so resolve here on the main
+    // thread rather than on a background query thread. Resolving at admission
+    // rather than at snapshot time leaves a window: a key re-indexed before the
+    // worker takes the spec read lock keeps its stale, now deleted docId and
+    // drops out of the results - the same observable outcome as the
+    // Result_ExpiredDoc path takes for any doc re-indexed mid-query.
+    filterOpts.docIds = rm_malloc(sizeof(t_docId) * opts->ninkeys);
+    for (size_t ii = 0; ii < opts->ninkeys; ++ii) {
+      uint64_t docId = 0;
+      if (DocIdMeta_Get(sctx->redisCtx, opts->inkeys[ii], sctx->spec->specId, &docId) == REDISMODULE_OK) {
+        filterOpts.docIds[ii] = docId;
+      } else {
+        filterOpts.docIds[ii] = 0;  // Mark as not found
       }
     }
 
@@ -1568,6 +1587,83 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
   return REDISMODULE_OK;
 }
 
+// Check if a FieldSpec is backed by a multi-value JSONPath.
+// This request-time validation is used only for JSON HIGHLIGHT/SUMMARIZE fields.
+static bool fieldSpecIsMultiValueJsonPath(const FieldSpec *fs) {
+  if (!fs || !fs->fieldPath) {
+    return false;
+  }
+  RedisModuleString *err_msg = NULL;
+  JSONPath path = pathParse(fs->fieldPath, &err_msg);
+  if (err_msg) {
+    RedisModule_FreeString(RSDummyContext, err_msg);
+  }
+  if (!path) {
+    return false;
+  }
+  bool isSingle = japi->pathIsSingle(path);
+  japi->pathFree(path);
+  return !isSingle;
+}
+
+static bool jsonPathIsMultiValue(const char *pathStr) {
+  if (!pathStr || *pathStr != '$') {
+    return false;
+  }
+
+  RedisModuleString *err_msg = NULL;
+  JSONPath path = japi->pathParse(pathStr, RSDummyContext, &err_msg);
+  if (err_msg) {
+    RedisModule_FreeString(RSDummyContext, err_msg);
+  }
+  if (!path) {
+    return false;
+  }
+
+  bool isSingle = japi->pathIsSingle(path);
+  japi->pathFree(path);
+  return !isSingle;
+}
+
+static const FieldSpec *getHighlightFieldSpec(const IndexSpec *index, const ReturnedField *rf) {
+  const FieldSpec *fs = IndexSpec_GetFieldWithLength(index, rf->name, strlen(rf->name));
+  if (!fs && rf->path && strcmp(rf->path, rf->name) != 0) {
+    fs = IndexSpec_GetFieldWithLength(index, rf->path, strlen(rf->path));
+  }
+  return fs;
+}
+
+// Validate that HIGHLIGHT/SUMMARIZE fields on a JSON index all use single-value JSONPaths.
+// Returns REDISMODULE_OK if all fields are single-value, REDISMODULE_ERR and sets `status`
+// otherwise.
+static int AREQ_HasMultiValueHighlightFields(const AREQ *req, const IndexSpec *index,
+                                             QueryError *status) {
+  const FieldList *fields = &req->outFields;
+  bool hasMultiValue = false;
+
+  // outFields contains fields from both RETURN and HIGHLIGHT/SUMMARIZE FIELDS.
+  for (size_t ii = 0; ii < fields->numFields; ++ii) {
+    const ReturnedField *rf = &fields->fields[ii];
+    // Skip fields that are only in RETURN (no highlight/summarize mode).
+    if (rf->mode == SummarizeMode_None && fields->defaultField.mode == SummarizeMode_None) {
+      continue;
+    }
+    const FieldSpec *fs = getHighlightFieldSpec(index, rf);
+    if (jsonPathIsMultiValue(rf->path) || (fs && fieldSpecIsMultiValueJsonPath(fs))) {
+      hasMultiValue = true;
+      break;
+    }
+  }
+
+  if (hasMultiValue) {
+    QueryError_SetError(
+        status, QUERY_ERROR_CODE_INVAL,
+        "HIGHLIGHT/SUMMARIZE is not supported for JSON fields with multi-value JSONPath");
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Sort through the applicable options:
   IndexSpec *index = sctx->spec;
@@ -1585,10 +1681,19 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   QEFlags reqFlags = AREQ_RequestFlags(req);
   if (isSpecJson(index) && (reqFlags & QEXEC_F_SEND_HIGHLIGHT)) {
-    QueryError_SetError(
-        status, QUERY_ERROR_CODE_INVAL,
-        "HIGHLIGHT/SUMMARIZE is not supported with JSON indexes");
-    return REDISMODULE_ERR;
+    // JSON requires RETURN so that fields are loaded individually. Without RETURN,
+    // JSON "LOAD ALL" produces a single serialized blob and individual fields are
+    // not available for highlighting.
+    if (!req->outFields.explicitReturn || req->outFields.numFields == 0) {
+      QueryError_SetError(
+          status, QUERY_ERROR_CODE_INVAL,
+          "HIGHLIGHT/SUMMARIZE on JSON indexes requires RETURN with explicit field names");
+      return REDISMODULE_ERR;
+    }
+    // Multi-value JSONPaths are rejected regardless of dialect.
+    if (AREQ_HasMultiValueHighlightFields(req, index, status) != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
+    }
   }
 
   if ((index->flags & Index_StoreByteOffsets) == 0 && (reqFlags & QEXEC_F_SEND_HIGHLIGHT)) {
@@ -1711,28 +1816,8 @@ void ChunkReplyState_Destroy(ChunkReplyState *state) {
     state->results = NULL;
   }
 
-  // Timeout edge case: cursor wasn't handled by reply_callback.
-  // See ChunkReplyState ownership model in aggregate.h for full explanation.
-  // We must clear the cursor's request handle before Cursor_Free to prevent a
-  // recursive release while this request is already being destroyed.
-  if (state->cursor) {
-    state->cursor->query = NULL;
-    Cursor_Free(state->cursor);
-    state->cursor = NULL;
-  }
-
   // Clear stored error state
   QueryError_ClearError(&state->err);
-}
-
-AREQ *AREQ_IncrRef(AREQ *req) {
-  QueryRequest_IncrRef(&req->base);
-  return req;
-}
-
-void AREQ_DecrRef(AREQ *req) {
-  if (!req) return;
-  QueryRequest_DecrRef(&req->base);
 }
 
 void AREQ_Free(AREQ *req) {
@@ -1808,14 +1893,6 @@ void AREQ_Free(AREQ *req) {
   QueryRequest_Destroy(&req->base);
 
   rm_free(req);
-}
-
-void AREQ_CleanUpStoredCursor(AREQ *req) {
-  if (req->base.reply.cursor) {
-    Cursor *cursor = req->base.reply.cursor;
-    req->base.reply.cursor = NULL;
-    Cursor_Free(cursor);
-  }
 }
 
 AggregationPipelineParams AREQ_MakeAggregationPipelineParams(AREQ *req,

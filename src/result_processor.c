@@ -67,16 +67,9 @@
 #ifdef ENABLE_ASSERT
 static bool blockedClientTimedOut(void *arg) {
   const QueryRequestTimeout *timeout = arg;
-  return timeout && QueryRequestTimeout_IsBlockedClientTimedOut(timeout);
+  return QueryRequestTimeout_IsBlockedClientTimedOut(timeout);
 }
 #endif
-
-// Maximum number of concurrent async disk reads
-#define MAX_ONGOING_READ_SIZE 16
-
-// Iterator results buffered ahead of submission. Separate from the read depth so the
-// two can be tuned independently; must be >= MAX_ONGOING_READ_SIZE.
-#define ITERATOR_BUFFER_SIZE MAX_ONGOING_READ_SIZE
 
 // Timeout for async disk poll when iterator is at EOF (in milliseconds)
 // When the iterator is exhausted, we wait for pending async reads to complete
@@ -102,8 +95,8 @@ typedef struct {
   ResultProcessor base;
   QueryIterator *iterator;
   RedisSearchCtx *sctx;
-  uint32_t keySpaceVersion;                     // version of the Keyspace slot ranges used for filtering
   const RedisModuleSlotRangeArray *querySlots;  // Query slots info, may be used for filtering
+  uint32_t keySpaceVersion;                     // version of the Keyspace slot ranges used for filtering
 
   // Async disk I/O state (only used when async disk I/O is enabled)
   IndexResultAsyncReadState async;
@@ -152,11 +145,11 @@ static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx 
 }
 
 /**
- * Refill the IndexResult buffer from the iterator.
- * Fills up to current capacity, doesn't grow the buffer.
+ * Refill the IndexResult queue from the iterator.
+ * Fills up to current capacity, doesn't grow the queue.
  * Returns RS_RESULT_OK on success, RS_RESULT_TIMEDOUT on timeout.
  */
-static int refillBufferUsingIterator(RPQueryIterator *self) {
+static int refillQueueUsingIterator(RPQueryIterator *self) {
   QueryIterator *it = self->iterator;
   RedisSearchCtx *sctx = self->sctx;
   IndexSpec *spec = sctx->spec;
@@ -166,9 +159,9 @@ static int refillBufferUsingIterator(RPQueryIterator *self) {
     return RS_RESULT_OK;
   }
 
-  // Fill buffer up to max capacity
-  while (self->async.iteratorResultCount < self->async.bufferSize && !it->atEOF) {
-    if (sctx->timeout && QueryRequestTimeout_IsTimedOutWithCounter(sctx->timeout)) {
+  // Fill the queue up to max capacity
+  while (self->async.iteratorResultCount < self->async.queueSize && !it->atEOF) {
+    if (QueryRequestTimeout_IsTimedOut(sctx->timeout)) {
       return RS_RESULT_TIMEDOUT;
     }
 
@@ -351,7 +344,7 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
 #endif
 
   while (1) {
-    if (sctx->timeout && QueryRequestTimeout_IsTimedOutWithCounter(sctx->timeout)) {
+    if (QueryRequestTimeout_IsTimedOut(sctx->timeout)) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
 
@@ -412,7 +405,7 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
 #endif
 
   while (1) {
-    if (sctx->timeout && QueryRequestTimeout_IsTimedOutWithCounter(sctx->timeout)) {
+    if (QueryRequestTimeout_IsTimedOut(sctx->timeout)) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
 
@@ -423,13 +416,13 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
       self->async.lastReturnedIndexResult = NULL;
     }
 
-    // Step 1: Refill IndexResult buffer if needed (cheap iterator reads)
-    int refillResult = refillBufferUsingIterator(self);
+    // Step 1: Refill the IndexResult queue if needed (cheap iterator reads)
+    int refillResult = refillQueueUsingIterator(self);
     if (refillResult == RS_RESULT_TIMEDOUT) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
 
-    // Step 1b: Submit any buffered results to async pool (keep pipeline full)
+    // Step 1b: Submit any queued results to async pool (keep pipeline full)
     const uint16_t submitted = IndexResultAsyncRead_RefillPool(&self->async);
 
     // Step 2: Try to serve a ready result if we have one
@@ -464,8 +457,7 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
     // The loop-head check amortizes clock samples across iterations,
     // which is too coarse once an iteration can sleep. Re-check unthrottled after a
     // blocking poll.
-    if (index_poll_timeout_ms > 0 && sctx->timeout &&
-        QueryRequestTimeout_IsTimedOut(sctx->timeout)) {
+    if (index_poll_timeout_ms > 0 && QueryRequestTimeout_IsTimedOutExact(sctx->timeout)) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
 
@@ -491,6 +483,7 @@ static void rpQueryItFree(ResultProcessor *iter) {
 
 ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotRangeArray *querySlots, uint32_t keySpaceVersion, RedisSearchCtx *sctx) {
   RS_ASSERT(root != NULL);
+  RS_ASSERT(sctx && sctx->timeout);
   RPQueryIterator *ret = rm_calloc(1, sizeof(*ret));
   ret->iterator = root;
   ret->querySlots = querySlots;
@@ -502,8 +495,14 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
   ret->firstRead = true;
 #endif
 
+  // Keep one per-query snapshot so the pool and queue sizes stay paired.
+  const uint16_t asyncPoolSize = (uint16_t)RSGlobalConfig.diskAsyncReadPoolSize;
+  const uint16_t asyncQueueFactor = (uint16_t)RSGlobalConfig.diskAsyncReadQueueFactor;
+  RS_ASSERT(asyncQueueFactor >= 1);
+  const uint16_t asyncQueueSize = asyncPoolSize * asyncQueueFactor;
+
   // Initialize async read state
-  IndexResultAsyncRead_Init(&ret->async, MAX_ONGOING_READ_SIZE, ITERATOR_BUFFER_SIZE);
+  IndexResultAsyncRead_Init(&ret->async, asyncPoolSize, asyncQueueSize);
 
   // Determine which Next function to use based on disk configuration
   if (sctx->spec->diskSpec &&
@@ -511,7 +510,7 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
       SearchDisk_GetAsyncIOEnabled()) {
     // Create async pool and setup async I/O
     RedisSearchDiskAsyncReadPool asyncPool =
-        SearchDisk_CreateAsyncReadPool(sctx->spec->diskSpec, sctx, MAX_ONGOING_READ_SIZE);
+        SearchDisk_CreateAsyncReadPool(sctx->spec->diskSpec, sctx, asyncPoolSize);
 
     if (asyncPool) {
       // Async disk flow with buffering
@@ -2082,7 +2081,7 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
     // main-thread callback flips the borrowed flag.
     // The wall-clock deadline is already handled by the upstream's own checks.
     QueryRequestTimeout *timeout = self->depletingThreadCtx->timeout;
-    if (timeout && QueryRequestTimeout_IsBlockedClientTimedOut(timeout)) {
+    if (QueryRequestTimeout_IsBlockedClientTimedOut(timeout)) {
       rc = RS_RESULT_TIMEDOUT;
       break;
     }
@@ -2122,7 +2121,7 @@ static void RPSafeDepleter_Deplete(void *arg) {
 
   // Check if timeout was exceeded before starting execution.
   QueryRequestTimeout *timeout = self->depletingThreadCtx->timeout;
-  bool timed_out = timeout && QueryRequestTimeout_IsTimedOut(timeout);
+  bool timed_out = QueryRequestTimeout_IsTimedOutExact(timeout);
   if (!timed_out) {
     RPSafeDepleter_DepleteFromUpstream(self, sync);
   } else {
@@ -2260,6 +2259,7 @@ static int RPSafeDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) 
  * The pool argument selects which thread pool depletion jobs are submitted to.
  */
 ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx, redisearch_thpool_t *pool) {
+  RS_ASSERT(depletingThreadCtx && depletingThreadCtx->timeout);
   RPSafeDepleter *ret = rm_calloc(1, sizeof(*ret));
   ret->results = array_new(SearchResult*, 0);
   ret->base.Next = RPSafeDepleter_Next_Dispatch;
@@ -2585,8 +2585,7 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
     // No more results to yield
     int ret = RPHybridMerger_TimedOut(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
     return ret;
-  } else if (self->sctx && self->sctx->timeout &&
-             QueryRequestTimeout_IsTimedOutWithCounter(self->sctx->timeout)) {
+  } else if (QueryRequestTimeout_IsTimedOut(self->sctx->timeout)) {
     // Timed out before we could yield all results
     return RS_RESULT_TIMEDOUT;
   }
@@ -2725,8 +2724,8 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
                                     HybridExplainContext *explainCtx) {
   RPHybridMerger *ret = rm_calloc(1, sizeof(*ret));
 
+  RS_ASSERT(sctx && sctx->timeout);
   ret->sctx = sctx;
-  RS_ASSERT(sctx);
   RS_ASSERT(numUpstreams > 0);
   ret->numUpstreams = numUpstreams;
 
@@ -2778,6 +2777,14 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
 
 // Insert the result processor between the last result processor and its downstream result processor
 static void addResultProcessor(QueryProcessingCtx *qctx, ResultProcessor *rp) {
+  if (!qctx || !qctx->endProc) {
+    if (rp && rp->Free) {
+      rp->Free(rp);
+    }
+    RS_ABORT_ALWAYS("Cannot add a debug result processor to an empty pipeline");
+    return;
+  }
+
   ResultProcessor *cur = qctx->endProc;
   ResultProcessor dummyHead = { .upstream = cur };
   ResultProcessor *downstream = &dummyHead;

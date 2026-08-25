@@ -630,6 +630,7 @@ QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   if (ri) {
     return ri;
   }
+  RS_ASSERT(hParams.sctx);
 
   HybridIterator *hi = rm_new(HybridIterator);
   // This will be changed later to a valid RLookupKey if there is no syntax error in the query,
@@ -652,7 +653,12 @@ QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   hi->maxBatchSize = 0;
   hi->maxBatchIteration = 0;
   hi->canTrimDeepResults = hParams.canTrimDeepResults;
-  hi->timeoutCtx = (VecSimTimeoutCtx){ .timeout = hParams.sctx ? hParams.sctx->timeout : NULL };
+  QueryRequestTimeout *timeout = hParams.sctx->timeout;
+  if (!timeout) {
+    QueryRequestTimeout_Init(&hi->requestlessTimeout, TimeoutPolicy_Return, 0);
+    timeout = &hi->requestlessTimeout;
+  }
+  hi->timeoutCtx = (VecSimTimeoutCtx){ .timeout = timeout };
   hi->runtimeParams.timeoutCtx = &hi->timeoutCtx;
   hi->sctx = hParams.sctx;
   hi->filterCtx = *hParams.filterCtx;
