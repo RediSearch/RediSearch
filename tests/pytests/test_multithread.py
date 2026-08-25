@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 from common import *
 
 def initEnv(moduleArgs: str = 'WORKERS 1'):

@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 import json
 import bz2
 import numpy as np
