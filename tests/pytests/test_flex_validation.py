@@ -327,7 +327,7 @@ def test_flex_aggregate_allows_sortby(env):
     """FT.AGGREGATE SORTBY is unrestricted on flex, including multi-field
     SORTBY: sort keys load via the disk async loader at the arrange step.
     FT.SEARCH SORTBY shares that loading path, so it works on schema fields
-    too (MOD-17659)."""
+    too."""
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
                't', 'TEXT', 'u', 'TEXT').ok()
     env.expect('HSET', 'doc:1', 't', 'hello world', 'u', 'aaa').equal(2)
@@ -941,7 +941,7 @@ def test_flex_blocks_configured_default_dialect_4(env):
 @skip(cluster=True)
 @with_simulate_in_flex(True)
 def test_flex_allows_sortby_on_non_vector_fields(env):
-    """SORTBY on a non-vector schema field works in Redis Flex (MOD-17659):
+    """SORTBY on a non-vector schema field works in Redis Flex:
     the arrange step loads the sort key via the disk async loader."""
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
                'n', 'NUMERIC').ok()
@@ -995,7 +995,7 @@ def test_flex_allows_sortby_on_vector_distance_fields(env):
                   'DIALECT', '2')
     env.assertEqual(res[0], 3)
 
-    # SORTBY on a non-vector schema field is allowed too (MOD-17659)
+    # SORTBY on a non-vector schema field is allowed too
     res = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 3 @v $b]', 'NOCONTENT',
                   'SORTBY', 't', 'ASC',
                   'PARAMS', '2', 'b', query_blob,
