@@ -33,6 +33,9 @@
 #include "redisearch.h"
 #include "asm_state_machine.h"
 
+// Cap eager hybrid-merger dict pre-sizing to avoid excessive bucket allocations.
+#define MAX_HYBRID_MERGER_PRESIZE_BYTES (64 * 1024 * 1024)
+
 /*******************************************************************************************************************
  *  Base Result Processor - this processor is the topmost processor of every processing chain.
  *
@@ -932,12 +935,11 @@ static int rpSafeLoaderNext_Yield(ResultProcessor *rp, SearchResult *result_outp
 /*********************************************************************************/
 
 static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
-  RS_LOG_ASSERT(rp->parent->resultLimit > 0, "Result limit should be greater than 0");
   RPSafeLoader *self = (RPSafeLoader *)rp;
 
   // Keep fetching results from the upstream result processor until EOF is reached
   RedisSearchCtx *sctx = self->sctx;
-  int result_status;
+  int result_status = RS_RESULT_EOF;
   uint32_t bufferLimit = rp->parent->resultLimit;
   SearchResult resToBuffer = {0};
   SearchResult *currBlock = NULL;
@@ -2013,16 +2015,32 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
   return RS_RESULT_OK;
  }
 
+bool RPHybridMerger_ShouldPresize(size_t window, size_t numUpstreams, size_t *maximalSize) {
+  RS_ASSERT(maximalSize);
+
+  if (numUpstreams == 0 || window == 0) {
+    return false;
+  }
+
+  if (window > ((size_t)-1) / numUpstreams) {
+    return false;
+  }
+
+  size_t requestedBuckets = window * numUpstreams;
+  size_t maxPresizeBuckets = MAX_HYBRID_MERGER_PRESIZE_BYTES / sizeof(void *);
+  if (requestedBuckets > maxPresizeBuckets) {
+    return false;
+  }
+
+  *maximalSize = requestedBuckets;
+  return true;
+}
+
  /* Accumulation phase - consume window results from all upstreams */
  static int RPHybridMerger_Accum(ResultProcessor *rp, SearchResult *r) {
   RPHybridMerger *self = (RPHybridMerger *)rp;
 
-  size_t window;
-  if (self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
-    window = self->hybridScoringCtx->rrfCtx.window;
-  } else {
-    window = self->hybridScoringCtx->linearCtx.window;
-  }
+  size_t window = HybridScoringContext_GetWindow(self->hybridScoringCtx);
 
   bool *consumed = rm_calloc(self->numUpstreams, sizeof(bool));
   size_t numConsumed = 0;
@@ -2143,15 +2161,13 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
    ret->upstreams = upstreams;
    ret->hybridResults = dictCreate(&dictTypeHybridSearchResult, NULL);
 
-   // Calculate maximal dictionary size based on scoring type
-   size_t maximalSize;
-   if (hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
-     maximalSize = hybridScoringCtx->rrfCtx.window * numUpstreams;
-   } else {
-     maximalSize = hybridScoringCtx->linearCtx.window * numUpstreams;
+   size_t maximalSize = 0;
+   size_t window = HybridScoringContext_GetWindow(hybridScoringCtx);
+   if (RPHybridMerger_ShouldPresize(window, numUpstreams, &maximalSize)) {
+     // Pre-size the dictionary to avoid multiple resizes during accumulation.
+     // This is only an optimization, so ignore failures and continue safely.
+     (void)dictExpand(ret->hybridResults, maximalSize);
    }
-   // Pre-size the dictionary to avoid multiple resizes during accumulation
-   dictExpand(ret->hybridResults, maximalSize);
 
    ret->iterator = NULL;
 
