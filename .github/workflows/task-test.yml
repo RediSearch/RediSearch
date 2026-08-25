@@ -135,12 +135,16 @@ jobs:
       (!needs.get-config.outputs.ec2_image_id || needs.start-runner.result == 'success') &&
       (inputs.skip-tests || inputs.standalone || inputs.coordinator || inputs.unit-tests)
     runs-on: ${{ needs.get-config.outputs.ec2_image_id && needs.start-runner.outputs.label || needs.get-config.outputs.env || vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-latest' }}
+    # Runner-local env is unavailable while GitHub creates the job container.
+    # RUNS_ON_X64_MEDIUM is our repo-level signal that x64 CI uses self-hosted
+    # runners, where GitHub-hosted host cleanup mounts are not available.
     container: ${{
       needs.get-config.outputs.container
         && fromJSON(
-          format('{{"image":"{0}","options":"--user root {1}"}}',
+          format('{{"image":"{0}","options":"--user root {1} {2}"}}',
             needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container,
-            startsWith(needs.get-config.outputs.container, 'alpine:') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '')
+            startsWith(needs.get-config.outputs.container, 'alpine:') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '',
+            vars.RUNS_ON_X64_MEDIUM == '' && '-v /usr/share/dotnet:/host/usr/share/dotnet -v /usr/local/lib/android:/host/usr/local/lib/android -v /opt/ghc:/host/opt/ghc -v /opt/hostedtoolcache:/host/opt/hostedtoolcache' || '')
         )
       || null }}
 
@@ -164,21 +168,13 @@ jobs:
         shell: sh -l -eo pipefail {0}
         run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
 
-      - name: Free up disk space (non-container)
-        # For non-container jobs - delete directly with sudo
-        # Skip macOS - it doesn't have these directories
-        if: ${{ !needs.get-config.outputs.container && !contains(needs.get-config.outputs.env, 'macos') }}
-        run: |
-          echo "Before cleanup:"
-          df -h
-          sudo rm -rf /usr/share/dotnet || true
-          sudo rm -rf /usr/local/lib/android || true
-          sudo rm -rf /opt/ghc || true
-          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
-          sudo rm -rf /usr/local/share/boost || true
-          docker system prune -af 2>/dev/null || true
-          echo "After cleanup:"
-          df -h
+      - name: Full checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          submodules: recursive
+
+      - name: Free up disk space
+        uses: ./.github/actions/github-hosted-runner-cleanup
       - name: Fix HOME Directory
         if: ${{ needs.build-image.outputs.succeeded == 'true' && needs.get-config.outputs.container }}
         shell: bash
@@ -213,18 +209,6 @@ jobs:
       - name: Post-setup
         if: needs.get-config.outputs.post_setup_script
         run: ${{ needs.get-config.outputs.post_setup_script }}
-      - name: Free up disk space
-        run: |
-          df -h
-          ${{ needs.get-config.outputs.install_mode }} rm -rf /usr/share/dotnet || true
-          ${{ needs.get-config.outputs.install_mode }} rm -rf /usr/local/lib/android || true
-          ${{ needs.get-config.outputs.install_mode }} rm -rf /opt/ghc || true
-          ${{ needs.get-config.outputs.install_mode }} rm -rf /opt/hostedtoolcache/CodeQL || true
-          df -h
-      - name: Full checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          submodules: recursive
       - name: Setup build environment
         uses: ./.github/actions/setup-build-env
         with:
