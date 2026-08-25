@@ -82,21 +82,6 @@ typedef struct TermDictionary TermDictionary;
  */
 typedef struct TermDictionaryIterator TermDictionaryIterator;
 
-/**
- * Stop predicate polled while a pattern walk traverses the dictionary.
- *
- * `ctx` is the `stop_ctx` passed to the iterate function. Return `true`
- * to abandon the walk (e.g. once a deadline has passed); the caller owns
- * the decision and any clock it consults. A NULL predicate never stops.
- * The [`term_dictionary`] crate docs state how often it is polled.
- *
- * The predicate runs inside the [`TermDictionaryIterator_Next`] call
- * that polls it, which holds the iterator exclusively for the duration:
- * it must not call [`TermDictionaryIterator_Next`] or
- * [`TermDictionaryIterator_Free`] on that iterator.
- */
-typedef bool (*TermDictionaryShouldStop)(void *ctx);
-
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -286,14 +271,12 @@ struct TermDictionaryIterator *TermDictionary_Iterate(const struct TermDictionar
  * - The substring bytes `(str, len)` must stay valid and unmodified
  *   while the iterator lives — the iterator matches candidates against
  *   them on every advance.
- * - If `should_stop` is non-NULL it must be safe to call with `stop_ctx`
- *   for as long as the iterator lives.
  *
  * # Panics
  *
  * Panics if the substring is not valid UTF-8.
  */
-struct TermDictionaryIterator *TermDictionary_IterateContains(const struct TermDictionary *t, const char *str, size_t len, TermDictionaryShouldStop should_stop, void *stop_ctx);
+struct TermDictionaryIterator *TermDictionary_IterateContains(const struct TermDictionary *t, const char *str, size_t len);
 
 /**
  * Iterate over every term whose case-folded form is within Levenshtein
@@ -329,14 +312,12 @@ struct TermDictionaryIterator *TermDictionary_IterateFuzzy(const struct TermDict
  *   [`NewTermDictionary`] and cannot be NULL.
  * - `str` must point to a valid byte sequence of length `len`.
  * - `t` must not be modified or freed while the iterator lives.
- * - If `should_stop` is non-NULL it must be safe to call with `stop_ctx`
- *   for as long as the iterator lives.
  *
  * # Panics
  *
  * Panics if the prefix is not valid UTF-8.
  */
-struct TermDictionaryIterator *TermDictionary_IteratePrefix(const struct TermDictionary *t, const char *str, size_t len, TermDictionaryShouldStop should_stop, void *stop_ctx);
+struct TermDictionaryIterator *TermDictionary_IteratePrefix(const struct TermDictionary *t, const char *str, size_t len);
 
 /**
  * Iterate over every term ending with the case-folded suffix
@@ -352,14 +333,12 @@ struct TermDictionaryIterator *TermDictionary_IteratePrefix(const struct TermDic
  *   [`NewTermDictionary`] and cannot be NULL.
  * - `str` must point to a valid byte sequence of length `len`.
  * - `t` must not be modified or freed while the iterator lives.
- * - If `should_stop` is non-NULL it must be safe to call with `stop_ctx`
- *   for as long as the iterator lives.
  *
  * # Panics
  *
  * Panics if the suffix is not valid UTF-8.
  */
-struct TermDictionaryIterator *TermDictionary_IterateSuffix(const struct TermDictionary *t, const char *str, size_t len, TermDictionaryShouldStop should_stop, void *stop_ctx);
+struct TermDictionaryIterator *TermDictionary_IterateSuffix(const struct TermDictionary *t, const char *str, size_t len);
 
 /**
  * Iterate over every term matching the case-folded wildcard pattern
@@ -379,14 +358,12 @@ struct TermDictionaryIterator *TermDictionary_IterateSuffix(const struct TermDic
  *   [`NewTermDictionary`] and cannot be NULL.
  * - `str` must point to a valid byte sequence of length `len`.
  * - `t` must not be modified or freed while the iterator lives.
- * - If `should_stop` is non-NULL it must be safe to call with `stop_ctx`
- *   for as long as the iterator lives.
  *
  * # Panics
  *
  * Panics if the pattern is not valid UTF-8.
  */
-struct TermDictionaryIterator *TermDictionary_IterateWildcard(const struct TermDictionary *t, const char *str, size_t len, TermDictionaryShouldStop should_stop, void *stop_ctx);
+struct TermDictionaryIterator *TermDictionary_IterateWildcard(const struct TermDictionary *t, const char *str, size_t len);
 
 /**
  * The number of unique terms stored in the dictionary.

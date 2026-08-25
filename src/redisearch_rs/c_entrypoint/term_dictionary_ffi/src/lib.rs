@@ -27,10 +27,8 @@
 //! [`TermDictionary_Free`] require exclusive access — no other call on
 //! the same dictionary, and no live iterator obtained from it. An
 //! iterator itself is single-threaded: it may not be advanced or freed
-//! from two threads at once, nor re-entered on one — a stop predicate
-//! runs inside the advance that polls it, so it must not touch the
-//! iterator it is stopping. Separate iterators over the same dictionary
-//! may be advanced concurrently.
+//! from two threads at once, though separate iterators over the same
+//! dictionary may.
 //!
 //! Mutating entry points hold terms to the C terms trie's eligibility
 //! rules (see [`storable_term`]). Two divergences from that trie are
@@ -50,7 +48,7 @@
 
 #![allow(non_camel_case_types, non_snake_case)]
 
-use std::ffi::{c_char, c_int, c_void};
+use std::ffi::{c_char, c_int};
 use std::slice;
 
 use term_dictionary::{
@@ -62,19 +60,6 @@ use term_dictionary::{
 /// callers holding the spec's opaque pointer can recover the dictionary
 /// by casting, depending only on the pure crate.
 pub use term_dictionary::TermDictionary;
-
-/// Stop predicate polled while a pattern walk traverses the dictionary.
-///
-/// `ctx` is the `stop_ctx` passed to the iterate function. Return `true`
-/// to abandon the walk (e.g. once a deadline has passed); the caller owns
-/// the decision and any clock it consults. A NULL predicate never stops.
-/// The [`term_dictionary`] crate docs state how often it is polled.
-///
-/// The predicate runs inside the [`TermDictionaryIterator_Next`] call
-/// that polls it, which holds the iterator exclusively for the duration:
-/// it must not call [`TermDictionaryIterator_Next`] or
-/// [`TermDictionaryIterator_Free`] on that iterator.
-pub type TermDictionaryShouldStop = Option<unsafe extern "C" fn(ctx: *mut c_void) -> bool>;
 
 /// Yields the matching terms (and their payloads) of an iteration over
 /// a [`TermDictionary`].
@@ -224,22 +209,6 @@ fn wrap_iter<'td>(
         iter: Box::new(iter),
         current: None,
     }))
-}
-
-/// Adapt a C stop predicate into the Rust closure the pattern walks take.
-/// A NULL predicate never stops.
-///
-/// # Safety
-///
-/// A non-NULL `should_stop` must be safe to call with `stop_ctx` for as
-/// long as the returned closure is held, i.e. for the iterator's lifetime.
-fn stop_predicate(
-    should_stop: TermDictionaryShouldStop,
-    stop_ctx: *mut c_void,
-) -> impl FnMut() -> bool {
-    // SAFETY: the caller of the iterate function guarantees `should_stop`
-    // is safe to call with `stop_ctx` while the iterator lives.
-    move || should_stop.is_some_and(|f| unsafe { f(stop_ctx) })
 }
 
 /// Create a new, empty [`TermDictionary`].
@@ -582,8 +551,6 @@ pub unsafe extern "C" fn TermDictionary_Iterate<'td>(
 ///   [`NewTermDictionary`] and cannot be NULL.
 /// - `str` must point to a valid byte sequence of length `len`.
 /// - `t` must not be modified or freed while the iterator lives.
-/// - If `should_stop` is non-NULL it must be safe to call with `stop_ctx`
-///   for as long as the iterator lives.
 ///
 /// # Panics
 ///
@@ -593,8 +560,6 @@ pub unsafe extern "C" fn TermDictionary_IteratePrefix<'td>(
     t: *const TermDictionary,
     str: *const c_char,
     len: usize,
-    should_stop: TermDictionaryShouldStop,
-    stop_ctx: *mut c_void,
 ) -> *mut TermDictionaryIterator<'td> {
     debug_assert!(!t.is_null(), "t cannot be NULL");
 
@@ -603,7 +568,7 @@ pub unsafe extern "C" fn TermDictionary_IteratePrefix<'td>(
     let dict = unsafe { &*t };
     // SAFETY: caller is to ensure `str` points to `len` valid bytes.
     let prefix = unsafe { term_arg(str, len, "prefix") };
-    wrap_iter(dict.prefixed_iter(prefix, stop_predicate(should_stop, stop_ctx)))
+    wrap_iter(dict.prefixed_iter(prefix))
 }
 
 /// Iterate over every term ending with the case-folded suffix
@@ -619,8 +584,6 @@ pub unsafe extern "C" fn TermDictionary_IteratePrefix<'td>(
 ///   [`NewTermDictionary`] and cannot be NULL.
 /// - `str` must point to a valid byte sequence of length `len`.
 /// - `t` must not be modified or freed while the iterator lives.
-/// - If `should_stop` is non-NULL it must be safe to call with `stop_ctx`
-///   for as long as the iterator lives.
 ///
 /// # Panics
 ///
@@ -630,8 +593,6 @@ pub unsafe extern "C" fn TermDictionary_IterateSuffix<'td>(
     t: *const TermDictionary,
     str: *const c_char,
     len: usize,
-    should_stop: TermDictionaryShouldStop,
-    stop_ctx: *mut c_void,
 ) -> *mut TermDictionaryIterator<'td> {
     debug_assert!(!t.is_null(), "t cannot be NULL");
 
@@ -640,7 +601,7 @@ pub unsafe extern "C" fn TermDictionary_IterateSuffix<'td>(
     let dict = unsafe { &*t };
     // SAFETY: caller is to ensure `str` points to `len` valid bytes.
     let suffix = unsafe { term_arg(str, len, "suffix") };
-    wrap_iter(dict.suffixed_iter(suffix, stop_predicate(should_stop, stop_ctx)))
+    wrap_iter(dict.suffixed_iter(suffix))
 }
 
 /// Iterate over every term containing the case-folded substring
@@ -659,8 +620,6 @@ pub unsafe extern "C" fn TermDictionary_IterateSuffix<'td>(
 /// - The substring bytes `(str, len)` must stay valid and unmodified
 ///   while the iterator lives — the iterator matches candidates against
 ///   them on every advance.
-/// - If `should_stop` is non-NULL it must be safe to call with `stop_ctx`
-///   for as long as the iterator lives.
 ///
 /// # Panics
 ///
@@ -670,8 +629,6 @@ pub unsafe extern "C" fn TermDictionary_IterateContains<'td>(
     t: *const TermDictionary,
     str: *const c_char,
     len: usize,
-    should_stop: TermDictionaryShouldStop,
-    stop_ctx: *mut c_void,
 ) -> *mut TermDictionaryIterator<'td> {
     debug_assert!(!t.is_null(), "t cannot be NULL");
 
@@ -681,7 +638,7 @@ pub unsafe extern "C" fn TermDictionary_IterateContains<'td>(
     // SAFETY: caller is to ensure `str` points to `len` valid bytes that
     // outlive the iterator.
     let target = unsafe { term_arg::<'td>(str, len, "substring") };
-    wrap_iter(dict.contains_iter(target, stop_predicate(should_stop, stop_ctx)))
+    wrap_iter(dict.contains_iter(target))
 }
 
 /// Iterate over every term matching the case-folded wildcard pattern
@@ -701,8 +658,6 @@ pub unsafe extern "C" fn TermDictionary_IterateContains<'td>(
 ///   [`NewTermDictionary`] and cannot be NULL.
 /// - `str` must point to a valid byte sequence of length `len`.
 /// - `t` must not be modified or freed while the iterator lives.
-/// - If `should_stop` is non-NULL it must be safe to call with `stop_ctx`
-///   for as long as the iterator lives.
 ///
 /// # Panics
 ///
@@ -712,8 +667,6 @@ pub unsafe extern "C" fn TermDictionary_IterateWildcard<'td>(
     t: *const TermDictionary,
     str: *const c_char,
     len: usize,
-    should_stop: TermDictionaryShouldStop,
-    stop_ctx: *mut c_void,
 ) -> *mut TermDictionaryIterator<'td> {
     debug_assert!(!t.is_null(), "t cannot be NULL");
 
@@ -723,7 +676,7 @@ pub unsafe extern "C" fn TermDictionary_IterateWildcard<'td>(
     // SAFETY: caller is to ensure `str` points to `len` valid bytes that
     // outlive the iterator.
     let pattern = unsafe { term_arg::<'td>(str, len, "pattern") };
-    wrap_iter(dict.wildcard_iter(pattern, stop_predicate(should_stop, stop_ctx)))
+    wrap_iter(dict.wildcard_iter(pattern))
 }
 
 /// Iterate over every term whose case-folded form is within Levenshtein

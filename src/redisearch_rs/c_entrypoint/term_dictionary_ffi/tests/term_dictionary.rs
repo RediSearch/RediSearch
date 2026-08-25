@@ -8,7 +8,7 @@
 */
 use redis_mock::mock_or_stub_missing_redis_c_symbols;
 use std::collections::HashMap;
-use std::ffi::{c_char, c_void};
+use std::ffi::c_char;
 use term_dictionary_ffi::*;
 
 // Link both Rust-provided and C-provided symbols
@@ -296,15 +296,7 @@ fn iterate_prefix_filters_by_prefix() {
     }
 
     // Safety: `t` is a live dictionary that outlives the iterator; the pattern bytes come from a valid `&str`.
-    let it = unsafe {
-        TermDictionary_IteratePrefix(
-            t,
-            "bik".as_ptr().cast(),
-            "bik".len(),
-            None,
-            std::ptr::null_mut(),
-        )
-    };
+    let it = unsafe { TermDictionary_IteratePrefix(t, "bik".as_ptr().cast(), "bik".len()) };
     let actual = keys(drain(it));
 
     assert_eq!(actual, to_set(&["bike", "biker"]));
@@ -320,15 +312,7 @@ fn iterate_suffix_filters_by_suffix() {
     }
 
     // Safety: `t` is a live dictionary that outlives the iterator; the pattern bytes come from a valid `&str`.
-    let it = unsafe {
-        TermDictionary_IterateSuffix(
-            t,
-            "ike".as_ptr().cast(),
-            "ike".len(),
-            None,
-            std::ptr::null_mut(),
-        )
-    };
+    let it = unsafe { TermDictionary_IterateSuffix(t, "ike".as_ptr().cast(), "ike".len()) };
     let actual = keys(drain(it));
 
     assert_eq!(actual, to_set(&["bike", "trike"]));
@@ -345,15 +329,7 @@ fn iterate_contains_filters_by_substring() {
 
     let needle = "ike";
     // Safety: `t` is a live dictionary that outlives the iterator; the pattern bytes come from a valid `&str`.
-    let it = unsafe {
-        TermDictionary_IterateContains(
-            t,
-            needle.as_ptr().cast(),
-            needle.len(),
-            None,
-            std::ptr::null_mut(),
-        )
-    };
+    let it = unsafe { TermDictionary_IterateContains(t, needle.as_ptr().cast(), needle.len()) };
     let actual = keys(drain(it));
 
     assert_eq!(actual, to_set(&["bike", "biker", "trike"]));
@@ -370,97 +346,10 @@ fn iterate_wildcard_filters_by_pattern() {
 
     let pattern = "b*e";
     // Safety: `t` is a live dictionary that outlives the iterator; the pattern bytes come from a valid `&str`.
-    let it = unsafe {
-        TermDictionary_IterateWildcard(
-            t,
-            pattern.as_ptr().cast(),
-            pattern.len(),
-            None,
-            std::ptr::null_mut(),
-        )
-    };
+    let it = unsafe { TermDictionary_IterateWildcard(t, pattern.as_ptr().cast(), pattern.len()) };
     let actual = keys(drain(it));
 
     assert_eq!(actual, to_set(&["bike"]));
-
-    free(t);
-}
-
-/// A predicate that stops the walk immediately, counting its own calls so
-/// the test can tell "never polled" from "polled and honoured".
-unsafe extern "C" fn stop_now(ctx: *mut c_void) -> bool {
-    // Safety: the tests below always pass a live `&mut usize` as `stop_ctx`.
-    unsafe { *ctx.cast::<usize>() += 1 };
-    true
-}
-
-/// The predicate is polled per traversal step, amortized every
-/// `TIMEOUT_CHECK_GRANULARITY` steps, so a walk has to be long enough to
-/// reach the first poll before it can be cut short.
-const N_TERMS: usize = 300;
-
-fn seeded_dictionary() -> *mut TermDictionary {
-    let t = NewTermDictionary();
-    for i in 0..N_TERMS {
-        add(t, &format!("key{i:04}"), 1.0, 1);
-    }
-    t
-}
-
-#[test]
-fn iterate_prefix_honours_the_stop_predicate() {
-    let t = seeded_dictionary();
-
-    let mut polls = 0usize;
-    let prefix = "key";
-    // Safety: `t` is a live dictionary that outlives the iterator; the pattern bytes come from a
-    // valid `&str`; `polls` outlives the iterator.
-    let it = unsafe {
-        TermDictionary_IteratePrefix(
-            t,
-            prefix.as_ptr().cast(),
-            prefix.len(),
-            Some(stop_now),
-            (&raw mut polls).cast(),
-        )
-    };
-    let actual = keys(drain(it));
-
-    assert!(
-        actual.len() < N_TERMS,
-        "stopped walk cuts short, got all {} terms",
-        actual.len()
-    );
-    assert!(polls > 0, "predicate was polled");
-
-    free(t);
-}
-
-#[test]
-fn iterate_contains_honours_the_stop_predicate() {
-    let t = seeded_dictionary();
-
-    let mut polls = 0usize;
-    let needle = "ey0";
-    // Safety: `t` is a live dictionary that outlives the iterator; the pattern bytes come from a
-    // valid `&str`; `polls` outlives the iterator.
-    let it = unsafe {
-        TermDictionary_IterateContains(
-            t,
-            needle.as_ptr().cast(),
-            needle.len(),
-            Some(stop_now),
-            (&raw mut polls).cast(),
-        )
-    };
-    let actual = keys(drain(it));
-
-    assert!(
-        actual.len() < N_TERMS,
-        "stopped walk cuts short, got all {} terms",
-        actual.len()
-    );
-    assert!(polls > 0, "predicate was polled");
 
     free(t);
 }
@@ -474,13 +363,9 @@ fn empty_suffix_and_substring_yield_no_terms() {
 
     // Safety: `t` is a live dictionary that outlives both iterators; the empty pattern bytes come
     // from a valid `&str`.
-    let suffixed = unsafe {
-        TermDictionary_IterateSuffix(t, "".as_ptr().cast(), 0, None, std::ptr::null_mut())
-    };
+    let suffixed = unsafe { TermDictionary_IterateSuffix(t, "".as_ptr().cast(), 0) };
     // Safety: as above.
-    let contained = unsafe {
-        TermDictionary_IterateContains(t, "".as_ptr().cast(), 0, None, std::ptr::null_mut())
-    };
+    let contained = unsafe { TermDictionary_IterateContains(t, "".as_ptr().cast(), 0) };
 
     assert!(keys(drain(suffixed)).is_empty());
     assert!(keys(drain(contained)).is_empty());
@@ -529,15 +414,7 @@ fn multibyte_terms_roundtrip() {
     add(t, "köln", 1.0, 1);
 
     // Safety: `t` is a live dictionary that outlives the iterator; the pattern bytes come from a valid `&str`.
-    let it = unsafe {
-        TermDictionary_IterateSuffix(
-            t,
-            "ółć".as_ptr().cast(),
-            "ółć".len(),
-            None,
-            std::ptr::null_mut(),
-        )
-    };
+    let it = unsafe { TermDictionary_IterateSuffix(t, "ółć".as_ptr().cast(), "ółć".len()) };
     let actual = keys(drain(it));
 
     assert_eq!(actual, to_set(&["żółć"]));
