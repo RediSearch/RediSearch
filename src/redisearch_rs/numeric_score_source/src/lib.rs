@@ -52,6 +52,9 @@ use top_k::{RuntimeOrder, TopKIterator, TopKMetrics, TopKMode, TopKSourceProfile
 /// `I` is the filter child iterator type, defaulting to the production
 /// [`CRQEIterator`]; the iterator implements [`ProfilePrint`] whenever `I` does.
 /// An unfiltered iterator carries no child, so `I` is then an unused phantom.
+///
+/// The sort direction is a query parameter, so the heap's ordering is
+/// [`RuntimeOrder`].
 pub type NumericTopKIterator<
     'index,
     V = AllValid,
