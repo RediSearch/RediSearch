@@ -204,12 +204,11 @@ static void sideThread(void *arg) {
 
   // Process any remaining requests before closing handles
   uv_run(&io_runtime_ctx->uv_runtime.loop, UV_RUN_NOWAIT);
-  // Final queue drain: execute items whose loop signal was suppressed by the
-  // shutdown guard, so their commands register with the still-live
-  // connections and the sweep below error-completes them (callers blocked on
-  // their results resolve instead of stranding). An item pushed after this
-  // drain is discarded by RQ_Free — a residual of the shutdown design,
-  // unreachable in practice.
+  // Final queue drain: execute the items the stopped loop never got to (a
+  // signal consumed by uv_stop first, a not-ready or backpressured pass), so
+  // their commands register with the still-live connections and the sweep
+  // below error-completes them — every enqueued item thus executes exactly
+  // once, the counterpart of RQ_Push rejecting once the queue shuts down.
   queueItem *req;
   while (NULL != (req = RQ_PopUnbounded(io_runtime_ctx->queue))) {
     req->cb(req->privdata);
@@ -421,19 +420,25 @@ void IORuntimeCtx_Start(IORuntimeCtx *io_runtime_ctx) {
   RedisModule_Log(RSDummyContext, "verbose", "Created event loop thread for IORuntime ID %zu", io_runtime_ctx->queue->id);
 }
 
-bool IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, void *privdata) {
+void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, MRQueueCallback cancel_cb, void *privdata) {
   // Push before the lazy start: the async handle is initialized at Create,
   // so a pre-start signal is simply latched.
-  bool live = RQ_Push(io_runtime_ctx->queue, cb, privdata, &io_runtime_ctx->uv_runtime.async);
+  if (!RQ_Push(io_runtime_ctx->queue, cb, privdata, &io_runtime_ctx->uv_runtime.async)) {
+    // Rejected: the runtime is shutting down and `cb` can never run (the
+    // item was not enqueued), so resolve the item here, exactly once.
+    if (cancel_cb) {
+      cancel_cb(privdata);
+    }
+    return;
+  }
   // Claiming the start races IORuntimeCtx_Shutdown's own claim on the same
   // atomic flag, so shutdown either sees the runtime as started (and joins
   // out an in-flight Start via the created-cond handshake) or wins the claim
   // and no schedule can ever start the runtime again. If started but the loop
   // is not ready yet, the item waits in the queue until the loop runs.
-  if (live && CheckAndSetIoRuntimeNotStarted(io_runtime_ctx)) {
+  if (CheckAndSetIoRuntimeNotStarted(io_runtime_ctx)) {
     IORuntimeCtx_Start(io_runtime_ctx);
   }
-  return live;
 }
 
 void IORuntimeCtx_RequestCompleted(IORuntimeCtx *io_runtime_ctx) {

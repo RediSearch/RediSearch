@@ -365,7 +365,7 @@ int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd, bool blo
   mrctx->cmd = cmd;
 
   MRCtx_IncrRef(mrctx);
-  IORuntimeCtx_Schedule(mrctx->ioRuntime, uvFanoutRequest, mrctx);
+  IORuntimeCtx_Schedule(mrctx->ioRuntime, uvFanoutRequest, NULL, mrctx);
   return REDIS_OK;
 }
 
@@ -473,7 +473,7 @@ void MR_UpdateConnPoolSize(size_t conn_pool_size) {
       struct UpdateConnPoolSizeCtx *ctx = rm_malloc(sizeof(*ctx));
       ctx->ioRuntime = cluster_g->io_runtimes_pool[i];
       ctx->conn_pool_size = conn_pool_size;
-      IORuntimeCtx_Schedule(cluster_g->io_runtimes_pool[i], uvUpdateConnPoolSize, ctx);
+      IORuntimeCtx_Schedule(cluster_g->io_runtimes_pool[i], uvUpdateConnPoolSize, NULL, ctx);
     }
   }
 }
@@ -548,7 +548,7 @@ void MR_GetConnectionPoolState(RedisModuleCtx *ctx) {
     struct ReducedConnPoolStateCtx *reducedConnPoolStateCtx = rm_new(struct ReducedConnPoolStateCtx);
     reducedConnPoolStateCtx->ioRuntime = cluster_g->io_runtimes_pool[i];
     reducedConnPoolStateCtx->mt_ctx = mt_bc;
-    IORuntimeCtx_Schedule(cluster_g->io_runtimes_pool[i], uvGetConnectionPoolState, reducedConnPoolStateCtx);
+    IORuntimeCtx_Schedule(cluster_g->io_runtimes_pool[i], uvGetConnectionPoolState, NULL, reducedConnPoolStateCtx);
   }
 }
 
@@ -572,7 +572,7 @@ void MR_uvReplyClusterInfo(RedisModuleCtx *ctx) {
   size_t idx = MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g);
   replyClusterInfoCtx->bc = bc;
   replyClusterInfoCtx->ioRuntime = cluster_g->io_runtimes_pool[idx];
-  IORuntimeCtx_Schedule(replyClusterInfoCtx->ioRuntime, uvReplyClusterInfo, replyClusterInfoCtx);
+  IORuntimeCtx_Schedule(replyClusterInfoCtx->ioRuntime, uvReplyClusterInfo, NULL, replyClusterInfoCtx);
 }
 
 void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
@@ -661,6 +661,23 @@ static void mrIteratorRedisCB(redisAsyncContext *c, void *r, void *privdata) {
     mrIteratorCallback_Error(ctx);
   } else {
     ctx->it->ctx.successCB(ctx, r);
+  }
+}
+
+// A batch whose schedule was rejected (the runtime is shutting down) will
+// never send. Resolve it exactly like iterManualNextCb resolves failed sends:
+// run the no-reply error path for every pending shard, driving the normal
+// depletion machinery (pending/inProcess, channel unblock, batch-ref
+// release). Safe off the IO thread — the quiesced runtime leaves this as the
+// batch's only actor. The unpaired RQ_Done this fires on the dying queue
+// (ProcessDone pairs it with a pop that never happened) is harmless: nothing
+// consults its pending count after shutdown.
+static void iterCancelBatch(void *p) {
+  MRIterator *it = p;
+  for (size_t i = 0; i < it->len; i++) {
+    if (!it->cbxs[i].cmd.depleted) {
+      mrIteratorCallback_Error(&it->cbxs[i]);
+    }
   }
 }
 
@@ -953,17 +970,8 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
     // We need to take a reference to the iterator for the next batch of commands.
     int8_t refCount = MRIterator_IncreaseRefCount(it);
     REFCOUNT_INCR_MSG("MR_ManuallyTriggerNextIfNeeded", refCount);
-    if (!IORuntimeCtx_Schedule(it->ctx.ioRuntime, iterManualNextCb, it)) {
-      // The runtime is shutting down: nothing will execute the batch, so no
-      // reply can ever arrive. Undo (no writer is left to observe either
-      // field) and report only what the channel already holds, so the reader
-      // resolves instead of stranding module teardown on its channel wait.
-      refCount = MRIterator_DecreaseRefCount(it);
-      REFCOUNT_DECR_MSG("MR_ManuallyTriggerNextIfNeeded: schedule rejected at shutdown", refCount);
-      it->ctx.inProcess = 0;
-      return channelSize > 0;
-    }
-    return true; // We may have more replies (and we surely will)
+    IORuntimeCtx_Schedule(it->ctx.ioRuntime, iterManualNextCb, iterCancelBatch, it);
+    return true; // The reader consumes the batch's replies — or its cancellation — as usual
   }
   // We have no pending commands and no more than channelThreshold replies to process.
   // If we have more replies we will process them, otherwise we are done.
@@ -1016,7 +1024,7 @@ void MR_StartIterator(MRIterator *it, void (*iterStartCb)(void *),
   if (iterStartCbPrivateData) {
     data->privateDataRef = StrongRef_Demote(*iterStartCbPrivateData);
   }
-  IORuntimeCtx_Schedule(it->ctx.ioRuntime, iterStartCb, data);
+  IORuntimeCtx_Schedule(it->ctx.ioRuntime, iterStartCb, NULL, data);
 }
 
 MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, const MRIteratorConfig *config) {
@@ -1094,9 +1102,9 @@ void MRIterator_Release(MRIterator *it) {
     // The iterator will be released when DEL commands are done.
     refcount = MRIterator_IncreaseRefCount(it);
     REFCOUNT_INCR_MSG("MRIterator_Release: triggering DEL on the shards' cursors", refcount);
-    // Fire-and-forget: a rejected schedule (runtime shutting down) leaks the
-    // iterator by design — nothing waits on the DELs, and the process exits.
-    IORuntimeCtx_Schedule(it->ctx.ioRuntime, iterManualNextCb, it);
+    // A cancelled DEL batch (runtime shutting down) drops the reference just
+    // taken, freeing the iterator; the remote cursors die with the cluster.
+    IORuntimeCtx_Schedule(it->ctx.ioRuntime, iterManualNextCb, iterCancelBatch, it);
   } else {
     // No pending shards, so no remote resources to free.
     // Free the iterator and we are done.

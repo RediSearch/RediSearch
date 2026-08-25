@@ -89,11 +89,13 @@ void IORuntimeCtx_FireShutdown(IORuntimeCtx *io_runtime_ctx);
 void IORuntimeCtx_Shutdown(IORuntimeCtx *io_runtime_ctx);
 
 /* Enqueue `cb(privdata)` for the runtime's loop thread, lazily starting the
- * runtime on the first live schedule. Returns whether the queue was live: a
- * false return means the runtime is shutting down and nothing will ever
- * execute the item (it is discarded, unexecuted, by RQ_Free) — callers whose
- * progress depends on the item running must handle that. */
-bool IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, void *privdata);
+ * runtime on the first accepted schedule. Once the runtime is shutting down
+ * the item is rejected instead — `cb` will never run — and `cancel_cb`
+ * (which may be NULL) is invoked inline with `privdata` to resolve it.
+ * Exactly one of `cb` and `cancel_cb` runs, exactly once: callers whose
+ * progress depends on the item must pass a `cancel_cb` that completes it the
+ * way a failed execution would. */
+void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, MRQueueCallback cancel_cb, void *privdata);
 
 void IORuntimeCtx_RequestCompleted(IORuntimeCtx *io_runtime_ctx);
 

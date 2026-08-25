@@ -151,7 +151,7 @@ static void startAndShutdownRuntime(IORuntimeCtx *io) {
   // gone.
   static int counter;
   // Start runtime through schedule path so io_runtime_started_or_starting is set.
-  IORuntimeCtx_Schedule(io, testCallback, &counter);
+  IORuntimeCtx_Schedule(io, testCallback, nullptr, &counter);
   bool started = RS::WaitForCondition([&]() {
     return io->uv_runtime.loop_th_created;
   });
@@ -192,7 +192,7 @@ TEST_F(IORuntimeCtxCommonTest, InitialState) {
 
 TEST_F(IORuntimeCtxCommonTest, Schedule) {
   int counter = 0;
-  IORuntimeCtx_Schedule(ctx, testCallback, &counter);
+  IORuntimeCtx_Schedule(ctx, testCallback, nullptr, &counter);
   // Give some time for thread to start
   usleep(100);
   ASSERT_TRUE(ctx->uv_runtime.io_runtime_started_or_starting);
@@ -206,7 +206,7 @@ TEST_F(IORuntimeCtxCommonTest, Schedule) {
 
 
   for (int i = 0; i < 10; i++) {
-    IORuntimeCtx_Schedule(ctx, testCallback, &counter);
+    IORuntimeCtx_Schedule(ctx, testCallback, nullptr, &counter);
   }
 
   while (counter < 11) {
@@ -230,7 +230,7 @@ TEST_F(IORuntimeCtxCommonTest, ScheduleTopology) {
   ASSERT_EQ(ctx->topo->capShards, 4096);
 
   int counter = 0;
-  IORuntimeCtx_Schedule(ctx, testCallback, &counter);
+  IORuntimeCtx_Schedule(ctx, testCallback, nullptr, &counter);
 
   // Wait for topology to be applied by checking the atomic signal set by the callback.
   // This avoids the race condition of reading a potentially-freed topology pointer.
@@ -252,13 +252,13 @@ TEST_F(IORuntimeCtxCommonTest, MultipleTopologyUpdates) {
 
   // Schedule one dummy request to start the thread and still have the flag io_runtime_started_or_starting set to true
   int counter = 0;
-  IORuntimeCtx_Schedule(ctx, testCallback, &counter);
+  IORuntimeCtx_Schedule(ctx, testCallback, nullptr, &counter);
   // Schedule multiple topology updates in quick succession
   for (int i = 3; i <= 5; i++) {
     MRClusterTopology *newTopo = getDummyTopology(4096 + i);
     IORuntimeCtx_Schedule_Topology(ctx, testTopoCallback, newTopo, true);
   }
-  IORuntimeCtx_Schedule(ctx, testCallback, &counter);
+  IORuntimeCtx_Schedule(ctx, testCallback, nullptr, &counter);
   // Wait for the last topology (4101) to be applied by checking the atomic signal.
   // This avoids the race condition of reading a potentially-freed topology pointer.
   bool success = RS::WaitForCondition([&]() {
@@ -304,7 +304,7 @@ TEST_F(IORuntimeCtxCommonTest, ShutdownWithPendingRequests) {
     (*counter)++;
   };
 
-  IORuntimeCtx_Schedule(io_runtime_ctx, testCallback, &counter);
+  IORuntimeCtx_Schedule(io_runtime_ctx, testCallback, nullptr, &counter);
   // Send one request and make sure it runs to make the test better. Otherwise the async callback does not see the topology applied
   // and delays the callback call (and shutdown call may be called before all the callbacks are called)
   while (counter < 1) {
@@ -313,7 +313,7 @@ TEST_F(IORuntimeCtxCommonTest, ShutdownWithPendingRequests) {
 
   // Schedule 10 delayed requests
   for (int i = 0; i < 10; i++) {
-    IORuntimeCtx_Schedule(io_runtime_ctx, delayedCallback, &counter);
+    IORuntimeCtx_Schedule(io_runtime_ctx, delayedCallback, nullptr, &counter);
   }
 
   // Fire shutdown and wait for completion, the shutdown is scheduled to run at the end of the event loop (is just another event)
@@ -356,7 +356,7 @@ TEST_F(IORuntimeCtxCommonTest, ActiveIoThreadsMetric) {
   ctx->uv_runtime.loop_th_ready = true;
 
   // Schedule the slow callback - this will start the IO runtime automatically
-  IORuntimeCtx_Schedule(ctx, slowCallback, &flags);
+  IORuntimeCtx_Schedule(ctx, slowCallback, nullptr, &flags);
 
   // Wait for callback to start
   bool success = RS::WaitForCondition([&]() {
@@ -419,7 +419,7 @@ TEST_F(IORuntimeCtxCommonTest, ActiveTopologyUpdateThreadsMetric) {
   };
 
   // Start the IO runtime thread (required for uv loop to process async events)
-  IORuntimeCtx_Schedule(ctx, testCallback, &dummy_counter);
+  IORuntimeCtx_Schedule(ctx, testCallback, nullptr, &dummy_counter);
 
   // Schedule topology update - this calls uv_async_send which triggers topologyAsyncCB
   MRClusterTopology *newTopo = getDummyTopology(9999);
@@ -551,7 +551,7 @@ TEST_F(IORuntimeCtxCommonTest, IdenticalTopologyUpdateSkipsHandshake) {
   // zero shards, so the first update below sees an empty conn map and a
   // single-node topology -> connectivity changed.
   int initialCounter = 0;
-  IORuntimeCtx_Schedule(ctx, testCallback, &initialCounter);
+  IORuntimeCtx_Schedule(ctx, testCallback, nullptr, &initialCounter);
 
   // Apply the first topology using a callback that simulates handshake
   // completion entirely on the uv thread (sets topology_needs_handshake=false
@@ -592,7 +592,7 @@ TEST_F(IORuntimeCtxCommonTest, IdenticalTopologyUpdateSkipsHandshake) {
   // (incorrectly) re-armed, this callback would be parked on pendingItems
   // and the wait would time out.
   int postCounter = 0;
-  IORuntimeCtx_Schedule(ctx, testCallback, &postCounter);
+  IORuntimeCtx_Schedule(ctx, testCallback, nullptr, &postCounter);
   bool ranPostCallback = RS::WaitForCondition([&]() { return postCounter >= 1; });
   ASSERT_TRUE(ranPostCallback)
       << "Work item did not run after identical topology update; "

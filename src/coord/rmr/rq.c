@@ -21,24 +21,29 @@ bool RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata, uv_async_t *asy
   item->privdata = privdata;
   item->next = NULL;
   uv_mutex_lock(&q->lock);
-  // append the request to the tail of the list
-  if (q->tail) {
-    // make it the next of the current tail
-    q->tail->next = item;
-    // set a new tail
-    q->tail = item;
-  } else {  // no tail means no head - empty queue
-    q->head = q->tail = item;
-  }
-  q->sz++;
-
-  // Signal under the lock: RQ_Shutdown serializes on it, so a send observed
-  // here as allowed has completed before the shutdown flag write returns.
+  // Rejecting under the lock makes enqueued and rejected disjoint: an
+  // enqueued item is executed exactly once (by the loop or its final drain),
+  // a rejected one never — so the caller may resolve it without racing an
+  // execution. The signal shares the same lock hold, so once RQ_Shutdown
+  // returns no send is in flight either.
   bool live = !q->shuttingDown;
   if (live) {
+    // append the request to the tail of the list
+    if (q->tail) {
+      // make it the next of the current tail
+      q->tail->next = item;
+      // set a new tail
+      q->tail = item;
+    } else {  // no tail means no head - empty queue
+      q->head = q->tail = item;
+    }
+    q->sz++;
     uv_async_send(async);
   }
   uv_mutex_unlock(&q->lock);
+  if (!live) {
+    rm_free(item);
+  }
   return live;
 }
 
