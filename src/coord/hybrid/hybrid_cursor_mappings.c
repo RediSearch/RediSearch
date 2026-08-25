@@ -11,6 +11,8 @@
 
 #include <string.h>
 
+#include "hybrid/hybrid_exec.h"
+#include "query_error_ffi.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 #include "shard_window_ratio.h"
@@ -32,16 +34,23 @@ void HybridArmingCtx_Free(void *p) {
   rm_free(ctx);
 }
 
-// Forward mapping-stage warnings into both read streams, where each subquery's
-// RPNet folds the ones addressed to it (see processHybridMappingWarning in
-// rpnet.c). Pushed one bare string reply per warning — a top-level string is
-// unambiguous in a read stream, whose other replies are arrays or errors.
-// Each channel's reader frees its replies independently, so the two streams
-// cannot share one reply: the original is taken out of `warnings` for one
-// stream and a single clone is made for the other.
+// Forward mapping-stage warnings into the read streams, where each subquery's
+// RPNet folds them (see processHybridMappingWarning in rpnet.c). Pushed one
+// bare string reply per warning — a top-level string is unambiguous in a read
+// stream, whose other replies are arrays or errors. Max-prefix warnings are
+// suffix-tagged with the subquery they belong to and routed to that stream
+// alone; the rest (timeout / shard OOM) are whole-shard conditions and go to
+// both. Each channel's reader frees its replies independently, so the two
+// streams cannot share one reply — the second stream gets a clone.
 static void forwardWarnings(HybridArmingCtx *ctx, MRReply *warnings) {
   for (size_t i = 0; i < MRReply_Length(warnings); i++) {
     MRReply *warning = MRReply_TakeArrayElement(warnings, i);
+    const char *warning_str = MRReply_String(warning, NULL);
+    if (!strncmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS, strlen(QUERY_WMAXPREFIXEXPANSIONS))) {
+      MRIterator *target = strstr(warning_str, VSIM_SUFFIX) ? ctx->vsimIt : ctx->searchIt;
+      MRIterator_PushReply(target, warning);
+      continue;
+    }
     // Clone before pushing the original: a push hands ownership to the
     // reader, which may free it concurrently.
     MRReply *clone = MRReply_Clone(warning);

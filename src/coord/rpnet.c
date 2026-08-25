@@ -184,14 +184,15 @@ static bool isHybridMappingWarning(const RPNet *nc, MRReply *root) {
 static int processHybridMappingWarning(RPNet *nc, const char *warning_str) {
   QueryError *err = AREQ_QueryProcessingCtx(nc->areq)->err;
   // Suffix-tagged max-prefix warnings don't exact-match the warning-code
-  // lookup below; match them by prefix and route by the tagged subquery.
+  // lookup below; match by prefix. The arming callback already routed them to
+  // the subquery stream they are tagged with (see forwardWarnings).
   if (!strncmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS, strlen(QUERY_WMAXPREFIXEXPANSIONS))) {
-    const char *suffix = nc->hybridSubquery == RPNET_HYBRID_SEARCH ? SEARCH_SUFFIX : VSIM_SUFFIX;
-    if (strstr(warning_str, suffix)) {
-      QueryError_SetReachedMaxPrefixExpansionsWarning(err);
-    }
+    QueryError_SetReachedMaxPrefixExpansionsWarning(err);
     return RS_RESULT_OK;
   }
+  // The remaining producer set is fixed: replyWithCursors emits a timeout
+  // warning, and the early-bail empty reply emits a timeout or shard-OOM
+  // warning (see common_hybrid_query_reply_empty).
   switch (QueryWarningCode_GetCodeFromMessage(warning_str)) {
     case QUERY_WARNING_CODE_TIMED_OUT:
       nc->areq->stateflags |= QEXEC_S_SHARD_TIMED_OUT_WARNING;
@@ -200,7 +201,6 @@ static int processHybridMappingWarning(RPNet *nc, const char *warning_str) {
       }
       break;
     case QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD:
-    case QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD:
       if (nc->areq->reqConfig.oomPolicy == OomPolicy_Fail) {
         // The shard ran under a milder OOM policy than this coordinator; FAIL
         // semantics still demand a hard error.
@@ -211,8 +211,6 @@ static int processHybridMappingWarning(RPNet *nc, const char *warning_str) {
       QueryError_SetQueryOOMWarning(err);
       break;
     default:
-      // Anything else (e.g. MAX_TIMEOUT_CAPPED) is informational; the
-      // coordinator surfaces its own equivalent.
       break;
   }
   return RS_RESULT_OK;
