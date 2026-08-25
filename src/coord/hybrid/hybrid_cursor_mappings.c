@@ -63,26 +63,27 @@ static void forwardWarnings(HybridArmingCtx *ctx, MRReply *warnings) {
   }
 }
 
-// Arm (or retire) one shard's placeholders on both read iterators. A cursor id
-// of 0 means the shard published no cursor for that stream (e.g. it bailed on
-// a strict timeout). Published cursors of an abandoned request — the request
-// timed out, or the paired stream is absent so no merge can happen — are
-// deleted instead of read; either way the id ends up in a live command and the
-// standard teardown covers any abort from here on.
+// Arm (or retire) one shard's placeholders on both read iterators. Cursor ids
+// come in pairs: the shard reserves both subquery cursors before publishing
+// anything (HybridRequest_ReserveSubCursors), so a mapping is either
+// both-nonzero or 0/0 (the shard bailed and published nothing). Published
+// cursors of a request that already timed out are deleted instead of read;
+// either way the id ends up in a live command and the standard teardown
+// covers any abort from here on.
 static void armShardReads(HybridArmingCtx *ctx, uint16_t shardIdx, long long searchCid,
                           long long vsimCid) {
-  const bool partialPair = (searchCid == 0) != (vsimCid == 0);
+  RS_ASSERT((searchCid == 0) == (vsimCid == 0));
   if (searchCid == 0) {
     MRIterator_ResolveShard(ctx->searchIt, shardIdx, 0);
   } else {
     const bool searchTimedOut = MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(ctx->searchIt));
-    MRIterator_ArmShardCursorRead(ctx->searchIt, shardIdx, searchCid, partialPair || searchTimedOut);
+    MRIterator_ArmShardCursorRead(ctx->searchIt, shardIdx, searchCid, searchTimedOut);
   }
   if (vsimCid == 0) {
     MRIterator_ResolveShard(ctx->vsimIt, shardIdx, 0);
   } else {
     const bool vsimTimedOut = MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(ctx->vsimIt));
-    MRIterator_ArmShardCursorRead(ctx->vsimIt, shardIdx, vsimCid, partialPair || vsimTimedOut);
+    MRIterator_ArmShardCursorRead(ctx->vsimIt, shardIdx, vsimCid, vsimTimedOut);
   }
 }
 
