@@ -69,7 +69,7 @@ typedef struct VecSimTimeoutCtx {
   // Borrowed request state subject to the QueryRequestTimeout lifetime and
   // threading contract. It must outlive this adapter and every VecSim operation
   // or iterator that retains the adapter. It is always non-NULL; standalone
-  // callers use an UNARMED timeout.
+  // callers and requestless vector iterators use owned UNARMED state.
   QueryRequestTimeout *timeout;
 } VecSimTimeoutCtx;
 

@@ -139,6 +139,7 @@ typedef struct {
   // reply is in use: a tiered index defers part of the search (and its timeout checks) to the
   // reply iteration, so a stack-local would dangle by then. Stored here so it lives until the
   // whole producer context is freed (after the reply is drained).
+  QueryRequestTimeout requestlessTimeout;
   VecSimTimeoutCtx timeoutCtx;
 } VectorRangeProducerCtx;
 
@@ -186,13 +187,13 @@ static void vectorRangeFreeCtx(void *ctxp) {
 // Builds a lazily-evaluated vector range iterator from already-resolved query parameters. Shared
 // by NewVectorIterator's range branch and by unit tests, so both drive the same deferred path
 // (the query runs on the iterator's first read, after the spec lock is released; see MOD-16437).
-// `vector` and `timeout` are borrowed and must outlive the iterator. Ownership of the
+// `vector` and a non-NULL `timeout` are borrowed and must outlive the iterator. A requestless
+// caller may pass NULL; the producer then owns stable UNARMED timeout state. Ownership of the
 // freshly-allocated context transfers to the returned iterator.
 QueryIterator *NewLazyVectorRangeIteratorFromParams(VecSimIndex *vecsim, const void *vector,
                                                     double radius, VecSimQueryParams qParams,
                                                     VecSimQueryReply_Order order, bool yields_metric,
                                                     QueryRequestTimeout *timeout) {
-  RS_ASSERT(timeout);
   VectorRangeProducerCtx *ctx = rm_malloc(sizeof(*ctx));
   *ctx = (VectorRangeProducerCtx){
       .vecsim = vecsim,
@@ -200,8 +201,12 @@ QueryIterator *NewLazyVectorRangeIteratorFromParams(VecSimIndex *vecsim, const v
       .radius = radius,
       .qParams = qParams,
       .order = order,
-      .timeoutCtx = {.timeout = timeout},
   };
+  if (!timeout) {
+    QueryRequestTimeout_Init(&ctx->requestlessTimeout, TimeoutPolicy_Return, 0);
+    timeout = &ctx->requestlessTimeout;
+  }
+  ctx->timeoutCtx = (VecSimTimeoutCtx){.timeout = timeout};
   ProduceResultsFn produce = yields_metric ? vectorRangeProduceMetric : vectorRangeProduceIdList;
   return NewLazyVectorRangeIterator(produce, vectorRangeFreeCtx, ctx, yields_metric,
                                     order == BY_ID, VecSimIndex_IndexSize(vecsim), VECTOR_DISTANCE);

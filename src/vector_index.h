@@ -193,7 +193,8 @@ extern "C" {
 
 // Builds a lazily-evaluated vector range iterator from already-resolved query parameters. The
 // underlying VecSim range query runs on the iterator's first read (see MOD-16437). Used by the
-// range branch of NewVectorIterator and by unit tests. See the definition for ownership details.
+// range branch of NewVectorIterator and by unit tests. A NULL timeout selects iterator-owned
+// UNARMED state for requestless callers. See the definition for ownership details.
 QueryIterator *NewLazyVectorRangeIteratorFromParams(VecSimIndex *vecsim, const void *vector,
                                                     double radius, VecSimQueryParams qParams,
                                                     VecSimQueryReply_Order order, bool yields_metric,

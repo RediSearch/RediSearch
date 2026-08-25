@@ -14,7 +14,7 @@
 #include "util/timeout.h"
 
 typedef struct {
-  RedisSearchCtx *sctx;  // Must carry a non-NULL request timeout when an iterator is constructed.
+  RedisSearchCtx *sctx;  // Must be non-NULL; requestless contexts may have no timeout.
   VecSimIndex *index;
   size_t dim;
   VecSimType elementType;
@@ -52,6 +52,7 @@ typedef struct {
   size_t maxBatchIteration;        // Iteration (zero-based) where the maximum batch size occurred
   bool canTrimDeepResults;         // Ignore the document scores, only vector score matters. No need to deep copy the results from the child iterator.
   bool checkFieldExpiration;       // Hoisted gate; refreshed in HR_Revalidate.
+  QueryRequestTimeout requestlessTimeout; // Stable UNARMED state when sctx has no request.
   VecSimTimeoutCtx timeoutCtx;     // Timeout parameters
   FieldFilterContext filterCtx;
 } HybridIterator;

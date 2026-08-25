@@ -640,6 +640,7 @@ TEST_F(IndexTest, testHybridVector) {
   // Revalidation looks up the term through the spec's keys dictionary, as it does in production.
   MockQueryEvalCtx mockQctx(max_id, max_id);
   mockQctx.spec.keysDict = dictCreate(&invIdxDictType, nullptr);
+  mockQctx.sctx.timeout = nullptr;
   CharBuf termKey = {.buf = const_cast<char *>("term"), .len = 4};
   dictAdd(mockQctx.spec.keysDict, &termKey, w);
   // Run simple top k query.
@@ -658,6 +659,9 @@ TEST_F(IndexTest, testHybridVector) {
   QueryError err = QueryError_Default();
   QueryIterator *vecIt = NewHybridVectorIterator(hParams, &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+  HybridIterator *vectorReader = (HybridIterator *)vecIt;
+  ASSERT_NE(vectorReader->timeoutCtx.timeout, nullptr);
+  ASSERT_EQ(vectorReader->timeoutCtx.timeout->kind, QUERY_REQUEST_TIMEOUT_UNARMED);
 
   size_t count = 0;
 
@@ -686,6 +690,8 @@ TEST_F(IndexTest, testHybridVector) {
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
   HybridIterator *hr = (HybridIterator *)hybridIt;
+  ASSERT_NE(hr->timeoutCtx.timeout, nullptr);
+  ASSERT_EQ(hr->timeoutCtx.timeout->kind, QUERY_REQUEST_TIMEOUT_UNARMED);
   hr->searchMode = VECSIM_HYBRID_BATCHES;
 
   // Expect to get top 10 results in the right order of the distance that passes the filter: 400, 396, ..., 364.
@@ -831,13 +837,10 @@ TEST_F(IndexTest, testMetric_VectorRange) {
 
   // Drive the production lazy range path: the VecSim range query is deferred to the iterator's
   // first Read/SkipTo (see MOD-16437), so the iterator must hold the *raw* query vector (`query`
-  // outlives it). An unarmed request timeout disables timeout checks for this test.
-  QueryRequestTimeout *timeout = static_cast<QueryRequestTimeout *>(
-      rm_calloc(1, sizeof(QueryRequestTimeout)));
-  QueryRequestTimeout_Init(timeout, TimeoutPolicy_Return, 0);
+  // outlives it). A requestless caller receives iterator-owned UNARMED timeout state.
   QueryIterator *vecIt = NewLazyVectorRangeIteratorFromParams(
       index, range_query.vector, range_query.radius, queryParams, range_query.order,
-      /*yields_metric=*/true, timeout);
+      /*yields_metric=*/true, nullptr);
   size_t count = 0;
   size_t lowest_id = 25;
   size_t n_expected_res = n - lowest_id + 1;
@@ -906,7 +909,6 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   ASSERT_FALSE(vecIt->atEOF);
 
   vecIt->Free(vecIt);
-  rm_free(timeout);
   VecSimIndex_Free(index);
 }
 
