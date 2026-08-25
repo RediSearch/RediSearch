@@ -207,6 +207,17 @@ impl MockQueryNode {
         debug_assert_eq!(unsafe { (*self.node).type_ }, type_);
     }
 
+    /// Set the optional field pointer of the tag-node union variant.
+    pub fn set_tag_field(&mut self, fs: *const ffi::FieldSpec) {
+        self.debug_assert_type(QueryNodeType::Tag);
+        // SAFETY: the node is valid, exclusively owned, and its active variant
+        // is `Tag`.
+        unsafe {
+            let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
+            (*union_ptr.cast::<ffi::QueryTagNode>()).fs = fs;
+        }
+    }
+
     /// Set the `nf` field of the numeric-node union variant.
     pub fn set_numeric_filter(&mut self, nf: *mut NumericFilter) {
         self.debug_assert_type(QueryNodeType::Numeric);

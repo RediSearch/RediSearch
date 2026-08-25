@@ -697,6 +697,7 @@ dependencies = [
  "pretty_assertions",
  "redis_mock",
  "redisearch_rs",
+ "rqe_core",
  "workspace_hack",
 ]
 

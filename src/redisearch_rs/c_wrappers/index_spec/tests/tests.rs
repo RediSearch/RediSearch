@@ -63,6 +63,20 @@ fn rule() {
     assert_eq!(rule.type_(), document::DocumentType::Json);
 }
 
+#[test]
+fn validation_predicates() {
+    let mut index_spec = unsafe { mem::zeroed::<ffi::IndexSpec>() };
+    let mut schema_rule = unsafe { mem::zeroed::<ffi::SchemaRule>() };
+    schema_rule.type_ = document::DocumentType::Json;
+    index_spec.rule = ptr::from_mut(&mut schema_rule);
+    index_spec.flags = 0x20000 | 0x80000;
+    let sut = unsafe { IndexSpec::from_raw(ptr::from_ref(&index_spec)) };
+
+    assert!(sut.is_json());
+    assert!(sut.has_non_empty_fields());
+    assert!(sut.has_undefined_order());
+}
+
 fn field_spec(field_name: &CStr, field_path: &CStr, index: u16) -> ffi::FieldSpec {
     let mut res = unsafe { mem::zeroed::<ffi::FieldSpec>() };
     res.fieldName =

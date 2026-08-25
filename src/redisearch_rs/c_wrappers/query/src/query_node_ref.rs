@@ -108,8 +108,8 @@ pub enum QueryNode<'a> {
     Wildcard,
     /// A tag-field exact-match node.
     Tag {
-        /// The [`ffi::FieldSpec`] of the tag field being queried.
-        fs: &'a ffi::FieldSpec,
+        /// The tag field being queried, absent for fieldless v1 parser nodes.
+        fs: Option<&'a ffi::FieldSpec>,
     },
     /// A fuzzy (Levenshtein distance) match node.
     Fuzzy {
@@ -329,12 +329,10 @@ impl QueryNodeRef {
             QueryNodeType::Wildcard => QueryNode::Wildcard,
             QueryNodeType::Tag => {
                 // SAFETY: `type_` is `Tag`, so the union holds a `QueryTagNode`.
-                // Invariant (1) of `new` guarantees `tag.fs` is a valid,
-                // non-null pointer.
                 let tag = unsafe { &*union_ptr.cast::<ffi::QueryTagNode>() };
                 QueryNode::Tag {
-                    // SAFETY: Invariant (1) of `new` guarantees `tag.fs` is valid and non-null.
-                    fs: unsafe { &*tag.fs },
+                    // SAFETY: invariant (1) guarantees a non-null `tag.fs` is valid.
+                    fs: unsafe { tag.fs.as_ref() },
                 }
             }
             QueryNodeType::Fuzzy => {

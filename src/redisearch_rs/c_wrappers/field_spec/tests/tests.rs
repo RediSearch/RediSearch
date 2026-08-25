@@ -13,7 +13,9 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 use std::ptr;
 
-use field_spec::{FieldSpec, FieldSpecBuilder};
+use field_spec::{
+    FieldSpec, FieldSpecBuilder, FieldSpecOption, FieldSpecOptions, FieldSpecType, FieldSpecTypes,
+};
 use pretty_assertions::assert_eq;
 
 #[test]
@@ -35,4 +37,21 @@ fn field_name_and_path() {
         ffi::HiddenString_Free(fs.fieldName, true);
         ffi::HiddenString_Free(fs.fieldPath, true);
     }
+}
+
+#[test]
+fn validation_predicates() {
+    let mut fs = FieldSpecBuilder::new(c"field")
+        .with_types(FieldSpecTypes::from(FieldSpecType::Fulltext))
+        .with_options(FieldSpecOptions::from(FieldSpecOption::IndexEmpty))
+        .finish();
+    fs.ftId = 3;
+    let sut = unsafe { FieldSpec::from_raw(ptr::from_ref(&fs)) };
+
+    assert!(sut.is_indexable_text());
+    assert!(sut.indexes_empty());
+    assert!(!sut.has_undefined_order());
+    assert_eq!(sut.field_mask(), 1 << 3);
+
+    unsafe { ffi::HiddenString_Free(fs.fieldPath, true) };
 }

@@ -11,6 +11,7 @@ workspace = true
 [dependencies]
 c_trie.workspace = true
 dict.workspace = true
+document.workspace = true
 ffi.workspace = true
 field_spec.workspace = true
 hidden_string.workspace = true
@@ -20,7 +21,6 @@ schema_rule.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]
-document.workspace = true
 pretty_assertions.workspace = true
 
 # Crate required to invoke C symbols

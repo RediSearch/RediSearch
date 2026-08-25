@@ -20,6 +20,7 @@ use std::{
 
 use c_trie::{SuffixTrie, TermsTrie};
 use dict::{Dict, KeysDictType, MissingFieldDictType};
+use document::DocumentType;
 use field_spec::FieldSpec;
 use hidden_string::HiddenString;
 use inverted_index::opaque::InvertedIndex;
@@ -30,6 +31,9 @@ use schema_rule::SchemaRule;
 pub struct IndexSpec(ffi::IndexSpec);
 
 impl IndexSpec {
+    const HAS_UNDEFINED_ORDER: u32 = 0x20000;
+    const HAS_NON_EMPTY: u32 = 0x80000;
+
     /// Create a safe `IndexSpec` wrapper from a non-null pointer.
     ///
     /// # Safety
@@ -84,6 +88,21 @@ impl IndexSpec {
             // whose backing buffer remains immutable for its full lifetime.
             unsafe { HiddenString::from_raw(self.0.specName) }.secret_value()
         }
+    }
+
+    /// Whether the schema indexes JSON documents.
+    pub fn is_json(&self) -> bool {
+        self.rule().type_() == DocumentType::Json
+    }
+
+    /// Whether any TEXT or TAG field does not index empty values.
+    pub const fn has_non_empty_fields(&self) -> bool {
+        self.0.flags & Self::HAS_NON_EMPTY != 0
+    }
+
+    /// Whether any field has undefined ordering.
+    pub const fn has_undefined_order(&self) -> bool {
+        self.0.flags & Self::HAS_UNDEFINED_ORDER != 0
     }
 
     /// Acquire the write lock for this `IndexSpec`. This is required before performing any

@@ -13,6 +13,7 @@ use enumflags2::BitFlags;
 use enumflags2::bitflags;
 use hidden_string::HiddenString;
 use numeric_range_tree::NumericRangeTree;
+use rqe_core::FieldMask;
 #[cfg(feature = "unittest")]
 use std::ffi::CStr;
 use std::fmt;
@@ -94,6 +95,32 @@ impl FieldSpec {
     /// Return the field types as a typed [`FieldSpecTypes`] bitmask.
     pub fn types(&self) -> FieldSpecTypes {
         BitFlags::from_bits_truncate(self.0.types())
+    }
+
+    /// Return the field options as a typed [`FieldSpecOptions`] bitmask.
+    pub fn options(&self) -> FieldSpecOptions {
+        BitFlags::from_bits_truncate(self.0.options())
+    }
+
+    /// Whether this is an indexable full-text field.
+    pub fn is_indexable_text(&self) -> bool {
+        self.types().contains(FieldSpecType::Fulltext)
+            && !self.options().contains(FieldSpecOption::NotIndexable)
+    }
+
+    /// Whether empty values are indexed for this field.
+    pub fn indexes_empty(&self) -> bool {
+        self.options().contains(FieldSpecOption::IndexEmpty)
+    }
+
+    /// Whether values in this field have undefined ordering.
+    pub fn has_undefined_order(&self) -> bool {
+        self.options().contains(FieldSpecOption::UndefinedOrder)
+    }
+
+    /// Return this field's bit in a query field mask.
+    pub fn field_mask(&self) -> FieldMask {
+        FieldMask::from(1_u8) << self.0.ftId
     }
 
     /// Return a reference to the numeric range tree, or `None` if not initialised.

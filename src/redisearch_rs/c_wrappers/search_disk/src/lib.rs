@@ -22,6 +22,13 @@ use query_term::RSQueryTerm;
 use rqe_core::{DocId, FieldIndex, FieldMask};
 use rqe_iterators::{RQEIteratorPrintable, SEARCH_ENTERPRISE_ITERATORS};
 
+/// Whether query validation must enforce search-on-disk restrictions.
+pub fn is_enabled_for_validation() -> bool {
+    // SAFETY: this process-wide predicate takes no arguments and has no caller
+    // invariants.
+    unsafe { ffi::SearchDisk_IsEnabledForValidation() }
+}
+
 /// A handle to a search-on-disk index ([`ffi::RedisSearchDiskIndexSpec`]).
 ///
 /// Holds a non-null, valid pointer to the disk index spec for the lifetime of

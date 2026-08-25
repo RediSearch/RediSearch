@@ -232,6 +232,18 @@ fn as_enum_all_payload_variants() {
 }
 
 #[test]
+fn as_enum_tag_allows_null_field() {
+    let mut mock = MockQueryNode::new(QueryNodeType::Tag);
+    mock.set_tag_field(std::ptr::null());
+    let node = unsafe { QueryNodeRef::new(mock.as_non_null()) };
+
+    let QueryNode::Tag { fs } = node.as_enum() else {
+        panic!("expected Tag");
+    };
+    assert!(fs.is_none());
+}
+
+#[test]
 #[cfg_attr(miri, ignore = "requires C FFI (array_new_sz)")]
 fn query_node_mut_narrows_child_field_masks() {
     // A phrase node with mask 0b0110 and two children with broader masks.

@@ -16,7 +16,7 @@
 extern crate redisearch_rs;
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
-use search_disk::SearchDiskHandle;
+use search_disk::{SearchDiskHandle, is_enabled_for_validation};
 
 #[test]
 fn new_returns_none_for_null_spec() {
@@ -24,4 +24,12 @@ fn new_returns_none_for_null_spec() {
     // dereferenced, so the validity precondition is vacuously satisfied.
     let handle = unsafe { SearchDiskHandle::new(std::ptr::null_mut()) };
     assert!(handle.is_none());
+}
+
+#[test]
+fn validation_mode_accessor_delegates_to_c() {
+    // SAFETY: the process-wide predicate takes no arguments.
+    assert_eq!(is_enabled_for_validation(), unsafe {
+        ffi::SearchDisk_IsEnabledForValidation()
+    });
 }
