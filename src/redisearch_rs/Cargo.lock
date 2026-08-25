@@ -1852,6 +1852,7 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "c_trie",
+ "document",
  "ffi",
  "field",
  "field_spec",
