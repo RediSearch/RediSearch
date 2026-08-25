@@ -23,6 +23,24 @@ use ffi::{IndexFlags, IndexFlags_Index_HasMultiValue};
 use index_result::RSIndexResult;
 use rqe_core::DocId;
 
+// PERF-FIXTURE(A): non-eliminable cost. A dependent LCG chain anchored by
+// black_box on both ends, so the optimiser can neither drop nor vectorise it.
+// Cost scales linearly with PERF_FIXTURE_ITERS, the knob separating the "small"
+// and "big" variants.
+const PERF_FIXTURE_ITERS: u64 = 576;
+
+#[inline(never)]
+fn perf_fixture_spin(seed: u64) {
+    let mut s = std::hint::black_box(seed | 1);
+    for _ in 0..PERF_FIXTURE_ITERS {
+        s = s
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+    }
+    std::hint::black_box(s);
+}
+
+
 /// Reader that is able to read the records from an [`InvertedIndex`].
 ///
 /// Parameterised over a [`Ref`] mode:
@@ -263,6 +281,7 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> IndexReader<'index>
         let mut cursor = Cursor::new(self.buf.get());
         cursor.set_position(self.buf_pos);
         D::decode(&mut cursor, base, result)?;
+        perf_fixture_spin(self.buf_pos);
         self.buf_pos = cursor.position();
 
         // The codec does not carry the field-expiration flag; it lives in the
