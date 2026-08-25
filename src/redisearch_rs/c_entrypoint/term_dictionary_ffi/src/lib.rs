@@ -38,6 +38,15 @@
 //! `Trie_IterateFuzzy` rejects a pattern above `TRIE_MAX_PREFIX`; and a
 //! term with an embedded NUL is stored whole, where `strToRunes` stops
 //! at the NUL.
+//!
+//! Keys are UTF-8 throughout, where the C trie decodes them into
+//! `uint16_t` runes: a codepoint above U+FFFF survives here but is
+//! truncated to a different character there. Exact search never went
+//! through the trie, so it matches such a term either way; prefix,
+//! suffix, contains, fuzzy and wildcard expansion find it here and find
+//! nothing in the C trie. The flow tests in
+//! `tests/pytests/test_terms_trie_encoding.py` pin the C outcomes, so
+//! swapping a call site over to this dictionary changes them.
 
 #![allow(non_camel_case_types, non_snake_case)]
 
