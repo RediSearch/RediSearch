@@ -288,3 +288,30 @@ class TestMaxForegroundTimeoutLimit:
         env.assertContains(CAP_WARNING, _get_warnings(res[0]),
                            message=f"FT.CURSOR READ expected MAX_TIMEOUT_CAPPED warning after "
                                    f"limit tightened (cluster), got: {res}")
+
+    def test_cursor_read_arms_cap_after_workers_disabled(self):
+        skipTest(cluster=True)
+        self._reset(workers=1, timeout=100, limit=1)
+        env = self.env
+        conn = getConnectionByEnv(env)
+
+        env.expect('FT.CREATE', 'cursor_cap_idx', 'PREFIX', '1', 'cursor_cap:',
+                   'SCHEMA', 't', 'TEXT').ok()
+        doc_count = 20000
+        with conn.pipeline(transaction=False) as pipeline:
+            for i in range(doc_count):
+                pipeline.execute_command('HSET', f'cursor_cap:{i}', 't', 'common')
+            pipeline.execute()
+
+        _, cursor_id = env.cmd('FT.AGGREGATE', 'cursor_cap_idx', '*',
+                               'LOAD', '1', '@__key', 'TIMEOUT', '0',
+                               'WITHCURSOR', 'COUNT', '1')
+        env.expect('CONFIG', 'SET', 'search-workers', '0').ok()
+
+        res, _ = env.cmd('FT.CURSOR', 'READ', 'cursor_cap_idx', cursor_id,
+                         'COUNT', doc_count)
+        warnings = _get_warnings(res)
+        env.assertContains('Timeout limit was reached', warnings,
+                           message=f"Cursor READ did not arm the newly active cap: {res}")
+        env.assertContains(CAP_WARNING, warnings,
+                           message=f"Cursor READ did not report the newly active cap: {res}")

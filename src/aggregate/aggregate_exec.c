@@ -2146,17 +2146,6 @@ void AREQ_CursorEndOfCycle(AREQ *req, Cursor *cursor, bool free_it) {
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   AREQ *req = Cursor_AREQ(cursor);
   AREQ_ProfilePrinterCtx(req)->cursor_reads++;
-  // Re-apply the foreground cap on every READ: the limit / WORKERS knobs may
-  // change between cursor creation and this read, and the AREQ's reqConfig is
-  // otherwise reused verbatim from AREQ_Compile time. Setting the cap flag is
-  // sticky (cleared by nothing) because once the stored timeout has been
-  // truncated, subsequent reads still serve capped state.
-  if (RSConfig_CapQueryTimeoutToForegroundLimit(&req->reqConfig.queryTimeoutMS)) {
-    req->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
-    // Keep the sticky timeout state in sync when this read tightens the foreground cap.
-    QueryRequestTimeout_UpdateConfig(&req->base.timeout, req->reqConfig.timeoutPolicy,
-                                     req->reqConfig.queryTimeoutMS);
-  }
   // Expiration uses a real-clock snapshot independently of the selected timeout source.
   SearchCtx_UpdateCurrentTime(AREQ_SearchCtx(req));
 
@@ -2488,6 +2477,15 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     // Inline reads may temporarily fall back to RETURN, but the cursor's original policy is
     // sticky and must be restored before choosing how to execute the next read.
     restoreCursorTimeoutPolicy(cursor, cursor_req);
+
+    // Apply the foreground cap before BeginCycle below. UpdateConfig changes only the sticky
+    // configuration; applying it after arming would leave this read with the previous deadline.
+    if (RSConfig_CapQueryTimeoutToForegroundLimit(&cursor_req->reqConfig.queryTimeoutMS)) {
+      cursor_req->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
+      QueryRequestTimeout_UpdateConfig(&cursor_req->base.timeout,
+                                       cursor_req->reqConfig.timeoutPolicy,
+                                       cursor_req->reqConfig.queryTimeoutMS);
+    }
   }
 
   if (CURSOR_IS_COORD(cursor->id) &&

@@ -3803,7 +3803,8 @@ int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **ar
 int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 // Forward declaration for initQueryTimeout (defined later in file)
-static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc, QueryError *status);
+static int initQueryTimeout(size_t *timeout, bool *wasCapped, RedisModuleString **argv, int argc,
+                            QueryError *status);
 
 /** Debug */
 void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
@@ -3879,8 +3880,10 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   // Early TIMEOUT argument parsing, required for block-client timeout.
   size_t queryTimeoutMS;
+  bool timeoutWasCapped;
   QueryError status = QueryError_Default();
-  if (initQueryTimeout(&queryTimeoutMS, argv, argc, &status) != REDISMODULE_OK) {
+  if (initQueryTimeout(&queryTimeoutMS, &timeoutWasCapped, argv, argc, &status) !=
+      REDISMODULE_OK) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
     return QueryError_ReplyAndClear(ctx, &status);
   }
@@ -3906,6 +3909,9 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   // Arm RETURN before dispatch so time spent in the coordinator queue is part of the deadline.
   // initQueryTimeout already resolved the command override and foreground cap.
   r->reqConfig.queryTimeoutMS = (long long)queryTimeoutMS;
+  if (timeoutWasCapped) {
+    r->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
+  }
   QueryRequestTimeout_UpdateConfig(&r->base.timeout, r->reqConfig.timeoutPolicy,
                                    r->reqConfig.queryTimeoutMS);
   if (r->reqConfig.timeoutPolicy == TimeoutPolicy_Return) {
@@ -3997,8 +4003,10 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
   // Parse timeout from command args
   size_t queryTimeoutMS;
+  bool timeoutWasCapped;
   QueryError status = QueryError_Default();
-  if (initQueryTimeout(&queryTimeoutMS, argv, argc, &status) != REDISMODULE_OK) {
+  if (initQueryTimeout(&queryTimeoutMS, &timeoutWasCapped, argv, argc, &status) !=
+      REDISMODULE_OK) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
     return QueryError_ReplyAndClear(ctx, &status);
   }
@@ -4015,6 +4023,9 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   // Arm RETURN before dispatch so time spent in the coordinator queue is part of the deadline.
   // initQueryTimeout already resolved the command override and foreground cap.
   hreq->reqConfig.queryTimeoutMS = (long long)queryTimeoutMS;
+  if (timeoutWasCapped) {
+    hreq->requests[SEARCH_INDEX]->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
+  }
   QueryRequestTimeout_UpdateConfig(&hreq->base.timeout, hreq->reqConfig.timeoutPolicy,
                                    hreq->reqConfig.queryTimeoutMS);
   for (size_t i = 0; i < hreq->nrequests; i++) {
@@ -4485,13 +4496,17 @@ typedef void (*BlockedClientFreePrivDataCB) (RedisModuleCtx *ctx, void *privdata
 
 // Initialize query timeout from command args or global config.
 // Always assigns a non-negative timeout value to *timeout.
-// The value is also silently capped to search-_max-foreground-timeout-limit
-// when the limit is active; AREQ_Compile sets the QEXEC_S_MAX_TIMEOUT_CAPPED
-// flag on its own request, which is what surfaces the warning to the user.
-static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc, QueryError *status) {
+// The value is also silently capped to search-_max-foreground-timeout-limit when the limit is
+// active. If wasCapped is provided, it records that decision so callers which seed request parsing
+// with the effective value can still surface the MAX_TIMEOUT_CAPPED warning.
+static int initQueryTimeout(size_t *timeout, bool *wasCapped, RedisModuleString **argv, int argc,
+                            QueryError *status) {
   RS_ASSERT(timeout != NULL);
 
   *timeout = RSGlobalConfig.requestConfigParams.queryTimeoutMS;
+  if (wasCapped) {
+    *wasCapped = false;
+  }
 
   int timeoutArgIdx = RMUtil_ArgIndex("TIMEOUT", argv, argc);
   if (timeoutArgIdx >= 0) {
@@ -4510,6 +4525,9 @@ static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc,
   long long capped = (*timeout > (size_t)LLONG_MAX) ? LLONG_MAX : (long long)*timeout;
   if (RSConfig_CapQueryTimeoutToForegroundLimit(&capped)) {
     *timeout = (size_t)capped;
+    if (wasCapped) {
+      *wasCapped = true;
+    }
   }
   return REDISMODULE_OK;
 }
@@ -4700,7 +4718,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // Early TIMEOUT argument parsing, required for DistSearchBlockClientWithTimeout.
   size_t queryTimeoutMS;
   QueryError status = QueryError_Default();
-  if (initQueryTimeout(&queryTimeoutMS, argv, argc, &status) != REDISMODULE_OK) {
+  if (initQueryTimeout(&queryTimeoutMS, NULL, argv, argc, &status) != REDISMODULE_OK) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
     return QueryError_ReplyAndClear(ctx, &status);
   }

@@ -2777,6 +2777,14 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
 
 // Insert the result processor between the last result processor and its downstream result processor
 static void addResultProcessor(QueryProcessingCtx *qctx, ResultProcessor *rp) {
+  if (!qctx || !qctx->endProc) {
+    if (rp && rp->Free) {
+      rp->Free(rp);
+    }
+    RS_ABORT_ALWAYS("Cannot add a debug result processor to an empty pipeline");
+    return;
+  }
+
   ResultProcessor *cur = qctx->endProc;
   ResultProcessor dummyHead = { .upstream = cur };
   ResultProcessor *downstream = &dummyHead;
