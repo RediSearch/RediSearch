@@ -68,14 +68,19 @@ pub struct TermDictionaryIterator<'td> {
 
 /// Outcome of [`TermDictionary_AddTerm`], [`TermDictionary_ReplaceTerm`]
 /// and [`TermDictionary_Insert`].
+///
+/// The discriminants are those of the C terms trie's `TRIE_OK_NEW` and
+/// `TRIE_OK_UPDATED`, so a call site that swaps
+/// `Trie_InsertStringBuffer` for one of these keeps the meaning of its
+/// existing comparison. New callers should still compare by name.
 #[repr(C)]
 #[derive(Debug, PartialEq, Eq)]
 #[cheadergen::config(prefix_with_name)]
 pub enum TermDictionaryInsertOutcome {
-    /// No prior entry existed; a new terminal was created.
-    New = 0,
     /// An existing entry was modified in place.
-    Updated = 1,
+    Updated = 0,
+    /// No prior entry existed; a new terminal was created.
+    New = 1,
 }
 
 impl From<InsertOutcomeImpl> for TermDictionaryInsertOutcome {
