@@ -31,7 +31,7 @@ extern "C" {
 void AddToInfo_RustBacktrace(struct RedisModuleInfoCtx *ctx);
 
 /**
- * Initialize RediSearch's panic hook, without replaacing the pre-existing panic hook (if any).
+ * Initialize RediSearch's panic hook, without replacing the pre-existing panic hook (if any).
  *
  * Panic messages will be logged through `tracing` at the `ERROR` level, and
  * stashed in [`PANIC_STASH`] for [`AddToInfo_RustBacktrace`] to include in

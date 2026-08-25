@@ -48,9 +48,9 @@ def bug_report_span(lines):
 
     Returns [] when the START marker is missing, so span-restricted assertions
     fail rather than silently passing against the wrong lines. A missing END
-    marker means the crash handler died mid-report — sanitizer builds truncate
-    the report during its slow memory-test phase — so the span then runs to
-    the end of the log.
+    marker means the crash handler died mid-report (sanitizer builds truncate
+    the report during its slow memory-test phase), so the span then runs to the
+    end of the log.
     """
     start = next((i for i, line in enumerate(lines) if BUG_REPORT_START_MARKER in line), None)
     if start is None:
@@ -73,8 +73,8 @@ def extract_query_crash_output(env, expected_fragments, doc_count=10, crash_in_r
         env: Test environment
         expected_fragments: List of field names/fragments to extract in order (e.g., "search_num_docs:")
         crash_in_rust: Whether to crash in Rust code
-        crash_report_only: Restrict the scan to the bug-report span (between the
-            START and END markers) — the part of the log users are asked to copy
+        crash_report_only: Restrict the scan to `bug_report_span`, the part of
+            the log users are asked to copy
 
     Returns:
         Dictionary mapping fragment to extracted value (or None if not found)
@@ -126,7 +126,7 @@ def test_query_thread_crash():
     terms = ['hello', 'world']
     prepare_index(env, terms=terms, doc_count=doc_count)
 
-    # Resolve the log path before the crash — the server is unreachable afterwards.
+    # Resolve the log path before the crash: the server is unreachable afterwards.
     log_path = log_file_path(env)
 
     results = extract_query_crash_output(env, doc_count=doc_count, expected_fragments=[
@@ -146,8 +146,6 @@ def test_query_thread_crash():
     for fragment, value in results.items():
         env.assertIsNotNone(value, message=f"Fragment '{fragment}' not found in crash log")
 
-    # Verify specific values
-    # Empty index should have 0 documents
     env.assertEqual(results["search_number_of_docs:"], f"{doc_count}")
 
     # Verify index_properties contains expected fields
@@ -174,15 +172,17 @@ def test_query_thread_crash():
     # A C crash stashes no Rust panic, so the bug report must not carry
     # Rust-panic fields.
     report_lines = bug_report_span(read_log_lines(log_path))
-    env.assertFalse(
-        any("search_panic_payload" in line for line in report_lines),
-        message="search_panic_payload found in the bug report of a C crash",
-    )
+    for field in ("search_panic_payload", "search_panic_location",
+                  "search_panic_recorded_at"):
+        env.assertFalse(
+            any(field in line for line in report_lines),
+            message=f"{field} found in the bug report of a C crash",
+        )
 
 
 # The Rust panic hook logs before Redis prints the bug report, so scanning the
 # whole log would find the panic payload even when it is missing from the
-# report itself. Assert against the START..END span — the part users are asked
+# report itself. Assert against the START..END span, the part users are asked
 # to paste into a bug report.
 @skip(cluster=True)
 def test_query_thread_crash_with_rust_panic():
@@ -192,7 +192,7 @@ def test_query_thread_crash_with_rust_panic():
     terms = ['hello', 'world']
     prepare_index(env, terms, doc_count=doc_count)
 
-    # Resolve the log path before the crash — the server is unreachable afterwards.
+    # Resolve the log path before the crash: the server is unreachable afterwards.
     log_path = log_file_path(env)
 
     results = extract_query_crash_output(
@@ -217,7 +217,7 @@ def test_query_thread_crash_with_rust_panic():
         env.assertIsNotNone(value, message=f"Fragment '{fragment}' not found in crash log")
 
     # The panic details must be emitted as INFO fields inside the bug-report
-    # span — the hook's tracing line is not enough, since it lands above the
+    # span: the hook's tracing line is not enough, since it lands above the
     # START marker.
     log_lines = read_log_lines(log_path)
     report_lines = bug_report_span(log_lines)
@@ -258,7 +258,6 @@ def test_query_thread_crash_with_rust_panic():
         message="panic hook tracing line missing from the log",
     )
 
-    # Verify index stats for empty index
     env.assertEqual(results["search_number_of_docs:"], f"{doc_count}")
 
     # Verify index_properties_in_mb contains inverted_size and it's > 0

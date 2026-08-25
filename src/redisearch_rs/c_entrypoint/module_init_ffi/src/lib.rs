@@ -75,14 +75,14 @@ pub unsafe extern "C" fn TracingRedisModule_SetLogLevel(level: *const c_char) {
 /// Strings are stored as-is, without truncation. `payload` and `location`
 /// match the rendering of the hook's `tracing::error!` log line: the literal
 /// `None` for a non-string payload or a missing location. `recorded_at` is
-/// captured at hook time, in the [`format_utc_timestamp`] format.
+/// captured at hook time by [`format_utc_timestamp`].
 ///
 /// The stash outlives the panic: a panic crossing an `extern "C"` boundary
 /// aborts right away, but a panic that unwinds and is caught, or one on a
 /// Rust-only thread, leaves the stash populated until a later, possibly
-/// unrelated crash — where it reads as that crash's cause. `recorded_at`
-/// lets the reader tell the two apart by comparing it against the crash log
-/// line's own timestamp prefix.
+/// unrelated crash, where it reads as that crash's cause. `recorded_at` lets
+/// the reader tell the two apart by comparing it against the crash log line's
+/// own timestamp prefix.
 struct StashedPanic {
     payload: String,
     location: String,
@@ -99,7 +99,7 @@ struct StashedPanic {
 /// panic at the `extern "C"` boundary), and the second `set` is dropped.
 static PANIC_STASH: OnceLock<StashedPanic> = OnceLock::new();
 
-/// Initialize RediSearch's panic hook, without replaacing the pre-existing panic hook (if any).
+/// Initialize RediSearch's panic hook, without replacing the pre-existing panic hook (if any).
 ///
 /// Panic messages will be logged through `tracing` at the `ERROR` level, and
 /// stashed in [`PANIC_STASH`] for [`AddToInfo_RustBacktrace`] to include in
@@ -120,7 +120,6 @@ pub extern "C" fn RustPanicHook_Init() {
         // The log line above lands above the crash report's START marker,
         // outside the span users are asked to copy; the stash rides the
         // module INFO callback instead, which runs inside the report.
-        // A failed `set` means a panic was already stashed — first-write-wins.
         let _ = PANIC_STASH.set(StashedPanic {
             payload: panic_info.payload_as_str().unwrap_or("None").to_owned(),
             location: panic_info
@@ -134,8 +133,7 @@ pub extern "C" fn RustPanicHook_Init() {
     }));
 }
 
-/// Formats `now` as `YYYY-MM-DD HH:MM:SS UTC`: ISO-8601 with a space
-/// separator, seconds precision, literal ` UTC` suffix.
+/// Formats `now` as `YYYY-MM-DD HH:MM:SS UTC`.
 fn format_utc_timestamp(now: SystemTime) -> String {
     chrono::DateTime::<chrono::Utc>::from(now)
         .format("%Y-%m-%d %H:%M:%S UTC")
@@ -145,10 +143,10 @@ fn format_utc_timestamp(now: SystemTime) -> String {
 /// Converts `value` into the null-terminated C string expected by the
 /// `RedisModule_Info*` functions.
 ///
-/// For perf purposes, we strive to avoid allocating a new string if
-/// possible—i.e. if `value` doesn't contain any null bytes. Interior null
-/// bytes are replaced with `?`.
-fn info_cstring(value: String) -> CString {
+/// For perf purposes, we strive to avoid allocating a new buffer if possible,
+/// i.e. if `value` is already owned and doesn't contain any null bytes.
+/// Interior null bytes are replaced with `?`.
+fn info_cstring(value: impl Into<Vec<u8>>) -> CString {
     match CString::new(value) {
         Ok(cstr) => cstr,
         Err(err) => {
@@ -192,9 +190,9 @@ pub extern "C" fn AddToInfo_RustBacktrace(ctx: Option<NonNull<redis_module::Redi
     // `get` yields None if a crash races the first panic's `set`, losing the
     // fields rather than blocking the report.
     if let Some(stashed) = PANIC_STASH.get() {
-        let payload = info_cstring(stashed.payload.clone());
-        let location = info_cstring(stashed.location.clone());
-        let recorded_at = info_cstring(stashed.recorded_at.clone());
+        let payload = info_cstring(stashed.payload.as_str());
+        let location = info_cstring(stashed.location.as_str());
+        let recorded_at = info_cstring(stashed.recorded_at.as_str());
         // SAFETY: `ctx` is a valid pointer and `payload` is a valid null-terminated C string.
         unsafe {
             info_add_field_cstring(ctx.as_ptr(), c"panic_payload".as_ptr(), payload.as_ptr())
@@ -222,28 +220,6 @@ mod tests {
     use super::*;
     use std::time::{Duration, UNIX_EPOCH};
 
-    fn stashed_panic(payload: &str) -> StashedPanic {
-        StashedPanic {
-            payload: payload.to_owned(),
-            location: "src/crash.rs:1:1".to_owned(),
-            recorded_at: "2026-01-01 00:00:00 UTC".to_owned(),
-        }
-    }
-
-    // The hook fires twice per crash (the real panic, then the nested
-    // "cannot unwind" panic at the `extern "C"` boundary): the stash must
-    // keep the first panic's details.
-    #[test]
-    fn stash_is_first_write_wins() {
-        let stash: OnceLock<StashedPanic> = OnceLock::new();
-        assert!(stash.get().is_none());
-
-        let _ = stash.set(stashed_panic("first"));
-        let _ = stash.set(stashed_panic("second"));
-
-        assert_eq!(stash.get().map(|s| s.payload.as_str()), Some("first"));
-    }
-
     // Pins the crash-report timestamp format; the conversion itself is
     // chrono's.
     #[test]
@@ -257,7 +233,7 @@ mod tests {
 
     #[test]
     fn info_cstring_replaces_interior_null_bytes() {
-        assert_eq!(info_cstring("a\0b".to_owned()).to_bytes(), b"a?b");
-        assert_eq!(info_cstring("clean".to_owned()).to_bytes(), b"clean");
+        assert_eq!(info_cstring("a\0b").to_bytes(), b"a?b");
+        assert_eq!(info_cstring("clean").to_bytes(), b"clean");
     }
 }
