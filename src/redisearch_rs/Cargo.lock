@@ -3076,6 +3076,7 @@ dependencies = [
  "rqe_iterators",
  "rqe_iterators_test_utils",
  "rqe_wildcard",
+ "search_disk",
  "tag_index",
  "thin_vec",
  "trie_rs",

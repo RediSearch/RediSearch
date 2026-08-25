@@ -17,6 +17,7 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 mod create;
 mod disk;
+mod disk_backend;
 mod expansion_timeout;
 mod filtered_iteration;
 mod gc;
