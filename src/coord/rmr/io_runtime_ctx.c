@@ -320,7 +320,7 @@ IORuntimeCtx *IORuntimeCtx_Create(size_t conn_pool_size, struct MRClusterTopolog
 }
 
 void IORuntimeCtx_FireShutdown(IORuntimeCtx *io_runtime_ctx) {
-  if (io_runtime_ctx->uv_runtime.loop_th_joined) {
+  if (__atomic_load_n(&io_runtime_ctx->uv_runtime.loop_th_joined, __ATOMIC_ACQUIRE)) {
     // Already shut down and joined; the loop's handles are closed, so there
     // is nothing left to signal.
     return;
@@ -335,7 +335,7 @@ void IORuntimeCtx_FireShutdown(IORuntimeCtx *io_runtime_ctx) {
 // Join the loop thread (or tear down a never-started runtime's loop
 // resources). Idempotent via loop_th_joined.
 static void IORuntimeCtx_JoinLoopThread(IORuntimeCtx *io_runtime_ctx) {
-  if (io_runtime_ctx->uv_runtime.loop_th_joined) {
+  if (__atomic_load_n(&io_runtime_ctx->uv_runtime.loop_th_joined, __ATOMIC_ACQUIRE)) {
     return;
   }
   if (CheckIoRuntimeStarted(io_runtime_ctx)) {
@@ -356,11 +356,11 @@ static void IORuntimeCtx_JoinLoopThread(IORuntimeCtx *io_runtime_ctx) {
     MRConnManager_Shutdown(&io_runtime_ctx->conn_mgr);
     UV_Close(io_runtime_ctx);
   }
-  io_runtime_ctx->uv_runtime.loop_th_joined = true;
+  __atomic_store_n(&io_runtime_ctx->uv_runtime.loop_th_joined, true, __ATOMIC_RELEASE);
 }
 
 void IORuntimeCtx_Shutdown(IORuntimeCtx *io_runtime_ctx) {
-  if (io_runtime_ctx->uv_runtime.loop_th_joined) {
+  if (__atomic_load_n(&io_runtime_ctx->uv_runtime.loop_th_joined, __ATOMIC_ACQUIRE)) {
     return;
   }
   // Guard the queue first: once RQ_Shutdown returns, no push can signal the
@@ -375,7 +375,15 @@ void IORuntimeCtx_Shutdown(IORuntimeCtx *io_runtime_ctx) {
   if (CheckAndSetIoRuntimeNotStarted(io_runtime_ctx)) {
     MRConnManager_Shutdown(&io_runtime_ctx->conn_mgr);
     UV_Close(io_runtime_ctx);
-    io_runtime_ctx->uv_runtime.loop_th_joined = true;
+    // Execute whatever made it into the queue before the guard (a first-ever
+    // schedule racing this shutdown): with the conns gone their sends fail
+    // cleanly, resolving any waiter through the normal error paths.
+    queueItem *req;
+    while (NULL != (req = RQ_PopUnbounded(io_runtime_ctx->queue))) {
+      req->cb(req->privdata);
+      rm_free(req);
+    }
+    __atomic_store_n(&io_runtime_ctx->uv_runtime.loop_th_joined, true, __ATOMIC_RELEASE);
     return;
   }
   IORuntimeCtx_FireShutdown(io_runtime_ctx);
@@ -384,6 +392,8 @@ void IORuntimeCtx_Shutdown(IORuntimeCtx *io_runtime_ctx) {
 
 void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
   IORuntimeCtx_JoinLoopThread(io_runtime_ctx);
+  // Nothing can consult the (emptied) conn manager anymore; release its map.
+  MRConnManager_Free(&io_runtime_ctx->conn_mgr);
   RQ_Free(io_runtime_ctx->queue);
   queueItem *task = exchangePendingTopo(io_runtime_ctx, NULL);
   if (task) {
@@ -420,15 +430,23 @@ void IORuntimeCtx_Start(IORuntimeCtx *io_runtime_ctx) {
   RedisModule_Log(RSDummyContext, "verbose", "Created event loop thread for IORuntime ID %zu", io_runtime_ctx->queue->id);
 }
 
-void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, MRQueueCallback cancel_cb, void *privdata) {
+void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, void *privdata) {
   // Push before the lazy start: the async handle is initialized at Create,
   // so a pre-start signal is simply latched.
   if (!RQ_Push(io_runtime_ctx->queue, cb, privdata, &io_runtime_ctx->uv_runtime.async)) {
-    // Rejected: the runtime is shutting down and `cb` can never run (the
-    // item was not enqueued), so resolve the item here, exactly once.
-    if (cancel_cb) {
-      cancel_cb(privdata);
+    // Rejected: the runtime is shutting down and the loop will never execute
+    // the item (it was not enqueued). Run it here instead, exactly once —
+    // but only after the teardown stopped touching the conn manager (loop
+    // thread joined; the manager emptied but still allocated). Every send
+    // then fails cleanly on the missing conns, so the callback's own
+    // dispatch-failure path resolves the item just as a failed send would,
+    // and no scheduled work is ever silently dropped. (The completion
+    // machinery fires an RQ_Done unpaired with any pop — harmless, nothing
+    // consults the dying queue's pending count.)
+    while (!__atomic_load_n(&io_runtime_ctx->uv_runtime.loop_th_joined, __ATOMIC_ACQUIRE)) {
+      usleep(100);
     }
+    cb(privdata);
     return;
   }
   // Claiming the start races IORuntimeCtx_Shutdown's own claim on the same

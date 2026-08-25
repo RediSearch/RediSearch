@@ -50,8 +50,9 @@ typedef struct {
   uv_cond_t loop_th_created_cond;
   // Set once the loop thread was joined (or the never-started runtime was
   // torn down), making IORuntimeCtx_Shutdown / IORuntimeCtx_FireShutdown /
-  // the join in IORuntimeCtx_Free idempotent. Only touched on the thread
-  // running module shutdown.
+  // the join in IORuntimeCtx_Free idempotent, and gating rejected schedules'
+  // inline execution (see IORuntimeCtx_Schedule). Written on the shutdown
+  // thread, polled by rejected schedulers — always via __atomic ops.
   bool loop_th_joined;
 } UVRuntime;
 
@@ -89,13 +90,12 @@ void IORuntimeCtx_FireShutdown(IORuntimeCtx *io_runtime_ctx);
 void IORuntimeCtx_Shutdown(IORuntimeCtx *io_runtime_ctx);
 
 /* Enqueue `cb(privdata)` for the runtime's loop thread, lazily starting the
- * runtime on the first accepted schedule. Once the runtime is shutting down
- * the item is rejected instead — `cb` will never run — and `cancel_cb`
- * (which may be NULL) is invoked inline with `privdata` to resolve it.
- * Exactly one of `cb` and `cancel_cb` runs, exactly once: callers whose
- * progress depends on the item must pass a `cancel_cb` that completes it the
- * way a failed execution would. */
-void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, MRQueueCallback cancel_cb, void *privdata);
+ * runtime on the first accepted schedule. `cb` runs exactly once: normally on
+ * the loop thread; once the runtime is shutting down, inline on the calling
+ * thread instead, after the teardown quiesced the loop — the emptied conn
+ * manager then fails every send cleanly, so the callback resolves through
+ * its normal dispatch-failure paths and no scheduled work is ever dropped. */
+void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, void *privdata);
 
 void IORuntimeCtx_RequestCompleted(IORuntimeCtx *io_runtime_ctx);
 

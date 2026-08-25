@@ -104,7 +104,7 @@ TEST_F(ClusterIOThreadsTest, TestIOThreadsResize) {
     IORuntimeCtx_Schedule_Topology(ioRuntime, topoCallback, topo, false);
     // Schedule multiple callbacks on each runtime
     for (int j = 0; j < target; j++) {
-      IORuntimeCtx_Schedule(ioRuntime, callback, nullptr, &counters[i]);
+      IORuntimeCtx_Schedule(ioRuntime, callback, &counters[i]);
     }
   }
 
@@ -133,7 +133,7 @@ TEST_F(ClusterIOThreadsTest, TestIOThreadsResize) {
   for (int i = first_num_io_threads; i < cluster->num_io_threads; i++) {
     IORuntimeCtx *ioRuntime = MRCluster_GetIORuntimeCtx(cluster, i);
     for (int j = 0; j < 10; j++) {
-      IORuntimeCtx_Schedule(ioRuntime, callback, nullptr, &counters[i]);
+      IORuntimeCtx_Schedule(ioRuntime, callback, &counters[i]);
     }
   }
 
@@ -144,7 +144,7 @@ TEST_F(ClusterIOThreadsTest, TestIOThreadsResize) {
   for (int i = 0; i < cluster->num_io_threads; i++) {
     IORuntimeCtx *ioRuntime = MRCluster_GetIORuntimeCtx(cluster, i);
     for (int j = 0; j < 10; j++) {
-      IORuntimeCtx_Schedule(ioRuntime, callback, nullptr, &counters[i]);
+      IORuntimeCtx_Schedule(ioRuntime, callback, &counters[i]);
     }
   }
 
@@ -166,11 +166,12 @@ TEST_F(ClusterIOThreadsTest, TestIOThreadsResize) {
 }
 
 // A shutdown must resolve every schedule exactly once: items enqueued before
-// the queue guard run (via the loop or its final drain), items scheduled
-// after it are rejected — never enqueued — and their cancel callback fires
-// inline. Shutdown must also stay idempotent under the FireShutdown/Free the
-// later cluster teardown still runs.
-TEST_F(ClusterIOThreadsTest, ShutdownDrainsAndCancels) {
+// the queue guard run on the loop (or its final drain); items scheduled after
+// it are rejected — never enqueued — and execute inline on the scheduling
+// thread once the teardown quiesced the loop. Shutdown must also stay
+// idempotent under the FireShutdown/Free the later cluster teardown still
+// runs.
+TEST_F(ClusterIOThreadsTest, ShutdownRunsRejectedSchedulesInline) {
   MRCluster *cluster = MR_NewCluster(nullptr, 2, 1);
   IORuntimeCtx *ioRuntime = MRCluster_GetIORuntimeCtx(cluster, 0);
   MRClusterTopology *topo = getDummyTopology();
@@ -178,20 +179,16 @@ TEST_F(ClusterIOThreadsTest, ShutdownDrainsAndCancels) {
 
   int executed = 0;
   // Starts the runtime and signals the loop.
-  IORuntimeCtx_Schedule(ioRuntime, callback, nullptr, &executed);
-  // Guard the queue as IORuntimeCtx_Shutdown does: schedules are rejected
-  // from here on, resolved through their cancel callback (or dropped).
-  RQ_Shutdown(ioRuntime->queue);
-  int cancelled = 0;
-  IORuntimeCtx_Schedule(ioRuntime, callback, callback, &cancelled);
-  ASSERT_EQ(cancelled, 1);  // cancel ran inline, exactly once
-  IORuntimeCtx_Schedule(ioRuntime, callback, nullptr, &cancelled);  // dropped
+  IORuntimeCtx_Schedule(ioRuntime, callback, &executed);
 
   IORuntimeCtx_Shutdown(ioRuntime);
-  // The join guarantees the pre-guard item ran exactly once (loop or drain),
-  // and the rejected items never did.
+  // The join guarantees the pre-shutdown item ran exactly once.
   ASSERT_EQ(executed, 1);
-  ASSERT_EQ(cancelled, 1);
+
+  // A schedule after shutdown is rejected and runs inline, exactly once.
+  int inline_executed = 0;
+  IORuntimeCtx_Schedule(ioRuntime, callback, &inline_executed);
+  ASSERT_EQ(inline_executed, 1);
 
   // Idempotence: a second shutdown and the cluster teardown's own
   // FireShutdown/Free must not signal the closed loop or re-join.

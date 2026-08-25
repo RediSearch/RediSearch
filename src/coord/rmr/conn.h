@@ -133,6 +133,10 @@ void MRConnManager_Expand(MRConnManager *m, uint32_t num, uv_loop_t *loop);
  */
 void MRConnManager_Shutdown(MRConnManager *mgr);
 
+/* Release the (empty) conn map itself. Call only once nothing can consult the
+ * manager anymore (IORuntimeCtx_Free); the struct is embedded in IORuntimeCtx. */
+void MRConnManager_Free(MRConnManager *mgr);
+
 #ifdef __cplusplus
 }
 #endif
