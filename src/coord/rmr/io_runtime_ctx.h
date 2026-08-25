@@ -82,19 +82,20 @@ void IORuntimeCtx_Start(IORuntimeCtx *io_runtime_ctx);
 void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx);
 void IORuntimeCtx_FireShutdown(IORuntimeCtx *io_runtime_ctx);
 /* Stop and join the runtime's loop thread: guard the queue against further
- * loop signals (RQ_Shutdown), fire the shutdown event, and join. The exiting
- * loop thread drains the queue once and error-completes every pending
- * command, so callers blocked on their results resolve. After this returns no
+ * loop signals (RQ_Shutdown), fire the shutdown event, join, then drain the
+ * queue once — every pending command error-completes, so callers blocked on
+ * their results resolve. After this returns no
  * callback of this runtime can run; IORuntimeCtx_Free only releases memory.
  * Idempotent. */
 void IORuntimeCtx_Shutdown(IORuntimeCtx *io_runtime_ctx);
 
 /* Enqueue `cb(privdata)` for the runtime's loop thread, lazily starting the
- * runtime on the first accepted schedule. `cb` runs exactly once: normally on
- * the loop thread; once the runtime is shutting down, inline on the calling
- * thread instead, after the teardown quiesced the loop — the emptied conn
- * manager then fails every send cleanly, so the callback resolves through
- * its normal dispatch-failure paths and no scheduled work is ever dropped. */
+ * runtime on the first live schedule. `cb` runs exactly once: normally on the
+ * loop thread; once the runtime is shutting down, via a queue drain on a
+ * scheduling thread instead, after the teardown quiesced the loop — the
+ * emptied conn manager then fails every send cleanly, so each callback
+ * resolves through its normal dispatch-failure paths and no scheduled work
+ * is ever dropped. */
 void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, void *privdata);
 
 void IORuntimeCtx_RequestCompleted(IORuntimeCtx *io_runtime_ctx);

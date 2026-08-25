@@ -204,16 +204,6 @@ static void sideThread(void *arg) {
 
   // Process any remaining requests before closing handles
   uv_run(&io_runtime_ctx->uv_runtime.loop, UV_RUN_NOWAIT);
-  // Final queue drain: execute the items the stopped loop never got to (a
-  // signal consumed by uv_stop first, a not-ready or backpressured pass), so
-  // their commands register with the still-live connections and the sweep
-  // below error-completes them — every enqueued item thus executes exactly
-  // once, the counterpart of RQ_Push rejecting once the queue shuts down.
-  queueItem *req;
-  while (NULL != (req = RQ_PopUnbounded(io_runtime_ctx->queue))) {
-    req->cb(req->privdata);
-    rm_free(req);
-  }
   // Disconnect all connections and release the manager's dict while the loop
   // is still alive (uv_close / redisAsyncDisconnect require it).
   MRConnManager_Shutdown(&io_runtime_ctx->conn_mgr);
@@ -359,6 +349,21 @@ static void IORuntimeCtx_JoinLoopThread(IORuntimeCtx *io_runtime_ctx) {
   __atomic_store_n(&io_runtime_ctx->uv_runtime.loop_th_joined, true, __ATOMIC_RELEASE);
 }
 
+// Execute every queued item, on the calling thread. Only safe once the
+// runtime is quiesced (loop thread joined or never started) and the conn
+// manager emptied: every send then fails cleanly on the missing conns, so
+// each callback resolves through its normal dispatch-failure paths — the
+// queue's exactly-once guarantee is the lock-serialized pop, whichever drain
+// gets each item. (Completions fire an RQ_Done unpaired with any backpressure
+// slot — harmless, nothing consults the dying queue's pending count.)
+static void IORuntimeCtx_DrainQueue(IORuntimeCtx *io_runtime_ctx) {
+  queueItem *req;
+  while (NULL != (req = RQ_PopUnbounded(io_runtime_ctx->queue))) {
+    req->cb(req->privdata);
+    rm_free(req);
+  }
+}
+
 void IORuntimeCtx_Shutdown(IORuntimeCtx *io_runtime_ctx) {
   if (__atomic_load_n(&io_runtime_ctx->uv_runtime.loop_th_joined, __ATOMIC_ACQUIRE)) {
     return;
@@ -375,19 +380,15 @@ void IORuntimeCtx_Shutdown(IORuntimeCtx *io_runtime_ctx) {
   if (CheckAndSetIoRuntimeNotStarted(io_runtime_ctx)) {
     MRConnManager_Shutdown(&io_runtime_ctx->conn_mgr);
     UV_Close(io_runtime_ctx);
-    // Execute whatever made it into the queue before the guard (a first-ever
-    // schedule racing this shutdown): with the conns gone their sends fail
-    // cleanly, resolving any waiter through the normal error paths.
-    queueItem *req;
-    while (NULL != (req = RQ_PopUnbounded(io_runtime_ctx->queue))) {
-      req->cb(req->privdata);
-      rm_free(req);
-    }
     __atomic_store_n(&io_runtime_ctx->uv_runtime.loop_th_joined, true, __ATOMIC_RELEASE);
-    return;
+  } else {
+    IORuntimeCtx_FireShutdown(io_runtime_ctx);
+    IORuntimeCtx_JoinLoopThread(io_runtime_ctx);
   }
-  IORuntimeCtx_FireShutdown(io_runtime_ctx);
-  IORuntimeCtx_JoinLoopThread(io_runtime_ctx);
+  // The single shutdown-side drain: whatever is still queued — items the
+  // stopped loop never got to, or pushes that raced this shutdown. Later
+  // pushes are drained by their schedulers (see IORuntimeCtx_Schedule).
+  IORuntimeCtx_DrainQueue(io_runtime_ctx);
 }
 
 void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
@@ -434,19 +435,14 @@ void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, voi
   // Push before the lazy start: the async handle is initialized at Create,
   // so a pre-start signal is simply latched.
   if (!RQ_Push(io_runtime_ctx->queue, cb, privdata, &io_runtime_ctx->uv_runtime.async)) {
-    // Rejected: the runtime is shutting down and the loop will never execute
-    // the item (it was not enqueued). Run it here instead, exactly once —
-    // but only after the teardown stopped touching the conn manager (loop
-    // thread joined; the manager emptied but still allocated). Every send
-    // then fails cleanly on the missing conns, so the callback's own
-    // dispatch-failure path resolves the item just as a failed send would,
-    // and no scheduled work is ever silently dropped. (The completion
-    // machinery fires an RQ_Done unpaired with any pop — harmless, nothing
-    // consults the dying queue's pending count.)
+    // The runtime is shutting down: the loop was not woken and may already
+    // be gone, so once the teardown quiesced it (see IORuntimeCtx_DrainQueue
+    // for why that must come first), drain the queue right here — no
+    // scheduled work is ever silently dropped.
     while (!__atomic_load_n(&io_runtime_ctx->uv_runtime.loop_th_joined, __ATOMIC_ACQUIRE)) {
       usleep(100);
     }
-    cb(privdata);
+    IORuntimeCtx_DrainQueue(io_runtime_ctx);
     return;
   }
   // Claiming the start races IORuntimeCtx_Shutdown's own claim on the same

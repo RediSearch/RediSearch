@@ -53,10 +53,11 @@ void RQ_UpdateMaxPending(MRWorkQueue *q, int maxPending);
 void RQ_Done(MRWorkQueue *q);
 
 /* Enqueue an item and signal `async` to wake the loop thread. Once the queue
- * is shutting down the item is rejected instead (returns false): it is never
- * enqueued, so it can never execute — the caller owns its resolution. An
- * enqueued item conversely executes exactly once, by the loop or its final
- * shutdown drain. */
+ * is shutting down the item is enqueued silently instead (returns false): the
+ * loop is not woken and may already be gone, so the caller owns making sure
+ * the queue still gets drained. Every enqueued item is executed exactly once
+ * — pops are serialized by the queue lock — by the loop, its final shutdown
+ * drain, or a post-shutdown drain. */
 bool RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata, uv_async_t *async);
 
 /* Stop RQ_Push from signaling the loop. The flag write shares the queue lock
@@ -67,10 +68,9 @@ void RQ_Shutdown(MRWorkQueue *q);
 
 queueItem *RQ_Pop(MRWorkQueue *q, uv_async_t* async);
 
-/* Pop ignoring the maxPending backpressure. Shutdown-only: lets the loop
- * thread's final drain execute every item that was enqueued but not yet
- * processed, so their commands reach the connections and get resolved by the
- * disconnect sweep. */
+/* Pop ignoring the maxPending backpressure. Shutdown-only: lets the
+ * post-quiesce drains execute every item that was enqueued but never
+ * processed by the loop. */
 queueItem *RQ_PopUnbounded(MRWorkQueue *q);
 
 #ifdef ENABLE_ASSERT

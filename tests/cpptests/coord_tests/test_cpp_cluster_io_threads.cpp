@@ -166,11 +166,10 @@ TEST_F(ClusterIOThreadsTest, TestIOThreadsResize) {
 }
 
 // A shutdown must resolve every schedule exactly once: items enqueued before
-// the queue guard run on the loop (or its final drain); items scheduled after
-// it are rejected — never enqueued — and execute inline on the scheduling
-// thread once the teardown quiesced the loop. Shutdown must also stay
-// idempotent under the FireShutdown/Free the later cluster teardown still
-// runs.
+// the queue guard run on the loop (or its final drain); items enqueued after
+// it are executed by a queue drain on the scheduling thread, once the
+// teardown quiesced the loop. Shutdown must also stay idempotent under the
+// FireShutdown/Free the later cluster teardown still runs.
 TEST_F(ClusterIOThreadsTest, ShutdownRunsRejectedSchedulesInline) {
   MRCluster *cluster = MR_NewCluster(nullptr, 2, 1);
   IORuntimeCtx *ioRuntime = MRCluster_GetIORuntimeCtx(cluster, 0);
