@@ -257,8 +257,10 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> IndexReader<'index>
             self.set_current_block(self.current_block_idx + 1);
         }
 
+        // reshaped: bind the index, then the block list, then the block
         let ii = self.ii.get();
-        let block = &ii.blocks[self.current_block_idx];
+        let blocks = &ii.blocks;
+        let block = &blocks[self.current_block_idx];
         let base = D::base_id(block, self.last_doc_id);
         let mut cursor = Cursor::new(self.buf.get());
         cursor.set_position(self.buf_pos);
