@@ -411,6 +411,45 @@ def verify_command_OK_on_all_shards(env, *args):
     res = run_command_on_all_shards(env, *args)
     env.assertEqual(res, ['OK'] * env.shardsCount)
 
+def _cluster_bus_ports(env):
+    """`{client port: cluster-bus port}` for every shard, from one `CLUSTER NODES` read.
+
+    One read covers the whole cluster, since every node reports the full topology.
+    """
+    nodes = env.getOSSMasterNodesConnectionList()[0].execute_command('CLUSTER', 'NODES')
+    if isinstance(nodes, bytes):
+        nodes = nodes.decode()
+    ports = {}
+    for line in nodes.splitlines():
+        if not line.strip():
+            continue
+        # `<id> <ip>:<port>@<cport>[,<hostname>] <flags> ...`
+        hostport, cport = line.split()[1].split('@')
+        ports[int(hostport.rsplit(':', 1)[1])] = int(cport.split(',')[0])
+    return ports
+
+def disable_tls_cluster_on_all_shards(env):
+    """Turn `tls-cluster` off on every shard, keeping the cluster bus reachable.
+
+    A shard binds its cluster-bus listener once at startup, to whichever client port
+    `tls-cluster` selected then, but re-derives the port it *advertises* on every
+    gossip message. With both `port` and `tls-port` configured, flipping `tls-cluster`
+    at runtime therefore makes each shard advertise a bus port nothing listens on:
+    peers adopt it, drop their working links, and then never receive the pings that
+    would correct the peer ports they latched while the flip was still in progress.
+    Pinning `cluster-announce-bus-port` to the port a shard actually listens on takes
+    the advertised port out of `tls-cluster`'s hands, so the flip leaves the bus intact.
+    """
+    bus_ports = _cluster_bus_ports(env)
+    for con, node in zip(env.getOSSMasterNodesConnectionList(),
+                         env.envRunner.getMasterNodesList()):
+        # A KeyError here means a shard is not advertising the port RLTest assigned
+        # it. Fail loudly rather than pin the wrong port, which would re-create the
+        # very breakage this helper exists to avoid.
+        env.assertEqual(con.execute_command('CONFIG', 'SET', 'cluster-announce-bus-port',
+                                            bus_ports[node['port']]), 'OK')
+    verify_command_OK_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no')
+
 def get_vecsim_debug_dict(env, index_name, vector_field):
     return to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_name, vector_field))
 
