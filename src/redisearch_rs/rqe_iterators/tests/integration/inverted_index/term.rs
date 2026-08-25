@@ -452,6 +452,13 @@ mod not_miri {
     #[test]
     fn term_revalidate_after_block_buffer_moved() {
         let test = TermRevalidateTest::new(10);
+        // Before the iterator exists, so the address it caches is the one the appends and the
+        // relocation act on. Reserving afterwards would reallocate out from under it.
+        {
+            use inverted_index::{full::Full, opaque::OpaqueEncoding};
+            let ii = Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut();
+            inverted_index::test_utils::reserve_block_buffer(ii, 0, 4096);
+        }
         let mut it = ContractChecker::new(test.create_iterator());
         let ii = {
             use inverted_index::{full::Full, opaque::OpaqueEncoding};
@@ -469,6 +476,13 @@ mod not_miri {
     #[test]
     fn term_revalidate_after_block_buffer_moved_and_gc() {
         let test = TermRevalidateTest::new(10);
+        // Before the iterator exists, so the address it caches is the one the appends and the
+        // relocation act on. Reserving afterwards would reallocate out from under it.
+        {
+            use inverted_index::{full::Full, opaque::OpaqueEncoding};
+            let ii = Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut();
+            inverted_index::test_utils::reserve_block_buffer(ii, 0, 4096);
+        }
         let mut it = test.create_iterator();
         let ii = {
             use inverted_index::{full::Full, opaque::OpaqueEncoding};
