@@ -857,8 +857,7 @@ void iterExpandShellsCb(void *p) {
   cmd->targetShard = rm_strdup(shards[0].node.id);
 }
 
-void MRIterator_ArmShardCursorRead(MRIterator *it, uint16_t shardIdx, long long cursorId,
-                                   bool del) {
+void MRIterator_ArmShardCursorRead(MRIterator *it, uint16_t shardIdx, long long cursorId) {
   RS_ASSERT(shardIdx < it->len);
   MRIteratorCallbackCtx *cbx = &it->cbxs[shardIdx];
   RS_LOG_ASSERT(cbx->cmd.rootCommand == C_READ && !cbx->cmd.depleted,
@@ -866,7 +865,7 @@ void MRIterator_ArmShardCursorRead(MRIterator *it, uint16_t shardIdx, long long 
   char buf[24];
   int buf_len = snprintf(buf, sizeof(buf), "%lld", cursorId);
   MRCommand_ReplaceArg(&cbx->cmd, 3, buf, buf_len);
-  if (del) {
+  if (MRIteratorCallback_GetTimedOut(&it->ctx)) {
     MRCommand_ReplaceArg(&cbx->cmd, 1, "DEL", 3);
     cbx->cmd.rootCommand = C_DEL;
   }

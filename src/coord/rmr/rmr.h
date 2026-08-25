@@ -283,11 +283,11 @@ IORuntimeCtx *MRIterator_GetIORuntime(const MRIterator *it);
 
 /* Complete and dispatch a per-shard placeholder prepared by iterExpandShellsCb:
  * plant `cursorId` as the id argument of the `_FT.CURSOR READ <idx> <id>`
- * command and send it — rewritten to DEL when `del` is set (the request was
- * already abandoned, so the shard cursor is deleted instead of read). Must run
- * on the iterator's own IO thread, typically from a sibling iterator's reply
- * callback. */
-void MRIterator_ArmShardCursorRead(MRIterator *it, uint16_t shardIdx, long long cursorId, bool del);
+ * command and send it — rewritten to DEL when the iterator was already flagged
+ * timed out (the request was abandoned, so the shard cursor is deleted instead
+ * of read). Must run on the iterator's own IO thread, typically from a sibling
+ * iterator's reply callback. */
+void MRIterator_ArmShardCursorRead(MRIterator *it, uint16_t shardIdx, long long cursorId);
 
 /* Resolve a per-shard placeholder prepared by iterExpandShellsCb without
  * dispatching it (the shard published no cursor for this stream, or the whole

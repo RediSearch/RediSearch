@@ -76,14 +76,12 @@ static void armShardReads(HybridArmingCtx *ctx, uint16_t shardIdx, long long sea
   if (searchCid == 0) {
     MRIterator_ResolveShard(ctx->searchIt, shardIdx, 0);
   } else {
-    const bool searchTimedOut = MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(ctx->searchIt));
-    MRIterator_ArmShardCursorRead(ctx->searchIt, shardIdx, searchCid, searchTimedOut);
+    MRIterator_ArmShardCursorRead(ctx->searchIt, shardIdx, searchCid);
   }
   if (vsimCid == 0) {
     MRIterator_ResolveShard(ctx->vsimIt, shardIdx, 0);
   } else {
-    const bool vsimTimedOut = MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(ctx->vsimIt));
-    MRIterator_ArmShardCursorRead(ctx->vsimIt, shardIdx, vsimCid, vsimTimedOut);
+    MRIterator_ArmShardCursorRead(ctx->vsimIt, shardIdx, vsimCid);
   }
 }
 
