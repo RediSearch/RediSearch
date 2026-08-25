@@ -846,6 +846,16 @@ class TestQueryDebugCommands(object):
             with env.assertResponseError(contained="Timeout limit was reached"):
                 runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
 
+            if self.cmd == 'AGGREGATE':
+                # A retained clock-simulation processor cannot safely become a blocked-client
+                # timeout consumer if workers are enabled before a later cursor read.
+                env.expect(
+                    *self.basic_debug_query, 'WITHCURSOR', 'COUNT', 1,
+                    'TIMEOUT_AFTER_N', 1, 'DEBUG_PARAMS_COUNT', 2,
+                ).error().contains(
+                    'TIMEOUT_AFTER_N with WITHCURSOR is not supported with ON_TIMEOUT FAIL'
+                )
+
         # Test ON_TIMEOUT RETURN-STRICT (never supported)
         env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN-STRICT').ok()
         with env.assertResponseError(contained="TIMEOUT_AFTER_N is not supported with ON_TIMEOUT RETURN-STRICT"):

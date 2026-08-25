@@ -177,6 +177,11 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "TIMEOUT_AFTER_N is not supported with ON_TIMEOUT RETURN-STRICT");
         return REDISMODULE_ERR;
       }
+      if (debug_req->requestedTimeoutPolicy == TimeoutPolicy_Fail && IsCursor(&debug_req->r)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                            "TIMEOUT_AFTER_N with WITHCURSOR is not supported with ON_TIMEOUT FAIL");
+        return REDISMODULE_ERR;
+      }
       if (debug_req->requestedTimeoutPolicy == TimeoutPolicy_Fail && (debug_req->r.reqflags & QEXEC_F_RUN_IN_BACKGROUND)) {
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "TIMEOUT_AFTER_N is not supported with ON_TIMEOUT FAIL if WORKERS > 0");
         return REDISMODULE_ERR;
