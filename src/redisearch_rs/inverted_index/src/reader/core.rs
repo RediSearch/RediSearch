@@ -123,6 +123,60 @@ impl<Rf: Ref, E: Encoder> RawIndexReaderCore<Rf, E> {
     }
 }
 
+impl<E> RawIndexReaderCore<Suspended, E> {
+    /// Adopt `ii`'s provenance for this reader's index pointer.
+    ///
+    /// The pointer [`new`](RawIndexReaderCore::new) installs descends from the
+    /// `&InvertedIndex` it is handed. A garbage-collection pass mutating that index
+    /// through its owner invalidates the derivation while leaving the address
+    /// alone, so reading through it afterwards is undefined behaviour even though
+    /// [`points_to_ii`](RawIndexReaderCore::points_to_ii) still answers `true`.
+    /// Revalidation re-resolves the index anyway in order to *ask* that question;
+    /// this installs the answer's fresh derivation, so every later read goes
+    /// through a live one.
+    ///
+    /// Laundering, not a swap: `ii` must be the index the reader already reads.
+    /// [`swap_index`](RawIndexReaderCore::swap_index) is the latter.
+    ///
+    /// # Safety
+    ///
+    /// `ii` must be the index this reader already reads, and must stay
+    /// dereferenceable until the reader is resumed or dropped. Suspension itself
+    /// promises nothing about the referent, but the resume path reads through
+    /// whatever this installs.
+    pub unsafe fn reseat_index(&mut self, ii: NonNull<InvertedIndex<E>>) {
+        debug_assert!(
+            std::ptr::eq(self.ii.as_raw(), ii.as_ptr()),
+            "reseat must not move the reader to a different index"
+        );
+
+        self.ii = SharedPtr::from_non_null(ii);
+    }
+}
+
+impl<'index, E: 'index> RawIndexReaderCore<Active<'index>, E> {
+    /// The [`Active`] counterpart of
+    /// [`reseat_index`](RawIndexReaderCore::reseat_index) on the suspended reader,
+    /// which documents why the reseat is needed.
+    ///
+    /// # Safety
+    ///
+    /// Its contract, with the referent's validity pinned to `'index` rather than
+    /// to the resume.
+    pub unsafe fn reseat_index(&mut self, ii: NonNull<InvertedIndex<E>>) {
+        debug_assert!(
+            std::ptr::eq(self.ii.as_raw(), ii.as_ptr()),
+            "reseat must not move the reader to a different index"
+        );
+
+        // SAFETY: the caller guarantees `'index` validity. Deriving a reference here
+        // is harmless where `new` deriving one is not: `ii` was resolved after the
+        // mutation, so a reborrow of it is live rather than an heir of the pointer
+        // the mutation invalidated.
+        self.ii = SharedPtr::from_ref(unsafe { ii.as_ref() });
+    }
+}
+
 /// `IndexReaderCore<Active<'a>, E>` suspends to `IndexReaderCore<Suspended, E>`.
 ///
 /// SAFETY: the layout compatibility this trait requires is invariant 1 on

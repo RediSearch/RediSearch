@@ -672,12 +672,17 @@ impl TrieLookup {
     ///    collector is handed to reach the same index, and **not** a pointer
     ///    derived from a `&TagIndex` or a `&mut TagIndex` to not break the
     ///    borrowing rules. Passing `idx` itself keeps the alternation
-    ///    raw → `&mut` → raw, which is permitted.
+    ///    raw → `&mut` → raw, which is permitted. That is what leaves the lookup
+    ///    the one route to a tag's postings a collection cannot invalidate, and
+    ///    so the route a parked reader recovers a usable pointer through — see
+    ///    [`RawIndexReaderCore::reseat_index`].
     ///
     /// 2. `idx` must stay valid for this lookup and any iterator holding it.
     ///
     /// 3. The index may only be mutated while the lookup is alive under the
     ///    standard revalidation protocol.
+    ///
+    /// [`RawIndexReaderCore::reseat_index`]: inverted_index::reader::RawIndexReaderCore::reseat_index
     pub const unsafe fn new(idx: NonNull<TagIndex<InMemoryMode>>) -> Self {
         Self(idx)
     }
