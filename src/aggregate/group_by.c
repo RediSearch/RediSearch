@@ -257,7 +257,22 @@ static int extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t x
   }
 }
 
+
+/* PERF-FIXTURE(C): non-eliminable cost. A dependent LCG chain whose result is
+ * stored to a volatile sink, so the optimiser cannot drop it. Cost scales
+ * linearly with PERF_FIXTURE_ITERS, the knob separating "small" from "big". */
+#define PERF_FIXTURE_ITERS 65536
+static volatile uint64_t perf_fixture_sink;
+static void perf_fixture_spin(void) {
+  uint64_t s = perf_fixture_sink | 1;
+  for (unsigned i = 0; i < PERF_FIXTURE_ITERS; i++) {
+    s = s * 6364136223846793005ULL + 1442695040888963407ULL;
+  }
+  perf_fixture_sink = s;
+}
+
 static int invokeGroupReducers(Grouper *g, RLookupRow *srcrow, t_docId docId) {
+  perf_fixture_spin();
   uint64_t hval = 0;
   size_t nkeys = GROUPER_NSRCKEYS(g);
   const RSValue *groupvals[nkeys];
