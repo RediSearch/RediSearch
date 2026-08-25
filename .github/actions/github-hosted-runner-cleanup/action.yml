@@ -40,9 +40,9 @@ runs:
 
           echo "Removing $target"
           if [ "$(id -u)" -eq 0 ]; then
-            rm -rf "$target" || true
+            find "$target" -mindepth 1 -delete || true
           else
-            sudo rm -rf "$target" || true
+            sudo find "$target" -mindepth 1 -delete || true
           fi
         done
 
