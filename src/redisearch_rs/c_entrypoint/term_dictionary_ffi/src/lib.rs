@@ -27,8 +27,10 @@
 //! [`TermDictionary_Free`] require exclusive access — no other call on
 //! the same dictionary, and no live iterator obtained from it. An
 //! iterator itself is single-threaded: it may not be advanced or freed
-//! from two threads at once, though separate iterators over the same
-//! dictionary may.
+//! from two threads at once, nor re-entered on one — a stop predicate
+//! runs inside the advance that polls it, so it must not touch the
+//! iterator it is stopping. Separate iterators over the same dictionary
+//! may be advanced concurrently.
 //!
 //! Mutating entry points hold terms to the C terms trie's eligibility
 //! rules (see [`storable_term`]). Two divergences from that trie are
@@ -58,6 +60,11 @@ pub use term_dictionary::TermDictionary;
 /// to abandon the walk (e.g. once a deadline has passed); the caller owns
 /// the decision and any clock it consults. A NULL predicate never stops.
 /// The [`term_dictionary`] crate docs state how often it is polled.
+///
+/// The predicate runs inside the [`TermDictionaryIterator_Next`] call
+/// that polls it, which holds the iterator exclusively for the duration:
+/// it must not call [`TermDictionaryIterator_Next`] or
+/// [`TermDictionaryIterator_Free`] on that iterator.
 pub type TermDictionaryShouldStop = Option<unsafe extern "C" fn(ctx: *mut c_void) -> bool>;
 
 /// Yields the matching terms (and their payloads) of an iteration over

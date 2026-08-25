@@ -89,6 +89,11 @@ typedef struct TermDictionaryIterator TermDictionaryIterator;
  * to abandon the walk (e.g. once a deadline has passed); the caller owns
  * the decision and any clock it consults. A NULL predicate never stops.
  * The [`term_dictionary`] crate docs state how often it is polled.
+ *
+ * The predicate runs inside the [`TermDictionaryIterator_Next`] call
+ * that polls it, which holds the iterator exclusively for the duration:
+ * it must not call [`TermDictionaryIterator_Next`] or
+ * [`TermDictionaryIterator_Free`] on that iterator.
  */
 typedef bool (*TermDictionaryShouldStop)(void *ctx);
 
