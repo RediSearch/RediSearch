@@ -47,7 +47,7 @@ fn big_index() -> (TagIndex<InMemoryMode>, usize) {
         .map(|i| format!("he{i:05}").into_bytes())
         .collect();
     let tags: Vec<&[u8]> = owned.iter().map(Vec::as_slice).collect();
-    let mut idx = TagIndex::<InMemoryMode>::new(true, 0);
+    let mut idx = TagIndex::<InMemoryMode>::new(0, true);
     commit_mem(&mut idx, &tags);
     (idx, tags.len())
 }

@@ -31,13 +31,8 @@
 //! trusts the caller instead.
 //!
 //! Disk-mode indexing ([`TagIndex::index`] on [`OnDiskMode`]) is the one
-//! exception, and takes `&CStr` instead:
-//! `SearchDisk_IndexTags` receives the tags as a `const char **` with a count
-//! and no per-string length array, so `strlen` is the only way its
-//! (closed-source) implementation can find where each tag ends. `&CStr` is
-//! exactly that guarantee — NUL-terminated, no interior NUL — so the disk write
-//! path states the requirement in its signature rather than as a precondition
-//! prose can only ask for.
+//! exception, and takes `&CStr` instead. In fact,
+//! `SearchDisk_IndexTags` receives the tags as a `const char **` with a count.
 //!
 //! The terms yielded by [`TagIndex::suffix_expand`] are [`CStr`], borrowed from a
 //! NUL-terminated allocation whose pointer is directly usable as a C `char *`.
@@ -177,11 +172,12 @@ use inverted_index::{
 use query_term::RSQueryTerm;
 use redis_module::RedisModuleCtx;
 use rqe_iterators::{
-    FieldExpirationChecker, RQEIteratorPrintable, SEARCH_ENTERPRISE_ITERATORS,
+    FieldExpirationChecker, RQEIteratorPrintable,
     inverted_index::{Tag as TagIterator, TagLookup},
     utils::duration_from_redis_timespec,
 };
 use rqe_wildcard::{MatchOutcome, WildcardPattern};
+use search_disk::SearchDiskHandle;
 pub(crate) use suffix::{SuffixData, TagSuffixIndex};
 use trie_rs::{
     TrieMap,
@@ -289,7 +285,7 @@ pub struct WritePostingsDelta {
 
 impl<M: TagIndexMode> TagIndex<M> {
     /// The part of construction every mode's constructor shares.
-    fn with_mode(with_suffix: bool, field_id: t_fieldIndex, mode: M) -> Self {
+    fn with_mode(field_id: t_fieldIndex, with_suffix: bool, mode: M) -> Self {
         Self {
             unique_id: TagUniqueId::next(),
             suffix: with_suffix.then(TagSuffixIndex::new),
@@ -401,10 +397,10 @@ impl TagIndex<InMemoryMode> {
     /// `with_suffix` enables the [suffix index](TagSuffixIndex)
     /// (`WITHSUFFIXTRIE`), so suffix (`*foo`) and contains (`*foo*`)
     /// queries don't have to scan the whole tag trie.
-    pub fn new(with_suffix: bool, field_id: t_fieldIndex) -> Self {
+    pub fn new(field_id: t_fieldIndex, with_suffix: bool) -> Self {
         Self::with_mode(
-            with_suffix,
             field_id,
+            with_suffix,
             InMemoryMode {
                 values: TrieMap::new(),
             },
@@ -654,8 +650,8 @@ impl TagIndex<OnDiskMode> {
         with_suffix: bool,
     ) -> Self {
         Self::with_mode(
-            with_suffix,
             field_id,
+            with_suffix,
             OnDiskMode {
                 values: TrieMap::new(),
                 disk_index_spec: disk_spec,
@@ -674,16 +670,17 @@ impl TagIndex<OnDiskMode> {
         self.mode.values.mem_usage() + self.suffix_mem_usage()
     }
 
-    /// Stage `doc_id`'s postings for each tag in `tags` onto `batch`, committed
-    /// later by `commitDocument`.
+    /// Stage `doc_id`'s postings for each tag in `tags` onto `batch`.
+    /// The caller must follow up with
+    /// [`commit`](Self::commit) on the same `tags` to complete the document
+    /// write (it registers them in the suffix index, when enabled).
     ///
     /// Returns whether the disk write succeeded. There is no delta to fold into
     /// the spec statistics: the record count is tallied in
     /// [`commit`](Self::commit).
     ///
     /// Takes `&CStr` rather than [`Tag`] because the disk API is given the
-    /// tags as a `const char **` with no length array, so each one has to be a
-    /// real C string — see the crate-level "Tag bytes" docs.
+    /// tags as a `const char **` with no length array,
     ///
     /// # Safety
     ///
@@ -760,7 +757,8 @@ impl TagIndex<OnDiskMode> {
     ///
     /// # Panics
     ///
-    /// If [`SEARCH_ENTERPRISE_ITERATORS`] is not initialized.
+    /// If [`SEARCH_ENTERPRISE_ITERATORS`](rqe_iterators::SEARCH_ENTERPRISE_ITERATORS)
+    /// is not initialized.
     ///
     /// # Safety
     ///
@@ -768,9 +766,13 @@ impl TagIndex<OnDiskMode> {
     /// 2. `sctx` and `sctx.spec` must be valid and outlive the returned iterator.
     /// 3. `sctx.diskSnapshot` must be a non-null
     ///    [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot) handle for this
-    ///    index's disk spec, valid for the duration of the call:
-    ///    [SearchEnterpriseIterators::new_tag_on_disk](rqe_iterators::SearchEnterpriseIterators::new_tag_on_disk)
-    ///    reads it off `sctx` and hands it to the disk backend.
+    ///    index's disk spec, and must stay valid for as long as the returned
+    ///    iterator. See
+    ///    [`SearchEnterpriseIterators`](rqe_iterators::SearchEnterpriseIterators).
+    /// 4. No other reference to this index's disk spec may be live while the
+    ///    returned iterator is. Building it hands the backend an exclusive
+    ///    reference to the spec, so this is
+    ///    [`SearchDiskHandle::new_tag_iterator`]'s precondition, carried through.
     pub unsafe fn open_reader(
         &self,
         sctx: NonNull<RedisSearchCtx>,
@@ -796,14 +798,18 @@ impl TagIndex<OnDiskMode> {
         tok.str_ = tag.as_ptr().cast::<c_char>().cast_mut();
         tok.len = tag.as_bytes().len();
 
-        let enterprise_iters = SEARCH_ENTERPRISE_ITERATORS
-            .get()
-            .expect("SEARCH_ENTERPRISE_ITERATORS not initialized");
-        // SAFETY: `disk_index_spec` is a valid `RedisSearchDiskIndexSpec` (invariant
-        // from `new_on_disk`); `tok` borrows `tag` for the duration of the call; and
-        // `snapshot` is the snapshot contract 3 requires.
-        let disk_index_spec = unsafe { &mut *self.mode.disk_index_spec.as_ptr() };
-        enterprise_iters.new_tag_on_disk(disk_index_spec, &tok, self.field_id, weight, snapshot)
+        // SAFETY: `disk_index_spec` is a valid `RedisSearchDiskIndexSpec` that
+        // outlives `self` (invariant from `Self::new`), hence the returned
+        // iterator (contract 1).
+        let disk = unsafe { SearchDiskHandle::new(self.mode.disk_index_spec.as_ptr()) }
+            .expect("`Self::new` takes the disk spec as a `NonNull`");
+
+        // SAFETY: the handle's four preconditions, in order: the spec outlives the
+        // iterator, as above; a disk-backed index always has the enterprise
+        // iterators registered; `snapshot` is the one contract 3 requires; and
+        // contract 4 rules out any other live reference to the spec. `tok` borrows
+        // `tag` for the duration of the call.
+        unsafe { disk.new_tag_iterator(&tok, self.field_id, weight, snapshot) }
     }
 }
 
@@ -871,7 +877,7 @@ mod tests {
     #[test]
     fn revalidate_aborts_after_tag_removed() {
         let mock = MockContext::new(3, 3);
-        let mut idx = TagIndex::<InMemoryMode>::new(false, 0);
+        let mut idx = TagIndex::<InMemoryMode>::new(0, false);
         let tags = &[Tag::new(b"team").unwrap()];
         for doc_id in 1..=3 {
             // `doc_id` is non-decreasing across loop iterations, as `index` requires.
@@ -1116,7 +1122,7 @@ mod choose_token_tests {
 
     /// Build an in-memory index with a suffix trie and commit `tags`.
     fn indexed(tags: &[&[u8]]) -> TagIndex<InMemoryMode> {
-        let mut idx = TagIndex::<InMemoryMode>::new(true, 0);
+        let mut idx = TagIndex::<InMemoryMode>::new(0, true);
         let tags: Vec<Tag<'_>> = tags
             .iter()
             .map(|t| Tag::new(t).expect("test literal is NUL-free"))
@@ -1351,11 +1357,11 @@ mod mem_usage_tests {
 
         // Both indexes are indexed *and* committed, so the values trie is non-empty on
         // each side: were it missing from one of the two sums, the delta would not match.
-        let mut with_suffix = TagIndex::<InMemoryMode>::new(true, 0);
+        let mut with_suffix = TagIndex::<InMemoryMode>::new(0, true);
         with_suffix.index(&tags, 1, false);
         with_suffix.commit(&tags);
 
-        let mut without_suffix = TagIndex::<InMemoryMode>::new(false, 0);
+        let mut without_suffix = TagIndex::<InMemoryMode>::new(0, false);
         without_suffix.index(&tags, 1, false);
         without_suffix.commit(&tags);
 

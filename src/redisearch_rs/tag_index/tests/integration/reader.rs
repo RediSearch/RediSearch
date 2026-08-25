@@ -66,7 +66,7 @@ fn open_reader_reads_all_ids_in_order() {
     const N: ffi::t_docId = 300;
 
     let mock = MockContext::new(N, N as usize);
-    let (tag_index, lookup) = allocate(TagIndex::<InMemoryMode>::new(false, 0));
+    let (tag_index, lookup) = allocate(TagIndex::<InMemoryMode>::new(0, false));
     let tags: &[&[u8]] = &[b"hello"];
     for doc_id in 1..=N {
         // SAFETY: `tag_index` was just allocated and is not yet aliased.
@@ -90,7 +90,7 @@ fn open_reader_reads_all_ids_in_order() {
 #[test]
 fn skip_to_past_last_id_yields_eof() {
     let mock = MockContext::new(1, 1);
-    let (tag_index, lookup) = allocate(TagIndex::<InMemoryMode>::new(false, 0));
+    let (tag_index, lookup) = allocate(TagIndex::<InMemoryMode>::new(0, false));
     let doc_id: ffi::t_docId = 1;
     // SAFETY: `tag_index` was just allocated and is not yet aliased.
     index_mem(unsafe { &mut *tag_index }, &[b"hello"], doc_id);
@@ -118,7 +118,7 @@ fn skip_to_past_last_id_yields_eof() {
 /// NULL-index case is a C-ABI concern and stays in the C++ suite.
 #[test]
 fn open_reader_absent_tag_returns_none() {
-    let (tag_index, lookup) = allocate(TagIndex::<InMemoryMode>::new(false, 0));
+    let (tag_index, lookup) = allocate(TagIndex::<InMemoryMode>::new(0, false));
     // SAFETY: `tag_index` was just allocated and is not yet aliased.
     index_mem(unsafe { &mut *tag_index }, &[b"hello"], 1);
 
@@ -144,7 +144,7 @@ fn revalidate_aborts_after_gc() {
     let tags: &[&[u8]] = &[b"team"];
     // `allocate` reaches the index through a raw pointer, so it can be mutated while
     // the iterator holds its back-pointer — as the query layer does across GC cycles.
-    let (tag_index, lookup) = allocate(TagIndex::<InMemoryMode>::new(false, 0));
+    let (tag_index, lookup) = allocate(TagIndex::<InMemoryMode>::new(0, false));
     for doc_id in 1..=3 {
         // SAFETY: `tag_index` was just allocated and is not yet aliased.
         index_mem(unsafe { &mut *tag_index }, tags, doc_id);
@@ -185,7 +185,7 @@ fn revalidate_aborts_after_gc() {
 /// EOF.
 #[test]
 fn open_reader_returns_none_for_empty_inverted_index() {
-    let (tag_index, lookup) = allocate(TagIndex::<InMemoryMode>::new(false, 0));
+    let (tag_index, lookup) = allocate(TagIndex::<InMemoryMode>::new(0, false));
     // Register the tag, then force its posting list empty without unregistering
     // the tag. No public path leaves that state — `TagIndex::gc` drops a tag that
     // lost its last document — so it is forced here to reach the guard, which
@@ -208,7 +208,7 @@ fn open_reader_returns_none_for_empty_inverted_index() {
 #[test]
 fn open_reader_omits_expired_field_documents() {
     let mock = MockContext::new(2, 2);
-    let (tag_index, lookup) = allocate(TagIndex::<InMemoryMode>::new(false, 0));
+    let (tag_index, lookup) = allocate(TagIndex::<InMemoryMode>::new(0, false));
     let tags = &[as_tag(b"hello")];
     // SAFETY: `tag_index` was just allocated and is not yet aliased.
     unsafe { &mut *tag_index }.index(tags, 1, false);
@@ -241,7 +241,7 @@ fn open_reader_omits_expired_field_documents() {
 #[test]
 fn resume_after_the_tag_was_collected_aborts() {
     let mock = MockContext::new(2, 2);
-    let (tag_index, lookup) = allocate(TagIndex::<InMemoryMode>::new(false, 0));
+    let (tag_index, lookup) = allocate(TagIndex::<InMemoryMode>::new(0, false));
     for doc_id in 1..=2 {
         // SAFETY: `tag_index` was just allocated and is not yet aliased.
         index_mem(unsafe { &mut *tag_index }, &[b"hello"], doc_id);
@@ -280,7 +280,7 @@ fn resume_with_the_tag_untouched_reads_on() {
     const N: ffi::t_docId = 3;
 
     let mock = MockContext::new(N, N as usize);
-    let (tag_index, lookup) = allocate(TagIndex::<InMemoryMode>::new(false, 0));
+    let (tag_index, lookup) = allocate(TagIndex::<InMemoryMode>::new(0, false));
     for doc_id in 1..=N {
         // SAFETY: `tag_index` was just allocated and is not yet aliased.
         index_mem(unsafe { &mut *tag_index }, &[b"hello"], doc_id);
@@ -331,7 +331,7 @@ fn resume_after_the_current_document_was_collected_reads_on() {
     const COLLECTED: ffi::t_docId = 2;
 
     let mock = MockContext::new(N, N as usize);
-    let (tag_index, lookup) = allocate(TagIndex::<InMemoryMode>::new(false, 0));
+    let (tag_index, lookup) = allocate(TagIndex::<InMemoryMode>::new(0, false));
     for doc_id in 1..=N {
         // SAFETY: `tag_index` was just allocated and is not yet aliased.
         index_mem(unsafe { &mut *tag_index }, &[b"hello"], doc_id);

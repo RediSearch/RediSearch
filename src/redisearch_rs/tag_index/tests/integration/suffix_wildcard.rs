@@ -23,7 +23,7 @@ const NO_CAP: u64 = u64::MAX;
 
 /// Build an in-memory index with a suffix trie and commit `tags`.
 fn indexed(tags: &[&[u8]]) -> TagIndex<InMemoryMode> {
-    let mut idx = TagIndex::<InMemoryMode>::new(true, 0);
+    let mut idx = TagIndex::<InMemoryMode>::new(0, true);
     commit_mem(&mut idx, tags);
     idx
 }

@@ -13,10 +13,10 @@
 //! values trie holds only tag *presence* sentinels. These tests exercise every
 //! disk path that does **not** dereference the disk index spec — `commit`
 //! (presence + record accounting), the value-trie iterators used by query
-//! expansion and `FT.TAGVALS`, `mem_usage`, and mode detection. The paths
-//! that call into `SearchDisk_*` (`index_on_disk`, `open_reader`) need a real disk
-//! backend and are covered end-to-end elsewhere, so here the spec pointer is a
-//! dangling-but-non-null placeholder that is never read.
+//! expansion and `FT.TAGVALS`, `mem_usage`, and mode detection. The spec pointer
+//! is therefore a dangling-but-non-null placeholder that is never read; the two
+//! paths that do cross into the backend, `index` and `open_reader`, are covered
+//! against recording stand-ins in [`disk_backend`](super::disk_backend).
 
 use std::ptr::NonNull;
 
@@ -98,7 +98,7 @@ fn commit_indexes_the_empty_tag() {
 /// In memory mode `commit` reports no records — they are counted at index time.
 #[test]
 fn memory_commit_reports_no_records() {
-    let mut idx = TagIndex::<InMemoryMode>::new(false, 0);
+    let mut idx = TagIndex::<InMemoryMode>::new(0, false);
     assert_eq!(commit_mem(&mut idx, &[b"foo", b"bar"]), 0);
 }
 
