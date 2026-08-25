@@ -56,6 +56,13 @@ typedef struct {
   size_t limit;            // Original limit, used to calculate the RESP2 result length
 } ChunkReplyState;
 
+/** Synchronizes access to reply state when results cross threads. */
+typedef struct {
+  ChunkReplyState state;
+  pthread_mutex_t lock;
+  bool closed;  // Protected by lock; rejects subsequent background appends
+} SafeChunkReplyState;
+
 typedef enum {
   QUERY_REQUEST_KIND_AREQ,
   QUERY_REQUEST_KIND_HYBRID,
@@ -338,7 +345,7 @@ typedef struct QueryRequest {
   /* Stored results and errors written by BG before UnblockClient and consumed
    * by the main-thread reply or timeout callback. Reset at the end of each
    * cycle and again during request destruction as a safety net. */
-  ChunkReplyState reply;
+  SafeChunkReplyState reply;
   /* false: BG replies inline through a thread-safe context; true: BG stores
    * results and the Redis reply callback serializes them on the main thread. */
   bool useReplyCallback;

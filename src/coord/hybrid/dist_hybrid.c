@@ -883,10 +883,12 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
 
     // Propagate max-prefix-expansion warning to the specific subquery that triggered it.
     if (maxPrefixSearch) {
-        QueryError_SetReachedMaxPrefixExpansionsWarning(&hreq->requests[SEARCH_INDEX]->base.reply.err);
+        QueryError_SetReachedMaxPrefixExpansionsWarning(
+            &hreq->requests[SEARCH_INDEX]->base.reply.state.err);
     }
     if (maxPrefixVsim) {
-        QueryError_SetReachedMaxPrefixExpansionsWarning(&hreq->requests[VECTOR_INDEX]->base.reply.err);
+        QueryError_SetReachedMaxPrefixExpansionsWarning(
+            &hreq->requests[VECTOR_INDEX]->base.reply.state.err);
     }
 
     RS_ASSERT(array_len(search->mappings) == array_len(vsim->mappings));
@@ -1315,7 +1317,7 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
   // The coordinator hybrid pipeline is not drainable: the tail merger and the
   // per-subquery depleters run on separate coord-pool threads, so a main-thread
   // drain would re-enter live upstream processors. Reply only with whatever the
-  // tail already accumulated into `base.reply.results` before the deadline.
+  // tail already accumulated into `base.reply.state.results` before the deadline.
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   serializeStoredResults_hybrid(hreq, reply);
   RedisModule_EndReply(reply);
@@ -1336,11 +1338,12 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
   // Check if results were stored (background thread completed successfully)
-  if (!hreq->base.reply.hasStoredResults) {
+  if (!hreq->base.reply.state.hasStoredResults) {
     // Background thread didn't store results - some early error occurred.
-    if (QueryError_HasError(&hreq->base.reply.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&hreq->base.reply.err), 1, COORD_ERR_WARN);
-      QueryError_ReplyAndClear(ctx, &hreq->base.reply.err);
+    if (QueryError_HasError(&hreq->base.reply.state.err)) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&hreq->base.reply.state.err), 1,
+                                         COORD_ERR_WARN);
+      QueryError_ReplyAndClear(ctx, &hreq->base.reply.state.err);
     } else {
       RedisModule_ReplyWithError(ctx, "Internal error: no results stored");
     }

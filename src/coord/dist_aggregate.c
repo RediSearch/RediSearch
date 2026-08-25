@@ -1059,7 +1059,7 @@ int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **ar
   return REDISMODULE_OK;
 }
 
-// Drain any queued partial results into `base.reply.results` on the main
+// Drain any queued partial results into `base.reply.state.results` on the main
 // thread after the background pipeline has aborted. Flips RPNet to drainOnly
 // mode so the post-abort drain only pulls already-buffered shard replies, then
 // delegates the actual loop to the shared helper.
@@ -1110,9 +1110,9 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
   AREQ_WaitForAggregateResultsComplete(req);
 
   // BG signals only after AREQ_StoreResults
-  RS_ASSERT(req->base.reply.hasStoredResults);
+  RS_ASSERT(req->base.reply.state.hasStoredResults);
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-    req->base.reply.rc = RS_RESULT_TIMEDOUT;
+    req->base.reply.state.rc = RS_RESULT_TIMEDOUT;
   }
 
   // Harvest any shard replies that landed in the channel before the deadline.
@@ -1135,11 +1135,12 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
   AREQ *req = QueryRequest_GetAREQ(request);
 
   // Check if results were stored (background thread completed successfully)
-  if (!req->base.reply.hasStoredResults) {
+  if (!req->base.reply.state.hasStoredResults) {
     // Background thread didn't store results - some early error occurred.
-    if (QueryError_HasError(&req->base.reply.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->base.reply.err), 1, COORD_ERR_WARN);
-      QueryError_ReplyAndClear(ctx, &req->base.reply.err);
+    if (QueryError_HasError(&req->base.reply.state.err)) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->base.reply.state.err), 1,
+                                         COORD_ERR_WARN);
+      QueryError_ReplyAndClear(ctx, &req->base.reply.state.err);
     } else {
       RedisModule_ReplyWithError(ctx, "Internal error: no results stored");
     }
@@ -1153,7 +1154,7 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // still produces rc=TIMEDOUT is the coord's own deadline firing, which
   // routes through DistAggregateTimeoutReturnStrictCallback -- not this
   // callback. Under FAIL, a shard timeout still bails the coord pipeline
-  // early; the BG thread stores the resulting error in base.reply.err
+  // early; the BG thread stores the resulting error in base.reply.state.err
   // and the early-error branch above replies with it.
   AREQ_ReplyWithStoredResults(ctx, req);
 
@@ -1193,18 +1194,18 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
   // cursor-shaped reply, signals completion, and parks/frees the cursor.
   AREQ_WaitForAggregateResultsComplete(req);
 
-  if (req->base.reply.hasStoredResults) {
+  if (req->base.reply.state.hasStoredResults) {
     // Drain anything queued before the deadline, then serialize and dispose
     // the stashed cursor (Pause if more rows remain, Free on EOF) inside
     // AREQ_ReplyWithStoredResults.
-    req->base.reply.rc = RS_RESULT_TIMEDOUT;
+    req->base.reply.state.rc = RS_RESULT_TIMEDOUT;
     drainPartialResultsAfterTimeout(req);
     AREQ_ReplyWithStoredResults(ctx, req);
   } else {
     // Pre-pipeline bail through AREQ_ReplyOrStoreError. Reachable on
     // coord+RETURN_STRICT now that coordinator cursors carry a real spec ref:
     // cursorRead bails here when the index was dropped while the cursor idled.
-    QueryError *err = &req->base.reply.err;
+    QueryError *err = &req->base.reply.state.err;
     RS_ASSERT(QueryError_HasError(err));
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, COORD_ERR_WARN);
     QueryError_ReplyAndClear(ctx, err);

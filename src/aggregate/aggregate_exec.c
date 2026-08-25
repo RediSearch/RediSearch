@@ -473,16 +473,16 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
 static void AREQ_StoreResults(AREQ *req, SearchResult **results, int rc, cachedVars cv, size_t limit) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
 
-  req->base.reply.results = results;
-  req->base.reply.rc = rc;
-  req->base.reply.cv = cv;
-  req->base.reply.limit = limit;
-  req->base.reply.hasStoredResults = true;
+  req->base.reply.state.results = results;
+  req->base.reply.state.rc = rc;
+  req->base.reply.state.cv = cv;
+  req->base.reply.state.limit = limit;
+  req->base.reply.state.hasStoredResults = true;
 
   // Deep copy error state since qctx->err points to a local variable in the caller
   // which will go out of scope. QueryError contains heap-allocated strings.
-  QueryError_ClearError(&req->base.reply.err);
-  QueryError_CloneFrom(qctx->err, &req->base.reply.err);
+  QueryError_ClearError(&req->base.reply.state.err);
+  QueryError_CloneFrom(qctx->err, &req->base.reply.state.err);
   QueryError_ClearError(qctx->err);
 }
 
@@ -1258,8 +1258,8 @@ void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) 
     // Clear destination before cloning to avoid leaking any existing error strings.
     // Deep copy since QueryError contains heap-allocated strings.
     // QueryReplyCallback will clear the stored error after replying.
-    QueryError_ClearError(&req->base.reply.err);
-    QueryError_CloneFrom(status, &req->base.reply.err);
+    QueryError_ClearError(&req->base.reply.state.err);
+    QueryError_CloneFrom(status, &req->base.reply.state.err);
     // Clear the original to avoid leaking heap-allocated strings.
     QueryError_ClearError(status);
     // Defensive: wake any RETURN_STRICT timer waiting on aggregateResultsDone.
@@ -1632,7 +1632,7 @@ void AREQ_SetCanYieldPartialResults(AREQ *req) {
       pipelineCanYieldPartialResults(req);
 }
 
-// Drain any queued partial results into `base.reply.results` on the main
+// Drain any queued partial results into `base.reply.state.results` on the main
 // thread after the background pipeline has aborted. Shard pipelines need no
 // root-specific pre-drain setup (unlike the coordinator's RPNet drainOnly
 // flip), so this just gates and delegates the actual loop to the shared helper.
@@ -1688,9 +1688,9 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
   AREQ_WaitForAggregateResultsComplete(req);
 
   // BG signals only after AREQ_StoreResults
-  RS_ASSERT(req->base.reply.hasStoredResults);
+  RS_ASSERT(req->base.reply.state.hasStoredResults);
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-    req->base.reply.rc = RS_RESULT_TIMEDOUT;
+    req->base.reply.state.rc = RS_RESULT_TIMEDOUT;
   }
 
   // Drain any results buffered post-timeout (e.g. RPSorter heap).
@@ -1707,7 +1707,7 @@ void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req) {
   // Use stored state directly - no need to recompute cv, it was stored by AREQ_StoreResults
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
   ResultProcessor *rp = qctx->endProc;
-  ChunkReplyState *stored = &req->base.reply;
+  ChunkReplyState *stored = &req->base.reply.state;
 
   // Point qctx->err to the stored error so serializeAndReplyResults/finishSendChunk can access it.
   // This is the end of the request lifecycle, so no need to restore.
@@ -1766,12 +1766,13 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
   AREQ *req = QueryRequest_GetAREQ(request);
 
   // Check if results were stored (background thread completed successfully)
-  if (!req->base.reply.hasStoredResults) {
+  if (!req->base.reply.state.hasStoredResults) {
     // Background thread didn't store results - some early error occurred.
     // Use the stored error if available, otherwise generic error.
-    if (QueryError_HasError(&req->base.reply.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->base.reply.err), 1, !IsInternal(req));
-      QueryError_ReplyAndClear(ctx, &req->base.reply.err);
+    if (QueryError_HasError(&req->base.reply.state.err)) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->base.reply.state.err), 1,
+                                         !IsInternal(req));
+      QueryError_ReplyAndClear(ctx, &req->base.reply.state.err);
     } else {
       RedisModule_ReplyWithError(ctx, "ERR Internal error: no results stored");
     }
@@ -1838,13 +1839,14 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
   // cursor-shaped reply and park/free the cursor before replying.
   AREQ_WaitForAggregateResultsComplete(req);
 
-  if (req->base.reply.hasStoredResults) {
-    req->base.reply.rc = RS_RESULT_TIMEDOUT;
+  if (req->base.reply.state.hasStoredResults) {
+    req->base.reply.state.rc = RS_RESULT_TIMEDOUT;
     drainPartialResultsAfterTimeout(req);
     AREQ_ReplyWithStoredResults(ctx, req);
-  } else if (QueryError_HasError(&req->base.reply.err)) {
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->base.reply.err), 1, !IsInternal(req));
-    QueryError_ReplyAndClear(ctx, &req->base.reply.err);
+  } else if (QueryError_HasError(&req->base.reply.state.err)) {
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->base.reply.state.err), 1,
+                                       !IsInternal(req));
+    QueryError_ReplyAndClear(ctx, &req->base.reply.state.err);
   } else {
     RedisModule_ReplyWithError(ctx, "ERR Internal error: no results stored");
   }
@@ -1865,11 +1867,12 @@ static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv
 
   AREQ *req = QueryRequest_GetAREQ(request);
 
-  if (!req->base.reply.hasStoredResults) {
+  if (!req->base.reply.state.hasStoredResults) {
     // Background thread didn't store results - some early error occurred.
-    if (QueryError_HasError(&req->base.reply.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->base.reply.err), 1, !IsInternal(req));
-      QueryError_ReplyAndClear(ctx, &req->base.reply.err);
+    if (QueryError_HasError(&req->base.reply.state.err)) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->base.reply.state.err), 1,
+                                         !IsInternal(req));
+      QueryError_ReplyAndClear(ctx, &req->base.reply.state.err);
     } else {
       RedisModule_ReplyWithError(ctx, "ERR Internal error: no results stored");
     }

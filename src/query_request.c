@@ -159,6 +159,23 @@ static inline void ChunkReplyState_Init(ChunkReplyState *state) {
   state->err = QueryError_Default();
 }
 
+static inline void SafeChunkReplyState_Init(SafeChunkReplyState *safeState) {
+  ChunkReplyState_Init(&safeState->state);
+  pthread_mutex_init(&safeState->lock, NULL);
+  safeState->closed = false;
+}
+
+static inline void SafeChunkReplyState_Reset(SafeChunkReplyState *safeState) {
+  ChunkReplyState_Destroy(&safeState->state);
+  ChunkReplyState_Init(&safeState->state);
+  safeState->closed = false;
+}
+
+static inline void SafeChunkReplyState_Destroy(SafeChunkReplyState *safeState) {
+  ChunkReplyState_Destroy(&safeState->state);
+  pthread_mutex_destroy(&safeState->lock);
+}
+
 static inline void QueryRequestAsyncState_Init(QueryRequestAsyncState *state) {
   state->requiresAggregateResultsSync = false;
   state->aggregatingResults = false;
@@ -220,7 +237,7 @@ void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind,
   request->blockedClientCycleActive = false;
   request->cursorInfo = (CursorInfo) {0};
   request->registryInfo = (RegistryInfo) {0};
-  ChunkReplyState_Init(&request->reply);
+  SafeChunkReplyState_Init(&request->reply);
   QueryRequest_SetUseReplyCallback(request, false);
   QueryRequestTimeout_Init(&request->timeout, requestConfig->timeoutPolicy,
                            requestConfig->queryTimeoutMS);
@@ -235,12 +252,11 @@ void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind,
 }
 
 void QueryRequest_ResetReply(QueryRequest *request) {
-  ChunkReplyState_Destroy(&request->reply);
-  ChunkReplyState_Init(&request->reply);
+  SafeChunkReplyState_Reset(&request->reply);
 }
 
 void QueryRequest_Destroy(QueryRequest *request) {
-  QueryRequest_ResetReply(request);
+  SafeChunkReplyState_Destroy(&request->reply);
   QueryRequestAsyncState_Destroy(&request->async);
   QueryRequest_SetEndProcRef(request, NULL);
   if (request->args.argv) {
