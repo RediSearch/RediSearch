@@ -51,6 +51,7 @@
 #include "reply.h"
 #include "resp3.h"
 #include "query_error_ffi.h"
+#include "query_eval_ffi.h"
 #include "coord/rmr/rmr.h"
 #include "shard_window_ratio.h"
 #include "coord/rmr/reply.h"

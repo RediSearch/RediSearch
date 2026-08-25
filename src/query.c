@@ -983,50 +983,6 @@ int QAST_EvalParams(QueryAST *q, RSSearchOptions *opts, unsigned int dialectVers
   return QueryNode_EvalParams(opts->params, q->root, dialectVersion, status);
 }
 
-int QueryNode_EvalParams(dict *params, QueryNode *n, unsigned int dialectVersion, QueryError *status) {
-  int withChildren = 1;
-  int res = REDISMODULE_OK;
-  switch(n->type) {
-    case QN_VECTOR:
-      res = VectorQuery_EvalParams(params, n, dialectVersion, status);
-      break;
-    case QN_GEO:
-    case QN_TOKEN:
-    case QN_NUMERIC:
-    case QN_TAG:
-    case QN_PHRASE:
-    case QN_NOT:
-    case QN_PREFIX:
-    case QN_FUZZY:
-    case QN_OPTIONAL:
-    case QN_IDS:
-    case QN_WILDCARD:
-    case QN_WILDCARD_QUERY:
-    case QN_GEOMETRY:
-      res = QueryNode_EvalParamsCommon(params, n, dialectVersion, status);
-      break;
-    case QN_UNION:
-      // no immediately owned params to resolve
-      RS_ASSERT(n->params == NULL);
-      break;
-    case QN_NULL:
-    case QN_MISSING:
-      withChildren = 0;
-      break;
-    case QN_MAX: // LCOV_EXCL_LINE — exhaustive switch: all valid QN types handled above
-      RS_ABORT("Invalid query node type"); // LCOV_EXCL_LINE
-  }
-  // Handle children
-  if (withChildren && res == REDISMODULE_OK) {
-    for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {
-      res = QueryNode_EvalParams(params, n->children[ii], dialectVersion, status);
-      if (res == REDISMODULE_ERR)
-        break;
-    }
-  }
-  return res;
-}
-
 static int QueryNode_CheckAllowSlopAndInorder(QueryNode *qn, const IndexSpec *spec, bool atTopLevel, QueryError *status) {
   // Need to check when slop/inorder are locally overridden at query node level, or at query top-level
   if(atTopLevel || qn->opts.maxSlop >= 0 || (qn->opts.flags & QueryNode_OverriddenInOrder)) {
@@ -1250,21 +1206,6 @@ void QueryNode_ClearChildren(QueryNode *n, int shouldFree) {
   if (QueryNode_NumChildren(n)) {
     array_clear(n->children);
   }
-}
-
-int QueryNode_EvalParamsCommon(dict *params, QueryNode *node, unsigned int dialectVersion, QueryError *status) {
-  if (node->params) {
-    for (size_t i = 0; i < QueryNode_NumParams(node); i++) {
-      int res = QueryParam_Resolve(&node->params[i], params, dialectVersion, status);
-      if (res < 0)
-        return REDISMODULE_ERR;
-      // If parameter's value is a number, don't expand the node.
-      if (res == 2) {
-        node->opts.flags |= QueryNode_Verbatim;
-      }
-    }
-  }
-  return REDISMODULE_OK;
 }
 
 static sds doPad(sds s, int len) {

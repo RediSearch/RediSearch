@@ -125,7 +125,6 @@ int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisS
                 QueryError *status);
 
 int QAST_EvalParams(QueryAST *q, RSSearchOptions *opts, unsigned int dialectVersion, QueryError *status);
-int QueryNode_EvalParams(dict *params, QueryNode *node, unsigned int dialectVersion, QueryError *status);
 
 int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, QueryError *status);
 /* Return a string representation of the QueryParseCtx parse tree. The string should be freed by the
