@@ -127,6 +127,16 @@ typedef enum {
   RS_RESULT_MAX
 } RPStatus;
 
+/** Possible return values from Drain(). */
+typedef enum {
+  // Result is filled with valid data.
+  RP_DRAIN_OK = 0,
+  // Result is empty, and Drain will not return another result.
+  RP_DRAIN_EOF,
+  // Result production failed, and Drain will not return another result.
+  RP_DRAIN_ERROR,
+} RPDrainStatus;
+
 /**
  * Result processor structure. This should be "Subclassed" by the actual
  * implementations
@@ -158,7 +168,27 @@ typedef struct ResultProcessor {
 
   /** Frees the processor and any internal data related to it. */
   void (*Free)(struct ResultProcessor *self);
+
+  /**
+   * Populates `res` with the next result that can be produced without waiting
+   * for background progress. The result ownership convention is the same as
+   * for Next().
+   *
+   * Drain may run concurrently with at most one call active in the Next chain.
+   * The caller guarantees that the processor chain remains alive until both
+   * calls return. Implementations must not wait for the Next call, background
+   * work, I/O, condition variables, or global runtime locks.
+   */
+  RPDrainStatus (*Drain)(struct ResultProcessor *self, SearchResult *res);
 } ResultProcessor;
+
+/**
+ * Drains one result from `rp`.
+ *
+ * Processors without a Drain implementation are transparent: the call is
+ * forwarded upstream, or returns RP_DRAIN_EOF at the source of the chain.
+ */
+RPDrainStatus ResultProcessor_Drain(ResultProcessor *rp, SearchResult *res);
 
 ResultProcessor *RPQueryIterator_New(QueryIterator *itr, const RedisModuleSlotRangeArray *querySlots, uint32_t slotsVersion, RedisSearchCtx *sctx);
 

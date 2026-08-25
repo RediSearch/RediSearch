@@ -541,6 +541,13 @@ void QITR_PushRP(QueryProcessingCtx *it, ResultProcessor *rp) {
   it->endProc = rp;
 }
 
+RPDrainStatus ResultProcessor_Drain(ResultProcessor *rp, SearchResult *res) {
+  while (rp && !rp->Drain) {
+    rp = rp->upstream;
+  }
+  return rp ? rp->Drain(rp, res) : RP_DRAIN_EOF;
+}
+
 void QITR_FreeChain(QueryProcessingCtx *qitr) {
   ResultProcessor *rp = qitr->endProc;
   while (rp) {
