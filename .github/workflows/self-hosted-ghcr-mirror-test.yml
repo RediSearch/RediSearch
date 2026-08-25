@@ -42,32 +42,41 @@ jobs:
   pull-from-mirror:
     name: Pull hello image from GHCR mirror
     needs: push-image
-    if: ${{ vars.GCHR_MIRROR_HOST != '' }}
     runs-on: ${{ vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-latest' }}
+    permissions:
+      packages: read
+    env:
+      GHCR_MIRROR_HOST: ${{ vars.GHCR_MIRROR_HOST }}
     steps:
       - name: Pull and run mirrored image
         shell: bash -l -eo pipefail {0}
         env:
-          MIRROR_HOST: ${{ vars.GCHR_MIRROR_HOST }}
-          MIRROR_USERNAME: ${{ vars.GCHR_MIRROR_USERNAME || secrets.GCHR_MIRROR_USERNAME }}
-          MIRROR_PASSWORD: ${{ secrets.GCHR_MIRROR_PASSWORD || vars.GCHR_MIRROR_PASSWORD }}
+          GHCR_IMAGE: ${{ needs.push-image.outputs.image }}
+          GHCR_MIRROR_USERNAME: ${{ vars.GHCR_MIRROR_USERNAME || secrets.GHCR_MIRROR_USERNAME }}
+          GHCR_MIRROR_PASSWORD: ${{ secrets.GHCR_MIRROR_PASSWORD || vars.GHCR_MIRROR_PASSWORD }}
+          GITHUB_TOKEN: ${{ github.token }}
           IMAGE_PATH: ${{ needs.push-image.outputs.image-path }}
           RUN_ID: ${{ needs.push-image.outputs.run-id }}
         run: |
-          mirror_host="${MIRROR_HOST#http://}"
-          mirror_host="${mirror_host#https://}"
-          mirror_host="${mirror_host%/}"
+          if [ -n "$GHCR_MIRROR_HOST" ]; then
+            mirror_host="${GHCR_MIRROR_HOST#http://}"
+            mirror_host="${mirror_host#https://}"
+            mirror_host="${mirror_host%/}"
 
-          if [ -z "$MIRROR_USERNAME" ] || [ -z "$MIRROR_PASSWORD" ]; then
-            echo "GCHR_MIRROR_USERNAME and GCHR_MIRROR_PASSWORD are required when GCHR_MIRROR_HOST is set."
-            exit 1
+            if [ -z "$GHCR_MIRROR_USERNAME" ] || [ -z "$GHCR_MIRROR_PASSWORD" ]; then
+              echo "GHCR_MIRROR_USERNAME and GHCR_MIRROR_PASSWORD are required when GHCR_MIRROR_HOST is set."
+              exit 1
+            fi
+
+            image="${mirror_host}/${IMAGE_PATH}"
+            echo "$GHCR_MIRROR_PASSWORD" | docker login "$mirror_host" -u "$GHCR_MIRROR_USERNAME" --password-stdin
+          else
+            image="$GHCR_IMAGE"
+            echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           fi
 
-          mirror_image="${mirror_host}/${IMAGE_PATH}"
-          echo "$MIRROR_PASSWORD" | docker login "$mirror_host" -u "$MIRROR_USERNAME" --password-stdin
-
           for attempt in 1 2 3 4 5 6; do
-            if docker pull "$mirror_image"; then
+            if docker pull "$image"; then
               break
             fi
             if [ "$attempt" -eq 6 ]; then
@@ -77,5 +86,5 @@ jobs:
             sleep 10
           done
 
-          docker run --rm "$mirror_image" | tee /tmp/ghcr-mirror-test-output.txt
+          docker run --rm "$image" | tee /tmp/ghcr-mirror-test-output.txt
           grep -Fx "hello from ${RUN_ID}" /tmp/ghcr-mirror-test-output.txt
