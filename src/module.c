@@ -698,6 +698,15 @@ int CreateIndexIfNotExistsCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   return CreateIndexCommand(ctx, argv, argc);
 }
 
+static void DropIndex_ReplicateDropIfExists(RedisModuleCtx *ctx, RedisModuleString *indexName) {
+  const char *cmd = CMD_FOR_ENV(RS_DROP_INDEX_IF_X_CMD);
+  RedisModule_Replicate(ctx, cmd, "sc", indexName, "_FORCEKEEPDOCS");
+}
+
+static void DropIndex_UnlinkDocumentKeys(RedisModuleCtx *ctx, DocTable *dt) {
+  DOCTABLE_FOREACH(dt, Redis_UnlinkKeyC(ctx, dmd->keyPtr));
+}
+
 /*
  * FT.DROP <index> [KEEPDOCS]
  * FT.DROPINDEX <index> [DD]
@@ -766,6 +775,8 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
   sp->dropMode = dropMode;
 
+  DropIndex_ReplicateDropIfExists(ctx, argv[1]);
+
   if (sp->dropMode == IndexDrop_DeleteDocs) {
     // We take a strong reference to the index, so it will not be freed
     // and we can still use it's doc table to delete the keys.
@@ -774,8 +785,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     // delete key notification callbacks.
     Indexes_RemoveSpecFromGlobals(global_ref, false);
 
-    DocTable *dt = &sp->docs;
-    DOCTABLE_FOREACH(dt, Redis_DeleteKeyC(ctx, dmd->keyPtr));
+    DropIndex_UnlinkDocumentKeys(ctx, &sp->docs);
 
     // Return call's references
     CurrentThread_ClearIndexSpec();
@@ -792,8 +802,6 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Log index deletion
   RedisModule_Log(ctx, "notice", "Successfully dropped index %s", indexName);
   rm_free(indexName);
-
-  RedisModule_Replicate(ctx, CMD_FOR_ENV(RS_DROP_INDEX_IF_X_CMD), "sc", argv[1], "_FORCEKEEPDOCS");
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
