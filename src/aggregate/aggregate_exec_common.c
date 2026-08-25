@@ -230,7 +230,10 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
    SearchResult_Destroy(&r);
  }
 
- void AREQ_DrainStoredResultsAfterTimeout(AREQ *req) {
-   Pipeline_DrainStoredResultsAfterTimeout(AREQ_QueryProcessingCtx(req),
-                                           &req->base.reply.state);
- }
+void AREQ_DrainStoredResultsAfterTimeout(AREQ *req) {
+  // Strict-mode draining mutates the same array the background producer published.
+  ChunkReplyState *stored = QueryRequest_GetReplyStateSafe(&req->base);
+  Pipeline_DrainStoredResultsAfterTimeout(AREQ_QueryProcessingCtx(req), stored);
+  // The main-thread drain is complete, so no shared array mutation remains.
+  QueryRequest_ReleaseReplyStateSafe(&req->base);
+}

@@ -883,12 +883,16 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
 
     // Propagate max-prefix-expansion warning to the specific subquery that triggered it.
     if (maxPrefixSearch) {
-        QueryError_SetReachedMaxPrefixExpansionsWarning(
-            &hreq->requests[SEARCH_INDEX]->base.reply.state.err);
+        // Cursor preparation exclusively owns the search subrequest before publication.
+        ChunkReplyState *replyState =
+            QueryRequest_GetReplyStateUnsafe(&hreq->requests[SEARCH_INDEX]->base);
+        QueryError_SetReachedMaxPrefixExpansionsWarning(&replyState->err);
     }
     if (maxPrefixVsim) {
-        QueryError_SetReachedMaxPrefixExpansionsWarning(
-            &hreq->requests[VECTOR_INDEX]->base.reply.state.err);
+        // Cursor preparation exclusively owns the vector subrequest before publication.
+        ChunkReplyState *replyState =
+            QueryRequest_GetReplyStateUnsafe(&hreq->requests[VECTOR_INDEX]->base);
+        QueryError_SetReachedMaxPrefixExpansionsWarning(&replyState->err);
     }
 
     RS_ASSERT(array_len(search->mappings) == array_len(vsim->mappings));
@@ -1336,19 +1340,25 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
   RS_ASSERT(request != NULL);
   HybridRequest *hreq = QueryRequest_GetHybrid(request);
+  // This callback can consume state published under RETURN_STRICT synchronization.
+  ChunkReplyState *stored = QueryRequest_GetReplyStateSafe(&hreq->base);
 
   // Check if results were stored (background thread completed successfully)
-  if (!hreq->base.reply.state.hasStoredResults) {
+  if (!stored->hasStoredResults) {
     // Background thread didn't store results - some early error occurred.
-    if (QueryError_HasError(&hreq->base.reply.state.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&hreq->base.reply.state.err), 1,
+    if (QueryError_HasError(&stored->err)) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&stored->err), 1,
                                          COORD_ERR_WARN);
-      QueryError_ReplyAndClear(ctx, &hreq->base.reply.state.err);
+      QueryError_ReplyAndClear(ctx, &stored->err);
     } else {
       RedisModule_ReplyWithError(ctx, "Internal error: no results stored");
     }
+    // The callback finished consuming the protected error state.
+    QueryRequest_ReleaseReplyStateSafe(&hreq->base);
     return REDISMODULE_OK;
   }
+  // Availability was confirmed; ownership transfer will use its own safe section.
+  QueryRequest_ReleaseReplyStateSafe(&hreq->base);
 
   // Call serializeStoredResults_hybrid to build reply from stored results
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;

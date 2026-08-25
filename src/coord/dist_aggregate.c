@@ -1110,10 +1110,14 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
   AREQ_WaitForAggregateResultsComplete(req);
 
   // BG signals only after AREQ_StoreResults
-  RS_ASSERT(req->base.reply.state.hasStoredResults);
+  // The strict timeout callback consumes state published by the background thread.
+  ChunkReplyState *stored = QueryRequest_GetReplyStateSafe(&req->base);
+  RS_ASSERT(stored->hasStoredResults);
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-    req->base.reply.state.rc = RS_RESULT_TIMEDOUT;
+    stored->rc = RS_RESULT_TIMEDOUT;
   }
+  // The timeout metadata update is complete before the separate drain phase.
+  QueryRequest_ReleaseReplyStateSafe(&req->base);
 
   // Harvest any shard replies that landed in the channel before the deadline.
   // No-op for already-complete runs.
@@ -1133,19 +1137,25 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
   QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
   RS_ASSERT(request != NULL);
   AREQ *req = QueryRequest_GetAREQ(request);
+  // This callback can consume state published under RETURN_STRICT synchronization.
+  ChunkReplyState *stored = QueryRequest_GetReplyStateSafe(&req->base);
 
   // Check if results were stored (background thread completed successfully)
-  if (!req->base.reply.state.hasStoredResults) {
+  if (!stored->hasStoredResults) {
     // Background thread didn't store results - some early error occurred.
-    if (QueryError_HasError(&req->base.reply.state.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->base.reply.state.err), 1,
+    if (QueryError_HasError(&stored->err)) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&stored->err), 1,
                                          COORD_ERR_WARN);
-      QueryError_ReplyAndClear(ctx, &req->base.reply.state.err);
+      QueryError_ReplyAndClear(ctx, &stored->err);
     } else {
       RedisModule_ReplyWithError(ctx, "Internal error: no results stored");
     }
+    // The callback finished consuming the protected error state.
+    QueryRequest_ReleaseReplyStateSafe(&req->base);
     return REDISMODULE_OK;
   }
+  // Availability was confirmed; ownership transfer will use its own safe section.
+  QueryRequest_ReleaseReplyStateSafe(&req->base);
 
   // Under RETURN-STRICT, a shard's TIMEDOUT warning does not abort the coord
   // pipeline (see processWarningsAndCleanup in src/coord/rpnet.c): RPNet keeps
@@ -1194,21 +1204,27 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
   // cursor-shaped reply, signals completion, and parks/frees the cursor.
   AREQ_WaitForAggregateResultsComplete(req);
 
-  if (req->base.reply.state.hasStoredResults) {
+  // Strict timeout handling updates state shared with the background publisher.
+  ChunkReplyState *stored = QueryRequest_GetReplyStateSafe(&req->base);
+  if (stored->hasStoredResults) {
     // Drain anything queued before the deadline, then serialize and dispose
     // the stashed cursor (Pause if more rows remain, Free on EOF) inside
     // AREQ_ReplyWithStoredResults.
-    req->base.reply.state.rc = RS_RESULT_TIMEDOUT;
+    stored->rc = RS_RESULT_TIMEDOUT;
+    // The timeout metadata update is complete before draining and ownership transfer.
+    QueryRequest_ReleaseReplyStateSafe(&req->base);
     drainPartialResultsAfterTimeout(req);
     AREQ_ReplyWithStoredResults(ctx, req);
   } else {
     // Pre-pipeline bail through AREQ_ReplyOrStoreError. Reachable on
     // coord+RETURN_STRICT now that coordinator cursors carry a real spec ref:
     // cursorRead bails here when the index was dropped while the cursor idled.
-    QueryError *err = &req->base.reply.state.err;
+    QueryError *err = &stored->err;
     RS_ASSERT(QueryError_HasError(err));
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, COORD_ERR_WARN);
     QueryError_ReplyAndClear(ctx, err);
+    // The callback finished consuming the protected error state.
+    QueryRequest_ReleaseReplyStateSafe(&req->base);
   }
   return REDISMODULE_OK;
 }

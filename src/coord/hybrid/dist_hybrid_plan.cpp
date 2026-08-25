@@ -50,7 +50,9 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req) {
 
       AREQ_AddRequestFlags(areq, QEXEC_F_IS_COORDINATOR);
 
-      int rc = AREQ_BuildPipeline(areq, &areq->base.reply.state.err);
+      // Plan construction exclusively owns this subrequest before worker dispatch.
+      ChunkReplyState *replyState = QueryRequest_GetReplyStateUnsafe(&areq->base);
+      int rc = AREQ_BuildPipeline(areq, &replyState->err);
       if (rc != REDISMODULE_OK) {
           StrongRef_Release(sync_ref);
           return REDISMODULE_ERR;
