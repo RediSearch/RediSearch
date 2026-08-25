@@ -231,19 +231,18 @@ TEST_F(CursorsTest, EndCycleExecutesRecordedDisposition) {
   ASSERT_EQ(Cursors_GetInfoStats().total_user, base);
 }
 
-// Shutdown unwind: requests whose queued free-privdata callback never drains
+// Shutdown unwind: cycles whose queued free-privdata callback never drains
 // (module cleanup runs inside the SHUTDOWN event, before the event loop can
-// run it) are unlinked by BlockedQueries_UnwindCycles — both registry lists
-// end up empty while the requests themselves stay alive, since async
-// borrowers (an MR iterator context) may still hold them at that point.
-TEST_F(CursorsTest, UnwindCyclesUnlinksWithoutFreeing) {
+// run it) are completed by BlockedQueries_UnwindCycles — both registry lists
+// empty and each cycle's request is freed (leaks surface under ASAN).
+TEST_F(CursorsTest, UnwindCyclesCompletesPendingOnFree) {
   if (!MainThread_GetBlockedQueries()) {
     ASSERT_EQ(MainThread_InitBlockedQueries(), 0);
   }
   BlockedQueries *bq = MainThread_GetBlockedQueries();
   ASSERT_TRUE(bq != NULL);
 
-  // Two lingering cycles, one per registry list. Mirrors BeginCycle's
+  // Two lingering cycles, one per registry list. Mirrors the block helpers'
   // registry effects without a blocked client (none exists in unit tests).
   AREQ *reqs[2] = {AREQ_New(NULL, 0), AREQ_New(NULL, 0)};
   DLLIST *lists[2] = {&bq->queries, &bq->cursors};
@@ -257,13 +256,4 @@ TEST_F(CursorsTest, UnwindCyclesUnlinksWithoutFreeing) {
 
   ASSERT_TRUE(DLLIST_IS_EMPTY(&bq->queries));
   ASSERT_TRUE(DLLIST_IS_EMPTY(&bq->cursors));
-  for (int i = 0; i < 2; i++) {
-    // Still alive and fully unlinked: a borrower's late read would be valid.
-    ASSERT_FALSE(RegistryInfo_IsLinked(&reqs[i]->base.registryInfo));
-    ASSERT_EQ(reqs[i]->base.registryInfo.cycle_start, 0);
-    // In production the unwound requests leak by design; the unit test frees
-    // them to stay ASAN-clean.
-    reqs[i]->base.blockedClientCycleActive = false;
-    QueryRequest_Free(&reqs[i]->base);
-  }
 }

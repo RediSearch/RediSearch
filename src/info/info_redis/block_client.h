@@ -33,20 +33,21 @@ struct QueryRequest;
  *   <dispatch to worker pool>;
  *
  * (BlockCursorClientWithTimeout for cursor reads.) Both helpers call
- * RedisModule_BlockClient with OnFree registered, then
- * QueryRequest_BeginCycle to bind the per-cycle fields. */
+ * RedisModule_BlockClient with OnFree registered, bind the per-cycle fields,
+ * and register the standalone cycle for crash reporting. */
 
 /* Bind the per-cycle fields on `request`. Called on the main thread after
  * RedisModule_BlockClient returned `bc` (with QueryRequest_OnFree
  * registered as free_privdata) and before dispatching BG work. Takes
  * ownership of the request (it becomes the blocked client's privdata — see
- * the ownership contract on QueryRequest), links it into the BlockedQueries
- * query registry (crash reports), and records the cycle's reply mode
- * (`reply_cb` must be the value that was passed to RedisModule_BlockClient). */
+ * the ownership contract on QueryRequest) and records the cycle's reply mode
+ * (`reply_cb` must be the value that was passed to RedisModule_BlockClient).
+ * Coordinator call sites use this lifecycle API without registering in
+ * BlockedQueries. */
 void QueryRequest_BeginCycle(struct QueryRequest *request, RedisModuleBlockedClient *bc,
                              RedisModuleCmdFunc reply_cb);
 
-/* Same as QueryRequest_BeginCycle, linking into the cursor registry instead. */
+/* Same lifecycle setup as QueryRequest_BeginCycle for a cursor read. */
 void QueryRequest_BeginCursorCycle(struct QueryRequest *request, RedisModuleBlockedClient *bc,
                                    RedisModuleCmdFunc reply_cb);
 
@@ -60,18 +61,12 @@ void QueryRequest_EndCycle(struct QueryRequest *request);
  * client is destroyed; delegates to QueryRequest_EndCycle. */
 void QueryRequest_OnFree(RedisModuleCtx *ctx, void *privdata);
 
-/* Shutdown-only: unlink every request still linked in the registry, leaving
- * it empty (BlockedQueries_Free asserts that). Unlink WITHOUT ending the
- * cycles: RedisModule_UnblockClient only queues an unblock, and module
- * cleanup runs synchronously inside the SHUTDOWN server event, so the queued
- * free-privdata callbacks of cycles that completed while the pools were
- * shutting down never drain — but a linked request may still be borrowed by
- * async machinery that outlives the pools (an MR iterator context holds a
- * deferred coordinator request until the MR runtimes are freed), so it cannot
- * be freed here either. The requests intentionally leak; the process exits
- * without returning to the event loop, and MODULE UNLOAD is refused while the
- * module has undrained blocked clients, so nothing runs against them later.
- * Call only after every pool whose cycles register here has stopped. */
+/* Shutdown-only: end every standalone cycle still linked in the registry,
+ * leaving it empty (BlockedQueries_Free asserts that). RedisModule_UnblockClient
+ * only queues an unblock, and cleanup runs synchronously inside the SHUTDOWN
+ * event, so callbacks queued while the workers were draining never run. Call
+ * only after the workers pool has stopped; coordinator cycles do not register
+ * here. */
 void BlockedQueries_UnwindCycles(void);
 
 /* Block `ctx` for one query cycle of `request`. Registers the cycle in

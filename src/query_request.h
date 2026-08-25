@@ -80,10 +80,11 @@ typedef struct {
 } CursorInfo;
 
 /* The request's embedded entry in the BlockedQueries registry (crash reports),
- * linked by BeginCycle and unlinked by EndCycle. Main-thread only. The
- * registry holds nothing else: the walkers read everything they report
- * through the request (index name from the held argv, cursor id from
- * cursorInfo), so a registered cycle never delays index teardown. */
+ * linked by the standalone block-client helpers and unlinked by EndCycle.
+ * Main-thread only. The registry holds nothing else: the walkers read
+ * everything they report through the request (index name from the held argv,
+ * cursor id from cursorInfo), so a registered cycle never delays index
+ * teardown. */
 typedef struct {
   DLLIST_node node;
   time_t cycle_start;

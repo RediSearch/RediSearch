@@ -1949,6 +1949,12 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   workersThreadPool_Drain(RSDummyContext, 0);
   workersThreadPool_Destroy();
 
+  // Cleanup runs inside the SHUTDOWN event, so free-privdata callbacks queued
+  // while the workers drained will not run. Coordinator cycles are not in this
+  // registry, making it safe to finish the remaining standalone cycles now.
+  BlockedQueries_UnwindCycles();
+  MainThread_DestroyBlockedQueries();
+
   if (legacySpecDict) {
     dictRelease(legacySpecDict);
     legacySpecDict = NULL;
@@ -1962,15 +1968,7 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   CleanPool_ThreadPoolDestroy();
   ReindexPool_ThreadPoolDestroy();
   ConcurrentSearch_ThreadPoolDestroy();
-
-  // Only after every pool whose cycles register in BlockedQueries has stopped
-  // (the workers pool above and the coordinator pool just now): no new cycle
-  // can link in after this point, so the unlink-only unwind leaves the
-  // registry permanently empty for MainThread_DestroyBlockedQueries below.
-  BlockedQueries_UnwindCycles();
   MR_FreeCluster();
-
-  MainThread_DestroyBlockedQueries();
 
   // free global structures
   Extensions_Free();

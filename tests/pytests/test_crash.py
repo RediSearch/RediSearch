@@ -11,10 +11,7 @@ from test_blocked_client_timeout import wait_for_blocked_query_client
 class CrashingEnv(EnterpriseStandaloneEnvBase):
     def getEnvByName(self):
         env = super().getEnvByName()
-        # In cluster mode only the first shard is crashed (the tests use it as
-        # the coordinator); the surviving shards must still stop normally.
-        crashing = env.shards[0] if getattr(env, 'shards', None) else env
-        crashing._stopProcess = self.passStopProcess
+        env._stopProcess = self.passStopProcess
         return env
 
     # stopping the process checks if the process crashed and output the crash message
@@ -378,68 +375,3 @@ def test_main_thread_crash_reports_blocked_queries_obfuscated():
         log = logFile.read()
     env.assertNotIn('search_idx:started_at=', log)
     env.assertNotIn('index=idx,', log)
-
-
-# the coordinator's blocked cycles register too: a coordinator main-thread
-# crash must report its in-flight distributed queries and cursor reads
-# (FT.HYBRID shares the aggregate path's registration site)
-@skip(cluster=False)
-def test_main_thread_crash_reports_blocked_coordinator_queries():
-    env = CrashingEnv(testName="test_main_thread_crash_reports_blocked_coordinator_queries",
-                      freshEnv=True)
-    conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()
-    for i in range(10):
-        conn.execute_command('HSET', f'doc{i}', 'text', 'hello')
-
-    # Shard 1 coordinates every command this test sends directly to it.
-    coordinator = env.getConnection(1)
-
-    # The cursor to read from; its initial cycle needs the coordinator pool
-    # still running.
-    res = coordinator.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@text',
-                                      'WITHCURSOR', 'COUNT', '2')
-    cursor_id = res[1]
-    env.assertNotEqual(cursor_id, 0)
-
-    logFilePath = log_file_path(env)
-
-    # Dispatched coordinator cycles stay queued — and registered — on the
-    # paused pool.
-    coordinator.execute_command(debug_cmd(), 'COORD_THREADS', 'PAUSE')
-    wait_for_condition(
-        lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 1, {}),
-        'Timeout while waiting for coordinator threads to pause')
-
-    def run_ignoring_errors(*cmd):
-        try:
-            env.getConnection(1).execute_command(*cmd)
-        except Exception:
-            pass  # the coordinator crashes while the command is blocked, by design
-
-    threading.Thread(target=run_ignoring_errors,
-                     args=('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@text'),
-                     daemon=True).start()
-    threading.Thread(target=run_ignoring_errors,
-                     args=('FT.CURSOR', 'READ', 'idx', cursor_id),
-                     daemon=True).start()
-
-    # A client observed blocked proves its cycle is registered: registration
-    # runs inside the command handler, before the handler returns.
-    wait_for_blocked_query_client(env, 'FT.AGGREGATE')
-    wait_for_blocked_query_client(env, 'FT.CURSOR|READ')
-
-    try:
-        coordinator.execute_command('DEBUG', 'SEGFAULT')  # crash the coordinator's main thread
-    except Exception:
-        pass
-
-    results = scan_log_fragments(logFilePath, [
-        '# search_blocked_queries',
-        'search_idx:started_at=',
-        '# search_blocked_cursors',
-        f'search_{cursor_id}:index=idx,started_at=',
-    ])
-    for fragment, value in results.items():
-        env.assertIsNotNone(value, message=f"Fragment '{fragment}' not found in crash log")
-    env.assertGreater(int(results['search_idx:started_at=']), 0)
