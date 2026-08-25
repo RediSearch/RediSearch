@@ -1296,8 +1296,10 @@ impl Drop for TestContext {
 /// [`TestContext`], whose [`Drop`] takes this same lock and would
 /// self-deadlock the calling thread rather than merely fail.
 pub fn with_c_globals_locked<T>(f: impl FnOnce() -> T) -> T {
-    let _lock = CONTEXT_MUTEX.lock().unwrap();
-    f()
+    let lock = CONTEXT_MUTEX.lock().unwrap();
+    let res = f();
+    drop(lock);
+    res
 }
 
 /// Guard object that manages globally allocated resources.
