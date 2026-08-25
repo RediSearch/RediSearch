@@ -231,16 +231,18 @@ def test_query_thread_crash_with_rust_panic():
     )
     env.assertIn("crash.rs", location_line)
 
-    timestamp_line = next((l for l in report_lines if "search_panic_timestamp:" in l), None)
+    recorded_at_line = next(
+        (l for l in report_lines if "search_panic_recorded_at:" in l), None
+    )
     env.assertIsNotNone(
-        timestamp_line, message="search_panic_timestamp missing from the bug report"
+        recorded_at_line, message="search_panic_recorded_at missing from the bug report"
     )
     env.assertTrue(
         re.search(
-            r"search_panic_timestamp:\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC",
-            timestamp_line,
+            r"search_panic_recorded_at:\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC",
+            recorded_at_line,
         ),
-        message=f"unexpected search_panic_timestamp format: {timestamp_line}",
+        message=f"unexpected search_panic_recorded_at format: {recorded_at_line}",
     )
 
     # The panic hook's tracing line predates the report and stays in the log;

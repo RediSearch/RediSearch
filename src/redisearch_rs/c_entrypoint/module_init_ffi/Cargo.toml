@@ -11,6 +11,7 @@ publish.workspace = true
 bench = false
 
 [dependencies]
+chrono = { version = "0.4", default-features = false, features = ["std", "now"] }
 redis-module.workspace = true
 tracing = { workspace = true }
 tracing_redismodule.workspace = true
