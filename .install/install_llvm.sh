@@ -214,20 +214,35 @@ install_llvm() {
             if apt-cache show software-properties-common &>/dev/null; then
                 spc_pkg="software-properties-common"
             fi
+            # wget stays in the list: llvm.sh itself uses it to fetch the repo
+            # signing key.
             apt_get_cmd "$MODE" install -y --no-install-recommends \
-                lsb-release wget $spc_pkg gnupg ca-certificates
+                lsb-release wget curl $spc_pkg gnupg ca-certificates
             # Retry the llvm.sh download, and treat a persistent failure as an
             # apt.llvm.org failure (-> tarball below) rather than a bootstrap
             # failure. Debian trixie ships no native clang-${LLVM_VER}, so it
             # always reaches this path; as a bare command under `set -e`, a
-            # single transient blip here (wget exit 4 = network failure) aborted
-            # the whole bootstrap instead of falling through to step 3. The loop
-            # lives in shell rather than in wget flags, and uses `-T 60`, to stay
-            # portable to BusyBox wget — same reasoning as install_boost.sh.
-            # `-nv` rather than `-q` so a failure says why in the CI log.
+            # single transient blip here (exit 4 = network failure) aborted the
+            # whole bootstrap instead of falling through to step 3.
+            #
+            # curl rather than wget, matching install_from_tarball below:
+            #   - `--proto`/`--proto-redir` pin the transfer to HTTPS even
+            #     across a redirect. That matters here specifically because we
+            #     chmod +x and run the result with $MODE, so a redirect
+            #     downgraded to http:// would be arbitrary code execution.
+            #   - curl does not retry internally, so the five iterations below
+            #     are the real cap. GNU wget defaults to --tries=20, which with
+            #     a per-read timeout would have let one stalled host burn far
+            #     longer than intended before reaching the tarball.
+            #   - `--connect-timeout`/`--max-time` bound each attempt, so the
+            #     worst case is ~5 min rather than an open-ended hang.
+            #   - `-fsS` fails on HTTP errors and stays quiet on success while
+            #     still printing the reason on failure.
             local llvm_sh_ok=0 attempt
             for attempt in 1 2 3 4 5; do
-                if wget -nv -T 60 -O /tmp/llvm.sh https://apt.llvm.org/llvm.sh; then
+                if curl -fsSL --proto '=https' --proto-redir '=https' \
+                        --connect-timeout 20 --max-time 60 \
+                        -o /tmp/llvm.sh https://apt.llvm.org/llvm.sh; then
                     llvm_sh_ok=1
                     break
                 fi
