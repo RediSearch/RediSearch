@@ -291,28 +291,31 @@ pub unsafe extern "C" fn RLookupRow_WriteFieldsFrom<'a>(
     dst_lookup: *mut RLookup<'a>,
     create_missing_keys: bool,
 ) {
-    // Safety: ensured by caller (4.)
-    let dst_lookup = unsafe { dst_lookup.as_mut() }.expect("`dst_lookup` must not be null");
-
-    // We're doing the asserts here in the middle to avoid extra type conversions.
-    assert!(
-        src_row != dst_row.cast_const(),
-        "`src_row` and `dst_row` must not be the same"
-    );
-    assert_ne!(
-        src_lookup, dst_lookup,
-        "`src_lookup` and `dst_lookup` must not be the same"
-    );
-
-    // Safety: ensured by caller (1.)
-    let src_row = unsafe { RLookupRow::from_opaque_ptr(src_row).unwrap() };
-
     // Safety: ensured by caller (3.)
     let dst_row =
         unsafe { RLookupRow::from_opaque_mut_ptr(dst_row) }.expect("`dst_row` must not be null");
 
+    // Safety: ensured by caller (4.)
+    let dst_lookup = unsafe { dst_lookup.as_mut() }.expect("`dst_lookup` must not be null");
+
+    // The distinctness asserts come before the `src` pointers are turned into
+    // references: aliasing the destination references would already be
+    // undefined behaviour, assert or no assert.
+    assert!(
+        !ptr::addr_eq(src_row, ptr::from_mut(dst_row)),
+        "`src_row` and `dst_row` must not be the same"
+    );
+    assert!(
+        !ptr::addr_eq(src_lookup, ptr::from_mut(dst_lookup)),
+        "`src_lookup` and `dst_lookup` must not be the same"
+    );
+
+    // Safety: ensured by caller (1.)
+    let src_row =
+        unsafe { RLookupRow::from_opaque_ptr(src_row) }.expect("`src_row` must not be null");
+
     // Safety: ensured by caller (2.)
-    let src_lookup = unsafe { src_lookup.as_ref().unwrap() };
+    let src_lookup = unsafe { src_lookup.as_ref() }.expect("`src_lookup` must not be null");
 
     dst_row.copy_fields_from(dst_lookup, src_row, src_lookup, create_missing_keys);
 }
