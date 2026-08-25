@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#![cfg(not(miri))]
+
 use std::{ffi::c_char, ptr::NonNull};
 
 use query::{QueryNodeMut, mock::MockQueryNode};
