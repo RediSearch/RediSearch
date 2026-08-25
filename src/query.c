@@ -567,10 +567,9 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn,
     if (qn->vn.vq->scoreField) {
       // Since the KNN syntax allows specifying the distance field in two ways (...=>[KNN ... AS <dist_field>] and
       // ...=>[KNN ...]=>{$YIELD_DISTANCE_AS:<dist_field>), we validate that we got it only once.
-      const char *fieldName = HiddenString_GetUnsafe(qn->vn.vq->field->fieldName, NULL);
-      char *default_score_field = NULL;  // buffer for __<field>_score
-      const int n_written = rm_asprintf(&default_score_field, "__%s_score", fieldName);
-      RS_ASSERT(n_written != -1);
+      size_t len;
+      const char *fieldName = HiddenString_GetUnsafe(qn->vn.vq->field->fieldName, &len);
+      char *default_score_field = VectorQuery_GetDefaultScoreFieldName(fieldName, len);
       // If the saved score field is NOT the default one, we return an error, otherwise, just override it.
       const bool is_default_score_field =
           strcasecmp(qn->vn.vq->scoreField, default_score_field) == 0;
