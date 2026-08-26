@@ -8565,3 +8565,55 @@ def test_stored_reply_after_index_dropped_mid_cycle():
     env.assertEqual(len(result['reply']) - 1, n_docs)
     for row in result['reply'][1:]:
         env.assertEqual(row, ['text', 'hello world'])
+
+
+@skip(cluster=True)
+def test_stored_profile_reply_after_index_dropped_mid_cycle():
+    """FT.PROFILE must serialize its stored results and profile tree after the
+    worker releases the last index reference. This exercises the C callback,
+    Rust profile printer, and construction-time estimate snapshot together."""
+    env = Env(protocol=3, moduleArgs='WORKERS 1')
+    skipIfNoEnableAssert(env)  # QUERY_CONTROLLER pause hooks are ENABLE_ASSERT-only
+    env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()
+    n_docs = 5
+    for i in range(n_docs):
+        env.cmd('HSET', f'doc{i}', 'text', 'hello world')
+    waitForIndex(env, 'idx')
+
+    setPauseAfterStoreResults(env, True, internal=False)
+    try:
+        result = {}
+
+        def run_query():
+            try:
+                result['reply'] = env.getConnection().execute_command(
+                    'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*',
+                    'LOAD', '1', '@text')
+            except Exception as e:
+                result['error'] = e
+
+        t = threading.Thread(target=run_query, daemon=True)
+        t.start()
+
+        wait_for_blocked_query_client(env, 'FT.PROFILE')
+        wait_for_condition(
+            lambda: (getIsStoreResultsPaused(env) == 1,
+                     {'paused': getIsStoreResultsPaused(env)}),
+            'Timeout while waiting for the worker to pause after storing profile results')
+
+        env.expect('FT.DROPINDEX', 'idx').ok()
+    finally:
+        resetStoreResultsDebug(env)
+
+    t.join(timeout=10)
+    env.assertFalse(t.is_alive(), message='profile query thread should have finished')
+    env.assertNotIn('error', result,
+                    message=f"profile query failed: {result.get('error')}")
+
+    reply = result['reply']
+    env.assertContains('Results', reply, message=reply)
+    env.assertContains('Profile', reply, message=reply)
+    env.assertEqual(reply['Results']['total_results'], n_docs, message=reply)
+    env.assertEqual(len(reply['Results']['results']), n_docs, message=reply)
