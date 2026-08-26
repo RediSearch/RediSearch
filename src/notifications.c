@@ -186,7 +186,14 @@ int KeySpaceNotificationCallback(RedisModuleCtx *ctx, int type, const char *even
   // RedisModuleKey handles it held during notification emission are closed. Defer all handled
   // non-loaded notifications except rename_from, which only stores an owned source-key copy for
   // the following rename_to job.
-  if (ShouldDeferKeyspaceNotification(redisCommand)) {
+  //
+  // RedisModule_AddPostNotificationJobForKey is not exported by every Redis build the module
+  // loads into (it postdates some released enterprise runtimes). When it is absent, RedisModule_Init
+  // left the pointer NULL; handle inline there rather than call through a NULL pointer. This
+  // re-opens the pre-deferral re-entrancy window on those runtimes, but only where the deferred
+  // path was never available.
+  if (RedisModule_AddPostNotificationJobForKey != NULL &&
+      ShouldDeferKeyspaceNotification(redisCommand)) {
     int rc = RedisModule_AddPostNotificationJobForKey(ctx, HandlePerKeyJobFunc, key,
                                                      (void *)(uintptr_t)redisCommand, NULL);
     RS_LOG_ASSERT(rc == REDISMODULE_OK, "Failed to add post-notification job for key");
