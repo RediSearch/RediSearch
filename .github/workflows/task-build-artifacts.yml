@@ -52,7 +52,8 @@ jobs:
     if: ${{ needs.get-config.outputs.container }}
     name: Build cached container for platform
     uses: ./.github/workflows/task-build-cached-container.yml
-    secrets: inherit
+    secrets:
+      GHCR_MIRROR_PASSWORD: ${{ secrets.GHCR_MIRROR_PASSWORD }}
     with:
       container: ${{ needs.get-config.outputs.container }}
       runner-env: ${{ needs.get-config.outputs.env || vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-latest' }}

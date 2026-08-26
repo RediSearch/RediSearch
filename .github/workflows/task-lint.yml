@@ -21,7 +21,8 @@ jobs:
       packages: write
     name: Build container for lint
     uses: ./.github/workflows/task-build-cached-container.yml
-    secrets: inherit
+    secrets:
+      GHCR_MIRROR_PASSWORD: ${{ secrets.GHCR_MIRROR_PASSWORD }}
     with:
       container: ubuntu:noble
       runner-env: ${{ vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-latest' }}

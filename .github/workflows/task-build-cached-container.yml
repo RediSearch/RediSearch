@@ -29,6 +29,10 @@ on:
       succeeded:
         description: "Whether image build completed successfully"
         value: ${{ jobs.build-image.outputs.succeeded }}
+    secrets:
+      GHCR_MIRROR_PASSWORD:
+        description: "Password for authenticating to GHCR_MIRROR_HOST"
+        required: false
 
 jobs:
   build-image:
