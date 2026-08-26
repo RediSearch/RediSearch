@@ -89,10 +89,6 @@ enum RLookup_F
    * This key type is numeric
    */
   RLOOKUP_F_NUMERIC = 0x1000,
-  /**
-   * This field is only used by an internal pipeline consumer.
-   */
-  RLOOKUP_F_INTERNAL = 0x2000,
 };
 #ifndef __cplusplus
 typedef uint32_t RLookup_F;

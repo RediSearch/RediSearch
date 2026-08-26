@@ -266,13 +266,13 @@ impl LocalCollectCtx {
     /// distributed mode — see
     /// [`super::remote::RemoteCollectReducer::is_internal`].
     ///
-    /// [`RLookupKeyFlag::Internal`] keys are excluded, matching the remote
+    /// [`RLookupKeyFlag::Hidden`] keys are excluded, matching the remote
     /// `FIELDS *` projection rule.
     pub fn finalize(&mut self, _r: &LocalCollectReducer) -> SharedValue {
         let template: Vec<(&RLookupKey, SharedValue)> = self
             .lookup
             .iter()
-            .filter(|k| !k.flags.contains(RLookupKeyFlag::Internal))
+            .filter(|k| !k.flags.contains(RLookupKeyFlag::Hidden))
             .map(|k| (k, SharedValue::new_string(k.name().to_bytes().to_vec())))
             .collect();
 

@@ -33,7 +33,7 @@ use crate::collect::storage::{ProjectedRow, Storage};
 /// because they are non-hidden lookup fields it already projects, not by any
 /// special handling.
 enum Fields<'a> {
-    /// `FIELDS *` mode. Non-[`RLookupKeyFlag::Internal`] keys in `src_lookup`
+    /// `FIELDS *` mode. Non-[`RLookupKeyFlag::Hidden`] keys in `src_lookup`
     /// are emitted; the lookup is re-walked per call so an upstream
     /// `LOAD *` mid-pipeline is picked up.
     All {
@@ -63,7 +63,7 @@ impl<'a> Fields<'a> {
             Self::All { src_lookup, .. } => Either::Left(
                 src_lookup
                     .iter()
-                    .filter(|k| !k.flags.contains(RLookupKeyFlag::Internal)),
+                    .filter(|k| !k.flags.contains(RLookupKeyFlag::Hidden)),
             ),
             Self::Specific { field_keys, .. } => Either::Right(field_keys.iter().copied()),
         }
@@ -87,7 +87,7 @@ impl<'a> Fields<'a> {
             Self::All { src_lookup, .. } => (
                 src_lookup
                     .iter()
-                    .filter(|k| !k.flags.contains(RLookupKeyFlag::Internal))
+                    .filter(|k| !k.flags.contains(RLookupKeyFlag::Hidden))
                     .collect(),
                 &[],
             ),
