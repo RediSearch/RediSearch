@@ -53,7 +53,7 @@ jobs:
     name: "Benchmark ${{ inputs.arch }} ${{ inputs.allowed_setups }} (${{ inputs.benchmark_runner_group_member_id }}/${{ inputs.benchmark_runner_group_total }}) filter=${{ inputs.benchmark_glob }}${{ inputs.benchmark_filter && format(' narrowed={0}', inputs.benchmark_filter) || '' }}"
     # Match the orchestrator runner arch to inputs.arch because tests/deps/setup_rejson.sh
     # builds rejson.so here and it must be ABI-compatible with the target EC2 DB.
-    runs-on: ${{ inputs.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    runs-on: ${{ inputs.arch == 'aarch64' && (vars.RUNS_ON_ARM64_MEDIUM || vars.RUNS_ON_ARM || 'ubuntu-24.04-arm') || (vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-24.04') }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
