@@ -303,14 +303,8 @@ void SearchDisk_FreeRdbState(RedisSearchDiskRdbState *rdbState) {
 
 SearchDiskWriteBatchHandle *SearchDisk_CreateWriteBatch(IndexSpec *sp) {
     RS_ASSERT(disk && sp && sp->diskSpec);
-    IndexSpec_AcquireWriteLock(sp);
-    if (!sp->diskSpec) {
-        IndexSpec_ReleaseWriteLock(sp);
-        return NULL;
-    }
-    SearchDisk_MaintainIndexWriteBufferSize(sp);
     SearchDiskWriteBatchHandle *batch = disk->index.createWriteBatch(sp->diskSpec);
-    IndexSpec_ReleaseWriteLock(sp);
+    SearchDisk_MaintainIndexWriteBufferSize(sp);
     return batch;
 }
 

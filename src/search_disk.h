@@ -262,7 +262,8 @@ bool SearchDisk_IndexNumeric(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *inde
  * `SearchDisk_CommitWriteBatch`) or aborts it (via `SearchDisk_AbortWriteBatch`).
  * The handle remains valid after commit/abort and must eventually be released
  * via `SearchDisk_FreeWriteBatch`. The batch must not outlive `index` and must
- * not be used from multiple threads.
+ * not be used from multiple threads. Caller must already hold the IndexSpec
+ * write lock.
  *
  * @param sp Pointer to the disk index spec this batch will write to
  * @return Pointer to the new batch, or NULL on error
