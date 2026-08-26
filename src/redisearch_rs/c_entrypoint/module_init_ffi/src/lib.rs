@@ -54,6 +54,10 @@ static PANIC_STASH: OnceLock<StashedPanic> = OnceLock::new();
 /// Panic messages will be logged through `tracing` at the `ERROR` level, and
 /// stashed in [`PANIC_STASH`] for [`AddToInfo_RustBacktrace`] to include in
 /// the crash report.
+#[expect(
+    rustdoc::private_intra_doc_links,
+    reason = "this branch's `lint` target documents public items only, unlike newer branches"
+)]
 #[unsafe(no_mangle)]
 pub extern "C" fn RustPanicHook_Init() {
     let previous_hook = std::panic::take_hook();
@@ -130,6 +134,10 @@ fn info_cstring(value: impl Into<Vec<u8>>) -> CString {
 /// # Safety
 ///
 /// `ctx` must be a valid pointer to a `RedisModuleInfoCtx`.
+#[expect(
+    rustdoc::private_intra_doc_links,
+    reason = "this branch's `lint` target documents public items only, unlike newer branches"
+)]
 #[unsafe(no_mangle)]
 pub extern "C" fn AddToInfo_RustBacktrace(ctx: Option<NonNull<ffi::RedisModuleInfoCtx>>) {
     let Some(ctx) = ctx else {
