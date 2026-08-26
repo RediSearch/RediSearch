@@ -212,8 +212,10 @@ int TrieMap_Add(struct TrieMap *t, const char *str, tm_len_t len, void *value, T
  * - `t` must point to a [valid] TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
  * - `str` can be NULL only if `len == 0`. It is not necessarily NULL-terminated.
  * - `len` can be 0. If so, `str` is regarded as an empty string.
- * - if `func` is not NULL, it must be a [valid] function pointer of the type [`freeCB`].
+ * - if `func` is not NULL, it must be an [ABI-compatible] function pointer of the type
+ *   [`freeCB`].
  *
+ * [ABI-compatible]: https://doc.rust-lang.org/std/primitive.fn.html#abi-compatibility
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 int TrieMap_Delete(struct TrieMap *t, const char *str, tm_len_t len, freeCB func);
@@ -266,11 +268,12 @@ TrieMapResultBuf TrieMap_FindPrefixes(const struct TrieMap *t, const char *str, 
  *
  * # Safety
  * The following invariants must be upheld when calling this function:
- * - `func` must either be NULL or a [valid] pointer to a function of type [`freeCB`].
+ * - `func` must either be NULL or an [ABI-compatible] pointer to a function of type
+ *   [`freeCB`].
  * - The Redis allocator must be initialized before calling this function,
  *   and `RedisModule_Free` must not get mutated while running this function.
  *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ * [ABI-compatible]: https://doc.rust-lang.org/std/primitive.fn.html#abi-compatibility
  */
 void TrieMap_Free(struct TrieMap *t, freeCB func);
 
@@ -309,8 +312,10 @@ struct TrieMapIterator *TrieMap_Iterate(struct TrieMap *t);
  * - `minlen` can be 0. If so, `min` is regarded as an empty string.
  * - `max` can be NULL only if `maxlen == 0` or `maxlen == -1`. It is not necessarily NULL-terminated.
  * - `maxlen` can be 0. If so, `max` is regarded as an empty string.
- * - `callback` must be a [valid] pointer to a function of type [`TrieMapRangeCallback`]
+ * - `callback` must be an [ABI-compatible] pointer to a function of type
+ *   [`TrieMapRangeCallback`]
  *
+ * [ABI-compatible]: https://doc.rust-lang.org/std/primitive.fn.html#abi-compatibility
  * [`NewTrieMap`]: crate::NewTrieMap
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */

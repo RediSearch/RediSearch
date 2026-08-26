@@ -198,8 +198,10 @@ pub type freeCB = Option<unsafe extern "C" fn(*mut c_void)>;
 /// - `t` must point to a [valid] TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
 /// - `str` can be NULL only if `len == 0`. It is not necessarily NULL-terminated.
 /// - `len` can be 0. If so, `str` is regarded as an empty string.
-/// - if `func` is not NULL, it must be a [valid] function pointer of the type [`freeCB`].
+/// - if `func` is not NULL, it must be an [ABI-compatible] function pointer of the type
+///   [`freeCB`].
 ///
+/// [ABI-compatible]: https://doc.rust-lang.org/std/primitive.fn.html#abi-compatibility
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_Delete(
@@ -259,11 +261,12 @@ pub unsafe extern "C" fn TrieMap_Delete(
 ///
 /// # Safety
 /// The following invariants must be upheld when calling this function:
-/// - `func` must either be NULL or a [valid] pointer to a function of type [`freeCB`].
+/// - `func` must either be NULL or an [ABI-compatible] pointer to a function of type
+///   [`freeCB`].
 /// - The Redis allocator must be initialized before calling this function,
 ///   and `RedisModule_Free` must not get mutated while running this function.
 ///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+/// [ABI-compatible]: https://doc.rust-lang.org/std/primitive.fn.html#abi-compatibility
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_Free(t: *mut TrieMap, func: freeCB) {
     if t.is_null() {
