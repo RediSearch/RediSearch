@@ -1339,6 +1339,45 @@ def test_hybrid_query_non_vector_score():
                 'PARAMS', 2, 'vec_param', query_data.tobytes(),
                 'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 100).equal(expected_res_6)
 
+@skip(cluster=True)
+def test_hybrid_query_scorer_slop():
+    """A filtered KNN query scores its text prefilter exactly as that prefilter
+    scores on its own: the scorer receives the prefilter's intersection, so the
+    slop divisor is the terms' real offset distance."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT',
+               'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2',
+               'DISTANCE_METRIC', 'L2').ok()
+    # Each doc carries both terms once, so they share TF, IDF and max term
+    # frequency; the gap between the terms is the only input that differs.
+    conn.execute_command('HSET', 'adjacent', 't', 'hello world',
+                         'v', np.float32([1, 1]).tobytes())
+    conn.execute_command('HSET', 'separated', 't', 'hello big wide world',
+                         'v', np.float32([2, 2]).tobytes())
+
+    query_vec = np.float32([0, 0]).tobytes()
+
+    def scores(query, scorer):
+        res = env.cmd('FT.SEARCH', 'idx', query, 'SCORER', scorer, 'WITHSCORES',
+                      'NOCONTENT', 'PARAMS', 2, 'vec_param', query_vec)
+        return {res[i]: float(res[i + 1]) for i in range(1, len(res), 2)}
+
+    for scorer in ('TFIDF', 'BM25'):
+        text_only = scores('@t:(hello world)', scorer)
+        hybrid = scores('(@t:(hello world))=>[KNN 2 @v $vec_param]', scorer)
+
+        env.assertEqual(sorted(hybrid.keys()), ['adjacent', 'separated'],
+                        message=[scorer, hybrid])
+        # Slop is the minimal offset distance between the two terms.
+        env.assertAlmostEqual(text_only['adjacent'] / text_only['separated'], 3.0, 0.01,
+                              message=[scorer, text_only])
+        for doc, score in text_only.items():
+            env.assertAlmostEqual(hybrid[doc], score, 0.01,
+                                  message=[scorer, doc, hybrid, text_only])
+
+
 @skip(cluster=False)
 def test_single_entry():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
