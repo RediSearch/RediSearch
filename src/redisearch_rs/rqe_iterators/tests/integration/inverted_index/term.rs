@@ -14,7 +14,7 @@ use ffi::{
 };
 use field::FieldMaskOrIndex;
 use index_result::{RSIndexResult, RSOffsetSlice};
-use inverted_index::{FilterMaskReader, full::Full};
+use inverted_index::{FilterMaskReader, full::Full, opaque::OpaqueEncoding};
 use query_term::RSQueryTerm;
 use rqe_core::{DocId, FieldMask};
 use rqe_iterators::{IteratorType, NoOpChecker, RQEIterator, inverted_index::Term};
@@ -356,10 +356,7 @@ mod not_miri {
     fn term_revalidate_at_eof_after_gc() {
         let test = TermRevalidateTest::new(10);
         let mut it = ContractChecker::new(test.create_iterator());
-        let ii = {
-            use inverted_index::{full::Full, opaque::OpaqueEncoding};
-            Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut()
-        };
+        let ii = { Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut() };
 
         test.test.revalidate_at_eof_after_gc(&mut it, ii);
     }
@@ -452,11 +449,16 @@ mod not_miri {
     #[test]
     fn term_revalidate_after_block_buffer_moved() {
         let test = TermRevalidateTest::new(10);
+        // `reserve_block_buffer` reallocates, so it has to run before the iterator caches an
+        // address. Reserving afterwards could free that address, and the relocation below could
+        // then land back on it, leaving the test passing via the length check instead of the
+        // moved-address one.
+        {
+            let ii = Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut();
+            inverted_index::test_utils::reserve_block_buffer(ii, 0, 4096);
+        }
         let mut it = ContractChecker::new(test.create_iterator());
-        let ii = {
-            use inverted_index::{full::Full, opaque::OpaqueEncoding};
-            Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut()
-        };
+        let ii = { Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut() };
 
         test.test
             .revalidate_after_block_buffer_moved(&mut it, ii, appended_record);
@@ -469,11 +471,16 @@ mod not_miri {
     #[test]
     fn term_revalidate_after_block_buffer_moved_and_gc() {
         let test = TermRevalidateTest::new(10);
+        // `reserve_block_buffer` reallocates, so it has to run before the iterator caches an
+        // address. Reserving afterwards could free that address, and the relocation below could
+        // then land back on it, leaving the test passing via the length check instead of the
+        // moved-address one.
+        {
+            let ii = Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut();
+            inverted_index::test_utils::reserve_block_buffer(ii, 0, 4096);
+        }
         let mut it = test.create_iterator();
-        let ii = {
-            use inverted_index::{full::Full, opaque::OpaqueEncoding};
-            Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut()
-        };
+        let ii = { Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut() };
 
         test.test
             .revalidate_after_block_buffer_moved_and_gc(&mut it, ii, appended_record);
@@ -493,10 +500,7 @@ mod not_miri {
     fn term_revalidate_after_document_deleted() {
         let test = TermRevalidateTest::new(10);
         let mut it = ContractChecker::new(test.create_iterator());
-        let ii = {
-            use inverted_index::{full::Full, opaque::OpaqueEncoding};
-            Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut()
-        };
+        let ii = { Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut() };
 
         test.test.revalidate_after_document_deleted(&mut it, ii);
     }
@@ -528,10 +532,8 @@ mod not_miri {
         fn term_revalidate_at_eof_after_gc() {
             let test = TermRevalidateTest::new(10);
             let it = test.create_iterator();
-            let ii = {
-                use inverted_index::{full::Full, opaque::OpaqueEncoding};
-                Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut()
-            };
+            let ii =
+                { Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut() };
 
             revalidate_at_eof_after_gc(&test.test, Box::new(it), ii);
         }
@@ -620,10 +622,8 @@ mod not_miri {
         fn term_revalidate_after_document_deleted() {
             let test = TermRevalidateTest::new(10);
             let it = test.create_iterator();
-            let ii = {
-                use inverted_index::{full::Full, opaque::OpaqueEncoding};
-                Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut()
-            };
+            let ii =
+                { Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut() };
 
             revalidate_after_document_deleted(&test.test, Box::new(it), ii);
         }
@@ -641,10 +641,8 @@ mod not_miri {
         fn term_resume_before_first_read_keeps_first_doc() {
             let test = TermRevalidateTest::new(10);
             let it = Box::new(test.create_iterator());
-            let ii = {
-                use inverted_index::{full::Full, opaque::OpaqueEncoding};
-                Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut()
-            };
+            let ii =
+                { Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut() };
 
             // Bump the GC marker *without reading the iterator first* by deleting
             // a document that sits after the first one. This forces resume down
