@@ -353,6 +353,7 @@ class TestDebugCommands(object):
 
 @skip(cluster=True, no_json=True)
 def testDumpHNSW(env):
+    """DUMP_HNSW supports individual and full graph inspection for live documents."""
     # Note that this test has its own env as it relies on the specific doc ids in the index created.
     # Had we used this test in the TestDebugCommands env, a background indexing would have been triggered, and
     # with high probability, some documents would be indexed BEFORE the background scan would end, and it will be
@@ -387,6 +388,12 @@ def testDumpHNSW(env):
     env.expect(debug_cmd(), 'DUMP_HNSW', 'temp-idx', 'v_HNSW').\
         equal([['Doc id', 1, ['Neighbors in level 0', 2]], ['Doc id', 2, ['Neighbors in level 0', 1]],
                "Doc id 3 doesn't contain the given field"])
+
+    # Full dumps enumerate the live document table, so deleted documents that never had this
+    # vector field must not produce a "doesn't contain the given field" entry.
+    env.expect('JSON.DEL', '_doc3').equal(1)
+    env.expect(debug_cmd(), 'DUMP_HNSW', 'temp-idx', 'v_HNSW').\
+        equal([['Doc id', 1, ['Neighbors in level 0', 2]], ['Doc id', 2, ['Neighbors in level 0', 1]]])
 
 @skip(cluster=False)
 def testCoordDebug(env: Env):
