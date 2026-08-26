@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 from common import getConnectionByEnv, waitForIndex, config_cmd, skip
 from RLTest import Env
 from common import index_info

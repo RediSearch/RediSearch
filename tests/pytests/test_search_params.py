@@ -1,4 +1,3 @@
-# coding=utf-8
 from includes import *
 from common import getConnectionByEnv, waitForIndex, skip
 from RLTest import Env
