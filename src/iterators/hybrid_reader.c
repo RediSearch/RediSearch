@@ -171,12 +171,12 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryReply_Iterator *ve
 
 // Global timeout callback for VecSim searches.
 // Need the redirection so tests can pass a mock function to test timeout behavior.
-int (*vecsimTimeoutCallback)(VecSimTimeoutCtx *ctx) = VecSim_TimedOut;
+int (*vecsimTimeoutCallback)(QueryRequestTimeout *timeout) = VecSim_TimedOut;
 
 // Non-inline wrapper called from Rust's VectorScoreSource::adhoc_strategy so the
 // test-mockable vecsimTimeoutCallback indirection is honored on the adhoc-BF path.
-int RS_VecSimCheckTimeout(VecSimTimeoutCtx *ctx) {
-  return vecsimTimeoutCallback(ctx);
+int RS_VecSimCheckTimeout(QueryRequestTimeout *timeout) {
+  return vecsimTimeoutCallback(timeout);
 }
 
 // Updates both locations where scores are stored:
@@ -218,7 +218,7 @@ static VecSimQueryReply_Code computeDistances_Disk(HybridIterator *hr) {
   IteratorStatus child_status;
   while ((child_status = hr->child->Read(hr->child)) != ITERATOR_EOF) {
     // Check for timeout.
-    if (child_status == ITERATOR_TIMEOUT || vecsimTimeoutCallback(&hr->timeoutCtx)) {
+    if (child_status == ITERATOR_TIMEOUT || vecsimTimeoutCallback(hr->timeout)) {
       rc = VecSim_QueryReply_TimedOut;
       break;
     }
@@ -309,7 +309,7 @@ static VecSimQueryReply_Code computeDistances_RAM(HybridIterator *hr) {
   IteratorStatus child_status;
   while ((child_status = hr->child->Read(hr->child)) != ITERATOR_EOF) {
     // Check for timeout.
-    if (child_status == ITERATOR_TIMEOUT || vecsimTimeoutCallback(&hr->timeoutCtx)) {
+    if (child_status == ITERATOR_TIMEOUT || vecsimTimeoutCallback(hr->timeout)) {
       rc = VecSim_QueryReply_TimedOut;
       break;
     }
@@ -480,7 +480,7 @@ static IteratorStatus HR_ReadHybridUnsorted(QueryIterator *ctx) {
   IteratorStatus rc;
   do {
     rc = HR_ReadHybridUnsortedSingle(hr);
-    if (VecSim_TimedOut(&hr->timeoutCtx)) {
+    if (VecSim_TimedOut(hr->timeout)) {
       return ITERATOR_TIMEOUT;
     }
   } while (rc == ITERATOR_NOTFOUND);
@@ -521,7 +521,7 @@ static IteratorStatus HR_ReadKnnUnsorted(QueryIterator *ctx) {
   IteratorStatus rc;
   do {
     rc = HR_ReadKnnUnsortedSingle(hr);
-    if (VecSim_TimedOut(&hr->timeoutCtx)) {
+    if (VecSim_TimedOut(hr->timeout)) {
       return ITERATOR_TIMEOUT;
     }
   } while (rc == ITERATOR_NOTFOUND);
@@ -653,13 +653,9 @@ QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   hi->maxBatchSize = 0;
   hi->maxBatchIteration = 0;
   hi->canTrimDeepResults = hParams.canTrimDeepResults;
-  QueryRequestTimeout *timeout = hParams.sctx->timeout;
-  if (!timeout) {
-    QueryRequestTimeout_Init(&hi->requestlessTimeout, TimeoutPolicy_Return, 0);
-    timeout = &hi->requestlessTimeout;
-  }
-  hi->timeoutCtx = (VecSimTimeoutCtx){ .timeout = timeout };
-  hi->runtimeParams.timeoutCtx = &hi->timeoutCtx;
+  RS_ASSERT(hParams.sctx->timeout);
+  hi->timeout = hParams.sctx->timeout;
+  hi->runtimeParams.timeoutCtx = hi->timeout;
   hi->sctx = hParams.sctx;
   hi->filterCtx = *hParams.filterCtx;
   // Hoist the per-posting field-expiration gate: sctx, fieldIndex and the spec
