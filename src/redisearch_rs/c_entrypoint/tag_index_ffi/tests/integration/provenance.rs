@@ -142,6 +142,35 @@ fn opening_an_absent_tag_yields_null() {
     unsafe { tag_index_ffi::Rust_TagIndex_Free(&raw mut slot) };
 }
 
+/// The write path stores tags through `CStr`, so no indexed tag holds a NUL,
+/// but a query pattern arrives with an explicit length and may. Such a tag can
+/// match nothing, and takes the same NULL exit as an absent one.
+#[test]
+fn opening_a_nul_bearing_tag_yields_null() {
+    let mock = MockContext::new(4, 4);
+    let idx = new_in_memory(false);
+    index_and_commit(idx, &["a"], 1);
+
+    let value = b"a\0b";
+    // SAFETY: `idx` and `mock` are live, and `value` holds three readable bytes.
+    let it = unsafe {
+        tag_index_ffi::Rust_TagIndex_OpenReader(
+            idx,
+            mock.sctx().as_ptr(),
+            value.as_ptr().cast::<std::ffi::c_char>(),
+            value.len(),
+            1.0,
+            std::ptr::null_mut(),
+        )
+    };
+
+    assert!(it.is_null());
+
+    let mut slot = idx;
+    // SAFETY: no iterator was created.
+    unsafe { tag_index_ffi::Rust_TagIndex_Free(&raw mut slot) };
+}
+
 /// The empty tag `INDEXEMPTY` writes arrives as a NULL pointer with length 0,
 /// which `slice::from_raw_parts` would reject.
 #[test]

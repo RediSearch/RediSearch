@@ -399,9 +399,12 @@ pub unsafe extern "C" fn Rust_TagIndex_OpenReader(
     // SAFETY: contract 4.
     let tag = unsafe { borrow_tag(value.cast(), len) };
     let Some(tag) = Tag::new(tag) else {
-        // A tag with an interior NUL cannot be in the index: the tries are keyed
-        // by NUL-free bytes. NULL is the same answer the absent-tag path gives,
-        // and the caller already skips it.
+        // Unlike the write path, which cannot express a NUL-bearing tag at all
+        // (see `as_tags`), a query pattern arrives with an explicit length and
+        // may hold one: `PARAM_TERM_CASE` — which `QueryNode_AddChildren` forces
+        // on every param under a tag node — copies the parameter binary-safe. No
+        // such tag can be in the tries, so NULL is the same answer the
+        // absent-tag path gives, and the caller already skips it.
         return std::ptr::null_mut();
     };
     // SAFETY: contract 3 — `sctx` is valid and non-null.
@@ -493,6 +496,9 @@ pub enum ValueIterator<'ti> {
     InMemory(MemTagIndexIterator<'ti>),
     OnDisk(DiskTagIndexIterator<'ti>),
     Suffix(SuffixEntryIterator<'ti>),
+    /// A walk over nothing, for a filter pattern that cannot be a [`Tag`] — see
+    /// [`Rust_TagIndex_IterateValuesWithFilter`].
+    Empty,
 }
 
 impl<'ti> ValueIterator<'ti> {
@@ -513,6 +519,7 @@ impl<'ti> ValueIterator<'ti> {
             // Disk-mode and suffix entries carry no in-memory posting list.
             Self::OnDisk(it) => it.advance().map(|k| (k.as_bytes(), None)),
             Self::Suffix(it) => it.advance().map(|k| (k.as_bytes(), None)),
+            Self::Empty => None,
         }
     }
 
@@ -521,6 +528,7 @@ impl<'ti> ValueIterator<'ti> {
             Self::InMemory(it) => it.set_timeout(timeout),
             Self::OnDisk(it) => it.set_timeout(timeout),
             Self::Suffix(it) => it.set_timeout(timeout),
+            Self::Empty => {}
         }
     }
 }
@@ -570,6 +578,11 @@ pub unsafe extern "C" fn Rust_TagIndex_IterateValues<'ti>(
 
 /// Walk the tags matching `pattern` under `mode`, in lexicographical order.
 ///
+/// A `pattern` holding an interior NUL walks nothing: both tries are keyed by
+/// NUL-free bytes, because that is the only kind of tag the write path can
+/// express — see [`as_tags`]. The walk is empty rather than NULL, since the C
+/// caller asserts a non-NULL iterator.
+///
 /// # Safety
 ///
 /// 1. As [`Rust_TagIndex_IterateValues`].
@@ -589,12 +602,9 @@ pub unsafe extern "C" fn Rust_TagIndex_IterateValuesWithFilter<'ti>(
 
     // SAFETY: contracts 2 and 3 — the bytes are readable and outlive the iterator.
     let pattern = unsafe { borrow_tag(pattern.cast(), len as usize) };
-    // SAFETY: the pattern is a query-parser token, which cannot carry an interior
-    // NUL. Unlike `Rust_TagIndex_OpenReader` this entry point cannot answer a
-    // malformed pattern with NULL — the C caller asserts a non-NULL iterator — and
-    // a NUL-bearing pattern would simply match no key, since both tries are keyed
-    // by NUL-free bytes.
-    let pattern = unsafe { Tag::new_unchecked(pattern) };
+    let Some(pattern) = Tag::new(pattern) else {
+        return Box::into_raw(Box::new(ValueIterator::Empty));
+    };
     let mode = iter_mode(mode);
 
     // SAFETY: contract 1.
@@ -751,8 +761,8 @@ pub unsafe extern "C" fn Rust_TagIndex_ValueIterator_Free(iter: *mut ValueIterat
 
 /// A reader over one tag's postings.
 ///
-/// A `repr(Rust)` newtype on purpose: the generated header keeps the opaque name
-/// rather than exposing the reader's layout.
+/// The default Rust representation is kept on purpose: the generated header
+/// then names the type opaquely rather than exposing the reader's layout.
 pub struct TagIndexValueIter<'trie>(TagValueReader<'trie>);
 
 /// Open a reader over `tag_index_value`'s postings.
@@ -857,9 +867,11 @@ pub unsafe extern "C" fn Rust_TagIndexValue_NumBlocks(
 
 /// The posting list's `block_idx`-th block, or NULL when it is out of range.
 ///
-/// Exposed for the fork-GC tests, which assert on how a collection cycle
-/// rewrites individual blocks. The block accessors themselves live in
-/// `inverted_index_ffi`.
+/// Its only caller is the C++ fork-GC suite, which asserts on how a collection
+/// cycle rewrites individual blocks. It stays ungated all the same: that suite
+/// links the same default-feature staticlib the module does, so a Cargo feature
+/// would take the symbol away from the very build that needs it. The block
+/// accessors themselves live in `inverted_index_ffi`.
 ///
 /// # Safety
 ///

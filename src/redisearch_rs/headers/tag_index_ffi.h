@@ -56,8 +56,8 @@ typedef struct RedisModuleCtx RedisModuleCtx;
 /**
  * A reader over one tag's postings.
  *
- * A `repr(Rust)` newtype on purpose: the generated header keeps the opaque name
- * rather than exposing the reader's layout.
+ * The default Rust representation is kept on purpose: the generated header
+ * then names the type opaquely rather than exposing the reader's layout.
  */
 typedef struct TagIndexValueIter TagIndexValueIter;
 
@@ -152,9 +152,11 @@ bool Rust_TagIndexValueIter_Next(struct TagIndexValueIter *iter, RSIndexResult *
 /**
  * The posting list's `block_idx`-th block, or NULL when it is out of range.
  *
- * Exposed for the fork-GC tests, which assert on how a collection cycle
- * rewrites individual blocks. The block accessors themselves live in
- * `inverted_index_ffi`.
+ * Its only caller is the C++ fork-GC suite, which asserts on how a collection
+ * cycle rewrites individual blocks. It stays ungated all the same: that suite
+ * links the same default-feature staticlib the module does, so a Cargo feature
+ * would take the symbol away from the very build that needs it. The block
+ * accessors themselves live in `inverted_index_ffi`.
  *
  * # Safety
  *
@@ -401,6 +403,11 @@ struct ValueIterator *Rust_TagIndex_IterateValues(const struct ErasedTagIndex *t
 
 /**
  * Walk the tags matching `pattern` under `mode`, in lexicographical order.
+ *
+ * A `pattern` holding an interior NUL walks nothing: both tries are keyed by
+ * NUL-free bytes, because that is the only kind of tag the write path can
+ * express — see [`as_tags`]. The walk is empty rather than NULL, since the C
+ * caller asserts a non-NULL iterator.
  *
  * # Safety
  *
