@@ -52,6 +52,7 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
   ArgsCursor_InitRString(&ac, debug_argv, debug_params_count);
   ArgsCursor timeoutArgs = {0};
   int internal_only = 0;
+  int pauseBeforeSafeLoaderGIL = 0;
   ArgsCursor pauseBeforeArgs = {0};
   ArgsCursor pauseAfterArgs = {0};
   ACArgSpec debugArgsSpec[] = {
@@ -72,6 +73,9 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
        .type = AC_ARGTYPE_SUBARGS_N,
        .target = &pauseBeforeArgs,
        .slicelen = 2},
+      {.name = "PAUSE_BEFORE_SAFE_LOADER_GIL",
+       .type = AC_ARGTYPE_BOOLFLAG,
+       .target = &pauseBeforeSafeLoaderGIL},
       {NULL}};
 
   ACArgSpec *errSpec = NULL;
@@ -116,6 +120,16 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
       // Take this into account when adding more debug types that are modifying the rp pipeline.
       PipelineAddTimeoutAfterCount(&debug_req->r, results_count);
     }
+    return REDISMODULE_OK;
+  }
+
+  if (pauseBeforeSafeLoaderGIL) {
+    if (!(debug_req->r.reqflags & QEXEC_F_RUN_IN_BACKGROUND)) {
+      QueryError_SetError(status, QUERY_EPARSEARGS,
+                          "PAUSE_BEFORE_SAFE_LOADER_GIL is only supported with WORKERS");
+      return REDISMODULE_ERR;
+    }
+    debug_req->r.qiter.debugPauseBeforeSafeLoaderGIL = true;
     return REDISMODULE_OK;
   }
 

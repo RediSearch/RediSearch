@@ -113,6 +113,107 @@ def test_search():
     }
     env.expect('FT.search', 'idx1', "*").equal(exp)
 
+@skip(cluster=False, redis_less_than="7.0.0")
+def test_search_sortby_limit_offset():
+    env = Env(protocol=3)
+    conn = getConnectionByEnv(env)
+
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'count', 'NUMERIC', 'SORTABLE')
+    for i in range(30):
+        conn.execute_command('HSET', f'cdoc{{{i}}}', 'count', i)
+    waitForIndex(env, 'idx')
+
+    res = env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', 'count', 'ASC', 'LIMIT', '20', '10', 'NOCONTENT')
+    ids = [row['id'] for row in res['results']]
+    env.assertEqual(ids, [f'cdoc{{{i}}}' for i in range(20, 30)])
+
+def _search_knn_limit_offset(protocol):
+    env = Env(protocol=protocol, moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6',
+            'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2')
+    for i in range(30):
+        conn.execute_command('HSET', f'vdoc{{{i:02d}}}', 'v',
+                             np.array([float(i), 0.0], dtype=np.float32).tobytes())
+    waitForIndex(env, 'idx')
+
+    blob = np.array([0.0, 0.0], dtype=np.float32).tobytes()
+
+    res = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 20 @v $B]', 'PARAMS', '2', 'B', blob,
+                  'LIMIT', '0', '10', 'NOCONTENT', 'DIALECT', '2')
+    if protocol == 3:
+        ids = [row['id'] for row in res['results']]
+    else:
+        ids = res[1:]
+    env.assertEqual(ids, [f'vdoc{{{i:02d}}}' for i in range(10)])
+
+    res = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 20 @v $B]', 'PARAMS', '2', 'B', blob,
+                  'LIMIT', '10', '10', 'NOCONTENT', 'DIALECT', '2')
+    if protocol == 3:
+        ids = [row['id'] for row in res['results']]
+    else:
+        ids = res[1:]
+    env.assertEqual(ids, [f'vdoc{{{i:02d}}}' for i in range(10, 20)])
+
+@skip(cluster=False, redis_less_than="7.0.0")
+def test_search_knn_limit_offset_resp2():
+    _search_knn_limit_offset(protocol=2)
+
+@skip(cluster=False, redis_less_than="7.0.0")
+def test_search_knn_limit_offset_resp3():
+    _search_knn_limit_offset(protocol=3)
+
+def _search_knn_sortby_limit_total(protocol):
+    # MOD-16818: with KNN + SORTBY <distance field>, the coordinator sized its
+    # merge heap by min(K, offset+count) and reported the heap count as
+    # `total_results`, so the reported number of matching documents was the size
+    # of the response window (0 for `LIMIT 0 0`) instead of min(K, matches).
+    # The same assertions run in standalone, where they always held - this pins
+    # the cluster reply to the single-shard behavior.
+    env = Env(protocol=protocol, moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'v', 'VECTOR', 'FLAT', '6',
+            'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2')
+    for i in range(30):
+        conn.execute_command('HSET', f'vdoc{{{i:02d}}}', 't', 'tiny' if i < 8 else 'rest',
+                             'v', np.array([float(i), 0.0], dtype=np.float32).tobytes())
+    waitForIndex(env, 'idx')
+
+    blob = np.array([0.0, 0.0], dtype=np.float32).tobytes()
+
+    def run(query, offset, count):
+        res = env.cmd('FT.SEARCH', 'idx', query, 'PARAMS', '2', 'B', blob,
+                      'SORTBY', 'dist', 'LIMIT', str(offset), str(count),
+                      'NOCONTENT', 'DIALECT', '2')
+        if protocol == 3:
+            return res['total_results'], [row['id'] for row in res['results']]
+        return res[0], res[1:]
+
+    # 30 documents match, K=20: the query matches 20 documents on every page,
+    # including the count-only `LIMIT 0 0`. Rows follow the window.
+    for offset, count in [(0, 0), (0, 5), (5, 5), (15, 5), (0, 20)]:
+        total, ids = run('*=>[KNN 20 @v $B AS dist]', offset, count)
+        env.assertEqual(total, 20, message=f'LIMIT {offset} {count}')
+        env.assertEqual(ids, [f'vdoc{{{i:02d}}}' for i in range(offset, offset + count)],
+                        message=f'LIMIT {offset} {count}')
+
+    # filter (8 matches) smaller than K=20: total must be 8 on every page
+    for offset, count in [(0, 0), (0, 5), (5, 5)]:
+        total, ids = run('@t:{tiny}=>[KNN 20 @v $B AS dist]', offset, count)
+        env.assertEqual(total, 8, message=f'tiny LIMIT {offset} {count}')
+        env.assertEqual(ids, [f'vdoc{{{i:02d}}}' for i in range(offset, min(offset + count, 8))],
+                        message=f'tiny LIMIT {offset} {count}')
+
+@skip(redis_less_than="7.0.0")
+def test_search_knn_sortby_limit_total_resp2():
+    _search_knn_sortby_limit_total(protocol=2)
+
+@skip(redis_less_than="7.0.0")
+def test_search_knn_sortby_limit_total_resp3():
+    _search_knn_sortby_limit_total(protocol=3)
+
 @skip(redis_less_than="7.0.0")
 def test_search_timeout():
     num_range = 1000

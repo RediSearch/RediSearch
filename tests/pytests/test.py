@@ -2268,6 +2268,84 @@ def testDuplicateSpec(env):
         env.cmd('FT.CREATE', 'idx', 'ON', 'HASH',
                 'SCHEMA', 'f1', 'text', 'n1', 'numeric', 'f1', 'text')
 
+def testEmptyFieldNameRejected(env):
+    # An empty field name is unsupported.
+    for field_type in ('TAG', 'TEXT', 'NUMERIC'):
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', '', field_type) \
+            .error().contains('Field name cannot be empty')
+    # empty name supplied via an explicit AS alias
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'myfield', 'AS', '', 'TAG') \
+        .error().contains('Field name cannot be empty')
+    # empty name added via FT.ALTER
+    env.cmd('FT.CREATE', 'idx_alter', 'SCHEMA', 't', 'TAG')
+    env.expect('FT.ALTER', 'idx_alter', 'SCHEMA', 'ADD', '', 'TAG') \
+        .error().contains('Field name cannot be empty')
+
+def testFieldNameWithNullByteRejected(env):
+    # Without AS, the schema token is both the document path and the field name.
+    # With AS, the alias is the field name.
+    conn = env.getClusterConnectionIfNeeded()
+    with env.assertResponseError(contained='Field name cannot contain null bytes'):
+        conn.execute_command('FT.CREATE', 'idx_nul_prefix', 'SCHEMA', b'\x00tag', 'TAG')
+    with env.assertResponseError(contained='Field name cannot contain null bytes'):
+        conn.execute_command('FT.CREATE', 'idx_nul_embedded', 'SCHEMA', b'tag\x00name', 'TAG')
+    with env.assertResponseError(contained='Field name cannot contain null bytes'):
+        conn.execute_command('FT.CREATE', 'idx_nul_alias', 'SCHEMA', 'tag', 'AS', b'\x00alias', 'TAG')
+
+def testHashFieldPathWithNullByteRejected(env):
+    # With AS, the original schema token is stored as a field path separate from
+    # the alias field name.
+    conn = env.getClusterConnectionIfNeeded()
+    with env.assertResponseError(contained='Field path cannot contain null bytes'):
+        conn.execute_command('FT.CREATE', 'idx_path_nul_prefix', 'SCHEMA', b'\x00real', 'AS', 'tag', 'TAG')
+    with env.assertResponseError(contained='Field path cannot contain null bytes'):
+        conn.execute_command('FT.CREATE', 'idx_path_nul_embedded', 'SCHEMA', b'real\x00tail', 'AS', 'tag', 'TAG')
+
+@skip(no_json=True)
+def testJsonFieldPathWithNullByteRejected(env):
+    conn = env.getClusterConnectionIfNeeded()
+    with env.assertResponseError(contained='Field path cannot contain null bytes'):
+        conn.execute_command('FT.CREATE', 'idx_json_path_nul_prefix', 'ON', 'JSON',
+                             'SCHEMA', b'\x00$.real', 'AS', 'tag', 'TAG')
+    with env.assertResponseError(contained='Field path cannot contain null bytes'):
+        conn.execute_command('FT.CREATE', 'idx_json_path_nul_embedded', 'ON', 'JSON',
+                             'SCHEMA', b'$.real\x00tail', 'AS', 'tag', 'TAG')
+
+def testAlterFailureDoesNotLeaveSuffixTrie(env):
+    env.cmd('FT.CREATE', 'idx_suffix_rollback', 'SCHEMA', 't', 'TEXT')
+    conn = env.getClusterConnectionIfNeeded()
+    conn.execute_command('HSET', 'doc:1', 't', 'hello')
+    waitForIndex(env, 'idx_suffix_rollback')
+    env.expect('FT.SEARCH', 'idx_suffix_rollback', '*ell*', 'NOCONTENT').equal([1, 'doc:1'])
+
+    env.expect('FT.ALTER', 'idx_suffix_rollback', 'SCHEMA', 'ADD',
+               'suffix', 'TEXT', 'WITHSUFFIXTRIE',
+               '', 'TEXT') \
+        .error().contains('Field name cannot be empty')
+
+    env.expect('FT.SEARCH', 'idx_suffix_rollback', '*ell*', 'NOCONTENT').equal([1, 'doc:1'])
+
+def testAlterFailureDoesNotConsumeTextFieldIds(env):
+    env.cmd('FT.CREATE', 'idx_text_id_rollback', 'MAXTEXTFIELDS', 'SCHEMA', 'base', 'TEXT')
+    max_text_fields = arch_int_bits()
+
+    # Exercise the whole TEXT field-id space, not just one failed ALTER. If rollback
+    # leaks fieldIdToIndex entries, the failure only becomes visible once later valid
+    # additions reach the architecture-specific field-mask limit.
+    for i in range(max_text_fields - 1):
+        env.expect('FT.ALTER', 'idx_text_id_rollback', 'SCHEMA', 'ADD',
+                   f'tmp{i}', 'TEXT',
+                   '', 'TAG') \
+            .error().contains('Field name cannot be empty')
+
+    for i in range(max_text_fields - 1):
+        env.expect('FT.ALTER', 'idx_text_id_rollback', 'SCHEMA', 'ADD',
+                   f'valid_text_{i}', 'TEXT').ok()
+
+    env.expect('FT.ALTER', 'idx_text_id_rollback', 'SCHEMA', 'ADD',
+               'overflow_text', 'TEXT') \
+        .error().contains(f'Schema is limited to {max_text_fields} TEXT fields')
+
 def testSortbyMissingFieldSparse(env):
     # Note, the document needs to have one present sortable field in
     # order for the indexer to give it a sort vector
@@ -3896,13 +3974,6 @@ def test_mod1548(env):
     res = env.cmd('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'prod:id_dotnotation')
     env.assertEqual(res,  [2, 'prod:1', ['prod:id_dotnotation', '35114964'], 'prod:2', ['prod:id_dotnotation', '35114965']])
 
-def test_empty_field_name(env):
-    conn = getConnectionByEnv(env)
-
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', '', 'TEXT').ok()
-    conn.execute_command('hset', 'doc1', '', 'foo')
-    env.expect('FT.SEARCH', 'idx', 'foo').equal([1, 'doc1', ['', 'foo']])
-
 @skip(cluster=True)
 def test_free_resources_on_thread(env):
     conn = getConnectionByEnv(env)
@@ -4278,6 +4349,27 @@ def test_internal_commands(env):
         fail_eval_call(r, env, ['SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1', 'SHARD', '1', 'SLOTRANGE', '0', '16383', 'ADDR', 'password@127.0.0.1:22000', 'MASTER'])
         fail_eval_call(r, env, ['SEARCH.CLUSTERREFRESH'])
         fail_eval_call(r, env, ['SEARCH.CLUSTERINFO'])
+
+@skip(cluster=False)
+def test_internal_protocol_args_ignored(env):
+    """Forward compatibility (MOD-16047): newer coordinators inject internal
+    arguments that this branch does not use.
+
+    During rolling upgrades, 2.x shards can receive internal arguments appended by
+    newer coordinators. The shard must consume and ignore those arguments, and the
+    command reply must keep the same structure as a normal local shard reply.
+    """
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    env.expect('HSET', 'doc:1', 'n', '1').equal(1)
+
+    prefixes = ('_INDEX_PREFIXES', '1', 'doc:')
+    slots_info = ('_SLOTS_INFO', b'\x01\x00\x00\x00\x00\x00\xff\x3f')
+    dispatch_time = ('_COORD_DISPATCH_TIME', '1000000')
+
+    env.expect('_FT.SEARCH', 'idx', '*', 'RETURN', '1', 'n', *prefixes, *slots_info,
+               *dispatch_time).equal([1, 'doc:1', ['n', '1']])
+    env.expect('_FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@n', *prefixes, *slots_info,
+               *dispatch_time).equal([1, ['n', '1']])
 
 def test_timeout_non_strict_policy(env):
     """Tests that we get the wanted behavior for the non-strict timeout policy.

@@ -11,8 +11,6 @@
 // Forward declarations for C++
 #ifdef __cplusplus
 #include <vector>
-#include <map>
-#include <string>
 #include <cstdint>
 
 struct RedisModuleIO {
