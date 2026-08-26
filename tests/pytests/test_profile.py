@@ -403,9 +403,9 @@ def testProfileVector(env):
                                     'SORTBY', '__v_score', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'nocontent')
   env.assertEqual(actual_res[0], [3, '4', '6', '7'])
   expected_iterators_res = ['Type', 'VECTOR', 'Number of reading operations', 3, 'Vector search mode', 'HYBRID_BATCHES', 'Batches number', 2, 'Largest batch size', 4, 'Largest batch iteration (zero based)', 0, 'Child iterator',
-                            ['Type', 'INTERSECT', 'Number of reading operations', 8, 'Child iterators', [
-                              ['Type', 'TEXT', 'Term', 'world', 'Number of reading operations', 8, 'Estimated number of matches', 9997],
-                              ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 8, 'Estimated number of matches', 10000]]]]
+                            ['Type', 'INTERSECT', 'Number of reading operations', 6, 'Child iterators', [
+                              ['Type', 'TEXT', 'Term', 'world', 'Number of reading operations', 6, 'Estimated number of matches', 9997],
+                              ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 6, 'Estimated number of matches', 10000]]]]
   expected_vecsim_rp_res = ['Type', 'Metrics Applier', 'Results processed', 3]
   actual_profile = to_dict(actual_res[1][1][0])
   env.assertEqual(actual_profile['Iterators profile'], expected_iterators_res)
