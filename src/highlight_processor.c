@@ -395,7 +395,7 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
     }
   } else if (fields->defaultField.mode != SummarizeMode_None) {
     RLOOKUP_FOREACH(k, hlp->lookup, {
-      if (RLookupKey_GetFlags(k) & RLOOKUP_F_HIDDEN) {
+      if (RLookupKey_GetFlags(k) & (RLOOKUP_F_HIDDEN | RLOOKUP_F_INTERNAL)) {
         continue;
       }
       ReturnedField spec = {0};

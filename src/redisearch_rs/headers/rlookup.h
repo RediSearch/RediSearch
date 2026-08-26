@@ -66,8 +66,7 @@ enum RLookup_F
    */
   RLOOKUP_F_UNRESOLVED = 0x80,
   /**
-   * This field is hidden within the document and is only used as a transient
-   * field for another consumer. Don't output this field.
+   * This field is excluded from top-level client replies.
    */
   RLOOKUP_F_HIDDEN = 0x100,
   /**
@@ -90,6 +89,10 @@ enum RLookup_F
    * This key type is numeric
    */
   RLOOKUP_F_NUMERIC = 0x1000,
+  /**
+   * This field is only used by an internal pipeline consumer.
+   */
+  RLOOKUP_F_INTERNAL = 0x2000,
 };
 #ifndef __cplusplus
 typedef uint32_t RLookup_F;

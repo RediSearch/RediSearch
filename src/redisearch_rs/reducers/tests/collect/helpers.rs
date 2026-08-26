@@ -139,8 +139,8 @@ pub(super) fn num_row(v: f64) -> (Vec<SharedValue>, Vec<SharedValue>) {
 
 /// Fixture for load-all (`FIELDS *`) tests. Owns a real [`RLookup`] so the
 /// reducer's live walk has something to iterate. Pre-registers three visible
-/// keys (`name`, `color`, `sweetness`) plus one [`RLookupKeyFlag::Hidden`]
-/// key (`__hidden`) so the "skip hidden" assertion has a target.
+/// keys (`name`, `color`, `sweetness`) plus one [`RLookupKeyFlag::Internal`]
+/// key (`__internal`) so the "skip internal" assertion has a target.
 pub(super) struct RemoteCollectLoadAllFixture {
     pub(super) lookup: RLookup<'static>,
 }
@@ -158,8 +158,8 @@ impl RemoteCollectLoadAllFixture {
             .get_key_write(c"sweetness", RLookupKeyFlags::empty())
             .expect("`sweetness` is a fresh key");
         let _ = lookup
-            .get_key_write(c"__hidden", RLookupKeyFlag::Hidden.into())
-            .expect("`__hidden` is a fresh key");
+            .get_key_write(c"__internal", RLookupKeyFlag::Internal.into())
+            .expect("`__internal` is a fresh key");
         Self { lookup }
     }
 }

@@ -91,7 +91,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     PLN_Reducer *pr = gstp->reducers + ii;
     const RLookupKey *input_key = NULL;
     if (pr->inputAlias) {
-      input_key = RLookup_GetKey_Read(srclookup, pr->inputAlias, RLOOKUP_F_HIDDEN);
+      input_key = RLookup_GetKey_Read(srclookup, pr->inputAlias, RLOOKUP_F_INTERNAL);
       if (!input_key) {
         Grouper_Free(grp);
         QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_NO_PROP_KEY,
@@ -117,7 +117,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     }
 
     // Set the destination key for the grouper!
-    uint32_t flags = pr->isHidden ? RLOOKUP_F_HIDDEN : RLOOKUP_F_NOFLAGS;
+    uint32_t flags = pr->isHidden ? RLOOKUP_F_INTERNAL : RLOOKUP_F_NOFLAGS;
     RLookupKey *dstkey = RLookup_GetKey_Write(&gstp->lookup, pr->alias, flags);
     // Adding the reducer before validating the key, so we free the reducer if the key is invalid
     Grouper_AddReducer(grp, rr, dstkey);
@@ -203,7 +203,7 @@ static ResultProcessor *getAdditionalMetricsRP(RedisSearchCtx* sctx, const Query
       return NULL;
     }
     // Set HIDDEN flag for internal metrics
-    uint32_t flags = requests[i].isInternal ? RLOOKUP_F_HIDDEN : RLOOKUP_F_NOFLAGS;
+    uint32_t flags = requests[i].isInternal ? RLOOKUP_F_INTERNAL : RLOOKUP_F_NOFLAGS;
 
     RLookupKey *key = RLookup_GetKey_WriteEx(rl, name, name_len, flags);
     if (!key) {
@@ -311,7 +311,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
       const RLookupKey *scoreTieBreakKey = NULL;
       if (astp->scoreTieBreakField) {
         RLookup *lk = AGPLN_GetLookup(&pipeline->ap, stp, AGPLN_GETLOOKUP_PREV);
-        scoreTieBreakKey = RLookup_GetKey_Read(lk, astp->scoreTieBreakField, RLOOKUP_F_HIDDEN);
+        scoreTieBreakKey = RLookup_GetKey_Read(lk, astp->scoreTieBreakField, RLOOKUP_F_INTERNAL);
       }
       rp = RPSorter_NewByScore(maxResults, scoreTieBreakKey);
       up = pushRP(&pipeline->qctx, rp, up);
