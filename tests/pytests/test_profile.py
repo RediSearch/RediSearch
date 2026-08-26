@@ -519,6 +519,62 @@ def testProfileVectorZeroK(env):
                     'STANDARD_KNN', message=query)
 
 @skip(cluster=True)
+def testProfileVectorBatchSizeAfterSparseBatch(env):
+  """Batch sizing after a batch denser than the running child estimate.
+
+  Refinement is capped at the previous estimate, so the estimate only ever
+  decreases: sparse batches halve it and a later hit cannot raise it back up.
+  The batch trajectory asserted here is what that cap produces."""
+  conn = getConnectionByEnv(env)
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  n = 1500
+  # Position of the only doc passing the filter in the distance-ordered scan.
+  # It has to land in a batch that neither fills K nor ends the scan; any rank
+  # in 374..744 does.
+  match_rank = 600
+  # Per-tag doc count. The intersection estimates the smaller of the two tags
+  # while yielding a single doc, and that overestimate is what lets the running
+  # estimate fall far below the initial one.
+  tag_docs = 300
+
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6',
+             'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2',
+             'tag1', 'TAG', 'tag2', 'TAG').ok()
+
+  # The two tags overlap only at `match_rank`, so the intersection yields one doc.
+  tag1_docs = {match_rank} | set(range(1000, 1000 + tag_docs - 1))
+  tag2_docs = {match_rank} | set(range(700, 700 + tag_docs - 1))
+  with conn.pipeline(transaction=False) as p:
+    for i in range(n):
+      # Doc i sits at distance i^2 from the query vector, so its scan rank is i.
+      p.execute_command('HSET', i, 'v', np.array([i, 0], dtype=np.float32).tobytes(),
+                        'tag1', 'a' if i in tag1_docs else 'z',
+                        'tag2', 'b' if i in tag2_docs else 'z')
+    p.execute()
+
+  query_vec = np.array([0, 0], dtype=np.float32).tobytes()
+  # BATCHES is pinned without a batch size so the sizes stay dynamic and the
+  # policy is never re-evaluated into ad-hoc mid-scan.
+  actual_res = conn.execute_command(
+      'FT.PROFILE', 'idx', 'SEARCH', 'QUERY',
+      '(@tag1:{a} @tag2:{b})=>[KNN 10 @v $vec HYBRID_POLICY BATCHES]',
+      'SORTBY', '__v_score', 'PARAMS', '2', 'vec', query_vec, 'NOCONTENT', 'DIALECT', '2')
+  env.assertEqual(actual_res[0], [1, str(match_rank)])
+
+  iterators_profile = to_dict(to_dict(actual_res[1][1][0])['Iterators profile'])
+  env.assertEqual(iterators_profile['Type'], 'VECTOR')
+  env.assertEqual(iterators_profile['Vector search mode'], 'HYBRID_BATCHES')
+  # Each sparse batch halves the estimate, and the hit at `match_rank` leaves it
+  # unchanged rather than raising it, so the sizes keep doubling to the end of
+  # the scan. Were refinement capped at the initial estimate instead, the hit
+  # would raise it and the scan would take 7 batches peaking at 587.
+  env.assertEqual(iterators_profile['Batches number'], 6, message=iterators_profile)
+  env.assertEqual(iterators_profile['Largest batch size'], 751, message=iterators_profile)
+  env.assertEqual(iterators_profile['Largest batch iteration (zero based)'], 5,
+                  message=iterators_profile)
+
+@skip(cluster=True)
 def testProfileHybridRangeMetricSortedByScore(env):
   """Hybrid RANGE query with YIELD_SCORE_AS creates a METRIC SORTED BY SCORE iterator."""
   conn = getConnectionByEnv(env)
