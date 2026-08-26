@@ -21,7 +21,7 @@ use std::{
 /// # Safety
 ///
 /// If `len > 0`, `names` must point to an array of at least `len` [valid],
-/// NUL-terminated C strings. Each pointer's pointee must remain valid for
+/// NUL-terminated C strings. Each pointer's pointee must remain [valid] for
 /// the duration of this call.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety

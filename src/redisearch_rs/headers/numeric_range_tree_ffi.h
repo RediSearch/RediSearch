@@ -75,7 +75,7 @@ struct NumericRangeTree *NewNumericRangeTree(bool compress_floats);
  * Returns a pointer to the range, or NULL if the node has no range
  * (e.g., an internal node whose range has been trimmed).
  *
- * The returned pointer is valid until the tree is modified or freed.
+ * The returned pointer is [valid] until the tree is modified or freed.
  * Do NOT free the returned pointer - it points to memory owned by the tree.
  *
  * # Safety
@@ -83,7 +83,7 @@ struct NumericRangeTree *NewNumericRangeTree(bool compress_floats);
  * The following invariants must be upheld when calling this function:
  * - `node` must point to a [valid] [`NumericRangeNode`] obtained from
  *   [`crate::iterator::NumericRangeTreeIterator_Next`] and cannot be NULL.
- * - The tree from which this node came must still be valid.
+ * - The tree from which this node came must still be [valid].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -140,7 +140,7 @@ NumericRangeTreeIterator *NumericRangeTreeIterator_New(const struct NumericRange
  * Returns a pointer to the next [`NumericRangeNode`] in the traversal,
  * or NULL if the iteration is complete.
  *
- * The returned pointer is valid until the tree is modified or freed.
+ * The returned pointer is [valid] until the tree is modified or freed.
  * Do NOT free the returned pointer - it points to memory owned by the tree.
  *
  * # Safety
@@ -148,7 +148,7 @@ NumericRangeTreeIterator *NumericRangeTreeIterator_New(const struct NumericRange
  * The following invariants must be upheld when calling this function:
  * - `it` must point to a [valid] [`NumericRangeTreeIterator`] obtained from
  *   [`NumericRangeTreeIterator_New`] and cannot be NULL.
- * - The tree from which this iterator was created must still be valid.
+ * - The tree from which this iterator was created must still be [valid].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -294,7 +294,7 @@ uint32_t NumericRangeTree_GetRevisionId(const struct NumericRangeTree *t);
  * # Safety
  *
  * - `t` must point to a [valid] [`NumericRangeTree`] and cannot be NULL.
- * - The returned pointer is valid until the tree is modified or freed.
+ * - The returned pointer is [valid] until the tree is modified or freed.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -369,7 +369,7 @@ struct TrimEmptyLeavesResult NumericRangeTree_TrimEmptyLeaves(struct NumericRang
  * The following invariants must be upheld when calling this function:
  * - `range` must point to a [valid] [`NumericRange`] obtained from
  *   [`crate::node::NumericRangeNode_GetRange`] and cannot be NULL.
- * - The tree from which this range came must still be valid.
+ * - The tree from which this range came must still be [valid].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -379,7 +379,7 @@ size_t NumericRange_GetCardinality(const struct NumericRange *range);
  * Get the inverted index entries from a range.
  *
  * Returns a pointer to the [`InvertedIndexNumeric`] (which is a `NumericIndex` enum)
- * stored inside the range. The returned pointer is valid until the tree is modified or freed.
+ * stored inside the range. The returned pointer is [valid] until the tree is modified or freed.
  *
  * # Safety
  *
@@ -439,7 +439,7 @@ double NumericRange_MinVal(const struct NumericRange *range);
  * - `filter` may be NULL for no filtering, or must point to a [valid] [`NumericFilter`].
  * - The returned reader holds a reference to the range's inverted index. The range
  *   must not be freed or modified while the reader exists.
- * - The filter (if non-NULL) must remain valid for the lifetime of the reader.
+ * - The filter (if non-NULL) must remain [valid] for the lifetime of the reader.
  * - Free the returned reader with `IndexReader_Free()` when done.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety

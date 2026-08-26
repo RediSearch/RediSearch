@@ -131,6 +131,8 @@ pub unsafe extern "C" fn TermSuffixIndexIterator_Free(it: *mut TermSuffixIndexIt
 pub struct TermSuffixIndexIterator<'si> {
     iter: Box<dyn Iterator<Item = String> + 'si>,
     /// Keeps the most recently yielded string alive so the pointer
-    /// stays valid until the next advance (or free).
+    /// stays [valid] until the next advance (or free).
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     current: Option<String>,
 }

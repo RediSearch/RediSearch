@@ -38,7 +38,7 @@ impl ExternalCounter {
     ///
     /// The pointed-to `usize` must:
     /// 1. be [valid] and initialized;
-    /// 2. remain valid for the entire lifetime of the [`GeoShape`] iterator this
+    /// 2. remain [valid] for the entire lifetime of the [`GeoShape`] iterator this
     ///    tracker is given to; and
     /// 3. only be accessed single-threaded (it is mutated without
     ///    synchronization, which holds under the index/spec lock).

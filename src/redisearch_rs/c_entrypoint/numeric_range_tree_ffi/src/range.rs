@@ -27,7 +27,7 @@ use crate::{IndexReader, InvertedIndexNumeric};
 /// The following invariants must be upheld when calling this function:
 /// - `range` must point to a [valid] [`NumericRange`] obtained from
 ///   [`crate::node::NumericRangeNode_GetRange`] and cannot be NULL.
-/// - The tree from which this range came must still be valid.
+/// - The tree from which this range came must still be [valid].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -88,7 +88,7 @@ pub unsafe extern "C" fn NumericRange_InvertedIndexSize(range: *const NumericRan
 /// Get the inverted index entries from a range.
 ///
 /// Returns a pointer to the [`InvertedIndexNumeric`] (which is a `NumericIndex` enum)
-/// stored inside the range. The returned pointer is valid until the tree is modified or freed.
+/// stored inside the range. The returned pointer is [valid] until the tree is modified or freed.
 ///
 /// # Safety
 ///
@@ -121,7 +121,7 @@ pub unsafe extern "C" fn NumericRange_GetEntries(
 /// - `filter` may be NULL for no filtering, or must point to a [valid] [`NumericFilter`].
 /// - The returned reader holds a reference to the range's inverted index. The range
 ///   must not be freed or modified while the reader exists.
-/// - The filter (if non-NULL) must remain valid for the lifetime of the reader.
+/// - The filter (if non-NULL) must remain [valid] for the lifetime of the reader.
 /// - Free the returned reader with `IndexReader_Free()` when done.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety

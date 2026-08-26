@@ -21,7 +21,7 @@ use rqe_iterators::{IteratorsConfig, build_geo_range_iterator, free_geo_numeric_
 ///
 /// # Safety
 ///
-/// 1. `ctx` must be a [valid] non-NULL pointer to a `RedisSearchCtx`, remaining valid for the
+/// 1. `ctx` must be a [valid] non-NULL pointer to a `RedisSearchCtx`, remaining [valid] for the
 ///    lifetime of all returned iterators.
 /// 2. `ctx.spec` must be a [valid] non-NULL pointer to an `IndexSpec`.
 /// 3. `gf` must be a [valid] non-NULL pointer to a `GeoFilter`.

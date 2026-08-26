@@ -54,11 +54,11 @@ pub unsafe extern "C" fn openNumericOrGeoIndex(
 ///
 /// # Safety
 ///
-/// 1. `ctx` must be a [valid] non-NULL pointer to a [`ffi::RedisSearchCtx`], remaining valid
+/// 1. `ctx` must be a [valid] non-NULL pointer to a [`ffi::RedisSearchCtx`], remaining [valid]
 ///    for the lifetime of the returned iterator.
 /// 2. `ctx.spec` must be a [valid] non-NULL pointer to an [`ffi::IndexSpec`].
 /// 3. `flt` must be a [valid] non-NULL pointer to a [`NumericFilter`] whose `field_spec` field
-///    is a [valid] non-NULL pointer to a [`FieldSpec`], remaining valid for the lifetime of the
+///    is a [valid] non-NULL pointer to a [`FieldSpec`], remaining [valid] for the lifetime of the
 ///    returned iterator.
 /// 4. `config` must be a [valid] non-NULL pointer to an [`IteratorsConfig`].
 /// 5. `filter_ctx` must be a [valid] non-NULL pointer to a [`FieldFilterContext`] with a field

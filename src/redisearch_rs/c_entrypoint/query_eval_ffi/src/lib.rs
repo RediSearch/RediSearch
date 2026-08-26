@@ -152,7 +152,7 @@ pub unsafe extern "C" fn queryNeedsOffsets(
 ///    assembled by hand, with a token borrowing a read-only or length-delimited
 ///    string, does not.
 /// 3. `eval_config` must be a non-null [`EvalConfig`](ffi::EvalConfig) handle
-///    pointing to a [valid] [`Config`] that stays valid for the duration of the
+///    pointing to a [valid] [`Config`] that stays [valid] for the duration of the
 ///    call — the snapshot [`QAST_Iterate`] loaded and threaded through the C
 ///    dispatcher.
 ///
@@ -206,7 +206,7 @@ pub unsafe extern "C" fn Query_EvalNode_Rs(
 ///
 /// 1. `qast` must be a non-null pointer to a [valid] [`QueryAST`] whose `root` is
 ///    a [valid] [`RSQueryNode`]; it (and its `metricRequests`/`config` fields)
-///    must stay valid and exclusively borrowed for the duration of the call. The
+///    must stay [valid] and exclusively borrowed for the duration of the call. The
 ///    root's subtree must meet the token-buffer requirement of
 ///    [`Query_EvalNode_Rs`]'s precondition 2, for the same reason.
 /// 2. `opts` must be a non-null pointer to a [valid] [`RSSearchOptions`].
@@ -215,7 +215,7 @@ pub unsafe extern "C" fn Query_EvalNode_Rs(
 /// 4. `status` must be a non-null pointer to a [valid] [`QueryError`].
 ///
 /// Together these are exactly the invariants documented on
-/// [`QueryEvalContext::new`] for the assembled context, which remains valid for
+/// [`QueryEvalContext::new`] for the assembled context, which remains [valid] for
 /// the lifetime of the returned iterator.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety

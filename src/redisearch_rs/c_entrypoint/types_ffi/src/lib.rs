@@ -564,7 +564,7 @@ pub extern "C" fn AggregateResult_Free(agg: RSAggregateResult) {
 ///
 /// **Borrowed aggregates:** When `parent.is_copy()` is false, the parent
 /// stores a borrowed reference to `child`. The caller retains ownership
-/// and must ensure `child` remains valid for the lifetime of `parent`.
+/// and must ensure `child` remains [valid] for the lifetime of `parent`.
 ///
 /// # Safety
 ///

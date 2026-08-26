@@ -120,7 +120,7 @@ impl CTagIndexLookup {
     ///
     /// # Safety
     ///
-    /// 1. `tag_index` must point to a [valid] TagIndex and remain valid for
+    /// 1. `tag_index` must point to a [valid] TagIndex and remain [valid] for
     ///    the lifetime of this lookup (and of any iterator holding it).
     /// 2. `tag_index.values`, when non-null, must be a [valid]
     ///    [`TrieMapOpaque`](trie_rs::TrieMapOpaque) pointer.
@@ -181,13 +181,13 @@ where
 ///
 /// 1. `idx` must be a [valid] pointer to a [`DocIdsOnly`] or [`RawDocIdsOnly`]
 ///    [`InvertedIndex`](ffi::InvertedIndex) and cannot be NULL.
-/// 2. `idx` must remain valid between [`revalidate()`](rqe_iterators::RQEIterator::revalidate) calls, since the revalidation
+/// 2. `idx` must remain [valid] between [`revalidate()`](rqe_iterators::RQEIterator::revalidate) calls, since the revalidation
 ///    mechanism detects when the index has been replaced via [`TagIndex`](ffi::TagIndex) `TrieMap` lookup.
 /// 3. `tag_idx` must be a [valid] pointer to a [`TagIndex`](ffi::TagIndex) and cannot be NULL.
-/// 4. `tag_idx` and `tag_idx.values` must remain valid for the lifetime of the returned
+/// 4. `tag_idx` and `tag_idx.values` must remain [valid] for the lifetime of the returned
 ///    iterator.
 /// 5. `sctx` must be a [valid] pointer to a [`RedisSearchCtx`](ffi::RedisSearchCtx) and cannot be NULL.
-/// 6. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
+/// 6. `sctx` and `sctx.spec` must remain [valid] for the lifetime of the returned iterator.
 /// 7. `term` must be a [valid] pointer to a heap-allocated [`RSQueryTerm`] (e.g. created by
 ///    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
 ///

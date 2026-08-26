@@ -16,7 +16,7 @@ use numeric_range_tree::{NumericRange, NumericRangeNode};
 /// Returns a pointer to the range, or NULL if the node has no range
 /// (e.g., an internal node whose range has been trimmed).
 ///
-/// The returned pointer is valid until the tree is modified or freed.
+/// The returned pointer is [valid] until the tree is modified or freed.
 /// Do NOT free the returned pointer - it points to memory owned by the tree.
 ///
 /// # Safety
@@ -24,7 +24,7 @@ use numeric_range_tree::{NumericRange, NumericRangeNode};
 /// The following invariants must be upheld when calling this function:
 /// - `node` must point to a [valid] [`NumericRangeNode`] obtained from
 ///   [`crate::iterator::NumericRangeTreeIterator_Next`] and cannot be NULL.
-/// - The tree from which this node came must still be valid.
+/// - The tree from which this node came must still be [valid].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]

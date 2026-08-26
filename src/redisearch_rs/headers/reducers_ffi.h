@@ -69,7 +69,7 @@ Reducer *CollectReducer_CreateLocal(const RLookupKey *input_key, const char *con
  *    `field_keys_len` [valid] `*const RLookupKey` pointers.
  * 2. If `sort_keys_len > 0`, `sort_keys` must point to an array of at least
  *    `sort_keys_len` [valid] `*const RLookupKey` pointers.
- * 3. All [`RLookupKey`][ffi::RLookupKey] pointers must remain valid for the
+ * 3. All [`RLookupKey`][ffi::RLookupKey] pointers must remain [valid] for the
  *    lifetime of the returned reducer.
  * 4. `srclookup` is either null or a [valid] pointer to a
  *    [`RLookup`][ffi::RLookup] that remains alive for the lifetime of the

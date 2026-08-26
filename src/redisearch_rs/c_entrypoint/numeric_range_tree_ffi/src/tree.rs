@@ -122,7 +122,7 @@ pub unsafe extern "C" fn NumericRangeTree_GetInvertedIndexesSize(
 /// # Safety
 ///
 /// - `t` must point to a [valid] [`NumericRangeTree`] and cannot be NULL.
-/// - The returned pointer is valid until the tree is modified or freed.
+/// - The returned pointer is [valid] until the tree is modified or freed.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]

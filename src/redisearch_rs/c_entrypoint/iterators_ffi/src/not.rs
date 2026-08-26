@@ -180,7 +180,7 @@ unsafe fn build_timeout_context(q: NonNull<ffi::QueryEvalCtx>) -> AnyTimeoutCont
 /// 2. When non-null, `child` must not be aliased.
 /// 3. `q` must be a [valid] non-null pointer to a [`QueryEvalCtx`](ffi::QueryEvalCtx).
 /// 4. `q.sctx` must be a non-null pointer to a [valid]
-///    [`RedisSearchCtx`](ffi::RedisSearchCtx), which must stay valid and at a stable
+///    [`RedisSearchCtx`](ffi::RedisSearchCtx), which must stay [valid] and at a stable
 ///    address for the lifetime of the returned iterator: on the Clock Based Timeout path
 ///    the iterator reads the request-owned deadline back on every probe. No write to that
 ///    deadline may overlap a probe.

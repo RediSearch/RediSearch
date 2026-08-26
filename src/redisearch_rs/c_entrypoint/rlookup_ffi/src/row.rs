@@ -430,7 +430,7 @@ pub unsafe extern "C" fn RLookupRow_GetSortingVector(
 ///
 /// 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
 /// 2. `sv` must be either null or a [valid] pointer to an [`sorting_vector::RSSortingVector`].
-///    The pointed-to vector must remain valid for the lifetime of the row.
+///    The pointed-to vector must remain [valid] for the lifetime of the row.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]

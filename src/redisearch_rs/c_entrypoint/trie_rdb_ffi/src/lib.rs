@@ -65,7 +65,7 @@ pub unsafe extern "C" fn LexTrieRs_Free(t: *mut LexTrieRs) {
 /// # Safety
 ///
 /// - `io` must be a [valid] `*mut RedisModuleIO` supplied by the calling
-///   Redis module command and remain valid for the duration of the call.
+///   Redis module command and remain [valid] for the duration of the call.
 /// - `map` must be a [valid] pointer to a [`LexTrieRs`] (typically obtained
 ///   from [`LexTrieRs_New`] / [`LexTrieRs_RdbLoad`]). It is borrowed
 ///   immutably for the duration of the call; no aliasing mutable
@@ -104,7 +104,7 @@ pub unsafe extern "C" fn LexTrieRs_RdbSave(
 /// # Safety
 ///
 /// - `io` must be a [valid] `*mut RedisModuleIO` supplied by the calling
-///   Redis module type loader and remain valid for the duration of the
+///   Redis module type loader and remain [valid] for the duration of the
 ///   call.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety

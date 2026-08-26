@@ -123,7 +123,7 @@ pub unsafe extern "C" fn RSValue_NewString(str: *mut c_char, len: u32) -> *mut R
 /// 1. `str` must be a [valid], non-null pointer to a buffer of `len+1` bytes.
 /// 2. A nul-terminator is expected in memory at `str+len`.
 /// 3. The size determined by `len` excludes the nul-terminator.
-/// 4. The memory pointed to by `str` must remain valid and not be mutated for the entire
+/// 4. The memory pointed to by `str` must remain [valid] and not be mutated for the entire
 ///    lifetime of the returned [`RSValue`] and any clones of it.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety

@@ -445,7 +445,7 @@ struct RSValue *RSValue_NewArrayFromBuilder(struct RSValue * *values, uint32_t l
  * 1. `str` must be a [valid], non-null pointer to a buffer of `len+1` bytes.
  * 2. A nul-terminator is expected in memory at `str+len`.
  * 3. The size determined by `len` excludes the nul-terminator.
- * 4. The memory pointed to by `str` must remain valid and not be mutated for the entire
+ * 4. The memory pointed to by `str` must remain [valid] and not be mutated for the entire
  *    lifetime of the returned [`RSValue`] and any clones of it.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -743,7 +743,7 @@ void RSValue_Replace(struct RSValue * *dstpp, const struct RSValue *src);
  * 3. `str` must be a [valid], non-null pointer to a buffer of `len+1` bytes.
  * 4. A nul-terminator is expected in memory at `str+len`.
  * 5. The size determined by `len` excludes the nul-terminator.
- * 6. The memory pointed to by `str` must remain valid and not be mutated for the entire
+ * 6. The memory pointed to by `str` must remain [valid] and not be mutated for the entire
  *    lifetime of the returned [`RSValue`] and any clones of it.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
