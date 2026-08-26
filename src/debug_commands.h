@@ -210,6 +210,8 @@ bool SyncPoint_ArmWithTimeout(const char *name, long long auto_release_ms);
 void SyncPoint_Signal(const char *name);
 // Check if a thread is waiting at the named sync point
 bool SyncPoint_IsWaiting(const char *name);
+// Number of times a thread entered the named sync point since it was armed
+uint32_t SyncPoint_HitCount(const char *name);
 // Check if a sync point is armed
 bool SyncPoint_IsArmed(const char *name);
 // Clear all sync points
