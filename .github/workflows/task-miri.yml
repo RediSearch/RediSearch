@@ -109,9 +109,14 @@ jobs:
         shell: sh -l -eo pipefail {0}
         run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
 
-      - name: Prepare Alpine for JavaScript actions
-        if: startsWith(needs.get-config.outputs.container, 'alpine:')
-        shell: sh -l -eo pipefail {0}
+      - name: Setup Dependencies
+        if: needs.build-image.outputs.succeeded != 'true' && needs.get-config.outputs.setup_script
+        env:
+          SETUP_SCRIPT: ${{ needs.get-config.outputs.setup_script }}
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'eval "$SETUP_SCRIPT"') }}
+
+      - name: Post-setup
+        if: needs.get-config.outputs.post_setup_script
         env:
           POST_SETUP_SCRIPT: ${{ needs.get-config.outputs.post_setup_script }}
         run: eval "$POST_SETUP_SCRIPT"
@@ -133,18 +138,6 @@ jobs:
             exit 0
           fi
           echo "HOME=$h" >> "$GITHUB_ENV"
-
-      - name: Setup Dependencies
-        if: needs.build-image.outputs.succeeded != 'true' && needs.get-config.outputs.setup_script
-        env:
-          SETUP_SCRIPT: ${{ needs.get-config.outputs.setup_script }}
-        run: ${{ format(env.SETUP_RETRY_LOOP, 'eval "$SETUP_SCRIPT"') }}
-
-      - name: Post-setup
-        if: needs.get-config.outputs.post_setup_script
-        env:
-          POST_SETUP_SCRIPT: ${{ needs.get-config.outputs.post_setup_script }}
-        run: eval "$POST_SETUP_SCRIPT"
 
       # MIRI runs `make rust-tests` which goes through build.sh's full flow,
       # including the C build that produces libredisearch_all.a. Sccache keeps

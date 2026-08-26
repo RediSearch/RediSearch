@@ -120,9 +120,17 @@ jobs:
         shell: sh -l -eo pipefail {0}
         run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
 
-      - name: Prepare Alpine for JavaScript actions
-        if: startsWith(inputs.container, 'alpine:')
-        shell: sh -l -eo pipefail {0}
+      - name: Setup Dependencies
+        # Hoist setup-script into an env var and `eval` it from the loop body
+        # rather than interpolating ${{ inputs.setup-script }} directly into
+        # the run script — avoids ${{ }} expansion injecting shell metachars.
+        if: inputs.image-built != 'true' && inputs.setup-script
+        env:
+          SETUP_SCRIPT: ${{ inputs.setup-script }}
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'eval "$SETUP_SCRIPT"') }}
+
+      - name: Post-setup
+        if: inputs.post-setup-script
         env:
           POST_SETUP_SCRIPT: ${{ inputs.post-setup-script }}
         run: eval "$POST_SETUP_SCRIPT"
@@ -150,21 +158,6 @@ jobs:
           fi
           echo "HOME=$HOME was broken. Setting it to $h"
           echo "HOME=$h" >> "$GITHUB_ENV"
-
-      - name: Setup Dependencies
-        # Hoist setup-script into an env var and `eval` it from the loop body
-        # rather than interpolating ${{ inputs.setup-script }} directly into
-        # the run script — avoids ${{ }} expansion injecting shell metachars.
-        if: inputs.image-built != 'true' && inputs.setup-script
-        env:
-          SETUP_SCRIPT: ${{ inputs.setup-script }}
-        run: ${{ format(env.SETUP_RETRY_LOOP, 'eval "$SETUP_SCRIPT"') }}
-
-      - name: Post-setup
-        if: inputs.post-setup-script
-        env:
-          POST_SETUP_SCRIPT: ${{ inputs.post-setup-script }}
-        run: eval "$POST_SETUP_SCRIPT"
 
       - name: Setup build environment
         uses: ./.github/actions/setup-build-env
