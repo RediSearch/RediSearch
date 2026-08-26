@@ -479,6 +479,135 @@ jobs:
           SKIP_BUILD: 1
         run: make pytest $TEST_CONFIG
 
+      # RLTest redirects each server's ASan/LSan output to a per-server
+      # `*.asan.log` file (its createCmdOSEnv sets
+      # ASAN_OPTIONS=...:log_path=...) instead of stdout/stderr, so a
+      # detected violation does not fail the "Flow tests" step above and
+      # would otherwise go unnoticed by CI -- the process can crash
+      # mid-test while RLTest's own env.isUp() still reports it as up.
+      # continue-on-error defers the actual job failure to "Fail flow if
+      # tests failed" below, so the log-upload steps still run first.
+      - name: Check for sanitizer reports
+        id: sanitizer_reports
+        if: always() && inputs.san == 'address'
+        continue-on-error: true
+        shell: python3 {0}
+        run: |
+          import re
+          import sys
+          from pathlib import Path
+
+          # test_crash.py's CrashingEnv deliberately crashes the server to assert
+          # on the resulting bug report; Redis's own crash-report generation
+          # (debug.c) triggers this specific stack-buffer-overflow as a side
+          # effect of walking process memory maps for that report. Matched by
+          # content, not by which test produced it, so an unrelated sanitizer
+          # error in the same log still gets caught.
+          EXPECTED_CRASH_SUMMARY = re.compile(
+              r"stack-buffer-overflow \S*debug\.c:\d+:\d+ in memtest_test_linux_anonymous_maps"
+          )
+          # RediSearch is a dlopen'd module: LSan's root scanner does not see
+          # pointers held only in a dynamically-loaded library's globals, so
+          # module-lifetime state allocated once at RedisModule_OnLoad is
+          # misreported as leaked. Only leak entries actually rooted in one of
+          # these known once-at-startup call sites are excluded; a "Direct
+          # leak" (LSan did find an unreferenced root) or an "Indirect leak"
+          # rooted elsewhere is always treated as real.
+          BENIGN_LEAK_ROOTS = (
+              "DetectClusterType",
+              "moduleLoadInternalModules",
+              "moduleOnLoad",
+              "moduleCreateContext",
+              "moduleAllocTempClient",
+          )
+
+          # test_eval_node_errors_async (test_async.py) and
+          # test_timeout_strict_policy (test.py) each fire a query with a very
+          # short TIMEOUT against a dataset large enough that the shard-side
+          # scan is still running when the client-side timeout fires -- there
+          # is no query-cancellation-on-timeout. The coordinator's per-request
+          # fanout state for that abandoned request (MRCtx and everything it
+          # allocated: the MRCommand, its dispatch/reply-parsing buffers, ...)
+          # is only freed once the abandoned shard reply eventually arrives,
+          # which doesn't happen before these tests, and then the server,
+          # finish. Confirmed by investigation, not assumed: a test-side fix
+          # that waits for the coordinator's own request-completed signal
+          # before returning was tried and still left the window open under
+          # CI's parallel load, because that signal fires before -- not
+          # synchronized with -- the free it's meant to indicate. The
+          # allocation graph this produces spans essentially the whole
+          # per-request dispatch/reply-parsing path, so it isn't matched by
+          # content the way BENIGN_LEAK_ROOTS is above -- scoping to these two
+          # tests by name is the safety boundary instead. Only "Indirect leak"
+          # entries are forgiven here: a "Direct leak" (a genuinely different
+          # unreferenced allocation) or a non-leak AddressSanitizer error in
+          # these same tests' logs still fails, as does this leak pattern
+          # surfacing in any other test.
+          KNOWN_ABANDONED_FANOUT_TESTS = re.compile(
+              r"test_eval_node_errors_async|test_test_timeout_strict_policy"
+          )
+
+          # Anchored on the "==PID==ERROR: ..." header line, which the sanitizer
+          # runtime always writes first -- unlike the SUMMARY line or leak
+          # entries, which a report can be missing if the process is killed or
+          # faults again before finishing writing it. A report that can't be
+          # positively matched to the known-benign signature, complete or not,
+          # is treated as real: this is exactly the "server crashed and CI
+          # didn't notice" scenario the step exists to catch.
+          HEADER_RE = re.compile(r"^==\d+==ERROR: (AddressSanitizer|LeakSanitizer): .*$", re.MULTILINE)
+          LEAK_ENTRY_RE = re.compile(r"^(Direct|Indirect) leak of .* allocated from:$", re.MULTILINE)
+
+          def unexpected_reports(log, text):
+              is_known_abandoned_fanout_test = bool(KNOWN_ABANDONED_FANOUT_TESTS.search(str(log)))
+              bad = []
+              headers = list(HEADER_RE.finditer(text))
+              for i, h in enumerate(headers):
+                  start = h.end()
+                  end = headers[i + 1].start() if i + 1 < len(headers) else len(text)
+                  block = text[start:end]
+                  if h.group(1) == "LeakSanitizer":
+                      entries = list(LEAK_ENTRY_RE.finditer(block))
+                      if not entries:
+                          bad.append(h.group(0))  # header with no leak entry: truncated
+                          continue
+                      for m in entries:
+                          stack = []
+                          # +1 skips the newline right after "allocated from:" --
+                          # without it, splitlines()'s first element is that
+                          # empty line, and the loop breaks before collecting
+                          # any frames.
+                          for line in block[m.end() + 1:].splitlines():
+                              if not line.strip():
+                                  break
+                              stack.append(line)
+                          entry = "\n".join(stack)
+                          if m.group(1) == "Direct":
+                              bad.append(f"{h.group(0)}\n{m.group(0)}\n{entry}")
+                          elif any(root in entry for root in BENIGN_LEAK_ROOTS):
+                              continue
+                          elif is_known_abandoned_fanout_test:
+                              continue
+                          else:
+                              bad.append(f"{h.group(0)}\n{m.group(0)}\n{entry}")
+                  else:
+                      summary = re.search(r"^SUMMARY: AddressSanitizer:.*$", block, re.MULTILINE)
+                      if not summary or not EXPECTED_CRASH_SUMMARY.search(summary.group(0)):
+                          detail = summary.group(0) if summary else "(no SUMMARY -- truncated report)"
+                          bad.append(f"{h.group(0)}\n{detail}")
+              return bad
+
+          found = False
+          for log in sorted(Path("tests").glob("**/logs/*.asan.log*")):
+              if not log.is_file():
+                  continue
+              bad = unexpected_reports(log, log.read_text(errors="replace"))
+              if bad:
+                  found = True
+                  print(f"::error::Sanitizer report in {log}")
+                  print("\n".join(bad))
+
+          sys.exit(1 if found else 0)
+
       # Record this run's failures to the flaky DB (internal PRs only) so flaky
       # marks stay current. always() so failures are recorded even when the test
       # step failed; continue-on-error so a DB outage never fails the job.
@@ -520,7 +649,8 @@ jobs:
         if: >
           failure() || (
             steps.standalone_tests.outcome == 'failure' ||
-            steps.coordinator_tests.outcome == 'failure'
+            steps.coordinator_tests.outcome == 'failure' ||
+            steps.sanitizer_reports.outcome == 'failure'
           )
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -584,11 +714,13 @@ jobs:
         if: |
           failure() || (
             steps.standalone_tests.outcome == 'failure' ||
-            steps.coordinator_tests.outcome == 'failure'
+            steps.coordinator_tests.outcome == 'failure' ||
+            steps.sanitizer_reports.outcome == 'failure'
           )
         run: |
           echo "Flow tests (standalone): ${{ steps.standalone_tests.outcome }}"
           echo "Flow tests (coordinator): ${{ steps.coordinator_tests.outcome }}"
+          echo "Sanitizer reports: ${{ steps.sanitizer_reports.outcome }}"
           exit 1
       - name: Import Codecov GPG public key
         if: inputs.coverage
