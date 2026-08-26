@@ -2398,15 +2398,25 @@ static void setCursorRequestTimeoutPolicy(AREQ *req, RSTimeoutPolicy policy) {
   QueryRequestTimeout_UpdateConfig(&req->base.timeout, policy, req->base.timeout.timeoutMS);
 }
 
-static void restoreCursorTimeoutPolicy(const Cursor *cursor, AREQ *req) {
-  if (req->reqConfig.timeoutPolicy == cursor->queryTimeoutPolicy) {
+static void restoreCursorTimeoutConfig(const Cursor *cursor, AREQ *req) {
+  RS_ASSERT(cursor->queryTimeoutMS <= LLONG_MAX);
+  const long long cursorTimeoutMS = (long long)cursor->queryTimeoutMS;
+  const bool restorePolicy = req->reqConfig.timeoutPolicy != cursor->queryTimeoutPolicy;
+  const bool restoreTimeout = req->reqConfig.queryTimeoutMS != cursorTimeoutMS;
+  if (!restorePolicy && !restoreTimeout) {
     return;
   }
 
-  RS_ASSERT(cursor->queryTimeoutPolicy == TimeoutPolicy_ReturnStrict);
-  RS_ASSERT(req->reqConfig.timeoutPolicy == TimeoutPolicy_Return);
-  setCursorRequestTimeoutPolicy(req, cursor->queryTimeoutPolicy);
-  req->base.async.requiresAggregateResultsSync = true;
+  if (restorePolicy) {
+    RS_ASSERT(cursor->queryTimeoutPolicy == TimeoutPolicy_ReturnStrict);
+    RS_ASSERT(req->reqConfig.timeoutPolicy == TimeoutPolicy_Return);
+    setCursorRequestTimeoutPolicy(req, cursor->queryTimeoutPolicy);
+    req->base.async.requiresAggregateResultsSync = true;
+  }
+
+  req->reqConfig.queryTimeoutMS = cursorTimeoutMS;
+  QueryRequestTimeout_UpdateConfig(&req->base.timeout, req->reqConfig.timeoutPolicy,
+                                   req->reqConfig.queryTimeoutMS);
 }
 
 static void fallbackCursorToReturn(const Cursor *cursor, AREQ *req) {
@@ -2474,9 +2484,9 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
   AREQ *cursor_req = Cursor_AREQ(cursor);
   if (cursor_req) {
-    // Inline reads may temporarily fall back to RETURN, but the cursor's original policy is
-    // sticky and must be restored before choosing how to execute the next read.
-    restoreCursorTimeoutPolicy(cursor, cursor_req);
+    // Inline reads may temporarily cap or change the timeout configuration. Restore the cursor's
+    // sticky values before choosing how to execute the next read.
+    restoreCursorTimeoutConfig(cursor, cursor_req);
 
     // Apply the foreground cap before BeginCycle below. UpdateConfig changes only the sticky
     // configuration; applying it after arming would leave this read with the previous deadline.
