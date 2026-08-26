@@ -42,17 +42,21 @@ unsafe fn parse_level(level: *const c_char) -> LevelFilter {
 ///
 /// `level` is the initial redis `loglevel` config value the filter is set to.
 ///
+/// A null `ctx` is accepted: traces are then logged through a null module
+/// context, which `RedisModule_Log` explicitly permits.
+///
 /// # Safety
 ///
-/// `level` must point to a valid, null-terminated C string.
+/// `level` must point to a valid, null-terminated C string. `ctx` must either
+/// be null or point to a valid `RedisModuleCtx`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TracingRedisModule_Init(
-    ctx: Option<NonNull<redis_module::RedisModuleCtx>>,
+    ctx: *mut redis_module::RedisModuleCtx,
     level: *const c_char,
 ) {
     // Safety: forwarded to the caller's contract on `level`.
     let level = unsafe { parse_level(level) };
-    tracing_redismodule::init(ctx, level);
+    tracing_redismodule::init(NonNull::new(ctx), level);
 }
 
 /// Updates the `tracing` log level filter from a redis `loglevel` config value
@@ -168,14 +172,16 @@ fn info_cstring(value: impl Into<Vec<u8>>) -> CString {
 /// When a Rust panic was stashed in [`PANIC_STASH`], its details are emitted
 /// in the same section, ahead of the backtrace.
 ///
+/// A null `ctx` is a no-op.
+///
 /// # Safety
 ///
-/// `ctx` must be a valid pointer to a `RedisModuleInfoCtx`.
+/// `ctx` must either be null or point to a valid `RedisModuleInfoCtx`.
 #[unsafe(no_mangle)]
-pub extern "C" fn AddToInfo_RustBacktrace(ctx: Option<NonNull<redis_module::RedisModuleInfoCtx>>) {
-    let Some(ctx) = ctx else {
+pub unsafe extern "C" fn AddToInfo_RustBacktrace(ctx: *mut redis_module::RedisModuleInfoCtx) {
+    if ctx.is_null() {
         return;
-    };
+    }
 
     let backtrace_cstr = info_cstring(std::backtrace::Backtrace::force_capture().to_string());
 
@@ -185,7 +191,7 @@ pub extern "C" fn AddToInfo_RustBacktrace(ctx: Option<NonNull<redis_module::Redi
     let info_add_field_cstring = unsafe { redis_module::RedisModule_InfoAddFieldCString.unwrap() };
 
     // SAFETY: `ctx` is a valid pointer to a `RedisModuleInfoCtx`.
-    unsafe { info_add_section(ctx.as_ptr(), c"rust_backtrace".as_ptr()) };
+    unsafe { info_add_section(ctx, c"rust_backtrace".as_ptr()) };
 
     // `get` yields None if a crash races the first panic's `set`, losing the
     // fields rather than blocking the report.
@@ -194,25 +200,15 @@ pub extern "C" fn AddToInfo_RustBacktrace(ctx: Option<NonNull<redis_module::Redi
         let location = info_cstring(stashed.location.as_str());
         let recorded_at = info_cstring(stashed.recorded_at.as_str());
         // SAFETY: `ctx` is a valid pointer and `payload` is a valid null-terminated C string.
-        unsafe {
-            info_add_field_cstring(ctx.as_ptr(), c"panic_payload".as_ptr(), payload.as_ptr())
-        };
+        unsafe { info_add_field_cstring(ctx, c"panic_payload".as_ptr(), payload.as_ptr()) };
         // SAFETY: `ctx` is a valid pointer and `location` is a valid null-terminated C string.
-        unsafe {
-            info_add_field_cstring(ctx.as_ptr(), c"panic_location".as_ptr(), location.as_ptr())
-        };
+        unsafe { info_add_field_cstring(ctx, c"panic_location".as_ptr(), location.as_ptr()) };
         // SAFETY: `ctx` is a valid pointer and `recorded_at` is a valid null-terminated C string.
-        unsafe {
-            info_add_field_cstring(
-                ctx.as_ptr(),
-                c"panic_recorded_at".as_ptr(),
-                recorded_at.as_ptr(),
-            )
-        };
+        unsafe { info_add_field_cstring(ctx, c"panic_recorded_at".as_ptr(), recorded_at.as_ptr()) };
     }
 
     // SAFETY: `ctx` is a valid pointer and `backtrace_cstr` is a valid null-terminated C string.
-    unsafe { info_add_field_cstring(ctx.as_ptr(), c"backtrace".as_ptr(), backtrace_cstr.as_ptr()) };
+    unsafe { info_add_field_cstring(ctx, c"backtrace".as_ptr(), backtrace_cstr.as_ptr()) };
 }
 
 #[cfg(test)]

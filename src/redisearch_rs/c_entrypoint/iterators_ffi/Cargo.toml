@@ -34,10 +34,11 @@ numeric_range_tree_ffi = { path = "../numeric_range_tree_ffi" }
 query_types.workspace = true
 redis-module.workspace = true
 redis_reply.workspace = true
-rlookup.workspace = true
 rqe_core.workspace = true
 rqe_iterator_type.workspace = true
 rqe_iterators.workspace = true
+top_k.workspace = true
 trie_rs.workspace = true
+vector_score_source.workspace = true
 workspace_hack.workspace = true
 

@@ -12,7 +12,7 @@
 //! This crate bridges the pure Rust [`geo`] crate (including its [`geo::hash`]
 //! module), providing the same C API that was previously in `src/rs_geo.c`.
 
-use std::{ffi::c_int, ptr::NonNull};
+use std::ffi::c_int;
 
 use decorum::R64;
 use geo::ParseGeoError;
@@ -133,9 +133,9 @@ pub unsafe extern "C" fn isWithinRadiusLonLat(
     let lon2 = R64::assert(lon2);
     let lat2 = R64::assert(lat2);
     let dist = geo::hash::haversine_distance(lon1, lat1, lon2, lat2);
-    if let Some(d) = NonNull::new(distance) {
-        // SAFETY: caller guarantees `distance` is valid when non-null.
-        unsafe { d.as_ptr().write(dist) };
+    // SAFETY: caller guarantees `distance` is valid when non-null.
+    if let Some(d) = unsafe { distance.as_mut() } {
+        *d = dist;
     }
     dist <= radius
 }

@@ -606,7 +606,7 @@ struct RLookupIteratorMut RLookup_IterMut(struct RLookup *lookup);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-int RLookup_LoadDocumentAll(struct RLookup *lookup, struct RLookupRow *dst_row, struct LoadAllKeysOptions *opts);
+int RLookup_LoadDocumentAll(struct RLookup *lookup, struct RLookupRow *dst_row, const struct LoadAllKeysOptions *opts);
 
 /**
  * Load values for all non-present and loadable keys in `rlookup` from the document `dmd` into `dst_row`
@@ -625,7 +625,7 @@ int RLookup_LoadDocumentAll(struct RLookup *lookup, struct RLookupRow *dst_row, 
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-int RLookup_LoadDocumentIndividual(struct RLookup *lookup, struct RLookupRow *dst_row, struct LoadIndividualKeysOptions *opts);
+int RLookup_LoadDocumentIndividual(struct RLookup *lookup, struct RLookupRow *dst_row, const struct LoadIndividualKeysOptions *opts);
 
 /**
  * Initialize the lookup with fields from a Redis hash.
@@ -650,7 +650,7 @@ int RLookup_LoadDocumentIndividual(struct RLookup *lookup, struct RLookupRow *ds
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx, struct RLookup *lookup, struct RLookupRow *dst_row, IndexSpec *index_spec, const char *key, struct RedisModuleKey *open_key, struct QueryError *status);
+int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx, struct RLookup *lookup, struct RLookupRow *dst_row, const IndexSpec *index_spec, const char *key, struct RedisModuleKey *open_key, struct QueryError *status);
 
 /**
  * Returns a newly created [`RLookup`].
