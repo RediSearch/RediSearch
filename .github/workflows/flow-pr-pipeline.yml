@@ -69,6 +69,7 @@ jobs:
     if: ${{ needs.get-config.outputs.container }}
     name: Build container for platform
     uses: ./.github/workflows/task-build-cached-container.yml
+    secrets: inherit
     with:
       container: ${{ needs.get-config.outputs.container }}
       runner-env: ${{ needs.get-config.outputs.env }}
@@ -106,6 +107,7 @@ jobs:
       post-setup-script: ${{ needs.get-config.outputs.post_setup_script }}
       enable-lto: ${{ inputs.enable-lto != '' && inputs.enable-lto || needs.get-config.outputs.enable_lto }}
       image: ${{ needs.build-image.outputs.image }}
+      image-is-mirror: ${{ needs.build-image.outputs.image-is-mirror }}
       image-built: ${{ needs.build-image.outputs.succeeded }}
 
   # redis-server and RedisJSON are external to this repo but must be built with
@@ -121,6 +123,7 @@ jobs:
       contents: read
       packages: read
     uses: ./.github/workflows/task-build-redis.yml
+    secrets: inherit
     with:
       redis-ref: ${{ inputs.redis-ref }}
       coverage: ${{ inputs.job-type == 'coverage' }}
@@ -134,6 +137,7 @@ jobs:
       setup-script: ${{ needs.get-config.outputs.setup_script }}
       post-setup-script: ${{ needs.get-config.outputs.post_setup_script }}
       image: ${{ needs.build-image.outputs.image }}
+      image-is-mirror: ${{ needs.build-image.outputs.image-is-mirror }}
       image-built: ${{ needs.build-image.outputs.succeeded }}
 
   build-rejson:
@@ -145,6 +149,7 @@ jobs:
       contents: read
       packages: read
     uses: ./.github/workflows/task-build-rejson.yml
+    secrets: inherit
     with:
       platform: ${{ inputs.platform }}
       coverage: ${{ inputs.job-type == 'coverage' }}
@@ -159,6 +164,7 @@ jobs:
       setup-script: ${{ needs.get-config.outputs.setup_script }}
       post-setup-script: ${{ needs.get-config.outputs.post_setup_script }}
       image: ${{ needs.build-image.outputs.image }}
+      image-is-mirror: ${{ needs.build-image.outputs.image-is-mirror }}
       image-built: ${{ needs.build-image.outputs.succeeded }}
 
   test-unit:
@@ -192,6 +198,7 @@ jobs:
       setup-script: ${{ needs.get-config.outputs.setup_script }}
       post-setup-script: ${{ needs.get-config.outputs.post_setup_script }}
       image: ${{ needs.build-image.outputs.image }}
+      image-is-mirror: ${{ needs.build-image.outputs.image-is-mirror }}
       image-built: ${{ needs.build-image.outputs.succeeded }}
 
   test-flow-standalone:
@@ -230,6 +237,7 @@ jobs:
       setup-script: ${{ needs.get-config.outputs.setup_script }}
       post-setup-script: ${{ needs.get-config.outputs.post_setup_script }}
       image: ${{ needs.build-image.outputs.image }}
+      image-is-mirror: ${{ needs.build-image.outputs.image-is-mirror }}
       image-built: ${{ needs.build-image.outputs.succeeded }}
 
   test-flow-coordinator:
@@ -280,4 +288,5 @@ jobs:
       setup-script: ${{ needs.get-config.outputs.setup_script }}
       post-setup-script: ${{ needs.get-config.outputs.post_setup_script }}
       image: ${{ needs.build-image.outputs.image }}
+      image-is-mirror: ${{ needs.build-image.outputs.image-is-mirror }}
       image-built: ${{ needs.build-image.outputs.succeeded }}

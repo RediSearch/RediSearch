@@ -71,32 +71,30 @@ jobs:
       ec2-image-id: ${{ needs.get-config.outputs.ec2_image_id }}
       ec2-instance-type: ${{ needs.get-config.outputs.ec2_instance_type }}
 
-  redis-build-sanity:
+  redis-build-sanity-container:
     needs: [get-config, start-runner]
     name: Redis build sanity on ${{ needs.get-config.outputs.name }}
     if: |
       !cancelled() &&
       needs.get-config.result == 'success' &&
-      (!needs.get-config.outputs.ec2_image_id || needs.start-runner.result == 'success')
+      (!needs.get-config.outputs.ec2_image_id || needs.start-runner.result == 'success') &&
+      needs.get-config.outputs.container != ''
     runs-on: ${{ needs.get-config.outputs.ec2_image_id && needs.start-runner.outputs.label || needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
     # Runner-local env is unavailable while GitHub creates the job container.
     # Use the resolved runner label as the pre-container signal for GitHub-hosted
     # mounts; runner-local env is not available yet.
-    container: ${{
-      needs.get-config.outputs.container
-        && fromJSON(
-          format('{{"image":"{0}","options":"--user root {1} {2}"}}',
-            needs.get-config.outputs.container,
-            startsWith(needs.get-config.outputs.container, 'alpine:') && (startsWith(needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest', 'ubuntu') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '-v /opt/gha-alpine-node:/opt:rw -v /opt/gha-alpine-node:/__e/node20:ro -v /opt/gha-alpine-node:/__e/node24:ro') || '',
-            startsWith(needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest', 'ubuntu') && '-v /usr/share/dotnet:/host/usr/share/dotnet -v /usr/local/lib/android:/host/usr/local/lib/android -v /opt/ghc:/host/opt/ghc -v /opt/hostedtoolcache:/host/opt/hostedtoolcache' || '')
-        )
-      || null }}
-    permissions:
+    container:
+      image: ${{ needs.get-config.outputs.container }}
+      options: &redis_build_sanity_container_options >-
+        --user root
+        ${{ startsWith(needs.get-config.outputs.container, 'alpine:') && (startsWith(needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest', 'ubuntu') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '-v /opt/gha-alpine-node:/opt:rw -v /opt/gha-alpine-node:/__e/node20:ro -v /opt/gha-alpine-node:/__e/node24:ro') || '' }}
+        ${{ startsWith(needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest', 'ubuntu') && '-v /usr/share/dotnet:/host/usr/share/dotnet -v /usr/local/lib/android:/host/usr/local/lib/android -v /opt/ghc:/host/opt/ghc -v /opt/hostedtoolcache:/host/opt/hostedtoolcache' || '' }}
+    permissions: &redis_build_sanity_permissions
       contents: read
-    defaults:
+    defaults: &redis_build_sanity_defaults
       run:
         shell: /bin/bash -l -eo pipefail {0}
-    steps:
+    steps: &redis_build_sanity_steps
       - name: Install bash
         if: startsWith(needs.get-config.outputs.container, 'alpine:')
         shell: sh -l -eo pipefail {0}
@@ -325,10 +323,23 @@ jobs:
                   proc.wait()
           PY
 
+  redis-build-sanity-host:
+    needs: [get-config, start-runner]
+    name: Redis build sanity on ${{ needs.get-config.outputs.name }}
+    if: |
+      !cancelled() &&
+      needs.get-config.result == 'success' &&
+      (!needs.get-config.outputs.ec2_image_id || needs.start-runner.result == 'success') &&
+      needs.get-config.outputs.container == ''
+    runs-on: ${{ needs.get-config.outputs.ec2_image_id && needs.start-runner.outputs.label || needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    permissions: *redis_build_sanity_permissions
+    defaults: *redis_build_sanity_defaults
+    steps: *redis_build_sanity_steps
+
   stop-runner:
     permissions: {} # AWS access keys, and the runner deregisters with an App token
     name: Stop self-hosted EC2 runner
-    needs: [start-runner, redis-build-sanity]
+    needs: [start-runner, redis-build-sanity-container, redis-build-sanity-host]
     if: ${{ always() && needs.start-runner.outputs.ec2-instance-id != '' }}
     uses: ./.github/workflows/task-stop-ec2-runner.yml
     secrets: inherit

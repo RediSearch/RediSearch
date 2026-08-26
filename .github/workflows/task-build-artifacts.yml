@@ -52,35 +52,36 @@ jobs:
     if: ${{ needs.get-config.outputs.container }}
     name: Build cached container for platform
     uses: ./.github/workflows/task-build-cached-container.yml
+    secrets: inherit
     with:
       container: ${{ needs.get-config.outputs.container }}
       runner-env: ${{ needs.get-config.outputs.env || vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-latest' }}
       checkout-ref: ${{ inputs.sha || inputs.ref || github.sha }}
 
-  build:
+  build-ghcr:
     name: Build ${{ needs.get-config.outputs.name }}
     needs: [get-config, build-image]
     if: |
       !cancelled() &&
-      needs.get-config.result == 'success'
+      needs.get-config.result == 'success' &&
+      needs.get-config.outputs.container != '' &&
+      needs.build-image.outputs.succeeded == 'true' &&
+      needs.build-image.outputs.image-is-mirror != 'true'
     runs-on: ${{ needs.get-config.outputs.env || vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-latest' }}
-    permissions:
+    permissions: &build_permissions
       id-token: write # Required for OIDC role assumption during upload
       contents: read  # Required for actions/checkout
       packages: read  # Required for GHCR read
-    defaults:
+    defaults: &build_defaults
       run:
         shell: bash -l -eo pipefail {0}
-    container: ${{
-      needs.get-config.outputs.container
-        && fromJSON(
-          format('{{"image":"{0}","options":"--user root {1}"}}',
-            needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container,
-            startsWith(needs.get-config.outputs.container, 'alpine:') && (startsWith(needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest', 'ubuntu') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '-v /opt/gha-alpine-node:/opt:rw -v /opt/gha-alpine-node:/__e/node20:ro -v /opt/gha-alpine-node:/__e/node24:ro') || '')
-        )
-      || null }}
+    container:
+      image: ${{ needs.build-image.outputs.image }}
+      options: &build_container_options >-
+        --user root
+        ${{ startsWith(needs.get-config.outputs.container, 'alpine:') && (startsWith(needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest', 'ubuntu') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '-v /opt/gha-alpine-node:/opt:rw -v /opt/gha-alpine-node:/__e/node20:ro -v /opt/gha-alpine-node:/__e/node24:ro') || '' }}
 
-    env:
+    env: &build_env
       IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
       VERBOSE: 1 # For logging
       RELEASE: 0 # We build snapshots. This variable is used in the pack name (see `make pack`)
@@ -103,7 +104,7 @@ jobs:
           fi
         done
         [ $SUCCESS -eq 1 ] || exit 1
-    steps:
+    steps: &build_steps
       # Setup
       - name: Install bash
         if: startsWith(needs.get-config.outputs.container, 'alpine:')
@@ -224,3 +225,56 @@ jobs:
           BETA_VERSION: ${{ steps.set-versions.outputs.BETA_VERSION }}
           VERSION_SUFFIX: ${{ steps.set-versions.outputs.VERSION_SUFFIX }}
         run: make upload-artifacts
+
+  build-mirror:
+    name: Build ${{ needs.get-config.outputs.name }}
+    needs: [get-config, build-image]
+    if: |
+      !cancelled() &&
+      needs.get-config.result == 'success' &&
+      needs.get-config.outputs.container != '' &&
+      needs.build-image.outputs.succeeded == 'true' &&
+      needs.build-image.outputs.image-is-mirror == 'true'
+    runs-on: ${{ needs.get-config.outputs.env || vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-latest' }}
+    permissions: *build_permissions
+    defaults: *build_defaults
+    container:
+      image: ${{ needs.build-image.outputs.image }}
+      options: >-
+        --user root
+        ${{ startsWith(needs.get-config.outputs.container, 'alpine:') && '-v /opt/gha-alpine-node:/opt:rw -v /opt/gha-alpine-node:/__e/node20:ro -v /opt/gha-alpine-node:/__e/node24:ro' || '' }}
+      credentials:
+        username: ${{ vars.GHCR_MIRROR_USERNAME }}
+        password: ${{ secrets.GHCR_MIRROR_PASSWORD }}
+    env: *build_env
+    steps: *build_steps
+
+  build-raw:
+    name: Build ${{ needs.get-config.outputs.name }}
+    needs: [get-config, build-image]
+    if: |
+      !cancelled() &&
+      needs.get-config.result == 'success' &&
+      needs.get-config.outputs.container != '' &&
+      needs.build-image.outputs.succeeded != 'true'
+    runs-on: ${{ needs.get-config.outputs.env || vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-latest' }}
+    permissions: *build_permissions
+    defaults: *build_defaults
+    container:
+      image: ${{ needs.get-config.outputs.container }}
+      options: *build_container_options
+    env: *build_env
+    steps: *build_steps
+
+  build-host:
+    name: Build ${{ needs.get-config.outputs.name }}
+    needs: [get-config, build-image]
+    if: |
+      !cancelled() &&
+      needs.get-config.result == 'success' &&
+      needs.get-config.outputs.container == ''
+    runs-on: ${{ needs.get-config.outputs.env || vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-latest' }}
+    permissions: *build_permissions
+    defaults: *build_defaults
+    env: *build_env
+    steps: *build_steps
