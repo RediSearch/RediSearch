@@ -270,6 +270,14 @@ bool SearchDisk_IndexNumeric(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *inde
 SearchDiskWriteBatchHandle *SearchDisk_CreateWriteBatch(RedisSearchDiskIndexSpec *index);
 
 /**
+ * @brief Mark a disk index as actively receiving writes.
+ *
+ * Refreshes the index's hot write-buffer lease and reapplies its per-index
+ * write-buffer budget when the global hot/cold budget epoch changed.
+ */
+void SearchDisk_MarkIndexWriteActive(IndexSpec *sp);
+
+/**
  * @brief Atomically commit all writes staged on `batch`.
  *
  * Leaves `batch` valid and empty. The caller still owns the handle and must

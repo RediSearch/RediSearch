@@ -313,6 +313,13 @@ typedef enum {
   IndexDrop_KeepDocs,
 } IndexDropMode;
 
+typedef struct {
+  bool hot;
+  uint64_t hotUntilMs;
+  size_t budgetEpoch;
+  size_t appliedBudget;
+} IndexSpecDiskWriteBufferState;
+
 typedef struct IndexSpec {
   const HiddenString *specName;         // Index private name
   char *obfuscatedName;           // Index hashed name
@@ -402,6 +409,7 @@ typedef struct IndexSpec {
   // replication ending. Vector index state is stored inline in each field.
   RedisSearchDiskRdbState *pendingDiskRdbState;
   bool diskRegistered;
+  IndexSpecDiskWriteBufferState diskWriteBuffer;
 
   // True when the SST+RDB stream indicated the source node was still
   // background-indexing (scan in progress, or a previous scan failed on OOM)

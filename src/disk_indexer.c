@@ -71,6 +71,7 @@ void DiskIndexer_StageDocument(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   // Open a per-document write batch that doc-table / inverted-index / tag-index writes
   // will be staged into. The batch is committed (or aborted on error) by
   // `Indexer_Process` once all of `aCtx`'s indexing work has finished.
+  SearchDisk_MarkIndexWriteActive(spec);
   aCtx->disk.batch = SearchDisk_CreateWriteBatch(spec->diskSpec);
 
   // Stage the doc-table write and obtain the new doc-id. The doc-id is
