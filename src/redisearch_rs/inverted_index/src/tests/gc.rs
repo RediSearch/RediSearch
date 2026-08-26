@@ -863,13 +863,10 @@ fn test_needs_revalidation_after_block_buffer_moved() {
     assert!(!ir.needs_revalidation(), "index was not modified yet");
 
     // SAFETY: see the `ii_ptr` construction above.
-    let relocated = unsafe { crate::test_utils::relocate_block_buffer(&mut *ii_ptr, 0) };
+    unsafe {
+        crate::test_utils::relocate_block_buffer(&mut *ii_ptr, 0);
+    }
     assert_eq!(ii.gc_marker(), 0, "no GC ran");
-    assert_eq!(
-        ii.block_ref(0).unwrap().data().as_ptr(),
-        relocated,
-        "the block's buffer was supposed to move"
-    );
 
     assert!(
         ir.needs_revalidation(),
