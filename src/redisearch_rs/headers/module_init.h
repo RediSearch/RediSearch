@@ -17,15 +17,20 @@ extern "C" {
 void TracingRedisModule_Init(RedisModuleCtx *ctx);
 
 /**
- * Initialize RediSearch's panic hook, without replaacing the pre-existing panic hook (if any).
+ * Initialize RediSearch's panic hook, without replacing the pre-existing panic hook (if any).
  *
- * Panic messages will be logged through `tracing` at the `ERROR` level.
+ * Panic messages will be logged through `tracing` at the `ERROR` level, and
+ * stashed in [`PANIC_STASH`] for [`AddToInfo_RustBacktrace`] to include in
+ * the crash report.
  */
 void RustPanicHook_Init(void);
 
 /**
  * Add the current backtrace as a new section to the report printed
  * by RediSearch's INFO command.
+ *
+ * When a Rust panic was stashed in [`PANIC_STASH`], its details are emitted
+ * in the same section, ahead of the backtrace.
  *
  * # Safety
  *
