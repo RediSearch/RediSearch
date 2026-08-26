@@ -291,6 +291,44 @@ def testContainsGC(env):
   env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx').equal(['ld', 'orld', 'rld', 'world'])
 
 @skip(cluster=True)
+def testContainsGCDeepSuffixTrie(env):
+  max_prefix_expansions = env.cmd(config_cmd(), 'GET', 'MAXPREFIXEXPANSIONS')[0][1]
+  try:
+    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
+    env.expect(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', 1000000).ok()
+
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'doc:',
+                         'STOPWORDS', '0', 'SCHEMA', 't', 'TEXT', 'NOSTEM',
+                         'WITHSUFFIXTRIE')
+
+    # 528 exceeds twice TrieNode_Delete's initial stack cap (256), covering the
+    # heap realloc path in addition to the first local-to-heap stack growth.
+    max_len = 528
+    pipe = conn.pipeline()
+    for n in range(1, max_len + 1):
+      pipe.execute_command('HSET', f'doc:{n}', 't', 'a' * n)
+      if n % 50 == 0:
+        pipe.execute()
+    pipe.execute()
+    waitForIndex(env, 'idx')
+
+    # DUMP_SUFFIX_TRIE uses TrieIterator's fixed traversal stack, so use suffix
+    # queries here to cover deep delete behavior instead of debug enumeration.
+    env.expect('FT.SEARCH', 'idx', '*' + ('a' * max_len), 'LIMIT', 0, 0).equal([1])
+    env.expect('FT.SEARCH', 'idx', '*aa', 'LIMIT', 0, 0).equal([max_len - 1])
+
+    conn.execute_command('DEL', f'doc:{max_len}')
+    forceInvokeGC(env, 'idx')
+
+    env.expect('FT.SEARCH', 'idx', '*' + ('a' * max_len), 'LIMIT', 0, 0).equal([0])
+    env.expect('FT.SEARCH', 'idx', '*' + ('a' * (max_len - 1)), 'LIMIT', 0, 0).equal([1])
+    env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 0).equal([max_len - 1])
+    env.expect('FT.SEARCH', 'idx', '*aa', 'LIMIT', 0, 0).equal([max_len - 2])
+  finally:
+    env.expect(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', max_prefix_expansions).ok()
+
+@skip(cluster=True)
 def testContainsGCTag(env):
   env.expect(config_cmd() + ' set FORK_GC_CLEAN_THRESHOLD 0').ok()
 
