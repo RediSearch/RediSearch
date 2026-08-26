@@ -37,7 +37,6 @@
 #include "query_internal.h"
 #include "aggregate/aggregate.h"
 #include "suffix.h"
-#include "iterators/hybrid_reader.h"
 #include "search_disk.h"
 #include "shard_window_ratio.h"
 #include "idf_ffi.h"
@@ -156,15 +155,6 @@ void QueryNode_Free(QueryNode *n) {
   }
   rm_free(n);
 }
-
-// Add a new metric request to the metricRequests array. Returns the index of the request
-static int addMetricRequest(QueryEvalCtx *q, char *metric_name, bool isInternal) {
-  MetricRequest mr = {metric_name, NULL, isInternal};
-  array_ensure_append_1(*q->metricRequestsP, mr);
-  return array_len(*q->metricRequestsP) - 1;
-}
-
-
 
 QueryNode *NewQueryNode(QueryNodeType type) {
   QueryNode *s = rm_calloc(1, sizeof(QueryNode));
@@ -563,79 +553,6 @@ bool QueryIterator_IsBlockedClientTimedOut(const QueryRequestTimeout *timeout) {
   return QueryRequestTimeout_IsBlockedClientTimedOut(timeout);
 }
 
-static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn,
-                                           const EvalConfig *evalConfig) {
-  RS_LOG_ASSERT(qn->type == QN_VECTOR, "query node type should be vector");
-
-  if (qn->opts.distField) {
-    if (qn->vn.vq->scoreField) {
-      // Since the KNN syntax allows specifying the distance field in two ways (...=>[KNN ... AS <dist_field>] and
-      // ...=>[KNN ...]=>{$YIELD_DISTANCE_AS:<dist_field>), we validate that we got it only once.
-      size_t len;
-      const char *fieldName = HiddenString_GetUnsafe(qn->vn.vq->field->fieldName, &len);
-      char *default_score_field = VectorQuery_GetDefaultScoreFieldName(fieldName, len);
-      // If the saved score field is NOT the default one, we return an error, otherwise, just override it.
-      const bool is_default_score_field =
-          strcasecmp(qn->vn.vq->scoreField, default_score_field) == 0;
-      rm_free(default_score_field);
-      if (!is_default_score_field) {
-        QueryError_SetWithUserDataFmt(q->status, QUERY_ERROR_CODE_DUP_FIELD,
-                               "Distance field was specified twice for vector query", ": %s and %s",
-                               qn->vn.vq->scoreField, qn->opts.distField);
-        return NULL;
-      }
-      rm_free(qn->vn.vq->scoreField);
-    }
-    qn->vn.vq->scoreField = qn->opts.distField; // move ownership
-    qn->opts.distField = NULL;
-  }
-
-  // Add the score field name to the ast score field names array.
-  // This function creates the array if it's the first name, and ensure its size is sufficient.
-  size_t idx;
-  if (qn->vn.vq->scoreField) {
-    idx = addMetricRequest(q, qn->vn.vq->scoreField, qn->opts.flags & QueryNode_HideVectorDistanceField);
-  }
-
-  QueryIterator *child_it = NULL;
-  if (QueryNode_NumChildren(qn) > 0) {
-    RS_ASSERT(QueryNode_NumChildren(qn) == 1);
-    child_it = Query_EvalNode_Rs(q, qn->children[0], evalConfig);
-    // If child iterator is in valid or empty, the hybrid iterator is empty as well.
-    if (child_it == NULL) {
-      return NULL;
-    }
-  }
-  QueryIterator *it = NewVectorIterator(q, qn->vn.vq, child_it);
-  // If iterator was created successfully, and we have a metric to yield, update the
-  // Only create MetricRequest entries for iterators that actually yield metrics
-  if (it && qn->vn.vq->scoreField &&
-      (it->type == HYBRID_ITERATOR || it->type == METRIC_SORTED_BY_ID_ITERATOR ||
-       it->type == METRIC_SORTED_BY_SCORE_ITERATOR || it->type == METRIC_LAZY_SORTED_BY_ID_ITERATOR ||
-       it->type == METRIC_LAZY_SORTED_BY_SCORE_ITERATOR)) {
-    MetricRequest *request = array_ensure_at(q->metricRequestsP, idx, MetricRequest);
-
-    // Create a handle that points to the iterator's ownKey field
-    // Both HYBRID_ITERATOR and METRIC_ITERATOR have the same ownKey and keyHandle layout
-    RLookupKeyHandle *handle = rm_malloc(sizeof(RLookupKeyHandle));
-    handle->is_valid = true;
-
-    if (it->type == HYBRID_ITERATOR) {
-      handle->key_ptr = HybridIterator_GetOwnKeyRef(it);
-      HybridIterator_SetKeyHandle(it, handle); // Set up back-reference
-    } else { // Must be METRIC_ITERATOR due to the condition above
-      handle->key_ptr = GetMetricOwnKeyRef(it);
-      SetMetricRLookupHandle(it, handle); // Set up back-reference
-    }
-
-    request->key_handle = handle;
-  }
-  if (it == NULL && child_it != NULL) {
-    child_it->Free(child_it);
-  }
-  return it;
-}
-
 /**
  * Converts a given string to lowercase and handles escape sequences.
  *
@@ -977,12 +894,11 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n, const EvalConfig *e
     case QN_PREFIX:
     case QN_WILDCARD_QUERY:
     case QN_FUZZY:
+    case QN_VECTOR:
       // These node types have been ported to Rust.
       return Query_EvalNode_Rs(q, n, evalConfig);
     case QN_TAG:
       return Query_EvalTagNode(q, n);
-    case QN_VECTOR:
-      return Query_EvalVectorNode(q, n, evalConfig);
     case QN_MAX: // LCOV_EXCL_LINE — exhaustive switch: all valid QN types handled above
       RS_ABORT("Invalid query node type"); // LCOV_EXCL_LINE
   }

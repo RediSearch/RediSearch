@@ -24,9 +24,11 @@ extern "C" {
  * When a Rust panic was stashed in [`PANIC_STASH`], its details are emitted
  * in the same section, ahead of the backtrace.
  *
+ * A null `ctx` is a no-op.
+ *
  * # Safety
  *
- * `ctx` must be a valid pointer to a `RedisModuleInfoCtx`.
+ * `ctx` must either be null or point to a valid `RedisModuleInfoCtx`.
  */
 void AddToInfo_RustBacktrace(struct RedisModuleInfoCtx *ctx);
 
@@ -44,9 +46,13 @@ void RustPanicHook_Init(void);
  *
  * `level` is the initial redis `loglevel` config value the filter is set to.
  *
+ * A null `ctx` is accepted: traces are then logged through a null module
+ * context, which `RedisModule_Log` explicitly permits.
+ *
  * # Safety
  *
- * `level` must point to a valid, null-terminated C string.
+ * `level` must point to a valid, null-terminated C string. `ctx` must either
+ * be null or point to a valid `RedisModuleCtx`.
  */
 void TracingRedisModule_Init(struct RedisModuleCtx *ctx, const char *level);
 

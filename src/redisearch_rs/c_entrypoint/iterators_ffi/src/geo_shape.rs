@@ -101,10 +101,8 @@ pub unsafe extern "C" fn NewGeometryQueryIterator(
 ) -> *mut QueryIterator {
     let sctx_nn = NonNull::new(sctx as *mut RedisSearchCtx).expect("sctx must be non-null");
 
-    let filter_ctx_nn =
-        NonNull::new(filter_ctx as *mut FieldFilterContext).expect("filter_ctx must be non-null");
     // SAFETY: precondition 2. The fields are `Copy`, so we snapshot them.
-    let fc = unsafe { filter_ctx_nn.as_ref() };
+    let fc = unsafe { filter_ctx.as_ref() }.expect("filter_ctx must be non-null");
     let filter = FieldFilterContext {
         field: fc.field,
         predicate: fc.predicate,
