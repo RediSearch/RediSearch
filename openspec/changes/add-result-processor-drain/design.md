@@ -16,6 +16,8 @@ yet marked approved.
 - Drain is an alternate result-producing path. It yields results into
   caller-provided `SearchResult` storage using the same ownership convention as
   `Next`.
+- Concurrent `Next` and Drain calls use distinct, initialized `SearchResult`
+  storage that is exclusively owned by each call.
 - Results yielded by Drain are suitable for serialization. The caller may use
   them for both return-on-timeout and return-strict behavior, or discard them
   when the selected policy does not return partial results.
@@ -226,8 +228,10 @@ represent timeout or pending. Under this model:
   that state;
 - the Rust processor type satisfies the thread-safety bounds required for the
   two concurrent entry points;
-- `Context` and `Upstream` do not claim exclusive access to the shared header
-  for the duration of either call;
+- shared processor entry does not claim exclusive access to the header for the
+  duration of either call; ordinary `Context` methods still require a mutable
+  borrow of their local context token so safe Rust cannot retain query-context
+  references across upstream calls or bookkeeping mutations;
 - `Free` remains externally serialized after both calls complete, as guaranteed
   by the pipeline lifetime contract.
 

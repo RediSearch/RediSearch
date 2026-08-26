@@ -29,10 +29,10 @@ impl ResultProcessor for Counter {
 
     fn next(
         &self,
-        cx: crate::Context,
+        mut cx: crate::Context,
         res: &mut SearchResult<'_>,
     ) -> Result<Option<()>, crate::Error> {
-        let upstream = cx
+        let mut upstream = cx
             .upstream()
             .expect("There is no processor upstream of this counter.");
 
