@@ -8515,3 +8515,171 @@ class TestNoDeadlockQueryWithConcurrentWriter:
 
     def test_search(self):
         self._run(['FT.SEARCH', 'idx', '*', 'LIMIT', '0', '1'])
+
+
+# Regression for the MOD-16992 reply-path use-after-free: with the registry no
+# longer pinning the spec for the cycle, nothing may read the spec after the
+# worker released its execution reference.
+@skip(cluster=True)
+def test_stored_reply_after_index_dropped_mid_cycle():
+    """A FAIL-policy background query replies from stored results on the main
+    thread, after the worker released its execution reference. Pause the worker
+    right after it stored the results (execution reference still held), drop the
+    index — the worker's release then frees it — and resume: the reply must be
+    built entirely from query-owned state. Detects spec reads in the reply path
+    under ASan; also asserts the stored rows are replied in full."""
+    env = Env(moduleArgs='WORKERS 1 TIMEOUT 0 _FREE_RESOURCE_ON_THREAD FALSE')
+    skipIfNoEnableAssert(env)  # QUERY_CONTROLLER pause hooks are ENABLE_ASSERT-only
+    env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()
+    n_docs = 5
+    for i in range(n_docs):
+        env.cmd('HSET', f'doc{i}', 'text', 'hello world')
+    waitForIndex(env, 'idx')
+
+    setPauseAfterStoreResults(env, True, internal=False)
+    try:
+        result = {}
+        def run_query():
+            try:
+                result['reply'] = env.getConnection().execute_command(
+                    'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@text')
+            except Exception as e:
+                result['error'] = e
+
+        t = threading.Thread(target=run_query, daemon=True)
+        t.start()
+
+        wait_for_blocked_query_client(env, 'FT.AGGREGATE')
+        wait_for_condition(
+            lambda: (getIsStoreResultsPaused(env) == 1,
+                     {'paused': getIsStoreResultsPaused(env)}),
+            'Timeout while waiting for the worker to pause after storing results')
+
+        # The paused worker holds the only remaining strong reference after this
+        # drop; releasing it on resume frees the index before the client is
+        # unblocked and the reply callback runs.
+        env.expect('FT.DROPINDEX', 'idx').ok()
+    finally:
+        resetStoreResultsDebug(env)
+
+    t.join(timeout=10)
+    env.assertFalse(t.is_alive(), message='query thread should have finished')
+    env.assertNotIn('error', result,
+                    message=f"query failed: {result.get('error')}")
+    # [total, row...] — every row stored before the drop is replied.
+    env.assertEqual(len(result['reply']) - 1, n_docs)
+    for row in result['reply'][1:]:
+        env.assertEqual(row, ['text', 'hello world'])
+
+
+@skip(cluster=True)
+def test_stored_profile_reply_after_index_dropped_mid_cycle():
+    """FT.PROFILE must serialize its stored results and profile tree after the
+    worker releases the last index reference. This exercises the C callback,
+    Rust profile printer, and construction-time estimate snapshot together."""
+    env = Env(
+        protocol=3,
+        moduleArgs='WORKERS 1 TIMEOUT 0 _FREE_RESOURCE_ON_THREAD FALSE')
+    skipIfNoEnableAssert(env)  # QUERY_CONTROLLER pause hooks are ENABLE_ASSERT-only
+    env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()
+    n_docs = 5
+    for i in range(n_docs):
+        env.cmd('HSET', f'doc{i}', 'text', 'hello world')
+    waitForIndex(env, 'idx')
+
+    setPauseAfterStoreResults(env, True, internal=False)
+    try:
+        result = {}
+
+        def run_query():
+            try:
+                result['reply'] = env.getConnection().execute_command(
+                    'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', 'hello',
+                    'LOAD', '1', '@text')
+            except Exception as e:
+                result['error'] = e
+
+        t = threading.Thread(target=run_query, daemon=True)
+        t.start()
+
+        wait_for_blocked_query_client(env, 'FT.PROFILE')
+        wait_for_condition(
+            lambda: (getIsStoreResultsPaused(env) == 1,
+                     {'paused': getIsStoreResultsPaused(env)}),
+            'Timeout while waiting for the worker to pause after storing profile results')
+
+        env.expect('FT.DROPINDEX', 'idx').ok()
+    finally:
+        resetStoreResultsDebug(env)
+
+    t.join(timeout=10)
+    env.assertFalse(t.is_alive(), message='profile query thread should have finished')
+    env.assertNotIn('error', result,
+                    message=f"profile query failed: {result.get('error')}")
+
+    reply = result['reply']
+    env.assertContains('Results', reply, message=reply)
+    env.assertContains('Profile', reply, message=reply)
+    env.assertEqual(reply['Results']['total_results'], n_docs, message=reply)
+    env.assertEqual(len(reply['Results']['results']), n_docs, message=reply)
+
+
+@skip(cluster=True)
+def test_stored_hybrid_reply_after_index_dropped_mid_cycle():
+    """FT.HYBRID must serialize stored results after the worker releases the
+    last index reference. This covers the hybrid reply and warning paths after
+    the index has been freed."""
+    env = Env(
+        protocol=3,
+        moduleArgs='WORKERS 1 TIMEOUT 0 _FREE_RESOURCE_ON_THREAD FALSE')
+    skipIfNoEnableAssert(env)  # QUERY_CONTROLLER pause hooks are ENABLE_ASSERT-only
+    env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+
+    query_vec = _setup_hybrid_index(env)
+    n_docs = 100
+    query = [
+        'FT.HYBRID', 'hybrid_idx',
+        'SEARCH', '*',
+        'VSIM', '@embedding', '$BLOB',
+        'KNN', '2', 'K', '10000',
+        'COMBINE', 'RRF', '2', 'WINDOW', '10000',
+        'PARAMS', '2', 'BLOB', query_vec,
+        'LIMIT', '0', '10000',
+    ]
+
+    setPauseAfterStoreResults(env, True, internal=False)
+    try:
+        result = {}
+
+        def run_query():
+            try:
+                result['reply'] = env.getConnection().execute_command(*query)
+            except Exception as e:
+                result['error'] = e
+
+        t = threading.Thread(target=run_query, daemon=True)
+        t.start()
+
+        wait_for_blocked_query_client(env, 'FT.HYBRID')
+        wait_for_condition(
+            lambda: (getIsStoreResultsPaused(env) == 1,
+                     {'paused': getIsStoreResultsPaused(env)}),
+            'Timeout while waiting for the hybrid worker to pause after storing results')
+
+        env.expect('FT.DROPINDEX', 'hybrid_idx').ok()
+    finally:
+        resetStoreResultsDebug(env)
+
+    t.join(timeout=10)
+    env.assertFalse(t.is_alive(), message='hybrid query thread should have finished')
+    env.assertNotIn('error', result,
+                    message=f"hybrid query failed: {result.get('error')}")
+
+    reply = result['reply']
+    env.assertEqual(reply['total_results'], n_docs, message=reply)
+    env.assertEqual(len(reply['results']), n_docs, message=reply)
+    env.assertEqual(reply.get('warnings', []), [], message=reply)

@@ -28,7 +28,7 @@ struct QueryRequest;
  * single main-thread teardown point. The canonical sequence at every
  * query-shaped call site is:
  *
- *   bc = BlockQueryClientWithTimeout(ctx, spec_ref, request, reply_cb, timeout_cb,
+ *   bc = BlockQueryClientWithTimeout(ctx, request, reply_cb, timeout_cb,
  *                                    timeout_ms);
  *   <dispatch to worker pool>;
  *
@@ -40,14 +40,19 @@ struct QueryRequest;
  * RedisModule_BlockClient returned `bc` (with QueryRequest_OnFree
  * registered as free_privdata) and before dispatching BG work. Takes
  * ownership of the request (it becomes the blocked client's privdata — see
- * the ownership contract on QueryRequest) and records the cycle's reply mode
+ * the ownership contract on QueryRequest), links it into the BlockedQueries
+ * query registry (crash reports), and records the cycle's reply mode
  * (`reply_cb` must be the value that was passed to RedisModule_BlockClient). */
 void QueryRequest_BeginCycle(struct QueryRequest *request, RedisModuleBlockedClient *bc,
                              RedisModuleCmdFunc reply_cb);
 
-/* End the cycle: unlink the registry node, drain unconsumed per-cycle reply
- * state, then dispose of the request — execute the recorded cursor
- * disposition, or free it. Called from OnFree. */
+/* Same as QueryRequest_BeginCycle, linking into the cursor registry instead. */
+void QueryRequest_BeginCursorCycle(struct QueryRequest *request, RedisModuleBlockedClient *bc,
+                                   RedisModuleCmdFunc reply_cb);
+
+/* End the cycle: unlink the request from the registry, drain unconsumed
+ * per-cycle reply state, then dispose of the request — execute the recorded
+ * cursor disposition, or free it. Called from OnFree. */
 void QueryRequest_EndCycle(struct QueryRequest *request);
 
 /* The free_privdata callback registered with RedisModule_BlockClient. Runs on
@@ -55,12 +60,26 @@ void QueryRequest_EndCycle(struct QueryRequest *request);
  * client is destroyed; delegates to QueryRequest_EndCycle. */
 void QueryRequest_OnFree(RedisModuleCtx *ctx, void *privdata);
 
+/* Shutdown-only: unlink every request still linked in the registry, leaving
+ * it empty (BlockedQueries_Free asserts that). Unlink WITHOUT ending the
+ * cycles: RedisModule_UnblockClient only queues an unblock, and module
+ * cleanup runs synchronously inside the SHUTDOWN server event, so the queued
+ * free-privdata callbacks of cycles that completed while the pools were
+ * shutting down never drain — but a linked request may still be borrowed by
+ * async machinery that outlives the pools (an MR iterator context holds a
+ * deferred coordinator request until the MR runtimes are freed), so it cannot
+ * be freed here either. The requests intentionally leak; the process exits
+ * without returning to the event loop, and MODULE UNLOAD is refused while the
+ * module has undrained blocked clients, so nothing runs against them later.
+ * Call only after every pool whose cycles register here has stopped. */
+void BlockedQueries_UnwindCycles(void);
+
 /* Block `ctx` for one query cycle of `request`. Registers the cycle in
  * BlockedQueries, calls RedisModule_BlockClient(reply_cb, timeout_cb,
  * QueryRequest_OnFree, timeout_ms) and BeginCycle. `reply_cb`/`timeout_cb`
  * may both be NULL (inline reply mode) but must be provided together with a
  * non-zero `timeout_ms`. */
-RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, StrongRef spec_ref,
+RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx,
                                                       struct QueryRequest *request,
                                                       RedisModuleCmdFunc reply_cb,
                                                       RedisModuleCmdFunc timeout_cb,
@@ -70,7 +89,6 @@ RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, Stron
  * the per-read RETURN_STRICT claim/latch state (the request is reused across
  * reads). */
 RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, struct Cursor *cursor,
-                                                       size_t count,
                                                        struct QueryRequest *request,
                                                        RedisModuleCmdFunc reply_cb,
                                                        RedisModuleCmdFunc timeout_cb,

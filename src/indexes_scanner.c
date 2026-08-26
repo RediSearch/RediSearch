@@ -85,7 +85,7 @@ void IndexesScanner_RecordBackgroundFailure(RedisModuleCtx *ctx, IndexesScanner 
       // single key is to blame; IndexError_AddError falls back to the NA sentinel then.
       IndexError_AddError(&sp->stats.indexError, error, error, scanner->OOMkey);
       if (oom) {
-        sp->scan_failed_OOM = true;
+        RS_AtomicBoolStoreRelaxed(&sp->scan_failed_OOM, true);
         // Freeze how far the aborted scan got: once IndexesScanner_Free clears the
         // scanner, IndexesScanner_IndexedPercent would otherwise default to 1.0 and hide
         // the incomplete build. Store the raw scanned-key count (the scanner is still
@@ -159,7 +159,7 @@ double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanne
     scannedKeys = scanner->scannedKeys;             // active scan: live progress
   } else if (sp->scan_in_progress) {
     return 0.0;                                     // scan pending, no scanner yet: 0%
-  } else if (sp->scan_failed_OOM) {
+  } else if (RS_AtomicBoolLoadRelaxed(&sp->scan_failed_OOM)) {
     scannedKeys = sp->scan_failed_OOM_scanned_keys; // last build OOM-aborted: frozen progress
   } else {
     return 1.0;                                     // no scan pending: build completed
@@ -210,7 +210,7 @@ IndexesScanner *IndexesScanner_New(StrongRef global_ref) {
   // IndexSpec_UpdateDoc reflect this run rather than the old failure. If this scan also aborts on
   // OOM, IndexesScanner_RecordBackgroundFailure re-sets them (and its supersession guard keeps a
   // stale, superseded scanner from re-setting them behind this scan's back).
-  spec->scan_failed_OOM = false;
+  RS_AtomicBoolStoreRelaxed(&spec->scan_failed_OOM, false);
   spec->scan_failed_OOM_scanned_keys = 0;
   IndexError_ClearBackgroundIndexFailureFlag(&spec->stats.indexError);
 
