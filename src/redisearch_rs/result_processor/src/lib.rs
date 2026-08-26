@@ -79,8 +79,8 @@ pub struct DrainError;
 /// impl ResultProcessor for Logger {
 ///    const TYPE: ffi::ResultProcessorType = ffi::ResultProcessorType::MAX;
 ///
-///     fn next(&self, cx: Context, res: &mut SearchResult<'_>) -> Result<Option<()>, Error> {
-///         let upstream = cx
+///     fn next(&self, mut cx: Context, res: &mut SearchResult<'_>) -> Result<Option<()>, Error> {
+///         let mut upstream = cx
 ///             .upstream()
 ///             .expect("There is no processor upstream of this counter.");
 ///
@@ -139,7 +139,7 @@ impl Context<'_> {
     /// The previous result processor in the pipeline if present.
     ///
     /// Returns `None` when the result processor has no upstream.
-    pub fn upstream(&self) -> Option<Upstream<'_>> {
+    pub fn upstream(&mut self) -> Option<Upstream<'_>> {
         // Safety: We have to trust that the upstream pointer set by our QueryIterator parent
         // is correct.
         let upstream = NonNull::new(unsafe { self.ptr.as_ref().upstream })?;
@@ -151,7 +151,21 @@ impl Context<'_> {
     }
 
     /// Returns the owning [`ffi::QueryProcessingCtx`] of the pipeline.
-    pub const fn parent(&self) -> Option<&ffi::QueryProcessingCtx> {
+    ///
+    /// The returned reference keeps the context mutably borrowed, preventing
+    /// operations that may call into C or mutate the parent context until the
+    /// reference is no longer used.
+    ///
+    /// ```compile_fail,E0499
+    /// use result_processor::Context;
+    ///
+    /// fn conflicting_parent_access(mut cx: Context<'_>) {
+    ///     let parent = cx.parent();
+    ///     cx.subtract_total_results(1);
+    ///     std::hint::black_box(parent);
+    /// }
+    /// ```
+    pub const fn parent(&mut self) -> Option<&ffi::QueryProcessingCtx> {
         // Safety: We trust that this result processor's pointer is valid.
         let query_processing_context_ptr = unsafe { self.ptr.as_ref() }.parent;
 
@@ -169,7 +183,7 @@ impl Context<'_> {
     /// document (non-resident key, or a docid that changed under the query).
     ///
     /// No-op when the processor has no parent.
-    pub fn subtract_total_results(&self, n: u32) {
+    pub fn subtract_total_results(&mut self, n: u32) {
         // Safety: the parent pointer, if non-null, is the `QueryProcessingCtx` the C pipeline
         // installed on this result processor; it outlives the processor, the chain runs on a single
         // thread, and the C pipeline mutates this same field. Provenance comes from the raw pointer
@@ -204,9 +218,13 @@ impl DrainContext<'_> {
 
     /// The previous result processor in the pipeline, if present.
     pub fn upstream(&self) -> Option<Upstream<'_>> {
-        // SAFETY: The pipeline owns and pins every processor until concurrent
-        // Next and Drain entry has completed.
-        let upstream = NonNull::new(unsafe { self.ptr.as_ref().upstream })?;
+        // SAFETY: `upstream` is initialized before execution and remains stable
+        // until concurrent Next and Drain entry has completed. Reading only this
+        // field avoids borrowing the C header while Next mutates other fields.
+        let upstream = unsafe { ptr::addr_of!((*self.ptr.as_ptr()).upstream) };
+        // SAFETY: The field pointer is valid under the same lifetime guarantee.
+        let upstream = unsafe { upstream.read() };
+        let upstream = NonNull::new(upstream)?;
         Some(Upstream {
             ptr: upstream,
             _borrow: PhantomData,
@@ -235,7 +253,7 @@ impl Upstream<'_> {
     /// # Errors
     ///
     /// Returns `Err(_)` for exceptional error cases.
-    pub fn next(&self, res: &mut SearchResult<'_>) -> Result<Option<()>, Error> {
+    pub fn next(&mut self, res: &mut SearchResult<'_>) -> Result<Option<()>, Error> {
         // Safety: We have to trust that the upstream pointer set by our QueryIterator parent
         // is correct.
         let next = unsafe { self.ptr.as_ref() }
@@ -271,15 +289,22 @@ impl Upstream<'_> {
             let Some(ptr) = current else {
                 return Ok(None);
             };
-            // SAFETY: The pipeline owns and pins every processor in the chain
-            // until concurrent Next and Drain entry has completed.
-            let header = unsafe { ptr.as_ref() };
-            if let Some(drain) = header.drain {
-                // SAFETY: The VTable entry belongs to `header`, and the caller
+            // SAFETY: `drain` is fixed before execution. Reading only this field
+            // avoids borrowing the C header while Next mutates other fields.
+            let drain = unsafe { ptr::addr_of!((*ptr.as_ptr()).drain) };
+            // SAFETY: The field pointer is valid under the same lifetime guarantee.
+            let drain = unsafe { drain.read() };
+            if let Some(drain) = drain {
+                // SAFETY: The VTable entry belongs to `ptr`, and the caller
                 // provides exclusive result storage for this call.
                 break unsafe { drain(ptr.as_ptr(), res) };
             }
-            current = NonNull::new(header.upstream);
+            // SAFETY: `upstream` is initialized before execution and remains
+            // stable until both concurrent entries complete.
+            let upstream = unsafe { ptr::addr_of!((*ptr.as_ptr()).upstream) };
+            // SAFETY: The field pointer is valid under the same lifetime guarantee.
+            let upstream = unsafe { upstream.read() };
+            current = NonNull::new(upstream);
         };
 
         match ret_code as ffi::RPDrainStatus {
@@ -474,7 +499,9 @@ where
     ///
     /// The caller (C code) must uphold the following safety invariants:
     /// 1. `ptr` must be a non-null, well-aligned, valid pointer to a result processor (struct [`Header`]).
-    /// 2. `res` must be a non-null, well-aligned, valid pointer to an *initialized* [`ffi::SearchResult`].
+    /// 2. `res` must be a non-null, well-aligned, valid pointer to an *initialized*
+    ///    [`ffi::SearchResult`] that is exclusively accessible for this call.
+    /// 3. A concurrent drain call must use distinct result storage.
     unsafe extern "C" fn result_processor_next(ptr: *mut Header, res: *mut SearchResult) -> c_int {
         let ptr = NonNull::new(ptr).unwrap();
         debug_assert!(ptr.is_aligned());
@@ -509,8 +536,10 @@ where
     ///
     /// # Safety
     ///
-    /// The caller must provide valid, aligned pointers and keep the processor
-    /// chain alive and pinned for the duration of the call.
+    /// The caller must provide a valid, aligned processor pointer and a valid,
+    /// aligned pointer to an initialized [`ffi::SearchResult`] that is exclusively
+    /// accessible for this call. A concurrent next call must use distinct result
+    /// storage. The processor chain must remain alive and pinned for the call.
     unsafe extern "C" fn result_processor_drain(
         ptr: *mut Header,
         res: *mut SearchResult,
@@ -608,6 +637,62 @@ pub(crate) mod test {
                 result: Mutex::new(Some(result)),
             }
         }
+    }
+
+    fn test_header(parent: *const ffi::QueryProcessingCtx) -> Header {
+        Header {
+            parent,
+            upstream: ptr::null_mut(),
+            ty: ffi::ResultProcessorType_RP_MAX,
+            rp_gil_time: 0,
+            next: None,
+            free: None,
+            drain: None,
+            #[cfg(debug_assertions)]
+            inner_ty_id: TypeId::of::<()>(),
+            #[cfg(debug_assertions)]
+            inner_ty_name: "test header",
+            _unpin: PhantomPinned,
+        }
+    }
+
+    #[test]
+    fn context_serializes_parent_access_and_mutation() {
+        // SAFETY: Every field in this C-compatible context accepts an all-zero
+        // value; only `totalResults` is accessed by this focused test.
+        let mut parent: ffi::QueryProcessingCtx = unsafe { std::mem::zeroed() };
+        parent.totalResults = 1;
+        let header = Box::pin(test_header((&raw mut parent).cast_const()));
+        let mut cx = Context::new(header.as_ref());
+
+        assert_eq!(cx.parent().unwrap().totalResults, 1);
+        cx.subtract_total_results(1);
+        assert_eq!(cx.parent().unwrap().totalResults, 0);
+    }
+
+    #[test]
+    fn drain_traversal_does_not_borrow_the_c_header() {
+        unsafe extern "C" fn drain(me: *mut Header, _res: *mut SearchResult) -> ffi::RPDrainStatus {
+            // SAFETY: The test owns `me` and no Rust reference to the header is
+            // live. Mutating `next` models a C phase transition during Drain.
+            let next = unsafe { ptr::addr_of_mut!((*me).next) };
+            // SAFETY: `next` points into the live test-owned header.
+            unsafe { next.write(None) };
+            ffi::RPDrainStatus_RP_DRAIN_EOF
+        }
+
+        let mut header = Box::pin(test_header(ptr::null()));
+        // SAFETY: `header` stays pinned for the test and is not accessed through
+        // another Rust reference while the raw pointer is used.
+        let ptr = unsafe { NonNull::from(Pin::as_mut(&mut header).get_unchecked_mut()) };
+        // SAFETY: The exclusive borrow used to obtain `ptr` has ended.
+        unsafe { ptr::addr_of_mut!((*ptr.as_ptr()).drain).write(Some(drain)) };
+        let upstream = Upstream {
+            ptr,
+            _borrow: PhantomData,
+        };
+
+        assert_eq!(upstream.drain(&mut SearchResult::new()), Ok(None),);
     }
 
     impl ResultProcessor for DrainRP {
@@ -891,8 +976,8 @@ pub(crate) mod test {
         impl ResultProcessor for RP {
             const TYPE: ffi::ResultProcessorType = ffi::ResultProcessorType_RP_MAX;
 
-            fn next(&self, cx: Context, res: &mut SearchResult) -> Result<Option<()>, Error> {
-                let upstream = cx.upstream().unwrap();
+            fn next(&self, mut cx: Context, res: &mut SearchResult) -> Result<Option<()>, Error> {
+                let mut upstream = cx.upstream().unwrap();
                 upstream.next(res)
             }
         }
@@ -939,8 +1024,8 @@ pub(crate) mod test {
         impl ResultProcessor for RP {
             const TYPE: ffi::ResultProcessorType = ffi::ResultProcessorType_RP_MAX;
 
-            fn next(&self, cx: Context, res: &mut SearchResult) -> Result<Option<()>, Error> {
-                let upstream = cx.upstream().unwrap();
+            fn next(&self, mut cx: Context, res: &mut SearchResult) -> Result<Option<()>, Error> {
+                let mut upstream = cx.upstream().unwrap();
                 upstream.next(res)
             }
         }

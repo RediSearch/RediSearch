@@ -9,6 +9,8 @@ Every ResultProcessor SHALL expose a Drain operation that accepts caller-owned
 - EOF SHALL mean the drain sequence is terminal.
 - ERROR SHALL mean result production failed and the drain sequence is terminal.
 - Drain SHALL NOT return timeout, paused, depleting, or pending.
+- A concurrent `Next` and Drain invocation SHALL receive distinct, initialized
+  `SearchResult` storage that is exclusively accessible to its invocation.
 
 #### Scenario: Drain yields a result
 
