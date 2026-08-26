@@ -7,13 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Tests for indexing documents under tags (`TagIndex::index`).
+//! Tests for indexing documents under tags (`TagIndex::index`) and
+//! iterating the indexed tags.
 
 use index_result::RSIndexResult;
-use inverted_index::IndexReader;
-use tag_index::{InMemoryMode, Tag, TagIndex};
+use tag_index::{InMemoryMode, SuffixQuery, Tag, TagIndex, TagValueReader};
 
-use crate::util::{commit_mem, index_mem};
+use crate::util::{commit_mem, index_mem, value_iter_keys};
 
 /// Indexing a document registers each of its tags.
 #[test]
@@ -24,9 +24,77 @@ fn indexing_registers_every_tag() {
 
     index_mem(&mut tag_index, tags, 1);
 
-    for tag in tags {
-        assert!(tag_index.find_value(tag).is_some());
+    let values = value_iter_keys(tag_index.value_iter());
+
+    assert_eq!(tags, values.as_slice());
+}
+
+/// A document write drives `index` and `commit` from the same tag buffers, so
+/// both must key on those bytes verbatim: the tag stays resolvable afterwards and
+/// the values trie, the suffix trie and iteration all agree on the key.
+///
+/// Nothing else exercises the two phases together, which is how a mismatch
+/// between them could go unnoticed.
+#[test]
+fn index_and_commit_agree_on_the_key() {
+    let mut tag_index = TagIndex::<InMemoryMode>::new(true);
+    let tags: &[&[u8]] = &[b"foo"];
+
+    index_mem(&mut tag_index, tags, 1);
+    commit_mem(&mut tag_index, tags);
+
+    assert!(
+        tag_index.find_value(b"foo").is_some(),
+        "the indexed tag must still resolve under the bytes it was written with"
+    );
+    assert_eq!(value_iter_keys(tag_index.value_iter()), [b"foo".to_vec()]);
+    assert!(
+        tag_index
+            .suffix_expand(SuffixQuery::Suffix(Tag::new(b"oo").unwrap()), None)
+            .next()
+            .is_some(),
+        "the suffix trie must resolve the same tag through one of its suffixes"
+    );
+}
+
+/// `TagValueReader` walks a tag's postings in ascending document order and
+/// reports the end of the list, staying there once reached.
+// Crossing a block boundary needs more documents than
+// `DocIdsOnly::RECOMMENDED_BLOCK_ENTRIES`, which is a fixed trait constant — there is no
+// smaller corpus that keeps the property, and interpreting that many writes exceeds
+// `nextest`'s slow-test budget. `inverted_index`'s own Miri tests cover the multi-block
+// path by overriding the block capacity instead.
+#[test]
+#[cfg_attr(miri, ignore)]
+fn tag_value_reader_reads_every_posting_in_order() {
+    // A `DocIdsOnly` block holds up to 1000 entries, so index past that to make
+    // the reader cross a block boundary.
+    const N: u64 = 1500;
+
+    let mut tag_index = TagIndex::<InMemoryMode>::new(false);
+    for doc_id in 1..=N {
+        index_mem(&mut tag_index, &[b"team"], doc_id);
     }
+
+    let ii = tag_index.find_value(b"team").expect("tag was indexed");
+    let mut reader = TagValueReader::new(ii);
+    let mut record = RSIndexResult::build_virt().doc_id(0).build();
+
+    let mut doc_ids = Vec::new();
+    while reader
+        .next_record(&mut record)
+        .expect("postings written by `index` decode cleanly")
+    {
+        doc_ids.push(record.doc_id);
+    }
+
+    assert_eq!(doc_ids, (1..=N).collect::<Vec<_>>());
+    assert!(
+        !reader
+            .next_record(&mut record)
+            .expect("postings written by `index` decode cleanly"),
+        "a reader at the end of the postings stays there"
+    );
 }
 
 /// `commit` forwards tags to the suffix index when suffix indexing is
@@ -77,18 +145,71 @@ fn field_expiration_flag_round_trips() {
     }
 
     let ii = tag_index.find_value(b"team").expect("tag was indexed");
-    let mut reader = ii.reader();
+    let mut reader = TagValueReader::new(ii);
     let mut record = RSIndexResult::build_virt().doc_id(0).build();
 
     let mut seen = Vec::new();
     while reader
         .next_record(&mut record)
-        .expect("read must not error")
+        .expect("postings written by `index` decode cleanly")
     {
         seen.push((record.doc_id, record.has_field_expiration));
     }
 
     assert_eq!(seen, [(1, false), (2, true)]);
+}
+
+/// Tags are yielded in lexicographical order, whatever the insertion order.
+#[test]
+fn iterate_values_is_lexicographically_ordered() {
+    let mut tag_index = TagIndex::<InMemoryMode>::new(false);
+
+    let tags: &mut [&[u8]] = &mut [b"z", b"r", b"t", b"d", b"m", b"a"];
+
+    index_mem(&mut tag_index, tags, 1);
+
+    let values = value_iter_keys(tag_index.value_iter());
+
+    tags.sort();
+    assert_eq!(tags, values.as_slice());
+}
+
+/// `value_iter` yields `(tag, inverted index)` entries in lexicographical tag
+/// order, and each yielded index is the one stored in the trie.
+#[test]
+fn iter_values_yields_the_stored_entries_in_order() {
+    let mut tag_index = TagIndex::<InMemoryMode>::new(false);
+
+    let tags: &mut [&[u8]] = &mut [b"z", b"r", b"t", b"d", b"m", b"a"];
+
+    index_mem(&mut tag_index, tags, 1);
+
+    tags.sort();
+    let mut iter = tag_index.value_iter();
+    let mut seen = 0;
+    while let Some((tag, ii)) = iter.advance() {
+        assert_eq!(
+            tag.as_bytes(),
+            tags[seen],
+            "entries should be yielded in lexicographical tag order"
+        );
+        let found = tag_index
+            .find_value(tag.as_bytes())
+            .expect("yielded tag is indexed");
+        assert!(
+            std::ptr::eq(ii, found),
+            "the yielded reference should be the inverted index stored in the trie"
+        );
+        seen += 1;
+    }
+    assert_eq!(seen, tags.len());
+}
+
+/// An empty index yields no entries.
+#[test]
+fn iter_values_on_empty_index_yields_nothing() {
+    let tag_index = TagIndex::<InMemoryMode>::new(false);
+    assert!(tag_index.value_iter().advance().is_none());
 }
 
 /// Re-indexing the same document under the same tags is a no-op: the second

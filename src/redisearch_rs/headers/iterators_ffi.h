@@ -181,17 +181,6 @@ void AddIntersectionIteratorChild(QueryIterator *header, QueryIterator *child);
 void GeoFilter_FreeNumericFilters(NumericFilter * *filters);
 
 /**
- * Get a pointer to the [`RLookupKey`] slot inside this metric iterator.
- *
- * # Safety
- *
- * 1. `header` is a valid non-null pointer to a [`QueryIterator`].
- * 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
- * 3. The caller has exclusive access to that iterator for the duration of the call.
- */
-RLookupKey * *GetMetricOwnKeyRef(QueryIterator *header);
-
-/**
  * `PrintProfile` vtable entry for Hybrid (vector search) iterators.
  *
  * # Safety
@@ -739,21 +728,6 @@ bool RQEIterators_GetMockRevalidateTimeout(void);
  * `VECSIM_MOCK_TIMEOUT` one it mirrors, so a test that enables it must disable it again.
  */
 void RQEIterators_SetMockRevalidateTimeout(bool enabled);
-
-/**
- * Sets the [`RLookupKeyHandle`] for this metric iterator.
- *
- * # Safety
- *
- * 1. `header` is a valid non-null pointer to a [`QueryIterator`].
- * 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
- * 3. The caller has exclusive access to that iterator for the duration of the call.
- * 4. `key_handle` is either a null pointer, or a valid non-null pointer to a [`RLookupKeyHandle`]
- *    that stays live until the iterator is freed — not merely for this call. The iterator clears
- *    the handle's validity flag when it is dropped, so releasing the handle while the iterator is
- *    still alive is a use-after-free at that later point.
- */
-void SetMetricRLookupHandle(QueryIterator *header, struct RLookupKeyHandle *key_handle);
 
 /**
  * Trims a union iterator for the LIMIT optimizer, then switches to unsorted
