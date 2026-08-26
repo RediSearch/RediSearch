@@ -196,7 +196,7 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
     // we open the docKey as hidden in case the user didn't request it, if it already exists it will stay as it was
     // if it didn't then it will be marked as unresolved
     RLookup *tailLookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
-    const RLookupKey *docKey = RLookup_GetKey_Read(tailLookup, UNDERSCORE_KEY, RLOOKUP_F_INTERNAL);
+    const RLookupKey *docKey = RLookup_GetKey_Read(tailLookup, UNDERSCORE_KEY, RLOOKUP_F_HIDDEN);
     // Pass whether LOAD * is active so RLookupRow_WriteFieldsFrom knows whether
     // to create missing keys
     bool createMissingKeys = (req->reqflags & QEXEC_AGG_LOAD_ALL) != 0;

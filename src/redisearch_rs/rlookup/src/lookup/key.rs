@@ -83,10 +83,6 @@ pub enum RLookupKeyFlag {
     /// This key type is numeric
     #[cheadergen(rename = "RLOOKUP_F_NUMERIC")]
     Numeric = 0x1000,
-
-    /// This field is only used by an internal pipeline consumer.
-    #[cheadergen(rename = "RLOOKUP_F_INTERNAL")]
-    Internal = 0x2000,
 }
 
 /// Helper type to represent a set of [`RLookupKeyFlag`]s.
@@ -94,7 +90,7 @@ pub type RLookupKeyFlags = BitFlags<RLookupKeyFlag>;
 
 // Flags that are allowed to be passed to [`RLookup::get_key_read`], [`RLookup::get_key_write`], or [`RLookup::get_key_load`].
 pub const GET_KEY_FLAGS: RLookupKeyFlags =
-    make_bitflags!(RLookupKeyFlag::{Override | Hidden | ExplicitReturn | ForceLoad | Internal});
+    make_bitflags!(RLookupKeyFlag::{Override | Hidden | ExplicitReturn | ForceLoad});
 
 /// Flags do not persist to the key, they are just options to [`super::RLookup::get_key_read`], [`super::RLookup::get_key_write`], or [`super::RLookup::get_key_load`].
 pub const TRANSIENT_FLAGS: RLookupKeyFlags =

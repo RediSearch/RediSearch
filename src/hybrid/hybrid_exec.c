@@ -201,7 +201,7 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
     if (SearchResult_GetFlags(r) & Result_ExpiredDoc) {
       RedisModule_Reply_Null(reply);
     } else {
-      // Excludes reply-hidden and internal fields. Hybrid does not use RETURN fields (it uses
+      // Excludes reply-hidden fields. Hybrid does not use RETURN fields (it uses
       // LOAD fields), so no flags are required. The schema rule's special
       // fields (score/language/payload) are hidden from creation (see the
       // spec cache's rule names), so this path never touches the spec — it
@@ -210,8 +210,7 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
       flags |= (options & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
 
       RedisModule_Reply_RLookupRow(reply, lk, SearchResult_GetRowData(r), RLOOKUP_F_NOFLAGS,
-                                   RLOOKUP_F_HIDDEN | RLOOKUP_F_INTERNAL, flags,
-                                   HREQ_SearchCtx(hreq)->apiVersion);
+                                   RLOOKUP_F_HIDDEN, flags, HREQ_SearchCtx(hreq)->apiVersion);
     }
   }
   RedisModule_Reply_MapEnd(reply); // >result
