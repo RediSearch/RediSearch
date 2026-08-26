@@ -3384,15 +3384,15 @@ DEBUG_COMMAND(DumpSchema) {
   return REDISMODULE_OK;
 }
 
-static inline int TimedOut_Always(VecSimTimeoutCtx *ctx) {
-  (void)ctx; // Unused parameter
+static inline int TimedOut_Always(QueryRequestTimeout *timeout) {
+  (void)timeout; // Unused parameter
   return TIMED_OUT;
 }
 
 // Global timeout callback for VecSim searches.
 // Need the redirection so tests can pass a mock function to test timeout behavior.
 // Used in hybrid_reader.c in computeDistances
-extern int (*vecsimTimeoutCallback)(VecSimTimeoutCtx *ctx);
+extern int (*vecsimTimeoutCallback)(QueryRequestTimeout *timeout);
 
 /**
  * FT.DEBUG VECSIM_MOCK_TIMEOUT <enable|disable>

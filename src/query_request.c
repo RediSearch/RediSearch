@@ -133,7 +133,7 @@ bool QueryRequestTimeout_IsTimedOut(QueryRequestTimeout *timeout) {
 
   if (++timeout->source.clock.counter == QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT) {
     timeout->source.clock.counter = 0;
-    return QueryRequestTimeout_IsTimedOutExact(timeout);
+    return TimedOut(&timeout->source.clock.deadline) == TIMED_OUT;
   }
   return false;
 }

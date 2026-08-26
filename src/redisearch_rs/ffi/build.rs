@@ -495,12 +495,11 @@ const HEADERS: &[HeaderAllowlist] = &[
         types: &[],
         vars: &[],
     },
-    // `vector_score_source` owns a `VecSimTimeoutCtx` that points to the request-owned
-    // `QueryRequestTimeout` and hands the adapter context to VecSim.
+    // `vector_score_source` passes the request-owned `QueryRequestTimeout` directly to VecSim.
     HeaderAllowlist {
         path: "src/util/timeout.h",
         fns: &[],
-        types: &["VecSimTimeoutCtx", "QueryRequestTimeout"],
+        types: &["QueryRequestTimeout"],
         vars: &[],
     },
     // `VecSimSearchMode` (+ `_ToString`) labels the top-k query strategy

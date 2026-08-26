@@ -31,7 +31,7 @@
 // vecsimTimeoutCallback is a global function pointer in hybrid_reader.c, deliberately kept
 // non-static so tests can swap it to simulate timeouts.
 extern "C" {
-extern int (*vecsimTimeoutCallback)(VecSimTimeoutCtx *ctx);
+extern int (*vecsimTimeoutCallback)(QueryRequestTimeout *timeout);
 }
 
 // operator delete reads obj->allocator after destruction; keep the allocator's shared_ptr alive across delete.
@@ -291,7 +291,7 @@ TEST_F(HybridReaderDiskTest, TimeoutReturnsTimedOut) {
 
     // Swap the global timeout callback to simulate a timeout on every check.
     auto *saved = vecsimTimeoutCallback;
-    vecsimTimeoutCallback = [](VecSimTimeoutCtx *) -> int { return 1; };
+    vecsimTimeoutCallback = [](QueryRequestTimeout *) -> int { return 1; };
 
     EXPECT_EQ(it->Read(it), ITERATOR_TIMEOUT);
 
