@@ -1218,7 +1218,7 @@ def _assertSurvivesInvalidUtf8TagToken(env, conn, query):
     env.assertTrue(alive,
                     message='server crashed evaluating an invalid-UTF-8 tag token: %r' % query)
 
-def testTagInvalidUtf8LoweringOverflow():
+def testTagInvalidUtf8LoweringOverflow(env):
     """Regression: a case-insensitive tag token ending in a byte
     `nu_utf8_read` reads as a multi-byte UTF-8 lead must not overflow past
     its allocation during `unicode_tolower`'s lowering.
@@ -1227,7 +1227,6 @@ def testTagInvalidUtf8LoweringOverflow():
     `tag_strtolower` independently in `src/query.c`. See
     `_assertSurvivesInvalidUtf8TagToken` for the overflow mechanism.
     """
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
     conn.execute_command('HSET', 'doc1', 't', 'hello')
