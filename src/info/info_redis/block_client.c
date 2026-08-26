@@ -29,7 +29,7 @@ static BlockedQueries *getBlockedQueries(void) {
 }
 
 static void beginCycleCommon(QueryRequest *request, RedisModuleBlockedClient *bc,
-                             RedisModuleCmdFunc reply_cb) {
+                             RedisModuleCmdFunc reply_cb, DLLIST *list) {
   // No overlapping cycles: the previous cycle's OnFree must have run before a
   // new cycle may begin on the same request. This holds structurally for
   // blocked cursor cycles — the cursor is only parked back into the idle list
@@ -39,23 +39,19 @@ static void beginCycleCommon(QueryRequest *request, RedisModuleBlockedClient *bc
   request->blockedClientCycleActive = true;
   QueryRequest_SetUseReplyCallback(request, reply_cb != NULL);
   RS_AtomicIntStoreRelaxed(&request->async.strictReadOwner, QUERY_REQUEST_READ_OWNER_NONE);
-  RedisModule_BlockClientSetPrivateData(bc, request);
-}
-
-static void registerCycle(QueryRequest *request, DLLIST *list) {
-  RS_ASSERT(!RegistryInfo_IsLinked(&request->registryInfo));
   request->registryInfo.cycle_start = time(NULL);
   dllist_prepend(list, &request->registryInfo.node);
+  RedisModule_BlockClientSetPrivateData(bc, request);
 }
 
 void QueryRequest_BeginCycle(QueryRequest *request, RedisModuleBlockedClient *bc,
                              RedisModuleCmdFunc reply_cb) {
-  beginCycleCommon(request, bc, reply_cb);
+  beginCycleCommon(request, bc, reply_cb, &getBlockedQueries()->queries);
 }
 
 void QueryRequest_BeginCursorCycle(QueryRequest *request, RedisModuleBlockedClient *bc,
                                    RedisModuleCmdFunc reply_cb) {
-  beginCycleCommon(request, bc, reply_cb);
+  beginCycleCommon(request, bc, reply_cb, &getBlockedQueries()->cursors);
 }
 
 void QueryRequest_EndCycle(QueryRequest *request) {
@@ -101,15 +97,20 @@ void QueryRequest_OnFree(RedisModuleCtx *ctx, void *privdata) {
 
 void BlockedQueries_UnwindCycles(void) {
   BlockedQueries *blockedQueries = getBlockedQueries();
-  while (!DLLIST_IS_EMPTY(&blockedQueries->queries)) {
-    QueryRequest *at =
-        DLLIST_ITEM(blockedQueries->queries.next, QueryRequest, registryInfo.node);
-    QueryRequest_OnFree(NULL, at);
-  }
-  while (!DLLIST_IS_EMPTY(&blockedQueries->cursors)) {
-    QueryRequest *at =
-        DLLIST_ITEM(blockedQueries->cursors.next, QueryRequest, registryInfo.node);
-    QueryRequest_OnFree(NULL, at);
+  DLLIST *lists[] = {&blockedQueries->queries, &blockedQueries->cursors};
+  for (size_t i = 0; i < sizeof(lists) / sizeof(*lists); i++) {
+    while (!DLLIST_IS_EMPTY(lists[i])) {
+      QueryRequest *at = DLLIST_ITEM(lists[i]->next, QueryRequest, registryInfo.node);
+      // Unlink only — do NOT run the cycle end. Stopping the pools proves no
+      // new cycles start, not that a linked request has no borrowers: a
+      // deferred coordinator request (e.g. WITHCOUNT) is still referenced by
+      // its MR iterator context until the MR runtimes are gone, so freeing it
+      // here would be use-after-free on the IO threads. Leaking it instead is
+      // exactly what its queued, never-drained free-privdata callback would
+      // have left behind.
+      dllist_delete(&at->registryInfo.node);
+      at->registryInfo.cycle_start = 0;
+    }
   }
 }
 
@@ -124,7 +125,6 @@ RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx,
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, reply_cb, timeout_cb,
                                                          QueryRequest_OnFree, timeout_ms);
   QueryRequest_BeginCycle(request, bc, reply_cb);
-  registerCycle(request, &getBlockedQueries()->queries);
   // report block client start time
   RedisModule_BlockedClientMeasureTimeStart(bc);
   return bc;
@@ -141,7 +141,6 @@ RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Curs
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, reply_cb, timeout_cb,
                                                          QueryRequest_OnFree, timeout_ms);
   QueryRequest_BeginCursorCycle(request, bc, reply_cb);
-  registerCycle(request, &getBlockedQueries()->cursors);
   // Publish the cycle's cursor handle up front, on the main thread. The
   // disposition keeps its FREE default unless the cycle's reply exposes a
   // live cursor id and records PAUSE.
