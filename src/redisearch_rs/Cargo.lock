@@ -1111,9 +1111,9 @@ dependencies = [
 name = "module_init_ffi"
 version = "0.0.1"
 dependencies = [
- "chrono",
  "build_utils",
  "cbindgen",
+ "chrono",
  "ffi",
  "tracing",
  "tracing_redismodule",
