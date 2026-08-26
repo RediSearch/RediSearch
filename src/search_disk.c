@@ -16,7 +16,6 @@
 #include "config.h"
 #include "spec.h"
 #include "indexes.h"
-#include "disk_write_buffer_ffi.h"
 #include "query_term_ffi.h"
 #include "sorting_vector_ffi.h"
 #include "redismodule.h"
@@ -215,9 +214,7 @@ static SearchDiskCompactionCallbacks SearchDisk_CompactionCallbacks(void) {
 }
 
 // Basic API wrappers
-static void SearchDisk_ApplyIndexWriteBufferBudget(IndexSpec *sp, size_t perIndexBudget);
-static void SearchDisk_RegisterOpenIndex(RedisModuleCtx *ctx, IndexSpec *sp);
-static void SearchDisk_RegisterClosedIndex(IndexSpec *sp);
+static void SearchDisk_MaintainIndexWriteBufferSize(IndexSpec *sp);
 
 RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName, DocumentType type, bool deleteBeforeOpen, IndexSpec *c_index_spec) {
     RS_ASSERT(disk_db && c_index_spec);
@@ -227,7 +224,6 @@ RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const Hidden
         // Open atomically registers with BigModule, so the spec needs a
         // matching SearchDisk_CloseIndexOnMainThread before SearchDisk_CloseIndex.
         c_index_spec->diskRegistered = true;
-        SearchDisk_RegisterOpenIndex(ctx, c_index_spec);
     }
     return result;
 }
@@ -262,7 +258,6 @@ void SearchDisk_CloseIndexOnMainThread(RedisModuleCtx *ctx, IndexSpec *spec) {
     }
     disk->basic.closeIndexOnMainThread(ctx, spec->diskSpec);
     spec->diskRegistered = false;
-    SearchDisk_RegisterClosedIndex(spec);
 }
 
 void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index) {
@@ -293,7 +288,6 @@ RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(RedisModuleCtx *ctx,
     // Open atomically registers with BigModule, so the spec needs a
     // matching SearchDisk_CloseIndexOnMainThread before SearchDisk_CloseIndex.
     c_index_spec->diskRegistered = true;
-    SearchDisk_RegisterOpenIndex(ctx, c_index_spec);
   }
   return result;
 }
@@ -314,9 +308,7 @@ SearchDiskWriteBatchHandle *SearchDisk_CreateWriteBatch(IndexSpec *sp) {
         IndexSpec_ReleaseWriteLock(sp);
         return NULL;
     }
-    SearchDisk_ApplyIndexWriteBufferBudget(
-        sp, DiskWriteBuffer_MarkIndexWriteActive(&sp->diskWriteBuffer,
-                                                 (uint64_t)RedisModule_Milliseconds()));
+    SearchDisk_MaintainIndexWriteBufferSize(sp);
     SearchDiskWriteBatchHandle *batch = disk->index.createWriteBatch(sp->diskSpec);
     IndexSpec_ReleaseWriteLock(sp);
     return batch;
@@ -629,28 +621,9 @@ uint64_t SearchDisk_GetDiskUsage(RedisSearchDiskIndexSpec* index) {
   return disk->index.getDiskUsage(index);
 }
 
-static void SearchDisk_ApplyIndexWriteBufferBudget(IndexSpec *sp, size_t perIndexBudget) {
-  if (perIndexBudget == 0) {
-    return;
-  }
+static void SearchDisk_MaintainIndexWriteBufferSize(IndexSpec *sp) {
   RS_ASSERT(sp && sp->diskSpec);
-  disk->index.updateWriteBufferSize(sp->diskSpec, perIndexBudget);
-}
-
-static void SearchDisk_RegisterOpenIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
-  DiskWriteBuffer_RegisterIndexOpen(&sp->diskWriteBuffer, (uint64_t)RedisModule_Milliseconds());
-
-  if (!DiskWriteBuffer_HasModuleBudget()) {
-    SearchDisk_UpdateBufferBudget(ctx, (int)RSGlobalConfig.diskBufferPercentage);
-  }
-
-  SearchDisk_ApplyIndexWriteBufferBudget(
-      sp, DiskWriteBuffer_MaintainIndex(&sp->diskWriteBuffer,
-                                        (uint64_t)RedisModule_Milliseconds()));
-}
-
-static void SearchDisk_RegisterClosedIndex(IndexSpec *sp) {
-  DiskWriteBuffer_RegisterIndexClose(sp ? &sp->diskWriteBuffer : NULL);
+  disk->index.maintainWriteBufferSize(sp->diskSpec);
 }
 
 void SearchDisk_MaintainWriteBufferSize(IndexSpec *sp) {
@@ -664,9 +637,7 @@ void SearchDisk_MaintainWriteBufferSize(IndexSpec *sp) {
     return;
   }
 
-  SearchDisk_ApplyIndexWriteBufferBudget(
-      sp, DiskWriteBuffer_MaintainIndex(&sp->diskWriteBuffer,
-                                        (uint64_t)RedisModule_Milliseconds()));
+  SearchDisk_MaintainIndexWriteBufferSize(sp);
   IndexSpec_ReleaseWriteLock(sp);
 }
 
@@ -709,12 +680,7 @@ void SearchDisk_CloseConsistencyWindow(IndexSpec *sp, bool reopenNumericGate) {
 void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage) {
   RS_ASSERT(disk && disk_db);
 
-  // Update the WriteBufferManager with the new budget and get the new budget value
-  size_t new_budget = disk->basic.updateBufferBudget(ctx, disk_db, percentage);
-  if (new_budget == 0) {
-    return;
-  }
-  DiskWriteBuffer_SetModuleBudget(new_budget);
+  disk->basic.updateBufferBudget(ctx, disk_db, percentage);
 }
 
 void SearchDisk_UpdateMaxOpenFiles(RedisModuleCtx *ctx, int maxOpenFiles) {

@@ -285,16 +285,16 @@ typedef struct BasicDiskAPI {
 
 
   /**
-   * @brief Update the buffer budget and WBM in response to RAM configuration changes.
+   * @brief Notify the disk layer that the global buffer budget may have changed.
    *
-   * This function requests a new buffer budget from Redis via BigWriteBufferBudgetInit
-   * and updates the WriteBufferManager with the new size.
+   * The disk implementation requests the new module budget from Redis via
+   * BigWriteBufferBudgetInit and updates its global budget/accounting state.
+   * Per-index database options are refreshed lazily via maintainWriteBufferSize.
    *
    * @param ctx Redis module context
    * @param disk Pointer to the disk context
    * @param percentage Percentage of available memory to request (0-100)
-   * @return The new module buffer budget in bytes, or 0 on error. OSS divides this
-   *         value across live disk indexes before calling updateWriteBufferSize.
+   * @return The new module buffer budget in bytes, or 0 on error.
    */
   size_t (*updateBufferBudget)(RedisModuleCtx *ctx, RedisSearchDisk *disk, int percentage);
 
@@ -615,17 +615,14 @@ typedef struct IndexDiskAPI {
   bool (*isBackgroundWorkPaused)(RedisSearchDiskIndexSpec *index);
 
   /**
-   * @brief Update the write buffer size for this index's database
+   * @brief Reapply this index's write-buffer-derived database options.
    *
-   * Dynamically changes the write_buffer_size option for all column families
-   * in this index's database. `per_index_budget` is this index's share of the
-   * module WBM budget; the disk implementation divides it across that index's
-   * live column families.
+   * Lets the disk implementation refresh this index from its current global
+   * budget/accounting state.
    *
    * @param index Pointer to the disk index
-   * @param per_index_budget This index's share of the module WBM budget
    */
-  void (*updateWriteBufferSize)(RedisSearchDiskIndexSpec *index, size_t per_index_budget);
+  void (*maintainWriteBufferSize)(RedisSearchDiskIndexSpec *index);
 
   /**
    * @brief Apply a new max_open_files cap to this index's database at runtime.

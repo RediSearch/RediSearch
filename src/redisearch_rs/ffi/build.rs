@@ -534,8 +534,6 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // `DocumentType` is used as a bitfield in `RSDocumentMetadata`
     // (src/redisearch.h) — the full enum definition is required.
     "document_rs.h",
-    // `IndexSpec` embeds the per-index write-buffer state by value.
-    "disk_write_buffer_ffi.h",
     // `FieldExpirationPredicate` is taken by value in TTL table function
     // signatures (src/ttl_table.h).
     "field.h",

@@ -924,11 +924,10 @@ void SearchDisk_OpenConsistencyWindow(IndexSpec *sp);
 void SearchDisk_CloseConsistencyWindow(IndexSpec *sp, bool reopenNumericGate);
 
 /**
- * @brief Update the buffer budget and WBM in response to RAM configuration changes
+ * @brief Notify the disk layer that the global buffer budget may have changed.
  *
- * This function requests a new buffer budget from Redis via BigWriteBufferBudgetInit
- * and updates the WriteBufferManager with the new size. Should be called in response
- * to REDISMODULE_SUBEVENT_CONFIG_RAM_CHANGED events.
+ * Should be called in response to REDISMODULE_SUBEVENT_CONFIG_RAM_CHANGED events.
+ * The disk implementation owns the module budget and per-index distribution policy.
  *
  * @param ctx Redis module context
  * @param percentage Percentage of available memory to request (0-100)

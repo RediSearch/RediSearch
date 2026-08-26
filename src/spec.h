@@ -29,7 +29,6 @@
 #include "info/index_error.h"
 #include "obfuscation/hidden.h"
 #include "search_disk_api.h"
-#include "disk_write_buffer_ffi.h"
 #include "rs_wall_clock.h"
 
 typedef struct QueryError QueryError;
@@ -403,7 +402,6 @@ typedef struct IndexSpec {
   // replication ending. Vector index state is stored inline in each field.
   RedisSearchDiskRdbState *pendingDiskRdbState;
   bool diskRegistered;
-  DiskWriteBufferIndexState diskWriteBuffer;
 
   // True when the SST+RDB stream indicated the source node was still
   // background-indexing (scan in progress, or a previous scan failed on OOM)
