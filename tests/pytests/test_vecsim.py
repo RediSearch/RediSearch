@@ -1348,10 +1348,9 @@ def test_hybrid_query_non_vector_score():
 
 @skip(cluster=True)
 def test_hybrid_query_scorer_slop():
-    """A filtered KNN query scores its text prefilter as if the matched terms
-    were adjacent: the scorer receives the prefilter alongside the distance
-    metric, and the slop walk pairs only top-level siblings, so the terms' real
-    offset distance never reaches the divisor."""
+    """A filtered KNN query scores its text prefilter exactly as that prefilter
+    scores on its own: the scorer receives the prefilter's intersection, so the
+    slop divisor is the terms' real offset distance."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
@@ -1378,26 +1377,21 @@ def test_hybrid_query_scorer_slop():
 
         env.assertEqual(sorted(hybrid.keys()), ['adjacent', 'separated'],
                         message=[scorer, hybrid])
-
-        # Adjacent terms are a distance of one apart, so `adjacent` is scored
-        # undivided and any score read against it recovers its own divisor.
-        undivided = text_only['adjacent']
-        env.assertAlmostEqual(undivided / text_only['separated'], 3.0, 0.01,
+        # Slop is the minimal offset distance between the two terms.
+        env.assertAlmostEqual(text_only['adjacent'] / text_only['separated'], 3.0, 0.01,
                               message=[scorer, text_only])
-        env.assertAlmostEqual(undivided / hybrid['adjacent'], 1.0, 0.01,
-                              message=[scorer, hybrid])
-        # Under a KNN the gap between the terms is invisible, so the divisor
-        # falls back to a distance of one rather than the distance they are at.
-        env.assertAlmostEqual(undivided / hybrid['separated'], 1.0, 0.01,
-                              message=[scorer, hybrid])
+        for doc, score in text_only.items():
+            env.assertAlmostEqual(hybrid[doc], score, 0.01,
+                                  message=[scorer, doc, hybrid, text_only])
 
 
 @skip(cluster=True)
 def test_hybrid_query_scorer_slop_ranking():
-    """The ranking a filtered KNN query replies with: a boosted document whose
-    matched terms are far apart outranks a tighter, unboosted one, because under
-    a KNN the distance between the terms is not charged against it. The same
-    prefilter on its own ranks the two the other way round."""
+    """The ranking a filtered KNN query replies with: the distance between the
+    matched terms is charged against a document under a KNN too, so a boosted
+    document whose terms are far apart ranks below a tighter, unboosted one —
+    the same order the prefilter gives on its own. Requesting a single result
+    turns that ranking into which document is returned at all."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
@@ -1417,15 +1411,10 @@ def test_hybrid_query_scorer_slop_ranking():
                'NOCONTENT').equal([2, 'tight', 'boosted'])
     env.expect('FT.SEARCH', 'idx', '(@t:(hello world))=>[KNN 2 @v $vec_param]',
                'SCORER', 'TFIDF', 'NOCONTENT',
-               'PARAMS', 2, 'vec_param', query_vec).equal([2, 'boosted', 'tight'])
+               'PARAMS', 2, 'vec_param', query_vec).equal([2, 'tight', 'boosted'])
     env.expect('FT.SEARCH', 'idx', '(@t:(hello world))=>[KNN 2 @v $vec_param]',
                'SCORER', 'TFIDF', 'NOCONTENT', 'LIMIT', 0, 1,
-               'PARAMS', 2, 'vec_param', query_vec).equal([2, 'boosted'])
-    # `k` selects candidates by vector distance before any scoring, so the
-    # nearest vector is the answer whatever the relevance ranking says.
-    env.expect('FT.SEARCH', 'idx', '(@t:(hello world))=>[KNN 1 @v $vec_param]',
-               'SCORER', 'TFIDF', 'NOCONTENT',
-               'PARAMS', 2, 'vec_param', query_vec).equal([1, 'tight'])
+               'PARAMS', 2, 'vec_param', query_vec).equal([2, 'tight'])
 
 
 @skip(cluster=False)
