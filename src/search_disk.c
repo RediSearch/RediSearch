@@ -16,6 +16,7 @@
 #include "config.h"
 #include "spec.h"
 #include "indexes.h"
+#include "disk_write_buffer_ffi.h"
 #include "query_term_ffi.h"
 #include "sorting_vector_ffi.h"
 #include "redismodule.h"
@@ -32,25 +33,6 @@ RedisSearchDisk *disk_db = NULL;
 
 // Global flag to control async I/O (enabled by default, can be toggled via debug command)
 static bool asyncIOEnabled = true;
-
-typedef struct {
-  _Atomic size_t budget;
-  _Atomic size_t indexCount;
-  _Atomic size_t hotIndexCount;
-  _Atomic size_t epoch;
-} SearchDiskWriteBufferState;
-
-typedef struct {
-  size_t budget;
-  size_t indexCount;
-  size_t hotIndexCount;
-  size_t epoch;
-} SearchDiskWriteBufferSnapshot;
-
-static SearchDiskWriteBufferState writeBufferState = {0};
-
-#define SEARCH_DISK_HOT_WRITE_BUFFER_POOL_PERCENT 80
-#define SEARCH_DISK_HOT_WRITE_BUFFER_TTL_MS (60 * 1000)
 
 // Throttle callbacks for vector disk tiered indexes
 static int VecSim_EnableThrottle(void);
@@ -233,8 +215,7 @@ static SearchDiskCompactionCallbacks SearchDisk_CompactionCallbacks(void) {
 }
 
 // Basic API wrappers
-static void SearchDisk_ApplyIndexWriteBufferBudget(IndexSpec *sp,
-                                                   SearchDiskWriteBufferSnapshot snapshot);
+static void SearchDisk_ApplyIndexWriteBufferBudget(IndexSpec *sp, size_t perIndexBudget);
 static void SearchDisk_RegisterOpenIndex(RedisModuleCtx *ctx, IndexSpec *sp);
 static void SearchDisk_RegisterClosedIndex(IndexSpec *sp);
 
@@ -326,9 +307,19 @@ void SearchDisk_FreeRdbState(RedisSearchDiskRdbState *rdbState) {
 // `SearchDiskWriteBatchHandle` is the storage-layer batch handle itself; no
 // C-side wrapping is needed.
 
-SearchDiskWriteBatchHandle *SearchDisk_CreateWriteBatch(RedisSearchDiskIndexSpec *index) {
-    RS_ASSERT(disk && index);
-    return disk->index.createWriteBatch(index);
+SearchDiskWriteBatchHandle *SearchDisk_CreateWriteBatch(IndexSpec *sp) {
+    RS_ASSERT(disk && sp && sp->diskSpec);
+    IndexSpec_AcquireWriteLock(sp);
+    if (!sp->diskSpec) {
+        IndexSpec_ReleaseWriteLock(sp);
+        return NULL;
+    }
+    SearchDisk_ApplyIndexWriteBufferBudget(
+        sp, DiskWriteBuffer_MarkIndexWriteActive(&sp->diskWriteBuffer,
+                                                 (uint64_t)RedisModule_Milliseconds()));
+    SearchDiskWriteBatchHandle *batch = disk->index.createWriteBatch(sp->diskSpec);
+    IndexSpec_ReleaseWriteLock(sp);
+    return batch;
 }
 
 bool SearchDisk_CommitWriteBatch(SearchDiskWriteBatchHandle *batch) {
@@ -638,118 +629,32 @@ uint64_t SearchDisk_GetDiskUsage(RedisSearchDiskIndexSpec* index) {
   return disk->index.getDiskUsage(index);
 }
 
-static size_t SearchDisk_PerIndexWriteBufferBudget(size_t moduleBudget, size_t diskIndexCount) {
-  if (moduleBudget == 0 || diskIndexCount == 0) {
-    return 0;
+static void SearchDisk_ApplyIndexWriteBufferBudget(IndexSpec *sp, size_t perIndexBudget) {
+  if (perIndexBudget == 0) {
+    return;
   }
-  return moduleBudget / diskIndexCount;
-}
-
-static size_t SearchDisk_PercentOfWriteBufferBudget(size_t moduleBudget, size_t percentage) {
-  return (moduleBudget / 100) * percentage + ((moduleBudget % 100) * percentage) / 100;
-}
-
-static void SearchDisk_DecrementHotDiskIndexCount(void) {
-  size_t current = atomic_load_explicit(&writeBufferState.hotIndexCount, memory_order_relaxed);
-  while (current != 0 &&
-         !atomic_compare_exchange_weak_explicit(&writeBufferState.hotIndexCount, &current,
-                                                current - 1, memory_order_relaxed,
-                                                memory_order_relaxed)) {
-  }
-}
-
-static SearchDiskWriteBufferSnapshot SearchDisk_WriteBufferSnapshot(void) {
-  return (SearchDiskWriteBufferSnapshot) {
-    .budget = atomic_load_explicit(&writeBufferState.budget, memory_order_relaxed),
-    .indexCount = atomic_load_explicit(&writeBufferState.indexCount, memory_order_relaxed),
-    .hotIndexCount = atomic_load_explicit(&writeBufferState.hotIndexCount, memory_order_relaxed),
-    .epoch = atomic_load_explicit(&writeBufferState.epoch, memory_order_relaxed),
-  };
-}
-
-static size_t SearchDisk_IndexWriteBufferBudget(IndexSpec *sp,
-                                                SearchDiskWriteBufferSnapshot snapshot) {
-  size_t hotBudget =
-      SearchDisk_PercentOfWriteBufferBudget(snapshot.budget,
-                                            SEARCH_DISK_HOT_WRITE_BUFFER_POOL_PERCENT);
-  if (sp->diskWriteBuffer.hot) {
-    return SearchDisk_PerIndexWriteBufferBudget(hotBudget, snapshot.hotIndexCount);
-  }
-
-  size_t coldIndexCount = snapshot.indexCount > snapshot.hotIndexCount
-                              ? snapshot.indexCount - snapshot.hotIndexCount
-                              : 0;
-  return SearchDisk_PerIndexWriteBufferBudget(snapshot.budget - hotBudget, coldIndexCount);
-}
-
-static void SearchDisk_ApplyIndexWriteBufferBudget(IndexSpec *sp,
-                                                   SearchDiskWriteBufferSnapshot snapshot) {
   RS_ASSERT(sp && sp->diskSpec);
-  size_t perIndexBudget = SearchDisk_IndexWriteBufferBudget(sp, snapshot);
-  if (perIndexBudget == 0 ||
-      (sp->diskWriteBuffer.appliedBudget == perIndexBudget &&
-       sp->diskWriteBuffer.budgetEpoch == snapshot.epoch)) {
-    return;
-  }
-
   disk->index.updateWriteBufferSize(sp->diskSpec, perIndexBudget);
-  sp->diskWriteBuffer.appliedBudget = perIndexBudget;
-  sp->diskWriteBuffer.budgetEpoch = snapshot.epoch;
-}
-
-static void SearchDisk_MarkIndexWriteHot(IndexSpec *sp, uint64_t nowMs) {
-  if (!sp->diskWriteBuffer.hot) {
-    sp->diskWriteBuffer.hot = true;
-    atomic_fetch_add_explicit(&writeBufferState.hotIndexCount, 1, memory_order_relaxed);
-    atomic_fetch_add_explicit(&writeBufferState.epoch, 1, memory_order_relaxed);
-  }
-  sp->diskWriteBuffer.hotUntilMs = nowMs + SEARCH_DISK_HOT_WRITE_BUFFER_TTL_MS;
-}
-
-void SearchDisk_MarkIndexWriteActive(IndexSpec *sp) {
-  if (!sp || !sp->diskSpec ||
-      atomic_load_explicit(&writeBufferState.budget, memory_order_relaxed) == 0) {
-    return;
-  }
-
-  IndexSpec_AcquireWriteLock(sp);
-  if (sp->diskSpec) {
-    SearchDisk_MarkIndexWriteHot(sp, (uint64_t)RedisModule_Milliseconds());
-    SearchDisk_ApplyIndexWriteBufferBudget(sp, SearchDisk_WriteBufferSnapshot());
-  }
-  IndexSpec_ReleaseWriteLock(sp);
 }
 
 static void SearchDisk_RegisterOpenIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
-  atomic_fetch_add_explicit(&writeBufferState.indexCount, 1, memory_order_relaxed);
-  SearchDisk_MarkIndexWriteHot(sp, (uint64_t)RedisModule_Milliseconds());
+  DiskWriteBuffer_RegisterIndexOpen(&sp->diskWriteBuffer, (uint64_t)RedisModule_Milliseconds());
 
-  if (atomic_load_explicit(&writeBufferState.budget, memory_order_relaxed) == 0) {
+  if (!DiskWriteBuffer_HasModuleBudget()) {
     SearchDisk_UpdateBufferBudget(ctx, (int)RSGlobalConfig.diskBufferPercentage);
   }
 
-  SearchDiskWriteBufferSnapshot snapshot = SearchDisk_WriteBufferSnapshot();
-  if (snapshot.budget != 0) {
-    SearchDisk_ApplyIndexWriteBufferBudget(sp, snapshot);
-  }
+  SearchDisk_ApplyIndexWriteBufferBudget(
+      sp, DiskWriteBuffer_MaintainIndex(&sp->diskWriteBuffer,
+                                        (uint64_t)RedisModule_Milliseconds()));
 }
 
 static void SearchDisk_RegisterClosedIndex(IndexSpec *sp) {
-  if (sp && sp->diskWriteBuffer.hot) {
-    sp->diskWriteBuffer.hot = false;
-    SearchDisk_DecrementHotDiskIndexCount();
-    atomic_fetch_add_explicit(&writeBufferState.epoch, 1, memory_order_relaxed);
-  }
-
-  if (atomic_load_explicit(&writeBufferState.indexCount, memory_order_relaxed) == 0) {
-    return;
-  }
-  atomic_fetch_sub_explicit(&writeBufferState.indexCount, 1, memory_order_relaxed);
+  DiskWriteBuffer_RegisterIndexClose(sp ? &sp->diskWriteBuffer : NULL);
 }
 
 void SearchDisk_MaintainWriteBufferSize(IndexSpec *sp) {
-  SearchDiskWriteBufferSnapshot snapshot = SearchDisk_WriteBufferSnapshot();
-  if (!sp || !sp->diskSpec || snapshot.budget == 0 || snapshot.indexCount == 0) {
+  if (!sp || !sp->diskSpec) {
     return;
   }
 
@@ -759,15 +664,9 @@ void SearchDisk_MaintainWriteBufferSize(IndexSpec *sp) {
     return;
   }
 
-  if (sp->diskWriteBuffer.hot &&
-      sp->diskWriteBuffer.hotUntilMs <= (uint64_t)RedisModule_Milliseconds()) {
-    sp->diskWriteBuffer.hot = false;
-    SearchDisk_DecrementHotDiskIndexCount();
-    atomic_fetch_add_explicit(&writeBufferState.epoch, 1, memory_order_relaxed);
-    snapshot = SearchDisk_WriteBufferSnapshot();
-  }
-
-  SearchDisk_ApplyIndexWriteBufferBudget(sp, snapshot);
+  SearchDisk_ApplyIndexWriteBufferBudget(
+      sp, DiskWriteBuffer_MaintainIndex(&sp->diskWriteBuffer,
+                                        (uint64_t)RedisModule_Milliseconds()));
   IndexSpec_ReleaseWriteLock(sp);
 }
 
@@ -815,8 +714,7 @@ void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage) {
   if (new_budget == 0) {
     return;
   }
-  atomic_store_explicit(&writeBufferState.budget, new_budget, memory_order_relaxed);
-  atomic_fetch_add_explicit(&writeBufferState.epoch, 1, memory_order_relaxed);
+  DiskWriteBuffer_SetModuleBudget(new_budget);
 }
 
 void SearchDisk_UpdateMaxOpenFiles(RedisModuleCtx *ctx, int maxOpenFiles) {

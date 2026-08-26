@@ -523,6 +523,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56254986775e3233ffa9c4d7d3faaf6d36a2c09d30b20687e9f88bc8bafc16c8"
 
 [[package]]
+name = "disk_write_buffer_ffi"
+version = "0.0.1"
+dependencies = [
+ "cheadergen",
+ "workspace_hack",
+]
+
+[[package]]
 name = "displaydoc"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2154,6 +2162,7 @@ version = "0.0.1"
 dependencies = [
  "buffer",
  "build_utils",
+ "disk_write_buffer_ffi",
  "fnv_ffi",
  "fork_gc_ffi",
  "geo_ffi",

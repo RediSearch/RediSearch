@@ -17,6 +17,7 @@
 #[global_allocator]
 static REDIS_MODULE_ALLOCATOR: redis_module::alloc::RedisAlloc = redis_module::alloc::RedisAlloc;
 
+pub use disk_write_buffer_ffi as disk_write_buffer;
 pub use fnv_ffi as fnv;
 pub use fork_gc_ffi as fork_gc;
 pub use geo_ffi as geo;
