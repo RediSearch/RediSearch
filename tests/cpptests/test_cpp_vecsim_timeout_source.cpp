@@ -39,22 +39,21 @@ TEST(VecSimTimeoutSourceTest, RetainedContextFollowsSourceChangesBetweenCursorCy
   NonMockTimeoutChecks enableTimeoutChecks;
   QueryRequestTimeout timeout = {};
   QueryRequestTimeout_Init(&timeout, TimeoutPolicy_Fail, 60'000);
-  VecSimTimeoutCtx ctx = {.timeout = &timeout};
 
   QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
   for (size_t i = 0; i < QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT; ++i) {
-    EXPECT_EQ(NOT_TIMED_OUT, VecSim_TimedOut(&ctx));
+    EXPECT_EQ(NOT_TIMED_OUT, VecSim_TimedOut(&timeout));
   }
 
   QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   QueryRequestTimeout_MarkTimedOut(&timeout);
-  EXPECT_EQ(TIMED_OUT, VecSim_TimedOut(&ctx));
+  EXPECT_EQ(TIMED_OUT, VecSim_TimedOut(&timeout));
 
   QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
-  EXPECT_EQ(NOT_TIMED_OUT, VecSim_TimedOut(&ctx));
+  EXPECT_EQ(NOT_TIMED_OUT, VecSim_TimedOut(&timeout));
 
   QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
-  EXPECT_EQ(NOT_TIMED_OUT, VecSim_TimedOut(&ctx));
+  EXPECT_EQ(NOT_TIMED_OUT, VecSim_TimedOut(&timeout));
 }
 
 }  // namespace

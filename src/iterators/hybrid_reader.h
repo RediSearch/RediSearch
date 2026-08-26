@@ -52,8 +52,7 @@ typedef struct {
   size_t maxBatchIteration;        // Iteration (zero-based) where the maximum batch size occurred
   bool canTrimDeepResults;         // Ignore the document scores, only vector score matters. No need to deep copy the results from the child iterator.
   bool checkFieldExpiration;       // Hoisted gate; refreshed in HR_Revalidate.
-  QueryRequestTimeout requestlessTimeout; // Stable UNARMED state when sctx has no request.
-  VecSimTimeoutCtx timeoutCtx;     // Timeout parameters
+  QueryRequestTimeout *timeout;    // Borrowed request state; retained VecSim work may use it.
   FieldFilterContext filterCtx;
 } HybridIterator;
 
@@ -65,7 +64,7 @@ QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
 
 // Routes the Rust adhoc-BF scan through the swappable `vecsimTimeoutCallback`
 // so FT.DEBUG VECSIM_MOCK_TIMEOUT can override its timeout behavior.
-int RS_VecSimCheckTimeout(VecSimTimeoutCtx *ctx);
+int RS_VecSimCheckTimeout(QueryRequestTimeout *timeout);
 
 RLookupKey    **HybridIterator_GetOwnKeyRef(QueryIterator *it);
 void            HybridIterator_SetKeyHandle(QueryIterator *it, struct RLookupKeyHandle *h);

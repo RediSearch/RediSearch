@@ -1439,6 +1439,9 @@ static int validateSortbyForDiskIndex(AREQ *req, QueryError *status) {
 
 // Assumes the spec is guarded by its own lock (for read), such that races with
 // main-thread/GC updates are avoided.
+// `beginClockDeadlineCycle` distinguishes callers whose legacy clock starts here, after taking
+// the disk snapshot, from worker execution whose cycle was already armed before queueing so queue
+// time remains part of the timeout.
 int prepareExecutionPlan(AREQ *req, QueryError *status, bool beginClockDeadlineCycle) {
   int rc = REDISMODULE_ERR;
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
