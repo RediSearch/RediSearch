@@ -212,6 +212,9 @@ void SyncPoint_Signal(const char *name);
 bool SyncPoint_IsWaiting(const char *name);
 // Number of times a thread entered the named sync point since it was armed
 uint32_t SyncPoint_HitCount(const char *name);
+// Monotonic event ids for ordering sync-point hits and releases
+uint64_t SyncPoint_LastHitSeq(const char *name);
+uint64_t SyncPoint_LastReleaseSeq(const char *name);
 // Check if a sync point is armed
 bool SyncPoint_IsArmed(const char *name);
 // Clear all sync points
