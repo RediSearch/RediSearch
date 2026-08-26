@@ -158,6 +158,11 @@ bool Rust_TagIndexValueIter_Next(struct TagIndexValueIter *iter, RSIndexResult *
  * would take the symbol away from the very build that needs it. The block
  * accessors themselves live in `inverted_index_ffi`.
  *
+ * The returned pointer is valid only until the posting list is next written to
+ * or collected: [`Rust_TagIndex_GC`] reallocates the block array and can free
+ * the list outright. Re-read it after either rather than holding it across one —
+ * the Rust lifetime is unconstrained, so nothing here stops you.
+ *
  * # Safety
  *
  * As [`Rust_TagIndexValue_NumDocs`].
@@ -303,12 +308,18 @@ uint32_t Rust_TagIndex_GetId(const struct ErasedTagIndex *tag_index);
 size_t Rust_TagIndex_GetOverhead(const struct ErasedTagIndex *tag_index);
 
 /**
- * Expand `value` through the suffix index, returning the matching tags.
+ * Expand `value` through the suffix index, returning the matching tags, capped
+ * at `max_prefix_expansions`.
  *
  * `prefix` selects a *contains* (`*foo*`) expansion rather than a *suffix*
  * (`*foo`) one, mirroring the flag C passes down from the query node.
  * `skip_timeout_checks` runs the walk unbounded; otherwise it stops at
  * `timeout` and the caller keeps the partial result.
+ *
+ * The cap bounds the walk itself, not just the result: a tag ending shared by
+ * many tags would otherwise materialise every match here before the caller —
+ * which stops at its own `maxPrefixExpansions` — got to look at the first one.
+ * See [`take_bound`] for why the cap is overshot by one.
  *
  * Returns NULL when nothing matched. The result is an `arr.h` array the caller
  * frees with `array_free`; the strings inside it are borrowed from the index and
@@ -317,14 +328,21 @@ size_t Rust_TagIndex_GetOverhead(const struct ErasedTagIndex *tag_index);
  * # Safety
  *
  * 1. `tag_index` must point to a live index from [`Rust_TagIndex_New`] that was
- *    created `WITHSUFFIXTRIE`, and must outlive the returned array's use.
+ *    created `WITHSUFFIXTRIE`. It must outlive the returned array's use, and
+ *    must not be mutated until the array is consumed: the strings borrow the
+ *    suffix index's own term allocations, which [`Rust_TagIndex_GC`] frees when
+ *    it drops a tag.
  * 2. `value` must point to `len` readable bytes, or may be NULL when `len` is 0.
  */
-char * *Rust_TagIndex_GetSuffixMatches(const struct ErasedTagIndex *tag_index, const char *value, size_t len, bool prefix, timespec timeout, bool skip_timeout_checks);
+char * *Rust_TagIndex_GetSuffixMatches(const struct ErasedTagIndex *tag_index, const char *value, size_t len, bool prefix, timespec timeout, long long max_prefix_expansions, bool skip_timeout_checks);
 
 /**
  * Expand the wildcard `value` through the suffix index, returning the matching
  * tags, capped at `max_prefix_expansions`.
+ *
+ * `value` is the pattern as C hands it over — already run through
+ * `Wildcard_RemoveEscape`, so one escape level is gone and a trailing backslash
+ * may escape nothing. [`SuffixWildcardPattern::new`] accepts that domain.
  *
  * Returns [`BAD_POINTER`] when the pattern has no literal token to anchor on
  * (`*`, `?*`, and friends): there is nothing for the suffix index to look up, so
@@ -468,8 +486,12 @@ struct ErasedTagIndex *Rust_TagIndex_New(RedisSearchDiskIndexSpec *disk_spec, t_
  * 3. `sctx` and `sctx.spec` must be valid and outlive the returned iterator. In
  *    disk mode `sctx.diskSnapshot` must additionally be a valid snapshot handle
  *    for this index's disk spec.
- * 4. `value` must point to `len` readable bytes, or may be NULL when `len` is 0.
- * 5. `status`, when non-NULL, must point to a valid [`QueryError`].
+ * 4. In disk mode, no other reference to this index's disk spec may be live
+ *    while the returned iterator is — including an iterator from an earlier
+ *    call, since each one holds the spec exclusively for its whole life. This is
+ *    [`tag_index::TagIndex::open_reader`]'s contract 4, carried through.
+ * 5. `value` must point to `len` readable bytes, or may be NULL when `len` is 0.
+ * 6. `status`, when non-NULL, must point to a valid [`QueryError`].
  */
 QueryIterator *Rust_TagIndex_OpenReader(const struct ErasedTagIndex *tag_index, RedisSearchCtx *sctx, const char *value, size_t len, double weight, QueryError *status);
 

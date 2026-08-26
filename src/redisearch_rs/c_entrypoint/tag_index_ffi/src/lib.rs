@@ -16,6 +16,19 @@
 //! [`ErasedTagIndex`] is the handle this crate hands to C; its own documentation
 //! explains why every entry point below reaches the payload through a raw place
 //! projection rather than a reference to the handle.
+//!
+//! # Synchronisation
+//!
+//! Nothing here synchronises: the caller holds the lock. Every entry point that
+//! reads the index forms a shared reference to it, and every one that writes —
+//! [`Rust_TagIndex_Index`], [`Rust_TagIndex_Commit`], [`Rust_TagIndex_GC`] —
+//! forms an exclusive one, so a read overlapping a write is undefined behaviour
+//! even where C would have called it a benign race.
+//!
+//! The lock that separates them is the spec's `rwlock`, and it is C's to take:
+//! query paths hold it for read across the whole lifetime of the readers they
+//! open, the indexing path and the fork-GC parent hold it for write. Adding a
+//! lock inside the handle would only duplicate it.
 
 #![allow(non_camel_case_types, non_snake_case)]
 
@@ -382,8 +395,12 @@ pub unsafe extern "C" fn Rust_TagIndex_Commit(
 /// 3. `sctx` and `sctx.spec` must be valid and outlive the returned iterator. In
 ///    disk mode `sctx.diskSnapshot` must additionally be a valid snapshot handle
 ///    for this index's disk spec.
-/// 4. `value` must point to `len` readable bytes, or may be NULL when `len` is 0.
-/// 5. `status`, when non-NULL, must point to a valid [`QueryError`].
+/// 4. In disk mode, no other reference to this index's disk spec may be live
+///    while the returned iterator is — including an iterator from an earlier
+///    call, since each one holds the spec exclusively for its whole life. This is
+///    [`tag_index::TagIndex::open_reader`]'s contract 4, carried through.
+/// 5. `value` must point to `len` readable bytes, or may be NULL when `len` is 0.
+/// 6. `status`, when non-NULL, must point to a valid [`QueryError`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Rust_TagIndex_OpenReader(
     tag_index: *const ErasedTagIndex,
@@ -396,7 +413,7 @@ pub unsafe extern "C" fn Rust_TagIndex_OpenReader(
     debug_assert!(!tag_index.is_null(), "tag_index must not be null");
     debug_assert!(!sctx.is_null(), "sctx must not be null");
 
-    // SAFETY: contract 4.
+    // SAFETY: contract 5.
     let tag = unsafe { borrow_tag(value.cast(), len) };
     let Some(tag) = Tag::new(tag) else {
         // Unlike the write path, which cannot express a NUL-bearing tag at all
@@ -439,7 +456,8 @@ pub unsafe extern "C" fn Rust_TagIndex_OpenReader(
         Mode::OnDisk => {
             // SAFETY: the discriminant says the on-disk field is live.
             let idx = unsafe { ErasedTagIndex::on_disk(tag_index) };
-            // SAFETY: contracts 2 and 3, including the snapshot on `sctx`.
+            // SAFETY: contracts 2 and 3, including the snapshot on `sctx`, and
+            // contract 4 for the exclusive spec borrow the reader takes.
             match unsafe { idx.open_reader(sctx, tag, weight) } {
                 Ok(reader) => RQEIteratorWrapper::boxed_new(reader),
                 Err(err) => {
@@ -447,7 +465,7 @@ pub unsafe extern "C" fn Rust_TagIndex_OpenReader(
                     // `QueryError_HasError` check rather than silently reading as
                     // an empty tag.
                     //
-                    // SAFETY: contract 5.
+                    // SAFETY: contract 6.
                     if let Some(status) = unsafe {
                         query_error::QueryError::from_opaque_mut_ptr(
                             status.cast::<query_error::opaque::OpaqueQueryError>(),
@@ -873,6 +891,11 @@ pub unsafe extern "C" fn Rust_TagIndexValue_NumBlocks(
 /// would take the symbol away from the very build that needs it. The block
 /// accessors themselves live in `inverted_index_ffi`.
 ///
+/// The returned pointer is valid only until the posting list is next written to
+/// or collected: [`Rust_TagIndex_GC`] reallocates the block array and can free
+/// the list outright. Re-read it after either rather than holding it across one —
+/// the Rust lifetime is unconstrained, so nothing here stops you.
+///
 /// # Safety
 ///
 /// As [`Rust_TagIndexValue_NumDocs`].
@@ -1065,6 +1088,25 @@ unsafe fn build_ptr_array(elems: &[*const c_char]) -> *mut *mut c_char {
     arr
 }
 
+/// How many terms an expansion may yield, from C's `maxPrefixExpansions`.
+///
+/// A non-positive value is not a cap C can mean — the config forbids it — so it
+/// reads as *no cap* rather than wrapping to a huge one through an `as` cast.
+fn expansion_cap(max_prefix_expansions: std::ffi::c_longlong) -> u64 {
+    u64::try_from(max_prefix_expansions).unwrap_or(u64::MAX)
+}
+
+/// Turn a cap on the terms into the bound to [`Iterator::take`] by, overshooting
+/// it by one.
+///
+/// The extra term is what lets the caller tell "exactly at the cap" from "there
+/// were more" and warn accordingly — `query.c` re-clamps to the cap either way,
+/// but only emits `QueryError_SetReachedMaxPrefixExpansionsWarning` when it sees
+/// the overshoot. [`SuffixQuery::Wildcard`] caps itself the same way.
+fn take_bound(cap: u64) -> usize {
+    usize::try_from(cap.saturating_add(1)).unwrap_or(usize::MAX)
+}
+
 /// Collect a suffix expansion into a C array, or NULL when nothing matched.
 ///
 /// The terms are borrowed from the suffix index, and being [`CStr`] their
@@ -1083,12 +1125,18 @@ unsafe fn collect_matches<'a>(matches: impl Iterator<Item = &'a CStr>) -> *mut *
     unsafe { build_ptr_array(&elems) }
 }
 
-/// Expand `value` through the suffix index, returning the matching tags.
+/// Expand `value` through the suffix index, returning the matching tags, capped
+/// at `max_prefix_expansions`.
 ///
 /// `prefix` selects a *contains* (`*foo*`) expansion rather than a *suffix*
 /// (`*foo`) one, mirroring the flag C passes down from the query node.
 /// `skip_timeout_checks` runs the walk unbounded; otherwise it stops at
 /// `timeout` and the caller keeps the partial result.
+///
+/// The cap bounds the walk itself, not just the result: a tag ending shared by
+/// many tags would otherwise materialise every match here before the caller —
+/// which stops at its own `maxPrefixExpansions` — got to look at the first one.
+/// See [`take_bound`] for why the cap is overshot by one.
 ///
 /// Returns NULL when nothing matched. The result is an `arr.h` array the caller
 /// frees with `array_free`; the strings inside it are borrowed from the index and
@@ -1097,7 +1145,10 @@ unsafe fn collect_matches<'a>(matches: impl Iterator<Item = &'a CStr>) -> *mut *
 /// # Safety
 ///
 /// 1. `tag_index` must point to a live index from [`Rust_TagIndex_New`] that was
-///    created `WITHSUFFIXTRIE`, and must outlive the returned array's use.
+///    created `WITHSUFFIXTRIE`. It must outlive the returned array's use, and
+///    must not be mutated until the array is consumed: the strings borrow the
+///    suffix index's own term allocations, which [`Rust_TagIndex_GC`] frees when
+///    it drops a tag.
 /// 2. `value` must point to `len` readable bytes, or may be NULL when `len` is 0.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Rust_TagIndex_GetSuffixMatches(
@@ -1106,6 +1157,7 @@ pub unsafe extern "C" fn Rust_TagIndex_GetSuffixMatches(
     len: usize,
     prefix: bool,
     timeout: timespec,
+    max_prefix_expansions: std::ffi::c_longlong,
     skip_timeout_checks: bool,
 ) -> *mut *mut c_char {
     debug_assert!(!tag_index.is_null(), "tag_index must not be null");
@@ -1133,12 +1185,17 @@ pub unsafe extern "C" fn Rust_TagIndex_GetSuffixMatches(
     // SAFETY: contract 1 — the handle is live and has a suffix index, so
     // `suffix_expand` will not panic.
     let matches = dispatch!(tag_index, |idx| idx.suffix_expand(query, deadline));
+    let matches = matches.take(take_bound(expansion_cap(max_prefix_expansions)));
     // SAFETY: the module allocator is up by the time queries run.
     unsafe { collect_matches(matches) }
 }
 
 /// Expand the wildcard `value` through the suffix index, returning the matching
 /// tags, capped at `max_prefix_expansions`.
+///
+/// `value` is the pattern as C hands it over — already run through
+/// `Wildcard_RemoveEscape`, so one escape level is gone and a trailing backslash
+/// may escape nothing. [`SuffixWildcardPattern::new`] accepts that domain.
 ///
 /// Returns [`BAD_POINTER`] when the pattern has no literal token to anchor on
 /// (`*`, `?*`, and friends): there is nothing for the suffix index to look up, so
@@ -1174,7 +1231,7 @@ pub unsafe extern "C" fn Rust_TagIndex_GetSuffixWildcardMatches(
 
     let query = SuffixQuery::Wildcard {
         pattern: &pattern,
-        max_prefix_expansions: max_prefix_expansions as u64,
+        max_prefix_expansions: expansion_cap(max_prefix_expansions),
     };
     let deadline = (!skip_timeout_checks).then_some(timeout);
 

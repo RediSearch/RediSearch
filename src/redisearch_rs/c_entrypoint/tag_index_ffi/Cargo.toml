@@ -41,6 +41,7 @@ default-features = true
 
 [dev-dependencies]
 tag_index_ffi = { path = ".", features = ["test-utils"] }
+ffi.workspace = true
 rqe_iterators_test_utils.workspace = true
 redis_mock.workspace = true
 redisearch_rs = { path = "../redisearch_rs", features = ["mock_allocator"] }

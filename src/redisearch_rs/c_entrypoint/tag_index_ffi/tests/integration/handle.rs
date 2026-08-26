@@ -192,7 +192,7 @@ fn free_nulls_the_callers_slot() {
 }
 
 /// Release `idx`, checking the slot is nulled.
-fn free(idx: *mut ErasedTagIndex) {
+pub fn free(idx: *mut ErasedTagIndex) {
     let mut slot = idx;
     // SAFETY: `slot` holds a live handle from `new_in_memory`.
     unsafe { Rust_TagIndex_Free(&raw mut slot) };
