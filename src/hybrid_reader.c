@@ -174,9 +174,11 @@ static VecSimQueryReply_Code computeDistances(HybridIterator *hr) {
 
   if (hr->indexMetric == VecSimMetric_Cosine) {
     size_t vec_size = hr->dimension * VecSimType_sizeof(hr->vecType);
-    // For some cases blob_size may be larger than vec_size.
-    // For example, for INT8/UINT8, VecSim_Normalize appends the norm (a float) at the end of the blob.
-    size_t blob_size = VecSimParams_GetQueryBlobSize(hr->vecType, hr->dimension, hr->indexMetric);
+    // INT8/UINT8 normalization appends the norm (a float) to the query blob.
+    size_t blob_size = vec_size;
+    if (hr->vecType == VecSimType_INT8 || hr->vecType == VecSimType_UINT8) {
+      blob_size += sizeof(float);
+    }
     qvector = rm_malloc(blob_size);
     memcpy(qvector, hr->query.vector, vec_size);
     VecSim_Normalize(qvector, hr->dimension, hr->vecType);

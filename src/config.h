@@ -8,6 +8,8 @@
 */
 #pragma once
 
+#include <stdint.h>
+
 #include "redismodule.h"
 #include "hiredis/sds.h"
 #include "query_error.h"
@@ -235,6 +237,11 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err);
 /* Register module configuration parameters using Module Configuration API */
 int RegisterModuleConfig(RedisModuleCtx *ctx);
 
+/* Marks whether RedisModule_LoadConfigs is currently running. Some numeric config setters
+ * consult this to fall back to their current value with a warning instead of returning
+ * REDISMODULE_ERR, which would abort module init. */
+void RSConfig_SetLoadingStartupConfig(bool loading);
+
 /**
  * Writes the retrieval of the configuration value to the network.
  * isHelp will use a more dict-like pattern, which should be a bit friendlier
@@ -281,6 +288,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS MAX_AGGREGATE_REQUEST_RESULTS
 #define MAX_AGGREGATE_GROUPS (1ULL << 26)
 #define DEFAULT_MAX_AGGREGATE_GROUPS 1000000
+#define MAX_GROUPBY_PROPERTIES UINT16_MAX
 #define DEFAULT_MAX_CURSOR_IDLE 300000
 #define DEFAULT_MAX_PREFIX_EXPANSIONS 200
 #define DEFAULT_MAX_SEARCH_REQUEST_RESULTS 1000000
