@@ -20,6 +20,12 @@ Standards to follow when writing Rust documentation.
   valid nul terminator keep their plain form, since std's definition says nothing about them.
   A duration clause such as "must remain valid for the lifetime of the returned iterator" does
   mean it, so link it as well; the duration it adds is orthogonal to what validity means.
+  A callback parameter is the other way round: std's rules cover accesses through data
+  pointers, not whether an address is callable under a given ABI, so require the signature
+  to be `[ABI-compatible]` instead and define it as —
+  ```text
+  [ABI-compatible]: https://doc.rust-lang.org/std/primitive.fn.html#abi-compatibility
+  ```
   Non-doc `// SAFETY:` comments keep the plain form too: rustdoc does not render them, so the
   brackets would stay literal text.
 - Avoid referring to specific lines or line ranges, as they may change over time.
