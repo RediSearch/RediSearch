@@ -181,25 +181,45 @@ def test_hybrid_debug_missing_timeout_value():
                'DEBUG_PARAMS_COUNT', '1') \
         .error().contains('TIMEOUT_AFTER_N_SEARCH')
 
+@skip(cluster=False)
+def test_hybrid_debug_coordinator_timeout_policy():
+    """Coordinator hybrid query debug requires the non-blocking RETURN policy."""
+    env = Env(enableDebugCommand=True)
+    setup_basic_index(env)
+    error = '_FT.DEBUG for Coordinator is only supported with ON_TIMEOUT RETURN'
+    try:
+        for policy in ('FAIL', 'RETURN-STRICT'):
+            env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', policy).ok()
+            env.expect(
+                *_base_hybrid_debug_cmd(),
+                'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2',
+            ).error().contains(error)
+    finally:
+        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
+
 # Debug timeout tests using TIMEOUT_AFTER_N_* parameters
+@skip(cluster=True)
 def test_debug_timeout_fail_search():
     """Test FAIL policy with search timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT FAIL')
     setup_basic_index(env)
     env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2').error().contains('SEARCH_TIMEOUT Timeout limit was reached')
 
+@skip(cluster=True)
 def test_debug_timeout_fail_vsim():
     """Test FAIL policy with vector similarity timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT FAIL')
     setup_basic_index(env)
     env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_VSIM', '1', 'DEBUG_PARAMS_COUNT', '2').error().contains('SEARCH_TIMEOUT Timeout limit was reached')
 
+@skip(cluster=True)
 def test_debug_timeout_fail_both():
     """Test FAIL policy with both components timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT FAIL')
     setup_basic_index(env)
     env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_SEARCH', '1','TIMEOUT_AFTER_N_VSIM', '2', 'DEBUG_PARAMS_COUNT', '4').error().contains('SEARCH_TIMEOUT Timeout limit was reached')
 
+@skip(cluster=True)
 def test_debug_timeout_fail_tail():
     """Test FAIL policy with tail timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT FAIL')
@@ -452,6 +472,7 @@ def test_tail_property_not_loaded_warning_coordinator():
     env.assertTrue(any('__score' in w for w in warnings),
                    message=f"Expected warning about __score, got: {warnings}")
 
+@skip(cluster=True)
 def test_debug_timeout_return_strict_rejected():
     """Test that _FT.DEBUG FT.HYBRID rejects ON_TIMEOUT RETURN-STRICT policy."""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN-STRICT')

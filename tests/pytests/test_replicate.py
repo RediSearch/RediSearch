@@ -64,6 +64,35 @@ def initEnv():
 
   return env
 
+def _decode_slowlog_arg(arg):
+  if isinstance(arg, bytes):
+    return arg.decode()
+  return str(arg)
+
+def _slowlog_entry_id_and_args(entry):
+  if isinstance(entry, dict):
+    command = entry['command']
+    entry_id = entry['id']
+  else:
+    command = entry[3]
+    entry_id = entry[0]
+
+  if isinstance(command, (bytes, str)):
+    return entry_id, _decode_slowlog_arg(command).split()
+
+  return entry_id, [_decode_slowlog_arg(arg) for arg in command]
+
+def _slowlog_commands(conn):
+  entries = conn.execute_command('SLOWLOG', 'GET', 128)
+  commands = [_slowlog_entry_id_and_args(entry) for entry in entries]
+  return [args for _, args in sorted(commands, key=lambda entry: entry[0])]
+
+def _config_get_value(conn, name):
+  res = conn.execute_command('CONFIG', 'GET', name)
+  if isinstance(res, dict):
+    return res[name]
+  return res[1]
+
 def testDelReplicate():
   env = initEnv()
   master = env.getConnection()
@@ -159,6 +188,53 @@ def testDropReplicate():
   slave_set = set(slave_keys)
   env.assertEqual(master_set.difference(slave_set), set([]))
   env.assertEqual(slave_set.difference(master_set), set([]))
+
+def testDropIndexDDReplicatesDropBeforeDocumentDeletes():
+  '''
+  DROPINDEX DD must replicate the internal index drop before document key deletion,
+  otherwise replicas deindex each deleted document while the index still exists.
+  '''
+  env = initEnv()
+  master = env.getConnection()
+  slave = env.getSlaveConnection()
+
+  master.execute_command('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'doc:', 'SCHEMA',
+                         't', 'TEXT')
+  for i in range(3):
+    master.execute_command('HSET', 'doc:%d' % i, 't', 'hello')
+
+  waitForIndex(env, 'idx')
+  env.assertEqual(master.execute_command('WAIT', '1', '10000'), 1)
+  checkSlaveSynced(env, slave, ('FT.SEARCH', 'idx', 'hello'), 3, time_out=20,
+                   mapping=lambda res: res[0])
+
+  old_slowlog_threshold = _config_get_value(slave, 'slowlog-log-slower-than')
+  try:
+    slave.execute_command('CONFIG', 'SET', 'slowlog-log-slower-than', '0')
+    slave.execute_command('SLOWLOG', 'RESET')
+
+    master.execute_command('FT.DROPINDEX', 'idx', 'DD')
+    env.assertEqual(master.execute_command('WAIT', '1', '10000'), 1)
+
+    commands = _slowlog_commands(slave)
+    drop_pos = next((i for i, args in enumerate(commands)
+                     if args and args[0].upper().endswith('FT._DROPINDEXIFX')), None)
+    delete_positions = [i for i, args in enumerate(commands)
+                        if args and args[0].upper() in ('DEL', 'UNLINK')
+                        and any(arg.startswith('doc:') for arg in args[1:])]
+
+    env.assertTrue(drop_pos is not None, message='Replica did not execute _DROPINDEXIFX')
+    env.assertTrue(delete_positions, message='Replica did not execute document deletes')
+    first_delete_pos = delete_positions[0]
+    env.assertTrue(drop_pos < first_delete_pos,
+                   message='Replica deleted documents before dropping the index: %s' % commands)
+    env.assertTrue(all(commands[pos][0].upper() == 'UNLINK' for pos in delete_positions))
+    deleted_keys = {arg for pos in delete_positions for arg in commands[pos][1:]
+                    if arg.startswith('doc:')}
+    env.assertEqual(deleted_keys, {'doc:0', 'doc:1', 'doc:2'})
+  finally:
+    slave.execute_command('CONFIG', 'SET', 'slowlog-log-slower-than', old_slowlog_threshold)
+    slave.execute_command('SLOWLOG', 'RESET')
 
 def testDropTempReplicate():
   env = initEnv()

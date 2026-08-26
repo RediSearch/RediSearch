@@ -995,112 +995,157 @@ class TestCoordinatorTimeout:
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
 
     def test_return_strict_timeout_with_shard_timeout_warning(self):
-        """A coord blocked-client timeout racing a shard-propagated TIMEOUT warning
-        must count the timeout warning exactly once (the propagated shard warnings
-        and the coordinator's own timedOut fallback are mutually exclusive reply
-        branches in sendSearchResults; a regression once counted both).
+        """A coordinator timeout racing a shard timeout warning is counted once.
 
-        Choreography: shards reply with a TIMEOUT warning (TIMEOUT_AFTER_N 0
-        INTERNAL_ONLY), the coord reducer is parked in the paused coord pool, then
-        the blocked client is unblocked with TIMEOUT so the partial callback runs
-        the reducer inline with the shard warnings already collected.
+        The coordinator request captures RETURN-STRICT and a long timeout before it is
+        blocked. Before fanout, the shards are switched to RETURN with a short timeout
+        and parked at their first read until that timeout expires. This makes a normal
+        FT.SEARCH produce shard warnings without coordinator query debug.
         """
         env = self.env
+        skipIfNoEnableAssert(env)
+        sync_point = 'BeforeFirstRead'
 
-        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
+        prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        prev_timeout = env.cmd('CONFIG', 'GET', 'search-timeout')['search-timeout']
+        coord_paused = False
+        blocked_client_id = None
+        t_query = None
 
-        before_info = info_modules_to_dict(env)
-        base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+        try:
+            verify_command_OK_on_all_shards(
+                env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
+            verify_command_OK_on_all_shards(
+                env, 'CONFIG', 'SET', 'search-timeout', '60000')
+            verify_command_OK_on_all_shards(env, debug_cmd(), 'SYNC_POINT', 'CLEAR')
+            verify_command_OK_on_all_shards(
+                env, debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
 
-        # Hold the fanout in the paused coord pool, and shard execution in the
-        # paused shard workers, so we control when each step happens.
-        env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
-        wait_for_condition(
-            lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 1, {}),
-            'Timeout while waiting for coordinator threads to pause', timeout=30)
-        verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'PAUSE')
+            before_info = info_modules_to_dict(env)
+            base_warn_coord = int(
+                before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
 
-        coord_initial_stats = getCoordThpoolStats(env)
+            env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
+            coord_paused = True
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 1, {}),
+                'Timeout while waiting for coordinator threads to pause', timeout=30)
 
-        query_result = []
-        t_query = threading.Thread(
-            target=call_and_store,
-            args=(env.cmd,
-                  [debug_cmd(), 'FT.SEARCH', 'idx', '*', 'TIMEOUT', '60000',
-                   'TIMEOUT_AFTER_N', '0', 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', '3'],
-                  query_result),
-            daemon=True
-        )
-        t_query.start()
+            coord_initial_stats = getCoordThpoolStats(env)
 
-        # The client is blocked with the RETURN_STRICT partial-reply timeout
-        # callback (armed at block time), and the fanout job is parked.
-        blocked_client_id = wait_for_blocked_query_client(env, f'{debug_cmd()}|FT.SEARCH')
+            query_result = []
+            t_query = threading.Thread(
+                target=call_and_store,
+                args=(env.cmd, ['FT.SEARCH', 'idx', '*'], query_result),
+                daemon=True,
+            )
+            t_query.start()
+            blocked_client_id = wait_for_blocked_query_client(env, 'FT.SEARCH')
 
-        # Shards reject TIMEOUT_AFTER_N under RETURN_STRICT at parse time, and none
-        # has seen the query yet: flip the policy to 'return' so shards accept the
-        # simulated timeout and reply with empty results + a TIMEOUT warning.
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return').ok()
+            # The coordinator request has already captured RETURN-STRICT and 60 seconds.
+            # Internal shard commands have no explicit TIMEOUT, so they will capture these
+            # updated values when fanout reaches them.
+            verify_command_OK_on_all_shards(
+                env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
+            verify_command_OK_on_all_shards(
+                env, 'CONFIG', 'SET', 'search-timeout', '100')
 
-        # Release the fanout. Shards cannot reply while their workers are paused,
-        # so the reducer cannot be scheduled yet; re-pause the coord pool right
-        # after the fanout job completes to park the upcoming reducer.
-        env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
-        wait_for_condition(
-            lambda: (getCoordThpoolStats(env)['totalJobsDone'] == coord_initial_stats['totalJobsDone'] + 1,
-                     {'totalJobsDone': getCoordThpoolStats(env)['totalJobsDone']}),
-            'Timeout while waiting for coordinator to dispatch query'
-        )
-        env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
-        wait_for_condition(
-            lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 1, {}),
-            'Timeout while waiting for coordinator threads to pause', timeout=30)
+            env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
+            coord_paused = False
+            wait_for_condition(
+                lambda: (
+                    getCoordThpoolStats(env)['totalJobsDone']
+                    == coord_initial_stats['totalJobsDone'] + 1,
+                    {'totalJobsDone': getCoordThpoolStats(env)['totalJobsDone']},
+                ),
+                'Timeout while waiting for coordinator to dispatch query', timeout=30)
 
-        verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'RESUME')
+            shard_connections = env.getOSSMasterNodesConnectionList()
 
-        # All shard replies (each carrying a TIMEOUT warning) have arrived once the
-        # reducer job is queued into the paused coord pool.
-        wait_for_condition(
-            lambda: (getCoordThpoolStats(env)['totalPendingJobs'] == coord_initial_stats['totalPendingJobs'] + 1,
-                     {'totalPendingJobs': getCoordThpoolStats(env)['totalPendingJobs']}),
-            'Timeout while waiting for the reducer job to be queued', timeout=30)
+            def shard_timeout_checks_are_waiting():
+                waiting = [
+                    connection.execute_command(
+                        debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point)
+                    for connection in shard_connections
+                ]
+                return all(waiting), {'waiting': waiting}
 
-        # Coord blocked-client timeout: the partial callback claims reducing and
-        # replies with the shard warnings already collected.
-        env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
-        wait_for_client_unblocked(env, blocked_client_id)
+            wait_for_condition(
+                shard_timeout_checks_are_waiting,
+                f'Timeout waiting for shards at {sync_point}', timeout=30)
 
-        env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
-        wait_for_condition(
-            lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 0, {}),
-            'Timeout while waiting for coordinator threads to resume', timeout=30)
+            env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
+            coord_paused = True
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 1, {}),
+                'Timeout while waiting for coordinator threads to pause', timeout=30)
 
-        t_query.join(timeout=10)
-        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+            # Every shard deadline was already running when it reached BeforeFirstRead.
+            # Wait well beyond that deadline, then release the checkpoint so the normal
+            # timeout check immediately returns a warning.
+            time.sleep(1)
+            verify_command_OK_on_all_shards(
+                env, debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
 
-        # The user got one visible timeout warning (the shard-propagated one).
-        env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
-        env.assertEqual(query_result[0]['warning'], [TIMEOUT_WARNING])
+            def shard_timeouts_have_fired():
+                waiting = [
+                    connection.execute_command(
+                        debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point)
+                    for connection in shard_connections
+                ]
+                return not any(waiting), {'waiting': waiting}
 
-        # Exactly one aggregate coord warning for it, and one PIPELINE-stage record
-        # (fanned out, reducer never ran before the deadline). Each shard also
-        # counted its own simulated-timeout warning on the shard side.
-        after_info = info_modules_to_dict(env)
-        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
-                        str(base_warn_coord + 1),
-                        message="Shard-propagated timeout warning must be counted exactly once")
-        env.assertEqual(int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_PIPELINE_METRIC]),
-                        int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_PIPELINE_METRIC]) + 1,
-                        message="Post-fanout timeout should bump the PIPELINE stage")
-        # INFO is per-node: only this node's own internal command is visible here.
-        env.assertEqual(int(after_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC]),
-                        int(before_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC]) + 1,
-                        message="The coord node's own shard should count its simulated timeout warning")
-        _verify_metrics_not_changed(env, env, before_info,
-                                    [TIMEOUT_WARNING_COORD_METRIC, TIMEOUT_WARNING_SHARD_METRIC])
+            wait_for_condition(
+                shard_timeouts_have_fired,
+                'Timeout while waiting for shard timeouts', timeout=30)
 
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
+            # The shard timeout checks now return warnings and queue the reducer in the
+            # paused coordinator pool.
+            wait_for_condition(
+                lambda: (
+                    getCoordThpoolStats(env)['totalPendingJobs']
+                    == coord_initial_stats['totalPendingJobs'] + 1,
+                    {'totalPendingJobs': getCoordThpoolStats(env)['totalPendingJobs']},
+                ),
+                'Timeout while waiting for the reducer job to be queued', timeout=30)
+
+            env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+            wait_for_client_unblocked(env, blocked_client_id)
+
+            env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
+            coord_paused = False
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 0, {}),
+                'Timeout while waiting for coordinator threads to resume', timeout=30)
+
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+            env.assertEqual(len(query_result), 1,
+                            message="Expected 1 result from query thread")
+            env.assertEqual(query_result[0]['warning'], [TIMEOUT_WARNING])
+
+            after_info = info_modules_to_dict(env)
+            env.assertEqual(
+                after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                str(base_warn_coord + 1),
+                message="Shard-propagated timeout warning must be counted exactly once")
+            env.assertEqual(
+                int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_PIPELINE_METRIC]),
+                int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_PIPELINE_METRIC]) + 1,
+                message="Post-fanout timeout should bump the PIPELINE stage")
+            _verify_metrics_not_changed(
+                env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
+        finally:
+            run_command_on_all_shards(env, debug_cmd(), 'SYNC_POINT', 'CLEAR')
+            if coord_paused:
+                env.cmd(debug_cmd(), 'COORD_THREADS', 'RESUME')
+            if blocked_client_id is not None and t_query is not None and t_query.is_alive():
+                env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
+                t_query.join(timeout=10)
+            run_command_on_all_shards(
+                env, 'CONFIG', 'SET', 'search-timeout', prev_timeout)
+            run_command_on_all_shards(
+                env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
 
     def test_no_timeout(self):
         """

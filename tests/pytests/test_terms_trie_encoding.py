@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Copyright (c) 2006-Present, Redis Ltd.
 # All rights reserved.
 #

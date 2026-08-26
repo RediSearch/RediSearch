@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Copyright (c) 2006-Present, Redis Ltd.
 # All rights reserved.
 #
@@ -1621,6 +1620,7 @@ def test_highlight_multi_value_json_rejected(env):
 
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
                'SCHEMA', '$.tags[*]', 'AS', 'tags', 'TEXT',
+               '$.labels[*]', 'AS', 'labels', 'TAG',
                '$.name', 'AS', 'name', 'TEXT').ok()
 
     multi_value_error = "HIGHLIGHT/SUMMARIZE is not supported for JSON fields with multi-value JSONPath"
@@ -1638,6 +1638,15 @@ def test_highlight_multi_value_json_rejected(env):
 
         env.expect('FT.SEARCH', 'idx', 'hello', 'RETURN', '1', 'tags',
                    'SUMMARIZE', 'FIELDS', '1', 'tags', 'DIALECT', dialect).error()\
+            .contains(multi_value_error)
+
+        # Multi-value JSONPath is rejected even when the field is not TEXT.
+        env.expect('FT.SEARCH', 'idx', 'hello', 'RETURN', '1', 'labels',
+                   'HIGHLIGHT', 'FIELDS', '1', 'labels', 'DIALECT', dialect).error()\
+            .contains(multi_value_error)
+
+        env.expect('FT.SEARCH', 'idx', 'hello', 'RETURN', '1', 'labels',
+                   'SUMMARIZE', 'FIELDS', '1', 'labels', 'DIALECT', dialect).error()\
             .contains(multi_value_error)
 
         # HIGHLIGHT without FIELDS when any returned TEXT field has multi-value JSONPath
