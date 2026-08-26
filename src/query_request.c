@@ -216,37 +216,18 @@ void QueryRequest_SetReplyErrorSafe(QueryRequest *request, const QueryError *err
   QueryRequest_ReleaseReplyStateSafe(request);
 }
 
-static void QueryRequest_DestroyReplyResult(SearchResult *result) {
-  SearchResult_Destroy(result);
-  rm_free(result);
-}
-
-bool QueryRequest_AppendReplyResultSafe(QueryRequest *request, SearchResult *result) {
+void QueryRequest_AppendReplyResultSafe(QueryRequest *request, SearchResult *result) {
   // Incremental publication is valid only for a strict cross-thread reply cycle.
   RS_ASSERT(QueryRequest_RequiresReplyStateSafeAccess(request));
 
-  // The atomic check avoids taking the reply lock for a result already rejected by timeout.
-  if (QueryRequestTimeout_IsBlockedClientTimedOut(&request->timeout)) {
-    QueryRequest_DestroyReplyResult(result);
-    return false;
-  }
-
-  // A timeout can race the fast-path check, so acceptance is decided again under the lock.
+  // A row already produced by the pipeline must precede the later main-thread drain.
   ChunkReplyState *stored = QueryRequest_GetReplyStateSafe(request);
-  if (QueryRequestTimeout_IsBlockedClientTimedOut(&request->timeout)) {
-    // No shared state is needed after rejection, so release before destroying the result.
-    QueryRequest_ReleaseReplyStateSafe(request);
-    QueryRequest_DestroyReplyResult(result);
-    return false;
-  }
-
   if (!stored->results) {
     stored->results = array_new(SearchResult *, 8);
   }
   array_append(stored->results, result);
   // The pointer, array header, resize, and new element are now published atomically.
   QueryRequest_ReleaseReplyStateSafe(request);
-  return true;
 }
 
 ChunkReplyState QueryRequest_TakeReplyStateSafe(QueryRequest *request) {

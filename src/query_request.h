@@ -409,11 +409,8 @@ void QueryRequest_SetReplyResultsSafe(QueryRequest *request, SearchResult **resu
 /** Replaces the stored error under the policy-dependent synchronization. */
 void QueryRequest_SetReplyErrorSafe(QueryRequest *request, const QueryError *err);
 
-/**
- * Consumes `result`. Appends it to the shared array under the reply-state lock,
- * or destroys it when the strict timeout marker has been published.
- */
-bool QueryRequest_AppendReplyResultSafe(QueryRequest *request, SearchResult *result);
+/** Consumes `result` by appending it to the shared array under the reply-state lock. */
+void QueryRequest_AppendReplyResultSafe(QueryRequest *request, SearchResult *result);
 
 /**
  * Transfers the complete reply state to the caller and resets the shared state

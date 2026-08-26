@@ -1290,7 +1290,7 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
   RS_ASSERT(request != NULL);
   HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
-  // The reply lock makes the timeout marker a complete boundary for strict result appends.
+  // Order the marker with reply publication; an in-flight row is still appended before draining.
   pthread_mutex_lock(&hreq->base.reply.lock);
   QueryRequestTimeout_MarkTimedOut(&hreq->base.timeout);
   pthread_mutex_unlock(&hreq->base.reply.lock);

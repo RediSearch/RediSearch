@@ -97,8 +97,11 @@ void Pipeline_DrainStoredResultsAfterTimeout(QueryProcessingCtx *qctx, ChunkRepl
  * waited for the BG worker to exit the pipeline (e.g. via
  * AREQ_WaitForAggregateResultsComplete).
  *
- * Transitional: this wait remains only because the following drain is not
- * thread-safe yet. Remove the wait when concurrent draining becomes safe.
+ * Transitional: the BG-completion wait is the ownership barrier for this
+ * drain. It guarantees that a result whose fetch started before timeout is
+ * appended before the main thread drains the remaining pipeline suffix. Do
+ * not remove the wait until a replacement handoff makes draining thread-safe
+ * and preserves that boundary result's ordering.
  *
  * The pager's internal `remaining` and `qctx->resultLimit` reflect the
  * post-abort budget, so this loop naturally respects the user's LIMIT and

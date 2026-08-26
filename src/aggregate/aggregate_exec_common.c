@@ -93,18 +93,24 @@ static SearchResult **AggregateResults(ResultProcessor *rp, QueryRequest *reques
   const bool sharedReply = QueryRequest_RequiresReplyStateSafeAccess(request);
   SearchResult **results = sharedReply ? NULL : array_new(SearchResult *, 8);
   SearchResult r = SearchResult_New();
-  while (rp->parent->resultLimit && (*rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
+  while (rp->parent->resultLimit) {
+    // A published timeout stops the next fetch, but never discards a row already being produced.
+    if (sharedReply && QueryRequestTimeout_IsBlockedClientTimedOut(&request->timeout)) {
+      *rc = RS_RESULT_TIMEDOUT;
+      break;
+    }
+    if ((*rc = rp->Next(rp, &r)) != RS_RESULT_OK) {
+      break;
+    }
+
     // Decrement the result limit, now that we got a valid result.
     rp->parent->resultLimit--;
 
     SearchResult *result = SearchResult_AllocateMove(&r);
     r = SearchResult_New();
     if (sharedReply) {
-      // Strict reply flows publish each row directly for the timeout callback.
-      if (!QueryRequest_AppendReplyResultSafe(request, result)) {
-        *rc = RS_RESULT_TIMEDOUT;
-        break;
-      }
+      // Preserve this produced row as the prefix of any later timeout drain.
+      QueryRequest_AppendReplyResultSafe(request, result);
     } else {
       // This result array is owned exclusively by the current thread.
       array_append(results, result);
@@ -241,8 +247,7 @@ static SearchResult **AggregateResults(ResultProcessor *rp, QueryRequest *reques
  }
 
 void AREQ_DrainStoredResultsAfterTimeout(AREQ *req) {
-  // Transitional: the BG-completion wait can be removed once this drain is thread-safe.
-  // Strict-mode draining mutates the same array the background producer published.
+  // The transitional completion barrier documented on this interface makes the drain exclusive.
   ChunkReplyState *stored = QueryRequest_GetReplyStateSafe(&req->base);
   Pipeline_DrainStoredResultsAfterTimeout(AREQ_QueryProcessingCtx(req), stored);
   // The main-thread drain is complete, so no shared array mutation remains.

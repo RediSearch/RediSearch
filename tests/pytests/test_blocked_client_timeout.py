@@ -2926,8 +2926,8 @@ class TestCoordinatorTimeout:
         and drains the queued items (PopWithTimeout returns queued items
         regardless of the abort flag), then completes the pipeline naturally
         because MRIterator_GetPending is already 0. The row being produced when
-        the timeout marker is published crosses the strict cutoff and is
-        discarded; draining preserves every row still queued in the channel.
+        the timeout marker is published is kept ahead of the drained suffix, so
+        the complete ordered batch is present in the reply.
         """
         env = self.env
         skipIfNoEnableAssert(env)
@@ -2977,12 +2977,11 @@ class TestCoordinatorTimeout:
 
         env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
         result = query_result[0]
-        expected_rows = self.n_docs - 1
-        env.assertEqual(result['total_results'], expected_rows,
-                        message=f"Expected {expected_rows} docs after channel drain, "
+        env.assertEqual(result['total_results'], self.n_docs,
+                        message=f"Expected {self.n_docs} docs after channel drain, "
                                 f"got {result['total_results']}")
-        env.assertEqual(len(result.get('results', [])), expected_rows,
-                        message=f"Expected {expected_rows} drained rows in reply, "
+        env.assertEqual(len(result.get('results', [])), self.n_docs,
+                        message=f"Expected {self.n_docs} drained rows in reply, "
                                 f"got {len(result.get('results', []))}")
 
         env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
@@ -7670,12 +7669,13 @@ class TestShardTimeout:
             env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
 
-    def test_return_strict_timeout_before_loaded_rows_are_published(self):
-        """A timeout rejects rows not yet published to the shared reply array.
+    def test_return_strict_timeout_during_load_keeps_produced_row(self):
+        """A row already being produced is published before the timeout drain.
 
         The worker loads rows under the Redis lock, then parks before returning
-        from the safe loader. Publishing the timeout marker at that point makes
-        it the strict cutoff, so those loaded-but-unpublished rows are excluded.
+        from the safe loader. Publishing the timeout marker at that point stops
+        the next fetch without dropping the row currently moving through the
+        pipeline.
         """
         env = self.env
         skipIfNoEnableAssert(env)
@@ -7703,7 +7703,7 @@ class TestShardTimeout:
                     lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
                     f'worker never reached {sync_point}'
                 )
-                # Publish the strict cutoff before the loaded rows can be appended.
+                # Publish the timeout while one loaded row is still in flight.
                 env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
                 wait_for_client_unblocked(env, blocked_client_id)
             finally:
@@ -7711,11 +7711,11 @@ class TestShardTimeout:
                 env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
 
             t_query.join(timeout=10)
-            env.assertFalse(t_query.is_alive(), message="Aggregate thread hung after preempt")
+            env.assertFalse(t_query.is_alive(), message="Aggregate thread hung after timeout")
             env.assertEqual(len(result), 1, message="Expected one aggregate result")
             reply = result[0]
-            env.assertEqual(len(reply.get('results', [])), 0,
-                            message="Unpublished rows must not cross the timeout cutoff")
+            env.assertGreater(len(reply.get('results', [])), 0,
+                              message="The produced row must precede the timeout drain")
         finally:
             env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
