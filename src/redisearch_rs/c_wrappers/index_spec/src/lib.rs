@@ -10,7 +10,7 @@
 //! Safe wrapper around [`ffi::IndexSpec`].
 
 use std::{
-    ffi::c_char,
+    ffi::{CStr, c_char},
     ops::Deref,
     ptr,
     ptr::NonNull,
@@ -21,6 +21,7 @@ use std::{
 use c_trie::{SuffixTrie, TermsTrie};
 use dict::{Dict, KeysDictType, MissingFieldDictType};
 use field_spec::FieldSpec;
+use hidden_string::HiddenString;
 use inverted_index::opaque::InvertedIndex;
 use schema_rule::SchemaRule;
 
@@ -72,6 +73,19 @@ impl IndexSpec {
         unsafe { slice::from_raw_parts(data, len) }
     }
 
+    /// Return the original or obfuscated index name.
+    pub fn display_name(&self, obfuscate: bool) -> &CStr {
+        if obfuscate {
+            // SAFETY: every initialized spec owns a NUL-terminated `obfuscatedName`
+            // that remains immutable for its full lifetime.
+            unsafe { CStr::from_ptr(self.0.obfuscatedName) }
+        } else {
+            // SAFETY: every initialized spec owns an initialized `specName`
+            // whose backing buffer remains immutable for its full lifetime.
+            unsafe { HiddenString::from_raw(self.0.specName) }.secret_value()
+        }
+    }
+
     /// Acquire the write lock for this `IndexSpec`. This is required before performing any
     /// modifications to the index spec, such as applying deltas from compaction.
     pub fn write(&mut self) -> IndexSpecWriteGuard<'_> {
@@ -115,14 +129,6 @@ impl<'lock> IndexSpecWriteGuard<'lock> {
         }
     }
 
-    /// Decrements the num terms counter by the given amount.
-    pub fn decrement_num_terms(&mut self, decr: u64) {
-        // SAFETY: We hold the write lock (enforced by Self::new).
-        unsafe {
-            ffi::IndexSpec_DecrementNumTerms(self.0, decr);
-        }
-    }
-
     /// Creates a guard from an already-locked IndexSpec without acquiring the lock.
     ///
     /// Returns `ManuallyDrop<IndexSpecWriteGuard>` to prevent the guard from releasing
@@ -135,14 +141,6 @@ impl<'lock> IndexSpecWriteGuard<'lock> {
     /// - In test contexts, no lock is actually held (tests don't use real locks)
     /// - Test code is responsible for ensuring exclusive access
     ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// // In test code where no real lock is needed:
-    /// let mut guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut *spec_ptr) };
-    /// // guard is ManuallyDrop, won't release lock on drop
-    /// guard.decrement_num_terms(5);
-    /// ```
     pub const unsafe fn from_locked_mut(
         index_spec: &'lock mut ffi::IndexSpec,
     ) -> std::mem::ManuallyDrop<Self> {
@@ -289,10 +287,24 @@ impl<'lock> IndexSpecWriteGuard<'lock> {
         entries_removed: usize,
         bytes_freed: usize,
         bytes_allocated: usize,
+        terms_size_removed: usize,
+        terms_removed: usize,
     ) {
         self.0.stats.numRecords -= entries_removed;
         self.0.stats.invertedSize += bytes_allocated;
         self.0.stats.invertedSize -= bytes_freed;
+        self.0.stats.termsSize -= terms_size_removed;
+        self.0.stats.scoring.numTerms -= terms_removed;
+    }
+}
+
+impl Deref for IndexSpecWriteGuard<'_> {
+    type Target = IndexSpec;
+
+    fn deref(&self) -> &IndexSpec {
+        // SAFETY: `IndexSpec` is transparent over `ffi::IndexSpec`, and the guard's
+        // borrow keeps the spec valid for the returned shared borrow.
+        unsafe { IndexSpec::from_raw(self.0) }
     }
 }
 
