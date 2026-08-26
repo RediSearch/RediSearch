@@ -1385,6 +1385,42 @@ def test_hybrid_query_scorer_slop():
                               message=[scorer, hybrid])
 
 
+@skip(cluster=True)
+def test_hybrid_query_scorer_slop_ranking():
+    """The ranking a filtered KNN query replies with: a boosted document whose
+    matched terms are far apart outranks a tighter, unboosted one, because under
+    a KNN the distance between the terms is not charged against it. The same
+    prefilter on its own ranks the two the other way round."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCORE_FIELD', 'boost', 'SCHEMA', 't', 'TEXT',
+               'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2',
+               'DISTANCE_METRIC', 'L2').ok()
+    conn.execute_command('HSET', 'tight', 'boost', 1, 't', 'hello world',
+                         'v', np.float32([1, 1]).tobytes())
+    conn.execute_command('HSET', 'boosted', 'boost', 2, 't', 'hello big wide world',
+                         'v', np.float32([2, 2]).tobytes())
+
+    query_vec = np.float32([0, 0]).tobytes()
+
+    # No SORTBY, so both replies are ordered by relevance score. TFIDF is one of
+    # the scorers that divides by the slop; the default one does not.
+    env.expect('FT.SEARCH', 'idx', '@t:(hello world)', 'SCORER', 'TFIDF',
+               'NOCONTENT').equal([2, 'tight', 'boosted'])
+    env.expect('FT.SEARCH', 'idx', '(@t:(hello world))=>[KNN 2 @v $vec_param]',
+               'SCORER', 'TFIDF', 'NOCONTENT',
+               'PARAMS', 2, 'vec_param', query_vec).equal([2, 'boosted', 'tight'])
+    env.expect('FT.SEARCH', 'idx', '(@t:(hello world))=>[KNN 2 @v $vec_param]',
+               'SCORER', 'TFIDF', 'NOCONTENT', 'LIMIT', 0, 1,
+               'PARAMS', 2, 'vec_param', query_vec).equal([2, 'boosted'])
+    # `k` selects candidates by vector distance before any scoring, so the
+    # nearest vector is the answer whatever the relevance ranking says.
+    env.expect('FT.SEARCH', 'idx', '(@t:(hello world))=>[KNN 1 @v $vec_param]',
+               'SCORER', 'TFIDF', 'NOCONTENT',
+               'PARAMS', 2, 'vec_param', query_vec).equal([1, 'tight'])
+
+
 @skip(cluster=False)
 def test_single_entry():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
