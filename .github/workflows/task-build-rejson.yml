@@ -100,7 +100,7 @@ env:
 jobs:
   build-rejson-ghcr:
     if: ${{ inputs.container != '' && inputs.image-built == 'true' && inputs.image-is-mirror != 'true' }}
-    name: RedisJSON / ghcr
+    name: RedisJSON ghcr
     outputs:
       artifact-name: ${{ inputs.artifact-name }}
     runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
@@ -220,7 +220,7 @@ jobs:
 
   build-rejson-mirror:
     if: ${{ inputs.container != '' && inputs.image-built == 'true' && inputs.image-is-mirror == 'true' }}
-    name: RedisJSON / mirror
+    name: RedisJSON mirror
     outputs:
       artifact-name: ${{ inputs.artifact-name }}
     runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
@@ -238,7 +238,7 @@ jobs:
 
   build-rejson-raw:
     if: ${{ inputs.container != '' && inputs.image-built != 'true' }}
-    name: RedisJSON / raw
+    name: RedisJSON raw
     outputs:
       artifact-name: ${{ inputs.artifact-name }}
     runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
@@ -251,7 +251,7 @@ jobs:
 
   build-rejson-host:
     if: ${{ inputs.container == '' }}
-    name: RedisJSON / host
+    name: RedisJSON host
     outputs:
       artifact-name: ${{ inputs.artifact-name }}
     runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}

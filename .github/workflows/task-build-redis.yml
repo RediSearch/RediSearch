@@ -96,7 +96,7 @@ env:
 jobs:
   build-redis-ghcr:
     if: ${{ inputs.container != '' && inputs.image-built == 'true' && inputs.image-is-mirror != 'true' }}
-    name: Redis / ghcr
+    name: Redis ghcr
     outputs:
       artifact-name: ${{ inputs.artifact-name }}
     runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
@@ -189,7 +189,7 @@ jobs:
 
   build-redis-mirror:
     if: ${{ inputs.container != '' && inputs.image-built == 'true' && inputs.image-is-mirror == 'true' }}
-    name: Redis / mirror
+    name: Redis mirror
     outputs:
       artifact-name: ${{ inputs.artifact-name }}
     runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
@@ -207,7 +207,7 @@ jobs:
 
   build-redis-raw:
     if: ${{ inputs.container != '' && inputs.image-built != 'true' }}
-    name: Redis / raw
+    name: Redis raw
     outputs:
       artifact-name: ${{ inputs.artifact-name }}
     runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
@@ -220,7 +220,7 @@ jobs:
 
   build-redis-host:
     if: ${{ inputs.container == '' }}
-    name: Redis / host
+    name: Redis host
     outputs:
       artifact-name: ${{ inputs.artifact-name }}
     runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}

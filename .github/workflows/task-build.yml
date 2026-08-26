@@ -105,7 +105,7 @@ env:
 jobs:
   common-flow-ghcr:
     if: ${{ inputs.container != '' && inputs.image-built == 'true' && inputs.image-is-mirror != 'true' }}
-    name: Build / ghcr
+    name: Build ghcr
     outputs:
       artifact-name: ${{ inputs.artifact-name }}
     runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
@@ -309,7 +309,7 @@ jobs:
 
   common-flow-mirror:
     if: ${{ inputs.container != '' && inputs.image-built == 'true' && inputs.image-is-mirror == 'true' }}
-    name: Build / mirror
+    name: Build mirror
     outputs:
       artifact-name: ${{ inputs.artifact-name }}
     runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
@@ -328,7 +328,7 @@ jobs:
 
   common-flow-raw:
     if: ${{ inputs.container != '' && inputs.image-built != 'true' }}
-    name: Build / raw
+    name: Build raw
     outputs:
       artifact-name: ${{ inputs.artifact-name }}
     runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
@@ -342,7 +342,7 @@ jobs:
 
   common-flow-host:
     if: ${{ inputs.container == '' }}
-    name: Build / host
+    name: Build host
     outputs:
       artifact-name: ${{ inputs.artifact-name }}
     runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}

@@ -76,7 +76,7 @@ jobs:
       san: ${{ inputs.job-type == 'sanitize' && 'address' || 'none' }}
 
   build:
-    name: Build / ${{ inputs.job-type }} / ${{ inputs.platform }} (${{ inputs.architecture }})
+    name: Build ${{ inputs.job-type }} ${{ inputs.platform }} (${{ inputs.architecture }})
     needs: [get-config, build-image]
     # build-image is skipped for non-container platforms; without this guard a
     # skipped need would skip this job (and the whole pipeline) instead of
@@ -115,7 +115,7 @@ jobs:
   # independent of the module build, so they run concurrently with it rather than
   # inside it; both are cache-restored on the common path.
   build-redis:
-    name: Redis / ${{ inputs.job-type }} / ${{ inputs.platform }} (${{ inputs.architecture }})
+    name: Redis ${{ inputs.job-type }} ${{ inputs.platform }} (${{ inputs.architecture }})
     needs: [get-config, build-image]
     # Same build-image guard as `build` above.
     if: ${{ !cancelled() && needs.get-config.result == 'success' && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') }}
@@ -141,7 +141,7 @@ jobs:
       image-built: ${{ needs.build-image.outputs.succeeded }}
 
   build-rejson:
-    name: RedisJSON / ${{ inputs.job-type }} / ${{ inputs.platform }} (${{ inputs.architecture }})
+    name: RedisJSON ${{ inputs.job-type }} ${{ inputs.platform }} (${{ inputs.architecture }})
     needs: [get-config, build-image]
     # Same build-image guard as `build` above.
     if: ${{ !cancelled() && needs.get-config.result == 'success' && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') }}
@@ -168,7 +168,7 @@ jobs:
       image-built: ${{ needs.build-image.outputs.succeeded }}
 
   test-unit:
-    name: Unit / ${{ inputs.job-type }} / ${{ inputs.platform }} (${{ inputs.architecture }})
+    name: Unit ${{ inputs.job-type }} ${{ inputs.platform }} (${{ inputs.architecture }})
     needs: [get-config, build-image, build]
     if: ${{ !cancelled() && needs.build.result == 'success' && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') }}
     permissions:
@@ -202,7 +202,7 @@ jobs:
       image-built: ${{ needs.build-image.outputs.succeeded }}
 
   test-flow-standalone:
-    name: Standalone / ${{ inputs.job-type }} / ${{ inputs.platform }} (${{ inputs.architecture }})
+    name: Standalone ${{ inputs.job-type }} ${{ inputs.platform }} (${{ inputs.architecture }})
     needs: [get-config, build-image, build, build-redis, build-rejson]
     if: ${{ !cancelled() && needs.build.result == 'success' && needs.build-redis.result == 'success' && needs.build-rejson.result == 'success' && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') }}
     permissions:
@@ -241,7 +241,7 @@ jobs:
       image-built: ${{ needs.build-image.outputs.succeeded }}
 
   test-flow-coordinator:
-    name: Coordinator / ${{ inputs.job-type }} / ${{ inputs.platform }} (${{ inputs.architecture }}) (${{ matrix.shard }}/${{ strategy.job-total }})
+    name: Coordinator ${{ inputs.job-type }} ${{ inputs.platform }} (${{ inputs.architecture }}) (${{ matrix.shard }}/${{ strategy.job-total }})
     needs: [get-config, build-image, build, build-redis, build-rejson]
     if: ${{ !cancelled() && needs.build.result == 'success' && needs.build-redis.result == 'success' && needs.build-rejson.result == 'success' && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') }}
     # Coordinator tests are the slowest flow suite (cluster setup, inter-shard

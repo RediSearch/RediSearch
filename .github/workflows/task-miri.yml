@@ -75,7 +75,7 @@ jobs:
 
   common-flow-ghcr:
     needs: [get-config, build-image]
-    name: MIRI / ghcr
+    name: MIRI ghcr
     if: |
       !cancelled() &&
       needs.get-config.result == 'success' &&
@@ -215,7 +215,7 @@ jobs:
 
   common-flow-mirror:
     needs: [get-config, build-image]
-    name: MIRI / mirror
+    name: MIRI mirror
     if: |
       !cancelled() &&
       needs.get-config.result == 'success' &&
@@ -238,7 +238,7 @@ jobs:
 
   common-flow-raw:
     needs: [get-config, build-image]
-    name: MIRI / raw
+    name: MIRI raw
     if: |
       !cancelled() &&
       needs.get-config.result == 'success' &&
@@ -255,7 +255,7 @@ jobs:
 
   common-flow-host:
     needs: [get-config, build-image]
-    name: MIRI / host
+    name: MIRI host
     if: |
       !cancelled() &&
       needs.get-config.result == 'success' &&

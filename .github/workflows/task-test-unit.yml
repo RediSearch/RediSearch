@@ -94,7 +94,7 @@ env:
 jobs:
   common-flow-ghcr:
     if: ${{ inputs.container != '' && inputs.image-built == 'true' && inputs.image-is-mirror != 'true' }}
-    name: Unit / ghcr
+    name: Unit ghcr
     runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
     # Runner-local env is unavailable while GitHub creates the job container.
     # Use the resolved runner label as the pre-container signal for GitHub-hosted
@@ -346,7 +346,7 @@ jobs:
 
   common-flow-mirror:
     if: ${{ inputs.container != '' && inputs.image-built == 'true' && inputs.image-is-mirror == 'true' }}
-    name: Unit / mirror
+    name: Unit mirror
     runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
     container:
       image: ${{ inputs.image }}
@@ -363,7 +363,7 @@ jobs:
 
   common-flow-raw:
     if: ${{ inputs.container != '' && inputs.image-built != 'true' }}
-    name: Unit / raw
+    name: Unit raw
     runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
     container:
       image: ${{ inputs.container }}
@@ -375,7 +375,7 @@ jobs:
 
   common-flow-host:
     if: ${{ inputs.container == '' }}
-    name: Unit / host
+    name: Unit host
     runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
     permissions: *common_flow_permissions
     env: *common_flow_env
