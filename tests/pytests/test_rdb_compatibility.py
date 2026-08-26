@@ -15,6 +15,22 @@ RDBS = [
     'redisearch_2.0.9.rdb'
 ]
 
+# Module types used only by pre-2.0 indexes. Their loaders consume and discard the old
+# payload, so a key of one of these types must never outlive the upgrade sweep.
+LEGACY_MODULE_TYPES = ['ft_invidx', 'numericdx', 'ft_tagidx', 'ft_index0']
+
+
+def countKeysOfType(env, keyType):
+    total = 0
+    cursor = 0
+    while True:
+        cursor, keys = env.cmd('SCAN', cursor, 'TYPE', keyType, 'COUNT', 1000)
+        total += len(keys)
+        cursor = int(cursor)
+        if cursor == 0:
+            return total
+
+
 @skip(cluster=True)
 def testRDBCompatibility(env):
     # temp skip for out-of-index
@@ -50,6 +66,23 @@ def testRDBCompatibility(env):
             res = env.cmd('FT.SYNDUMP idx')
             res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
             env.assertEqual(res, {'term2': ['0'], 'term1': ['0']})
+
+        # The upgrade sweep must not leave legacy module-type keys behind. Such a key
+        # cannot be recreated by any command and, before legacy rdb_save callbacks
+        # existed, it silently made every subsequent RDB unloadable. MOD-15685.
+        for keyType in LEGACY_MODULE_TYPES:
+            env.assertEqual(countKeysOfType(env, keyType), 0,
+                            message=f'{fileName}: leftover {keyType} keys')
+
+        # Loading a legacy RDB was already covered above; saving one back out was not.
+        # Drop the symlink first so SAVE writes a real file instead of overwriting the
+        # shared fixture in the cache directory.
+        os.unlink(rdbFilePath)
+        env.dumpAndReload()
+        waitForIndex(env, 'idx')
+        env.expect('FT.SEARCH idx * LIMIT 0 0').equal([1000])
+        env.expect('DBSIZE').equal(1000)
+
         env.cmd('flushall')
         env.assertTrue(env.checkExitCode(), message=fileName)
 
