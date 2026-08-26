@@ -105,7 +105,6 @@ jobs:
         done
         [ $SUCCESS -eq 1 ] || exit 1
     steps: &build_steps
-      # Setup
       - name: Install bash
         if: startsWith(needs.get-config.outputs.container, 'alpine:')
         shell: sh -l -eo pipefail {0}
