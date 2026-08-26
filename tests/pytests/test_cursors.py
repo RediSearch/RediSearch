@@ -168,7 +168,8 @@ def testNumericCursor(env):
 # 1. Coordinator's cursor times out before the shard's cursor
 # 2. Some shard's cursor times out before the coordinator's cursor
 # 3. All shards' cursors time out before the coordinator's cursor
-@skip(cluster=False)
+# Known flaky test (MOD-14802). See https://github.com/RediSearch/RediSearch/actions/runs/24124979061
+@skip()
 def testCursorOnCoordinator(env: Env):
     env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
     conn = getConnectionByEnv(env)
