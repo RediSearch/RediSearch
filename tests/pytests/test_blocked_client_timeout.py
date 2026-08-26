@@ -6228,6 +6228,34 @@ class TestReturnStrictWorkerTransitions:
             self.env.expect(debug_cmd(), 'WORKERS', 'resume').ok()
             self.env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
 
+    def test_cursor_restores_timeout_after_workers_restart(self):
+        """A foreground cap must not replace the timeout cached for later worker reads."""
+        skipTest(cluster=True)
+        self._set_workers(1)
+        cursor_id = self._create_cursor()
+        self.env.expect(
+            'CONFIG', 'SET', 'search-_max-foreground-timeout-limit', '1000'
+        ).ok()
+
+        try:
+            self._set_workers(0)
+            _, cursor_id = self.env.cmd(
+                'FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', '2'
+            )
+            self.env.assertNotEqual(cursor_id, 0)
+
+            self._set_workers(1)
+            res, next_cursor_id = self.env.cmd(
+                'FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', '2'
+            )
+            self.env.assertGreater(len(res.get('results', [])), 0, message=res)
+            if next_cursor_id:
+                self.env.expect('FT.CURSOR', 'DEL', 'idx', next_cursor_id).ok()
+        finally:
+            self.env.expect(
+                'CONFIG', 'SET', 'search-_max-foreground-timeout-limit', '0'
+            ).ok()
+
 
 class TestShardTimeout:
     """Tests for the blocked client timeout mechanism for shards."""
