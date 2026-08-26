@@ -1047,8 +1047,8 @@ fn bench_rust_vs_c_batches(c: &mut Criterion);
 
 ## References
 
-- [iterator_api.h](../../src/iterators/iterator_api.h) - C iterator API
-- [lib.rs](../../src/redisearch_rs/rqe_iterators/src/lib.rs) - Rust `RQEIterator` trait
-- [metric.rs](../../src/redisearch_rs/rqe_iterators/src/metric.rs) - Example of unsorted iterator
-- [hybrid_reader.c](../../src/iterators/hybrid_reader.c) - Current C hybrid implementation
-- [optimizer_reader.c](../../src/iterators/optimizer_reader.c) - Current C optimizer implementation
+- [iterator_api.h](https://github.com/RediSearch/RediSearch/blob/2449dca770477161a8eab850cedad82a44db7326/src/iterators/iterator_api.h) - C iterator API
+- [lib.rs](https://github.com/RediSearch/RediSearch/blob/2449dca770477161a8eab850cedad82a44db7326/src/redisearch_rs/rqe_iterators/src/lib.rs) - Rust `RQEIterator` trait
+- [metric.rs](https://github.com/RediSearch/RediSearch/blob/2449dca770477161a8eab850cedad82a44db7326/src/redisearch_rs/rqe_iterators/src/metric.rs) - Example of unsorted iterator
+- [hybrid_reader.c](https://github.com/RediSearch/RediSearch/blob/2449dca770477161a8eab850cedad82a44db7326/src/iterators/hybrid_reader.c) - Current C hybrid implementation
+- [optimizer_reader.c](https://github.com/RediSearch/RediSearch/blob/2449dca770477161a8eab850cedad82a44db7326/src/iterators/optimizer_reader.c) - Current C optimizer implementation
