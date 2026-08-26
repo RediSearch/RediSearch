@@ -13,11 +13,12 @@
 use std::ffi::c_char;
 
 use tag_index_ffi::{
-    Rust_TagIndex_IterateSuffix, Rust_TagIndex_IterateValues, Rust_TagIndex_ValueIterator_Free,
+    Rust_TagIndex_IterateSuffix, Rust_TagIndex_IterateValues,
+    Rust_TagIndex_IterateValuesWithFilter, Rust_TagIndex_ValueIterator_Free,
     Rust_TagIndex_ValueIterator_Next, Rust_TagIndex_ValueIterator_NextKey,
     Rust_TagIndexValue_NumDocs, Rust_TagIndexValue_UniqueId, TagIndexValue, ValueIterator,
 };
-use triemap_ffi::tm_len_t;
+use triemap_ffi::{tm_iter_mode, tm_len_t};
 
 use crate::handle::{index_and_commit, new_in_memory};
 
@@ -200,6 +201,33 @@ fn iterate_suffix_walks_every_suffix() {
     .map(|s| s.to_vec())
     .collect();
     assert_eq!(keys, expected);
+
+    free(idx);
+}
+
+/// A tag-node parameter is copied binary-safe by `QueryParam_Resolve`, so a
+/// filter pattern can carry an interior NUL even though no indexed tag ever
+/// does. The walk has to come back empty — and non-NULL, which `query.c`
+/// asserts on.
+#[test]
+fn filtering_on_a_nul_bearing_pattern_walks_nothing() {
+    let idx = new_in_memory(false);
+    index_and_commit(idx, &["ab", "abc"], 1);
+
+    let pattern = b"a\0b";
+    // SAFETY: `idx` is live, and `pattern` outlives the iterator.
+    let iter = unsafe {
+        Rust_TagIndex_IterateValuesWithFilter(
+            idx,
+            pattern.as_ptr().cast::<c_char>(),
+            pattern.len() as tm_len_t,
+            tm_iter_mode::TM_PREFIX_MODE,
+        )
+    };
+    assert!(!iter.is_null(), "the C caller asserts a non-NULL iterator");
+
+    // SAFETY: `iter` is live and freed by `drain`.
+    assert!(unsafe { drain(iter) }.is_empty());
 
     free(idx);
 }
