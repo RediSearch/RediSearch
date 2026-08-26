@@ -132,7 +132,7 @@ env:
 jobs:
   common-flow-ghcr:
     if: ${{ inputs.container != '' && inputs.image-built == 'true' && inputs.image-is-mirror != 'true' }}
-    name: ${{ inputs.test-mode == 'standalone' && 'Standalone' || 'Coordinator' }} flow tests${{ inputs.shard-total > 1 && format(' [{0}/{1}]', inputs.shard-index, inputs.shard-total) || '' }} on ${{ inputs.name }}, Redis ${{ inputs.redis-ref }}
+    name: Flow / ghcr
     runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
     # Runner-local env is unavailable while GitHub creates the job container.
     # Use the resolved runner label as the pre-container signal for GitHub-hosted
@@ -589,7 +589,7 @@ jobs:
 
   common-flow-mirror:
     if: ${{ inputs.container != '' && inputs.image-built == 'true' && inputs.image-is-mirror == 'true' }}
-    name: ${{ inputs.test-mode == 'standalone' && 'Standalone' || 'Coordinator' }} flow tests${{ inputs.shard-total > 1 && format(' [{0}/{1}]', inputs.shard-index, inputs.shard-total) || '' }} on ${{ inputs.name }}, Redis ${{ inputs.redis-ref }}
+    name: Flow / mirror
     runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
     container:
       image: ${{ inputs.image }}
@@ -606,7 +606,7 @@ jobs:
 
   common-flow-raw:
     if: ${{ inputs.container != '' && inputs.image-built != 'true' }}
-    name: ${{ inputs.test-mode == 'standalone' && 'Standalone' || 'Coordinator' }} flow tests${{ inputs.shard-total > 1 && format(' [{0}/{1}]', inputs.shard-index, inputs.shard-total) || '' }} on ${{ inputs.name }}, Redis ${{ inputs.redis-ref }}
+    name: Flow / raw
     runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
     container:
       image: ${{ inputs.container }}
@@ -618,7 +618,7 @@ jobs:
 
   common-flow-host:
     if: ${{ inputs.container == '' }}
-    name: ${{ inputs.test-mode == 'standalone' && 'Standalone' || 'Coordinator' }} flow tests${{ inputs.shard-total > 1 && format(' [{0}/{1}]', inputs.shard-index, inputs.shard-total) || '' }} on ${{ inputs.name }}, Redis ${{ inputs.redis-ref }}
+    name: Flow / host
     runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
     permissions: *common_flow_permissions
     env: *common_flow_env

@@ -59,7 +59,7 @@ jobs:
       checkout-ref: ${{ inputs.sha || inputs.ref || github.sha }}
 
   build-ghcr:
-    name: Build ${{ needs.get-config.outputs.name }}
+    name: Build artifacts / ghcr
     needs: [get-config, build-image]
     if: |
       !cancelled() &&
@@ -227,7 +227,7 @@ jobs:
         run: make upload-artifacts
 
   build-mirror:
-    name: Build ${{ needs.get-config.outputs.name }}
+    name: Build artifacts / mirror
     needs: [get-config, build-image]
     if: |
       !cancelled() &&
@@ -250,7 +250,7 @@ jobs:
     steps: *build_steps
 
   build-raw:
-    name: Build ${{ needs.get-config.outputs.name }}
+    name: Build artifacts / raw
     needs: [get-config, build-image]
     if: |
       !cancelled() &&
@@ -267,7 +267,7 @@ jobs:
     steps: *build_steps
 
   build-host:
-    name: Build ${{ needs.get-config.outputs.name }}
+    name: Build artifacts / host
     needs: [get-config, build-image]
     if: |
       !cancelled() &&

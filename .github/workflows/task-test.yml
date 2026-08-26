@@ -128,7 +128,7 @@ jobs:
 
   common-flow-ghcr:
     needs: [get-config, build-image, start-runner]
-    name: Test ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.redis-ref }}
+    name: Test / ghcr
     # Run if get-config succeeded and at least one test type is enabled
     if: |
       !cancelled() &&
@@ -641,7 +641,7 @@ jobs:
 
   common-flow-mirror:
     needs: [get-config, build-image, start-runner]
-    name: Test ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.redis-ref }}
+    name: Test / mirror
     if: |
       !cancelled() &&
       needs.get-config.result == 'success' &&
@@ -666,7 +666,7 @@ jobs:
 
   common-flow-raw:
     needs: [get-config, build-image, start-runner]
-    name: Test ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.redis-ref }}
+    name: Test / raw
     if: |
       !cancelled() &&
       needs.get-config.result == 'success' &&
@@ -685,7 +685,7 @@ jobs:
 
   common-flow-host:
     needs: [get-config, build-image, start-runner]
-    name: Test ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.redis-ref }}
+    name: Test / host
     if: |
       !cancelled() &&
       needs.get-config.result == 'success' &&

@@ -74,7 +74,7 @@ jobs:
 
   common-flow-ghcr:
     needs: [get-config, build-image]
-    name: MIRI${{ inputs.partition && format(' [{0}]', inputs.partition) || '' }} on ${{ needs.get-config.outputs.name }}
+    name: MIRI / ghcr
     if: |
       !cancelled() &&
       needs.get-config.result == 'success' &&
@@ -213,7 +213,7 @@ jobs:
 
   common-flow-mirror:
     needs: [get-config, build-image]
-    name: MIRI${{ inputs.partition && format(' [{0}]', inputs.partition) || '' }} on ${{ needs.get-config.outputs.name }}
+    name: MIRI / mirror
     if: |
       !cancelled() &&
       needs.get-config.result == 'success' &&
@@ -236,7 +236,7 @@ jobs:
 
   common-flow-raw:
     needs: [get-config, build-image]
-    name: MIRI${{ inputs.partition && format(' [{0}]', inputs.partition) || '' }} on ${{ needs.get-config.outputs.name }}
+    name: MIRI / raw
     if: |
       !cancelled() &&
       needs.get-config.result == 'success' &&
@@ -253,7 +253,7 @@ jobs:
 
   common-flow-host:
     needs: [get-config, build-image]
-    name: MIRI${{ inputs.partition && format(' [{0}]', inputs.partition) || '' }} on ${{ needs.get-config.outputs.name }}
+    name: MIRI / host
     if: |
       !cancelled() &&
       needs.get-config.result == 'success' &&

@@ -27,7 +27,7 @@ jobs:
       runner-env: ${{ vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-latest' }}
 
   lint-ghcr:
-    name: Linting
+    name: Lint / ghcr
     needs: build-image
     if: ${{ !cancelled() && needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image-is-mirror != 'true' }}
     runs-on: ${{ vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-latest' }}
@@ -189,7 +189,7 @@ jobs:
           exit 1
 
   lint-mirror:
-    name: Linting
+    name: Lint / mirror
     needs: build-image
     if: ${{ !cancelled() && needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image-is-mirror == 'true' }}
     runs-on: ${{ vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-latest' }}
@@ -205,7 +205,7 @@ jobs:
     steps: *lint_steps
 
   lint-host:
-    name: Linting
+    name: Lint / host
     needs: build-image
     if: ${{ !cancelled() && needs.build-image.outputs.succeeded != 'true' }}
     runs-on: ${{ vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-latest' }}

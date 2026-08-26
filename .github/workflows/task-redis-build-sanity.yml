@@ -73,7 +73,7 @@ jobs:
 
   redis-build-sanity-container:
     needs: [get-config, start-runner]
-    name: Redis build sanity on ${{ needs.get-config.outputs.name }}
+    name: Redis build sanity / container
     if: |
       !cancelled() &&
       needs.get-config.result == 'success' &&
@@ -325,7 +325,7 @@ jobs:
 
   redis-build-sanity-host:
     needs: [get-config, start-runner]
-    name: Redis build sanity on ${{ needs.get-config.outputs.name }}
+    name: Redis build sanity / host
     if: |
       !cancelled() &&
       needs.get-config.result == 'success' &&
