@@ -38,6 +38,7 @@
 #include "cursor.h"
 #include "aggregate/aggregate_debug.h"
 #include "hybrid/hybrid_debug.h"
+#include "notifications.h"
 #include "hybrid/hybrid_exec.h"
 #include "reply.h"
 #include "info/info_command.h"
@@ -2587,6 +2588,13 @@ DEBUG_COMMAND(getHideUserDataFromLogs) {
   return RedisModule_ReplyWithLongLong(ctx, value);
 }
 
+DEBUG_COMMAND(hashSubkeyNotifications) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  return RedisModule_ReplyWithBool(ctx, HashSubkeyNotificationsSupported());
+}
+
 // Global counter for tracking yield calls
 typedef struct {
   size_t yieldOnLoadCounter;
@@ -3762,6 +3770,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"INDEXES", ListIndexesSwitch},
                                {"INFO", IndexObfuscatedInfo},
                                {"GET_HIDE_USER_DATA_FROM_LOGS", getHideUserDataFromLogs},
+                               {"HASH_SUBKEY_NOTIFICATIONS", hashSubkeyNotifications},
                                {"YIELDS_COUNTER", YieldCounter},
                                {"GC_TIMER_ARMS", GCTimerArms},
                                {"INDEXER_SLEEP_BEFORE_YIELD_MICROS", IndexerSleepBeforeYieldMicros},

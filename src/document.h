@@ -128,6 +128,30 @@ typedef struct Document {
 #define UNDERSCORE_PAYLOAD "__payload"
 #define UNDERSCORE_LANGUAGE "__language"
 
+/**
+ * Whether a VECTOR field's value was changed by this update, which is what decides whether its
+ * existing index entry may move onto the document's new doc-id instead of being deleted and
+ * re-added.
+ *
+ * The two verified states are separate from the unverified one because the sources of an answer
+ * cost different things. A hash subkey notification names the fields the command wrote, so it
+ * settles every field for free. Everything else -- JSON (RedisJSON's API cannot report a change
+ * set), a background scan, or a hash on a server without subkey notifications -- has to be
+ * settled by looking at what the index is holding.
+ */
+typedef enum {
+  // Changed: the value was written. Reindex as before, dropping the old entry and adding the new
+  // blob. Must stay zero, because it doubles as the answer for a field with no mark at all: the
+  // per-field array is `rm_calloc`'d, and a field nothing was recorded for has no basis for a
+  // move.
+  ChangedField_VerifiedYes = 0,
+  // Not known either way.
+  ChangedField_Unverified,
+  // Unchanged: a change set named the fields this command wrote and this was not among them, or
+  // the comparison found the index already holding this value. The entry moves.
+  ChangedField_VerifiedNo,
+} ChangedField;
+
 struct RSAddDocumentCtx;
 
 typedef void (*DocumentAddCompleted)(struct RSAddDocumentCtx *, RedisModuleCtx *, void *);
@@ -319,6 +343,23 @@ typedef struct RSAddDocumentCtx {
 
   // Scratch space used by per-type field preprocessors (see the source)
   struct FieldIndexerData *fdatas;
+
+  /** Whether each VECTOR field's value was changed by this update, indexed by
+   *  *schema* field (`FieldSpec.index`) and sized `spec->numFields`.
+   *
+   *  Schema-indexed rather than living in `fdatas` because
+   *  `Indexer_HandleReplacedDocVectorAndGeometry` walks the schema, not the document: a
+   *  vector field absent from this version of the document still has an old entry to
+   *  drop, and would not be reachable through a document-field-indexed array.
+   *
+   *  NULL unless something was actually marked, so a document with no movable vector -- every
+   *  document, with the feature gated off -- allocates nothing. */
+  ChangedField *fieldChanges;
+
+  /** The doc-id this key mapped to before this update, or 0 if it was not
+   *  indexed. Both modes need it at the vector-insert sites, to move an unchanged
+   *  entry off it instead of re-adding the blob. */
+  t_docId oldDocId;
   QueryError status;     // Error message is placed here if there is an error during processing
   uint32_t totalTokens;  // Number of tokens, used for offset vector
   uint32_t specFlags;    // Cached index flags
@@ -331,7 +372,6 @@ typedef struct RSAddDocumentCtx {
   // are unused there.
   struct {
     SearchDiskWriteBatchHandle *batch;
-    t_docId oldDocId;
     uint32_t oldDocLen;
     // Optional already-open key handle for the document, supplied by the caller
     // (e.g. the async scan key callback, where the engine hands us an open,
@@ -341,6 +381,26 @@ typedef struct RSAddDocumentCtx {
     RedisModuleKey *openKey;
   } disk;
 } RSAddDocumentCtx;
+
+// Whether schema field `f_idx`'s value was changed by this update. A NULL aCtx or an unmarked
+// update reads as `ChangedField_VerifiedYes`: no mark means no basis for a move. That default is
+// why every consumer can call this unconditionally.
+static inline ChangedField AddDocumentCtx_FieldChange(const RSAddDocumentCtx *aCtx,
+                                                      t_fieldIndex f_idx) {
+  if (!aCtx || !aCtx->fieldChanges) return ChangedField_VerifiedYes;
+  return aCtx->fieldChanges[f_idx];
+}
+
+/**
+ * Whether field `f_idx`'s existing vector entry is to be moved onto this update's new doc-id,
+ * rather than re-added.
+ *
+ * True only once both halves hold: the field is marked — `VectorIndex_CheckRemoveId` left its
+ * entry in place on that basis — and there is an old doc-id to move it off. A field can be
+ * marked on a key that was not indexed before this update, where nothing says the vector was
+ * written but there is no entry to move either.
+ */
+bool AddDocumentCtx_ShouldRelabelField(const RSAddDocumentCtx *aCtx, t_fieldIndex f_idx);
 
 /**
  * Creates a new context used for adding documents. Once created, call

@@ -159,6 +159,17 @@ typedef struct {
 
   bool noMemPool;
 
+  /** Deprecated, read by nothing.
+   *
+   * Once gated a command filter that captured hash field names before execution,
+   * which subkey notifications replaced -- they deliver the same information from
+   * Redis directly, so there is nothing left to switch on.
+   *
+   * Retained only so the surface it is bound to keeps working: `PARTIAL_INDEXED_DOCS`
+   * and, more importantly, the `search-partial-indexed-docs` module config. Dropping
+   * the latter's registration makes a server whose config file sets it refuse to
+   * start ("Module Configuration detected without loadmodule directive"), so it can
+   * only be removed at a major version. */
   bool filterCommands;
 
   // free resource on shutdown

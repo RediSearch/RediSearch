@@ -3566,8 +3566,74 @@ int CompareVersions(Version v1, Version v2) {
 }
 
 
+/**
+ * Mark each VECTOR field whose value this update may not have touched, so the
+ * indexer moves its existing entry onto the new doc-id instead of deleting and
+ * re-adding the blob.
+ *
+ * With a change set, absence from it settles the question — `ChangedField_VerifiedNo`. Compares
+ * against `fieldPath`, the hash field the command wrote, for the same reason
+ * `hashFieldChanged` does.
+ *
+ * Without one, every vector field is marked `ChangedField_Unverified`: the question is
+ * deferred to `Indexer_HandleReplacedDocVectorAndGeometry`, which compares the field's new
+ * value against what the index is holding. This is the JSON path (RedisJSON's API cannot
+ * report a change set), and also a background scan or a hash on a server without subkey
+ * notifications.
+ */
+static void AddDocumentCtx_MarkForRelabel(RSAddDocumentCtx *aCtx, const IndexSpec *spec,
+                                           RedisModuleString **changedFields,
+                                           size_t numChangedFields) {
+  if (!RSGlobalConfig.enableUnstableFeatures) {
+    return;
+  }
+  if (!(spec->flags & Index_HasVecSim)) {
+    return;
+  }
+
+  const Document *doc = aCtx->doc;
+  for (size_t ii = 0; ii < doc->numFields; ++ii) {
+    const FieldSpec *fs = aCtx->fspecs + ii;
+    // Only mark a field the vector-insert site will actually visit: the relabeling
+    // runs there, and `Indexer_HandleReplacedDocVectorAndGeometry` skips a marked
+    // field's delete. A mark that never reaches an insert would strand the old entry
+    // under the old doc-id.
+    // `indexAs` is already resolved here — `AddDocumentCtx_SetDocument` defaults it
+    // to `fs->types` — and skipped fields (not in the schema) leave fieldName NULL.
+    //
+    // `fdata->isNull` is the one insert-site skip this cannot mirror, because
+    // `vectorPreprocessor` has not run yet and `fdatas` is still zeroed.
+    // `Indexer_HandleReplacedDocVectorAndGeometry` checks it once the preprocessors have
+    // run, which is what keeps the invariant true for a JSON document that dropped its
+    // vector field.
+    if (!fs->fieldName || !FieldSpec_IsIndexable(fs) ||
+        !(doc->fields[ii].indexAs & INDEXFLD_T_VECTOR)) {
+      continue;
+    }
+    // An absent change set says nothing; a present one is a positive statement about
+    // every field it does not name, including when it names none.
+    ChangedField mark = changedFields ? ChangedField_VerifiedNo : ChangedField_Unverified;
+    for (size_t i = 0; i < numChangedFields; ++i) {
+      size_t length = 0;
+      const char *field = RedisModule_StringPtrLen(changedFields[i], &length);
+      if (!HiddenString_CompareC(fs->fieldPath, field, length)) {
+        mark = ChangedField_VerifiedYes;  // named in the change set: the value was written
+        break;
+      }
+    }
+    if (mark == ChangedField_VerifiedYes) {
+      continue;  // nothing to record: an unmarked field already reads this way
+    }
+    if (!aCtx->fieldChanges) {
+      aCtx->fieldChanges = rm_calloc(spec->numFields, sizeof(*aCtx->fieldChanges));
+    }
+    aCtx->fieldChanges[fs->index] = mark;
+  }
+}
+
 int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
-                        DocumentType type, RedisModuleKey *openKey) {
+                        DocumentType type, RedisModuleKey *openKey,
+                        RedisModuleString **changedFields, size_t numChangedFields) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
 
   if (!spec->rule) {
@@ -3627,6 +3693,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   aCtx->stateFlags |= ACTX_F_NOFREEDOC;
   // Reuse the caller's open key handle for the DocIdMeta update, if provided.
   aCtx->disk.openKey = openKey;
+  AddDocumentCtx_MarkForRelabel(aCtx, spec, changedFields, numChangedFields);
   AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
 
   Document_Free(&doc);

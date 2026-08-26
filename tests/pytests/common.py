@@ -678,6 +678,19 @@ def shard_set_info_on_zero_indexes(env, enabled: bool):
     env.assertEqual(res, 'OK')
     return res
 
+def skip_if_no_hash_subkey_notifications(env):
+    """
+    Skip unless every shard is served hash events over the subkey channel.
+
+    A server that predates subkey notifications degrades to reindexing the whole
+    document, which is correct but makes any assertion about change-set-driven
+    behavior fail. Asked per shard because the module decides this per process, at
+    load time, from whether the API symbol resolved.
+    """
+    active = run_command_on_all_shards(env, debug_cmd(), 'HASH_SUBKEY_NOTIFICATIONS')
+    if not all(active):
+        env.skip()
+
 def get_vecsim_debug_dict(env, index_name, vector_field):
     return to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_name, vector_field))
 

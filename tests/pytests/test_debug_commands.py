@@ -77,6 +77,7 @@ class TestDebugCommands(object):
             "INDEXES",
             "INFO",
             'GET_HIDE_USER_DATA_FROM_LOGS',
+            'HASH_SUBKEY_NOTIFICATIONS',
             'YIELDS_COUNTER',
             'GC_TIMER_ARMS',
             'INDEXER_SLEEP_BEFORE_YIELD_MICROS',
@@ -114,6 +115,7 @@ class TestDebugCommands(object):
         arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS',
                         'DELETE_LOCAL_COORD_CURSORS', 'SHARD_CONNECTION_STATES',
                         'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY', 'INFO', 'INDEXES', 'GET_HIDE_USER_DATA_FROM_LOGS',
+                        'HASH_SUBKEY_NOTIFICATIONS',
                         'REGISTER_TEST_SCORERS', 'BG_PENDING_REPLIES',
                         'IO_RUNTIME_PENDING_REQUESTS']
         for cmd in [c for c in help_list if c not in arity_2_cmds]:

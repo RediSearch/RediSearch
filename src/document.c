@@ -21,6 +21,7 @@
 #include "tokenize.h"
 #include "rmalloc.h"
 #include "indexer.h"
+#include "indexer_internal.h"
 #include "tag_index.h"
 #include "geometry/geometry_api.h"
 #include "aggregate/expr/expression.h"
@@ -69,6 +70,7 @@ static void freeDocumentContext(void *p) {
 
   rm_free(aCtx->fspecs);
   rm_free(aCtx->fdatas);
+  rm_free(aCtx->fieldChanges);
   if (aCtx->specName) {
     HiddenString_Free(aCtx->specName, true);
   }
@@ -188,6 +190,12 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
   return 0;
 }
 
+// Contract documented on the declaration in document.h.
+bool AddDocumentCtx_ShouldRelabelField(const RSAddDocumentCtx *aCtx, t_fieldIndex f_idx) {
+  // The mark is checked first so a NULL aCtx never reaches the dereference.
+  return AddDocumentCtx_FieldChange(aCtx, f_idx) == ChangedField_VerifiedNo && aCtx->oldDocId != 0;
+}
+
 RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *status) {
 
   if (!actxPool_g) {
@@ -208,9 +216,10 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   aCtx->specFlags = sp->flags;
   aCtx->spec = sp;
   aCtx->disk.batch = NULL;
-  aCtx->disk.oldDocId = 0;
+  aCtx->oldDocId = 0;
   aCtx->disk.oldDocLen = 0;
   aCtx->disk.openKey = NULL;
+  aCtx->fieldChanges = NULL;
   if (aCtx->specFlags & Index_Async) {
     HiddenString_Clone(sp->specName, &aCtx->specName);
   }
@@ -344,6 +353,9 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
       }
     }
   }
+
+  rm_free(aCtx->fieldChanges);
+  aCtx->fieldChanges = NULL;
 
   // Destroy the common fields:
   if (!(aCtx->stateFlags & ACTX_F_NOFREEDOC)) {
@@ -697,6 +709,16 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
     fdata->numVec = field->blobArrLen;
   } else if (field->unionType == FLD_VAR_T_NULL) {
     fdata->isNull = 1;
+    // No value means no insert site for this field, so a relabel mark placed before
+    // preprocessing would never be consumed -- and
+    // `Indexer_HandleReplacedDocVectorAndGeometry`, which honours the mark, would leave the
+    // old entry stranded under a doc-id no document owns.
+    // Clearing it here hands the field back to the ordinary delete path. Reachable
+    // for JSON, whose vector path is marked without knowing whether the new document
+    // still has the field.
+    if (aCtx->fieldChanges) {
+      aCtx->fieldChanges[fs->index] = ChangedField_VerifiedYes;
+    }
     return 0; // Skipping indexing missing vector
   }
   if (fdata->vecLen != fs->vectorOpts.expBlobSize) {
@@ -716,11 +738,16 @@ FIELD_BULK_INDEXER(vectorIndexer) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open vector for indexing");
     return -1;
   }
-  char *curr_vec = (char *)fdata->vector;
+  if (AddDocumentCtx_ShouldRelabelField(aCtx, fs->index) &&
+      VectorIndex_RelabelField(vecsim, aCtx->oldDocId, aCtx->doc->docId)) {
+    return 0;
+  }
+  const char *curr_vec = (char *)fdata->vector;
   for (size_t i = 0; i < fdata->numVec; i++) {
     VecSimIndex_AddVector(vecsim, curr_vec, aCtx->doc->docId);
     curr_vec += fdata->vecLen;
   }
+  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_VECTOR, 1);
   return 0;
 }
 
@@ -881,13 +908,6 @@ FIELD_BULK_APPLIER(tagApplier) {
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_TAG, 1);
 }
 
-FIELD_BULK_APPLIER(vectorApplier) {
-  // The VecSim insert itself runs in `applyVectorInserts` for disk mode
-  // (after the batch commits) and inline in `vectorIndexer` for memory mode.
-  // The applier only handles the global-stats bump, which is mode-independent.
-  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_VECTOR, 1);
-}
-
 FIELD_BULK_APPLIER(numericApplier) {
   // Per-spec numeric stats are bumped by `numericIndexer` in both modes.
   // The applier only handles the global field-docs counter.
@@ -970,7 +990,8 @@ void IndexerBulkApply(RSAddDocumentCtx *aCtx, const DocumentField *field,
       case IXFLDPOS_TAG:      tagApplier(aCtx, field, fs, fdata);      break;
       case IXFLDPOS_NUMERIC:  numericApplier(aCtx, field, fs, fdata);  break;
       case IXFLDPOS_GEO:      geoApplier(aCtx, field, fs, fdata);      break;
-      case IXFLDPOS_VECTOR:   vectorApplier(aCtx, field, fs, fdata);   break;
+      // No vector applier: an entry that moved can be an indexing or relabeling op, and only the insert
+      // sites know which happened. They keep both counters instead.
       case IXFLDPOS_GEOMETRY: geometryApplier(aCtx, field, fs, fdata); break;
       case IXFLDPOS_FULLTEXT: break;
     }

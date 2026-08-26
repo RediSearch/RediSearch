@@ -1260,11 +1260,17 @@ CONFIG_GETTER(getGcPolicy) {
   return sdsnew(GCPolicy_ToString(config->gcConfigParams.gcPolicy));
 }
 
-// PARTIAL_INDEXED_DOCS
+// PARTIAL_INDEXED_DOCS -- retained as a no-op, see the field's comment in config.h.
 CONFIG_SETTER(setFilterCommand) {
   int filterCommands;
   int acrc = AC_GetInt(ac, &filterCommands, AC_F_GE0);
   config->filterCommands = (bool)filterCommands;
+  if (config->filterCommands) {
+    RedisModule_Log(RSDummyContext, "warning",
+                    "PARTIAL_INDEXED_DOCS is deprecated and has no effect. Hash field-change "
+                    "detection now comes from subkey notifications when the server supports "
+                    "them, and is unavailable otherwise.");
+  }
   RETURN_STATUS(acrc);
 }
 
@@ -1797,7 +1803,8 @@ RSConfigOptions RSGlobalConfigOptions = {
          .getValue = getNoMemPools,
          .flags = RSCONFIGVAR_F_FLAG | RSCONFIGVAR_F_IMMUTABLE},
         {.name = "PARTIAL_INDEXED_DOCS",
-         .helpText = "Enable commands filter which optimize indexing on partial hash updates",
+         .helpText = "Deprecated, has no effect. Partial hash updates are now optimized via "
+                     "subkey notifications, with no configuration",
          .setValue = setFilterCommand,
          .getValue = getFilterCommand,
          .flags = RSCONFIGVAR_F_IMMUTABLE},

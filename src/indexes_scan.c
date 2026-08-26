@@ -176,7 +176,7 @@ static void IndexScanner_DrainPendingScanKeys(RedisModuleCtx *ctx, ScanProcCtx *
     }
 
     if (scanner->global) {
-      Indexes_UpdateMatchingWithSchemaRules(ctx, keyname, type, NULL);
+      Indexes_UpdateMatchingWithSchemaRules(ctx, keyname, type, NULL, 0);
     } else {
       StrongRef curr_run_ref = IndexSpecRef_Promote(scanner->spec_ref);
       IndexSpec *sp = StrongRef_Get(curr_run_ref);
@@ -184,7 +184,7 @@ static void IndexScanner_DrainPendingScanKeys(RedisModuleCtx *ctx, ScanProcCtx *
         // This check is performed without locking the spec, but it's ok since we locked the GIL
         // So the main thread is not running and the GC is not touching the relevant data
         if (SchemaRule_ShouldIndex(sp, keyname, type, NULL)) {
-          IndexSpec_UpdateDoc(sp, ctx, keyname, type, NULL);
+          IndexSpec_UpdateDoc(sp, ctx, keyname, type, NULL, NULL, 0);
         }
         IndexSpecRef_Release(curr_run_ref);
       } else {
