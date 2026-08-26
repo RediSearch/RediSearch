@@ -1341,9 +1341,10 @@ def test_hybrid_query_non_vector_score():
 
 @skip(cluster=True)
 def test_hybrid_query_scorer_slop():
-    """A filtered KNN query scores its text prefilter exactly as that prefilter
-    scores on its own: the scorer receives the prefilter's intersection, so the
-    slop divisor is the terms' real offset distance."""
+    """A filtered KNN query scores its text prefilter as if the matched terms
+    were adjacent: the scorer receives the prefilter alongside the distance
+    metric, and the slop walk pairs only top-level siblings, so the terms' real
+    offset distance never reaches the divisor."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
@@ -1370,12 +1371,18 @@ def test_hybrid_query_scorer_slop():
 
         env.assertEqual(sorted(hybrid.keys()), ['adjacent', 'separated'],
                         message=[scorer, hybrid])
-        # Slop is the minimal offset distance between the two terms.
-        env.assertAlmostEqual(text_only['adjacent'] / text_only['separated'], 3.0, 0.01,
+
+        # Adjacent terms are a distance of one apart, so `adjacent` is scored
+        # undivided and any score read against it recovers its own divisor.
+        undivided = text_only['adjacent']
+        env.assertAlmostEqual(undivided / text_only['separated'], 3.0, 0.01,
                               message=[scorer, text_only])
-        for doc, score in text_only.items():
-            env.assertAlmostEqual(hybrid[doc], score, 0.01,
-                                  message=[scorer, doc, hybrid, text_only])
+        env.assertAlmostEqual(undivided / hybrid['adjacent'], 1.0, 0.01,
+                              message=[scorer, hybrid])
+        # Under a KNN the gap between the terms is invisible, so the divisor
+        # falls back to a distance of one rather than the distance they are at.
+        env.assertAlmostEqual(undivided / hybrid['separated'], 1.0, 0.01,
+                              message=[scorer, hybrid])
 
 
 @skip(cluster=False)
