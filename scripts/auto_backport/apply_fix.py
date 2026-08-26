@@ -26,10 +26,8 @@ Env contract (set by task-backport_pr-agent-fix.yml):
 
 from __future__ import annotations
 
-import base64
 import json
 import os
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -45,41 +43,28 @@ BRANCH_PREFIX = "backport-agent/"
 DRY_RUN = os.environ.get("APPLY_DRY_RUN") == "1"
 
 
-def git(work: str, *args: str, check: bool = True) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", "-C", work, *args],
-                          capture_output=True, text=True, check=check,
-                          env=common.SAFE_GIT_ENV)
+def push_fix(git: common.PrivilegedGit, branch: str) -> tuple[bool, str]:
+    """Fast-forward-push the agent's fix commit. Returns (pushed, detail).
 
-
-def configure_push_auth(work: str, token: str) -> None:
-    if DRY_RUN:
-        return
-    header = "AUTHORIZATION: basic " + base64.b64encode(
-        f"x-access-token:{token}".encode()).decode()
-    git(work, "config", "http.https://github.com/.extraheader", header)
-
-
-def push_fix(work: str, branch: str) -> tuple[bool, str]:
-    """Fast-forward-push the agent's fix commit. Returns (pushed, detail)."""
-    if git(work, "rev-parse", "--verify", f"refs/heads/{branch}",
+    `git` is the sanitized, token-bearing handle from `main()`; the `--no-verify`
+    and refspec hardening live in `common.PrivilegedGit.push_ref`.
+    """
+    if git("rev-parse", "--verify", f"refs/heads/{branch}",
            check=False).returncode != 0:
         return False, "branch missing in clone"
-    ahead = git(work, "rev-list", "--count", f"origin/{branch}..{branch}", check=False)
+    ahead = git("rev-list", "--count", f"origin/{branch}..{branch}", check=False)
     if ahead.returncode != 0 or ahead.stdout.strip() == "0":
         return False, "no new commit to push"
     # Refuse anything that isn't a clean fast-forward — the original cherry-pick
     # (and any prior fix commits) must stay intact; no history rewrite.
-    if git(work, "merge-base", "--is-ancestor", f"origin/{branch}", branch,
+    if git("merge-base", "--is-ancestor", f"origin/{branch}", branch,
            check=False).returncode != 0:
         return False, "refusing non-fast-forward push (history rewrite)"
-    short = git(work, "rev-parse", "--short", branch, check=False).stdout.strip()
+    short = git("rev-parse", "--short", branch, check=False).stdout.strip()
     if DRY_RUN:
         common.log(f"[dry-run] would fast-forward-push {branch} ({short})")
         return True, short
-    # `--no-verify` + the sanitized `.git` (done in main) keep any agent-installed
-    # hook/config from running during this token-holding push.
-    push = git(work, "push", "--no-verify", "origin",
-               f"refs/heads/{branch}:refs/heads/{branch}", check=False)
+    push = git.push_ref(branch)
     if push.returncode != 0:
         return False, f"push failed: {push.stderr.strip()[:200]}"
     return True, short
@@ -244,11 +229,12 @@ def main() -> int:
                    else "Agent declined but the decline comment failed to post.")
         return 0 if ok else 1
 
-    # Treat the agent's clone `.git` as hostile before the token-holding push.
-    if not DRY_RUN:
-        common.sanitize_git_dir(work, os.environ["GITHUB_REPOSITORY"])
-    configure_push_auth(work, token)
-    pushed, detail = push_fix(work, branch)
+    # Constructing this treats the agent's clone `.git` as hostile (hooks + local
+    # config are stripped) and then installs the push credential — in that order,
+    # before any token-holding git call can happen.
+    git = common.PrivilegedGit(work, os.environ["GITHUB_REPOSITORY"], token,
+                               dry_run=DRY_RUN)
+    pushed, detail = push_fix(git, branch)
     if not pushed:
         common.log(f"Fix not pushed: {detail}")
 

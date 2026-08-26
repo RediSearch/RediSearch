@@ -62,13 +62,6 @@
 #include "util/dict/dict.h"
 #include "util/dllist.h"
 
-// Maximum number of concurrent async disk reads
-#define MAX_ONGOING_READ_SIZE 16
-
-// Iterator results buffered ahead of submission. Separate from the read depth so the
-// two can be tuned independently; must be >= MAX_ONGOING_READ_SIZE.
-#define ITERATOR_BUFFER_SIZE MAX_ONGOING_READ_SIZE
-
 // Timeout for async disk poll when iterator is at EOF (in milliseconds)
 // When the iterator is exhausted, we wait for pending async reads to complete
 #define ASYNC_POLL_TIMEOUT_AT_EOF_MS 1000
@@ -144,11 +137,11 @@ static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx 
 }
 
 /**
- * Refill the IndexResult buffer from the iterator.
- * Fills up to current capacity, doesn't grow the buffer.
+ * Refill the IndexResult queue from the iterator.
+ * Fills up to current capacity, doesn't grow the queue.
  * Returns RS_RESULT_OK on success, RS_RESULT_TIMEDOUT on timeout.
  */
-static int refillBufferUsingIterator(RPQueryIterator *self) {
+static int refillQueueUsingIterator(RPQueryIterator *self) {
   QueryIterator *it = self->iterator;
   RedisSearchCtx *sctx = self->sctx;
   IndexSpec *spec = sctx->spec;
@@ -158,8 +151,8 @@ static int refillBufferUsingIterator(RPQueryIterator *self) {
     return RS_RESULT_OK;
   }
 
-  // Fill buffer up to max capacity
-  while (self->async.iteratorResultCount < self->async.bufferSize && !it->atEOF) {
+  // Fill the queue up to max capacity
+  while (self->async.iteratorResultCount < self->async.queueSize && !it->atEOF) {
     if (TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
       return RS_RESULT_TIMEDOUT;
     }
@@ -416,13 +409,13 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
       self->async.lastReturnedIndexResult = NULL;
     }
 
-    // Step 1: Refill IndexResult buffer if needed (cheap iterator reads)
-    int refillResult = refillBufferUsingIterator(self);
+    // Step 1: Refill the IndexResult queue if needed (cheap iterator reads)
+    int refillResult = refillQueueUsingIterator(self);
     if (refillResult == RS_RESULT_TIMEDOUT) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
 
-    // Step 1b: Submit any buffered results to async pool (keep pipeline full)
+    // Step 1b: Submit any queued results to async pool (keep pipeline full)
     const uint16_t submitted = IndexResultAsyncRead_RefillPool(&self->async);
 
     // Step 2: Try to serve a ready result if we have one
@@ -497,8 +490,14 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
   ret->firstRead = true;
 #endif
 
+  // Keep one per-query snapshot so the pool and queue sizes stay paired.
+  const uint16_t asyncPoolSize = (uint16_t)RSGlobalConfig.diskAsyncReadPoolSize;
+  const uint16_t asyncQueueFactor = (uint16_t)RSGlobalConfig.diskAsyncReadQueueFactor;
+  RS_ASSERT(asyncQueueFactor >= 1);
+  const uint16_t asyncQueueSize = asyncPoolSize * asyncQueueFactor;
+
   // Initialize async read state
-  IndexResultAsyncRead_Init(&ret->async, MAX_ONGOING_READ_SIZE, ITERATOR_BUFFER_SIZE);
+  IndexResultAsyncRead_Init(&ret->async, asyncPoolSize, asyncQueueSize);
 
   // Determine which Next function to use based on disk configuration
   if (sctx->spec->diskSpec &&
@@ -506,7 +505,7 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
       SearchDisk_GetAsyncIOEnabled()) {
     // Create async pool and setup async I/O
     RedisSearchDiskAsyncReadPool asyncPool =
-        SearchDisk_CreateAsyncReadPool(sctx->spec->diskSpec, sctx, MAX_ONGOING_READ_SIZE);
+        SearchDisk_CreateAsyncReadPool(sctx->spec->diskSpec, sctx, asyncPoolSize);
 
     if (asyncPool) {
       // Async disk flow with buffering

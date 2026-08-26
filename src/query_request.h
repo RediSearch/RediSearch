@@ -39,11 +39,6 @@ typedef struct {
 
 /**
  * State retained while results wait for the main-thread reply callback.
- *
- * The cursor owns a request reference, not vice versa.
- * The cursor pointer stored here is non-owning and exists only so the reply
- * callback can pause or free it after serialization determines whether the
- * cursor is depleted. It must be cleared after the cursor is handled.
  */
 typedef struct {
   SearchResult **results;  // Aggregated results array (NULL if not stored)
@@ -56,7 +51,6 @@ typedef struct {
    * RETURN_STRICT flip wires every pipeline directly. */
   QueryError err;
   cachedVars cv;           // Cached lookup variables used during serialization
-  struct Cursor *cursor;   // Non-owning cursor handle for the reply callback
   size_t limit;            // Original limit, used to calculate the RESP2 result length
 } ChunkReplyState;
 
@@ -66,17 +60,20 @@ typedef enum {
 } QueryRequestKind;
 
 typedef enum {
-  CURSOR_DISPOSITION_NONE,   // No cursor is awaiting end-of-cycle handling.
+  /* Destroy the cursor when the active cycle ends. The per-cycle default: a
+   * cycle whose reply exposed no live cursor id must free, never park. */
+  CURSOR_DISPOSITION_FREE,
   CURSOR_DISPOSITION_PAUSE,  // Return the cursor to the idle list for another read.
-  CURSOR_DISPOSITION_FREE,   // Destroy the cursor when the active cycle ends.
 } CursorDisposition;
 
 typedef struct {
   uint64_t id;
-  /* Cursor disposition for this cycle. The point that decides the cursor's
-   * fate records it here; OnFree executes it, keeping the cursor unreachable
-   * to other clients until the cycle has fully ended. The pointer is NULL when
-   * the cycle has no cursor; inline execution disposes the cursor directly. */
+  /* The cycle's cursor, published when it becomes known (main thread at read
+   * dispatch; at reservation for the initial cycle); NULL when the cycle has
+   * no cursor. The path that replies a live cursor id records PAUSE;
+   * EndCycle executes the disposition, keeping the cursor unreachable to
+   * other clients until the cycle has fully ended. Inline execution disposes
+   * the cursor directly instead. */
   struct Cursor *cursor;
   CursorDisposition disposition;
 } CursorInfo;
@@ -184,11 +181,19 @@ void QueryRequestAsyncState_RegisterAbortWakeChannel(QueryRequestAsyncState *sta
 void QueryRequestAsyncState_UnregisterAbortWakeChannel(QueryRequestAsyncState *state);
 void QueryRequestAsyncState_WakeAbortChannel(QueryRequestAsyncState *state);
 
+/* Lifetime management.
+ *
+ * A QueryRequest has exactly one owner at any time — no reference counting.
+ * Construction hands it to the creating flow; QueryRequest_BeginCycle hands it
+ * to the blocked client (the privdata), whose OnFree ends the cycle by either
+ * executing the recorded cursor disposition (PAUSE hands ownership to the
+ * cursor; FREE frees through it) or freeing the request. A parked cursor owns
+ * its request (Cursor.query); taking the cursor for a read hands it to the new
+ * cycle. Workers and the reply/timeout callbacks borrow the privdata for the
+ * cycle's duration — safe because every flow calls UnblockClient after its
+ * last touch, and OnFree only runs after that. */
 typedef struct QueryRequest {
   QueryRequestKind kind;
-  /* Starts at 1. ACQ_REL on the final decrement ensures destruction observes
-   * prior writes from every owner. */
-  RS_Atomic(int) refcount;
   QueryRequestArgs args;
   /* A blocked-client cycle is one initial query execution or cursor read.
    * This is set after RedisModule_BlockClient returns and cleared by OnFree;
@@ -214,11 +219,9 @@ typedef struct QueryRequest {
   ResultProcessor **endProcRef;
 } QueryRequest;
 
-QueryRequest *QueryRequest_IncrRef(QueryRequest *request);
-
-/* Release one reference. The final release destroys the concrete request
- * selected by `kind`. */
-void QueryRequest_DecrRef(QueryRequest *request);
+/* Destroy the concrete request selected by `kind`. Owner-only: never call it
+ * on a borrowed request (see the ownership contract on QueryRequest). */
+void QueryRequest_Free(QueryRequest *request);
 
 static inline void QueryRequest_SetEndProcRef(QueryRequest *request,
                                               ResultProcessor **endProcRef) {

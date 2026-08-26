@@ -356,17 +356,13 @@ void HybridRequest_Free(HybridRequest *req) {
         // A parked sub never touches a ctx again; drop any foreground-cycle
         // borrow before the cursor takes over.
         AREQ_SearchCtx(sub)->redisCtx = NULL;
-        const bool publish =
-            sub->base.cursorInfo.disposition == CURSOR_DISPOSITION_PAUSE && !timedOut;
+        const bool free_it =
+            sub->base.cursorInfo.disposition != CURSOR_DISPOSITION_PAUSE || timedOut;
         sub->base.cursorInfo.cursor = NULL;
-        sub->base.cursorInfo.disposition = CURSOR_DISPOSITION_NONE;
-        if (publish) {
-          Cursor_Pause(cursor);
-        } else {
-          Cursor_Free(cursor);
-        }
+        sub->base.cursorInfo.disposition = CURSOR_DISPOSITION_FREE;
+        AREQ_CursorEndOfCycle(sub, cursor, free_it);
       } else {
-        AREQ_DecrRef(sub);
+        AREQ_Free(sub);
       }
     }
     array_free(req->requests);
@@ -396,15 +392,6 @@ void HybridRequest_Free(HybridRequest *req) {
     rm_free(req);
 }
 
-HybridRequest *HybridRequest_IncrRef(HybridRequest *req) {
-  QueryRequest_IncrRef(&req->base);
-  return req;
-}
-
-void HybridRequest_DecrRef(HybridRequest *req) {
-  if (!req) return;
-  QueryRequest_DecrRef(&req->base);
-}
 
 static bool isSoftTailPipelineErrorCode(QueryErrorCode code) {
     return code == QUERY_ERROR_CODE_NO_PROP_VAL;
@@ -460,8 +447,8 @@ HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx, RedisModuleString 
   // The subs borrow the handler's ctx, like the tail: whoever runs a cycle
   // lends each sub a ctx valid for that cycle and reclaims it at cycle end
   // (a background cycle's depleting threads each need a private one).
-  search->sctx = NewSearchCtxC(sctx->redisCtx, indexName, true);
-  vector->sctx = NewSearchCtxC(sctx->redisCtx, indexName, true);
+  search->sctx = NewSearchCtxCEx(sctx->redisCtx, indexName, true, INDEXSPEC_LOAD_NOCOUNTERINC);
+  vector->sctx = NewSearchCtxCEx(sctx->redisCtx, indexName, true, INDEXSPEC_LOAD_NOCOUNTERINC);
   arrayof(AREQ*) requests = array_new(AREQ*, HYBRID_REQUEST_NUM_SUBQUERIES);
   requests = array_ensure_append_1(requests, search);
   requests = array_ensure_append_1(requests, vector);

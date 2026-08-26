@@ -345,8 +345,9 @@ typedef struct IndexSpec {
   // bitarray of dialects used by this index
   uint_least8_t used_dialects;
 
-  // Count the number of times the index was used
-  long long counter;
+  // Runtime-only command counters. Both start at zero on creation or reload.
+  long long queryCounter;
+  long long adminCounter;
 
   // read write lock
   pthread_rwlock_t rwlock;
@@ -651,7 +652,8 @@ typedef enum {
   INDEXSPEC_LOAD_NOALIAS = 0x01,      // Don't consult the alias table when retrieving the index
   INDEXSPEC_LOAD_KEY_RSTRING = 0x02,  // The name of the index is in the format of a redis string
   INDEXSPEC_LOAD_NOTIMERUPDATE = 0x04,
-  INDEXSPEC_LOAD_NOCOUNTERINC = 0x08,     // Don't increment the (usage) counter of the index
+  INDEXSPEC_LOAD_NOCOUNTERINC = 0x08,  // Don't increment either command counter
+  INDEXSPEC_LOAD_QUERY = 0x10,         // Increment queryCounter instead of adminCounter
 } IndexLoadOptionsFlags;
 
 typedef struct {
@@ -665,13 +667,22 @@ typedef struct {
 //---------------------------------------------------------------------------------------------
 
 /**
- * Per-spec bookkeeping for an already-resolved spec: bumps the usage counter and
+ * Per-spec bookkeeping for an already-resolved spec: bumps a command counter and
  * refreshes the temporary-index timeout timer (subject to the NOCOUNTERINC /
  * NOTIMERUPDATE option flags). Touches no global structures. `spec_ref` must be a
  * valid, non-NULL strong reference. To look up a spec by name and run this, use
  * Indexes_LoadIndexSpecUnsafeEx (indexes.h).
  */
 void IndexSpec_OnAcquire(StrongRef spec_ref, IndexLoadOptions *options);
+
+/** Atomically record one explicit query/read operation on `sp`. */
+void IndexSpec_IncrQueryCounter(IndexSpec *sp);
+
+/** Atomically read the runtime-only query/read operation count. */
+long long IndexSpec_GetQueryCounter(const IndexSpec *sp);
+
+/** Atomically read the runtime-only administrative operation count. */
+long long IndexSpec_GetAdminCounter(const IndexSpec *sp);
 
 /**
  * Quick access to the spec's strong reference. This function should be called only if

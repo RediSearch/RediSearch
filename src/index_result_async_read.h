@@ -34,7 +34,7 @@ typedef struct IndexResultNode {
  * IndexResultAsyncReadState - State management for async disk reads of index results
  *
  * This structure manages a three-level buffering pipeline for async disk I/O:
- * 1. iteratorResults: Buffered IndexResults from iterator (not yet submitted)
+ * 1. iteratorResults: IndexResults queued from the iterator (not yet submitted)
  * 2. pendingResults: IndexResults with in-flight async disk reads
  * 3. readyResults: Completed disk reads ready for consumption
  *
@@ -47,9 +47,9 @@ typedef struct IndexResultAsyncReadState {
 
   // Configuration
   uint16_t poolSize;                       // Maximum number of concurrent async reads
-  uint16_t bufferSize;                     // Maximum iterator results buffered ahead (>= poolSize)
+  uint16_t queueSize;                      // Maximum iterator results queued ahead (>= poolSize)
 
-  // Level 1: Iterator buffer (not yet submitted to async pool)
+  // Level 1: Iterator queue (not yet submitted to async pool)
   DLLIST iteratorResults;                  // Deep-copied IndexResults from iterator
   uint16_t iteratorResultCount;            // Number of nodes in iteratorResults list
 
@@ -72,11 +72,11 @@ typedef struct IndexResultAsyncReadState {
  *
  * @param state Async read state structure to initialize
  * @param poolSize Maximum number of concurrent async reads
- * @param bufferSize Maximum iterator results buffered ahead of submission. Must be
+ * @param queueSize Maximum iterator results queued ahead of submission. Must be
  *        >= poolSize, so a full pool always has work queued behind it.
  */
 void IndexResultAsyncRead_Init(IndexResultAsyncReadState *state, uint16_t poolSize,
-                               uint16_t bufferSize);
+                               uint16_t queueSize);
 
 /**
  * Setup async pool for disk I/O
@@ -95,7 +95,7 @@ void IndexResultAsyncRead_SetupAsyncPool(IndexResultAsyncReadState *state,
 void IndexResultAsyncRead_Free(IndexResultAsyncReadState *state);
 
 /**
- * Refill the async pool from the iterator buffer
+ * Refill the async pool from the iterator queue
  *
  * Moves IndexResults from iteratorResults to pendingResults by submitting
  * them to the async read pool. Maintains FIFO ordering. Stops when the pool
@@ -103,7 +103,7 @@ void IndexResultAsyncRead_Free(IndexResultAsyncReadState *state);
  *
  * @param state Async read state structure
  * @return Number of reads submitted. Zero means the pool is saturated or the
- *         iterator buffer is empty, so the caller cannot make progress by
+ *         iterator queue is empty, so the caller cannot make progress by
  *         submitting more and should wait on a completion instead of re-polling.
  */
 uint16_t IndexResultAsyncRead_RefillPool(IndexResultAsyncReadState *state);
