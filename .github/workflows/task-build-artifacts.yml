@@ -69,9 +69,9 @@ jobs:
       needs.build-image.outputs.image-is-mirror != 'true'
     runs-on: ${{ needs.get-config.outputs.env || vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-latest' }}
     permissions: &build_permissions
-      id-token: write # Required for OIDC role assumption during upload
-      contents: read  # Required for actions/checkout
-      packages: read  # Required for GHCR read
+      id-token: write
+      contents: read
+      packages: read
     defaults: &build_defaults
       run:
         shell: bash -l -eo pipefail {0}
@@ -83,10 +83,9 @@ jobs:
 
     env: &build_env
       IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
-      VERBOSE: 1 # For logging
-      RELEASE: 0 # We build snapshots. This variable is used in the pack name (see `make pack`)
+      VERBOSE: 1
+      RELEASE: 0
       LTO: ${{ needs.get-config.outputs.enable_lto }}
-      # Build command
       BUILD_CMD: echo '::group::Build' && make build VERBOSE= GIT_BRANCH=$BRANCH && echo '::endgroup::'
       GITHUB_REPOSITORY: ${{ github.repository }}
       SETUP_RETRY_LOOP: |
@@ -105,7 +104,6 @@ jobs:
         done
         [ $SUCCESS -eq 1 ] || exit 1
     steps: &build_steps
-      # Setup
       - name: Install bash
         if: startsWith(needs.get-config.outputs.container, 'alpine:')
         shell: sh -l -eo pipefail {0}
@@ -114,7 +112,6 @@ jobs:
         if: ${{ needs.build-image.outputs.succeeded == 'true' && needs.get-config.outputs.container }}
         shell: bash
         run: |
-          # Issue [HOME is overridden for containers](https://github.com/actions/runner/issues/863)
           h=$(getent passwd "$(id -un)" | cut -d: -f6)
           if [ "$h" = "$HOME" ]; then
             echo "HOME fine: $HOME"
@@ -134,7 +131,7 @@ jobs:
         run: ${{ needs.get-config.outputs.post_setup_script }}
 
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
           submodules: recursive
@@ -159,8 +156,6 @@ jobs:
           command: ./install_aws.sh ${{ needs.get-config.outputs.install_mode }}
           working_directory: .install
       - name: Setup test dependencies
-        # github_token (scoped to this step) lets cargo-binstall, invoked via
-        # common_installations.sh, use authenticated GitHub API calls
         uses: ./.github/actions/retry-command
         with:
           command: .install/test_deps/common_installations.sh ${{ needs.get-config.outputs.install_mode }}
@@ -177,7 +172,6 @@ jobs:
           build_tls: 'false'
           cache_platform_id: ${{ needs.get-config.outputs.container || needs.get-config.outputs.env }}
 
-      # Build & Pack
       - name: Build and Pack RediSearch OSS
         env:
             COORD: oss
@@ -190,7 +184,6 @@ jobs:
         if: runner.os == 'Linux' && inputs.platform != 'ubuntu:focal'
         uses: ./.github/actions/validate-glibc-version
 
-      # Upload
       - name: Configure AWS Credentials
         uses: ./.github/actions/configure-aws-credentials
         with:
@@ -207,14 +200,11 @@ jobs:
         run: |
           VERSION_SUFFIX="$INPUT_VERSION_SUFFIX"
           echo "VERSION_SUFFIX=$VERSION_SUFFIX" >> $GITHUB_OUTPUT
-          # Use the pre-generated beta version if provided (master branch builds)
-          # Otherwise generate regular version from version.h (non-master branch builds)
           if [[ -n "$INPUT_BETA_VERSION" ]]; then
             BETA_VERSION="$INPUT_BETA_VERSION"
             echo "BETA_VERSION=$BETA_VERSION" >> $GITHUB_OUTPUT
             echo "Using pre-generated beta version: $BETA_VERSION"
           else
-            # Generate regular version from version.h for non-master branches
             MAJOR=$(grep '#define REDISEARCH_VERSION_MAJOR' src/version.h | awk '{print $3}')
             MINOR=$(grep '#define REDISEARCH_VERSION_MINOR' src/version.h | awk '{print $3}')
             PATCH=$(grep '#define REDISEARCH_VERSION_PATCH' src/version.h | awk '{print $3}')
