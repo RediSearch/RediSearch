@@ -393,7 +393,7 @@ mod tests {
     }
 
     #[test]
-    fn hidden_keys_remain_in_logical_row_order() {
+    fn reply_hidden_keys_remain_in_logical_row_order() {
         let mut keys = KeyList::new();
         keys.push(RLookupKey::new(
             c"hidden",
@@ -435,6 +435,7 @@ mod tests {
         // SAFETY: replaced keys remain owned by `keys.retired` until the list is dropped.
         let old = unsafe { old.as_ref() };
         assert!(old.is_tombstone());
+        assert!(old.flags.is_empty());
         // SAFETY: `path` still points to the retained key's original NUL-terminated path.
         assert_eq!(unsafe { CStr::from_ptr(old.path) }, c"$.foo");
     }

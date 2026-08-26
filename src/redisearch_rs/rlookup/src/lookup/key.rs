@@ -60,8 +60,7 @@ pub enum RLookupKeyFlag {
     #[cheadergen(rename = "RLOOKUP_F_UNRESOLVED")]
     Unresolved = 0x80,
 
-    /// This field is hidden within the document and is only used as a transient
-    /// field for another consumer. Don't output this field.
+    /// This field is excluded from top-level client replies.
     #[cheadergen(rename = "RLOOKUP_F_HIDDEN")]
     Hidden = 0x100,
 
@@ -84,6 +83,10 @@ pub enum RLookupKeyFlag {
     /// This key type is numeric
     #[cheadergen(rename = "RLOOKUP_F_NUMERIC")]
     Numeric = 0x1000,
+
+    /// This field is only used by an internal pipeline consumer.
+    #[cheadergen(rename = "RLOOKUP_F_INTERNAL")]
+    Internal = 0x2000,
 }
 
 /// Helper type to represent a set of [`RLookupKeyFlag`]s.
@@ -91,7 +94,7 @@ pub type RLookupKeyFlags = BitFlags<RLookupKeyFlag>;
 
 // Flags that are allowed to be passed to [`RLookup::get_key_read`], [`RLookup::get_key_write`], or [`RLookup::get_key_load`].
 pub const GET_KEY_FLAGS: RLookupKeyFlags =
-    make_bitflags!(RLookupKeyFlag::{Override | Hidden | ExplicitReturn | ForceLoad});
+    make_bitflags!(RLookupKeyFlag::{Override | Hidden | ExplicitReturn | ForceLoad | Internal});
 
 /// Flags do not persist to the key, they are just options to [`super::RLookup::get_key_read`], [`super::RLookup::get_key_write`], or [`super::RLookup::get_key_load`].
 pub const TRANSIENT_FLAGS: RLookupKeyFlags =
@@ -317,7 +320,6 @@ impl<'a> RLookupKey<'a> {
         #[cfg(any(debug_assertions, test))]
         if is_tombstone {
             debug_assert!(self.name_len == usize::MAX);
-            debug_assert!(self.flags.contains(RLookupKeyFlag::Hidden))
         }
 
         is_tombstone
@@ -347,9 +349,6 @@ impl<'a> RLookupKey<'a> {
         // Those callers still need a valid path string to continue working (e.g. to load the
         // field value from the document before the APPLY overwrites it).
         let path = me._path.clone();
-
-        // this will exclude it from iteration
-        me.header.flags |= RLookupKeyFlag::Hidden;
 
         (name, path)
     }
