@@ -815,6 +815,34 @@ def grouper(iterable, n, fillvalue=None):
     args = [iter(iterable)] * n
     return zip_longest(fillvalue=fillvalue, *args)
 
+def testCollectWildcardIncludesExplicitlyLoadedDocumentControlFields(env):
+    """Reply-hidden schema control fields remain available to wildcard COLLECT."""
+    env.expect(
+        'FT.CREATE', 'idx', 'ON', 'HASH',
+        'SCORE_FIELD', '__score',
+        'LANGUAGE_FIELD', '__language',
+        'PAYLOAD_FIELD', '__payload',
+        'SCHEMA', 't', 'TEXT'
+    ).ok()
+    conn = env.getClusterConnectionIfNeeded()
+    conn.execute_command(
+        'HSET', '{doc}:1', 't', 'value', '__score', '0.5',
+        '__language', 'english', '__payload', 'payload'
+    )
+
+    env.expect(
+        'FT.AGGREGATE', 'idx', '*',
+        'LOAD', '3', '@__score', '@__language', '@__payload',
+        'GROUPBY', '0',
+        'REDUCE', 'COLLECT', '2', 'FIELDS', '*', 'AS', 'rows'
+    ).equal([
+        1,
+        ['rows', [[
+            '__score', '0.5', '__language', 'english', '__payload', 'payload'
+        ]]]
+    ])
+
+
 def testAggregateGroupByOnEmptyField(env):
     env.cmd('ft.create', 'idx', 'ON', 'HASH',
             'SCHEMA', 'f', 'TEXT', 'SORTABLE', 'test', 'TEXT', 'SORTABLE')
