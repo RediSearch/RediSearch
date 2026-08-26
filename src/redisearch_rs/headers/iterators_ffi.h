@@ -471,12 +471,14 @@ QueryIterator *NewLazyVectorRangeIterator(ProduceResultsFn produce, FreeProducer
  *
  * # Safety
  *
- * 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
+ * 1. `ids` must be a [valid] pointer to an array of `DocId` with at least `num` elements.
  *    The array must be sorted in ascending order.
- * 2. `metric_list` must be a valid pointer to an array of `f64` with at least `num` elements.
+ * 2. `metric_list` must be a [valid] pointer to an array of `f64` with at least `num` elements.
  * 3. The caller must ensure that `ids` and `metric_list` are not null unless `num` is zero.
  * 4. The memory pointed to by `ids` and `metric_list` will be freed using `RedisModule_Free`,
  *    so the caller must ensure that these pointers were allocated in a compatible manner.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 QueryIterator *NewMetricIteratorSortedById(t_docId *ids, double *metric_list, size_t num, enum MetricType type_);
 
@@ -485,11 +487,13 @@ QueryIterator *NewMetricIteratorSortedById(t_docId *ids, double *metric_list, si
  *
  * # Safety
  *
- * 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
- * 2. `metric_list` must be a valid pointer to an array of `f64` with at least `num` elements.
+ * 1. `ids` must be a [valid] pointer to an array of `DocId` with at least `num` elements.
+ * 2. `metric_list` must be a [valid] pointer to an array of `f64` with at least `num` elements.
  * 3. The caller must ensure that `ids` and `metric_list` are not null unless `num` is zero.
  * 4. The memory pointed to by `ids` and `metric_list` will be freed using `RedisModule_Free`,
  *    so the caller must ensure that these pointers were allocated in a compatible manner.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 QueryIterator *NewMetricIteratorSortedByScore(t_docId *ids, double *metric_list, size_t num, enum MetricType type_);
 
@@ -638,7 +642,7 @@ QueryIterator *NewUnsortedIdListIterator(t_docId *ids, uint64_t num, double weig
  * [`IteratorType::Empty`] rather than [`IteratorType::Hybrid`]. The `VectorTopK_*`
  * accessors below must not be called on such a handle.
  *
- * Pass `child = NULL` for a pure KNN query; pass a valid owning child iterator
+ * Pass `child = NULL` for a pure KNN query; pass a [valid] owning child iterator
  * for a hybrid (filtered) query.
  *
  * The `query_params` pointer is read once to copy the parameters into the
@@ -820,7 +824,9 @@ RLookupKey * *VectorTopK_GetOwnKeyRef(QueryIterator *it);
  *
  * 1. `it` is a non-null, unaliased handle from [`NewVectorTopKIterator`] that did
  *    not reduce to `Empty`, whose `index` and `sctx` are still alive.
- * 2. `handle` is either null or a valid pointer to a [`RLookupKeyHandle`].
+ * 2. `handle` is either null or a [valid] pointer to a [`RLookupKeyHandle`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void VectorTopK_SetKeyHandle(QueryIterator *it, RLookupKeyHandle *handle);
 

@@ -20,12 +20,14 @@ use rqe_iterators::{
 ///
 /// # Safety
 ///
-/// 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
+/// 1. `ids` must be a [valid] pointer to an array of `DocId` with at least `num` elements.
 ///    The array must be sorted in ascending order.
-/// 2. `metric_list` must be a valid pointer to an array of `f64` with at least `num` elements.
+/// 2. `metric_list` must be a [valid] pointer to an array of `f64` with at least `num` elements.
 /// 3. The caller must ensure that `ids` and `metric_list` are not null unless `num` is zero.
 /// 4. The memory pointed to by `ids` and `metric_list` will be freed using `RedisModule_Free`,
 ///    so the caller must ensure that these pointers were allocated in a compatible manner.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 pub unsafe extern "C" fn NewMetricIteratorSortedById(
     ids: *mut DocId,
     metric_list: *mut f64,
@@ -41,11 +43,13 @@ pub unsafe extern "C" fn NewMetricIteratorSortedById(
 ///
 /// # Safety
 ///
-/// 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
-/// 2. `metric_list` must be a valid pointer to an array of `f64` with at least `num` elements.
+/// 1. `ids` must be a [valid] pointer to an array of `DocId` with at least `num` elements.
+/// 2. `metric_list` must be a [valid] pointer to an array of `f64` with at least `num` elements.
 /// 3. The caller must ensure that `ids` and `metric_list` are not null unless `num` is zero.
 /// 4. The memory pointed to by `ids` and `metric_list` will be freed using `RedisModule_Free`,
 ///    so the caller must ensure that these pointers were allocated in a compatible manner.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 pub unsafe extern "C" fn NewMetricIteratorSortedByScore(
     ids: *mut DocId,
     metric_list: *mut f64,
@@ -58,11 +62,13 @@ pub unsafe extern "C" fn NewMetricIteratorSortedByScore(
 
 /// # Safety
 ///
-/// 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
-/// 2. `metric_list` must be a valid pointer to an array of `f64` with at least `num` elements.
+/// 1. `ids` must be a [valid] pointer to an array of `DocId` with at least `num` elements.
+/// 2. `metric_list` must be a [valid] pointer to an array of `f64` with at least `num` elements.
 /// 3. The caller must ensure that `ids` and `metric_list` are not null unless `num` is zero.
 /// 4. The memory pointed to by `ids` and `metric_list` will be freed using `RedisModule_Free`,
 ///    so the caller must ensure that these pointers were allocated in a compatible manner.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 unsafe fn new_metric_iterator<const SORTED_BY_ID: bool>(
     ids: *mut DocId,
     metrics: *mut f64,
