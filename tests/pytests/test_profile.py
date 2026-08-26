@@ -475,6 +475,50 @@ def testProfileVector(env):
   env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_BATCHES_TO_ADHOC_BF')
 
 @skip(cluster=True)
+def testProfileVectorZeroK(env):
+  """`KNN 0` is not short-circuited: it builds a vector iterator, attaches any
+  filter child without ever reading it, and issues an index query that returns
+  no neighbours but still sets the index's last search mode.
+  """
+  conn = getConnectionByEnv(env)
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6',
+             'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2', 't', 'TEXT').ok()
+  conn.execute_command('hset', '1', 'v', 'bababaca', 't', 'hello')
+  conn.execute_command('hset', '2', 'v', 'babababa', 't', 'hello')
+
+  def prime_search_mode():
+    # Leave the index in a mode no zero-K query can produce, so the search-mode
+    # assertion tells a fresh query apart from a mode left by an earlier one.
+    conn.execute_command('ft.profile', 'idx', 'search', 'query',
+                         '@v:[VECTOR_RANGE 3e36 $vec]=>{$yield_distance_as:dist}',
+                         'PARAMS', '2', 'vec', 'aaaaaaaa', 'DIALECT', '2', 'nocontent')
+    env.assertEqual(to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', 'idx', 'v'))['LAST_SEARCH_MODE'],
+                    'RANGE_QUERY')
+
+  knn_profile = ['Type', 'VECTOR', 'Number of reading operations', 0,
+                 'Vector search mode', 'STANDARD_KNN']
+  # A filter child is built and attached to the iterator, then never read.
+  filtered_profile = knn_profile + [
+      'Child iterator',
+      ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 0,
+       'Estimated number of matches', 2]]
+
+  # Bare, filtered, and distance-yielding zero-K queries.
+  for query, expected_profile in [('*=>[KNN 0 @v $vec]', knn_profile),
+                                  ('(@t:hello)=>[KNN 0 @v $vec]', filtered_profile),
+                                  ('*=>[KNN 0 @v $vec AS dist]', knn_profile)]:
+    prime_search_mode()
+    actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', query,
+                                      'PARAMS', '2', 'vec', 'aaaaaaaa', 'DIALECT', '2', 'nocontent')
+    env.assertEqual(actual_res[0], [0], message=query)
+    actual_profile = to_dict(actual_res[1][1][0])
+    env.assertEqual(actual_profile['Iterators profile'], expected_profile, message=query)
+    env.assertEqual(to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', 'idx', 'v'))['LAST_SEARCH_MODE'],
+                    'STANDARD_KNN', message=query)
+
+@skip(cluster=True)
 def testProfileHybridRangeMetricSortedByScore(env):
   """Hybrid RANGE query with YIELD_SCORE_AS creates a METRIC SORTED BY SCORE iterator."""
   conn = getConnectionByEnv(env)
