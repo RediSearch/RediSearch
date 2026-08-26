@@ -1755,6 +1755,11 @@ void replyDumpHNSW(RedisModuleCtx *ctx, VecSimIndex *index, t_docId doc_id) {
     RedisModule_EndReply(&reply);
     return;
   }
+  if (res != VecSimDebugCommandCode_OK) {
+    RedisModule_Reply_Error(&reply, "Unable to read HNSW graph data");
+    RedisModule_EndReply(&reply);
+    return;
+  }
   START_POSTPONED_LEN_ARRAY(response);
   REPLY_WITH_LONG_LONG("Doc id", (long long)doc_id, ARRAY_LEN_VAR(response));
 
@@ -1783,9 +1788,6 @@ DEBUG_COMMAND(dumpHNSWData) {
   }
   if (argc < 4 || argc > 5) { // it should be 4 or 5 (allowing specifying a certain doc)
     return RedisModule_WrongArity(ctx);
-  }
-  if (SearchDisk_IsEnabled()) {
-    return RedisModule_ReplyWithError(ctx, "Command not supported in disk mode");
   }
   GET_SEARCH_CTX(argv[2])
 
@@ -1825,7 +1827,27 @@ DEBUG_COMMAND(dumpHNSWData) {
   }
   // Otherwise, dump neighbors for every document in the index.
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  DOCTABLE_FOREACH((&sctx->spec->docs), {replyDumpHNSW(ctx, vecsimIndex, dmd->id); len_num_docs++;})
+  if (sctx->spec->diskSpec) {
+    t_docId max_doc_id = SearchDisk_GetMaxDocId(sctx->spec->diskSpec);
+    for (t_docId doc_id = 1; doc_id <= max_doc_id; doc_id++) {
+      RSDocumentMetadata *dmd = rm_calloc(1, sizeof(*dmd));
+      dmd->sortVector = RSSortingVector_Empty();
+      dmd->ref_count = 1;
+      bool found = !SearchDisk_DocIdDeleted(sctx->spec->diskSpec, doc_id) &&
+                   SearchDisk_GetDocumentMetadata(sctx->spec->diskSpec, sctx, doc_id, dmd, NULL);
+      DMD_Return(dmd);
+      if (!found) {
+        continue;
+      }
+      replyDumpHNSW(ctx, vecsimIndex, doc_id);
+      len_num_docs++;
+    }
+  } else {
+    DOCTABLE_FOREACH((&sctx->spec->docs), {
+      replyDumpHNSW(ctx, vecsimIndex, dmd->id);
+      len_num_docs++;
+    })
+  }
   RedisModule_ReplySetArrayLength(ctx, len_num_docs);
 
   cleanup:
