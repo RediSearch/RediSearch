@@ -246,6 +246,12 @@ static uint64_t SyncPoint_NextEventSeq(void) {
   return atomic_fetch_add(&globalSyncPointCtx.next_event_seq, 1) + 1;
 }
 
+void SyncPoint_PublishMaxSeq(_Atomic uint64_t *target, uint64_t seq) {
+  uint64_t cur = atomic_load(target);
+  while (cur < seq && !atomic_compare_exchange_weak(target, &cur, seq)) {
+  }
+}
+
 // Internal helper: find sync point by name
 static SyncPointState* SyncPoint_FindByName(const char *name) {
   // Use acquire semantics to synchronize with the release fence in SyncPoint_Arm,
@@ -315,27 +321,27 @@ void SyncPoint_Signal(const char *name) {
 }
 
 bool SyncPoint_IsWaiting(const char *name) {
-  SyncPointState *sp = SyncPoint_FindByName(name);
+  const SyncPointState *sp = SyncPoint_FindByName(name);
   return sp ? (atomic_load(&sp->waiting) > 0) : false;
 }
 
 uint32_t SyncPoint_HitCount(const char *name) {
-  SyncPointState *sp = SyncPoint_FindByName(name);
+  const SyncPointState *sp = SyncPoint_FindByName(name);
   return sp ? atomic_load(&sp->hit_count) : 0;
 }
 
 uint64_t SyncPoint_LastHitSeq(const char *name) {
-  SyncPointState *sp = SyncPoint_FindByName(name);
+  const SyncPointState *sp = SyncPoint_FindByName(name);
   return sp ? atomic_load(&sp->last_hit_seq) : 0;
 }
 
 uint64_t SyncPoint_LastReleaseSeq(const char *name) {
-  SyncPointState *sp = SyncPoint_FindByName(name);
+  const SyncPointState *sp = SyncPoint_FindByName(name);
   return sp ? atomic_load(&sp->last_release_seq) : 0;
 }
 
 bool SyncPoint_IsArmed(const char *name) {
-  SyncPointState *sp = SyncPoint_FindByName(name);
+  const SyncPointState *sp = SyncPoint_FindByName(name);
   return sp ? atomic_load(&sp->armed) : false;
 }
 
@@ -372,7 +378,7 @@ void SyncPoint_Wait(const char *name) {
   // in-flight compaction) — a SIGNAL could never be processed by the frozen
   // main thread, so the timeout is the only way out.
   long long auto_release_ms = atomic_load(&sp->auto_release_ms);
-  atomic_store(&sp->last_hit_seq, SyncPoint_NextEventSeq());
+  SyncPoint_PublishMaxSeq(&sp->last_hit_seq, SyncPoint_NextEventSeq());
   atomic_fetch_add(&sp->hit_count, 1);
   atomic_fetch_add(&sp->waiting, 1);  // Increment waiting counter
   long long waited_ms = 0;
@@ -381,7 +387,7 @@ void SyncPoint_Wait(const char *name) {
     usleep(1000);  // Spin-wait with 1ms sleep (matches existing pattern)
     waited_ms++;
   }
-  atomic_store(&sp->last_release_seq, SyncPoint_NextEventSeq());
+  SyncPoint_PublishMaxSeq(&sp->last_release_seq, SyncPoint_NextEventSeq());
   atomic_fetch_sub(&sp->waiting, 1);  // Decrement waiting counter
 }
 
@@ -389,14 +395,14 @@ void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg) {
   SyncPointState *sp = SyncPoint_FindByName(name);
   if (!sp || !atomic_load(&sp->armed)) return;
 
-  atomic_store(&sp->last_hit_seq, SyncPoint_NextEventSeq());
+  SyncPoint_PublishMaxSeq(&sp->last_hit_seq, SyncPoint_NextEventSeq());
   atomic_fetch_add(&sp->hit_count, 1);
   atomic_fetch_add(&sp->waiting, 1);
   while (atomic_load(&sp->armed)) {
     if (stop_fn && stop_fn(arg)) break;
     usleep(1000);
   }
-  atomic_store(&sp->last_release_seq, SyncPoint_NextEventSeq());
+  SyncPoint_PublishMaxSeq(&sp->last_release_seq, SyncPoint_NextEventSeq());
   atomic_fetch_sub(&sp->waiting, 1);
 }
 
