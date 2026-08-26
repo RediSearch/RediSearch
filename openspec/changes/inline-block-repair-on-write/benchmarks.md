@@ -360,10 +360,12 @@ bytes, as expected, but each still reaches garbage the other misses — roughly 
 - [x] Relax the full-block gate — done in this change; the numbers above are the shipped
       trigger.
 - [x] Measure reconciliation and inline repair together — ~70% additive, see above.
-- [ ] Tune the probe stride. 8 costs 26% write throughput; the `num_entries < 8` rule decodes
-      on every append for the shortest lists and is the first thing to try relaxing.
+- [x] Expose the probe stride as a config — `INLINE_GC_BLOCK_REPAIR_STRIDE`, with `0`
+      reproducing the full-block-only trigger and its ~5% cost.
+- [ ] Measure the stride between its endpoints. Only 0 and 8 have numbers; the curve between
+      them is assumed.
 - [ ] Re-measure reconciliation's write cost on a fixed-write-count harness, to settle the
-      contradiction above.
+      contradiction above. Round 4 supplies that harness.
 
 ## Caveats
 
@@ -374,3 +376,67 @@ bytes, as expected, but each still reaches garbage the other misses — roughly 
 - Automatic GC scheduling is stopped (`GC_STOP_SCHEDULE`) and cycles are forced, so cycle
   cadence is set by the harness rather than by `FORK_GC_CLEAN_THRESHOLD`.
 - Single index, single shard, one document shape.
+
+---
+
+# Round 4: automatic GC scheduling, fixed write count
+
+Every earlier round forced GC on a timer with scheduling stopped, so cycle frequency was set
+by the harness rather than by `FORK_GC_CLEAN_THRESHOLD` — the knob an operator actually has.
+This round leaves the scheduler alone and bounds each arm by **write count instead of
+duration**, so the arms produce the same amount of garbage. That matters: in the earlier
+factorial, cells did between 2.17 M and 5.05 M writes, and a faster arm accumulating more
+garbage reads as the slower arm looking cleaner.
+
+200 000 enwiki documents, 3 000 003 writes per arm (exact, all eight arms), 4 connections, no
+forced GC. Two reps per cell.
+
+| Arm | ops/s | p50 | p99.9 | GC cycles | total GC time | `num_records` | peak RSS | `gc_blocks_denied` |
+|---|---|---|---|---|---|---|---|---|
+| inline off, threshold 100 | 23.7k | 0.186 ms | 0.85 ms | 1 | 144.7 s | 49.3 M | 849 MB | 375k |
+| inline on, threshold 100 | 21.8k | 0.170 ms | 0.63 ms | 1.5 | **93.0 s** | 16.4 M | 618 MB | 204k |
+| inline off, threshold 10k | 32.4k | 0.114 ms | 0.47 ms | 1 | 92.8 s | 46.0 M | 815 MB | 409k |
+| inline on, threshold 10k | 21.7k | 0.170 ms | 0.68 ms | 1 | **75.1 s** | 21.0 M | 626 MB | 229k |
+
+## Inline repair reduces total fork-GC time
+
+144.7 s → 93.0 s at threshold 100 (−36%), 92.8 s → 75.1 s at threshold 10k (−19%). The
+inline arms earn that while running *longer in wall-clock* — they write more slowly, so 3 M
+writes take ~138 s against ~93 s — which gives the GC more opportunity, not less. Per second
+of wall clock the GC duty cycle roughly halves.
+
+Residency at equal work: 46–49 M records against 16–21 M, peak RSS 815–849 MB against
+618–626 MB (−25%).
+
+## Denials do drop here, unlike in round 3
+
+375–409k against 204–229k, roughly halved. Round 3 measured them as unchanged and concluded
+inline repair does not touch the denial path. Both are true of their own setup: a denial
+fires per *index* whose last block moved since the fork, and under forced GC on a fully
+garbage-laden index that is nearly every index either way. With automatic scheduling and a
+much smaller index there are fewer indexes with a dirty tail to deny in the first place. The
+round-3 phrasing — that inline repair changes how much garbage a denied block holds rather
+than whether it is denied — remains the mechanism; the count moves as a second-order effect.
+
+## The threshold lever does not appear at this scale
+
+Raising `FORK_GC_CLEAN_THRESHOLD` from 100 to 10000 left the cycle count at 1 either way. A
+cycle on this index takes 75–145 s while 3 M writes take 90–140 s, so the GC is
+**duration-bound, not trigger-bound**: it runs one cycle essentially back to back for the
+whole run and the trigger never becomes the binding constraint. A threshold cannot reduce a
+frequency that is already one-per-run.
+
+The hypothesis it was meant to test — that inline repair slows the growth of
+`deletedOrUpdatedDocsFromLastRun` and so makes a higher threshold affordable — is therefore
+neither confirmed nor refuted here. It needs a regime where cycles are short relative to
+write volume; round 4b uses a 20 000-document index at the same write volume for that.
+
+## Caveats
+
+- `off-t100` is the noisy cell: reps of 14,664 and 32,702 ops/s, a 2.2× spread. Its mean and
+  the −36% derived from it are soft. The other three cells agree within ~1% between reps.
+- The inline-on arms sit at ~21.7k ops/s regardless of threshold, consistent with the
+  write-path cost being a fixed tax. Against the fastest inline-off arm that is a 33%
+  throughput cost, above the 26% measured under forced GC in round 3.
+- One cycle per arm means the GC numbers rest on a single sample of a long, variable
+  operation.
