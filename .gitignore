@@ -13,7 +13,7 @@
 *.lock
 /bin/
 /site/
-/venv*/
+/*venv*/
 /srcutil/lemon
 /src/query_parser/lemon
 /.vscode/

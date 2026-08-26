@@ -15,6 +15,7 @@
 #include "spec.h"
 #include "redisearch.h"
 #include "util/references.h"
+#include "rmutil/args.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -24,6 +25,8 @@ extern "C" {
 
 #define RULE_TYPE_HASH "HASH"
 #define RULE_TYPE_JSON "JSON"
+
+#define MAX_SCHEMA_PREFIXES 1000000
 
 struct RSExpr;
 struct IndexSpec;
@@ -67,6 +70,12 @@ void SchemaRuleArgs_Free(SchemaRuleArgs *args);
 void LegacySchemaRulesArgs_Free(RedisModuleCtx *ctx);
 
 SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef spec_ref, QueryError *status);
+
+/* Same as SchemaRule_Create, but the prefixes are read from an ArgsCursor
+ * instead of `args->prefixes`/`args->nprefixes`. The cursor must contain at
+ * least one prefix. The cursor is consumed (advanced) by this function. */
+SchemaRule *SchemaRule_CreateWithPrefixesAC(SchemaRuleArgs *args, ArgsCursor *prefixes_ac,
+                                            StrongRef spec_ref, QueryError *status);
 void SchemaRule_FilterFields(struct IndexSpec *sp);
 void SchemaRule_Free(SchemaRule *);
 
