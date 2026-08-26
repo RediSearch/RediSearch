@@ -161,6 +161,9 @@ typedef struct ResultProcessor {
    * Users can use SearchResult_Clear() to reset the structure without freeing
    * it.
    *
+   * `res` must point to initialized storage that is exclusively accessible for
+   * the duration of the call. A concurrent Drain call must use distinct storage.
+   *
    * The populated structure (if RS_RESULT_OK is returned) does contain references
    * to document data. Callers *MUST* ensure they are eventually freed.
    */
@@ -176,8 +179,10 @@ typedef struct ResultProcessor {
    *
    * Drain may run concurrently with at most one call active in the Next chain.
    * The caller guarantees that the processor chain remains alive until both
-   * calls return. Implementations must not wait for the Next call, background
-   * work, I/O, condition variables, or global runtime locks.
+   * calls return and that `res` points to initialized, exclusively accessible
+   * storage distinct from the concurrent Next call's result. Implementations
+   * must not wait for the Next call, background work, I/O, condition variables,
+   * or global runtime locks.
    */
   RPDrainStatus (*Drain)(struct ResultProcessor *self, SearchResult *res);
 } ResultProcessor;
