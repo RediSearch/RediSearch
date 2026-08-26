@@ -52,7 +52,7 @@ static PANIC_STASH: OnceLock<StashedPanic> = OnceLock::new();
 /// Initialize RediSearch's panic hook, without replacing the pre-existing panic hook (if any).
 ///
 /// Panic messages will be logged through `tracing` at the `ERROR` level, and
-/// stashed in [`PANIC_STASH`] for [`AddToInfo_RustBacktrace`] to include in
+/// stashed in `PANIC_STASH` for [`AddToInfo_RustBacktrace`] to include in
 /// the crash report.
 #[unsafe(no_mangle)]
 pub extern "C" fn RustPanicHook_Init() {
@@ -115,7 +115,7 @@ fn info_cstring(value: impl Into<Vec<u8>>) -> CString {
 /// Add the current backtrace as a new section to the report printed
 /// by RediSearch's INFO command.
 ///
-/// When a Rust panic was stashed in [`PANIC_STASH`], its details are emitted
+/// When a Rust panic was stashed in `PANIC_STASH`, its details are emitted
 /// in the same section, ahead of the backtrace.
 ///
 /// # Safety
