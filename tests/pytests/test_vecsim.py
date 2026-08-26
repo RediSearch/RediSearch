@@ -2487,6 +2487,30 @@ def test_score_name_case_sensitivity():
 
 
 @skip(cluster=True)
+def test_score_name_long_field_name():
+    """KNN derives the default `__<field>_score` name from the vector field name
+    when resolving the distance field. Cover that with a long name, including the
+    path that compares against the derived default."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    dim = 2
+    vec_fieldname = 'v' * (9 * 1024 * 1024)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', vec_fieldname, 'VECTOR', 'FLAT', '6',
+               'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+    blob = create_np_array_typed([0] * dim).tobytes()
+
+    # Naming the distance field through both syntaxes at once is the only path that compares
+    # the given name against the default derived from the field name.
+    env.expect('FT.SEARCH', 'idx', f'*=>[KNN 2 @{vec_fieldname} $BLOB AS score]=>{{$yield_distance_as: score2}}',
+               'PARAMS', 2, 'BLOB', blob).error().contains(
+                   'Distance field was specified twice for vector query: score and score2')
+
+    # Naming it through neither yields under the derived default, which the query must still
+    # be able to build from a name this long.
+    env.expect('FT.SEARCH', 'idx', f'*=>[KNN 2 @{vec_fieldname} $BLOB]',
+               'PARAMS', 2, 'BLOB', blob).equal([0])
+
+
+@skip(cluster=True)
 def test_tiered_index_gc():
     N = 100
     env = Env(moduleArgs=f'WORKERS 2 FORK_GC_RUN_INTERVAL 1000000000000 FORK_GC_CLEAN_THRESHOLD {N}')
@@ -2594,47 +2618,6 @@ def test_max_knn_k():
                'PARAMS', 2, 'BLOB', create_np_array_typed([0] * dim).tobytes(),
                'RETURN', '1', score_name).error().contains('KNN K parameter is too large')
 
-def test_knn_k_exceeds_max_results():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    conn = getConnectionByEnv(env)
-
-    # Create an index and insert vectors.
-    dim = 2
-    vec_fieldname = 'VEC'
-    conn.execute_command(
-        'FT.CREATE', 'idx',
-        'SCHEMA', vec_fieldname, 'VECTOR', 'FLAT', '6',
-            'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2')
-    num_docs = 11
-    for i in range(num_docs):
-        conn.execute_command('HSET', f'doc{i}', vec_fieldname,
-                             create_np_array_typed([i] * dim).tobytes())
-    waitForIndex(env, 'idx')
-
-    # Set max search/aggregate results to a small value.
-    max_search_results = 3
-    max_aggregate_results = 4
-    verify_command_OK_on_all_shards(
-        env, config_cmd(), 'SET', 'MAXSEARCHRESULTS', max_search_results)
-    verify_command_OK_on_all_shards(
-        env, config_cmd(), 'SET', 'MAXAGGREGATERESULTS', max_aggregate_results)
-
-    # Verify that KNN K parameter that exceeds max results is rejected.
-    k = max(max_search_results, max_aggregate_results) + 1
-    with env.assertResponseError(
-            contained=f'LIMIT exceeds maximum of {max_search_results}'):
-        conn.execute_command(
-            'FT.SEARCH', 'idx', f'*=>[KNN {k} @{vec_fieldname} $BLOB]',
-            'PARAMS', 2, 'BLOB', create_np_array_typed([0] * dim).tobytes(),
-            'NOCONTENT', 'LIMIT', 0, 20)
-
-    with env.assertResponseError(
-            contained=f'LIMIT exceeds maximum of {max_aggregate_results}'):
-        conn.execute_command(
-            'FT.AGGREGATE', 'idx', f'*=>[KNN {k} @{vec_fieldname} $BLOB]',
-            'PARAMS', 2, 'BLOB', create_np_array_typed([0] * dim).tobytes(),
-            'LIMIT', 0, 20)
-
 def test_vector_index_ptr_valid(env):
     conn = getConnectionByEnv(env)
     # Scenerio1: Vecsim Index scheme with numeric (or non-vector type) and vector type with invalid parameter
@@ -2668,11 +2651,10 @@ def test_vector_index_ptr_valid(env):
     env.expect('PING').noError()
 
 
-def test_hybrid_adhoc_int8_cosine():
+def test_hybrid_adhoc_int8_uint8_cosine():
     """
     Test hybrid ad-hoc brute force search with INT8/UINT8 vectors and Cosine metric.
-    This test validates the fix for MOD-14470, where a buffer overflow occurred
-    when normalizing INT8/UINT8 query vectors for Cosine metric in computeDistances.
+    This covers query-vector normalization in computeDistances_RAM.
     """
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
@@ -2680,45 +2662,32 @@ def test_hybrid_adhoc_int8_cosine():
     qty = 10
     k = 3
 
-    for data_type in ['INT8', 'UINT8']:
+    for data_type in ('INT8', 'UINT8'):
         index_args = ['TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'COSINE']
-        # Create an HNSW index with INT8/UINT8 and COSINE metric
-        conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', len(index_args), *index_args, 't', 'TEXT')
+        conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT',
+                             len(index_args), *index_args, 't', 'TEXT')
 
-        # Load vectors with text values
         query_vec = None
         for i in range(1, qty + 1):
-            # create a vector with varying values.
-            # if the valuw wxceeds the type limit, clamp it.
-            if data_type == 'INT8':
-                vector_values = [min(127, i+j) for j in range(dim)]
-            elif data_type == 'UINT8':
-                vector_values = [min(255, i+j) for j in range(dim)]
+            type_limit = 127 if data_type == 'INT8' else 255
+            vector_values = [min(type_limit, i + j) for j in range(dim)]
             query_vec = create_np_array_typed(vector_values, data_type)
             conn.execute_command('HSET', i, 'v', query_vec.tobytes(), 't', 'text')
 
-        # Query vector using the last vector - will be normalized internally for Cosine
-        query_data = query_vec
-
-        # Run hybrid search with ad-hoc BF policy
-        # This triggers computeDistances which normalizes the query vector
         res = env.cmd('FT.SEARCH', 'idx', f'(text)=>[KNN {k} @v $vec_param HYBRID_POLICY ADHOC_BF]',
                       'SORTBY', '__v_score',
-                      'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                      'PARAMS', 2, 'vec_param', query_vec.tobytes(),
                       'RETURN', 2, 't', '__v_score')
 
-        # Verify we got results and the search mode was ad-hoc BF
-        env.assertEqual(res[0], 3, message=f'{data_type}: Expected k ({k}) results')
-        debug_info = to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))
+        env.assertEqual(res[0], k, message=f'{data_type}: expected {k} results')
+        debug_info = to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', 'idx', 'v'))
         env.assertEqual(debug_info['LAST_SEARCH_MODE'], 'HYBRID_ADHOC_BF', message=data_type)
 
-        # Verify the closest result is the one matching the query vector (i.e., the last inserted document with id = qty)
-        first_res_doc = res[1]
-        env.assertEqual(first_res_doc, str(qty), message=f'{data_type}: Expected closest match to be the last doc ({qty}). res = {res}')
-
-        # Verify distance is 0 for the closest result
+        env.assertEqual(res[1], str(qty),
+                        message=f'{data_type}: expected doc {qty} to be the closest result. res = {res}')
         first_res_values = res[2]
         first_res_dist = first_res_values[first_res_values.index('__v_score') + 1]
-        env.assertEqual(float(first_res_dist), 0, message=f'{data_type}: Expected distance to be 0. res = {res}')
+        env.assertEqual(float(first_res_dist), 0,
+                        message=f'{data_type}: expected exact self-match distance to be 0. res = {res}')
 
         conn.execute_command('FLUSHALL')

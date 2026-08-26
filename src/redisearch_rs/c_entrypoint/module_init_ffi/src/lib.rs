@@ -7,7 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::ffi::CString;
 use std::ptr::NonNull;
+use std::sync::OnceLock;
+use std::time::SystemTime;
 
 /// Initializes a global subscriber that reports Rust `tracing` traces through `redismodule` logging.
 #[unsafe(no_mangle)]
@@ -15,9 +18,42 @@ pub extern "C" fn TracingRedisModule_Init(ctx: Option<NonNull<ffi::RedisModuleCt
     tracing_redismodule::init(ctx);
 }
 
-/// Initialize RediSearch's panic hook, without replaacing the pre-existing panic hook (if any).
+/// Details of a Rust panic, stashed by the hook installed in
+/// [`RustPanicHook_Init`] and emitted inside the crash report by
+/// [`AddToInfo_RustBacktrace`].
 ///
-/// Panic messages will be logged through `tracing` at the `ERROR` level.
+/// Strings are stored as-is, without truncation. `payload` and `location`
+/// match the rendering of the hook's `tracing::error!` log line: the literal
+/// `None` for a non-string payload or a missing location. `recorded_at` is
+/// captured at hook time by [`format_utc_timestamp`].
+///
+/// The stash outlives the panic: a panic crossing an `extern "C"` boundary
+/// aborts right away, but a panic that unwinds and is caught, or one on a
+/// Rust-only thread, leaves the stash populated until a later, possibly
+/// unrelated crash, where it reads as that crash's cause. `recorded_at` lets
+/// the reader tell the two apart by comparing it against the crash log line's
+/// own timestamp prefix.
+struct StashedPanic {
+    payload: String,
+    location: String,
+    recorded_at: String,
+}
+
+/// The process-wide stash, written by the hook installed in
+/// [`RustPanicHook_Init`] and read by [`AddToInfo_RustBacktrace`].
+///
+/// A [`OnceLock`] rather than a mutex: [`AddToInfo_RustBacktrace`] runs from
+/// Redis's fatal signal handler, where pthread_mutex_lock is not
+/// async-signal-safe. First-write-wins: the hook fires twice per crash (the
+/// real panic, then the nested "panic in a function that cannot unwind"
+/// panic at the `extern "C"` boundary), and the second `set` is dropped.
+static PANIC_STASH: OnceLock<StashedPanic> = OnceLock::new();
+
+/// Initialize RediSearch's panic hook, without replacing the pre-existing panic hook (if any).
+///
+/// Panic messages will be logged through `tracing` at the `ERROR` level, and
+/// stashed in [`PANIC_STASH`] for [`AddToInfo_RustBacktrace`] to include in
+/// the crash report.
 #[unsafe(no_mangle)]
 pub extern "C" fn RustPanicHook_Init() {
     let previous_hook = std::panic::take_hook();
@@ -40,34 +76,37 @@ pub extern "C" fn RustPanicHook_Init() {
             "A panic occurred in the Rust code",
         );
 
+        // The log line above lands above the crash report's START marker,
+        // outside the span users are asked to copy; the stash rides the
+        // module INFO callback instead, which runs inside the report.
+        let _ = PANIC_STASH.set(StashedPanic {
+            payload: payload.unwrap_or("None").to_owned(),
+            location: panic_info
+                .location()
+                .map_or_else(|| "None".to_owned(), |l| l.to_string()),
+            recorded_at: format_utc_timestamp(SystemTime::now()),
+        });
+
         // Invoke the previous panic hook, if any.
         previous_hook(panic_info);
     }));
 }
-/// Add the current backtrace as a new section to the report printed
-/// by RediSearch's INFO command.
+
+/// Formats `now` as `YYYY-MM-DD HH:MM:SS UTC`.
+fn format_utc_timestamp(now: SystemTime) -> String {
+    chrono::DateTime::<chrono::Utc>::from(now)
+        .format("%Y-%m-%d %H:%M:%S UTC")
+        .to_string()
+}
+
+/// Converts `value` into the null-terminated C string expected by the
+/// `RedisModule_Info*` functions.
 ///
-/// # Safety
-///
-/// `ctx` must be a valid pointer to a `RedisModuleInfoCtx`.
-#[unsafe(no_mangle)]
-pub extern "C" fn AddToInfo_RustBacktrace(ctx: Option<NonNull<ffi::RedisModuleInfoCtx>>) {
-    use std::ffi::CString;
-
-    let Some(ctx) = ctx else {
-        return;
-    };
-
-    let backtrace = std::backtrace::Backtrace::force_capture();
-    let backtrace_str = backtrace.to_string();
-
-    // The `RedisModule_Info*` functions we need to invoke expect a valid C string.
-    // We need to ensure that the backtrace we printed doesn't contain any null bytes and
-    // is properly null-terminated.
-    //
-    // For perf purposes, we strive to avoid allocating a new string if possible—i.e.
-    // if the formatted backtrace string doesn't contain any null bytes.
-    let backtrace_cstr = match CString::new(backtrace_str) {
+/// For perf purposes, we strive to avoid allocating a new buffer if possible,
+/// i.e. if `value` is already owned and doesn't contain any null bytes.
+/// Interior null bytes are replaced with `?`.
+fn info_cstring(value: impl Into<Vec<u8>>) -> CString {
+    match CString::new(value) {
         Ok(cstr) => cstr,
         Err(err) => {
             let mut bytes = err.into_vec();
@@ -79,7 +118,25 @@ pub extern "C" fn AddToInfo_RustBacktrace(ctx: Option<NonNull<ffi::RedisModuleIn
             // SAFETY: We just replaced all null bytes with '?'.
             unsafe { CString::from_vec_unchecked(bytes) }
         }
+    }
+}
+
+/// Add the current backtrace as a new section to the report printed
+/// by RediSearch's INFO command.
+///
+/// When a Rust panic was stashed in [`PANIC_STASH`], its details are emitted
+/// in the same section, ahead of the backtrace.
+///
+/// # Safety
+///
+/// `ctx` must be a valid pointer to a `RedisModuleInfoCtx`.
+#[unsafe(no_mangle)]
+pub extern "C" fn AddToInfo_RustBacktrace(ctx: Option<NonNull<ffi::RedisModuleInfoCtx>>) {
+    let Some(ctx) = ctx else {
+        return;
     };
+
+    let backtrace_cstr = info_cstring(std::backtrace::Backtrace::force_capture().to_string());
 
     // SAFETY: `RedisModule_InfoAddSection` has been initialized during module load.
     let info_add_section = unsafe { ffi::RedisModule_InfoAddSection.unwrap() };
@@ -88,6 +145,54 @@ pub extern "C" fn AddToInfo_RustBacktrace(ctx: Option<NonNull<ffi::RedisModuleIn
 
     // SAFETY: `ctx` is a valid pointer to a `RedisModuleInfoCtx`.
     unsafe { info_add_section(ctx.as_ptr(), c"rust_backtrace".as_ptr()) };
+
+    // `get` yields None if a crash races the first panic's `set`, losing the
+    // fields rather than blocking the report.
+    if let Some(stashed) = PANIC_STASH.get() {
+        let payload = info_cstring(stashed.payload.as_str());
+        let location = info_cstring(stashed.location.as_str());
+        let recorded_at = info_cstring(stashed.recorded_at.as_str());
+        // SAFETY: `ctx` is a valid pointer and `payload` is a valid null-terminated C string.
+        unsafe {
+            info_add_field_cstring(ctx.as_ptr(), c"panic_payload".as_ptr(), payload.as_ptr())
+        };
+        // SAFETY: `ctx` is a valid pointer and `location` is a valid null-terminated C string.
+        unsafe {
+            info_add_field_cstring(ctx.as_ptr(), c"panic_location".as_ptr(), location.as_ptr())
+        };
+        // SAFETY: `ctx` is a valid pointer and `recorded_at` is a valid null-terminated C string.
+        unsafe {
+            info_add_field_cstring(
+                ctx.as_ptr(),
+                c"panic_recorded_at".as_ptr(),
+                recorded_at.as_ptr(),
+            )
+        };
+    }
+
     // SAFETY: `ctx` is a valid pointer and `backtrace_cstr` is a valid null-terminated C string.
     unsafe { info_add_field_cstring(ctx.as_ptr(), c"backtrace".as_ptr(), backtrace_cstr.as_ptr()) };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, UNIX_EPOCH};
+
+    // Pins the crash-report timestamp format; the conversion itself is
+    // chrono's.
+    #[test]
+    fn formats_timestamp_as_utc() {
+        assert_eq!(format_utc_timestamp(UNIX_EPOCH), "1970-01-01 00:00:00 UTC");
+        assert_eq!(
+            format_utc_timestamp(UNIX_EPOCH + Duration::from_secs(1_000_000_000)),
+            "2001-09-09 01:46:40 UTC"
+        );
+    }
+
+    #[test]
+    fn info_cstring_replaces_interior_null_bytes() {
+        assert_eq!(info_cstring("a\0b").to_bytes(), b"a?b");
+        assert_eq!(info_cstring("clean").to_bytes(), b"clean");
+    }
 }

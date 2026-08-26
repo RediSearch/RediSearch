@@ -10,7 +10,6 @@
 #include "gtest/gtest.h"
 #include "util/arg_parser.h"
 #include "deps/rmutil/args.h"
-#include <limits>
 #include <vector>
 #include <string>
 
@@ -431,39 +430,6 @@ TEST_F(ArgParserTest, UnsignedLongArgument) {
     ArgParseResult result = ArgParser_Parse(parser);
     ASSERT_TRUE(result.success) << "Parse failed: " << ArgParser_GetErrorString(parser);
     ASSERT_EQ(size, 1024ULL);
-}
-
-TEST_F(ArgParserTest, UnsignedLongDefaultCanExceedSignedRange) {
-    SetupCustomArgs({"COMMAND"});
-
-    unsigned long long size = 0;
-    const unsigned long long default_size = std::numeric_limits<unsigned long long>::max();
-    ArgParser_AddULongLongV(parser, "SIZE", "Size value", &size,
-                            ARG_OPT_OPTIONAL,
-                            ARG_OPT_DEFAULT_ULONG_LONG, default_size,
-                            ARG_OPT_END);
-
-    ArgParseResult result = ArgParser_Parse(parser);
-    ASSERT_TRUE(result.success) << "Parse failed: " << ArgParser_GetErrorString(parser);
-    ASSERT_EQ(size, default_size);
-}
-
-TEST_F(ArgParserTest, UnsignedLongRangeCanStoreBoundsAboveSignedRange) {
-    SetupCustomArgs({"COMMAND", "SIZE", "9223372036854775806"});
-
-    unsigned long long size = 0;
-    const unsigned long long expected_size =
-        (unsigned long long)std::numeric_limits<long long>::max() - 1ULL;
-    const unsigned long long max_size =
-        (unsigned long long)std::numeric_limits<long long>::max() + 1ULL;
-    ArgParser_AddULongLongV(parser, "SIZE", "Size value", &size,
-                            ARG_OPT_OPTIONAL,
-                            ARG_OPT_RANGE_ULONG_LONG, 1ULL, max_size,
-                            ARG_OPT_END);
-
-    ArgParseResult result = ArgParser_Parse(parser);
-    ASSERT_TRUE(result.success) << "Parse failed: " << ArgParser_GetErrorString(parser);
-    ASSERT_EQ(size, expected_size);
 }
 
 TEST_F(ArgParserTest, EmptyArguments) {

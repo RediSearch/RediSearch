@@ -33,9 +33,6 @@
 #include "redisearch.h"
 #include "asm_state_machine.h"
 
-// Cap eager hybrid-merger dict pre-sizing to avoid excessive bucket allocations.
-#define MAX_HYBRID_MERGER_PRESIZE_BYTES (64 * 1024 * 1024)
-
 /*******************************************************************************************************************
  *  Base Result Processor - this processor is the topmost processor of every processing chain.
  *
@@ -101,6 +98,7 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
   RedisSearchCtx *sctx = self->sctx;
   DocTable* docs = &self->sctx->spec->docs;
   const RSDocumentMetadata *dmd;
+  // An owned or borrowed lock both keep this iterator on the existing snapshot.
   if (sctx->flags == RS_CTX_UNSET) {
     // If we need to read the iterators and we didn't lock the spec yet, lock it now
     // and reopen the keys in the concurrent search context (iterators' validation)
@@ -935,11 +933,12 @@ static int rpSafeLoaderNext_Yield(ResultProcessor *rp, SearchResult *result_outp
 /*********************************************************************************/
 
 static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
+  RS_LOG_ASSERT(rp->parent->resultLimit > 0, "Result limit should be greater than 0");
   RPSafeLoader *self = (RPSafeLoader *)rp;
 
   // Keep fetching results from the upstream result processor until EOF is reached
   RedisSearchCtx *sctx = self->sctx;
-  int result_status = RS_RESULT_EOF;
+  int result_status;
   uint32_t bufferLimit = rp->parent->resultLimit;
   SearchResult resToBuffer = {0};
   SearchResult *currBlock = NULL;
@@ -1417,6 +1416,11 @@ ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLook
  *  NOTE: Currently the recommended number of upstreams is 2. Using more may
  *  induce performance issues, until a more robust mechanism is implemented.
  *******************************************************************************************************************/
+
+#define SAFE_DEPLETER_LOCK_FAILURE_MSG                                                            \
+  "Failed to acquire index lock for background depletion. A write operation may be in progress. " \
+  "Please retry."
+
 typedef struct {
   ResultProcessor base;                // Base result processor struct
   // We require separate contexts because we have different threads.
@@ -1527,6 +1531,8 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
       // Failed to acquire lock - likely a writer is waiting
       // Set error status and return without depleting
       self->last_rc = RS_RESULT_ERROR;
+      QueryError_SetError(self->base.parent->err, QUERY_ESAFEDEPLETERFAILURE,
+                          SAFE_DEPLETER_LOCK_FAILURE_MSG);
       // Signal that we're skipping the lock phase (for WaitForDepletionToStart)
       atomic_fetch_add(&sync->num_skipped_lock, 1);
       return;
@@ -1836,8 +1842,7 @@ int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryErro
   for (size_t i = 0; i < count; i++) {
     const RPSafeDepleter *safeDepleter = (RPSafeDepleter *)safeDepleters[i];
     if (safeDepleter->last_rc == RS_RESULT_ERROR) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ESAFEDEPLETERFAILURE,
-        "Failed to acquire index lock for background depletion. A write operation may be in progress. Please retry.");
+      QueryError_SetError(status, QUERY_ESAFEDEPLETERFAILURE, SAFE_DEPLETER_LOCK_FAILURE_MSG);
       return RS_RESULT_ERROR;
     } else if (safeDepleter->last_rc == RS_RESULT_TIMEDOUT) {
       anyTimedOut = true;
@@ -2000,6 +2005,8 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
 
   SearchResult *mergedResult = mergeSearchResults(hybridResult, self->hybridScoringCtx, self->lookupCtx);
   if (!mergedResult) {
+    QueryError_SetError(rp->parent->err, QUERY_EGENERIC,
+                        "Failed to merge hybrid subquery results");
     return RS_RESULT_ERROR;
   }
 
@@ -2015,32 +2022,16 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
   return RS_RESULT_OK;
  }
 
-bool RPHybridMerger_ShouldPresize(size_t window, size_t numUpstreams, size_t *maximalSize) {
-  RS_ASSERT(maximalSize);
-
-  if (numUpstreams == 0 || window == 0) {
-    return false;
-  }
-
-  if (window > ((size_t)-1) / numUpstreams) {
-    return false;
-  }
-
-  size_t requestedBuckets = window * numUpstreams;
-  size_t maxPresizeBuckets = MAX_HYBRID_MERGER_PRESIZE_BYTES / sizeof(void *);
-  if (requestedBuckets > maxPresizeBuckets) {
-    return false;
-  }
-
-  *maximalSize = requestedBuckets;
-  return true;
-}
-
  /* Accumulation phase - consume window results from all upstreams */
  static int RPHybridMerger_Accum(ResultProcessor *rp, SearchResult *r) {
   RPHybridMerger *self = (RPHybridMerger *)rp;
 
-  size_t window = HybridScoringContext_GetWindow(self->hybridScoringCtx);
+  size_t window;
+  if (self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
+    window = self->hybridScoringCtx->rrfCtx.window;
+  } else {
+    window = self->hybridScoringCtx->linearCtx.window;
+  }
 
   bool *consumed = rm_calloc(self->numUpstreams, sizeof(bool));
   size_t numConsumed = 0;
@@ -2161,13 +2152,15 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
    ret->upstreams = upstreams;
    ret->hybridResults = dictCreate(&dictTypeHybridSearchResult, NULL);
 
-   size_t maximalSize = 0;
-   size_t window = HybridScoringContext_GetWindow(hybridScoringCtx);
-   if (RPHybridMerger_ShouldPresize(window, numUpstreams, &maximalSize)) {
-     // Pre-size the dictionary to avoid multiple resizes during accumulation.
-     // This is only an optimization, so ignore failures and continue safely.
-     (void)dictExpand(ret->hybridResults, maximalSize);
+   // Calculate maximal dictionary size based on scoring type
+   size_t maximalSize;
+   if (hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
+     maximalSize = hybridScoringCtx->rrfCtx.window * numUpstreams;
+   } else {
+     maximalSize = hybridScoringCtx->linearCtx.window * numUpstreams;
    }
+   // Pre-size the dictionary to avoid multiple resizes during accumulation
+   dictExpand(ret->hybridResults, maximalSize);
 
    ret->iterator = NULL;
 

@@ -56,6 +56,7 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   if (HasWithCount(nc->areq) && IsAggregate(nc->areq)) {
     ShardResponseBarrier *barrier = shardResponseBarrier_New();
     if (!barrier) {
+      QueryError_SetCode(nc->base.parent->err, QUERY_EGENERIC);
       return RS_RESULT_ERROR;
     }
     nc->shardResponseBarrier = barrier;
@@ -81,6 +82,7 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
       shardResponseBarrier_Free(nc->shardResponseBarrier);
       nc->shardResponseBarrier = NULL;
     }
+    QueryError_SetCode(nc->base.parent->err, QUERY_EGENERIC);
     return RS_RESULT_ERROR;
   }
 

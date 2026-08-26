@@ -208,28 +208,6 @@ ResultProcessor* CreateRRFHybridMerger(ResultProcessor **upstreams, size_t numUp
 
 class HybridMergerTest : public ::testing::Test {};
 
-TEST_F(HybridMergerTest, testShouldPresizeHybridMergerForSmallWindow) {
-  size_t maximalSize = 0;
-
-  ASSERT_TRUE(RPHybridMerger_ShouldPresize(128, 2, &maximalSize));
-  ASSERT_EQ(256, maximalSize);
-}
-
-TEST_F(HybridMergerTest, testShouldNotPresizeHybridMergerOnOverflow) {
-  size_t maximalSize = 123;
-
-  ASSERT_FALSE(RPHybridMerger_ShouldPresize(((size_t)-1) / 2 + 1, 2, &maximalSize));
-  ASSERT_EQ(123, maximalSize);
-}
-
-TEST_F(HybridMergerTest, testShouldNotPresizeHybridMergerPastByteThreshold) {
-  size_t maximalSize = 123;
-  size_t maxPresizeBuckets = (64ULL * 1024 * 1024) / sizeof(void *);
-
-  ASSERT_FALSE(RPHybridMerger_ShouldPresize(maxPresizeBuckets + 1, 1, &maximalSize));
-  ASSERT_EQ(123, maximalSize);
-}
-
 /*
  * Test that hybrid merger correctly merges and scores results from two upstreams with the same documents (full intersection)
  *

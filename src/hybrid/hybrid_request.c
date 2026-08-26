@@ -66,10 +66,12 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
 
         // Obtain the query processing context for the current AREQ
         QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
-        // Set the result limit for the current AREQ
-        size_t window = HybridScoringContext_GetWindow(params->scoringCtx);
-        qctx->resultLimit = window;
-
+        // Set the result limit for the current AREQ - hack for now, should use window value
+        if (IsHybridVectorSubquery(areq)){
+          qctx->resultLimit = areq->maxAggregateResults;
+        } else if (IsHybridSearchSubquery(areq)) {
+          qctx->resultLimit = areq->maxSearchResults;
+        }
         if (depleteInBackground) {
           // Create a safe depleter processor to extract results from this pipeline
           // The safe depleter will feed results to the hybrid merger
@@ -211,7 +213,7 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
     rs_wall_clock_init(&now);
 
     // Initialize error tracking for each individual request
-    hybridReq->errors = array_new(QueryError, nrequests);
+    hybridReq->errors = array_newlen(QueryError, nrequests);
     memset(hybridReq->errors, 0, nrequests * sizeof(QueryError));
 
     // Initialize return codes array for tracking subqueries final states

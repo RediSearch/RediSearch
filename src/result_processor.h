@@ -245,7 +245,7 @@ void SetLoadersForMainThread(QueryProcessingCtx *qctx);
 
 /** Creates a new Highlight processor */
 ResultProcessor *RPHighlighter_New(RSLanguage language, const FieldList *fields,
-                                   const RLookup *lookup);
+                                   const RLookup *lookup, bool isJson);
 
 /*******************************************************************************************************************
  *  Profiling Processor
@@ -375,13 +375,6 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
                                     const RLookupKey *scoreKey,
                                     RPStatus *subqueriesReturnCodes,
                                     HybridLookupContext *lookupCtx);
-
-/*
- * Returns true and writes the computed dictionary size to `maximalSize` when it
- * is safe to pre-size the hybrid results dictionary. Returns false when the
- * requested pre-size would overflow or exceed the internal byte threshold.
- */
-bool RPHybridMerger_ShouldPresize(size_t window, size_t numUpstreams, size_t *maximalSize);
 
 /*
  * Returns NULL if the processor is not a HybridMerger or if scoreKey is NULL.

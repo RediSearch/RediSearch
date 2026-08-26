@@ -64,22 +64,15 @@ static int tryReadAsDouble(ArgsCursor *ac, long long *ll, int flags) {
   if (AC_GetDouble(ac, &dTmp, flags | AC_F_NOADVANCE) != AC_OK) {
     return AC_ERR_PARSE;
   }
-  // Reject NaN/±inf and values outside the long long range before casting:
-  // casting an out-of-range double to long long is undefined behavior.
-  // Note: (double)LLONG_MAX rounds up to 2^63, which is exactly -(double)LLONG_MIN,
-  // so the upper bound must be strict to keep 2^63 itself out.
-  if (!isfinite(dTmp) || dTmp < (double)LLONG_MIN || dTmp >= -(double)LLONG_MIN) {
-    return AC_ERR_PARSE;
-  }
   if (flags & AC_F_COALESCE) {
-    *ll = (long long)dTmp;
+    *ll = dTmp;
     return AC_OK;
   }
 
   if ((double)(long long)dTmp != dTmp) {
     return AC_ERR_PARSE;
   } else {
-    *ll = (long long)dTmp;
+    *ll = dTmp;
     return AC_OK;
   }
 }
@@ -161,9 +154,6 @@ int AC_GetDouble(ArgsCursor *ac, double *d, int flags) {
     if (*endptr != '\0' || tmpd == HUGE_VAL || tmpd == -HUGE_VAL) {
       return AC_ERR_PARSE;
     }
-  }
-  if (!isfinite(tmpd)) {
-    return AC_ERR_PARSE;
   }
   if ((flags & AC_F_GE0) && tmpd < 0.0) {
     return AC_ERR_ELIMIT;

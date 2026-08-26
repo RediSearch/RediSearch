@@ -226,37 +226,31 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
 // explicitly with a positive, even argument count and YIELD_SCORE_AS (when
 // present) counted inside the block, so shards of any version parse it and never
 // fall back on their own (possibly different) defaults.
-//
-// WINDOW is omitted when it resolved to 0 (MAXSEARCHRESULTS=0): 0 is outside the
-// shard-side input range [1, maxWindow] and would be rejected. The shard re-derives
-// it anyway, and the empty result set is guaranteed by the tail's MAXSEARCHRESULTS
-// cap. Any positive window is forwarded explicitly.
 static void MRCommand_appendCombine(MRCommand *xcmd, const HybridCombineWireParams *cp) {
   if (!cp || !cp->scoringCtx) {
     return;
   }
   const HybridScoringContext *sc = cp->scoringCtx;
   const bool hasAlias = cp->scoreAlias != NULL;
-  const size_t window = HybridScoringContext_GetWindow(sc);
-  const bool hasWindow = window > 0;
   char numBuf[32];
   const size_t numBufSize = sizeof(numBuf);
   int n;
 
   MRCommand_Append(xcmd, "COMBINE", strlen("COMBINE"));
   if (sc->scoringType == HYBRID_SCORING_RRF) {
-    // COMBINE RRF <count> CONSTANT <c> [WINDOW <w>] [YIELD_SCORE_AS <alias>]
-    int count = 2 + (hasWindow ? 2 : 0) + (hasAlias ? 2 : 0);
-    n = snprintf(numBuf, numBufSize, "%d", count);
+    // COMBINE RRF <count> CONSTANT <c> WINDOW <w> [YIELD_SCORE_AS <alias>]
+    n = snprintf(numBuf, numBufSize, "%d", hasAlias ? 6 : 4);
     MRCommand_Append(xcmd, "RRF", strlen("RRF"));
     MRCommand_Append(xcmd, numBuf, n);
     MRCommand_Append(xcmd, "CONSTANT", strlen("CONSTANT"));
     n = snprintf(numBuf, numBufSize, "%.17g", sc->rrfCtx.constant);
     MRCommand_Append(xcmd, numBuf, n);
+    MRCommand_Append(xcmd, "WINDOW", strlen("WINDOW"));
+    n = snprintf(numBuf, numBufSize, "%zu", sc->rrfCtx.window);
+    MRCommand_Append(xcmd, numBuf, n);
   } else {
-    // COMBINE LINEAR <count> ALPHA <a> BETA <b> [WINDOW <w>] [YIELD_SCORE_AS <alias>]
-    int count = 4 + (hasWindow ? 2 : 0) + (hasAlias ? 2 : 0);
-    n = snprintf(numBuf, numBufSize, "%d", count);
+    // COMBINE LINEAR <count> ALPHA <a> BETA <b> WINDOW <w> [YIELD_SCORE_AS <alias>]
+    n = snprintf(numBuf, numBufSize, "%d", hasAlias ? 8 : 6);
     MRCommand_Append(xcmd, "LINEAR", strlen("LINEAR"));
     MRCommand_Append(xcmd, numBuf, n);
     MRCommand_Append(xcmd, "ALPHA", strlen("ALPHA"));
@@ -265,10 +259,8 @@ static void MRCommand_appendCombine(MRCommand *xcmd, const HybridCombineWirePara
     MRCommand_Append(xcmd, "BETA", strlen("BETA"));
     n = snprintf(numBuf, numBufSize, "%.17g", sc->linearCtx.linearWeights[1]);
     MRCommand_Append(xcmd, numBuf, n);
-  }
-  if (hasWindow) {
     MRCommand_Append(xcmd, "WINDOW", strlen("WINDOW"));
-    n = snprintf(numBuf, numBufSize, "%zu", window);
+    n = snprintf(numBuf, numBufSize, "%zu", sc->linearCtx.window);
     MRCommand_Append(xcmd, numBuf, n);
   }
   if (hasAlias) {

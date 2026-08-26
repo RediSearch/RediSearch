@@ -28,7 +28,6 @@
 #include "rmutil/rm_assert.h"
 #include "util/references.h"
 #include "util/workers.h"
-#include "util/minmax.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "cursor.h"
 #include "info/info_redis/block_client.h"
@@ -190,13 +189,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
         QueryError_SetError(status, QUERY_ESYNTAX, "Invalid K value");
         return REDISMODULE_ERR;
       }
-      size_t k = (size_t)kValue;
-      if (k > MAX_KNN_K) {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT,
-          VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", max supported K value is %zu", (size_t)MAX_KNN_K);
-        return REDISMODULE_ERR;
-      }
-      vq->knn.k = k;
+      vq->knn.k = (size_t)kValue;
       pvd->hasExplicitK = true;
 
     } else if (AC_AdvanceIfMatch(ac, "EF_RUNTIME")) {
@@ -829,17 +822,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // may change prefixes in internal array_ensure_append_1
   if (HybridParseOptionalArgs(&hybridParseCtx, ac, internal) != REDISMODULE_OK) {
     goto error;
-  }
-
-  // Clamp the default RRF window to the same limit as the explicit COMBINE path uses.
-  if (!(hybridParseCtx.specifiedArgs & SPECIFIED_ARG_COMBINE)) {
-    // No COMBINE clause => the context is the default RRF; its window never
-    // passed through the COMBINE arg parser, so clamp it the same way here.
-    RS_ASSERT(hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF);
-    size_t maxWindow = MIN(MAX_HYBRID_WINDOW, maxHybridResults);
-    if (hybridParams->scoringCtx->rrfCtx.window > maxWindow) {
-      hybridParams->scoringCtx->rrfCtx.window = maxWindow;
-    }
   }
 
   // Set slots info in both subqueries

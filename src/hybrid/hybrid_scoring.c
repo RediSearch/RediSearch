@@ -138,20 +138,6 @@ HybridScoringContext* HybridScoringContext_NewDefault(void) {
     return HybridScoringContext_NewRRF(HYBRID_DEFAULT_RRF_CONSTANT, HYBRID_DEFAULT_WINDOW, false);
 }
 
-size_t HybridScoringContext_GetWindow(const HybridScoringContext *hybridCtx) {
-    if (!hybridCtx) return HYBRID_DEFAULT_WINDOW;
-
-    switch (hybridCtx->scoringType) {
-        case HYBRID_SCORING_LINEAR:
-            return hybridCtx->linearCtx.window;
-        case HYBRID_SCORING_RRF:
-            return hybridCtx->rrfCtx.window;
-        default:
-            RS_ASSERT(0); // Shouldn't get here
-            return HYBRID_DEFAULT_WINDOW;
-    }
-}
-
 /**
  * Generic free function for HybridScoringContext.
  * Frees internal resources based on the scoring type.
