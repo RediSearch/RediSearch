@@ -285,7 +285,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
     if (SearchResult_GetFlags(r) & Result_ExpiredDoc) {
       RedisModule_Reply_Null(reply);
     } else {
-      // Excludes reply-hidden and internal fields, plus fields not included in RETURN. The schema
+      // Excludes reply-hidden fields and fields not included in RETURN. The schema
       // rule's special fields (score/language/payload) are hidden from
       // creation (see the spec cache's rule names), so this path never touches
       // the spec — it may already be gone by reply time.
@@ -295,8 +295,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
 
       RedisModule_Reply_Map(reply);
       RedisModule_Reply_RLookupRow(reply, lk, SearchResult_GetRowData(r), requiredFlags,
-                                   RLOOKUP_F_HIDDEN | RLOOKUP_F_INTERNAL, flags,
-                                   AREQ_SearchCtx(req)->apiVersion);
+                                   RLOOKUP_F_HIDDEN, flags, AREQ_SearchCtx(req)->apiVersion);
       RedisModule_Reply_MapEnd(reply);
     }
   }

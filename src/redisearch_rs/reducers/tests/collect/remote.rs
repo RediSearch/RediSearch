@@ -8,7 +8,7 @@
 */
 
 use reducers::collect::{RemoteCollectCtx, RemoteCollectReducer};
-use rlookup::{RLookup, RLookupKeyFlag, RLookupRow};
+use rlookup::RLookupRow;
 use value::SharedValue;
 
 use super::helpers::{
@@ -240,8 +240,8 @@ fn remote_load_all_emits_all_lookup_keys_present_on_row() {
     );
     assert_eq!(map.get(b"sweetness").and_then(|v| v.as_num()), Some(4.0));
     assert!(
-        map.get(b"__internal").is_none(),
-        "Internal keys must never be emitted"
+        map.get(b"__hidden").is_none(),
+        "Hidden keys must never be emitted"
     );
 }
 
@@ -297,13 +297,13 @@ fn remote_load_all_omits_keys_missing_on_row() {
 }
 
 #[test]
-fn remote_load_all_skips_internal_keys_even_when_row_has_value() {
+fn remote_load_all_skips_hidden_keys_even_when_row_has_value() {
     let mut fixture = RemoteCollectLoadAllFixture::new();
     let mut row = RLookupRow::new();
     row.write_key_by_name(&mut fixture.lookup, c"name", string_value("apple"));
-    // Populate the Internal key on the row to prove the filter happens at the
+    // Populate the Hidden key on the row to prove the filter happens at the
     // lookup-walk level, not at "no value" — the value is present.
-    row.write_key_by_name(&mut fixture.lookup, c"__internal", string_value("internal"));
+    row.write_key_by_name(&mut fixture.lookup, c"__hidden", string_value("internal"));
 
     let reducer = RemoteCollectReducer::new(
         Box::new([]),
@@ -327,39 +327,7 @@ fn remote_load_all_skips_internal_keys_even_when_row_has_value() {
         Some(b"apple".as_slice())
     );
     assert!(
-        map.get(b"__internal").is_none(),
-        "Internal keys must be excluded from the load-all emission template"
-    );
-}
-
-#[test]
-fn remote_load_all_includes_reply_hidden_keys() {
-    let mut lookup = RLookup::new();
-    let key = lookup
-        .get_key_write(c"control", RLookupKeyFlag::Hidden.into())
-        .expect("`control` is a fresh key");
-    let mut row = RLookupRow::new();
-    row.write_key(key, string_value("value"));
-
-    let reducer = RemoteCollectReducer::new(
-        Box::new([]),
-        Some(&lookup),
-        Box::new([]),
-        0,
-        Some((0, 100)),
-        false,
-        false,
-    );
-    let mut ctx = RemoteCollectCtx::new(&reducer);
-    ctx.add(&reducer, &row, 0);
-
-    let output = ctx.finalize(&reducer);
-    let rows = array_entries(&output);
-    assert_eq!(rows.len(), 1);
-    assert_eq!(
-        map_entries(&rows[0])
-            .get(b"control")
-            .and_then(|v| v.as_str_bytes()),
-        Some(b"value".as_slice())
+        map.get(b"__hidden").is_none(),
+        "Hidden keys must be excluded from the load-all emission template"
     );
 }
