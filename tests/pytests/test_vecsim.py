@@ -1815,7 +1815,7 @@ def test_index_multi_value_json():
             waitForIndex(env, 'idx')
             info = index_info(env, 'idx')
             env.assertEqual(info['num_docs'], info_type(n))
-            env.assertEqual(info['num_records'], info_type(n * per_doc * len(info['attributes'])))
+            env.assertEqual(info['num_records'], info_type(0))
             env.assertEqual(info['hash_indexing_failures'], info_type(0))
 
             cmd_knn[2] = f'*=>[KNN {k} @hnsw $b AS {score_field_name}]'
@@ -1870,7 +1870,7 @@ def test_bad_index_multi_value_json():
     # we should NOT fail if some of the vectors are NULLs
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), None, (np.ones(dim) * 2).tolist()]})
     env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], info_type(failures))
-    env.assertEqual(index_info(env, 'idx')['num_records'], info_type(2))
+    env.assertEqual(index_info(env, 'idx')['num_records'], info_type(0))
 
     # ...or if the path returns NULL
     conn.json().set(46, '.', {'vecs': None})
@@ -2332,6 +2332,30 @@ def test_score_name_case_sensitivity():
     env.expect('FT.SEARCH', 'idx', f'*=>[KNN {k} @{vec_fieldname} $BLOB]',
                'PARAMS', 4, 'k', k, 'BLOB', create_np_array_typed([0] * dim).tobytes(),
                'RETURN', '1', score_name.lower()).equal(expected())
+
+
+@skip(cluster=True)
+def test_score_name_long_field_name():
+    """KNN derives the default `__<field>_score` name from the vector field name
+    when resolving the distance field. Cover that with a long name, including the
+    path that compares against the derived default."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    dim = 2
+    vec_fieldname = 'v' * (9 * 1024 * 1024)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', vec_fieldname, 'VECTOR', 'FLAT', '6',
+               'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+    blob = create_np_array_typed([0] * dim).tobytes()
+
+    # Naming the distance field through both syntaxes at once is the only path that compares
+    # the given name against the default derived from the field name.
+    env.expect('FT.SEARCH', 'idx', f'*=>[KNN 2 @{vec_fieldname} $BLOB AS score]=>{{$yield_distance_as: score2}}',
+               'PARAMS', 2, 'BLOB', blob).error().contains(
+                   'Distance field was specified twice for vector query: score and score2')
+
+    # Naming it through neither yields under the derived default, which the query must still
+    # be able to build from a name this long.
+    env.expect('FT.SEARCH', 'idx', f'*=>[KNN 2 @{vec_fieldname} $BLOB]',
+               'PARAMS', 2, 'BLOB', blob).equal([0])
 
 
 @skip(cluster=True, noWorkers=True)

@@ -149,6 +149,18 @@ def test_MOD_865(env):
   env.expect(*args_list).error().contains('Duplicate field in schema - txt')
   env.expect('FT.DROPINDEX', 'idx')
 
+def test_MOD_6411(env):
+  # FT.CREATE used to crash on a stack overflow when the argument list was
+  # large enough (the parser allocated a VLA of `const char *` on the stack).
+  # The parser now consumes RedisModuleString ** directly through ArgsCursor,
+  # so an oversized field list is rejected with the standard schema-limit
+  # error instead of crashing the server.
+  args_list = ['FT.CREATE', 'idx', 'SCHEMA']
+  for i in range(100000):
+    args_list.extend([f'field{i}', 'NUMERIC', 'SORTABLE'])
+  env.expect(*args_list).error().contains('Schema is limited to 1024 fields')
+  env.expect('FT.DROPINDEX', 'idx')
+
 def test_issue1826(env):
   # Stopword query is case sensitive.
   conn = getConnectionByEnv(env)
@@ -200,6 +212,16 @@ def test_issue1932(env):
       .contains('OFFSET exceeds maximum of 1000000')
     env.expect('FT.AGGREGATE', 'idx', '*', 'LIMIT', '1000000', '100000000000000000', 'SORTBY', '1', '@t').error() \
       .contains('LIMIT exceeds maximum of 2147483648')
+
+@skip(cluster=True)
+def test_MOD_14655(env:Env):
+  env.expect('FT.CREATE', 'idx', 'NOFIELDS', 'MAXTEXTFIELDS', 'SCHEMA', 't', 'TEXT').error() \
+      .contains('MAXTEXTFIELDS cannot be used with NOFIELDS')
+
+  # Previously, if the index was created successfully, the following HSET will cause a crash.
+  with env.getClusterConnectionIfNeeded() as conn:
+    conn.execute_command('HSET', 'doc1', 't', 'hello world')
+
 
 def test_issue1988(env):
     conn = getConnectionByEnv(env)
