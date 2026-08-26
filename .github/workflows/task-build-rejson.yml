@@ -120,6 +120,13 @@ jobs:
         shell: sh -l -eo pipefail {0}
         run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
 
+      - name: Prepare Alpine for JavaScript actions
+        if: startsWith(inputs.container, 'alpine:')
+        shell: sh -l -eo pipefail {0}
+        env:
+          POST_SETUP_SCRIPT: ${{ inputs.post-setup-script }}
+        run: eval "$POST_SETUP_SCRIPT"
+
       - name: Checkout
         # Shallow, submodule-free: this job only needs the install scripts,
         # .rust-nightly and tests/deps/setup_rejson.sh. RedisJSON and its own

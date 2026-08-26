@@ -168,6 +168,13 @@ jobs:
         shell: sh -l -eo pipefail {0}
         run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
 
+      - name: Prepare Alpine for JavaScript actions
+        if: startsWith(needs.get-config.outputs.container, 'alpine:')
+        shell: sh -l -eo pipefail {0}
+        env:
+          POST_SETUP_SCRIPT: ${{ needs.get-config.outputs.post_setup_script }}
+        run: eval "$POST_SETUP_SCRIPT"
+
       - name: Full checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
