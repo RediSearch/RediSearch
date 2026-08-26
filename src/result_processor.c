@@ -652,6 +652,12 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
   }
 }
 
+static inline void loaderDropResult(ResultProcessor *base, SearchResult *r) {
+  base->parent->skippedResults++;
+  SearchResult_Destroy(r);
+  memset(r, 0, sizeof(*r));
+}
+
 static int rploaderNext(ResultProcessor *base, SearchResult *r) {
   RPLoader *lc = (RPLoader *)base;
   int rc = base->upstream->Next(base->upstream, r);
@@ -832,6 +838,12 @@ static void rpSafeLoader_Load(RPSafeLoader *self) {
   // iterate the buffer.
   // TODO: implement `GetNextResult` that gets the current block to save calculation time.
   while ((curr_res = GetNextResult(self))) {
+    // Only deletion before loading means the row was invalidated in the unlocked window.
+    // Loading can itself mark a lazily expired key deleted on Redis 6/7.
+    if (curr_res->dmd->flags & Document_Deleted) {
+      loaderDropResult(&self->base_loader.base, curr_res);
+      continue;
+    }
     rpLoader_loadDocument(&self->base_loader, curr_res);
   }
 
@@ -841,14 +853,16 @@ static void rpSafeLoader_Load(RPSafeLoader *self) {
 
 static int rpSafeLoaderNext_Yield(ResultProcessor *rp, SearchResult *result_output) {
   RPSafeLoader *self = (RPSafeLoader *)rp;
-  SearchResult *curr_res = GetNextResult(self);
+  SearchResult *curr_res;
 
-  if (curr_res) {
+  while ((curr_res = GetNextResult(self))) {
+    if (curr_res->dmd == NULL) {
+      continue;
+    }
     SetResult(curr_res, result_output);
     return RS_RESULT_OK;
-  } else {
-    return rpSafeLoader_ResetAndReturnLastCode(self, result_output);
   }
+  return rpSafeLoader_ResetAndReturnLastCode(self, result_output);
 }
 
 /*********************************************************************************/
@@ -889,6 +903,16 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
 
   // First, we verify that we unlocked the spec before we lock Redis.
   RedisSearchCtx_UnlockSpec(sctx);
+
+  if (rp->parent->debugPauseBeforeSafeLoaderGIL) {
+    // One-shot deterministic test hook: let the main thread re-index a buffered document after
+    // its old metadata was captured, but before the loader validates it under the Redis GIL.
+    rp->parent->debugPauseBeforeSafeLoaderGIL = false;
+    QueryDebugCtx_SetPause(true);
+    while (QueryDebugCtx_IsPaused()) {
+      usleep(1000);
+    }
+  }
 
   bool isQueryProfile = rp->parent->isProfile;
   rs_wall_clock rpStartTime;

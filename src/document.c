@@ -658,7 +658,6 @@ FIELD_BULK_INDEXER(vectorIndexer) {
     VecSimIndex_AddVector(vecsim, curr_vec, aCtx->doc->docId);
     curr_vec += fdata->vecLen;
   }
-  sp->stats.numRecords += fdata->numVec;
   return 0;
 }
 
@@ -774,9 +773,11 @@ FIELD_BULK_INDEXER(tagIndexer) {
     tidx->suffix = NewTrieMap();
   }
 
+  size_t numRecords = 0;
   ctx->spec->stats.invertedSize +=
-      TagIndex_Index(tidx, (const char **)fdata->tags, array_len(fdata->tags), aCtx->doc->docId);
-  ctx->spec->stats.numRecords++;
+      TagIndex_Index(tidx, (const char **)fdata->tags, array_len(fdata->tags),
+                     aCtx->doc->docId, &numRecords);
+  ctx->spec->stats.numRecords += numRecords;
   return 0;
 }
 

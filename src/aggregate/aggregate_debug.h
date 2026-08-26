@@ -59,6 +59,10 @@
  *           - Only applicable in FT.AGGREGATE cluster mode.
  *           - Controls whether the pause applies to the coordinator pipeline or shard-level processing.
  *           - If specified, the pause applies only to the coordinator, not the shards.
+ *       - **`PAUSE_BEFORE_SAFE_LOADER_GIL`**:
+ *         - Pauses a background query after the safe loader buffers its rows and releases the
+ *           spec read lock, immediately before it takes the Redis GIL to load fields.
+ *         - Intended for deterministic re-index-during-load tests.
  *
  *   - `<DEBUG_PARAMS_COUNT>`:
  *     - Specifies the number of expected arguments in `<DEBUG_QUERY_ARGS>`.

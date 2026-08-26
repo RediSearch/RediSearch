@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include <stdint.h>
+
 #include "redismodule.h"
 #include "rmutil/sds.h"
 #include "query_error.h"
@@ -240,6 +242,7 @@ void UpgradeDeprecatedMTConfigs();
 #define DEFAULT_INDEX_CURSOR_LIMIT 128
 #define MAX_AGGREGATE_REQUEST_RESULTS (1ULL << 31)
 #define DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS MAX_AGGREGATE_REQUEST_RESULTS
+#define MAX_GROUPBY_PROPERTIES UINT16_MAX
 #define DEFAULT_MAX_SEARCH_REQUEST_RESULTS 1000000
 #define MAX_SEARCH_REQUEST_RESULTS (1ULL << 31)
 #define MAX_KNN_K (1ULL << 58)

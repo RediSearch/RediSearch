@@ -504,10 +504,10 @@ def skipTestUntil(date_str, reason=None):
     """
     skip_until(date_str, reason)(lambda: None)()
 
-def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None):
+def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None, no_json=False):
     def decorate(f):
         def wrapper():
-            if not ((cluster is not None) or macos or asan or msan or noWorkers or redis_less_than or redis_greater_equal or min_shards):
+            if not ((cluster is not None) or macos or asan or msan or noWorkers or redis_less_than or redis_greater_equal or min_shards or no_json):
                 raise SkipTest()
             if cluster == COORD:
                 raise SkipTest()
@@ -528,6 +528,8 @@ def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, red
             if min_shards and Defaults.num_shards < min_shards:
                 raise SkipTest()
             if gc_no_fork and Env().cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
+                raise SkipTest()
+            if no_json and not has_json_api_v2(Env()):
                 raise SkipTest()
             if len(inspect.signature(f).parameters) > 0:
                 env = Env()

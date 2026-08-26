@@ -127,8 +127,9 @@ static inline void TagIndex_FreePreprocessedData(char **s) {
   array_free(s);
 }
 
-/* Index a vector of pre-processed tags for a docId */
-size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docId);
+/* Index tags and return the number of accepted postings through numRecords. */
+size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docId,
+                      size_t *numRecords);
 
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
  * Returns NULL if there is no such tag in the index */

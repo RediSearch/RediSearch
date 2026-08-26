@@ -8,6 +8,7 @@
 
 #include <math.h>
 #include <ctype.h>
+#include <string.h>
 
 #include "util/logging.h"
 #include "util/likely.h"
@@ -277,6 +278,9 @@ arrayof(FieldSpec *) IndexSpec_GetFieldsByMask(const IndexSpec *sp, t_fieldMask 
 
 //---------------------------------------------------------------------------------------------
 
+// Forward declaration
+static StrongRef IndexSpec_ParseFromArgCursor(const char *name, ArgsCursor *ac, QueryError *status);
+
 /*
 * Parse an index spec from redis command arguments.
 * Returns REDISMODULE_ERR if there's a parsing error.
@@ -287,13 +291,9 @@ arrayof(FieldSpec *) IndexSpec_GetFieldsByMask(const IndexSpec *sp, t_fieldMask 
 */
 StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
                                     RedisModuleString **argv, int argc, QueryError *status) {
-
-  const char *args[argc];
-  for (int i = 0; i < argc; i++) {
-    args[i] = RedisModule_StringPtrLen(argv[i], NULL);
-  }
-
-  return IndexSpec_Parse(RedisModule_StringPtrLen(name, NULL), args, argc, status);
+  ArgsCursor ac = {0};
+  ArgsCursor_InitRString(&ac, argv, argc);
+  return IndexSpec_ParseFromArgCursor(RedisModule_StringPtrLen(name, NULL), &ac, status);
 }
 
 arrayof(FieldSpec *) getFieldsByType(IndexSpec *spec, FieldType type) {
@@ -1159,8 +1159,28 @@ int IndexSpec_CreateTextId(const IndexSpec *sp) {
 
 static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec);
 
+static bool validateFieldNameAndPath(const char *fieldName, size_t namelen, const char *fieldPath,
+                                     size_t pathlen, QueryError *status) {
+  // An empty field name is unsupported.
+  if (namelen == 0) {
+    QueryError_SetError(status, QUERY_EINVAL, "Field name cannot be empty");
+    return false;
+  }
+  if (memchr(fieldName, '\0', namelen) != NULL) {
+    QueryError_SetError(status, QUERY_EINVAL, "Field name cannot contain null bytes");
+    return false;
+  }
+  if (fieldPath && memchr(fieldPath, '\0', pathlen) != NULL) {
+    QueryError_SetError(status, QUERY_EINVAL, "Field path cannot contain null bytes");
+    return false;
+  }
+
+  return true;
+}
+
 /**
  * Add fields to an existing (or newly created) index. If the addition fails,
+ * restore the schema state that was mutated while parsing this field batch.
  */
 static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCursor *ac,
                                        QueryError *status, int isNew) {
@@ -1172,6 +1192,8 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
   const size_t prevNumFields = sp->numFields;
   const size_t prevSortLen = sp->numSortableFields;
   const IndexFlags prevFlags = sp->flags;
+  Trie *prevSuffix = sp->suffix;
+  const t_fieldMask prevSuffixMask = sp->suffixMask;
 
   while (!AC_IsAtEnd(ac)) {
     if (sp->numFields == SPEC_MAX_FIELDS) {
@@ -1195,6 +1217,10 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
       // if `AS` is not used, set the path as name
       namelen = pathlen;
       fieldPath = NULL;
+    }
+
+    if (!validateFieldNameAndPath(fieldName, namelen, fieldPath, pathlen, status)) {
+      goto reset;
     }
 
     if (IndexSpec_GetField(sp, fieldName, namelen)) {
@@ -1293,6 +1319,9 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
   return 1;
 
 reset:
+  // Parsing may fail after appending field specs, consuming TEXT field IDs, or
+  // creating suffix-trie state. Restore every snapshot taken before this batch
+  // so failed FT.ALTER commands leave the existing schema unchanged.
   for (size_t ii = prevNumFields; ii < sp->numFields; ++ii) {
     IndexError_Clear(sp->fields[ii].indexError);
     FieldSpec_Cleanup(&sp->fields[ii]);
@@ -1300,8 +1329,12 @@ reset:
 
   sp->numFields = prevNumFields;
   sp->numSortableFields = prevSortLen;
-  // TODO: Why is this masking performed?
-  sp->flags = prevFlags | (sp->flags & Index_HasSuffixTrie);
+  if (sp->suffix && sp->suffix != prevSuffix) {
+    TrieType_Free(sp->suffix);
+  }
+  sp->suffix = prevSuffix;
+  sp->suffixMask = prevSuffixMask;
+  sp->flags = prevFlags;
   return 0;
 }
 
@@ -1321,17 +1354,17 @@ int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, 
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
   */
-StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status) {
+
+static StrongRef IndexSpec_ParseFromArgCursor(const char *name, ArgsCursor *ac,
+                                              QueryError *status) {
   IndexSpec *spec = NewIndexSpec(name);
   StrongRef spec_ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
   spec->own_ref = spec_ref;
 
   IndexSpec_MakeKeyless(spec);
 
-  ArgsCursor ac = {0};
   ArgsCursor acStopwords = {0};
 
-  ArgsCursor_InitCString(&ac, argv, argc);
   long long timeout = -1;
   int dummy;
   size_t dummy2;
@@ -1357,7 +1390,7 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
       {.name = NULL}};
 
   ACArgSpec *errarg = NULL;
-  int rc = AC_ParseArgSpec(&ac, argopts, &errarg);
+  int rc = AC_ParseArgSpec(ac, argopts, &errarg);
   if (rc != AC_OK) {
     if (rc != AC_ERR_ENOENT) {
       QERR_MKBADARGS_AC(status, errarg->name, rc);
@@ -1376,22 +1409,13 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
   spec->timeout = timeout * 1000;  // convert to ms
 
   if (rule_prefixes.argc > 0) {
-    if (rule_prefixes.argc > MAX_SCHEMA_PREFIXES) {
-      QueryError_SetWithoutUserDataFmt(
-          status, QUERY_ELIMIT,
-          "Number of prefixes (%zu) exceeds maximum allowed (%d)",
-          rule_prefixes.argc, MAX_SCHEMA_PREFIXES);
-      goto failure;
-    }
-    rule_args.nprefixes = (unsigned int)rule_prefixes.argc;
-    rule_args.prefixes = (const char **)rule_prefixes.objs;
+    spec->rule = SchemaRule_CreateWithPrefixesAC(&rule_args, &rule_prefixes, spec_ref, status);
   } else {
     rule_args.nprefixes = 1;
     static const char *empty_prefix[] = {""};
     rule_args.prefixes = empty_prefix;
+    spec->rule = SchemaRule_Create(&rule_args, spec_ref, status);
   }
-
-  spec->rule = SchemaRule_Create(&rule_args, spec_ref, status);
   if (!spec->rule) {
     goto failure;
   }
@@ -1400,13 +1424,13 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
     if (spec->stopwords) {
       StopWordList_Unref(spec->stopwords);
     }
-    spec->stopwords = NewStopWordListCStr((const char **)acStopwords.objs, acStopwords.argc);
+    spec->stopwords = NewStopWordListAC(&acStopwords);
     spec->flags |= Index_HasCustomStopwords;
   }
 
-  if (!AC_AdvanceIfMatch(&ac, SPEC_SCHEMA_STR)) {
-    if (AC_NumRemaining(&ac)) {
-      const char *badarg = AC_GetStringNC(&ac, NULL);
+  if (!AC_AdvanceIfMatch(ac, SPEC_SCHEMA_STR)) {
+    if (AC_NumRemaining(ac)) {
+      const char *badarg = AC_GetStringNC(ac, NULL);
       QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown argument", " `%s`", badarg);
     } else {
       QueryError_SetError(status, QUERY_EPARSEARGS, "No schema found");
@@ -1414,7 +1438,7 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
     goto failure;
   }
 
-  if (!IndexSpec_AddFieldsInternal(spec, spec_ref, &ac, status, 1)) {
+  if (!IndexSpec_AddFieldsInternal(spec, spec_ref, ac, status, 1)) {
     goto failure;
   }
 
@@ -1429,6 +1453,13 @@ failure:  // on failure free the spec fields array and return an error
   IndexSpec_RemoveFromGlobals(spec_ref);
   return INVALID_STRONG_REF;
 }
+
+StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status) {
+  ArgsCursor ac = {0};
+  ArgsCursor_InitCString(&ac, argv, argc);
+  return IndexSpec_ParseFromArgCursor(name, &ac, status);
+}
+
 
 /* Initialize some index stats that might be useful for scoring functions */
 // Assuming the spec is properly locked before calling this function
@@ -2721,7 +2752,6 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     sp->flags |= Index_StoreFreqs;
   }
   IndexSpec_NormalizeStorageFlagsOnLoad(&sp->flags);
-
   uint64_t numFields_u64 = LoadUnsigned_IOError(rdb, goto cleanup);
 
   if (unlikely(numFields_u64 > SPEC_MAX_FIELDS)) {
