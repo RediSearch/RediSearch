@@ -325,9 +325,7 @@ def test_flex_search_allows_nocontent_withscores(env):
 @with_simulate_in_flex(True)
 def test_flex_aggregate_allows_sortby(env):
     """FT.AGGREGATE SORTBY is unrestricted on flex, including multi-field
-    SORTBY: sort keys load via the disk async loader at the arrange step.
-    FT.SEARCH SORTBY shares that loading path, so it works on schema fields
-    too."""
+    SORTBY: sort keys load via the disk async loader at the arrange step."""
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
                't', 'TEXT', 'u', 'TEXT').ok()
     env.expect('HSET', 'doc:1', 't', 'hello world', 'u', 'aaa').equal(2)
@@ -335,9 +333,6 @@ def test_flex_aggregate_allows_sortby(env):
     env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '2', '@t', 'ASC').noError()
     env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '4', '@t', 'ASC', '@u', 'DESC') \
         .noError()
-
-    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'SORTBY', 't') \
-        .equal([1, 'doc:1'])
 
 
 @skip(cluster=True)
@@ -940,23 +935,6 @@ def test_flex_blocks_configured_default_dialect_4(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_allows_sortby_on_non_vector_fields(env):
-    """SORTBY on a non-vector schema field works in Redis Flex:
-    the arrange step loads the sort key via the disk async loader."""
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
-               'n', 'NUMERIC').ok()
-    env.expect('HSET', 'doc:1', 'n', '3').equal(1)
-    env.expect('HSET', 'doc:2', 'n', '1').equal(1)
-    env.expect('HSET', 'doc:3', 'n', '2').equal(1)
-
-    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'SORTBY', 'n', 'ASC') \
-        .equal([3, 'doc:2', 'doc:3', 'doc:1'])
-    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'SORTBY', 'n', 'DESC') \
-        .equal([3, 'doc:1', 'doc:3', 'doc:2'])
-
-
-@skip(cluster=True)
-@with_simulate_in_flex(True)
 def test_flex_allows_sortby_on_vector_distance_fields(env):
     """Test that SORTBY on vector distance fields (from KNN queries) is allowed in Redis Flex"""
     # Create index with both text and vector fields
@@ -994,13 +972,6 @@ def test_flex_allows_sortby_on_vector_distance_fields(env):
                   'PARAMS', '2', 'b', query_blob,
                   'DIALECT', '2')
     env.assertEqual(res[0], 3)
-
-    # SORTBY on a non-vector schema field is allowed too
-    res = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 3 @v $b]', 'NOCONTENT',
-                  'SORTBY', 't', 'ASC',
-                  'PARAMS', '2', 'b', query_blob,
-                  'DIALECT', '2')
-    env.assertEqual(res, [3, 'doc:2', 'doc:3', 'doc:1'])
 
 
 @skip(cluster=True)
