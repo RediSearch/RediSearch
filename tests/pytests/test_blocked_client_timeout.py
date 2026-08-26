@@ -8521,7 +8521,7 @@ def test_stored_reply_after_index_dropped_mid_cycle():
     index — the worker's release then frees it — and resume: the reply must be
     built entirely from query-owned state. Detects spec reads in the reply path
     under ASan; also asserts the stored rows are replied in full."""
-    env = Env(moduleArgs='WORKERS 1')
+    env = Env(moduleArgs='WORKERS 1 TIMEOUT 0 _FREE_RESOURCE_ON_THREAD FALSE')
     skipIfNoEnableAssert(env)  # QUERY_CONTROLLER pause hooks are ENABLE_ASSERT-only
     env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
 
@@ -8572,7 +8572,9 @@ def test_stored_profile_reply_after_index_dropped_mid_cycle():
     """FT.PROFILE must serialize its stored results and profile tree after the
     worker releases the last index reference. This exercises the C callback,
     Rust profile printer, and construction-time estimate snapshot together."""
-    env = Env(protocol=3, moduleArgs='WORKERS 1')
+    env = Env(
+        protocol=3,
+        moduleArgs='WORKERS 1 TIMEOUT 0 _FREE_RESOURCE_ON_THREAD FALSE')
     skipIfNoEnableAssert(env)  # QUERY_CONTROLLER pause hooks are ENABLE_ASSERT-only
     env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
 
@@ -8624,7 +8626,9 @@ def test_stored_hybrid_reply_after_index_dropped_mid_cycle():
     """FT.HYBRID must serialize stored results after the worker releases the
     last index reference. This covers the hybrid reply and warning paths after
     the index has been freed."""
-    env = Env(protocol=3, moduleArgs='WORKERS 1')
+    env = Env(
+        protocol=3,
+        moduleArgs='WORKERS 1 TIMEOUT 0 _FREE_RESOURCE_ON_THREAD FALSE')
     skipIfNoEnableAssert(env)  # QUERY_CONTROLLER pause hooks are ENABLE_ASSERT-only
     env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
 
