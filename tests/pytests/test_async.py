@@ -101,3 +101,18 @@ def test_eval_node_errors_async():
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$yield_distance_as:v}', 'timeout', 0, 'PARAMS', '2', 'b',
                create_np_array_typed([0]*dim).tobytes()).error()\
         .contains(f'Property `v` already exists in schema')
+
+    # The TIMEOUT query above replies to the client as soon as the coordinator's
+    # own timer fires, but the shard-side scan it fanned out keeps running in the
+    # background -- there is no query-cancellation-on-timeout. The coordinator's
+    # fanout state for that request (MRCtx, MRCommand, in-flight send buffers)
+    # is only released once the abandoned shard reply eventually arrives. Wait
+    # for that here so the server isn't torn down (by the next test / env
+    # teardown) while it's still in flight, which a SAN=address run would
+    # otherwise report as a leak.
+    if isEnableAssertEnabled(env):
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'IO_RUNTIME_PENDING_REQUESTS') == 0,
+                     {'pending': env.cmd(debug_cmd(), 'IO_RUNTIME_PENDING_REQUESTS')}),
+            'Timeout waiting for the abandoned timed-out fanout to complete'
+        )

@@ -4700,6 +4700,20 @@ def test_timeout_strict_policy():
         'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@text1', 'TIMEOUT', '1'
         ).error().contains('Timeout limit was reached')
 
+    # Both queries above reply to the client as soon as the coordinator's own
+    # timer fires, but the shard-side scan they fanned out keeps running in the
+    # background -- there is no query-cancellation-on-timeout. The coordinator's
+    # fanout state for such a request (MRCtx, MRCommand, in-flight send
+    # buffers) is only released once the abandoned shard reply eventually
+    # arrives. Wait for that here so the server isn't torn down while it's
+    # still in flight, which a SAN=address run would otherwise report as a leak.
+    if isEnableAssertEnabled(env):
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'IO_RUNTIME_PENDING_REQUESTS') == 0,
+                     {'pending': env.cmd(debug_cmd(), 'IO_RUNTIME_PENDING_REQUESTS')}),
+            'Timeout waiting for the abandoned timed-out fanouts to complete'
+        )
+
 def common_with_auth(env: Env):
     conn = getConnectionByEnv(env)
     n_docs = 100
