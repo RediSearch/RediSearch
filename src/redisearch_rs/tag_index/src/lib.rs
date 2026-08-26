@@ -664,15 +664,10 @@ impl<'p> SuffixWildcardPattern<'p> {
     /// literal token as the anchor. Returns [`NoAnchorToken`] when there is no
     /// usable literal token.
     ///
-    /// `pattern` must not end with a dangling (unescaped) trailing backslash —
-    /// the same escaping domain [`WildcardPattern::parse`] accepts, which
-    /// instead silently drops such a backslash.
+    /// `pattern` arrives already unescaped — C runs `Wildcard_RemoveEscape` over
+    /// it before the query reaches this crate — so it may end with a dangling
+    /// backslash that escapes nothing.
     pub fn new(pattern: &'p [u8]) -> Result<Self, NoAnchorToken> {
-        debug_assert!(
-            !ends_with_dangling_backslash(pattern),
-            "pattern must not end with a dangling (unescaped) trailing backslash"
-        );
-
         // Pick the most selective literal token to anchor the trie lookup.
         let (tokenidx, tokenlen) = choose_token(pattern).ok_or(NoAnchorToken)?;
 
@@ -741,12 +736,6 @@ struct LiteralToken {
     single_char_wildcards: usize,
 }
 
-/// Whether `pattern` ends with a `\` that escapes nothing.
-fn ends_with_dangling_backslash(pattern: &[u8]) -> bool {
-    // Check \ parity at the end of the given pattern
-    pattern.iter().rev().take_while(|&&b| b == b'\\').count() % 2 == 1
-}
-
 /// Split `pattern` into the literal tokens between its unescaped `*`.
 ///
 /// An escape and the byte it escapes are one literal unit — the same reading
@@ -759,12 +748,16 @@ fn literal_tokens(pattern: &[u8]) -> Vec<LiteralToken> {
 
     let mut i = 0;
     while i < pattern.len() {
+        // A trailing `\` escapes nothing, and `WildcardPattern::parse` drops it.
+        // Drop it here too — without closing the token it sits at the end of —
+        // so the anchor and the full re-check read the same pattern.
+        if pattern[i] == b'\\' && i + 1 == pattern.len() {
+            break;
+        }
+
         // How many bytes the unit at `i` spans, and whether it is a metacharacter.
         let (width, is_star, is_question) = match pattern[i] {
-            // The guard excludes a trailing backslash, which escapes nothing: it
-            // falls through to the plain-byte arm and joins the token, whereas
-            // `WildcardPattern::parse` drops it instead.
-            b'\\' if i + 1 < pattern.len() => (2, false, false),
+            b'\\' => (2, false, false),
             b'*' => (1, true, false),
             b'?' => (1, false, true),
             _ => (1, false, false),
@@ -975,19 +968,31 @@ mod choose_token_tests {
         }
     }
 
-    /// `choose_token`'s scoring on a pattern ending in a dangling backslash —
-    /// exercised directly rather than through [`SuffixWildcardPattern::new`],
-    /// which now forbids that input via a `debug_assert!`.
+    /// A dangling trailing backslash is what `Wildcard_RemoveEscape` leaves of a
+    /// query for a literal backslash, so it reaches
+    /// [`SuffixWildcardPattern::new`] and must be dropped rather than anchored
+    /// on: [`WildcardPattern::parse`] drops it for the full recheck, and an
+    /// anchor of `\` would select only terms that recheck then rejects.
     #[test]
-    fn choose_token_scores_dangling_trailing_backslash_as_its_own_token() {
+    fn a_dangling_trailing_backslash_is_dropped_from_the_anchor() {
         let pattern = br"abc*\";
-        let (start, len) = choose_token(pattern).expect("dangling backslash still opens a token");
+        let prepared = SuffixWildcardPattern::new(pattern).expect("`abc` anchors the pattern");
+        assert_eq!(prepared.anchor(), b"abc*");
+
+        // The two readings agree: with the backslash gone from both, `abc` is a
+        // match under the full pattern too.
         assert_eq!(
-            &pattern[start..start + len],
-            br"\",
-            "a trailing backslash escapes nothing, yet still opens a token of its \
-             own, and wins (1 + 1 = 2 > 3 - 5)"
+            WildcardPattern::parse(pattern).matches(b"abc"),
+            MatchOutcome::Match
         );
+    }
+
+    /// A backslash that does escape something still binds to the byte after it,
+    /// so dropping the dangling case must not disturb the ordinary one.
+    #[test]
+    fn a_backslash_that_escapes_a_byte_stays_in_its_token() {
+        let prepared = SuffixWildcardPattern::new(br"ab\*c").expect("the escaped `*` is a literal");
+        assert_eq!(prepared.anchor(), br"ab\*c");
     }
 
     /// A `?` does not end the token it sits in, so a pattern of nothing but `?`
