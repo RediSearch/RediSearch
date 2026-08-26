@@ -84,7 +84,7 @@ jobs:
 
     env: &build_env
       IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
-      VERBOSE: 1 # For logging
+      VERBOSE: 1
       RELEASE: 0
       LTO: ${{ needs.get-config.outputs.enable_lto }}
       BUILD_CMD: echo '::group::Build' && make build VERBOSE= GIT_BRANCH=$BRANCH && echo '::endgroup::'
