@@ -457,6 +457,135 @@ jobs:
           SKIP_BUILD: 1
         run: make pytest $TEST_CONFIG
 
+      # RLTest redirects each server's ASan/LSan output to a per-server
+      # `*.asan.log` file (its createCmdOSEnv sets
+      # ASAN_OPTIONS=...:log_path=...) instead of stdout/stderr, so a
+      # detected violation does not fail the "Flow tests" step above and
+      # would otherwise go unnoticed by CI.
+      - name: Sanitizer reports
+        id: sanitizer_reports
+        if: always() && inputs.san == 'address'
+        continue-on-error: true
+        shell: python3 {0}
+        run: |
+          import re
+          import sys
+          from pathlib import Path
+
+          # State allocated once at module load lives for the whole process and
+          # is never freed at shutdown, so LSan can report it as an "Indirect
+          # leak" (reachable only from memory LSan considers unreferenced).
+          # That is bounded, not a per-operation leak. Only Indirect entries
+          # allocated from one of these once-at-startup call sites are
+          # excluded; a "Direct leak" (an allocation nothing references at
+          # all) or an Indirect leak allocated elsewhere is always treated as
+          # real.
+          BENIGN_LEAK_ROOTS = (
+              "DetectClusterType",
+              "moduleLoadInternalModules",
+              "moduleOnLoad",
+              "moduleCreateContext",
+              "moduleAllocTempClient",
+          )
+
+          # test_eval_node_errors_async (test_async.py) and
+          # test_timeout_strict_policy (test.py) time out a query while the
+          # shards are still scanning. The coordinator frees that request's
+          # fanout state only when the abandoned shard replies arrive, which
+          # can be after the server exits. Waiting for that in the tests was
+          # tried and is still racy under CI load. The leaked graph spans the
+          # whole dispatch/reply path, so it is scoped by test name rather
+          # than by stack. Only Indirect leaks are forgiven, and only in
+          # coordinator mode (RLTest puts '-cluster' before '.asan.log'):
+          # standalone FT.SEARCH never fans out.
+          KNOWN_ABANDONED_FANOUT_TESTS = re.compile(
+              r"(test_eval_node_errors_async|test_test_timeout_strict_policy).*-cluster\.asan\.log"
+          )
+
+          # Anchored on the "==PID==ERROR: ..." header line, which the sanitizer
+          # runtime always writes first -- unlike the SUMMARY line or leak
+          # entries, which a report can be missing if the process is killed or
+          # faults again before finishing writing it. A report that can't be
+          # positively matched to the known-benign signature, complete or not,
+          # is treated as real: this is exactly the "server crashed and CI
+          # didn't notice" scenario the step exists to catch.
+          HEADER_RE = re.compile(r"^==\d+==ERROR: (AddressSanitizer|LeakSanitizer): .*$", re.MULTILINE)
+          LEAK_ENTRY_RE = re.compile(r"^(Direct|Indirect) leak of .* allocated from:$", re.MULTILINE)
+          # Printed right before the HEADER_RE line of the report it starts, so
+          # it is headerless only when no header follows it.
+          DEADLYSIGNAL_RE = re.compile(r"^.*AddressSanitizer:DEADLYSIGNAL.*$", re.MULTILINE)
+          # Runtime failures that never carry a HEADER_RE line of their own.
+          RUNTIME_FAILURE_RE = re.compile(
+              r"^.*(AddressSanitizer: CHECK failed|ERROR: AddressSanitizer failed to allocate"
+              r"|AddressSanitizer: nested bug).*$",
+              re.MULTILINE,
+          )
+
+          def unexpected_reports(log, text):
+              is_known_abandoned_fanout_test = bool(KNOWN_ABANDONED_FANOUT_TESTS.search(str(log)))
+              bad = []
+              headers = list(HEADER_RE.finditer(text))
+              # The module is built with -fsanitize-recover and runs with
+              # halt_on_error=0, so a process can keep going after an allowed
+              # report and then fail again without writing a header. Such
+              # output can't be matched to a benign signature, so it is
+              # unexpected regardless of what else the log contains.
+              if not headers:
+                  if text.strip():
+                      first_line = next(line for line in text.splitlines() if line.strip())
+                      bad.append(f"{first_line}\n(no ERROR header -- unrecognized or truncated report)")
+              else:
+                  for m in RUNTIME_FAILURE_RE.finditer(text):
+                      bad.append(m.group(0))
+                  for m in DEADLYSIGNAL_RE.finditer(text):
+                      if m.start() > headers[-1].start():
+                          bad.append(f"{m.group(0)}\n(no ERROR header -- truncated report)")
+              for i, h in enumerate(headers):
+                  start = h.end()
+                  end = headers[i + 1].start() if i + 1 < len(headers) else len(text)
+                  block = text[start:end]
+                  if h.group(1) == "LeakSanitizer":
+                      entries = list(LEAK_ENTRY_RE.finditer(block))
+                      if not entries:
+                          bad.append(h.group(0))  # header with no leak entry: truncated
+                          continue
+                      for m in entries:
+                          stack = []
+                          # +1 skips the newline right after "allocated from:" --
+                          # without it, splitlines()'s first element is that
+                          # empty line, and the loop breaks before collecting
+                          # any frames.
+                          for line in block[m.end() + 1:].splitlines():
+                              if not line.strip():
+                                  break
+                              stack.append(line)
+                          entry = "\n".join(stack)
+                          if m.group(1) == "Direct":
+                              bad.append(f"{h.group(0)}\n{m.group(0)}\n{entry}")
+                          elif any(root in entry for root in BENIGN_LEAK_ROOTS):
+                              continue
+                          elif is_known_abandoned_fanout_test:
+                              continue
+                          else:
+                              bad.append(f"{h.group(0)}\n{m.group(0)}\n{entry}")
+                  else:
+                      summary = re.search(r"^SUMMARY: AddressSanitizer:.*$", block, re.MULTILINE)
+                      detail = summary.group(0) if summary else "(no SUMMARY -- truncated report)"
+                      bad.append(f"{h.group(0)}\n{detail}")
+              return bad
+
+          found = False
+          for log in sorted(Path("tests").glob("**/logs/*.asan.log*")):
+              if not log.is_file():
+                  continue
+              bad = unexpected_reports(log, log.read_text(errors="replace"))
+              if bad:
+                  found = True
+                  print(f"::error::Sanitizer report in {log}")
+                  print("\n".join(bad))
+
+          sys.exit(1 if found else 0)
+
       # Record this run's failures to the flaky DB (internal PRs only) so flaky
       # marks stay current. always() so failures are recorded even when the test
       # step failed; continue-on-error so a DB outage never fails the job.
@@ -498,7 +627,8 @@ jobs:
         if: >
           failure() || (
             steps.standalone_tests.outcome == 'failure' ||
-            steps.coordinator_tests.outcome == 'failure'
+            steps.coordinator_tests.outcome == 'failure' ||
+            steps.sanitizer_reports.outcome == 'failure'
           )
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -562,11 +692,13 @@ jobs:
         if: |
           failure() || (
             steps.standalone_tests.outcome == 'failure' ||
-            steps.coordinator_tests.outcome == 'failure'
+            steps.coordinator_tests.outcome == 'failure' ||
+            steps.sanitizer_reports.outcome == 'failure'
           )
         run: |
           echo "Flow tests (standalone): ${{ steps.standalone_tests.outcome }}"
           echo "Flow tests (coordinator): ${{ steps.coordinator_tests.outcome }}"
+          echo "Sanitizer reports: ${{ steps.sanitizer_reports.outcome }}"
           exit 1
       - name: Import Codecov GPG public key
         if: inputs.coverage
