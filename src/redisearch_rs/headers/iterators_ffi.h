@@ -12,6 +12,7 @@
 #include "iterators/iterator_api.h"
 #include "tag_index.h"
 #include "query.h"
+#include "VecSim/vec_sim.h"
 #include "field.h"
 #include "query_types.h"
 #include "rqe_core.h"
@@ -593,6 +594,42 @@ QueryIterator *NewUnionIterator(QueryIterator * *its, int32_t num, bool quick_ex
 QueryIterator *NewUnsortedIdListIterator(t_docId *ids, uint64_t num, double weight);
 
 /**
+ * Construct a vector top-k iterator and expose it as a C [`QueryIterator`].
+ *
+ * This call can reduce to an `Empty` iterator, whose `type_` is
+ * [`IteratorType::Empty`] rather than [`IteratorType::Hybrid`]. The `VectorTopK_*`
+ * accessors below must not be called on such a handle.
+ *
+ * Pass `child = NULL` for a pure KNN query; pass a valid owning child iterator
+ * for a hybrid (filtered) query.
+ *
+ * The `query_params` pointer is read once to copy the parameters into the
+ * iterator; it is not retained after this call.
+ *
+ * `can_trim_deep_results` applies only to filtered queries: when `true`, the
+ * pipeline needs no rich results, so each match yields a metric-only result
+ * carrying just the vector score instead of a deep copy of the child's scoring
+ * subtree. It has no effect on a pure KNN query, which is metric-only anyway.
+ *
+ * # Safety
+ *
+ * 1. `index` is non-null and [valid], and outlives the returned iterator.
+ * 2. `query_vector` is [valid] for `vector_byte_len` bytes, and
+ *    `vector_byte_len` equals the index's expected query-vector size.
+ * 3. `query_params` is non-null and [valid] for a [`VecSimQueryParams`].
+ * 4. `child`, when non-null, is a [valid], owning `QueryIterator *` with every
+ *    callback populated.
+ * 5. `filter_ctx` is non-null and [valid] for a [`FieldFilterContext`] for the
+ *    duration of this call.
+ * 6. `sctx` is non-null and [valid] for a [`RedisSearchCtx`] with a [valid]
+ *    `spec`, both outliving the returned iterator.
+ * 7. `timeout` is non-null and remains valid for the returned iterator's lifetime.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+QueryIterator *NewVectorTopKIterator(VecSimIndex *index, const void *query_vector, size_t vector_byte_len, const VecSimQueryParams *query_params, size_t k, bool can_trim_deep_results, QueryIterator *child, QueryRequestTimeout *timeout, RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx);
+
+/**
  * Creates a new wildcard iterator from a query evaluation context.
  *
  * There are three possible code paths:
@@ -728,6 +765,32 @@ void SetMetricRLookupHandle(QueryIterator *header, struct RLookupKeyHandle *key_
  *    created via [`NewUnionIterator`].
  */
 void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
+
+/**
+ * Return a mutable reference to the `RLookupKey *` stored inside this iterator.
+ *
+ * The key is initially `NULL`; the metrics-loader result processor writes
+ * through this pointer to set the iterator's score-output key.
+ *
+ * # Safety
+ *
+ * 1. `it` is a non-null, unaliased handle from [`NewVectorTopKIterator`] that did
+ *    not reduce to `Empty`, whose `index` and `sctx` are still alive.
+ */
+RLookupKey * *VectorTopK_GetOwnKeyRef(QueryIterator *it);
+
+/**
+ * Set the [`RLookupKeyHandle`] back-reference on this iterator.
+ *
+ * The handle is used to invalidate the key pointer when the iterator is freed.
+ *
+ * # Safety
+ *
+ * 1. `it` is a non-null, unaliased handle from [`NewVectorTopKIterator`] that did
+ *    not reduce to `Empty`, whose `index` and `sctx` are still alive.
+ * 2. `handle` is either null or a valid pointer to a [`RLookupKeyHandle`].
+ */
+void VectorTopK_SetKeyHandle(QueryIterator *it, RLookupKeyHandle *handle);
 
 /**
  *
