@@ -16,8 +16,9 @@ Standards to follow when writing Rust documentation.
   ```text
   [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
   ```
-  Only where it means pointer or memory validity — `valid UTF-8`, a valid enum variant and a
-  valid nul terminator keep their plain form, since std's definition says nothing about them.
+  Only where it means pointer or memory validity — `valid UTF-8`, a valid enum variant, a valid
+  nul terminator and a by-value struct whose fields must agree keep their plain form, since
+  std's definition says nothing about them.
   A duration clause such as "must remain valid for the lifetime of the returned iterator" does
   mean it, so link it as well; the duration it adds is orthogonal to what validity means.
   A callback parameter is the other way round: std's rules cover accesses through data
