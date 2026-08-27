@@ -36,7 +36,7 @@ typedef struct RedisModule_Reply {
   bool resp3;
   int count;
   arrayof(struct RedisModule_Reply_StackEntry) stack;
-  char *scratch;  // see RedisModule_Reply_ScratchBuffer
+  char *scratch;  // see RedisModule_Reply_PrefixedStringBuffer
   size_t scratch_cap;
 #ifdef REDISMODULE_REPLY_DEBUG
   arrayof(char) json;
@@ -68,11 +68,11 @@ int RedisModule_Reply_SimpleString(RedisModule_Reply *reply, const char *val);
 int RedisModule_Reply_CString(RedisModule_Reply *reply, const char *val);
 int RedisModule_Reply_StringBuffer(RedisModule_Reply *reply, const char *val, size_t len);
 
-/* Return a reply-owned scratch buffer of at least `len` bytes, for values that must be
- * assembled before a single bulk-string emission (e.g. tag-prefixed sort keys). Every call
- * returns the same buffer, possibly grown, so the contents only survive until the next call;
- * the buffer is reused across rows and freed by RedisModule_EndReply. */
-char *RedisModule_Reply_ScratchBuffer(RedisModule_Reply *reply, size_t len);
+/* Emit `prefix` followed by the `n` bytes of `s` as one bulk string (e.g. tag-prefixed
+ * sort keys), without a per-value allocation for typical sizes: small values are assembled
+ * in a bounded reply-owned scratch buffer reused across rows and freed by
+ * RedisModule_EndReply; larger values use an exact-sized temporary freed before returning. */
+int RedisModule_Reply_PrefixedStringBuffer(RedisModule_Reply *reply, char prefix, const char *s, size_t n);
 int RedisModule_Reply_Stringf(RedisModule_Reply *reply, const char *fmt, ...);
 int RedisModule_Reply_SimpleStringf(RedisModule_Reply *reply, const char *fmt, ...);
 int RedisModule_Reply_String(RedisModule_Reply *reply, const RedisModuleString *val);

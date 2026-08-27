@@ -146,7 +146,14 @@ int RedisModule_EndReply(RedisModule_Reply *reply) {
   return REDISMODULE_OK;
 }
 
-char *RedisModule_Reply_ScratchBuffer(RedisModule_Reply *reply, size_t len) {
+// Retention bound for the reply-owned scratch buffer. Values that fit reuse one
+// retained allocation (power-of-two growth capped by this bound); larger values
+// take an exact-sized temporary freed right after emission, so a huge field can
+// neither be rounded up by the geometric growth nor stay pinned until EndReply.
+#define REPLY_SCRATCH_RETAIN_MAX 4096
+
+static char *reply_ScratchBuffer(RedisModule_Reply *reply, size_t len) {
+  RS_LOG_ASSERT(len <= REPLY_SCRATCH_RETAIN_MAX, "scratch request above retention bound");
   if (reply->scratch_cap < len) {
     size_t cap = reply->scratch_cap ? reply->scratch_cap : 128;
     while (cap < len) {
@@ -156,6 +163,21 @@ char *RedisModule_Reply_ScratchBuffer(RedisModule_Reply *reply, size_t len) {
     reply->scratch_cap = cap;
   }
   return reply->scratch;
+}
+
+int RedisModule_Reply_PrefixedStringBuffer(RedisModule_Reply *reply, char prefix, const char *s,
+                                           size_t n) {
+  RS_LOG_ASSERT(n < SIZE_MAX, "prefixed string length overflow");
+  const size_t total = n + 1;
+  char *buf = total <= REPLY_SCRATCH_RETAIN_MAX ? reply_ScratchBuffer(reply, total)
+                                                : rm_malloc(total);
+  buf[0] = prefix;
+  memcpy(buf + 1, s, n);
+  int rc = RedisModule_Reply_StringBuffer(reply, buf, total);
+  if (buf != reply->scratch) {
+    rm_free(buf);
+  }
+  return rc;
 }
 
 static void _RedisModule_Reply_Next(RedisModule_Reply *reply) {

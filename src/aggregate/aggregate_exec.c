@@ -150,13 +150,9 @@ static void reeval_key(RedisModule_Reply *reply, const RSValue *key) {
     return;
   }
 
-  // Serialize a string by prepending "$" to it, assembled length-aware in the
-  // reply's scratch buffer: embedded NUL bytes survive the round trip and no
-  // per-value allocation happens.
-  char *tmp = RedisModule_Reply_ScratchBuffer(reply, n + 1);
-  tmp[0] = '$';
-  memcpy(tmp + 1, s, n);
-  RedisModule_Reply_StringBuffer(reply, tmp, n + 1);
+  // Serialize a string by prepending "$" to it, assembled length-aware so
+  // embedded NUL bytes survive the round trip.
+  RedisModule_Reply_PrefixedStringBuffer(reply, '$', s, n);
 }
 
 static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchResult *r,
