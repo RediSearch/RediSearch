@@ -28,7 +28,9 @@ int coord_aggregate_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **a
 
 // Empty reply for hybrid queries. Currently used during OOM conditions and pre-execution timeouts.
 // Creates QueryError with OOM/timeout warning and uses sendChunk_ReplyOnly_HybridEmptyResults.
-// When isProfile is true, wraps the reply with profile structure.
+// Client-facing replies use the profile envelope when isProfile is true. Internal
+// replies always keep the SEARCH/VSIM/warnings cursor-map shape consumed by the
+// coordinator, including for profiled shard commands.
 int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode, bool internal, bool isProfile);
 
 // Coordinator empty reply for FT.HYBRID commands.
