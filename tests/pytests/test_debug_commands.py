@@ -1879,7 +1879,8 @@ def _run_sync_point_query(conn, result_holder, error_holder, *query):
         error_holder.append(e)
 
 
-def _assert_sync_point_query_blocks_and_resumes(env, sync_point, release_cmd, *query):
+def _assert_sync_point_query_blocks_and_resumes(
+        env, sync_point, release_cmd, *query, release_preserves_state=True):
     """Run a query in the background, wait for the sync point, then release it."""
     conn = env.getConnection()
     result_holder = []
@@ -1896,11 +1897,21 @@ def _assert_sync_point_query_blocks_and_resumes(env, sync_point, release_cmd, *q
         f'Timeout waiting for {sync_point} sync point')
 
     env.expect(debug_cmd(), 'SYNC_POINT', 'IS_ARMED', sync_point).equal(True)
+    env.expect(debug_cmd(), 'SYNC_POINT', 'HIT_COUNT', sync_point).equal(1)
+    hit_seq = env.cmd(debug_cmd(), 'SYNC_POINT', 'LAST_HIT_SEQ', sync_point)
+    env.assertGreater(hit_seq, 0)
+    env.expect(debug_cmd(), 'SYNC_POINT', 'LAST_RELEASE_SEQ', sync_point).equal(0)
     env.expect(*release_cmd).ok()
 
     wait_for_condition(
         lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 0, {}),
         f'Timeout waiting for {sync_point} sync point to resume')
+    if release_preserves_state:
+        env.assertGreater(env.cmd(debug_cmd(), 'SYNC_POINT', 'LAST_RELEASE_SEQ', sync_point), hit_seq)
+    else:
+        env.expect(debug_cmd(), 'SYNC_POINT', 'HIT_COUNT', sync_point).equal(0)
+        env.expect(debug_cmd(), 'SYNC_POINT', 'LAST_HIT_SEQ', sync_point).equal(0)
+        env.expect(debug_cmd(), 'SYNC_POINT', 'LAST_RELEASE_SEQ', sync_point).equal(0)
 
     query_thread.join(timeout=10)
     env.assertFalse(query_thread.is_alive(), message='Query thread is still blocked after release')
@@ -1975,7 +1986,8 @@ def test_sync_point_clear_releases_waiting_query(env):
         env,
         'BeforeFirstRead',
         (debug_cmd(), 'SYNC_POINT', 'CLEAR'),
-        'FT.SEARCH', 'idx', '*'
+        'FT.SEARCH', 'idx', '*',
+        release_preserves_state=False
     )
 
 
