@@ -8,7 +8,6 @@
 */
 
 use crate::{TrieMap, iter, str_trie_map::iter::unfiltered::key_to_string};
-use std::borrow::Cow;
 
 /// Substring-filtered iterator over a [`StrTrieMap`](crate::str_trie_map::StrTrieMap),
 /// in lexicographical key order.
@@ -20,12 +19,13 @@ use std::borrow::Cow;
 pub struct ContainsIter<'tm, 'p, Data: 'tm>(iter::ContainsIter<'tm, 'p, Data>);
 
 impl<'tm, 'p, Data: 'tm> ContainsIter<'tm, 'p, Data> {
-    pub(crate) fn new(trie: &'tm TrieMap<Data>, target: impl Into<Cow<'p, str>>) -> Self {
-        let target: Cow<'p, [u8]> = match target.into() {
-            Cow::Borrowed(s) => Cow::Borrowed(s.as_bytes()),
-            Cow::Owned(s) => Cow::Owned(s.into_bytes()),
-        };
-        Self(trie.contains_iter(target))
+    pub(crate) fn new(trie: &'tm TrieMap<Data>, target: &'p str) -> Self {
+        Self(trie.contains_iter(target.as_bytes()))
+    }
+
+    /// See [`crate::iter::ContainsIter::into_owned`].
+    pub fn into_owned(self) -> ContainsIter<'tm, 'static, Data> {
+        ContainsIter(self.0.into_owned())
     }
 
     /// An iterator that yields no entries, for callers whose substring

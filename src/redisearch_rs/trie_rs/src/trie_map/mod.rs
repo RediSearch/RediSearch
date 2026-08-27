@@ -23,7 +23,6 @@ use crate::trie_map::{
     utils::strip_prefix,
 };
 use rqe_wildcard::WildcardPattern;
-use std::borrow::Cow;
 use std::fmt;
 
 #[derive(Clone, PartialEq, Eq)]
@@ -287,12 +286,10 @@ impl<Data> TrieMap<Data> {
     }
 
     /// Iterate over the entries that contain the target fragment, in lexicographical key order.
-    /// An owned `target` is stored inside the iterator, so callers holding
-    /// only a temporary buffer still get a lazy iterator.
-    pub fn contains_iter<'tm, 't>(
-        &'tm self,
-        target: impl Into<Cow<'t, [u8]>>,
-    ) -> ContainsIter<'tm, 't, Data> {
+    ///
+    /// The iterator borrows `target`; call
+    /// [`ContainsIter::into_owned`] to detach it from that borrow.
+    pub fn contains_iter<'tm, 't>(&'tm self, target: &'t [u8]) -> ContainsIter<'tm, 't, Data> {
         ContainsIter::new(self.root.as_ref(), target)
     }
 

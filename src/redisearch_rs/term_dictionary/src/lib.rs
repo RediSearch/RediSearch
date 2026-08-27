@@ -204,19 +204,19 @@ impl TermDictionary {
     }
 
     /// Yield every entry whose key contains the case-folded `target` as a
-    /// substring. See [`StrTrieMap::contains_iter`]. The iterator owns the
-    /// folded target when folding allocates, so it stays lazy either way.
+    /// substring. See [`StrTrieMap::contains_iter`]. The returned iterator
+    /// owns the folded target, so it stays lazy whether or not folding
+    /// allocated.
     ///
     /// An empty `target` yields nothing, unlike [`StrTrieMap::contains_iter`]
     /// — see the [module docs](self#empty-patterns).
-    pub fn contains_iter<'tm, 'p>(
-        &'tm self,
-        target: &'p str,
-    ) -> StrContainsIter<'tm, 'p, TermEntry> {
+    pub fn contains_iter(&self, target: &str) -> StrContainsIter<'_, 'static, TermEntry> {
         if target.is_empty() {
             return StrContainsIter::empty();
         }
-        self.inner.contains_iter(unicode::tolower_cow(target))
+        self.inner
+            .contains_iter(&unicode::tolower_cow(target))
+            .into_owned()
     }
 
     /// See [`StrTrieMap::prefixed_iter`].
