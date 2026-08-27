@@ -22,6 +22,19 @@ impl<'tm, 'p, Data: 'tm> ContainsIter<'tm, 'p, Data> {
     pub(crate) fn new(trie: &'tm TrieMap<Data>, target: &'p str) -> Self {
         Self(trie.contains_iter(target.as_bytes()))
     }
+
+    /// See [`crate::iter::ContainsIter::into_owned`].
+    pub fn into_owned(self) -> ContainsIter<'tm, 'static, Data> {
+        ContainsIter(self.0.into_owned())
+    }
+
+    /// An iterator that yields no entries, for callers whose substring
+    /// semantics differ from this iterator's on some input — see
+    /// [`StrTrieMap::contains_iter`](crate::str_trie_map::StrTrieMap::contains_iter)
+    /// for what it does with an empty target.
+    pub fn empty() -> Self {
+        Self(iter::ContainsIter::empty())
+    }
 }
 
 impl<'tm, 'p, Data: 'tm> Iterator for ContainsIter<'tm, 'p, Data> {

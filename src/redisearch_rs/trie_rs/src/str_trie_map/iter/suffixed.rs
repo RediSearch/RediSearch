@@ -35,6 +35,17 @@ impl<'tm, Data: 'tm> SuffixedIter<'tm, Data> {
             iter: trie.iter(),
         }
     }
+
+    /// An iterator that yields no entries, for callers whose suffix
+    /// semantics differ from this iterator's on some input — see
+    /// [`StrTrieMap::suffixed_iter`](crate::str_trie_map::StrTrieMap::suffixed_iter)
+    /// for what it does with an empty suffix.
+    pub fn empty() -> Self {
+        Self {
+            target_bytes: Box::new([]),
+            iter: iter::Iter::empty(),
+        }
+    }
 }
 
 impl<'tm, Data: 'tm> Iterator for SuffixedIter<'tm, Data> {
