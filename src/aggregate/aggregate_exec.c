@@ -1802,12 +1802,10 @@ static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv
 }
 
 // FT.SEARCH SORTBY on a schema field puts the async loader in the pipeline:
-// the arrange step loads any sort key that is missing from the lookup, and
-// flex has no SORTABLE fields to make one unnecessary. Vector-distance sort
-// keys are written into the lookup by the iterator instead, and metric names
-// colliding with schema fields are rejected, so a schema-field sort key is
-// exactly the case that loads. Count-only searches short-circuit the arrange
-// step with a counter before sort keys are examined, so they never load.
+// the arrange step loads any sort key missing from the lookup, and flex has
+// no SORTABLE fields to make one unnecessary. Vector-distance keys are
+// written into the lookup by the iterator, and count-only searches
+// short-circuit the arrange step with a counter — neither loads.
 static bool searchSortbyNeedsLoader(AREQ *r, const IndexSpec *spec) {
   if (IsCount(r)) {
     return false;
@@ -1847,8 +1845,8 @@ static int rejectDiskLoaderInlineExecution(AREQ *r, const RedisSearchCtx *sctx,
     error = "FT.AGGREGATE in a context that cannot block (MULTI/EXEC or Lua "
             "scripts) is not supported in Redis Flex";
   } else if (IsSearch(r) && searchSortbyNeedsLoader(r, sctx->spec)) {
-    // Before the field-return check: when both apply, NOCONTENT/RETURN 0 is
-    // not a sufficient workaround — the sort key still has to load.
+    // Precedes the field-return check: NOCONTENT/RETURN 0 is not a sufficient
+    // workaround when a sort key still has to load.
     error = "FT.SEARCH with SORTBY on a schema field in a context that cannot "
             "block (MULTI/EXEC or Lua scripts) is not supported in Redis Flex";
   } else if (IsSearch(r) &&
