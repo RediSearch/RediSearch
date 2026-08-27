@@ -141,6 +141,19 @@ typedef union IndexDecoderCtx {
 } IndexDecoderCtx;
 
 /**
+ * Unique identifier for an [`InvertedIndex`](crate::InvertedIndex) instance.
+ *
+ * Generated from a global atomic counter and assigned at construction time.
+ * Used together with pointer comparison to detect the ABA problem: when an
+ * index is freed and a new one is allocated at the same address, the unique
+ * IDs will differ, allowing cursors to detect the replacement.
+ *
+ * Two distinct indexes are guaranteed to have different IDs (until the
+ * counter wraps).
+ */
+typedef uint32_t IndexUniqueId;
+
+/**
  * Filter details to apply to numeric values
  */
 typedef struct NumericFilter {

@@ -1,0 +1,46 @@
+[package]
+name = "tag_index_ffi"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# Enabled when building tests so `build.rs` links the C code (`libredisearch_c_bundle`),
+# which provides `array_new_sz` and the doc-table lookups this crate calls.
+test-utils = []
+
+[build-dependencies]
+build_utils.workspace = true
+
+[dependencies]
+ffi.workspace = true
+index_result.workspace = true
+inverted_index.workspace = true
+inverted_index_ffi = { path = "../inverted_index_ffi" }
+rmp-serde.workspace = true
+query_error.workspace = true
+rqe_iterators.workspace = true
+serde.workspace = true
+tag_index.workspace = true
+trie_rs.workspace = true
+triemap_ffi = { path = "../triemap_ffi" }
+workspace_hack.workspace = true
+
+[target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
+features = ["bindgen-static", "min-redis-compatibility-version-6-0"]
+workspace = true
+default-features = false
+
+[target.'cfg(not(all(target_env="musl", target_os="linux")))'.dependencies.redis-module]
+workspace = true
+default-features = true
+
+[dev-dependencies]
+tag_index_ffi = { path = ".", features = ["test-utils"] }
+rqe_iterators_test_utils.workspace = true
+redis_mock.workspace = true
+redisearch_rs = { path = "../redisearch_rs", features = ["mock_allocator"] }
