@@ -255,6 +255,11 @@ impl TagSuffixIndex {
     pub fn find(&self, key: &[u8]) -> Option<&SuffixData> {
         self.entries.find(key)
     }
+
+    /// Bytes the suffix trie occupies.
+    pub const fn mem_usage(&self) -> usize {
+        self.entries.mem_usage()
+    }
 }
 
 #[cfg(test)]
