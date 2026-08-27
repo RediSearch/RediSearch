@@ -93,6 +93,9 @@ workspace_hack = { path = "./workspace_hack" }
 anstyle-query = "1.1.5"
 cbindgen = "0.29"
 cc = "1"
+# `default-features = false` drops the `clock` feature, whose `iana-time-zone`
+# dependency we do not need: timestamps are formatted as UTC, never local time.
+chrono = { version = "0.4", default-features = false, features = ["std", "now"] }
 crc32fast = "1.4.2"
 criterion = { version = "0.5", features = ["html_reports"] }
 csv = "1.3.1"
