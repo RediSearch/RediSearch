@@ -7,23 +7,18 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Integration tests for the `tag_index` crate, driving `TagIndex` (and the
-//! query iterators it builds) through the public API only.
+//! Integration tests for `tag_index_ffi`, driving the crate the way C does:
+//! through raw pointers and the exported `Rust_*` entry points only.
+//!
+//! What is worth testing here is the boundary itself — the mode-erased handle,
+//! its lifecycle, and the out-parameter protocols — not the indexing behaviour,
+//! which `tag_index`'s own integration tests already cover.
 
 // Link both Rust-provided and C-provided symbols
 extern crate redisearch_rs;
 // Mock or stub the ones that aren't provided by the line above
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
-mod create;
-mod disk;
-mod disk_backend;
-mod erased;
-mod expansion_timeout;
-mod filtered_iteration;
-mod gc;
-mod indexing;
-mod reader;
-mod suffix_wildcard;
-mod tag;
-mod util;
+mod handle;
+mod iteration;
+mod provenance;

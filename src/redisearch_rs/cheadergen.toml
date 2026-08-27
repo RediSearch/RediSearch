@@ -109,6 +109,9 @@ inline static struct InvertedIndex *NewInvertedIndex(IndexFlags flags, size_t *m
 }
 """
 
+[header.tag_index_ffi]
+includes = ["redis_index.h", "search_disk.h", "spec.h"]
+
 [header.iterators_ffi]
 includes = ["redisearch.h", "<time.h>", "iterators/iterator_api.h", "tag_index.h", "query.h", "VecSim/vec_sim.h"]
 after_includes = """
