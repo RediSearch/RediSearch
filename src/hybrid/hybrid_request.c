@@ -75,8 +75,8 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
         }
 
         // Parse subquery: Convert AST to iterator tree
-        areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq), areq->reqflags, areq, &areq->base.reply.err);
-
+        areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq),
+                                      areq->reqflags, &areq->base.reply.err);
         rs_wall_clock parseClock;
         if (isProfile) {
           // Add a Profile iterators before every iterator in the tree
@@ -289,15 +289,17 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
  * @param nrequests Number of requests in the array
  */
 void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests, size_t nrequests, RedisModuleString **argv, uint32_t argc) {
-    QueryRequest_Init(&hybridReq->base, QUERY_REQUEST_KIND_HYBRID, argv, argc);
-    hybridReq->requests = requests;
-    hybridReq->nrequests = nrequests;
-    hybridReq->sctx = sctx;
-    hybridReq->kArgIndex = -1;
+    RS_ASSERT(sctx);
     // Snapshot the request's config; nothing may re-read RSGlobalConfig for
     // the request's lifetime.
     hybridReq->reqConfig = RSGlobalConfig.requestConfigParams;
-
+    QueryRequest_Init(&hybridReq->base, QUERY_REQUEST_KIND_HYBRID,
+                      &hybridReq->reqConfig, argv, argc);
+    hybridReq->requests = requests;
+    hybridReq->nrequests = nrequests;
+    hybridReq->sctx = sctx;
+    hybridReq->sctx->timeout = &hybridReq->base.timeout;
+    hybridReq->kArgIndex = -1;
     rs_wall_clock now = {0};
     rs_wall_clock_init(&now);
 
@@ -325,6 +327,13 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     }
     hybridReq->profileClocks.initClock = now;
 
+}
+
+void HybridRequest_BeginTimeoutCycle(HybridRequest *req, QueryRequestTimeoutKind kind) {
+    QueryRequestTimeout_BeginCycle(&req->base.timeout, kind);
+    for (size_t i = 0; i < req->nrequests; i++) {
+        QueryRequestTimeout_BeginCycle(&req->requests[i]->base.timeout, kind);
+    }
 }
 
 HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests, RedisModuleString **argv, uint32_t argc) {
@@ -364,7 +373,8 @@ void HybridRequest_Free(HybridRequest *req) {
     // tears down the pipeline (and its disk-iterator borrows) before
     // releasing the sctx and its diskSnapshot, and the subs own no
     // RedisModuleCtx — each cycle lends and reclaims its own.
-    const bool timedOut = HybridRequest_TimedOut(req);
+    const bool timedOut =
+        QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout);
     for (size_t i = 0; i < req->nrequests; i++) {
       AREQ *sub = req->requests[i];
       struct Cursor *cursor = sub->base.cursorInfo.cursor;
@@ -505,15 +515,13 @@ void AddValidationErrorContext(AREQ *req, QueryError *status) {
   }
 }
 
-void HybridRequest_SetTimedOut(HybridRequest *req) {
-  QueryRequestTimeout_SetTimedOut(&req->base.timeout);
-  // Propagate to each subquery AREQ so its RPNet's MRChannel_PopWithTimeout
-  // abort flag (&areq->base.timeout.timedOut) is flipped. Without this the BG
-  // worker can stay parked on the channel even after the hybrid-level flag
-  // is set.
+void HybridRequest_PropagateTimeoutToSubqueries(HybridRequest *req) {
+  // Propagate to each subquery AREQ so its RPNet wait observes the abort.
+  // Without this the BG worker can stay parked on the channel even after the
+  // hybrid-level flag is set.
   for (size_t i = 0; i < req->nrequests; i++) {
     if (req->requests[i]) {
-      AREQ_SetTimedOut(req->requests[i]);
+      QueryRequestTimeout_MarkTimedOut(&req->requests[i]->base.timeout);
     }
   }
 }

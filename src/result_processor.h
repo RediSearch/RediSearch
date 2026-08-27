@@ -160,6 +160,7 @@ typedef struct ResultProcessor {
   void (*Free)(struct ResultProcessor *self);
 } ResultProcessor;
 
+/** `sctx` must carry the owning request's non-NULL timeout state. */
 ResultProcessor *RPQueryIterator_New(QueryIterator *itr, const RedisModuleSlotRangeArray *querySlots, uint32_t slotsVersion, RedisSearchCtx *sctx);
 
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
@@ -274,7 +275,7 @@ ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLook
 * The returned processor takes ownership of result depleting and yielding.
 * @param sync_ref Reference to shared synchronization object for coordinating multiple safe depleters
 * @param depletingThreadCtx Search context for the upstream processor being wrapped; used only on
-*                           the depleting thread
+*                           the depleting thread and carrying its non-NULL request timeout
 * @param pool Thread pool used to run the depletion job (must be non-NULL)
 */
 ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx, redisearch_thpool_t *pool);
@@ -395,6 +396,7 @@ typedef struct HybridExplainContext HybridExplainContext;
  * Note: RPHybridMerger takes ownership of hybridScoringCtx and is responsible for freeing it.
  * `explainCtx` is optional: pass NULL to disable EXPLAINSCORE wrapping. When
  * non-NULL, RPHybridMerger takes ownership of the struct (frees it on Free).
+ * @param sctx Search context carrying the hybrid request's non-NULL timeout
  * @param scoreKey Optional key for writing scores as fields when no LOAD step is provided
  */
 ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
@@ -429,8 +431,9 @@ ResultProcessorType StringToRPType(const char *str);
  *
  * returns timeout after N results, N >= 0.
  *******************************************************************************************************************/
-ResultProcessor *RPTimeoutAfterCount_New(size_t count, RedisSearchCtx *sctx);
 void PipelineAddTimeoutAfterCount(QueryProcessingCtx *qctx, RedisSearchCtx *sctx, size_t results_count);
+// Aggregate debug requires the legacy clock source even when the production timeout is disabled.
+void PipelineAddTimeoutAfterCountClock(QueryProcessingCtx *qctx, RedisSearchCtx *sctx, size_t results_count);
 
 /*******************************************************************************************************************
  *  Crash Processor - DEBUG ONLY

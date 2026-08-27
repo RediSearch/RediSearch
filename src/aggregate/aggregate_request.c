@@ -1123,7 +1123,8 @@ bool RunInThread(RedisModuleCtx *ctx) {
 }
 
 static void initAREQRequest(AREQ *req, RedisModuleString **argv, uint32_t argc) {
-  QueryRequest_Init(&req->base, QUERY_REQUEST_KIND_AREQ, argv, argc);
+  req->reqConfig = RSGlobalConfig.requestConfigParams;
+  QueryRequest_Init(&req->base, QUERY_REQUEST_KIND_AREQ, &req->reqConfig, argv, argc);
   QueryRequest_SetEndProcRef(&req->base, &req->pipeline.qctx.endProc);
   /*
   unsigned int dialectVersion;
@@ -1132,8 +1133,6 @@ static void initAREQRequest(AREQ *req, RedisModuleString **argv, uint32_t argc) 
   int printProfileClock;
   uint64_t BM25STD_TanhFactor;
   */
-  req->reqConfig = RSGlobalConfig.requestConfigParams;
-
   // TODO: save only one of the configuration parameters according to the query type
   // once query offset is bounded by both.
   req->maxSearchResults = RSGlobalConfig.maxSearchResults;
@@ -1155,13 +1154,6 @@ AREQ_Debug *AREQ_New_AREQ_Debug(RedisModuleString **argv, uint32_t argc) {
   AREQ_Debug *debug_req = rm_calloc(1, sizeof(*debug_req));
   initAREQRequest(&debug_req->r, argv, argc);
   return debug_req;
-}
-
-bool SearchTime_IsTimedOut(void *arg) {
-  const SearchTime *time = arg;
-  if (!time || !time->timedOutFlag) return false;
-  return atomic_load_explicit((const _Atomic(bool) *)time->timedOutFlag,
-                              memory_order_relaxed);
 }
 
 bool AREQ_TryClaimAggregateResults(AREQ *req) {
@@ -1197,11 +1189,6 @@ void AREQ_WaitForAggregateResultsComplete(AREQ *req) {
   pthread_mutex_unlock(&req->base.async.aggregateResultsLock);
 }
 
-/* Read the common base without coupling this path to a concrete request kind. */
-static bool QueryRequest_OwnedRequestTimedOut(QueryRequest *request) {
-  return QueryRequestTimeout_GetTimedOut(&request->timeout);
-}
-
 /* See aggregate.h for the full handshake contract. The aggregateResultsLock
  * serializes the worker's "set holding, then check timedOut" against the main
  * thread's "set timedOut, then check holding", making the two race-free. */
@@ -1209,7 +1196,7 @@ bool QueryRequest_SafeLoaderEnterGIL(QueryRequest *request) {
   QueryRequestAsyncState *async = &request->async;
   bool proceed;
   pthread_mutex_lock(&async->aggregateResultsLock);
-  if (QueryRequest_OwnedRequestTimedOut(request)) {
+  if (QueryRequestTimeout_IsBlockedClientTimedOut(&request->timeout)) {
     // Timeout already fired: do not mark holding, bail instead of blocking on the
     // GIL the main thread holds while it waits.
     proceed = false;
@@ -1246,7 +1233,8 @@ void AREQ_ResetForCursorReadReturnStrict(AREQ *req) {
   req->base.async.aggregateResultsDone = false;
   req->base.async.safeLoadersHoldingGIL = 0;
   pthread_mutex_unlock(&req->base.async.aggregateResultsLock);
-  QueryRequestTimeout_ClearTimedOut(&req->base.timeout);
+  QueryRequestTimeout_BeginCycle(&req->base.timeout,
+                                 QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   ResultProcessor *root = AREQ_QueryProcessingCtx(req)->rootProc;
   if (root && root->type == RP_NETWORK) {
     ((RPNet *)root)->drainOnly = false;
@@ -1318,16 +1306,6 @@ static bool IsNeededDepleter(AREQ *req) {
          (!IsCursor(req) || !IsCoordinator(req));
 }
 
-// This function should only be called from the main thread (calling RunInThread() is not thread safe)
-// AREQ execution flags are not set when this function is called currently
-static bool shouldCheckInPipelineTimeout(RedisModuleCtx* ctx, AREQ *req) {
-  // We should check for timeout in pipeline only if timeout is > 0
-  // and when the policy is RETURN or the policy is FAIL/RETURN-strict, without workers.
-  return req->reqConfig.queryTimeoutMS > 0 &&
-         (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return || !RunInThread(ctx));
-
-}
-
 int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskIndex, QueryError *status) {
   RS_ASSERT(offset <= req->base.args.parseArgc &&
             req->base.args.parseArgc <= req->base.args.argc);
@@ -1394,6 +1372,13 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskInd
     goto error;
   }
 
+  // Shard/standalone inline execution has no blocked-client timeout callback,
+  // which RETURN_STRICT requires. Quietly fall back to RETURN for this request.
+  if (!IsCoordinator(req) && req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict &&
+      !RunInThread(ctx)) {
+    req->reqConfig.timeoutPolicy = TimeoutPolicy_Return;
+  }
+
   // Verify we got slots requested if needed
   if (IsInternal(req) && !req->querySlots) {
     // Coordinators older than 8.4 do not send a slots specification. Fall back to the
@@ -1411,8 +1396,10 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskInd
     }
   }
 
-  // Check if we should check for timeout in pipeline
-  AREQ_SetSkipTimeoutChecks(req, !shouldCheckInPipelineTimeout(ctx, req));
+  // TIMEOUT parsing and request-specific adjustments are complete. Keep this final configuration
+  // unchanged across cursor reads; only the timeout's per-cycle state is reset or rearmed.
+  QueryRequestTimeout_UpdateConfig(&req->base.timeout, req->reqConfig.timeoutPolicy,
+                                   req->reqConfig.queryTimeoutMS);
 
   return REDISMODULE_OK;
 
@@ -1686,10 +1673,10 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // alive (main-thread command handling). The reply path reads only this
   // capture — it may run after the last strong spec reference was released.
   AREQ_QueryProcessingCtx(req)->bgScanOOM |= RS_AtomicBoolLoadRelaxed(&index->scan_failed_OOM);
-  // Borrow the request's timed-out flag onto the sctx so pipeline RPs can
+  // Borrow the request timeout onto the sctx so pipeline RPs can
   // observe a RETURN-STRICT main-thread timeout without holding an AREQ
-  // back-pointer (read via SearchTime_IsTimedOut).
-  sctx->time.timedOutFlag = &req->base.timeout.timedOut;
+  // back-pointer used by query execution and result processors.
+  sctx->timeout = &req->base.timeout;
 
   if (!IsIndexCoherent(req)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_MISMATCH, NULL);

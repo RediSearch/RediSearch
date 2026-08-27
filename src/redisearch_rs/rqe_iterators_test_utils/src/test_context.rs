@@ -97,6 +97,9 @@ pub struct TestContext {
     pub sctx: ptr::NonNull<ffi::RedisSearchCtx>,
     pub spec: *mut ffi::IndexSpec,
 
+    /// Owns the timeout installed into `sctx` by [`set_search_time`](Self::set_search_time).
+    timeout: Option<Box<ffi::QueryRequestTimeout>>,
+
     /// Lazily-allocated [`QueryEvalCtx`](ffi::QueryEvalCtx) (plus the backing
     /// structs its pointer fields require), created on the first
     /// [`qctx`](TestContext::qctx) call and freed on drop. Mirrors
@@ -355,6 +358,7 @@ impl TestContext {
             _ctx: ctx,
             sctx,
             spec,
+            timeout: None,
             qctx: OnceCell::new(),
             inner: TestContextInner::Numeric {
                 field_spec: fs,
@@ -420,6 +424,7 @@ impl TestContext {
             _ctx: ctx,
             sctx,
             spec,
+            timeout: None,
             qctx: OnceCell::new(),
             // A geo field is backed by the numeric range tree, so it reuses the
             // `Numeric` inner variant rather than needing a dedicated one.
@@ -461,6 +466,7 @@ impl TestContext {
             _ctx: ctx,
             sctx,
             spec,
+            timeout: None,
             qctx: OnceCell::new(),
             inner: TestContextInner::Geometry { field_spec },
         }
@@ -531,6 +537,7 @@ impl TestContext {
             _ctx: ctx,
             sctx,
             spec,
+            timeout: None,
             qctx: OnceCell::new(),
             inner: TestContextInner::Term {
                 field_spec,
@@ -643,6 +650,7 @@ impl TestContext {
             _ctx: ctx,
             sctx,
             spec,
+            timeout: None,
             qctx: OnceCell::new(),
             inner: TestContextInner::Prefix { field_spec },
         }
@@ -695,6 +703,7 @@ impl TestContext {
             _ctx: ctx,
             sctx,
             spec,
+            timeout: None,
             qctx: OnceCell::new(),
             inner: TestContextInner::Wildcard { inverted_index: ii },
         }
@@ -766,6 +775,7 @@ impl TestContext {
             _ctx: ctx,
             sctx,
             spec,
+            timeout: None,
             qctx: OnceCell::new(),
             inner: TestContextInner::Missing {
                 field_spec,
@@ -846,6 +856,7 @@ impl TestContext {
             _ctx: ctx,
             sctx,
             spec,
+            timeout: None,
             qctx: OnceCell::new(),
             inner: TestContextInner::Tag {
                 field_spec,
@@ -1168,21 +1179,37 @@ impl TestContext {
         unsafe { *alloc.config = config };
     }
 
-    /// Set the deadline and the skip flag in `sctx->time`.
+    /// Set the request deadline, or leave timeout checks unarmed when `skip_checks` is true.
     ///
     /// `timeout` is an absolute `CLOCK_MONOTONIC_RAW` deadline, matching
     /// `updateTime` and `TimedOut`. `{0, 0}` disables it only for the Rust
     /// trie-iterator timeout probe (what these tests exercise) — `TimedOut`
     /// and [`duration_from_redis_timespec`](rqe_iterators::utils::duration_from_redis_timespec)
     /// read it as already expired instead, since their "no timeout" sentinel
-    /// is a value near `time_t::MAX`. `skip_checks` sets `skipTimeoutChecks`,
-    /// which stops consumers installing the deadline at all — it wins over a
-    /// deadline that has already passed.
-    pub const fn set_search_time(&mut self, timeout: ffi::timespec, skip_checks: bool) {
-        // SAFETY: `self.sctx` is a valid, exclusively-owned `RedisSearchCtx`.
+    /// is a value near `time_t::MAX`. `skip_checks` maps the removed
+    /// `skipTimeoutChecks` state to an unarmed request timeout.
+    pub fn set_search_time(&mut self, timeout: ffi::timespec, skip_checks: bool) {
+        let request_timeout = self.timeout.get_or_insert_with(|| {
+            // SAFETY: all-zero is the valid UNARMED representation. The active kind
+            // and clock fields are initialized below before exposure through `sctx`.
+            Box::new(unsafe { std::mem::zeroed::<ffi::QueryRequestTimeout>() })
+        });
+
+        request_timeout.kind = if skip_checks {
+            ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED
+        } else {
+            ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE
+        };
+
+        // SAFETY: `request_timeout` and `self.sctx` are exclusively owned by this
+        // context. When armed, `kind` selects the union's `clock` member. The boxed
+        // timeout remains at a stable address until after `sctx` is freed.
         unsafe {
-            self.sctx.as_mut().time.timeout = timeout;
-            self.sctx.as_mut().time.skipTimeoutChecks = skip_checks;
+            if !skip_checks {
+                request_timeout.source.clock.deadline = timeout;
+                request_timeout.source.clock.counter = 0;
+            }
+            self.sctx.as_mut().timeout = request_timeout.as_mut();
         }
     }
 
@@ -1204,7 +1231,7 @@ impl TestContext {
         // Set the current time to the future so expiration checks see these as expired
         // SAFETY: self.sctx is a valid pointer created via NewSearchCtxC
         unsafe {
-            self.sctx.as_mut().time.current = ffi::t_expirationTimePoint {
+            self.sctx.as_mut().currentTime = ffi::t_expirationTimePoint {
                 tv_sec: 100,
                 tv_nsec: 100,
             };

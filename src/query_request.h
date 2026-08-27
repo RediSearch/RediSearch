@@ -13,7 +13,9 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <time.h>
 
+#include "config.h"
 #include "query_error.h"
 #include "util/dllist.h"
 #include "util/rs_atomic.h"
@@ -112,31 +114,163 @@ typedef struct {
   uint32_t queryOffset;
 } QueryRequestArgs;
 
+#define QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT 100
+
+#ifdef __cplusplus
+static_assert(QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT <= UINT8_MAX,
+              "Query request timeout counter limit exceeds uint8_t");
+#else
+_Static_assert(QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT <= UINT8_MAX,
+               "Query request timeout counter limit exceeds uint8_t");
+#endif
+
+/** Per-execution-cycle timeout source. */
+typedef enum {
+  QUERY_REQUEST_TIMEOUT_UNARMED,         // No timeout checks are active.
+  QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT,  // Main-thread callback publishes an atomic marker.
+  QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE,  // Execution thread checks a monotonic deadline.
+} QueryRequestTimeoutKind;
+
+/**
+ * Request-owned timeout state retained for the request's entire lifetime.
+ *
+ * Init selects no active source. Each execution cycle selects exactly one
+ * source with BeginCycle, and Reset returns the state to UNARMED between
+ * cycles. Cursor reads reuse this object, so policy and timeoutMS remain sticky
+ * while the source union is reinitialized for each read.
+ *
+ * Threading contract:
+ *
+ * - Init, UpdateConfig, Reset, BeginCycle, and GetClockDeadlineForUpdate require
+ *   exclusive access. They must run before the request is published or between
+ *   execution cycles, after all consumers of the previous cycle have stopped.
+ * - kind is immutable during a cycle. Only the union member selected by kind
+ *   may be accessed, and source-specific pointers must not outlive that cycle.
+ * - During a BLOCKED_CLIENT cycle, the main-thread timeout callback may publish
+ *   the marker concurrently with worker reads. The marker is atomic but does
+ *   not publish any other request state.
+ * - During a CLOCK_DEADLINE cycle, the deadline is immutable. The counter is
+ *   shared across amortized call sites but is not atomic, so calls to
+ *   IsTimedOut for one request must be serialized.
+ *
+ * The owning QueryRequest must outlive every direct pointer, source-specific
+ * pointer, and foreign-language handle borrowed from this object.
+ */
 typedef struct QueryRequestTimeout {
-  RS_Atomic(bool) timedOut;
-  bool skipTimeoutChecks;
+  // Stable configuration retained across cursor execution cycles.
+  long long timeoutMS;
+  RSTimeoutPolicy policy;
+
+  // The active source is changed only between execution cycles, while no
+  // consumer can observe the union.
+  QueryRequestTimeoutKind kind;
+  union {
+    RS_Atomic(bool) blockedClientTimedOut;
+    struct {
+      struct timespec deadline;
+      // Shared by all amortized timeout callers during the clock cycle.
+      uint8_t counter;
+    } clock;
+  } source;
 } QueryRequestTimeout;
 
-static inline bool QueryRequestTimeout_GetTimedOut(const QueryRequestTimeout *timeout) {
-  return RS_AtomicBoolLoadRelaxed(&timeout->timedOut);
-}
+/** Initializes timeout as UNARMED with the supplied sticky configuration. */
+void QueryRequestTimeout_Init(QueryRequestTimeout *timeout, RSTimeoutPolicy policy,
+                              long long timeoutMS);
+/**
+ * Updates sticky configuration without changing or rearming the active cycle.
+ * The new timeoutMS is used when a later clock cycle begins.
+ */
+void QueryRequestTimeout_UpdateConfig(QueryRequestTimeout *timeout, RSTimeoutPolicy policy,
+                                      long long timeoutMS);
+/**
+ * Ends the current cycle by selecting UNARMED; sticky configuration and stale
+ * union storage are retained.
+ */
+void QueryRequestTimeout_Reset(QueryRequestTimeout *timeout);
+/**
+ * Starts a cycle using kind as its timeout source.
+ *
+ * BLOCKED_CLIENT clears the atomic marker. CLOCK_DEADLINE derives a new
+ * deadline from the sticky timeoutMS and resets the shared counter; a zero
+ * timeoutMS leaves the state UNARMED. RETURN_STRICT must be downgraded by the
+ * consumer before selecting CLOCK_DEADLINE because it requires the
+ * blocked-client callback.
+ */
+void QueryRequestTimeout_BeginCycle(QueryRequestTimeout *timeout, QueryRequestTimeoutKind kind);
+/**
+ * Atomically publishes a timeout to readers of the active BLOCKED_CLIENT
+ * cycle. This is the only state transition permitted concurrently with timeout
+ * checks; it communicates only the marker value, not other memory.
+ */
+void QueryRequestTimeout_MarkTimedOut(QueryRequestTimeout *timeout);
 
-static inline void QueryRequestTimeout_SetTimedOut(QueryRequestTimeout *timeout) {
-  RS_AtomicBoolStoreRelaxed(&timeout->timedOut, true);
-}
+/**
+ * Borrows the active BLOCKED_CLIENT flag for a wait that cannot use the
+ * source-neutral API. Access must use RS_Atomic operations. The pointer is
+ * valid only until the current cycle ends and must not be retained across
+ * Reset or BeginCycle.
+ */
+RS_Atomic(bool) *QueryRequestTimeout_GetBlockedClientFlag(QueryRequestTimeout *timeout);
 
-static inline void QueryRequestTimeout_ClearTimedOut(QueryRequestTimeout *timeout) {
-  RS_AtomicBoolStoreRelaxed(&timeout->timedOut, false);
-}
+/**
+ * Borrows the active CLOCK_DEADLINE for consumers that have not yet migrated
+ * to the source-neutral timeout API. The deadline is immutable and the pointer
+ * is valid only until the current cycle ends.
+ */
+const struct timespec *QueryRequestTimeout_GetClockDeadline(
+    const QueryRequestTimeout *timeout);
 
-static inline bool QueryRequestTimeout_ShouldCheck(const QueryRequestTimeout *timeout) {
-  return !timeout->skipTimeoutChecks;
-}
+/**
+ * Selects CLOCK_DEADLINE and returns its storage for debug timeout simulation
+ * and tests. This exclusive-access operation invalidates pointers to the
+ * previous source; the caller must initialize the returned deadline before
+ * publishing the cycle to readers.
+ */
+struct timespec *QueryRequestTimeout_GetClockDeadlineForUpdate(QueryRequestTimeout *timeout);
 
-static inline void QueryRequestTimeout_SetSkipChecks(QueryRequestTimeout *timeout,
-                                                     bool skipTimeoutChecks) {
-  timeout->skipTimeoutChecks = skipTimeoutChecks;
-}
+/**
+ * Reports whether the request has timed out, independently of how the timeout
+ * is detected, without amortizing clock checks:
+ *
+ * - UNARMED always returns false.
+ * - BLOCKED_CLIENT reads the flag published by the blocked-client callback.
+ * - CLOCK_DEADLINE compares the monotonic clock with the active deadline.
+ *
+ * Use this exact operation only where the caller must observe the deadline
+ * immediately, such as after blocking or at an execution boundary. It neither
+ * applies the timeout policy nor changes the timeout state. The active source
+ * must remain fixed for the duration of the call; BLOCKED_CLIENT may be marked
+ * concurrently as described by QueryRequestTimeout.
+ */
+bool QueryRequestTimeout_IsTimedOutExact(const QueryRequestTimeout *timeout);
+
+/**
+ * Reports a timeout only when the active source is BLOCKED_CLIENT.
+ *
+ * This compatibility operation preserves call sites that historically checked
+ * only the blocked-client atomic flag. It deliberately returns false for
+ * CLOCK_DEADLINE so migrating those call sites does not introduce new clock
+ * checks that could change product behavior.
+ * Avoid using this call unless strictly needed. It has the same cycle and
+ * concurrency requirements as QueryRequestTimeout_IsTimedOutExact.
+ */
+bool QueryRequestTimeout_IsBlockedClientTimedOut(const QueryRequestTimeout *timeout);
+
+/**
+ * Primary timeout operation:
+ *
+ * - UNARMED and BLOCKED_CLIENT preserve the exact operation's behavior and
+ *   leave the request counter unchanged.
+ * - CLOCK_DEADLINE increments the request counter and checks the deadline only
+ *   when it reaches QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT, then resets it to 0.
+ *
+ * The counter is shared by every caller using this operation and is reset when
+ * BeginCycle starts a clock cycle. Because it is non-atomic, callers for the
+ * same request must be serialized; this operation must not overlap a source
+ * transition.
+ */
+bool QueryRequestTimeout_IsTimedOut(QueryRequestTimeout *timeout);
 
 /**
  * Timeout-only synchronization between query workers and main-thread callbacks.
@@ -247,14 +381,17 @@ static inline int QueryRequest_GetExecutionPhase(const QueryRequest *request) {
   return QueryRequestAsyncState_GetExecutionPhase(&request->async);
 }
 
-// Preserve the phase where a timeout was first observed.
+// Execution phases attribute blocked-client timeout callbacks. Other timeout
+// sources do not use them, and a published timeout freezes the observed phase.
 static inline void QueryRequest_SetExecutionPhase(QueryRequest *request, int phase) {
-  if (!QueryRequestTimeout_GetTimedOut(&request->timeout)) {
+  if (request->timeout.kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT &&
+      !QueryRequestTimeout_IsBlockedClientTimedOut(&request->timeout)) {
     QueryRequestAsyncState_SetExecutionPhase(&request->async, phase);
   }
 }
 
-void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind, RedisModuleString **argv,
+void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind,
+                       const RequestConfig *requestConfig, RedisModuleString **argv,
                        uint32_t argc);
 void QueryRequest_ResetReply(QueryRequest *request);
 void QueryRequest_Destroy(QueryRequest *request);

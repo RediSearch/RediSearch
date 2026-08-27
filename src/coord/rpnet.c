@@ -96,8 +96,8 @@ static RSValue *MRReply_ToValue(MRReply *r) {
   return v;
 }
 
-// Wall-clock deadline pointer for MRIterator_NextWithTimeout. NULL when
-// AREQ_ShouldCheckTimeout is false (e.g. RETURN-STRICT uses the abort flag).
+// Wall-clock deadline pointer for MRIterator_NextWithTimeout. NULL unless the
+// hybrid stream is running a clock-based timeout cycle.
 //
 // Hybrid streams only: a shard that never publishes its cursor mapping leaves
 // this RPNet's placeholder unarmed — no reply and no error ever arrives, so
@@ -106,12 +106,13 @@ static RSValue *MRReply_ToValue(MRReply *r) {
 // keep the legacy RETURN semantics — wait beyond the deadline for in-flight
 // shard replies, observing the timeout only at reply boundaries — so they get
 // no in-band pop deadline.
-static struct timespec *getAbsTimeout(RPNet *nc) {
-  if (nc->hybridSubquery == RPNET_HYBRID_NONE || !nc->areq || !nc->areq->sctx ||
-      !AREQ_ShouldCheckTimeout(nc->areq)) {
+static const struct timespec *getAbsTimeout(const RPNet *nc) {
+  RS_ASSERT(nc->areq);
+  if (nc->hybridSubquery == RPNET_HYBRID_NONE ||
+      nc->areq->base.timeout.kind != QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE) {
     return NULL;
   }
-  return (struct timespec *)&nc->areq->sctx->time.timeout;
+  return QueryRequestTimeout_GetClockDeadline(&nc->areq->base.timeout);
 }
 
 // Process warnings from nc->current.meta (RESP3 only), then free reply and reset state.
@@ -231,20 +232,24 @@ int getNextReply(RPNet *nc) {
   // flipped: aggregate streams degrade to a blocking pop (legacy RETURN waits
   // beyond the deadline for in-flight shard replies), while hybrid streams get
   // the in-band wall-clock deadline from getAbsTimeout — see its doc for why.
-  // No areq means no wake mechanism — use MRIterator_Next.
+  // An unarmed timeout source provides neither mechanism and uses MRIterator_Next.
 #ifdef ENABLE_ASSERT
   // Sync point (debug): park BG when it is about to wait for the next shard
   // reply. Reaching this site implies any previously admitted reply has been
   // fully drained downstream.
-  if (nc->areq) {
-    SyncPoint_WaitUntil(SYNC_POINT_RPNET_WAITING_FOR_REPLY, areq_timed_out, nc->areq);
-  }
+  SyncPoint_WaitUntil(SYNC_POINT_RPNET_WAITING_FOR_REPLY, areq_timed_out, nc->areq);
 #endif
+  RS_ASSERT(nc->areq);
+  QueryRequestTimeout *timeout = &nc->areq->base.timeout;
+  const struct timespec *deadline = getAbsTimeout(nc);
+  RS_Atomic(bool) *abortFlag =
+      timeout->kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
+          ? QueryRequestTimeout_GetBlockedClientFlag(timeout)
+          : NULL;
   bool popTimedOut = false;
-  MRReply *root =
-      nc->areq ? MRIterator_NextWithTimeout(nc->it, getAbsTimeout(nc),
-                                            &nc->areq->base.timeout.timedOut, &popTimedOut)
-               : MRIterator_Next(nc->it);
+  MRReply *root = deadline || abortFlag
+                      ? MRIterator_NextWithTimeout(nc->it, deadline, abortFlag, &popTimedOut)
+                      : MRIterator_Next(nc->it);
 
   if (root == NULL) {
     RPNet_resetCurrent(nc);
@@ -254,7 +259,7 @@ int getNextReply(RPNet *nc) {
     if (nc->drainOnly) {
       return RS_RESULT_EOF;
     }
-    if (popTimedOut || (nc->areq && AREQ_TimedOut(nc->areq))) {
+    if (popTimedOut || QueryRequestTimeout_IsBlockedClientTimedOut(timeout)) {
       return RS_RESULT_TIMEDOUT;
     }
     return MRIterator_GetPending(nc->it) ? RS_RESULT_OK : RS_RESULT_EOF;
@@ -348,9 +353,7 @@ void rpnetFree(ResultProcessor *rp) {
   if (nc->it) {
     // Unregister the abort-wake channel before releasing the iterator, so the main
     // thread's timeout callback cannot observe a channel that is about to be freed.
-    if (nc->areq) {
-      QueryRequestAsyncState_UnregisterAbortWakeChannel(&nc->areq->base.async);
-    }
+    QueryRequestAsyncState_UnregisterAbortWakeChannel(&nc->areq->base.async);
 #ifdef ENABLE_ASSERT
     // Drop the FT.DEBUG BG_PENDING_REPLIES handle before releasing the iterator.
     DebugBgIterator_Clear(nc->it);
@@ -400,18 +403,17 @@ void RPNet_resetCurrent(RPNet *nc) {
 int rpnetNext(ResultProcessor *self, SearchResult *r) {
   RPNet *nc = (RPNet *)self;
   AREQ *areq = nc->areq;
+  RS_ASSERT(areq);
 
 #ifdef ENABLE_ASSERT
-  if (areq) {
-    SyncPoint_WaitUntil(SYNC_POINT_BEFORE_RPNET_NEXT, areq_timed_out, areq);
-  }
+  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_RPNET_NEXT, areq_timed_out, areq);
 #endif
 
   // Surface RETURN_STRICT timeouts on follow-up cursor reads where the channel
   // may already hold a buffered reply (the NULL-reply check below wouldn't fire
   // and we'd silently return rows). Skipped during the timer's own drain.
-  if (areq && QueryRequest_UsesReplyCallback(&areq->base) && !nc->drainOnly &&
-      AREQ_TimedOut(nc->areq)) {
+  if (QueryRequest_UsesReplyCallback(&areq->base) && !nc->drainOnly &&
+      QueryRequestTimeout_IsBlockedClientTimedOut(&areq->base.timeout)) {
     return RS_RESULT_TIMEDOUT;
   }
 
@@ -449,11 +451,10 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   // get the next reply from the channel
   while (!root) {
-    // Check for timeout (respecting skipTimeoutChecks flag). Under RETURN-STRICT
-    // (the only policy that sets drainOnly) shouldCheckInPipelineTimeoutCoord
-    // already forces skipTimeoutChecks=true, so this branch is naturally bypassed
-    // during a drain.
-    if (!nc->areq->sctx->time.skipTimeoutChecks && TimedOut(&nc->areq->sctx->time.timeout)) {
+    // RETURN_STRICT uses the blocked-client source, so only clock-based cycles
+    // reach this check.
+    if (areq->base.timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
+        QueryRequestTimeout_IsTimedOutExact(&areq->base.timeout)) {
       // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
       // callback so that a `CURSOR DEL` command will be dispatched instead of
       // a `CURSOR READ` command.

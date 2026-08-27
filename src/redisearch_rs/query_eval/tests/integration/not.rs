@@ -103,12 +103,6 @@ mod not {
         let id_c = context.add_document("doc_c");
         assert_eq!((id_a, id_b, id_c), (1, 2, 3));
 
-        // Disable timeout checks so the (clock-based) default deadline of the
-        // zero-initialised `QueryEvalCtx` does not expire the iterator.
-        let mut sctx = context.sctx;
-        // SAFETY: `context.sctx` is a valid, exclusively-owned `RedisSearchCtx`.
-        unsafe { sctx.as_mut().time.skipTimeoutChecks = true };
-
         let mut ctx = unsafe { QueryEvalContext::new(context.qctx()) };
 
         // QN_IDS child resolving to the middle document only.
@@ -196,12 +190,6 @@ mod not {
         // path, so `eval_not` must forward a `NotOptimized` variant.
         // SAFETY: no iterator from this context is alive yet.
         context.spec_write().rule_mut().set_index_all(true);
-
-        // Disable timeout checks so the (clock-based) default deadline of the
-        // zero-initialised `QueryEvalCtx` does not expire the iterator.
-        let mut sctx = context.sctx;
-        // SAFETY: `context.sctx` is a valid, exclusively-owned `RedisSearchCtx`.
-        unsafe { sctx.as_mut().time.skipTimeoutChecks = true };
 
         let mut ctx = unsafe { QueryEvalContext::new(context.qctx()) };
 

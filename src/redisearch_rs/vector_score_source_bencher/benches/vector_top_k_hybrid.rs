@@ -35,6 +35,7 @@
 // `mock_or_stub_missing_redis_c_symbols!` expansion.
 use vector_score_source_bencher::RedisModule_Alloc;
 
+use std::cell::UnsafeCell;
 use std::hint::black_box;
 use std::{
     ffi::{c_int, c_void},
@@ -43,10 +44,10 @@ use std::{
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use ffi::{
-    HNSWParams, VecSearchMode_HYBRID_ADHOC_BF, VecSearchMode_HYBRID_BATCHES,
-    VecSimAlgo_VecSimAlgo_HNSWLIB, VecSimIndex, VecSimIndex_AddVector, VecSimIndex_Free,
-    VecSimIndex_New, VecSimMetric_VecSimMetric_L2, VecSimParams, VecSimQueryParams,
-    VecSimType_VecSimType_FLOAT32, timespec,
+    HNSWParams, QueryRequestTimeout, QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED,
+    VecSearchMode_HYBRID_ADHOC_BF, VecSearchMode_HYBRID_BATCHES, VecSimAlgo_VecSimAlgo_HNSWLIB,
+    VecSimIndex, VecSimIndex_AddVector, VecSimIndex_Free, VecSimIndex_New,
+    VecSimMetric_VecSimMetric_L2, VecSimParams, VecSimQueryParams, VecSimType_VecSimType_FLOAT32,
 };
 use rqe_iterators::{IdList, RQEIterator};
 use rqe_iterators_test_utils::MockExpirationChecker;
@@ -180,19 +181,21 @@ fn run_rust(
         TopKMode::AdhocBF => VecSearchMode_HYBRID_ADHOC_BF,
         _ => VecSearchMode_HYBRID_BATCHES,
     };
+    // SAFETY: zero is a valid representation of the C timeout object. The benchmark keeps this
+    // storage alive and UNARMED until `source` is dropped.
+    let timeout = UnsafeCell::new(unsafe { std::mem::zeroed::<QueryRequestTimeout>() });
+    unsafe {
+        (*timeout.get()).kind = QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED;
+    }
 
-    // SAFETY: `index` lives for the duration of this benchmark.
+    // SAFETY: `index` and `timeout` live for the duration of this benchmark invocation.
     let source = unsafe {
         VectorScoreSource::new(
             std::ptr::NonNull::new(index).unwrap(),
             query_bytes(query),
             query_params,
             k.get(),
-            timespec {
-                tv_sec: 0,
-                tv_nsec: 0,
-            },
-            true,
+            std::ptr::NonNull::new(timeout.get()).expect("stack timeout is non-null"),
             ids.len(),
             0,
             MockExpirationChecker::new(std::collections::HashSet::new()),

@@ -97,7 +97,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/aggregate/aggregate.h",
-        fns: &["AREQ_CheckTimedOut"],
+        fns: &[],
         types: &[
             // Disk async loader checks QEXEC_S_HAS_LOAD to decide whether to
             // set the LOAD flag on a new pipeline.
@@ -237,7 +237,11 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/query.h",
-        fns: &["Query_EvalNode", "tag_strtolower"],
+        fns: &[
+            "Query_EvalNode",
+            "QueryIterator_IsBlockedClientTimedOut",
+            "tag_strtolower",
+        ],
         types: &["QueryAST", "QueryEvalCtx"],
         vars: &[],
     },
@@ -306,13 +310,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/search_ctx.h",
-        fns: &[
-            "NewSearchCtxC",
-            "SearchCtx_Free",
-            // RSE: the disk async loader checks request timeout between disk
-            // reads via this main-thread-owned flag accessor.
-            "SearchTime_IsTimedOut",
-        ],
+        fns: &["NewSearchCtxC", "SearchCtx_Free"],
         types: &[],
         vars: &["APIVERSION_RETURN_MULTI_CMP_FIRST"],
     },
@@ -504,12 +502,11 @@ const HEADERS: &[HeaderAllowlist] = &[
         types: &[],
         vars: &[],
     },
-    // `vector_score_source` owns a `TimeoutCtx` (carrying an absolute
-    // `timespec` deadline) that it hands to VecSim as the timeout context.
+    // `vector_score_source` passes the request-owned `QueryRequestTimeout` directly to VecSim.
     HeaderAllowlist {
         path: "src/util/timeout.h",
         fns: &[],
-        types: &["TimeoutCtx", "timespec"],
+        types: &["QueryRequestTimeout"],
         vars: &[],
     },
     // `VecSimSearchMode` (+ `_ToString`) labels the top-k query strategy
@@ -563,15 +560,14 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // / `QueryError_SetCode` etc., so they need the function declarations.
     "query_error_ffi.h",
     // `QEFlags` and the `QEFlag_*` named constants are required by
-    // `src/aggregate/aggregate.h` (pulled in for `AREQ_CheckTimedOut`).
+    // `src/aggregate/aggregate.h`.
     "query_flags.h",
     // `QueryProcessingCtx` is embedded by value in `src/pipeline/pipeline.h`
     // and `src/aggregate/aggregate.h`. Brings `rs_wall_clock.h` into bindgen's
     // closure too, which is needed by `ffi::QueryProcessingCtx` (defined in
     // `ffi/src/lib.rs`).
     "result_processor_ffi.h",
-    // `RSValueType` and friends are required by `src/aggregate/aggregate.h`
-    // (pulled in transitively for `AREQ_CheckTimedOut`).
+    // `RSValueType` and friends are required by `src/aggregate/aggregate.h`.
     "value_ffi.h",
     // `enum IteratorType` is used by value in `src/iterators/iterator_api.h`.
     "rqe_iterator_type.h",
