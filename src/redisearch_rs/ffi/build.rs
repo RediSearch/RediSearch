@@ -283,7 +283,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     HeaderAllowlist {
         path: "src/result_processor.h",
         fns: &["RPProfile_IncrementCount"],
-        types: &["RPStatus"],
+        types: &["RPDrainStatus", "RPStatus"],
         vars: &[],
     },
     HeaderAllowlist {

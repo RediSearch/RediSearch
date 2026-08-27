@@ -36,6 +36,18 @@ static int p1_Next(ResultProcessor *rp, SearchResult *res) {
   return RS_RESULT_OK;
 }
 
+static RPDrainStatus p1_Drain(ResultProcessor *rp, SearchResult *res) {
+  processor1Ctx *p = static_cast<processor1Ctx *>(rp);
+  if (p->counter >= NUM_RESULTS) return RP_DRAIN_EOF;
+
+  SearchResult_SetDocId(res, ++p->counter);
+  return RP_DRAIN_OK;
+}
+
+static RPDrainStatus drainError(ResultProcessor *, SearchResult *) {
+  return RP_DRAIN_ERROR;
+}
+
 static int p2_Next(ResultProcessor *rp, SearchResult *res) {
   int rc = rp->upstream->Next(rp->upstream, res);
   processor1Ctx *p = static_cast<processor1Ctx *>(rp);
@@ -90,6 +102,42 @@ TEST_F(ResultProcessorTest, testProcessorChain) {
   QITR_FreeChain(&qitr);
   ASSERT_EQ(2, numFreed);
   RLookup_Cleanup(&lk);
+}
+
+TEST_F(ResultProcessorTest, drainSkipsProcessorsWithoutAnImplementation) {
+  processor1Ctx source;
+  source.Drain = p1_Drain;
+
+  processor1Ctx transparent;
+  transparent.upstream = &source;
+
+  SearchResult result = SearchResult_New();
+  for (t_docId expected = 1; expected <= NUM_RESULTS; ++expected) {
+    ASSERT_EQ(RP_DRAIN_OK, ResultProcessor_Drain(&transparent, &result));
+    ASSERT_EQ(expected, SearchResult_GetDocId(&result));
+    SearchResult_Clear(&result);
+  }
+  ASSERT_EQ(RP_DRAIN_EOF, ResultProcessor_Drain(&transparent, &result));
+  SearchResult_Destroy(&result);
+}
+
+TEST_F(ResultProcessorTest, drainReturnsEofWhenNoProcessorImplementsIt) {
+  processor1Ctx source;
+  processor1Ctx transparent;
+  transparent.upstream = &source;
+
+  SearchResult result = SearchResult_New();
+  ASSERT_EQ(RP_DRAIN_EOF, ResultProcessor_Drain(&transparent, &result));
+  SearchResult_Destroy(&result);
+}
+
+TEST_F(ResultProcessorTest, drainPropagatesErrors) {
+  processor1Ctx processor;
+  processor.Drain = drainError;
+
+  SearchResult result = SearchResult_New();
+  ASSERT_EQ(RP_DRAIN_ERROR, ResultProcessor_Drain(&processor, &result));
+  SearchResult_Destroy(&result);
 }
 
 /*
