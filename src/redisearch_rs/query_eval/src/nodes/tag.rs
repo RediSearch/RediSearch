@@ -27,6 +27,23 @@ use crate::{Config, Evaluated, QueryEvalContext, QueryNodeMut};
 /// cannot use the suffix trie.
 const BAD_POINTER_ADDR: usize = 0xBAAAAAAD;
 
+fn clock_deadline(ctx: &QueryEvalContext) -> Option<ffi::timespec> {
+    let timeout = ctx.sctx().timeout;
+    if timeout.is_null() {
+        return None;
+    }
+
+    // SAFETY: the request timeout outlives query evaluation, and its active
+    // source cannot change during an execution cycle.
+    let kind = unsafe { (*timeout).kind };
+    if kind != ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE {
+        return None;
+    }
+
+    // SAFETY: `kind` established that `clock` is the active union member.
+    Some(unsafe { (*timeout).source.clock.deadline })
+}
+
 /// `QN_TAG` — evaluate exact values and tag-specific expansions against a tag
 /// field's own index.
 ///
@@ -272,6 +289,12 @@ fn eval_wildcard<'index>(
             .into_iter()
             .collect()
     } else if has_suffix {
+        let deadline = clock_deadline(ctx);
+        let skip_timeout_checks = deadline.is_none();
+        let timeout = deadline.unwrap_or(ffi::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        });
         // SAFETY: the index and search context stay alive for evaluation, and
         // the helper returns either null, the sentinel, or an owned fat array.
         let matches = unsafe {
@@ -279,9 +302,9 @@ fn eval_wildcard<'index>(
                 index.as_ptr(),
                 pattern.as_ptr().cast(),
                 pattern.len() as u32,
-                ctx.sctx().time.timeout,
+                timeout,
                 max_prefix_expansions as i64,
-                ctx.sctx().time.skipTimeoutChecks,
+                skip_timeout_checks,
             )
         };
         if matches.is_null() {
@@ -347,9 +370,9 @@ fn collect_filtered_readers(
     };
     let iter = NonNull::new(iter).expect("tag values iterator allocation failed");
     let iter = TrieIteratorGuard(iter);
-    if !ctx.sctx().time.skipTimeoutChecks {
+    if let Some(timeout) = clock_deadline(ctx) {
         // SAFETY: the guard owns a live trie iterator.
-        unsafe { ffi::TrieMapIterator_SetTimeout(iter.0.as_ptr(), ctx.sctx().time.timeout) };
+        unsafe { ffi::TrieMapIterator_SetTimeout(iter.0.as_ptr(), timeout) };
     }
 
     let mut children = Vec::new();
@@ -388,6 +411,12 @@ fn collect_suffix_readers(
     field_index: ffi::t_fieldIndex,
     max_prefix_expansions: usize,
 ) -> Option<Vec<CRQEIterator>> {
+    let deadline = clock_deadline(ctx);
+    let skip_timeout_checks = deadline.is_none();
+    let timeout = deadline.unwrap_or(ffi::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    });
     // SAFETY: `index` and the search context stay live; `pattern` is readable
     // for the call. A non-null result is an owned fat array.
     let matches = unsafe {
@@ -396,8 +425,8 @@ fn collect_suffix_readers(
             pattern.as_ptr().cast(),
             pattern.len() as u32,
             prefix,
-            ctx.sctx().time.timeout,
-            ctx.sctx().time.skipTimeoutChecks,
+            timeout,
+            skip_timeout_checks,
         )
     };
     let matches = NonNull::new(matches)?;
