@@ -2176,6 +2176,7 @@ dependencies = [
  "sorting_vector_ffi",
  "spellcheck_dictionary_ffi",
  "syn 2.0.118",
+ "term_dictionary_ffi",
  "term_suffix_index_ffi",
  "toml",
  "trie_rdb_ffi",
@@ -3107,6 +3108,19 @@ dependencies = [
  "string_utils",
  "term_dictionary",
  "trie_rs",
+ "workspace_hack",
+]
+
+[[package]]
+name = "term_dictionary_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cheadergen",
+ "redis_mock",
+ "redisearch_rs",
+ "term_dictionary",
+ "term_dictionary_ffi",
  "workspace_hack",
 ]
 
