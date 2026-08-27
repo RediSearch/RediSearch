@@ -5,7 +5,7 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
+ */
 
 #pragma once
 
@@ -17,14 +17,11 @@
 
 #include <stdbool.h>
 
-__attribute__((weak))
-bool SearchDisk_HasAPI();
+__attribute__((weak)) bool SearchDisk_HasAPI();
 
-__attribute__((weak))
- RedisSearchDiskAPI *SearchDisk_GetAPI();
+__attribute__((weak)) RedisSearchDiskAPI *SearchDisk_GetAPI();
 
-__attribute__((weak))
-void SearchDisk_SetAPI();
+__attribute__((weak)) void SearchDisk_SetAPI();
 
 extern RedisSearchDisk *disk_db;
 
@@ -78,10 +75,13 @@ void SearchDisk_UpdateLogObfuscation();
  *        compaction. Must outlive the returned RedisSearchDiskIndexSpec.
  * @return Pointer to the index, or NULL if it does not exist
  */
-RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName, DocumentType type, bool deleteBeforeOpen, IndexSpec *c_index_spec);
+RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName,
+                                               const char *obfuscatedName, DocumentType type,
+                                               bool deleteBeforeOpen, IndexSpec *c_index_spec);
 
 /**
- * @brief Mark an index for deletion, the index will be deleted from the disk only after SearchDisk_CloseIndex is called
+ * @brief Mark an index for deletion, the index will be deleted from the disk only after
+ * SearchDisk_CloseIndex is called
  *
  * @param index Pointer to the index
  */
@@ -137,7 +137,7 @@ void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *i
  * @param rdb Redis module rdb file
  * @return Pointer to the temporary RDB state, or NULL on error
  */
-RedisSearchDiskRdbState* SearchDisk_LoadRdbToTempObject(RedisModuleIO *rdb);
+RedisSearchDiskRdbState *SearchDisk_LoadRdbToTempObject(RedisModuleIO *rdb);
 
 /**
  * @brief Create an IndexSpec from a previously loaded RDB state.
@@ -157,12 +157,9 @@ RedisSearchDiskRdbState* SearchDisk_LoadRdbToTempObject(RedisModuleIO *rdb);
  *        compaction. Must outlive the returned RedisSearchDiskIndexSpec.
  * @return Pointer to the created IndexSpec, or NULL on error
  */
-RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(RedisModuleCtx *ctx,
-                                                            const HiddenString *indexName,
-                                                            const char *obfuscatedName,
-                                                            DocumentType type,
-                                                            RedisSearchDiskRdbState *rdbState,
-                                                            IndexSpec *c_index_spec);
+RedisSearchDiskIndexSpec *SearchDisk_OpenIndexWithRdbState(
+    RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName,
+    DocumentType type, RedisSearchDiskRdbState *rdbState, IndexSpec *c_index_spec);
 
 /**
  * @brief Free a temporary RDB state object.
@@ -218,7 +215,9 @@ void SearchDisk_AsyncLoader_SetSyncCtx(ResultProcessor *rp, QueryRequest *reques
  * @param offsetsLen Length of the offsets data in bytes
  * @return true if successful, false otherwise
  */
-bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets, size_t offsetsLen);
+bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch,
+                          const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask,
+                          uint32_t freq, const uint8_t *offsets, size_t offsetsLen);
 
 /**
  * @brief Index multiple tag values for a document
@@ -232,7 +231,9 @@ bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchH
  * @param fieldIndex Field index for the tag field
  * @return true if successful, false otherwise
  */
-bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
+bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
+                          SearchDiskWriteBatchHandle *batch, const char **values, size_t numValues,
+                          t_docId docId, t_fieldIndex fieldIndex);
 
 /**
  * @brief Stage a numeric value for a document on a write batch.
@@ -252,7 +253,9 @@ bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, 
  * @param fieldIndex Field index for the numeric field
  * @return true if successful, false otherwise
  */
-bool SearchDisk_IndexNumeric(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, t_docId docId, double value, t_fieldIndex fieldIndex);
+bool SearchDisk_IndexNumeric(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
+                             SearchDiskWriteBatchHandle *batch, t_docId docId, double value,
+                             t_fieldIndex fieldIndex);
 
 /**
  * @brief Open a new write batch bound to the given disk index.
@@ -303,7 +306,8 @@ void SearchDisk_AbortWriteBatch(SearchDiskWriteBatchHandle *batch);
 void SearchDisk_FreeWriteBatch(SearchDiskWriteBatchHandle *batch);
 
 /**
- * @brief Delete a document by its doc ID directly, removing it from the doc table and marking its ID as deleted
+ * @brief Delete a document by its doc ID directly, removing it from the doc table and marking its
+ * ID as deleted
  *
  * Used by the metadata unlink callback where the docId is already known.
  *
@@ -312,7 +316,8 @@ void SearchDisk_FreeWriteBatch(SearchDiskWriteBatchHandle *batch);
  * @param oldLen Optional pointer to receive the old document length (can be NULL)
  * @return true if the document was found and deleted, false if not found
  */
-bool SearchDisk_DeleteDocumentById(RedisSearchDiskIndexSpec *handle, t_docId docId, uint32_t *oldLen);
+bool SearchDisk_DeleteDocumentById(RedisSearchDiskIndexSpec *handle, t_docId docId,
+                                   uint32_t *oldLen);
 
 /**
  * @brief Run a GC compaction cycle on the disk index
@@ -349,7 +354,8 @@ void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats);
  * @param index Pointer to the index
  * @param sctx Search context whose `diskSnapshot` field selects the read view. The
  *             `diskSnapshot` field is required to be non-NULL.
- * @param tok Pointer to the token (contains term string) (token information is copied into the term, caller keeps ownership of the token)
+ * @param tok Pointer to the token (contains term string) (token information is copied into the
+ * term, caller keeps ownership of the token)
  * @param tokenId Token ID for the term
  * @param fieldMask Field mask indicating which fields are present
  * @param weight Weight for the term (used in scoring)
@@ -359,7 +365,10 @@ void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats);
  * @param status QueryError to populate with the cause when creation fails (may be NULL)
  * @return Pointer to the IndexIterator, or NULL on error
  */
-QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf, bool needsOffsets, QueryError *status);
+QueryIterator *SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index,
+                                          const RedisSearchCtx *sctx, RSToken *tok, int tokenId,
+                                          t_fieldMask fieldMask, double weight, double idf,
+                                          double bm25_idf, bool needsOffsets, QueryError *status);
 
 /**
  * @brief Create a tag IndexIterator for a specific tag value
@@ -377,7 +386,10 @@ QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const
  * @param status QueryError to populate with the cause when creation fails (may be NULL)
  * @return Pointer to the IndexIterator, or NULL on error
  */
-QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, const RSToken *tok, t_fieldIndex fieldIndex, double weight, QueryError *status);
+QueryIterator *SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index,
+                                         const RedisSearchCtx *sctx, const RSToken *tok,
+                                         t_fieldIndex fieldIndex, double weight,
+                                         QueryError *status);
 
 /**
  * @brief Take a point-in-time snapshot of the disk database for this index.
@@ -389,7 +401,7 @@ QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const 
  * @param index Pointer to the index spec
  * @return Snapshot handle, or NULL on error
  */
-RedisSearchDiskSnapshot* SearchDisk_CreateSnapshot(RedisSearchDiskIndexSpec *index);
+RedisSearchDiskSnapshot *SearchDisk_CreateSnapshot(RedisSearchDiskIndexSpec *index);
 
 /**
  * @brief Release a snapshot previously returned by `SearchDisk_CreateSnapshot`.
@@ -414,11 +426,15 @@ void SearchDisk_FreeSnapshot(RedisSearchDiskSnapshot *snapshot);
  * @param maxTermFreq Maximum frequency of any single term in the document
  * @param totalFreq Total frequency of the document
  * @param oldLen Pointer to an integer to store the length of the deleted document
- * @param documentTtl Document expiration time (must be positive if Document_HasExpiration flag is set; must be 0 and is ignored if the flag is not set)
+ * @param documentTtl Document expiration time (must be positive if Document_HasExpiration flag is
+ * set; must be 0 and is ignored if the flag is not set)
  * @param oldDocId Old document ID from DocIdMeta (0 if new document)
  * @return New document ID, or 0 on error
  */
-t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWriteBatchHandle *batch, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId);
+t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWriteBatchHandle *batch,
+                               const char *key, size_t keyLen, float score, uint32_t flags,
+                               uint32_t maxTermFreq, uint32_t totalFreq, uint32_t *oldLen,
+                               t_expirationTimePoint documentTtl, t_docId oldDocId);
 
 /**
  * @brief Get document metadata by document ID
@@ -435,7 +451,9 @@ t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWrite
  * @param current_time Current time for expiration check.
  * @return true if found and not expired, false if not found, expired, or on error
  */
-bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, const RedisSearchCtx *sctx, t_docId docId, RSDocumentMetadata *dmd, struct timespec *current_time);
+bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, const RedisSearchCtx *sctx,
+                                    t_docId docId, RSDocumentMetadata *dmd,
+                                    struct timespec *current_time);
 
 /**
  * @brief Check if a document ID is deleted
@@ -477,7 +495,8 @@ uint64_t SearchDisk_GetDeletedIdsCount(RedisSearchDiskIndexSpec *handle);
  * @param buffer_size Size of the buffer (number of t_docId elements)
  * @return The number of IDs written to the buffer
  */
-size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size);
+size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffer,
+                                size_t buffer_size);
 
 /**
  * @brief Debug: dump a numeric field's in-memory bucket routing map as JSON.
@@ -485,7 +504,8 @@ size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffe
  * @return sds JSON string (release with sdsfree), or NULL when the field has
  *         no numeric index on this handle.
  */
-char *SearchDisk_DebugDumpNumericBucketMap(RedisSearchDiskIndexSpec *handle, t_fieldIndex fieldIndex);
+char *SearchDisk_DebugDumpNumericBucketMap(RedisSearchDiskIndexSpec *handle,
+                                           t_fieldIndex fieldIndex);
 
 /**
  * @brief Replace the key name in document metadata for a given document ID
@@ -500,7 +520,8 @@ char *SearchDisk_DebugDumpNumericBucketMap(RedisSearchDiskIndexSpec *handle, t_f
  * @param newKeyLen Length of the new key
  * @return true if the document was found and updated, false if not found or on error
  */
-bool SearchDisk_ReplaceKey(RedisSearchDiskIndexSpec *handle, t_docId docId, const char *newKey, size_t newKeyLen);
+bool SearchDisk_ReplaceKey(RedisSearchDiskIndexSpec *handle, t_docId docId, const char *newKey,
+                           size_t newKeyLen);
 
 // Async Read Pool API
 
@@ -517,7 +538,9 @@ bool SearchDisk_ReplaceKey(RedisSearchDiskIndexSpec *handle, t_docId docId, cons
  * @param max_concurrent Maximum number of concurrent pending reads
  * @return Opaque handle to the pool, or NULL on error
  */
-RedisSearchDiskAsyncReadPool SearchDisk_CreateAsyncReadPool(RedisSearchDiskIndexSpec *handle, const RedisSearchCtx *sctx, uint16_t max_concurrent);
+RedisSearchDiskAsyncReadPool SearchDisk_CreateAsyncReadPool(RedisSearchDiskIndexSpec *handle,
+                                                            const RedisSearchCtx *sctx,
+                                                            uint16_t max_concurrent);
 
 /**
  * @brief Add an async read request to the pool
@@ -543,7 +566,10 @@ bool SearchDisk_AddAsyncRead(RedisSearchDiskAsyncReadPool pool, t_docId docId, u
  * @param expiration_point Current time for expiration check.
  * @return Number of pending reads after the poll
  */
-uint16_t SearchDisk_PollAsyncReads(RedisSearchDiskAsyncReadPool pool, uint32_t timeout_ms, arrayof(AsyncReadResult) results, arrayof(uint64_t) failed_user_data, const t_expirationTimePoint *expiration_point);
+uint16_t SearchDisk_PollAsyncReads(RedisSearchDiskAsyncReadPool pool, uint32_t timeout_ms,
+                                   arrayof(AsyncReadResult) results,
+                                   arrayof(uint64_t) failed_user_data,
+                                   const t_expirationTimePoint *expiration_point);
 
 /**
  * @brief Free the async read pool
@@ -630,7 +656,8 @@ bool SearchDisk_IsVectorWriteThrottling(void);
  * @param params Vector index parameters
  * @return VecSimIndex* handle, or NULL on error
  */
-void* SearchDisk_CreateVectorIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, const VecSimParamsDisk *params);
+void *SearchDisk_CreateVectorIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
+                                   const VecSimParamsDisk *params);
 
 /**
  * @brief Free a disk-based vector index
@@ -673,7 +700,7 @@ bool SearchDisk_SaveVectorIndexToRDB(void *vecIndex, RedisModuleIO *rdb, bool ta
  * @param params Vector index parameters
  * @return VecSimIndex* handle, or NULL on error
  */
-void* SearchDisk_CreateUnboundVectorIndex(const VecSimParamsDisk *params);
+void *SearchDisk_CreateUnboundVectorIndex(const VecSimParamsDisk *params);
 
 /**
  * @brief Stream the in-memory state for a VecSimIndex* directly from a
@@ -718,7 +745,7 @@ bool SearchDisk_BindVectorIndexStorage(RedisModuleCtx *ctx, RedisSearchDiskIndex
  * @param index Pointer to the index spec
  * @return The total memory used by this index's disk components
  */
-uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index);
+uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec *index);
 
 /**
  * @brief Get doc table memory for a disk index
@@ -731,7 +758,7 @@ uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index);
  * @param index Pointer to the disk index spec
  * @return Doc table memory in bytes
  */
-uint64_t SearchDisk_GetDocTableTotalMemory(RedisSearchDiskIndexSpec* index);
+uint64_t SearchDisk_GetDocTableTotalMemory(RedisSearchDiskIndexSpec *index);
 
 /**
  * @brief Get inverted index memory for a disk index
@@ -744,7 +771,7 @@ uint64_t SearchDisk_GetDocTableTotalMemory(RedisSearchDiskIndexSpec* index);
  * @param index Pointer to the disk index spec
  * @return Inverted index memory in bytes
  */
-uint64_t SearchDisk_GetInvertedIndexTotalMemory(RedisSearchDiskIndexSpec* index);
+uint64_t SearchDisk_GetInvertedIndexTotalMemory(RedisSearchDiskIndexSpec *index);
 
 /**
  * @brief Get the disk-owned total number of records for a disk index
@@ -755,7 +782,7 @@ uint64_t SearchDisk_GetInvertedIndexTotalMemory(RedisSearchDiskIndexSpec* index)
  * @param index Pointer to the disk index spec
  * @return Number of records in the index
  */
-uint64_t SearchDisk_GetNumRecords(RedisSearchDiskIndexSpec* index);
+uint64_t SearchDisk_GetNumRecords(RedisSearchDiskIndexSpec *index);
 
 /**
  * @brief Get the absolute total number of inverted-index blocks for a disk index
@@ -768,7 +795,7 @@ uint64_t SearchDisk_GetNumRecords(RedisSearchDiskIndexSpec* index);
  * @param index Pointer to the disk index spec
  * @return Total number of inverted-index blocks owned by the index
  */
-uint64_t SearchDisk_GetInvertedIndexTotalBlocks(RedisSearchDiskIndexSpec* index);
+uint64_t SearchDisk_GetInvertedIndexTotalBlocks(RedisSearchDiskIndexSpec *index);
 
 /**
  * @brief Output aggregated disk metrics to Redis INFO
@@ -778,7 +805,7 @@ uint64_t SearchDisk_GetInvertedIndexTotalBlocks(RedisSearchDiskIndexSpec* index)
  *
  * @param ctx Redis module info context
  */
-void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx);
+void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx *ctx);
 
 /**
  * @brief Get per-field disk metrics for a TEXT field.
@@ -796,7 +823,7 @@ void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx);
  * @param ftId  Text field id — the field's bit position in the field mask
  * @return Per-field text byte metrics; `available` is false when no data exists
  */
-PerFieldTextDiskMetrics SearchDisk_GetTextFieldMetrics(const RedisSearchDiskIndexSpec* index,
+PerFieldTextDiskMetrics SearchDisk_GetTextFieldMetrics(const RedisSearchDiskIndexSpec *index,
                                                        t_fieldId ftId);
 
 /**
@@ -815,7 +842,7 @@ PerFieldTextDiskMetrics SearchDisk_GetTextFieldMetrics(const RedisSearchDiskInde
  * @param fieldIndex Unique field index identifying the field's column family
  * @return Per-field column-family metrics; `available` is false when no data exists
  */
-PerFieldCfDiskMetrics SearchDisk_GetCfFieldMetrics(const RedisSearchDiskIndexSpec* index,
+PerFieldCfDiskMetrics SearchDisk_GetCfFieldMetrics(const RedisSearchDiskIndexSpec *index,
                                                    t_fieldIndex fieldIndex);
 
 /**
@@ -835,8 +862,8 @@ PerFieldCfDiskMetrics SearchDisk_GetCfFieldMetrics(const RedisSearchDiskIndexSpe
  * @param fieldNameLen Length of `fieldName` in bytes
  * @return Per-field column-family metrics; `available` is false when no data exists
  */
-PerFieldCfDiskMetrics SearchDisk_GetVectorFieldMetrics(const RedisSearchDiskIndexSpec* index,
-                                                       const char* fieldName, size_t fieldNameLen);
+PerFieldCfDiskMetrics SearchDisk_GetVectorFieldMetrics(const RedisSearchDiskIndexSpec *index,
+                                                       const char *fieldName, size_t fieldNameLen);
 
 /**
  * @brief Get the total disk usage for a disk index
@@ -846,7 +873,7 @@ PerFieldCfDiskMetrics SearchDisk_GetVectorFieldMetrics(const RedisSearchDiskInde
  * @param index Pointer to the disk index spec
  * @return Total disk usage in bytes
  */
-uint64_t SearchDisk_GetDiskUsage(RedisSearchDiskIndexSpec* index);
+uint64_t SearchDisk_GetDiskUsage(RedisSearchDiskIndexSpec *index);
 
 /**
  * @brief Flush all memtables to disk (SST files)
@@ -856,7 +883,7 @@ uint64_t SearchDisk_GetDiskUsage(RedisSearchDiskIndexSpec* index);
  *
  * @param index Pointer to the disk index spec
  */
-void SearchDisk_Flush(RedisSearchDiskIndexSpec* index);
+void SearchDisk_Flush(RedisSearchDiskIndexSpec *index);
 
 /**
  * @brief Seal all memtables and schedule a flush without waiting for it.
@@ -936,14 +963,6 @@ void SearchDisk_CloseConsistencyWindow(IndexSpec *sp, bool reopenNumericGate);
 void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage);
 
 /**
- * @brief Reapply a disk index's write-buffer size when its budget is stale.
- *
- * Called from disk GC while holding the GC run lock. This function takes the
- * IndexSpec write lock around the per-index SpeedB options update.
- */
-void SearchDisk_MaintainWriteBufferSize(IndexSpec *sp);
-
-/**
  * @brief Reapply the max_open_files cap to all live disk databases.
  *
  * Called from the `search-disk-max-open-files` config setter on CONFIG SET. Stores
@@ -1009,7 +1028,6 @@ void SearchDisk_DebugCoordinatorRelease(int site);
  * @brief Returns how many times `site` has been reached since the last reset.
  */
 unsigned int SearchDisk_DebugCoordinatorReached(int site);
-
 
 /**
  * @brief Resets the coordinator.

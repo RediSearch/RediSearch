@@ -5,7 +5,7 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
+ */
 #include "disk_gc.h"
 
 #include <stdatomic.h>
@@ -87,11 +87,9 @@ static bool periodicCb(void *privdata, GCForcedRun *forced) {
   size_t num_updates = atomic_load(&gc->updatesFromLastRun);
   size_t num_changes = num_writes + num_deletes + num_updates;
   bool can_run = !g_diskGcDisabled && sp->diskSpec && !SearchDisk_IsBackgroundWorkPaused(sp->diskSpec);
-  if (can_run) {
-    SearchDisk_MaintainWriteBufferSize(sp);
-  }
 
-  if (can_run && (forced || num_changes >= RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold)) {
+  if (can_run &&
+      (forced || num_changes >= RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold)) {
     // Reset counters before running GC
     atomic_fetch_sub(&gc->writesFromLastRun, num_writes);
     atomic_fetch_sub(&gc->deletesFromLastRun, num_deletes);
@@ -201,7 +199,7 @@ static void getStatsCb(void *gcCtx, InfoGCStats *out) {
 
 static struct timespec getIntervalCb(void *ctx) {
   const DiskGC *gc = ctx;
-  return (struct timespec){ .tv_sec = gc->intervalSec, .tv_nsec = 0 };
+  return (struct timespec){.tv_sec = gc->intervalSec, .tv_nsec = 0};
 }
 
 DiskGC *DiskGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {

@@ -5,7 +5,7 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
+ */
 #pragma once
 
 #include "redismodule.h"
@@ -35,11 +35,11 @@ typedef struct HiddenString HiddenString;
 typedef struct QueryRequest QueryRequest;
 
 // Helper opaque types for the disk API
-typedef const void* RedisSearchDisk;
-typedef const void* RedisSearchDiskIndexSpec;
-typedef const void* RedisSearchDiskInvertedIndex;
-typedef const void* RedisSearchDiskIterator;
-typedef void* RedisSearchDiskAsyncReadPool;
+typedef const void *RedisSearchDisk;
+typedef const void *RedisSearchDiskIndexSpec;
+typedef const void *RedisSearchDiskInvertedIndex;
+typedef const void *RedisSearchDiskIterator;
+typedef void *RedisSearchDiskAsyncReadPool;
 // Opaque handle to a temporary RDB state object.
 //
 // Per-field vector in-memory state is NOT carried here — it rides inline
@@ -47,7 +47,7 @@ typedef void* RedisSearchDiskAsyncReadPool;
 // and is deserialized directly into an unbound VecSimIndex written to
 // fs->vectorOpts.vecSimIndex; storage is bound to that handle in place at
 // LOADING_ENDED.
-typedef const void* RedisSearchDiskRdbState;
+typedef const void *RedisSearchDiskRdbState;
 // Opaque handle for a consistent point-in-time view of the disk database.
 //
 // Created via `IndexDiskAPI.createSnapshot`, released via `IndexDiskAPI.freeSnapshot`.
@@ -55,7 +55,7 @@ typedef const void* RedisSearchDiskRdbState;
 // numeric/wildcard iterator entry points so all iterators in a query observe the same
 // database state. The snapshot must outlive every iterator created from it, and must
 // not outlive the originating index spec.
-typedef const void* RedisSearchDiskSnapshot;
+typedef const void *RedisSearchDiskSnapshot;
 
 // Opaque handle for the underlying storage-layer write batch.
 //
@@ -67,10 +67,10 @@ typedef const void* RedisSearchDiskSnapshot;
 typedef struct SearchDiskWriteBatchHandle SearchDiskWriteBatchHandle;
 
 // Callback function to allocate memory for the key in the scope of the search module memory
-typedef char* (*AllocateKeyCallback)(const void*, size_t len);
+typedef char *(*AllocateKeyCallback)(const void *, size_t len);
 
 // Callback function to allocate a new RSDocumentMetadata with ref_count=1 and keyPtr set
-typedef RSDocumentMetadata* (*AllocateDMDCallback)(const void* key_data, size_t key_len);
+typedef RSDocumentMetadata *(*AllocateDMDCallback)(const void *key_data, size_t key_len);
 
 // Callback functions for applying text compaction delta updates.
 // The C side owns private_data/update_ctx semantics; Rust treats them as opaque.
@@ -91,11 +91,8 @@ typedef struct SearchDiskCompactionCallbacks {
   void *(*beginUpdate)(void *private_data);
 
   // Decrement term doc count in the serving trie.
-  bool (*decrementTrieTermCount)(
-      void *update_ctx,
-      const char *term,
-      size_t term_len,
-      size_t doc_count_decrement);
+  bool (*decrementTrieTermCount)(void *update_ctx, const char *term, size_t term_len,
+                                 size_t doc_count_decrement);
 
   // Decrement numTerms in scoring stats.
   void (*decrementNumTerms)(void *update_ctx, uint64_t num_terms_removed);
@@ -107,15 +104,15 @@ typedef struct SearchDiskCompactionCallbacks {
 
 // Result of polling the async read pool
 typedef struct AsyncPollResult {
-  uint16_t ready_count;   // Number of successful reads in results buffer
-  uint16_t failed_count;  // Number of failed reads in failed_user_data buffer
-  uint16_t pending_count; // Number of reads still in flight
+  uint16_t ready_count;    // Number of successful reads in results buffer
+  uint16_t failed_count;   // Number of failed reads in failed_user_data buffer
+  uint16_t pending_count;  // Number of reads still in flight
 } AsyncPollResult;
 
 // Result structure containing both DMD and user data (for successful reads only)
 typedef struct AsyncReadResult {
   RSDocumentMetadata *dmd;  // Pointer to allocated DMD (caller must free with DMD_Return)
-  uint64_t user_data;       // Generic user data passed to addAsyncRead (e.g., index, pointer, flags)
+  uint64_t user_data;  // Generic user data passed to addAsyncRead (e.g., index, pointer, flags)
 } AsyncReadResult;
 
 // Stats reported by a single GC compaction cycle.
@@ -147,7 +144,8 @@ typedef struct BasicDiskAPI {
    * @param maxOpenFiles Per-DB open-file cap; -1 = unlimited (the default)
    * @return Pointer to the disk context, or NULL on error
    */
-  RedisSearchDisk *(*open)(RedisModuleCtx *ctx, int buffer_percentage, bool logObfuscation, bool dropReadCache, bool useDirectReads, int maxOpenFiles);
+  RedisSearchDisk *(*open)(RedisModuleCtx *ctx, int buffer_percentage, bool logObfuscation,
+                           bool dropReadCache, bool useDirectReads, int maxOpenFiles);
   void (*close)(RedisModuleCtx *ctx, RedisSearchDisk *disk);
 
   /**
@@ -175,7 +173,12 @@ typedef struct BasicDiskAPI {
    * @note This both opens the database and registers it with Redis BigModule APIs.
    *       Registration is atomic with creation; there is no separate register step.
    */
-  RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisModuleCtx *ctx, RedisSearchDisk *disk, const HiddenString *indexName, const char *obfuscatedName, size_t obfuscatedNameLen, DocumentType type, bool deleteBeforeOpen, const SearchDiskCompactionCallbacks *callbacks, void *private_data);
+  RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisModuleCtx *ctx, RedisSearchDisk *disk,
+                                             const HiddenString *indexName,
+                                             const char *obfuscatedName, size_t obfuscatedNameLen,
+                                             DocumentType type, bool deleteBeforeOpen,
+                                             const SearchDiskCompactionCallbacks *callbacks,
+                                             void *private_data);
   /**
    * @brief Close an index spec
    * @param disk Pointer to the disk context (for cleanup of index metrics)
@@ -219,9 +222,11 @@ typedef struct BasicDiskAPI {
   bool (*isAsyncIOSupported)(RedisSearchDisk *disk);
 
   /**
-   * @brief Set throttle callbacks for vector disk tiered indexes to pause/resume CMD_DENYOOM commands.
+   * @brief Set throttle callbacks for vector disk tiered indexes to pause/resume CMD_DENYOOM
+   * commands.
    * @param enable Callback to pause CMD_DENYOOM commands (wraps RedisModule_EnablePostponeClients)
-   * @param disable Callback to resume CMD_DENYOOM commands (wraps RedisModule_DisablePostponeClients)
+   * @param disable Callback to resume CMD_DENYOOM commands (wraps
+   * RedisModule_DisablePostponeClients)
    */
   void (*setThrottleCallbacks)(ThrottleCB enable, ThrottleCB disable);
 
@@ -263,15 +268,11 @@ typedef struct BasicDiskAPI {
    *                     IndexSpec for its lifetime.
    * @return Pointer to the created IndexSpec, or NULL on error
    */
-  RedisSearchDiskIndexSpec *(*openIndexSpecWithRdbState)(RedisModuleCtx *ctx,
-                                                          RedisSearchDisk *disk,
-                                                          const HiddenString *indexName,
-                                                          const char *obfuscatedName,
-                                                          size_t obfuscatedNameLen,
-                                                          DocumentType type,
-                                                          RedisSearchDiskRdbState *rdbState,
-                                                          const SearchDiskCompactionCallbacks *callbacks,
-                                                          void *private_data);
+  RedisSearchDiskIndexSpec *(*openIndexSpecWithRdbState)(
+      RedisModuleCtx *ctx, RedisSearchDisk *disk, const HiddenString *indexName,
+      const char *obfuscatedName, size_t obfuscatedNameLen, DocumentType type,
+      RedisSearchDiskRdbState *rdbState, const SearchDiskCompactionCallbacks *callbacks,
+      void *private_data);
 
   /**
    * @brief Free a temporary RDB state object.
@@ -283,13 +284,11 @@ typedef struct BasicDiskAPI {
    */
   void (*freeRdbState)(RedisSearchDiskRdbState *rdbState);
 
-
   /**
    * @brief Notify the disk layer that the global buffer budget may have changed.
    *
    * The disk implementation requests the new module budget from Redis via
-   * BigWriteBufferBudgetInit and updates its global budget/accounting state.
-   * Per-index database options are refreshed lazily via maintainWriteBufferSize.
+   * BigWriteBufferBudgetInit and updates its global WriteBufferManager budget.
    *
    * @param ctx Redis module context
    * @param disk Pointer to the disk context
@@ -349,7 +348,8 @@ typedef struct BasicDiskAPI {
 
 typedef struct IndexDiskAPI {
   /**
-   * @brief Request the index to be deleted, once closeIndexSpec is called the index will be deleted from the disk.
+   * @brief Request the index to be deleted, once closeIndexSpec is called the index will be deleted
+   * from the disk.
    *
    * @param index Pointer to the index
    */
@@ -412,7 +412,8 @@ typedef struct IndexDiskAPI {
    * Other staged writes on the same batch are unaffected.
    *
    * @param index Pointer to the index
-   * @param batch Open write batch to append the write to (must have been returned by `createWriteBatch(index)`)
+   * @param batch Open write batch to append the write to (must have been returned by
+   * `createWriteBatch(index)`)
    * @param term Term to associate the document with
    * @param termLen Length of the term
    * @param docId Document ID to index
@@ -422,7 +423,9 @@ typedef struct IndexDiskAPI {
    * @param offsetsLen Length of the offsets data in bytes
    * @return true if the write was staged successfully, false if the input was rejected
    */
-  bool (*indexTerm)(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets, size_t offsetsLen);
+  bool (*indexTerm)(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch,
+                    const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask,
+                    uint32_t freq, const uint8_t *offsets, size_t offsetsLen);
 
   /**
    * @brief Indexes multiple tag values for a document
@@ -439,7 +442,8 @@ typedef struct IndexDiskAPI {
    *
    * @param ctx Redis module context for BigModule APIs (used to register new CFs)
    * @param index Pointer to the index
-   * @param batch Open write batch to append the writes to (must have been returned by `createWriteBatch(index)`)
+   * @param batch Open write batch to append the writes to (must have been returned by
+   * `createWriteBatch(index)`)
    * @param values Array of tag values to associate the document with.
    *               NOTE: The array may contain NULL entries (e.g., from tokenization).
    *               Implementations must check for NULL before dereferencing each entry.
@@ -448,7 +452,9 @@ typedef struct IndexDiskAPI {
    * @param fieldIndex Field index for the tag field
    * @return true if all writes were staged successfully, false if any value was rejected
    */
-  bool (*indexTags)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
+  bool (*indexTags)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
+                    SearchDiskWriteBatchHandle *batch, const char **values, size_t numValues,
+                    t_docId docId, t_fieldIndex fieldIndex);
 
   /**
    * @brief Stages a numeric value for a document on a write batch.
@@ -468,16 +474,20 @@ typedef struct IndexDiskAPI {
    *
    * @param ctx Redis module context for BigModule APIs (used to register new CFs)
    * @param index Pointer to the index
-   * @param batch Open write batch to append the write to (must have been returned by `createWriteBatch(index)`)
+   * @param batch Open write batch to append the write to (must have been returned by
+   * `createWriteBatch(index)`)
    * @param docId Document ID to index
    * @param value Numeric value to associate with the document
    * @param fieldIndex Field index for the numeric field
    * @return true if the write was staged successfully, false if the input was rejected
    */
-  bool (*indexNumeric)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, t_docId docId, double value, t_fieldIndex fieldIndex);
+  bool (*indexNumeric)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
+                       SearchDiskWriteBatchHandle *batch, t_docId docId, double value,
+                       t_fieldIndex fieldIndex);
 
   /**
-   * @brief Deletes a document by its doc ID directly, removing it from the doc table and marking its ID as deleted
+   * @brief Deletes a document by its doc ID directly, removing it from the doc table and marking
+   * its ID as deleted
    *
    * Used by the metadata unlink callback where the docId is already known
    * (no key-to-docId lookup needed).
@@ -487,9 +497,9 @@ typedef struct IndexDiskAPI {
    * @param oldLen Optional pointer to receive the old document length (can be NULL)
    * @return true if the document was found and deleted, false if not found
    */
-  bool (*deleteDocumentById)(RedisSearchDiskIndexSpec* handle, t_docId docId, uint32_t *oldLen);
+  bool (*deleteDocumentById)(RedisSearchDiskIndexSpec *handle, t_docId docId, uint32_t *oldLen);
 
-   /**
+  /**
    * @brief Creates a new iterator for the inverted index
    *
    * @param index Pointer to the index
@@ -498,11 +508,14 @@ typedef struct IndexDiskAPI {
    * @param weight Weight for the iterator (used in scoring)
    * @param needsOffsets Whether the query needs term offset data (for scoring or phrase matching)
    * @param snapshot Required snapshot for the read view. Must have been returned by
-   *                 `createSnapshot(index)` and must remain valid until the returned iterator is freed.
+   *                 `createSnapshot(index)` and must remain valid until the returned iterator is
+   * freed.
    * @param status QueryError to populate with the cause when creation fails (may be NULL)
    * @return Pointer to the created iterator, or NULL if creation failed
    */
-  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, RSQueryTerm* term, t_fieldMask fieldMask, double weight, bool needsOffsets, RedisSearchDiskSnapshot *snapshot, QueryError* status);
+  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec *index, RSQueryTerm *term,
+                                    t_fieldMask fieldMask, double weight, bool needsOffsets,
+                                    RedisSearchDiskSnapshot *snapshot, QueryError *status);
 
   /**
    * @brief Creates a new iterator for a tag index
@@ -512,11 +525,14 @@ typedef struct IndexDiskAPI {
    * @param fieldIndex Field index for the tag field
    * @param weight Weight for the iterator (used in scoring)
    * @param snapshot Required snapshot for the read view. Must have been returned by
-   *                 `createSnapshot(index)` and must remain valid until the returned iterator is freed.
+   *                 `createSnapshot(index)` and must remain valid until the returned iterator is
+   * freed.
    * @param status QueryError to populate with the cause when creation fails (may be NULL)
    * @return Pointer to the created iterator, or NULL if creation failed
    */
-  QueryIterator *(*newTagIterator)(RedisSearchDiskIndexSpec* index, const RSToken* tok, t_fieldIndex fieldIndex, double weight, RedisSearchDiskSnapshot *snapshot, QueryError* status);
+  QueryIterator *(*newTagIterator)(RedisSearchDiskIndexSpec *index, const RSToken *tok,
+                                   t_fieldIndex fieldIndex, double weight,
+                                   RedisSearchDiskSnapshot *snapshot, QueryError *status);
 
   /**
    * @brief Take a point-in-time snapshot of the disk database for this index.
@@ -615,16 +631,6 @@ typedef struct IndexDiskAPI {
   bool (*isBackgroundWorkPaused)(RedisSearchDiskIndexSpec *index);
 
   /**
-   * @brief Reapply this index's write-buffer-derived database options.
-   *
-   * Lets the disk implementation refresh this index from its current global
-   * budget/accounting state.
-   *
-   * @param index Pointer to the disk index
-   */
-  void (*maintainWriteBufferSize)(RedisSearchDiskIndexSpec *index);
-
-  /**
    * @brief Apply a new max_open_files cap to this index's database at runtime.
    *
    * Bounds the number of files this index's database keeps open, recycling the
@@ -685,7 +691,8 @@ typedef struct IndexDiskAPI {
    * @param fieldIndex The numeric field's index
    * @param allocate Copying allocator for the returned string (e.g. sdsnewlen)
    */
-  char *(*debugDumpNumericBucketMap)(RedisSearchDiskIndexSpec *index, t_fieldIndex fieldIndex, AllocateKeyCallback allocate);
+  char *(*debugDumpNumericBucketMap)(RedisSearchDiskIndexSpec *index, t_fieldIndex fieldIndex,
+                                     AllocateKeyCallback allocate);
 
 } IndexDiskAPI;
 
@@ -706,7 +713,8 @@ typedef struct DocTableDiskAPI {
    * aborted by the OSS indexing flow.
    *
    * @param handle Handle to the document table
-   * @param batch Open write batch to append the write to (must have been returned by `createWriteBatch(handle)`)
+   * @param batch Open write batch to append the write to (must have been returned by
+   * `createWriteBatch(handle)`)
    * @param key Document key
    * @param keyLen Length of the document key
    * @param score Document score (for ranking)
@@ -714,11 +722,15 @@ typedef struct DocTableDiskAPI {
    * @param maxTermFreq Maximum frequency of any single term in the document
    * @param docLen Sum of the frequencies of all terms in the document
    * @param oldLen Pointer to an integer to store the length of the deleted document
-   * @param documentTtl Document expiration time (must be positive if Document_HasExpiration flag is set; must be 0 and is ignored if the flag is not set)
+   * @param documentTtl Document expiration time (must be positive if Document_HasExpiration flag is
+   * set; must be 0 and is ignored if the flag is not set)
    * @param oldDocId Old document ID from DocIdMeta (0 if new document)
    * @return New document ID, or 0 on error
    */
-  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, SearchDiskWriteBatchHandle *batch, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId);
+  t_docId (*putDocument)(RedisSearchDiskIndexSpec *handle, SearchDiskWriteBatchHandle *batch,
+                         const char *key, size_t keyLen, float score, uint32_t flags,
+                         uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen,
+                         t_expirationTimePoint documentTtl, t_docId oldDocId);
 
   /**
    * @brief Returns whether the docId is in the deleted set
@@ -731,7 +743,7 @@ typedef struct DocTableDiskAPI {
    * @param docId Document ID to check
    * @return true if deleted, false if not deleted or on error
    */
-  bool (*isDocIdDeleted)(RedisSearchDiskIndexSpec* handle, t_docId docId);
+  bool (*isDocIdDeleted)(RedisSearchDiskIndexSpec *handle, t_docId docId);
 
   /**
    * @brief Gets document metadata by document ID
@@ -747,7 +759,10 @@ typedef struct DocTableDiskAPI {
    *                 valid for the duration of this call.
    * @return true if found and not expired, false if not found, expired, or on error
    */
-  bool (*getDocumentMetadata)(RedisSearchDiskIndexSpec* handle, t_docId docId, RSDocumentMetadata* dmd, AllocateKeyCallback allocate_key, const t_expirationTimePoint* expiration_point, RedisSearchDiskSnapshot *snapshot);
+  bool (*getDocumentMetadata)(RedisSearchDiskIndexSpec *handle, t_docId docId,
+                              RSDocumentMetadata *dmd, AllocateKeyCallback allocate_key,
+                              const t_expirationTimePoint *expiration_point,
+                              RedisSearchDiskSnapshot *snapshot);
 
   /**
    * @brief Gets the maximum document ID assigned in the index
@@ -755,7 +770,7 @@ typedef struct DocTableDiskAPI {
    * @param handle Handle to the document table
    * @return The maximum document ID, or 0 if the index is empty
    */
-  t_docId (*getMaxDocId)(RedisSearchDiskIndexSpec* handle);
+  t_docId (*getMaxDocId)(RedisSearchDiskIndexSpec *handle);
 
   /**
    * @brief Gets the count of deleted document IDs
@@ -763,7 +778,7 @@ typedef struct DocTableDiskAPI {
    * @param handle Handle to the document table
    * @return The number of deleted document IDs
    */
-  uint64_t (*getDeletedIdsCount)(RedisSearchDiskIndexSpec* handle);
+  uint64_t (*getDeletedIdsCount)(RedisSearchDiskIndexSpec *handle);
 
   /**
    * @brief Gets all deleted document IDs (used for debugging)
@@ -776,7 +791,7 @@ typedef struct DocTableDiskAPI {
    * @param buffer_size Size of the buffer (number of t_docId elements)
    * @return The number of IDs written to the buffer
    */
-  size_t (*getDeletedIds)(RedisSearchDiskIndexSpec* handle, t_docId* buffer, size_t buffer_size);
+  size_t (*getDeletedIds)(RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size);
 
   /**
    * @brief Creates an async read pool for batched document metadata reads
@@ -806,7 +821,9 @@ typedef struct DocTableDiskAPI {
    * @return Opaque handle to the pool, or NULL on error or when `snapshot` is NULL. Must be
    *         freed with freeAsyncReadPool.
    */
-  RedisSearchDiskAsyncReadPool (*createAsyncReadPool)(RedisSearchDiskIndexSpec* handle, uint16_t max_concurrent, RedisSearchDiskSnapshot *snapshot);
+  RedisSearchDiskAsyncReadPool (*createAsyncReadPool)(RedisSearchDiskIndexSpec *handle,
+                                                      uint16_t max_concurrent,
+                                                      RedisSearchDiskSnapshot *snapshot);
 
   /**
    * @brief Adds an async read request to the pool for the given document ID
@@ -839,8 +856,8 @@ typedef struct DocTableDiskAPI {
    * @return AsyncPollResult with counts of ready, failed, and pending reads
    */
   AsyncPollResult (*pollAsyncReads)(RedisSearchDiskAsyncReadPool pool, uint32_t timeout_ms,
-                                    AsyncReadResult* results, uint16_t results_capacity,
-                                    uint64_t* failed_user_data, uint16_t failed_capacity,
+                                    AsyncReadResult *results, uint16_t results_capacity,
+                                    uint64_t *failed_user_data, uint16_t failed_capacity,
                                     t_expirationTimePoint expiration_point,
                                     AllocateDMDCallback allocate_dmd);
 
@@ -868,7 +885,8 @@ typedef struct DocTableDiskAPI {
    * @param newKeyLen Length of the new key
    * @return true if the document was found and updated, false if not found or on error
    */
-  bool (*replaceKey)(RedisSearchDiskIndexSpec* handle, t_docId docId, const char* newKey, size_t newKeyLen);
+  bool (*replaceKey)(RedisSearchDiskIndexSpec *handle, t_docId docId, const char *newKey,
+                     size_t newKeyLen);
 } DocTableDiskAPI;
 
 typedef struct VectorDiskAPI {
@@ -883,14 +901,15 @@ typedef struct VectorDiskAPI {
    * @param params Vector index parameters
    * @return VecSimIndex* handle, or NULL on error
    */
-  void* (*createVectorIndex)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec* index, const VecSimParamsDisk* params);
+  void *(*createVectorIndex)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
+                             const VecSimParamsDisk *params);
 
   /**
    * @brief Frees a disk-based vector index.
    *
    * @param vecIndex The vector index handle returned by createVectorIndex
    */
-  void (*freeVectorIndex)(void* vecIndex);
+  void (*freeVectorIndex)(void *vecIndex);
 
   /**
    * @brief Check whether a disk vector index contains data.
@@ -928,7 +947,7 @@ typedef struct VectorDiskAPI {
    * @param params Vector index parameters
    * @return VecSimIndex* handle, or NULL on error
    */
-  void* (*createUnboundVectorIndex)(const VecSimParamsDisk *params);
+  void *(*createUnboundVectorIndex)(const VecSimParamsDisk *params);
 
   /**
    * @brief Stream the in-memory state for a VecSimIndex* directly from a
@@ -959,7 +978,7 @@ typedef struct VectorDiskAPI {
    * @return true on success, false on storage setup failure
    */
   bool (*bindVectorIndexStorage)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
-                                  void *vecIndex, const VecSimParamsDisk *params);
+                                 void *vecIndex, const VecSimParamsDisk *params);
 } VectorDiskAPI;
 
 /**
@@ -991,8 +1010,8 @@ typedef struct PerFieldTextDiskMetrics {
  * values come from the storage layer's per-CF statistics on demand.
  */
 typedef struct PerFieldCfDiskMetrics {
-  bool available;              // false when the field has no CF or data is unavailable
-  uint64_t total_bytes;        // field's byte footprint: estimated live (uncompacted) size of its CF
+  bool available;        // false when the field has no CF or data is unavailable
+  uint64_t total_bytes;  // field's byte footprint: estimated live (uncompacted) size of its CF
   uint64_t estimate_num_keys;  // estimated number of keys in the field's CF
 } PerFieldCfDiskMetrics;
 
