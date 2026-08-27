@@ -9,11 +9,16 @@
 
 
 #include "result_processor.h"
+#include "common.h"
 #include "query.h"
 #include "value_ffi.h"
 #include "gtest/gtest.h"
 #include "search_result_ffi.h"
 #include "search_result.h"
+#include "spec.h"
+
+#include <atomic>
+#include <thread>
 
 struct processor1Ctx : public ResultProcessor {
   processor1Ctx() {
@@ -64,6 +69,25 @@ static void resultProcessor_GenericFree(ResultProcessor *rp) {
 }
 
 class ResultProcessorTest : public ::testing::Test {};
+
+struct BlockingQueryIterator {
+  QueryIterator base = {};
+  std::atomic_bool entered = false;
+  std::atomic_bool release = false;
+
+  BlockingQueryIterator() {
+    base.Read = [](QueryIterator *base) {
+      auto *self = reinterpret_cast<BlockingQueryIterator *>(base);
+      self->entered.store(true, std::memory_order_release);
+      while (!self->release.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+      }
+      base->atEOF = true;
+      return ITERATOR_EOF;
+    };
+    base.Free = [](QueryIterator *base) { delete reinterpret_cast<BlockingQueryIterator *>(base); };
+  }
+};
 
 TEST_F(ResultProcessorTest, testProcessorChain) {
   QueryProcessingCtx qitr = {0};
@@ -138,6 +162,44 @@ TEST_F(ResultProcessorTest, drainPropagatesErrors) {
   SearchResult result = SearchResult_New();
   ASSERT_EQ(RP_DRAIN_ERROR, ResultProcessor_Drain(&processor, &result));
   SearchResult_Destroy(&result);
+}
+
+TEST_F(ResultProcessorTest, indexDrainDoesNotWaitForOrAdvanceNext) {
+  IndexSpec spec = {0};
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(nullptr, &spec);
+  sctx.time.skipTimeoutChecks = true;
+  sctx.lock_state = SPEC_LOCK_READ_BORROWED;
+
+  auto *iterator = new BlockingQueryIterator();
+  ResultProcessor *rp = RPQueryIterator_New(&iterator->base, nullptr, 0, &sctx);
+
+  int nextStatus = RS_RESULT_MAX;
+  std::thread nextThread([&]() {
+    SearchResult nextResult = SearchResult_New();
+    nextStatus = rp->Next(rp, &nextResult);
+    SearchResult_Destroy(&nextResult);
+  });
+
+  const bool nextEntered =
+      RS::WaitForCondition([&]() { return iterator->entered.load(std::memory_order_acquire); }, 5);
+
+  SearchResult drainResult = SearchResult_New();
+  RPDrainStatus firstDrain = RP_DRAIN_ERROR;
+  RPDrainStatus secondDrain = RP_DRAIN_ERROR;
+  if (nextEntered) {
+    firstDrain = ResultProcessor_Drain(rp, &drainResult);
+    secondDrain = ResultProcessor_Drain(rp, &drainResult);
+    EXPECT_FALSE(iterator->release.load(std::memory_order_relaxed));
+  }
+  SearchResult_Destroy(&drainResult);
+
+  iterator->release.store(true, std::memory_order_release);
+  nextThread.join();
+  ASSERT_TRUE(nextEntered);
+  ASSERT_EQ(RP_DRAIN_EOF, firstDrain);
+  ASSERT_EQ(RP_DRAIN_EOF, secondDrain);
+  ASSERT_EQ(RS_RESULT_EOF, nextStatus);
+  rp->Free(rp);
 }
 
 /*

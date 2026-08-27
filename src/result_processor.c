@@ -475,6 +475,15 @@ static void rpQueryItFree(ResultProcessor *iter) {
   rm_free(iter);
 }
 
+static RPDrainStatus rpQueryItDrain(ResultProcessor *base, SearchResult *res) {
+  (void)base;
+  (void)res;
+  // Results become serializable only after Next claims them and populates the
+  // SearchResult. Iterator and async-read state therefore remain on the Next
+  // path, including when that call is still in flight.
+  return RP_DRAIN_EOF;
+}
+
 ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotRangeArray *querySlots, uint32_t keySpaceVersion, RedisSearchCtx *sctx) {
   RS_ASSERT(root != NULL);
   RPQueryIterator *ret = rm_calloc(1, sizeof(*ret));
@@ -482,6 +491,7 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
   ret->querySlots = querySlots;
   ret->keySpaceVersion = keySpaceVersion;
   ret->base.Free = rpQueryItFree;
+  ret->base.Drain = rpQueryItDrain;
   ret->sctx = sctx;
   ret->base.type = RP_INDEX;
   // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks

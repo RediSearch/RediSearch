@@ -24,7 +24,7 @@ migration is part of this stack.
 
 ## 2. Source and loader processors
 
-- [ ] Implement and test `RP_INDEX`
+- [x] Implement and test `RP_INDEX`
 - [ ] Implement and test `RP_NETWORK`
 - [ ] Implement and test `RP_LOADER`
 - [ ] Implement and test `RP_SAFE_LOADER`
