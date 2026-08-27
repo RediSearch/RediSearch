@@ -133,7 +133,7 @@ TEST_F(TagIndexTest, testCreate) {
   //        TimeSampler_IterationMS(&ts) * 1000000);
   ASSERT_EQ(N + 1, n);
   it->Free(it);
-  TagIndex_Free(idx);
+  TagIndex_Free(&idx);
 }
 
 TEST_F(TagIndexTest, testDuplicateTagValuesCountOnce) {
@@ -148,7 +148,7 @@ TEST_F(TagIndexTest, testDuplicateTagValuesCountOnce) {
   ASSERT_EQ(2u, stats.numRecords);
   ASSERT_EQ(2u, TagIndex_NUniqueValues(idx));
 
-  TagIndex_Free(idx);
+  TagIndex_Free(&idx);
 }
 
 TEST_F(TagIndexTest, testSkipToLastId) {
@@ -168,7 +168,7 @@ TEST_F(TagIndexTest, testSkipToLastId) {
   ASSERT_EQ(rc, ITERATOR_EOF);
   ASSERT_GE(it->lastDocId, docId);
   it->Free(it);
-  TagIndex_Free(idx);
+  TagIndex_Free(&idx);
 }
 
 #define TEST_MY_SEP(sep, str)                            \
@@ -334,13 +334,12 @@ TEST_F(TagIndexTest, testOpenReaderEdgeCases) {
 
     ASSERT_TRUE(TagIndex_OpenReader(idx, &mockQctx.sctx, "missing", 7, 1, RS_INVALID_FIELD_INDEX,
                                     NULL) == NULL);
-    TagIndex_Free(idx);
+    TagIndex_Free(&idx);
   }
 }
 
 TEST_F(TagIndexTest, testCommitAndOverheadWithSuffix) {
-  TagIndex *idx = NewTagIndex(NULL, 0, false);
-  idx->suffix = NewTrieMap();
+  TagIndex *idx = NewTagIndex(NULL, 0, /*withSuffix=*/true);
 
   const char *v[] = {"hello", "world"};
   IndexStats stats = {0};
@@ -354,7 +353,7 @@ TEST_F(TagIndexTest, testCommitAndOverheadWithSuffix) {
   size_t overhead = TagIndex_GetOverhead(&fs);
   ASSERT_GT(overhead, 0u);
 
-  TagIndex_Free(idx);
+  TagIndex_Free(&idx);
 
   // No tag index -> zero overhead.
   FieldSpec emptyFs{};

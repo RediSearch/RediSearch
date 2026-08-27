@@ -392,12 +392,6 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &["SUFFIX_STARRED_ANCHOR_PENALTY"],
     },
     HeaderAllowlist {
-        path: "src/tag_index.h",
-        fns: &["TagIndex_Ensure", "TagIndex_OpenIndex"],
-        types: &[],
-        vars: &[],
-    },
-    HeaderAllowlist {
         path: "src/trie/levenshtein.h",
         fns: &[],
         types: &["TrieMatchMode"],

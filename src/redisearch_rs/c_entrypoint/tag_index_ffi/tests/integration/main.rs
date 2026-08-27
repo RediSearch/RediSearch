@@ -22,3 +22,4 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 mod handle;
 mod iteration;
 mod provenance;
+mod suffix_expansion;
