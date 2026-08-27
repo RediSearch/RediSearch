@@ -186,7 +186,9 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterNumericRea
             // SAFETY: the caller must ensure the result is numeric
             let value = unsafe { result.as_numeric_unchecked() };
 
-            if self.filter.value_in_range(value) {
+            // reshaped: hoist the predicate into a local
+            let in_range = self.filter.value_in_range(value);
+            if in_range {
                 return Ok(true);
             }
         }
