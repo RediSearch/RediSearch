@@ -398,6 +398,9 @@ pub unsafe extern "C" fn TermDictionary_Remove(
 /// - `term` must point to a valid byte sequence of length `len`.
 /// - `out_score` and `out_num_docs` must each be NULL or point to a
 ///   writable location.
+/// - The out-pointers must not overlap each other or the
+///   [`TermDictionary`] `t` points to: this call writes through them
+///   while holding a shared reference to the entry it read.
 ///
 /// # Panics
 ///
