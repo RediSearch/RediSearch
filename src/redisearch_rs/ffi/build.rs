@@ -279,6 +279,16 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "src/redisearch_rs/headers/triemap_ffi.h",
+        fns: &[
+            "TrieMapIterator_Free",
+            "TrieMapIterator_Next",
+            "TrieMapIterator_SetTimeout",
+        ],
+        types: &["TrieMapIterator", "tm_len_t"],
+        vars: &[],
+    },
+    HeaderAllowlist {
         path: "src/doc_id_meta.h",
         fns: &["DocIdMeta_Get"],
         types: &[],
@@ -396,10 +406,15 @@ const HEADERS: &[HeaderAllowlist] = &[
             "TagIndex_Commit",
             "TagIndex_Ensure",
             "TagIndex_Free",
+            "TagIndex_GetSuffixMatches",
+            "TagIndex_GetSuffixWildcardMatches",
+            "TagIndex_HasSuffix",
             "TagIndex_Index",
+            "TagIndex_IterateValuesWithFilter",
             "TagIndex_OpenIndex",
+            "TagIndex_OpenReader",
         ],
-        types: &[],
+        types: &["tag_iter_mode"],
         vars: &[],
     },
     HeaderAllowlist {
@@ -586,6 +601,9 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // `src/search_result.h` includes this for the `IndexResult_DeepCopy`
     // declaration used by the inline `SearchResult_TakeOwnedIndexResult`.
     "types_ffi.h",
+    // The tag evaluator directly drives the C values-trie iterator while tag
+    // index storage remains in C.
+    "triemap_ffi.h",
     // `aggregate.h` includes `value_ffi.h`; reachable via
     // `optimizer_reader.h` -> `query_optimizer.h` -> `aggregate.h`.
     "value_ffi.h",
