@@ -19,9 +19,8 @@
 //! All keys and patterns are case-folded on the way in before reaching the
 //! underlying [`StrTrieMap`], so the trie itself only ever holds folded
 //! keys. (The one exception is [`TermDictionary::fuzzy_iter`], whose
-//! underlying automaton applies the identical fold itself.) Moving the fold
-//! inside `TermDictionary` lets future C-to-Rust call sites stop repeating
-//! the obligation.
+//! underlying automaton applies the identical fold itself.) Callers never
+//! fold themselves.
 //!
 //! Folding is [`unicode::tolower_cow`]: each [`char`] lowered independently,
 //! matching RediSearch's C `unicode_tolower` (libnu-backed, context-free
