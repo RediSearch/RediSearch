@@ -7,6 +7,22 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+/* Readers-writer contract for a TermDictionary. cheadergen emits per-item
+ * documentation only, so this crate-wide rule has no other C-visible home;
+ * keep it in sync with the term_dictionary_ffi module docs.
+ *
+ * Read-only calls (TermDictionary_Get, TermDictionary_Len,
+ * TermDictionary_MemUsage and the TermDictionary_Iterate* constructors) may
+ * run concurrently with each other. TermDictionary_AddTerm,
+ * TermDictionary_ReplaceTerm, TermDictionary_Remove,
+ * TermDictionary_DecrementNumDocs and TermDictionary_Free require exclusive
+ * access: no other call on the same dictionary, and no live iterator
+ * obtained from it.
+ *
+ * An iterator itself is single-threaded — it may not be advanced or freed
+ * from two threads at once — though separate iterators over the same
+ * dictionary may be used concurrently. */
+
 
 /**
  * Outcome of [`TermDictionary_DecrementNumDocs`].
