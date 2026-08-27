@@ -1806,8 +1806,12 @@ static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv
 // flex has no SORTABLE fields to make one unnecessary. Vector-distance sort
 // keys are written into the lookup by the iterator instead, and metric names
 // colliding with schema fields are rejected, so a schema-field sort key is
-// exactly the case that loads.
+// exactly the case that loads. Count-only searches short-circuit the arrange
+// step with a counter before sort keys are examined, so they never load.
 static bool searchSortbyNeedsLoader(AREQ *r, const IndexSpec *spec) {
+  if (IsCount(r)) {
+    return false;
+  }
   PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(r));
   if (!arng) {
     return false;
@@ -1842,6 +1846,11 @@ static int rejectDiskLoaderInlineExecution(AREQ *r, const RedisSearchCtx *sctx,
   if (IsAggregate(r)) {
     error = "FT.AGGREGATE in a context that cannot block (MULTI/EXEC or Lua "
             "scripts) is not supported in Redis Flex";
+  } else if (IsSearch(r) && searchSortbyNeedsLoader(r, sctx->spec)) {
+    // Before the field-return check: when both apply, NOCONTENT/RETURN 0 is
+    // not a sufficient workaround — the sort key still has to load.
+    error = "FT.SEARCH with SORTBY on a schema field in a context that cannot "
+            "block (MULTI/EXEC or Lua scripts) is not supported in Redis Flex";
   } else if (IsSearch(r) &&
              (!(AREQ_RequestFlags(r) & QEXEC_F_SEND_NOFIELDS) ||
               AGPLN_FindStep(AREQ_AGGPlan(r), NULL, NULL, PLN_T_LOAD))) {
@@ -1850,9 +1859,6 @@ static int rejectDiskLoaderInlineExecution(AREQ *r, const RedisSearchCtx *sctx,
     error = "FT.SEARCH with field return in a context that cannot block "
             "(MULTI/EXEC or Lua scripts) is not supported in Redis Flex; "
             "use NOCONTENT or RETURN 0";
-  } else if (IsSearch(r) && searchSortbyNeedsLoader(r, sctx->spec)) {
-    error = "FT.SEARCH with SORTBY on a schema field in a context that cannot "
-            "block (MULTI/EXEC or Lua scripts) is not supported in Redis Flex";
   }
   if (error) {
     QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_ARGUMENT, error);

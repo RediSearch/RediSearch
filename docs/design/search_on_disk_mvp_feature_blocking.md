@@ -132,7 +132,7 @@ Once the MVP is complete, the following features should be unblocked:
 | `SUMMARIZE` | ✅ Yes | ✅ BLOCKED | `aggregate_request.c:627-630` |
 | `GEOFILTER` | ✅ Implicit | ✅ BLOCKED (implicit) | GEO field type is blocked, so no GEO index |
 | `FILTER` (numeric) | ✅ Implicit | ✅ BLOCKED (implicit) | NUMERIC field type is blocked |
-| `SORTBY` | No | ➖ Allowed | Sort keys load via the disk async loader at the arrange step |
+| `SORTBY` | No | ➖ Allowed | Sort keys load via the disk async loader at the arrange step; schema-field SORTBY is rejected where execution cannot block (MULTI/EXEC, Lua). Vector-distance sort keys need no loader and stay allowed there |
 
 ### Scorer Reference
 
