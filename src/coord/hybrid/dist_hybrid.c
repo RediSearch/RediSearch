@@ -25,6 +25,7 @@
 #include "hybrid/dist_hybrid_plan.h"
 #include "hybrid/parse_hybrid.h"
 #include "dist_plan.h"
+#include "dist_utils.h"
 #include "rmutil/util.h"
 #include "rpnet.h"
 #include "hybrid_cursor_mappings.h"
@@ -675,12 +676,6 @@ void printDistHybridProfile(RedisModule_Reply *reply, void *ctx) {
                         printDistHybridCoordinatorProfile, ctx);
 }
 
-static bool shouldCheckInPipelineTimeoutCoord(HybridRequest *req) {
-  // We should check for timeout in pipeline if policy is return and timeout > 0
-  return req->reqConfig.queryTimeoutMS > 0 &&
-         (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return);
-}
-
 static int HybridRequest_prepareForExecution(HybridRequest *hreq,
         RedisModuleCtx *ctx, RedisModuleString **argv, int argc, IndexSpec *sp,
         size_t numShards, QueryError *status,
@@ -723,8 +718,6 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     if (rc != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
-    // Set skip timeout
-    HybridRequest_SetSkipTimeoutChecks(hreq, !shouldCheckInPipelineTimeoutCoord(hreq));
 
     rs_wall_clock parseClock;
     if (profileOptions != EXEC_NO_FLAGS) {
@@ -733,14 +726,6 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
       // Calculate the time elapsed for profileParseTime by using the initialized parseClock
       hreq->profileClocks.profileParseTime = rs_wall_clock_diff_ns(&hreq->profileClocks.initClock, &parseClock);
     }
-
-    // Initialize timeout for all subqueries BEFORE building pipelines
-    // but after the parsing to know the timeout values
-    for (int i = 0; i < hreq->nrequests; i++) {
-        AREQ *subquery = hreq->requests[i];
-        SearchCtx_UpdateTime(AREQ_SearchCtx(subquery), hreq->reqConfig.queryTimeoutMS);
-    }
-    SearchCtx_UpdateTime(hreq->sctx, hreq->reqConfig.queryTimeoutMS);
 
     // Set request flags from hybridParams
     hreq->reqflags = (QEFlags)hybridParams.aggregationParams.common.reqflags;
@@ -805,9 +790,10 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
       }
     }
 
-    // UPDATED: Use new start function with mappings (no dispatcher needed)
-    HybridRequest_buildDistRPChain(hreq->requests[0], &xcmd, lookups[0], rpnetNext_StartWithMappings);
-    HybridRequest_buildDistRPChain(hreq->requests[1], &xcmd, lookups[1], rpnetNext_StartWithMappings);
+    // The RPNets consume cursor-read streams whose iterators are created and
+    // wired by HybridRequest_prepareCursors below.
+    HybridRequest_buildDistRPChain(hreq->requests[0], &xcmd, lookups[0], rpnetNext);
+    HybridRequest_buildDistRPChain(hreq->requests[1], &xcmd, lookups[1], rpnetNext);
 
     if (profileOptions != EXEC_NO_FLAGS) {
       rs_wall_clock pipelineClock;
@@ -821,17 +807,34 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     return REDISMODULE_OK;
 }
 
-static void FreeCursorMappings(void *mappings) {
-  CursorMappings *vsimOrSearch = (CursorMappings *)mappings;
-  for (size_t i = 0; i < array_len(vsimOrSearch->mappings); i++) {
-    CursorMapping_Release(&vsimOrSearch->mappings[i]);
-  }
-  array_free(vsimOrSearch->mappings);
-  rm_free(mappings);
+// Wire one subquery's RPNet to its (still inert) cursor-read iterator: the
+// RPNet owns the reader reference and consumes the iterator's channel from the
+// depleter thread, exactly like the aggregate RPNet does.
+static void wireReadIterator(RPNet *nc, MRIterator *it, MRCommand *readTemplate) {
+  MRCommand_Free(&nc->cmd);
+  nc->cmd = *readTemplate;  // take ownership of the template's allocations
+  nc->it = it;
+  RS_ASSERT(IsHybridSearchSubquery(nc->areq) || IsHybridVectorSubquery(nc->areq));
+  nc->hybridSubquery =
+      IsHybridSearchSubquery(nc->areq) ? RPNET_HYBRID_SEARCH : RPNET_HYBRID_VSIM;
+  // Register the iterator's channel so the main-thread timeout callback can
+  // wake a blocked reader after flipping AREQ's `timedOut` flag. Paired with
+  // QueryRequestAsyncState_UnregisterAbortWakeChannel in rpnetFree.
+  QueryRequestAsyncState_RegisterAbortWakeChannel(&nc->areq->base.async, MRIterator_GetChannel(it));
+#ifdef ENABLE_ASSERT
+  DebugBgIterator_Set(it);
+#endif
 }
 
-// Sets up RPNet cursor mappings on the coordinator. Blocks the calling thread
-// until all shards have replied with their cursor IDs.
+// Dispatch the arming fan-out for the hybrid request. Non-blocking: three
+// sibling iterators are bound to one IO runtime — two inert cursor-read
+// iterators (one per subquery, owned by their RPNets) and the `_FT.HYBRID`
+// fan-out whose reply callback arms each shard's reads the moment that shard
+// publishes its cursor ids (see hybridArmingCallback). Every published shard
+// cursor id thus lives in a live iterator command from the moment the
+// coordinator learns it, so an abort at any point is cleaned up by the
+// standard rmr teardown instead of leaving cursors parked shard-side
+// (MOD-17913).
 static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status) {
 
     // Get RPNet structures from query context
@@ -840,17 +843,23 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
     RPNet *searchRPNet = (RPNet *)searchQctx->rootProc;
     RPNet *vsimRPNet = (RPNet *)vsimQctx->rootProc;
 
-    CursorMappings *search = rm_calloc(1, sizeof(CursorMappings));
-    CursorMappings *vsim = rm_calloc(1, sizeof(CursorMappings));
-    search->type = TYPE_SEARCH;
-    vsim->type = TYPE_VSIM;
+    // The _FT.HYBRID fan-out command (set during prepareForExecution).
+    MRCommand *xcmd = &searchRPNet->cmd;
+    xcmd->coordStartTime = hreq->profileClocks.coordStartTime;
 
-    StrongRef searchMappingsRef = StrongRef_New(search, FreeCursorMappings);
-    StrongRef vsimMappingsRef = StrongRef_New(vsim, FreeCursorMappings);
-
-    // Get the command from the RPNet (it was set during prepareForExecution)
-    MRCommand *cmd = &searchRPNet->cmd;
-    cmd->coordStartTime = hreq->profileClocks.coordStartTime;
+    // Per-shard cursor-read placeholder: the arming callback plants each
+    // shard's cursor id over the trailing 0. Same index-name argument as the
+    // fan-out carries (for _FT.DEBUG-wrapped fan-outs this is the wrapped
+    // command's arg 1, which the shard-side cursor commands ignore beyond
+    // arity/ACL — preserved from the previous read-dispatch behavior).
+    size_t idxLen;
+    const char *idx = MRCommand_ArgStringPtrLen(xcmd, 1, &idxLen);
+    const char *argv[4] = {"_FT.CURSOR", "READ", idx, "0"};
+    const size_t lens[4] = {sizeof("_FT.CURSOR") - 1, sizeof("READ") - 1, idxLen, 1};
+    MRCommand readTemplate = MR_NewCommandArgvLen(4, argv, lens);
+    readTemplate.rootCommand = C_READ;
+    readTemplate.protocol = HYBRID_RESP_PROTOCOL_VERSION;
+    readTemplate.forProfiling = IsProfile(hreq->requests[0]);
 
     // Create KNN context for SHARD_K_RATIO optimization if applicable
     HybridKnnContext *knnCtx = NULL;
@@ -869,54 +878,57 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
         }
     }
 
-    const RSOomPolicy oomPolicy = hreq->reqConfig.oomPolicy;
-    const RSTimeoutPolicy timeoutPolicy = hreq->reqConfig.timeoutPolicy;
-    bool maxPrefixSearch = false;
-    bool maxPrefixVsim = false;
-    bool shardTimedOutWarning = false;
+    MRIterator *searchIt = MR_CreateIterator(
+      &readTemplate,
+      &(MRIteratorConfig){
+        .successCB = netCursorCallback,
+      }
+    );
+    // The three iterators must share one IO runtime (assigned round-robin to
+    // the first) so the arming callbacks touch the siblings on one IO thread.
+    IORuntimeCtx *ioRuntime = MRIterator_GetIORuntime(searchIt);
+    MRIterator *vsimIt = MR_CreateIterator(
+      &readTemplate,
+      &(MRIteratorConfig){
+        .successCB = netCursorCallback,
+        .ioRuntime = ioRuntime,
+      }
+    );
 
-    const struct timespec *deadline =
-        (hreq->sctx && HybridRequest_ShouldCheckTimeout(hreq))
-            ? (const struct timespec *)&hreq->sctx->time.timeout
-            : NULL;
+    HybridArmingCtx *armingCtx = rm_calloc(1, sizeof(*armingCtx));
+    armingCtx->searchIt = searchIt;
+    armingCtx->vsimIt = vsimIt;
+    armingCtx->knnCtx = knnCtx;
 
-    // Errors from cursor establishment go into the dispatcher's `status` so
-    // DistHybridCleanups can reply with them.
-    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, knnCtx, status,
-                                     oomPolicy, timeoutPolicy, &maxPrefixSearch, &maxPrefixVsim,
-                                     &shardTimedOutWarning, deadline, &hreq->base.timeout,
-                                     &hreq->base.async)) {
-        // Handle error
-        StrongRef_Release(searchMappingsRef);
-        StrongRef_Release(vsimMappingsRef);
-        return REDISMODULE_ERR;
-    }
+    MRIterator *hybridIt = MR_CreateIterator(
+      xcmd,
+      &(MRIteratorConfig){
+        .successCB = hybridArmingCallback,
+        .errorCB = hybridArmingErrorCallback,
+        .cbPrivateData = armingCtx,
+        .cbPrivateDataDestructor = HybridArmingCtx_Free,
+        .commandModifier = knnCtx ? HybridKnnCommandModifier : NULL,
+        .ioRuntime = ioRuntime,
+      }
+    );
 
-    if (shardTimedOutWarning) {
-        hreq->requests[SEARCH_INDEX]->stateflags |= QEXEC_S_SHARD_TIMED_OUT_WARNING;
-    }
+    // Hand the read iterators (and read-shaped commands) to their RPNets
+    // before anything is scheduled, so no reply can beat the wiring. The
+    // SEARCH iterator is wired last so FT.DEBUG BG_PENDING_REPLIES (a single
+    // global handle, last-set wins) observes the subquery-0 stream, which is
+    // what the choreographed timeout tests gate on.
+    MRCommand vsimTemplate = MRCommand_Copy(&readTemplate);
+    wireReadIterator(vsimRPNet, vsimIt, &vsimTemplate);
+    wireReadIterator(searchRPNet, searchIt, &readTemplate);
 
-    // Propagate max-prefix-expansion warning to the specific subquery that triggered it.
-    if (maxPrefixSearch) {
-        QueryError_SetReachedMaxPrefixExpansionsWarning(&hreq->requests[SEARCH_INDEX]->base.reply.err);
-    }
-    if (maxPrefixVsim) {
-        QueryError_SetReachedMaxPrefixExpansionsWarning(&hreq->requests[VECTOR_INDEX]->base.reply.err);
-    }
-
-    RS_ASSERT(array_len(search->mappings) == array_len(vsim->mappings));
-    if (array_len(search->mappings) == 0) {
-      // No mappings available - set next function to EOF.
-      // Error handling relies on QueryError status and return codes, not on mapping availability.
-      searchRPNet->base.Next = rpnetNext_EOF;
-      vsimRPNet->base.Next = rpnetNext_EOF;
-    }
-
-    // Store mappings in RPNet structures
-    searchRPNet->mappings = StrongRef_Clone(searchMappingsRef);
-    vsimRPNet->mappings = StrongRef_Clone(vsimMappingsRef);
-    StrongRef_Release(searchMappingsRef);
-    StrongRef_Release(vsimMappingsRef);
+    // One start job for all three iterators (hybridArmingStartCb expands the
+    // read placeholders and dispatches the fan-out): a single topology
+    // snapshot, so per-shard indices agree across the iterators and both read
+    // iterators are expanded before any mapping reply can be processed.
+    MR_StartIterator(hybridIt, hybridArmingStartCb);
+    // The fan-out's reader side is unused (its callbacks never queue replies);
+    // the IO-thread writers drive it to completion and free it.
+    MRIterator_Release(hybridIt);
 
     return REDISMODULE_OK;
 }
@@ -932,13 +944,9 @@ typedef struct {
 } HybridDispatchCtx;
 
 static void HybridDispatchCtx_Free(HybridDispatchCtx *dispatch) {
-    HybridRequest *hreq = dispatch->hreq;
     StrongRef indexSpecRef = dispatch->indexSpecRef;
     RedisModuleBlockedClient *bc = dispatch->bc;
 
-    if (hreq) {
-        HybridRequest_DecrRef(hreq);
-    }
     rm_free(dispatch);
     // The dispatcher thread already called CurrentThread_ClearIndexSpec() after
     // transferring strong_ref ownership here, so only release the strong ref.
@@ -970,9 +978,7 @@ static ResultProcessor *findSafeDepleter(const HybridRequest *hreq, size_t i) {
 // the tail hybrid merger job that cv-waits on their completion or this will
 // deadlock (see submitHybridTail).
 static void scheduleDepleters(HybridRequest *hreq) {
-    const RedisSearchCtx *sctx = HREQ_SearchCtx(hreq);
-    const bool timedOut =
-        !sctx->time.skipTimeoutChecks && TimedOut(&sctx->time.timeout) == TIMED_OUT;
+    const bool timedOut = QueryRequestTimeout_IsTimedOutExact(&hreq->base.timeout);
     for (size_t i = 0; i < hreq->nrequests; i++) {
         ResultProcessor *depleter = findSafeDepleter(hreq, i);
         if (timedOut) {
@@ -1005,7 +1011,7 @@ static void HybridDispatchCtx_Tail(void *arg) {
     // If timeout fired between dispatch and tail pickup, the timeout callback
     // already replied — skip the reply path, but still drain depleters before
     // teardown (see waitForDepleters).
-    if (HybridRequest_TimedOut(hreq)) {
+    if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
         waitForDepleters(hreq);
         CurrentThread_ClearIndexSpec();
         HybridDispatchCtx_Free(dispatch);
@@ -1048,10 +1054,10 @@ static void HybridDispatchCtx_Tail(void *arg) {
 // be freed normally when the handler returns. The tail installs its own
 // replyCtx into hreq->sctx->redisCtx.
 //
-// `dispatcherStatus` carries any non-fatal warnings ProcessHybridCursorMappings
-// stamped (e.g. COORD OOM under OomPolicy_Return). We forward the warning bits
-// onto hreq->tailPipelineError so finishSendChunkReply_hybrid emits them; bits
-// are independent of the error code, so HybridRequest_GetError stays non-fatal.
+// `dispatcherStatus` may carry non-fatal warning bits stamped during dispatch.
+// We forward them onto hreq->tailPipelineError so finishSendChunkReply_hybrid
+// emits them; bits are independent of the error code, so
+// HybridRequest_GetError stays non-fatal.
 static void scheduleHybridTail(HybridRequest *hreq, StrongRef indexSpecRef,
                              struct ConcurrentCmdCtx *cmdCtx,
                              const QueryError *dispatcherStatus) {
@@ -1086,7 +1092,7 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
     RS_ASSERT(hreq != NULL);  // the dispatcher allocates the request shell on the main thread
 
     // If timeout already occurred, the timeout callback already replied - don't reply again
-    if (HybridRequest_TimedOut(hreq)) {
+    if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
       if (QueryError_HasError(status)) {
         QueryError_ClearError(status);
       }
@@ -1100,9 +1106,6 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
     if (sp) {
       IndexSpecRef_Release(*strong_ref);
     }
-    // Release the execution flow's reference (taken at shell allocation on the
-    // main thread); the cycle's reference is released by QueryRequest_OnFree.
-    HybridRequest_DecrRef(hreq);
 }
 
 
@@ -1118,11 +1121,10 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     // thread's command ctx); re-point it at this thread's ctx before any use.
     hreq->sctx->redisCtx = ctx;
 
-    if (HybridRequest_TimedOut(hreq)) {
+    if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
       // Query timed out while this job was queued; the timeout callback
-      // already replied. Release the execution flow's reference.
+      // already replied.
       WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-      HybridRequest_DecrRef(hreq);
       return;
     }
     // Picked up by a coord thread: attribute a timeout from here on to PIPELINE.
@@ -1144,6 +1146,9 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     }
 
     hreq->poolId = ConcurrentCmdCtx_GetPoolId(cmdCtx);
+    // Refresh the background-scan-OOM capture under the held execution
+    // reference; the reply path reads only the capture.
+    hreq->tailPipeline->qctx.bgScanOOM |= RS_AtomicBoolLoadRelaxed(&sp->scan_failed_OOM);
     // Store coordinator start time for dispatch time tracking
     hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
     size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
@@ -1186,10 +1191,9 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     HybridRequest *hreq = QueryRequest_GetHybrid(request);
     hreq->sctx->redisCtx = ctx;
 
-    if (HybridRequest_TimedOut(hreq)) {
+    if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
       // Timed out while queued; the timeout callback already replied.
       WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-      HybridRequest_DecrRef(hreq);
       return;
     }
     // Picked up by a coord thread: attribute a timeout from here on to PIPELINE.
@@ -1220,6 +1224,9 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     }
 
     hreq->poolId = ConcurrentCmdCtx_GetPoolId(cmdCtx);
+    // Refresh the background-scan-OOM capture under the held execution
+    // reference; the reply path reads only the capture.
+    hreq->tailPipeline->qctx.bgScanOOM |= RS_AtomicBoolLoadRelaxed(&sp->scan_failed_OOM);
     hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
     size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
 
@@ -1284,7 +1291,8 @@ int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
   HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
   // Signal timeout to the background thread
-  HybridRequest_SetTimedOut(hreq);
+  QueryRequestTimeout_MarkTimedOut(&hreq->base.timeout);
+  HybridRequest_PropagateTimeoutToSubqueries(hreq);
 
   // Record the per-stage breakdown at the stage the deadline caught the request.
   recordCoordHybridTimeoutStage(hreq, /*isError=*/true);
@@ -1310,7 +1318,8 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
   HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
   // Signal timeout to the background thread
-  HybridRequest_SetTimedOut(hreq);
+  QueryRequestTimeout_MarkTimedOut(&hreq->base.timeout);
+  HybridRequest_PropagateTimeoutToSubqueries(hreq);
 
   // Record the per-stage breakdown at the stage the deadline caught the request.
   recordCoordHybridTimeoutStage(hreq, /*isError=*/false);
@@ -1376,6 +1385,5 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   serializeStoredResults_hybrid(hreq, reply);
   RedisModule_EndReply(reply);
 
-  // QueryRequest_OnFree releases the cycle's request reference.
   return REDISMODULE_OK;
 }

@@ -98,11 +98,10 @@ pub enum QueryNode<'a> {
     /// A filter by explicit document key names.
     Ids {
         /// The key names to match against: `RedisModuleString`s borrowed
-        /// from storage owned by the request (its held argv). Opaque to
-        /// Rust; resolved through `DocTable_GetIdR`.
+        /// from storage owned by the request (its held argv). Opaque to Rust.
         keys: &'a [*mut redis_module::raw::RedisModuleString],
-        /// Pre-resolved document IDs (resolved on the main thread for
-        /// search-on-disk).  `None` when not in disk mode.
+        /// Document IDs resolved from [`keys`](Self::Ids::keys) on the main
+        /// thread during query construction.
         doc_ids: Option<&'a [DocId]>,
     },
     /// Matches every document in the index (the `*` query).

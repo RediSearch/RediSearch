@@ -152,8 +152,7 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 #define SYNC_POINT_BEFORE_HYBRID_DEPLETION              "BeforeHybridDepletion"
 #define SYNC_POINT_BEFORE_RPNET_START                   "BeforeRPNetStart"
 #define SYNC_POINT_BEFORE_RPNET_NEXT                    "BeforeRPNetNext"
-#define SYNC_POINT_BEFORE_CURSOR_MAPPING_PROMOTE        "BeforeCursorMappingPromote"
-#define SYNC_POINT_AFTER_CURSOR_MAPPING_PROMOTE_FAILED  "AfterCursorMappingPromoteFailed"
+#define SYNC_POINT_BEFORE_HYBRID_ARM_READS              "BeforeHybridArmReads"
 #define SYNC_POINT_AFTER_ITERATOR_START                 "AfterIteratorStart"
 #define SYNC_POINT_RPNET_REPLY_ADMITTED                 "RpnetReplyAdmitted"
 #define SYNC_POINT_RPNET_WAITING_FOR_REPLY              "RpnetWaitingForReply"
@@ -210,6 +209,13 @@ bool SyncPoint_ArmWithTimeout(const char *name, long long auto_release_ms);
 void SyncPoint_Signal(const char *name);
 // Check if a thread is waiting at the named sync point
 bool SyncPoint_IsWaiting(const char *name);
+// Number of times a thread entered the named sync point since it was armed
+uint32_t SyncPoint_HitCount(const char *name);
+// Monotonic event ids for ordering sync-point hits and releases
+uint64_t SyncPoint_LastHitSeq(const char *name);
+uint64_t SyncPoint_LastReleaseSeq(const char *name);
+// Publish a sync-point event sequence without letting an older event regress it
+void SyncPoint_PublishMaxSeq(_Atomic uint64_t *target, uint64_t seq);
 // Check if a sync point is armed
 bool SyncPoint_IsArmed(const char *name);
 // Clear all sync points

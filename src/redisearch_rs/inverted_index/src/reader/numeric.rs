@@ -242,10 +242,6 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterNumericRea
     fn needs_revalidation(&self) -> bool {
         self.inner.needs_revalidation()
     }
-
-    fn refresh_buffer_pointers(&mut self) {
-        self.inner.refresh_buffer_pointers();
-    }
 }
 
 impl<'index, E: DecodedBy<Decoder = D>, D: Decoder>

@@ -9,11 +9,13 @@
 
 
 #include "gtest/gtest.h"
+#include "query_request.h"
 #include "trie/trie_node.h"
 #include "trie/trie_node_internal.h"  // whitebox: subtreeMaxScore invariant checks
 #include "trie/trie.h"
 #include "redismock/redismock.h"
 #include "rmalloc.h"
+#include "trie_rdb_ffi.h"
 
 #include <string>
 #include <memory>
@@ -61,7 +63,13 @@ static std::vector<std::string> trieIterPrefix(Trie *t, const char *prefix) {
   rune *runes = runeBufFill(prefix, len, &buf, &len);
 
   std::vector<std::string> terms;
-  Trie_IterateContains(t, runes, len, true, false, collectTermFunc, &terms, NULL, true);
+  QueryRequestTimeout timeout = {
+      .timeoutMS = 0,
+      .policy = TimeoutPolicy_Return,
+      .kind = QUERY_REQUEST_TIMEOUT_UNARMED,
+      .source = {},
+  };
+  Trie_IterateContains(t, runes, len, true, false, collectTermFunc, &terms, &timeout);
   runeBufFree(&buf);
   return terms;
 }
@@ -518,8 +526,9 @@ TEST_F(TrieTest, testbenchmark) {
   TrieType_Free(t);
 }*/
 
-// Helper function to compare two tries for equality
-static bool compareTrieContents(Trie *original, Trie *loaded) {
+// Helper function to compare two tries for equality. Walks both in iteration
+// order, so the tries must share a sort mode.
+static bool compareTrieContents(Trie *original, Trie *loaded, bool compareNumDocs = false) {
   if (Trie_Size(original) != Trie_Size(loaded)) {
     return false;
   }
@@ -539,10 +548,11 @@ static bool compareTrieContents(Trie *original, Trie *loaded) {
   t_len origLen, loadedLen;
   float origScore, loadedScore;
   RSPayload origPayload, loadedPayload;
+  size_t origNumDocs, loadedNumDocs;
 
   while (true) {
-    int origHasNext = TrieIterator_Next(origIter, &origRstr, &origLen, &origPayload, &origScore, NULL, NULL);
-    int loadedHasNext = TrieIterator_Next(loadedIter, &loadedRstr, &loadedLen, &loadedPayload, &loadedScore, NULL, NULL);
+    int origHasNext = TrieIterator_Next(origIter, &origRstr, &origLen, &origPayload, &origScore, &origNumDocs, NULL);
+    int loadedHasNext = TrieIterator_Next(loadedIter, &loadedRstr, &loadedLen, &loadedPayload, &loadedScore, &loadedNumDocs, NULL);
 
     if (origHasNext != loadedHasNext) {
       return false;
@@ -570,6 +580,10 @@ static bool compareTrieContents(Trie *original, Trie *loaded) {
 
     // Compare scores
     if (origScore != loadedScore) {
+      return false;
+    }
+
+    if (compareNumDocs && origNumDocs != loadedNumDocs) {
       return false;
     }
 
@@ -1249,4 +1263,197 @@ TEST_F(TrieTest, testPayloadTerminatorIsNul) {
   ASSERT_TRUE(data != nullptr);
   EXPECT_EQ(0, memcmp(payload.data(), data, plen));
   EXPECT_EQ('\0', data[plen]);
+}
+
+// One row of an interop test's source trie, spanning the full 2x2 save-flag
+// matrix; fields a test's flags don't persist just stay at their defaults.
+struct InteropEntry {
+  const char *term;
+  float score;
+  std::string payload;  // empty = inserted without payload
+  size_t numDocs = 0;
+};
+
+using TrieGuard = std::unique_ptr<Trie, std::function<void(Trie *)>>;
+
+static TrieGuard makeInteropTrie(std::initializer_list<InteropEntry> entries) {
+  Trie *t = NewTrie(NULL, Trie_Sort_Lex);
+  for (const auto &e : entries) {
+    RSPayload p = {.data = (char *)e.payload.data(), .len = e.payload.size()};
+    EXPECT_TRUE(Trie_InsertStringBuffer(t, e.term, strlen(e.term), e.score, 0,
+                                        e.payload.empty() ? NULL : &p, e.numDocs));
+  }
+  EXPECT_EQ(entries.size(), Trie_Size(t));
+  return TrieGuard(t, [](Trie *trie) { TrieType_Free(trie); });
+}
+
+// The Rust side exposes only save/load, so the interop tests funnel both
+// parsers off a single C-emitted byte buffer:
+//   C save -> Rust load -> Rust save (must be byte-identical to the original)
+//   Rust save -> C load  (must round-trip into a structurally equal C trie)
+// The byte-equality leg holds only because the source trie is `Trie_Sort_Lex`:
+// `TrieType_GenericSave` emits in trie iteration order, and the Rust map always
+// emits lexicographically. Saving a `Trie_Sort_Score` trie and comparing bytes
+// would fail on entry order alone — both buffers still load into equal tries,
+// since neither loader depends on the order they arrive in.
+// The recovered trie is loaded in the original's `Trie_Sort_Lex` mode, so the
+// two iterate in the same order and compare entry-for-entry. A non-NULL
+// `recoveredOut` receives the recovered trie for test-specific assertions;
+// it stays untouched when the funnel fails partway.
+static void expectRdbInterop(Trie *original, bool payloads, bool numDocs,
+                             TrieGuard *recoveredOut = nullptr) {
+  RedisModuleIO *ioC = RMCK_CreateRdbIO();
+  std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioCPtr(ioC, [](RedisModuleIO *io) {
+    RMCK_FreeRdbIO(io);
+  });
+  ASSERT_TRUE(ioC != nullptr);
+
+  TrieType_GenericSave(ioC, original, payloads, numDocs);
+  EXPECT_EQ(0, RMCK_IsIOError(ioC));
+  ASSERT_GT(ioC->buffer.size(), 0u);
+
+  // Reset the cursor; the buffer itself is unchanged.
+  ioC->read_pos = 0;
+  LexTrieRs *rustMap = LexTrieRs_RdbLoad(ioC, payloads, numDocs);
+  std::unique_ptr<LexTrieRs, std::function<void(LexTrieRs *)>> rustMapPtr(rustMap, [](LexTrieRs *m) {
+    LexTrieRs_Free(m);
+  });
+  ASSERT_TRUE(rustMap != nullptr);
+  EXPECT_EQ(0, RMCK_IsIOError(ioC));
+
+  RedisModuleIO *ioRust = RMCK_CreateRdbIO();
+  std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioRustPtr(ioRust, [](RedisModuleIO *io) {
+    RMCK_FreeRdbIO(io);
+  });
+  ASSERT_TRUE(ioRust != nullptr);
+
+  LexTrieRs_RdbSave(ioRust, rustMap, payloads, numDocs);
+  EXPECT_EQ(0, RMCK_IsIOError(ioRust));
+  EXPECT_EQ(ioC->buffer, ioRust->buffer);
+
+  // Must rehydrate into a trie holding the same entries.
+  ioRust->read_pos = 0;
+  Trie *recovered = (Trie *)TrieType_GenericLoad(ioRust, payloads, numDocs, Trie_Sort_Lex);
+  TrieGuard recoveredPtr(recovered, [](Trie *trie) { TrieType_Free(trie); });
+  ASSERT_TRUE(recovered != nullptr);
+  EXPECT_EQ(0, RMCK_IsIOError(ioRust));
+  EXPECT_TRUE(compareTrieContents(original, recovered, /*compareNumDocs=*/numDocs));
+  if (recoveredOut) {
+    *recoveredOut = std::move(recoveredPtr);
+  }
+}
+
+// Round-trips the production opt combo `save_payloads=false, save_num_docs=true`
+// (the combination `sp->terms` uses).
+TEST_F(TrieTest, testCRustRdbInterop) {
+  auto original = makeInteropTrie({
+      {"alpha", 1.5f, "", 3},
+      {"beta", 2.5f, "", 7},
+      {"gamma", 0.5f, "", 1},
+      {"app", 5.0f, "", 10},
+      {"apple", 3.0f, "", 20},
+      {"application", 7.0f, "", 30},
+      // Multibyte key: C round-trips it through `rune` (UTF-16 code units) while
+      // Rust keeps raw UTF-8, and the byte comparison in the funnel only holds
+      // because the two orderings agree across the BMP. Astral code points are
+      // excluded on purpose — `rune` is 16 bits, so C truncates them before Rust
+      // ever sees the key.
+      {"日本", 4.0f, "", 5},
+  });
+  expectRdbInterop(original.get(), /*payloads=*/false, /*numDocs=*/true);
+}
+
+// Byte-comparing the two save paths with payloads on only holds because the
+// payload terminator C emits is a real NUL rather than whatever the allocator
+// handed it.
+TEST_F(TrieTest, testCRustRdbInteropWithPayloads) {
+  auto original = makeInteropTrie({
+      {"alpha", 1.5f, "pay_alpha"},
+      {"beta", 2.5f, "pay_beta"},
+      {"gamma", 0.5f, ""},  // empty payload collapses to none on both sides
+      {"app", 5.0f, "pay_app"},
+      {"café", 1.0f, "pay_café"},  // multibyte key and payload
+  });
+
+  TrieGuard recovered;
+  expectRdbInterop(original.get(), /*payloads=*/true, /*numDocs=*/false, &recovered);
+  ASSERT_TRUE(recovered != nullptr);
+
+  // The funnel's ordered comparison holds for the empty payload only because
+  // neither side stores it: C's insert drops a zero-length payload, and the
+  // Rust save emits `None` and a bare NUL for it, which loads back as no
+  // payload.
+  EXPECT_EQ(nullptr, triePayload(recovered.get(), "gamma", 5, true));
+}
+
+// Round-trips `save_payloads=true, save_num_docs=true`, completing the 2x2
+// flag matrix the interop tests cover.
+TEST_F(TrieTest, testCRustRdbInteropWithPayloadsAndNumDocs) {
+  auto original = makeInteropTrie({
+      {"alpha", 1.5f, "pay_alpha", 3},
+      {"beta", 2.5f, "", 7},
+      {"app", 5.0f, "pay_app", 10},
+      {"日本", 4.0f, "pay_日本", 5},
+  });
+  expectRdbInterop(original.get(), /*payloads=*/true, /*numDocs=*/true);
+}
+
+// An empty map still carries a count of zero, so the two savers must agree on
+// the header alone. Also the only coverage of `LexTrieRs_New`, which every other
+// interop test bypasses by constructing through `LexTrieRs_RdbLoad`.
+TEST_F(TrieTest, testCRustRdbInteropEmpty) {
+  auto originalPtr = makeInteropTrie({});
+  Trie *originalTrie = originalPtr.get();
+
+  RedisModuleIO *ioC = RMCK_CreateRdbIO();
+  std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioCPtr(ioC, [](RedisModuleIO *io) {
+    RMCK_FreeRdbIO(io);
+  });
+  ASSERT_TRUE(ioC != nullptr);
+
+  TrieType_GenericSave(ioC, originalTrie, /*savePayloads=*/true, /*saveNumDocs=*/true);
+  EXPECT_EQ(0, RMCK_IsIOError(ioC));
+  ASSERT_GT(ioC->buffer.size(), 0u);
+
+  LexTrieRs *rustMap = LexTrieRs_New();
+  std::unique_ptr<LexTrieRs, std::function<void(LexTrieRs *)>> rustMapPtr(rustMap, [](LexTrieRs *m) {
+    LexTrieRs_Free(m);
+  });
+  ASSERT_TRUE(rustMap != nullptr);
+
+  RedisModuleIO *ioRust = RMCK_CreateRdbIO();
+  std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioRustPtr(ioRust, [](RedisModuleIO *io) {
+    RMCK_FreeRdbIO(io);
+  });
+  ASSERT_TRUE(ioRust != nullptr);
+
+  LexTrieRs_RdbSave(ioRust, rustMap, /*save_payloads=*/true, /*save_num_docs=*/true);
+  EXPECT_EQ(0, RMCK_IsIOError(ioRust));
+  EXPECT_EQ(ioC->buffer, ioRust->buffer);
+
+  ioRust->read_pos = 0;
+  Trie *recoveredTrie =
+      (Trie *)TrieType_GenericLoad(ioRust, /*loadPayloads=*/true, /*loadNumDocs=*/true, Trie_Sort_Lex);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> recoveredTriePtr(recoveredTrie, [](Trie *trie) {
+    TrieType_Free(trie);
+  });
+  ASSERT_TRUE(recoveredTrie != nullptr);
+  EXPECT_EQ(0, RMCK_IsIOError(ioRust));
+  EXPECT_EQ(0, Trie_Size(recoveredTrie));
+}
+
+// Round-trips the keys-only opt combo `save_payloads=false, save_num_docs=false`
+// (the layout the dictionary type's aux callbacks emit).
+TEST_F(TrieTest, testCRustRdbInteropKeysOnly) {
+  auto original = makeInteropTrie({
+      {"alpha", 1.5f},
+      {"beta", 2.5f},
+      {"gamma", 0.5f},
+      {"app", 5.0f},
+      {"apple", 3.0f},
+      {"application", 7.0f},
+      // Multibyte key, BMP-only for the reasons testCRustRdbInterop states.
+      {"日本", 4.0f},
+  });
+  expectRdbInterop(original.get(), /*payloads=*/false, /*numDocs=*/false);
 }

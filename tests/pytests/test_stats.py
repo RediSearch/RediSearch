@@ -1,3 +1,9 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
 
 import unittest
 from random import random, seed
@@ -325,8 +331,8 @@ def testDocTableInfo(env):
     n = env.shardsCount
 
     # Initial size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain *))
-    #              = 72 + (1000 * 8) = 8072 bytes
-    doc_table_size_mb = 8072 / (1024 * 1024)
+    #              = 64 + (1000 * 8) = 8064 bytes
+    doc_table_size_mb = 8064 / (1024 * 1024)
 
     d = index_info(env)
     env.assertEqual(int(d['num_docs']), 0)

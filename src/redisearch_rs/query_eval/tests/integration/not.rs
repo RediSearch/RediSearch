@@ -103,18 +103,13 @@ mod not {
         let id_c = context.add_document("doc_c");
         assert_eq!((id_a, id_b, id_c), (1, 2, 3));
 
-        // Disable timeout checks so the (clock-based) default deadline of the
-        // zero-initialised `QueryEvalCtx` does not expire the iterator.
-        let mut sctx = context.sctx;
-        // SAFETY: `context.sctx` is a valid, exclusively-owned `RedisSearchCtx`.
-        unsafe { sctx.as_mut().time.skipTimeoutChecks = true };
-
         let mut ctx = unsafe { QueryEvalContext::new(context.qctx()) };
 
         // QN_IDS child resolving to the middle document only.
         let keys = MockKeys::new(&["doc_b"]);
+        let mut dids = vec![id_b];
         let mut ids_child = MockQueryNode::new(QueryNodeType::Ids);
-        ids_child.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
+        ids_child.set_ids(keys.as_ptr(), dids.as_mut_ptr(), keys.len());
 
         let mut not = MockQueryNode::new(QueryNodeType::Not);
         not.opts_mut().weight = 1.0;
@@ -196,20 +191,15 @@ mod not {
         // SAFETY: no iterator from this context is alive yet.
         context.spec_write().rule_mut().set_index_all(true);
 
-        // Disable timeout checks so the (clock-based) default deadline of the
-        // zero-initialised `QueryEvalCtx` does not expire the iterator.
-        let mut sctx = context.sctx;
-        // SAFETY: `context.sctx` is a valid, exclusively-owned `RedisSearchCtx`.
-        unsafe { sctx.as_mut().time.skipTimeoutChecks = true };
-
         let mut ctx = unsafe { QueryEvalContext::new(context.qctx()) };
 
         // QN_IDS child resolving to a real document → neither empty nor a
         // wildcard, so the reducer skips its shortcircuits and reaches the
         // optimized constructor.
         let keys = MockKeys::new(&["doc_b"]);
+        let mut dids = vec![id_b];
         let mut ids_child = MockQueryNode::new(QueryNodeType::Ids);
-        ids_child.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
+        ids_child.set_ids(keys.as_ptr(), dids.as_mut_ptr(), keys.len());
 
         let mut not = MockQueryNode::new(QueryNodeType::Not);
         not.opts_mut().weight = 1.0;

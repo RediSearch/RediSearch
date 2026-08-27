@@ -9,20 +9,48 @@
 
 //! Safe wrapper around [`ffi::QueryEvalCtx`].
 
-use std::{ffi::CStr, ptr::NonNull};
+use std::{
+    ffi::{CStr, c_char},
+    ptr::NonNull,
+};
 
 use c_trie::TermsTrie;
 use query_flags::QEFlags;
-use rlookup::MetricRequest;
+use rlookup::{MetricRequest, RLookupKey, RLookupKeyHandle};
 use rqe_core::DocId;
 use rqe_iterators::{
-    IteratorsConfig,
-    not_reducer::TIMEOUT_CHECK_GRANULARITY,
-    utils::{AnyTimeoutContext, TimeoutContextBlockedClient},
+    IteratorsConfig, not_reducer::TIMEOUT_CHECK_GRANULARITY, utils::AnyTimeoutContext,
 };
 use search_disk::SearchDiskHandle;
 
 use query_types::scorers::{BuiltInScorer, RequestedScorer};
+
+/// A reservation in the query's metric-request array, as
+/// [`QueryEvalContext::add_metric_request`] hands it out.
+///
+/// Reserving and binding are separate steps because the iterator whose key slot
+/// the request points at does not exist yet at reserve time. That split is what
+/// this type guards: it is neither [`Copy`] nor [`Clone`] and its index is
+/// private, so a reservation can only be bound by the one who made it, and only
+/// once. Binding twice would strand the first handle — unreachable from the
+/// array, and so never freed.
+///
+/// Dropping one unbound is legal and expected: a vector node reserves before it
+/// knows whether the search will yield a distance to bind, and leaves the
+/// request unbound when it does not.
+#[derive(Debug)]
+pub struct MetricRequestId(usize);
+
+impl MetricRequestId {
+    /// Where the reservation sits in
+    /// [`metric_requests`](QueryEvalContext::metric_requests).
+    ///
+    /// Reading the index does not spend the reservation, and no
+    /// [`MetricRequestId`] can be rebuilt from one, so this weakens nothing.
+    pub const fn index(&self) -> usize {
+        self.0
+    }
+}
 
 /// Safe wrapper around [`ffi::QueryEvalCtx`].
 ///
@@ -59,7 +87,7 @@ impl QueryEvalContext {
     ///    lifetime of every timeout context and iterator derived from this
     ///    context (e.g. via
     ///    [`build_timeout_context`](QueryEvalContext::build_timeout_context)):
-    ///    a clock-based timeout context reads `sctx.time.timeout` back on every
+    ///    a clock-based timeout context reads the request-owned deadline back on every
     ///    probe rather than capturing it.
     ///    The nested `sctx.spec.terms` pointer — the index's primary terms trie
     ///    — must be valid and non-null: every path that creates an
@@ -72,11 +100,6 @@ impl QueryEvalContext {
     ///    The nested `sctx.spec.diskSpec` pointer may be null (in-memory mode);
     ///    when non-null it must point to a valid
     ///    [`RedisSearchDiskIndexSpec`](ffi::RedisSearchDiskIndexSpec).
-    ///    `bcTimeoutAreq` may be null; when non-null it must point to a valid
-    ///    [`AREQ`](ffi::AREQ) that stays valid not just for the lifetime of the returned
-    ///    context, but for the lifetime of every timeout context and iterator
-    ///    derived from it (e.g. via
-    ///    [`build_timeout_context`](QueryEvalContext::build_timeout_context)).
     ///    The `opts.scorerName` pointer may be null (no scorer requested); when
     ///    non-null it must point to a valid NUL-terminated C string that stays
     ///    valid for at least the lifetime of the returned context (read by
@@ -241,34 +264,189 @@ impl QueryEvalContext {
         self.as_ref().status
     }
 
-    /// Double pointer to the metric-requests array.
+    /// Reserve a [`MetricRequest`] for `metric_name`, returning the
+    /// [`MetricRequestId`] that binds it.
     ///
-    /// The C side appends entries via `array_ensure_append_1`. Rust callers
-    /// that create vector iterators use this to register score-field metric
-    /// requests.
+    /// The reserved entry has a NULL [`key_handle`](MetricRequest::key_handle)
+    /// until [`bind_metric_request_key`](Self::bind_metric_request_key) fills
+    /// it in; that is the state the pipeline reads as "the iterator was never
+    /// created". An id stays valid for the whole evaluation: appending only
+    /// ever grows the array past the existing entries.
     ///
-    /// Exclusive because appending reallocates, which invalidates any slice
-    /// [`metric_requests`](Self::metric_requests) handed out: taking the two
-    /// borrows apart is what stops a reader from outliving the array it read.
-    pub const fn metric_requests_ptr(&mut self) -> *mut *mut MetricRequest<'_> {
-        self.as_mut().metricRequestsP.cast()
+    /// `is_internal` is recorded as [`MetricRequest::is_internal`], which keeps
+    /// the metric out of the query response.
+    ///
+    /// # Safety
+    ///
+    /// 1. `metric_name` must be non-null and point to a NUL-terminated C string.
+    ///    Pipeline construction takes its length with `strlen` and looks the
+    ///    name up in the schema, without checking either — so a null or
+    ///    unterminated name is a crash or an out-of-bounds read at
+    ///    `FT.SEARCH` / `FT.AGGREGATE` time, far from this call.
+    /// 2. The request stores `metric_name` as a *borrowed* pointer — nothing
+    ///    ever frees it through the array, and the pipeline reads it back long
+    ///    after this call. Its owner (for a vector query, the `VectorQuery`,
+    ///    hence the AST) must outlive the array.
+    pub unsafe fn add_metric_request(
+        &mut self,
+        metric_name: *const c_char,
+        is_internal: bool,
+    ) -> MetricRequestId {
+        debug_assert!(!metric_name.is_null(), "a metric request must have a name");
+
+        let head = self
+            .as_mut()
+            .metricRequestsP
+            .cast::<*mut MetricRequest<'_>>();
+        let request = MetricRequest {
+            metric_name,
+            key_handle: std::ptr::null_mut(),
+            is_internal,
+        };
+
+        // SAFETY: invariant (2) of `new` guarantees `metricRequestsP` points to
+        // a live head slot, and (3) gives us exclusive access to it.
+        let current = unsafe { *head };
+        // SAFETY: `current` is a tracked array of `MetricRequest`s (null while
+        // the array is still empty, which the callee treats as "allocate"), and
+        // `request` is one live, correctly sized element to copy from.
+        let grown = unsafe {
+            ffi::array_ensure_append_n_func(
+                current.cast(),
+                (&raw const request).cast_mut().cast(),
+                1,
+                size_of::<MetricRequest<'_>>() as u16,
+            )
+        };
+        // The append may reallocate, so the new head goes back through the
+        // double pointer.
+        //
+        // SAFETY: as for the read above.
+        unsafe { *head = grown.cast() };
+        // SAFETY: `grown` is the tracked array the append just returned, so its
+        // length header is valid — and non-zero, since it holds `request`.
+        MetricRequestId(unsafe { ffi::array_len_func(grown) as usize - 1 })
+    }
+
+    /// Allocate the key handle of the request `id` reserved, pointing at
+    /// `key_ptr` — the owning iterator's [`RLookupKey`] slot — and return it so
+    /// the caller can hand it back to that iterator.
+    ///
+    /// The handle is allocated with the *module* allocator, because C frees it
+    /// with `rm_free` when the AST is destroyed. That allocator does not zero,
+    /// so **both** fields are written:
+    /// [`key_ptr`](RLookupKeyHandle::key_ptr) as given, and
+    /// [`is_valid`](RLookupKeyHandle::is_valid) set. The latter is what
+    /// pipeline construction gates the key write on, and the owning iterator
+    /// clears it when freed — leaving it at whatever the allocator returned
+    /// would drop the metric nondeterministically.
+    ///
+    /// # Safety
+    ///
+    /// 1. `id` must come from [`add_metric_request`](Self::add_metric_request)
+    ///    on *this* context. Taking it by value is what rules out binding one
+    ///    reservation twice, but a [`MetricRequestId`] records no context, so
+    ///    which one it came from is still the caller's to get right.
+    /// 2. `key_ptr` must be non-null and valid for writes until pipeline
+    ///    construction has read the request — *not* merely for as long as the
+    ///    owning iterator lives. Pipeline construction writes the resolved key
+    ///    through it whenever [`is_valid`](RLookupKeyHandle::is_valid) is still
+    ///    set, without checking either pointer, so a null or dangling slot is a
+    ///    bad write at `FT.SEARCH` / `FT.AGGREGATE` time, far from this call.
+    /// 3. The caller must install the returned handle on the iterator that owns
+    ///    `key_ptr` before that iterator can be freed. Clearing
+    ///    [`is_valid`](RLookupKeyHandle::is_valid) is the iterator's job, and it
+    ///    can only do it through a handle it was given: an uninstalled handle
+    ///    keeps the flag set past the death of the slot it points at, which is
+    ///    precondition (2) violated by omission rather than by a bad argument.
+    ///    Reserving and binding are separate calls because the iterator does not
+    ///    exist yet at reserve time — that split is what makes this one easy to
+    ///    miss, so it is stated rather than left to the shape of the API.
+    /// 4. The metric-request array must outlive every iterator holding one of
+    ///    its handles. The handle is freed with the array when the AST is
+    ///    destroyed, and an iterator freed after that would clear
+    ///    [`is_valid`](RLookupKeyHandle::is_valid) through freed memory.
+    pub unsafe fn bind_metric_request_key<'a>(
+        &mut self,
+        id: MetricRequestId,
+        key_ptr: *mut *mut RLookupKey<'a>,
+    ) -> *mut RLookupKeyHandle<'a> {
+        debug_assert!(
+            !key_ptr.is_null(),
+            "a bound metric request must have a key slot"
+        );
+        let idx = id.index();
+
+        let head_slot = self
+            .as_mut()
+            .metricRequestsP
+            .cast::<*mut MetricRequest<'a>>();
+        // SAFETY: invariant (2) of `new` guarantees `metricRequestsP` points to
+        // a live head slot, and (3) gives us exclusive access to it.
+        let head = unsafe { *head_slot };
+        // An id proves a reservation happened, but not that it happened *here*,
+        // so the bounds check stays. Debug-only, so the length read costs
+        // nothing in a release build. An empty list needs no check of its own:
+        // `array_len` reports a null head as length zero rather than reaching
+        // behind it for a header that is not there.
+        #[cfg(debug_assertions)]
+        {
+            // SAFETY: `head` is either null or the tracked array
+            // `add_metric_request` grew, and the length read accepts both.
+            let len = unsafe { ffi::array_len_func(head.cast()) } as usize;
+            assert!(
+                idx < len,
+                "`id` must come from `add_metric_request` on this context"
+            );
+        }
+
+        // Allocated only once the checks above have passed, so a violated
+        // contract reports itself instead of leaking the handle on the way out.
+        //
+        // SAFETY: this Redis API function pointer is set once during module
+        // load and never mutated afterwards, so reading it during query
+        // evaluation cannot race.
+        let alloc = unsafe { redis_module::RedisModule_Alloc }.expect("RedisModule_Alloc unset");
+        // SAFETY: the size is non-zero and well within `isize::MAX`.
+        let handle = NonNull::new(unsafe { alloc(size_of::<RLookupKeyHandle<'a>>()) })
+            .expect("RedisModule_Alloc returned NULL")
+            .cast::<RLookupKeyHandle<'a>>()
+            .as_ptr();
+        // SAFETY: `handle` is a fresh, suitably aligned allocation of the right
+        // size, so writing the whole value initialises it — both fields, since
+        // the allocator does not zero.
+        unsafe {
+            handle.write(RLookupKeyHandle {
+                key_ptr,
+                is_valid: true,
+            });
+        }
+
+        // SAFETY: invariant (1) makes `idx` an index of a live element, so the
+        // offset is in bounds.
+        let request = unsafe { head.add(idx) };
+        // SAFETY: `request` points at that live, initialised element, which
+        // nothing else aliases (invariant (3) of `new`).
+        unsafe { (*request).key_handle = handle };
+
+        handle
     }
 
     /// The metric requests reserved so far, in the order they were reserved.
     ///
-    /// The read side of what
-    /// [`metric_requests_ptr`](Self::metric_requests_ptr) is appended through.
-    /// The slice borrows this context for as long as it is held, so no append
-    /// can run while it is alive.
+    /// The read side of [`add_metric_request`](Self::add_metric_request), which
+    /// [`MetricRequestId::index`] indexes into.
+    /// The slice borrows this context for as long as it is held, and every
+    /// append takes it exclusively, so none can run while it is alive.
     pub fn metric_requests(&self) -> &[MetricRequest<'_>] {
-        // SAFETY: invariant (2) of `new`, which also gives the head the
-        // tracked-array shape the length read below depends on.
-        let head = unsafe {
-            *self
-                .as_ref()
-                .metricRequestsP
-                .cast::<*mut MetricRequest<'_>>()
-        };
+        let head_slot = self
+            .as_ref()
+            .metricRequestsP
+            .cast::<*mut MetricRequest<'_>>();
+        // SAFETY: invariant (2) of `new` guarantees `metricRequestsP` points to
+        // a live head slot, and gives the head itself the tracked-array shape
+        // the length read below depends on.
+        let head = unsafe { *head_slot };
         if head.is_null() {
             // The list is a tracked array, whose empty state is a null head
             // with no length header behind it to read.
@@ -357,56 +535,24 @@ impl QueryEvalContext {
     /// Build the [`AnyTimeoutContext`] a query iterator should use for this
     /// evaluation.
     ///
-    /// When a Blocked Client Timeout request is wired into the context
-    /// (`bcTimeoutAreq` non-null) the iterator polls that request's timeout
-    /// flag. Otherwise the Clock Based Timeout (or [`NoTimeoutChecker`], when timeout
-    /// checks are skipped or no deadline is set) is derived from `sctx.time`.
+    /// The active request-timeout kind reached through `sctx.timeout` selects
+    /// the Blocked Client Timeout, Clock Based Timeout, or [`NoTimeoutChecker`].
     ///
-    /// The returned [`AnyTimeoutContext`] is `'static`: when a Blocked Client
-    /// Timeout is wired in it holds the `AREQ` as a raw pointer, not a borrow, so
-    /// the type system no longer ties it to the request. That validity is now a
-    /// runtime precondition (see below), which is why this method is `unsafe`.
+    /// The returned [`AnyTimeoutContext`] is `'static`: timeout variants hold raw
+    /// pointers rather than borrows, so their validity is a runtime precondition.
     ///
     /// # Safety
     ///
-    /// The returned context, and any iterator built from it, must not be used
-    /// after the `AREQ` behind `bcTimeoutAreq` is freed — nor after `sctx` is
-    /// freed or moved, since the clock-based variant reads the deadline out of
-    /// it on every probe. No write to `sctx.time.timeout` may overlap a probe;
-    /// see [`TimeoutContextDeadline::new`](rqe_iterators::utils::TimeoutContextDeadline::new).
-    ///
-    /// A Blocked Client Timeout context holds that `AREQ` as a raw pointer with
-    /// no lifetime, so nothing enforces the precondition at compile time:
-    /// probing the context calls [`AREQ_CheckTimedOut`](ffi::AREQ_CheckTimedOut)
-    /// on the stored pointer. For a [`QueryEvalContext`] built through
-    /// [`new`](Self::new), invariant (2) already guarantees `bcTimeoutAreq`
-    /// outlives every timeout context and iterator derived from it, so the
-    /// caller discharges the precondition simply by not retaining the returned
-    /// context beyond the current query. See [`TimeoutContextBlockedClient::new`].
+    /// The returned context and any iterator built from it must not outlive
+    /// `sctx` or its borrowed request timeout. No write to a request-owned
+    /// deadline may overlap a probe; see
+    /// [`TimeoutContextDeadline::new`](rqe_iterators::utils::TimeoutContextDeadline::new).
     ///
     /// [`NoTimeoutChecker`]: rqe_iterators::utils::NoTimeoutChecker
     pub unsafe fn build_timeout_context(&self) -> AnyTimeoutContext {
-        match NonNull::new(self.as_ref().bcTimeoutAreq) {
-            Some(areq) => {
-                // SAFETY: invariant (2) of `new` guarantees a non-null
-                // `bcTimeoutAreq` points to a valid `AREQ` that outlives every
-                // iterator built from this context; this method's own safety
-                // contract requires the caller not to use the returned context
-                // past that window — together they satisfy the
-                // `TimeoutContextBlockedClient::new` contract.
-                let timeout = unsafe { TimeoutContextBlockedClient::new(areq) };
-                AnyTimeoutContext::BlockedClient(timeout)
-            }
-            // No Blocked Client Timeout source: derive the Clock Based Timeout
-            // (or `NoTimeoutChecker`) from `sctx.time`.
-            None => {
-                let sctx = NonNull::new(self.sctx_ptr().cast_mut()).expect("sctx must be non-null");
-                // SAFETY: invariant (2) of `new` guarantees `sctx` stays valid for the lifetime of
-                // every timeout context and iterator derived from this one, which is what
-                // `from_sctx` needs to read the deadline back on each probe. Writes to the
-                // deadline never overlap a probe (see `TimeoutContextDeadline::new`).
-                unsafe { AnyTimeoutContext::from_sctx(sctx, TIMEOUT_CHECK_GRANULARITY) }
-            }
-        }
+        let sctx = NonNull::new(self.sctx_ptr().cast_mut()).expect("sctx must be non-null");
+        // SAFETY: invariant (2) of `new` guarantees `sctx` and its borrowed timeout stay valid
+        // for every derived iterator. Writes to a deadline never overlap a probe.
+        unsafe { AnyTimeoutContext::from_sctx(sctx, TIMEOUT_CHECK_GRANULARITY) }
     }
 }

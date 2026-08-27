@@ -37,7 +37,6 @@
 #include "query_internal.h"
 #include "aggregate/aggregate.h"
 #include "suffix.h"
-#include "iterators/hybrid_reader.h"
 #include "search_disk.h"
 #include "shard_window_ratio.h"
 #include "idf_ffi.h"
@@ -156,15 +155,6 @@ void QueryNode_Free(QueryNode *n) {
   }
   rm_free(n);
 }
-
-// Add a new metric request to the metricRequests array. Returns the index of the request
-static int addMetricRequest(QueryEvalCtx *q, char *metric_name, bool isInternal) {
-  MetricRequest mr = {metric_name, NULL, isInternal};
-  array_ensure_append_1(*q->metricRequestsP, mr);
-  return array_len(*q->metricRequestsP) - 1;
-}
-
-
 
 QueryNode *NewQueryNode(QueryNodeType type) {
   QueryNode *s = rm_calloc(1, sizeof(QueryNode));
@@ -547,87 +537,20 @@ static const char *PrefixNode_GetTypeString(const QueryPrefixNode *pfx) {
   }
 }
 
-// Probe the Blocked Client Timeout flag for a query iterator. Called from
-// Rust via a direct `extern "C"` declaration when a NOT iterator is wired
-// to an AREQ; the sync point makes the check deterministically pauseable
-// in assert builds for race tests.
-bool AREQ_CheckTimedOut(AREQ *areq) {
-  RS_LOG_ASSERT(areq, "AREQ_CheckTimedOut called with NULL areq");
+// Keep the query-iterator sync point out of the source-neutral timeout API.
 #ifdef ENABLE_ASSERT
-  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_QI_TIMEOUT_CHECK, areq_timed_out, areq);
-#endif
-  return AREQ_TimedOut(areq);
+static bool queryIteratorTimedOut(void *arg) {
+  const QueryRequestTimeout *timeout = arg;
+  return QueryRequestTimeout_IsBlockedClientTimedOut(timeout);
 }
+#endif
 
-static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn,
-                                           const EvalConfig *evalConfig) {
-  RS_LOG_ASSERT(qn->type == QN_VECTOR, "query node type should be vector");
-
-  if (qn->opts.distField) {
-    if (qn->vn.vq->scoreField) {
-      // Since the KNN syntax allows specifying the distance field in two ways (...=>[KNN ... AS <dist_field>] and
-      // ...=>[KNN ...]=>{$YIELD_DISTANCE_AS:<dist_field>), we validate that we got it only once.
-      size_t len;
-      const char *fieldName = HiddenString_GetUnsafe(qn->vn.vq->field->fieldName, &len);
-      char default_score_field[len + 9];  // buffer for __<field>_score
-      sprintf(default_score_field, "__%s_score", fieldName);
-      // If the saved score field is NOT the default one, we return an error, otherwise, just override it.
-      if (strcasecmp(qn->vn.vq->scoreField, default_score_field) != 0) {
-        QueryError_SetWithUserDataFmt(q->status, QUERY_ERROR_CODE_DUP_FIELD,
-                               "Distance field was specified twice for vector query", ": %s and %s",
-                               qn->vn.vq->scoreField, qn->opts.distField);
-        return NULL;
-      }
-      rm_free(qn->vn.vq->scoreField);
-    }
-    qn->vn.vq->scoreField = qn->opts.distField; // move ownership
-    qn->opts.distField = NULL;
-  }
-
-  // Add the score field name to the ast score field names array.
-  // This function creates the array if it's the first name, and ensure its size is sufficient.
-  size_t idx;
-  if (qn->vn.vq->scoreField) {
-    idx = addMetricRequest(q, qn->vn.vq->scoreField, qn->opts.flags & QueryNode_HideVectorDistanceField);
-  }
-
-  QueryIterator *child_it = NULL;
-  if (QueryNode_NumChildren(qn) > 0) {
-    RS_ASSERT(QueryNode_NumChildren(qn) == 1);
-    child_it = Query_EvalNode_Rs(q, qn->children[0], evalConfig);
-    // If child iterator is in valid or empty, the hybrid iterator is empty as well.
-    if (child_it == NULL) {
-      return NULL;
-    }
-  }
-  QueryIterator *it = NewVectorIterator(q, qn->vn.vq, child_it);
-  // If iterator was created successfully, and we have a metric to yield, update the
-  // Only create MetricRequest entries for iterators that actually yield metrics
-  if (it && qn->vn.vq->scoreField &&
-      (it->type == HYBRID_ITERATOR || it->type == METRIC_SORTED_BY_ID_ITERATOR ||
-       it->type == METRIC_SORTED_BY_SCORE_ITERATOR || it->type == METRIC_LAZY_SORTED_BY_ID_ITERATOR ||
-       it->type == METRIC_LAZY_SORTED_BY_SCORE_ITERATOR)) {
-    MetricRequest *request = array_ensure_at(q->metricRequestsP, idx, MetricRequest);
-
-    // Create a handle that points to the iterator's ownKey field
-    // Both HYBRID_ITERATOR and METRIC_ITERATOR have the same ownKey and keyHandle layout
-    RLookupKeyHandle *handle = rm_malloc(sizeof(RLookupKeyHandle));
-    handle->is_valid = true;
-
-    if (it->type == HYBRID_ITERATOR) {
-      handle->key_ptr = HybridIterator_GetOwnKeyRef(it);
-      HybridIterator_SetKeyHandle(it, handle); // Set up back-reference
-    } else { // Must be METRIC_ITERATOR due to the condition above
-      handle->key_ptr = GetMetricOwnKeyRef(it);
-      SetMetricRLookupHandle(it, handle); // Set up back-reference
-    }
-
-    request->key_handle = handle;
-  }
-  if (it == NULL && child_it != NULL) {
-    child_it->Free(child_it);
-  }
-  return it;
+bool QueryIterator_IsBlockedClientTimedOut(const QueryRequestTimeout *timeout) {
+  RS_LOG_ASSERT(timeout, "QueryIterator_IsBlockedClientTimedOut called with NULL timeout");
+#ifdef ENABLE_ASSERT
+  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_QI_TIMEOUT_CHECK, queryIteratorTimedOut, (void *)timeout);
+#endif
+  return QueryRequestTimeout_IsBlockedClientTimedOut(timeout);
 }
 
 /**
@@ -676,6 +599,11 @@ void tag_strtolower(char **pstr, size_t *len, int caseSensitive) {
   *len = length;
 }
 
+static bool shouldCheckClockTimeout(const QueryEvalCtx *q) {
+  return q->sctx->timeout &&
+         q->sctx->timeout->kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
+}
+
 /* Evaluate a tag prefix by expanding it with a lookup on the tag index */
 static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn, double weight,
                                               int withSuffixTrie, t_fieldIndex fieldIndex,
@@ -707,8 +635,8 @@ static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
     TrieMapIterator *it = TagIndex_IterateValuesWithFilter(idx, tok->str, tok->len, iter_mode);
     // TrieMap_IterateWithFilter only returns NULL on allocation failure
     RS_ASSERT(it);
-    if (!q->sctx->time.skipTimeoutChecks) {
-      TrieMapIterator_SetTimeout(it, q->sctx->time.timeout);
+    if (shouldCheckClockTimeout(q)) {
+      TrieMapIterator_SetTimeout(it, *QueryRequestTimeout_GetClockDeadline(q->sctx->timeout));
     }
 
     // an upper limit on the number of expansions is enforced to avoid stuff like "*"
@@ -737,9 +665,11 @@ static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
     TrieMapIterator_Free(it);
   } else {  // TAG field has suffix triemap
-    arrayof(char **) arr =
-        TagIndex_GetSuffixMatches(idx, tok->str, tok->len, qn->pfx.prefix, q->sctx->time.timeout,
-                               q->sctx->time.skipTimeoutChecks);
+    bool skipClockChecks = !shouldCheckClockTimeout(q);
+    struct timespec timeout = skipClockChecks ? (struct timespec){0}
+                                              : *QueryRequestTimeout_GetClockDeadline(q->sctx->timeout);
+    arrayof(char **) arr = TagIndex_GetSuffixMatches(idx, tok->str, tok->len, qn->pfx.prefix,
+                                                     timeout, skipClockChecks);
     if (!arr) {
       rm_free(its);
       return NULL;
@@ -798,9 +728,12 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
   bool fallbackBruteForce = false;
   if (TagIndex_HasSuffix(idx)) {
     // with suffix
+    bool skipClockChecks = !shouldCheckClockTimeout(q);
+    struct timespec timeout = skipClockChecks ? (struct timespec){0}
+                                              : *QueryRequestTimeout_GetClockDeadline(q->sctx->timeout);
     arrayof(char *) arr = TagIndex_GetSuffixWildcardMatches(
-        idx, tok->str, tok->len, q->sctx->time.timeout, q->config->maxPrefixExpansions,
-        q->sctx->time.skipTimeoutChecks);
+        idx, tok->str, tok->len, timeout, q->config->maxPrefixExpansions,
+        skipClockChecks);
     if (!arr) {
       // No matching terms
       rm_free(its);
@@ -832,8 +765,8 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
     // brute force wildcard query
     TrieMapIterator *it =
         TagIndex_IterateValuesWithFilter(idx, tok->str, tok->len, TAG_WILDCARD_MODE);
-    if (!q->sctx->time.skipTimeoutChecks) {
-      TrieMapIterator_SetTimeout(it, q->sctx->time.timeout);
+    if (shouldCheckClockTimeout(q)) {
+      TrieMapIterator_SetTimeout(it, *QueryRequestTimeout_GetClockDeadline(q->sctx->timeout));
     }
 
     char *s;
@@ -961,12 +894,11 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n, const EvalConfig *e
     case QN_PREFIX:
     case QN_WILDCARD_QUERY:
     case QN_FUZZY:
+    case QN_VECTOR:
       // These node types have been ported to Rust.
       return Query_EvalNode_Rs(q, n, evalConfig);
     case QN_TAG:
       return Query_EvalTagNode(q, n);
-    case QN_VECTOR:
-      return Query_EvalVectorNode(q, n, evalConfig);
     case QN_MAX: // LCOV_EXCL_LINE — exhaustive switch: all valid QN types handled above
       RS_ABORT("Invalid query node type"); // LCOV_EXCL_LINE
   }
@@ -1454,13 +1386,8 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscat(s, "IDS {");
       if (spec) {
         for (size_t i = 0; i < qs->fn.len; i++) {
-          t_docId did = 0;
-          if (qs->fn.docIds) {
-            RS_ASSERT(SearchDisk_IsEnabled());
-            did = qs->fn.docIds[i];
-          } else {
-            did = DocTable_GetIdR(&spec->docs, qs->fn.keys[i]);
-          }
+          // docIds are pre-resolved at query construction (both modes).
+          t_docId did = qs->fn.docIds ? qs->fn.docIds[i] : 0;
           if (did != 0) {
             s = sdscatprintf(s, "%" PRIu64 ",", did);
           }

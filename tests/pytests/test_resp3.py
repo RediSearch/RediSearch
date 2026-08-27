@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 from math import nan
 import json
@@ -567,6 +574,7 @@ def test_info():
       'num_records': 3,
       'num_terms': ANY,
       'number_of_uses': ANY,
+      'number_of_admin_ops': ANY,
       'offset_bits_per_record_avg': ANY,
       'offset_vectors_sz_mb': ANY,
       'offsets_per_term_avg': ANY,
@@ -1377,10 +1385,12 @@ def test_ft_info():
          nodes = float(res['cluster_known_nodes'])
 
       # Initial size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain *))
-      #              = 72 + (1000 * 8) = 8072 bytes
-      initial_doc_table_size_mb = 8072 / (1024 * 1024)
-      # Size of an empty TrieMap
-      key_table_sz_mb = 24 / (1024 * 1024)
+      #              = 64 + (1000 * 8) = 8064 bytes
+      # (DocTable lost its 8-byte DocIdMap trie pointer when the key trie was removed.)
+      initial_doc_table_size_mb = 8064 / (1024 * 1024)
+      # The key->docId mapping now lives in Redis key-metadata (not module-tracked
+      # memory), so key_table_size_mb is always 0.
+      key_table_sz_mb = 0
       per_node_index_memory_sz_mb = initial_doc_table_size_mb + key_table_sz_mb
 
       res = order_dict(r.execute_command('ft.info', 'idx'))
@@ -1458,7 +1468,8 @@ def test_ft_info():
         'num_docs': 0.0,
         'num_records': 0.0,
         'num_terms': 0.0,
-        'number_of_uses': 1,
+        'number_of_uses': 0,
+        'number_of_admin_ops': 1,
         'offset_bits_per_record_avg': nan,
         'offset_vectors_sz_mb': 0.0,
         'offsets_per_term_avg': nan,
@@ -1542,7 +1553,8 @@ def test_ft_info():
         'num_docs': 0,
         'num_records': 0,
         'num_terms': 0,
-        'number_of_uses': 1,
+        'number_of_uses': 0,
+        'number_of_admin_ops': 1,
         'offset_bits_per_record_avg': nan,
         'offset_vectors_sz_mb': 0.0,
         'offsets_per_term_avg': nan,

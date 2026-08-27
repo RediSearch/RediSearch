@@ -146,6 +146,23 @@ struct RSValue *RLookupRow_Get(const RLookupKey *key, const struct RLookupRow *r
 struct RSSortingVectorSlice RLookupRow_GetSortingVector(const struct RLookupRow *row);
 
 /**
+ * Moves one dynamic key from the source row to the destination row without
+ * changing its reference count. A missing dynamic value is ignored.
+ *
+ * # Safety
+ *
+ * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ * 2. `src_row` must be a [valid], non-null pointer to an [`RLookupRow`] that is exclusively
+ *    accessible for the duration of this call.
+ * 3. `dst_row` must be a [valid], non-null pointer to an [`RLookupRow`] that is exclusively
+ *    accessible for the duration of this call.
+ * 4. `src_row` and `dst_row` must not be the same lookup row.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void RLookupRow_MoveDynamicKey(const RLookupKey *key, struct RLookupRow *src_row, struct RLookupRow *dst_row);
+
+/**
  * Move data from the source row to the destination row. The source row is cleared.
  *
  * # Safety
@@ -512,16 +529,19 @@ RLookupKey *RLookup_GetKey_WriteEx(struct RLookup *lookup, const char *name, siz
 /**
  * Returns the number of visible fields in this RLookupRow.
  *
+ * Keys named after the schema rule's special fields (score, lang, payload)
+ * carry `RLOOKUP_F_HIDDEN` from creation (see the spec cache's rule names),
+ * so excluding `RLOOKUP_F_HIDDEN` also excludes them.
+ *
  * # Safety
  *
  * 1. `lookup` must be a [valid], non-null pointer to a [`RLookup`]
  * 2. `row` must be a [valid], non-null pointer to a [`RLookupRow`]
  * 3. `skip_field_index` must be a [valid] non-null pointer for reads and writes of `skip_field_index_len` boolean values
- * 4. `rule` must be a [valid], non-null pointer to a [`SchemaRule`] or a null pointer
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-size_t RLookup_GetLength(const struct RLookup *lookup, const struct RLookupRow *row, bool *skip_field_index, size_t skip_field_index_len, uint32_t required_flags, uint32_t excluded_flags, const SchemaRule *rule);
+size_t RLookup_GetLength(const struct RLookup *lookup, const struct RLookupRow *row, bool *skip_field_index, size_t skip_field_index_len, uint32_t required_flags, uint32_t excluded_flags);
 
 /**
  * Returns the row len of the [`RLookup`], i.e. the number of keys in its key list not counting the overridden keys.
@@ -586,7 +606,7 @@ struct RLookupIteratorMut RLookup_IterMut(struct RLookup *lookup);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-int RLookup_LoadDocumentAll(struct RLookup *lookup, struct RLookupRow *dst_row, struct LoadAllKeysOptions *opts);
+int RLookup_LoadDocumentAll(struct RLookup *lookup, struct RLookupRow *dst_row, const struct LoadAllKeysOptions *opts);
 
 /**
  * Load values for all non-present and loadable keys in `rlookup` from the document `dmd` into `dst_row`
@@ -605,7 +625,7 @@ int RLookup_LoadDocumentAll(struct RLookup *lookup, struct RLookupRow *dst_row, 
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-int RLookup_LoadDocumentIndividual(struct RLookup *lookup, struct RLookupRow *dst_row, struct LoadIndividualKeysOptions *opts);
+int RLookup_LoadDocumentIndividual(struct RLookup *lookup, struct RLookupRow *dst_row, const struct LoadIndividualKeysOptions *opts);
 
 /**
  * Initialize the lookup with fields from a Redis hash.
@@ -630,7 +650,7 @@ int RLookup_LoadDocumentIndividual(struct RLookup *lookup, struct RLookupRow *ds
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx, struct RLookup *lookup, struct RLookupRow *dst_row, IndexSpec *index_spec, const char *key, struct RedisModuleKey *open_key, struct QueryError *status);
+int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx, struct RLookup *lookup, struct RLookupRow *dst_row, const IndexSpec *index_spec, const char *key, struct RedisModuleKey *open_key, struct QueryError *status);
 
 /**
  * Returns a newly created [`RLookup`].
@@ -641,11 +661,23 @@ struct RLookup RLookup_New(void);
  * Sets the [`ffi::IndexSpecCache`] of the lookup. If spcache is provided, then it will be used as an
  * alternate source for lookups whose fields are absent.
  *
+ * Takes ownership of one reference to the cache: the lookup releases it
+ * (via `IndexSpecCache_Decref`) when the cache is replaced or the lookup is
+ * cleaned up, so the caller must not release that reference themselves.
+ *
  * # Safety
  *
  * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
- * 2. `spcache` must be a [valid] pointer to a [`ffi::IndexSpecCache`]
- * 3. The [`ffi::IndexSpecCache`] being pointed MUST NOT get mutated
+ * 2. `spcache` must be a [valid] pointer to a [`ffi::IndexSpecCache`], and
+ *    the caller must transfer an owned reference to it (see above).
+ * 3. For as long as the lookup holds the cache, the [`ffi::IndexSpecCache`]
+ *    being pointed to, and everything reachable through it, MUST NOT get
+ *    mutated: its `fields` pointer MUST point to a valid array of `nfields`
+ *    `FieldSpec`s (or be null with `nfields == 0`), every pointer nested in
+ *    those entries (e.g. `fieldName`) MUST stay valid with string fields
+ *    NUL-terminated, and each special document-field name (`lang_field`,
+ *    `score_field`, `payload_field`) MUST be null or a valid, NUL-terminated
+ *    string.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */

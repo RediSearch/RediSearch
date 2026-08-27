@@ -248,7 +248,7 @@ where
             map.kv_string_buffer(c"Term", term_bytes);
         }
         ctx.print_optional_counters(map);
-        map.kv_long_long(c"Estimated number of matches", self.num_estimated() as i64);
+        ctx.print_estimated(map);
     }
 }
 
@@ -372,11 +372,6 @@ impl<'index> IndexReader<'index> for TermIndexReader<'index> {
     #[inline(always)]
     fn needs_revalidation(&self) -> bool {
         term_ir_dispatch!(self, needs_revalidation)
-    }
-
-    #[inline(always)]
-    fn refresh_buffer_pointers(&mut self) {
-        term_ir_dispatch!(self, refresh_buffer_pointers)
     }
 }
 

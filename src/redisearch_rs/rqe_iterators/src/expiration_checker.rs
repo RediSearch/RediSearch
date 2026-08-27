@@ -130,7 +130,7 @@ impl ExpirationChecker for FieldExpirationChecker {
         let spec = unsafe { &(*sctx.spec) };
 
         // The TTL table may transition from non-NULL to NULL mid-query when the
-        // last HFE doc is removed via `DocTable_Pop` (with the spec lock briefly
+        // last HFE doc is removed via `DocTable_DeleteById` (with the spec lock briefly
         // released around an iterator yield). The InvIndIterator caches its
         // `read_impl`/`skip_to_impl` function pointers at construction based on
         // `has_expiration()` and does not refresh them in `revalidate()`, so we
@@ -141,7 +141,7 @@ impl ExpirationChecker for FieldExpirationChecker {
             return false;
         }
 
-        let current_time = &sctx.time.current;
+        let current_time = &sctx.currentTime;
         let doc_id = result.doc_id;
 
         let ttl = spec.docs.ttl as *const ttl_table::TimeToLiveTable;

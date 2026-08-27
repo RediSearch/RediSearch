@@ -174,6 +174,18 @@ bool IndexReader_HasMulti(const struct IndexReader *ir);
 bool IndexReader_IsIndex(const struct IndexReader *ir, const struct InvertedIndex *ii);
 
 /**
+ * Report whether the index reader needs to be revalidated against its inverted index. This is
+ * only needed if the inverted index has been modified since the last time the reader was used.
+ * The function returns true if the reader needs revalidation, false otherwise.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+ */
+bool IndexReader_NeedsRevalidation(struct IndexReader *ir);
+
+/**
  * Advance the index reader to the next entry in the index. If there is a next entry, it will be
  * written to the output parameter `res` and the function will return true. If there are no more
  * entries, the function will return false.
@@ -216,18 +228,6 @@ const struct NumericFilter *IndexReader_NumericFilter(const struct IndexReader *
  * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
  */
 void IndexReader_Reset(struct IndexReader *ir);
-
-/**
- * Revalidate the index reader against its inverted index. This is only needed if the inverted index
- * has been modified since the last time the reader was used. The function returns true if the
- * reader needs revalidation, false otherwise.
- *
- * # Safety
- *
- * The following invariant must be upheld when calling this function:
- * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
- */
-bool IndexReader_Revalidate(struct IndexReader *ir);
 
 /**
  * Seek the index reader to the entry with the given document ID. If such an entry exists, it will be

@@ -1,4 +1,9 @@
-# -*- coding: utf-8 -*-
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
 
 import unittest
 from includes import *
@@ -127,8 +132,10 @@ def testSet(env):
     env.expect('ft.search', 'things', 'foo').equal([0])
     conn.execute_command('hset', 'thing:bar', 'name', 'foo')
     env.expect('ft.search', 'things', 'foo').equal([1, 'thing:bar', ['name', 'foo']])
+    env.assertEqual(index_info(env, 'things')['num_docs'], 1)
     env.expect('set', 'thing:bar', "bye bye")
     env.expect('ft.search', 'things', 'foo').equal([0])
+    env.assertEqual(index_info(env, 'things')['num_docs'], 0)
 
 @skip(cluster=True)
 def testRename(env):

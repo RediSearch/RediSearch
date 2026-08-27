@@ -147,7 +147,7 @@ int RediSearch_Init(RedisModuleCtx *ctx) {
   // and may allocate VecSim internal structures (shared SVS thread pool).
   VecSimMemoryFunctions vecsimMemoryFunctions = {.allocFunction = rm_malloc, .callocFunction = rm_calloc, .reallocFunction = rm_realloc, .freeFunction = rm_free};
   VecSim_SetMemoryFunctions(vecsimMemoryFunctions);
-  VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)TimedOut_WithCtx);
+  VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)VecSim_TimedOut);
   VecSim_SetLogCallbackFunction(VecSimLogCallback);
 
   // Init threadpool.

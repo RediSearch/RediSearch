@@ -54,6 +54,18 @@ fn new_in_memory_means_memory_mode() {
     let _: TagIndex<InMemoryMode> = TagIndex::<InMemoryMode>::new(false);
 }
 
+/// A newly created index holds no tags: lookups miss.
+#[test]
+fn new_index_holds_no_tags() {
+    let tag_index = TagIndex::<InMemoryMode>::new(false);
+
+    assert!(tag_index.find_value(b"missing").is_none());
+    assert!(
+        tag_index.value_iter().advance().is_none(),
+        "a new index yields no tags"
+    );
+}
+
 #[test]
 fn new_on_disk_means_disk_mode() {
     // Type checked

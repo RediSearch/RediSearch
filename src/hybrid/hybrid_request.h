@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 #pragma once
 
 #include "aggregate/aggregate.h"
@@ -67,10 +76,6 @@ static inline HybridRequest *QueryRequest_GetHybrid(QueryRequest *request) {
   return (HybridRequest *)request;
 }
 
-// Timeout helper functions for HybridRequest (mirrors AREQ pattern)
-static inline bool HybridRequest_TimedOut(HybridRequest *req) {
-  return QueryRequestTimeout_GetTimedOut(&req->base.timeout);
-}
 // The pipeline stage the hybrid request had reached, used to attribute a timeout.
 static inline QueryTimeoutStage HybridRequest_ExecutionStage(HybridRequest *req) {
   return (QueryTimeoutStage)QueryRequest_GetExecutionPhase(&req->base);
@@ -79,28 +84,9 @@ static inline QueryTimeoutStage HybridRequest_ExecutionStage(HybridRequest *req)
 static inline void HybridRequest_SetExecutionStage(HybridRequest *req, QueryTimeoutStage stage) {
   QueryRequest_SetExecutionPhase(&req->base, (int)stage);
 }
-// Sets the hybrid request's timedOut flag and propagates it to every subquery
-// AREQ. Propagation flips each subquery's RPNet abort flag so a BG worker
-// blocked in MRChannel_PopWithTimeout exits as soon as the channel is woken.
-void HybridRequest_SetTimedOut(HybridRequest *req);
-
-static inline bool HybridRequest_ShouldCheckTimeout(HybridRequest *req) {
-  return QueryRequestTimeout_ShouldCheck(&req->base.timeout);
-}
-
-static inline void HybridRequest_SetSkipTimeoutChecks(HybridRequest *req, bool skipTimeoutChecks) {
-  QueryRequestTimeout_SetSkipChecks(&req->base.timeout, skipTimeoutChecks);
-  // TODO($$$): Remove the SearchTime mirror once consumers use QueryRequest.timeout.
-  if (req->sctx) {
-    req->sctx->time.skipTimeoutChecks = skipTimeoutChecks;
-  }
-  // Propagate to all AREQ subqueries
-  for (size_t i = 0; i < req->nrequests; i++) {
-    if (req->requests[i]) {
-      AREQ_SetSkipTimeoutChecks(req->requests[i], skipTimeoutChecks);
-    }
-  }
-}
+// Propagates a hybrid timeout to every subquery AREQ so blocked RPNet waits
+// observe the abort after their channels are woken.
+void HybridRequest_PropagateTimeoutToSubqueries(HybridRequest *req);
 
 static inline bool HybridRequest_RequiresThreadsSyncResults(HybridRequest *req) {
   return req->base.async.requiresAggregateResultsSync;
@@ -114,11 +100,8 @@ void HybridRequest_WaitForAggregateResultsComplete(HybridRequest *req);
 
 // Blocked client context for HybridRequest background execution
 typedef struct blockedClientHybridCtx {
-  // The BG job's hold on the container, released in destroy (before
-  // UnblockClient; the cycle's wrapper reference carries the container to
-  // OnFree). TRANSITIONAL(MOD-16691): becomes a borrow once the wrapper is
-  // single-owner.
-  StrongRef hybrid_ref;
+  // Borrowed; the cycle owns the request (see QueryRequest).
+  HybridRequest *hreq;
   HybridPipelineParams *hybridParams;
   RedisModuleBlockedClient *blockedClient;
   WeakRef spec_ref;
@@ -151,6 +134,9 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
  * @param argc Number of strings in argv
  */
 void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests, size_t nrequests, RedisModuleString **argv, uint32_t argc);
+
+/** Starts the selected timeout source for the container and every subquery. */
+void HybridRequest_BeginTimeoutCycle(HybridRequest *req, QueryRequestTimeoutKind kind);
 
 /* Wrap the request's held argv (taken at construction) in a parse cursor.
  * The caller's argc bounds the parse; the holds may cover a superset (the
@@ -239,25 +225,10 @@ void HybridPipelineParams_Cleanup(HybridPipelineParams *params);
 int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params, bool depleteInBackground, QueryError *status);
 
 /**
- * Free a HybridRequest and all its associated resources directly.
- * Called by the final QueryRequest release. Do not call directly; use
- * HybridRequest_DecrRef instead.
+ * Free a HybridRequest and all its associated resources.
+ * Owner-only: see the ownership contract on QueryRequest.
  */
 void HybridRequest_Free(HybridRequest *req);
-
-/**
- * Increment the embedded QueryRequest reference count.
- * @param req the request to increment
- * @return the request (for chaining)
- */
-HybridRequest *HybridRequest_IncrRef(HybridRequest *req);
-
-/**
- * Decrement the embedded QueryRequest reference count. The final release
- * destroys the HybridRequest.
- * @param req the request to decrement
- */
-void HybridRequest_DecrRef(HybridRequest *req);
 
 int HybridRequest_GetError(HybridRequest *req, QueryError *status);
 

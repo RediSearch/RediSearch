@@ -553,6 +553,127 @@ impl RevalidateTest {
         }
     }
 
+    /// A write that moves a block's buffer must cost the iterator nothing.
+    ///
+    /// A suspended iterator whose block buffer moved holds a pointer into freed memory, while the
+    /// GC marker still says the index is untouched. Reading on decodes recycled bytes — a short
+    /// read that silently drops documents, or a decode error — so the complete document set is
+    /// asserted rather than merely the absence of a crash.
+    pub fn revalidate_after_block_buffer_moved<'index, I, E, F>(
+        &self,
+        it: &mut I,
+        ii: &mut InvertedIndex<E>,
+        make_record: F,
+    ) where
+        I: for<'iterator> RQEIterator<'index>,
+        E: Encoder + DecodedBy,
+        F: Fn(DocId) -> RSIndexResult<'static>,
+    {
+        self.block_buffer_moved(it, ii, make_record, false);
+    }
+
+    /// [`revalidate_after_block_buffer_moved`](Self::revalidate_after_block_buffer_moved) with a GC
+    /// cycle interleaved: both invalidate the iterator, and a repair that handles only one of them
+    /// fails here.
+    pub fn revalidate_after_block_buffer_moved_and_gc<'index, I, E, F>(
+        &self,
+        it: &mut I,
+        ii: &mut InvertedIndex<E>,
+        make_record: F,
+    ) where
+        I: for<'iterator> RQEIterator<'index>,
+        E: Encoder + DecodedBy,
+        F: Fn(DocId) -> RSIndexResult<'static>,
+    {
+        self.block_buffer_moved(it, ii, make_record, true);
+    }
+
+    fn block_buffer_moved<'index, I, E, F>(
+        &self,
+        it: &mut I,
+        ii: &mut InvertedIndex<E>,
+        make_record: F,
+        interleave_gc: bool,
+    ) where
+        I: for<'iterator> RQEIterator<'index>,
+        E: Encoder + DecodedBy,
+        F: Fn(DocId) -> RSIndexResult<'static>,
+    {
+        // Appends land in the last block, so the iterator has to be parked in that same block for
+        // this to exercise anything; the assertion catches a codec whose block size changes.
+        assert_eq!(
+            ii.number_of_blocks(),
+            1,
+            "the fixture must fit in a single block"
+        );
+
+        // Park the iterator mid-block.
+        for expected in &self.doc_ids[..2] {
+            let doc = it
+                .read()
+                .expect("failed to read")
+                .expect("should not be at EOF");
+            assert_eq!(doc.doc_id, *expected);
+        }
+
+        // The address the iterator cached. Callers reserve headroom before creating it, so nothing
+        // moves the buffer until the relocation below does.
+        let base_before = ii.block_ref(0).unwrap().data().as_ptr();
+        let appended: Vec<DocId> = (1..=3)
+            .map(|i| self.doc_ids.last().unwrap() + 2 * i)
+            .collect();
+        for doc_id in &appended {
+            ii.add_record(&make_record(*doc_id)).expect("append failed");
+        }
+        assert_eq!(
+            ii.number_of_blocks(),
+            1,
+            "the appends must stay in the block the iterator is parked in"
+        );
+
+        assert_eq!(
+            ii.block_ref(0).unwrap().data().as_ptr(),
+            base_before,
+            "the appends moved the buffer; reserve headroom before creating the iterator"
+        );
+
+        let base_after = inverted_index::test_utils::relocate_block_buffer(ii, 0);
+        assert_ne!(base_before, base_after, "the buffer did not move");
+        let gc_marker_before = ii.gc_marker();
+
+        // Removing a document the iterator already passed leaves the expected set below
+        // untouched, and bumps the GC marker on top of the moved buffer.
+        if interleave_gc {
+            self.remove_document(ii, self.doc_ids[0]);
+            assert_ne!(ii.gc_marker(), gc_marker_before, "GC did not run");
+        } else {
+            assert_eq!(
+                ii.gc_marker(),
+                gc_marker_before,
+                "a plain append must not touch the GC marker — that is what makes it undetected"
+            );
+        }
+
+        let status = it
+            .revalidate(&*self.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(
+            status,
+            RQEValidateStatus::Ok,
+            "the iterator's position still exists, so revalidation must preserve it"
+        );
+
+        // Everything the iterator had not yielded yet, still in order and without repeats.
+        let mut expected = self.doc_ids[2..].to_vec();
+        expected.extend_from_slice(&appended);
+
+        let mut read = Vec::new();
+        while let Some(doc) = it.read().expect("failed to read") {
+            read.push(doc.doc_id);
+        }
+        assert_eq!(read, expected);
+    }
+
     /// Remove the document with the given id from the inverted index.
     pub fn remove_document<E: Encoder + DecodedBy>(
         &self,

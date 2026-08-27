@@ -17,6 +17,7 @@ build_utils.workspace = true
 c_trie.workspace = true
 ffi.workspace = true
 field.workspace = true
+hidden_string.workspace = true
 index_result.workspace = true
 inverted_index.workspace = true
 query.workspace = true
@@ -34,8 +35,10 @@ workspace_hack.workspace = true
 
 [dev-dependencies]
 geo.workspace = true
+inverted_index_ffi = { path = "../c_entrypoint/inverted_index_ffi" }
 proptest = { workspace = true, features = ["std"] }
 query = { workspace = true, features = ["unittest"] }
+query_flags.workspace = true
 query_eval = { path = ".", features = ["unittest"] }
 redis_mock.workspace = true
 redisearch_rs = { workspace = true, features = ["mock_allocator"] }

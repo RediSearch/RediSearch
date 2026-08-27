@@ -12,6 +12,7 @@
 #include "iterators/iterator_api.h"
 #include "tag_index.h"
 #include "query.h"
+#include "VecSim/vec_sim.h"
 #include "field.h"
 #include "query_types.h"
 #include "rqe_core.h"
@@ -19,10 +20,6 @@
 // In C, timespec is a struct tag, not a typedef. Rust's libc::timespec maps to
 // the bare name, so we introduce a typedef to make it valid C.
 typedef struct timespec timespec;
-// `AREQ` is forward-declared as a struct tag in `query.h` (above) but its
-// typedef lives in `aggregate/aggregate.h`. cheadergen emits `*mut ffi::AREQ`
-// as the bare `AREQ *`, so we surface the typedef here for the C compiler.
-typedef struct AREQ AREQ;
 
 
 /**
@@ -184,17 +181,6 @@ void AddIntersectionIteratorChild(QueryIterator *header, QueryIterator *child);
 void GeoFilter_FreeNumericFilters(NumericFilter * *filters);
 
 /**
- * Get a pointer to the [`RLookupKey`] slot inside this metric iterator.
- *
- * # Safety
- *
- * 1. `header` is a valid non-null pointer to a [`QueryIterator`].
- * 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
- * 3. The caller has exclusive access to that iterator for the duration of the call.
- */
-RLookupKey * *GetMetricOwnKeyRef(QueryIterator *header);
-
-/**
  * `PrintProfile` vtable entry for Hybrid (vector search) iterators.
  *
  * # Safety
@@ -273,7 +259,7 @@ QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, GeoFilter *gf, con
  * 1. `sctx` must be a non-null pointer to a valid [`RedisSearchCtx`] whose
  *    `spec` is a valid [`IndexSpec`](ffi::IndexSpec); both must outlive the
  *    returned iterator, and `sctx` must stay at a stable address for that
- *    whole window: the iterator reads `sctx.time.timeout` back on every
+ *    whole window: the iterator reads the request-owned deadline back on every
  *    timeout probe. No write to that deadline may overlap a probe.
  * 2. `filter_ctx` must be a non-null pointer to a valid [`FieldFilterContext`].
  * 3. `ids` must be null, or point to `num` initialized [`DocId`]s allocated via
@@ -486,15 +472,9 @@ QueryIterator *NewMetricIteratorSortedByScore(t_docId *ids, double *metric_list,
  * If the child is trivially reducible (empty or wildcard), a simplified
  * iterator is returned directly.
  *
- * `bc_timeout_areq` selects the timeout source. When non-null, the Blocked
- * Client Timeout path is used: every iterator timeout probe forwards to
- * `AREQ_CheckTimedOut` and `q.sctx.time` is ignored.
- * When null, the Clock Based Timeout path is used, driven entirely by `q.sctx.time`:
- * `timeout` is the deadline, read back on every probe so that a re-armed deadline is
- * honoured, and `skipTimeoutChecks` disables the check entirely. There is deliberately no
- * deadline parameter — a caller wanting a different deadline sets `q.sctx.time.timeout`,
- * which is the only value the iterator will ever consult. The C caller is expected to
- * pre-filter the owning request via `AREQ_TimeoutAreqOrNull` before passing it here.
+ * The request timeout reached through `q.sctx.timeout` selects no timeout,
+ * the Blocked Client Timeout, or the Clock Based Timeout. Clock deadlines are
+ * read back on every probe so a re-armed deadline is honoured.
  *
  * # Safety
  *
@@ -505,7 +485,7 @@ QueryIterator *NewMetricIteratorSortedByScore(t_docId *ids, double *metric_list,
  * 4. `q.sctx` must be a non-null pointer to a valid
  *    [`RedisSearchCtx`](ffi::RedisSearchCtx), which must stay valid and at a stable
  *    address for the lifetime of the returned iterator: on the Clock Based Timeout path
- *    the iterator reads `q.sctx.time.timeout` back on every probe. No write to that
+ *    the iterator reads the request-owned deadline back on every probe. No write to that
  *    deadline may overlap a probe.
  * 5. `q.sctx.spec` must be a non-null pointer to a valid
  *    [`IndexSpec`](ffi::IndexSpec).
@@ -513,11 +493,8 @@ QueryIterator *NewMetricIteratorSortedByScore(t_docId *ids, double *metric_list,
  *    [`SchemaRule`](ffi::SchemaRule).
  * 7. When the optimized path is taken, the preconditions of
  *    [`crate::wildcard::NewWildcardIterator`] must hold.
- * 8. When `bc_timeout_areq` is non-null, it must satisfy the
- *    [`TimeoutContextBlockedClient::new`] safety contract and remain
- *    valid for the lifetime of the returned iterator.
  */
-QueryIterator *NewNotIterator(QueryIterator *child, t_docId max_doc_id, double weight, AREQ *bc_timeout_areq, QueryEvalCtx *q);
+QueryIterator *NewNotIterator(QueryIterator *child, t_docId max_doc_id, double weight, QueryEvalCtx *q);
 
 /**
  * Opens the numeric/geo index and creates an iterator over all matching sub-ranges.
@@ -604,6 +581,42 @@ QueryIterator *NewUnionIterator(QueryIterator * *its, int32_t num, bool quick_ex
  *    so the caller must ensure that the pointer was allocated in a compatible manner.
  */
 QueryIterator *NewUnsortedIdListIterator(t_docId *ids, uint64_t num, double weight);
+
+/**
+ * Construct a vector top-k iterator and expose it as a C [`QueryIterator`].
+ *
+ * This call can reduce to an `Empty` iterator, whose `type_` is
+ * [`IteratorType::Empty`] rather than [`IteratorType::Hybrid`]. The `VectorTopK_*`
+ * accessors below must not be called on such a handle.
+ *
+ * Pass `child = NULL` for a pure KNN query; pass a valid owning child iterator
+ * for a hybrid (filtered) query.
+ *
+ * The `query_params` pointer is read once to copy the parameters into the
+ * iterator; it is not retained after this call.
+ *
+ * `can_trim_deep_results` applies only to filtered queries: when `true`, the
+ * pipeline needs no rich results, so each match yields a metric-only result
+ * carrying just the vector score instead of a deep copy of the child's scoring
+ * subtree. It has no effect on a pure KNN query, which is metric-only anyway.
+ *
+ * # Safety
+ *
+ * 1. `index` is non-null and [valid], and outlives the returned iterator.
+ * 2. `query_vector` is [valid] for `vector_byte_len` bytes, and
+ *    `vector_byte_len` equals the index's expected query-vector size.
+ * 3. `query_params` is non-null and [valid] for a [`VecSimQueryParams`].
+ * 4. `child`, when non-null, is a [valid], owning `QueryIterator *` with every
+ *    callback populated.
+ * 5. `filter_ctx` is non-null and [valid] for a [`FieldFilterContext`] for the
+ *    duration of this call.
+ * 6. `sctx` is non-null and [valid] for a [`RedisSearchCtx`] with a [valid]
+ *    `spec`, both outliving the returned iterator.
+ * 7. `timeout` is non-null and remains valid for the returned iterator's lifetime.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+QueryIterator *NewVectorTopKIterator(VecSimIndex *index, const void *query_vector, size_t vector_byte_len, const VecSimQueryParams *query_params, size_t k, bool can_trim_deep_results, QueryIterator *child, QueryRequestTimeout *timeout, RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx);
 
 /**
  * Creates a new wildcard iterator from a query evaluation context.
@@ -717,21 +730,6 @@ bool RQEIterators_GetMockRevalidateTimeout(void);
 void RQEIterators_SetMockRevalidateTimeout(bool enabled);
 
 /**
- * Sets the [`RLookupKeyHandle`] for this metric iterator.
- *
- * # Safety
- *
- * 1. `header` is a valid non-null pointer to a [`QueryIterator`].
- * 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
- * 3. The caller has exclusive access to that iterator for the duration of the call.
- * 4. `key_handle` is either a null pointer, or a valid non-null pointer to a [`RLookupKeyHandle`]
- *    that stays live until the iterator is freed — not merely for this call. The iterator clears
- *    the handle's validity flag when it is dropped, so releasing the handle while the iterator is
- *    still alive is a use-after-free at that later point.
- */
-void SetMetricRLookupHandle(QueryIterator *header, struct RLookupKeyHandle *key_handle);
-
-/**
  * Trims a union iterator for the LIMIT optimizer, then switches to unsorted
  * sequential read mode.
  *
@@ -741,6 +739,32 @@ void SetMetricRLookupHandle(QueryIterator *header, struct RLookupKeyHandle *key_
  *    created via [`NewUnionIterator`].
  */
 void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
+
+/**
+ * Return a mutable reference to the `RLookupKey *` stored inside this iterator.
+ *
+ * The key is initially `NULL`; the metrics-loader result processor writes
+ * through this pointer to set the iterator's score-output key.
+ *
+ * # Safety
+ *
+ * 1. `it` is a non-null, unaliased handle from [`NewVectorTopKIterator`] that did
+ *    not reduce to `Empty`, whose `index` and `sctx` are still alive.
+ */
+RLookupKey * *VectorTopK_GetOwnKeyRef(QueryIterator *it);
+
+/**
+ * Set the [`RLookupKeyHandle`] back-reference on this iterator.
+ *
+ * The handle is used to invalidate the key pointer when the iterator is freed.
+ *
+ * # Safety
+ *
+ * 1. `it` is a non-null, unaliased handle from [`NewVectorTopKIterator`] that did
+ *    not reduce to `Empty`, whose `index` and `sctx` are still alive.
+ * 2. `handle` is either null or a valid pointer to a [`RLookupKeyHandle`].
+ */
+void VectorTopK_SetKeyHandle(QueryIterator *it, RLookupKeyHandle *handle);
 
 /**
  *

@@ -226,6 +226,9 @@ typedef struct SyncPointState {
   char name[SYNC_POINT_NAME_MAX_LEN];   // Name of the sync point
   atomic_bool armed;                    // Whether this sync point is armed (will block)
   _Atomic uint32_t waiting;             // Number of threads currently waiting at this point
+  _Atomic uint32_t hit_count;           // Number of times this point was reached while armed
+  _Atomic uint64_t last_hit_seq;         // Monotonic event id for the last armed hit
+  _Atomic uint64_t last_release_seq;     // Monotonic event id for the last waiter release
   _Atomic long long auto_release_ms;    // >0: a parked SyncPoint_Wait self-releases after
                                         // this many ms even without a SIGNAL; 0: wait for SIGNAL.
 } SyncPointState;
@@ -234,9 +237,21 @@ typedef struct SyncPointState {
 typedef struct SyncPointCtx {
   SyncPointState points[SYNC_POINT_MAX_ARMED];   // Array of sync points
   _Atomic uint32_t count;                        // Number of armed sync points
+  _Atomic uint64_t next_event_seq;               // Monotonic sync-point event sequence
 } SyncPointCtx;
 
 static SyncPointCtx globalSyncPointCtx = {0};
+
+static uint64_t SyncPoint_NextEventSeq(void) {
+  return atomic_fetch_add(&globalSyncPointCtx.next_event_seq, 1) + 1;
+}
+
+void SyncPoint_PublishMaxSeq(_Atomic uint64_t *target, uint64_t seq) {
+  uint64_t cur = atomic_load(target);
+  do {
+    if (cur >= seq) return;
+  } while (!atomic_compare_exchange_weak(target, &cur, seq));
+}
 
 // Internal helper: find sync point by name
 static SyncPointState* SyncPoint_FindByName(const char *name) {
@@ -259,6 +274,9 @@ static bool SyncPoint_ArmInternal(const char *name, long long auto_release_ms) {
     // Publish the timeout before re-arming so a Wait that observes `armed`
     // reads the intended auto-release window (seq_cst stores order the two).
     atomic_store(&existing->auto_release_ms, auto_release_ms);
+    atomic_store(&existing->hit_count, 0);
+    atomic_store(&existing->last_hit_seq, 0);
+    atomic_store(&existing->last_release_seq, 0);
     atomic_store(&existing->armed, true);
     return true;
   }
@@ -275,6 +293,9 @@ static bool SyncPoint_ArmInternal(const char *name, long long auto_release_ms) {
   strncpy(sp->name, name, SYNC_POINT_NAME_MAX_LEN - 1);
   sp->name[SYNC_POINT_NAME_MAX_LEN - 1] = '\0';
   atomic_store(&sp->auto_release_ms, auto_release_ms);
+  atomic_store(&sp->hit_count, 0);
+  atomic_store(&sp->last_hit_seq, 0);
+  atomic_store(&sp->last_release_seq, 0);
   atomic_store(&sp->armed, true);
   // Note: We intentionally do NOT reset sp->waiting here.
   // The slot is either newly allocated (waiting is 0 from static init) or
@@ -301,12 +322,27 @@ void SyncPoint_Signal(const char *name) {
 }
 
 bool SyncPoint_IsWaiting(const char *name) {
-  SyncPointState *sp = SyncPoint_FindByName(name);
+  const SyncPointState *sp = SyncPoint_FindByName(name);
   return sp ? (atomic_load(&sp->waiting) > 0) : false;
 }
 
+uint32_t SyncPoint_HitCount(const char *name) {
+  const SyncPointState *sp = SyncPoint_FindByName(name);
+  return sp ? atomic_load(&sp->hit_count) : 0;
+}
+
+uint64_t SyncPoint_LastHitSeq(const char *name) {
+  const SyncPointState *sp = SyncPoint_FindByName(name);
+  return sp ? atomic_load(&sp->last_hit_seq) : 0;
+}
+
+uint64_t SyncPoint_LastReleaseSeq(const char *name) {
+  const SyncPointState *sp = SyncPoint_FindByName(name);
+  return sp ? atomic_load(&sp->last_release_seq) : 0;
+}
+
 bool SyncPoint_IsArmed(const char *name) {
-  SyncPointState *sp = SyncPoint_FindByName(name);
+  const SyncPointState *sp = SyncPoint_FindByName(name);
   return sp ? atomic_load(&sp->armed) : false;
 }
 
@@ -343,6 +379,8 @@ void SyncPoint_Wait(const char *name) {
   // in-flight compaction) — a SIGNAL could never be processed by the frozen
   // main thread, so the timeout is the only way out.
   long long auto_release_ms = atomic_load(&sp->auto_release_ms);
+  SyncPoint_PublishMaxSeq(&sp->last_hit_seq, SyncPoint_NextEventSeq());
+  atomic_fetch_add(&sp->hit_count, 1);
   atomic_fetch_add(&sp->waiting, 1);  // Increment waiting counter
   long long waited_ms = 0;
   while (atomic_load(&sp->armed)) {
@@ -350,6 +388,7 @@ void SyncPoint_Wait(const char *name) {
     usleep(1000);  // Spin-wait with 1ms sleep (matches existing pattern)
     waited_ms++;
   }
+  SyncPoint_PublishMaxSeq(&sp->last_release_seq, SyncPoint_NextEventSeq());
   atomic_fetch_sub(&sp->waiting, 1);  // Decrement waiting counter
 }
 
@@ -357,11 +396,14 @@ void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg) {
   SyncPointState *sp = SyncPoint_FindByName(name);
   if (!sp || !atomic_load(&sp->armed)) return;
 
+  SyncPoint_PublishMaxSeq(&sp->last_hit_seq, SyncPoint_NextEventSeq());
+  atomic_fetch_add(&sp->hit_count, 1);
   atomic_fetch_add(&sp->waiting, 1);
   while (atomic_load(&sp->armed)) {
     if (stop_fn && stop_fn(arg)) break;
     usleep(1000);
   }
+  SyncPoint_PublishMaxSeq(&sp->last_release_seq, SyncPoint_NextEventSeq());
   atomic_fetch_sub(&sp->waiting, 1);
 }
 
@@ -928,15 +970,8 @@ end:
 }
 
 static t_docId getDocIdFromKey(RedisModuleCtx *ctx, const IndexSpec *spec, RedisModuleString *key) {
-  if (!SearchDisk_IsEnabled()) {
-    return DocTable_GetIdR(&spec->docs, key);
-  } else {
-    uint64_t metaDocId;
-    if (DocIdMeta_Get(ctx, key, spec->specId, &metaDocId) == REDISMODULE_OK) {
-      return metaDocId;
-    }
-    return 0;
-  }
+  // key -> docId now lives in the DocIdMeta key metadata in both modes.
+  return IndexSpec_GetDocIdByKeyR(spec, ctx, key);
 }
 
 DEBUG_COMMAND(IdToDocId) {
@@ -1736,7 +1771,7 @@ DEBUG_COMMAND(DocInfo) {
       }
     }
   } else {
-    dmd = DocTable_BorrowByKeyR(&sctx->spec->docs, argv[3]);
+    dmd = IndexSpec_BorrowDocByKeyR(sctx->spec, ctx, argv[3]);
   }
   if (!dmd) {
     SearchCtx_Free(sctx);
@@ -3254,6 +3289,9 @@ DEBUG_COMMAND(printRPStream) {
 #define SYNC_POINT_SUBCMD_ARM        "ARM"
 #define SYNC_POINT_SUBCMD_SIGNAL     "SIGNAL"
 #define SYNC_POINT_SUBCMD_IS_WAITING "IS_WAITING"
+#define SYNC_POINT_SUBCMD_HIT_COUNT  "HIT_COUNT"
+#define SYNC_POINT_SUBCMD_LAST_HIT_SEQ     "LAST_HIT_SEQ"
+#define SYNC_POINT_SUBCMD_LAST_RELEASE_SEQ "LAST_RELEASE_SEQ"
 #define SYNC_POINT_SUBCMD_IS_ARMED   "IS_ARMED"
 #define SYNC_POINT_SUBCMD_CLEAR      "CLEAR"
 
@@ -3266,6 +3304,9 @@ DEBUG_COMMAND(printRPStream) {
  *                                   after that many ms even without a SIGNAL.
  *   SIGNAL <name>     - Resume execution at a sync point
  *   IS_WAITING <name> - Check if a query is paused at a sync point
+ *   HIT_COUNT <name>  - Count how many times a sync point was reached since ARM
+ *   LAST_HIT_SEQ <name>     - Last event id recorded before a sync point parked
+ *   LAST_RELEASE_SEQ <name> - Last event id recorded before a parked thread resumed
  *   IS_ARMED <name>   - Check if a sync point is armed
  *   CLEAR             - Reset all sync points
  */
@@ -3308,6 +3349,21 @@ DEBUG_COMMAND(syncPoint) {
     const char *name = RedisModule_StringPtrLen(argv[3], NULL);
     return RedisModule_ReplyWithBool(ctx, SyncPoint_IsWaiting(name));
   }
+  if (!strcmp(SYNC_POINT_SUBCMD_HIT_COUNT, subOp)) {
+    if (argc != 4) return RedisModule_WrongArity(ctx);
+    const char *name = RedisModule_StringPtrLen(argv[3], NULL);
+    return RedisModule_ReplyWithLongLong(ctx, SyncPoint_HitCount(name));
+  }
+  if (!strcmp(SYNC_POINT_SUBCMD_LAST_HIT_SEQ, subOp)) {
+    if (argc != 4) return RedisModule_WrongArity(ctx);
+    const char *name = RedisModule_StringPtrLen(argv[3], NULL);
+    return RedisModule_ReplyWithLongLong(ctx, (long long)SyncPoint_LastHitSeq(name));
+  }
+  if (!strcmp(SYNC_POINT_SUBCMD_LAST_RELEASE_SEQ, subOp)) {
+    if (argc != 4) return RedisModule_WrongArity(ctx);
+    const char *name = RedisModule_StringPtrLen(argv[3], NULL);
+    return RedisModule_ReplyWithLongLong(ctx, (long long)SyncPoint_LastReleaseSeq(name));
+  }
   if (!strcmp(SYNC_POINT_SUBCMD_IS_ARMED, subOp)) {
     if (argc != 4) return RedisModule_WrongArity(ctx);
     const char *name = RedisModule_StringPtrLen(argv[3], NULL);
@@ -3317,7 +3373,10 @@ DEBUG_COMMAND(syncPoint) {
     SyncPoint_ClearAll();
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
-  return RedisModule_ReplyWithError(ctx, "Unknown SYNC_POINT subcommand. Valid: ARM, SIGNAL, IS_WAITING, IS_ARMED, CLEAR");
+  return RedisModule_ReplyWithError(ctx,
+                                    "Unknown SYNC_POINT subcommand. Valid: ARM, SIGNAL, "
+                                    "IS_WAITING, HIT_COUNT, LAST_HIT_SEQ, LAST_RELEASE_SEQ, "
+                                    "IS_ARMED, CLEAR");
 }
 
 /**
@@ -3502,15 +3561,15 @@ DEBUG_COMMAND(DumpSchema) {
   return REDISMODULE_OK;
 }
 
-static inline int TimedOut_Always(TimeoutCtx *ctx) {
-  (void)ctx; // Unused parameter
+static inline int TimedOut_Always(QueryRequestTimeout *timeout) {
+  (void)timeout; // Unused parameter
   return TIMED_OUT;
 }
 
 // Global timeout callback for VecSim searches.
 // Need the redirection so tests can pass a mock function to test timeout behavior.
 // Used in hybrid_reader.c in computeDistances
-extern int (*vecsimTimeoutCallback)(TimeoutCtx *ctx);
+extern int (*vecsimTimeoutCallback)(QueryRequestTimeout *timeout);
 
 /**
  * FT.DEBUG VECSIM_MOCK_TIMEOUT <enable|disable>
@@ -3531,8 +3590,8 @@ DEBUG_COMMAND(VecSimMockTimeout) {
     VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)TimedOut_Always);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   } else if (!strcmp("disable", op)) {
-    vecsimTimeoutCallback = TimedOut_WithCtx;
-    VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)TimedOut_WithCtx);
+    vecsimTimeoutCallback = VecSim_TimedOut;
+    VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)VecSim_TimedOut);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   } else {
     return RedisModule_ReplyWithError(ctx, "Invalid command for 'VECSIM_MOCK_TIMEOUT'");

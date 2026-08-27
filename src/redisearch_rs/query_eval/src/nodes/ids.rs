@@ -13,55 +13,41 @@ use index_result::RSIndexResult;
 use rqe_core::DocId;
 use rqe_iterators::id_list::IdListSorted;
 
-use crate::{Evaluated, QueryEvalContext};
+use crate::Evaluated;
 
 /// `QN_IDS` — filter by explicit document key names.
 ///
-/// Resolves each key to a document ID, sorts, deduplicates, and creates a
-/// sorted [`IdListSorted`] iterator.
+/// Resolving a key to a docId opens the Redis key (which needs the GIL), so it
+/// happens on the main thread during query construction — see
+/// `applyGlobalFilters` in `aggregate_request.c`. This only consumes the
+/// resulting `doc_ids`, sorts, deduplicates, and builds a sorted
+/// [`IdListSorted`] iterator.
 ///
 /// * `keys` — the key names to match against, borrowing the request's held
-///   argv. When `doc_ids` is `None`, each key is looked up in the
-///   [`DocTable`](ffi::DocTable) to obtain its document ID.
-/// * `doc_ids` — when present (search-on-disk mode), contains pre-resolved
-///   document IDs positionally matching `keys`, bypassing the `DocTable`
-///   lookup.
+///   argv; kept only for the length invariant against `doc_ids`.
+/// * `doc_ids` — document IDs positionally matching `keys`, where `0` denotes
+///   an unresolved (not indexed) key and is filtered out.
 pub(crate) fn eval<'index>(
-    ctx: &'index mut QueryEvalContext,
     keys: &[*mut redis_module::raw::RedisModuleString],
     doc_ids: Option<&[DocId]>,
 ) -> Evaluated<'index> {
-    // Pre-resolved `doc_ids` are only produced on the search-on-disk path, so
-    // they must be accompanied by a non-null `spec.diskSpec`. Guard the
-    // invariant.
     debug_assert!(
-        doc_ids.is_none() || !ctx.spec().diskSpec.is_null(),
-        "pre-resolved doc_ids requires search-on-disk to be enabled"
+        doc_ids.is_some(),
+        "QN_IDS nodes must carry pre-resolved doc_ids"
     );
-
-    // When pre-resolved, `doc_ids` is consumed directly and must line up
-    // positionally with `keys` (they describe the same id-filter node).
     debug_assert!(
         doc_ids.is_none_or(|d| d.len() == keys.len()),
         "doc_ids and keys must have the same length"
     );
 
-    let mut ids: Vec<DocId> = match doc_ids {
-        // Search-on-disk: ids are already resolved, just drop the misses.
-        Some(resolved) => resolved.iter().copied().filter(|&did| did != 0).collect(),
-        // In-memory: resolve each key to a doc id through the `DocTable`.
-        None => keys
-            .iter()
-            .filter_map(|&key| {
-                // SAFETY: `key` is a valid `RedisModuleString` (guaranteed by
-                // `QueryNodeRef`: the node borrows the request's held argv)
-                // and `doc_table()` returns a valid `DocTable` reference
-                // (`QueryEvalContext` invariant).
-                let did = unsafe { ffi::DocTable_GetIdR(ctx.doc_table(), key) };
-                (did != 0).then_some(did)
-            })
-            .collect(),
-    };
+    // The fallback only keeps release builds from panicking if a caller
+    // violates the invariant above.
+    let mut ids: Vec<DocId> = doc_ids
+        .unwrap_or(&[])
+        .iter()
+        .copied()
+        .filter(|&did| did != 0)
+        .collect();
 
     if !ids.is_empty() {
         ids.sort_unstable();

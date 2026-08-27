@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 from RLTest import Env
 import redis
@@ -1348,48 +1355,45 @@ class testWarningsAndErrorsCluster:
     base_err_coord = int(coord_before_err[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
     base_err_shards = {i: int(shards_before_err[i][WARN_ERR_SECTION][TIMEOUT_ERROR_SHARD_METRIC]) for i in shards_before_err}
 
-    # Test timeout error in FT.SEARCH (shards)
-    self.env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*',
-                    'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).error().contains('SEARCH_TIMEOUT Timeout limit was reached')
-    # Shards: +1 each
+    # Coordinator query debug is rejected before blocked-client timeout handling under FAIL.
+    # Actual FAIL timeout accounting is covered by test_shard_timeout_fail using normal queries.
+    debug_policy_error = '_FT.DEBUG for Coordinator is only supported with ON_TIMEOUT RETURN'
+    timeout_config = self.env.cmd('CONFIG', 'GET', 'search-timeout')
+    prev_timeout = (timeout_config['search-timeout'] if isinstance(timeout_config, dict)
+                    else timeout_config[1])
+    try:
+      # Exercise the exact RESP2 aggregate path that previously armed a forced clock timeout
+      # when the query timeout was disabled.
+      self.env.expect('CONFIG', 'SET', 'search-timeout', 0).ok()
+      self.env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*',
+                      'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2) \
+              .error().contains(debug_policy_error)
+      self.env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
+                      'TIMEOUT_AFTER_N', 0, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3) \
+              .error().contains(debug_policy_error)
+      self.env.expect(debug_cmd(), 'FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world',
+                      'VSIM', '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', query_vec,
+                      'TIMEOUT_AFTER_N_VSIM', 1, 'DEBUG_PARAMS_COUNT', 2) \
+              .error().contains(debug_policy_error)
+      allShards_change_timeout_policy(self.env, 'RETURN-STRICT')
+      self.env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
+                      'TIMEOUT_AFTER_N', 0, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3) \
+              .error().contains(debug_policy_error)
+    finally:
+      self.env.expect('CONFIG', 'SET', 'search-timeout', prev_timeout).ok()
+      allShards_change_timeout_policy(self.env, 'RETURN')
+
+    info_coord = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
+                         str(base_err_coord),
+                         message="Rejected coordinator debug must not count a timeout error")
     for shardId in range(1, self.env.shardsCount + 1):
       info_dict = info_modules_to_dict(self.env.getConnection(shardId))
-      self.env.assertEqual(info_dict[WARN_ERR_SECTION][TIMEOUT_ERROR_SHARD_METRIC], str(base_err_shards[shardId] + 1),
-                           message=f"Shard {shardId} SEARCH timeout error should be +1")
-    # Coord: +1
-    info_coord = info_modules_to_dict(self.env)
-    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC], str(base_err_coord + 1),
-                         message="Coordinator timeout error should be +1 after FT.SEARCH")
-
-    # Test timeout error in FT.AGGREGATE (shards only via INTERNAL_ONLY)
-    self.env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
-                    'TIMEOUT_AFTER_N', 1, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3).error().contains('SEARCH_TIMEOUT Timeout limit was reached')
-    # Shards: +1 each again (total +2)
-    for shardId in range(1, self.env.shardsCount + 1):
-      shard_conn = self.env.getConnection(shardId)
-      wait_for_info_metric(shard_conn, [WARN_ERR_SECTION, TIMEOUT_ERROR_SHARD_METRIC], str(base_err_shards[shardId] + 2), msg=f"Shard {shardId} AGG INTERNAL_ONLY timeout error should be {base_err_shards[shardId] + 2}")
-    # Coord: +2
-    info_coord = info_modules_to_dict(self.env)
-    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC], str(base_err_coord + 2),
-                         message="Coordinator timeout error should be +1 after AGG INTERNAL_ONLY")
-
-    # Test timeout error in FT.HYBRID (shards via TIMEOUT_AFTER_N_VSIM)
-    self.env.expect(debug_cmd(), 'FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world',
-                    'VSIM', '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', query_vec,
-                    'TIMEOUT_AFTER_N_VSIM', 1, 'DEBUG_PARAMS_COUNT', 2).error().contains('SEARCH_TIMEOUT Timeout limit was reached')
-    # Shards: +1 each (total +3)
-    for shardId in range(1, self.env.shardsCount + 1):
-      shard_conn = self.env.getConnection(shardId)
-      wait_for_info_metric(shard_conn, [WARN_ERR_SECTION, TIMEOUT_ERROR_SHARD_METRIC], str(base_err_shards[shardId] + 3),
-                           msg=f"Shard {shardId} HYBRID VSIM timeout error should be +3")
-    # Coord: +3
-    info_coord = info_modules_to_dict(self.env)
-    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC], str(base_err_coord + 3),
-                         message="Coordinator timeout error should be +3 after FT.HYBRID")
+      self.env.assertEqual(info_dict[WARN_ERR_SECTION][TIMEOUT_ERROR_SHARD_METRIC],
+                           str(base_err_shards[shardId]),
+                           message=f"Rejected coordinator debug must not reach shard {shardId}")
 
     # ---------- Timeout Warnings ----------
-    allShards_change_timeout_policy(self.env, 'RETURN')
-
     coord_before_warn = info_modules_to_dict(self.env)
     shards_before_warn = {i: info_modules_to_dict(self.env.getConnection(i)) for i in range(1, self.env.shardsCount + 1)}
     base_warn_coord = int(coord_before_warn[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
@@ -1426,7 +1430,7 @@ class testWarningsAndErrorsCluster:
 
     # Test other metrics not changed (on shards). Ignoring the aggregate timeout
     # metrics also exempts their per-stage children (see _verify_metrics_not_changed).
-    tested_in_this_test = [TIMEOUT_ERROR_SHARD_METRIC, TIMEOUT_WARNING_SHARD_METRIC, TIMEOUT_ERROR_COORD_METRIC, TIMEOUT_WARNING_COORD_METRIC]
+    tested_in_this_test = [TIMEOUT_WARNING_SHARD_METRIC, TIMEOUT_WARNING_COORD_METRIC]
     self._verify_metrics_not_changes_all_shards(tested_in_this_test)
 
   def test_oom_errors_cluster_in_coord(self):

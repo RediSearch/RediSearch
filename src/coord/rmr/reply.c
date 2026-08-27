@@ -222,6 +222,17 @@ inline const char *MRReply_String(const MRReply *reply, size_t *len) {
   return reply->str;
 }
 
+inline char *MRReply_TakeString(MRReply *reply, size_t *len) {
+  RS_ASSERT(reply->type == MR_REPLY_STRING || reply->type == MR_REPLY_STATUS);
+  if (len) {
+    *len = reply->len;
+  }
+  char *str = reply->str;
+  reply->str = NULL;
+  reply->len = 0;
+  return str;
+}
+
 inline MRReply *MRReply_ArrayElement(const MRReply *reply, size_t idx) {
   RS_ASSERT(reply->elements > idx);
   return reply->element[idx];
@@ -266,7 +277,8 @@ void MRReply_ArrayToMap(MRReply *reply) {
 // Support types - MR_REPLY_STRING, MR_REPLY_ERROR
 MRReply *MRReply_Clone(MRReply *src) {
   // Assert type
-  RS_ASSERT(src->type == MR_REPLY_STRING || src->type == MR_REPLY_ERROR);
+  RS_ASSERT(src->type == MR_REPLY_STRING || src->type == MR_REPLY_ERROR ||
+            src->type == MR_REPLY_STATUS);
   // Allocate new reply
   MRReply *dst = rm_calloc(1, sizeof(MRReply));
   dst->type = src->type;

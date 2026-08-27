@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 import copy
 import threading
 import time
@@ -1145,6 +1152,27 @@ def test_expire_past_timestamp_removes_doc(env):
 
     env.expect('EXISTS', 'doc:1').equal(0)
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([1, 'doc:2'])
+
+
+@skip(cluster=True, redis_less_than='7.3')
+@skip(redis_less_than='7.4')
+def test_hpexpire_on_an_unindexed_hash_does_not_abort(env):
+    # HPEXPIRE routes through Indexes_UpdateMatchingHashFieldExpiration, whose
+    # INDEXMISSING branch indexes the document using the handle that function
+    # already holds. SKIPINITIALSCAN leaves the pre-existing hash unindexed, so
+    # that index attempt is the document's first DocIdMeta attach -- which goes
+    # through RM_SetKeyMeta and needs a write-mode handle. With a read-only one it
+    # failed the publish assert in makeDocumentId and aborted the server.
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'd1', 'x', 'val', 'y', 'yy')
+    env.expect('FT.CREATE', 'idx', 'SKIPINITIALSCAN', 'SCHEMA',
+               'x', 'TEXT', 'SORTABLE', 'y', 'TEXT', 'INDEXMISSING').ok()
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([0])
+
+    conn.execute_command('HPEXPIRE', 'd1', 5000, 'FIELDS', 1, 'x')
+
+    env.expect('PING').true()
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([1, 'd1'])
 
 
 @skip(cluster=True, redis_less_than='7.3')

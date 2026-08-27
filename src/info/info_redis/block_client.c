@@ -10,7 +10,6 @@
 #include <stdatomic.h>
 
 #include "redismodule.h"
-#include "util/references.h"
 #include "info/info_redis/types/blocked_queries.h"
 #include "threads/main_thread.h"
 #include "cursor.h"
@@ -21,56 +20,69 @@
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 
-void QueryRequest_BeginCycle(QueryRequest *request, RedisModuleBlockedClient *bc,
-                             RedisModuleCmdFunc reply_cb) {
+// The registry list every main-thread cycle links into. Asserts main-thread
+// use: the registry is single-threaded by design.
+static BlockedQueries *getBlockedQueries(void) {
+  BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
+  RS_LOG_ASSERT(blockedQueries, "MainThread_InitBlockedQueries was not called, or function not called from main thread");
+  return blockedQueries;
+}
+
+static void beginCycleCommon(QueryRequest *request, RedisModuleBlockedClient *bc,
+                             RedisModuleCmdFunc reply_cb, DLLIST *list) {
   // No overlapping cycles: the previous cycle's OnFree must have run before a
   // new cycle may begin on the same request. This holds structurally for
   // blocked cursor cycles — the cursor is only parked back into the idle list
-  // by OnFree (cursorEndOfCycle records the disposition; OnFree executes it),
-  // so no other client can take it before the cycle fully ended.
-  RS_ASSERT(!request->blockedClientCycleActive && request->registryInfo.node == NULL &&
-            request->registryInfo.kind == REGISTRY_ENTRY_NONE);
-  // The cycle's hold keeps the request alive until OnFree, so the reply/timeout
-  // callbacks may dereference the privdata even if the BG worker released its
-  // own hold (e.g. a cursor freed on ITERDONE) before the client was unblocked.
-  QueryRequest_IncrRef(request);
+  // at cycle end (AREQ_CursorEndOfCycle records the disposition; EndCycle
+  // executes it), so no other client can take it before the cycle fully ended.
+  RS_ASSERT(!request->blockedClientCycleActive && !RegistryInfo_IsLinked(&request->registryInfo));
   request->blockedClientCycleActive = true;
   QueryRequest_SetUseReplyCallback(request, reply_cb != NULL);
   RS_AtomicIntStoreRelaxed(&request->async.strictReadOwner, QUERY_REQUEST_READ_OWNER_NONE);
+  request->registryInfo.cycle_start = time(NULL);
+  dllist_prepend(list, &request->registryInfo.node);
   RedisModule_BlockClientSetPrivateData(bc, request);
 }
 
+void QueryRequest_BeginCycle(QueryRequest *request, RedisModuleBlockedClient *bc,
+                             RedisModuleCmdFunc reply_cb) {
+  beginCycleCommon(request, bc, reply_cb, &getBlockedQueries()->queries);
+}
+
+void QueryRequest_BeginCursorCycle(QueryRequest *request, RedisModuleBlockedClient *bc,
+                                   RedisModuleCmdFunc reply_cb) {
+  beginCycleCommon(request, bc, reply_cb, &getBlockedQueries()->cursors);
+}
+
 void QueryRequest_EndCycle(QueryRequest *request) {
-  if (request->registryInfo.node) {
-    if (request->registryInfo.kind == REGISTRY_ENTRY_CURSOR) {
-      BlockedQueries_RemoveCursor(request->registryInfo.node);
-    } else {
-      RS_ASSERT(request->registryInfo.kind == REGISTRY_ENTRY_QUERY);
-      BlockedQueries_RemoveQuery(request->registryInfo.node);
-    }
-    rm_free(request->registryInfo.node);
-  }
-  request->registryInfo.node = NULL;
-  request->registryInfo.kind = REGISTRY_ENTRY_NONE;
-  // Dispose a stashed cursor reference-releasingly BEFORE the generic destroy:
-  // AREQ_CleanUpStoredCursor frees the cursor with its request handle intact,
-  // so Cursor_FreeInternal releases the cursor's request reference. Skipping
-  // this and letting ChunkReplyState_Destroy handle the stash would leak that
-  // reference (it deliberately clears the handle first — correct only in the
-  // refcount==0 context of final request destruction). Disposing the stash
-  // here also prevents the RETURN_STRICT preempt path from leaking the cursor
-  // reserved by an initial WITHCURSOR query.
-  if (request->kind == QUERY_REQUEST_KIND_AREQ) {
-    AREQ_CleanUpStoredCursor(QueryRequest_GetAREQ(request));
+  if (RegistryInfo_IsLinked(&request->registryInfo)) {
+    dllist_delete(&request->registryInfo.node);
+    request->registryInfo.cycle_start = 0;
   }
   // Per-cycle reply-state teardown: dispose whatever the reply callback did
   // not consume (unconsumed stored results when the timeout replied first).
   // Idempotent; base destruction also clears reply state as a safety net.
   QueryRequest_ResetReply(request);
 
+  // Snapshot the disposition before clearing the per-cycle fields it lives in.
+  struct Cursor *cursor = request->cursorInfo.cursor;
+  CursorDisposition disposition = request->cursorInfo.disposition;
   request->blockedClientCycleActive = false;
   request->cursorInfo.cursor = NULL;
-  request->cursorInfo.disposition = CURSOR_DISPOSITION_NONE;
+  request->cursorInfo.disposition = CURSOR_DISPOSITION_FREE;
+
+  // Parking only here, at cycle end, is what keeps the cycle's cursor
+  // unreachable to other clients mid-cycle. Cursor_Pause converts park to
+  // free when CURSOR DEL marked the cursor mid-cycle (delete_mark).
+  if (cursor) {
+    if (disposition == CURSOR_DISPOSITION_PAUSE) {
+      Cursor_Pause(cursor);
+    } else {
+      Cursor_Free(cursor);
+    }
+  } else {
+    QueryRequest_Free(request);
+  }
 }
 
 void QueryRequest_OnFree(RedisModuleCtx *ctx, void *privdata) {
@@ -80,26 +92,29 @@ void QueryRequest_OnFree(RedisModuleCtx *ctx, void *privdata) {
   // free_privdata fired without blocking the main thread in the callback.
   QueryRequestOnFreeDebug_Increment();
 #endif
-  // Execute the cycle's cursor disposition (snapshot first — EndCycle clears
-  // the per-cycle fields). Parking here, after the reply/timeout callback, is
-  // what keeps a cycle's cursor unreachable to other clients mid-cycle.
-  // Cursor_Pause converts park to free when CURSOR DEL marked the cursor
-  // mid-cycle (delete_mark).
-  struct Cursor *cursor = request->cursorInfo.cursor;
-  CursorDisposition disposition = request->cursorInfo.disposition;
   QueryRequest_EndCycle(request);
-  if (cursor) {
-    if (disposition == CURSOR_DISPOSITION_FREE) {
-      Cursor_Free(cursor);
-    } else {
-      RS_ASSERT(disposition == CURSOR_DISPOSITION_PAUSE);
-      Cursor_Pause(cursor);
-    }
-  }
-  QueryRequest_DecrRef(request);
 }
 
-RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, StrongRef spec_ref,
+void BlockedQueries_UnwindCycles(void) {
+  BlockedQueries *blockedQueries = getBlockedQueries();
+  DLLIST *lists[] = {&blockedQueries->queries, &blockedQueries->cursors};
+  for (size_t i = 0; i < sizeof(lists) / sizeof(*lists); i++) {
+    while (!DLLIST_IS_EMPTY(lists[i])) {
+      QueryRequest *at = DLLIST_ITEM(lists[i]->next, QueryRequest, registryInfo.node);
+      // Unlink only — do NOT run the cycle end. Stopping the pools proves no
+      // new cycles start, not that a linked request has no borrowers: a
+      // deferred coordinator request (e.g. WITHCOUNT) is still referenced by
+      // its MR iterator context until the MR runtimes are gone, so freeing it
+      // here would be use-after-free on the IO threads. Leaking it instead is
+      // exactly what its queued, never-drained free-privdata callback would
+      // have left behind.
+      dllist_delete(&at->registryInfo.node);
+      at->registryInfo.cycle_start = 0;
+    }
+  }
+}
+
+RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx,
                                                       QueryRequest *request,
                                                       RedisModuleCmdFunc reply_cb,
                                                       RedisModuleCmdFunc timeout_cb,
@@ -107,28 +122,15 @@ RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, Stron
   // If a timeout is armed, both callbacks must be provided.
   RS_ASSERT(timeout_ms == 0 || (timeout_cb != NULL && reply_cb != NULL));
 
-  BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
-  RS_LOG_ASSERT(blockedQueries, "MainThread_InitBlockedQueries was not called, or function not called from main thread");
-  // Registry bookkeeping only (FT.INFO / crash reports). The callbacks reach
-  // the request through the blocked client's private data,
-  // so the node carries no privdata and holds no reference. Unlinked in
-  // EndCycle; TRANSITIONAL(MOD-16691): link the request itself instead.
-  BlockedQueryNode *node = BlockedQueries_AddQuery(blockedQueries, spec_ref, NULL, NULL);
-
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, reply_cb, timeout_cb,
                                                          QueryRequest_OnFree, timeout_ms);
   QueryRequest_BeginCycle(request, bc, reply_cb);
-  request->registryInfo = (RegistryInfo) {
-    .node = node,
-    .kind = REGISTRY_ENTRY_QUERY,
-  };
   // report block client start time
   RedisModule_BlockedClientMeasureTimeStart(bc);
   return bc;
 }
 
 RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Cursor *cursor,
-                                                       size_t count,
                                                        QueryRequest *request,
                                                        RedisModuleCmdFunc reply_cb,
                                                        RedisModuleCmdFunc timeout_cb,
@@ -136,26 +138,19 @@ RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Curs
   RS_ASSERT(cursor->query == request);
   RS_ASSERT(timeout_ms == 0 || (timeout_cb != NULL && reply_cb != NULL));
 
-  BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
-  RS_LOG_ASSERT(blockedQueries, "MainThread_InitBlockedQueries was not called, or function not called from main thread");
-
-  // Registry bookkeeping only; see BlockQueryClientWithTimeout.
-  BlockedCursorNode *node = BlockedQueries_AddCursor(blockedQueries, cursor->spec_ref,
-                                                     cursor->id, count, NULL, NULL);
-
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, reply_cb, timeout_cb,
                                                          QueryRequest_OnFree, timeout_ms);
-  QueryRequest_BeginCycle(request, bc, reply_cb);
+  QueryRequest_BeginCursorCycle(request, bc, reply_cb);
+  // Publish the cycle's cursor handle up front, on the main thread. The
+  // disposition keeps its FREE default unless the cycle's reply exposes a
+  // live cursor id and records PAUSE.
+  request->cursorInfo.cursor = cursor;
   // Cursor cycles reuse the request across reads: reset the per-read
   // RETURN_STRICT claim/latch state so the new cycle starts from a clean
   // slate.
   if (request->async.requiresAggregateResultsSync) {
     AREQ_ResetForCursorReadReturnStrict(QueryRequest_GetAREQ(request));
   }
-  request->registryInfo = (RegistryInfo) {
-    .node = node,
-    .kind = REGISTRY_ENTRY_CURSOR,
-  };
   // report block client start time
   RedisModule_BlockedClientMeasureTimeStart(bc);
   return bc;

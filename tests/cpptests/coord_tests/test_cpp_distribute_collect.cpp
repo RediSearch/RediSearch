@@ -72,7 +72,7 @@ protected:
   }
 
   // Compile + distribute. Sets *outPlan and returns the AREQ; caller frees
-  // the AREQ via AREQ_DecrRef when done. *outPlan is owned by the AREQ.
+  // the AREQ via AREQ_Free when done. *outPlan is owned by the AREQ.
   AREQ *compileAndDistribute(const std::vector<std::string> &collectTokens,
                              AGGPlan **outPlan) {
     auto argv = buildAggregateArgv(collectTokens);
@@ -84,7 +84,7 @@ protected:
     int rc = AREQ_Compile(r, ctx, 0, false, &qerr);
     EXPECT_EQ(rc, REDISMODULE_OK) << QueryError_GetUserError(&qerr);
     if (rc != REDISMODULE_OK) {
-      AREQ_DecrRef(r);
+      AREQ_Free(r);
       return nullptr;
     }
 
@@ -92,7 +92,7 @@ protected:
     rc = AGGPLN_Distribute(plan, &qerr);
     EXPECT_EQ(rc, REDISMODULE_OK) << QueryError_GetUserError(&qerr);
     if (rc != REDISMODULE_OK) {
-      AREQ_DecrRef(r);
+      AREQ_Free(r);
       return nullptr;
     }
 
@@ -176,7 +176,7 @@ TEST_F(DistributeCollectTest, FieldsList_NoSortBy_NoLimit) {
   ASSERT_NE(pair.remote->alias, nullptr);
   EXPECT_STREQ(pair.local->inputAlias, pair.remote->alias);
 
-  AREQ_DecrRef(r);
+  AREQ_Free(r);
 }
 
 TEST_F(DistributeCollectTest, FieldsList_SortByOnly_NoLimit) {
@@ -198,7 +198,7 @@ TEST_F(DistributeCollectTest, FieldsList_SortByOnly_NoLimit) {
   EXPECT_EQ(argsAsStrings(pair.remote), expected);
   EXPECT_EQ(argsAsStrings(pair.local), expected);
 
-  AREQ_DecrRef(r);
+  AREQ_Free(r);
 }
 
 TEST_F(DistributeCollectTest, FieldsList_NoSortBy_Limit_RewritesRemoteLimit) {
@@ -220,7 +220,7 @@ TEST_F(DistributeCollectTest, FieldsList_NoSortBy_Limit_RewritesRemoteLimit) {
             (std::vector<std::string>{"FIELDS", "1", "@name",
                                       "LIMIT", "2", "3"}));
 
-  AREQ_DecrRef(r);
+  AREQ_Free(r);
 }
 
 TEST_F(DistributeCollectTest, FieldsList_SortBy_Limit_RewritesRemoteLimit) {
@@ -244,7 +244,7 @@ TEST_F(DistributeCollectTest, FieldsList_SortBy_Limit_RewritesRemoteLimit) {
                                       "SORTBY", "2", "@price", "ASC",
                                       "LIMIT", "2", "3"}));
 
-  AREQ_DecrRef(r);
+  AREQ_Free(r);
 }
 
 // ----------------------------------------------------------------------------
@@ -265,7 +265,7 @@ TEST_F(DistributeCollectTest, FieldsStar_NoSortBy_NoLimit) {
   EXPECT_EQ(argsAsStrings(pair.local),
             (std::vector<std::string>{"FIELDS", "*"}));
 
-  AREQ_DecrRef(r);
+  AREQ_Free(r);
 }
 
 TEST_F(DistributeCollectTest, FieldsStar_SortByOnly_NoLimit) {
@@ -283,7 +283,7 @@ TEST_F(DistributeCollectTest, FieldsStar_SortByOnly_NoLimit) {
   EXPECT_EQ(argsAsStrings(pair.remote), expected);
   EXPECT_EQ(argsAsStrings(pair.local), expected);
 
-  AREQ_DecrRef(r);
+  AREQ_Free(r);
 }
 
 TEST_F(DistributeCollectTest, FieldsStar_NoSortBy_Limit_RewritesRemoteLimit) {
@@ -300,7 +300,7 @@ TEST_F(DistributeCollectTest, FieldsStar_NoSortBy_Limit_RewritesRemoteLimit) {
   EXPECT_EQ(argsAsStrings(pair.local),
             (std::vector<std::string>{"FIELDS", "*", "LIMIT", "1", "4"}));
 
-  AREQ_DecrRef(r);
+  AREQ_Free(r);
 }
 
 TEST_F(DistributeCollectTest, FieldsStar_SortBy_Limit_RewritesRemoteLimit) {
@@ -324,7 +324,7 @@ TEST_F(DistributeCollectTest, FieldsStar_SortBy_Limit_RewritesRemoteLimit) {
                                       "SORTBY", "2", "@price", "DESC",
                                       "LIMIT", "5", "10"}));
 
-  AREQ_DecrRef(r);
+  AREQ_Free(r);
 }
 
 // ----------------------------------------------------------------------------
@@ -345,7 +345,7 @@ TEST_F(DistributeCollectTest, KeywordCase_NormalizedOnRemote_VerbatimOnLocal) {
   EXPECT_EQ(argsAsStrings(pair.local),
             (std::vector<std::string>{"fields", "1", "@name"}));
 
-  AREQ_DecrRef(r);
+  AREQ_Free(r);
 }
 
 }  // namespace

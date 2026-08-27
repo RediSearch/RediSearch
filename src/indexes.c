@@ -665,7 +665,7 @@ void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString 
   // Find all indexes that match the key's name prefix. runFilters=false:
   // EXPIRE/PERSIST do not change field values, so a doc's schema-rule FILTER
   // outcome cannot have flipped since the last write. The DocTable lookup
-  // below (DocTable_BorrowByKeyR) is the only discriminator we need — it
+  // below (IndexSpec_BorrowDocByKeyR) is the only discriminator we need — it
   // returns the existing DMD when the doc is currently indexed, and NULL
   // otherwise. Re-evaluating the filter here would re-read hash/JSON fields
   // on the main thread for a result the loop would ignore.
@@ -705,14 +705,14 @@ void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString 
     // Read lock is sufficient: the only mutation is the relaxed atomic store on
     // `dmd->expirationTimeNs` inside DocTable_SetDocExpiration (paired with a
     // relaxed atomic load in DocTable_IsDocExpired). The DMD chain traversal
-    // and refcount manipulation in DocTable_BorrowByKeyR / DMD_Return are
+    // and refcount manipulation in IndexSpec_BorrowDocByKeyR / DMD_Return are
     // explicitly documented as safe under either lock mode (doc_table.c, near
     // DocTable_GetOwn). Concurrent writers cannot race here because keyspace
     // notifications all dispatch on the Redis main thread, so this callback is
     // serialized against itself and against other notification-driven writers
     // by the event loop, not by the spec lock.
     RedisSearchCtx_LockSpecRead(&sctx);
-    const RSDocumentMetadata *cdmd = DocTable_BorrowByKeyR(&spec->docs, key);
+    const RSDocumentMetadata *cdmd = IndexSpec_BorrowDocByKeyR(spec, ctx, key);
     if (cdmd) {
       // Only the doc-level TTL changes here. EXPIRE/PERSIST do not affect
       // HEXPIRE state, and the per-field TTL table must be left untouched —
@@ -812,7 +812,13 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
     return;
   }
 
-  RedisModuleKey *k = RedisModule_OpenKey(ctx, key, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
+  // Write access, not just the usual indexing flags: the INDEXMISSING and
+  // first-field-TTL branches below hand this handle to IndexSpec_UpdateDoc, which
+  // publishes DocIdMeta through it. A document with no entry yet takes a first
+  // metadata attach via RM_SetKeyMeta, which requires REDISMODULE_WRITE and would
+  // otherwise fail the publish assert in makeDocumentId and abort the server.
+  RedisModuleKey *k =
+      RedisModule_OpenKey(ctx, key, DOCUMENT_OPEN_KEY_INDEXING_FLAGS | REDISMODULE_WRITE);
   RS_ASSERT(k);
 
   // Hash-level gate: if no field on this hash has a TTL, every per-spec
@@ -877,7 +883,7 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
     RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
     RedisSearchCtx_LockSpecWrite(&sctx);
 
-    const RSDocumentMetadata *cdmd = DocTable_BorrowByKeyR(&spec->docs, key);
+    const RSDocumentMetadata *cdmd = IndexSpec_BorrowDocByKeyR(spec, ctx, key);
     if (cdmd) {
       // Each inverted-index posting carries a per-field "this field has a TTL"
       // bit, baked at index time, that expiration-aware iterators use to skip
@@ -919,6 +925,12 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
 
 void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key,
                                             RedisModuleString *to_key) {
+  // Redis keeps DocIdMeta on RENAME because the key-meta rename callback is NULL.
+  // Before live rename handling reads to_key, prune entries for specs already
+  // dropped with KEEPDOCS so they cannot escape DocTable-based background cleanup
+  // by moving away from their old key name.
+  DocIdMeta_PruneDeletedSpecs(ctx, to_key);
+
   DocumentType type = getDocTypeFromString(to_key);
   if (type == DocumentType_Unsupported) {
     return;
@@ -927,8 +939,7 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
   SpecOpIndexingCtx *from_specs = Indexes_FindMatchingSchemaRules(ctx, from_key, type, true, to_key);
   SpecOpIndexingCtx *to_specs = Indexes_FindMatchingSchemaRules(ctx, to_key, type, true, NULL);
 
-  size_t from_len, to_len;
-  const char *from_str = RedisModule_StringPtrLen(from_key, &from_len);
+  size_t to_len;
   const char *to_str = RedisModule_StringPtrLen(to_key, &to_len);
 
   // Handle specs that match the old key (whether they match the new key or not)
@@ -945,16 +956,16 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
       RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
       RedisSearchCtx_LockSpecWrite(&sctx);
 
-      // Perform the rename
-      if (SearchDisk_IsEnabled()) {
-        uint64_t docId;
-        // After RENAME, the metadata lives on to_key (rename callback keeps it).
-        if (DocIdMeta_Get(ctx, to_key, spec->specId, &docId) == REDISMODULE_OK) {
-          // Update the key name in the disk doc table
+      // After RENAME the docId metadata rides to to_key (Redis keeps key-meta
+      // on rename when no rename callback is registered), so look it up there
+      // and just update the stored key name.
+      uint64_t docId;
+      if (DocIdMeta_Get(ctx, to_key, spec->specId, &docId) == REDISMODULE_OK) {
+        if (SearchDisk_IsEnabled()) {
           SearchDisk_ReplaceKey(spec->diskSpec, docId, to_str, to_len);
+        } else {
+          DocTable_SetKeyById(&spec->docs, (t_docId)docId, to_str, to_len);
         }
-      } else {
-        DocTable_Replace(&spec->docs, from_str, from_len, to_str, to_len);
       }
 
       RedisSearchCtx_UnlockSpec(&sctx);
@@ -962,18 +973,12 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
       dictDelete(to_specs->specs, spec->specName);
       array_del_fast(to_specs->specsOps, index);
     } else {
-      // The document should not be indexed by the new key, so we need to delete the old document from the index.
-      if (SearchDisk_IsEnabled()) {
-        // After RENAME, from_key no longer exists. The metadata is on to_key.
-        // Look up the docId from to_key's metadata and delete by id.
-        uint64_t docId;
-        if (DocIdMeta_Get(ctx, to_key, spec->specId, &docId) == REDISMODULE_OK) {
-          IndexSpec_DeleteDocById(spec, (t_docId)docId);
-          DocIdMeta_Delete(ctx, to_key, spec->specId);
-        }
-      } else {
-        // For RAM case, look up by old key name and delete
-        IndexSpec_DeleteDoc(spec, ctx, from_key, NULL);
+      // Not indexed by the new key: delete it. After RENAME the metadata lives
+      // on to_key, so look up the docId there, delete by id, and drop the mapping.
+      uint64_t docId;
+      if (DocIdMeta_Get(ctx, to_key, spec->specId, &docId) == REDISMODULE_OK) {
+        IndexSpec_DeleteDocById(spec, (t_docId)docId);
+        DocIdMeta_Delete(ctx, to_key, spec->specId);
       }
     }
   }
@@ -1070,7 +1075,7 @@ void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
       sp->resume_bg_indexing = false;
       // Reset any persisted OOM failure so the restarted scan runs clean and
       // FT.INFO reflects it correctly while it progresses.
-      sp->scan_failed_OOM = false;
+      RS_AtomicBoolStoreRelaxed(&sp->scan_failed_OOM, false);
       IndexSpec_ScanAndReindex(ctx, spec_ref);
     }
   }
