@@ -72,12 +72,9 @@ QueryIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSe
  * 1. `q` must be a non-null pointer to a valid [`QueryEvalCtx`] that satisfies
  *    all the invariants documented on [`QueryEvalContext::new`] and remains
  *    valid for the lifetime of the returned iterator.
- * 2. `n` must be a non-null pointer to a valid [`RSQueryNode`]. Evaluation
- *    rewrites some tokens in place, so every node in the subtree that carries a
- *    rewritable one — see [`QueryNodeMut::token_mut`] — must additionally satisfy
- *    invariant (4) of [`QueryNodeMut::new`]. A parser-produced AST does; one
- *    assembled by hand, with a token borrowing a read-only or length-delimited
- *    string, does not.
+ * 2. `n` must be a non-null pointer to a valid [`RSQueryNode`] whose subtree
+ *    also satisfies invariants (4) and (5) of [`QueryNodeMut::new`], since
+ *    evaluation rewrites tokens in place.
  * 3. `eval_config` must be a non-null [`EvalConfig`](ffi::EvalConfig) handle
  *    pointing to a valid [`Config`] that stays valid for the duration of the
  *    call — the snapshot [`QAST_Iterate`] loaded and threaded through the C

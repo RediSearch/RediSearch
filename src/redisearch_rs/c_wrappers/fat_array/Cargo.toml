@@ -1,0 +1,26 @@
+[package]
+name = "fat_array"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[features]
+# feature enabled when building tests so they can link the C code in build.rs
+# see https://github.com/rust-lang/cargo/issues/4789#issuecomment-2308131243
+unittest = []
+
+[lints]
+workspace = true
+
+[build-dependencies]
+build_utils.workspace = true
+
+[dependencies]
+ffi.workspace = true
+workspace_hack.workspace = true
+
+[dev-dependencies]
+fat_array = { path = ".", features = ["unittest"] }
+redis_mock.workspace = true
+redisearch_rs = { workspace = true, features = ["mock_allocator"] }

@@ -139,12 +139,9 @@ pub unsafe extern "C" fn queryNeedsOffsets(
 /// 1. `q` must be a non-null pointer to a valid [`QueryEvalCtx`] that satisfies
 ///    all the invariants documented on [`QueryEvalContext::new`] and remains
 ///    valid for the lifetime of the returned iterator.
-/// 2. `n` must be a non-null pointer to a valid [`RSQueryNode`]. Evaluation
-///    rewrites some tokens in place, so every node in the subtree that carries a
-///    rewritable one — see [`QueryNodeMut::token_mut`] — must additionally satisfy
-///    invariant (4) of [`QueryNodeMut::new`]. A parser-produced AST does; one
-///    assembled by hand, with a token borrowing a read-only or length-delimited
-///    string, does not.
+/// 2. `n` must be a non-null pointer to a valid [`RSQueryNode`] whose subtree
+///    also satisfies invariants (4) and (5) of [`QueryNodeMut::new`], since
+///    evaluation rewrites tokens in place.
 /// 3. `eval_config` must be a non-null [`EvalConfig`](ffi::EvalConfig) handle
 ///    pointing to a valid [`Config`] that stays valid for the duration of the
 ///    call — the snapshot [`QAST_Iterate`] loaded and threaded through the C
@@ -171,8 +168,8 @@ pub unsafe extern "C" fn Query_EvalNode_Rs(
     // exclusively: the C dispatcher hands each node to exactly one evaluator and
     // waits for it to return, and query evaluation is single-threaded, so no
     // other wrapper or reference into this subtree — nor into any token string it
-    // points at — is live for the call. Precondition 2 also carries the token
-    // buffers' own requirements.
+    // points at — is live for the call. Precondition 2 also carries invariants (4)
+    // and (5).
     let node = unsafe { QueryNodeMut::new(n) };
 
     // SAFETY: `config` is non-null (checked) and points to a valid `Config`
@@ -252,8 +249,8 @@ pub unsafe extern "C" fn QAST_Iterate(
     // SAFETY: `root` is a valid `RSQueryNode` and the whole AST is borrowed
     // exclusively for the duration of this call (precondition 1), so evaluation
     // owns the tree: no other wrapper or reference into it, or into any token
-    // string it points at, is live. Precondition 1 also carries the token buffers'
-    // own requirements.
+    // string it points at, is live. Precondition 1 also carries invariants (4) and
+    // (5).
     let node = unsafe { QueryNodeMut::new(root) };
 
     let config = eval_config(ctx.config());

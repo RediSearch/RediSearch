@@ -251,9 +251,9 @@ fn rewrite(content: &[u8], f: impl FnOnce(&mut RSTokenMut)) -> (Vec<u8>, Vec<c_c
     raw.len = content.len();
     {
         // SAFETY: `raw` is a valid token that outlives the handle, and its `str_`
-        // addresses `buf`'s `len` writable content bytes followed by the terminator
-        // at `str_[len]`. Nothing else reaches the token or the buffer for the
-        // handle's lifetime, which ends with this scope.
+        // addresses `buf`'s `len` writable content bytes followed by the writable
+        // terminator at `str_[len]`. Nothing else reaches the token or the buffer
+        // for the handle's lifetime, which ends with this scope.
         let mut tok = unsafe { RSTokenMut::from_nul_terminated_ffi(&raw mut raw) };
         f(&mut tok);
     }
@@ -298,7 +298,7 @@ fn non_nul_terminated_string_trips_debug_assert_on_mut_handle() {
     raw.str_ = buf.as_mut_ptr();
     raw.len = 3;
     // SAFETY: `raw.str_`/`raw.len` describe a valid 3-byte writable range whose
-    // next byte is in bounds and readable, so the debug check's dereference is
+    // next byte is in bounds and writable, so the debug check's dereference is
     // sound — it observes the missing terminator and panics. Nothing else reaches
     // `raw` or `buf` for the handle's lifetime.
     let _ = unsafe { RSTokenMut::from_nul_terminated_ffi(&raw mut raw) };
@@ -439,5 +439,153 @@ mod remove_wildcard_escapes {
             tok.remove_wildcard_escapes();
             assert_eq!(tok.as_ref().as_c_str(), Some(c"a*b?c"));
         });
+    }
+}
+
+// The normalization rules are tested with `string_utils::tag::unescape` and
+// `string_utils::unicode::tolower_bytes`; these cover writing the result back
+// into the token. The tokens come from the Redis module allocator, which miri
+// cannot reach.
+#[cfg(not(miri))]
+mod normalize_tag {
+    use super::*;
+
+    /// Run [`RSTokenMut::normalize_tag`] on `content` in a module-allocated
+    /// buffer, returning the normalized bytes and whether the buffer was replaced.
+    /// Also checks that the result stays NUL-terminated.
+    fn normalize(content: &[u8], case_sensitive: bool) -> (Vec<u8>, bool) {
+        // SAFETY: the mock allocator sets this once, before any test runs, and
+        // nothing writes it afterwards.
+        let alloc = unsafe { redis_module::RedisModule_Alloc }.expect("RedisModule_Alloc unset");
+        // SAFETY: as above.
+        let free = unsafe { redis_module::RedisModule_Free }.expect("RedisModule_Free unset");
+        let terminated: Vec<c_char> = content
+            .iter()
+            .map(|&b| b as c_char)
+            .chain(std::iter::once(0))
+            .collect();
+        // SAFETY: the mock allocator is installed for the whole test binary.
+        let buf = unsafe { alloc(terminated.len()) }.cast::<c_char>();
+        assert!(!buf.is_null());
+        // SAFETY: `buf` is a fresh allocation of `terminated.len()` bytes that
+        // nothing else reaches.
+        unsafe { std::slice::from_raw_parts_mut(buf, terminated.len()) }
+            .copy_from_slice(&terminated);
+        let mut raw = build_raw(None, 0);
+        raw.str_ = buf;
+        raw.len = content.len();
+        {
+            // SAFETY: `raw` outlives the handle, and its `str_` addresses `len`
+            // writable bytes followed by the writable terminator. Nothing else
+            // reaches the token or the buffer for the handle's lifetime.
+            let mut tok = unsafe { RSTokenMut::from_nul_terminated_ffi(&raw mut raw) };
+            // SAFETY: `str_` is the start of a module allocation that nothing else
+            // frees; this helper frees whichever buffer the token ends up owning.
+            unsafe { tok.normalize_tag(case_sensitive) };
+        }
+        // SAFETY: normalization leaves `str_` addressing `len` bytes followed by a
+        // terminator, all owned by the token.
+        let result = unsafe { std::slice::from_raw_parts(raw.str_.cast::<u8>(), raw.len + 1) };
+        let (terminator, bytes) = result.split_last().expect("the slice holds the terminator");
+        assert_eq!(*terminator, 0, "the token must stay NUL-terminated");
+        let bytes = bytes.to_vec();
+        let moved = raw.str_ != buf;
+        // SAFETY: `raw.str_` is the one live allocation the token owns — the
+        // original buffer, or its replacement from the same allocator after the
+        // original was freed — and `result` is no longer used.
+        unsafe { free(raw.str_.cast()) };
+        (bytes, moved)
+    }
+
+    #[test]
+    fn removes_escapes_in_place() {
+        let (bytes, moved) = normalize(br"a\,b\ c", true);
+        assert_eq!(bytes, b"a,b c");
+        assert!(!moved, "escape removal happens in place");
+    }
+
+    #[test]
+    fn collapses_one_level_only() {
+        let (once, _) = normalize(br"\\,", true);
+        assert_eq!(once, br"\,");
+        let (twice, _) = normalize(&once, true);
+        assert_eq!(twice, b",");
+    }
+
+    #[test]
+    fn lowercases_ascii_in_place() {
+        let (bytes, moved) = normalize(br"A\,BC", false);
+        assert_eq!(bytes, b"a,bc");
+        assert!(!moved, "ASCII lowercasing keeps the length");
+    }
+
+    #[test]
+    fn leaves_a_normalized_token_alone() {
+        let (bytes, moved) = normalize(b"abc", false);
+        assert_eq!(bytes, b"abc");
+        assert!(!moved);
+    }
+
+    #[test]
+    fn replaces_the_buffer_when_lowercasing_lengthens_it() {
+        // U+023A lowercases to U+2C65, which takes a byte more to encode.
+        let (bytes, moved) = normalize("\u{23a}".as_bytes(), false);
+        assert_eq!(bytes, "\u{2c65}".as_bytes());
+        assert!(moved, "a longer result needs a new allocation");
+    }
+
+    #[test]
+    fn lowercases_in_place_when_the_result_fits_the_original_buffer() {
+        // Escape removal frees a byte that lowercasing then takes back, so the
+        // result is longer than the unescaped string but no longer than the
+        // token was.
+        let (bytes, moved) = normalize("\\,\u{23a}".as_bytes(), false);
+        assert_eq!(bytes, ",\u{2c65}".as_bytes());
+        assert!(!moved, "a result no longer than the token fits its buffer");
+    }
+
+    #[test]
+    fn lowercases_in_place_when_it_shortens_the_string() {
+        // U+2126 OHM SIGN lowercases to U+03C9, which takes a byte less to
+        // encode, so the terminator moves to the shorter length.
+        let (bytes, moved) = normalize("\u{2126}".as_bytes(), false);
+        assert_eq!(bytes, "\u{3c9}".as_bytes());
+        assert!(!moved, "a shorter result fits the original buffer");
+    }
+
+    #[test]
+    fn leaves_an_empty_token_empty() {
+        let (bytes, moved) = normalize(b"", false);
+        assert_eq!(bytes, b"");
+        assert!(!moved);
+    }
+
+    #[test]
+    fn keeps_the_bytes_past_an_interior_nul_when_case_sensitive() {
+        let (bytes, moved) = normalize(b"\\,a\0B", true);
+        assert_eq!(bytes, b",a\0B");
+        assert!(!moved);
+    }
+
+    #[test]
+    fn shortens_the_token_to_the_nul_when_lowercasing() {
+        let (bytes, moved) = normalize(b"A\0B", false);
+        assert_eq!(bytes, b"a");
+        assert!(!moved);
+    }
+
+    #[test]
+    fn ignores_a_token_carrying_no_string() {
+        let mut raw = build_raw(None, 0);
+        {
+            // SAFETY: `raw` outlives the handle and carries no string, so `len`
+            // is zero as the contract requires. Nothing else reaches it for the
+            // handle's lifetime.
+            let mut tok = unsafe { RSTokenMut::from_nul_terminated_ffi(&raw mut raw) };
+            // SAFETY: there is no string to write to or free.
+            unsafe { tok.normalize_tag(false) };
+        }
+        assert!(raw.str_.is_null(), "the token must be left untouched");
+        assert_eq!(raw.len, 0);
     }
 }
