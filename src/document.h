@@ -128,27 +128,14 @@ typedef struct Document {
 #define UNDERSCORE_PAYLOAD "__payload"
 #define UNDERSCORE_LANGUAGE "__language"
 
-/**
- * Whether a VECTOR field's value was changed by this update, which is what decides whether its
- * existing index entry may move onto the document's new doc-id instead of being deleted and
- * re-added.
- *
- * The two verified states are separate from the unverified one because the sources of an answer
- * cost different things. A hash subkey notification names the fields the command wrote, so it
- * settles every field for free. Everything else -- JSON (RedisJSON's API cannot report a change
- * set), a background scan, or a hash on a server without subkey notifications -- has to be
- * settled by looking at what the index is holding.
- */
+// What this update knows about whether a field's value was changed.
 typedef enum {
-  // Changed: the value was written. Reindex as before, dropping the old entry and adding the new
-  // blob. Must stay zero, because it doubles as the answer for a field with no mark at all: the
-  // per-field array is `rm_calloc`'d, and a field nothing was recorded for has no basis for a
-  // move.
+  // Changed. Must stay zero: the per-field array is `rm_calloc`'d, so this is also what a field
+  // nothing was recorded for reads as.
   ChangedField_VerifiedYes = 0,
   // Not known either way.
   ChangedField_Unverified,
-  // Unchanged: a change set named the fields this command wrote and this was not among them, or
-  // the comparison found the index already holding this value. The entry moves.
+  // Unchanged.
   ChangedField_VerifiedNo,
 } ChangedField;
 
