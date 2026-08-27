@@ -88,3 +88,5 @@ Contributions are welcome — bug fixes, improvements, and new feature proposals
 - **Security bugs and vulnerabilities:** see [`SECURITY.md`](SECURITY.md).
 
 By contributing code to this Redis module in any form, including sending a pull request via GitHub, a code fragment or patch via private email or public discussion groups, you agree to release your code under the terms of the Redis Software Grant and Contributor License Agreement. Please see the CONTRIBUTING.md file in this source distribution for more information.
+
+<!-- perf fixture (small). DO NOT MERGE. -->
