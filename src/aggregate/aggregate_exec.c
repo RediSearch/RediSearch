@@ -81,8 +81,7 @@ typedef struct {
 } blockedClientReqCtx;
 
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
-static int prepareExecutionPlan(AREQ *req, QueryError *status,
-                                bool beginClockDeadlineCycle);
+static int prepareExecutionPlan(AREQ *req, QueryError *status);
 static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 /**
@@ -1331,7 +1330,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   // Lock spec. Should be released on the BG thread by every downstream path.
   RedisSearchCtx_LockSpecRead(sctx);
 
-  if (prepareExecutionPlan(req, &status, false) != REDISMODULE_OK) {
+  if (prepareExecutionPlan(req, &status) != REDISMODULE_OK) {
     RedisSearchCtx_UnlockSpec(sctx);
     goto error;
   }
@@ -1447,10 +1446,7 @@ static int validateSortbyForDiskIndex(AREQ *req, QueryError *status) {
 
 // Assumes the spec is guarded by its own lock (for read), such that races with
 // main-thread/GC updates are avoided.
-// `beginClockDeadlineCycle` distinguishes callers whose legacy clock starts here, after taking
-// the disk snapshot, from worker execution whose cycle was already armed before queueing so queue
-// time remains part of the timeout.
-int prepareExecutionPlan(AREQ *req, QueryError *status, bool beginClockDeadlineCycle) {
+static int prepareExecutionPlan(AREQ *req, QueryError *status) {
   int rc = REDISMODULE_ERR;
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
   RSSearchOptions *opts = &req->searchopts;
@@ -1463,13 +1459,6 @@ int prepareExecutionPlan(AREQ *req, QueryError *status, bool beginClockDeadlineC
   // because the cursor read path drops the spec lock between chunks.
   if (SearchCtx_TakeDiskSnapshot(sctx, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
-  }
-
-  if (beginClockDeadlineCycle) {
-    // Preserve the inline execution boundary: waiting for the spec lock and taking the disk
-    // snapshot are not charged against the query timeout.
-    QueryRequestTimeout_BeginCycle(&req->base.timeout,
-                                   QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
   }
 
   // Refresh the expiration-time snapshot before building the iterator tree.
@@ -1932,14 +1921,19 @@ static int rejectDiskLoaderInlineExecution(AREQ *r, const RedisSearchCtx *sctx,
 
 static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *status) {
   RedisSearchCtx *sctx = AREQ_SearchCtx(r);
-  if (RunInThread(ctx)) {
-    QueryRequestTimeout_BeginCycle(
-        &r->base.timeout, r->reqConfig.timeoutPolicy == TimeoutPolicy_Return
-                              ? QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE
-                              : QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  const bool runInThread = RunInThread(ctx);
+  const RSTimeoutPolicy policy = r->reqConfig.timeoutPolicy;
+  // RETURN is detected by the pipeline. FAIL and RETURN_STRICT use the
+  // blocked-client callback when execution runs in the background.
+  const QueryRequestTimeoutKind timeoutKind =
+      runInThread && policy != TimeoutPolicy_Return
+          ? QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
+          : QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
+  QueryRequestTimeout_BeginCycle(&r->base.timeout, timeoutKind);
+
+  if (runInThread) {
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 
-    RSTimeoutPolicy policy = r->reqConfig.timeoutPolicy;
     RedisModuleCmdFunc replyCallback = NULL;
     RedisModuleCmdFunc timeoutCallback = NULL;
     rs_wall_clock_ms_t timeoutMS = 0;
@@ -1984,7 +1978,7 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     // This is released in AREQ_Free or while executing the query.
     RedisSearchCtx_LockSpecRead(sctx);
 
-    if (prepareExecutionPlan(r, status, true) != REDISMODULE_OK) {
+    if (prepareExecutionPlan(r, status) != REDISMODULE_OK) {
       CurrentThread_ClearIndexSpec();
       return REDISMODULE_ERR;
     }
@@ -2115,8 +2109,10 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   }
   // Take a read lock on the spec (to avoid conflicts with the GC).
   // released in `AREQ_Free`.
+  QueryRequestTimeout_BeginCycle(&r->base.timeout,
+                                 QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
   RedisSearchCtx_LockSpecRead(sctx);
-  if (prepareExecutionPlan(r, status, true) != REDISMODULE_OK) {
+  if (prepareExecutionPlan(r, status) != REDISMODULE_OK) {
     AREQ_Free(r);
     CurrentThread_ClearIndexSpec();
     return NULL;
