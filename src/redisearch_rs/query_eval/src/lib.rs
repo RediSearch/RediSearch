@@ -17,9 +17,8 @@
 //! `QN_UNION`, and so on — mirroring the per-node-type layout of this crate's
 //! integration tests. This module keeps what they share: the evaluator
 //! [`Config`], the [`Evaluated`] outcome type, the dispatcher and its
-//! [`qast_iterate`] entry point, and the helpers for evaluating a child node
-//! ([`eval_child_iterator`]) and for delegating an unported node to C
-//! ([`eval_node_c`]).
+//! [`qast_iterate`] entry point, and the helper for evaluating a child node
+//! ([`eval_child_iterator`]).
 
 use std::ptr::NonNull;
 
@@ -44,8 +43,8 @@ mod nodes;
 pub use config::Config;
 
 use nodes::{
-    fuzzy, geo, geometry, ids, missing, not, null, numeric, optional, phrase, prefix, token, union,
-    vector, wildcard, wildcard_query,
+    fuzzy, geo, geometry, ids, missing, not, null, numeric, optional, phrase, prefix, tag, token,
+    union, vector, wildcard, wildcard_query,
 };
 
 /// The return type of [`eval_node`]: a boxed Rust iterator that implements
@@ -62,15 +61,14 @@ pub type EvalResult<'index> = Box<dyn RQEIteratorPrintable<'index> + 'index>;
 ///
 /// - [`Evaluated::RustLeaf`] — a Rust iterator held as a trait object, not yet
 ///   lowered to the C ABI.
-/// - [`Evaluated::C`] — an iterator *built by* C, either by the
-///   [`ffi::Query_EvalNode`] dispatcher for a node type not yet ported or by a C
-///   constructor a ported node calls. Handed straight back to C so the C-side
+/// - [`Evaluated::C`] — an iterator *built by* a C constructor a ported node
+///   calls. Handed straight back to C so the C-side
 ///   optimizer/profiler keep seeing the original iterator.
 /// - [`Evaluated::RustCompound`] — an owning C-ABI handle that Rust built and
 ///   already lowered, returned as-is rather than as a trait object (see the
 ///   variant docs for the two cases that need this shape).
-// TODO: Remove this enum once all the node types have been ported to Rust
-// and C `Query_EvalNode` has been removed.
+// TODO: Remove this enum once C iterator constructors no longer return owning
+// raw handles to the evaluator.
 #[must_use = "an unconsumed `Evaluated` may leak its owning iterator handle; consume it via `into_c_iterator` or `into_boxed`"]
 pub enum Evaluated<'index> {
     /// An iterator implemented in Rust, held as a boxed trait object.
@@ -79,10 +77,8 @@ pub enum Evaluated<'index> {
     /// if and when it crosses back to C.
     RustLeaf(EvalResult<'index>),
 
-    /// An owning C iterator handle built by C: either by the
-    /// [`ffi::Query_EvalNode`] dispatcher, for a node type not yet ported to
-    /// Rust, or by a C constructor a ported node calls (e.g.
-    /// [`ffi::NewVectorIterator`]).
+    /// An owning C iterator handle built by a C constructor called by a ported
+    /// node (e.g. [`ffi::NewVectorIterator`]).
     C(NonNull<ffi::QueryIterator>),
 
     /// An owning C-ABI [`QueryIterator`](ffi::QueryIterator) handle that Rust
@@ -203,39 +199,11 @@ pub fn eval_node<'index>(
         QueryNode::Vector { vq } => vector::eval(ctx, node, vq, config),
         QueryNode::Prefix { tok, mode } => prefix::eval(ctx, &node, tok, mode, config),
         QueryNode::Fuzzy { tok, max_dist } => fuzzy::eval(ctx, &node, tok, max_dist, config),
+        QueryNode::Tag { fs } => tag::eval(ctx, node, fs, config),
         // Binds nothing, so the node stays free to be passed on by value —
         // evaluation rewrites its token.
         QueryNode::WildcardQuery { .. } => wildcard_query::eval(ctx, node, config),
-        // Node types not yet ported to Rust are delegated back to the C
-        // dispatcher.
-        _ => eval_node_c(ctx, node, config),
     }
-}
-
-/// Evaluate a not-yet-ported node by delegating to the C [`ffi::Query_EvalNode`]
-/// dispatcher, returning its C iterator as [`Evaluated::C`].
-///
-/// Returns `None` when `Query_EvalNode` produces no iterator (NULL), preserving
-/// the C semantics where some nodes (e.g. an empty expansion) yield no results.
-///
-/// Consumes `node`: the C dispatcher mutates the subtree it is given — it
-/// rewrites wildcard and prefix tokens in place — so no borrow of it may still
-/// be outstanding. Taking it by value makes the borrow checker enforce that.
-fn eval_node_c<'index>(
-    ctx: &'index mut QueryEvalContext,
-    node: QueryNodeMut<'_>,
-    config: Config,
-) -> Option<Evaluated<'index>> {
-    let q = ctx.as_non_null().as_ptr();
-    let n = node.as_non_null().as_ptr();
-    let config = (&raw const config).cast::<ffi::EvalConfig>();
-    // SAFETY: `q` comes from a live `QueryEvalContext` (a valid `QueryEvalCtx`
-    // with exclusive access, since `ctx` is `&mut`) and `n` from a live
-    // `QueryNodeMut` (a valid `RSQueryNode` we hold exclusively, so C may mutate
-    // it), satisfying `Query_EvalNode`'s contract. `config` points to a live
-    // `Config` valid for the duration of the call.
-    let it = unsafe { ffi::Query_EvalNode(q, n, config) };
-    NonNull::new(it).map(Evaluated::C)
 }
 
 /// Evaluate a child node into an owning [`CRQEIterator`] for use as a child of
