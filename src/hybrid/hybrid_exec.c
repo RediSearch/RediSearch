@@ -405,7 +405,14 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
   if (qctx->bgScanOOM) {
     RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
   }
-  if (QueryError_HasQueryOOMWarning(qctx->err)) {
+  // Fold subquery-level OOM warning bits (e.g. a shard's cursor-mapping OOM
+  // warning folded by rpnet) into the tail error: the OOM warning is
+  // query-scoped, not per-subquery, so it is emitted once here.
+  bool oomWarning = QueryError_HasQueryOOMWarning(qctx->err);
+  for (size_t i = 0; i < hreq->nrequests; ++i) {
+    oomWarning = oomWarning || QueryError_HasQueryOOMWarning(&hreq->requests[i]->base.reply.err);
+  }
+  if (oomWarning) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, COORD_ERR_WARN);
     // Cluster mode only: handled directly here instead of through handleAndReplyWarning()
     // because this warning is not related to subqueries or post-processing terminology

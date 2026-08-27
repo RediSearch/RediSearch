@@ -364,7 +364,7 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
     QueryError_SetCode(nc->base.parent->err, QUERY_ERROR_CODE_GENERIC);
     return RS_RESULT_ERROR;
   }
-  MR_StartIterator(nc->it, iterStartCb, NULL);
+  MR_StartIterator(nc->it, iterStartCb);
   return rpnetNext(rp, r);
 }
 
@@ -962,7 +962,7 @@ static int dispatchAggregateDeferred(AREQ *r, struct ConcurrentCmdCtx *cmdCtx,
   ConcurrentCmdCtx_KeepBlockedClient(cmdCtx);
   // Start the fan-out; withCountReplyCb posts executeAggregateDeferred once all
   // shard first-replies are in.
-  MR_StartIterator(nc->it, iterStartCb, NULL);
+  MR_StartIterator(nc->it, iterStartCb);
   // Release the dispatcher's StrongRef; the spec is no longer pinned across
   // the async wait. executeAggregateDeferred re-promotes iterCtx->spec_ref.
   IndexSpecRef_Release(strong_ref);
