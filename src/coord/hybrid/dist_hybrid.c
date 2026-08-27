@@ -1259,18 +1259,6 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     CurrentThread_ClearIndexSpec();
 }
 
-// A parked MR pop may be blocked on the hybrid request's own channel (setup
-// phase) or a subquery's channel (read phase); wake all of them.
-static void wakeHybridAbortChannels(HybridRequest *hreq) {
-  if (!hreq) return;
-  QueryRequestAsyncState_WakeAbortChannel(&hreq->base.async);
-  for (size_t i = 0; i < hreq->nrequests; i++) {
-    if (hreq->requests[i]) {
-      QueryRequestAsyncState_WakeAbortChannel(&hreq->requests[i]->base.async);
-    }
-  }
-}
-
 // Record a timed-out blocked hybrid request into the Redis-INFO per-stage
 // breakdown, at the stage the deadline caught it. Called exactly once per
 // blocked-client timeout callback, after the timed-out flag froze the marker.
@@ -1299,7 +1287,7 @@ int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   // The BG dispatcher may be parked in the cursor-setup wait; wake it so it
   // exits, even though this callback replies the error itself.
-  wakeHybridAbortChannels(hreq);
+  HybridRequest_WakeAbortChannels(hreq);
 
   // Reply with timeout error
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
@@ -1324,7 +1312,7 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
   // Record the per-stage breakdown at the stage the deadline caught the request.
   recordCoordHybridTimeoutStage(hreq, /*isError=*/false);
 
-  wakeHybridAbortChannels(hreq);
+  HybridRequest_WakeAbortChannels(hreq);
 
   if (HybridRequest_TryClaimAggregateResults(hreq)) {
     // We were able to claim the aggregation results.

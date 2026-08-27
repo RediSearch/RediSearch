@@ -480,6 +480,88 @@ class TestCoordinatorTimeout:
         """Teardown: Print debug info about any remaining HYBRID clients."""
         debug_print_hybrid_clients(self.env, "TestCoordinatorTimeout teardown")
 
+    def _assert_disconnect_wakes_abort_channels(self, query_args, command_name):
+        """Disconnect while every shard cursor read is parked and require cycle teardown."""
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+
+        sync_point = 'BeforeCursorReadSendChunk'
+        shard_connections = [env.getConnection(i) for i in range(1, env.shardsCount + 1)]
+        for connection in shard_connections:
+            connection.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+            connection.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+
+        free_count_before = _get_blocked_request_onfree_count(env)
+        unexpected = []
+        t_query = threading.Thread(
+            target=run_cmd_expect_disconnect,
+            args=(env, query_args, unexpected),
+            daemon=True,
+        )
+        try:
+            t_query.start()
+            for connection in shard_connections:
+                wait_for_condition(
+                    lambda connection=connection: (
+                        connection.execute_command(
+                            debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1,
+                        {},
+                    ),
+                    f'Timeout waiting for shard to park at {sync_point}',
+                )
+
+            blocked_client_id = wait_for_blocked_query_client(env, command_name)
+            env.expect('CLIENT', 'KILL', 'ID', blocked_client_id).equal(1)
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(),
+                            message=f'Disconnected {command_name} client should finish')
+            env.assertEqual(unexpected, [], message=f'Unexpected query outcome: {unexpected}')
+
+            # The shard workers remain parked, so only the disconnect wakeup can
+            # let the coordinator readers finish and release the request cycle.
+            wait_for_condition(
+                lambda: (
+                    _get_blocked_request_onfree_count(env) > free_count_before,
+                    {
+                        'before': free_count_before,
+                        'now': _get_blocked_request_onfree_count(env),
+                    },
+                ),
+                f'Disconnect did not release the blocked {command_name} request',
+                timeout=10,
+            )
+            env.assertTrue(env.isUp())
+        finally:
+            for connection in shard_connections:
+                try:
+                    connection.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+                    connection.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+                except Exception:
+                    pass
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
+
+    def test_disconnect_wakes_aggregate_abort_channel(self):
+        """A disconnected coordinator aggregate wakes its parked MR reader."""
+        self._assert_disconnect_wakes_abort_channels(
+            ['FT.AGGREGATE', 'idx', '*', 'LIMIT', '0', str(self.n_docs)],
+            'FT.AGGREGATE',
+        )
+
+    def test_disconnect_wakes_hybrid_abort_channels(self):
+        """A disconnected coordinator hybrid wakes both subqueries and its tail."""
+        self._assert_disconnect_wakes_abort_channels(
+            [
+                'FT.HYBRID', 'hybrid_idx',
+                'SEARCH', '*',
+                'VSIM', '@embedding', '$BLOB',
+                'PARAMS', '2', 'BLOB', self.hybrid_query_vec,
+            ],
+            'FT.HYBRID',
+        )
+
     def _test_fail_timeout_impl(self, query_args):
         env = self.env
 

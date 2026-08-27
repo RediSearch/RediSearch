@@ -526,6 +526,18 @@ void HybridRequest_PropagateTimeoutToSubqueries(HybridRequest *req) {
   }
 }
 
+void HybridRequest_WakeAbortChannels(HybridRequest *req) {
+  if (!req) {
+    return;
+  }
+  QueryRequestAsyncState_WakeAbortChannel(&req->base.async);
+  for (size_t i = 0; i < req->nrequests; i++) {
+    if (req->requests[i]) {
+      QueryRequestAsyncState_WakeAbortChannel(&req->requests[i]->base.async);
+    }
+  }
+}
+
 bool HybridRequest_TryClaimAggregateResults(HybridRequest *req) {
   bool expected = false;
   return atomic_compare_exchange_strong_explicit(&req->base.async.aggregatingResults, &expected,

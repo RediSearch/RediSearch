@@ -36,7 +36,11 @@ static void QueryRequest_OnDisconnect(RedisModuleCtx *ctx, RedisModuleBlockedCli
 
   QueryRequestTimeout_MarkTimedOut(&request->timeout);
   if (request->kind == QUERY_REQUEST_KIND_HYBRID) {
-    HybridRequest_PropagateTimeoutToSubqueries(QueryRequest_GetHybrid(request));
+    HybridRequest *hreq = QueryRequest_GetHybrid(request);
+    HybridRequest_PropagateTimeoutToSubqueries(hreq);
+    HybridRequest_WakeAbortChannels(hreq);
+  } else {
+    QueryRequestAsyncState_WakeAbortChannel(&request->async);
   }
 }
 
