@@ -399,8 +399,7 @@ impl TagIndex<InMemoryMode> {
         self.mode.values.n_unique_keys()
     }
 
-    /// Bytes the index's tries occupy, the `FT.INFO` overhead figure. The per-tag inverted indexes are deliberately excluded:
-    /// their bytes are accounted for in the spec's `invertedSize` statistic instead.
+    /// Bytes the index's tries occupy, the `FT.INFO` overhead figure.
     pub const fn mem_usage(&self) -> usize {
         self.mode.values.mem_usage() + self.suffix_mem_usage()
     }
