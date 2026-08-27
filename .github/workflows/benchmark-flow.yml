@@ -38,7 +38,9 @@ on:
 jobs:
   benchmark-steps:
     name: "Benchmark ${{ inputs.allowed_setups }} (${{ inputs.benchmark_runner_group_member_id }}/${{ inputs.benchmark_runner_group_total }}) filter=${{ inputs.benchmark_glob }} "
-    runs-on: ubuntu-24.04  # We need the os to be a match to the base image used in the benchmarks.
+    # 8.6 has no arch input for this job (unlike master's arch-conditional runner
+    # selection); it always targets x64 ubuntu-24.04, so only the x64 fallback applies.
+    runs-on: ${{ vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-24.04' }}  # We need the os to be a match to the base image used in the benchmarks.
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
