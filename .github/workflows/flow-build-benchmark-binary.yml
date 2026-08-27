@@ -13,7 +13,7 @@ on:
       arch:
         type: string
         default: x86_64
-        description: "CPU arch to build for. `x86_64` (default) runs on GitHub's ubuntu-24.04; `aarch64` runs on ubuntu-24.04-arm. Must match the target EC2 DB architecture at benchmark time."
+        description: "CPU arch to build for. `x86_64` runs on the medium x64 runner; `aarch64` runs on the medium ARM64 runner. Must match the target EC2 DB architecture at benchmark time."
 
 jobs:
   build:
@@ -22,7 +22,7 @@ jobs:
     # the target EC2 instance. build.sh derives the output dir from `uname -m`,
     # so we run the build natively on the matching-arch runner instead of
     # cross-compiling.
-    runs-on: ${{ inputs.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    runs-on: ${{ inputs.arch == 'aarch64' && (vars.RUNS_ON_ARM64_MEDIUM || vars.RUNS_ON_ARM || 'ubuntu-24.04-arm') || (vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-24.04') }}
     permissions:
       contents: read  # actions/checkout
       id-token: write # OIDC role assumption for sccache S3
