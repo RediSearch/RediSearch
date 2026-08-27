@@ -3580,6 +3580,9 @@ int CompareVersions(Version v1, Version v2) {
  * value against what the index is holding. This is the JSON path (RedisJSON's API cannot
  * report a change set), and also a background scan or a hash on a server without subkey
  * notifications.
+ *
+ * Nothing is marked for a disk-backed spec: the disk vector index cannot move an entry, so every
+ * field would take the delete + re-add path anyway. See the body.
  */
 static void AddDocumentCtx_MarkForRelabel(RSAddDocumentCtx *aCtx, const IndexSpec *spec,
                                            RedisModuleString **changedFields,
@@ -3588,6 +3591,14 @@ static void AddDocumentCtx_MarkForRelabel(RSAddDocumentCtx *aCtx, const IndexSpe
     return;
   }
   if (!(spec->flags & Index_HasVecSim)) {
+    return;
+  }
+  if (spec->diskSpec) {
+    // A disk-backed vector field cannot move an entry, so marking one only buys a refusal.
+    // `HNSWDiskIndex` does not implement `relabelVector` (MOD-18101), and its `getDataByLabel`
+    // exists only in test builds, so neither the change-set nor the comparison path can be
+    // served: `VectorIndex_CheckRemoveId` would read nothing, conclude "changed", and delete.
+    // Same outcome as not marking, reached after a wasted comparison per field per update.
     return;
   }
 
