@@ -330,17 +330,6 @@ fn resume_with_the_tag_untouched_reads_on() {
 /// only revalidation outcome in which a reader reads through the pointer it held
 /// across a mutation of the index.
 #[test]
-#[cfg_attr(
-    miri,
-    ignore = "the reader's stored pointer is derived from the `&self` reborrow taken in \
-              `open_reader` (a SharedReadOnly tag); the `&mut` the collector needs pops that tag \
-              under Stacked Borrows, so the re-seek reading through it is flagged as UB. The \
-              aliasing is the revalidation protocol working as designed (the same pattern the \
-              numeric iterator documents on `variant_resume` in \
-              rqe_iterators/tests/integration/inverted_index/numeric.rs) but Stacked Borrows \
-              cannot model it. The `Aborted` arm above stays in Miri's reach because it never \
-              reads through the pointer."
-)]
 fn resume_after_the_current_document_was_collected_reads_on() {
     const N: ffi::t_docId = 4;
     const COLLECTED: ffi::t_docId = 2;
@@ -394,6 +383,66 @@ fn resume_after_the_current_document_was_collected_reads_on() {
         COLLECTED + 1
     );
     assert_eq!(drain(*it), (COLLECTED + 2..=N).collect::<Vec<_>>());
+
+    // SAFETY: `allocate` allocated it; the iterator using it is gone.
+    drop(unsafe { Box::from_raw(tag_index) });
+}
+
+/// The active-side twin of
+/// [`resume_after_the_current_document_was_collected_reads_on`]: a reader that
+/// stayed live across an in-place collection revalidates to
+/// [`Moved`](RQEValidateStatus::Moved) rather than aborting, and reports the first
+/// document surviving past the collected one.
+///
+/// [`revalidate_aborts_after_gc`] covers the other arm, and is the only one that
+/// never reads through the pointer the reader held across the collection.
+#[test]
+fn revalidate_after_the_current_document_was_collected_reads_on() {
+    const N: ffi::t_docId = 4;
+    const COLLECTED: ffi::t_docId = 2;
+
+    let mock = MockContext::new(N, N as usize);
+    let (tag_index, lookup) = allocate(TagIndex::<InMemoryMode>::new(false));
+    for doc_id in 1..=N {
+        // SAFETY: `tag_index` was just allocated and is not yet aliased.
+        index_mem(unsafe { &mut *tag_index }, &[b"hello"], doc_id);
+    }
+
+    // SAFETY: `tag_index` and `mock` outlive the iterator, `tag_index` is mutated
+    // below only between revalidations, and `lookup` resolves `tag_index`.
+    let mut it = unsafe {
+        (*tag_index).open_reader(mock.sctx(), as_tag(b"hello"), 1.0, FIELD_INDEX, lookup)
+    }
+    .expect("the tag is indexed");
+    // Park the reader exactly on the document about to be collected, the position
+    // the revalidation has to recover from.
+    for _ in 1..=COLLECTED {
+        it.read().expect("read must not error");
+    }
+    assert_eq!(it.last_doc_id(), COLLECTED);
+
+    // SAFETY: the iterator is untouched during the mutation, per the revalidation
+    // protocol.
+    let info = gc_mem(unsafe { &mut *tag_index }, b"hello", |d| d != COLLECTED);
+    assert_eq!(
+        info.entries_removed, 1,
+        "only the document parked on must have been collected"
+    );
+
+    let status = it
+        .revalidate(&mock.spec_read())
+        .expect("revalidate must not error");
+    let RQEValidateStatus::Moved { current } = status else {
+        panic!("an in-place collection leaves the index the reader holds, so it cannot abort")
+    };
+    assert_eq!(
+        current
+            .expect("the collected document has a successor to land on")
+            .doc_id,
+        COLLECTED + 1
+    );
+
+    assert_eq!(drain(it), (COLLECTED + 2..=N).collect::<Vec<_>>());
 
     // SAFETY: `allocate` allocated it; the iterator using it is gone.
     drop(unsafe { Box::from_raw(tag_index) });
