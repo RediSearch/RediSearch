@@ -81,8 +81,7 @@ typedef struct {
 } blockedClientReqCtx;
 
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
-static int prepareExecutionPlan(AREQ *req, QueryError *status,
-                                bool beginClockDeadlineCycle);
+static int prepareExecutionPlan(AREQ *req, QueryError *status);
 static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 /**
@@ -272,15 +271,16 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       RedisModule_Reply_Null(reply);
     } else {
       // Get the number of fields in the reply.
-      // Excludes hidden fields, fields not included in RETURN and, score and language fields.
-      RedisSearchCtx *sctx = AREQ_SearchCtx(req);
-      SchemaRule *rule = (sctx && sctx->spec) ? sctx->spec->rule : NULL;
+      // Excludes hidden fields and fields not included in RETURN. The schema
+      // rule's special fields (score/language/payload) are hidden from
+      // creation (see the spec cache's rule names), so this path never touches
+      // the spec — it may already be gone by reply time.
       uint32_t excludeFlags = RLOOKUP_F_HIDDEN;
       uint32_t requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
       size_t skipFieldIndex_len = RLookup_GetRowLen(lk);
       bool skipFieldIndex[skipFieldIndex_len]; // After calling `RLookup_GetLength` will contain `false` for fields which we should skip below
       memset(skipFieldIndex, 0, skipFieldIndex_len * sizeof(*skipFieldIndex));
-      size_t nfields = RLookup_GetLength(lk, SearchResult_GetRowData(r), skipFieldIndex, skipFieldIndex_len, requiredFlags, excludeFlags, rule);
+      size_t nfields = RLookup_GetLength(lk, SearchResult_GetRowData(r), skipFieldIndex, skipFieldIndex_len, requiredFlags, excludeFlags);
 
       RedisModule_Reply_Map(reply);
       int i = 0;
@@ -297,7 +297,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
         SendReplyFlags flags = (reqFlags & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
         flags |= (reqFlags & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
 
-        unsigned int apiVersion = sctx->apiVersion;
+        unsigned int apiVersion = AREQ_SearchCtx(req)->apiVersion;
         if (RSValue_IsTrio(v)) {
         // Which value to use for duo value
         if (!(flags & SENDREPLY_FLAG_EXPAND)) {
@@ -454,6 +454,15 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
   // is attributed to the REPLY stage.
   if (*rc != RS_RESULT_TIMEDOUT) {
     AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_REPLY);
+  }
+
+  // Refresh the background-scan-OOM capture now that the pipeline has drained:
+  // the reply path reads only the capture (it may run after the last strong
+  // spec reference is gone), so this is its freshest legal read.
+  RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+  if (sctx->spec) {
+    AREQ_QueryProcessingCtx(req)->bgScanOOM |=
+        RS_AtomicBoolLoadRelaxed(&sctx->spec->scan_failed_OOM);
   }
 }
 
@@ -672,8 +681,7 @@ static void trackWarnings_Resp2(AREQ *req, QueryProcessingCtx *qctx, int rc) {
     ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
   }
 
-  RedisSearchCtx *sctx = AREQ_SearchCtx(req);
-  if (sctx->spec && sctx->spec->scan_failed_OOM) {
+  if (qctx->bgScanOOM) {
     ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
   }
 }
@@ -841,11 +849,12 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
 static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
-  RedisSearchCtx *sctx = AREQ_SearchCtx(req);
   ProfilePrinterCtx *profileCtx = &req->profileCtx;
   RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
-  // qctx->bgScanOOM for coordinator, sctx->spec->scan_failed_OOM for shards
-  if ((qctx->bgScanOOM)||(sctx->spec && sctx->spec->scan_failed_OOM)) {
+  // bgScanOOM: set from shard replies on the coordinator (RPNet), captured from
+  // the spec's scan_failed_OOM on shards while a strong reference is held. The
+  // reply path must not read the spec — it may outlive the last strong ref.
+  if (qctx->bgScanOOM) {
     RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
   }
@@ -1148,8 +1157,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     RedisModule_Reply_ArrayEnd(reply);
 
     // Add BG_SCAN_OOM warning to profile context if applicable
-    RedisSearchCtx *sctx = AREQ_SearchCtx(req);
-    if (sctx && sctx->spec && sctx->spec->scan_failed_OOM) {
+    if (AREQ_QueryProcessingCtx(req)->bgScanOOM) {
       ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
     }
 
@@ -1194,8 +1202,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     }
 
     // Add BG_SCAN_OOM warning to profile context if applicable
-    RedisSearchCtx *sctx = AREQ_SearchCtx(req);
-    if (sctx && sctx->spec && sctx->spec->scan_failed_OOM) {
+    if (AREQ_QueryProcessingCtx(req)->bgScanOOM) {
       ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
     }
 
@@ -1323,7 +1330,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   // Lock spec. Should be released on the BG thread by every downstream path.
   RedisSearchCtx_LockSpecRead(sctx);
 
-  if (prepareExecutionPlan(req, &status, false) != REDISMODULE_OK) {
+  if (prepareExecutionPlan(req, &status) != REDISMODULE_OK) {
     RedisSearchCtx_UnlockSpec(sctx);
     goto error;
   }
@@ -1375,74 +1382,9 @@ cleanup:
   blockedClientReqCtx_destroy(BCRctx);
 }
 
-/**
- * Validate SORTBY for disk indexes.
- * In disk/flex mode, FT.SEARCH SORTBY is only allowed on vector score
- * (distance) fields. FT.AGGREGATE SORTBY is unrestricted (sort keys load via
- * the disk async loader).
- * Must be called after QAST_Iterate so that metricRequests is populated.
- *
- * Current flex assumptions (asserted):
- * - FT.SEARCH allows only a single SORTBY field
- * - KNN is allowed only once per query, yielding a single vector score field
- *
- * @param req The AREQ to validate
- * @param status Error details set here
- * @return REDISMODULE_OK if valid, REDISMODULE_ERR otherwise
- */
-static int validateSortbyForDiskIndex(AREQ *req, QueryError *status) {
-  // Skip validation if disk is not enabled
-  if (!SearchDisk_IsEnabledForValidation()) {
-    return REDISMODULE_OK;
-  }
-
-  // SORTBY in aggregations is allowed on disk: the arrange step loads the sort
-  // keys through the disk async loader. The restriction (and the single-field
-  // asserts) below apply to FT.SEARCH only, so this early-return must precede
-  // them — a multi-field aggregate SORTBY would trip the asserts.
-  if (IsAggregate(req)) {
-    return REDISMODULE_OK;
-  }
-
-  // Skip if no SORTBY
-  if (!HasSortBy(req)) {
-    return REDISMODULE_OK;
-  }
-
-  // If HasSortBy is true, arrange step and sortKeys must exist
-  PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
-  RS_LOG_ASSERT(arng && arng->sortKeys && array_len(arng->sortKeys) == 1,
-                "Flex mode expects exactly one SORTBY field");
-
-  // Get the metric requests from the AST (vector score fields)
-  MetricRequest *metricRequests = req->ast.metricRequests;
-  size_t numMetrics = array_len(metricRequests);
-
-  // In flex mode, KNN is allowed only once, so at most one vector score field
-  RS_LOG_ASSERT(numMetrics <= 1, "Flex mode expects at most one vector score field");
-
-  // If there's no vector score field, or the sort key doesn't match it, block
-  const char *sortKey = arng->sortKeys[0];
-  bool isVectorScoreField = (numMetrics == 1) &&
-                            metricRequests[0].metric_name &&
-                            (strcasecmp(sortKey, metricRequests[0].metric_name) == 0);
-
-  if (!isVectorScoreField) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_ARGUMENT,
-      "SORTBY in Redis Flex is restricted to sorting results by vector distance in vector queries. "
-      "Otherwise, results are always sorted by the default document score.");
-    return REDISMODULE_ERR;
-  }
-
-  return REDISMODULE_OK;
-}
-
 // Assumes the spec is guarded by its own lock (for read), such that races with
 // main-thread/GC updates are avoided.
-// `beginClockDeadlineCycle` distinguishes callers whose legacy clock starts here, after taking
-// the disk snapshot, from worker execution whose cycle was already armed before queueing so queue
-// time remains part of the timeout.
-int prepareExecutionPlan(AREQ *req, QueryError *status, bool beginClockDeadlineCycle) {
+static int prepareExecutionPlan(AREQ *req, QueryError *status) {
   int rc = REDISMODULE_ERR;
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
   RSSearchOptions *opts = &req->searchopts;
@@ -1455,13 +1397,6 @@ int prepareExecutionPlan(AREQ *req, QueryError *status, bool beginClockDeadlineC
   // because the cursor read path drops the spec lock between chunks.
   if (SearchCtx_TakeDiskSnapshot(sctx, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
-  }
-
-  if (beginClockDeadlineCycle) {
-    // Preserve the inline execution boundary: waiting for the spec lock and taking the disk
-    // snapshot are not charged against the query timeout.
-    QueryRequestTimeout_BeginCycle(&req->base.timeout,
-                                   QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
   }
 
   // Refresh the expiration-time snapshot before building the iterator tree.
@@ -1489,12 +1424,6 @@ int prepareExecutionPlan(AREQ *req, QueryError *status, bool beginClockDeadlineC
   }
 
   if (QueryError_HasError(status)) {
-    return REDISMODULE_ERR;
-  }
-
-  // Validate SORTBY for disk indexes - must be after QAST_Iterate so that
-  // vector score field names are populated in metricRequests
-  if (validateSortbyForDiskIndex(req, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
@@ -1787,7 +1716,7 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
 }
 
 // Shard FT.CURSOR READ FAIL-path timeout callback. Mirrors
-// QueryTimeoutFailCallback but uses a different privdata type (BlockedCursorNode).
+// QueryTimeoutFailCallback but runs a cursor cycle.
 // Can be consolidated with QueryTimeoutFailCallback - See MOD-15038.
 static int CursorReadTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
@@ -1884,14 +1813,36 @@ static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv
   return REDISMODULE_OK;
 }
 
+// FT.SEARCH SORTBY on a schema field puts the async loader in the pipeline:
+// the arrange step loads any sort key missing from the lookup, and flex has
+// no SORTABLE fields to make one unnecessary. Vector-distance keys are
+// written into the lookup by the iterator, and count-only searches
+// short-circuit the arrange step with a counter — neither loads.
+static bool searchSortbyNeedsLoader(AREQ *r, const IndexSpec *spec) {
+  if (IsCount(r)) {
+    return false;
+  }
+  PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(r));
+  if (!arng) {
+    return false;
+  }
+  for (size_t i = 0; i < array_len(arng->sortKeys); i++) {
+    const char *key = arng->sortKeys[i];
+    if (IndexSpec_GetFieldWithLength(spec, key, strlen(key))) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Reject disk (flex) requests whose pipeline would carry the async loader when
  * execution is about to happen inline on the main thread: the loader blocks on
  * prefetch completions delivered by the main thread, so inline execution would
  * deadlock. Aggregations nearly always load fields, so all of them are
  * rejected (a predictable error beats a plan-shape-dependent one); searches
- * load fields unless NOCONTENT / RETURN 0 was given, so those stay usable in
- * MULTI/Lua.
+ * load fields unless NOCONTENT / RETURN 0 was given without a schema-field
+ * SORTBY, so those stay usable in MULTI/Lua.
  *
  * Returns REDISMODULE_ERR with `status` set (thread-local spec cleared) when
  * the request must be rejected, REDISMODULE_OK otherwise.
@@ -1905,6 +1856,11 @@ static int rejectDiskLoaderInlineExecution(AREQ *r, const RedisSearchCtx *sctx,
   if (IsAggregate(r)) {
     error = "FT.AGGREGATE in a context that cannot block (MULTI/EXEC or Lua "
             "scripts) is not supported in Redis Flex";
+  } else if (IsSearch(r) && searchSortbyNeedsLoader(r, sctx->spec)) {
+    // Precedes the field-return check: NOCONTENT/RETURN 0 is not a sufficient
+    // workaround when a sort key still has to load.
+    error = "FT.SEARCH with SORTBY on a schema field in a context that cannot "
+            "block (MULTI/EXEC or Lua scripts) is not supported in Redis Flex";
   } else if (IsSearch(r) &&
              (!(AREQ_RequestFlags(r) & QEXEC_F_SEND_NOFIELDS) ||
               AGPLN_FindStep(AREQ_AGGPlan(r), NULL, NULL, PLN_T_LOAD))) {
@@ -1924,14 +1880,19 @@ static int rejectDiskLoaderInlineExecution(AREQ *r, const RedisSearchCtx *sctx,
 
 static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *status) {
   RedisSearchCtx *sctx = AREQ_SearchCtx(r);
-  if (RunInThread(ctx)) {
-    QueryRequestTimeout_BeginCycle(
-        &r->base.timeout, r->reqConfig.timeoutPolicy == TimeoutPolicy_Return
-                              ? QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE
-                              : QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  const bool runInThread = RunInThread(ctx);
+  const RSTimeoutPolicy policy = r->reqConfig.timeoutPolicy;
+  // RETURN is detected by the pipeline. FAIL and RETURN_STRICT use the
+  // blocked-client callback when execution runs in the background.
+  const QueryRequestTimeoutKind timeoutKind =
+      runInThread && policy != TimeoutPolicy_Return
+          ? QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
+          : QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
+  QueryRequestTimeout_BeginCycle(&r->base.timeout, timeoutKind);
+
+  if (runInThread) {
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 
-    RSTimeoutPolicy policy = r->reqConfig.timeoutPolicy;
     RedisModuleCmdFunc replyCallback = NULL;
     RedisModuleCmdFunc timeoutCallback = NULL;
     rs_wall_clock_ms_t timeoutMS = 0;
@@ -1950,7 +1911,7 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     }
 
     RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(
-        ctx, spec_ref, &r->base, replyCallback, timeoutCallback, timeoutMS);
+        ctx, &r->base, replyCallback, timeoutCallback, timeoutMS);
     blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
     // Mark the request as thread safe, so that the pipeline will be built in a thread safe manner
     AREQ_AddRequestFlags(r, QEXEC_F_RUN_IN_BACKGROUND);
@@ -1976,7 +1937,7 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     // This is released in AREQ_Free or while executing the query.
     RedisSearchCtx_LockSpecRead(sctx);
 
-    if (prepareExecutionPlan(r, status, true) != REDISMODULE_OK) {
+    if (prepareExecutionPlan(r, status) != REDISMODULE_OK) {
       CurrentThread_ClearIndexSpec();
       return REDISMODULE_ERR;
     }
@@ -2098,13 +2059,19 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     return NULL;
   }
   RedisSearchCtx *sctx = AREQ_SearchCtx(r);
-  bool useClockDeadline = r->reqConfig.queryTimeoutMS > 0 &&
-                          (r->reqConfig.timeoutPolicy == TimeoutPolicy_Return ||
-                           !RunInThread(ctx));
+  // EXPLAIN always builds the plan inline, so it cannot use the blocked-client
+  // callback required by RETURN_STRICT.
+  if (r->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+    r->reqConfig.timeoutPolicy = TimeoutPolicy_Return;
+    QueryRequestTimeout_UpdateConfig(&r->base.timeout, r->reqConfig.timeoutPolicy,
+                                     r->reqConfig.queryTimeoutMS);
+  }
   // Take a read lock on the spec (to avoid conflicts with the GC).
   // released in `AREQ_Free`.
+  QueryRequestTimeout_BeginCycle(&r->base.timeout,
+                                 QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
   RedisSearchCtx_LockSpecRead(sctx);
-  if (prepareExecutionPlan(r, status, useClockDeadline) != REDISMODULE_OK) {
+  if (prepareExecutionPlan(r, status) != REDISMODULE_OK) {
     AREQ_Free(r);
     CurrentThread_ClearIndexSpec();
     return NULL;
@@ -2355,7 +2322,7 @@ static int cursorReadDispatchTaken(RedisModuleCtx *ctx, Cursor *cursor, long lon
       RedisModule_BlockClient(ctx, reply_cb, timeout_cb, QueryRequest_OnFree, timeout_ms);
   // Safe against the just-armed timer: the timeout callback runs on this same
   // thread.
-  QueryRequest_BeginCycle(&req->base, bc, reply_cb);
+  QueryRequest_BeginCursorCycle(&req->base, bc, reply_cb);
   // Publish the cycle's cursor handle (see BlockCursorClientWithTimeout).
   req->base.cursorInfo.cursor = cursor;
   // Cursor cycles reuse the request across reads: reset the per-read
@@ -2509,11 +2476,6 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     // without one (single-cursor hybrid) are not user-reachable.
     AREQ *req = Cursor_AREQ(cursor);
     RS_ASSERT(req != NULL);
-    // Reused cursor AREQ: a prior read left the marker at PIPELINE/REPLY, so
-    // reset it to QUEUE for the queued re-read; the BG job advances it back
-    // to PIPELINE at pickup. (A timed-out RETURN_STRICT read depletes its
-    // cursor, so the freeze cannot swallow this store on a live cursor.)
-    AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_QUEUE);
     RedisModuleCmdFunc replyCallback = NULL;
     RedisModuleCmdFunc timeoutCallback = NULL;
     rs_wall_clock_ms_t timeoutMS = 0;
@@ -2541,6 +2503,11 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     QueryRequestTimeout_BeginCycle(
         &req->base.timeout, replyCallback ? QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
                                           : QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+    // Reused cursor AREQ: a prior read left the marker at PIPELINE/REPLY, so
+    // reset it to QUEUE after selecting the new cycle's source; the BG job
+    // advances it back to PIPELINE at pickup. A timed-out RETURN_STRICT read
+    // depletes its cursor, so the freeze cannot swallow this store on a live cursor.
+    AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_QUEUE);
     return cursorReadDispatchTaken(ctx, cursor, count, replyCallback, timeoutCallback, timeoutMS,
                                    DIST_THREADPOOL);
   }
@@ -2550,11 +2517,6 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     // the blocked-client timer with reply/timeout callbacks.
     AREQ *req = Cursor_AREQ(cursor);
     RS_ASSERT(req != NULL);
-    // Reused cursor AREQ: a prior read left the marker at PIPELINE/REPLY, so reset
-    // it to QUEUE for the queued re-read; cursorRead_ctx advances it back to
-    // PIPELINE at pickup. (A timed-out RETURN_STRICT read depletes its cursor, so
-    // the freeze cannot swallow this store on a live cursor.)
-    AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_QUEUE);
     RedisModuleCmdFunc replyCallback = NULL;
     RedisModuleCmdFunc timeoutCallback = NULL;
     rs_wall_clock_ms_t timeoutMS = 0;
@@ -2582,8 +2544,13 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     QueryRequestTimeout_BeginCycle(
         &req->base.timeout, replyCallback ? QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
                                           : QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+    // Reused cursor AREQ: a prior read left the marker at PIPELINE/REPLY, so
+    // reset it to QUEUE after selecting the new cycle's source; cursorRead_ctx
+    // advances it back to PIPELINE at pickup. A timed-out RETURN_STRICT read
+    // depletes its cursor, so the freeze cannot swallow this store on a live cursor.
+    AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_QUEUE);
     CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
-    cr_ctx->bc = BlockCursorClientWithTimeout(ctx, cursor, count, &req->base, replyCallback,
+    cr_ctx->bc = BlockCursorClientWithTimeout(ctx, cursor, &req->base, replyCallback,
                                               timeoutCallback, timeoutMS);
     cr_ctx->cursor = cursor;
     cr_ctx->count = count;
@@ -2649,15 +2616,21 @@ int RSCursorProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   // `FT.PROFILE ... WITHCURSOR` is rejected before a cursor is created, and such a
   // cursor always carries the spec ref that the promotion below needs.
   RS_ASSERT(cursor_HasSpecWeakRef(cursor));
-  // Check if the spec is still valid
+  // Check if the spec is still valid. The promotion pins the spec until the
+  // release below; `spec` is valid exactly within that window.
   StrongRef execution_ref = IndexSpecRef_Promote(cursor->spec_ref);
-  if (!StrongRef_Get(execution_ref)) {
+  IndexSpec *spec = StrongRef_Get(execution_ref);
+  if (!spec) {
     // The index was dropped while the cursor was idle.
     // Notify the client that the query was aborted.
     RedisModule_ReplyWithError(ctx, "The index was dropped while the cursor was idle");
   } else {
     QueryError status = QueryError_Default();
     AREQ_QueryProcessingCtx(req)->err = &status;
+    // Refresh the background-scan-OOM capture under the held execution
+    // reference; the reply path reads only the capture.
+    AREQ_QueryProcessingCtx(req)->bgScanOOM |=
+        RS_AtomicBoolLoadRelaxed(&spec->scan_failed_OOM);
     // Cursor is freed below; signal cursor exhaustion to the client.
     req->base.cursorInfo.id = 0;
     sendChunk_ReplyOnly_EmptyResults(ctx, req);

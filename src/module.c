@@ -67,6 +67,7 @@
 #include "info/global_stats.h"
 #include "fast_float/fast_float_strtod.h"
 #include "aggregate/aggregate_debug.h"
+#include "info/info_redis/block_client.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/threads/main_thread.h"
 #include "legacy_types.h"
@@ -1948,10 +1949,6 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   workersThreadPool_Drain(RSDummyContext, 0);
   workersThreadPool_Destroy();
 
-  // At this point, the thread local storage is no longer needed, since all threads
-  // finished their work.
-  MainThread_DestroyBlockedQueries();
-
   if (legacySpecDict) {
     dictRelease(legacySpecDict);
     legacySpecDict = NULL;
@@ -1965,7 +1962,15 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   CleanPool_ThreadPoolDestroy();
   ReindexPool_ThreadPoolDestroy();
   ConcurrentSearch_ThreadPoolDestroy();
+
+  // Only after every pool whose cycles register in BlockedQueries has stopped
+  // (the workers pool above and the coordinator pool just now): no new cycle
+  // can link in after this point, so the unlink-only unwind leaves the
+  // registry permanently empty for MainThread_DestroyBlockedQueries below.
+  BlockedQueries_UnwindCycles();
   MR_FreeCluster();
+
+  MainThread_DestroyBlockedQueries();
 
   // free global structures
   Extensions_Free();

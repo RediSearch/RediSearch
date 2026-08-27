@@ -228,7 +228,6 @@ static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *
     newCmd.rootCommand = root;
 
     newCmd.targetShard = cmd->targetShard;
-    newCmd.targetShardIdx = cmd->targetShardIdx;
     cmd->targetShard = NULL; // transfer ownership
     newCmd.protocol = cmd->protocol;
     newCmd.forCursor = cmd->forCursor;

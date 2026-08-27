@@ -9,19 +9,21 @@
 
 use fork_gc::{
     ForkGC,
-    existing_docs::{collect_existing_docs, handle_existing_docs},
     io_result_ext::IoResultExt,
+    terms::{collect_terms, handle_terms},
 };
 use index_spec::IndexSpecReadGuard;
 
 use crate::{FGCError, util::into_fgc_error};
 
-/// Collect GC delta data for the spec's `existingDocs` inverted index and
-/// send it to the parent process over the pipe.
+/// Collect GC delta data for every term in the spec's terms trie and send it
+/// to the parent process over the pipe.
 ///
-/// If the spec has no existing-docs index, or the scan produces no delta,
-/// only the terminator is sent.  Otherwise an empty header followed by the
-/// serialised GC delta is sent before the terminator.
+/// Walks the terms trie, and for each term with a non-null `InvertedIndex`
+/// attempts a GC scan. When a scan produces a delta the term header (its raw
+/// bytes) followed by the serialised GC delta is sent. Terms that produce no
+/// delta or fail the scan are skipped. A terminator is sent once every term
+/// has been processed.
 ///
 /// Any write failure, such as a closed fd or a broken pipe, terminates the
 /// child process via `RedisModule_ExitFromChild`.
@@ -34,7 +36,7 @@ use crate::{FGCError, util::into_fgc_error};
 /// 3. `sctx.spec` must be a non-null pointer to a valid [`ffi::IndexSpec`].
 /// 4. This function should only be called when it has exclusive access to the [`ffi::IndexSpec`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FGC_childCollectExistingDocs(
+pub unsafe extern "C" fn FGC_childCollectTerms(
     gc: *mut ffi::ForkGC,
     sctx: *mut ffi::RedisSearchCtx,
 ) {
@@ -50,24 +52,26 @@ pub unsafe extern "C" fn FGC_childCollectExistingDocs(
     // then forks and the child has only one thread with exclusive access to the index spec.
     let guard = unsafe { IndexSpecReadGuard::from_locked(spec) };
 
-    collect_existing_docs(&mut fgc.writer(), &guard).unwrap_or_exit();
+    collect_terms(&mut fgc.writer(), &guard).unwrap_or_exit();
 }
 
-/// Receive and apply the GC delta for the spec's `existingDocs` inverted index.
+/// Receive and apply the GC delta for one term in the spec's terms trie.
 ///
-/// Reads one protocol frame from the pipe. Returns [`FGCError::Done`] when
-/// the child sent no data (index absent or nothing to collect),
-/// [`FGCError::Collected`] after successfully applying a delta, or an
-/// error variant on pipe or spec failure.
+/// Reads one protocol frame from the pipe. Returns [`FGCError::Collected`] after
+/// successfully applying a delta, [`FGCError::Done`] when the child sent a
+/// terminator (all terms processed), or an error variant on pipe or spec failure.
+///
+/// Called in a loop (via `COLLECT_FROM_CHILD`) until it returns something other
+/// than [`FGCError::Collected`].
 ///
 /// # Safety
 ///
 /// 1. `gc` must point to a valid [`ffi::ForkGC`], with no other reference to it
 ///    alive for the duration of this call.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn FGC_parentHandleExistingDocs(gc: *mut ffi::ForkGC) -> FGCError {
+pub unsafe extern "C" fn FGC_parentHandleTerms(gc: *mut ffi::ForkGC) -> FGCError {
     // SAFETY: caller guarantees (1).
     let fgc = unsafe { ForkGC::from_ptr_mut(gc) };
 
-    into_fgc_error(handle_existing_docs(fgc), "existing docs")
+    into_fgc_error(handle_terms(fgc), "terms")
 }
