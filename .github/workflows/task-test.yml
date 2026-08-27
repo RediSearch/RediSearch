@@ -151,12 +151,16 @@ jobs:
       (!needs.get-config.outputs.ec2_image_id || needs.start-runner.result == 'success') &&
       (inputs.standalone || inputs.coordinator || inputs.unit-tests)
     runs-on: ${{ needs.get-config.outputs.ec2_image_id && needs.start-runner.outputs.label || needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-24.04' }}
+    # Runner-local env is unavailable while GitHub creates the job container.
+    # Use the resolved runner label as the pre-container signal for GitHub-hosted
+    # mounts; runner-local env is not available yet.
     container: ${{
       needs.get-config.outputs.container
         && fromJSON(
-          format('{{"image":"{0}","options":"--user root -v /usr/share/dotnet:/host_usr/dotnet -v /usr/local/lib/android:/host_usr/android -v /opt/ghc:/host_opt/ghc -v /opt/hostedtoolcache:/host_opt/hostedtoolcache {1}"}}',
+          format('{{"image":"{0}","options":"--user root {1} {2}"}}',
             needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container,
-            needs.get-config.outputs.container == 'alpine:3.22' && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '')
+            needs.get-config.outputs.container == 'alpine:3.22' && (startsWith(needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-24.04', 'ubuntu') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '-v /opt/gha-alpine-node:/opt:rw -v /opt/gha-alpine-node:/__e/node20:ro -v /opt/gha-alpine-node:/__e/node24:ro') || '',
+            startsWith(needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-24.04', 'ubuntu') && '-v /usr/share/dotnet:/host/usr/share/dotnet -v /usr/local/lib/android:/host/usr/local/lib/android -v /opt/ghc:/host/opt/ghc -v /opt/hostedtoolcache:/host/opt/hostedtoolcache' || '')
         )
       || null }}
 
@@ -169,65 +173,13 @@ jobs:
         shell: sh -l -eo pipefail {0}
         run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
 
-      - name: Free up disk space (container)
-        # For container jobs - delete mounted host directories
-        if: ${{ needs.get-config.outputs.container }}
-        run: |
-          echo "Before cleanup:"
-          df -h
-          rm -rf /host_usr/dotnet/* 2>/dev/null || true
-          rm -rf /host_usr/android/* 2>/dev/null || true
-          rm -rf /host_opt/ghc/* 2>/dev/null || true
-          rm -rf /host_opt/hostedtoolcache/CodeQL/* 2>/dev/null || true
-          echo "After cleanup:"
-          df -h
-      - name: Free up disk space (non-container)
-        # For non-container jobs - delete directly with sudo
-        # Skip macOS - it doesn't have these directories
-        if: ${{ !needs.get-config.outputs.container && !contains(needs.get-config.outputs.env, 'macos') }}
-        run: |
-          echo "Before cleanup:"
-          df -h
-          sudo rm -rf /usr/share/dotnet || true
-          sudo rm -rf /usr/local/lib/android || true
-          sudo rm -rf /opt/ghc || true
-          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
-          sudo rm -rf /usr/local/share/boost || true
-          docker system prune -af 2>/dev/null || true
-          echo "After cleanup:"
-          df -h
-      - name: Fix HOME Directory
-        if: ${{ needs.build-image.outputs.succeeded == 'true' && needs.get-config.outputs.container }}
-        shell: bash
-        run: |
-          # Issue [HOME is overridden for containers](https://github.com/actions/runner/issues/863)
-          h=$(getent passwd "$(id -un)" | cut -d: -f6)
-          if [ "$h" = "$HOME" ]; then
-            echo "HOME fine: $HOME"
-            exit 0
-          fi
-          echo "HOME=$HOME was broken. Setting it to $h"
-          ls -ld "$HOME"
-          ls -ld "$h"
-          echo "USER: $USER"
-          echo "id: $(id)"
-          echo "HOME=$h" >> "$GITHUB_ENV"
-
-      - name: Disable automatic apt updates (self-hosted Linux)
-        if: ${{ needs.get-config.outputs.ec2_image_id && !needs.get-config.outputs.container && !contains(needs.get-config.outputs.env, 'macos') }}
-        run: |
-          echo "Disabling apt auto-update services on self-hosted runner..."
-          sudo systemctl stop apt-daily.timer apt-daily.service apt-daily-upgrade.timer apt-daily-upgrade.service unattended-upgrades.service 2>/dev/null || true
-          sudo systemctl disable apt-daily.timer apt-daily-upgrade.timer unattended-upgrades.service 2>/dev/null || true
-          sudo systemctl mask apt-daily.service apt-daily-upgrade.service unattended-upgrades.service 2>/dev/null || true
-          sudo pkill -f "apt.systemd.daily" || true
-          sudo pkill -f "unattended-upgrade" || true
-
       - name: Setup Dependencies
         if: needs.build-image.outputs.succeeded != 'true' && needs.get-config.outputs.setup_script
         run: ${{ format(env.SETUP_RETRY_LOOP, needs.get-config.outputs.setup_script) }}
 
       - name: Post-setup
+        # Alpine's post_setup_script disguises the container as non-Alpine so
+        # actions/checkout's JS action works; it must run before checkout.
         if: needs.get-config.outputs.post_setup_script
         run: ${{ needs.get-config.outputs.post_setup_script }}
       - name: Get Installation Mode
@@ -292,6 +244,36 @@ jobs:
               exit 1
               ;;
           esac
+
+      - name: Free up disk space
+        uses: ./.github/actions/github-hosted-runner-cleanup
+      - name: Fix HOME Directory
+        if: ${{ needs.build-image.outputs.succeeded == 'true' && needs.get-config.outputs.container }}
+        shell: bash
+        run: |
+          # Issue [HOME is overridden for containers](https://github.com/actions/runner/issues/863)
+          h=$(getent passwd "$(id -un)" | cut -d: -f6)
+          if [ "$h" = "$HOME" ]; then
+            echo "HOME fine: $HOME"
+            exit 0
+          fi
+          echo "HOME=$HOME was broken. Setting it to $h"
+          ls -ld "$HOME"
+          ls -ld "$h"
+          echo "USER: $USER"
+          echo "id: $(id)"
+          echo "HOME=$h" >> "$GITHUB_ENV"
+
+      - name: Disable automatic apt updates (self-hosted Linux)
+        if: ${{ needs.get-config.outputs.ec2_image_id && !needs.get-config.outputs.container && !contains(needs.get-config.outputs.env, 'macos') }}
+        run: |
+          echo "Disabling apt auto-update services on self-hosted runner..."
+          sudo systemctl stop apt-daily.timer apt-daily.service apt-daily-upgrade.timer apt-daily-upgrade.service unattended-upgrades.service 2>/dev/null || true
+          sudo systemctl disable apt-daily.timer apt-daily-upgrade.timer unattended-upgrades.service 2>/dev/null || true
+          sudo systemctl mask apt-daily.service apt-daily-upgrade.service unattended-upgrades.service 2>/dev/null || true
+          sudo pkill -f "apt.systemd.daily" || true
+          sudo pkill -f "unattended-upgrade" || true
+
       - name: Print CPU information
         env:
           RUNNER_ARCH: ${{ runner.arch }}
