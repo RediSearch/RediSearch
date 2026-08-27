@@ -16,10 +16,6 @@
 // Rust type name `RSQueryNode` as a bare reference, so we surface a matching
 // typedef here for the C compiler.
 typedef struct RSQueryNode RSQueryNode;
-// `AREQ` is defined in `aggregate/aggregate.h`, a heavy header we avoid pulling
-// in here. `QAST_Iterate` only takes an `AREQ *`, so a forward typedef (matching
-// the full `typedef struct AREQ { ... } AREQ;` definition) is sufficient.
-typedef struct AREQ AREQ;
 
 
 typedef struct QueryError QueryError;
@@ -53,7 +49,6 @@ extern "C" {
  * 3. `sctx` must be a non-null pointer to a [valid] [`RedisSearchCtx`] whose
  *    `spec` is a [valid], non-null [`IndexSpec`](ffi::IndexSpec).
  * 4. `status` must be a non-null pointer to a [valid] [`QueryError`].
- * 5. `areq`, when non-null, must point to a [valid] [`AREQ`].
  *
  * Together these are exactly the invariants documented on
  * [`QueryEvalContext::new`] for the assembled context, which remains [valid] for
@@ -61,7 +56,7 @@ extern "C" {
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-QueryIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx, uint32_t reqflags, AREQ *areq, QueryError *status);
+QueryIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx, uint32_t reqflags, QueryError *status);
 
 /**
  * Evaluate a single query AST node, producing the corresponding

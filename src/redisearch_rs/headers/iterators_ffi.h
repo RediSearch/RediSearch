@@ -20,10 +20,6 @@
 // In C, timespec is a struct tag, not a typedef. Rust's libc::timespec maps to
 // the bare name, so we introduce a typedef to make it valid C.
 typedef struct timespec timespec;
-// `AREQ` is forward-declared as a struct tag in `query.h` (above) but its
-// typedef lives in `aggregate/aggregate.h`. cheadergen emits `*mut ffi::AREQ`
-// as the bare `AREQ *`, so we surface the typedef here for the C compiler.
-typedef struct AREQ AREQ;
 
 
 /**
@@ -273,7 +269,7 @@ QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, GeoFilter *gf, con
  * 1. `sctx` must be a non-null pointer to a [valid] [`RedisSearchCtx`] whose
  *    `spec` is a [valid] [`IndexSpec`](ffi::IndexSpec); both must outlive the
  *    returned iterator, and `sctx` must stay at a stable address for that
- *    whole window: the iterator reads `sctx.time.timeout` back on every
+ *    whole window: the iterator reads the request-owned deadline back on every
  *    timeout probe. No write to that deadline may overlap a probe.
  * 2. `filter_ctx` must be a non-null pointer to a [valid] [`FieldFilterContext`].
  * 3. `ids` must be null, or point to `num` initialized [`DocId`]s allocated via
@@ -504,15 +500,9 @@ QueryIterator *NewMetricIteratorSortedByScore(t_docId *ids, double *metric_list,
  * If the child is trivially reducible (empty or wildcard), a simplified
  * iterator is returned directly.
  *
- * `bc_timeout_areq` selects the timeout source. When non-null, the Blocked
- * Client Timeout path is used: every iterator timeout probe forwards to
- * `AREQ_CheckTimedOut` and `q.sctx.time` is ignored.
- * When null, the Clock Based Timeout path is used, driven entirely by `q.sctx.time`:
- * `timeout` is the deadline, read back on every probe so that a re-armed deadline is
- * honoured, and `skipTimeoutChecks` disables the check entirely. There is deliberately no
- * deadline parameter — a caller wanting a different deadline sets `q.sctx.time.timeout`,
- * which is the only value the iterator will ever consult. The C caller is expected to
- * pre-filter the owning request via `AREQ_TimeoutAreqOrNull` before passing it here.
+ * The request timeout reached through `q.sctx.timeout` selects no timeout,
+ * the Blocked Client Timeout, or the Clock Based Timeout. Clock deadlines are
+ * read back on every probe so a re-armed deadline is honoured.
  *
  * # Safety
  *
@@ -523,7 +513,7 @@ QueryIterator *NewMetricIteratorSortedByScore(t_docId *ids, double *metric_list,
  * 4. `q.sctx` must be a non-null pointer to a [valid]
  *    [`RedisSearchCtx`](ffi::RedisSearchCtx), which must stay [valid] and at a stable
  *    address for the lifetime of the returned iterator: on the Clock Based Timeout path
- *    the iterator reads `q.sctx.time.timeout` back on every probe. No write to that
+ *    the iterator reads the request-owned deadline back on every probe. No write to that
  *    deadline may overlap a probe.
  * 5. `q.sctx.spec` must be a non-null pointer to a [valid]
  *    [`IndexSpec`](ffi::IndexSpec).
@@ -531,13 +521,10 @@ QueryIterator *NewMetricIteratorSortedByScore(t_docId *ids, double *metric_list,
  *    [`SchemaRule`](ffi::SchemaRule).
  * 7. When the optimized path is taken, the preconditions of
  *    [`crate::wildcard::NewWildcardIterator`] must hold.
- * 8. When `bc_timeout_areq` is non-null, it must satisfy the
- *    [`TimeoutContextBlockedClient::new`] safety contract and remain
- *    [valid] for the lifetime of the returned iterator.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-QueryIterator *NewNotIterator(QueryIterator *child, t_docId max_doc_id, double weight, AREQ *bc_timeout_areq, QueryEvalCtx *q);
+QueryIterator *NewNotIterator(QueryIterator *child, t_docId max_doc_id, double weight, QueryEvalCtx *q);
 
 /**
  * Opens the numeric/geo index and creates an iterator over all matching sub-ranges.
@@ -665,10 +652,11 @@ QueryIterator *NewUnsortedIdListIterator(t_docId *ids, uint64_t num, double weig
  *    duration of this call.
  * 6. `sctx` is non-null and [valid] for a [`RedisSearchCtx`] with a [valid]
  *    `spec`, both outliving the returned iterator.
+ * 7. `timeout` is non-null and remains valid for the returned iterator's lifetime.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-QueryIterator *NewVectorTopKIterator(VecSimIndex *index, const void *query_vector, size_t vector_byte_len, const VecSimQueryParams *query_params, size_t k, bool can_trim_deep_results, QueryIterator *child, timespec timeout, bool skip_timeout_checks, RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx);
+QueryIterator *NewVectorTopKIterator(VecSimIndex *index, const void *query_vector, size_t vector_byte_len, const VecSimQueryParams *query_params, size_t k, bool can_trim_deep_results, QueryIterator *child, QueryRequestTimeout *timeout, RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx);
 
 /**
  * Creates a new wildcard iterator from a query evaluation context.
